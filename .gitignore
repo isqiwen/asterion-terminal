@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+node_modules/
+dist/
+target/
+.state/
+.env
+.DS_Store
+playwright-report/
+test-results/
+apps/terminal/src-tauri/runtime/
+apps/terminal/src-tauri/gen/

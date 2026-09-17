@@ -1,0 +1,13 @@
+{
+  "identifier": "terminal",
+  "description": "Trusted local terminal windows only; no filesystem, shell or credential access.",
+  "windows": [
+    "main",
+    "workspace-*",
+    "settings"
+  ],
+  "permissions": [
+    "core:default",
+    "core:webview:allow-create-webview-window"
+  ]
+}

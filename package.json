@@ -1,0 +1,13 @@
+{
+  "name": "asterion-workspace",
+  "private": true,
+  "packageManager": "pnpm@10.32.1",
+  "scripts": {
+    "dev": "pnpm --filter @asterion/terminal dev",
+    "build": "pnpm --filter @asterion/terminal build",
+    "test": "pnpm --filter @asterion/terminal test"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.6"
+  }
+}
