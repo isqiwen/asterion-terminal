@@ -1,5 +1,6 @@
 """Test the bundled executable with a clean PATH and a fresh, isolated data directory."""
 
+import argparse
 import json
 import os
 import signal
@@ -14,7 +15,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
-    runtime = ROOT / "apps/terminal/src-tauri/runtime"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--runtime", type=Path, default=ROOT / "apps/terminal/src-tauri/runtime")
+    args = parser.parse_args()
+    runtime = args.runtime.resolve()
     backend = runtime / "asterion-backend/asterion-backend"
     with tempfile.TemporaryDirectory(prefix="asterion-desktop-") as directory:
         state = Path(directory)

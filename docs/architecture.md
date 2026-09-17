@@ -1,4 +1,4 @@
-# ASTERION · 星衡
+# ASTERION · 星枢
 
 ## 期货研究与交易综合终端｜架构与工程组织方案
 
@@ -15,7 +15,7 @@
 ## 1. 名称与产品气质
 
 - 英文产品名：**Asterion Terminal**；品牌展示：**ASTERION**。
-- 中文名：**星衡**。星代表观察与探索，衡代表度量、权衡和风险约束。
+- 中文名：**星枢**。星代表观察与探索，枢代表连接研究、数据与交易的核心枢纽。
 - 仓库名建议：`asterion` 或 `asterion-terminal`。
 - Python 命名空间建议：`asterion`；CLI 示例：`asterion serve`。
 - 产品描述：**An integrated terminal for futures research and trading.**
@@ -24,7 +24,7 @@
 
 ## 2. 三个参考项目分别提供什么
 
-| 参考项目 | 已核对的特征 | 对星衡的启发 | 星衡自己的设计决定 |
+| 参考项目 | 已核对的特征 | 对星枢的启发 | 星枢自己的设计决定 |
 |---|---|---|---|
 | Fincept Terminal | 当前公开架构为 C++20/Qt6 桌面终端，结合 Python 分析，具有工作区、行情、研究和 AI 等能力 | 统一入口、可保存布局、面板联动、丰富信息在同一产品中可达 | 自行构建原生多窗口桌面终端，共享前端渲染层，按期货对象组织信息 |
 | Qlib | 配置驱动的数据、训练、推理、评估流程，以及实验记录 | 将一次研究变成可复现的运行，保存输入、参数、模型和结果 | 自定义期货数据、标签、换月和执行假设；通过可选 adapter 使用已有模型 |
@@ -283,7 +283,7 @@ AI 和普通界面使用同一套业务命令，不直接修改交易数据库�
 | 开发管理 | uv、pnpm、Ruff、Pyright、pytest、Vitest、Playwright | 明确依赖与分层质量验证 |
 | 部署管理 | 终端管理界面 + Python 主机代理 + 操作系统服务适配 | 默认单机、远程机器接入、服务分配、启停、升级和状态反馈 |
 
-FastAPI 提供 OpenAPI 与 WebSocket 能力，适合本方案的接口层。Tauri 的独立 WebviewWindow 和窗口/显示器接口用于实现原生窗口容器，窗口内容由 React 渲染；跨窗面板迁移、联动与工作区恢复由星衡自己实现。[FastAPI](https://fastapi.tiangolo.com/features/)、[Tauri WebviewWindow](https://v2.tauri.app/reference/javascript/api/namespacewebviewwindow/)、[Tauri Window](https://v2.tauri.app/reference/javascript/api/namespacewindow/)
+FastAPI 提供 OpenAPI 与 WebSocket 能力，适合本方案的接口层。Tauri 的独立 WebviewWindow 和窗口/显示器接口用于实现原生窗口容器，窗口内容由 React 渲染；跨窗面板迁移、联动与工作区恢复由星枢自己实现。[FastAPI](https://fastapi.tiangolo.com/features/)、[Tauri WebviewWindow](https://v2.tauri.app/reference/javascript/api/namespacewebviewwindow/)、[Tauri Window](https://v2.tauri.app/reference/javascript/api/namespacewindow/)
 
 Monaco 提供浏览器代码编辑，Lightweight Charts 提供金融图形基础；本方案不假定图表库附带行情。[Monaco](https://github.com/microsoft/monaco-editor)、[Lightweight Charts](https://tradingview.github.io/lightweight-charts/)
 

@@ -1,0 +1,41 @@
+{
+  "editor.formatOnSave": true,
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": ["tests"],
+  "typescript.tsdk": "apps/terminal/node_modules/typescript/lib",
+  "rust-analyzer.linkedProjects": ["apps/terminal/src-tauri/Cargo.toml"],
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit",
+      "source.organizeImports.ruff": "explicit"
+    }
+  },
+  "[javascript][javascriptreact][typescript][typescriptreact][json][jsonc][css][html]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+  },
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    "**/.ruff_cache": true
+  },
+  "search.exclude": {
+    "**/.venv": true,
+    "**/.state": true,
+    "**/target": true,
+    "apps/terminal/src-tauri/runtime": true,
+    "apps/terminal/src-tauri/gen": true
+  },
+  "files.watcherExclude": {
+    "**/.venv/**": true,
+    "**/.state/**": true,
+    "**/target/**": true,
+    "**/node_modules/**": true,
+    "apps/terminal/src-tauri/runtime/**": true
+  }
+}

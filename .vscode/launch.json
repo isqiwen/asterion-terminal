@@ -1,0 +1,44 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Asterion: API",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "asterion.runtime.cli",
+      "args": ["serve"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "subProcess": true
+    },
+    {
+      "name": "Asterion: Worker",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "asterion.runtime.cli",
+      "args": ["worker"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "subProcess": true
+    },
+    {
+      "name": "Asterion: Web",
+      "type": "pwa-chrome",
+      "request": "launch",
+      "url": "http://127.0.0.1:1420",
+      "webRoot": "${workspaceFolder}/apps/terminal",
+      "sourceMaps": true
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Asterion: Backend",
+      "configurations": ["Asterion: API", "Asterion: Worker"],
+      "stopAll": true
+    }
+  ]
+}

@@ -5,6 +5,7 @@ use workspace::{Workspace, desktop_workspace_read, desktop_workspace_patch, desk
 use session::{AccountSession, desktop_account_read, desktop_account_write, desktop_window_id};
 use std::process::Command;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+#[cfg(target_os = "macos")]
 use tauri::menu::{Menu, MenuItem, MenuItemKind};
 
 fn backend_call(app: &AppHandle, role: &str) -> Result<serde_json::Value, String> {
@@ -42,6 +43,7 @@ fn show_settings(app: &AppHandle) -> Result<(), String> {
         return window.set_focus().map_err(|e| e.to_string());
     }
     WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("index.html?screen=settings".into()))
+        .decorations(!cfg!(target_os = "linux"))
         .title("设置 · Asterion Terminal").inner_size(800.0, 580.0)
         .min_inner_size(680.0, 460.0).center().build().map_err(|e| e.to_string())?;
     Ok(())
@@ -63,17 +65,32 @@ fn desktop_info(app: AppHandle) -> Result<serde_json::Value, String> {
 }
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+        && std::path::Path::new("/sys/module/nvidia").exists()
+    {
+        // WebKitGTK's DMABUF path can fail to allocate GBM buffers on NVIDIA.
+        // Set this before GTK starts threads, and preserve explicit user overrides.
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
     tauri::Builder::default()
         .manage(AccountSession::default())
         .manage(Workspace::default())
         .on_window_event(workspace::window_event)
         .setup(|app| {
-            let menu = Menu::default(app.handle())?;
-            let settings = MenuItem::with_id(app, "settings", "设置…", true, Some("CmdOrCtrl+,"))?;
-            if let Some(MenuItemKind::Submenu(submenu)) = menu.items()?.first() {
-                submenu.insert(&settings, 2)?;
+            #[cfg(target_os = "macos")]
+            {
+                let menu = Menu::default(app.handle())?;
+                let settings = MenuItem::with_id(app, "settings", "设置…", true, Some("CmdOrCtrl+,"))?;
+                if let Some(MenuItemKind::Submenu(submenu)) = menu.items()?.first() {
+                    submenu.insert(&settings, 2)?;
+                }
+                app.set_menu(menu)?;
             }
-            app.set_menu(menu)?;
+            #[cfg(target_os = "linux")]
+            if let Some(window) = app.get_webview_window("main") {
+                window.set_decorations(false)?;
+            }
             if let Err(e) = workspace::initialize(app.handle()) { eprintln!("Cannot restore workspace: {e}"); }
             Ok(())
         })

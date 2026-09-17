@@ -66,7 +66,7 @@ impl Store {
 fn launch(app: &AppHandle, id: &str, record: &Value) -> Result<(), String> {
 
     let title = if record["kind"] == "chart" { "历史图表 · Asterion" } else { "工作台 · Asterion" };
-    let win = if let Some(existing) = app.get_webview_window(id) { existing } else { WebviewWindowBuilder::new(app, id, WebviewUrl::App("index.html".into())).title(title).inner_size(1100.0, 760.0).min_inner_size(800.0, 600.0).center().build().map_err(|e| e.to_string())? };
+    let win = if let Some(existing) = app.get_webview_window(id) { existing } else { WebviewWindowBuilder::new(app, id, WebviewUrl::App("index.html".into())).decorations(!cfg!(target_os = "linux")).title(title).inner_size(1100.0, 760.0).min_inner_size(800.0, 600.0).center().build().map_err(|e| e.to_string())? };
     if let Some(rect) = record["placement"].as_object() {
         let monitors = win.available_monitors().map_err(|e|e.to_string())?;
         let preferred = rect.get("monitor").and_then(Value::as_str);

@@ -1,0 +1,133 @@
+.window-frame {
+  position: relative;
+  height: 100%;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  background: var(--canvas);
+}
+.window-frame-custom {
+  grid-template-rows: 32px minmax(0, 1fr);
+}
+.window-content {
+  min-height: 0;
+  overflow: hidden;
+  contain: layout;
+}
+.window-titlebar {
+  display: flex;
+  align-items: stretch;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  user-select: none;
+}
+.window-drag {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+.window-drag > span {
+  pointer-events: none;
+}
+.window-mark {
+  color: var(--accent);
+}
+.window-error {
+  color: var(--danger);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.window-controls {
+  display: flex;
+}
+.window-controls button {
+  width: 38px;
+  min-height: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.window-controls button:hover {
+  background: var(--hover);
+  color: var(--text-strong);
+}
+.window-controls .window-close:hover {
+  background: var(--danger-surface);
+  color: var(--danger);
+}
+.window-controls svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+}
+.window-resize {
+  position: absolute;
+  z-index: 2000;
+}
+.window-resize[data-edge="North"] {
+  top: 0;
+  left: 6px;
+  right: 6px;
+  height: 4px;
+  cursor: n-resize;
+}
+.window-resize[data-edge="South"] {
+  bottom: 0;
+  left: 6px;
+  right: 6px;
+  height: 4px;
+  cursor: s-resize;
+}
+.window-resize[data-edge="East"] {
+  right: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 4px;
+  cursor: e-resize;
+}
+.window-resize[data-edge="West"] {
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 4px;
+  cursor: w-resize;
+}
+.window-resize[data-edge="NorthEast"] {
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 6px;
+  cursor: ne-resize;
+}
+.window-resize[data-edge="NorthWest"] {
+  top: 0;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  cursor: nw-resize;
+}
+.window-resize[data-edge="SouthEast"] {
+  bottom: 0;
+  right: 0;
+  width: 6px;
+  height: 6px;
+  cursor: se-resize;
+}
+.window-resize[data-edge="SouthWest"] {
+  bottom: 0;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  cursor: sw-resize;
+}

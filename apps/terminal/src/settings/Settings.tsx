@@ -165,7 +165,7 @@ export function Settings() {
             <>
               <div className="about-mark">✧</div>
               <h2>Asterion Terminal</h2>
-              <p>星衡 · 期货研究与交易工作台</p>
+              <p>星枢 · 期货研究与交易工作台</p>
               <small>版本 0.1.0 · 数据功能基础版</small>
             </>
           )}

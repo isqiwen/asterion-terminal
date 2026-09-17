@@ -1,4 +1,4 @@
-"""macOS desktop bootstrap. launchd owns services independently of windows."""
+"""Desktop bootstrap. launchd/systemd own services independently of windows."""
 
 import contextlib
 import fcntl
@@ -123,30 +123,94 @@ def launchctl(*arguments: str, check=True):
     )
 
 
+def systemctl(*arguments: str, check=True):
+    result = subprocess.run(
+        ["/usr/bin/systemctl", "--user", *arguments],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=150,
+    )
+    if check and result.returncode:
+        raise RuntimeError(f"无法管理用户级 systemd 服务：{result.stderr.strip()}")
+    return result
+
+
+def systemd_quote(value: str, *, command=False) -> str:
+    # Unit specifiers and ExecStart environment substitution are not shell quoting.
+    value = value.replace("%", "%%")
+    if command:
+        value = value.replace("$", "$$")
+    return json.dumps(value, ensure_ascii=False)
+
+
+def service_unit(state: Path, pg_root: Path) -> str:
+    if any(c in str(state) + str(pg_root) for c in "\n\r"):
+        raise ValueError("服务路径不能包含换行符")
+    arguments = executable() + [
+        "desktop-supervise",
+        "--state",
+        str(state),
+        "--pg-root",
+        str(pg_root),
+    ]
+    return (
+        "[Unit]\nDescription=Asterion local backend\n\n[Service]\nType=simple\n"
+        f"ExecStart={' '.join(systemd_quote(a, command=True) for a in arguments)}\n"
+        f"WorkingDirectory={str(state).replace('%', '%%')}\n"
+        "Environment=PYINSTALLER_RESET_ENVIRONMENT=1 LC_ALL=C LANG=C\n"
+        "Restart=always\nRestartSec=5\nKillMode=mixed\nTimeoutStopSec=130\n"
+        "UMask=0077\n"
+        f"StandardOutput=append:{str(state / 'service.log').replace('%', '%%')}\n"
+        f"StandardError=append:{str(state / 'service.log').replace('%', '%%')}\n"
+    )
+
+
+def start_service(state: Path, pg_root: Path) -> None:
+    if sys.platform == "linux":
+        config_home = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+        path = config_home / "systemd/user" / f"{LABEL}.service"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        desired = service_unit(state, pg_root)
+        changed = not path.exists() or path.read_text() != desired
+        if changed:
+            systemctl("stop", f"{LABEL}.service", check=False)
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(desired)
+            temporary.chmod(0o600)
+            temporary.replace(path)
+        # Reload even when unchanged: a previous attempt may have failed after writing.
+        systemctl("daemon-reload")
+        systemctl("start", f"{LABEL}.service")
+        return
+    domain = f"gui/{os.getuid()}"
+    path = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    desired = service_plist(state, pg_root)
+    current = plistlib.loads(path.read_bytes()) if path.exists() else None
+    installed = launchctl("print", f"{domain}/{LABEL}", check=False).returncode == 0
+    if current != desired:
+        if installed:
+            launchctl("bootout", f"{domain}/{LABEL}")
+            installed = False
+        temporary = path.with_suffix(".tmp")
+        temporary.write_bytes(plistlib.dumps(desired))
+        temporary.chmod(0o600)
+        temporary.replace(path)
+    if not installed:
+        launchctl("bootstrap", domain, str(path))
+
+
 def bootstrap(state: Path, pg_root: Path) -> dict:
-    if sys.platform != "darwin":
-        raise RuntimeError("当前桌面运行包仅支持 macOS")
+    if sys.platform not in {"darwin", "linux"}:
+        raise RuntimeError("当前桌面运行包仅支持 macOS 和 Linux")
+    state, pg_root = state.resolve(), pg_root.resolve()
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (state / "bootstrap.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         config = load_config(state)
         settings = runtime_settings(state, config)
-        domain = f"gui/{os.getuid()}"
-        path = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        desired = service_plist(state, pg_root)
-        current = plistlib.loads(path.read_bytes()) if path.exists() else None
-        installed = launchctl("print", f"{domain}/{LABEL}", check=False).returncode == 0
-        if current != desired:
-            if installed:
-                launchctl("bootout", f"{domain}/{LABEL}")
-                installed = False
-            temporary = path.with_suffix(".tmp")
-            temporary.write_bytes(plistlib.dumps(desired))
-            temporary.chmod(0o600)
-            temporary.replace(path)
-        if not installed:
-            launchctl("bootstrap", domain, str(path))
+        start_service(state, pg_root)
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
             if healthy(settings) and worker_ready(state):
@@ -168,7 +232,10 @@ def worker_ready(state: Path) -> bool:
 
 
 def stop(state: Path) -> None:
-    launchctl("bootout", f"gui/{os.getuid()}/{LABEL}", check=False)
+    if sys.platform == "linux":
+        systemctl("stop", f"{LABEL}.service")
+    else:
+        launchctl("bootout", f"gui/{os.getuid()}/{LABEL}", check=False)
     # The supervisor performs a graceful shutdown; report completion only after its lock releases.
     with (state / "supervisor.lock").open("a") as lock:
         deadline = time.monotonic() + 40
@@ -181,15 +248,39 @@ def stop(state: Path) -> None:
         raise RuntimeError("后台仍在停止，请稍后重试")
 
 
+def pg_directory(pg_root: Path, key: str) -> Path:
+    manifest = pg_root / "layout.json"
+    layout = (
+        json.loads(manifest.read_text())
+        if manifest.exists()
+        else {
+            "bindir": "bin",
+            "sharedir": "share/postgresql@17",
+        }
+    )
+    return pg_root / layout[key]
+
+
+def pg_environment(env=None) -> dict:
+    result = os.environ.copy() if env is None else env.copy()
+    # PyInstaller's private libraries must not override PostgreSQL's own dependencies.
+    if getattr(sys, "frozen", False) and sys.platform == "linux":
+        original = result.pop("LD_LIBRARY_PATH_ORIG", None)
+        if original is None:
+            result.pop("LD_LIBRARY_PATH", None)
+        else:
+            result["LD_LIBRARY_PATH"] = original
+    return result | {"LC_ALL": "C", "LANG": "C"}
+
+
 def pg_command(pg_root: Path, name: str, *arguments: str, env=None):
-    # Homebrew-derived PostgreSQL binaries have relocation support relative to bin/.
     return subprocess.run(
-        [str(pg_root / "bin" / name), *arguments],
+        [str(pg_directory(pg_root, "bindir") / name), *arguments],
         check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        env=(os.environ.copy() if env is None else env) | {"LC_ALL": "C", "LANG": "C"},
+        env=pg_environment(env),
         timeout=90,
     )
 
@@ -217,7 +308,7 @@ def initialize_postgres(state: Path, pg_root: Path, config: dict):
                 "UTF8",
                 "--locale=C",
                 "-L",
-                str(pg_root / "share/postgresql@17"),
+                str(pg_directory(pg_root, "sharedir")),
                 "--auth=scram-sha-256",
                 f"--pwfile={password_file}",
             )
@@ -232,10 +323,11 @@ def initialize_postgres(state: Path, pg_root: Path, config: dict):
         staging.replace(pgdata)
     # Status tests the PID and database identity in this exact cluster directory.
     status = subprocess.run(
-        [str(pg_root / "bin/pg_ctl"), "-D", str(pgdata), "status"],
+        [str(pg_directory(pg_root, "bindir") / "pg_ctl"), "-D", str(pgdata), "status"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,
+        env=pg_environment(),
     )
     if status.returncode != 0:
         pg_command(

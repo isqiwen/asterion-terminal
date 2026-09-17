@@ -5,6 +5,7 @@ __pycache__/
 node_modules/
 dist/
 target/
+/release/
 .state/
 .env
 .DS_Store
