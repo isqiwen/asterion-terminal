@@ -12,4 +12,5 @@ target/
 playwright-report/
 test-results/
 apps/terminal/src-tauri/runtime/
+apps/terminal/src-tauri/setup/
 apps/terminal/src-tauri/gen/

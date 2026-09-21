@@ -1,6 +1,12 @@
 import { parseLayout } from "../src/plugins/workflow/layout";
 import type { BrowserContext } from "@playwright/test";
-export async function nativeContext(context: BrowserContext, handlers: Record<string, (args: Record<string, unknown>) => unknown | Promise<unknown>> = {}) {
+export async function nativeContext(
+  context: BrowserContext,
+  handlers: Record<
+    string,
+    (args: Record<string, unknown>) => unknown | Promise<unknown>
+  > = {},
+) {
   let elapsed = 0,
     pin = "246810";
   let security = {
@@ -77,6 +83,19 @@ export async function nativeContext(context: BrowserContext, handlers: Record<st
       },
     ) => {
       if (handlers[command]) return handlers[command](args);
+      if (command === "desktop_setup_status")
+        return {
+          ready: true,
+          running: false,
+          step: 5,
+          downloaded: 0,
+          network: null,
+          dependencies: { total: null, installed: 0, phase: "", current: "" },
+          total: null,
+          error: "",
+          directory: "/test/runtime",
+        };
+      if (command === "desktop_setup_window") return;
       const url = new URL(_source.page.url());
       const id = url.searchParams.get("window") ?? "main";
       if (!layouts.has(id))

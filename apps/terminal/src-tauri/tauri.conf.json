@@ -30,7 +30,7 @@
       "app"
     ],
     "resources": {
-      "runtime/": "runtime/"
+      "setup/": "setup/"
     },
     "icon": [
       "icons/32x32.png",

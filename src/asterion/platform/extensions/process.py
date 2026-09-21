@@ -89,11 +89,7 @@ def invoke(command, method, params, *, timeout=30, cwd=None, authorized=None):
 
 
 def runtime_command():
-    return (
-        [sys.executable]
-        if getattr(sys, "frozen", False)
-        else [sys.executable, "-m", "asterion.runtime.cli"]
-    )
+    return [sys.executable, "-m", "asterion.runtime.cli"]
 
 
 def call_package(path: Path, method, params, *, timeout=30, authorized=None):

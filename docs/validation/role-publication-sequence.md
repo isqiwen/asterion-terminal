@@ -71,3 +71,22 @@ Worker 通过注册的 `contract_roles.continue` 处理器重放固定输入，�
 候选同步状态、固定行情版本、续算状态与新角色版本标识分别显示。面板打开且服务连接时轮询，隐藏、断开或结束后停止；进度读取失败明确显示，保留最近结果并重试。即使新计划因来源核验失败无法读取，已有记录仍可查看。刷新不会提交任务。
 
 当前面板不自动首发、不设置定时器、不重登记失败采集链；采集失败或取消会明确提示需在重试后登记新任务集合。新发布版本可通过角色列表刷新查看。真实连续采集与换月证据仍按实际交易时间验收。
+
+## 本地只读验收工具（2026-09-21）
+
+`scripts/verify_role_sequence.py` 从本机已有数据库读取计算角色版本，通过数据插件公开的固定快照访问能力重建来源，再调用同一 `verify_sequence` 领域校验。PostgreSQL 事务为 REPEATABLE READ / READ ONLY，不重新发布、不更新来源、不下单。无需联网，也不需要将登录口令或数据源密钥传到命令行。
+
+必须使用与发布记录算法制品一致的 Python 和项目运行环境；算法校验不允许换解释器或源码后冒充相同执行器。以下 `PYTHON` 表示该环境的 Python 可执行文件，`HOST` 为应用数据根目录，输出必须在数据根目录以外且尚不存在。
+
+```bash
+"$PYTHON" -I scripts/verify_role_sequence.py --host "$HOST" --output /tmp/role-inspection.json
+"$PYTHON" -I scripts/verify_role_sequence.py --host "$HOST" \
+  --version FIRST_VERSION_ID --version SECOND_VERSION_ID \
+  --minimum-switches 1 --output /tmp/role-verification.json
+```
+
+不指定版本时仅列出可选版本与观测日，状态为 `NOT_VERIFIED`、退出码 2；空库也不通过验收。指定版本必须按实际发布顺序，默认至少一次角色切换；显式 `--minimum-switches 0` 仅检查尚未换月的连续性。校验成功退出码 0，失败退出码 1；报告只记录安全的错误类型，不输出可能含凭据的数据库异常。已有报告不可覆盖。
+
+成功报告限定为本地固定来源及发布链证据，仍保留 `live_collection_attested=false`、`historical_publication_attested=false` 和 `execution_authorized=false`。它不能独自证明按时的真实采集，更不能证明真实订单换月通过。
+
+本轮本机只读检查发现：命名数据连接为空，计算角色版本为空，尚不能启动真实多日验收；报告位于 `.state/f2-local-preflight-20260921.json`。新工具用例与领域连续链测试验证来源篡改、倒序、缺版本、切换不足和空库拒绝，测试数据与真实市场来源明确区分。

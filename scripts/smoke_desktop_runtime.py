@@ -1,4 +1,4 @@
-"""Test the bundled executable with a clean PATH and a fresh, isolated data directory."""
+"""Test the installed runtime with a clean PATH and a fresh, isolated data directory."""
 
 import argparse
 import base64
@@ -9,6 +9,7 @@ import os
 import runpy
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import zipfile
@@ -99,27 +100,31 @@ def wait_job(client: httpx.Client, job_id: str, state: Path) -> dict:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--runtime", type=Path, default=ROOT / "apps/terminal/src-tauri/runtime")
+    parser.add_argument("--runtime", type=Path, required=True)
     args = parser.parse_args()
     runtime = args.runtime.resolve()
-    backend = runtime / "asterion-backend/asterion-backend"
+    pg_root = Path("/usr") if sys.platform == "linux" else runtime / "postgres"
+    backend = runtime / "environment/bin/python"
     with tempfile.TemporaryDirectory(prefix="asterion-desktop-") as directory:
         state = Path(directory)
         # No uv, pnpm, cargo, Homebrew or project venv in PATH.
         env = {
             "PATH": "/usr/bin:/bin",
             "HOME": str(Path.home()),
-            "PYINSTALLER_RESET_ENVIRONMENT": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
         }
         with (state / "supervisor.log").open("w") as log:
             process = subprocess.Popen(
                 [
                     str(backend),
+                    "-I",
+                    "-m",
+                    "asterion.runtime.cli",
                     "desktop-supervise",
                     "--state",
                     str(state),
                     "--pg-root",
-                    str(runtime / "postgres"),
+                    str(pg_root),
                 ],
                 cwd=state,
                 env=env,
@@ -146,10 +151,16 @@ def main():
                         time.sleep(0.5)
                     else:
                         raise RuntimeError((state / "supervisor.log").read_text())
-                    from asterion.runtime.build_identity import tree_digest
+                    from asterion.runtime.build_identity import postgres_identity_roots, tree_digest
 
                     status = json.loads((state / "runtime-status.json").read_text())
-                    assert status["build_id"] == tree_digest((backend.parent, runtime / "postgres"))
+                    assert status["build_id"] == tree_digest(
+                        (
+                            runtime / "environment",
+                            runtime / "interpreter",
+                            *postgres_identity_roots(pg_root),
+                        )
+                    )
                     assert client.get("snapshots").status_code == 401
                     assert client.get("account/capabilities").json()["verification"] == "local"
                     client.post(
@@ -277,7 +288,7 @@ def main():
                     response = client.post(
                         "imports",
                         json={
-                            "command_id": "frozen-smoke",
+                            "command_id": "installed-smoke",
                             "source": "synthetic desktop smoke test",
                             "csv": csv,
                             "options": {
@@ -310,7 +321,7 @@ def main():
                     assert original["version"]["manifest"]["layer"] == "RAW"
                     assert "trading_day" not in original["rows"][0]
                     print(
-                        "PASS: frozen import derives night trading day while preserving original CSV",
+                        "PASS: installed import derives night trading day while preserving original CSV",
                         flush=True,
                     )
                     imported = {
@@ -353,7 +364,7 @@ def main():
                         listing.json()["items"][0]["manifest"]["origin"]["source_id"]
                         == "smoke_file"
                     )
-                    # Three actual-code fixture rows exercise the frozen research worker.
+                    # Three actual-code fixture rows exercise the installed research worker.
                     imported["command_id"] = "research-input-smoke"
                     imported["options"]["identity"] = fixture_identity("SHFE.rb2405")
                     imported["options"]["column_mapping"]["settle"] = "结算"
@@ -585,10 +596,10 @@ def main():
                         == 422
                     )
                     print(
-                        "PASS: frozen role continuation and sequence reject missing published versions"
+                        "PASS: installed role continuation and sequence reject missing published versions"
                     )
                     print(
-                        "PASS: frozen role plugin verifies packaged ranking artifact and rejects unverified sources"
+                        "PASS: installed role plugin verifies packaged ranking artifact and rejects unverified sources"
                     )
                     assert (
                         client.post(
@@ -714,7 +725,7 @@ def main():
                     )
                     assert external_reproduction["result"]["reproduction_matches"] is True
                     experiment_input = {
-                        "name": "frozen parameter experiment",
+                        "name": "installed parameter experiment",
                         "base": external_input | {"command_id": "experiment-smoke"},
                         "grid": {"enabled": [True, False]},
                     }
@@ -753,7 +764,7 @@ def main():
                         item["state"] == "SUCCEEDED" for item in cancelled_experiment["items"]
                     )
                     print(
-                        "PASS: frozen parameter experiment submits once, executes combinations and compares immutable results",
+                        "PASS: installed parameter experiment submits once, executes combinations and compares immutable results",
                         flush=True,
                     )
                     diagnostics = (
@@ -774,7 +785,7 @@ def main():
                         for row in diagnostics["items"]
                     )
                     print(
-                        "PASS: frozen API reads bounded strategy session diagnostics written by worker processes",
+                        "PASS: installed API reads bounded strategy session diagnostics written by worker processes",
                         flush=True,
                     )
                     client.post(
@@ -793,7 +804,7 @@ def main():
                         == 422
                     )
                     print(
-                        "PASS: installed multifile strategy executes in frozen child, publishes and verifies replay; disable prevents execution",
+                        "PASS: installed multifile strategy executes in installed child, publishes and verifies replay; disable prevents execution",
                         flush=True,
                     )
                     validation_csv = (
@@ -881,7 +892,7 @@ def main():
                     assert any(Decimal(row["close_pnl"]) != 0 for row in ledger)
                     assert ledger[0]["session_open"] == "2024-01-04T21:00:00+08:00"
                     print(
-                        "PASS: frozen time plugin persists calendar and research opens on previous natural date night session",
+                        "PASS: installed time plugin persists calendar and research opens on previous natural date night session",
                         flush=True,
                     )
                     for row in ledger:
@@ -892,7 +903,7 @@ def main():
                             row["close_pnl"]
                         )
                     print(
-                        "PASS: frozen daily settlement ledger reconciles; close valuation remains separate",
+                        "PASS: installed daily settlement ledger reconciles; close valuation remains separate",
                         flush=True,
                     )
                     assert (
@@ -944,7 +955,7 @@ def main():
                                 is True
                             )
                     print(
-                        "PASS: frozen later-period validation locks selection, starts flat after local warmup and replays both exported periods",
+                        "PASS: installed later-period validation locks selection, starts flat after local warmup and replays both exported periods",
                         flush=True,
                     )
                     # A structurally valid, unknown implementation must not be executed.
@@ -954,7 +965,7 @@ def main():
                     }
                     assert client.post("research/runs", json=unsupported).status_code == 422
                     print(
-                        "PASS: bundled SMA and momentum plugins execute through frozen worker; exact strategy identities verified; unknown implementation rejected",
+                        "PASS: bundled SMA and momentum plugins execute through installed worker; exact strategy identities verified; unknown implementation rejected",
                         flush=True,
                     )
                     reference = client.get(f"research/runs/{run['id']}/export")
@@ -1185,7 +1196,7 @@ def main():
                     sync = client.post(
                         "data/sync",
                         json={
-                            "command_id": "external-frozen-calendar",
+                            "command_id": "external-installed-calendar",
                             "provider": "test_calendar",
                             "dataset": "calendar",
                             "exchange": "SHFE",
@@ -1207,13 +1218,13 @@ def main():
                         },
                     ).raise_for_status()
                     print(
-                        "PASS: frozen worker invokes external data plugin and publishes fixed package provenance"
+                        "PASS: installed worker invokes external data plugin and publishes fixed package provenance"
                     )
                     print(
-                        "PASS: frozen independent Python plugin + bundled public SDK + declarative view + server scope enforcement + disable"
+                        "PASS: installed independent Python plugin + bundled public SDK + declarative view + server scope enforcement + disable"
                     )
                     print(
-                        "PASS: bundled PostgreSQL + frozen serve + frozen worker + Parquet + typed catalogue + raw lineage + mapped file import + isolated provider configuration + production-only registry + frozen research and exact rerun + research workspace persistence + portable package verification and replay + CSV/report export + version reference protection and reversible archive, with clean PATH"
+                        "PASS: platform PostgreSQL + installed serve + installed worker + Parquet + typed catalogue + raw lineage + mapped file import + isolated provider configuration + production-only registry + installed research and exact rerun + research workspace persistence + portable package verification and replay + CSV/report export + version reference protection and reversible archive, with clean PATH"
                     )
             finally:
                 process.send_signal(signal.SIGTERM)
@@ -1231,11 +1242,14 @@ def main():
                 result = subprocess.run(
                     [
                         str(backend),
+                        "-I",
+                        "-m",
+                        "asterion.runtime.cli",
                         role,
                         "--state",
                         str(state),
                         "--pg-root",
-                        str(runtime / "postgres"),
+                        str(pg_root),
                         *arguments,
                     ],
                     capture_output=True,
@@ -1245,7 +1259,7 @@ def main():
                     check=False,
                 )
                 if result.returncode:
-                    raise RuntimeError("Frozen backup/restore smoke failed: " + result.stderr)
+                    raise RuntimeError("Installed backup/restore smoke failed: " + result.stderr)
                 return json.loads(result.stdout)
 
             saved = backup_call("desktop-snapshot", "--output", str(archive))
@@ -1258,7 +1272,7 @@ def main():
             assert verified["versions"] >= 2 and verified["accounts"] == 1
             assert not (restored / "postgres/postmaster.pid").exists()
             assert (restored / "data").is_dir()
-            # Exercise host indirection in the frozen executable without touching launchd.
+            # Exercise host indirection in the installed executable without touching launchd.
             from asterion.runtime.environments import write
 
             write(state, {"active": str(restored), "previous": str(state), "pending": None})
@@ -1271,10 +1285,10 @@ def main():
                 > 0
             )
             print(
-                "PASS: frozen host environment selection + session endpoint + active snapshot routing"
+                "PASS: installed host environment selection + session endpoint + active snapshot routing"
             )
             print(
-                "PASS: frozen offline backup + isolated PostgreSQL restore + all catalogue hashes + research recomputation + credential decryption; original state retained"
+                "PASS: installed offline backup + isolated PostgreSQL restore + all catalogue hashes + research recomputation + credential decryption; original state retained"
             )
 
 

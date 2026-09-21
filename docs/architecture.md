@@ -54,7 +54,7 @@
 | 数据 | `data/library.py`、`ingestion.py`、`partitions.py`、`coverage.py`：证据、固定版本、累积发布、手动补齐 | 来源权威性验收、派生加工、引用与物理删除的原子协调、自动调度 |
 | 扩展 | `data/providers/public.py` 与 `data/types/public.py`：内置可信注册协议；配置表单/修订与 Tushare 同步通道；合成提供方仅用于测试 | 第三方安装器、独立扩展宿主、授权代理、稳定对外 SDK |
 | 业务 | `data` 与 `research` 已有纵向切片；`research/engine.py` 纯计算，通过 `data.public.VersionReader` 读取固定版本；`identity` 为独立横切模块 | 研究仍限单合约日线假设模型；`trading`、`intelligence` 尚无完整业务实现；CLI 的 node 入口明确拒绝运行 |
-| 生命周期 | 内置 Python/PostgreSQL、macOS launchd / Linux systemd 支持 | 运行包自动升级、Windows 与公众分发验收；当前格式备份、隔离恢复、环境切换与回滚已有实现 |
+| 生命周期 | 首次设置下载 Python，Linux 系统 PostgreSQL / macOS 下载运行包、macOS launchd / Linux systemd 支持 | 运行包自动升级、Windows 与公众分发验收；当前格式备份、隔离恢复、环境切换与回滚已有实现 |
 
 Worker 已使用独立派生的任务接口身份，工作台业务请求使用账户绑定的短期作用域凭证。外部本地插件只经单次 JSON 协议接收所需输入，不接收本机主令牌或数据库 URL；同用户进程仍不构成恶意代码沙箱。`public.py` 是内置模块边界，外部开发使用独立 `asterion_plugin_sdk`；当前契约和限制见 [插件系统](plugin-system.md)。
 
@@ -191,7 +191,7 @@ HTTP 继续承担查询和命令；可恢复事件流按实际需求加入，当
 
 ### 默认本机启动
 
-安装桌面终端后，由初始化向导选择本地数据目录，安装匹配平台的受控运行包，初始化 PostgreSQL，注册本机代理并启动 `serve` 与默认 `worker`。`node` 在配置账户并启动模拟或实盘时创建。默认无需额外机器、共享存储或 Docker。
+安装桌面终端后，由首次设置窗口下载并校验匹配平台的 Python 与依赖库；Linux PostgreSQL 由 apt 安装，macOS 下载运行包。随后，在应用专用目录建立运行环境，初始化 PostgreSQL，注册本机代理并启动 `serve` 与默认 `worker`。`node` 在配置账户并启动模拟或实盘时创建。默认无需额外机器、共享存储或 Docker。
 
 本机支持能力由预检确定：操作系统、架构、连接器、GPU 与磁盘条件均需匹配对应运行包；不支持的连接器在终端中明确显示原因，并允许为该服务选择兼容机器。
 

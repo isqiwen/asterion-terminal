@@ -2,10 +2,7 @@
 
 import runpy
 import sys
-import urllib.request  # noqa: F401 - public SDK example runtime dependency
 from pathlib import Path
-
-import asterion_plugin_sdk  # noqa: F401 - include the standalone SDK in frozen distributions
 
 
 def run(target: Path):

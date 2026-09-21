@@ -19,7 +19,7 @@ asterion = "asterion.runtime.cli:main"
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.9", "pyright>=1.1"]
 packaging = [
-    "pyinstaller>=6.22.3",
+    "hatchling>=1.27",
 ]
 [build-system]
 requires = ["hatchling"]

@@ -4,7 +4,7 @@
     "targets": ["deb"],
     "linux": {
       "deb": {
-        "depends": ["systemd", "libc6"]
+        "depends": ["systemd", "libc6", "postgresql-17"]
       }
     }
   }

@@ -3,6 +3,10 @@ mod session;
 mod workspace;
 mod plugins;
 mod distribution;
+mod runtime_setup;
+mod network_stats;
+use std::sync::Mutex;
+use runtime_setup::{Progress, Setup};
 use workspace::{Workspace, desktop_workspace_read, desktop_workspace_patch, desktop_workspace_open, desktop_workspace_ready, desktop_workspace_merge};
 use session::{AccountSession, desktop_account_read, desktop_account_write, desktop_window_id};
 use std::process::Command;
@@ -17,12 +21,14 @@ fn backend_call(app: &AppHandle, role: &str) -> Result<serde_json::Value, String
 fn backend_request(app: &AppHandle, role: &str, extra: &[String]) -> Result<serde_json::Value, String> {
     let resources = app.path().resource_dir().map_err(|e| e.to_string())?;
     let state = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let runtime = resources.join("runtime");
-    let output = Command::new(runtime.join("asterion-backend/asterion-backend"))
+    let setup = Setup::load(&resources.join("setup"), &state)?;
+    if !setup.ready() { return Err("请先完成首次设置，安装本机运行环境".into()); }
+    let output = Command::new(setup.python())
+        .args(["-I", "-m", "asterion.runtime.cli"])
         .arg(role).args(extra)
         .arg("--state").arg(state)
-        .arg("--pg-root").arg(runtime.join("postgres"))
-        .env("PYINSTALLER_RESET_ENVIRONMENT", "1")
+        .arg("--pg-root").arg(setup.postgres_root())
+        .env("PYTHONDONTWRITEBYTECODE", "1")
         .output().map_err(|e| format!("无法启动本机运行环境：{e}"))?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).chars().take(3000).collect());
@@ -35,6 +41,49 @@ fn backend_request(app: &AppHandle, role: &str, extra: &[String]) -> Result<serd
 async fn desktop_session(app: AppHandle) -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(move || backend_call(&app, "desktop-bootstrap"))
         .await.map_err(|e| e.to_string())?
+}
+
+#[derive(Default)]
+struct SetupState(Mutex<Progress>);
+fn runtime_setup(app: &AppHandle) -> Result<Setup, String> {
+    Setup::load(&app.path().resource_dir().map_err(|e| e.to_string())?.join("setup"), &app.path().app_data_dir().map_err(|e| e.to_string())?)
+}
+#[tauri::command]
+fn desktop_setup_status(app: AppHandle) -> Result<Progress, String> {
+    let setup = runtime_setup(&app)?;
+    let mut progress = app.state::<SetupState>().0.lock().map_err(|e| e.to_string())?.clone();
+    progress.network = if progress.running { network_stats::snapshot() } else { None };
+    progress.ready = setup.ready();
+    progress.directory = setup.root.display().to_string();
+    Ok(progress)
+}
+#[tauri::command]
+async fn desktop_setup_install(app: AppHandle) -> Result<Progress, String> {
+    let setup = runtime_setup(&app)?;
+    {
+        let state = app.state::<SetupState>();
+        let mut progress = state.0.lock().map_err(|e| e.to_string())?;
+        if progress.running { return Err("正在安装，请等待完成".into()); }
+        *progress = Progress { running: true, directory: setup.root.display().to_string(), ..Default::default() };
+    }
+    let handle = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || setup.install(|p| {
+        if let Ok(mut value) = handle.state::<SetupState>().0.lock() { *value = p; }
+    })).await.map_err(|e| e.to_string()).and_then(|r| r);
+    let state = app.state::<SetupState>();
+    let mut progress = state.0.lock().map_err(|e| e.to_string())?;
+    progress.running = false;
+    match result {
+        Ok(()) => { progress.ready = true; progress.step = 5; progress.error.clear(); }
+        Err(error) => { progress.error = error; }
+    }
+    Ok(progress.clone())
+}
+#[tauri::command]
+fn desktop_setup_window(window: tauri::WebviewWindow, setup: bool) -> Result<(), String> {
+    window.set_min_size(Some(tauri::LogicalSize::new(640.0, 580.0))).map_err(|e| e.to_string())?;
+    window.set_size(tauri::LogicalSize::new(if setup { 800.0 } else { 1440.0 }, if setup { 640.0 } else { 940.0 })).map_err(|e| e.to_string())?;
+    window.center().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -123,6 +172,7 @@ fn main() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
     tauri::Builder::default()
+        .manage(SetupState::default())
         .manage(AccountSession::default())
         .manage(Workspace::new(distribution::workspace_profile()))
         .on_window_event(workspace::window_event)
@@ -148,7 +198,7 @@ fn main() {
                 if let Err(error) = show_settings(app) { eprintln!("Cannot open settings: {error}"); }
             }
         })
-        .invoke_handler(tauri::generate_handler![desktop_session, desktop_stop, desktop_backup, desktop_restore, desktop_info, desktop_environment, desktop_activate, open_settings, desktop_account_read, desktop_account_write, desktop_window_id, desktop_workspace_read, desktop_workspace_patch, desktop_workspace_open, desktop_workspace_ready, desktop_workspace_merge])
+        .invoke_handler(tauri::generate_handler![desktop_setup_status, desktop_setup_install, desktop_setup_window, desktop_session, desktop_stop, desktop_backup, desktop_restore, desktop_info, desktop_environment, desktop_activate, open_settings, desktop_account_read, desktop_account_write, desktop_window_id, desktop_workspace_read, desktop_workspace_patch, desktop_workspace_open, desktop_workspace_ready, desktop_workspace_merge])
         .build(tauri::generate_context!())
         .expect("failed to build Asterion desktop host")
          .run(|app, event| {

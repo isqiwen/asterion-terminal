@@ -28,19 +28,19 @@ def test_unattended_build_never_prompts(deps, monkeypatch, ci, tty, interactive)
     monkeypatch.setattr(deps.sys.stdin, "isatty", lambda: tty)
     monkeypatch.setattr("builtins.input", lambda _: pytest.fail("Unexpected prompt"))
     with pytest.raises(SystemExit, match="interactive terminal"):
-        deps.confirm_install(["patchelf"], "apt", interactive)
+        deps.confirm_install(["libpq-dev"], "apt", interactive)
 
 
 def test_declining_installation_stops(deps, monkeypatch):
     monkeypatch.setattr("builtins.input", lambda _: "no")
     with pytest.raises(SystemExit, match="cancelled"):
-        deps.confirm_install(["patchelf"], "apt", True)
+        deps.confirm_install(["libpq-dev"], "apt", True)
 
 
 @pytest.mark.parametrize("available", [True, False])
 def test_apt_install_uses_existing_sources_and_rechecks(deps, monkeypatch, available):
     monkeypatch.setattr(deps.platform, "freedesktop_os_release", lambda: {"ID": "debian"})
-    missing = iter([["patchelf", "postgresql-17"], []])
+    missing = iter([["libpq-dev", "postgresql-17"], []])
     monkeypatch.setattr(deps, "apt_missing", lambda _: next(missing))
     monkeypatch.setattr(deps.shutil, "which", lambda _: "/usr/bin/sudo")
     monkeypatch.setattr("builtins.input", lambda _: "yes")
@@ -61,7 +61,7 @@ def test_apt_install_uses_existing_sources_and_rechecks(deps, monkeypatch, avail
             "install",
             "-y",
             "--no-remove",
-            "patchelf",
+            "libpq-dev",
             "postgresql-17",
         )
     else:
@@ -101,7 +101,7 @@ def test_homebrew_install_is_unprivileged_and_prefix_is_discovered(deps, monkeyp
 
 def test_failed_installation_does_not_continue(deps, monkeypatch):
     monkeypatch.setattr(deps.platform, "freedesktop_os_release", lambda: {"ID": "debian"})
-    monkeypatch.setattr(deps, "apt_missing", lambda _: ["patchelf"])
+    monkeypatch.setattr(deps, "apt_missing", lambda _: ["libpq-dev"])
     monkeypatch.setattr(deps.shutil, "which", lambda _: "/usr/bin/sudo")
     monkeypatch.setattr("builtins.input", lambda _: "y")
 

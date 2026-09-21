@@ -71,8 +71,6 @@ def runtime_settings(state: Path, config: dict) -> Settings:
 
 
 def executable() -> list[str]:
-    if getattr(sys, "frozen", False):
-        return [sys.executable]
     return [sys.executable, "-m", "asterion.runtime.cli"]
 
 
@@ -85,7 +83,7 @@ def child_environment(settings: Settings) -> dict:
         ASTERION_TOKEN=settings.token,
         ASTERION_REQUIRE_ACCOUNT=str(settings.require_account).lower(),
         ASTERION_ACCOUNT_VERIFICATION=settings.account_verification,
-        PYINSTALLER_RESET_ENVIRONMENT="1",
+        PYTHONDONTWRITEBYTECODE="1",
     )
     return env
 
@@ -113,7 +111,7 @@ def service_plist(state: Path, pg_root: Path, build_id: str | None = None) -> di
         "ThrottleInterval": 5,
         "ProcessType": "Background",
         "EnvironmentVariables": {
-            "PYINSTALLER_RESET_ENVIRONMENT": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
             "LC_ALL": "C",
             "LANG": "C",
             "ASTERION_RUNTIME_BUILD": build_id or runtime_identity(pg_root),
@@ -170,7 +168,7 @@ def service_unit(state: Path, pg_root: Path, build_id: str | None = None) -> str
         "[Unit]\nDescription=Asterion local backend\n\n[Service]\nType=simple\n"
         f"ExecStart={' '.join(systemd_quote(a, command=True) for a in arguments)}\n"
         f"WorkingDirectory={str(state).replace('%', '%%')}\n"
-        "Environment=PYINSTALLER_RESET_ENVIRONMENT=1 LC_ALL=C LANG=C\n"
+        "Environment=PYTHONDONTWRITEBYTECODE=1 LC_ALL=C LANG=C\n"
         f"Environment=ASTERION_RUNTIME_BUILD={build_id or runtime_identity(pg_root)}\n"
         "Restart=always\nRestartSec=5\nKillMode=mixed\nTimeoutStopSec=130\n"
         "UMask=0077\n"
@@ -297,27 +295,16 @@ def wait_stopped(state: Path) -> None:
 
 
 def pg_directory(pg_root: Path, key: str) -> Path:
-    manifest = pg_root / "layout.json"
     layout = (
-        json.loads(manifest.read_text())
-        if manifest.exists()
-        else {
-            "bindir": "bin",
-            "sharedir": "share/postgresql@17",
-        }
+        {"bindir": "lib/postgresql/17/bin", "sharedir": "share/postgresql/17"}
+        if sys.platform == "linux"
+        else {"bindir": "bin", "sharedir": "share/postgresql@17"}
     )
     return pg_root / layout[key]
 
 
 def pg_environment(env=None) -> dict:
     result = os.environ.copy() if env is None else env.copy()
-    # PyInstaller's private libraries must not override PostgreSQL's own dependencies.
-    if getattr(sys, "frozen", False) and sys.platform == "linux":
-        original = result.pop("LD_LIBRARY_PATH_ORIG", None)
-        if original is None:
-            result.pop("LD_LIBRARY_PATH", None)
-        else:
-            result["LD_LIBRARY_PATH"] = original
     return result | {"LC_ALL": "C", "LANG": "C"}
 
 

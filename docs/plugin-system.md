@@ -57,7 +57,7 @@
 
 ## 公开 SDK 与进程协议
 
-SDK 位于 `src/asterion_plugin_sdk`，仅依赖标准库。开发时随当前源码安装，正式桌面包内置同一 SDK。用以下命令创建确定性 ZIP：
+SDK 位于 `src/asterion_plugin_sdk`，仅依赖标准库。开发时随当前源码安装，首次设置安装的项目 wheel 提供同一 SDK。用以下命令创建确定性 ZIP：
 
 ```sh
 uv run python -m asterion_plugin_sdk pack examples/plugins/calendar-source /tmp/calendar-source.zip
@@ -67,7 +67,7 @@ uv run python -m asterion_plugin_sdk pack examples/plugins/calendar-source /tmp/
 
 宿主发送单次 JSON 请求：`protocol: 1`、随机 `id`、`method` 和 `params`；插件返回相同协议和请求 ID，以及 `result`。SDK 捕获插件错误后返回固定失败消息，避免上游响应或配置秘密进入日志。每次请求/输出限制 8 MB，默认墙钟时限 30 秒，子进程另有 CPU 和输出文件限制。超时、停用、异常或错误协议会终止进程组，不留下供后续任务复用的插件对象。
 
-环境不传递主令牌、数据库 URL、账户会话或 `PYTHONPATH`。插件只获得该次方法需要的 JSON 输入；`fetch`/`probe` 可以得到所属数据源的批准配置明文，以访问真实数据源。当前信任模型不承诺阻止该代码读取本机其他文件。冻结版只承诺 SDK 样例使用的标准库集合；第三方原生扩展依赖需要另行设计运行环境。
+环境不传递主令牌、数据库 URL、账户会话或 `PYTHONPATH`。插件只获得该次方法需要的 JSON 输入；`fetch`/`probe` 可以得到所属数据源的批准配置明文，以访问真实数据源。当前信任模型不承诺阻止该代码读取本机其他文件。外部插件使用应用专用 Python 环境；插件契约仍只承诺 SDK 与声明的可用能力。第三方额外原生依赖需要另行设计隔离环境，不向宿主隐式安装依赖。
 
 ## 数据源扩展
 
@@ -100,7 +100,7 @@ uv run python -m asterion_plugin_sdk pack examples/plugins/calendar-source /tmp/
 
 ## 验证入口
 
-`tests/test_storage_ports.py`、`test_authorization.py`、`test_extensions.py`、`test_restore_ports.py` 验证机制边界；现有数据/研究全量测试验证业务不变量。浏览器测试覆盖插件安装与信任确认、声明式视图及缺失状态。冻结冒烟从无开发工具的 PATH 启动插件，验证内置 SDK、服务端作用域及停用。当前验收结果记录在 [实施进度](ROADMAP.md)。
+`tests/test_storage_ports.py`、`test_authorization.py`、`test_extensions.py`、`test_restore_ports.py` 验证机制边界；现有数据/研究全量测试验证业务不变量。浏览器测试覆盖插件安装与信任确认、声明式视图及缺失状态。已安装环境的冒烟从无开发工具的 PATH 启动插件，验证内置 SDK、服务端作用域及停用。当前验收结果记录在 [实施进度](ROADMAP.md)。
 
 后续新的研究方法、交易连接器、实时事件协议和不受信代码隔离，需要各自真实业务与平台验收；不能用当前按次采集协议冒充它们已完成。
 

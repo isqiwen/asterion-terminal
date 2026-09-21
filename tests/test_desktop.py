@@ -28,7 +28,7 @@ def test_launch_agent_has_no_secret_arguments(tmp_path):
     assert agent["KeepAlive"] is True
     assert "desktop-supervise" in agent["ProgramArguments"]
     assert child_environment(settings)["ASTERION_TOKEN"] == config["token"]
-    assert child_environment(settings)["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
+    assert child_environment(settings)["PYTHONDONTWRITEBYTECODE"] == "1"
 
 
 def test_postgres_start_has_valid_locale_without_shell_environment(tmp_path, monkeypatch):
@@ -90,31 +90,23 @@ def test_linux_service_reload_recovers_and_reuses_existing_unit(tmp_path, monkey
     assert calls[-1] == ("stop", f"{desktop.LABEL}.service")
 
 
-def test_linux_pg_environment_does_not_inherit_pyinstaller_libraries(monkeypatch):
+def test_pg_environment_sets_locale_without_mutating_input():
+    from asterion.runtime import desktop
+
+    env = {"LANG": "invalid", "PATH": "/usr/bin"}
+    assert desktop.pg_environment(env) == {"LANG": "C", "LC_ALL": "C", "PATH": "/usr/bin"}
+    assert env["LANG"] == "invalid"
+
+
+def test_postgres_paths_follow_platform_packages(tmp_path, monkeypatch):
     from asterion.runtime import desktop
 
     monkeypatch.setattr(desktop.sys, "platform", "linux")
-    monkeypatch.setattr(desktop.sys, "frozen", True, raising=False)
-    env = {"LD_LIBRARY_PATH": "/frozen/_internal", "LD_LIBRARY_PATH_ORIG": "/original"}
-    assert desktop.pg_environment(env)["LD_LIBRARY_PATH"] == "/original"
-    assert env["LD_LIBRARY_PATH"] == "/frozen/_internal"
-    assert "LD_LIBRARY_PATH" not in desktop.pg_environment({"LD_LIBRARY_PATH": "/frozen"})
-
-
-def test_postgres_manifest_selects_relocated_paths(tmp_path):
-    from asterion.runtime.desktop import pg_directory
-
-    assert pg_directory(tmp_path, "bindir") == tmp_path / "bin"
-    (tmp_path / "layout.json").write_text(
-        json.dumps(
-            {
-                "bindir": "lib/postgresql/17/bin",
-                "sharedir": "share/postgresql/17",
-            }
-        )
-    )
-    assert pg_directory(tmp_path, "bindir") == tmp_path / "lib/postgresql/17/bin"
-    assert pg_directory(tmp_path, "sharedir") == tmp_path / "share/postgresql/17"
+    assert desktop.pg_directory(tmp_path, "bindir") == tmp_path / "lib/postgresql/17/bin"
+    assert desktop.pg_directory(tmp_path, "sharedir") == tmp_path / "share/postgresql/17"
+    monkeypatch.setattr(desktop.sys, "platform", "darwin")
+    assert desktop.pg_directory(tmp_path, "bindir") == tmp_path / "bin"
+    assert desktop.pg_directory(tmp_path, "sharedir") == tmp_path / "share/postgresql@17"
 
 
 def test_macos_upgrade_waits_for_old_registration_then_retries(tmp_path, monkeypatch):

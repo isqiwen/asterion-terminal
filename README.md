@@ -11,7 +11,7 @@
 打开“应用程序”中的 **Asterion Terminal.app**，或用 Spotlight 搜索 Asterion。应用直接打开原生桌面窗口。
 
 - 首次启动自动初始化专用 PostgreSQL、数据目录及后台服务。
-- Python、PostgreSQL 和界面都包含在应用包内，使用时无需安装开发工具。
+- 轻量包携带界面与项目代码；首次设置下载 Python 和依赖，Linux PostgreSQL 由 apt 安装，使用时无需开发工具。
 - 自动连接本机服务，无需网页、命令行或令牌输入。
 - 新窗口复用同一个后台。关闭窗口或退出应用后，已经开始的任务继续运行。
 - 在独立“设置 → 本机服务”窗口中可停止或启动后台服务。
@@ -27,7 +27,7 @@
 
 ## 构建桌面应用（开发者）
 
-支持在 **macOS 构建 `.app`**、在 **Linux（Debian/Ubuntu）构建 `.deb`**，均内置 Python 后台和 PostgreSQL 17。必须在目标系统和目标 CPU 架构上构建，不支持 macOS/Linux 交叉编译。
+支持在 **macOS 构建 `.app`**、在 **Linux（Debian/Ubuntu）构建 `.deb`**，均为轻量安装包，仅携带界面、项目代码 wheel 和固定下载清单；首次点击“开始设置”后联网下载 Python 和依赖库；Linux PostgreSQL 17 由 apt 在安装应用时提供，macOS 使用单独下载的运行包。必须在目标系统和目标 CPU 架构上构建，不支持 macOS/Linux 交叉编译。
 
 通用构建依赖：Python 3.12+、uv、Node.js 22+、pnpm 10.32.1 和 Rust stable。这些开发工具准备好后，在项目根目录执行：
 
@@ -43,7 +43,7 @@ uv run python scripts/build_desktop.py --smoke-test
 
 构建成功后，最终 `.app` 或 `.deb` 会自动复制到项目根目录的 `release/`，文件名中的空格统一替换为下划线（如 `Asterion_Terminal_0.1.0_amd64.deb`），终端会显示完整路径；编译缓存仍保留在 Tauri 默认目录，`release/` 不纳入 Git。构建失败时保留打包现场，且不会更新 `release/` 中已有的产物。构建期间请勿删除 `target/` 或运行时目录。构建完成后可删除 `apps/terminal/src-tauri/target/` 释放空间，不影响 `release/` 中的产物；下次构建会重新编译。
 
-`--smoke-test` 在临时数据库中验证冻结后的后台、worker、CSV 导入和 Parquet 查询，成功后才生成安装包。不要以 root 身份运行构建或应用（PostgreSQL 拒绝 root 初始化）。
+`--smoke-test` 在临时数据库中验证首次安装后的后台、worker、CSV 导入和 Parquet 查询，成功后才生成安装包。不要以 root 身份运行构建或应用（PostgreSQL 拒绝 root 初始化）。
 
 ### macOS
 
@@ -69,13 +69,13 @@ release/Asterion_Terminal.app
 sudo apt update
 sudo apt install build-essential pkg-config libwebkit2gtk-4.1-dev \
   libayatana-appindicator3-dev librsvg2-dev libssl-dev \
-  patchelf postgresql-17 libpq-dev python3-dev
+  postgresql-17 libpq-dev python3-dev
 uv run python scripts/build_desktop.py --platform linux --smoke-test
 ```
 
 系统依赖说明参考 [Tauri 官方文档](https://v2.tauri.app/start/prerequisites/)，PostgreSQL 软件源参考 [官方 Ubuntu 安装说明](https://www.postgresql.org/download/linux/ubuntu/)。
 
-多个 PostgreSQL 版本共存时，用 `--pg-config /path/to/pg_config` 或 `PG_CONFIG` 指定 PostgreSQL 17 的配置工具。打包会检查版本、复制服务器和动态库，并保留 PostgreSQL 所需的相对目录结构；用户无需另行安装 PostgreSQL 或 Python。
+Linux `.deb` 声明 `postgresql-17` 依赖，使用 `sudo apt install ./release/Asterion_Terminal_0.1.0_amd64.deb` 安装时一并获取数据库及系统依赖。当前验证平台为 Debian 13；其他 Debian/Ubuntu 版本须有提供 PostgreSQL 17 的软件源，并满足桌面包的系统库要求。不要仅用 `dpkg -i` 安装而忽略依赖。应用使用 `/usr/lib/postgresql/17/bin` 中的程序，始终初始化自己的数据目录和端口，不接入系统默认集群。Linux 不再生成或下载自托管 PostgreSQL 附件。
 
 ```text
 release/*.deb
@@ -99,7 +99,9 @@ Linux 包与构建机的 CPU 架构、glibc 版本相关，应在计划支持的
 
 仅保留一个默认任务 `Asterion: Build`。按 **Ctrl+Shift+B**（macOS 为 **Cmd+Shift+B**），依次安装锁定依赖、检查并引导安装系统依赖、验证后台并构建当前系统的桌面包；自动识别 macOS/Linux，无需选择平台。
 
-需要单独验证后台时，在终端运行 `uv run python scripts/smoke_desktop_runtime.py`。构建脚本的 `--prepare-only` 仅生成运行时；`--skip-runtime` 复用同平台、同架构的运行时，仅在未修改 Python 后台时使用。
+首次设置使用原生 Rust 安装器下载固定版本 uv、Python（macOS 另下载 PostgreSQL），并用带哈希的锁定清单安装依赖。`--prepare-only` 生成轻量包输入；仅 macOS 另生成 `release/runtime/` 下的 PostgreSQL 附件；`--reuse-setup` 仅在代码、依赖与目标平台未改变时复用已有输入。`--smoke-test` 通过与桌面相同的安装器在 `.state/setup-smoke/` 建立独立环境，再以临时数据库验证后台。单独验证已安装环境：`uv run python scripts/smoke_desktop_runtime.py --runtime <运行环境目录>`。
+
+macOS 发布时须把本次 `release/runtime/` 附件上传到本仓库对应 `v<版本号>` 的 GitHub Release，再分发桌面包；下载 URL 与 SHA-256 已写入包内清单。也可通过 `--runtime-release-url https://...` 指定发布目录。未上传附件的包不能完成首次联网安装，构建时的本地缓存验证不等于公开下载验收。
 
 开发配置包括 `settings.json`（Python/Ruff、TypeScript、Rust 和 pytest）、`extensions.json`（推荐扩展）及 `launch.json`（调试入口）。首次打开工作区时安装推荐扩展，并运行 `uv sync --locked`、`pnpm install --frozen-lockfile`。
 

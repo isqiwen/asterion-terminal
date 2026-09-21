@@ -25,9 +25,19 @@ def tree_digest(roots: tuple[Path, ...]) -> str:
     return digest.hexdigest()
 
 
+def postgres_identity_roots(pg_root: Path) -> tuple[Path, ...]:
+    if sys.platform == "linux":
+        return (pg_root / "lib/postgresql/17", pg_root / "share/postgresql/17")
+    return (pg_root.resolve(),)
+
+
 def runtime_identity(pg_root: Path) -> str:
-    if getattr(sys, "frozen", False):
-        # Includes the executable, bundled Python/modules, strategy sources and PostgreSQL.
-        return tree_digest((Path(sys.executable).resolve().parent, pg_root.resolve()))
+    environment = Path(sys.prefix)
+    # Installed environments include interpreter, locked dependencies and PostgreSQL.
+    # The developer checkout is hashed directly when running development commands.
+    if (environment.parent / "ready").is_file():
+        return tree_digest(
+            (environment, environment.parent / "interpreter", *postgres_identity_roots(pg_root))
+        )
     source = Path(__file__).resolve().parents[2]
     return tree_digest((source / "asterion", source / "asterion_plugin_sdk"))

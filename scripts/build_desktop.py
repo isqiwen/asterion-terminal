@@ -1,16 +1,15 @@
-"""Native macOS/Linux app build, including Python and PostgreSQL runtimes."""
+"""Build a light desktop installer and separate runtime release assets."""
 
 import argparse
 import json
 import os
-import platform
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-from desktop_dependencies import LINUX_PACKAGES, ensure_linux, ensure_macos, mac_postgres_source
+from desktop_dependencies import LINUX_PACKAGES, ensure_linux, ensure_macos
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -75,9 +74,9 @@ def export_artifact(source: Path) -> Path:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--prepare-only", action="store_true")
-    parser.add_argument("--skip-runtime", action="store_true")
+    parser.add_argument("--reuse-setup", action="store_true")
+    parser.add_argument("--runtime-release-url", help="HTTPS GitHub Release or download directory")
     parser.add_argument("--platform", choices=["auto", "macos", "linux"], default="auto")
-    parser.add_argument("--pg-config", default=os.environ.get("PG_CONFIG", "pg_config"))
     parser.add_argument("--smoke-test", action="store_true")
     parser.add_argument(
         "--no-install", action="store_true", help="Check dependencies without offering installation"
@@ -102,12 +101,10 @@ def main():
     if not args.no_install or host == "macos":
         ensure = ensure_linux if host == "linux" else ensure_macos
         ensure(
-            runtime=not args.skip_runtime,
+            runtime=not args.reuse_setup,
             desktop=not args.prepare_only,
             interactive=not args.no_install,
         )
-    if host == "linux" and not args.skip_runtime:
-        required += [args.pg_config, "patchelf", "ldd"]
     if host == "linux" and not args.prepare_only:
         required += ["pkg-config", "dpkg-deb"]
     missing = [tool for tool in required if shutil.which(tool) is None]
@@ -122,86 +119,45 @@ def main():
         )
         if result.returncode:
             raise SystemExit("Missing Linux development libraries.\n" + dependency_hint(host))
-    runtime = ROOT / "apps/terminal/src-tauri/runtime"
-    stamp = runtime / "build-platform.json"
-    identity = {"platform": host, "architecture": platform.machine()}
-    if args.skip_runtime:
-        if not stamp.exists() or json.loads(stamp.read_text()) != identity:
-            raise SystemExit("Runtime missing or built for another platform; remove --skip-runtime")
-    else:
-        stamp.unlink(missing_ok=True)
-    (ROOT / ".state").mkdir(exist_ok=True)
-    if not args.skip_runtime:
-        run(
-            "uv",
-            "run",
-            "--group",
-            "packaging",
-            "pyinstaller",
-            "--noconfirm",
-            "--clean",
-            "--onedir",
-            "--name",
-            "asterion-backend",
-            "--distpath",
-            "apps/terminal/src-tauri/runtime",
-            "--workpath",
-            ".state/pyinstaller",
-            "--specpath",
-            ".state",
-            "--collect-all",
-            "openctp_ctp",
-            "--collect-all",
-            "pyarrow",
-            "--collect-all",
-            "asterion.strategies",
-            "--collect-all",
-            "asterion.contract_roles",
-            "--add-data",
-            f"{ROOT / 'src/asterion/trading_time/public.py'}:asterion/trading_time",
-            "--add-data",
-            f"{ROOT / 'src/asterion/data/reference.py'}:asterion/data",
-            "--add-data",
-            f"{ROOT / 'src/asterion/platform/serialization.py'}:asterion/platform",
-            "--collect-all",
-            "psycopg",
-            "--collect-all",
-            "psycopg_binary",
-            "--hidden-import",
-            "sqlalchemy.dialects.postgresql.psycopg",
-            "--hidden-import",
-            "uvicorn.logging",
-            "--hidden-import",
-            "uvicorn.loops.auto",
-            "--hidden-import",
-            "uvicorn.protocols.http.auto",
-            "--hidden-import",
-            "uvicorn.protocols.websockets.auto",
-            "--hidden-import",
-            "uvicorn.lifespan.on",
-            "scripts/backend_entry.py",
-        )
-        if host == "macos":
-            run(
-                "uv",
-                "run",
-                "python",
-                "scripts/bundle_postgres.py",
-                "--source",
-                str(mac_postgres_source()),
-            )
-        else:
-            run(
-                "uv",
-                "run",
-                "python",
-                "scripts/bundle_postgres_linux.py",
-                "--pg-config",
-                args.pg_config,
-            )
-        stamp.write_text(json.dumps(identity) + "\n")
+    from prepare_runtime import prepare
+
+    bundle = ROOT / "apps/terminal/src-tauri/setup"
+    version = json.loads((ROOT / "apps/terminal/src-tauri/tauri.conf.json").read_text())["version"]
+    release_url = (
+        args.runtime_release_url
+        or f"https://github.com/isqiwen/asterion-terminal/releases/download/v{version}"
+    )
+    if not args.reuse_setup:
+        prepare(release_url)
+    elif not (bundle / "manifest.json").is_file():
+        raise SystemExit("Installer inputs missing; run without --reuse-setup")
     if args.smoke_test:
-        run("uv", "run", "python", "scripts/smoke_desktop_runtime.py")
+        manifest_path = ROOT / "apps/terminal/src-tauri/Cargo.toml"
+        result = subprocess.run(
+            [
+                "cargo",
+                "run",
+                "--manifest-path",
+                str(manifest_path),
+                "--example",
+                "runtime-setup",
+                "--",
+                str(bundle),
+                str(ROOT / ".state/setup-smoke"),
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            check=True,
+        )
+        installed = result.stdout.strip().splitlines()[-1]
+        run(
+            str(Path(installed) / "environment/bin/python"),
+            "-I",
+            "scripts/smoke_desktop_runtime.py",
+            "--runtime",
+            installed,
+        )
     if not args.prepare_only:
         env = os.environ.copy()
         if (toolchain / "cargo/bin/cargo").exists():
