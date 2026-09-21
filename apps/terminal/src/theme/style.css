@@ -39,7 +39,7 @@ button {
   cursor: pointer;
   white-space: nowrap;
 }
-button:hover {
+button:enabled:hover {
   background: var(--hover);
   color: var(--text-strong);
 }
@@ -104,7 +104,7 @@ small,
 .good {
   color: var(--success);
 }
-.primary:hover {
+.primary:enabled:hover {
   background: var(--accent-hover);
   color: var(--accent);
 }
@@ -115,7 +115,7 @@ small,
 }
 .text-button {
   border: 0;
-  background: transparent !important;
+  background: transparent;
   padding: 0;
   color: var(--accent);
   text-align: left;
@@ -629,7 +629,7 @@ small,
   border: 1px solid var(--line);
   border-radius: var(--control-radius);
   padding: 4px 9px;
-  background: var(--hover);
+  background: var(--raised);
   font-size: 11px;
   cursor: pointer;
 }
@@ -1343,3 +1343,315 @@ select {
   align-items: center;
   gap: 8px;
 }
+
+.ingestion-details {
+  padding: 10px 14px;
+}
+.ingestion-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 6px 0;
+}
+.ingestion-toolbar h3 {
+  margin: 0;
+  font-size: 12px;
+}
+.ingestion-table-scroll {
+  overflow-x: auto;
+}
+.ingestion-checksum {
+  overflow-wrap: anywhere;
+}
+
+.catalog-cumulative {
+  flex: 0 1 auto;
+  max-height: 210px;
+  min-height: 96px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.catalog-cumulative p {
+  margin: 4px 0 8px;
+}
+
+.daily-coverage {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--border);
+}
+.daily-coverage > summary {
+  cursor: pointer;
+  padding: 9px 12px;
+  color: var(--accent);
+}
+.daily-coverage-body {
+  padding: 0 12px 10px;
+  max-height: 340px;
+  overflow: auto;
+}
+.coverage-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+  margin: 8px 0;
+}
+.coverage-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.coverage-form input,
+.coverage-form select {
+  max-width: 260px;
+}
+.coverage-references > summary {
+  cursor: pointer;
+}
+.daily-coverage-body p {
+  margin: 8px 0;
+}
+
+.provider-configuration {
+  margin-bottom: 28px;
+}
+.provider-configuration fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.provider-configuration .source-actions {
+  flex-wrap: wrap;
+}
+.provider-field-control {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.provider-field-control input:not([type="checkbox"]) {
+  width: 240px;
+  max-width: 100%;
+}
+
+.service-status {
+  position: relative;
+}
+.service-status > button {
+  font: inherit;
+  min-height: 0;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.service-status-panel {
+  position: absolute;
+  bottom: 32px;
+  left: 0;
+  width: min(460px, calc(100vw - 110px));
+  max-height: 75vh;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--raised);
+  color: var(--text, #ddd);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 30px #0008;
+  z-index: 50;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.service-status-panel header,
+.service-status-row > div,
+.service-status-panel footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.service-status-panel p {
+  margin: 6px 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.service-status-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.service-status-row p {
+  color: var(--muted, #999);
+}
+.service-status-panel footer {
+  flex-wrap: wrap;
+  padding-top: 12px;
+}
+.service-failed {
+  color: #f07878;
+}
+
+/* Shared interaction states follow component styles so transparent controls respond too. */
+button:enabled:not([aria-disabled="true"]):hover,
+summary:hover,
+.file-button:not(:has(input:disabled)):hover {
+  background: var(--hover);
+  color: var(--text-strong);
+}
+button:enabled:not([aria-disabled="true"]):is(
+    .active,
+    .pressed,
+    .primary
+  ):hover {
+  background: var(--accent-hover);
+  color: var(--accent);
+}
+button:enabled:not([aria-disabled="true"]):active,
+summary:active,
+.file-button:not(:has(input:disabled)):active {
+  background: var(--pressed);
+}
+button:enabled:not([aria-disabled="true"]):is(
+    .active,
+    .pressed,
+    .primary
+  ):active {
+  background: var(--accent-pressed);
+}
+button.good:enabled:hover,
+button.good:enabled:active {
+  color: var(--success);
+}
+button:focus-visible,
+summary:focus-visible,
+.file-button:has(input:focus-visible) {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+summary,
+select:enabled {
+  cursor: pointer;
+}
+button[aria-disabled="true"],
+.file-button:has(input:disabled),
+.file-button input:disabled {
+  cursor: default;
+}
+button[aria-disabled="true"],
+.file-button:has(input:disabled) {
+  opacity: 0.4;
+}
+.text-button:enabled:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.import-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  border: 0;
+  padding: 12px;
+  margin: 0;
+}
+.import-options label {
+  display: grid;
+  gap: 5px;
+}
+.import-preview {
+  overflow-x: auto;
+  max-height: 260px;
+}
+
+.import-panel {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+}
+.import-panel > * {
+  flex-shrink: 0;
+}
+.import-panel > .csv-editor {
+  flex: 0 0 140px;
+}
+.import-panel > .settings-note,
+.import-panel > .source-actions {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.import-panel > .source-actions {
+  flex-wrap: wrap;
+}
+
+.connection-management {
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+.connection-management .source-actions {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.dataset-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.dataset-summary dt {
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.dataset-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.research { padding: 0 16px 24px; min-height: 0; overflow: auto; }
+.research-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 16px 0; }
+.research label { display: flex; flex-direction: column; gap: 6px; }
+.research label.research-ack { flex-direction: row; align-items: center; margin: 12px 0; }
+.research input, .research select { min-width: 0; }
+.research p, .research figcaption { color: var(--text-muted); font-size: 12px; }
+.research-hash { overflow-wrap: anywhere; }
+.research details { margin: 12px 0; }
+.research summary { cursor: pointer; padding: 8px; }
+.research summary:hover { background: var(--surface-hover, #242424); }
+.research-table { max-height: 300px; overflow: auto; }
+.research-equity { margin: 16px 0; }
+.research-equity svg { display: block; width: 100%; max-height: 200px; }
+.research fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+
+.sync-form .sync-preparation-option {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  min-height: 28px;
+}
+.sync-form .sync-preparation-option input {
+  min-width: 0;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+.sync-preparation-option small { flex-basis: 100%; }
+.research-preparations { padding: 0 16px 16px; }
+.preparation-batch { padding: 12px 0; border-bottom: 1px solid var(--border); }
+
+/* Shared collapsible primary navigation; business entries remain contributions. */
+.activity-rail.expanded { width: 104px; }
+.activity-rail .workspace-tabs button { flex-direction: row; justify-content: flex-start; gap: 10px; height: 40px; padding: 8px 12px; }
+.activity-rail .workspace-tabs button .nav-label { font-size: 12px; line-height: 18px; }
+.activity-rail.collapsed .workspace-tabs button { justify-content: center; padding: 8px; }
+.activity-rail.collapsed .nav-label { display: none; }
+.rail-toggle { margin: 4px 8px 8px; background: transparent; color: var(--muted); }
+.open-workspaces { display: flex; min-height: 32px; border-bottom: 1px solid var(--line); overflow-x: auto; background: var(--canvas); }
+.open-workspace { display: flex; flex-shrink: 0; border-right: 1px solid var(--line); }
+.open-workspace button { border: 0; background: transparent; border-radius: 0; font-size: 12px; }
+.open-workspace [aria-selected="true"] { color: var(--accent); box-shadow: inset 0 -2px var(--accent); }

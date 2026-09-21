@@ -29,7 +29,6 @@ class Reset(Code):
 
 
 class SecurityState(BaseModel):
-    pin_required: bool
     locked: bool
     timeout_seconds: int
     remaining_seconds: float
@@ -101,10 +100,6 @@ def router(identity: Identity):
     @api.post("/security/unlock", response_model=SecurityState)
     def unlock(body: PinInput, x_account_session: str = Header(default="")):
         return identity.pin.state(x_account_session, "unlock", pin=body.pin, expected=body.expected)
-
-    @api.post("/security/setup", response_model=SecurityState)
-    def setup(body: PinInput, x_account_session: str = Header(default="")):
-        return identity.pin.state(x_account_session, "setup", pin=body.pin)
 
     @api.post("/security/change", response_model=SecurityState)
     def change(body: PinInput, x_account_session: str = Header(default="")):

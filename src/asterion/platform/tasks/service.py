@@ -16,8 +16,9 @@ class Tasks:
         self.engine = engine
         self.lease_seconds = lease_seconds
 
-    def submit(self, command_id, kind, payload):
-        record = {
+    @staticmethod
+    def record(command_id, kind, payload):
+        return {
             "id": str(uuid4()),
             "command_id": command_id,
             "kind": kind,
@@ -26,6 +27,15 @@ class Tasks:
             "attempt": 0,
             "created_at": time.time(),
         }
+
+    def submit_batch(self, conn, commands):
+        records = [self.record(command_id, kind, payload) for command_id, kind, payload in commands]
+        if records:
+            conn.execute(jobs.insert(), records)
+        return records
+
+    def submit(self, command_id, kind, payload):
+        record = self.record(command_id, kind, payload)
         try:
             with self.engine.begin() as conn:
                 conn.execute(jobs.insert().values(**record))
@@ -53,6 +63,21 @@ class Tasks:
                     .limit(100)
                 ).mappings()
             ]
+
+    def get(self, job_id):
+        with self.engine.connect() as conn:
+            row = (
+                conn.execute(
+                    select(*(c for c in jobs.c if c.name not in {"payload", "token"})).where(
+                        jobs.c.id == job_id
+                    )
+                )
+                .mappings()
+                .first()
+            )
+        if row is None:
+            raise KeyError(job_id)
+        return dict(row)
 
     def claim(self, worker_id):
         now = time.time()
@@ -105,6 +130,16 @@ class Tasks:
             raise Conflict("Lease expired, cancelled, or superseded")
         return row
 
+    def complete(self, conn, job_id, token, result):
+        self.require_lease(conn, job_id, token)
+        conn.execute(
+            jobs.update().where(jobs.c.id == job_id).values(state="SUCCEEDED", result=result)
+        )
+
+    def progress(self, conn, job_id, token, result):
+        self.require_lease(conn, job_id, token)
+        conn.execute(jobs.update().where(jobs.c.id == job_id).values(result=result))
+
     def heartbeat(self, job_id, token):
         with self.engine.begin() as conn:
             self.require_lease(conn, job_id, token)
@@ -121,12 +156,16 @@ class Tasks:
                 jobs.update().where(jobs.c.id == job_id).values(state="FAILED", error=error[:2000])
             )
 
+    @staticmethod
+    def cancel_batch(conn, job_ids):
+        changed = conn.execute(
+            jobs.update()
+            .where(jobs.c.id.in_(job_ids), jobs.c.state.in_(["QUEUED", "RUNNING"]))
+            .values(state="CANCELLED")
+        )
+        return changed.rowcount
+
     def cancel(self, job_id):
         with self.engine.begin() as conn:
-            changed = conn.execute(
-                jobs.update()
-                .where(jobs.c.id == job_id, jobs.c.state.in_(["QUEUED", "RUNNING"]))
-                .values(state="CANCELLED")
-            )
-            if changed.rowcount != 1:
+            if self.cancel_batch(conn, [job_id]) != 1:
                 raise Conflict("Job is missing or already terminal")

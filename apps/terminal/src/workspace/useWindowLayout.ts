@@ -1,54 +1,38 @@
 import { useEffect, useRef, useState, type SetStateAction } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { nativeDesktop } from "../deployment/desktop";
-import { parseLayout, views, type Layout, type View } from "./layout";
-type Snapshot = { id: string; revision: number; layout: Layout };
-const editable = [
-  "version",
-  "viewport",
-  "dock",
-  "view",
-  "inspector",
-  "tasks",
-  "taskHeight",
-  "marketRatio",
-  "snapshot",
-  "contract",
-  "section",
-  "linkGroup",
-  "locked",
-] as const;
-export function useWindowLayout() {
-  const [layout, display] = useState(() =>
-    (() => {
-      const value = parseLayout(localStorage.getItem("asterion.layout"));
-      const view = new URLSearchParams(location.search).get("view") as View;
-      return !nativeDesktop && views.includes(view)
-        ? { ...value, view }
-        : value;
-    })(),
-  );
-  const [ready, setReady] = useState(!nativeDesktop);
-  const [error, setError] = useState("");
+export type LayoutContract<T> = {
+  parse: (raw: string | null) => T;
+  editable: readonly (keyof T)[];
+  initial: (value: T) => T;
+};
+export function useWindowLayout<T extends object>(contract: LayoutContract<T>) {
+  type Snapshot = { id: string; revision: number; layout: T };
+  const { parse: parseLayout, editable } = contract;
+  const [initial] = useState(() => {
+    try {
+      const value = parseLayout(
+        nativeDesktop ? null : localStorage.getItem("asterion.layout"),
+      );
+      return { layout: contract.initial(value), error: "" };
+    } catch (error) {
+      return { layout: parseLayout(null), error: String(error) };
+    }
+  });
+  const [layout, display] = useState(initial.layout);
+  const [ready, setReady] = useState(!nativeDesktop && !initial.error);
+  const [error, setError] = useState(initial.error);
   const current = useRef(layout);
   const queue = useRef(Promise.resolve());
   const pending = useRef(0);
   const alive = useRef(true);
   const failure = useRef("");
-  const migrated = useRef(false);
   function accept(snapshot: Snapshot) {
     if (!alive.current) return;
     const next = parseLayout(JSON.stringify(snapshot.layout));
     current.current = next;
     display((old) =>
       JSON.stringify(old) === JSON.stringify(next) ? old : next,
-    );
-    // Non-sensitive mirror supports older layouts and browser development.
-    localStorage.setItem(
-      snapshot.id === "main"
-        ? "asterion.layout"
-        : `asterion.layout.${snapshot.id}`,
-      JSON.stringify(next),
     );
     setReady(true);
   }
@@ -61,20 +45,7 @@ export function useWindowLayout() {
     async function refresh() {
       if (pending.current) return;
       try {
-        let result = await invoke<Snapshot>("desktop_workspace_read");
-        if (
-          !migrated.current &&
-          result.id === "main" &&
-          result.revision === 0 &&
-          localStorage.getItem("asterion.layout")
-        ) {
-          migrated.current = true;
-          const legacy = parseLayout(localStorage.getItem("asterion.layout"));
-          result = await invoke<Snapshot>("desktop_workspace_patch", {
-            expected: 0,
-            patch: Object.fromEntries(editable.map((k) => [k, legacy[k]])),
-          });
-        }
+        const result = await invoke<Snapshot>("desktop_workspace_read");
         if (!pending.current) accept(result);
       } catch (e) {
         if (alive.current) setError(String(e));
@@ -87,7 +58,8 @@ export function useWindowLayout() {
       clearInterval(timer);
     };
   }, []);
-  function setLayout(action: SetStateAction<Layout>) {
+  function setLayout(action: SetStateAction<T>) {
+    if (!ready) return;
     const before = current.current;
     const next = typeof action === "function" ? action(before) : action;
     const patch = Object.fromEntries(

@@ -1,22 +1,21 @@
-import secrets
+"""HTTP host: transport authentication, errors, tasks and plugin lifecycle."""
+
+import time
+from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from asterion.api.schema import ClaimedJob, Job, Snapshot
-from asterion.data.public import Bar, ImportRequest, read_bars
-from asterion.data.reference import ReferenceCatalog
-from asterion.data.reference_store import ReferenceRelease, ReferenceStore, ReferenceSummary
-from asterion.data.routes import router as data_router
-from asterion.data.snapshots import Snapshots
-from asterion.data.sync import DataSync
-from asterion.identity.routes import router as identity_router
-from asterion.identity.service import Identity, IdentityError
+from asterion.api.schema import ErrorResponse
 from asterion.platform.config import Settings
-from asterion.platform.store import database
+from asterion.platform.diagnostics import ServiceReport, local_services
+from asterion.platform.plugins import PluginHost
+from asterion.platform.store import database, jobs
+from asterion.platform.tasks.public import ClaimedJob, Job
 from asterion.platform.tasks.service import Conflict, Tasks
 
 
@@ -32,28 +31,71 @@ class Failure(Lease):
     error: str
 
 
-def create_app(settings: Settings | None = None, engine=None):
+def create_app(settings: Settings | None = None, engine=None, *, plugins=None, resources=None):
     settings = settings or Settings()
     settings.require_token()
+    owned_engine = engine is None
     engine = engine if engine is not None else database(settings.database_url)
     tasks = Tasks(engine, settings.lease_seconds)
-    data = Snapshots(engine, tasks, settings.data_root)
+    if plugins is None:
+        from asterion.distribution import builtin_plugins
 
-    def authorize(authorization: Annotated[str | None, Header()] = None):
-        if not secrets.compare_digest(authorization or "", f"Bearer {settings.token}"):
-            raise HTTPException(401, "Invalid session token")
+        plugins = builtin_plugins()
+    host = PluginHost(tuple(plugins))
 
-    app = FastAPI(title="Asterion Terminal", version="0.1.0", dependencies=[Depends(authorize)])
-    identity = Identity(
-        engine, settings.data_root, settings.token, mode=settings.account_verification
+    @asynccontextmanager
+    async def lifespan(app):
+        try:
+            yield
+        finally:
+            try:
+                host.close()
+            finally:
+                if owned_engine:
+                    engine.dispose()
+
+    from asterion.distribution import request_policies
+    from asterion.platform.authorization import Authority, Grant
+
+    worker_grants = [
+        Grant("/jobs/claim", ("POST",)),
+        Grant("/jobs/:id/heartbeat", ("POST",)),
+        Grant("/jobs/:id/fail", ("POST",)),
+    ]
+    for plugin in host.plugins:
+        for handler in plugin.handlers:
+            worker_grants.append(Grant("/jobs/:id" + handler.publish_suffix, ("POST",)))
+            worker_grants.extend(handler.requests)
+    authority = Authority(settings.token, request_policies(), worker_grants)
+
+    def authorize(request: Request, authorization: Annotated[str | None, Header()] = None):
+        credential = (
+            authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
+        )
+        try:
+            request.state.principal = authority.authorize(
+                credential,
+                request.method,
+                request.url.path.removeprefix("/api/v1"),
+                request.headers.get("X-Account-Session", ""),
+            )
+        except ValueError:
+            raise HTTPException(401, "请求身份无效或无权访问此接口") from None
+
+    app = FastAPI(
+        title="Asterion Terminal",
+        version="0.1.0",
+        lifespan=lifespan,
+        dependencies=[Depends(authorize)],
+        responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
     )
-    reference = ReferenceStore(engine)
-    app.state.identity = identity
-    app.include_router(identity_router(identity))
+    app.state.plugins = host
 
-    @app.exception_handler(IdentityError)
-    async def identity_error(_, exc):
-        return JSONResponse(status_code=exc.status, content={"detail": str(exc), "code": exc.code})
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(_, exc):
+        return JSONResponse(
+            status_code=422, content={"detail": "请求参数格式不正确", "code": "INVALID_INPUT"}
+        )
 
     app.add_middleware(
         CORSMiddleware,
@@ -81,30 +123,51 @@ def create_app(settings: Settings | None = None, engine=None):
 
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        return {"status": "ready", "version": "0.1.0", "environment": "research"}
+        return {"status": "ready", "version": "0.1.0"}
 
-    def account_access(x_account_session: str = Header(default="")):
-        if settings.require_account:
-            identity.pin.require_unlocked(x_account_session)
+    if resources is None:
+        from asterion.distribution import bootstrap_resources
 
-    app.include_router(
-        data_router(DataSync(engine, tasks, settings.data_root, settings.token), account_access)
+        resources = bootstrap_resources(settings, engine, tasks, host.plugins)
+    from asterion.platform.storage import initialize_stores
+
+    initialize_stores(engine, resources, (jobs,))
+    host.activate(app, resources)
+    guards = host.hooks("access")
+    if len(guards) != 1:
+        host.close()
+        raise ValueError("Exactly one access policy plugin is required")
+    account_access = guards[0]
+
+    class ScopeRequest(BaseModel):
+        scope: str = Field(min_length=1, max_length=80)
+
+    @app.post("/api/v1/access/scopes", dependencies=[Depends(account_access)])
+    def issue_scope(body: ScopeRequest, request: Request):
+        if request.state.principal != "root":
+            raise HTTPException(403, "只有可信工作台可申请功能授权")
+        return authority.issue(body.scope, request.headers.get("X-Account-Session", ""))
+
+    @app.get(
+        "/api/v1/services", response_model=ServiceReport, dependencies=[Depends(account_access)]
     )
+    def service_status():
+        services = local_services(engine, settings.data_root)
+        ready = next(item for item in services if item.id == "database").state == "ready"
+        for probe in host.hooks("services"):
+            services.extend(probe(ready))
+        return ServiceReport(checked_at=time.time(), services=services)
 
     @app.get("/api/v1/jobs", response_model=list[Job], dependencies=[Depends(account_access)])
     def list_jobs():
         return tasks.list()
 
-    @app.post(
-        "/api/v1/imports",
-        status_code=202,
-        response_model=Job,
-        dependencies=[Depends(account_access)],
-    )
-    def import_csv(body: ImportRequest):
-        return tasks.submit(
-            body.command_id, "data.import_csv", body.model_dump(exclude={"command_id"})
-        )
+    @app.get("/api/v1/jobs/{job_id}", response_model=Job, dependencies=[Depends(account_access)])
+    def get_job(job_id: str):
+        try:
+            return tasks.get(job_id)
+        except KeyError:
+            raise HTTPException(404, "任务不存在") from None
 
     @app.post("/api/v1/jobs/claim", response_model=ClaimedJob | None)
     def claim(body: Claim):
@@ -124,61 +187,5 @@ def create_app(settings: Settings | None = None, engine=None):
     def cancel(job_id: str):
         tasks.cancel(job_id)
         return {"status": "cancelled"}
-
-    @app.post("/api/v1/jobs/{job_id}/publish")
-    async def publish(job_id: str, request: Request, x_lease_token: Annotated[str, Header()]):
-        # This first CSV slice is capped. General large-file publication is a separate protocol.
-        chunks = bytearray()
-        async for chunk in request.stream():
-            chunks.extend(chunk)
-            if len(chunks) > 8_000_000:
-                raise HTTPException(413, "Artifact exceeds 8 MB")
-        from starlette.concurrency import run_in_threadpool
-
-        return await run_in_threadpool(data.publish, job_id, x_lease_token, bytes(chunks))
-
-    @app.get(
-        "/api/v1/snapshots", response_model=list[Snapshot], dependencies=[Depends(account_access)]
-    )
-    def list_snapshots():
-        return data.list()
-
-    @app.get(
-        "/api/v1/snapshots/{snapshot_id}/bars",
-        response_model=list[Bar],
-        dependencies=[Depends(account_access)],
-    )
-    def bars(snapshot_id: str):
-        try:
-            return read_bars(data.path(snapshot_id))
-        except KeyError:
-            raise HTTPException(404, "Published snapshot not found")
-
-    @app.get(
-        "/api/v1/reference/releases",
-        response_model=list[ReferenceSummary],
-        dependencies=[Depends(account_access)],
-    )
-    def reference_list(limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0)):
-        return reference.list(limit, offset)
-
-    @app.post(
-        "/api/v1/reference/releases",
-        response_model=ReferenceRelease,
-        dependencies=[Depends(account_access)],
-    )
-    def reference_publish(body: ReferenceCatalog):
-        return reference.publish(body)
-
-    @app.get(
-        "/api/v1/reference/releases/{release_id}",
-        response_model=ReferenceRelease,
-        dependencies=[Depends(account_access)],
-    )
-    def reference_get(release_id: str):
-        try:
-            return reference.get(release_id)
-        except KeyError:
-            raise HTTPException(404, "Reference release not found") from None
 
     return app

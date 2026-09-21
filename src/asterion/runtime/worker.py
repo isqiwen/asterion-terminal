@@ -2,44 +2,70 @@
 
 import logging
 import multiprocessing
+import re
 import time
 from concurrent.futures import ProcessPoolExecutor, TimeoutError
+from urllib.parse import quote
 from uuid import uuid4
 
 import httpx
 
-from asterion.data.public import encode_csv
+from asterion.platform.authorization import worker_token
 from asterion.platform.config import Settings
+from asterion.platform.tasks.execution import ExecutionContext
+from asterion.platform.tasks.handlers import PublicationResult
+from asterion.runtime.handlers import execution_resources, handlers
 
 log = logging.getLogger(__name__)
 
 
-def execute_job(settings: Settings, job: dict):
-    if job["kind"] == "data.import_csv":
-        return encode_csv(job["payload"]["csv"])
-    if job["kind"] == "data.sync":
-        from asterion.data.sync import collect
+def execute_job(settings: Settings, job: dict) -> tuple[bytes, dict]:
+    handler = handlers.get(job["kind"])
+    with httpx.Client(
+        base_url=settings.api_url,
+        headers={"Authorization": f"Bearer {worker_token(settings.token)}"},
+        timeout=30,
+    ) as client:
+        active = True
 
-        with httpx.Client(
-            base_url=settings.api_url,
-            headers={"Authorization": f"Bearer {settings.token}"},
-            timeout=30,
-        ) as client:
-
-            def progress(completed, total):
+        def post(suffix, body=None, *, lease_in_body=False):
+            if not active:
+                raise ValueError("Execution transport is closed")
+            if not re.fullmatch(r"/[a-z][a-z0-9-]*(?:/[0-9]+)?", suffix):
+                raise ValueError("Invalid job-relative operation")
+            payload = body
+            if lease_in_body:
+                payload = {**(body or {}), "token": job["token"]}
+            try:
                 response = client.post(
-                    f"/api/v1/jobs/{job['id']}/progress",
-                    json={"token": job["token"], "completed": completed, "total": total},
+                    f"/api/v1/jobs/{quote(job['id'], safe='')}{suffix}",
+                    json=payload,
+                    headers={"X-Lease-Token": job["token"]},
                 )
                 response.raise_for_status()
+            except httpx.HTTPError:
+                raise ValueError("任务执行通道请求失败，请检查服务与租约状态") from None
+            try:
+                return response.json()
+            except ValueError:
+                raise ValueError("任务执行通道返回无效响应") from None
 
-            return collect(job["payload"], settings.data_root, settings.token, progress), {}
-    raise ValueError("Unsupported job kind")
+        context = ExecutionContext(
+            handler.resources,
+            execution_resources(settings, handler.kind, post),
+        )
+        try:
+            return handler.execute(context, job["payload"])
+        finally:
+            active = False
+            context.close()
 
 
 def run_once(settings: Settings, worker_id: str) -> bool:
     with httpx.Client(
-        base_url=settings.api_url, headers={"Authorization": f"Bearer {settings.token}"}, timeout=30
+        base_url=settings.api_url,
+        headers={"Authorization": f"Bearer {worker_token(settings.token)}"},
+        timeout=30,
     ) as client:
         response = client.post("/api/v1/jobs/claim", json={"worker_id": worker_id})
         response.raise_for_status()
@@ -48,6 +74,7 @@ def run_once(settings: Settings, worker_id: str) -> bool:
             return False
         base = f"/api/v1/jobs/{job['id']}"
         try:
+            handler = handlers.get(job["kind"])
             with ProcessPoolExecutor(
                 max_workers=1, mp_context=multiprocessing.get_context("spawn")
             ) as pool:
@@ -60,13 +87,20 @@ def run_once(settings: Settings, worker_id: str) -> bool:
                         renewal = client.post(base + "/heartbeat", json={"token": job["token"]})
                         renewal.raise_for_status()
             response = client.post(
-                base + ("/publish-data" if job["kind"] == "data.sync" else "/publish"),
+                base + handler.publish_suffix,
                 content=content,
                 headers={"X-Lease-Token": job["token"], "Content-Type": "application/octet-stream"},
             )
-            if response.status_code == 422 and job["kind"] == "data.sync":
-                detail = response.json().get("detail")
-                raise ValueError(detail if isinstance(detail, str) else "数据发布校验失败")
+            try:
+                result = response.json()
+            except ValueError:
+                result = None
+            handler.check_publication(
+                PublicationResult(
+                    response.status_code,
+                    result.get("detail") if isinstance(result, dict) else None,
+                )
+            )
             response.raise_for_status()
         except Exception as exc:
             log.exception("Job %s failed", job["id"])

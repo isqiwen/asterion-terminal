@@ -1,19 +1,12 @@
 import { useEffect, useState } from "react";
 
-export const settingsCategories = [
-  "外观",
-  "安全",
-  "数据源",
-  "本机服务",
-  "关于",
-] as const;
-export type SettingsCategory = (typeof settingsCategories)[number];
+export type SettingsCategory = string;
 const key = "asterion.settings.category";
 const event = "asterion:settings-category";
 
-function readCategory(): SettingsCategory {
+function readCategory(categories: readonly string[]): SettingsCategory {
   const value = localStorage.getItem(key);
-  return settingsCategories.find((category) => category === value) ?? "外观";
+  return categories.find((category) => category === value) ?? categories[0];
 }
 
 export function selectSettingsCategory(category: SettingsCategory) {
@@ -21,10 +14,10 @@ export function selectSettingsCategory(category: SettingsCategory) {
   window.dispatchEvent(new Event(event));
 }
 
-export function useSettingsCategory() {
-  const [category, setCategory] = useState(readCategory);
+export function useSettingsCategory(categories: readonly string[]) {
+  const [category, setCategory] = useState(() => readCategory(categories));
   useEffect(() => {
-    const refresh = () => setCategory(readCategory());
+    const refresh = () => setCategory(readCategory(categories));
     const storage = (change: StorageEvent) => {
       if (change.key === key || change.key === null) refresh();
     };

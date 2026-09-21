@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from asterion.data.providers.public import ProviderError
+from asterion.platform.registry import Registry
 
 
 class DataField(BaseModel):
@@ -56,19 +57,20 @@ class DataType:
 
 class TypeRegistry:
     def __init__(self, plugins: tuple[DataType, ...] = ()):
-        self._plugins: dict[str, DataType] = {}
+        self._plugins: Registry[DataType] = Registry()
         for plugin in plugins:
             self.register(plugin)
 
     def register(self, plugin: DataType):
-        if plugin.manifest.api_version != 1 or plugin.manifest.id in self._plugins:
-            raise ValueError("Incompatible or duplicate data type plugin")
-        self._plugins[plugin.manifest.id] = plugin
+        if plugin.manifest.api_version != 1:
+            raise ValueError("Unsupported data type contract")
+        self._plugins.register(plugin.manifest.id, plugin)
 
     def get(self, identifier: str) -> DataType:
-        if identifier not in self._plugins:
-            raise ProviderError("未安装该数据类型插件")
-        return self._plugins[identifier]
+        try:
+            return self._plugins.get(identifier)
+        except KeyError:
+            raise ProviderError("未安装该数据类型插件") from None
 
     def all(self):
-        return list(self._plugins.values())
+        return list(self._plugins.all())

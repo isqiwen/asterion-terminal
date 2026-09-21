@@ -4,15 +4,21 @@ test("native windows share login and logout but keep independent layouts", async
   context,
   page,
 }) => {
-  await nativeContext(context);
+  const host = await nativeContext(context);
   const user = {
     email: "test@example.com",
     first_name: "Test",
     last_name: "User",
   };
   await context.route("**/api/v1/**", (route) => {
+    if (route.request().url().endsWith("/access/scopes")) return route.fulfill({ json: { token: "scope-fixture", expires: Date.now() / 1000 + 300 } });
+
     const path = new URL(route.request().url()).pathname;
     if (path.includes("/account/security")) return route.fallback();
+    if (path.endsWith("/data/catalog")) return route.fulfill({json:{items:[],total:0}});
+    if (path.endsWith("/research/workspace")) return route.fulfill({json:{draft:null,templates:[]}});
+    if (path.endsWith("/research/workspace/draft")) return route.fulfill({json:{id:"draft",...route.request().postDataJSON(),revision:route.request().postDataJSON().expected_revision+1}});
+
     return route.fulfill({
       json: path.endsWith("/login")
         ? { session: "session", user }
@@ -40,19 +46,8 @@ test("native windows share login and logout but keep independent layouts", async
     .getByRole("button", { name: "数据", exact: true })
     .click();
   await second.getByRole("button", { name: "任务", exact: true }).click();
-  await expect
-    .poll(() =>
-      second.evaluate(
-        () =>
-          JSON.parse(localStorage.getItem("asterion.layout.workspace-test")!)
-            .tasks,
-      ),
-    )
-    .toBe(true);
-  const state = await page.evaluate(() => ({
-    main: JSON.parse(localStorage.getItem("asterion.layout")!),
-    second: JSON.parse(localStorage.getItem("asterion.layout.workspace-test")!),
-  }));
+  await expect.poll(() => host.layout("workspace-test")?.tasks).toBe(true);
+  const state = { main: host.layout()!, second: host.layout("workspace-test")! };
   expect(state.main.view).toBe("数据");
   expect(state.second.view).toBe("研究");
   expect(state.main.tasks).toBe(false);
@@ -77,8 +72,14 @@ test("chart detaches, merges and restores resized layout", async ({
     last_name: "User",
   };
   await context.route("**/api/v1/**", (route) => {
+    if (route.request().url().endsWith("/access/scopes")) return route.fulfill({ json: { token: "scope-fixture", expires: Date.now() / 1000 + 300 } });
+
     const path = new URL(route.request().url()).pathname;
     if (path.includes("/account/security")) return route.fallback();
+    if (path.endsWith("/data/catalog")) return route.fulfill({json:{items:[],total:0}});
+    if (path.endsWith("/research/workspace")) return route.fulfill({json:{draft:null,templates:[]}});
+    if (path.endsWith("/research/workspace/draft")) return route.fulfill({json:{id:"draft",...route.request().postDataJSON(),revision:route.request().postDataJSON().expected_revision+1}});
+
     return route.fulfill({
       json: path.endsWith("/login")
         ? { session: "session", user }

@@ -4,7 +4,8 @@
   --canvas: #080909;
   --panel: #0c0d0d;
   --raised: #121313;
-  --hover: #1c1d1d;
+  --hover: #252727;
+  --pressed: #343737;
   --line: #272828;
   --grid: #171818;
   --text: #c8c9c9;
@@ -14,6 +15,7 @@
   --accent: #ff8500;
   --accent-surface: #241606;
   --accent-hover: #382207;
+  --accent-pressed: #4c2e09;
   --accent-line: #75420b;
   --success: #3fba80;
   --danger: #e57878;

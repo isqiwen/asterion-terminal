@@ -4,7 +4,7 @@ test("chart zoom survives polling, docking, reload and native detach", async ({
   page,
   context,
 }) => {
-  await nativeContext(context);
+  const host = await nativeContext(context);
   const user = {
     email: "chart@example.com",
     first_name: "Chart",
@@ -32,6 +32,8 @@ test("chart zoom survives polling, docking, reload and native detach", async ({
     },
   ];
   await context.route("**/api/v1/**", (route) => {
+    if (route.request().url().endsWith("/access/scopes")) return route.fulfill({ json: { token: "scope-fixture", expires: Date.now() / 1000 + 300 } });
+
     const path = new URL(route.request().url()).pathname;
     if (path.includes("/account/security")) return route.fallback();
     return route.fulfill({
@@ -57,11 +59,7 @@ test("chart zoom survives polling, docking, reload and native detach", async ({
   await chart.hover();
   await page.mouse.wheel(0, -300);
   await expect
-    .poll(() =>
-      page.evaluate(
-        () => JSON.parse(localStorage.getItem("asterion.layout")!).viewport?.to,
-      ),
-    )
+    .poll(() => (host.layout()?.viewport as { to?: number } | undefined)?.to)
     .toBeGreaterThan(0);
   const before = JSON.parse((await chart.getAttribute("data-visible-range"))!);
   await page.getByLabel("行情面板停靠位置").selectOption("top");

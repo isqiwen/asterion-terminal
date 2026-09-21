@@ -1,10 +1,9 @@
-import { parseLayout } from "../src/workspace/layout";
+import { parseLayout } from "../src/plugins/workflow/layout";
 import type { BrowserContext } from "@playwright/test";
-export async function nativeContext(context: BrowserContext) {
+export async function nativeContext(context: BrowserContext, handlers: Record<string, (args: Record<string, unknown>) => unknown | Promise<unknown>> = {}) {
   let elapsed = 0,
     pin = "246810";
   let security = {
-    pin_required: false,
     locked: false,
     timeout_seconds: 300,
     remaining_seconds: 300,
@@ -37,9 +36,8 @@ export async function nativeContext(context: BrowserContext) {
       security.revision++;
       activity = now;
     }
-    if (action === "/setup") {
+    if (action === "/change") {
       pin = body.pin;
-      security.pin_required = false;
       security.locked = false;
       security.revision++;
       activity = now;
@@ -78,6 +76,7 @@ export async function nativeContext(context: BrowserContext) {
         token: null,
       },
     ) => {
+      if (handlers[command]) return handlers[command](args);
       const url = new URL(_source.page.url());
       const id = url.searchParams.get("window") ?? "main";
       if (!layouts.has(id))
@@ -167,6 +166,8 @@ export async function nativeContext(context: BrowserContext) {
       }
       if (command === "desktop_window_id")
         return new URL(_source.page.url()).searchParams.get("window") ?? "main";
+      if (command === "plugin:window|is_decorated") return true;
+      if (command === "plugin:window|set_title") return;
       return {
         api_url: "http://127.0.0.1:8000",
         token: "fixture",
@@ -181,18 +182,19 @@ export async function nativeContext(context: BrowserContext) {
     Object.assign(window, {
       isTauri: true,
       __TAURI_INTERNALS__: {
+        metadata: {
+          currentWindow: {
+            label: new URLSearchParams(location.search).get("window") ?? "main",
+          },
+        },
         invoke: (...args: unknown[]) => host.nativeInvoke(...args),
       },
     });
   });
   return {
+    layout: (id = "main") => structuredClone(layouts.get(id)),
     advance: (seconds: number) => {
       elapsed += seconds * 1000;
-    },
-    requirePin: () => {
-      security.pin_required = true;
-      security.locked = true;
-      security.revision++;
     },
   };
 }

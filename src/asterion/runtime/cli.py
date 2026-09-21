@@ -10,6 +10,7 @@ def main():
     parser.add_argument(
         "role",
         choices=[
+            "plugin-run",
             "init",
             "serve",
             "worker",
@@ -17,13 +18,30 @@ def main():
             "desktop-bootstrap",
             "desktop-supervise",
             "desktop-stop",
+            "desktop-backup",
+            "desktop-snapshot",
+            "desktop-restore",
+            "desktop-info",
+            "desktop-environment",
+            "desktop-activate",
+            "desktop-rollback",
         ],
     )
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--state", type=Path)
     parser.add_argument("--pg-root", type=Path)
+    parser.add_argument("--archive", type=Path)
+    parser.add_argument("--target", type=Path)
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+    if args.role == "plugin-run":
+        from asterion.runtime.extension import run
+
+        if args.target is None:
+            parser.error("--target is required")
+        run(args.target)
+        return
     if args.role.startswith("desktop-"):
         import json
 
@@ -31,29 +49,72 @@ def main():
 
         if args.state is None:
             parser.error("--state is required")
-        if args.role == "desktop-stop":
-            stop(args.state)
-        else:
+        if args.role == "desktop-supervise":
             if args.pg_root is None:
                 parser.error("--pg-root is required")
-            if args.role == "desktop-bootstrap":
-                print(json.dumps(bootstrap(args.state, args.pg_root)))
-            else:
-                supervise(args.state, args.pg_root)
+            supervise(args.state, args.pg_root)
+            return
+        from asterion.runtime import environments
+        from asterion.runtime.backup import create_backup, managed_backup, restore_backup
+
+        host = args.state.resolve()
+        if args.pg_root is None:
+            parser.error("--pg-root is required")
+        try:
+            with environments.maintenance(
+                host, wait=args.role in {"desktop-bootstrap", "desktop-info"}
+            ):
+                if args.role not in {"desktop-info", "desktop-environment", "desktop-snapshot"}:
+                    environments.recover(host, args.pg_root)
+                state = environments.active(host)
+                if args.role == "desktop-info":
+                    result = environments.info(host)
+                elif args.role == "desktop-environment":
+                    result = environments.status(host)
+                elif args.role == "desktop-activate":
+                    if args.target is None:
+                        parser.error("--target is required")
+                    result = environments.switch(host, args.pg_root, args.target)
+                elif args.role == "desktop-rollback":
+                    result = environments.switch(host, args.pg_root)
+                elif args.role == "desktop-snapshot":
+                    if args.output is None:
+                        parser.error("--output is required")
+                    result = create_backup(state, args.output)
+                elif args.role == "desktop-backup":
+                    result = managed_backup(state, args.pg_root, args.output)
+                elif args.role == "desktop-restore":
+                    if args.archive is None or args.target is None:
+                        parser.error("--archive and --target are required")
+                    if args.target.resolve().is_relative_to(
+                        state
+                    ) or args.target.resolve().is_relative_to(host):
+                        raise ValueError("恢复目录不能位于本机状态目录内")
+                    result = restore_backup(args.archive, args.target, args.pg_root)
+                elif args.role == "desktop-stop":
+                    stop(state)
+                    result = {"status": "stopped"}
+                else:
+                    result = bootstrap(state, args.pg_root)
+                print(json.dumps(result))
+        except Exception:  # noqa: BLE001 - database exceptions may contain credentials
+            parser.exit(
+                1,
+                "本机维护失败。请检查维护任务、目录、空间及版本兼容；若切换中断，重新启动服务会重试恢复原环境。原数据目录仍保留。\n",
+            )
         return
     settings = Settings()
     logging.basicConfig(level=logging.INFO)
     if args.role == "init":
-        from asterion.platform.store import database, metadata
+        from asterion.platform.store import database
+        from asterion.runtime.initialize import initialize
 
         settings.require_token()
-        from asterion.data.public import initialize_catalog
-
         engine = database(settings.database_url)
-        metadata.create_all(engine)
-        initialize_catalog(engine)
-        for directory in ("sources", "published", "artifacts", "backups"):
-            (settings.data_root / directory).mkdir(parents=True, exist_ok=True)
+        try:
+            initialize(settings, engine)
+        finally:
+            engine.dispose()
         print("Catalog and local storage initialized")
     elif args.role == "serve":
         import uvicorn

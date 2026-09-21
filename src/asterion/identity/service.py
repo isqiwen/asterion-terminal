@@ -14,6 +14,8 @@ from pathlib import Path
 from sqlalchemy import Boolean, Column, Float, Integer, MetaData, String, Table, select
 from sqlalchemy.exc import IntegrityError
 
+from asterion.platform.secrets import DigestPort
+
 from .verification import verification_policy
 
 metadata = MetaData()
@@ -146,19 +148,19 @@ class Mailer:
 
 
 class Identity:
-    def __init__(self, engine, root, secret, mailer=None, mode="email"):
+    def __init__(self, engine, root, signer: DigestPort, mailer=None, mode="email"):
         self.verification = verification_policy(mode)
         self.engine = engine
         self.mailer = mailer or Mailer(root)
-        self.secret = secret.encode()
-        metadata.create_all(engine)
+        self._signer = signer
+        engine.initialize(*metadata.tables.values())
         self.dummy_password = password_hash(secrets.token_urlsafe(24))
         from .pin import PinSecurity
 
         self.pin = PinSecurity(self)
 
     def digest(self, value):
-        return hmac.new(self.secret, value.encode(), hashlib.sha256).hexdigest()
+        return self._signer.digest(value)
 
     def user(self, conn, email):
         return (
@@ -187,7 +189,7 @@ class Identity:
             )
         )
 
-    def register(self, email, password, first_name, last_name, country_code="", phone="", pin=None):
+    def register(self, email, password, first_name, last_name, country_code="", phone="", *, pin):
         email = email_address(email)
         encoded = password_hash(password)
         try:

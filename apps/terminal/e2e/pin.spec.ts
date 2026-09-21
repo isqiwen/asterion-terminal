@@ -9,8 +9,14 @@ async function routeAccount(
     last_name: "Test",
   };
   await context.route("**/api/v1/**", (route) => {
+    if (route.request().url().endsWith("/access/scopes")) return route.fulfill({ json: { token: "scope-fixture", expires: Date.now() / 1000 + 300 } });
+
     const path = new URL(route.request().url()).pathname;
     if (path.includes("/account/security")) return route.fallback();
+    if (path.endsWith("/data/catalog")) return route.fulfill({json:{items:[],total:0}});
+    if (path.endsWith("/research/workspace")) return route.fulfill({json:{draft:null,templates:[]}});
+    if (path.endsWith("/research/workspace/draft")) return route.fulfill({json:{id:"draft",...route.request().postDataJSON(),revision:route.request().postDataJSON().expected_revision+1}});
+
     return route.fulfill({
       json: path.endsWith("/login")
         ? { session: "test-session", user }
@@ -78,30 +84,6 @@ test("idle locks workspaces and settings together; incorrect PIN stays locked", 
     page.getByRole("heading", { name: "终端已锁定", exact: true }),
   ).toBeVisible();
 });
-test("existing accounts set a confirmed PIN before accessing the workspace", async ({
-  page,
-  context,
-}) => {
-  const security = await nativeContext(context);
-  security.requirePin();
-  await routeAccount(context);
-  await login(page);
-  await expect(
-    page.getByRole("heading", { name: "设置终端 PIN" }),
-  ).toBeVisible();
-  await page.getByLabel("PIN", { exact: true }).fill("135790");
-  await page.getByLabel("确认 PIN", { exact: true }).fill("135791");
-  await page.getByRole("button", { name: "保存 PIN" }).click();
-  await expect(page.getByRole("alert")).toContainText("不一致");
-  await page.getByLabel("确认 PIN", { exact: true }).fill("135790");
-  await page.getByRole("button", { name: "保存 PIN" }).click();
-  await expect(
-    page.getByRole("navigation", { name: "业务工作区" }),
-  ).toBeVisible();
-  const stored = await page.evaluate(() => JSON.stringify({ ...localStorage }));
-  expect(stored).not.toContain("135790");
-});
-
 test("service reconnection keeps a locked workspace protected", async ({
   page,
   context,

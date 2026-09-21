@@ -1,10 +1,40 @@
 {
   "$defs": {
+    "CatalogInput": {
+      "additionalProperties": false,
+      "properties": {
+        "version_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Version Id",
+          "type": "string"
+        },
+        "checksum": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Checksum",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version_id",
+        "checksum",
+        "source"
+      ],
+      "title": "CatalogInput",
+      "type": "object"
+    },
     "Contract": {
       "additionalProperties": false,
       "properties": {
         "id": {
-          "pattern": "^(SHFE|DCE|CZCE|CFFEX|INE|GFEX)\\.[A-Za-z]+[0-9]{3,4}$",
+          "maxLength": 100,
+          "minLength": 1,
           "title": "Id",
           "type": "string"
         },
@@ -17,41 +47,27 @@
           "title": "Delivery Month",
           "type": "string"
         },
-        "listed_at": {
-          "format": "date-time",
-          "title": "Listed At",
+        "listed_on": {
+          "format": "date",
+          "title": "Listed On",
           "type": "string"
         },
-        "last_trade_at": {
-          "format": "date-time",
-          "title": "Last Trade At",
+        "last_trade_on": {
+          "format": "date",
+          "title": "Last Trade On",
           "type": "string"
         },
-        "multiplier": {
+        "last_delivery_on": {
           "anyOf": [
             {
-              "exclusiveMinimum": 0.0,
-              "type": "number"
+              "format": "date",
+              "type": "string"
             },
             {
-              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,25}0*$)\\d{0,14}\\.\\d{0,10}0*$)",
-              "type": "string"
+              "type": "null"
             }
           ],
-          "title": "Multiplier"
-        },
-        "tick_size": {
-          "anyOf": [
-            {
-              "exclusiveMinimum": 0.0,
-              "type": "number"
-            },
-            {
-              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,25}0*$)\\d{0,14}\\.\\d{0,10}0*$)",
-              "type": "string"
-            }
-          ],
-          "title": "Tick Size"
+          "title": "Last Delivery On"
         },
         "provenance": {
           "$ref": "#/$defs/Provenance"
@@ -61,149 +77,19 @@
         "id",
         "product_id",
         "delivery_month",
-        "listed_at",
-        "last_trade_at",
-        "multiplier",
-        "tick_size",
+        "listed_on",
+        "last_trade_on",
+        "last_delivery_on",
         "provenance"
       ],
       "title": "Contract",
-      "type": "object"
-    },
-    "ContractRules": {
-      "additionalProperties": false,
-      "properties": {
-        "contract_id": {
-          "title": "Contract Id",
-          "type": "string"
-        },
-        "version": {
-          "minLength": 1,
-          "title": "Version",
-          "type": "string"
-        },
-        "effective_from": {
-          "format": "date-time",
-          "title": "Effective From",
-          "type": "string"
-        },
-        "effective_until": {
-          "anyOf": [
-            {
-              "format": "date-time",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Effective Until"
-        },
-        "margin_rate": {
-          "anyOf": [
-            {
-              "exclusiveMinimum": 0.0,
-              "maximum": 1.0,
-              "type": "number"
-            },
-            {
-              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-              "type": "string"
-            }
-          ],
-          "title": "Margin Rate"
-        },
-        "open_fee": {
-          "$ref": "#/$defs/Fee"
-        },
-        "close_fee": {
-          "$ref": "#/$defs/Fee"
-        },
-        "close_today_fee": {
-          "$ref": "#/$defs/Fee"
-        },
-        "requires_close_today": {
-          "title": "Requires Close Today",
-          "type": "boolean"
-        },
-        "limit_ratio": {
-          "anyOf": [
-            {
-              "exclusiveMaximum": 1.0,
-              "exclusiveMinimum": 0.0,
-              "type": "number"
-            },
-            {
-              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Limit Ratio"
-        },
-        "provenance": {
-          "$ref": "#/$defs/Provenance"
-        }
-      },
-      "required": [
-        "contract_id",
-        "version",
-        "effective_from",
-        "margin_rate",
-        "open_fee",
-        "close_fee",
-        "close_today_fee",
-        "requires_close_today",
-        "provenance"
-      ],
-      "title": "ContractRules",
-      "type": "object"
-    },
-    "Fee": {
-      "additionalProperties": false,
-      "properties": {
-        "per_lot": {
-          "anyOf": [
-            {
-              "minimum": 0.0,
-              "type": "number"
-            },
-            {
-              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,25}0*$)\\d{0,14}\\.\\d{0,10}0*$)",
-              "type": "string"
-            }
-          ],
-          "default": "0",
-          "title": "Per Lot"
-        },
-        "notional_rate": {
-          "anyOf": [
-            {
-              "exclusiveMaximum": 1.0,
-              "minimum": 0.0,
-              "type": "number"
-            },
-            {
-              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-              "type": "string"
-            }
-          ],
-          "default": "0",
-          "title": "Notional Rate"
-        }
-      },
-      "title": "Fee",
       "type": "object"
     },
     "Product": {
       "additionalProperties": false,
       "properties": {
         "id": {
-          "pattern": "^(SHFE|DCE|CZCE|CFFEX|INE|GFEX)\\.[A-Za-z]+$",
+          "pattern": "^(SHFE|DCE|CZCE|CFFEX|INE|GFEX)\\.[A-Z]+$",
           "title": "Id",
           "type": "string"
         },
@@ -276,111 +162,66 @@
       "title": "Provenance",
       "type": "object"
     },
-    "Session": {
+    "SourceSymbol": {
       "additionalProperties": false,
       "properties": {
-        "opens_at": {
-          "format": "date-time",
-          "title": "Opens At",
+        "source": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{0,63}$",
+          "title": "Source",
           "type": "string"
         },
-        "closes_at": {
-          "format": "date-time",
-          "title": "Closes At",
-          "type": "string"
-        },
-        "kind": {
-          "enum": [
-            "day",
-            "night",
-            "auction"
-          ],
-          "title": "Kind",
-          "type": "string"
-        }
-      },
-      "required": [
-        "opens_at",
-        "closes_at",
-        "kind"
-      ],
-      "title": "Session",
-      "type": "object"
-    },
-    "SessionCalendar": {
-      "additionalProperties": false,
-      "properties": {
-        "product_id": {
-          "title": "Product Id",
-          "type": "string"
-        },
-        "version": {
+        "symbol": {
+          "maxLength": 64,
           "minLength": 1,
-          "title": "Version",
+          "pattern": "^\\S+$",
+          "title": "Symbol",
           "type": "string"
         },
-        "timezone": {
-          "const": "Asia/Shanghai",
-          "default": "Asia/Shanghai",
-          "title": "Timezone",
+        "contract_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Contract Id",
           "type": "string"
         },
-        "days": {
-          "items": {
-            "$ref": "#/$defs/TradingDay"
-          },
-          "title": "Days",
-          "type": "array"
+        "valid_from": {
+          "format": "date",
+          "title": "Valid From",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date",
+          "title": "Valid Until",
+          "type": "string"
         },
         "provenance": {
           "$ref": "#/$defs/Provenance"
         }
       },
       "required": [
-        "product_id",
-        "version",
-        "days",
+        "source",
+        "symbol",
+        "contract_id",
+        "valid_from",
+        "valid_until",
         "provenance"
       ],
-      "title": "SessionCalendar",
-      "type": "object"
-    },
-    "TradingDay": {
-      "additionalProperties": false,
-      "properties": {
-        "trading_day": {
-          "format": "date",
-          "title": "Trading Day",
-          "type": "string"
-        },
-        "sessions": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/Session"
-          },
-          "title": "Sessions",
-          "type": "array"
-        },
-        "closed": {
-          "default": false,
-          "title": "Closed",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "trading_day"
-      ],
-      "title": "TradingDay",
+      "title": "SourceSymbol",
       "type": "object"
     }
   },
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "const": 1,
-      "default": 1,
+      "const": 2,
       "title": "Schema Version",
       "type": "integer"
+    },
+    "inputs": {
+      "items": {
+        "$ref": "#/$defs/CatalogInput"
+      },
+      "title": "Inputs",
+      "type": "array"
     },
     "products": {
       "items": {
@@ -396,26 +237,20 @@
       "title": "Contracts",
       "type": "array"
     },
-    "calendars": {
+    "symbols": {
       "items": {
-        "$ref": "#/$defs/SessionCalendar"
+        "$ref": "#/$defs/SourceSymbol"
       },
-      "title": "Calendars",
-      "type": "array"
-    },
-    "rules": {
-      "items": {
-        "$ref": "#/$defs/ContractRules"
-      },
-      "title": "Rules",
+      "title": "Symbols",
       "type": "array"
     }
   },
   "required": [
+    "schema_version",
+    "inputs",
     "products",
     "contracts",
-    "calendars",
-    "rules"
+    "symbols"
   ],
   "title": "ReferenceCatalog",
   "type": "object"

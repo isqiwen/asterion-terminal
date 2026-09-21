@@ -3,17 +3,22 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
+from storage_support import identity_store, raw_engine
 
 from asterion.api.app import create_app
 from asterion.identity.pin import security
 from asterion.identity.service import Identity, IdentityError
 from asterion.platform.config import Settings
+from asterion.platform.secrets import digest_port
 
 
 @pytest.fixture
 def identity(tmp_path):
     return Identity(
-        create_engine(f"sqlite:///{tmp_path}/pin.db"), tmp_path, "test-secret" * 4, mode="local"
+        identity_store(create_engine(f"sqlite:///{tmp_path}/pin.db")),
+        tmp_path,
+        digest_port("test-secret" * 4),
+        mode="local",
     )
 
 
@@ -55,14 +60,20 @@ def test_idle_and_activity_share_one_server_lock(identity, monkeypatch):
     assert locked.value.status == 423
 
 
-def test_legacy_setup_cannot_overwrite_existing_pin(identity):
-    token = signed_in(identity, pin=None)
-    assert identity.pin.state(token)["pin_required"]
-    with pytest.raises(IdentityError):
-        identity.pin.require_unlocked(token)
-    assert not identity.pin.state(token, "setup", pin="246810")["pin_required"]
-    with pytest.raises(IdentityError):
-        identity.pin.state(token, "setup", pin="111111")
+def test_account_without_current_security_is_rejected_without_repair(identity):
+    token = signed_in(identity)
+    with identity.engine.begin() as conn:
+        conn.execute(security.delete())
+    with pytest.raises(IdentityError, match="不受支持"):
+        identity.pin.state(token)
+    with pytest.raises(IdentityError, match="不受支持"):
+        identity.login("pin@example.com", "test-password-123")
+    with identity.engine.connect() as conn:
+        assert conn.execute(select(security)).first() is None
+
+
+def test_change_pin_requires_account_password(identity):
+    token = signed_in(identity)
     with pytest.raises(IdentityError):
         identity.pin.state(token, "change", pin="111111", password="wrong-password")
     identity.pin.state(token, "change", pin="111111", password="test-password-123")
@@ -89,7 +100,7 @@ def test_bruteforce_and_stale_unlock(identity):
 def test_api_registration_requires_pin_and_locked_data_is_denied(tmp_path):
     app = create_app(
         Settings(token="test-secret-1234567890123456", data_root=tmp_path, require_account=True),
-        create_engine(f"sqlite:///{tmp_path}/api.db"),
+        raw_engine(create_engine(f"sqlite:///{tmp_path}/api.db")),
     )
     client = TestClient(app, headers={"Authorization": "Bearer test-secret-1234567890123456"})
     registration = {

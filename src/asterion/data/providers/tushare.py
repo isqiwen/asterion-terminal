@@ -9,6 +9,8 @@ import httpx
 
 from asterion.data.providers.public import (
     Capability,
+    ConfigurationField,
+    ConfigurationSpec,
     Partition,
     ProviderError,
     ProviderManifest,
@@ -18,7 +20,9 @@ from asterion.data.providers.public import (
 EXCHANGES = ["SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"]
 SUFFIXES = {"SHFE": "SHF", "DCE": "DCE", "CZCE": "ZCE", "CFFEX": "CFX", "INE": "INE", "GFEX": "GFE"}
 FIELDS = {
+    "mapping": "ts_code,trade_date,mapping_ts_code",
     "contracts": "ts_code,symbol,exchange,name,fut_code,multiplier,trade_unit,per_unit,quote_unit,quote_unit_desc,d_mode_desc,list_date,delist_date,d_month,last_ddate",
+    "settlement": "ts_code,trade_date,settle,trading_fee_rate,trading_fee,delivery_fee,b_hedging_margin_rate,s_hedging_margin_rate,long_margin_rate,short_margin_rate,offset_today_fee,exchange",
     "calendar": "exchange,cal_date,is_open,pretrade_date",
     "daily": "ts_code,trade_date,pre_close,pre_settle,open,high,low,close,settle,vol,amount,oi,oi_chg",
 }
@@ -47,8 +51,32 @@ class Tushare:
     manifest = ProviderManifest(
         id="tushare",
         name="Tushare Pro",
-        version="1.0.0",
+        version="1.5.0",
+        description="真实历史数据；接口积分与访问权限由 Tushare 账号决定。",
+        configuration=ConfigurationSpec(
+            fields=[
+                ConfigurationField(
+                    id="token",
+                    label="Tushare Token",
+                    secret=True,
+                    required=True,
+                    min_length=1,
+                    max_length=256,
+                    placeholder="粘贴 Tushare Pro Token",
+                    description="仅在本机加密保存；不会回显或写入数据集。",
+                )
+            ]
+        ),
         capabilities=[
+            Capability(
+                id="mapping",
+                type_id="futures.role_mapping",
+                label="主力合约映射",
+                exchanges=EXCHANGES,
+                date_range=True,
+                symbol_required=True,
+                description="来源代码例如 RB.SHF；供应商每日主力对应月合约，历史公布时刻未知",
+            ),
             Capability(
                 id="contracts",
                 type_id="futures.contracts",
@@ -65,6 +93,15 @@ class Tushare:
                 description="交易日与休市日；不包含日内交易时段",
             ),
             Capability(
+                id="settlement",
+                type_id="futures.settlement",
+                label="每日结算参数",
+                exchanges=EXCHANGES,
+                date_range=True,
+                symbol_required=True,
+                description="盘后参数快照；费率单位与历史生效时间须另行确认",
+            ),
+            Capability(
                 id="daily",
                 type_id="futures.daily",
                 label="期货历史日线",
@@ -76,7 +113,7 @@ class Tushare:
         ],
     )
 
-    def probe(self, credential: str) -> str:
+    def probe(self, configuration: dict) -> str:
         request = SyncRequest(
             command_id="probe",
             provider="tushare",
@@ -85,7 +122,7 @@ class Tushare:
             start=date(2024, 1, 2),
             end=date(2024, 1, 2),
         )
-        rows = self.fetch(self.plan(request)[0], credential)
+        rows = self.fetch(self.plan(request)[0], configuration)
         if len(self.normalize(request, rows)) != 1:
             raise ProviderError("连接返回空数据，无法确认接口权限")
         return "交易日历接口验证通过；其他接口权限以实际同步结果为准"
@@ -108,12 +145,16 @@ class Tushare:
             ]
         if not request.start or not request.end:
             raise ProviderError("请选择同步日期范围")
-        if request.dataset == "daily":
+        if request.dataset in {"daily", "settlement"}:
             if not re.fullmatch(r"[A-Z]+[0-9]{3,4}\." + SUFFIXES[request.exchange], request.symbol):
                 raise ProviderError(
                     "请输入该交易所的实际合约代码，例如 RB2610.SHF；暂不支持连续合约"
                 )
             params["ts_code"] = request.symbol
+        elif request.dataset == "mapping":
+            if not re.fullmatch(r"[A-Z]+\." + SUFFIXES[request.exchange], request.symbol):
+                raise ProviderError("请输入主力代码，例如 RB.SHF；不接受实际合约或其他连续代码")
+            params = {"ts_code": request.symbol}
         elif request.symbol:
             raise ProviderError("交易日历不接受合约过滤")
         partitions = []
@@ -122,19 +163,29 @@ class Tushare:
             end = min(cursor + timedelta(days=30), request.end)
             partitions.append(
                 Partition(
-                    api="fut_daily" if request.dataset == "daily" else "fut_trade_cal",
+                    api={
+                        "mapping": "fut_mapping",
+                        "daily": "fut_daily",
+                        "settlement": "fut_settle",
+                        "calendar": "fut_trade_cal",
+                    }[request.dataset],
                     params=params
                     | {"start_date": cursor.strftime("%Y%m%d"), "end_date": end.strftime("%Y%m%d")},
                     fields=FIELDS[request.dataset].split(","),
-                    limit=2000,
+                    limit=1600 if request.dataset == "settlement" else 2000,
+                    start=cursor.isoformat(),
+                    end=end.isoformat(),
                 )
             )
             cursor = end + timedelta(days=1)
         return partitions
 
-    def fetch(self, partition: Partition, credential: str) -> list[dict]:
+    def fetch(self, partition: Partition, configuration: dict) -> list[dict]:
+        credential = configuration.get("token", "")
         if not credential:
             raise ProviderError("请先在设置 → 数据源中保存 Tushare Token")
+        if any(c.isspace() for c in credential):
+            raise ProviderError("Token 格式不正确")
         for attempt in range(3):
             try:
                 with httpx.Client(timeout=30, follow_redirects=False) as client:
@@ -228,12 +279,18 @@ class Tushare:
                     normalized = {
                         "exchange": request.exchange,
                         "symbol": symbol,
+                        "contract": request.exchange + "." + symbol.split(".")[0],
                         "name": row["name"],
                         "product": row["fut_code"],
+                        "currency": "CNY",
+                        "delivery_month": delivery_month(row["d_month"]),
+                        "last_delivery_on": day(row["last_ddate"]) if row["last_ddate"] else None,
                         "listed": day(row["list_date"]),
                         "delisted": day(row["delist_date"]) if row.get("delist_date") else None,
                         "trade_unit": row.get("trade_unit"),
                         "per_unit": number(row.get("per_unit"), optional=True),
+                        "multiplier": number(row.get("multiplier"), optional=True),
+                        "quote_unit_desc": row.get("quote_unit_desc"),
                         "quote_unit": row.get("quote_unit"),
                         "rules_status": "INCOMPLETE",
                     }
@@ -246,7 +303,48 @@ class Tushare:
                         and normalized["listed"] > normalized["delisted"]
                     ):
                         raise ProviderError("合约名称、品种或上市区间无效")
-                    key = symbol
+                    code = re.fullmatch(r"([A-Z]+)([0-9]{3,4})\.[A-Z]+", symbol)
+                    if code is None or code[1] != normalized["product"]:
+                        raise ProviderError("合约代码与来源品种不一致")
+                    month = normalized["delivery_month"]
+                    if month is not None and month.replace("-", "")[-len(code[2]) :] != code[2]:
+                        raise ProviderError("合约代码与来源完整交割年月不一致")
+                    normalized.update(contract_multiplier(normalized))
+                    key = (symbol, normalized["listed"])
+                elif request.dataset == "mapping":
+                    value = day(row["trade_date"])
+                    product = request.symbol.split(".")[0]
+                    target = row["mapping_ts_code"]
+                    if row["ts_code"] != request.symbol or not re.fullmatch(
+                        re.escape(product) + r"[0-9]{3,4}\." + SUFFIXES[request.exchange], target
+                    ):
+                        raise ProviderError("主力映射代码或目标合约与请求品种不一致")
+                    normalized = {
+                        "exchange": request.exchange,
+                        "product_id": request.exchange + "." + product,
+                        "symbol": request.symbol,
+                        "target_symbol": target,
+                        "role": "main",
+                        "trading_day": value,
+                        "available_at": None,
+                    }
+                    key = value
+                elif request.dataset == "settlement":
+                    value = day(row["trade_date"])
+                    if row["ts_code"] != request.symbol or row["exchange"] != request.exchange:
+                        raise ProviderError("结算参数的合约或交易所与请求不一致")
+                    normalized = {
+                        "symbol": request.symbol,
+                        "contract": request.exchange + "." + request.symbol.split(".")[0],
+                        "exchange": request.exchange,
+                        "trading_day": value,
+                        **{
+                            key: number(row[key], optional=True, nonnegative=key != "settle")
+                            for key in FIELDS["settlement"].split(",")
+                            if key not in {"ts_code", "trade_date", "exchange"}
+                        },
+                    }
+                    key = value
                 else:
                     value = day(row["trade_date"])
                     if row["ts_code"] != request.symbol:
@@ -274,7 +372,7 @@ class Tushare:
                         raise ProviderError("日线 OHLC 价格边界不一致")
                     key = value
                 if request.dataset != "contracts" and not (
-                    str(request.start) <= key <= str(request.end)
+                    isinstance(key, str) and str(request.start) <= key <= str(request.end)
                 ):
                     raise ProviderError("返回日期超出请求范围")
                 if key in keys:
@@ -286,3 +384,42 @@ class Tushare:
         return sorted(
             result, key=lambda r: str(r.get("trading_day", r.get("date", r.get("symbol"))))
         )
+
+
+def positive(value):
+    try:
+        number = Decimal(str(value))
+        if number.is_finite() and 0 < number <= 10**6:
+            return str(number)
+    except InvalidOperation:
+        pass
+    return None
+
+
+def contract_multiplier(row):
+    """Interpret this provider's quotation fields before publishing standard evidence."""
+    multiplier = None
+    note = "报价和交易单位未能明确匹配，请核实后手动填写研究乘数。"
+    if row["exchange"] == "CFFEX":
+        if re.fullmatch(r"(?:IF|IH|IC|IM)[0-9]{4}\.CFX", row["symbol"]):
+            multiplier = positive(row["multiplier"])
+            note = "股指合约使用 fut_basic.multiplier；请确认每点每手金额。"
+    elif row["trade_unit"] and row["quote_unit"] in {
+        "元/" + row["trade_unit"],
+        "人民币元/" + row["trade_unit"],
+    }:
+        multiplier = positive(row["per_unit"])
+        note = "报价为元/交易单位，使用 fut_basic.per_unit 作为每手乘数；请确认单位。"
+    return {"suggested_multiplier": multiplier, "multiplier_note": note}
+
+
+def delivery_month(value):
+    """Use the source full delivery year, never the displayed three/four digit code."""
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{6}", value):
+        raise ProviderError("交割月份必须提供完整 YYYYMM，不能从代码推断年份")
+    try:
+        return date.fromisoformat(value[:4] + "-" + value[4:] + "-01").strftime("%Y-%m")
+    except ValueError:
+        raise ProviderError("交割月份无效") from None

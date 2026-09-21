@@ -3,6 +3,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
+from storage_support import identity_store, raw_engine
 
 from asterion.api.app import create_app
 from asterion.identity.service import (
@@ -14,6 +15,7 @@ from asterion.identity.service import (
     sessions,
 )
 from asterion.platform.config import Settings
+from asterion.platform.secrets import digest_port
 
 
 class CaptureMail:
@@ -31,11 +33,11 @@ class CaptureMail:
 def identity(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path}/identity.db")
     mail = CaptureMail()
-    return Identity(engine, tmp_path, "test-secret" * 4, mail)
+    return Identity(identity_store(engine), tmp_path, digest_port("test-secret" * 4), mail)
 
 
 def register(identity):
-    identity.register("person@example.com", "correct-password-123", "Test", "User")
+    identity.register("person@example.com", "correct-password-123", "Test", "User", pin="246810")
     return identity.mailer.messages[-1][1]
 
 
@@ -103,7 +105,7 @@ def test_delivery_failure_rolls_back_and_failed_login_is_limited(identity):
     assert error.value.status == 429
 
 
-def test_api_contract_and_mail_configuration(tmp_path):
+def test_api_contract_and_mail_configuration(tmp_path, identity_instances):
     engine = create_engine(f"sqlite:///{tmp_path}/api.db")
     app = create_app(
         Settings(
@@ -112,7 +114,7 @@ def test_api_contract_and_mail_configuration(tmp_path):
             require_account=True,
             account_verification="email",
         ),
-        engine,
+        raw_engine(engine),
     )
     client = TestClient(app, headers={"Authorization": "Bearer " + "secret-test-token" * 3})
     assert client.get("/api/v1/snapshots").status_code == 401
@@ -135,14 +137,14 @@ def test_api_contract_and_mail_configuration(tmp_path):
         "username": "sender",
         "password": "mail-secret",
     }
-    app.state.identity.mailer.save(config)
-    assert "mail-secret" not in str(app.state.identity.mailer.public_config())
+    identity_instances[-1].mailer.save(config)
+    assert "mail-secret" not in str(identity_instances[-1].mailer.public_config())
     assert (tmp_path / "identity-mail.json").stat().st_mode & 0o777 == 0o600
     config["password"] = ""
-    app.state.identity.mailer.save(config)
-    assert app.state.identity.mailer.config()["password"] == "mail-secret"
+    identity_instances[-1].mailer.save(config)
+    assert identity_instances[-1].mailer.config()["password"] == "mail-secret"
     mail = CaptureMail()
-    app.state.identity.mailer = mail
+    identity_instances[-1].mailer = mail
     assert client.post("/api/v1/account/register", json=registration).status_code == 200
     assert (
         "session"
@@ -205,14 +207,14 @@ def test_smtp_uses_tls_and_propagates_failure(tmp_path, monkeypatch):
     assert calls == [("smtp.example.com", 465), ("sender", "secret")]
 
 
-def test_default_local_account_accepts_any_code_without_mail(tmp_path):
+def test_default_local_account_accepts_any_code_without_mail(tmp_path, identity_instances):
     app = create_app(
         Settings(token="local-test-token" * 3, data_root=tmp_path),
-        create_engine(f"sqlite:///{tmp_path}/local.db"),
+        raw_engine(create_engine(f"sqlite:///{tmp_path}/local.db")),
     )
     mail = CaptureMail()
     mail.fail = True
-    app.state.identity.mailer = mail
+    identity_instances[-1].mailer = mail
     client = TestClient(app, headers={"Authorization": "Bearer " + "local-test-token" * 3})
     assert client.get("/api/v1/account/capabilities").json()["verification"] == "local"
     user = {

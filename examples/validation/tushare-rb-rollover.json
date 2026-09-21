@@ -1,0 +1,244 @@
+{
+  "schema_version": 1,
+  "exchange": "SHFE",
+  "symbol": "RB.SHF",
+  "start": "2025-08-04",
+  "end": "2025-09-05",
+  "trading_time": {
+    "id": "3ae2f808b2d72c80b08eb5829ca0f30c0d80d9f90f9043521810e60ba86e51e5",
+    "spec": {
+      "schema_version": 1,
+      "exchange": "SHFE",
+      "product": "RB",
+      "title": "RB 2025-08 至 09 主力换月固定验收",
+      "timezone": "Asia/Shanghai",
+      "calendar_source": "上期所2025休市安排 https://www.shfe.com.cn/publicnotice/notice/202412/t20241223_824109.html；固定8月1日至9月5日，无节假日",
+      "night_source": "上期所交易时间 https://www.shfe.cn/services/calenderandholidays/tradinghours/；螺纹钢21:00—23:00，20:55起集合竞价，范围内无节前停夜盘",
+      "calendar": [
+        {
+          "date": "2025-08-01",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-02",
+          "is_open": false,
+          "night_open": false
+        },
+        {
+          "date": "2025-08-03",
+          "is_open": false,
+          "night_open": false
+        },
+        {
+          "date": "2025-08-04",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-05",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-06",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-07",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-08",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-09",
+          "is_open": false,
+          "night_open": false
+        },
+        {
+          "date": "2025-08-10",
+          "is_open": false,
+          "night_open": false
+        },
+        {
+          "date": "2025-08-11",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-12",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-13",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-14",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-15",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-16",
+          "is_open": false,
+          "night_open": false
+        },
+        {
+          "date": "2025-08-17",
+          "is_open": false,
+          "night_open": false
+        },
+        {
+          "date": "2025-08-18",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-19",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-20",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-21",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-22",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-23",
+          "is_open": false,
+          "night_open": false
+        },
+        {
+          "date": "2025-08-24",
+          "is_open": false,
+          "night_open": false
+        },
+        {
+          "date": "2025-08-25",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-26",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-27",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-28",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-29",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-08-30",
+          "is_open": false,
+          "night_open": false
+        },
+        {
+          "date": "2025-08-31",
+          "is_open": false,
+          "night_open": false
+        },
+        {
+          "date": "2025-09-01",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-09-02",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-09-03",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-09-04",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-09-05",
+          "is_open": true,
+          "night_open": true
+        }
+      ],
+      "periods": [
+        {
+          "start": "2025-08-04",
+          "end": "2025-09-05",
+          "source": "上期所螺纹钢连续交易时段；仅用于该固定验收范围",
+          "day": [
+            {
+              "start": "09:00:00",
+              "end": "10:15:00",
+              "end_offset": 0,
+              "phase": "continuous"
+            },
+            {
+              "start": "10:30:00",
+              "end": "11:30:00",
+              "end_offset": 0,
+              "phase": "continuous"
+            },
+            {
+              "start": "13:30:00",
+              "end": "15:00:00",
+              "end_offset": 0,
+              "phase": "continuous"
+            }
+          ],
+          "night": [
+            {
+              "start": "20:55:00",
+              "end": "21:00:00",
+              "end_offset": 0,
+              "phase": "auction"
+            },
+            {
+              "start": "21:00:00",
+              "end": "23:00:00",
+              "end_offset": 0,
+              "phase": "continuous"
+            }
+          ]
+        }
+      ],
+      "exceptions": []
+    }
+  },
+  "minimum_transitions": 1
+}

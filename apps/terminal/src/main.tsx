@@ -1,18 +1,21 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./app/App";
-import { Settings } from "./settings/Settings";
+import { ApplicationHost } from "./extensions/ApplicationHost";
+import { distribution } from "./distribution";
 import "./theme/style.css";
-import { WindowFrame } from "./components/WindowFrame";
+import { Frame } from "./plugins/workflow/Frame";
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <WindowFrame>
-      {new URLSearchParams(location.search).get("screen") === "settings" ? (
-        <Settings />
-      ) : (
-        <App />
-      )}
-    </WindowFrame>
+    <Frame>
+      <ApplicationHost
+        plugins={distribution}
+        screen={
+          new URLSearchParams(location.search).get("screen") === "settings"
+            ? "terminal.settings"
+            : "terminal.workspace"
+        }
+      />
+    </Frame>
   </React.StrictMode>,
 );

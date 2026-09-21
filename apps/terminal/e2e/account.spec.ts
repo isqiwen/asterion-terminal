@@ -7,6 +7,8 @@ test("registration, verification, login and logout follow service responses", as
   let verified = false;
   let registerCalls = 0;
   await page.route("**/api/v1/**", async (route) => {
+    if (route.request().url().endsWith("/access/scopes")) return route.fulfill({ json: { token: "scope-fixture", expires: Date.now() / 1000 + 300 } });
+
     const path = new URL(route.request().url()).pathname;
     if (path.includes("/account/security")) return route.fallback();
     const body = route.request().postDataJSON();
@@ -107,6 +109,8 @@ test("password reset waits for email code and matching passwords", async ({
   await nativeContext(page.context());
   let resets = 0;
   await page.route("**/api/v1/**", async (route) => {
+    if (route.request().url().endsWith("/access/scopes")) return route.fulfill({ json: { token: "scope-fixture", expires: Date.now() / 1000 + 300 } });
+
     if (route.request().url().endsWith("/reset")) {
       resets++;
       expect(route.request().postDataJSON().code).toBe("123456");
@@ -135,6 +139,8 @@ test("local entry explains verification and offers no mail configuration", async
 }) => {
   await nativeContext(page.context());
   await page.route("**/api/v1/**", async (route) => {
+    if (route.request().url().endsWith("/access/scopes")) return route.fulfill({ json: { token: "scope-fixture", expires: Date.now() / 1000 + 300 } });
+
     await route.fulfill({
       json: route.request().url().endsWith("/capabilities")
         ? { verification: "local", code_length: 6 }

@@ -1,7 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
-import { useLanguage, windowTitle, type WindowKind } from "../account/language";
-import { useEffect, useState, type ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEffect, useState, type ReactNode } from "react";
 import { nativeDesktop } from "../deployment/desktop";
 import "./window-frame.css";
 
@@ -16,40 +14,23 @@ const edges = [
   "SouthWest",
 ] as const;
 
-export function WindowFrame({ children }: { children: ReactNode }) {
+export function WindowFrame({
+  children,
+  title,
+  language,
+}: {
+  children: ReactNode;
+  title: string;
+  language: string;
+}) {
   const [custom, setCustom] = useState(false);
-  const [language] = useLanguage();
-  const [kind, setKind] = useState<WindowKind>(() =>
-    new URLSearchParams(location.search).get("screen") === "settings"
-      ? "settings"
-      : nativeDesktop && getCurrentWindow().label.startsWith("workspace-")
-        ? "workspace"
-        : "main",
-  );
-  const title = windowTitle(language, kind);
   const zh = language === "zh";
-
   useEffect(() => {
     document.title = title;
     if (nativeDesktop)
       void getCurrentWindow().setTitle(title).catch(console.error);
   }, [title]);
 
-  useEffect(() => {
-    if (!nativeDesktop || !getCurrentWindow().label.startsWith("workspace-"))
-      return;
-    let active = true;
-    void invoke<{ layout: { kind: "workspace" | "chart" } }>(
-      "desktop_workspace_read",
-    )
-      .then(({ layout }) => {
-        if (active) setKind(layout.kind === "chart" ? "chart" : "workspace");
-      })
-      .catch(console.error);
-    return () => {
-      active = false;
-    };
-  }, []);
   const [maximized, setMaximized] = useState(false);
   const [error, setError] = useState("");
 

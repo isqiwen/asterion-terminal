@@ -1,0 +1,9 @@
+.plugin-drop-zone {
+  border: 1px dashed var(--line);
+  background: var(--panel);
+  padding: 0 12px;
+}
+.plugin-drop-zone .setting-row { border-bottom: 0; flex-wrap: wrap; }
+.plugin-drop-zone:hover, .plugin-drop-zone:focus-within { border-color: var(--accent-line); }
+.plugin-drop-zone.is-dragging { border-color: var(--accent); background: var(--accent-surface); }
+.plugin-drop-zone.is-busy { opacity: 0.65; }

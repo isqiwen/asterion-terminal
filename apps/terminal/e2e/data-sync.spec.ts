@@ -1,3 +1,4 @@
+import { providerFixture } from "./provider-fixture";
 import { expect, test } from "@playwright/test";
 import { nativeContext } from "./native";
 
@@ -5,11 +6,29 @@ const provider = {
   id: "tushare",
   name: "Tushare Pro",
   version: "1.0.0",
-  api_version: 1,
+  api_version: 2,
   configured: true,
+  description: "Tushare 历史期货数据",
+  demo: false,
+  configuration: {
+    schema_version: 1,
+    fields: [
+      {
+        id: "token",
+        label: "Tushare Token",
+        type: "string",
+        secret: true,
+        required: true,
+        description: "Tushare Pro 接口凭据",
+        placeholder: "输入 Token",
+        max_length: 256,
+      },
+    ],
+  },
   capabilities: [
     {
       id: "contracts",
+      type_id: "futures.contracts",
       label: "期货合约资料",
       exchanges: ["SHFE", "DCE"],
       date_range: false,
@@ -18,6 +37,7 @@ const provider = {
     },
     {
       id: "calendar",
+      type_id: "futures.calendar",
       label: "期货交易日历",
       exchanges: ["SHFE", "DCE"],
       date_range: true,
@@ -25,7 +45,13 @@ const provider = {
       description: "交易日与休市日",
     },
     {
+      id: "settlement", type_id: "futures.settlement", label: "结算参数",
+      exchanges: ["SHFE", "DCE"], date_range: true, symbol_required: true,
+      description: "实际合约结算参数",
+    },
+    {
       id: "daily",
+      type_id: "futures.daily",
       label: "期货历史日线",
       exchanges: ["SHFE", "DCE"],
       date_range: true,
@@ -40,7 +66,8 @@ const user = {
   last_name: "Test",
 };
 
-test("provider sync submits a credential-free task and previews an immutable release", async ({
+for (const dataset of ["daily", "settlement"]) {
+test(`${dataset} sync pins contract evidence and previews an immutable release`, async ({
   context,
   page,
 }) => {
@@ -48,7 +75,7 @@ test("provider sync submits a credential-free task and previews an immutable rel
   let submitted: Record<string, unknown> | null = null;
   let fail = true;
   const definition = {
-    id: "futures.daily",
+    id: `futures.${dataset}`,
     label: "历史日线",
     domain: "market",
     domain_label: "行情",
@@ -122,10 +149,12 @@ test("provider sync submits a credential-free task and previews an immutable rel
     result: { dataset_id: release.id, completed: 1, total: 1 },
   };
   await context.route("**/api/v1/**", (route) => {
+    if (route.request().url().endsWith("/access/scopes")) return route.fulfill({ json: { token: "scope-fixture", expires: Date.now() / 1000 + 300 } });
+
     const path = new URL(route.request().url()).pathname;
     if (path.includes("/account/security")) return route.fallback();
     if (path.endsWith("/data/providers"))
-      return route.fulfill({ json: [provider] });
+      return route.fulfill({ json: [providerFixture(provider)] });
     if (path.endsWith("/data/sync")) {
       if (fail) {
         fail = false;
@@ -152,6 +181,7 @@ test("provider sync submits a credential-free task and previews an immutable rel
       });
     if (path.endsWith("/data/catalog")) {
       const params = new URL(route.request().url()).searchParams;
+      if (params.get("type_id") === "futures.contracts") return route.fulfill({json: {items: [{...release, id: "contracts-fixed", dataset_id: "contracts-set"}], total: 1}});
       let items = submitted
         ? params.get("layer") === "RAW"
           ? [raw]
@@ -161,6 +191,7 @@ test("provider sync submits a credential-free task and previews an immutable rel
       return route.fulfill({ json: { items, total: items.length, offset: 0 } });
     }
     if (path.includes("/data/catalog/") && path.endsWith("/versions")) {
+      if (path.includes("contracts-set")) return route.fulfill({json: {items: [{...release, id: "contracts-fixed"}], total: 1}});
       const items = path.includes("raw-dataset") ? [raw] : [release, older];
       return route.fulfill({ json: { items, total: items.length, offset: 0 } });
     }
@@ -225,17 +256,24 @@ test("provider sync submits a credential-free task and previews an immutable rel
     .getByRole("navigation", { name: "业务工作区" })
     .getByRole("button", { name: "数据", exact: true })
     .click();
-  await page.getByLabel("数据类型", { exact: true }).selectOption("daily");
-  await page.getByLabel("实际合约代码").fill("RB2610.SHF");
+  await page.getByLabel("数据类型", { exact: true }).selectOption(dataset);
+  await page.getByLabel("来源代码").fill("RB2610.SHF");
   await page.getByLabel("开始日期").fill("2024-01-02");
   await page.getByLabel("结束日期").fill("2024-01-02");
+  await page.getByLabel("同步合约资料版本").selectOption("contracts-fixed");
+  await page.getByLabel("来源代码").fill("rb2610.SHF");
+  await expect(page.getByLabel("来源代码")).toHaveValue("rb2610.SHF");
+  await expect(page.getByLabel("同步合约资料版本")).toHaveValue("");
+  await page.getByLabel("来源代码").fill("RB2610.SHF");
+  await page.getByLabel("同步合约资料版本").selectOption("contracts-fixed");
   await page.getByRole("button", { name: "开始同步" }).click();
   await expect(page.getByRole("alert")).toContainText("接口权限不足");
   await page.getByRole("button", { name: "开始同步" }).click();
   await expect(page.getByRole("status")).toContainText("同步任务已提交");
   expect(submitted).toMatchObject({
     provider: "tushare",
-    dataset: "daily",
+    contracts_version_id: "contracts-fixed",
+    dataset,
     symbol: "RB2610.SHF",
     start: "2024-01-02",
     end: "2024-01-02",
@@ -276,7 +314,7 @@ test("provider sync submits a credential-free task and previews an immutable rel
   await page.getByLabel("加工阶段").selectOption("STANDARD");
   await page.screenshot({ path: "../../.state/data-sync-ui.png" });
   await page.getByRole("button", { name: "数据同步", exact: true }).click();
-  await page.getByLabel("数据源", { exact: true }).selectOption("local_file");
+  await page.getByRole("button", { name: "导入数据", exact: true }).click();
   await expect(page.getByLabel("CSV 数据")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "开始同步", exact: true }),
@@ -287,6 +325,8 @@ test("provider sync submits a credential-free task and previews an immutable rel
   ).toBeVisible();
 });
 
+}
+
 test("data source settings keep credentials out of persistent frontend storage", async ({
   context,
   page,
@@ -294,18 +334,38 @@ test("data source settings keep credentials out of persistent frontend storage",
   await nativeContext(context);
   let configured = false;
   let saved = "";
+  let revision = 0;
   await context.route("**/api/v1/**", (route) => {
+    if (route.request().url().endsWith("/access/scopes")) return route.fulfill({ json: { token: "scope-fixture", expires: Date.now() / 1000 + 300 } });
+
     const path = new URL(route.request().url()).pathname;
     if (path.includes("/account/security")) return route.fallback();
     if (path.endsWith("/data/providers"))
-      return route.fulfill({ json: [{ ...provider, configured }] });
-    if (path.endsWith("/credential")) {
-      saved = route.request().postDataJSON().token;
-      configured = !!saved;
-      return route.fulfill({ json: { configured } });
+      return route.fulfill({ json: [providerFixture({ ...provider, configured })] });
+    if (path.endsWith("/configuration")) {
+      if (route.request().method() === "POST") {
+        const body = route.request().postDataJSON();
+        expect(body.expected_revision).toBe(revision);
+        if (Object.hasOwn(body.secrets, "token"))
+          saved = body.secrets.token ?? "";
+        configured = !!saved;
+        revision++;
+      }
+      return route.fulfill({
+        json: {
+          provider: "tushare",
+          revision,
+          schema_version: 1,
+          values: {},
+          secret_fields: configured ? ["token"] : [],
+          configured,
+        },
+      });
     }
-    if (path.endsWith("/check"))
-      return route.fulfill({ json: { message: "交易日历接口验证通过" } });
+    if (path.endsWith("/configuration/check"))
+      return route.fulfill({
+        json: { status: "verified", message: "交易日历接口验证通过", revision },
+      });
     return route.fulfill({
       json: path.endsWith("/login")
         ? { session: "session", user }
@@ -326,7 +386,7 @@ test("data source settings keep credentials out of persistent frontend storage",
   const field = page.getByLabel("Tushare Token", { exact: true });
   await expect(field).toHaveAttribute("type", "password");
   await field.fill("synthetic-only-provider-secret");
-  await page.getByRole("button", { name: "保存 Token" }).click();
+  await page.getByRole("button", { name: "保存配置", exact: true }).click();
   await expect(field).toHaveValue("");
   expect(saved).toBe("synthetic-only-provider-secret");
   expect(
@@ -334,12 +394,14 @@ test("data source settings keep credentials out of persistent frontend storage",
       () => JSON.stringify(localStorage) + JSON.stringify(sessionStorage),
     ),
   ).not.toContain(saved);
-  await page.getByRole("button", { name: "测试已保存的凭据" }).click();
+  await page.getByRole("button", { name: "测试当前配置" }).click();
   await expect(page.getByRole("status")).toContainText("验证通过");
-  await page.getByRole("button", { name: "移除凭据" }).click();
-  await expect(page.getByRole("status")).toContainText("已移除");
+  await page.getByRole("button", { name: "移除已存凭据" }).click();
+  await page.getByRole("button", { name: "保存配置", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("配置已保存");
+  expect(saved).toBe("");
   await expect(
-    page.getByRole("button", { name: "测试已保存的凭据" }),
+    page.getByRole("button", { name: "测试当前配置" }),
   ).toBeDisabled();
 });
 
@@ -349,11 +411,24 @@ test("data source shortcut selects its settings tab on creation and window reuse
 }) => {
   await nativeContext(context);
   await context.route("**/api/v1/**", (route) => {
+    if (route.request().url().endsWith("/access/scopes")) return route.fulfill({ json: { token: "scope-fixture", expires: Date.now() / 1000 + 300 } });
+
     const path = new URL(route.request().url()).pathname;
     if (path.includes("/account/security")) return route.fallback();
+    if (path.endsWith("/configuration"))
+      return route.fulfill({
+        json: {
+          provider: "tushare",
+          revision: 1,
+          schema_version: 1,
+          values: {},
+          secret_fields: ["token"],
+          configured: true,
+        },
+      });
     return route.fulfill({
       json: path.endsWith("/data/providers")
-        ? [provider]
+        ? [providerFixture(provider)]
         : path.endsWith("/login")
           ? { session: "session", user }
           : path.endsWith("/me")

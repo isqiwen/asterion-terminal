@@ -1,0 +1,68 @@
+{
+  "api_version": 1,
+  "id": "org.example.calendar",
+  "version": "1.0.0",
+  "title": "自定义日历与诊断视图",
+  "description": "开发示例；需要你提供真实的 HTTPS 日历接口。",
+  "runtime": "python",
+  "entry": "plugin.py",
+  "trust": "local-code",
+  "contributions": {
+    "data.provider": {
+      "id": "org_example_calendar",
+      "name": "自定义日历",
+      "version": "1.0.0",
+      "api_version": 2,
+      "capabilities": [
+        {
+          "id": "calendar",
+          "label": "交易日历",
+          "type_id": "futures.calendar",
+          "exchanges": [
+            "SHFE"
+          ],
+          "date_range": true,
+          "symbol_required": false,
+          "description": "按日期读取日历记录",
+          "defaults": {}
+        }
+      ],
+      "configuration": {
+        "schema_version": 1,
+        "fields": [
+          {
+            "id": "endpoint",
+            "label": "日历接口",
+            "type": "string",
+            "secret": false,
+            "required": true,
+            "default": null,
+            "description": "返回 JSON 日历数组的 HTTPS 地址，无默认或合成数据",
+            "placeholder": "",
+            "min_length": 1,
+            "max_length": null,
+            "minimum": null,
+            "maximum": null
+          }
+        ]
+      },
+      "description": "从你配置的 HTTPS JSON 接口读取真实交易日历。",
+      "demo": false
+    },
+    "ui.table": {
+      "id": "contract",
+      "title": "插件接口信息",
+      "columns": [
+        {
+          "key": "contract",
+          "label": "扩展点"
+        },
+        {
+          "key": "runtime",
+          "label": "运行方式"
+        }
+      ]
+    }
+  },
+  "requires": {}
+}

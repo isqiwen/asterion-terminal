@@ -19,6 +19,7 @@ import httpx
 from pydantic_settings import SettingsConfigDict
 
 from asterion.platform.config import Settings
+from asterion.runtime.build_identity import runtime_identity
 
 
 class DesktopSettings(Settings):
@@ -101,7 +102,7 @@ def healthy(settings: Settings) -> bool:
         return False
 
 
-def service_plist(state: Path, pg_root: Path) -> dict:
+def service_plist(state: Path, pg_root: Path, build_id: str | None = None) -> dict:
     return {
         "Label": LABEL,
         "ProgramArguments": executable()
@@ -111,16 +112,27 @@ def service_plist(state: Path, pg_root: Path) -> dict:
         "KeepAlive": True,
         "ThrottleInterval": 5,
         "ProcessType": "Background",
-        "EnvironmentVariables": {"PYINSTALLER_RESET_ENVIRONMENT": "1", "LC_ALL": "C", "LANG": "C"},
+        "EnvironmentVariables": {
+            "PYINSTALLER_RESET_ENVIRONMENT": "1",
+            "LC_ALL": "C",
+            "LANG": "C",
+            "ASTERION_RUNTIME_BUILD": build_id or runtime_identity(pg_root),
+        },
         "StandardOutPath": str(state / "service.log"),
         "StandardErrorPath": str(state / "service.log"),
     }
 
 
 def launchctl(*arguments: str, check=True):
-    return subprocess.run(
-        ["/bin/launchctl", *arguments], capture_output=True, text=True, check=check, timeout=30
+    result = subprocess.run(
+        ["/bin/launchctl", *arguments], capture_output=True, text=True, check=False, timeout=30
     )
+    if check and result.returncode:
+        raise RuntimeError(
+            f"无法管理本机 launchd 服务（{arguments[0]}，退出码 {result.returncode}）："
+            f"{result.stderr.strip() or result.stdout.strip()}"
+        )
+    return result
 
 
 def systemctl(*arguments: str, check=True):
@@ -144,7 +156,7 @@ def systemd_quote(value: str, *, command=False) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def service_unit(state: Path, pg_root: Path) -> str:
+def service_unit(state: Path, pg_root: Path, build_id: str | None = None) -> str:
     if any(c in str(state) + str(pg_root) for c in "\n\r"):
         raise ValueError("服务路径不能包含换行符")
     arguments = executable() + [
@@ -159,6 +171,7 @@ def service_unit(state: Path, pg_root: Path) -> str:
         f"ExecStart={' '.join(systemd_quote(a, command=True) for a in arguments)}\n"
         f"WorkingDirectory={str(state).replace('%', '%%')}\n"
         "Environment=PYINSTALLER_RESET_ENVIRONMENT=1 LC_ALL=C LANG=C\n"
+        f"Environment=ASTERION_RUNTIME_BUILD={build_id or runtime_identity(pg_root)}\n"
         "Restart=always\nRestartSec=5\nKillMode=mixed\nTimeoutStopSec=130\n"
         "UMask=0077\n"
         f"StandardOutput=append:{str(state / 'service.log').replace('%', '%%')}\n"
@@ -166,15 +179,17 @@ def service_unit(state: Path, pg_root: Path) -> str:
     )
 
 
-def start_service(state: Path, pg_root: Path) -> None:
+def start_service(state: Path, pg_root: Path, build_id: str | None = None) -> None:
     if sys.platform == "linux":
         config_home = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
         path = config_home / "systemd/user" / f"{LABEL}.service"
         path.parent.mkdir(parents=True, exist_ok=True)
-        desired = service_unit(state, pg_root)
+        desired = service_unit(state, pg_root, build_id)
         changed = not path.exists() or path.read_text() != desired
         if changed:
-            systemctl("stop", f"{LABEL}.service", check=False)
+            if path.exists():
+                systemctl("stop", f"{LABEL}.service")
+                wait_stopped(state)
             temporary = path.with_suffix(".tmp")
             temporary.write_text(desired)
             temporary.chmod(0o600)
@@ -186,19 +201,39 @@ def start_service(state: Path, pg_root: Path) -> None:
     domain = f"gui/{os.getuid()}"
     path = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
     path.parent.mkdir(parents=True, exist_ok=True)
-    desired = service_plist(state, pg_root)
+    desired = service_plist(state, pg_root, build_id)
     current = plistlib.loads(path.read_bytes()) if path.exists() else None
     installed = launchctl("print", f"{domain}/{LABEL}", check=False).returncode == 0
     if current != desired:
         if installed:
             launchctl("bootout", f"{domain}/{LABEL}")
+            # bootout can return before launchd has removed the old registration.
+            deadline = time.monotonic() + 40
+            while launchctl("print", f"{domain}/{LABEL}", check=False).returncode == 0:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(
+                        f"旧版后台服务仍在停止，请稍后重试。诊断日志：{state / 'service.log'}"
+                    )
+                time.sleep(0.2)
+            wait_stopped(state)
             installed = False
         temporary = path.with_suffix(".tmp")
         temporary.write_bytes(plistlib.dumps(desired))
         temporary.chmod(0o600)
         temporary.replace(path)
     if not installed:
-        launchctl("bootstrap", domain, str(path))
+        # A removed registration may briefly remain unavailable for reuse.
+        for attempt in range(5):
+            result = launchctl("bootstrap", domain, str(path), check=False)
+            if result.returncode == 0:
+                return
+            if result.returncode != 5 or attempt == 4:
+                raise RuntimeError(
+                    f"无法注册本机后台服务（退出码 {result.returncode}）："
+                    f"{result.stderr.strip() or result.stdout.strip()}。"
+                    f"服务配置：{path}；诊断日志：{state / 'service.log'}"
+                )
+            time.sleep(0.5)
 
 
 def bootstrap(state: Path, pg_root: Path) -> dict:
@@ -210,10 +245,11 @@ def bootstrap(state: Path, pg_root: Path) -> dict:
         fcntl.flock(lock, fcntl.LOCK_EX)
         config = load_config(state)
         settings = runtime_settings(state, config)
-        start_service(state, pg_root)
+        build_id = runtime_identity(pg_root)
+        start_service(state, pg_root, build_id)
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
-            if healthy(settings) and worker_ready(state):
+            if healthy(settings) and worker_ready(state) and running_build(state) == build_id:
                 return {
                     "api_url": settings.api_url,
                     "token": settings.token,
@@ -223,11 +259,19 @@ def bootstrap(state: Path, pg_root: Path) -> dict:
         raise RuntimeError(f"本机服务尚未就绪，请重试。诊断日志：{state / 'service.log'}")
 
 
+def running_build(state: Path) -> str | None:
+    try:
+        status = json.loads((state / "runtime-status.json").read_text())
+        return status["build_id"] if 0 <= time.time() - status["observed_at"] < 5 else None
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+
+
 def worker_ready(state: Path) -> bool:
     try:
         status = json.loads((state / "runtime-status.json").read_text())
-        return status["worker"] == "running" and time.time() - status["observed_at"] < 5
-    except (FileNotFoundError, ValueError, KeyError):
+        return status["worker"] == "running" and 0 <= time.time() - status["observed_at"] < 5
+    except (OSError, ValueError, TypeError, KeyError):
         return False
 
 
@@ -236,7 +280,11 @@ def stop(state: Path) -> None:
         systemctl("stop", f"{LABEL}.service")
     else:
         launchctl("bootout", f"gui/{os.getuid()}/{LABEL}", check=False)
-    # The supervisor performs a graceful shutdown; report completion only after its lock releases.
+    wait_stopped(state)
+
+
+def wait_stopped(state: Path) -> None:
+    # Never install a replacement while the previous supervisor still owns the database.
     with (state / "supervisor.lock").open("a") as lock:
         deadline = time.monotonic() + 40
         while time.monotonic() < deadline:
@@ -354,6 +402,10 @@ def supervise(state: Path, pg_root: Path):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return
+        build_id = runtime_identity(pg_root)
+        expected = os.environ.get("ASTERION_RUNTIME_BUILD")
+        if expected is not None and expected != build_id:
+            raise RuntimeError("应用运行文件已变化，请重新打开应用完成后台更新")
         config = load_config(state)
         settings = runtime_settings(state, config)
         stopping = False
@@ -368,15 +420,14 @@ def supervise(state: Path, pg_root: Path):
         environment = child_environment(settings)
         try:
             initialize_postgres(state, pg_root, config)
-            from asterion.data.public import initialize_catalog
-            from asterion.platform.store import database, metadata
+            from asterion.platform.store import database
+            from asterion.runtime.initialize import initialize
 
             engine = database(settings.database_url)
-            metadata.create_all(engine)
-            initialize_catalog(engine)
-            engine.dispose()
-            for directory in ("sources", "published", "artifacts", "backups"):
-                (settings.data_root / directory).mkdir(parents=True, exist_ok=True)
+            try:
+                initialize(settings, engine)
+            finally:
+                engine.dispose()
             last_start: dict[str, float] = {}
             while not stopping:
                 for role in ("serve", "worker"):
@@ -396,6 +447,7 @@ def supervise(state: Path, pg_root: Path):
                     for role, proc in processes.items()
                 }
                 status["observed_at"] = time.time()
+                status["build_id"] = build_id
                 temporary = state / "runtime-status.tmp"
                 temporary.write_text(json.dumps(status))
                 temporary.replace(state / "runtime-status.json")

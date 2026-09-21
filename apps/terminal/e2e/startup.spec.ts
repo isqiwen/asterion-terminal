@@ -1,42 +1,24 @@
 import { expect, test } from "@playwright/test";
+import { nativeContext } from "./native";
 test("native startup retries and waits for health before showing sign in", async ({
-  page,
+  page, context,
 }) => {
-  await page.addInitScript(() => {
-    let attempts = 0;
-    Object.assign(window, {
-      isTauri: true,
-      __TAURI_INTERNALS__: {
-        invoke: async (command: string) => {
-          if (command === "desktop_workspace_read")
-            return {
-              revision: 0,
-              id: "main",
-              layout: { version: 4, view: "市场" },
-            };
-          if (command === "desktop_account_read")
-            return { revision: 0, token: null };
-          if (command === "desktop_window_id") return "main";
-          if (command === "desktop_info") return null;
-          if (command === "desktop_session") {
-            attempts++;
-            await new Promise((resolve) => setTimeout(resolve, 100));
-            if (attempts === 1) throw new Error("测试：本机服务启动失败");
-            return {
-              api_url: "http://127.0.0.1:8000",
-              token: "fixture",
-              data_directory: "/test",
-            };
-          }
-        },
-      },
-    });
+  let attempts = 0;
+  await nativeContext(context, {
+    desktop_info: () => null,
+    desktop_session: async () => {
+      attempts++;
+      if (attempts === 1) throw new Error("测试：本机服务启动失败");
+      return {api_url:"http://127.0.0.1:8000", token:"fixture", data_directory:"/test"};
+    },
   });
   let release!: () => void;
   const health = new Promise<void>((resolve) => {
     release = resolve;
   });
   await page.route("**/api/v1/**", async (route) => {
+    if (route.request().url().endsWith("/access/scopes")) return route.fulfill({ json: { token: "scope-fixture", expires: Date.now() / 1000 + 300 } });
+
     if (route.request().url().endsWith("/health")) await health;
     await route.fulfill({ json: { status: "ready" } });
   });
