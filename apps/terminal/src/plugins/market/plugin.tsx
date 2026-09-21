@@ -143,7 +143,7 @@ export const plugin: TerminalPlugin<PanelContext, SettingsContext> = {
   apiVersion: 1,
   extensions: widgets,
   id: "asterion.market",
-  requires: ["asterion.data", "asterion.overview"],
+  requires: ["asterion.data", "asterion.overview", "asterion.connections"],
   workspaces: [
     {
       id: "workspace.market",

@@ -20,12 +20,19 @@
   --success: #3fba80;
   --danger: #e57878;
   --danger-surface: #261616;
-  --quote-red: #dd727c;
-  --quote-green: #65bda8;
+  --quote-red: #ff3b30;
+  --quote-green: #00c853;
+  --quote-up: var(--quote-red);
+  --quote-down: var(--quote-green);
   --row-height: 27px;
   --control-height: 27px;
   --control-radius: 0px;
   --background-grid:
     linear-gradient(#ffffff04 1px, transparent 1px),
     linear-gradient(90deg, #ffffff04 1px, transparent 1px);
+}
+
+:root[data-quote-colors="international"] {
+  --quote-up: var(--quote-green);
+  --quote-down: var(--quote-red);
 }

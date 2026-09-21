@@ -54,7 +54,7 @@
 | 数据 | `data/library.py`、`ingestion.py`、`partitions.py`、`coverage.py`：证据、固定版本、累积发布、手动补齐 | 来源权威性验收、派生加工、引用与物理删除的原子协调、自动调度 |
 | 扩展 | `data/providers/public.py` 与 `data/types/public.py`：内置可信注册协议；配置表单/修订与 Tushare 同步通道；合成提供方仅用于测试 | 第三方安装器、独立扩展宿主、授权代理、稳定对外 SDK |
 | 业务 | `data` 与 `research` 已有纵向切片；`research/engine.py` 纯计算，通过 `data.public.VersionReader` 读取固定版本；`identity` 为独立横切模块 | 研究仍限单合约日线假设模型；`trading`、`intelligence` 尚无完整业务实现；CLI 的 node 入口明确拒绝运行 |
-| 生命周期 | 首次设置下载 Python，Linux 系统 PostgreSQL / macOS 下载运行包、macOS launchd / Linux systemd 支持 | 运行包自动升级、Windows 与公众分发验收；当前格式备份、隔离恢复、环境切换与回滚已有实现 |
+| 生命周期 | 首次设置下载 Python，Linux apt / macOS Homebrew 提供 PostgreSQL、macOS launchd / Linux systemd 支持 | 运行包自动升级、Windows 与公众分发验收；当前格式备份、隔离恢复、环境切换与回滚已有实现 |
 
 Worker 已使用独立派生的任务接口身份，工作台业务请求使用账户绑定的短期作用域凭证。外部本地插件只经单次 JSON 协议接收所需输入，不接收本机主令牌或数据库 URL；同用户进程仍不构成恶意代码沙箱。`public.py` 是内置模块边界，外部开发使用独立 `asterion_plugin_sdk`；当前契约和限制见 [插件系统](plugin-system.md)。
 
@@ -191,7 +191,7 @@ HTTP 继续承担查询和命令；可恢复事件流按实际需求加入，当
 
 ### 默认本机启动
 
-安装桌面终端后，由首次设置窗口下载并校验匹配平台的 Python 与依赖库；Linux PostgreSQL 由 apt 安装，macOS 下载运行包。随后，在应用专用目录建立运行环境，初始化 PostgreSQL，注册本机代理并启动 `serve` 与默认 `worker`。`node` 在配置账户并启动模拟或实盘时创建。默认无需额外机器、共享存储或 Docker。
+安装桌面终端后，由首次设置窗口下载并校验匹配平台的 Python 与依赖库；PostgreSQL 由 Linux apt 或 macOS Homebrew 安装。随后，在应用专用目录建立运行环境，初始化 PostgreSQL，注册本机代理并启动 `serve` 与默认 `worker`。`node` 在配置账户并启动模拟或实盘时创建。默认无需额外机器、共享存储或 Docker。
 
 本机支持能力由预检确定：操作系统、架构、连接器、GPU 与磁盘条件均需匹配对应运行包；不支持的连接器在终端中明确显示原因，并允许为该服务选择兼容机器。
 
@@ -217,6 +217,8 @@ asterion node --config config/simnow.toml
 交易运行的授权不能依赖每个事件都向 serve 联网续期。部署时固定经批准的授权快照、账户/环境、到期时间和离线动作策略，由 node 本地验证；到期或超出允许离线时间后拒绝新开仓。撤单、查询与对账使用独立的受限恢复权限，且仍依赖经纪商连接实际可用。控制面离线期间不承诺即时撤销旧授权；恢复连接必须同步撤销状态再放开新意图。普通采集插件的短期任务凭证与交易节点的运行授权分别建模。
 
 ## 5. 业务职责及状态归属
+
+账户连接与实时接入的最新拆分决策见 [账户连接与行情接入插件设计](broker-connections.md)：业务 UI 归功能插件，CTP/券商协议归接入插件，同协议券商复用配置；SimNow/CTP 只读调用链已按此拆分，真实券商联调与交易执行尚未验收。
 
 期货领域建设顺序、精确所有权及完成门槛以 [期货领域基线](futures-domain.md) 为准。下表是目标职责概览，不代表所有接口已经实现。
 

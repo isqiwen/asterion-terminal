@@ -144,16 +144,14 @@ def test_maintenance_excludes_second_window_and_missing_active_never_reinitializ
         env.active(host)
 
 
-def test_actual_postgres_supervisor_activation_and_rollback(tmp_path, monkeypatch):
+def test_actual_postgres_supervisor_activation_and_rollback(tmp_path, monkeypatch, system_postgres):
     import subprocess
     import sys
     import time
 
     from asterion.runtime.desktop import healthy, runtime_settings, worker_ready
 
-    pg = Path(__file__).resolve().parents[1] / "apps/terminal/src-tauri/runtime/postgres"
-    if not (pg / "bin/postgres").exists():
-        pytest.skip("bundled PostgreSQL required")
+    pg = system_postgres
     host, target = tmp_path / "host", tmp_path / "restored"
     processes = {}
 

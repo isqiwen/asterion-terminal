@@ -175,4 +175,4 @@ flowchart LR
 
 ## SimNow 实时行情
 
-实时行情属于 `asterion.market` 行情插件，通过「总览 → 实时行情 → 连接与自选」配置 SimNow；不经过历史同步与数据集发布流程。当前实现与联调边界见 [SimNow 行情接入](simnow.md)。
+实时行情属于 `asterion.market` 行情插件，通过「设置 → 连接 → SimNow」配置账户，在「总览 → 实时行情 → 自选合约」管理实时订阅；不经过历史同步与数据集发布流程。当前实现与联调边界见 [SimNow 行情接入](simnow.md)。

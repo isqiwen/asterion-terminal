@@ -24,14 +24,17 @@ export type SetupProgress = {
 };
 const steps = {
   zh: [
-    ["下载安装器", "下载管理独立运行环境的安装工具"],
+    ["准备安装工具", "检查数据库并下载安装工具"],
     ["安装 Python 运行时", "下载用于后台计算的独立 Python"],
     ["创建隔离工作区", "建立应用专用环境，避免依赖冲突"],
     ["安装运行依赖", "下载数据存储、交易与分析所需依赖"],
     ["验证运行环境", "检查 Python、依赖库与本机数据库"],
   ],
   en: [
-    ["Download Installer", "Download the tool that manages your environment"],
+    [
+      "Prepare Installation",
+      "Check system PostgreSQL and download the environment installer",
+    ],
     [
       "Install Python Runtime",
       "The Python engine used for background computation",
@@ -75,6 +78,7 @@ export function Setup({
   const dependency = progress.dependencies;
   const labels: Record<string, string> = zh
     ? {
+        system: "正在通过系统包管理器准备数据库",
         resolving: "正在解析依赖",
         preparing: "正在准备依赖",
         downloading: "正在下载",
@@ -84,6 +88,7 @@ export function Setup({
         verifying: "正在验证运行环境",
       }
     : {
+        system: "Preparing database with the system package manager",
         resolving: "Resolving dependencies",
         preparing: "Preparing dependencies",
         downloading: "Downloading",
@@ -117,8 +122,8 @@ export function Setup({
           <p>{zh ? "准备你的工作区" : "Getting your workspace ready"}</p>
           <small>
             {zh
-              ? "首次使用需要下载运行工具和依赖库。"
-              : "We need to download a few tools and libraries once."}
+              ? "首次设置会准备系统 PostgreSQL，并下载独立运行工具和依赖库。"
+              : "Setup prepares system PostgreSQL and downloads isolated tools and libraries."}
             <br />
             {zh
               ? "完成后保存在本机，下次启动无需重新下载。"
@@ -247,10 +252,12 @@ export function Setup({
                     : "Setup complete"
                   : dependencyText}
               </span>
-              <span className="setup-dependency-count">
-                {zh ? "已安装依赖" : "Dependencies installed"}:{" "}
-                {dependency.installed}/{dependency.total ?? "—"}
-              </span>
+              {dependency.phase !== "system" && (
+                <span className="setup-dependency-count">
+                  {zh ? "已安装依赖" : "Dependencies installed"}:{" "}
+                  {dependency.installed}/{dependency.total ?? "—"}
+                </span>
+              )}
             </>
           ) : progress.running ? (
             `${steps[language][progress.step]?.[0] ?? (zh ? "正在设置" : "Setting up")}...`

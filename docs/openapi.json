@@ -9390,12 +9390,471 @@
         }
       }
     },
+    "/api/v1/connections": {
+      "get": {
+        "summary": "State",
+        "operationId": "state_api_v1_connections_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-account-session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Account-Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionList"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      },
+      "post": {
+        "summary": "Save",
+        "operationId": "save_api_v1_connections_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-account-session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Account-Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveConnection"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionView"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/connections/{connection_id}/connect": {
+      "post": {
+        "summary": "Connect",
+        "operationId": "connect_api_v1_connections__connection_id__connect_post",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-account-session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Account-Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionView"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/connections/{connection_id}/select": {
+      "post": {
+        "summary": "Select",
+        "operationId": "select_api_v1_connections__connection_id__select_post",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-account-session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Account-Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionView"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/connections/{connection_id}/disconnect": {
+      "post": {
+        "summary": "Disconnect",
+        "operationId": "disconnect_api_v1_connections__connection_id__disconnect_post",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-account-session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Account-Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionView"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/connections/{connection_id}/delete": {
+      "post": {
+        "summary": "Delete",
+        "operationId": "delete_api_v1_connections__connection_id__delete_post",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-account-session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Account-Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteConnection"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionList"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/market/state": {
       "get": {
         "summary": "State",
         "operationId": "state_api_v1_market_state_get",
         "parameters": [
           {
+            "name": "connection_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -9456,11 +9915,204 @@
         }
       }
     },
-    "/api/v1/market/configuration": {
-      "post": {
-        "summary": "Configure",
-        "operationId": "configure_api_v1_market_configuration_post",
+    "/api/v1/market/contracts": {
+      "get": {
+        "summary": "Contracts",
+        "operationId": "contracts_api_v1_market_contracts_get",
         "parameters": [
+          {
+            "name": "connection_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "exchange",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "SHFE",
+                "DCE",
+                "CZCE",
+                "CFFEX",
+                "INE",
+                "GFEX"
+              ],
+              "type": "string",
+              "title": "Exchange"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-account-session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Account-Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractChoices"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/market/contracts/refresh": {
+      "post": {
+        "summary": "Refresh",
+        "operationId": "refresh_api_v1_market_contracts_refresh_post",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "exchange",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "SHFE",
+                "DCE",
+                "CZCE",
+                "CFFEX",
+                "INE",
+                "GFEX"
+              ],
+              "type": "string",
+              "title": "Exchange"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-account-session",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "X-Account-Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContractChoices"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/market/watchlist": {
+      "post": {
+        "summary": "Watchlist",
+        "operationId": "watchlist_api_v1_market_watchlist_post",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -9493,7 +10145,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MarketConfiguration"
+                "$ref": "#/components/schemas/Watchlist"
               }
             }
           }
@@ -9532,11 +10184,20 @@
         }
       }
     },
-    "/api/v1/market/connect": {
-      "post": {
-        "summary": "Connect",
-        "operationId": "connect_api_v1_market_connect_post",
+    "/api/v1/trading/account": {
+      "get": {
+        "summary": "Account",
+        "operationId": "account_api_v1_trading_account_get",
         "parameters": [
+          {
+            "name": "connection_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -9564,23 +10225,13 @@
             }
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MarketConnect"
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MarketState"
+                  "$ref": "#/components/schemas/AccountState"
                 }
               }
             }
@@ -9608,11 +10259,20 @@
         }
       }
     },
-    "/api/v1/market/disconnect": {
+    "/api/v1/trading/account/refresh": {
       "post": {
-        "summary": "Disconnect",
-        "operationId": "disconnect_api_v1_market_disconnect_post",
+        "summary": "Refresh",
+        "operationId": "refresh_api_v1_trading_account_refresh_post",
         "parameters": [
+          {
+            "name": "connection_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Connection Id"
+            }
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -9646,7 +10306,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MarketState"
+                  "$ref": "#/components/schemas/AccountState"
                 }
               }
             }
@@ -10255,6 +10915,211 @@
   },
   "components": {
     "schemas": {
+      "AccountState": {
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "title": "Connection Id"
+          },
+          "connection_name": {
+            "type": "string",
+            "title": "Connection Name"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "disconnected",
+              "loading",
+              "ready",
+              "error"
+            ],
+            "title": "State"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale",
+            "default": true
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "account": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccountSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/Position"
+            },
+            "type": "array",
+            "title": "Positions"
+          },
+          "margin_ratio": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Ratio"
+          },
+          "available_ratio": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available Ratio"
+          },
+          "risk_detail": {
+            "type": "string",
+            "title": "Risk Detail",
+            "default": "未接入完整风控规则；敞口、集中度及总体风险暂无法评估"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connection_id",
+          "connection_name",
+          "state",
+          "detail"
+        ],
+        "title": "AccountState"
+      },
+      "AccountSummary": {
+        "properties": {
+          "currency": {
+            "type": "string",
+            "const": "CNY",
+            "title": "Currency",
+            "default": "CNY"
+          },
+          "trading_day": {
+            "type": "string",
+            "title": "Trading Day"
+          },
+          "balance": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Balance"
+          },
+          "available": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available"
+          },
+          "margin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin"
+          },
+          "position_profit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Profit"
+          },
+          "close_profit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Profit"
+          },
+          "commission": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commission"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "trading_day",
+          "balance",
+          "available",
+          "margin",
+          "position_profit",
+          "close_profit",
+          "commission"
+        ],
+        "title": "AccountSummary"
+      },
       "AlgorithmArtifact": {
         "properties": {
           "algorithm": {
@@ -10869,6 +11734,36 @@
         ],
         "title": "CatalogInput"
       },
+      "ChannelState": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "disconnected",
+              "connecting",
+              "authenticating",
+              "ready",
+              "reconnecting",
+              "error"
+            ],
+            "title": "State",
+            "default": "disconnected"
+          },
+          "generation": {
+            "type": "integer",
+            "title": "Generation",
+            "default": 0
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": "尚未连接"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ChannelState"
+      },
       "Choice": {
         "properties": {
           "value": {
@@ -11357,6 +12252,46 @@
         ],
         "title": "ComputedVersion"
       },
+      "ConfigField": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "secret": {
+            "type": "boolean",
+            "title": "Secret",
+            "default": false
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required",
+            "default": true
+          },
+          "identity": {
+            "type": "boolean",
+            "title": "Identity",
+            "default": false
+          },
+          "default": {
+            "type": "string",
+            "title": "Default",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "ConfigField"
+      },
       "ConfigurationCheck": {
         "properties": {
           "status": {
@@ -11606,6 +12541,60 @@
         ],
         "title": "ConfigurationUpdate"
       },
+      "ConnectionList": {
+        "properties": {
+          "connections": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionView"
+            },
+            "type": "array",
+            "title": "Connections"
+          },
+          "connectors": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorDescriptor"
+            },
+            "type": "array",
+            "title": "Connectors"
+          },
+          "selected_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Id"
+          },
+          "active_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Id"
+          },
+          "notice": {
+            "type": "string",
+            "title": "Notice",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "connections",
+          "connectors",
+          "selected_id",
+          "active_id"
+        ],
+        "title": "ConnectionList"
+      },
       "ConnectionState": {
         "properties": {
           "id": {
@@ -11674,6 +12663,133 @@
           "state"
         ],
         "title": "ConnectionUpdate"
+      },
+      "ConnectionView": {
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$",
+            "title": "Connection Id"
+          },
+          "connector_id": {
+            "type": "string",
+            "title": "Connector Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "config_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Config Revision"
+          },
+          "config": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Config"
+          },
+          "secret_saved": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object",
+            "title": "Secret Saved"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Capabilities"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "market": {
+            "$ref": "#/components/schemas/ChannelState"
+          },
+          "account": {
+            "$ref": "#/components/schemas/ChannelState"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "connection_id",
+          "connector_id",
+          "name",
+          "config_revision",
+          "config",
+          "secret_saved",
+          "capabilities",
+          "available",
+          "market",
+          "account"
+        ],
+        "title": "ConnectionView"
+      },
+      "ConnectorDescriptor": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "owner": {
+            "type": "string",
+            "title": "Owner"
+          },
+          "version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Version",
+            "default": 1
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "instructions": {
+            "type": "string",
+            "title": "Instructions",
+            "default": ""
+          },
+          "capabilities": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "market_quotes",
+                "instrument_catalog",
+                "account_snapshot",
+                "positions"
+              ]
+            },
+            "type": "array",
+            "title": "Capabilities"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigField"
+            },
+            "type": "array",
+            "title": "Fields"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "owner",
+          "title",
+          "capabilities",
+          "fields"
+        ],
+        "title": "ConnectorDescriptor"
       },
       "ContinuationRequest": {
         "properties": {
@@ -11911,6 +13027,67 @@
         ],
         "title": "ContractBasis",
         "description": "Frozen source evidence, not a claim of historical rule availability."
+      },
+      "ContractChoices": {
+        "properties": {
+          "exchange": {
+            "type": "string",
+            "title": "Exchange"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date",
+            "title": "As Of"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "missing",
+              "loading",
+              "error",
+              "invalid"
+            ],
+            "title": "State"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "contracts": {
+            "items": {
+              "$ref": "#/components/schemas/SourceInstrument"
+            },
+            "type": "array",
+            "title": "Contracts"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "exchange",
+          "as_of",
+          "state",
+          "detail",
+          "source"
+        ],
+        "title": "ContractChoices"
       },
       "ContractResolution": {
         "properties": {
@@ -12383,6 +13560,21 @@
           "default"
         ],
         "title": "DecimalParameter"
+      },
+      "DeleteConnection": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "title": "DeleteConnection"
       },
       "DeleteDocument": {
         "properties": {
@@ -13371,75 +14563,18 @@
         ],
         "title": "MappingRequest"
       },
-      "MarketConfiguration": {
-        "properties": {
-          "version": {
-            "type": "integer",
-            "const": 1,
-            "title": "Version",
-            "default": 1
-          },
-          "front": {
-            "type": "string",
-            "maxLength": 200,
-            "title": "Front",
-            "default": ""
-          },
-          "user_id": {
-            "type": "string",
-            "maxLength": 15,
-            "pattern": "^[A-Za-z0-9]*$",
-            "title": "User Id",
-            "default": ""
-          },
-          "subscriptions": {
-            "items": {
-              "$ref": "#/components/schemas/Subscription"
-            },
-            "type": "array",
-            "maxItems": 50,
-            "title": "Subscriptions"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "MarketConfiguration"
-      },
-      "MarketConnect": {
-        "properties": {
-          "password": {
-            "type": "string",
-            "maxLength": 40,
-            "minLength": 1,
-            "format": "password",
-            "title": "Password",
-            "writeOnly": true
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "password"
-        ],
-        "title": "MarketConnect"
-      },
       "MarketState": {
         "properties": {
-          "environment": {
+          "connection_id": {
             "type": "string",
-            "const": "simnow",
-            "title": "Environment",
-            "default": "simnow"
+            "title": "Connection Id"
+          },
+          "connection_name": {
+            "type": "string",
+            "title": "Connection Name"
           },
           "state": {
             "type": "string",
-            "enum": [
-              "disconnected",
-              "connecting",
-              "connected",
-              "reconnecting",
-              "error"
-            ],
             "title": "State"
           },
           "detail": {
@@ -13447,7 +14582,7 @@
             "title": "Detail"
           },
           "configuration": {
-            "$ref": "#/components/schemas/MarketConfiguration"
+            "$ref": "#/components/schemas/Watchlist"
           },
           "quotes": {
             "items": {
@@ -13463,6 +14598,13 @@
             "type": "object",
             "title": "Subscription Errors"
           },
+          "contract_names": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Contract Names"
+          },
           "observed_at": {
             "type": "number",
             "title": "Observed At"
@@ -13471,11 +14613,14 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "connection_id",
+          "connection_name",
           "state",
           "detail",
           "configuration",
           "quotes",
           "subscription_errors",
+          "contract_names",
           "observed_at"
         ],
         "title": "MarketState"
@@ -13756,6 +14901,94 @@
           "pin"
         ],
         "title": "PinInput"
+      },
+      "Position": {
+        "properties": {
+          "exchange": {
+            "type": "string",
+            "title": "Exchange"
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "long",
+              "short"
+            ],
+            "title": "Direction"
+          },
+          "hedge": {
+            "type": "string",
+            "title": "Hedge"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Quantity"
+          },
+          "today": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Today"
+          },
+          "yesterday": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Yesterday"
+          },
+          "margin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin"
+          },
+          "profit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "exchange",
+          "symbol",
+          "direction",
+          "hedge",
+          "quantity",
+          "today",
+          "yesterday",
+          "margin",
+          "profit"
+        ],
+        "title": "Position"
       },
       "Preparation": {
         "properties": {
@@ -14063,6 +15296,28 @@
             ],
             "title": "Last"
           },
+          "previous_settlement": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Settlement"
+          },
+          "change": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change"
+          },
           "change_percent": {
             "anyOf": [
               {
@@ -14073,6 +15328,28 @@
               }
             ],
             "title": "Change Percent"
+          },
+          "high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High"
+          },
+          "low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low"
           },
           "volume": {
             "anyOf": [
@@ -14104,6 +15381,23 @@
             "type": "string",
             "title": "Source Time"
           },
+          "action_day": {
+            "type": "string",
+            "title": "Action Day"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "current",
+              "disconnected",
+              "time_unknown",
+              "time_ahead",
+              "not_updated",
+              "delayed"
+            ],
+            "title": "Status",
+            "default": "time_unknown"
+          },
           "event_at": {
             "anyOf": [
               {
@@ -14131,11 +15425,16 @@
           "exchange",
           "symbol",
           "last",
+          "previous_settlement",
+          "change",
           "change_percent",
+          "high",
+          "low",
           "volume",
           "open_interest",
           "trading_day",
           "source_time",
+          "action_day",
           "event_at",
           "received_at"
         ],
@@ -15633,6 +16932,67 @@
         ],
         "title": "RuleVersion"
       },
+      "SaveConnection": {
+        "properties": {
+          "connection_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Id"
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
+          },
+          "connector_id": {
+            "type": "string",
+            "title": "Connector Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "config": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Config"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SecretChange"
+            },
+            "type": "object",
+            "title": "Secrets"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "connector_id",
+          "name",
+          "config",
+          "secrets"
+        ],
+        "title": "SaveConnection"
+      },
       "ScopeRequest": {
         "properties": {
           "scope": {
@@ -15647,6 +17007,38 @@
           "scope"
         ],
         "title": "ScopeRequest"
+      },
+      "SecretChange": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "keep",
+              "replace",
+              "clear"
+            ],
+            "title": "Action"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "password",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "SecretChange"
       },
       "SecurityState": {
         "properties": {
@@ -16601,6 +17993,62 @@
         ],
         "title": "SourceIdentity"
       },
+      "SourceInstrument": {
+        "properties": {
+          "exchange": {
+            "type": "string",
+            "enum": [
+              "SHFE",
+              "DCE",
+              "CZCE",
+              "CFFEX",
+              "INE",
+              "GFEX"
+            ],
+            "title": "Exchange"
+          },
+          "symbol": {
+            "type": "string",
+            "pattern": "^[A-Za-z]{1,3}[0-9]{3,4}$",
+            "title": "Symbol"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "product": {
+            "type": "string",
+            "title": "Product"
+          },
+          "delivery_month": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$",
+            "title": "Delivery Month"
+          },
+          "listed_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Listed On"
+          },
+          "last_trade_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Last Trade On"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "exchange",
+          "symbol",
+          "name",
+          "product",
+          "delivery_month",
+          "listed_on",
+          "last_trade_on"
+        ],
+        "title": "SourceInstrument"
+      },
       "SourceSymbol": {
         "properties": {
           "source": {
@@ -17292,6 +18740,21 @@
         },
         "type": "object",
         "title": "VerificationState"
+      },
+      "Watchlist": {
+        "properties": {
+          "subscriptions": {
+            "items": {
+              "$ref": "#/components/schemas/Subscription"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Subscriptions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "Watchlist"
       },
       "WorkflowRecord": {
         "properties": {

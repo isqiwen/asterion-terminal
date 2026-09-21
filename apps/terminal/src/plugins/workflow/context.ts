@@ -10,10 +10,11 @@ type Refill = { reportId: string; jobs: Job[] } | null;
 type Connection = Readonly<{ api: RequestClient; connected: boolean }>;
 export type PanelContext = {
   roles: Connection;
-  extensions: Readonly<{ api: RequestClient }>;
+  trading: Connection;
   empty: Readonly<Record<string, never>>;
   overview: Readonly<{
     marketApi: RequestClient;
+    tradingApi: RequestClient;
     widgets: DashboardWidget[];
     storageKey: string;
     refresh: () => void;

@@ -38,7 +38,9 @@ def contribution():
             name="收盘动量",
             description="收盘价高于回看周期前的收盘价时持有多仓，否则空仓；预热为回看周期加一。",
             parameters=(
-                IntegerParameter(key="lookback", label="回看周期", minimum=1, maximum=499, default=10),
+                IntegerParameter(
+                    key="lookback", label="回看周期", minimum=1, maximum=499, default=10
+                ),
             ),
         ),
         lambda _: None,

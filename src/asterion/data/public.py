@@ -35,6 +35,7 @@ class VersionAccess:
 
 VERSION_ACCESS = Capability("data.versions", "asterion.data", VersionAccess)
 
+
 Price = Annotated[Decimal, Field(gt=0, max_digits=20, decimal_places=8)]
 
 

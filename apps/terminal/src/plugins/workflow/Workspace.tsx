@@ -1,5 +1,6 @@
+import { tradingRequests } from "../trading/Account";
 import { marketRequests } from "../market/live";
-import { roleRequests, extensionRequests } from "./requests";
+import { roleRequests } from "./requests";
 import { useRequestClient } from "../../api/useRequestClient";
 import { dataRequests, researchRequests, taskRequests } from "./requests";
 import { invoke } from "@tauri-apps/api/core";
@@ -52,8 +53,8 @@ export function Workspace() {
   const setView = (view: View) =>
     setLayout((l) => ({ ...l, view: l.kind === "chart" ? "市场" : view }));
   const connection = useConnection();
+  const tradingApi = useRequestClient(connection.token, connection.connected, tradingRequests, "trading");
   const marketApi = useRequestClient(connection.token, connection.connected, marketRequests, "market");
-  const extensionsApi = useRequestClient(connection.token, connection.connected, extensionRequests, "extensions");
   const rolesApi = useRequestClient(connection.token, connection.connected, roleRequests, "roles");
   const dataApi = useRequestClient(
     connection.token,
@@ -462,6 +463,7 @@ export function Workspace() {
                       empty: {},
                       overview: {
                         marketApi,
+                        tradingApi,
                         widgets: dashboardContributions,
                         storageKey: `asterion.dashboard:${account?.email || "local-development"}`,
                         refresh: () => setSecurityEpoch(n => n + 1),
@@ -476,6 +478,7 @@ export function Workspace() {
                         openData: () => setLayout((l) => ({ ...l, view: "数据", section: "数据同步" })),
                         openTasks: () => setLayout((l) => ({ ...l, tasks: true })),
                       },
+                      trading: { api: tradingApi, connected: connection.connected },
                       market: {
                         layout: {
                           detached: layout.detached,
@@ -509,7 +512,6 @@ export function Workspace() {
                           ),
                       },
                       roles: { api: rolesApi, connected: connection.connected },
-                      extensions: { api: extensionsApi },
                       data: {
                         connection: {
                           api: dataApi,

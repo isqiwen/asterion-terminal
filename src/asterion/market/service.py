@@ -1,202 +1,189 @@
-"""One local SimNow session; credentials remain in memory only."""
+"""Market-owned watchlists and quote views, isolated by source connection."""
 
-import math
 import os
 import threading
 import time
-from datetime import datetime
-from typing import cast
-from zoneinfo import ZoneInfo
-
-from asterion.market.models import ConnectionState, MarketConfiguration, MarketState, Quote
+from decimal import Decimal
 
 
-def number(value, nonnegative=False):
-    if not isinstance(value, (float, int)) or not math.isfinite(value) or abs(value) >= 1e100:
-        return None
-    return None if nonnegative and value < 0 else value
+def atomic(path, content):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(".tmp")
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as file:
+        file.write(content)
+        file.flush()
+        os.fsync(file.fileno())
+    os.replace(temp, path)
+
+
+from asterion.market.models import MarketState, Quote, Watchlist
 
 
 class MarketService:
-    def __init__(self, root, factory, clock=time.time):
-        self.path = root / "market" / "simnow.json"
-        self.factory, self.clock = factory, clock
-        self.lock, self.operation = threading.RLock(), threading.Lock()
-        self.feed = None
-        self.generation = 0
-        self.state, self.detail = "disconnected", "行情源未连接"
-        self.started = 0
+    def __init__(self, root, connection_id, access, directory, clock=time.time):
+        self.connection_id, self.access, self.directory, self.clock = (
+            connection_id,
+            access,
+            directory,
+            clock,
+        )
+        self.path = root / "watchlist.json"
+        self.lock, self.operation = threading.RLock(), threading.RLock()
         self.quotes, self.errors = {}, {}
         self.load_error = False
+        self.revision = None
         try:
             self.configuration = (
-                MarketConfiguration.model_validate_json(self.path.read_text())
+                Watchlist.model_validate_json(self.path.read_text())
                 if self.path.exists()
-                else MarketConfiguration()
+                else Watchlist()
             )
         except (ValueError, OSError):
-            self.configuration = MarketConfiguration()
+            self.configuration = Watchlist()
             self.load_error = True
-            self.state, self.detail = (
-                "error",
-                "行情配置无法读取，原始文件已保留；请检查当前配置格式",
-            )
+        self.bind()
 
-    def configure(self, configuration):
-        with self.operation, self.lock:
-            if self.load_error:
-                raise ValueError("行情配置无法读取，原始文件已保留；请检查当前配置格式")
-            if self.feed is not None:
-                raise ValueError("请先断开行情，再修改连接或自选")
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = self.path.with_suffix(".tmp")
-            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "w") as file:
-                file.write(configuration.model_dump_json())
-                file.flush()
-                os.fsync(file.fileno())
-            os.replace(temporary, self.path)
-            self.configuration = configuration
+    def bind(self):
+        profile = self.access.profile(self.connection_id)
+        if profile.config_revision == self.revision:
+            return
+        if profile.config_revision != self.revision:
+            self.directory.bind(profile)
+            self.revision = profile.config_revision
             self.quotes.clear()
             self.errors.clear()
-            self.state, self.detail = "disconnected", "配置已保存，尚未连接"
-        return self.snapshot()
+        if self.access.supports(self.connection_id, "market_quotes"):
+            self.access.subscribe(self.connection_id, self.configuration.subscriptions)
 
-    def connect(self, password):
+    def maintain_contracts(self):
         with self.operation:
-            self._disconnect()
-            with self.lock:
-                if self.load_error:
-                    raise ValueError("行情配置无法读取，原始文件已保留；请检查当前配置格式")
-                if not self.configuration.front or not self.configuration.user_id:
-                    raise ValueError("请先保存 SimNow 行情前置和投资者代码")
-                generation = self.generation
-                self.state, self.detail = "connecting", "正在连接 SimNow"
-                self.started = self.clock()
-                self.errors.clear()
-            try:
-                feed = self.factory(
-                    self.configuration,
-                    password,
-                    lambda event, value: self.event(generation, event, value),
-                )
-                self.feed = feed
-                feed.start()
-            except Exception:  # noqa: BLE001 - native adapter failures must not expose credentials
-                self._disconnect()
-                with self.lock:
-                    self.state, self.detail = "error", "行情 SDK 启动失败，请检查本机运行组件后重连"
-        return self.snapshot()
+            self.bind()
+            self.expire_contracts()
+            if (
+                self.access.channel(self.connection_id, "account").state != "disconnected"
+                and self.directory.refresh_due()
+                and self.access.supports(self.connection_id, "instrument_catalog")
+            ):
+                self.refresh_contracts()
 
-    def _disconnect(self):
-        with self.lock:
-            self.generation += 1
-            feed, self.feed = self.feed, None
-            self.state, self.detail = "disconnected", "行情已断开；保留的报价不再实时更新"
-            for quote in self.quotes.values():
-                quote.stale = True
-        if feed is not None:
-            feed.close()
+    def refresh_contracts(self):
+        self.directory.request_refresh(self.access.profile(self.connection_id))
 
-    def disconnect(self):
+    def expire_contracts(self):
         with self.operation:
-            self._disconnect()
-        return self.snapshot()
-
-    def event(self, generation, event, value):
-        with self.lock:
-            if generation != self.generation:
+            if self.load_error:
                 return
-            if event == "subscription_error":
+            expired = self.directory.expired(self.configuration.subscriptions)
+            retained = [
+                s for s in self.configuration.subscriptions if (s.exchange, s.symbol) not in expired
+            ]
+            if len(retained) != len(self.configuration.subscriptions):
+                self.watchlist(Watchlist(subscriptions=retained))
+
+    def watchlist(self, body):
+        with self.operation:
+            if self.load_error:
+                raise ValueError("自选配置无法读取，原文件已保留")
+            self.directory.validate(body, self.configuration.subscriptions)
+            expired = self.directory.expired(body.subscriptions)
+            if any((s.exchange, s.symbol) in expired for s in body.subscriptions):
+                raise ValueError("合约已经到期，请刷新自选")
+            atomic(self.path, body.model_dump_json())
+            with self.lock:
+                self.configuration = body
+                retained = {(s.exchange, s.symbol) for s in body.subscriptions}
+                self.quotes = {
+                    key: q for key, q in self.quotes.items() if (q.exchange, q.symbol) in retained
+                }
+                self.errors.clear()
+            self.access.subscribe(self.connection_id, body.subscriptions)
+            return self.snapshot()
+
+    def event(self, generation, kind, value):
+        with self.lock:
+            if generation != self.access.channel(self.connection_id, "market").generation:
+                return
+            if kind == "subscription_error":
                 self.errors[value[0]] = value[1]
                 return
-            if event != "tick":
-                self.state = event
-                self.detail = {
-                    "connecting": "已连接前置，正在登录",
-                    "connected": "SimNow 已登录；报价状态按合约显示",
-                    "reconnecting": "行情连接中断，正在自动重连",
-                }.get(event, value or "行情错误")
-                self.started = self.clock()
-                if event != "connected":
-                    for quote in self.quotes.values():
-                        quote.stale = True
+            if kind != "tick" or self.access.channel(self.connection_id, "market").state != "ready":
                 return
-            if self.state != "connected":
-                return
-            symbol = value["InstrumentID"]
             subscription = next(
-                (s for s in self.configuration.subscriptions if s.symbol == symbol), None
+                (s for s in self.configuration.subscriptions if s.symbol == value.symbol), None
             )
             if not subscription:
                 return
-            if value["ExchangeID"] and value["ExchangeID"] != subscription.exchange:
-                self.errors[symbol] = "报价交易所与自选声明不一致，已拒绝"
+            if value.exchange and value.exchange != subscription.exchange:
+                self.errors[value.symbol] = "来源交易所与自选不一致"
                 return
-            event_at = None
-            try:
-                if not 0 <= value["UpdateMillisec"] <= 999:
-                    raise ValueError()
-                event_at = (
-                    datetime.strptime(value["ActionDay"] + value["UpdateTime"], "%Y%m%d%H:%M:%S")
-                    .replace(tzinfo=ZoneInfo("Asia/Shanghai"))
-                    .timestamp()
-                    + value["UpdateMillisec"] / 1000
-                )
-            except (ValueError, TypeError):
-                pass
-            previous = self.quotes.get(symbol)
+            previous = self.quotes.get(value.symbol)
             if (
                 previous
                 and previous.event_at is not None
-                and event_at is not None
-                and event_at < previous.event_at
+                and previous.event_at <= self.clock() + 5
+                and value.event_at is not None
+                and value.event_at < previous.event_at
             ):
                 return
-            last, settlement = (
-                number(value["LastPrice"], True),
-                number(value["PreSettlementPrice"], True),
+            base = value.previous_settlement
+            change = (
+                (Decimal(str(value.last)) - Decimal(str(base)))
+                if value.last is not None and base is not None and base > 0
+                else None
             )
-            self.quotes[symbol] = Quote(
+            self.quotes[value.symbol] = Quote(
                 exchange=subscription.exchange,
-                symbol=symbol,
-                last=last,
-                change_percent=(last / settlement - 1) * 100
-                if last is not None and settlement
+                symbol=value.symbol,
+                last=value.last,
+                previous_settlement=base,
+                change=float(change) if change is not None else None,
+                change_percent=float(change / Decimal(str(base)) * 100)
+                if change is not None
                 else None,
-                volume=value["Volume"]
-                if type(value["Volume"]) is int and value["Volume"] >= 0
-                else None,
-                open_interest=number(value["OpenInterest"], True),
-                trading_day=value["TradingDay"],
-                source_time=value["UpdateTime"],
-                event_at=event_at,
-                received_at=self.clock(),
+                high=value.high,
+                low=value.low,
+                volume=value.volume,
+                open_interest=value.open_interest,
+                trading_day=value.trading_day,
+                action_day=value.action_day,
+                source_time=value.source_time,
+                event_at=value.event_at,
+                received_at=value.received_at,
                 stale=False,
             )
 
     def snapshot(self):
         with self.lock:
             now = self.clock()
-            if self.state in {"connecting", "reconnecting"} and now - self.started > 20:
-                self.detail = "连接等待超过 20 秒，请核对地址、网络和 SimNow 服务时段；可断开后重试"
+            profile = self.access.profile(self.connection_id)
+            channel = self.access.channel(self.connection_id, "market")
+
+            def status(q):
+                if channel.state != "ready":
+                    return "disconnected"
+                if q.event_at is None:
+                    return "time_unknown"
+                if q.event_at > now + 5:
+                    return "time_ahead"
+                if now - q.received_at > 30:
+                    return "not_updated"
+                if now - q.event_at > 30:
+                    return "delayed"
+                return "current"
+
             quotes = [
-                q.model_copy(
-                    update={
-                        "stale": q.stale
-                        or self.state != "connected"
-                        or q.event_at is None
-                        or not -5 <= now - q.event_at <= 30
-                        or now - q.received_at > 30
-                    }
-                )
+                q.model_copy(update={"status": status(q), "stale": status(q) != "current"})
                 for q in self.quotes.values()
             ]
             return MarketState(
-                state=cast(ConnectionState, self.state),
-                detail=self.detail,
+                connection_id=self.connection_id,
+                connection_name=profile.name,
+                state="connected" if channel.state == "ready" else channel.state,
+                detail="自选文件不受支持，原文件已保留" if self.load_error else channel.detail,
                 configuration=self.configuration.model_copy(deep=True),
                 quotes=quotes,
                 subscription_errors=dict(self.errors),
+                contract_names=self.directory.names(),
                 observed_at=now,
             )

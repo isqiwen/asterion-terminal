@@ -30,7 +30,7 @@ function View({ preferences }: SettingsContext["appearance"]) {
       <div className="setting-row">
         <div>
           <label htmlFor="colors">涨跌颜色</label>
-          <small>应用于行情图表</small>
+          <small>应用于行情图表与实时报价</small>
         </div>
         <select
           id="colors"

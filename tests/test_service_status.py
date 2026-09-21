@@ -59,7 +59,7 @@ def test_status_endpoint_auth_and_provider_semantics(tmp_path):
         services = {s["id"]: s for s in response.json()["services"]}
         assert services["provider:tushare"]["state"] == "unconfigured"
         assert "provider:synthetic" not in services
-        assert services["trading"]["state"] == "not_integrated"
+        assert services["trading"]["state"] == "unavailable"
     settings.require_account = True
     with TestClient(create_app(settings, raw_engine(engine))) as client:
         assert (

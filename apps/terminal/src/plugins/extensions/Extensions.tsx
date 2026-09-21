@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import "./extensions.css";
+import { Views } from "./Views";
 import { Diagnostics } from "./Diagnostics";
 import type { RequestClient } from "../../api/requests";
 
@@ -21,6 +22,7 @@ function encoded(file: File): Promise<string> {
 }
 
 export function Extensions({ api }: { api: RequestClient }) {
+  const [showViews, setShowViews] = useState(false);
   const [items, setItems] = useState<Installed[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -124,7 +126,7 @@ export function Extensions({ api }: { api: RequestClient }) {
         const steps = [];
         if ("data.provider" in selected.manifest.contributions) steps.push("在“数据源”中配置连接");
         if ("research.strategy" in selected.manifest.contributions) steps.push("在研究面板刷新策略列表");
-        if ("ui.table" in selected.manifest.contributions) steps.push("在“扩展”中打开插件视图");
+        if ("ui.table" in selected.manifest.contributions) steps.push("在本页点击“查看插件视图”");
         setNotice(`${selected.manifest.title} 已安装并启用。${steps.join("；")}。`);
       })}>{busy ? "正在安装…" : "信任并安装启用"}</button>{" "}
       <button disabled={busy} onClick={() => setPending(null)}>取消</button></p>
@@ -149,6 +151,8 @@ export function Extensions({ api }: { api: RequestClient }) {
       <p><button disabled={busy} onClick={() => void toggle(approval, true)}>信任并启用</button>{" "}
         <button disabled={busy} onClick={() => setApproval(null)}>取消</button></p>
     </section>}
+    <button aria-expanded={showViews} aria-controls="plugin-views" onClick={() => setShowViews((value) => !value)}>{showViews ? "收起插件视图" : "查看插件视图"}</button>
+    {showViews && <div id="plugin-views"><Views api={api} /></div>}
     <p className="settings-note">启用数据源插件后，在“数据源”中配置连接；启用策略插件后，在研究面板点击“刷新策略”并选择策略。停用会阻止后续调用；已开始的调用有执行时限。移除插件不会删除数据或工件。</p>
   </>;
 }

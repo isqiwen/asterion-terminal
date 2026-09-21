@@ -885,7 +885,7 @@ small,
   min-height: 0;
 }
 .activity-rail {
-  width: 52px;
+  width: 40px;
   flex-shrink: 0;
   background: var(--canvas);
   border-right: 1px solid var(--line);
@@ -1645,12 +1645,13 @@ button[aria-disabled="true"],
 .preparation-batch { padding: 12px 0; border-bottom: 1px solid var(--border); }
 
 /* Shared collapsible primary navigation; business entries remain contributions. */
-.activity-rail.expanded { width: 104px; }
-.activity-rail .workspace-tabs button { flex-direction: row; justify-content: flex-start; gap: 10px; height: 40px; padding: 8px 12px; }
-.activity-rail .workspace-tabs button .nav-label { font-size: 12px; line-height: 18px; }
+.activity-rail.expanded { width: 64px; }
+.activity-rail .workspace-tabs button { flex-direction: row; justify-content: flex-start; gap: 4px; height: 40px; padding: 8px 6px; }
+.activity-rail .workspace-tabs button > span:first-child { flex-shrink: 0; font-size: 16px; line-height: 18px; }
+.activity-rail .workspace-tabs button .nav-label { white-space: nowrap; font-size: 12px; line-height: 18px; }
 .activity-rail.collapsed .workspace-tabs button { justify-content: center; padding: 8px; }
 .activity-rail.collapsed .nav-label { display: none; }
-.rail-toggle { margin: 4px 8px 8px; background: transparent; color: var(--muted); }
+.rail-toggle { margin: 4px 4px 8px; background: transparent; color: var(--muted); }
 .open-workspaces { display: flex; min-height: 32px; border-bottom: 1px solid var(--line); overflow-x: auto; background: var(--canvas); }
 .open-workspace { display: flex; flex-shrink: 0; border-right: 1px solid var(--line); }
 .open-workspace button { border: 0; background: transparent; border-radius: 0; font-size: 12px; }

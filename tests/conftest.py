@@ -44,3 +44,23 @@ def identity_instances(monkeypatch):
 
     monkeypatch.setattr("asterion.identity.plugin.Identity", create)
     return instances
+
+
+@pytest.fixture
+def system_postgres():
+    """Use the current platform package layout; each test owns a separate database cluster."""
+    import platform
+    import sys
+    from pathlib import Path
+
+    from asterion.runtime.desktop import pg_directory
+
+    root = (
+        Path("/usr")
+        if sys.platform == "linux"
+        else Path("/opt/homebrew" if platform.machine() == "arm64" else "/usr/local")
+        / "opt/postgresql@17"
+    )
+    if not (pg_directory(root, "bindir") / "postgres").is_file():
+        pytest.skip("system PostgreSQL 17 required")
+    return root

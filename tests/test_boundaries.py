@@ -6,6 +6,9 @@ def test_business_modules_only_import_other_public_interfaces():
     root = Path(__file__).resolve().parents[1] / "src" / "asterion"
     modules = {
         "data",
+        "market",
+        "connections",
+        "connector_ctp",
         "research",
         "trading",
         "intelligence",
@@ -61,6 +64,8 @@ def test_platform_and_business_do_not_depend_on_application_assembly():
                         "identity",
                         "trading",
                         "market",
+        "connections",
+        "connector_ctp",
                         "contract_rules",
                         "trading_time",
                         "intelligence",

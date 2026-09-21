@@ -1,6 +1,7 @@
 """Trusted CTP market-data adapter. Never imports or initializes TraderApi."""
 
 import tempfile
+import threading
 
 
 class CtpFeed:
@@ -9,6 +10,9 @@ class CtpFeed:
 
         self.emit = emit
         self.configuration = configuration
+        self.subscriptions = list(configuration.subscriptions)
+        self.subscription_lock = threading.RLock()
+        self.logged_in = False
         self.password = password
         self.flow = tempfile.TemporaryDirectory(prefix="asterion-md-")
         self.api = mdapi.CThostFtdcMdApi.CreateFtdcMdApi(self.flow.name + "/")
@@ -18,7 +22,7 @@ class CtpFeed:
             def OnFrontConnected(self):
                 owner.emit("connecting", None)
                 request = mdapi.CThostFtdcReqUserLoginField()
-                request.BrokerID = "9999"
+                request.BrokerID = configuration.broker_id
                 request.UserID = configuration.user_id
                 request.Password = owner.password
                 code = owner.api.ReqUserLogin(request, 1)
@@ -26,19 +30,21 @@ class CtpFeed:
                     owner.emit("error", f"登录请求未发送（{code}），请重连")
 
             def OnFrontDisconnected(self, reason):
+                with owner.subscription_lock:
+                    owner.logged_in = False
                 owner.emit("reconnecting", None)
 
             def OnRspUserLogin(self, response, info, request_id, last):
                 if info and info.ErrorID:
-                    owner.emit("error", f"SimNow 登录失败（{info.ErrorID}），请检查账号或服务时段")
+                    owner.emit("error", f"CTP 登录失败（{info.ErrorID}），请检查账号或服务时段")
                     return
                 if last:
                     owner.emit("connected", None)
-                    symbols = [s.symbol.encode("ascii") for s in configuration.subscriptions]
-                    if symbols:
-                        code = owner.api.SubscribeMarketData(symbols, len(symbols))
-                        if code:
-                            owner.emit("error", f"订阅请求未发送（{code}），请重连")
+                    with owner.subscription_lock:
+                        owner.logged_in = True
+                        warnings = owner._subscribe(owner.subscriptions)
+                    for warning in warnings:
+                        owner.emit("subscription_warning", warning)
 
             def OnRspSubMarketData(self, instrument, info, request_id, last):
                 if info and info.ErrorID:
@@ -48,6 +54,12 @@ class CtpFeed:
                             instrument.InstrumentID if instrument else "未知代码",
                             f"订阅被拒绝（{info.ErrorID}）",
                         ),
+                    )
+
+            def OnRspUnSubMarketData(self, instrument, info, request_id, last):
+                if info and info.ErrorID:
+                    owner.emit(
+                        "subscription_warning", f"退订被拒绝（{info.ErrorID}）；请重新连接重试"
                     )
 
             def OnRspError(self, info, request_id, last):
@@ -65,6 +77,8 @@ class CtpFeed:
                             "ExchangeID",
                             "LastPrice",
                             "PreSettlementPrice",
+                            "HighestPrice",
+                            "LowestPrice",
                             "Volume",
                             "OpenInterest",
                             "TradingDay",
@@ -76,6 +90,31 @@ class CtpFeed:
                 )
 
         self.spi = Spi()
+
+    def _subscribe(self, subscriptions):
+        symbols = [s.symbol.encode("ascii") for s in subscriptions]
+        if symbols:
+            code = self.api.SubscribeMarketData(symbols, len(symbols))
+            if code:
+                return [f"自选已保存，订阅请求未发送（{code}）；请重新连接重试"]
+        return []
+
+    def update_subscriptions(self, subscriptions):
+        with self.subscription_lock:
+            previous = {s.symbol for s in self.subscriptions}
+            current = {s.symbol for s in subscriptions}
+            self.subscriptions = list(subscriptions)
+            if not self.logged_in:
+                return
+            warnings = []
+            removed = [symbol.encode("ascii") for symbol in sorted(previous - current)]
+            if removed:
+                code = self.api.UnSubscribeMarketData(removed, len(removed))
+                if code:
+                    warnings.append(f"自选已保存，退订请求未发送（{code}）；请重新连接重试")
+            warnings.extend(self._subscribe(subscriptions))
+        for warning in warnings:
+            self.emit("subscription_warning", warning)
 
     def start(self):
         self.api.RegisterSpi(self.spi)

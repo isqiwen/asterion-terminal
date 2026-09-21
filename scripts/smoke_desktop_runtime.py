@@ -103,7 +103,12 @@ def main():
     parser.add_argument("--runtime", type=Path, required=True)
     args = parser.parse_args()
     runtime = args.runtime.resolve()
-    pg_root = Path("/usr") if sys.platform == "linux" else runtime / "postgres"
+    pg_root = (
+        Path("/usr")
+        if sys.platform == "linux"
+        else Path("/opt/homebrew" if os.uname().machine == "arm64" else "/usr/local")
+        / "opt/postgresql@17"
+    )
     backend = runtime / "environment/bin/python"
     with tempfile.TemporaryDirectory(prefix="asterion-desktop-") as directory:
         state = Path(directory)

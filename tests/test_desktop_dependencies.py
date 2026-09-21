@@ -14,7 +14,6 @@ def deps(monkeypatch):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.delenv("CI", raising=False)
-    monkeypatch.delenv("ASTERION_PG_SOURCE", raising=False)
     monkeypatch.setattr(module.sys.stdin, "isatty", lambda: True)
     return module
 
@@ -78,14 +77,17 @@ def test_ready_linux_environment_does_not_prompt(deps, monkeypatch):
     deps.ensure_linux(runtime=True, desktop=True, interactive=True)
 
 
-def test_homebrew_install_is_unprivileged_and_prefix_is_discovered(deps, monkeypatch, tmp_path):
-    monkeypatch.setattr(deps.shutil, "which", lambda _: "/usr/local/bin/brew")
+def test_homebrew_install_is_unprivileged_and_uses_platform_prefix(deps, monkeypatch, tmp_path):
+    monkeypatch.setattr(deps, "mac_homebrew_prefix", lambda: tmp_path)
+    brew = tmp_path / "bin/brew"
+    brew.parent.mkdir()
+    brew.touch()
     monkeypatch.setattr("builtins.input", lambda _: "y")
     calls = []
 
     def execute(*args, **kwargs):
         calls.append(args)
-        if args == ("brew", "install", "postgresql@17"):
+        if args == (str(brew), "install", "postgresql@17"):
             binary = tmp_path / "opt/postgresql@17/bin"
             binary.mkdir(parents=True)
             for name in ("postgres", "initdb", "pg_ctl"):
@@ -94,9 +96,9 @@ def test_homebrew_install_is_unprivileged_and_prefix_is_discovered(deps, monkeyp
 
     monkeypatch.setattr(deps, "execute", execute)
     deps.ensure_macos(runtime=True, desktop=True, interactive=True)
-    assert ("brew", "install", "postgresql@17") in calls
+    assert (str(brew), "install", "postgresql@17") in calls
     assert not any("sudo" in c for c in calls)
-    assert deps.mac_postgres_source() == tmp_path / "opt/postgresql@17"
+    assert deps.mac_postgres_root() == tmp_path / "opt/postgresql@17"
 
 
 def test_failed_installation_does_not_continue(deps, monkeypatch):

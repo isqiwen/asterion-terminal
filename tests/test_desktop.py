@@ -106,7 +106,7 @@ def test_postgres_paths_follow_platform_packages(tmp_path, monkeypatch):
     assert desktop.pg_directory(tmp_path, "sharedir") == tmp_path / "share/postgresql/17"
     monkeypatch.setattr(desktop.sys, "platform", "darwin")
     assert desktop.pg_directory(tmp_path, "bindir") == tmp_path / "bin"
-    assert desktop.pg_directory(tmp_path, "sharedir") == tmp_path / "share/postgresql@17"
+    assert desktop.pg_directory(tmp_path, "sharedir") == tmp_path / "share/postgresql"
 
 
 def test_macos_upgrade_waits_for_old_registration_then_retries(tmp_path, monkeypatch):

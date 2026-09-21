@@ -298,7 +298,7 @@ def pg_directory(pg_root: Path, key: str) -> Path:
     layout = (
         {"bindir": "lib/postgresql/17/bin", "sharedir": "share/postgresql/17"}
         if sys.platform == "linux"
-        else {"bindir": "bin", "sharedir": "share/postgresql@17"}
+        else {"bindir": "bin", "sharedir": "share/postgresql"}
     )
     return pg_root / layout[key]
 

@@ -212,3 +212,79 @@ test("completed runtime bypasses first setup without installing", async ({
   await expect(page.getByRole("main", { name: "首次设置" })).toHaveCount(0);
   expect(installs).toBe(0);
 });
+
+test("system database setup explains missing Homebrew and retries with honest progress", async ({
+  page,
+  context,
+}) => {
+  let calls = 0;
+  let finish: (() => void) | undefined;
+  let progress: SetupProgress = {
+    running: false,
+    ready: false,
+    step: 0,
+    downloaded: 0,
+    total: null,
+    network: null,
+    dependencies: { total: null, installed: 0, phase: "", current: "" },
+    error: "",
+    directory:
+      "/Users/test/Library/Application Support/me.asterion.terminal/runtime",
+  };
+  await nativeContext(context, {
+    desktop_setup_status: () => progress,
+    desktop_setup_install: async () => {
+      calls++;
+      if (calls === 1) {
+        progress = {
+          ...progress,
+          error:
+            "需要先安装 Homebrew：请访问 https://brew.sh 按官方步骤完成安装，然后点击重试设置。",
+        };
+        return progress;
+      }
+      progress = {
+        ...progress,
+        running: true,
+        error: "",
+        dependencies: {
+          total: null,
+          installed: 0,
+          phase: "system",
+          current: "PostgreSQL 17 · Homebrew",
+        },
+      };
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      progress = { ...progress, running: false, ready: true, step: 5 };
+      return progress;
+    },
+  });
+  await page.setViewportSize({ width: 800, height: 640 });
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "开始设置" })).toBeEnabled();
+  expect(calls).toBe(0);
+  await page.getByRole("button", { name: "开始设置" }).click();
+  await expect(page.getByRole("alert")).toContainText("https://brew.sh");
+  await page.getByRole("button", { name: "重试设置" }).click();
+  await expect(page.getByTestId("setup-detail")).toContainText(
+    "PostgreSQL 17 · Homebrew",
+  );
+  await expect(page.getByTestId("setup-detail")).toContainText(
+    "正在通过系统包管理器准备数据库",
+  );
+  await expect(
+    page.getByRole("progressbar", { name: "准备安装工具" }),
+  ).not.toHaveAttribute("aria-valuenow");
+  await page.screenshot({ path: "../../.state/setup-system-pg.png" });
+  await page.getByRole("combobox", { name: "语言" }).selectOption("en");
+  await expect(page.getByTestId("setup-detail")).toContainText(
+    "Preparing database with the system package manager",
+  );
+  finish!();
+  await expect(
+    page.getByRole("button", { name: "OPEN TERMINAL" }),
+  ).toBeEnabled();
+  expect(calls).toBe(2);
+});

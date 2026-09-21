@@ -1902,6 +1902,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** State */
+        get: operations["state_api_v1_connections_get"];
+        put?: never;
+        /** Save */
+        post: operations["save_api_v1_connections_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connections/{connection_id}/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Connect */
+        post: operations["connect_api_v1_connections__connection_id__connect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connections/{connection_id}/select": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Select */
+        post: operations["select_api_v1_connections__connection_id__select_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connections/{connection_id}/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disconnect */
+        post: operations["disconnect_api_v1_connections__connection_id__disconnect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connections/{connection_id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Delete */
+        post: operations["delete_api_v1_connections__connection_id__delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/market/state": {
         parameters: {
             query?: never;
@@ -1919,24 +2005,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/market/configuration": {
+    "/api/v1/market/contracts": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Contracts */
+        get: operations["contracts_api_v1_market_contracts_get"];
         put?: never;
-        /** Configure */
-        post: operations["configure_api_v1_market_configuration_post"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/market/connect": {
+    "/api/v1/market/contracts/refresh": {
         parameters: {
             query?: never;
             header?: never;
@@ -1945,15 +2031,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Connect */
-        post: operations["connect_api_v1_market_connect_post"];
+        /** Refresh */
+        post: operations["refresh_api_v1_market_contracts_refresh_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/market/disconnect": {
+    "/api/v1/market/watchlist": {
         parameters: {
             query?: never;
             header?: never;
@@ -1962,8 +2048,42 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Disconnect */
-        post: operations["disconnect_api_v1_market_disconnect_post"];
+        /** Watchlist */
+        post: operations["watchlist_api_v1_market_watchlist_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trading/account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Account */
+        get: operations["account_api_v1_trading_account_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trading/account/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh */
+        post: operations["refresh_api_v1_trading_account_refresh_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2110,6 +2230,64 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AccountState */
+        AccountState: {
+            /** Connection Id */
+            connection_id: string;
+            /** Connection Name */
+            connection_name: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "disconnected" | "loading" | "ready" | "error";
+            /** Detail */
+            detail: string;
+            /**
+             * Stale
+             * @default true
+             */
+            stale: boolean;
+            /** Started At */
+            started_at?: number | null;
+            /** Observed At */
+            observed_at?: number | null;
+            account?: components["schemas"]["AccountSummary"] | null;
+            /** Positions */
+            positions?: components["schemas"]["Position"][];
+            /** Margin Ratio */
+            margin_ratio?: string | null;
+            /** Available Ratio */
+            available_ratio?: string | null;
+            /**
+             * Risk Detail
+             * @default 未接入完整风控规则；敞口、集中度及总体风险暂无法评估
+             */
+            risk_detail: string;
+        };
+        /** AccountSummary */
+        AccountSummary: {
+            /**
+             * Currency
+             * @default CNY
+             * @constant
+             */
+            currency: "CNY";
+            /** Trading Day */
+            trading_day: string;
+            /** Balance */
+            balance: string | null;
+            /** Available */
+            available: string | null;
+            /** Margin */
+            margin: string | null;
+            /** Position Profit */
+            position_profit: string | null;
+            /** Close Profit */
+            close_profit: string | null;
+            /** Commission */
+            commission: string | null;
+        };
         /** AlgorithmArtifact */
         AlgorithmArtifact: {
             /**
@@ -2377,6 +2555,25 @@ export interface components {
             /** Source */
             source: string;
         };
+        /** ChannelState */
+        ChannelState: {
+            /**
+             * State
+             * @default disconnected
+             * @enum {string}
+             */
+            state: "disconnected" | "connecting" | "authenticating" | "ready" | "reconnecting" | "error";
+            /**
+             * Generation
+             * @default 0
+             */
+            generation: number;
+            /**
+             * Detail
+             * @default 尚未连接
+             */
+            detail: string;
+        };
         /** Choice */
         Choice: {
             /** Value */
@@ -2580,6 +2777,33 @@ export interface components {
              */
             published_at: string;
         };
+        /** ConfigField */
+        ConfigField: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Secret
+             * @default false
+             */
+            secret: boolean;
+            /**
+             * Required
+             * @default true
+             */
+            required: boolean;
+            /**
+             * Identity
+             * @default false
+             */
+            identity: boolean;
+            /**
+             * Default
+             * @default
+             */
+            default: string;
+        };
         /** ConfigurationCheck */
         ConfigurationCheck: {
             /**
@@ -2677,6 +2901,22 @@ export interface components {
                 [key: string]: string | null;
             };
         };
+        /** ConnectionList */
+        ConnectionList: {
+            /** Connections */
+            connections: components["schemas"]["ConnectionView"][];
+            /** Connectors */
+            connectors: components["schemas"]["ConnectorDescriptor"][];
+            /** Selected Id */
+            selected_id: string | null;
+            /** Active Id */
+            active_id: string | null;
+            /**
+             * Notice
+             * @default
+             */
+            notice: string;
+        };
         /** ConnectionState */
         ConnectionState: {
             /** Id */
@@ -2708,6 +2948,55 @@ export interface components {
              * @enum {string}
              */
             state: "enabled" | "disabled" | "archived";
+        };
+        /** ConnectionView */
+        ConnectionView: {
+            /** Connection Id */
+            connection_id: string;
+            /** Connector Id */
+            connector_id: string;
+            /** Name */
+            name: string;
+            /** Config Revision */
+            config_revision: number;
+            /** Config */
+            config: {
+                [key: string]: string;
+            };
+            /** Secret Saved */
+            secret_saved: {
+                [key: string]: boolean;
+            };
+            /** Capabilities */
+            capabilities: string[];
+            /** Available */
+            available: boolean;
+            market: components["schemas"]["ChannelState"];
+            account: components["schemas"]["ChannelState"];
+        };
+        /** ConnectorDescriptor */
+        ConnectorDescriptor: {
+            /** Id */
+            id: string;
+            /** Owner */
+            owner: string;
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /** Title */
+            title: string;
+            /**
+             * Instructions
+             * @default
+             */
+            instructions: string;
+            /** Capabilities */
+            capabilities: ("market_quotes" | "instrument_catalog" | "account_snapshot" | "positions")[];
+            /** Fields */
+            fields: components["schemas"]["ConfigField"][];
         };
         /** ContinuationRequest */
         ContinuationRequest: {
@@ -2778,6 +3067,29 @@ export interface components {
             quote_unit: string | null;
             /** Quote Unit Desc */
             quote_unit_desc: string | null;
+        };
+        /** ContractChoices */
+        ContractChoices: {
+            /** Exchange */
+            exchange: string;
+            /**
+             * As Of
+             * Format: date
+             */
+            as_of: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ready" | "missing" | "loading" | "error" | "invalid";
+            /** Detail */
+            detail: string;
+            /** Source */
+            source: string;
+            /** Observed At */
+            observed_at?: string | null;
+            /** Contracts */
+            contracts?: components["schemas"]["SourceInstrument"][];
         };
         /** ContractResolution */
         ContractResolution: {
@@ -2970,6 +3282,11 @@ export interface components {
             scale: number;
             /** Default */
             default: string;
+        };
+        /** DeleteConnection */
+        DeleteConnection: {
+            /** Expected Revision */
+            expected_revision: number;
         };
         /** DeleteDocument */
         DeleteDocument: {
@@ -3324,55 +3641,25 @@ export interface components {
             /** Contract Id */
             contract_id: string;
         };
-        /** MarketConfiguration */
-        MarketConfiguration: {
-            /**
-             * Version
-             * @default 1
-             * @constant
-             */
-            version: 1;
-            /**
-             * Front
-             * @default
-             */
-            front: string;
-            /**
-             * User Id
-             * @default
-             */
-            user_id: string;
-            /** Subscriptions */
-            subscriptions?: components["schemas"]["Subscription"][];
-        };
-        /** MarketConnect */
-        MarketConnect: {
-            /**
-             * Password
-             * Format: password
-             */
-            password: string;
-        };
         /** MarketState */
         MarketState: {
-            /**
-             * Environment
-             * @default simnow
-             * @constant
-             */
-            environment: "simnow";
-            /**
-             * State
-             * @enum {string}
-             */
-            state: "disconnected" | "connecting" | "connected" | "reconnecting" | "error";
+            /** Connection Id */
+            connection_id: string;
+            /** Connection Name */
+            connection_name: string;
+            /** State */
+            state: string;
             /** Detail */
             detail: string;
-            configuration: components["schemas"]["MarketConfiguration"];
+            configuration: components["schemas"]["Watchlist"];
             /** Quotes */
             quotes: components["schemas"]["Quote"][];
             /** Subscription Errors */
             subscription_errors: {
+                [key: string]: string;
+            };
+            /** Contract Names */
+            contract_names: {
                 [key: string]: string;
             };
             /** Observed At */
@@ -3472,6 +3759,32 @@ export interface components {
             expected?: number | null;
             /** Password */
             password?: string | null;
+        };
+        /** Position */
+        Position: {
+            /** Exchange */
+            exchange: string;
+            /** Symbol */
+            symbol: string;
+            /** Name */
+            name?: string | null;
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "long" | "short";
+            /** Hedge */
+            hedge: string;
+            /** Quantity */
+            quantity: number;
+            /** Today */
+            today: number;
+            /** Yesterday */
+            yesterday: number;
+            /** Margin */
+            margin: string | null;
+            /** Profit */
+            profit: string | null;
         };
         /** Preparation */
         Preparation: {
@@ -3590,8 +3903,16 @@ export interface components {
             symbol: string;
             /** Last */
             last: number | null;
+            /** Previous Settlement */
+            previous_settlement: number | null;
+            /** Change */
+            change: number | null;
             /** Change Percent */
             change_percent: number | null;
+            /** High */
+            high: number | null;
+            /** Low */
+            low: number | null;
             /** Volume */
             volume: number | null;
             /** Open Interest */
@@ -3600,6 +3921,14 @@ export interface components {
             trading_day: string;
             /** Source Time */
             source_time: string;
+            /** Action Day */
+            action_day: string;
+            /**
+             * Status
+             * @default time_unknown
+             * @enum {string}
+             */
+            status: "current" | "disconnected" | "time_unknown" | "time_ahead" | "not_updated" | "delayed";
             /** Event At */
             event_at: number | null;
             /** Received At */
@@ -4204,10 +4533,39 @@ export interface components {
             id: string;
             spec: components["schemas"]["RuleSpec-Output"];
         };
+        /** SaveConnection */
+        SaveConnection: {
+            /** Connection Id */
+            connection_id?: string | null;
+            /** Expected Revision */
+            expected_revision?: number | null;
+            /** Connector Id */
+            connector_id: string;
+            /** Name */
+            name: string;
+            /** Config */
+            config: {
+                [key: string]: string;
+            };
+            /** Secrets */
+            secrets: {
+                [key: string]: components["schemas"]["SecretChange"];
+            };
+        };
         /** ScopeRequest */
         ScopeRequest: {
             /** Scope */
             scope: string;
+        };
+        /** SecretChange */
+        SecretChange: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "keep" | "replace" | "clear";
+            /** Value */
+            value?: string | null;
         };
         /** SecurityState */
         SecurityState: {
@@ -4539,6 +4897,32 @@ export interface components {
              */
             information_at: string;
         };
+        /** SourceInstrument */
+        SourceInstrument: {
+            /**
+             * Exchange
+             * @enum {string}
+             */
+            exchange: "SHFE" | "DCE" | "CZCE" | "CFFEX" | "INE" | "GFEX";
+            /** Symbol */
+            symbol: string;
+            /** Name */
+            name: string;
+            /** Product */
+            product: string;
+            /** Delivery Month */
+            delivery_month: string;
+            /**
+             * Listed On
+             * Format: date
+             */
+            listed_on: string;
+            /**
+             * Last Trade On
+             * Format: date
+             */
+            last_trade_on: string;
+        };
         /** SourceSymbol */
         SourceSymbol: {
             /** Source */
@@ -4789,6 +5173,11 @@ export interface components {
              * @default 尚未验证已保存配置
              */
             message: string;
+        };
+        /** Watchlist */
+        Watchlist: {
+            /** Subscriptions */
+            subscriptions?: components["schemas"]["Subscription"][];
         };
         /** WorkflowRecord */
         WorkflowRecord: {
@@ -10313,9 +10702,273 @@ export interface operations {
             };
         };
     };
+    state_api_v1_connections_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-account-session"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionList"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    save_api_v1_connections_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-account-session"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveConnection"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionView"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    connect_api_v1_connections__connection_id__connect_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-account-session"?: string;
+            };
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionView"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    select_api_v1_connections__connection_id__select_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-account-session"?: string;
+            };
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionView"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    disconnect_api_v1_connections__connection_id__disconnect_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-account-session"?: string;
+            };
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionView"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_api_v1_connections__connection_id__delete_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-account-session"?: string;
+            };
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteConnection"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionList"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     state_api_v1_market_state_get: {
         parameters: {
-            query?: never;
+            query: {
+                connection_id: string;
+            };
             header?: {
                 authorization?: string | null;
                 "x-account-session"?: string;
@@ -10354,99 +11007,12 @@ export interface operations {
             };
         };
     };
-    configure_api_v1_market_configuration_post: {
+    contracts_api_v1_market_contracts_get: {
         parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-account-session"?: string;
+            query: {
+                connection_id: string;
+                exchange: "SHFE" | "DCE" | "CZCE" | "CFFEX" | "INE" | "GFEX";
             };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MarketConfiguration"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MarketState"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    connect_api_v1_market_connect_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-                "x-account-session"?: string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MarketConnect"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MarketState"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    disconnect_api_v1_market_disconnect_post: {
-        parameters: {
-            query?: never;
             header?: {
                 authorization?: string | null;
                 "x-account-session"?: string;
@@ -10462,7 +11028,184 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["ContractChoices"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    refresh_api_v1_market_contracts_refresh_post: {
+        parameters: {
+            query: {
+                connection_id: string;
+                exchange: "SHFE" | "DCE" | "CZCE" | "CFFEX" | "INE" | "GFEX";
+            };
+            header?: {
+                authorization?: string | null;
+                "x-account-session"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContractChoices"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    watchlist_api_v1_market_watchlist_post: {
+        parameters: {
+            query: {
+                connection_id: string;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-account-session"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Watchlist"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/json": components["schemas"]["MarketState"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    account_api_v1_trading_account_get: {
+        parameters: {
+            query: {
+                connection_id: string;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-account-session"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountState"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    refresh_api_v1_trading_account_refresh_post: {
+        parameters: {
+            query: {
+                connection_id: string;
+            };
+            header?: {
+                authorization?: string | null;
+                "x-account-session"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountState"];
                 };
             };
             /** @description Conflict */

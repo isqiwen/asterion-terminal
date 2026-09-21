@@ -32,6 +32,7 @@ export function usePreferences() {
   }, []);
   useEffect(() => {
     document.documentElement.dataset.density = preferences.density;
+    document.documentElement.dataset.quoteColors = preferences.colors;
   }, [preferences]);
   return preferences;
 }

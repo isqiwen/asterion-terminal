@@ -1,6 +1,5 @@
-"""Build the small installer payload and its separately hosted PostgreSQL archive."""
+"""Build the installer payload; PostgreSQL is supplied by the platform package manager."""
 
-import gzip
 import hashlib
 import json
 import os
@@ -8,7 +7,6 @@ import platform
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -38,9 +36,7 @@ def artifact(url: str, path: Path) -> dict:
     return {"url": url, "sha256": sha(path), "size": path.stat().st_size}
 
 
-def prepare(release_url: str) -> Path:
-    if not release_url.startswith("https://"):
-        raise ValueError("Runtime release URL must use HTTPS")
+def prepare() -> Path:
     cache = ROOT / ".state/runtime-downloads"
     cache.mkdir(parents=True, exist_ok=True)
     bundle = ROOT / "apps/terminal/src-tauri/setup"
@@ -72,43 +68,15 @@ def prepare(release_url: str) -> Path:
     # Keep upstream archives as separate downloads; only their identities enter the app.
     with tempfile.TemporaryDirectory(dir=ROOT / ".state", prefix="runtime-release-") as directory:
         stage = Path(directory)
-        published = None
-        postgres = {
-            "source": "system",
-            "root": "/usr",
-            "executable": "lib/postgresql/17/bin/postgres",
-        }
-        if host == "darwin":
-            from bundle_postgres import bundle as bundle_pg
-            from desktop_dependencies import mac_postgres_source
-
-            pg = stage / "postgres"
-            bundle_pg(mac_postgres_source(), pg)
-            archive = stage / "postgres.tar.gz"
-
-            def metadata(info):
-                info.uid = info.gid = 0
-                info.uname = info.gname = ""
-                info.mtime = 0
-                return info
-
-            with (
-                archive.open("wb") as raw,
-                gzip.GzipFile(fileobj=raw, mode="wb", filename="", mtime=0) as compressed,
-                tarfile.open(fileobj=compressed, mode="w", dereference=True) as target,
-            ):
-                target.add(pg, arcname=".", filter=metadata)
-            # Content-addressed asset names make a rebuild unable to silently replace an input.
-            filename = f"postgres-17-{host}-{rust_arch}-{sha(archive)[:16]}.tar.gz"
-            release = ROOT / "release/runtime"
-            release.mkdir(parents=True, exist_ok=True)
-            published = release / filename
-            shutil.copy2(archive, published)
-            postgres = {
-                "source": "archive",
-                "artifact": artifact(f"{release_url.rstrip('/')}/{filename}", published),
-                "executable": "bin/postgres",
+        postgres = (
+            {"source": "homebrew", "formula": "postgresql@17"}
+            if host == "darwin"
+            else {
+                "source": "system",
+                "root": "/usr",
+                "executable": "lib/postgresql/17/bin/postgres",
             }
+        )
         subprocess.run(
             ["uv", "build", "--wheel", "--out-dir", str(stage / "wheel")],
             cwd=ROOT,
@@ -153,10 +121,7 @@ def prepare(release_url: str) -> Path:
         # Seed the independent test cache with the exact release inputs. Production still downloads.
         test_cache = ROOT / ".state/setup-smoke/cache"
         test_cache.mkdir(parents=True, exist_ok=True)
-        for path in (uv_archive, python_archive, *([published] if published else [])):
+        for path in (uv_archive, python_archive):
             shutil.copy2(path, test_cache / sha(path))
-        if published:
-            print(f"Runtime release attachment: {published}", flush=True)
-        else:
-            print("PostgreSQL 17 is provided by the system package manager.", flush=True)
+        print("PostgreSQL 17 is provided by the system package manager.", flush=True)
     return bundle

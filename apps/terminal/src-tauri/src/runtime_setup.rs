@@ -30,9 +30,8 @@ pub enum Postgres {
         root: PathBuf,
         executable: String,
     },
-    Archive {
-        artifact: Artifact,
-        executable: String,
+    Homebrew {
+        formula: String,
     },
 }
 #[derive(Deserialize)]
@@ -133,6 +132,29 @@ fn safe_relative(value: &str) -> bool {
             .components()
             .all(|p| matches!(p, std::path::Component::Normal(_)))
 }
+fn homebrew_prefix() -> PathBuf {
+    PathBuf::from(if cfg!(target_arch = "aarch64") { "/opt/homebrew" } else { "/usr/local" })
+}
+
+fn install_homebrew_postgres(
+    brew: &Path, formula: &str, root: &Path, lease: &File, mut started: impl FnMut(),
+) -> Result<()> {
+    if !brew.is_file() {
+        return Err("需要先安装 Homebrew：请访问 https://brew.sh 按官方步骤完成安装，然后点击“重试设置”。星枢将通过 Homebrew 安装 PostgreSQL 17，不会启动系统默认数据库服务。".into());
+    }
+    started();
+    run(
+        Command::new(brew)
+            .args(["install", formula])
+            .env("PATH", format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", brew.parent().unwrap().display()))
+            .env("NONINTERACTIVE", "1")
+            .env("HOMEBREW_NO_AUTO_UPDATE", "1")
+            .env("HOMEBREW_NO_INSTALL_CLEANUP", "1")
+            .env("HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK", "1"),
+        root, lease, 1800,
+    ).map_err(|error| format!("Homebrew 安装 PostgreSQL 17 失败。可在终端运行 brew install postgresql@17 排查后重试。{error}"))
+}
+
 impl Setup {
     pub fn load(bundle: &Path, state: &Path) -> Result<Self> {
         let bundle = bundle.canonicalize().map_err(err)?;
@@ -150,7 +172,6 @@ impl Setup {
         if !safe_relative(&manifest.wheel) || !safe_relative(&manifest.uv_executable) {
             return Err("安装清单包含非法路径".into());
         }
-        let mut artifacts = vec![&manifest.uv, &manifest.python];
         match &manifest.postgres {
             Postgres::System { root, executable } => {
                 if manifest.platform != "linux"
@@ -160,17 +181,13 @@ impl Setup {
                     return Err("不支持的系统数据库配置".into());
                 }
             }
-            Postgres::Archive {
-                artifact,
-                executable,
-            } => {
-                if manifest.platform != "macos" || !safe_relative(executable) {
-                    return Err("不支持的数据库运行包配置".into());
+            Postgres::Homebrew { formula } => {
+                if manifest.platform != "macos" || formula != "postgresql@17" {
+                    return Err("不支持的 Homebrew 数据库配置".into());
                 }
-                artifacts.push(artifact);
             }
         }
-        for a in artifacts {
+        for a in [&manifest.uv, &manifest.python] {
             let url = reqwest::Url::parse(&a.url).map_err(err)?;
             if url.scheme() != "https"
                 || !url.username().is_empty()
@@ -194,10 +211,72 @@ impl Setup {
             id,
             bundle: bundle.to_owned(),
         };
-        if setup.root.join("ready").exists() && !setup.ready() {
+        setup.installed_id()?;
+        Ok(setup)
+    }
+    fn installed_id(&self) -> Result<Option<String>> {
+        let path = self.root.join("ready");
+        if !path.exists() {
+            return Ok(None);
+        }
+        let id = fs::read_to_string(path).map_err(err)?;
+        if id.len() != 64
+            || !id.bytes().all(|c| c.is_ascii_hexdigit())
+            || !self.python().is_file()
+        {
             return Err("已安装运行环境不完整或标记不受支持；保留原文件，请检查运行目录".into());
         }
-        Ok(setup)
+        Ok(Some(id))
+    }
+    pub fn runtime_lease(&self) -> Result<File> {
+        let lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(self.root.parent().unwrap().join("setup.lock"))
+            .map_err(err)?;
+        FileExt::try_lock_shared(&lock)
+            .map_err(|_| "运行环境正在更新，请等待安装完成".to_string())?;
+        if !self.ready() {
+            return Err("请完成本次安装，更新本机运行环境".into());
+        }
+        self.check_postgres()?;
+        Ok(lock)
+    }
+    fn replace_installed_runtime(&self, lock: &File) -> Result<()> {
+        let installed = self.installed_id()?;
+        if installed.as_ref() == Some(&self.id) {
+            return Ok(());
+        }
+        let state = self.root.parent().unwrap();
+        // Stop the service through the current lifecycle contract before touching executables.
+        // The exclusive setup lease prevents other desktop calls from starting it again.
+        if installed.is_some()
+            && (state.join("desktop.json").exists() || state.join("environment.json").exists())
+        {
+            run(
+                self.command(&self.python())
+                    .args(["-I", "-m", "asterion.runtime.cli", "desktop-stop", "--state"])
+                    .arg(state)
+                    .arg("--pg-root")
+                    .arg(self.postgres_root()),
+                &self.root,
+                lock,
+                120,
+            )?;
+        }
+        // Remove the receipt first so interruption cannot expose a partly replaced runtime.
+        if installed.is_some() {
+            fs::remove_file(self.root.join("ready")).map_err(err)?;
+        }
+        for directory in ["environment", "interpreter", "installer"] {
+            let path = self.root.join(directory);
+            if path.exists() {
+                fs::remove_dir_all(path).map_err(err)?;
+            }
+        }
+        Ok(())
     }
     pub fn python(&self) -> PathBuf {
         self.root.join("environment/bin/python")
@@ -210,30 +289,60 @@ impl Setup {
     pub fn postgres_root(&self) -> PathBuf {
         match &self.manifest.postgres {
             Postgres::System { root, .. } => root.clone(),
-            Postgres::Archive { .. } => self.root.join("postgres"),
+            Postgres::Homebrew { formula } => homebrew_prefix().join("opt").join(formula),
         }
     }
     fn postgres_executable(&self) -> PathBuf {
         let executable = match &self.manifest.postgres {
-            Postgres::System { executable, .. } | Postgres::Archive { executable, .. } => {
-                executable
-            }
+            Postgres::System { executable, .. } => executable.as_str(),
+            Postgres::Homebrew { .. } => "bin/postgres",
         };
         self.postgres_root().join(executable)
     }
     fn check_postgres(&self) -> Result<()> {
+        let hint = match self.manifest.postgres {
+            Postgres::Homebrew { .. } => "请通过 Homebrew 安装或修复：brew install postgresql@17",
+            Postgres::System { .. } => "请通过系统包管理器安装或修复 postgresql-17",
+        };
+        let executable = self.postgres_executable();
+        for tool in ["postgres", "initdb", "pg_ctl", "pg_dump", "pg_restore"] {
+            if !executable.parent().unwrap().join(tool).is_file() {
+                return Err(format!("PostgreSQL 17 不完整（缺少 {tool}）。{hint}"));
+            }
+        }
         let output = Command::new(self.postgres_executable())
             .arg("--version")
             .output()
             .map_err(|e| {
-                format!("PostgreSQL 17 不可用，请通过系统包管理器安装或修复 postgresql-17：{e}")
+                format!("PostgreSQL 17 不可用。{hint}：{e}")
             })?;
         if !output.status.success()
             || !String::from_utf8_lossy(&output.stdout).contains("(PostgreSQL) 17.")
         {
-            return Err("需要 PostgreSQL 17，请检查数据库安装版本".into());
+            return Err(format!("需要 PostgreSQL 17。{hint}"));
         }
         Ok(())
+    }
+
+    fn ensure_postgres(&self, lease: &File, mut report: impl FnMut(Progress)) -> Result<()> {
+        if self.check_postgres().is_ok() {
+            return Ok(());
+        }
+        if let Postgres::Homebrew { formula } = &self.manifest.postgres {
+            let brew = homebrew_prefix().join("bin/brew");
+            install_homebrew_postgres(&brew, formula, &self.root, lease, || {
+                report(Progress {
+                    running: true,
+                    dependencies: DependencyProgress {
+                        phase: "system".into(), current: "PostgreSQL 17 · Homebrew".into(),
+                        ..Default::default()
+                    },
+                    directory: self.root.display().to_string(),
+                    ..Default::default()
+                });
+            })?;
+        }
+        self.check_postgres()
     }
 
     fn command(&self, executable: &Path) -> Command {
@@ -267,18 +376,18 @@ impl Setup {
             .map_err(err)?;
         lock.try_lock_exclusive()
             .map_err(|_| "另一个窗口正在安装，请等待完成后重试".to_string())?;
-        if self.ready() {
-            return Ok(());
-        }
-        if matches!(self.manifest.postgres, Postgres::System { .. }) {
-            self.check_postgres()?;
-        }
         fs::create_dir_all(&self.root).map_err(err)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&self.root, fs::Permissions::from_mode(0o700)).map_err(err)?;
         }
+        // System dependency failure must not revoke an existing Python environment.
+        self.ensure_postgres(&lock, &mut report)?;
+        if self.ready() {
+            return Ok(());
+        }
+        self.replace_installed_runtime(&lock)?;
         let cache = parent.join("cache");
         fs::create_dir_all(&cache).map_err(err)?;
         let dependency_progress = std::cell::RefCell::new(DependencyProgress::default());
@@ -326,11 +435,6 @@ impl Setup {
             120,
         )?;
         stage(3, 0, None);
-        if let Postgres::Archive { artifact, .. } = &self.manifest.postgres {
-            let pg_archive = download(artifact, &cache, |n, t| stage(3, n, t))?;
-            stage(3, artifact.size, Some(artifact.size));
-            unpack(&pg_archive, &self.postgres_root())?;
-        }
         dependency_progress.borrow_mut().phase = "resolving".into();
         stage(3, 0, None);
         run_observed(

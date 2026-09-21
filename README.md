@@ -27,7 +27,7 @@
 
 ## 构建桌面应用（开发者）
 
-支持在 **macOS 构建 `.app`**、在 **Linux（Debian/Ubuntu）构建 `.deb`**，均为轻量安装包，仅携带界面、项目代码 wheel 和固定下载清单；首次点击“开始设置”后联网下载 Python 和依赖库；Linux PostgreSQL 17 由 apt 在安装应用时提供，macOS 使用单独下载的运行包。必须在目标系统和目标 CPU 架构上构建，不支持 macOS/Linux 交叉编译。
+支持在 **macOS 构建单个 `.dmg`**、在 **Linux（Debian/Ubuntu）构建单个 `.deb`**，均为轻量安装包，仅携带界面、项目代码 wheel 和固定下载清单；首次点击“开始设置”后联网下载 Python 和依赖库；Linux PostgreSQL 17 由 apt 在安装应用时提供，macOS 在首次设置中复用或通过 Homebrew 安装 `postgresql@17`。必须在目标系统和目标 CPU 架构上构建，不支持 macOS/Linux 交叉编译。
 
 通用构建依赖：Python 3.12+、uv、Node.js 22+、pnpm 10.32.1 和 Rust stable。这些开发工具准备好后，在项目根目录执行：
 
@@ -41,7 +41,9 @@ uv run python scripts/build_desktop.py --smoke-test
 
 仅系统包安装使用 `sudo`，密码直接在终端输入；整个构建以普通用户运行。脚本不会自动添加软件源：若现有源不提供 PostgreSQL 17，会停止并提示配置 PGDG。`CI=true`、非交互终端或 `--no-install` 模式均不会询问或自动安装，缺失依赖时直接失败。uv、Node.js/pnpm、Rust、Homebrew 和 Apple Command Line Tools 需要预先安装。
 
-构建成功后，最终 `.app` 或 `.deb` 会自动复制到项目根目录的 `release/`，文件名中的空格统一替换为下划线（如 `Asterion_Terminal_0.1.0_amd64.deb`），终端会显示完整路径；编译缓存仍保留在 Tauri 默认目录，`release/` 不纳入 Git。构建失败时保留打包现场，且不会更新 `release/` 中已有的产物。构建期间请勿删除 `target/` 或运行时目录。构建完成后可删除 `apps/terminal/src-tauri/target/` 释放空间，不影响 `release/` 中的产物；下次构建会重新编译。
+各平台只交付一种用户安装包：Linux `.deb`、macOS `.dmg`、Windows NSIS `.exe`（不是裸应用可执行文件）。Windows 目前仅约定打包格式，运行时安装、后台服务和实机验证尚未实现，构建入口明确拒绝 Windows。
+
+构建成功后，最终 `.dmg` 或 `.deb` 会自动复制到项目根目录的 `release/`，文件名中的空格统一替换为下划线（如 `Asterion_Terminal_0.1.0_amd64.deb`），终端会显示完整路径。macOS DMG 内只提供系统安装器 `.pkg`，将应用固定安装到 `/Applications/Asterion Terminal.app`；相同包标识始终覆盖该路径，不按版本创建副本。`.app` 仅为构建中间产物，不导出到 `release/`；制作安装器前签名，导出前解开镜像内安装器并验证应用签名与镜像完整性。编译缓存仍保留在 Tauri 默认目录，`release/` 不纳入 Git。构建失败时保留打包现场，且不会更新 `release/` 中已有的产物。构建期间请勿删除 `target/` 或运行时目录。构建完成后可删除 `apps/terminal/src-tauri/target/` 释放空间，不影响 `release/` 中的产物；下次构建会重新编译。
 
 `--smoke-test` 在临时数据库中验证首次安装后的后台、worker、CSV 导入和 Parquet 查询，成功后才生成安装包。不要以 root 身份运行构建或应用（PostgreSQL 拒绝 root 初始化）。
 
@@ -53,13 +55,13 @@ brew install postgresql@17
 uv run python scripts/build_desktop.py --platform macos --smoke-test
 ```
 
-自动通过 `brew --prefix` 定位 PostgreSQL 17，兼容 Apple Silicon 和 Intel Mac；自定义安装路径可设置 `ASTERION_PG_SOURCE`。产物：
+使用当前架构的标准 Homebrew 安装位置：Apple Silicon 为 `/opt/homebrew`，Intel 为 `/usr/local`；PostgreSQL 固定读取 `opt/postgresql@17`，不将构建机器上的 Cellar 小版本路径写入安装包。只有冒烟验证需要构建机安装 PostgreSQL，生成安装输入不打包数据库。产物：
 
 ```text
-release/Asterion_Terminal.app
+release/Asterion_Terminal_0.1.0_aarch64.dmg
 ```
 
-应用使用本地 ad-hoc 签名；面向公众分发仍需 Developer ID 签名及公证。
+上例为 Apple Silicon，Intel 文件名中的架构为 `x64`。打开 DMG，双击其中的安装器。安装器会请求系统安装权限，关闭标准安装路径下正在运行的应用，并覆盖同一位置；不会提供“保留两者”或另选版本目录。最近一次成功安装的包生效，包括重新安装较低版本号的包；不会按版本号保留多套应用。应用使用本地 ad-hoc 签名；面向公众分发仍需 Developer ID 签名及公证。
 
 ### Linux（Debian/Ubuntu）
 
@@ -99,9 +101,9 @@ Linux 包与构建机的 CPU 架构、glibc 版本相关，应在计划支持的
 
 仅保留一个默认任务 `Asterion: Build`。按 **Ctrl+Shift+B**（macOS 为 **Cmd+Shift+B**），依次安装锁定依赖、检查并引导安装系统依赖、验证后台并构建当前系统的桌面包；自动识别 macOS/Linux，无需选择平台。
 
-首次设置使用原生 Rust 安装器下载固定版本 uv、Python（macOS 另下载 PostgreSQL），并用带哈希的锁定清单安装依赖。`--prepare-only` 生成轻量包输入；仅 macOS 另生成 `release/runtime/` 下的 PostgreSQL 附件；`--reuse-setup` 仅在代码、依赖与目标平台未改变时复用已有输入。`--smoke-test` 通过与桌面相同的安装器在 `.state/setup-smoke/` 建立独立环境，再以临时数据库验证后台。单独验证已安装环境：`uv run python scripts/smoke_desktop_runtime.py --runtime <运行环境目录>`。
+首次设置使用原生 Rust 安装器下载固定版本 uv、Python，并用带哈希的锁定清单安装应用专用依赖。数据库由系统包管理器提供：Linux 为 apt 的 `postgresql-17`；macOS 为 Homebrew 的 `postgresql@17`。macOS 缺少 Homebrew 时显示 https://brew.sh 的官方安装指引，用户完成后重试；已有 Homebrew 时由“开始设置”触发数据库安装，不运行 `brew services start`，也不调用 `sudo`。`--prepare-only` 只生成轻量包输入，`--reuse-setup` 仅在代码、依赖与目标平台未改变时复用已有输入。`--smoke-test` 通过与桌面相同的安装器在 `.state/setup-smoke/` 建立独立环境，再以临时数据库验证后台。单独验证已安装环境：`uv run python scripts/smoke_desktop_runtime.py --runtime <运行环境目录>`。
 
-macOS 发布时须把本次 `release/runtime/` 附件上传到本仓库对应 `v<版本号>` 的 GitHub Release，再分发桌面包；下载 URL 与 SHA-256 已写入包内清单。也可通过 `--runtime-release-url https://...` 指定发布目录。未上传附件的包不能完成首次联网安装，构建时的本地缓存验证不等于公开下载验收。
+不生成 PostgreSQL 发布附件，也不要求向 GitHub Release 上传数据库包；用户只下载对应平台的应用安装包。Python 与 uv 从官方上游获取，数据库由包管理工具校验和维护。Homebrew 本身的安装及系统授权由用户按官方步骤完成，星枢不自动执行远程 shell 安装脚本。Windows 已选定 WinGet 提供数据库程序，具体包、安装参数及后台运行适配随 Windows 完整支持实现，本轮不声称已可运行。
 
 开发配置包括 `settings.json`（Python/Ruff、TypeScript、Rust 和 pytest）、`extensions.json`（推荐扩展）及 `launch.json`（调试入口）。首次打开工作区时安装推荐扩展，并运行 `uv sync --locked`、`pnpm install --frozen-lockfile`。
 
@@ -196,3 +198,7 @@ uv run python -m asterion_plugin_sdk pack examples/plugins/calendar-source /tmp/
 ```
 
 [独立样例](examples/plugins/calendar-source/README.md)不生成行情，数据由你配置的真实 HTTPS 接口提供。可将该目录复制到独立仓库；开发插件无需修改终端核心。完整契约见[插件系统](docs/plugin-system.md)。
+
+### 重复安装与更新
+
+应用标识固定为 `me.asterion.terminal`，Linux Debian 包固定为 `asterion-terminal`，Windows 约定使用机器级 NSIS 安装。应用位置不含版本号；用户数据和账户环境按用户隔离，不随应用覆盖删除。运行环境固定为应用数据目录下的 `runtime/`：相同安装摘要直接复用，合法摘要变化时通过现有生命周期接口停止后台，再在同一目录替换程序文件；安装期间原生后台调用被安装锁阻止。安装未完成不启动后台，停止失败保留原程序和就绪记录，下载或安装失败可重试，不回退执行上一版。损坏标记或缺失的已发布运行环境仍明确拒绝且不自动修复。此约束针对标准安装流程；不会搜索或删除用户手工复制到其他目录的应用、旧下载文件或备份。

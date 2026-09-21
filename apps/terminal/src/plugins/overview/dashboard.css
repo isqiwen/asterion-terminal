@@ -124,3 +124,9 @@
 
 .live-configuration { border: 0; margin: 0; padding: 12px 0; display: flex; flex-direction: column; gap: 12px; }
 .live-configuration > label { display: grid; grid-template-columns: 140px minmax(0,1fr); gap: 12px; align-items: center; }
+
+.contract-picker-list { max-height: 280px; overflow: auto; border-block: 1px solid var(--line); }
+.contract-picker-row { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.contract-picker-row > input { width: auto; flex: 0 0 auto; }
+.contract-picker-row > span { flex: 1; }
+.contract-picker-row > small { color: var(--muted); }

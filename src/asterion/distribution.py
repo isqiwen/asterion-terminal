@@ -1,3 +1,6 @@
+from asterion.connections.plugin import plugin as connections
+from asterion.connector_ctp.plugin import plugin as ctp
+
 """Default distribution manifest. Only this assembly layer selects product plugins."""
 
 from asterion.contract_roles.plugin import plugin as contract_roles
@@ -52,12 +55,17 @@ def builtin_plugins():
         contract_rules,
         contract_roles,
         research,
+        connections,
+        ctp,
         market,
         trading,
     )
 
 
 def bootstrap_resources(settings, engine, tasks, plugins):
+    from asterion.connections.public import CONNECTOR_OWNERS
+    from asterion.connections.public import CREDENTIAL_SCOPE as CONNECTION_SCOPE
+    from asterion.connections.public import CREDENTIALS as CONNECTION_CREDENTIALS
     from asterion.data.public import CREDENTIAL_SCOPE, CREDENTIALS
     from asterion.distribution_storage import (
         data_storage,
@@ -95,6 +103,11 @@ def bootstrap_resources(settings, engine, tasks, plugins):
             TASKS: task_port(tasks, frozenset(handler.kind for handler in data.handlers)),
         },
         market.id: {DATA_ROOT: settings.data_root},
+        connections.id: {
+            DATA_ROOT: settings.data_root,
+            CONNECTION_CREDENTIALS: secret_port(settings.token, CONNECTION_SCOPE),
+            CONNECTOR_OWNERS: {"ctp": ctp.id},
+        },
         research.id: {
             STORAGE: research_storage(engine),
             TASKS: task_port(tasks, frozenset(handler.kind for handler in research.handlers)),
@@ -231,7 +244,18 @@ def request_policies():
             Grant("/data/jobs/:id/retry", ("POST",)),
         ),
         "tasks": (read("/data/jobs", True), Grant("/data/jobs/:id/retry", ("POST",))),
-        "market": (use("/market"),),
+        "market": (
+            use("/market"),
+            read("/connections"),
+            Grant("/connections/:id/select", ("POST",)),
+            Grant("/connections/:id/connect", ("POST",)),
+            Grant("/connections/:id/disconnect", ("POST",)),
+        ),
+        "connections": (use("/connections"),),
+        "trading": (
+            use("/trading"),
+            read("/connections"),
+        ),
         "sources": (use("/data/connections"), use("/data/providers")),
         "extensions": (use("/extensions"),),
     }

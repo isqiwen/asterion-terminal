@@ -15,7 +15,6 @@ import fcntl
 import json
 import stat
 import zipfile
-from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine
@@ -110,10 +109,10 @@ def test_restore_rejects_invalid_archives_without_publishing_target(state, tmp_p
     assert not (tmp_path / "outside").exists()
 
 
-def test_real_postgres_restore_research_archive_credentials_and_queue_isolation(tmp_path):
-    pg = Path(__file__).resolve().parents[1] / "apps/terminal/src-tauri/runtime/postgres"
-    if not (pg / "bin/postgres").exists():
-        pytest.skip("bundled PostgreSQL required")
+def test_real_postgres_restore_research_archive_credentials_and_queue_isolation(
+    tmp_path, system_postgres
+):
+    pg = system_postgres
     state = tmp_path / "original"
     settings = load_config(state)
     initialize_postgres(state, pg, settings)

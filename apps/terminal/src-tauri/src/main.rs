@@ -22,13 +22,14 @@ fn backend_request(app: &AppHandle, role: &str, extra: &[String]) -> Result<serd
     let resources = app.path().resource_dir().map_err(|e| e.to_string())?;
     let state = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let setup = Setup::load(&resources.join("setup"), &state)?;
-    if !setup.ready() { return Err("请先完成首次设置，安装本机运行环境".into()); }
+    let lease = setup.runtime_lease()?;
     let output = Command::new(setup.python())
         .args(["-I", "-m", "asterion.runtime.cli"])
         .arg(role).args(extra)
         .arg("--state").arg(state)
         .arg("--pg-root").arg(setup.postgres_root())
         .env("PYTHONDONTWRITEBYTECODE", "1")
+        .stdin(lease.try_clone().map_err(|e| e.to_string())?)
         .output().map_err(|e| format!("无法启动本机运行环境：{e}"))?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).chars().take(3000).collect());

@@ -1,3 +1,4 @@
+import {plugin as connections} from "./plugins/connections/plugin";
 import { dashboardWidgets } from "./plugins/overview/public";
 /** Default product assembly. Mechanism modules never select concrete features. */
 import { TerminalPlugins } from "./extensions/plugins";
@@ -22,6 +23,7 @@ export const distribution = new TerminalPlugins([
   identity,
   tasks,
   overview,
+  connections,
   market,
   data,
   roles,

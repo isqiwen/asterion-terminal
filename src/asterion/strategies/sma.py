@@ -46,7 +46,9 @@ def contribution():
             description="快均线高于慢均线时持有多仓，否则空仓；预热为慢均线周期。",
             parameters=(
                 IntegerParameter(key="fast", label="快均线周期", minimum=1, maximum=250, default=5),
-                IntegerParameter(key="slow", label="慢均线周期", minimum=2, maximum=500, default=20),
+                IntegerParameter(
+                    key="slow", label="慢均线周期", minimum=2, maximum=500, default=20
+                ),
             ),
         ),
         validate,

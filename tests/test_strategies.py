@@ -45,7 +45,9 @@ def fixture_strategy(output=True, warmup=2):
             name="Independent plugin",
             description="Only closed bars; no execution authority.",
             parameters=(
-                IntegerParameter(key="warmup", label="Warmup", minimum=1, maximum=10, default=warmup),
+                IntegerParameter(
+                    key="warmup", label="Warmup", minimum=1, maximum=10, default=warmup
+                ),
             ),
         ),
         lambda _: None,

@@ -114,15 +114,12 @@ def ensure_linux(*, runtime: bool, desktop: bool, interactive: bool) -> None:
         raise SystemExit("Dependencies still missing after installation: " + ", ".join(remaining))
 
 
-def mac_postgres_source() -> Path:
-    override = os.environ.get("ASTERION_PG_SOURCE")
-    if override:
-        return Path(override).expanduser().resolve()
-    if shutil.which("brew"):
-        result = execute("brew", "--prefix", capture=True)
-        if not result.returncode:
-            return Path(result.stdout.strip()) / "opt/postgresql@17"
-    return Path("/opt/homebrew/opt/postgresql@17")
+def mac_homebrew_prefix() -> Path:
+    return Path("/opt/homebrew" if platform.machine() == "arm64" else "/usr/local")
+
+
+def mac_postgres_root() -> Path:
+    return mac_homebrew_prefix() / "opt/postgresql@17"
 
 
 def ensure_macos(*, runtime: bool, desktop: bool, interactive: bool) -> None:
@@ -133,17 +130,16 @@ def ensure_macos(*, runtime: bool, desktop: bool, interactive: bool) -> None:
         )
     if not runtime:
         return
-    source = mac_postgres_source()
+    source = mac_postgres_root()
     if all((source / "bin" / tool).is_file() for tool in ("postgres", "initdb", "pg_ctl")):
         return
-    if os.environ.get("ASTERION_PG_SOURCE"):
-        raise SystemExit(f"ASTERION_PG_SOURCE does not contain a PostgreSQL runtime: {source}")
-    if not shutil.which("brew"):
+    brew = mac_homebrew_prefix() / "bin/brew"
+    if not brew.is_file():
         raise SystemExit(
             "Homebrew is required to install PostgreSQL 17. Install Homebrew and retry."
         )
     confirm_install(["postgresql@17"], "Homebrew", interactive)
-    if execute("brew", "install", "postgresql@17").returncode:
+    if execute(str(brew), "install", "postgresql@17").returncode:
         raise SystemExit("Homebrew installation failed. Fix the error above and retry.")
     if not all((source / "bin" / tool).is_file() for tool in ("postgres", "initdb", "pg_ctl")):
         raise SystemExit(f"PostgreSQL runtime is still missing after installation: {source}")

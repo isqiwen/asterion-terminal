@@ -6,6 +6,7 @@ test("install requires explicit trust, renders declarative view and preserves un
   let installed = false;
   let enabled = false;
   let inspections = 0;
+  let viewCalls = 0;
   const digest = "a".repeat(64);
   const manifest = { id: "example.calendar", title: "独立测试插件", version: "1.0.0", description: "开发测试", requires: {}, contributions: { "ui.table": {} } };
   const view = { id: "status", title: "来源状态", columns: [{ key: "value", label: "状态" }] };
@@ -30,7 +31,7 @@ test("install requires explicit trust, renders declarative view and preserves un
     }
     if (path.endsWith("/extensions/example.calendar/remove")) { expect(enabled).toBe(false); installed = false; return route.fulfill({ json: { status: "removed", retained: digest } }); }
     if (path.endsWith("/extensions/views")) return route.fulfill({ json: { items: enabled ? [{ plugin_id: manifest.id, digest, view }] : [] } });
-    if (path.endsWith("/extensions/example.calendar/view")) return route.fulfill({ json: { rows: [{ value: "<script>plain text</script>" }] } });
+    if (path.endsWith("/extensions/example.calendar/view")) { viewCalls++; return route.fulfill({ json: { rows: [{ value: "<script>plain text</script>" }] } }); }
     if (path.endsWith("/extensions")) return route.fulfill({ json: { items: installed ? [{ manifest, digest, enabled }] : [] } });
     const user = { email: "plugins@example.com", first_name: "Plugin", last_name: "Test" };
     return route.fulfill({ json: path.endsWith("/login") ? { session: "session", user } : path.endsWith("/me") ? user : path.endsWith("/health") ? { status: "ready" } : [] });
@@ -82,12 +83,15 @@ test("install requires explicit trust, renders declarative view and preserves un
   await expect(diagnostics).toContainText("减少单次工作量");
   const workspace = await context.newPage();
   await workspace.goto("/");
-  await workspace.getByRole("button", { name: "扩展", exact: true }).click();
-  await expect(workspace.getByRole("table", { name: "来源状态" })).toContainText("<script>plain text</script>");
+  await expect(workspace.getByRole("button", { name: "总览", exact: true })).toBeVisible();
+  await expect(workspace.getByRole("button", { name: "扩展", exact: true })).toHaveCount(0);
+  expect(viewCalls).toBe(0);
+  await page.getByRole("button", { name: "查看插件视图", exact: true }).click();
+  await expect(page.getByRole("table", { name: "来源状态" })).toContainText("<script>plain text</script>");
   await page.getByRole("button", { name: "停用", exact: true }).click();
   await expect(page.getByText("已停用", { exact: true })).toBeVisible();
-  await workspace.getByRole("button", { name: "刷新", exact: true }).click();
-  await expect(workspace.getByText("插件视图不可用。", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(page.getByText("插件视图不可用。", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "移除", exact: true }).click();
   await expect(page.getByText("尚未安装本地插件。", { exact: false })).toBeVisible();
 });

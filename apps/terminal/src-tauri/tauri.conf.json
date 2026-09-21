@@ -26,9 +26,6 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "app"
-    ],
     "resources": {
       "setup/": "setup/"
     },

@@ -1,3 +1,4 @@
+import { connectionRequests } from "../connections/public";
 import { useRequestClient } from "../../api/useRequestClient";
 import { sourceRequests, extensionRequests } from "./requests";
 import { renderSetting } from "../../extensions/plugins";
@@ -27,6 +28,7 @@ export function Settings() {
     "sources",
   );
   const extensionsApi = useRequestClient(connection.token, connection.connected, extensionRequests, "extensions");
+  const connectionsApi=useRequestClient(connection.token,connection.connected,connectionRequests,"connections");
   const preferences = usePreferences();
   const { account, setAccount, restoring } = useDesktopAccount(
     connection.token,
@@ -85,6 +87,7 @@ export function Settings() {
             empty: {},
             appearance: { preferences },
             data: { api: sourcesApi },
+            connections: { api: connectionsApi },
             extensions: { api: extensionsApi },
             services: {
               connection: {

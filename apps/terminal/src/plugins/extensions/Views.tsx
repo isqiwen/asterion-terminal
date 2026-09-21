@@ -45,7 +45,7 @@ export function Views({ api }: { api: RequestClient }) {
     </div>
     {error && <p role="alert" className="alert">{error}</p>}
     {busy && <p>正在读取插件视图…</p>}
-    {!view && <p className="empty">插件视图不可用。可在设置中安装并启用插件，然后刷新。</p>}
+    {!view && <p className="empty">插件视图不可用。请在本页安装并启用提供视图的插件，然后刷新。</p>}
     {view && !busy && <DeclarativeTable definition={view.view} rows={rows} />}
   </section>;
 }
