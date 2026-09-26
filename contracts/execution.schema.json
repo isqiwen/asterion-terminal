@@ -1,0 +1,1163 @@
+{
+  "$defs": {
+    "AccountEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "contract_id": {
+          "type": "string"
+        },
+        "day": {
+          "format": "date",
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "day",
+        "contract_id",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "AvailabilityAssumption": {
+      "enum": [
+        "after_source_day"
+      ],
+      "type": "string"
+    },
+    "CalendarDay": {
+      "additionalProperties": false,
+      "properties": {
+        "date": {
+          "format": "date",
+          "type": "string"
+        },
+        "is_open": {
+          "type": "boolean"
+        },
+        "night_open": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "date",
+        "is_open",
+        "night_open"
+      ],
+      "type": "object"
+    },
+    "ClosedBar": {
+      "additionalProperties": false,
+      "properties": {
+        "close": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "trading_day": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "trading_day",
+        "close"
+      ],
+      "type": "object"
+    },
+    "Contract": {
+      "additionalProperties": false,
+      "properties": {
+        "delivery_month": {
+          "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        "last_delivery_on": {
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_trade_on": {
+          "format": "date",
+          "type": "string"
+        },
+        "listed_on": {
+          "format": "date",
+          "type": "string"
+        },
+        "product_id": {
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        }
+      },
+      "required": [
+        "id",
+        "product_id",
+        "delivery_month",
+        "listed_on",
+        "last_trade_on",
+        "provenance"
+      ],
+      "type": "object"
+    },
+    "ContractBasis": {
+      "additionalProperties": false,
+      "properties": {
+        "checksum": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "connection_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "contract_id": {
+          "pattern": "^(SHFE|DCE|CZCE|CFFEX|INE|GFEX)\\.[A-Z]+\\.[0-9]{6}\\.[0-9]{8}$",
+          "type": "string"
+        },
+        "delisted": {
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exchange": {
+          "maxLength": 10,
+          "minLength": 1,
+          "type": "string"
+        },
+        "listed": {
+          "format": "date",
+          "type": "string"
+        },
+        "multiplier": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "per_unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        "quote_unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "quote_unit_desc": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "symbol": {
+          "maxLength": 30,
+          "minLength": 1,
+          "type": "string"
+        },
+        "trade_unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "contract_id",
+        "version_id",
+        "checksum",
+        "symbol",
+        "exchange",
+        "name",
+        "listed"
+      ],
+      "type": "object"
+    },
+    "CurvePoint": {
+      "additionalProperties": false,
+      "properties": {
+        "balance": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "close_equity": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "close_pnl": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "contract_id": {
+          "type": "string"
+        },
+        "day": {
+          "format": "date",
+          "type": "string"
+        },
+        "drawdown": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "equity": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "fees": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "free_cash": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "margin": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "margin_rate": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "next_target": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "opening_balance": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "position": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "session_close": {
+          "type": "string"
+        },
+        "session_open": {
+          "type": "string"
+        },
+        "settle": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "settlement_pnl": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "time_version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "day",
+        "contract_id",
+        "session_open",
+        "session_close",
+        "time_version",
+        "equity",
+        "opening_balance",
+        "settle",
+        "settlement_pnl",
+        "fees",
+        "balance",
+        "close_pnl",
+        "close_equity",
+        "drawdown",
+        "position",
+        "margin",
+        "margin_rate",
+        "free_cash",
+        "next_target"
+      ],
+      "type": "object"
+    },
+    "DailyBar": {
+      "additionalProperties": false,
+      "properties": {
+        "close": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "contract": {
+          "type": "string"
+        },
+        "contract_id": {
+          "type": "string"
+        },
+        "open": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "settle": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "trading_day": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "contract",
+        "contract_id",
+        "trading_day",
+        "open",
+        "close",
+        "settle"
+      ],
+      "type": "object"
+    },
+    "DailyPrices": {
+      "additionalProperties": false,
+      "description": "OHLC admission used for portable daily evidence. Strings are validated but\ntheir original spelling remains owned by the immutable package payload.",
+      "properties": {
+        "close": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "high": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "low": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "open": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "settle": {
+          "format": "decimal",
+          "type": "string"
+        }
+      },
+      "required": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "settle"
+      ],
+      "type": "object"
+    },
+    "ExceptionDay": {
+      "additionalProperties": false,
+      "properties": {
+        "day": {
+          "items": {
+            "$ref": "#/$defs/Slot"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "night": {
+          "items": {
+            "$ref": "#/$defs/Slot"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "source": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "trading_day": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "trading_day",
+        "source",
+        "day",
+        "night"
+      ],
+      "type": "object"
+    },
+    "Exchange": {
+      "enum": [
+        "SHFE",
+        "DCE",
+        "CZCE",
+        "CFFEX",
+        "INE",
+        "GFEX"
+      ],
+      "type": "string"
+    },
+    "ExecutionConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "capital": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "end": {
+          "format": "date",
+          "type": "string"
+        },
+        "lots": {
+          "format": "int64",
+          "maximum": 1000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "rules": {
+          "$ref": "#/$defs/RuleVersion"
+        },
+        "slippage_ticks": {
+          "format": "int64",
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "start": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "capital",
+        "rules",
+        "start",
+        "end",
+        "slippage_ticks",
+        "lots"
+      ],
+      "type": "object"
+    },
+    "ExecutionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "curve": {
+          "items": {
+            "$ref": "#/$defs/CurvePoint"
+          },
+          "type": "array"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/AccountEvent"
+          },
+          "type": "array"
+        },
+        "fills": {
+          "items": {
+            "$ref": "#/$defs/Fill"
+          },
+          "type": "array"
+        },
+        "summary": {
+          "$ref": "#/$defs/Summary"
+        }
+      },
+      "required": [
+        "summary",
+        "curve",
+        "fills",
+        "events"
+      ],
+      "type": "object"
+    },
+    "FeeField": {
+      "enum": [
+        "trading_fee",
+        "trading_fee_rate"
+      ],
+      "type": "string"
+    },
+    "FeeMode": {
+      "enum": [
+        "per_lot",
+        "notional"
+      ],
+      "type": "string"
+    },
+    "FeeScope": {
+      "enum": [
+        "long_open_and_non_today_close"
+      ],
+      "type": "string"
+    },
+    "FeeUnit": {
+      "enum": [
+        "yuan_per_lot",
+        "ratio",
+        "percent",
+        "permille",
+        "permyriad"
+      ],
+      "type": "string"
+    },
+    "Fill": {
+      "additionalProperties": false,
+      "properties": {
+        "contract_id": {
+          "type": "string"
+        },
+        "day": {
+          "format": "date",
+          "type": "string"
+        },
+        "fee": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "fee_mode": {
+          "$ref": "#/$defs/FeeMode"
+        },
+        "fee_rate": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "lots": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "price": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "rule_start": {
+          "format": "date",
+          "type": "string"
+        },
+        "rule_version": {
+          "type": "string"
+        },
+        "side": {
+          "type": "string"
+        },
+        "time": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "day",
+        "contract_id",
+        "time",
+        "side",
+        "lots",
+        "price",
+        "fee",
+        "rule_version",
+        "fee_mode",
+        "fee_rate",
+        "rule_start",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "MarginUnit": {
+      "enum": [
+        "ratio",
+        "percent"
+      ],
+      "type": "string"
+    },
+    "Period": {
+      "additionalProperties": false,
+      "properties": {
+        "day": {
+          "items": {
+            "$ref": "#/$defs/Slot"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "type": "array"
+        },
+        "end": {
+          "format": "date",
+          "type": "string"
+        },
+        "night": {
+          "items": {
+            "$ref": "#/$defs/Slot"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "source": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "start": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "source",
+        "day",
+        "night"
+      ],
+      "type": "object"
+    },
+    "Phase": {
+      "enum": [
+        "auction",
+        "continuous"
+      ],
+      "type": "string"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "available_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "source_version": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "source_version",
+        "observed_at",
+        "available_at"
+      ],
+      "type": "object"
+    },
+    "RulePeriod": {
+      "additionalProperties": false,
+      "properties": {
+        "close_fee": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "end": {
+          "format": "date",
+          "type": "string"
+        },
+        "fee_mode": {
+          "$ref": "#/$defs/FeeMode"
+        },
+        "margin_rate": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "open_fee": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "settlement_basis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettlementBasis"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "start": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "margin_rate",
+        "fee_mode",
+        "open_fee",
+        "close_fee"
+      ],
+      "type": "object"
+    },
+    "RuleSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "basis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContractBasis"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "contract": {
+          "$ref": "#/$defs/Contract"
+        },
+        "multiplier": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "periods": {
+          "items": {
+            "$ref": "#/$defs/RulePeriod"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
+        "source": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tick_size": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        "trading_time": {
+          "$ref": "#/$defs/TimeVersion"
+        }
+      },
+      "required": [
+        "trading_time",
+        "contract",
+        "title",
+        "source",
+        "multiplier",
+        "tick_size",
+        "periods"
+      ],
+      "type": "object"
+    },
+    "RuleVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "spec": {
+          "$ref": "#/$defs/RuleSpec"
+        }
+      },
+      "required": [
+        "id",
+        "spec"
+      ],
+      "type": "object"
+    },
+    "SettlementBasis": {
+      "additionalProperties": false,
+      "properties": {
+        "availability_assumption": {
+          "$ref": "#/$defs/AvailabilityAssumption"
+        },
+        "evidence": {
+          "$ref": "#/$defs/SettlementEvidence"
+        },
+        "fee_field": {
+          "$ref": "#/$defs/FeeField"
+        },
+        "fee_scope": {
+          "$ref": "#/$defs/FeeScope"
+        },
+        "fee_unit": {
+          "$ref": "#/$defs/FeeUnit"
+        },
+        "interpretation": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "margin_unit": {
+          "$ref": "#/$defs/MarginUnit"
+        }
+      },
+      "required": [
+        "evidence",
+        "fee_field",
+        "fee_unit",
+        "margin_unit",
+        "fee_scope",
+        "availability_assumption",
+        "interpretation"
+      ],
+      "type": "object"
+    },
+    "SettlementEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "checksum": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "connection_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "contract": {
+          "$ref": "#/$defs/Contract"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "provider": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        "row": {
+          "$ref": "#/$defs/SettlementRow"
+        },
+        "version_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "version_id",
+        "checksum",
+        "observed_at",
+        "row",
+        "contract"
+      ],
+      "type": "object"
+    },
+    "SettlementRow": {
+      "additionalProperties": false,
+      "properties": {
+        "b_hedging_margin_rate": {
+          "format": "decimal",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "contract": {
+          "type": "string"
+        },
+        "delivery_fee": {
+          "format": "decimal",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exchange": {
+          "type": "string"
+        },
+        "long_margin_rate": {
+          "format": "decimal",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "offset_today_fee": {
+          "format": "decimal",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "s_hedging_margin_rate": {
+          "format": "decimal",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "settle": {
+          "format": "decimal",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "short_margin_rate": {
+          "format": "decimal",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "trading_day": {
+          "format": "date",
+          "type": "string"
+        },
+        "trading_fee": {
+          "format": "decimal",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trading_fee_rate": {
+          "format": "decimal",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "symbol",
+        "exchange",
+        "contract",
+        "trading_day"
+      ],
+      "type": "object"
+    },
+    "Slot": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$",
+          "type": "string"
+        },
+        "end_offset": {
+          "format": "uint8",
+          "maximum": 1,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "phase": {
+          "$ref": "#/$defs/Phase"
+        },
+        "start": {
+          "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "end_offset",
+        "phase"
+      ],
+      "type": "object"
+    },
+    "Summary": {
+      "additionalProperties": false,
+      "properties": {
+        "bars": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "contract_id": {
+          "type": "string"
+        },
+        "fees": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "fill_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "final_equity": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "initial_equity": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "max_drawdown": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "net_profit": {
+          "format": "decimal",
+          "type": "string"
+        },
+        "open_lots": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "return_rate": {
+          "format": "decimal",
+          "type": "string"
+        }
+      },
+      "required": [
+        "contract_id",
+        "initial_equity",
+        "final_equity",
+        "net_profit",
+        "return_rate",
+        "max_drawdown",
+        "fees",
+        "fill_count",
+        "open_lots",
+        "bars"
+      ],
+      "type": "object"
+    },
+    "TimeSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "calendar": {
+          "items": {
+            "$ref": "#/$defs/CalendarDay"
+          },
+          "maxItems": 3700,
+          "minItems": 2,
+          "type": "array"
+        },
+        "calendar_source": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "exceptions": {
+          "items": {
+            "$ref": "#/$defs/ExceptionDay"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "exchange": {
+          "$ref": "#/$defs/Exchange"
+        },
+        "night_source": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "periods": {
+          "items": {
+            "$ref": "#/$defs/Period"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
+        "product": {
+          "maxLength": 20,
+          "pattern": "^[A-Z]+$",
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint8",
+          "maximum": 1,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "timezone": {
+          "pattern": "^Asia/Shanghai$",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "exchange",
+        "product",
+        "title",
+        "timezone",
+        "calendar_source",
+        "night_source",
+        "calendar",
+        "periods",
+        "exceptions"
+      ],
+      "type": "object"
+    },
+    "TimeVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "spec": {
+          "$ref": "#/$defs/TimeSpec"
+        }
+      },
+      "required": [
+        "id",
+        "spec"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/ExecutionConfig"
+    },
+    {
+      "$ref": "#/$defs/DailyBar"
+    },
+    {
+      "$ref": "#/$defs/DailyPrices"
+    },
+    {
+      "$ref": "#/$defs/ClosedBar"
+    },
+    {
+      "$ref": "#/$defs/ExecutionResult"
+    }
+  ],
+  "title": "Models"
+}

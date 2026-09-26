@@ -6,6 +6,10 @@ from datetime import date, datetime, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from asterion_bindings.catalog import SourceIdentity, catalog_digest
+from asterion_bindings.data_partitions import cumulative_series
+from asterion_bindings.task_models import Job
+from asterion_bindings.task_repository import Conflict
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import JSON, Column, Float, String, Table, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -13,14 +17,9 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 
 from asterion.data.library import collections, stable_id, versions
-from asterion.data.partitions import SERIES
 from asterion.data.providers.public import ProviderError, SyncRequest
-from asterion.data.reference import SourceIdentity
 from asterion.data.reference_source import SourceCatalogRequest, source_catalog
-from asterion.data.reference_store import catalog_digest
 from asterion.platform.store import jobs, metadata
-from asterion.platform.tasks.public import Job
-from asterion.platform.tasks.service import Conflict
 
 CHECKER = "daily-coverage-v2"
 reports = Table(
@@ -219,7 +218,8 @@ class DailyCoverage:
     def _reference(self, conn, daily, type_id, selected, *, resolve=True, external=False):
         source, exchange = daily["manifest"]["source"], daily["manifest"]["scope"]["exchange"]
         if not selected and resolve and not external:
-            for series in [SERIES, None] if type_id == "futures.calendar" else [None]:
+            cumulative = cumulative_series(type_id) if type_id == "futures.calendar" else None
+            for series in [cumulative, None] if cumulative else [None]:
                 dataset_id = stable_id(
                     self.library.identity(
                         type_id,
@@ -250,7 +250,7 @@ class DailyCoverage:
             )
         ):
             raise ProviderError("核对依据的来源及交易所必须与日线一致")
-        rows = self.library.preview(record["id"], limit=record["rows"])["rows"]
+        rows = self.library.preview_in(conn, record["id"], limit=record["rows"])["rows"]
         self.library.types.get(type_id).validate(rows)
         if any(row["exchange"] != exchange for row in rows):
             raise ProviderError("核对依据包含其他交易所的数据")
@@ -307,7 +307,7 @@ class DailyCoverage:
             )
         ):
             catalog = source_catalog(
-                self.library.preview,
+                lambda version_id, **options: self.library.preview_in(conn, version_id, **options),
                 SourceCatalogRequest(
                     version_id=contracts_id,
                     symbols=[reference_symbol],
@@ -321,14 +321,14 @@ class DailyCoverage:
                 information_at=max(c.provenance.available_at for c in catalog.contracts),
             )
         calendar = {row["date"]: row["is_open"] for row in calendar_rows}
-        bars = self.library.preview(daily["id"], limit=daily["rows"])["rows"]
+        bars = self.library.preview_in(conn, daily["id"], limit=daily["rows"])["rows"]
         self.library.types.get("futures.daily").validate(bars)
         if any(row["symbol"] != symbol or row["exchange"] != exchange for row in bars):
             raise ProviderError("日线必须与所选单合约来源代码一致")
         if local:
-            from asterion.data.public import ImportOptions
+            from asterion_bindings.catalog import ImportIdentity
 
-            admitted = ImportOptions.model_validate(manifest["import_options"]).identity
+            admitted = ImportIdentity.model_validate(manifest["import_options"]["identity"])
             admitted.validate_rows(bars)
             if identity_evidence is not None:
                 for row in bars:
@@ -581,13 +581,13 @@ class DailyCoverage:
                         symbol=checked["symbol"],
                         **interval,
                     )
-                    payload = self.sync.submission_payload(req) | {
+                    payload = self.sync.submission_payload_in(conn, req) | {
                         "contract_identity": daily["manifest"].get("contract_identity"),
                         "coverage_report_id": checked["id"],
                     }
                     from asterion.data.sync_identity import task_identity
 
-                    if task_identity(self.sync.registry.get(req.provider), payload) is not None:
+                    if task_identity(payload) is not None:
                         self.sync.validate_identity(conn, payload)
                     commands.append((req.command_id, "data.sync", payload))
                 queued = self.sync.tasks.submit_batch(conn, commands)

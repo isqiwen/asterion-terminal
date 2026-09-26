@@ -4,9 +4,10 @@ import hashlib
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
+from asterion_bindings.execution import ExecutionFactory
+from asterion_bindings.recovery import BackupCheck
 from sqlalchemy import text
 
-from asterion.platform.backup import BackupCheck
 from asterion.platform.serialization import canonical
 from asterion.research.engine import calculate
 from asterion.research.strategies import StrategyCatalog
@@ -21,9 +22,10 @@ class ResearchBackup:
     reproductions: Callable[[], Iterator[tuple[dict, str]]]
     experiments: Callable[[], Iterator[tuple[dict, list, str, set]]]
     validations: Callable[[], Iterator[tuple[dict, set, set]]]
+    execution: ExecutionFactory
 
 
-def load_evidence(conn, strategies, validate_external):
+def load_evidence(conn, strategies, execution, validate_external):
     def results():
         yield from (
             (checksum, output)
@@ -65,7 +67,14 @@ def load_evidence(conn, strategies, validate_external):
             yield dict(row), runs, groups
 
     return ResearchBackup(
-        strategies, validate_external, results, inputs, reproductions, experiments, validations
+        strategies,
+        validate_external,
+        results,
+        inputs,
+        reproductions,
+        experiments,
+        validations,
+        execution,
     )
 
 
@@ -96,7 +105,9 @@ def validate_backup(evidence: ResearchBackup):
             external_count += 1
             continue
         if (
-            hashlib.sha256(canonical(calculate(payload, evidence.strategies))).hexdigest()
+            hashlib.sha256(
+                canonical(calculate(payload, evidence.strategies, evidence.execution))
+            ).hexdigest()
             != checksum
         ):
             raise ValueError("恢复后研究结果复算不一致")

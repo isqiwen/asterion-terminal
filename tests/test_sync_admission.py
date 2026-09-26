@@ -4,7 +4,6 @@ from storage_support import raw_engine, scheduler
 from test_preparation import request, sync  # noqa: F401
 from test_preparation_identity import evidence
 
-from asterion.data.sync_admission import SyncSubmission, admit
 from asterion.platform.store import jobs
 
 
@@ -17,16 +16,14 @@ def reference(service):
 
 
 def submission(version=None, **changes):
-    return SyncSubmission.model_validate(
-        request(**changes).model_dump() | {"contracts_version_id": version}
-    )
+    return request(**changes).model_dump(mode="json") | {"contracts_version_id": version}
 
 
 def test_standalone_pins_identity_and_publishes_same_canonical_scope(sync):  # noqa: F811
     version = reference(sync)
     body = submission(version["id"])
-    accepted = admit(sync, body)
-    assert admit(sync, body)["id"] == accepted["id"]
+    accepted = sync.admit(body)
+    assert sync.admit(body)["id"] == accepted["id"]
     identity = accepted["payload"]["contract_identity"]
     assert identity["catalog"]["inputs"][0]["version_id"] == version["id"]
     assert "contracts_version_id" not in accepted["payload"]["request"]
@@ -39,7 +36,7 @@ def test_standalone_pins_identity_and_publishes_same_canonical_scope(sync):  # n
 def test_missing_or_wrong_evidence_never_queues_daily(sync, changes):  # noqa: F811
     version = reference(sync)
     with pytest.raises(ValueError):
-        admit(sync, submission(version["id"] if changes else None, **changes))
+        sync.admit(submission(version["id"] if changes else None, **changes))
     with sync.engine.connect() as conn:
         assert len(conn.execute(select(jobs.c.id)).all()) == 1
 
@@ -48,29 +45,28 @@ def test_tampered_source_file_is_rejected_before_enqueue(sync):  # noqa: F811
     version = reference(sync)
     (sync.root / version["manifest"]["path"]).write_bytes(b"invalid")
     with pytest.raises(ValueError):
-        admit(sync, submission(version["id"]))
+        sync.admit(submission(version["id"]))
     assert len(scheduler(sync.engine).list()) == 1
 
 
 def test_unrelated_type_rejects_identity_selection(sync):  # noqa: F811
     version = reference(sync)
     with pytest.raises(ValueError, match="不接受"):
-        admit(sync, submission(version["id"], dataset="calendar", symbol=""))
+        sync.admit(submission(version["id"], dataset="calendar", symbol=""))
 
 
 def test_wrong_connection_is_rejected_before_enqueue(sync):  # noqa: F811
-    from asterion.data.connections import NewConnection
 
     version = reference(sync)
-    connection = sync.connections.create(NewConnection(provider="tushare", name="another"))
+    connection = sync.sources.create("tushare", "another")
     with pytest.raises(ValueError, match="连接不一致"):
-        admit(sync, submission(version["id"], connection_id=connection["id"]))
+        sync.admit(submission(version["id"], connection_id=connection["id"]))
     assert len(scheduler(sync.engine).list()) == 1
 
 
 def test_retry_preserves_identity_and_publication_rechecks_rows(sync):  # noqa: F811
     version = reference(sync)
-    accepted = admit(sync, submission(version["id"]))
+    accepted = sync.admit(submission(version["id"]))
     claimed = scheduler(sync.engine).claim("daily")
     scheduler(sync.engine).fail(claimed["id"], claimed["token"], "fixture")
     retried = sync.retry(claimed["id"], "retry-identity")
@@ -93,7 +89,7 @@ def test_settlement_pins_identity_for_publish_and_retry(sync):  # noqa: F811
     from asterion.platform.serialization import canonical
 
     version = reference(sync)
-    accepted = admit(sync, submission(version["id"], dataset="settlement"))
+    accepted = sync.admit(submission(version["id"], dataset="settlement"))
     claimed = scheduler(sync.engine).claim("settlement")
     scheduler(sync.engine).fail(claimed["id"], claimed["token"], "fixture")
     retried = sync.retry(claimed["id"], "retry-settlement")
@@ -114,12 +110,10 @@ def test_settlement_pins_identity_for_publish_and_retry(sync):  # noqa: F811
 def test_worker_and_publication_reject_invalid_contract_task(sync, mutation, dataset):  # noqa: F811
     from copy import deepcopy
 
-    from credential_helpers import provider_secrets
-
-    from asterion.data.sync import collect
+    from asterion.data.sync_identity import task_identity
 
     version = reference(sync)
-    accepted = admit(sync, submission(version["id"], dataset=dataset))
+    accepted = sync.admit(submission(version["id"], dataset=dataset))
     payload = deepcopy(accepted["payload"])
     if mutation == "missing":
         payload.pop("contract_identity")
@@ -128,7 +122,7 @@ def test_worker_and_publication_reject_invalid_contract_task(sync, mutation, dat
     else:
         payload["request"]["symbol"] = "CU2610.SHF"
     with pytest.raises(ValueError):
-        collect(payload, sync.root, provider_secrets("unused-key-at-least-24-characters"))
+        task_identity(payload)
     with raw_engine(sync.engine).begin() as conn:
         conn.execute(jobs.update().where(jobs.c.id == accepted["id"]).values(payload=payload))
     worker = scheduler(sync.engine).claim("invalid-settlement")
@@ -140,11 +134,10 @@ def test_worker_and_publication_reject_invalid_contract_task(sync, mutation, dat
 def test_internal_submission_rejects_catalog_rewritten_under_real_input_hash(sync):  # noqa: F811
     from copy import deepcopy
 
-    from asterion.data.reference import ReferenceCatalog
-    from asterion.data.reference_store import catalog_digest
+    from asterion_bindings.catalog import ReferenceCatalog, catalog_digest
 
     version = reference(sync)
-    accepted = admit(sync, submission(version["id"], dataset="settlement"))
+    accepted = sync.admit(submission(version["id"], dataset="settlement"))
     identity = deepcopy(accepted["payload"]["contract_identity"])
     identity["catalog"]["contracts"][0]["last_delivery_on"] = "2026-10-25"
     identity["catalog_id"] = catalog_digest(ReferenceCatalog.model_validate(identity["catalog"]))
@@ -155,7 +148,7 @@ def test_internal_submission_rejects_catalog_rewritten_under_real_input_hash(syn
 
 def test_retry_cannot_recreate_daily_task_without_identity(sync):  # noqa: F811
     version = reference(sync)
-    accepted = admit(sync, submission(version["id"]))
+    accepted = sync.admit(submission(version["id"]))
     worker = scheduler(sync.engine).claim("daily")
     scheduler(sync.engine).fail(worker["id"], worker["token"], "fixture")
     payload = dict(accepted["payload"])

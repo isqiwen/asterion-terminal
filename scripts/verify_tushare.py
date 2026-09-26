@@ -8,38 +8,39 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
 
+from asterion_bindings import data_sync
+from asterion_bindings.calendar import TimeVersion
+from asterion_bindings.catalog import ResolutionRequest
+from asterion_bindings.data_sources import SourceCredentials
+from asterion_bindings.database import create_engine
+from asterion_bindings.execution import ExecutionFactory
+from asterion_bindings.rules import RuleSpec
+from asterion_bindings.task_repository import Tasks, task_port
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import create_engine, select
 
 from asterion.contract_rules.mapping import MappingRequest
-from asterion.contract_rules.public import RuleAccess, RuleSpec
+from asterion.contract_rules.public import RuleAccess
 from asterion.contract_rules.service import Rules
 from asterion.contract_rules.settlement import SettlementConfirmation, SettlementRequest
 from asterion.data.catalog import snapshots
-from asterion.data.configuration import ConfigurationUpdate, configurations, validate
-from asterion.data.connections import connection_settings, connections
 from asterion.data.coverage import CoverageRequest
-from asterion.data.ingestion import Observation
+from asterion.data.providers import ProviderRegistry
 from asterion.data.providers.public import SyncRequest
 from asterion.data.providers.tushare import Tushare
-from asterion.data.public import CREDENTIAL_SCOPE, VersionAccess, VersionReader
-from asterion.data.reference import ResolutionRequest
+from asterion.data.public import VersionAccess, VersionReader
 from asterion.data.reference_source import SourceCatalogRequest, source_catalog
 from asterion.data.reference_store import ReferenceStore
-from asterion.data.sync import Credentials, DataSync, collect
+from asterion.data.sources import DataSources
+from asterion.data.sync import DataSync
 from asterion.distribution import strategy_catalog
 from asterion.distribution_storage import data_storage, research_storage, rule_storage
-from asterion.platform.secrets import secret_port
+from asterion.platform.communication.schema import initialize_core
 from asterion.platform.serialization import canonical
-from asterion.platform.store import jobs
-from asterion.platform.task_port import task_port
-from asterion.platform.tasks.service import Tasks
 from asterion.research.engine import BacktestRequest, calculate
 from asterion.research.packages import ResearchPackages
 from asterion.research.service import Backtests
 from asterion.runtime.desktop import runtime_settings
-from asterion.runtime.environments import active
-from asterion.trading_time.public import TimeVersion
+from asterion.runtime.environment import EnvironmentHost
 
 
 class Case(BaseModel):
@@ -98,48 +99,36 @@ class Case(BaseModel):
         )
 
 
+def collect_evidence(sync, credentials, job) -> bytes:
+    """Collect a claimed task from Tushare with the entry's Rust collection."""
+    return data_sync.collect(
+        "sqlite:///" + str(sync.root / "acceptance.db"), credentials, sync.root, job
+    )
+
+
 def read_connection(host: Path, identifier: str):
     """Use a read-only database transaction and the current encrypted configuration contract."""
-    state = active(host)
+    with EnvironmentHost(host) as environment:
+        state = environment.active()
     settings = runtime_settings(state, json.loads((state / "desktop.json").read_text()))
     engine = create_engine(
         settings.database_url, hide_parameters=True, connect_args={"connect_timeout": 5}
     )
     try:
-        with engine.connect() as conn:
-            conn.exec_driver_sql("SET TRANSACTION READ ONLY")
-            owner = (
-                conn.execute(select(connections).where(connections.c.id == identifier))
-                .mappings()
-                .one()
-            )
-            lifecycle = (
-                conn.execute(
-                    select(connection_settings).where(connection_settings.c.id == identifier)
-                )
-                .mappings()
-                .first()
-            )
-            if owner["provider"] != "tushare" or (lifecycle and lifecycle["state"] != "enabled"):
-                raise ValueError("必须选择启用的 Tushare 命名连接")
-            row = (
-                conn.execute(select(configurations).where(configurations.c.provider == identifier))
-                .mappings()
-                .one()
-            )
-            spec = Tushare.manifest.configuration
-            if row["schema_version"] != spec.schema_version:
-                raise ValueError("配置契约不受支持")
-            credentials = Credentials(
-                settings.data_root, secret_port(settings.token, CREDENTIAL_SCOPE)
-            )
-            values = credentials.read_configuration(
-                row["snapshot_ref"], identifier, spec.schema_version, row["revision"]
-            )
-            return validate(spec, values), {
-                "connection_id": identifier,
-                "revision": row["revision"],
-            }
+        # The Rust data service checks the connection is enabled, then reads the
+        # current encrypted configuration; database access is read-only.
+        store = data_storage(engine)
+        sources = DataSources(
+            store,
+            ProviderRegistry((Tushare(),)),
+            SourceCredentials(settings.token, settings.data_root),
+        )
+        with store.connect() as conn:
+            fixed = sources.fix_for_task(conn, identifier, "tushare")["configuration"]
+        values = sources.credentials.resolve(
+            fixed, identifier, Tushare.manifest.configuration.model_dump(mode="json")
+        )
+        return values, {"connection_id": identifier, "revision": fixed["revision"]}
     finally:
         engine.dispose()
 
@@ -185,44 +174,32 @@ def suite(report: Report, case: Case, configuration: dict):
         os.open(root / "runtime.key", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w"
     ) as file:
         file.write(key)
-    secrets_port = secret_port(key, CREDENTIAL_SCOPE)
+    source_credentials = SourceCredentials(key, root)
     engine = create_engine("sqlite:///" + str(root / "acceptance.db"), hide_parameters=True)
     try:
-        jobs.create(engine)
+        initialize_core(engine)
         tasks = Tasks(engine, lease_seconds=240)
         store = data_storage(engine)
         store.initialize(snapshots)
         sync = DataSync(
-            store, task_port(tasks, frozenset({"data.sync", "data.import_csv"})), root, secrets_port
+            store,
+            task_port(tasks, frozenset({"data.sync", "data.import_csv"})),
+            root,
+            source_credentials,
         )
-        sync.configuration.apply(
-            "tushare", ConfigurationUpdate(expected_revision=0, values={}, secrets=configuration)
-        )
+        sync.sources.apply("tushare", 0, secrets=configuration)
         ids = {}
 
         def publish(dataset, job=None):
             if job is None:
-                from asterion.data.sync_admission import SyncSubmission, admit
-
-                submitted = admit(
-                    sync,
-                    SyncSubmission.model_validate(
-                        case.request(dataset).model_dump()
-                        | {"contracts_version_id": ids["contracts"]}
-                    ),
+                submitted = sync.admit(
+                    case.request(dataset).model_dump() | {"contracts_version_id": ids["contracts"]}
                 )
                 job = tasks.claim("acceptance")
                 if not job or job["id"] != submitted["id"]:
                     raise RuntimeError("验收任务领取失败")
             try:
-                content = collect(
-                    job["payload"],
-                    root,
-                    secrets_port,
-                    checkpoint=lambda index, value: sync.evidence.record(
-                        job["id"], job["token"], index, Observation.model_validate(value)
-                    ),
-                )
+                content = collect_evidence(sync, source_credentials, job)
                 version = sync.publish(job["id"], job["token"], content)
             except Exception:
                 tasks.fail(job["id"], job["token"], "验收采集或发布失败，见分阶段报告")
@@ -323,7 +300,7 @@ def suite(report: Report, case: Case, configuration: dict):
             for d in case.trading_time.spec.calendar
         ):
             raise ValueError("时间规则日历与真实固定日历不一致")
-        access = VersionAccess(reader.read, reader.coverage)
+        access = VersionAccess(reader.read, reader.coverage, reader.scan)
         rules = Rules(rule_storage(engine), access)
 
         def build_rules():
@@ -396,6 +373,7 @@ def suite(report: Report, case: Case, configuration: dict):
             access,
             RuleAccess(rules.read),
             strategy_catalog(),
+            ExecutionFactory(),
         )
 
         def compute(run):
@@ -403,7 +381,9 @@ def suite(report: Report, case: Case, configuration: dict):
             if not job or job["id"] != run["id"]:
                 raise RuntimeError("研究任务领取失败")
             try:
-                output = canonical(calculate(job["payload"], strategy_catalog()))
+                output = canonical(
+                    calculate(job["payload"], strategy_catalog(), ExecutionFactory())
+                )
                 research.publish(job["id"], job["token"], output)
                 return output
             except Exception:
@@ -448,7 +428,7 @@ def suite(report: Report, case: Case, configuration: dict):
             raise AssertionError("离线复现禁止读取来源或规则目录")
 
         def replay():
-            research.versions = VersionAccess(unavailable, unavailable)
+            research.versions = VersionAccess(unavailable, unavailable, unavailable)
             research.rules = RuleAccess(unavailable)
             imported = packages.receive("acceptance", package)
             replayed = packages.replay("acceptance", imported["id"], "acceptance-offline")
@@ -486,7 +466,8 @@ def main():
     try:
         case = Case.model_validate_json(args.case.read_bytes())
         host, output = args.host.resolve(), args.output.resolve()
-        state = active(host)
+        with EnvironmentHost(host) as environment:
+            state = environment.active()
         if any(output.is_relative_to(p) or p.is_relative_to(output) for p in (host, state)):
             raise ValueError("输出必须与本机环境独立")
         report = Report(output, case)

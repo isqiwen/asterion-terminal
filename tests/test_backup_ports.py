@@ -1,12 +1,13 @@
 from dataclasses import replace
 
 import pytest
-from cryptography.fernet import InvalidToken
+from asterion_bindings.artifacts import ArtifactStore
+from asterion_bindings.data_sources import SourceCredentials
+from asterion_bindings.files import read_files
+from asterion_bindings.plugin_host import Activation, Plugin
+from asterion_bindings.recovery import BackupCheck, validate_checks
 
 from asterion.data.backup import DataBackup, validate_backup
-from asterion.platform.backup import BackupCheck, validate_checks
-from asterion.platform.files import read_files
-from asterion.platform.plugins import Activation, Plugin
 
 
 def test_read_files_stays_inside_granted_root_and_rejects_links(tmp_path):
@@ -29,7 +30,17 @@ def test_read_files_stays_inside_granted_root_and_rejects_links(tmp_path):
 
 
 def test_data_validation_does_not_create_or_rewrite_credential_files(tmp_path):
-    evidence = DataBackup((), (), (), (), read_files(tmp_path), lambda content: content)
+    evidence = DataBackup(
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+        ArtifactStore(tmp_path, read_only=True),
+        read_files(tmp_path),
+        lambda content: True,
+    )
     assert validate_backup(evidence) == {"versions": 0, "reference_releases": 0}
     assert list(tmp_path.iterdir()) == []
     credentials = tmp_path / ".credentials"
@@ -38,11 +49,9 @@ def test_data_validation_does_not_create_or_rewrite_credential_files(tmp_path):
     encrypted.write_bytes(b"damaged ciphertext")
     before = (credentials.stat().st_mode, encrypted.stat().st_mtime_ns, encrypted.read_bytes())
 
-    def reject(content):
-        raise InvalidToken()
-
-    with pytest.raises(InvalidToken):
-        validate_backup(replace(evidence, decrypt=reject))
+    opens = SourceCredentials("fixture-runtime-key-long-enough", tmp_path).opens
+    with pytest.raises(ValueError, match="配置快照"):
+        validate_backup(replace(evidence, opens=opens))
     assert before == (
         credentials.stat().st_mode,
         encrypted.stat().st_mtime_ns,
@@ -70,7 +79,10 @@ def test_all_backup_inputs_are_checked_before_any_validator(invalid):
     assert calls == []
 
 
-@pytest.mark.parametrize("metrics", [{"count": -1}, {"count": True}, {"count": "one"}, None])
+@pytest.mark.parametrize(
+    "metrics",
+    [{"count": -1}, {"count": True}, {"count": "one"}, {"count": 1.0}, {"count": 1 << 65}, None],
+)
 def test_backup_checks_reject_invalid_metrics(metrics):
     plugin = Plugin(
         "fixture.one",
@@ -90,3 +102,16 @@ def test_duplicate_backup_metrics_fail_instead_of_overwriting():
     )
     with pytest.raises(ValueError, match="Duplicate"):
         validate_checks(plugins, {"fixture.one": 1, "fixture.two": 2})
+
+
+def test_duplicate_backup_declarations_are_rejected_before_callbacks():
+    calls = []
+    plugin = Plugin(
+        "fixture.duplicate",
+        (),
+        lambda context: Activation(),
+        backup=BackupCheck(int, lambda value: calls.append(value)),
+    )
+    with pytest.raises(ValueError, match="Duplicate"):
+        validate_checks((plugin, plugin), {plugin.id: 1})
+    assert calls == []

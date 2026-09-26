@@ -4,13 +4,13 @@ import asyncio
 from contextlib import asynccontextmanager
 from threading import RLock
 
+from asterion_bindings.plugin_host import Activation, Plugin
 from fastapi import APIRouter, Depends, HTTPException
 
 from asterion.connections.public import CONNECTIONS
 from asterion.identity.public import ACCOUNT_ACCESS
 from asterion.market.public import CONTRACT_NAMES
 from asterion.platform.diagnostics import ServiceState
-from asterion.platform.plugins import Activation, Plugin
 from asterion.trading.observation import AccountService, AccountState
 
 

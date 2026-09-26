@@ -1,9 +1,9 @@
 import pytest
+from asterion_bindings.authority import Authority, Grant, worker_token
+from asterion_bindings.database import create_engine
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 
 from asterion.api.app import create_app
-from asterion.platform.authorization import Authority, Grant, worker_token
 from asterion.platform.config import Settings
 
 
@@ -36,12 +36,8 @@ def test_server_scopes_cannot_escalate_and_worker_cannot_read_account_or_install
     settings = Settings(token="test-authorization-master-long-enough", data_root=tmp_path / "data")
     try:
         with TestClient(create_app(settings, engine)) as client:
-            client.headers["Authorization"] = f"Bearer {settings.token}"
-            result = client.post("/api/v1/access/scopes", json={"scope": "sources"})
-            assert result.status_code == 200, result.text
-            scoped = result.json()["token"]
-            client.headers["Authorization"] = f"Bearer {scoped}"
-            assert client.get("/api/v1/data/providers").status_code == 200
+            client.headers["Authorization"] = f"Bearer {client.scope('connections')}"
+            assert client.get("/api/v1/connections").status_code == 200
             assert client.get("/api/v1/jobs").status_code == 401
             assert (
                 client.post("/api/v1/access/scopes", json={"scope": "extensions"}).status_code
@@ -51,11 +47,9 @@ def test_server_scopes_cannot_escalate_and_worker_cannot_read_account_or_install
                 client.post("/api/v1/extensions/install", json={"archive": ""}).status_code == 401
             )
             client.headers["Authorization"] = f"Bearer {worker_token(settings.token)}"
-            assert (
-                client.post("/api/v1/jobs/claim", json={"worker_id": "worker"}).status_code == 200
-            )
-            assert client.get("/api/v1/data/providers").status_code == 401
-            assert client.get("/api/v1/account/me").status_code == 401
+            # Worker grants reach worker operations; the unknown task is refused later.
+            assert client.post("/api/v1/jobs/missing/publish-research").status_code != 401
+            assert client.get("/api/v1/connections").status_code == 401
             assert client.get("/api/v1/extensions").status_code == 401
     finally:
         engine.dispose()
@@ -72,3 +66,31 @@ def test_research_can_read_identity_catalogues_but_cannot_publish():
             authority.authorize(token, "POST", path, "account")
     with pytest.raises(ValueError):
         authority.authorize(token, "POST", "/reference/source/publish", "account")
+
+
+def test_internal_app_accepts_only_requests_forwarded_by_the_entry(tmp_path):
+    """Direct loopback callers cannot bypass the Rust entry, even with the token."""
+    from asterion_bindings.authority import forwarding_token
+    from starlette.testclient import TestClient as DirectClient
+
+    engine = create_engine(f"sqlite:///{tmp_path}/direct.db")
+    settings = Settings(token="test-direct-access-master-long-enough", data_root=tmp_path / "data")
+    forwarded = forwarding_token(settings.token)
+    try:
+        with DirectClient(create_app(settings, engine)) as client:
+            for headers in [
+                {"Authorization": f"Bearer {settings.token}"},
+                {"X-Asterion-Principal": "root"},
+                {"X-Asterion-Forwarded": "0" * 64, "X-Asterion-Principal": "root"},
+                {"X-Asterion-Forwarded": forwarded, "X-Asterion-Principal": "unknown"},
+                {"X-Asterion-Forwarded": forwarded},
+                {
+                    "X-Asterion-Forwarded": worker_token(settings.token),
+                    "X-Asterion-Principal": "root",
+                },
+            ]:
+                assert client.get("/api/v1/health", headers=headers).status_code == 401, headers
+            accepted = {"X-Asterion-Forwarded": forwarded, "X-Asterion-Principal": "root"}
+            assert client.get("/api/v1/health", headers=accepted).status_code == 200
+    finally:
+        engine.dispose()

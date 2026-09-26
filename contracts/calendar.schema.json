@@ -1,0 +1,302 @@
+{
+  "$defs": {
+    "CalendarDay": {
+      "additionalProperties": false,
+      "properties": {
+        "date": {
+          "format": "date",
+          "type": "string"
+        },
+        "is_open": {
+          "type": "boolean"
+        },
+        "night_open": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "date",
+        "is_open",
+        "night_open"
+      ],
+      "type": "object"
+    },
+    "ExceptionDay": {
+      "additionalProperties": false,
+      "properties": {
+        "day": {
+          "items": {
+            "$ref": "#/$defs/Slot"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "night": {
+          "items": {
+            "$ref": "#/$defs/Slot"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "source": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "trading_day": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "trading_day",
+        "source",
+        "day",
+        "night"
+      ],
+      "type": "object"
+    },
+    "Exchange": {
+      "enum": [
+        "SHFE",
+        "DCE",
+        "CZCE",
+        "CFFEX",
+        "INE",
+        "GFEX"
+      ],
+      "type": "string"
+    },
+    "Period": {
+      "additionalProperties": false,
+      "properties": {
+        "day": {
+          "items": {
+            "$ref": "#/$defs/Slot"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "type": "array"
+        },
+        "end": {
+          "format": "date",
+          "type": "string"
+        },
+        "night": {
+          "items": {
+            "$ref": "#/$defs/Slot"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "source": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "start": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "source",
+        "day",
+        "night"
+      ],
+      "type": "object"
+    },
+    "Phase": {
+      "enum": [
+        "auction",
+        "continuous"
+      ],
+      "type": "string"
+    },
+    "Session": {
+      "enum": [
+        "day",
+        "night"
+      ],
+      "type": "string"
+    },
+    "Slot": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$",
+          "type": "string"
+        },
+        "end_offset": {
+          "format": "uint8",
+          "maximum": 1,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "phase": {
+          "$ref": "#/$defs/Phase"
+        },
+        "start": {
+          "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "end_offset",
+        "phase"
+      ],
+      "type": "object"
+    },
+    "Span": {
+      "additionalProperties": false,
+      "properties": {
+        "end": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "phase": {
+          "$ref": "#/$defs/Phase"
+        },
+        "session": {
+          "$ref": "#/$defs/Session"
+        },
+        "start": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "trading_day": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "trading_day",
+        "session",
+        "phase"
+      ],
+      "type": "object"
+    },
+    "TimeSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "calendar": {
+          "items": {
+            "$ref": "#/$defs/CalendarDay"
+          },
+          "maxItems": 3700,
+          "minItems": 2,
+          "type": "array"
+        },
+        "calendar_source": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "exceptions": {
+          "items": {
+            "$ref": "#/$defs/ExceptionDay"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "exchange": {
+          "$ref": "#/$defs/Exchange"
+        },
+        "night_source": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "periods": {
+          "items": {
+            "$ref": "#/$defs/Period"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
+        "product": {
+          "maxLength": 20,
+          "pattern": "^[A-Z]+$",
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint8",
+          "maximum": 1,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "timezone": {
+          "pattern": "^Asia/Shanghai$",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "exchange",
+        "product",
+        "title",
+        "timezone",
+        "calendar_source",
+        "night_source",
+        "calendar",
+        "periods",
+        "exceptions"
+      ],
+      "type": "object"
+    },
+    "TimeVersion": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "spec": {
+          "$ref": "#/$defs/TimeSpec"
+        }
+      },
+      "required": [
+        "id",
+        "spec"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/CalendarDay"
+    },
+    {
+      "$ref": "#/$defs/Slot"
+    },
+    {
+      "$ref": "#/$defs/Period"
+    },
+    {
+      "$ref": "#/$defs/ExceptionDay"
+    },
+    {
+      "$ref": "#/$defs/TimeSpec"
+    },
+    {
+      "$ref": "#/$defs/Span"
+    },
+    {
+      "$ref": "#/$defs/TimeVersion"
+    }
+  ],
+  "title": "Models"
+}

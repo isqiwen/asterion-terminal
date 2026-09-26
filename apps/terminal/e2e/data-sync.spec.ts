@@ -26,6 +26,7 @@ const provider = {
     ],
   },
   capabilities: [
+    {id: "minute", frequencies:["1m","5m","15m","30m","60m"], type_id: "futures.minute", label: "一分钟", exchanges: ["SHFE"], date_range: true, symbol_required: true, description: "实际合约分钟"},
     {
       id: "contracts",
       type_id: "futures.contracts",
@@ -66,8 +67,9 @@ const user = {
   last_name: "Test",
 };
 
-for (const dataset of ["daily", "settlement"]) {
-test(`${dataset} sync pins contract evidence and previews an immutable release`, async ({
+for (const selection of ["daily", "settlement", "1m", "5m", "15m", "30m", "60m"]) {
+const dataset = selection.endsWith("m") ? "minute" : selection;
+test(`${selection} sync pins contract evidence and previews an immutable release`, async ({
   context,
   page,
 }) => {
@@ -107,6 +109,7 @@ test(`${dataset} sync pins contract evidence and previews an immutable release`,
       last: "2024-01-02",
       coverage: "RETURNED_ROWS_ONLY",
       quality: "VALIDATED",
+      partitions: [{key: "2024-01-02"}],
       transform: { id: "normalize:tushare", version: "1.0.0" },
     },
   };
@@ -152,6 +155,8 @@ test(`${dataset} sync pins contract evidence and previews an immutable release`,
     if (route.request().url().endsWith("/access/scopes")) return route.fulfill({ json: { token: "scope-fixture", expires: Date.now() / 1000 + 300 } });
 
     const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/trading-time")) return route.fulfill({json: [{id:"time-fixed", spec:{exchange:"SHFE",product:"RB",title:"测试时间依据",timezone:"Asia/Shanghai",calendar_source:"测试日历",night_source:"测试夜盘",periods:[{start:"2024-01-01",end:"2024-01-31"}]}}]});
+    if (path.endsWith("/minute-coverage")) return route.fulfill({json: {version_id: "version-001", checksum:"fixture", contract_id:"SHFE.RB.202610.fixture",trading_day:"2024-01-02",trading_time_id:"time-fixed",frequency:selection,status:selection === "1m" ? "GAPS" : "UNVERIFIED",expected:selection === "1m" ? 225 : null,present:224,missing:selection === "1m" ? ["2024-01-02T09:01:00+08:00"] : null,note:"缺少记录不自动补零"}});
     if (path.includes("/account/security")) return route.fallback();
     if (path.endsWith("/data/providers"))
       return route.fulfill({ json: [providerFixture(provider)] });
@@ -259,7 +264,14 @@ test(`${dataset} sync pins contract evidence and previews an immutable release`,
   await page.getByLabel("数据类型", { exact: true }).selectOption(dataset);
   await page.getByLabel("来源代码").fill("RB2610.SHF");
   await page.getByLabel("开始日期").fill("2024-01-02");
-  await page.getByLabel("结束日期").fill("2024-01-02");
+  if (dataset === "minute") {
+    await expect(page.getByLabel("结束日期")).toHaveCount(0);
+    await expect(page.getByRole("button", {name: "开始同步"})).toBeDisabled();
+    await page.getByLabel("交易时间版本", {exact:true}).selectOption("time-fixed");
+    await page.getByLabel("分钟周期").selectOption(selection);
+    await page.getByLabel("分钟时间戳含义").selectOption("bar_end");
+    await page.getByLabel("分钟时间含义依据").fill("合成测试依据");
+  } else await page.getByLabel("结束日期").fill("2024-01-02");
   await page.getByLabel("同步合约资料版本").selectOption("contracts-fixed");
   await page.getByLabel("来源代码").fill("rb2610.SHF");
   await expect(page.getByLabel("来源代码")).toHaveValue("rb2610.SHF");
@@ -269,7 +281,7 @@ test(`${dataset} sync pins contract evidence and previews an immutable release`,
   await page.getByRole("button", { name: "开始同步" }).click();
   await expect(page.getByRole("alert")).toContainText("接口权限不足");
   await page.getByRole("button", { name: "开始同步" }).click();
-  await expect(page.getByRole("status")).toContainText("同步任务已提交");
+  await expect(page.getByRole("status").filter({hasText:"同步任务已提交"})).toBeVisible();
   expect(submitted).toMatchObject({
     provider: "tushare",
     contracts_version_id: "contracts-fixed",
@@ -279,6 +291,7 @@ test(`${dataset} sync pins contract evidence and previews an immutable release`,
     end: "2024-01-02",
   });
   expect(submitted).not.toHaveProperty("token");
+  if (dataset === "minute") expect(submitted).toMatchObject({minute_context:{frequency:selection,trading_time:{id:"time-fixed"},timestamp_semantics:"bar_end",semantics_source:"合成测试依据"}});
   await page.getByRole("button", { name: "查看数据集", exact: true }).click();
   await page.getByRole("button", { name: "历史日线", exact: true }).click();
   await expect(
@@ -293,7 +306,13 @@ test(`${dataset} sync pins contract evidence and previews an immutable release`,
   ).toBeVisible();
   await expect(
     page.getByRole("navigation", { name: "业务内分类" }).getByRole("button"),
-  ).toHaveText(["数据同步", "数据集", "合约资料"]);
+  ).toHaveText(["数据同步", "数据集", "合约资料", "合约角色"]);
+  if (dataset === "minute") {
+    await page.getByRole("button", {name:"核对分钟覆盖"}).click();
+    await expect(page.getByRole("status").filter({hasText:selection === "1m" ? "存在缺失分钟" : "完整性待核验"})).toBeVisible();
+    await page.getByText("缺失时间与固定依据").click();
+    if (selection === "1m") await expect(page.getByText("2024-01-02T09:01:00+08:00", {exact:true})).toBeVisible();
+  }
   await page.getByLabel("采集版本").selectOption(older.id);
   await expect(
     page.getByRole("cell", { name: "3204", exact: true }),

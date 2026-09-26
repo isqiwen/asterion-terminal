@@ -2,9 +2,9 @@ import importlib
 import time
 from dataclasses import replace
 
+from asterion_bindings.database import create_engine
 from connection_fakes import contribution, save_body
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 
 from asterion.api.app import create_app
 from asterion.platform.config import Settings
@@ -114,8 +114,7 @@ def test_market_scope_cannot_edit_credentials(tmp_path):
     try:
         with TestClient(create_app(settings, engine)) as client:
             client.headers["Authorization"] = "Bearer " + settings.token
-            token = client.post("/api/v1/access/scopes", json={"scope": "market"}).json()["token"]
-            client.headers["Authorization"] = "Bearer " + token
+            client.headers["Authorization"] = "Bearer " + client.scope("market")
             assert client.get("/api/v1/connections").status_code == 200
             assert client.post("/api/v1/connections", json={}).status_code == 401
             key = "a" * 32

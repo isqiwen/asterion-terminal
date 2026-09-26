@@ -1,7 +1,5 @@
 """Public source observation and connection contracts, owned by the connections plugin."""
 
-import re
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
@@ -9,37 +7,53 @@ from decimal import Decimal
 from threading import Event
 from typing import Literal, Protocol
 
+from asterion_bindings.connections import (
+    Channel,
+    ChannelState,
+    ConfigField,
+    ConnectionProfile,
+    ConnectorDescriptor,
+    Exchange,
+    Feature,
+    ReadBatch,
+    ReadRequest,
+    Subscription,
+)
+from asterion_bindings.plugin_host import Capability
+from asterion_bindings.resource import Resource
+from asterion_bindings.secrets import SecretPort, SecretScope
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from asterion.platform.plugins import Capability
-from asterion.platform.resource import Resource
-from asterion.platform.secrets import SecretPort, SecretScope
+__all__ = [
+    "CONNECTIONS",
+    "CONNECTOR_OWNERS",
+    "CREDENTIALS",
+    "CREDENTIAL_SCOPE",
+    "AccountBatch",
+    "AccountSummary",
+    "Channel",
+    "ChannelState",
+    "ConfigField",
+    "ConnectionAccess",
+    "ConnectionProfile",
+    "ConnectionSession",
+    "ConnectorContribution",
+    "ConnectorDescriptor",
+    "ConnectorError",
+    "Exchange",
+    "Feature",
+    "InstrumentBatch",
+    "Position",
+    "ReadBatch",
+    "ReadRequest",
+    "SourceInstrument",
+    "SourceModel",
+    "Subscription",
+]
 
 
 class SourceModel(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
-
-
-Channel = Literal["market", "account"]
-Feature = Literal["market_quotes", "instrument_catalog", "account_snapshot", "positions"]
-Exchange = Literal["SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"]
-
-
-class Subscription(SourceModel):
-    exchange: Exchange
-    symbol: str = Field(pattern=r"^[A-Za-z]{1,3}[0-9]{3,4}$")
-
-    @model_validator(mode="after")
-    def actual_month_code(self):
-        match = re.search(r"[0-9]+$", self.symbol)
-        if match is None:
-            raise ValueError("请输入月份合约代码")
-        digits = match.group()
-        if not 1 <= int(digits[-2:]) <= 12:
-            raise ValueError("请输入月份合约代码，不支持主力、连续或指数代码")
-        if len(digits) != (3 if self.exchange == "CZCE" else 4):
-            raise ValueError("合约代码位数与交易所不一致")
-        return self
 
 
 class SourceInstrument(Subscription):
@@ -90,37 +104,6 @@ class Position(SourceModel):
         return self
 
 
-class QuoteEvent(SourceModel):
-    exchange: str
-    symbol: str
-    last: float | None
-    previous_settlement: float | None
-    high: float | None
-    low: float | None
-    volume: int | None
-    open_interest: float | None
-    trading_day: str
-    action_day: str
-    source_time: str
-    event_at: float | None
-    received_at: float
-
-
-class ReadBatch(SourceModel):
-    connection_id: str
-    generation: int
-    request_id: str
-    started_at: float
-    observed_at: float
-    complete: Literal[True]
-
-    @model_validator(mode="after")
-    def times(self):
-        if self.observed_at < self.started_at or self.observed_at > time.time() + 5:
-            raise ValueError("查询时间无效")
-        return self
-
-
 class InstrumentBatch(ReadBatch):
     instruments: list[SourceInstrument] = Field(max_length=10000)
 
@@ -145,53 +128,6 @@ class AccountBatch(ReadBatch):
         return self
 
 
-class ChannelState(SourceModel):
-    state: Literal[
-        "disconnected", "connecting", "authenticating", "ready", "reconnecting", "error"
-    ] = "disconnected"
-    generation: int = 0
-    detail: str = "尚未连接"
-
-
-class ConfigField(SourceModel):
-    key: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
-    label: str
-    secret: bool = False
-    required: bool = True
-    identity: bool = False
-    default: str = ""
-
-
-class ConnectorDescriptor(SourceModel):
-    id: str
-    owner: str
-    version: Literal[1] = 1
-    title: str
-    instructions: str = ""
-    capabilities: list[Feature]
-    fields: list[ConfigField]
-
-    @model_validator(mode="after")
-    def unique(self):
-        if len({f.key for f in self.fields}) != len(self.fields) or len(
-            set(self.capabilities)
-        ) != len(self.capabilities):
-            raise ValueError("重复接入字段或能力")
-        if not self.id or not self.owner:
-            raise ValueError("接入贡献缺少身份")
-        if any(f.secret and f.default for f in self.fields):
-            raise ValueError("秘密字段不能声明默认值")
-        return self
-
-
-class ConnectionProfile(SourceModel):
-    connection_id: str = Field(pattern=r"^[a-f0-9]{32}$")
-    connector_id: str
-    name: str = Field(min_length=1, max_length=60)
-    config_revision: int = Field(ge=1)
-    config: dict[str, str]
-
-
 class ConnectorError(ValueError):
     def __init__(self, message, category="unavailable", retryable=True):
         super().__init__(message)
@@ -202,8 +138,8 @@ class ConnectionSession(Protocol):
     def start_market(self, subscriptions: list[Subscription], emit: Callable) -> None: ...
     def update_subscriptions(self, subscriptions: list[Subscription]) -> None: ...
     def stop_market(self) -> None: ...
-    def instruments(self, generation: int, cancel: Event) -> InstrumentBatch: ...
-    def account(self, generation: int, cancel: Event) -> AccountBatch: ...
+    def instruments(self, request: ReadRequest, cancel: Event) -> InstrumentBatch: ...
+    def account(self, request: ReadRequest, cancel: Event) -> AccountBatch: ...
     def close(self) -> None: ...
 
 

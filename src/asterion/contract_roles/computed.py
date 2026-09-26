@@ -1,5 +1,6 @@
 """Server reconstruction and replay of source-verified, locally observable role calculations."""
 
+import hashlib
 import platform
 from importlib.metadata import version
 from importlib.resources import files
@@ -22,9 +23,7 @@ from asterion.data.public import (
 def algorithm_artifact() -> AlgorithmArtifact:
     paths = (
         "contract_roles/ranking.py",
-        "contract_roles/public.py",
-        "trading_time/public.py",
-        "data/reference.py",
+        "contract_roles/models.py",
         "platform/serialization.py",
     )
     payload = {
@@ -34,6 +33,19 @@ def algorithm_artifact() -> AlgorithmArtifact:
         },
         "runtime": {"python": platform.python_version(), "pydantic": version("pydantic")},
     }
+    # Pin the implementation actually executing the domain rules, including Rust.
+    from pathlib import Path
+
+    from asterion_bindings import _native
+
+    native = Path(_native.__file__)
+    for name in ("roles.py", "_roles_binding.py"):
+        payload["sources"][f"asterion_bindings/{name}"] = (
+            files("asterion_bindings").joinpath(name).read_text(encoding="utf-8")
+        )
+    payload["sources"]["asterion_bindings/_native"] = hashlib.sha256(
+        native.read_bytes()
+    ).hexdigest()
     return AlgorithmArtifact.model_validate(payload | {"checksum": digest(payload)})
 
 
@@ -117,7 +129,10 @@ class ComputedSources:
             product_id=request.product_id,
             catalog=catalog,
             trading_time=request.trading_time,
-            candidates=candidates.included,
+            # Freeze the selected catalog, not the first observation's active subset.
+            # Ranking filters each day by lifecycle, so later listings cannot change
+            # earlier exclusions or reset the campaign's confirmation history.
+            candidates=tuple(sorted(c.id for c in catalog.contracts)),
             policy=request.policy,
             initial_main=request.initial_main,
             observations=tuple(

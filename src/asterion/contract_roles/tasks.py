@@ -2,6 +2,8 @@
 
 from datetime import UTC, datetime
 
+from asterion_bindings.task_handlers import TaskHandler
+from asterion_bindings.task_models import Job
 from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -9,7 +11,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from asterion.contract_roles.computed import replay_computed
 from asterion.contract_roles.computed_public import ComputedSpec, ComputedVersion, digest
-from asterion.contract_roles.public import Strict
+from asterion.contract_roles.models import Strict
 from asterion.contract_roles.sequence import (
     ContinuationRequest,
     check_extension,
@@ -18,8 +20,6 @@ from asterion.contract_roles.sequence import (
 )
 from asterion.platform.serialization import canonical
 from asterion.platform.store import jobs
-from asterion.platform.tasks.handlers import TaskHandler
-from asterion.platform.tasks.public import Job
 
 KIND = "contract_roles.continue"
 

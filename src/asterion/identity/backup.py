@@ -1,9 +1,15 @@
+"""Account evidence and session reset of the offline backup and restore.
+
+The account tables belong to the Rust entry. Backup and restore still run in
+Python against the isolated restore database, so these two steps read and
+clear them here until recovery moves to the Rust services.
+"""
+
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from asterion_bindings.recovery import BackupCheck, RestoreStep
 from sqlalchemy import text
-
-from asterion.platform.backup import BackupCheck, RestoreStep
 
 
 @dataclass(frozen=True)

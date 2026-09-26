@@ -7,7 +7,6 @@
   "runtime": "python",
   "entry": "plugin.py",
   "trust": "local-code",
-  "requires": {},
   "contributions": {
     "research.strategy": {
       "id": "example.close_momentum",
@@ -58,5 +57,6 @@
         }
       ]
     }
-  }
+  },
+  "layer": "L3"
 }

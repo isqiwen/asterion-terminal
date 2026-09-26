@@ -1,8 +1,9 @@
 """Offline contract rule fixture; never registered in the shipped product."""
 
+from asterion_bindings.rules import RuleSpec, RuleVersion, rule_id
 from storage_support import raw_engine
 
-from asterion.contract_rules.public import RuleAccess, RuleSpec, RuleVersion, rule_id
+from asterion.contract_rules.public import RuleAccess
 from asterion.contract_rules.service import Rules
 from asterion.data.public import VersionAccess
 from asterion.distribution_storage import rule_storage
@@ -45,14 +46,14 @@ def manual_versions():
     def unavailable(*args, **kwargs):
         raise AssertionError("Manual rule fixture must not resolve a source")
 
-    return VersionAccess(unavailable, unavailable)
+    return VersionAccess(unavailable, unavailable, unavailable)
 
 
 def time_version(contract="SHFE.rb2405", start="2024-01-01", end="2024-12-31"):
     import re
     from datetime import date, timedelta
 
-    from asterion.trading_time.public import TimeSpec, TimeVersion, time_id
+    from asterion_bindings.calendar import TimeSpec, TimeVersion, time_id
 
     first, last = date.fromisoformat(start), date.fromisoformat(end)
     # All dates open is an explicit synthetic calendar, never a shipped default.
@@ -93,9 +94,8 @@ def time_version(contract="SHFE.rb2405", start="2024-01-01", end="2024-12-31"):
 
 
 def intraday_options():
+    from asterion_bindings.calendar import TimeSpec, TimeVersion, time_id
     from import_identity_support import import_identity
-
-    from asterion.trading_time.public import TimeSpec, TimeVersion, time_id
 
     spec = time_version("SHFE.rb2610", "2026-09-15", "2026-09-15").spec.model_dump(mode="json")
     spec["calendar"][0]["night_open"] = True

@@ -1,25 +1,31 @@
 """Fixed computed role records, distinct from provider declarations."""
 
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date
-from typing import Literal
+from functools import cached_property
+from typing import Any, Literal, Self
 
+from asterion_bindings.calendar import TimeVersion
+from asterion_bindings.plugin_host import Capability
+from asterion_bindings.roles import (
+    ComputedAssignment,
+    ComputedRoleIndex,
+    ComputedRoleResolution,
+    RoleQuery,
+)
 from pydantic import AwareDatetime, ConfigDict, Field, model_validator
 
 from asterion.contract_roles.candidates import CandidateEvidence, CandidateScope
-from asterion.contract_roles.public import RoleQuery, Strict
+from asterion.contract_roles.models import Strict
 from asterion.contract_roles.ranking import (
     RankingDecision,
     RankingPolicy,
     RankingRequest,
     RankingResult,
 )
-from asterion.data.public import Contract
-from asterion.platform.plugins import Capability
 from asterion.platform.serialization import canonical
-from asterion.trading_time.public import Span, TimeVersion
 
 
 def digest(value) -> str:
@@ -87,48 +93,39 @@ class ComputedVersion(Strict):
     def fingerprint(self):
         if self.id != digest(self.spec.model_dump(mode="json")):
             raise ValueError("计算角色版本指纹不一致")
-        if any(d.available_at > self.published_at for d in self.spec.result.decisions):
-            raise ValueError("不能在计算依据可知之前发布角色")
+        _ = self._role_index
         return self
 
+    @cached_property
+    def _role_index(self) -> ComputedRoleIndex:
+        return ComputedRoleIndex(
+            version_id=self.id,
+            product_id=self.spec.input.product_id,
+            catalog=self.spec.input.catalog,
+            trading_time=self.spec.input.trading_time,
+            published_at=self.published_at,
+            records=tuple(
+                ComputedAssignment.model_validate(
+                    decision.model_dump(include=set(ComputedAssignment.model_fields))
+                )
+                for decision in self.spec.result.decisions
+            ),
+        )
 
-class ComputedResolution(Strict):
-    version_id: str
-    contract: Contract
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
+        # Never reuse an index compiled for a different publication timestamp.
+        return type(self).model_validate(self.model_dump() | dict(update or {}))
+
+
+class ComputedResolution(ComputedRoleResolution):
     decision: RankingDecision
-    session: Span
-    available_at: AwareDatetime
-    availability_basis: Literal["local_observation"] = "local_observation"
-    historical_publication_attested: Literal[False] = False
-    execution_authorized: Literal[False] = False
 
 
 def resolve_computed(version: ComputedVersion, query: RoleQuery) -> ComputedResolution:
-    if query.version_id != version.id or query.mode != "as_known":
-        raise ValueError("计算角色要求精确版本与本机当时可知查询，不提供假定历史回填")
-    spec = version.spec
-    sessions = [
-        s for s in spec.input.trading_time.spec.spans() if s.start <= query.timestamp < s.end
-    ]
-    if len(sessions) != 1:
-        raise ValueError("查询时刻不在固定交易时段中")
-    session = sessions[0]
-    decisions = [d for d in spec.result.decisions if d.effective_day == session.trading_day]
-    if len(decisions) != 1 or query.timestamp < decisions[0].effective_start:
-        raise ValueError("计算角色尚未生效或存在缺口，不能沿用前值")
-    decision = decisions[0]
-    if version.published_at > decision.effective_start:
-        raise ValueError("角色发布晚于计划生效开盘，不能回填或盘中启用该日角色")
-    if max(decision.available_at, version.published_at) > query.information_at:
-        raise ValueError("计算依据晚于信息截止时间")
-    identifier = decision.main if query.role == "main" else decision.secondary
-    actual = next(c for c in spec.input.catalog.contracts if c.id == identifier)
+    resolved = version._role_index.resolve(query)
     return ComputedResolution(
-        version_id=version.id,
-        contract=actual,
-        decision=decision,
-        session=session,
-        available_at=max(decision.available_at, version.published_at),
+        **resolved.model_dump(),
+        decision=version.spec.result.decisions[resolved.record_index],
     )
 
 

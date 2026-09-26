@@ -2,10 +2,10 @@
 
 from contextlib import asynccontextmanager
 
+from asterion_bindings.plugin_host import Activation, Plugin
 from fastapi import APIRouter, Depends, HTTPException
 
 from asterion.identity.public import ACCOUNT_ACCESS
-from asterion.platform.plugins import Activation, Plugin
 from asterion.platform.resources import DATA_ROOT
 
 from .public import CONNECTIONS, CONNECTOR_OWNERS, CREDENTIALS, ConnectionAccess

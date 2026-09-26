@@ -1,10 +1,12 @@
 import { expect, test } from "@playwright/test";
 import { nativeContext } from "./native";
 
-test("catalog explains cumulative revisions, gaps and row provenance", async ({
+for (const viewport of [{ width: 1440, height: 1000 }, { width: 1280, height: 720 }])
+test(`catalog explains cumulative revisions, gaps and row provenance (${viewport.width}×${viewport.height})`, async ({
   context,
   page,
 }) => {
+  await page.setViewportSize(viewport);
   await nativeContext(context);
   const type = {
     id: "futures.calendar",
@@ -172,7 +174,7 @@ test("catalog explains cumulative revisions, gaps and row provenance", async ({
   await page.getByRole("button", { name: "数据集", exact: true }).click();
   await page.getByRole("button", { name: "交易日历", exact: true }).click();
   await expect(page.getByText("累积版本 #2", { exact: false })).toBeVisible();
-  await expect(page.getByRole("status")).toContainText(
+  await expect(page.getByRole("status").filter({ hasText: "未覆盖的日历日期" })).toContainText(
     "未覆盖的日历日期：2024-01-03 — 2024-01-03",
   );
   await expect(page.getByRole("table", { name: "版本分区" })).toContainText(
@@ -182,7 +184,7 @@ test("catalog explains cumulative revisions, gaps and row provenance", async ({
   await expect(page.getByLabel("采集版本")).toHaveValue(first.id);
   await expect(page.getByText("累积版本 #1", { exact: false })).toBeVisible();
   await page.getByLabel("采集版本").selectOption(latest.id);
-  await page.screenshot({ path: "../../.state/cumulative-catalog.png" });
+  await page.screenshot({ path: `../../.state/cumulative-catalog-${viewport.width}.png` });
   await page.getByRole("button", { name: "查看该行来源" }).first().click();
   await expect(
     page.getByRole("heading", { name: "交易日历 · 原始预览" }),

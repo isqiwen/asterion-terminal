@@ -1,3 +1,5 @@
+from asterion_bindings.execution import ExecutionFactory
+from asterion_bindings.tasks import ExecutionContext
 from configuration_support import set_token
 from credential_helpers import provider_secrets
 from rules_support import rule_access, rule_version
@@ -5,7 +7,7 @@ from storage_support import data_store, domain_tasks, research_store, scheduler
 
 from asterion.data.public import VersionAccess, VersionReader
 from asterion.distribution import strategy_catalog
-from asterion.platform.tasks.execution import ExecutionContext
+from asterion.research.execution import EXECUTION
 from asterion.research.strategies import STRATEGY_RESOURCE
 
 """Research must bind the exact immutable report, never a latest/report UI hint."""
@@ -14,7 +16,7 @@ from datetime import date
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from asterion_bindings.database import create_engine
 from test_coverage import calendar, contracts
 from test_cumulative import publish
 from test_research import config
@@ -34,7 +36,7 @@ def evidence(tmp_path):
         data_store(engine),
         domain_tasks(data_store(engine), "data"),
         tmp_path,
-        provider_secrets("research-coverage-test-master"),
+        provider_secrets("research-coverage-test-master", tmp_path),
     )
     set_token(sync, "tushare", "offline-test-token")
     contracts(sync)
@@ -56,6 +58,7 @@ def evidence(tmp_path):
         version_access(engine, tmp_path),
         rule_access(engine, "SHFE.rb2610"),
         strategy_catalog(),
+        ExecutionFactory(),
     )
     yield sync, service, body
     engine.dispose()
@@ -75,7 +78,13 @@ def test_strict_requires_matching_complete_report_and_freezes_it(evidence):
     job = service.submit(body)
     claimed = scheduler(sync.engine).claim("research")
     original_bytes = execute(
-        ExecutionContext((STRATEGY_RESOURCE,), {STRATEGY_RESOURCE: strategy_catalog()}),
+        ExecutionContext(
+            (
+                STRATEGY_RESOURCE,
+                EXECUTION,
+            ),
+            {STRATEGY_RESOURCE: strategy_catalog(), EXECUTION: ExecutionFactory()},
+        ),
         claimed["payload"],
     )[0]
     service.publish(job["id"], claimed["token"], original_bytes)
@@ -89,7 +98,13 @@ def test_strict_requires_matching_complete_report_and_freezes_it(evidence):
     assert replay["payload"] == claimed["payload"]
     assert (
         execute(
-            ExecutionContext((STRATEGY_RESOURCE,), {STRATEGY_RESOURCE: strategy_catalog()}),
+            ExecutionContext(
+                (
+                    STRATEGY_RESOURCE,
+                    EXECUTION,
+                ),
+                {STRATEGY_RESOURCE: strategy_catalog(), EXECUTION: ExecutionFactory()},
+            ),
             replay["payload"],
         )[0]
         == original_bytes
@@ -149,4 +164,4 @@ def test_conflicts_are_blocked_even_in_exploration(evidence):
 
 def version_access(engine, root):
     reader = VersionReader(data_store(engine), root)
-    return VersionAccess(reader.read, reader.coverage)
+    return VersionAccess(reader.read, reader.coverage, reader.scan)

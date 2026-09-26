@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from asterion.platform.plugins import Capability
+from asterion_bindings.plugin_host import Capability
 
 
 @dataclass(frozen=True)

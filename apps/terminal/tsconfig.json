@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
@@ -10,5 +14,15 @@
     "esModuleInterop": true,
     "noEmit": true
   },
-  "include": ["src", "vite.config.ts"]
+  "include": [
+    "src",
+    "vite.config.ts",
+    "../../presentation/*/src/**/*.ts",
+    "../../presentation/*/src/**/*.tsx",
+    "../../presentation/panels/*/src/**/*.ts",
+    "../../presentation/panels/*/src/**/*.tsx",
+    "../../products/terminal/src/**/*.ts",
+    "../../products/terminal/src/**/*.tsx",
+    "../../bindings/typescript/src/**/*.ts"
+  ]
 }

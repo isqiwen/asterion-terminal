@@ -1,16 +1,18 @@
 from copy import deepcopy
 
 import pytest
+from asterion_bindings.execution import ExecutionFactory
+from asterion_bindings.rules import RuleSpec
+from entry_support import entry_lifecycle
 from fastapi.testclient import TestClient
 from rules_support import rule_version
+from scan_support import unsupported_scan
 from test_data_sync import MASTER, context, prepared, request  # noqa: F401
 from test_research import version_access
 
 from asterion.api.app import create_app
 from asterion.contract_rules.mapping import MappingRequest, SourceMapping
-from asterion.contract_rules.public import RuleSpec
 from asterion.contract_rules.service import Rules
-from asterion.data.providers.tushare import contract_multiplier
 from asterion.data.public import VersionAccess
 from asterion.distribution import strategy_catalog
 from asterion.distribution_storage import rule_storage
@@ -120,7 +122,9 @@ def source_fixture():
 
 
 def mapper(source):
-    return SourceMapping(VersionAccess(lambda *args, **kwargs: source, lambda _: None))
+    return SourceMapping(
+        VersionAccess(lambda *args, **kwargs: source, lambda _: None, unsupported_scan)
+    )
 
 
 @pytest.mark.parametrize(
@@ -169,43 +173,6 @@ def test_mapping_refuses_wrong_or_ambiguous_evidence(mutation):
         )
 
 
-@pytest.mark.parametrize("symbol,expected", [("IF2610", "300"), ("T2612", None)])
-def test_financial_contract_mapping_never_guesses_treasury_price_conversion(symbol, expected):
-    source = source_fixture()
-    source["rows"][0].update(
-        exchange="CFFEX",
-        symbol=symbol + ".CFX",
-        contract="CFFEX." + symbol,
-        product=symbol[:-4],
-        delivery_month="2026-" + symbol[-2:],
-        multiplier="300",
-        per_unit="1000000",
-        quote_unit="百元报价",
-    )
-    source["rows"][0].update(contract_multiplier(source["rows"][0]))
-    result = mapper(source).preview(
-        MappingRequest(
-            version_id="fixed", contract_id=f"CFFEX.{symbol[:-4]}.2026{symbol[-2:]}.20230101"
-        )
-    )
-    assert result.suggested_multiplier == expected
-
-
-@pytest.mark.parametrize(
-    "units,quantity", [("美元/吨", "10"), ("元/吨", None), ("元/吨", "0"), ("元/吨", "NaN")]
-)
-def test_unknown_units_or_invalid_quantity_are_left_unfilled(units, quantity):
-    source = source_fixture()
-    source["rows"][0].update(quote_unit=units, per_unit=quantity)
-    source["rows"][0].update(contract_multiplier(source["rows"][0]))
-    assert (
-        mapper(source)
-        .preview(MappingRequest(version_id="fixed", contract_id="SHFE.RB.202610.20230101"))
-        .suggested_multiplier
-        is None
-    )
-
-
 def test_mapping_api_and_reference_hook(context, monkeypatch):  # noqa: F811
     engine, _, _, root = context
     published = publish_contracts(context, monkeypatch)
@@ -220,9 +187,8 @@ def test_mapping_api_and_reference_hook(context, monkeypatch):  # noqa: F811
         spec["basis"] = preview.json()["basis"]
         spec["contract"] = preview.json()["contract"]
         assert client.post("/api/v1/contract-rules", json=spec).status_code == 200
-        status = client.get(f"/api/v1/data/versions/{published['id']}/lifecycle")
-        assert status.status_code == 200
-        assert status.json()["references"]["contract_rules"] == 1
+    with entry_lifecycle(str(engine.url), root) as manager:
+        assert manager.inspect(published["id"])["references"]["contract_rules"] == 1
 
 
 from test_research import services as research_services  # noqa: F401
@@ -253,7 +219,7 @@ def test_mapped_rules_replay_without_source_access(research_services):  # noqa: 
     rule = catalog.save(RuleSpec.model_validate(spec))
     job = research.submit(body.model_copy(update={"rules": rule}))
     claimed = scheduler(research.engine).claim("mapped")
-    content = canonical(calculate(claimed["payload"], strategy_catalog()))
+    content = canonical(calculate(claimed["payload"], strategy_catalog(), ExecutionFactory()))
     research.publish(job["id"], claimed["token"], content)
     packages = ResearchPackages(research)
     exported = packages.export(job["id"], True)
@@ -262,27 +228,17 @@ def test_mapped_rules_replay_without_source_access(research_services):  # noqa: 
     def unavailable(*args, **kwargs):
         pytest.fail("Frozen replay must not resolve a source or rule catalogue")
 
-    research.versions = VersionAccess(unavailable, unavailable)
+    research.versions = VersionAccess(unavailable, unavailable, unavailable)
     research.rules = RuleAccess(unavailable)
     imported = packages.receive("offline", exported)
     assert imported["can_replay"]
     replay = packages.replay("offline", imported["id"], "mapped-replay")
     claimed = scheduler(research.engine).claim("replay")
-    assert canonical(calculate(claimed["payload"], strategy_catalog())) == content
+    assert (
+        canonical(calculate(claimed["payload"], strategy_catalog(), ExecutionFactory())) == content
+    )
     research.publish(replay["id"], claimed["token"], content)
     assert research.get(replay["id"])["result"]["reproduction_matches"]
-
-
-def test_current_tushare_rmb_quotation_suggests_multiplier():
-    source = source_fixture()
-    source["rows"][0]["quote_unit"] = "人民币元/吨"
-    source["rows"][0].update(contract_multiplier(source["rows"][0]))
-    assert (
-        mapper(source)
-        .preview(MappingRequest(version_id="fixed", contract_id="SHFE.RB.202610.20230101"))
-        .suggested_multiplier
-        == "10"
-    )
 
 
 def test_rules_accept_an_independent_standard_source_without_provider_symbol_assumptions():

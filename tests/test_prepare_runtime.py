@@ -36,7 +36,9 @@ def test_prepare_uses_package_manager_and_only_downloads_python_tools(
         if command[:2] == ["uv", "build"]:
             output = Path(command[command.index("--out-dir") + 1])
             output.mkdir()
-            (output / "asterion_terminal-0.1.0-py3-none-any.whl").write_bytes(b"application")
+            (output / "asterion_terminal-0.1.0-cp312-abi3-linux_x86_64.whl").write_bytes(
+                b"application"
+            )
         else:
             Path(command[-1]).write_text("locked requirements")
 

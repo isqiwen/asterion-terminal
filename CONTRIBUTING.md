@@ -4,29 +4,33 @@ Asterion 正在从数据终端演进为可组合的期货量化终端。当前�
 
 ## 必须遵守的开发原则
 
-开始工作先阅读 [AGENTS.md](AGENTS.md)。**核心提供机制，插件实现功能；官方自研功能同样作为内置插件，通过相同功能契约接入。** 易变规则、算法、数据源、业务配置与面板属于插件；核心只管理通用生命周期、调度、授权、事务和宿主能力。新增功能默认改插件，修改核心必须说明通用机制需求；不得在核心添加具体插件的特殊分支。本项目只按当前最新架构与设计开发，绝不为旧设计、旧代码、旧协议或旧格式保留兼容逻辑。契约改变时同步更新调用方、测试与文档，直接删除被替代的实现。旧代码和旧测试不能凌驾于最新设计；不兼容原则不授权删除用户数据。
+开始工作先阅读 [AGENTS.md](AGENTS.md)。**固定内核，有限扩展。** 期货核心概念与定义属于内核（Rust，静态编译，不可替换）；扩展点只有内置 Rust 数据源适配、内置 Rust 券商接入和 Python 策略包。后端除研究/回测计算与策略外全部用 Rust。易变的是带版本和来源证据的事实数据，不是期货定义。本项目只按当前最新架构与设计开发，绝不为旧设计、旧代码、旧协议或旧格式保留兼容逻辑。契约改变时同步更新调用方、测试与文档，直接删除被替代的实现。旧代码和旧测试不能凌驾于最新设计；不兼容原则不授权删除用户数据。
 
 ## 选择改动入口
 
 | 想做什么 | 当前入口 |
 |---|---|
-| 数据源接入 | `src/asterion/data/providers/`：Provider 协议、可信内置注册 |
+| 数据源接入 | 内置 Rust 适配（目标 `services/adapters/`）；现有 `src/asterion/data/providers/` 待迁移 |
 | 数据类型、校验和发布 | `src/asterion/data/types/`、`library.py`、`sync.py` |
-| 终端面板和交互 | `apps/terminal/src/plugins/*/plugin.tsx`：业务贡献；`workspace/`、`extensions/`：通用宿主 |
+| 终端面板和交互 | `presentation/panels/*/src/module.tsx`：业务贡献；`presentation/`：共享表现基础 |
 | 桌面与后台生命周期 | `apps/terminal/src-tauri/`、`src/asterion/runtime/desktop.py` |
 | 协议及领域设计 | `docs/`、`tests/` 中相应契约与不变量 |
 
-当前内置功能按发行清单装配，接入方式见 [机制核心与内置插件](docs/builtin-contributions.md)。外部开发者可使用随源码提供的 `asterion_plugin_sdk`，开发受信本地 Python 数据源、研究策略和声明式表格，打包 ZIP 后通过终端安装并明确启用，无需重构建宿主。当前协议、限制和打包命令见 [插件契约](docs/plugin-system.md)；可复制 [数据源样例](examples/plugins/calendar-source/README.md) 或 [策略样例](examples/plugins/close-momentum/README.md)。SDK 尚未独立发布到公共包索引，不承诺旧协议兼容；任意 React 面板、原生动态插件和实盘网关的外部接入尚未开放。仅安装一个 Python 包不会自动登记为终端插件。
+现有内置功能仍经 Python 内置插件宿主装配（[待移除的现状](docs/builtin-contributions.md)），迁移中不要在其上新增扩展点。外部开发者只能开发 Python 策略包：使用随源码提供的 `asterion_plugin_sdk` 打包 ZIP，通过终端安装并明确启用，协议见 [策略插件契约](docs/plugin-system.md)，样例见 [策略样例](examples/plugins/close-momentum/README.md)。新增数据源或券商接入是新增内置 Rust 模块，不接受外部包。SDK 尚未发布到公共包索引，不承诺旧协议兼容。
 
 ## 本地开发
 
-准备 Python 3.12+、uv、Node.js 22+ 和仓库声明的 pnpm 10.32.1。普通前后端开发无需先构建桌面安装包；原生构建另需 Rust 与平台依赖，见 [README](README.md)。
+准备 Python 3.12+、uv、Node.js 22+ 和仓库声明的 pnpm 10.32.1。后台开发也需要 Rust stable，以构建当前 PyO3 绑定；不必先构建桌面安装包，原生桌面另需平台依赖，见 [README](README.md)。
 
 ```bash
 uv sync --locked
 pnpm install --frozen-lockfile
-uv run ruff check src tests scripts
-uv run ruff format --check src tests scripts
+uv run ruff check src tests scripts bindings/python/asterion_bindings
+uv run ruff format --check src tests scripts bindings/python/asterion_bindings
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+uv run python scripts/generate_domain_models.py --check
+uv run python scripts/generate_task_contract.py --check
 uv run pyright
 uv run pytest -q
 pnpm test
@@ -35,16 +39,16 @@ pnpm build
 
 Python 测试大部分使用临时 SQLite；真实并发测试只有配置 `ASTERION_TEST_DATABASE_URL` 才运行。请使用可重建的独立测试 PostgreSQL，不能指向个人业务数据库；未配置导致的跳过不代表 PostgreSQL 验证通过。
 
-需要手动启动服务、界面或端到端测试时，按 [README 的开发步骤](README.md#vs-code-开发) 设置本地开发环境，再启动 `uv run asterion init`、`uv run asterion serve`、`uv run asterion worker` 与 `pnpm dev`。示例数据必须明确标注合成；不要求真实数据源 Token 才能复现基础问题。
+需要手动启动服务、界面或端到端测试时，按[开发步骤](docs/development.md#vs-code-开发)设置本地开发环境，再启动 `uv run asterion init`、`uv run asterion serve --port 8001`、`.venv/bin/asterion-server --listen 127.0.0.1:8000 --upstream http://127.0.0.1:8001`、`uv run asterion worker` 与 `pnpm dev`（VS Code 的“Asterion: Backend”一并启动前三者）。示例数据必须明确标注合成；不要求真实数据源 Token 才能复现基础问题。
 
 API 变更须同步生成契约，禁止手工改生成类型：
 
 ```bash
 uv run python scripts/export_schema.py
-pnpm --filter @asterion/terminal exec openapi-typescript ../../docs/openapi.json -o src/api/schema.d.ts
+pnpm --filter @asterion/terminal exec openapi-typescript ../../docs/openapi.json -o ../../bindings/typescript/src/schema.d.ts
 ```
 
-浏览器测试运行方式、隔离测试数据库及打包冒烟见 [README 验证](README.md#验证) 和 [桌面运行](docs/desktop-runtime.md)。根据改动运行相关验证，公共协议和任务发布变更需覆盖相应集成测试。
+浏览器测试运行方式、隔离测试数据库及打包冒烟见[开发验证](docs/development.md#验证)和[桌面运行](docs/desktop-runtime.md)。根据改动运行相关验证，公共协议和任务发布变更需覆盖相应集成测试。
 
 ## 保持边界
 
@@ -60,4 +64,4 @@ pnpm --filter @asterion/terminal exec openapi-typescript ../../docs/openapi.json
 
 保留无关文件和用户数据；不在功能 PR 中顺手重排全仓库。文档链接应可用，已交付项更新 ROADMAP，未来设计不勾选完成。社区治理、许可证和发布准备见 [开源准备](docs/open-source.md)。
 
-内置数据源、任务、命令和面板的接入方式见 [内置扩展登记与模块边界](docs/builtin-contributions.md)。内置功能使用受信静态装配；本地外部插件使用固定 ZIP、公开 Python SDK 和独立进程，接入步骤见 [当前插件契约](docs/plugin-system.md) 与 [独立样例](examples/plugins/calendar-source/README.md)。该运行方式不构成恶意代码 OS 沙箱。
+外部策略包使用固定 ZIP、公开 Python SDK 和独立进程，接入步骤见 [策略插件契约](docs/plugin-system.md)。该运行方式不构成恶意代码 OS 沙箱。

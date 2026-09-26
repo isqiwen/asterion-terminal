@@ -5,19 +5,20 @@ import json
 import sys
 from pathlib import Path
 
-from sqlalchemy import create_engine, select
+from asterion_bindings.artifacts import ArtifactStore
+from asterion_bindings.database import create_engine
+from sqlalchemy import select
 
 from asterion.contract_roles.computed import ComputedSources
 from asterion.contract_roles.computed_public import ComputedVersion
 from asterion.contract_roles.plugin import computed_versions
 from asterion.contract_roles.sequence import SequenceRequest, verify_sequence
 from asterion.data.public import snapshot_backup_access
-from asterion.platform.files import read_files
 from asterion.runtime.desktop import runtime_settings
-from asterion.runtime.environments import active
+from asterion.runtime.environment import EnvironmentHost
 
 
-def inspect_evidence(connection, files, request: SequenceRequest | None):
+def inspect_evidence(connection, artifacts, request: SequenceRequest | None):
     records = {
         row["id"]: ComputedVersion.model_validate(dict(row))
         for row in connection.execute(select(computed_versions)).mappings()
@@ -38,7 +39,7 @@ def inspect_evidence(connection, files, request: SequenceRequest | None):
     missing = set(request.version_ids) - records.keys()
     if missing:
         raise ValueError("Requested published versions are missing")
-    sources = ComputedSources(snapshot_backup_access(connection, files))
+    sources = ComputedSources(snapshot_backup_access(connection, artifacts))
     result = verify_sequence(sources, records.__getitem__, request)
     return {
         "status": "VERIFIED",
@@ -64,7 +65,8 @@ def main():
     engine = None
     try:
         host, output = args.host.resolve(), args.output.resolve()
-        state = active(host)
+        with EnvironmentHost(host) as environment:
+            state = environment.active()
         if any(output.is_relative_to(path) for path in (host, state)):
             raise ValueError("Report must be outside the active environment")
         # Refuse overwriting evidence, and never serialize credentials or raw exceptions.
@@ -85,7 +87,9 @@ def main():
                     connection.exec_driver_sql(
                         "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
                     )
-                    result = inspect_evidence(connection, read_files(settings.data_root), request)
+                    result = inspect_evidence(
+                        connection, ArtifactStore(settings.data_root, read_only=True), request
+                    )
                 json.dump(result, report, ensure_ascii=False, indent=2)
             except Exception as error:
                 json.dump({"status": "FAILED", "error_type": type(error).__name__}, report)

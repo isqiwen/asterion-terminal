@@ -8,10 +8,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-
-from asterion.contract_roles.public import NextOpening, next_opening
-from asterion.data.providers.tushare import Tushare
-from asterion.trading_time.public import TimeSpec, TimeVersion, time_id
+from asterion_bindings.calendar import TimeSpec, TimeVersion, time_id
+from asterion_bindings.roles import NextOpening, next_opening
+from offline_collection import offline
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -164,7 +163,9 @@ def rows(partition, example):
 def test_real_sync_contract_computed_publication_and_backup(tmp_path, monkeypatch):
     example = case()
     monkeypatch.setattr(
-        Tushare, "fetch", lambda self, partition, configuration: rows(partition, example)
+        computed,
+        "collect_evidence",
+        offline(lambda self, partition, configuration: rows(partition, example)),
     )
     report = acceptance.Report(tmp_path / "acceptance", example)
     computed.suite(report, example, {"token": "fixture-computed-secret"})
@@ -187,7 +188,7 @@ def test_failure_keeps_evidence_and_redacts_transport_exception(tmp_path, monkey
             raise RuntimeError("sensitive-transport-fixture")
         return rows(partition, example)
 
-    monkeypatch.setattr(Tushare, "fetch", fetch)
+    monkeypatch.setattr(computed, "collect_evidence", offline(fetch))
     report = acceptance.Report(tmp_path / "failed", example)
     with pytest.raises(RuntimeError):
         computed.suite(report, example, {"token": "fixture-computed-secret"})
@@ -252,7 +253,7 @@ def test_product_scope_discovers_every_candidate_and_rejects_missing_daily(
                 return []
         return result
 
-    monkeypatch.setattr(Tushare, "fetch", fetch)
+    monkeypatch.setattr(computed, "collect_evidence", offline(fetch))
     report = acceptance.Report(tmp_path / "product", example)
     if missing:
         with pytest.raises(ValueError):

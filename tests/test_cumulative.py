@@ -1,5 +1,6 @@
 from configuration_support import set_token
 from credential_helpers import provider_secrets
+from import_support import chart_bars
 from storage_support import data_store, domain_tasks, scheduler
 from sync_identity_support import submit_source
 
@@ -13,11 +14,10 @@ from threading import Barrier
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from asterion_bindings.database import create_engine
 
 from asterion.data.providers.public import ProviderError, SyncRequest
 from asterion.data.providers.tushare import Tushare
-from asterion.data.public import read_bars
 from asterion.data.sync import DataSync
 from asterion.platform.serialization import canonical
 from asterion.platform.store import metadata
@@ -31,7 +31,7 @@ def sync(tmp_path):
         data_store(engine),
         domain_tasks(data_store(engine), "data"),
         tmp_path,
-        provider_secrets("synthetic-master-key"),
+        provider_secrets("synthetic-master-key", tmp_path),
     )
     set_token(result, "tushare", "synthetic-provider-key")
     return result
@@ -85,6 +85,39 @@ def publish(sync, days, **kwargs):
     return sync.publish(job["id"], job["token"], content)
 
 
+def test_expired_attempt_never_rewrites_committed_job_artifacts(sync):
+    from sqlalchemy import select
+
+    from asterion.data import partitions
+    from asterion.data.library import versions
+
+    first = publish(sync, ["2024-01-02"])
+    with sync.engine.connect() as conn:
+        stored = conn.execute(select(versions.c.manifest).where(versions.c.id == first["id"]))
+        manifest = stored.scalar_one()
+    committed = (sync.root / manifest["path"]).read_bytes()
+    definition = sync.library.types.get("futures.daily").manifest
+    row = sync.library.preview(first["id"])["rows"][0]
+    row |= {"open": "3999", "high": "3999", "low": "3999", "close": "3999", "settle": "3999"}
+    key = tuple(row[field] for field in definition.primary_key)
+    # A stale attempt of the same job reruns the merge, then loses its lease.
+    with pytest.raises(RuntimeError), sync.engine.begin() as conn:
+        _, index, _ = partitions.prepare(
+            sync.library,
+            conn,
+            job_id=first["job_id"],
+            type_id="futures.daily",
+            source="tushare",
+            scope=manifest["scope"],
+            rows=[row],
+            observed_by_key={key: datetime.now(UTC).isoformat()},
+        )
+        assert index.name != manifest["path"]
+        raise RuntimeError("lease expired before commit")
+    assert (sync.root / manifest["path"]).read_bytes() == committed
+    assert sync.library.preview(first["id"])["rows"][0]["close"] != "3999"
+
+
 def test_disjoint_months_reuse_files_and_versions_remain_fixed(sync):
     first = publish(sync, ["2024-01-02", "2024-01-03"])
     original = sync.library.preview(first["id"])
@@ -106,7 +139,7 @@ def test_disjoint_months_reuse_files_and_versions_remain_fixed(sync):
     assert sync.library.preview(second["manifest"]["inputs"][0])["total"] == 1
     assert sync.library.list(layer="STANDARD")["items"][0]["id"] == second["id"]
     assert sync.library.preview(second["id"], 100)["rows"] == []
-    bars = read_bars(sync.root / "published" / f"{second['manifest']['snapshot_id']}.parquet")
+    bars = chart_bars(sync.engine, sync.root, second["manifest"]["snapshot_id"])
     assert len(bars) == 3
     assert datetime.fromisoformat(bars[0]["available_at"]) == datetime.fromisoformat(
         original["row_sources"][0]["observed_at"]
@@ -194,7 +227,7 @@ def test_failed_artifact_write_does_not_advance_parent(sync, monkeypatch):
         def fail(*args):
             raise OSError("synthetic disk full")
 
-        patch.setattr("asterion.data.partitions.atomic_write", fail)
+        patch.setattr(sync.library.artifacts, "put_addressed", fail)
         with pytest.raises(OSError):
             sync.publish(job["id"], job["token"], content)
     assert sync.library.list(layer="STANDARD")["items"][0]["id"] == first["id"]
@@ -209,7 +242,7 @@ def test_corrupt_parent_blocks_preview_and_further_publication(sync):
     (sync.root / "artifacts" / f"{checksum}.parquet").write_bytes(b"corrupt")
     with pytest.raises(ProviderError, match="校验和"):
         sync.library.preview(first["id"])
-    job, content = pending(sync, ["2024-02-02"])
+    job, content = pending(sync, ["2024-01-03"])
     with pytest.raises(ProviderError, match="校验和"):
         sync.publish(job["id"], job["token"], content)
     assert sync.library.history(first["dataset_id"])["total"] == 1
@@ -217,7 +250,7 @@ def test_corrupt_parent_blocks_preview_and_further_publication(sync):
 
 def test_acquisition_series_is_not_silently_adopted(sync, monkeypatch):
     with monkeypatch.context() as patch:
-        patch.setattr("asterion.data.sync.SUPPORTED", set())
+        patch.setattr("asterion.data.sync.cumulative_series", lambda _: None)
         acquisition = publish(sync, ["2024-01-02"])
     cumulative = publish(sync, ["2024-02-02"])
     assert acquisition["dataset_id"] != cumulative["dataset_id"]
@@ -236,12 +269,11 @@ def test_concurrent_cumulative_publication_serializes_parent_selection(tmp_path)
         data_store(engine),
         domain_tasks(data_store(engine), "data"),
         tmp_path,
-        provider_secrets("synthetic-concurrency-master"),
+        provider_secrets("synthetic-concurrency-master", tmp_path),
     )
     set_token(sync, "tushare", "synthetic-provider-key")
-    from asterion.data.connections import NewConnection
 
-    connection = sync.connections.create(NewConnection(provider="tushare", name="concurrency"))
+    connection = sync.sources.create("tushare", "concurrency")
     set_token(sync, connection["id"], "synthetic-provider-key")
     symbol = "RB2610.SHF"
     inputs = [

@@ -1,18 +1,20 @@
 from copy import deepcopy
 
 import pytest
+from asterion_bindings.artifacts import ArtifactStore
+from asterion_bindings.catalog import ReferenceCatalog
+from asterion_bindings.database import create_engine
+from asterion_bindings.files import read_files
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
+from sqlalchemy import select
 from storage_support import data_store, raw_engine
 from test_reference import fixture, query
 
 from asterion.api.app import create_app
 from asterion.data.backup import load_evidence, validate_backup
 from asterion.data.library import versions
-from asterion.data.reference import ReferenceCatalog
 from asterion.data.reference_store import ReferenceStore, releases
 from asterion.platform.config import Settings
-from asterion.platform.files import read_files
 
 
 def test_publication_is_immutable_idempotent_and_survives_reopen(tmp_path):
@@ -84,14 +86,23 @@ def test_damaged_catalog_rejected_on_read_list_and_restore_without_rewrite(tmp_p
     storage = data_store(create_engine(f"sqlite:///{tmp_path}/catalog.db"))
     store = ReferenceStore(storage)
     release = store.publish(ReferenceCatalog.model_validate(fixture()))
-    storage.initialize(versions)
+    from asterion.data.catalog import snapshots
+    from asterion.platform.store import jobs
+
+    jobs.create(raw_engine(storage), checkfirst=True)
+    storage.initialize(versions, snapshots)
     from asterion.data.coverage import reports
     from asterion.data.preparation import batches
 
     storage.initialize(batches)
     storage.initialize(reports)
     with raw_engine(storage).connect() as conn:
-        evidence = load_evidence(conn, read_files(tmp_path), lambda content: content)
+        evidence = load_evidence(
+            conn,
+            ArtifactStore(tmp_path, read_only=True),
+            read_files(tmp_path),
+            lambda content: content,
+        )
     assert validate_backup(evidence)["reference_releases"] == 1
     payload = deepcopy(release.catalog.model_dump(mode="json"))
     if damage == "content":
@@ -107,7 +118,12 @@ def test_damaged_catalog_rejected_on_read_list_and_restore_without_rewrite(tmp_p
             read()
     # Exercise the same domain input assembled for backup verification.
     with raw_engine(storage).connect() as conn:
-        evidence = load_evidence(conn, read_files(tmp_path), lambda content: content)
+        evidence = load_evidence(
+            conn,
+            ArtifactStore(tmp_path, read_only=True),
+            read_files(tmp_path),
+            lambda content: content,
+        )
     with pytest.raises(ValueError):
         validate_backup(evidence)
     with storage.connect() as conn:

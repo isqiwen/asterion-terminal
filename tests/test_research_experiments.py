@@ -1,13 +1,14 @@
 from dataclasses import replace
 
 import pytest
+from asterion_bindings.execution import ExecutionFactory
+from asterion_bindings.task_repository import Conflict
 from sqlalchemy import select
 from storage_support import scheduler
 from test_research import services  # noqa: F401
 
 from asterion.platform.serialization import canonical
 from asterion.platform.store import jobs
-from asterion.platform.tasks.service import Conflict
 from asterion.research.engine import calculate
 from asterion.research.experiments import ExperimentRequest, Experiments
 
@@ -82,7 +83,9 @@ def test_cancel_preserves_published_result_and_revokes_other_leases(request):
     tasks = scheduler(service.engine)
     first = tasks.claim("first")
     service.publish(
-        first["id"], first["token"], canonical(calculate(first["payload"], service.strategies))
+        first["id"],
+        first["token"],
+        canonical(calculate(first["payload"], service.strategies, service.execution)),
     )
     running = tasks.claim("second")
     with pytest.raises(KeyError):
@@ -99,7 +102,7 @@ def test_cancel_preserves_published_result_and_revokes_other_leases(request):
         service.publish(
             running["id"],
             running["token"],
-            canonical(calculate(running["payload"], service.strategies)),
+            canonical(calculate(running["payload"], service.strategies, service.execution)),
         )
 
 
@@ -107,7 +110,7 @@ def test_task_port_rejects_cancelling_foreign_kind(request):
     service, _, _ = setup(request)
     tasks = scheduler(service.engine)
     foreign = tasks.submit("foreign", "data.sync", {})
-    with service.engine.begin() as conn, pytest.raises(ValueError, match="not granted"):
+    with pytest.raises(ValueError, match="not granted"), service.engine.begin() as conn:
         service.tasks.cancel_batch(conn, [foreign["id"]])
     assert tasks.get(foreign["id"])["state"] == "QUEUED"
 
@@ -136,6 +139,7 @@ def test_backup_rejects_broken_experiment_association(request):
         empty,
         lambda: iter([(record["spec"], record["runs"], record["checksum"], set(record["runs"]))]),
         empty,
+        execution=ExecutionFactory(),
     )
     validate_backup(evidence)
     with pytest.raises(ValueError, match="实验"):

@@ -2,7 +2,7 @@
 
 当前示例版本 1.1.0，包含整数回看周期、小数涨幅阈值、允许做多开关和比较方式枚举。涨幅阈值为比例，`0.1000` 表示 10%；小数始终传递字符串，关闭做多时保持空仓。
 
-此目录可单独复制到仓库之外开发，不导入终端内部模块。依赖 Python 标准库、随终端提供的 `asterion_plugin_sdk` 和包内 `signal_logic.py`。
+此目录可单独复制到仓库之外开发，不导入终端内部模块。策略实现依赖 Python 标准库、随终端提供的 `asterion_plugin_sdk` 和包内 `signal_logic.py`。开发环境需安装终端 wheel 及其依赖；公开 SDK 使用 Rust 通信绑定和 Pydantic 包模型 `asterion_plugin_sdk.packages.PackageManifest`，不支持只复制 SDK 目录。
 
 打包：`uv run python -m asterion_plugin_sdk pack examples/plugins/close-momentum /tmp/close-momentum.zip`。目标必须不存在。安装入口：设置 → 本地插件 → 选择 ZIP → 核对用途和来源 → 信任并安装启用。研究页刷新策略列表即可选择，无需重启或重打包终端。
 

@@ -1,37 +1,16 @@
-"""Asterion plugin protocol 1. Standard library only; no terminal internals required."""
-
-import json
-import sys
-
-PROTOCOL = 1
+"""Asterion plugin protocol 1, using the terminal-supplied native wire binding."""
 
 
 def serve(dispatch):
     """Handle bounded JSON-line calls until EOF. dispatch(method, params) returns JSON-compatible data."""
-    while raw := sys.stdin.buffer.readline(8_000_001):
-        if len(raw) > 8_000_000:
-            raise ValueError("Plugin request too large")
-        request = json.loads(raw)
-        if (
-            not isinstance(request, dict)
-            or set(request) != {"protocol", "id", "method", "params"}
-            or request["protocol"] != PROTOCOL
-            or not isinstance(request["method"], str)
-            or not isinstance(request["params"], dict)
-        ):
-            raise ValueError("Invalid plugin request")
-        try:
-            result = dispatch(request["method"], request["params"])
-            response = {"protocol": PROTOCOL, "id": request["id"], "result": result}
-        except Exception:  # noqa: BLE001 - never expose arbitrary plugin exceptions
-            # Provider exceptions can contain credentials and upstream bodies.
-            response = {
-                "protocol": PROTOCOL,
-                "id": request["id"],
-                "error": "Plugin operation failed",
-            }
-        sys.stdout.write(json.dumps(response, ensure_ascii=False, allow_nan=False) + "\n")
-        sys.stdout.flush()
+    from asterion_bindings.communication import activate
+    from asterion_bindings.transport import serve as serve_transport
+
+    def invoke(request):
+        with activate(request["context"]):
+            return dispatch(request["contract"], request["payload"])
+
+    serve_transport(invoke)
 
 
 def serve_strategy(create, warmup):

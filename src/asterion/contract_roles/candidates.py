@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from asterion.contract_roles.public import Strict
+from asterion.contract_roles.models import Strict
 from asterion.data.public import ReferenceCatalog, source_contract_catalog, source_product_catalog
 
 

@@ -121,7 +121,7 @@ test("file mapping requires fresh preview and submits explicit provenance", asyn
   await expect(submit).toBeEnabled();
   await page.screenshot({ path: "../../.state/import-mapping.png" });
   await submit.click();
-  await expect(page.getByRole("status")).toContainText("mapped-import");
+  await expect(page.getByRole("status").filter({ hasText: "请求已接收" })).toContainText("mapped-import");
   expect(submitted.options.identity.catalog_id).toBe(release.id);
   expect(submitted.options.identity.bindings).toEqual(identity.bindings);
   expect(submitted.options.trading_time).toEqual(savedTime);

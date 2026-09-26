@@ -7,7 +7,7 @@ from sqlalchemy import JSON, Column, String, Table, select
 
 from asterion.contract_roles.computed import ComputedSources
 from asterion.contract_roles.computed_public import DailyInput, digest
-from asterion.contract_roles.public import Strict
+from asterion.contract_roles.models import Strict
 from asterion.contract_roles.sequence import ContinuationRequest, check_published, continuation
 from asterion.contract_roles.tasks import KIND, Payload
 from asterion.platform.store import metadata

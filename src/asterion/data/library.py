@@ -1,20 +1,21 @@
 """Unified catalogue of immutable acquisition and cumulative versions."""
 
-import csv
-import hashlib
-import io
 import json
 import time
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
-import pyarrow as pa
-import pyarrow.parquet as pq
-from sqlalchemy import JSON, Column, Float, ForeignKey, Integer, String, Table, func, select
+from asterion_bindings.artifacts import ArtifactRef, ArtifactStore
+from asterion_bindings.data_catalog import (
+    catalog_hierarchy,
+    catalog_history,
+    catalog_list,
+    version_preview,
+)
+from sqlalchemy import JSON, Column, Float, ForeignKey, Integer, String, Table
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from asterion.data.catalog import snapshots
 from asterion.data.providers.public import ProviderError
 from asterion.data.types import builtin_types
 from asterion.data.version_state import version_states
@@ -46,9 +47,20 @@ def stable_id(value):
     return str(uuid5(NAMESPACE_URL, "asterion:data:v1:" + json.dumps(value, sort_keys=True)))
 
 
+def read_artifact(store: ArtifactStore, name, sha256, size, *, missing, changed) -> bytes:
+    """Verified read of a recorded artifact, reported in the owner's terms."""
+    try:
+        return store.read(name, sha256, size)
+    except FileNotFoundError:
+        raise ProviderError(missing) from None
+    except ValueError:
+        raise ProviderError(changed) from None
+
+
 class DataLibrary:
     def __init__(self, engine, root: Path):
         self.engine, self.root = engine, root
+        self.artifacts = ArtifactStore(root)
         self.types = builtin_types()
         engine.initialize(collections)
         engine.initialize(versions)
@@ -94,30 +106,29 @@ class DataLibrary:
         type_id,
         source,
         scope,
-        raw_path,
+        raw: ArtifactRef,
         raw_format,
-        standard_path,
+        standard: ArtifactRef,
         row_count,
         detail,
         snapshot_id=None,
         plugin_version=None,
-        standard=None,
+        cumulative=None,
     ):
-        """Called in the publisher's fenced transaction, after artifact writes succeed."""
+        """Called in the publisher's fenced transaction with its written artifacts."""
         definition = self.types.get(type_id).manifest.model_dump()
-        standard = standard or {}
+        cumulative = cumulative or {}
         inputs = []
         ids = []
-        for layer, path, format_ in [
-            ("RAW", raw_path, raw_format),
-            ("STANDARD", standard_path, standard.get("format", "parquet")),
+        for layer, artifact, format_ in [
+            ("RAW", raw, raw_format),
+            ("STANDARD", standard, cumulative.get("format", "parquet")),
         ]:
-            override = standard if layer == "STANDARD" else {}
+            override = cumulative if layer == "STANDARD" else {}
             dataset_id = self.ensure_collection(
                 conn, type_id, source, scope, layer, override.get("series")
             )
             version_id = stable_id({"dataset_id": dataset_id, "job_id": job_id})
-            content = (self.root / path).read_bytes()
             manifest = dict(
                 type=definition
                 | ({"frequency": scope["frequency"]} if scope.get("frequency") else {}),
@@ -125,9 +136,9 @@ class DataLibrary:
                 layer=layer,
                 scope=scope,
                 format=format_,
-                checksum=hashlib.sha256(content).hexdigest(),
-                bytes=len(content),
-                path=path,
+                checksum=artifact.sha256,
+                bytes=artifact.bytes,
+                path=artifact.name,
                 inputs=list(inputs) + override.get("parent_inputs", []),
                 state="PUBLISHED",
                 quality="CAPTURED" if layer == "RAW" else "VALIDATED",
@@ -168,56 +179,26 @@ class DataLibrary:
         offset=0,
         limit=50,
         include_archived=False,
+        directory="",
     ):
-        conditions = []
-        for column, value in [
-            (collections.c.domain, domain),
-            (collections.c.type_id, type_id),
-            (collections.c.source, source),
-            (collections.c.layer, layer),
-        ]:
-            if value:
-                if column is collections.c.source and value.startswith("c_"):
-                    conditions.append(
-                        collections.c.identity["scope"]["connection_id"].as_string() == value
-                    )
-                else:
-                    conditions.append(column == value)
-        if search:
-            # Search only declared catalogue identities, never secrets or raw payloads.
-            from sqlalchemy import cast
+        """Latest version of each collection; the Rust data service's catalogue query."""
+        query = {
+            "directory": directory,
+            "include_archived": include_archived,
+            "domain": domain,
+            "type_id": type_id,
+            "source": source,
+            "layer": layer,
+            "search": search,
+            "offset": offset,
+            "limit": limit,
+        }
+        with self.engine.connect() as transaction:
+            return catalog_list(transaction, query)
 
-            conditions.append(
-                cast(collections.c.identity, String).contains(search, autoescape=True)
-            )
-        ranked = (
-            select(
-                versions,
-                func.coalesce(version_states.c.archived, False).label("archived"),
-                func.row_number()
-                .over(
-                    partition_by=versions.c.dataset_id,
-                    order_by=(versions.c.created_at.desc(), versions.c.id.desc()),
-                )
-                .label("rank"),
-                func.count().over(partition_by=versions.c.dataset_id).label("version_count"),
-            )
-            .outerjoin(version_states, version_states.c.version_id == versions.c.id)
-            .subquery()
-        )
-        if not include_archived:
-            conditions.append(ranked.c.archived.is_(False))
-        query = (
-            select(ranked)
-            .join(collections, collections.c.id == ranked.c.dataset_id)
-            .where(ranked.c.rank == 1, *conditions)
-        )
-        with self.engine.connect() as conn:
-            total = conn.execute(select(func.count()).select_from(query.subquery())).scalar_one()
-            rows = conn.execute(
-                query.order_by(ranked.c.created_at.desc(), ranked.c.id).offset(offset).limit(limit)
-            ).mappings()
-            return {"items": [self.public(dict(r)) for r in rows], "total": total, "offset": offset}
+    def hierarchy(self, include_archived=False):
+        with self.engine.connect() as transaction:
+            return catalog_hierarchy(transaction, include_archived)
 
     @staticmethod
     def public(record):
@@ -226,77 +207,22 @@ class DataLibrary:
         return dict(record) | {"manifest": manifest}
 
     def history(self, dataset_id, offset=0, limit=50):
-        with self.engine.connect() as conn:
-            query = (
-                select(versions, func.coalesce(version_states.c.archived, False).label("archived"))
-                .outerjoin(version_states, version_states.c.version_id == versions.c.id)
-                .where(versions.c.dataset_id == dataset_id)
-            )
-            total = conn.execute(select(func.count()).select_from(query.subquery())).scalar_one()
-            rows = conn.execute(
-                query.order_by(versions.c.created_at.desc(), versions.c.id)
-                .offset(offset)
-                .limit(limit)
-            ).mappings()
-            return {"items": [self.public(dict(r)) for r in rows], "total": total, "offset": offset}
+        with self.engine.connect() as transaction:
+            return catalog_history(transaction, dataset_id, offset, limit)
 
     def preview(self, version_id, offset=0, limit=100):
-        with self.engine.connect() as conn:
-            record = (
-                conn.execute(select(versions).where(versions.c.id == version_id)).mappings().first()
-            )
-            if record is None:
-                raise KeyError(version_id)
-            manifest = record["manifest"]
-            chart = None
-            if manifest["snapshot_id"]:
-                found = (
-                    conn.execute(select(snapshots).where(snapshots.c.id == manifest["snapshot_id"]))
-                    .mappings()
-                    .first()
-                )
-                chart = dict(found) if found else None
-        try:
-            content = (self.root / manifest["path"]).read_bytes()
-        except FileNotFoundError:
-            raise ProviderError("数据文件缺失") from None
-        if hashlib.sha256(content).hexdigest() != manifest["checksum"]:
-            raise ProviderError("数据文件校验和不一致")
-        provenance = None
-        if manifest["format"] == "partition_manifest":
-            from asterion.data.partitions import read_partition
+        with self.engine.connect() as transaction:
+            return self._preview(transaction, version_id, offset, limit)
 
-            selected, cursor = [], 0
-            for part in json.loads(content)["partitions"]:
-                if cursor < offset + limit and cursor + part["rows"] > offset:
-                    values = read_partition(self.root, part)
-                    selected.extend(values[max(0, offset - cursor) : offset + limit - cursor])
-                cursor += part["rows"]
-            provenance = [
-                {"observed_at": row["_observed_at"], "raw_version_id": row["_raw_version_id"]}
-                for row in selected
-            ]
-            rows = [{k: v for k, v in row.items() if not k.startswith("_")} for row in selected]
-        elif manifest["format"] == "parquet":
-            rows = (
-                pq.ParquetFile(pa.BufferReader(content))
-                .read(use_threads=False)
-                .slice(offset, limit)
-                .to_pylist()
-            )
-        elif manifest["format"] == "provider_evidence":
-            rows = [r for part in json.loads(content) for r in part["rows"]][
-                offset : offset + limit
-            ]
-        elif manifest["format"] == "csv":
-            rows = list(csv.DictReader(io.StringIO(content.decode())))[offset : offset + limit]
-        else:
-            raise ProviderError("该数据格式尚未安装预览器")
-        return {
-            "version": self.public(dict(record)),
-            "rows": rows,
-            "offset": offset,
-            "total": record["rows"],
-            "snapshot": chart,
-            "row_sources": provenance,
-        }
+    def preview_in(self, transaction, version_id, offset=0, limit=100):
+        with self.engine.borrow(transaction) as borrowed:
+            return self._preview(borrowed, version_id, offset, limit)
+
+    def _preview(self, transaction, version_id, offset, limit):
+        """Rows of a fixed version, read by the Rust data service."""
+        try:
+            return version_preview(transaction, self.root, version_id, offset, limit)
+        except KeyError:
+            raise
+        except ValueError as error:
+            raise ProviderError(str(error)) from None

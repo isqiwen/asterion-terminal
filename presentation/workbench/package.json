@@ -1,0 +1,39 @@
+{
+  "name": "@asterion/workbench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "asterion": {
+    "layer": 4,
+    "kind": "presentation"
+  },
+  "exports": {
+    "./components/Connection": "./src/components/Connection.tsx",
+    "./components/ServiceStatus": "./src/components/ServiceStatus.tsx",
+    "./components/WindowFrame": "./src/components/WindowFrame.tsx",
+    "./extensions/ApplicationHost": "./src/extensions/ApplicationHost.tsx",
+    "./extensions/PanelHost": "./src/extensions/PanelHost.tsx",
+    "./extensions/modules": "./src/extensions/modules.ts",
+    "./extensions/registry": "./src/extensions/registry.ts",
+    "./settings/category": "./src/settings/category.ts",
+    "./settings/window": "./src/settings/window.ts",
+    "./startup/Setup": "./src/startup/Setup.tsx",
+    "./startup/Startup": "./src/startup/Startup.tsx",
+    "./workspace/PanelDivider": "./src/workspace/PanelDivider.tsx",
+    "./workspace/Workbench": "./src/workspace/Workbench.tsx",
+    "./workspace/useWindowLayout": "./src/workspace/useWindowLayout.ts"
+  },
+  "dependencies": {
+    "@asterion/api-types": "workspace:*",
+    "@asterion/desktop-bridge": "workspace:*",
+    "@asterion/runtime-client": "workspace:*",
+    "@tauri-apps/api": "^2.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "vitest": "^3.0.0"
+  }
+}

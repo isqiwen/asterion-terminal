@@ -1,5 +1,5 @@
+from asterion_bindings.database import create_engine
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from storage_support import raw_engine
 
 from asterion.api.app import create_app
@@ -22,28 +22,10 @@ def test_removed_development_connections_do_not_break_product(tmp_path):
         create_app(Settings(token=token, data_root=tmp_path / "data"), raw_engine(engine)),
         headers={"Authorization": "Bearer " + token},
     ) as client:
-        assert [p["id"] for p in client.get("/api/v1/data/providers").json()] == ["tushare"]
         assert client.get("/api/v1/services").status_code == 200
-        assert (
-            client.post(
-                "/api/v1/data/connections", json={"provider": "synthetic", "name": "演示"}
-            ).status_code
-            == 422
-        )
-        assert (
-            client.post(
-                "/api/v1/data/sync",
-                json={
-                    "command_id": "no-demo",
-                    "provider": "synthetic",
-                    "dataset": "daily",
-                    "exchange": "SIM",
-                    "symbol": "DEMO001.SIM",
-                    "start": "2024-01-02",
-                    "end": "2024-01-05",
-                },
-            ).status_code
-            == 422
-        )
-        assert client.get("/api/v1/data/catalog").status_code == 200
+    from storage_support import data_store
+
+    from asterion.data.library import DataLibrary
+
+    assert DataLibrary(data_store(engine), tmp_path / "data").list()["total"] == 0
     engine.dispose()

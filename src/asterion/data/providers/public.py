@@ -4,7 +4,22 @@ from datetime import date, datetime
 from typing import Any, Literal, Protocol
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+
+
+class SourceWindow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    start: AwareDatetime
+    end: AwareDatetime
+
+    @model_validator(mode="after")
+    def ordered(self):
+        if self.start > self.end or (self.end - self.start).total_seconds() > 10 * 86400:
+            raise ValueError("来源时间窗口须有序且不超过十天")
+        return self
+
+
+MinuteFrequency = Literal["1m", "5m", "15m", "30m", "60m"]
 
 
 class SyncRequest(BaseModel):
@@ -15,6 +30,8 @@ class SyncRequest(BaseModel):
     dataset: str = Field(min_length=1, max_length=50)
     exchange: str = Field(min_length=1, max_length=10)
     symbol: str = Field(default="", max_length=30)
+    frequency: MinuteFrequency | None = None
+    window: SourceWindow | None = None
     start: date | None = None
     end: date | None = None
 
@@ -31,6 +48,7 @@ class SyncRequest(BaseModel):
 
 
 class Capability(BaseModel):
+    frequencies: list[MinuteFrequency] = Field(default_factory=list)
     id: str
     label: str
     type_id: str

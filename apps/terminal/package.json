@@ -6,15 +6,14 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc --noEmit && vite build",
-    "test": "vitest run src",
+    "test": "vitest run",
     "tauri": "tauri",
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.0.0",
-    "lightweight-charts": "^5.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "@asterion/product-terminal": "workspace:*"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
@@ -25,6 +24,12 @@
     "openapi-typescript": "^7.0.0",
     "typescript": "^5.7.0",
     "vite": "^6.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "@asterion/ui-terminal-workspace": "workspace:*",
+    "@asterion/workbench": "workspace:*",
+    "@asterion/ui-overview": "workspace:*",
+    "@asterion/ui-market-panel": "workspace:*",
+    "@asterion/ui-trading-panel": "workspace:*",
+    "@asterion/ui-kit": "workspace:*"
   }
 }

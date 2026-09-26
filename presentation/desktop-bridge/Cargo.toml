@@ -1,0 +1,22 @@
+[package]
+name = "asterion-desktop-bridge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[package.metadata.asterion]
+layer = "L4"
+kind = "presentation"
+
+[lib]
+path = "native/lib.rs"
+
+[dependencies]
+asterion-foundation.workspace = true
+asterion-kernel.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = [] }
+
+[lints]
+workspace = true

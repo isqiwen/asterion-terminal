@@ -2,9 +2,9 @@
 
 from decimal import Decimal, InvalidOperation
 
+from asterion_bindings.rules import ContractBasis, RuleSpec
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from asterion.contract_rules.public import ContractBasis, RuleSpec
 from asterion.data.public import Contract, VersionAccess, source_contract
 
 

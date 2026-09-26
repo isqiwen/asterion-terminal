@@ -135,8 +135,8 @@ def test_invalid_or_incomplete_observations_refused(change):
 
 
 def test_api_diagnostic_authentication_and_no_publication(tmp_path):
+    from asterion_bindings.database import create_engine
     from fastapi.testclient import TestClient
-    from sqlalchemy import create_engine
 
     from asterion.api.app import create_app
     from asterion.platform.config import Settings

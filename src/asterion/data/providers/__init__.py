@@ -1,6 +1,6 @@
 """Explicit registration of trusted provider contributions."""
 
-from datetime import date, timedelta
+from asterion_bindings import data_providers
 
 from asterion.data.providers.public import Provider, ProviderError
 from asterion.platform.registry import Registry
@@ -16,21 +16,14 @@ class ValidatedProvider:
 
     def plan(self, request):
         parts = self._implementation.plan(request)
-        if not isinstance(parts, list) or not 1 <= len(parts) <= 3661:
+        if not isinstance(parts, list):
             raise ProviderError("采集计划为空或超出限制")
-        if request.start:
-            cursor = request.start
-            for part in parts:
-                if not part.start or not part.end or date.fromisoformat(part.start) != cursor:
-                    raise ProviderError("采集分段日期不连续或不符合请求")
-                end = date.fromisoformat(part.end)
-                if end < cursor or end > request.end:
-                    raise ProviderError("采集分段日期超出请求")
-                cursor = end + timedelta(days=1)
-            if cursor != request.end + timedelta(days=1):
-                raise ProviderError("采集计划未覆盖完整请求范围")
-        elif any(part.start or part.end for part in parts):
-            raise ProviderError("快照请求不接受日期分段")
+        try:
+            data_providers.check_plan(
+                request.model_dump_json(), [part.model_dump() for part in parts]
+            )
+        except ValueError as error:
+            raise ProviderError(str(error)) from None
         return parts
 
     def probe(self, configuration):
@@ -59,40 +52,14 @@ class ProviderRegistry:
         try:
             return self._providers.get(identifier)
         except KeyError:
-            raise ProviderError("未安装该数据源插件") from None
+            raise ProviderError("不支持该数据源；数据源只能是内置实现") from None
 
     def all(self):
         return list(self._providers.all())
 
 
-def builtin_registry(root=None):
+def builtin_registry():
+    """Data sources are built-in implementations only; none are installable."""
     from asterion.data.providers.tushare import Tushare
 
-    if root is None:
-        return ProviderRegistry((Tushare(),))
-    from asterion.data.providers.external import ExternalProvider, validate_contribution
-    from asterion.platform.extensions.packages import Packages
-    from asterion.platform.extensions.views import validate_view
-
-    packages = Packages(
-        root / ".extensions", {"data.provider": validate_contribution, "ui.table": validate_view}
-    )
-
-    class InstalledProviders(ProviderRegistry):
-        def all(self):
-            result = super().all()
-            for record in packages.list():
-                if record["enabled"] and "data.provider" in record["manifest"]["contributions"]:
-                    provider = ExternalProvider(packages, record)
-                    if provider.manifest.id in {p.manifest.id for p in result}:
-                        raise ProviderError("数据源标识冲突，请停用冲突插件")
-                    result.append(ValidatedProvider(provider))
-            return result
-
-        def get(self, identifier):
-            for provider in self.all():
-                if provider.manifest.id == identifier:
-                    return provider
-            raise ProviderError("未安装或已停用该数据源插件")
-
-    return InstalledProviders((Tushare(),))
+    return ProviderRegistry((Tushare(),))

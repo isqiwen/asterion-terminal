@@ -5,12 +5,12 @@ import binascii
 import hashlib
 import json
 
+from asterion_bindings.plugin_host import Activation, Context, Plugin
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from asterion.extensions.public import PACKAGES
 from asterion.identity.public import ACCOUNT_ACCESS
-from asterion.platform.plugins import Activation, Context, Plugin
 
 
 class Selection(BaseModel):
@@ -40,7 +40,7 @@ def activate(context: Context):
 
     @routes.get("/{identifier}/diagnostics")
     def diagnostics(identifier: str):
-        from asterion.platform.extensions.diagnostics import recent
+        from asterion_bindings.diagnostics import recent
 
         record = next(
             (item for item in packages.list() if item["manifest"]["id"] == identifier), None
@@ -91,42 +91,6 @@ def activate(context: Context):
     @routes.post("/{identifier}/remove")
     def remove(identifier: str, body: Removal):
         return packages.remove(identifier, body.digest)
-
-    @routes.get("/views")
-    def views():
-        return {
-            "items": [
-                {
-                    "plugin_id": record["manifest"]["id"],
-                    "digest": record["digest"],
-                    "view": record["manifest"]["contributions"]["ui.table"],
-                }
-                for record in packages.list()
-                if record["enabled"] and "ui.table" in record["manifest"]["contributions"]
-            ]
-        }
-
-    @routes.post("/{identifier}/view")
-    def view(identifier: str, body: Removal):
-        from asterion.platform.extensions.process import call_package
-        from asterion.platform.extensions.views import TableView, validate_rows
-
-        record = next(
-            (item for item in packages.list() if item["manifest"]["id"] == identifier), None
-        )
-        if not record or not record["enabled"] or record["digest"] != body.digest:
-            raise HTTPException(409, "插件已停用、移除或工件已变化，请刷新视图")
-        manifest, path = packages.resolve(body.digest)
-        if "ui.table" not in manifest.contributions:
-            raise HTTPException(404, "该插件未声明表格视图")
-        definition = TableView.model_validate(manifest.contributions["ui.table"])
-        rows = call_package(
-            path,
-            "view",
-            {"id": definition.id},
-            authorized=lambda: packages.enabled(identifier, body.digest),
-        )
-        return {"rows": validate_rows(definition, rows)}
 
     return Activation(routers=(routes,))
 

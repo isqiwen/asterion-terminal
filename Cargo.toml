@@ -1,0 +1,94 @@
+[workspace]
+resolver = "3"
+members = [
+    "foundation",
+    "kernel",
+    "domain/instrument-catalog",
+    "domain/trading-calendar",
+    "domain/market-rules",
+    "domain/role-registry",
+    "domain/connections",
+    "domain/market-feed",
+    "domain/data-store",
+    "domain/execution",
+    "bindings/python",
+    "presentation/desktop-bridge",
+    "presentation/panels/terminal-workspace",
+    "products/terminal",
+    "services/store",
+    "services/data",
+    "services/adapters/provider-tushare",
+    "services/server",
+]
+exclude = ["apps/terminal/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[workspace.dependencies]
+asterion-desktop-bridge = { path = "presentation/desktop-bridge" }
+asterion-ui-terminal-workspace = { path = "presentation/panels/terminal-workspace" }
+asterion-product-terminal = { path = "products/terminal" }
+asterion-foundation = { path = "foundation" }
+asterion-kernel = { path = "kernel" }
+asterion-store = { path = "services/store" }
+asterion-data = { path = "services/data" }
+asterion-provider-tushare = { path = "services/adapters/provider-tushare" }
+asterion-instrument-catalog = { path = "domain/instrument-catalog" }
+asterion-trading-calendar = { path = "domain/trading-calendar" }
+asterion-market-rules = { path = "domain/market-rules" }
+asterion-role-registry = { path = "domain/role-registry" }
+asterion-connections = { path = "domain/connections" }
+asterion-market-feed = { path = "domain/market-feed" }
+asterion-data-store = { path = "domain/data-store" }
+asterion-execution = { path = "domain/execution" }
+arrow-array = "=59.2.0"
+arrow-schema = "=59.2.0"
+arrow-select = "=59.2.0"
+arrow-pyarrow = "=59.2.0"
+parquet = { version = "=59.2.0", default-features = false, features = ["arrow", "snap"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+sha2 = "0.10"
+hex = "0.4"
+hmac = "0.12"
+base64 = "0.22"
+fernet = { version = "=0.2.2", default-features = false, features = ["rustcrypto", "fernet_danger_timestamps"] }
+zeroize = "1"
+regex = "1"
+schemars = { version = "1", features = ["chrono04"] }
+bigdecimal = "0.4"
+num-bigint = "0.4"
+num-traits = "0.2"
+pyo3 = { version = "0.29.2", features = ["abi3-py312"] }
+uuid = { version = "1", features = ["v4", "v5"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+tempfile = "3"
+nix = { version = "0.30", features = ["signal", "process", "fs", "poll", "resource", "dir"] }
+scrypt = { version = "0.11", default-features = false }
+getrandom = "0.3"
+subtle = "2"
+postgres = { version = "0.19", features = ["with-serde_json-1"] }
+bytes = "1"
+zip = { version = "8.6", default-features = false, features = ["deflate-flate2-zlib-rs", "bzip2-rs", "lzma"] }
+rustix = { version = "1", features = ["fs"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
+hyper = { version = "1", features = ["http1", "client"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
+http-body-util = "0.1"
+tower-http = { version = "0.6", features = ["cors"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "hostname", "rustls", "rustls-native-certs", "ring"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

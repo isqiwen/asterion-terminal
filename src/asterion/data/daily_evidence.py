@@ -2,11 +2,12 @@
 
 from datetime import UTC, datetime, timedelta
 
+from asterion_bindings.catalog import SourceIdentity
 from pydantic import AwareDatetime, BaseModel, ConfigDict, TypeAdapter
 
-from asterion.data.reference import SourceIdentity
 from asterion.data.reference_source import SourceCatalogRequest, source_catalog
-from asterion.data.types import DailyBar, builtin_types
+from asterion.data.types import builtin_types
+from asterion.data.types.rows import DailyBar, daily_rows
 
 
 class DailyObservation(BaseModel):
@@ -60,7 +61,7 @@ def fixed_daily_evidence(reader, identifier: str) -> DailyEvidence:
     )
     if restored != identity.catalog:
         raise ValueError("日线身份与固定合约资料证据不一致")
-    rows = [DailyBar.model_validate(row) for row in value["rows"]]
+    rows = daily_rows(value["rows"])
     normalized = [row.model_dump(mode="json") for row in rows]
     identity.validate_rows(normalized, rows[0].exchange)
     keys = [(r.contract, r.trading_day) for r in rows]

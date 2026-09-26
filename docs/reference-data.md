@@ -1,6 +1,6 @@
 # 品种与实际合约目录
 
-实现：`src/asterion/data/reference.py`；JSON Schema：`docs/reference-schema.json`。属于数据功能插件，领域建设目标见 [期货领域基线](futures-domain.md)。
+规范身份由 [instrument-catalog](../domain/instrument-catalog/src/lib.rs) 的 L2 Rust 实现提供，Python 数据类型由其 schema 生成；Schema 见 [reference-schema.json](reference-schema.json)。来源读取与证据组装仍在 Python 应用流程，持久化尚待后续数据层替换。层级见[架构](architecture.md#层级与模块)，领域验收见[期货领域基线](futures-domain.md)。
 
 ## 当前契约
 
@@ -40,7 +40,7 @@
 
 Tushare 适配器保留 `d_month` 的完整 YYYYMM，并转为 YYYY-MM；缺失保留 null，非完整月份拒绝。`last_ddate` 单独映射最后交割日。[官方字段说明](https://tushare.pro/document/2?doc_id=135) 区分了这两项与最后交易日。它仍只是一种数据源。
 
-## 尚未完成的身份统一
+## 已接通的身份链与边界
 
 目录已实现完整交割年月与上市生命周期身份及有期间的来源代码映射。上市日期是身份组成部分，修订该依据会产生不同身份；不自动合并或改写已有引用。人工发布只代表输入满足契约，不代表交易所认证。
 
@@ -58,4 +58,4 @@ Tushare 适配器保留 `d_month` 的完整 YYYYMM，并转为 YYYY-MM；缺失�
 
 原始文件不改写。完整目录及映射随 RAW/STANDARD 的 `import_options` 保存，数据集范围 `contract_ids` 按文件逐行解析得到。覆盖检查可以另选固定核对资料，但有行情日期的实际身份必须与导入证据一致，不能通过换目录重新解释已导入的数据。版本引用统计纳入身份资料输入；恢复校验检查快照指纹、资料血缘及标准文件逐行身份。
 
-研究准备已改为先采集合约资料/日历，再原子提交绑定该确切合约资料版本的日线任务。发布与补齐冻结 `contract_identity` 并校验逐行实际身份。单独日线用户入口也已要求显式选择同来源、同连接的标准合约资料版本；服务器从确切版本生成目录，并检查请求起止日期属于同一生命周期。来源代码保持原样，不转换大小写。日线发布仍逐行核对固定身份。低层日线与结算任务在提交、采集和发布阶段都强制身份依据；缺失依据的重试/补齐拒绝入队，文件导入仍独立验证显式映射。
+同步与研究准备的固定身份准入见[数据源契约](data-providers.md#固定合约身份准入)。它们与文件映射共享规范生命周期身份，但不以自动匹配替代显式文件来源关联。

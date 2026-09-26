@@ -1,46 +1,71 @@
-"""Built-in account policy, UI API and authentication lifecycle."""
+"""Account access of the operations this process still owns.
 
-from fastapi import Header
+Accounts, sessions and the terminal lock belong to the Rust entry. It decides
+the account state of every forwarded request and sends it with the request;
+this plugin only reads that decision.
+"""
+
+from asterion_bindings.plugin_host import Activation, Context, Plugin
+from asterion_bindings.task_repository import Conflict
+from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from asterion.identity.backup import check, restore
-from asterion.identity.public import ACCOUNT_ACCESS, ACCOUNT_POLICY, IDENTITY_DIGEST, Access
-from asterion.identity.routes import router
-from asterion.identity.service import Identity, IdentityError
-from asterion.platform.plugins import Activation, Context, Plugin
-from asterion.platform.resources import DATA_ROOT, STORAGE
-from asterion.platform.tasks.service import Conflict
+from asterion.identity.public import ACCOUNT_ACCESS, ACCOUNT_POLICY, Access
+
+STATUS = "X-Asterion-Account-Status"
+ACCOUNT = "X-Asterion-Account"
+
+
+class AccountRefused(Exception):
+    def __init__(self, message, status, code):
+        super().__init__(message)
+        self.status = status
+        self.code = code
+
+
+EXPIRED = AccountRefused("登录已过期，请重新登录", 401, "SESSION_EXPIRED")
+REFUSALS = {
+    "locked": AccountRefused("终端已锁定，请输入 PIN", 423, "TERMINAL_LOCKED"),
+    "expired": EXPIRED,
+    "unsupported": AccountRefused(
+        "账号安全状态不受支持，缺少注册时设置的 PIN", 409, "UNSUPPORTED_ACCOUNT_SECURITY"
+    ),
+}
+UNAVAILABLE = AccountRefused("账户服务暂不可用，请稍后重试", 503, "ACCOUNT_UNAVAILABLE")
+
+
+def signed_in(request: Request, *, unlocked: bool) -> str:
+    status = request.headers.get(STATUS, "")
+    email = request.headers.get(ACCOUNT, "")
+    if status == "unlocked" or (status == "locked" and not unlocked):
+        if not email:
+            raise UNAVAILABLE
+        return email
+    raise REFUSALS.get(status, UNAVAILABLE)
 
 
 def activate(context: Context):
     policy = context.resource(ACCOUNT_POLICY)
-    identity = Identity(
-        context.resource(STORAGE),
-        context.resource(DATA_ROOT),
-        context.resource(IDENTITY_DIGEST),
-        mode=policy.verification,
-    )
 
-    async def identity_error(_, exc):
+    async def refused(_, exc):
         return JSONResponse(status_code=exc.status, content={"detail": str(exc), "code": exc.code})
 
-    def account(x_account_session: str = Header(default="")):
+    def account(request: Request):
         if policy.require_account:
-            identity.pin.require_unlocked(x_account_session)
+            signed_in(request, unlocked=True)
 
-    def owner(x_account_session: str = Header(default=""), expected_account: str = ""):
+    def owner(request: Request, expected_account: str = ""):
         if not policy.require_account:
             return "local-development"
-        email = identity.me(x_account_session)["email"]
+        email = signed_in(request, unlocked=False)
         if expected_account and email != expected_account:
             raise Conflict("账户已切换，请重新载入研究页")
         return email
 
     return Activation(
-        close=context.resource(STORAGE).close,
         exports={ACCOUNT_ACCESS: Access(account, owner)},
-        routers=(router(identity),),
-        exception_handlers=((IdentityError, identity_error),),
+        exception_handlers=((AccountRefused, refused),),
         hooks={"access": (account,)},
     )
 
@@ -52,5 +77,5 @@ plugin = Plugin(
     backup=check,
     restore=restore,
     provides=(ACCOUNT_ACCESS,),
-    resources=(STORAGE, DATA_ROOT, IDENTITY_DIGEST, ACCOUNT_POLICY),
+    resources=(ACCOUNT_POLICY,),
 )

@@ -4,6 +4,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from threading import RLock
 
+from asterion_bindings.plugin_host import Activation, Plugin
 from fastapi import APIRouter, Depends, HTTPException
 
 from asterion.connections.public import CONNECTIONS, Exchange
@@ -12,7 +13,6 @@ from asterion.market.contracts import ContractChoicesService
 from asterion.market.models import ContractChoices, MarketState, Watchlist
 from asterion.market.service import MarketService
 from asterion.platform.diagnostics import ServiceState
-from asterion.platform.plugins import Activation, Plugin
 from asterion.platform.resources import DATA_ROOT
 
 from .public import CONTRACT_NAMES, ContractNames

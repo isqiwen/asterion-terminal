@@ -1,10 +1,10 @@
 from uuid import UUID
 
+from asterion_bindings.task_models import Job
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from asterion.platform.tasks.public import Job
 from asterion.research.engine import BacktestRequest
 from asterion.research.experiments import ExperimentRequest, Experiments
 from asterion.research.packages import LIMIT_BYTES, ResearchPackages, parse_package

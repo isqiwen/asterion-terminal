@@ -1,22 +1,21 @@
 import pytest
-from sqlalchemy import create_engine
+from asterion_bindings.database import create_engine
+from asterion_bindings.storage import Storage
+from asterion_bindings.task_repository import Conflict, task_port
 from storage_support import scheduler
 
-from asterion.platform.storage import Storage
-from asterion.platform.store import jobs
-from asterion.platform.task_port import task_port
-from asterion.platform.tasks.service import Conflict
+from asterion.platform.communication.schema import initialize_core
 
 
 def test_scoped_task_port_enforces_kind_and_retains_real_lease_validation():
     engine = create_engine("sqlite://")
-    jobs.create(engine)
+    initialize_core(engine)
     tasks = scheduler(engine)
     port = task_port(tasks, frozenset({"fixture.read"}))
     try:
         with pytest.raises(ValueError, match="not granted"):
             port.submit("other", "fixture.write", {})
-        with Storage(engine, ()).begin() as conn, pytest.raises(ValueError, match="not granted"):
+        with pytest.raises(ValueError, match="not granted"), Storage(engine, ()).begin() as conn:
             port.submit_batch(
                 conn, [("first", "fixture.read", {}), ("second", "fixture.write", {})]
             )
@@ -28,11 +27,11 @@ def test_scoped_task_port_enforces_kind_and_retains_real_lease_validation():
             assert (
                 port.require_lease(conn, claimed["id"], claimed["token"])["kind"] == "fixture.read"
             )
-            with pytest.raises(Conflict):
-                port.require_lease(conn, claimed["id"], "incorrect")
+        with pytest.raises(Conflict), Storage(engine, ()).begin() as conn:
+            port.require_lease(conn, claimed["id"], "incorrect")
         tasks.submit("different", "fixture.write", {})
         other = tasks.claim("worker")
-        with Storage(engine, ()).begin() as conn, pytest.raises(ValueError, match="not granted"):
+        with pytest.raises(ValueError, match="not granted"), Storage(engine, ()).begin() as conn:
             port.require_lease(conn, other["id"], other["token"])
     finally:
         engine.dispose()

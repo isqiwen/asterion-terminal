@@ -6,12 +6,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ASTERION_", env_file=".env")
-    database_url: str = "postgresql+psycopg://asterion:asterion@127.0.0.1:5432/asterion"
+    database_url: str = "postgresql://asterion:asterion@127.0.0.1:5432/asterion"
     data_root: Path = Path(".state/data")
     api_url: str = "http://127.0.0.1:8000"
     token: str = ""
     lease_seconds: int = 60
     require_account: bool = False
+    # Verification policy of the entry's account service; the supervisor passes it on.
     account_verification: Literal["local", "email"] = "local"
 
     def require_token(self) -> None:

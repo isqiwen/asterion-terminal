@@ -3,9 +3,8 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from asterion.platform.plugins import Capability
-from asterion.platform.resource import Resource
-from asterion.platform.secrets import DigestPort
+from asterion_bindings.plugin_host import Capability
+from asterion_bindings.resource import Resource
 
 
 @dataclass(frozen=True)
@@ -20,10 +19,6 @@ ACCOUNT_ACCESS = Capability("identity.access", "asterion.identity", Access)
 @dataclass(frozen=True)
 class AccountPolicy:
     require_account: bool
-    verification: str
 
 
 ACCOUNT_POLICY = Resource("identity.policy", AccountPolicy)
-
-
-IDENTITY_DIGEST = Resource("identity.digest", DigestPort)

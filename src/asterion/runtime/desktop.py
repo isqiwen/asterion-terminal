@@ -1,12 +1,11 @@
 """Desktop bootstrap. launchd/systemd own services independently of windows."""
 
 import contextlib
-import fcntl
 import json
 import os
 import plistlib
 import secrets
-import shutil
+import shlex
 import signal
 import socket
 import subprocess
@@ -16,6 +15,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 import httpx
+from asterion_bindings.file_archives import StagedDirectory
+from asterion_bindings.files import atomic_write, file_lock
 from pydantic_settings import SettingsConfigDict
 
 from asterion.platform.config import Settings
@@ -48,19 +49,14 @@ def load_config(state: Path) -> dict:
         "token": secrets.token_urlsafe(32),
         "db_password": secrets.token_urlsafe(32),
     }
-    temporary = state / "desktop.json.tmp"
-    with os.fdopen(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as file:
-        json.dump(config, file)
-        file.flush()
-        os.fsync(file.fileno())
-    temporary.replace(path)
+    atomic_write(path, json.dumps(config).encode(), replace=False)
     return config
 
 
 def runtime_settings(state: Path, config: dict) -> Settings:
     return DesktopSettings(
         database_url=(
-            f"postgresql+psycopg://asterion:{quote(config['db_password'])}"
+            f"postgresql://asterion:{quote(config['db_password'])}"
             f"@127.0.0.1:{config['db_port']}/asterion"
         ),
         data_root=state / "data",
@@ -74,6 +70,14 @@ def executable() -> list[str]:
     return [sys.executable, "-m", "asterion.runtime.cli"]
 
 
+def server_executable() -> Path:
+    """The Rust HTTP entry is installed beside the runtime interpreter."""
+    path = Path(sys.executable).parent / "asterion-server"
+    if not path.is_file():
+        raise RuntimeError("运行环境缺少 asterion-server，请重新完成首次设置")
+    return path
+
+
 def child_environment(settings: Settings) -> dict:
     env = {k: v for k, v in os.environ.items() if not k.startswith("ASTERION_")}
     env.update(
@@ -82,8 +86,22 @@ def child_environment(settings: Settings) -> dict:
         ASTERION_API_URL=settings.api_url,
         ASTERION_TOKEN=settings.token,
         ASTERION_REQUIRE_ACCOUNT=str(settings.require_account).lower(),
-        ASTERION_ACCOUNT_VERIFICATION=settings.account_verification,
         PYTHONDONTWRITEBYTECODE="1",
+    )
+    return env
+
+
+def entry_environment(settings: Settings) -> dict:
+    """The Rust entry authorizes requests and owns accounts, the task queue
+    operations, event replay and scope credentials."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ASTERION_")}
+    env.update(
+        ASTERION_TOKEN=settings.token,
+        ASTERION_DATABASE_URL=settings.database_url,
+        ASTERION_DATA_ROOT=str(settings.data_root),
+        ASTERION_ACCOUNT_VERIFICATION=settings.account_verification,
+        ASTERION_REQUIRE_ACCOUNT=str(settings.require_account).lower(),
+        ASTERION_LEASE_SECONDS=str(settings.lease_seconds),
     )
     return env
 
@@ -188,10 +206,7 @@ def start_service(state: Path, pg_root: Path, build_id: str | None = None) -> No
             if path.exists():
                 systemctl("stop", f"{LABEL}.service")
                 wait_stopped(state)
-            temporary = path.with_suffix(".tmp")
-            temporary.write_text(desired)
-            temporary.chmod(0o600)
-            temporary.replace(path)
+            atomic_write(path, desired.encode())
         # Reload even when unchanged: a previous attempt may have failed after writing.
         systemctl("daemon-reload")
         systemctl("start", f"{LABEL}.service")
@@ -215,10 +230,7 @@ def start_service(state: Path, pg_root: Path, build_id: str | None = None) -> No
                 time.sleep(0.2)
             wait_stopped(state)
             installed = False
-        temporary = path.with_suffix(".tmp")
-        temporary.write_bytes(plistlib.dumps(desired))
-        temporary.chmod(0o600)
-        temporary.replace(path)
+        atomic_write(path, plistlib.dumps(desired))
     if not installed:
         # A removed registration may briefly remain unavailable for reuse.
         for attempt in range(5):
@@ -239,8 +251,7 @@ def bootstrap(state: Path, pg_root: Path) -> dict:
         raise RuntimeError("当前桌面运行包仅支持 macOS 和 Linux")
     state, pg_root = state.resolve(), pg_root.resolve()
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with (state / "bootstrap.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with file_lock(state / "bootstrap.lock"):
         config = load_config(state)
         settings = runtime_settings(state, config)
         build_id = runtime_identity(pg_root)
@@ -283,15 +294,11 @@ def stop(state: Path) -> None:
 
 def wait_stopped(state: Path) -> None:
     # Never install a replacement while the previous supervisor still owns the database.
-    with (state / "supervisor.lock").open("a") as lock:
-        deadline = time.monotonic() + 40
-        while time.monotonic() < deadline:
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                return
-            except BlockingIOError:
-                time.sleep(0.2)
-        raise RuntimeError("后台仍在停止，请稍后重试")
+    try:
+        with file_lock(state / "supervisor.lock", timeout=40):
+            pass
+    except TimeoutError:
+        raise RuntimeError("后台仍在停止，请稍后重试") from None
 
 
 def pg_directory(pg_root: Path, key: str) -> Path:
@@ -325,37 +332,34 @@ def initialize_postgres(state: Path, pg_root: Path, config: dict):
     if not (pgdata / "PG_VERSION").exists():
         if pgdata.exists() and any(pgdata.iterdir()):
             raise RuntimeError("数据库初始化曾中断；保留原目录，请检查本机诊断日志")
-        staging = state / "postgres-initializing"
-        if staging.exists():
-            shutil.rmtree(staging)
         password_file = state / "init-password"
-        password_file.write_text(config["db_password"])
-        password_file.chmod(0o600)
+        atomic_write(password_file, config["db_password"].encode())
         try:
-            pg_command(
-                pg_root,
-                "initdb",
-                "-D",
-                str(staging),
-                "-U",
-                "asterion",
-                "-E",
-                "UTF8",
-                "--locale=C",
-                "-L",
-                str(pg_directory(pg_root, "sharedir")),
-                "--auth=scram-sha-256",
-                f"--pwfile={password_file}",
-            )
+            with StagedDirectory(pgdata, max_entries=1_000_000) as staging:
+                pg_command(
+                    pg_root,
+                    "initdb",
+                    "-D",
+                    str(staging.path),
+                    "-U",
+                    "asterion",
+                    "-E",
+                    "UTF8",
+                    "--locale=C",
+                    "-L",
+                    str(pg_directory(pg_root, "sharedir")),
+                    "--auth=scram-sha-256",
+                    f"--pwfile={password_file}",
+                )
+                with (staging.path / "postgresql.conf").open("a") as config_file:
+                    config_file.write(
+                        f"\nlisten_addresses = '127.0.0.1'\nport = {config['db_port']}\n"
+                        "unix_socket_directories = ''\nshared_buffers = '64MB'\n"
+                        "max_connections = 30\n"
+                    )
+                staging.commit()
         finally:
             password_file.unlink(missing_ok=True)
-        with (staging / "postgresql.conf").open("a") as config_file:
-            config_file.write(
-                f"\nlisten_addresses = '127.0.0.1'\nport = {config['db_port']}\n"
-                "unix_socket_directories = ''\nshared_buffers = '64MB'\n"
-                "max_connections = 30\n"
-            )
-        staging.replace(pgdata)
     # Status tests the PID and database identity in this exact cluster directory.
     status = subprocess.run(
         [str(pg_directory(pg_root, "bindir") / "pg_ctl"), "-D", str(pgdata), "status"],
@@ -366,27 +370,42 @@ def initialize_postgres(state: Path, pg_root: Path, config: dict):
     )
     if status.returncode != 0:
         pg_command(
-            pg_root, "pg_ctl", "-D", str(pgdata), "-l", str(state / "postgres.log"), "-w", "start"
+            pg_root,
+            "pg_ctl",
+            "-D",
+            str(pgdata),
+            "-l",
+            str(state / "postgres.log"),
+            "-o",
+            shlex.join(["-c", f"data_directory={pgdata.resolve()}"]),
+            "-w",
+            "start",
         )
-    import psycopg
+    from asterion_bindings.database import create_engine
+    from sqlalchemy import text
 
-    with psycopg.connect(
-        host="127.0.0.1",
-        port=config["db_port"],
-        dbname="postgres",
-        user="asterion",
-        password=config["db_password"],
-        autocommit=True,
-    ) as conn:
-        if not conn.execute("SELECT 1 FROM pg_database WHERE datname = 'asterion'").fetchone():
-            conn.execute("CREATE DATABASE asterion")
+    admin = create_engine(
+        f"postgresql://asterion:{quote(config['db_password'])}"
+        f"@127.0.0.1:{config['db_port']}/postgres"
+    )
+    try:
+        with admin.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            if not conn.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = 'asterion'")
+            ).first():
+                conn.execute(text("CREATE DATABASE asterion"))
+    finally:
+        admin.dispose()
 
 
 def supervise(state: Path, pg_root: Path):
+    from asterion_bindings.supervisor import Supervisor
+
+    state, pg_root = state.resolve(), pg_root.resolve()
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with (state / "supervisor.lock").open("a") as lock:
+    with contextlib.ExitStack() as lifetime:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lifetime.enter_context(file_lock(state / "supervisor.lock", blocking=False))
         except BlockingIOError:
             return
         build_id = runtime_identity(pg_root)
@@ -395,16 +414,48 @@ def supervise(state: Path, pg_root: Path):
             raise RuntimeError("应用运行文件已变化，请重新打开应用完成后台更新")
         config = load_config(state)
         settings = runtime_settings(state, config)
-        stopping = False
+        environment = child_environment(settings)
+        command = executable()
+        # Clients reach only the Rust entry on api_port. The Python process that
+        # still owns unmigrated operations listens on a per-start loopback port.
+        internal_port = free_port()
+        supervisor = Supervisor(
+            [
+                {
+                    "name": "server",
+                    "program": str(server_executable()),
+                    "arguments": [
+                        "--listen",
+                        f"127.0.0.1:{config['api_port']}",
+                        "--upstream",
+                        f"http://127.0.0.1:{internal_port}",
+                    ],
+                    "environment": entry_environment(settings),
+                    "cwd": str(state),
+                },
+                *(
+                    {
+                        "name": role,
+                        "program": command[0],
+                        "arguments": command[1:]
+                        + [role]
+                        + (["--port", str(internal_port)] if role == "serve" else []),
+                        "environment": environment,
+                        "cwd": str(state),
+                    }
+                    for role in ("serve", "worker")
+                ),
+            ],
+            state / "runtime-status.json",
+            build_id,
+        )
 
         def shutdown(*_):
-            nonlocal stopping
-            stopping = True
+            supervisor.request_stop()
 
-        signal.signal(signal.SIGTERM, shutdown)
-        signal.signal(signal.SIGINT, shutdown)
-        processes: dict[str, subprocess.Popen] = {}
-        environment = child_environment(settings)
+        previous_signals = {
+            number: signal.signal(number, shutdown) for number in (signal.SIGTERM, signal.SIGINT)
+        }
         try:
             initialize_postgres(state, pg_root, config)
             from asterion.platform.store import database
@@ -415,45 +466,19 @@ def supervise(state: Path, pg_root: Path):
                 initialize(settings, engine)
             finally:
                 engine.dispose()
-            last_start: dict[str, float] = {}
-            while not stopping:
-                for role in ("serve", "worker"):
-                    process = processes.get(role)
-                    if process is None or process.poll() is not None:
-                        if time.monotonic() - last_start.get(role, 0) < 3:
-                            continue
-                        args = [role] + (
-                            ["--port", str(config["api_port"])] if role == "serve" else []
-                        )
-                        processes[role] = subprocess.Popen(
-                            executable() + args, env=environment, cwd=state
-                        )
-                        last_start[role] = time.monotonic()
-                status: dict[str, str | float] = {
-                    role: "running" if proc.poll() is None else "stopped"
-                    for role, proc in processes.items()
-                }
-                status["observed_at"] = time.time()
-                status["build_id"] = build_id
-                temporary = state / "runtime-status.tmp"
-                temporary.write_text(json.dumps(status))
-                temporary.replace(state / "runtime-status.json")
-                time.sleep(0.5)
-        except subprocess.CalledProcessError as exc:
-            print(exc.stdout or str(exc), file=sys.stderr, flush=True)
+            supervisor.run()
+        except subprocess.CalledProcessError:
+            from asterion_bindings.diagnostics import record_event
+
+            record_event(settings.data_root / ".diagnostics", "supervisor", "subprocess_failed")
             raise
         finally:
-            for process in processes.values():
-                if process.poll() is None:
-                    process.terminate()
-            for process in processes.values():
-                with contextlib.suppress(subprocess.TimeoutExpired):
-                    process.wait(timeout=10)
-                if process.poll() is None:
-                    process.kill()
-                    process.wait()
-            with contextlib.suppress(subprocess.CalledProcessError):
-                pg_command(
-                    pg_root, "pg_ctl", "-D", str(state / "postgres"), "-m", "fast", "-w", "stop"
-                )
-            (state / "runtime-status.json").unlink(missing_ok=True)
+            # The Rust supervisor reclaims all owned children before this returns.
+            try:
+                with contextlib.suppress(subprocess.CalledProcessError):
+                    pg_command(
+                        pg_root, "pg_ctl", "-D", str(state / "postgres"), "-m", "fast", "-w", "stop"
+                    )
+            finally:
+                for number, handler in previous_signals.items():
+                    signal.signal(number, handler)

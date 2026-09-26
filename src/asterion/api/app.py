@@ -1,34 +1,22 @@
-"""HTTP host: transport authentication, errors, tasks and plugin lifecycle."""
+"""Internal HTTP host behind the Rust entry: forwarded authorization, errors and plugins.
+
+Browsers never reach this process directly. CORS, accounts, the task queue
+operations, event replay and scope credentials belong to `asterion-server`.
+"""
 
 import time
-from contextlib import asynccontextmanager
-from typing import Annotated
+from contextlib import ExitStack, asynccontextmanager
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from asterion_bindings.plugin_host import PluginHost
+from asterion_bindings.task_repository import Conflict, Tasks
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
 
 from asterion.api.schema import ErrorResponse
 from asterion.platform.config import Settings
 from asterion.platform.diagnostics import ServiceReport, local_services
-from asterion.platform.plugins import PluginHost
-from asterion.platform.store import database, jobs
-from asterion.platform.tasks.public import ClaimedJob, Job
-from asterion.platform.tasks.service import Conflict, Tasks
-
-
-class Claim(BaseModel):
-    worker_id: str = Field(min_length=1, max_length=100)
-
-
-class Lease(BaseModel):
-    token: str
-
-
-class Failure(Lease):
-    error: str
+from asterion.platform.store import database
 
 
 def create_app(settings: Settings | None = None, engine=None, *, plugins=None, resources=None):
@@ -42,6 +30,14 @@ def create_app(settings: Settings | None = None, engine=None, *, plugins=None, r
 
         plugins = builtin_plugins()
     host = PluginHost(tuple(plugins))
+    from asterion_bindings.task_models import TASK_CHANGED
+
+    from asterion.platform.communication.events import EventJournal
+
+    topics = (TASK_CHANGED, *(topic for plugin in host.plugins for topic in plugin.publishes))
+    journal = EventJournal(engine, topics)
+
+    owners = ExitStack()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -51,36 +47,42 @@ def create_app(settings: Settings | None = None, engine=None, *, plugins=None, r
             try:
                 host.close()
             finally:
-                if owned_engine:
-                    engine.dispose()
+                try:
+                    owners.close()
+                finally:
+                    if owned_engine:
+                        engine.dispose()
+
+    from dataclasses import asdict
+
+    from asterion_bindings.authority import forwarded
 
     from asterion.distribution import request_policies
-    from asterion.platform.authorization import Authority, Grant
 
-    worker_grants = [
-        Grant("/jobs/claim", ("POST",)),
-        Grant("/jobs/:id/heartbeat", ("POST",)),
-        Grant("/jobs/:id/fail", ("POST",)),
-    ]
-    for plugin in host.plugins:
-        for handler in plugin.handlers:
-            worker_grants.append(Grant("/jobs/:id" + handler.publish_suffix, ("POST",)))
-            worker_grants.extend(handler.requests)
-    authority = Authority(settings.token, request_policies(), worker_grants)
+    policies = request_policies()
+    worker_grants = host.handlers.worker_grants()
+    # Request credentials are authorized by the Rust entry, which forwards only
+    # authorized requests with its forwarding credential and the principal.
+    # This declaration is exported to that entry (scripts/export_schema.py).
+    entry_authorization = {
+        "policies": {
+            scope: [asdict(grant) for grant in grants] for scope, grants in policies.items()
+        },
+        "worker_grants": [asdict(grant) for grant in worker_grants],
+        "topics": {
+            topic.id: {"owner": topic.owner, "read_path": topic.read_path} for topic in topics
+        },
+    }
+    principals = {"root", "worker", *policies}
 
-    def authorize(request: Request, authorization: Annotated[str | None, Header()] = None):
-        credential = (
-            authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
-        )
-        try:
-            request.state.principal = authority.authorize(
-                credential,
-                request.method,
-                request.url.path.removeprefix("/api/v1"),
-                request.headers.get("X-Account-Session", ""),
-            )
-        except ValueError:
-            raise HTTPException(401, "请求身份无效或无权访问此接口") from None
+    def authorize(request: Request):
+        # Internal forwarding headers are read directly so they never appear in
+        # the public API description.
+        principal = request.headers.get("X-Asterion-Principal", "")
+        credential = request.headers.get("X-Asterion-Forwarded", "")
+        if principal not in principals or not forwarded(credential, settings.token):
+            raise HTTPException(401, "请求必须经由终端入口授权")
+        request.state.principal = principal
 
     app = FastAPI(
         title="Asterion Terminal",
@@ -89,25 +91,18 @@ def create_app(settings: Settings | None = None, engine=None, *, plugins=None, r
         dependencies=[Depends(authorize)],
         responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
     )
+    from asterion.platform.communication.http import CommunicationMiddleware
+
+    app.add_middleware(CommunicationMiddleware)
     app.state.plugins = host
+    app.state.settings = settings
+    app.state.entry_authorization = entry_authorization
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(_, exc):
         return JSONResponse(
             status_code=422, content={"detail": "请求参数格式不正确", "code": "INVALID_INPUT"}
         )
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[
-            "http://localhost:1420",
-            "http://127.0.0.1:1420",
-            "tauri://localhost",
-            "http://tauri.localhost",
-        ],
-        allow_methods=["GET", "POST"],
-        allow_headers=["Authorization", "Content-Type", "X-Lease-Token", "X-Account-Session"],
-    )
 
     @app.exception_handler(Conflict)
     async def conflict(_, exc):
@@ -125,28 +120,31 @@ def create_app(settings: Settings | None = None, engine=None, *, plugins=None, r
             conn.execute(text("SELECT 1"))
         return {"status": "ready", "version": "0.1.0"}
 
-    if resources is None:
-        from asterion.distribution import bootstrap_resources
+    try:
+        if resources is None:
+            from asterion.distribution import bootstrap_resources
 
-        resources = bootstrap_resources(settings, engine, tasks, host.plugins)
-    from asterion.platform.storage import initialize_stores
+            resources = bootstrap_resources(settings, engine, tasks, host.plugins, owners)
+        from asterion_bindings.storage import initialize_stores
 
-    initialize_stores(engine, resources, (jobs,))
-    host.activate(app, resources)
-    guards = host.hooks("access")
-    if len(guards) != 1:
-        host.close()
-        raise ValueError("Exactly one access policy plugin is required")
+        from asterion.platform.communication.schema import CORE_TABLES
+
+        initialize_stores(engine, resources, CORE_TABLES)
+        host.activate(app, resources, events=journal)
+        guards = host.hooks("access")
+        if len(guards) != 1:
+            raise ValueError("Exactly one access policy plugin is required")
+    except BaseException:
+        try:
+            host.close()
+        finally:
+            try:
+                owners.close()
+            finally:
+                if owned_engine:
+                    engine.dispose()
+        raise
     account_access = guards[0]
-
-    class ScopeRequest(BaseModel):
-        scope: str = Field(min_length=1, max_length=80)
-
-    @app.post("/api/v1/access/scopes", dependencies=[Depends(account_access)])
-    def issue_scope(body: ScopeRequest, request: Request):
-        if request.state.principal != "root":
-            raise HTTPException(403, "只有可信工作台可申请功能授权")
-        return authority.issue(body.scope, request.headers.get("X-Account-Session", ""))
 
     @app.get(
         "/api/v1/services", response_model=ServiceReport, dependencies=[Depends(account_access)]
@@ -157,35 +155,5 @@ def create_app(settings: Settings | None = None, engine=None, *, plugins=None, r
         for probe in host.hooks("services"):
             services.extend(probe(ready))
         return ServiceReport(checked_at=time.time(), services=services)
-
-    @app.get("/api/v1/jobs", response_model=list[Job], dependencies=[Depends(account_access)])
-    def list_jobs():
-        return tasks.list()
-
-    @app.get("/api/v1/jobs/{job_id}", response_model=Job, dependencies=[Depends(account_access)])
-    def get_job(job_id: str):
-        try:
-            return tasks.get(job_id)
-        except KeyError:
-            raise HTTPException(404, "任务不存在") from None
-
-    @app.post("/api/v1/jobs/claim", response_model=ClaimedJob | None)
-    def claim(body: Claim):
-        return tasks.claim(body.worker_id)
-
-    @app.post("/api/v1/jobs/{job_id}/heartbeat")
-    def heartbeat(job_id: str, body: Lease):
-        tasks.heartbeat(job_id, body.token)
-        return {"status": "renewed"}
-
-    @app.post("/api/v1/jobs/{job_id}/fail")
-    def fail(job_id: str, body: Failure):
-        tasks.fail(job_id, body.token, body.error)
-        return {"status": "failed"}
-
-    @app.post("/api/v1/jobs/{job_id}/cancel", dependencies=[Depends(account_access)])
-    def cancel(job_id: str):
-        tasks.cancel(job_id)
-        return {"status": "cancelled"}
 
     return app

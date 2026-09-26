@@ -1,9 +1,9 @@
 """Cross-owner writes are atomic and cannot widen either owner's table grants."""
 
 import pytest
-from sqlalchemy import Column, Integer, MetaData, Table, create_engine, select
-
-from asterion.platform.storage import Storage
+from asterion_bindings.database import create_engine
+from asterion_bindings.storage import Storage
+from sqlalchemy import Column, Integer, MetaData, Table, select
 
 
 def test_join_grants_rollback_and_readonly_boundary(tmp_path):

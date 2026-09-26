@@ -3,18 +3,19 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from asterion_bindings.database import create_engine
+from asterion_bindings.execution import ExecutionFactory
+from asterion_bindings.plugin_host import PluginHost
+from asterion_bindings.rules import RuleSpec, RuleVersion, rule_id
 from fastapi.testclient import TestClient
 from rules_support import manual_versions, rule_version
-from sqlalchemy import create_engine
 from test_research import payload, services  # noqa: F401
 
 from asterion.api.app import create_app
-from asterion.contract_rules.public import RuleSpec, RuleVersion, rule_id
 from asterion.contract_rules.service import Rules
 from asterion.distribution import builtin_plugins, strategy_catalog
 from asterion.distribution_storage import rule_storage
 from asterion.platform.config import Settings
-from asterion.platform.plugins import PluginHost
 from asterion.research.engine import BacktestRequest, calculate
 
 
@@ -47,7 +48,7 @@ def test_rule_date_fee_and_margin_calculation():
         },
     ]
     value["request"]["rules"] = frozen(spec)
-    result = calculate(value, strategy_catalog())
+    result = calculate(value, strategy_catalog(), ExecutionFactory())
     # Open 21 * 10 * .01 = 2.1; close under Jan 4 rules = 5.
     assert [Decimal(f["fee"]) for f in result["fills"]] == [Decimal("2.1"), Decimal(5)]
     assert Decimal(result["summary"]["final_equity"]) == Decimal("942.9")
@@ -92,7 +93,7 @@ def test_rules_missing_mismatched_or_out_of_range_are_blocked(services):  # noqa
     from storage_support import raw_engine
 
     Rules(rule_storage(raw_engine(service.engine)), manual_versions()).save(other.spec)
-    with pytest.raises(ValueError, match="合约.*不一致"):
+    with pytest.raises(ValueError, match="扫描合约不在固定版本中"):
         service.submit(request.model_copy(update={"rules": other}))
     spec = request.rules.spec.model_dump(mode="json")
     spec["source"] = "未登记的新版本"
@@ -100,7 +101,7 @@ def test_rules_missing_mismatched_or_out_of_range_are_blocked(services):  # noqa
         service.submit(
             request.model_copy(update={"rules": RuleVersion.model_validate(frozen(spec))})
         )
-    with pytest.raises(ValueError, match="日期范围不一致"):
+    with pytest.raises(ValueError, match="超出固定合约生命周期"):
         service.submit(request.model_copy(update={"end": date(2025, 1, 1)}))
     spec = request.rules.model_dump(mode="json")
     spec["spec"]["multiplier"] = "99"
@@ -169,8 +170,8 @@ def test_worker_rejects_rule_from_another_listing_with_same_market_code():
     spec = deepcopy(value["request"]["rules"]["spec"])
     spec["contract"].update(id="SHFE.RB.202405.20230517", listed_on="2023-05-17")
     value["request"]["rules"] = frozen(spec)
-    with pytest.raises(ValueError, match="合约不一致"):
-        calculate(value, strategy_catalog())
+    with pytest.raises(ValueError, match="单个实际合约生命周期"):
+        calculate(value, strategy_catalog(), ExecutionFactory())
 
 
 def test_rule_identity_requires_complete_contract_and_matching_time_product():
@@ -186,14 +187,6 @@ def test_rule_identity_requires_complete_contract_and_matching_time_product():
             )
         with pytest.raises(ValueError):
             RuleSpec.model_validate(spec)
-
-
-def test_manual_rule_identity_source_is_referenced():
-    from asterion.research.public import _input_versions
-
-    spec = rule_version().spec.model_dump(mode="json")
-    spec["contract"]["provenance"]["source_version"] = "fixed-identity-observation"
-    assert "fixed-identity-observation" in _input_versions({"request": {"rules": frozen(spec)}})
 
 
 def test_rule_backup_rejects_invalid_identity_without_mutation():

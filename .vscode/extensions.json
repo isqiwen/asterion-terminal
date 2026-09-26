@@ -5,6 +5,7 @@
     "ms-python.debugpy",
     "charliermarsh.ruff",
     "esbenp.prettier-vscode",
-    "rust-lang.rust-analyzer"
+    "rust-lang.rust-analyzer",
+    "vadimcn.vscode-lldb"
   ]
 }

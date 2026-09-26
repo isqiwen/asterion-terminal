@@ -3,9 +3,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
-from connection_fakes import access, instrument, manager, save_body
+from asterion_bindings.market_feed import QuoteEvent
+from connection_fakes import access, instrument, manager, save_body, source_session
 
-from asterion.connections.public import QuoteEvent
 from asterion.market.contracts import ContractChoicesService
 from asterion.market.models import Watchlist
 from asterion.market.service import MarketService
@@ -49,14 +49,39 @@ def test_watchlist_quotes_connection_isolation_and_restart(tmp_path):
         event_at=now,
         received_at=now,
     )
-    connection.runtime[a].session.emit("tick", tick)
+    source_session(connection, a).emit("tick", tick)
     assert first.snapshot().quotes[0].change_percent == 25
     assert not second.snapshot().quotes and not second.configuration.subscriptions
     first.watchlist(Watchlist(subscriptions=[]))
-    assert not first.snapshot().quotes and not connection.runtime[a].session.subscriptions
+    assert not first.snapshot().quotes and not source_session(connection, a).subscriptions
     restored = market(tmp_path, connection, a)
     assert not restored.configuration.subscriptions
     connection.close()
+
+
+def test_published_watchlist_stays_consistent_when_durability_confirmation_fails(
+    tmp_path, monkeypatch
+):
+    from asterion_bindings.files import FilePublicationError, atomic_write
+
+    connection = manager(tmp_path)
+    key = connection.save(save_body()).connection_id
+    try:
+        service = market(tmp_path, connection, key)
+        selected = Watchlist(subscriptions=[{"exchange": "SHFE", "symbol": "au2612"}])
+
+        def published_without_confirmation(path, content):
+            atomic_write(path, content)
+            raise FilePublicationError("published; durability unconfirmed")
+
+        monkeypatch.setattr("asterion.market.service.atomic_write", published_without_confirmation)
+        with pytest.raises(FilePublicationError):
+            service.watchlist(selected)
+        assert Watchlist.model_validate_json(service.path.read_bytes()) == selected
+        assert service.configuration == selected
+        assert source_session(connection, key).subscriptions == selected.subscriptions
+    finally:
+        connection.close()
 
 
 @pytest.mark.parametrize(
@@ -91,7 +116,7 @@ def test_quote_status(tmp_path, delta, event_delta, expected):
         event_at=None if event_delta is None else now + event_delta,
         received_at=now - delta,
     )
-    connection.runtime[key].session.emit("tick", tick)
+    source_session(connection, key).emit("tick", tick)
     assert service.snapshot().quotes[0].status == expected
     connection.disconnect(key)
     assert service.snapshot().quotes[0].status == "disconnected"
@@ -104,7 +129,7 @@ def test_expiry_background_removes_only_confirmed_contracts(tmp_path):
     service = market(tmp_path, connection, key)
     now = datetime(2026, 9, 22, 12, tzinfo=ZoneInfo("Asia/Shanghai"))
     service.directory.clock = lambda: now
-    connection.runtime[key].session.rows = [instrument(last_trade_on="2026-09-22")]
+    source_session(connection, key).rows = [instrument(last_trade_on="2026-09-22")]
     service.refresh_contracts()
     service.directory.thread.join(5)
     service.watchlist(Watchlist(subscriptions=[{"exchange": "SHFE", "symbol": "au2612"}]))
@@ -216,7 +241,7 @@ def test_quote_change_uses_only_previous_settlement(tmp_path, base, last, amount
         event_at=time.time(),
         received_at=time.time(),
     )
-    connection.runtime[key].session.emit("tick", tick)
+    source_session(connection, key).emit("tick", tick)
     result = service.snapshot().quotes[0]
     assert result.change == amount and result.change_percent == percent
     assert result.high == 110 and result.low == 90
@@ -247,3 +272,29 @@ def test_ctp_quote_normalization_retains_source_extremes_and_missing_reference()
     raw.update(HighestPrice=1.7976931348623157e308, LowestPrice=float("nan"))
     result = quote(raw)
     assert result.high is None and result.low is None
+
+
+def test_watchlist_failed_publication_preserves_file_and_current_subscriptions(
+    tmp_path, monkeypatch
+):
+    connection = manager(tmp_path)
+    try:
+        key = connection.save(save_body()).connection_id
+        service = market(tmp_path, connection, key)
+        original = Watchlist(subscriptions=[{"exchange": "SHFE", "symbol": "au2612"}])
+        service.watchlist(original)
+        before = service.path.read_bytes()
+        assert service.path.stat().st_mode & 0o777 == 0o600
+
+        def fail(*_):
+            raise OSError("synthetic disk full")
+
+        monkeypatch.setattr("asterion.market.service.atomic_write", fail)
+        with pytest.raises(OSError, match="synthetic disk full"):
+            service.watchlist(Watchlist(subscriptions=[]))
+        assert service.path.read_bytes() == before
+        assert service.configuration == original
+        connection.connect(key)
+        assert source_session(connection, key).subscriptions == original.subscriptions
+    finally:
+        connection.close()

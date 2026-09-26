@@ -1,17 +1,17 @@
+"""Import tasks through the Rust executor step: leases, cancellation, rollback."""
+
+import hashlib
 import time
 
 import pytest
-from fastapi.testclient import TestClient
+from asterion_bindings.database import create_engine
+from asterion_bindings.task_repository import Conflict
+from import_support import chart_bars, publish_import
 from rules_support import intraday_options
-from sqlalchemy import create_engine
-from storage_support import data_store, domain_tasks, raw_engine, scheduler
+from storage_support import data_store, scheduler
 
-from asterion.api.app import create_app
-from asterion.data.public import encode_csv, read_bars
-from asterion.data.snapshots import Snapshots
-from asterion.platform.config import Settings
+from asterion.data.library import DataLibrary
 from asterion.platform.store import jobs, metadata
-from asterion.platform.tasks.service import Conflict
 
 CSV = """contract,event_time,available_at,trading_day,open,high,low,close,volume
 SHFE.rb2610,2026-09-14T13:00:00Z,2026-09-14T13:01:00Z,2026-09-15,3200,3220,3190,3210,100
@@ -23,199 +23,93 @@ SHFE.rb2610,2026-09-14T13:01:00Z,2026-09-14T13:02:00Z,2026-09-15,3210,3230,3200,
 def context(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path}/test.db")
     metadata.create_all(engine)
-    tasks = scheduler(engine)
-    return (
-        engine,
-        tasks,
-        Snapshots(data_store(engine), domain_tasks(data_store(engine), "data"), tmp_path),
-        tmp_path,
-    )
+    yield engine, scheduler(engine), DataLibrary(data_store(engine), tmp_path), tmp_path
+    engine.dispose()
+
+
+def submit(tasks, command="one", source="fixture"):
+    payload = {"options": intraday_options(), "csv": CSV, "source": source}
+    return tasks.submit(command, "data.import_csv", payload)
 
 
 def test_import_idempotency_and_fixed_precision(context):
-    _, tasks, data, _ = context
-    job = tasks.submit(
-        "one",
-        "data.import_csv",
-        {
-            "options": intraday_options(),
-            "csv": CSV,
-            "source": "test fixture",
-        },
-    )
+    engine, tasks, _, root = context
+    job = submit(tasks)
     assert tasks.submit("one", "data.import_csv", job["payload"])["id"] == job["id"]
     with pytest.raises(Conflict):
         tasks.submit("one", "data.import_csv", {"csv": "changed"})
     claim = tasks.claim("worker")
-    content, _ = encode_csv(CSV)
-    snapshot = data.publish(claim["id"], claim["token"], content)
-    assert data.publish(claim["id"], claim["token"], content) == snapshot
-    rows = read_bars(data.path(snapshot["id"]))
+    snapshot = publish_import(engine, root, claim)
+    rows = chart_bars(engine, root, snapshot["id"])
     assert rows[0]["close"] == "3210.00000000"
     assert rows[0]["trading_day"] == "2026-09-15"
     assert tasks.list()[0]["state"] == "SUCCEEDED"
 
 
-def test_stale_worker_cannot_publish_or_heartbeat(context):
-    engine, tasks, data, _ = context
-    tasks.submit(
-        "one",
-        "data.import_csv",
-        {
-            "options": intraday_options(),
-            "csv": CSV,
-            "source": "fixture",
-        },
-    )
+def test_stale_or_cancelled_lease_cannot_publish(context):
+    engine, tasks, library, root = context
+    submit(tasks)
     old = tasks.claim("old")
     with engine.begin() as conn:
         conn.execute(jobs.update().values(lease_until=time.time() - 1))
     new = tasks.claim("new")
     assert new["attempt"] == 2 and new["token"] != old["token"]
-    with pytest.raises(Conflict):
-        tasks.heartbeat(old["id"], old["token"])
-    with pytest.raises(Conflict):
-        data.publish(old["id"], old["token"], encode_csv(CSV)[0])
-    assert data.list() == []
-    data.publish(new["id"], new["token"], encode_csv(CSV)[0])
-
-
-def test_cancel_and_invalid_worker_output(context):
-    _, tasks, data, _ = context
-    job = tasks.submit(
-        "one",
-        "data.import_csv",
-        {
-            "options": intraday_options(),
-            "csv": CSV,
-            "source": "fixture",
-        },
-    )
+    with pytest.raises(KeyError):
+        publish_import(engine, root, old)
+    assert library.list(include_archived=True)["total"] == 0
+    publish_import(engine, root, new)
+    cancelled = submit(tasks, "two")
     claim = tasks.claim("worker")
-    with pytest.raises(ValueError):
-        data.publish(job["id"], claim["token"], b"corrupt")
-    assert data.list() == []
-    tasks.cancel(job["id"])
-    with pytest.raises(Conflict):
-        data.publish(job["id"], claim["token"], encode_csv(CSV)[0])
+    tasks.cancel(cancelled["id"])
+    with pytest.raises(KeyError):
+        publish_import(engine, root, claim)
     assert tasks.claim("worker") is None
 
 
-@pytest.mark.parametrize(
-    "csv",
-    [
-        CSV + CSV.splitlines()[1] + "\n",
-        CSV.replace("SHFE.rb2610", "RB.CONT"),
-        CSV.replace("3220,3190", "3100,3190"),
-        CSV.replace("13:01:00Z,2026", "12:00:00Z,2026"),
-        CSV.replace("3200,3220", "NaN,3220"),
-        CSV.splitlines()[0],
-    ],
-)
-def test_invalid_source_rejected(csv):
-    with pytest.raises(ValueError):
-        encode_csv(csv)
-
-
-def test_api_auth_and_pipeline(context):
-    engine, _, _, root = context
-    settings = Settings(token="test-session-token-long-enough", data_root=root)
-    with TestClient(create_app(settings, raw_engine(engine))) as client:
-        assert client.get("/api/v1/jobs").status_code == 401
-        client.headers["Authorization"] = f"Bearer {settings.token}"
-        assert client.get("/api/v1/health").status_code == 200
-        response = client.post(
-            "/api/v1/imports",
-            json={
-                "command_id": "api",
-                "source": "test",
-                "options": intraday_options(),
-                "csv": CSV,
-            },
-        )
-        assert response.status_code == 202
-        job = client.post("/api/v1/jobs/claim", json={"worker_id": "api-worker"}).json()
-        response = client.post(
-            f"/api/v1/jobs/{job['id']}/publish",
-            content=encode_csv(CSV)[0],
-            headers={"X-Lease-Token": job["token"]},
-        )
-        assert response.status_code == 200
-        assert len(client.get(f"/api/v1/snapshots/{response.json()['id']}/bars").json()) == 2
-        assert client.get("/api/v1/jobs").json()[0]["state"] == "SUCCEEDED"
-
-
-def test_interrupted_file_write_never_publishes_catalog(context, monkeypatch):
-    _, tasks, data, _ = context
-    tasks.submit(
-        "interrupted",
-        "data.import_csv",
-        {
-            "options": intraday_options(),
-            "csv": CSV,
-            "source": "fixture",
-        },
-    )
+def test_failed_file_write_rolls_back_the_publication(context):
+    engine, tasks, library, root = context
+    submit(tasks, "interrupted")
     claim = tasks.claim("worker")
-
-    def interrupted(_):
-        raise OSError("simulated disk failure")
-
-    monkeypatch.setattr("asterion.data.snapshots.os.fsync", interrupted)
-    with pytest.raises(OSError):
-        data.publish(claim["id"], claim["token"], encode_csv(CSV)[0])
-    assert data.list() == []
+    (root / "published").write_text("not a directory")
+    with pytest.raises(ValueError):
+        publish_import(engine, root, claim)
+    assert library.list(include_archived=True)["total"] == 0
     assert tasks.list()[0]["state"] == "RUNNING"
 
 
-def test_subsecond_bars_rejected_by_v1_display_contract():
-    with pytest.raises(ValueError, match="whole-second"):
-        encode_csv(CSV.replace("13:00:00Z", "13:00:00.123Z"))
-
-
 def test_file_import_uses_shared_catalog_and_keeps_exact_admitted_csv(context):
-    _, tasks, data, root = context
+    engine, tasks, library, root = context
     for command in ("first", "second"):
-        tasks.submit(
-            command,
-            "data.import_csv",
-            {
-                "options": intraday_options(),
-                "csv": CSV,
-                "source": "fixture",
-            },
-        )
-        job = tasks.claim("worker")
-        data.publish(job["id"], job["token"], encode_csv(CSV)[0])
-    result = data.library.list(layer="STANDARD", source="local_file")
+        submit(tasks, command)
+        publish_import(engine, root, tasks.claim("worker"))
+    result = library.list(layer="STANDARD", source="local_file")
     assert result["total"] == 1
     version = result["items"][0]
     assert version["version_count"] == 2
     assert version["manifest"]["type"]["id"] == "futures.bars"
     assert version["manifest"]["type"]["frequency"] == "1m"
-    raw = data.library.preview(version["manifest"]["inputs"][0])
+    raw = library.preview(version["manifest"]["inputs"][0])
     assert raw["rows"][0]["contract"] == "SHFE.rb2610"
     assert raw["version"]["manifest"]["format"] == "csv"
-    assert (
-        raw["version"]["manifest"]["checksum"]
-        == __import__("hashlib").sha256(CSV.encode()).hexdigest()
-    )
+    assert raw["version"]["manifest"]["checksum"] == hashlib.sha256(CSV.encode()).hexdigest()
     assert len(list((root / "imports").glob("*/source.csv"))) == 2
+    # Collection identity is the stable name of the published identity.
+    from asterion.data.library import stable_id
 
+    with engine.connect() as conn:
+        identity = conn.exec_driver_sql(
+            "SELECT identity FROM data_collections WHERE id = ?", (version["dataset_id"],)
+        ).scalar_one()
+    import json
 
-def test_import_without_current_options_is_rejected_at_api_and_execution(context):
-    from asterion.data.importing import encode_import
-
-    engine, tasks, _, root = context
-    client = TestClient(
-        create_app(
-            Settings(token="test-session-token-long-enough", data_root=root), raw_engine(engine)
-        ),
-        headers={"Authorization": "Bearer test-session-token-long-enough"},
+    assert (
+        stable_id(json.loads(identity) if isinstance(identity, str) else identity)
+        == version["dataset_id"]
     )
-    body = {"command_id": "unsupported", "source": "fixture", "csv": CSV}
-    assert client.post("/api/v1/imports", json=body).status_code == 422
-    assert client.post("/api/v1/imports/preview", json=body).status_code == 422
-    assert tasks.list() == []
+
+
+def test_import_without_current_options_fails_at_execution(context):
+    engine, tasks, _, root = context
+    tasks.submit("unsupported", "data.import_csv", {"source": "fixture", "csv": CSV})
     with pytest.raises(ValueError, match="缺少当前数据规范"):
-        encode_import(body)
+        publish_import(engine, root, tasks.claim("worker"))

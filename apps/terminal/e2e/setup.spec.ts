@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { nativeContext } from "./native";
-import type { SetupProgress } from "../src/startup/Setup";
+import type { SetupProgress } from "@asterion/workbench/startup/Setup";
 
 test("first setup waits for consent, shows download progress, retries and enters only when ready", async ({
   page,

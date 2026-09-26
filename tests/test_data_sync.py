@@ -1,28 +1,32 @@
+import hashlib
 import json
 import stat
 import time
 from datetime import UTC, datetime
 
-import httpx
 import pytest
-from configuration_support import set_token
+from asterion_bindings.artifacts import ArtifactStore
+from asterion_bindings.database import create_engine
+from asterion_bindings.task_repository import Conflict
+from configuration_support import saved_values, set_token
 from credential_helpers import provider_secrets
+from entry_support import running_entry
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
+from import_support import chart_bars
+from sqlalchemy import select
 from storage_support import data_store, domain_tasks, raw_engine, scheduler
 from sync_identity_support import submit_source
 
 from asterion.api.app import create_app
-from asterion.data.ingestion import Observation
+from asterion.data.events import VERSION_PUBLISHED
 from asterion.data.providers import ProviderRegistry
 from asterion.data.providers.public import ProviderError, SyncRequest
 from asterion.data.providers.tushare import Tushare
-from asterion.data.public import read_bars
-from asterion.data.sync import Credentials, DataSync, collect
+from asterion.data.sync import DataSync
+from asterion.platform.communication.events import EventJournal
 from asterion.platform.config import Settings
 from asterion.platform.serialization import canonical
 from asterion.platform.store import jobs, metadata
-from asterion.platform.tasks.service import Conflict
 
 MASTER = "test-runtime-token-at-least-24-characters"
 SECRET = "synthetic-provider-token-never-log"
@@ -37,7 +41,7 @@ def context(tmp_path):
         data_store(engine),
         domain_tasks(data_store(engine), "data"),
         tmp_path,
-        provider_secrets(MASTER),
+        provider_secrets(MASTER, tmp_path),
     )
     set_token(sync, "tushare", SECRET)
     return engine, tasks, sync, tmp_path
@@ -89,41 +93,42 @@ def raw(partition):
     return {k: values.get(k) for k in partition.fields}
 
 
+def evidence_content(job, rows=lambda partition: [raw(partition)], record=None) -> bytes:
+    """The evidence a collection of `job` would produce from `rows` per partition."""
+    request = SyncRequest.model_validate(job["payload"]["request"])
+    evidence = []
+    for index, partition in enumerate(Tushare().plan(request)):
+        value = {
+            "partition": partition.model_dump(),
+            "rows": [{f: row.get(f) for f in partition.fields} for row in rows(partition)],
+            "observed_at": datetime.now(UTC).isoformat(),
+        }
+        if record:
+            record(index, value)
+        evidence.append(value)
+    return canonical(evidence)
+
+
 def prepared(context, monkeypatch, req=None, transform=None):
     _, tasks, sync, root = context
     accepted = req or request()
     if accepted.dataset == "settlement":
-        from asterion.data.sync_admission import SyncSubmission, admit
-
         basis_job, basis_content = prepared(
             context,
             monkeypatch,
             request("contracts", command_id=accepted.command_id + "-contracts"),
         )
         basis = sync.publish(basis_job["id"], basis_job["token"], basis_content)
-        admit(
-            sync,
-            SyncSubmission.model_validate(
-                accepted.model_dump() | {"contracts_version_id": basis["id"]}
-            ),
-        )
+        sync.admit(accepted.model_dump() | {"contracts_version_id": basis["id"]})
     else:
         submit_source(sync, accepted)
     job = tasks.claim("worker")
 
-    def fetch(self, partition, credential):
-        assert credential == {"token": SECRET}
-        rows = [raw(partition)]
-        return transform(rows) if transform else rows
+    def rows(partition):
+        values = [raw(partition)]
+        return transform(values) if transform else values
 
-    monkeypatch.setattr(Tushare, "fetch", fetch)
-    content = collect(
-        job["payload"],
-        root,
-        provider_secrets(MASTER),
-        lambda done, total: sync.progress(job["id"], job["token"], done, total),
-    )
-    return job, content
+    return job, evidence_content(job, rows)
 
 
 def test_registry_and_bounded_plan():
@@ -149,16 +154,15 @@ def test_registry_and_bounded_plan():
 
 def test_encrypted_credentials_and_no_secret_in_job(context):
     engine, _tasks, sync, root = context
-    fixed = sync.configuration.freeze("tushare")
-    path = sync.credentials.root / "configurations" / f"{fixed['ref']}.enc"
+    fixed = submit_source(sync, request(command_id="fixed"))["payload"]["configuration"]
+    path = root / ".credentials" / "configurations" / f"{fixed['ref']}.enc"
     assert SECRET.encode() not in path.read_bytes()
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
-    assert sync.configuration.current("tushare")[1] == {"token": SECRET}
-    with pytest.raises(ProviderError, match="固定配置"):
-        Credentials(root, provider_secrets("different-master-key")).read_configuration(
-            fixed["ref"], "tushare", fixed["schema_version"], fixed["revision"]
-        )
+    assert saved_values(sync, "tushare") == {"token": SECRET}
+    spec = Tushare.manifest.configuration.model_dump(mode="json")
+    with pytest.raises(ValueError, match="固定配置"):
+        provider_secrets("different-master-key", root).resolve(fixed, "tushare", spec)
     assert submit_source(sync, request())["id"] == submit_source(sync, request())["id"]
     with engine.connect() as conn:
         assert SECRET not in str(conn.execute(select(jobs)).all())
@@ -167,8 +171,6 @@ def test_encrypted_credentials_and_no_secret_in_job(context):
     assert not sync.providers()[0]["configured"]
     with pytest.raises(ProviderError, match="Token"):
         submit_source(sync, request(command_id="missing"))
-    with pytest.raises(ValueError):
-        sync.credentials.freeze_configuration("../escape", 1, {"token": "invalid"})
 
 
 @pytest.mark.parametrize("dataset", ["daily", "contracts", "calendar"])
@@ -179,14 +181,15 @@ def test_publish_retains_evidence_and_daily_chart(context, monkeypatch, dataset)
     assert sync.publish(job["id"], job["token"], content) == published
     assert tasks.list()[0]["state"] == "SUCCEEDED"
     assert sync.library.preview(published["id"])["total"] == 1
-    assert (root / "datasets" / job["id"] / "evidence.json").read_bytes() == content
+    evidence = f"datasets/{job['id']}/evidence/{hashlib.sha256(content).hexdigest()}.json"
+    assert (root / evidence).read_bytes() == content
     assert sync.library.preview(published["id"], 100)["rows"] == []
     with pytest.raises(Conflict):
         sync.publish(job["id"], job["token"], content + b" ")
     if dataset == "daily":
-        bars = read_bars(root / "published" / f"{published['manifest']['snapshot_id']}.parquet")
+        bars = chart_bars(sync.engine, root, published["manifest"]["snapshot_id"])
         assert bars[0]["trading_day"] == "2024-01-02"
-        assert bars[0]["event_time"].startswith("2024-01-02 00:00:00")
+        assert bars[0]["event_time"] == "2024-01-02T00:00:00Z"
         assert bars[0]["available_at"].startswith(str(datetime.now(UTC).date()))
         assert sync.library.preview(published["id"])["rows"][0]["settle"] == "3205"
     if dataset == "contracts":
@@ -232,13 +235,11 @@ def test_cancel_expired_lease_and_file_failure(context, monkeypatch):
     replacement = tasks.claim("new-worker")
     with pytest.raises(Conflict):
         sync.publish(job["id"], job["token"], content)
-    with pytest.raises(Conflict):
-        sync.progress(job["id"], job["token"], 1, 1)
 
     def fail_write(*args):
         raise OSError("disk full")
 
-    monkeypatch.setattr("asterion.data.sync.atomic_write", fail_write)
+    monkeypatch.setattr(sync.library.artifacts, "put_addressed", fail_write)
     with pytest.raises(OSError):
         sync.publish(job["id"], replacement["token"], content)
     assert sync.library.list(type_id="futures.daily")["items"] == []
@@ -262,75 +263,11 @@ def test_calendar_gap_and_corrupt_parquet(context, monkeypatch):
         sync.library.preview(result["id"])
 
 
-def test_https_transport_and_sanitized_failures(monkeypatch):
-    partition = Tushare().plan(request())[0]
-    seen = []
-    mode = ["success"]
-
-    def handle(req):
-        seen.append(req)
-        assert req.url == "https://api.tushare.pro"
-        assert json.loads(req.content)["token"] == SECRET
-        if mode[0] == "deny":
-            return httpx.Response(200, json={"code": -1, "msg": f"token {SECRET} 无效"})
-        if mode[0] == "retry" and len(seen) < 3:
-            return httpx.Response(503)
-        return httpx.Response(
-            200,
-            json={
-                "code": 0,
-                "data": {"fields": partition.fields, "items": [list(raw(partition).values())]},
-            },
-        )
-
-    client_type = httpx.Client
-    monkeypatch.setattr(
-        httpx,
-        "Client",
-        lambda **kwargs: client_type(transport=httpx.MockTransport(handle), **kwargs),
-    )
-    monkeypatch.setattr("asterion.data.providers.tushare.time.sleep", lambda _: None)
-    assert Tushare().fetch(partition, {"token": SECRET})[0]["close"] == 3210
-    mode[0] = "deny"
-    with pytest.raises(ProviderError) as error:
-        Tushare().fetch(partition, {"token": SECRET})
-    assert SECRET not in str(error.value)
-    mode[0] = "retry"
-    seen.clear()
-    assert Tushare().fetch(partition, {"token": SECRET})
-    assert len(seen) == 3
-
-
-def test_api_requires_account_for_provider_configuration(context):
-    engine, _, _, root = context
-    client = TestClient(
-        create_app(Settings(token=MASTER, data_root=root, require_account=True), raw_engine(engine))
-    )
-    client.headers["Authorization"] = f"Bearer {MASTER}"
-    for url, method, body in [
-        ("/data/providers", "get", None),
-        ("/data/catalog", "get", None),
-        ("/data/types", "get", None),
-        ("/data/jobs/unknown/observations", "get", None),
-        ("/data/jobs/unknown/observations/1/0", "get", None),
-        ("/data/versions/unknown", "get", None),
-        ("/data/catalog/unknown/versions", "get", None),
-        (
-            "/data/providers/tushare/configuration",
-            "post",
-            {"expected_revision": 0, "secrets": {"token": SECRET}},
-        ),
-        ("/data/sync", "post", request().model_dump(mode="json")),
-    ]:
-        response = client.request(method, "/api/v1" + url, json=body)
-        assert response.status_code == 401
-
-
 def test_api_sync_roundtrip(context, monkeypatch):
-    engine, _, _, root = context
+    engine, _, sync, root = context
     client = TestClient(create_app(Settings(token=MASTER, data_root=root), raw_engine(engine)))
     client.headers["Authorization"] = f"Bearer {MASTER}"
-    assert client.get("/api/v1/data/providers").json()[0]["configured"]
+    assert sync.providers()[0]["configured"]
     _, _, service, _ = context
     reference_job, reference_content = prepared(
         context, monkeypatch, request("contracts", command_id="reference")
@@ -338,24 +275,30 @@ def test_api_sync_roundtrip(context, monkeypatch):
     reference_version = service.publish(
         reference_job["id"], reference_job["token"], reference_content
     )
-    submitted = client.post(
-        "/api/v1/data/sync",
-        json=request().model_dump(mode="json") | {"contracts_version_id": reference_version["id"]},
+    sync.admit(
+        request().model_dump(mode="json") | {"contracts_version_id": reference_version["id"]}
     )
-    assert submitted.status_code == 202
-    job = client.post("/api/v1/jobs/claim", json={"worker_id": "test"}).json()
-    monkeypatch.setattr(Tushare, "fetch", lambda self, part, credential: [raw(part)])
-    content = collect(job["payload"], root, provider_secrets(MASTER))
+    job = scheduler(engine).claim("test")
+    content = evidence_content(job)
     published = client.post(
         f"/api/v1/jobs/{job['id']}/publish-data",
         content=content,
         headers={"X-Lease-Token": job["token"]},
     )
     assert published.status_code == 200, published.text
-    assert client.get("/api/v1/data/catalog").json()["items"][0]["rows"] == 1
-    assert client.get(f"/api/v1/data/versions/{published.json()['id']}").json()["total"] == 1
-    assert client.get("/api/v1/snapshots").json()[0]["manifest"]["frequency"] == "1d"
-    assert SECRET not in client.get("/api/v1/jobs").text
+    event_page = EventJournal(engine, (VERSION_PUBLISHED,)).read(VERSION_PUBLISHED.id)
+    assert event_page["items"][-1]["payload"]["version_id"] == published.json()["id"]
+    assert (
+        event_page["items"][-1]["payload"]["checksum"] == published.json()["manifest"]["checksum"]
+    )
+    assert SECRET not in json.dumps(event_page)
+
+    assert sync.library.list()["items"][0]["rows"] == 1
+    assert sync.library.preview(published.json()["id"])["total"] == 1
+    with engine.connect() as conn:
+        stored = conn.exec_driver_sql("SELECT manifest FROM snapshots").scalar_one()
+    assert (json.loads(stored) if isinstance(stored, str) else stored)["frequency"] == "1d"
+    assert SECRET not in json.dumps(scheduler(engine).list())
 
 
 def test_retry_preserves_request_and_recovery_from_unreadable_credentials(context, monkeypatch):
@@ -368,59 +311,33 @@ def test_retry_preserves_request_and_recovery_from_unreadable_credentials(contex
     assert sync.retry(job["id"], "retry-command")["id"] == retried["id"]
     with pytest.raises(Conflict):
         sync.retry(retried["id"], "not-failed")
-    sync.credentials = Credentials(root, provider_secrets("rotated-runtime-key-long-enough"))
+    sync.credentials = provider_secrets("rotated-runtime-key-long-enough", root)
+    sync.sources.credentials = sync.credentials
     assert not sync.providers()[0]["configured"]
     assert sync.providers()[0]["credential_error"]
     set_token(sync, "tushare", SECRET)
     assert sync.providers()[0]["configured"]
 
 
-@pytest.mark.parametrize("invalid", [False, True])
-def test_worker_dispatch_uses_sync_protocol_and_reports_validation(context, monkeypatch, invalid):
-    from concurrent.futures import ThreadPoolExecutor
-
+def test_queued_sync_is_collected_by_the_entry_not_the_worker(context):
     from asterion.runtime.worker import run_once
 
     engine, tasks, sync, root = context
-    settings = Settings(token=MASTER, data_root=root, api_url="http://worker.test")
-    server = TestClient(create_app(settings, raw_engine(engine)))
+    settings = Settings(token=MASTER, data_root=root, database_url=str(engine.url))
+    app = create_app(settings, raw_engine(engine))
     submit_source(sync, request())
-
-    def fetch(self, partition, credential):
-        row = raw(partition)
-        if invalid:
-            row["high"] = 1
-        return [row]
-
-    monkeypatch.setattr(Tushare, "fetch", fetch)
-    monkeypatch.setattr(
-        "asterion.runtime.worker.ProcessPoolExecutor",
-        lambda **kwargs: ThreadPoolExecutor(max_workers=1),
-    )
-    client_type = httpx.Client
-
-    def transport(req):
-        return server.request(
-            req.method, req.url.path, content=req.content, headers=dict(req.headers)
-        )
-
-    monkeypatch.setattr(
-        httpx,
-        "Client",
-        lambda **kwargs: client_type(transport=httpx.MockTransport(transport), **kwargs),
-    )
-    assert run_once(settings, "worker-integration")
+    with running_entry(app, settings) as url:
+        # The internal worker never claims sync tasks; the entry does, and in
+        # tests its source is unreachable, so it retains a failure observation.
+        assert not run_once(settings.model_copy(update={"api_url": url}), "worker-integration")
+        deadline = time.monotonic() + 30
+        while tasks.list()[0]["state"] != "FAILED":
+            assert time.monotonic() < deadline, tasks.list()[0]
+            time.sleep(0.2)
     job = tasks.list()[0]
-    assert job["state"] == ("FAILED" if invalid else "SUCCEEDED")
-    evidence = sync.evidence.preview(job["id"], 1, 0)
-    assert evidence["rows"][0]["high"] == (1 if invalid else 3220)
-    assert sync.evidence.list(job["id"])["total"] == 1
-    if invalid:
-        assert "边界" in job["error"]
-        assert not sync.library.list(type_id="futures.daily")["items"]
-    else:
-        assert job["result"]["completed"] == job["result"]["total"] == 1
-        assert sync.library.list(type_id="futures.daily")["items"][0]["rows"] == 1
+    assert job["error"].startswith("FETCH_FAILED：")
+    saved = sync.evidence.list(job["id"])
+    assert [item["manifest"]["status"] for item in saved["items"]] == ["FETCH_FAILED"]
 
 
 def test_catalog_groups_versions_and_preserves_input_lineage(context, monkeypatch):
@@ -452,7 +369,8 @@ def test_catalog_groups_versions_and_preserves_input_lineage(context, monkeypatc
     assert sync.library.list(search="RB2610", layer="RAW")["total"] == 1
     assert sync.library.list(search="%", layer="RAW")["total"] == 0
     assert sync.library.list(layer="DERIVED")["total"] == 0
-    (root / "datasets" / job2["id"] / "evidence.json").write_bytes(b"corrupt")
+    (evidence,) = (root / "datasets" / job2["id"] / "evidence").glob("*.json")
+    evidence.write_bytes(b"corrupt")
     with pytest.raises(ProviderError, match="校验和"):
         sync.library.preview(raw_id)
 
@@ -487,55 +405,20 @@ def test_type_contract_is_independent_of_provider_mapping(context, monkeypatch):
     assert sync.library.list(type_id="futures.daily")["total"] == 0
 
 
-def test_partial_fetch_failure_retains_prior_and_safe_failure(context, monkeypatch):
-    _, tasks, sync, root = context
-    submit_source(sync, request(end="2024-02-02"))
-    job = tasks.claim("worker")
-
-    def fetch(self, part, credential):
-        if part.params["start_date"] == "20240202":
-            raise ProviderError("PERMISSION_DENIED：" + SECRET)
-        return [raw(part)]
-
-    monkeypatch.setattr(Tushare, "fetch", fetch)
-    with pytest.raises(ProviderError, match="PERMISSION_DENIED") as error:
-        collect(
-            job["payload"],
-            root,
-            provider_secrets(MASTER),
-            checkpoint=lambda index, value: sync.evidence.record(
-                job["id"], job["token"], index, Observation.model_validate(value)
-            ),
-        )
-    assert SECRET not in str(error.value)
-    tasks.fail(job["id"], job["token"], str(error.value))
-    saved = sync.evidence.list(job["id"])
-    assert saved["total"] == 2
-    assert [item["manifest"]["status"] for item in saved["items"]] == [
-        "RECEIVED",
-        "PERMISSION_DENIED",
-    ]
-    assert sync.evidence.list(job["id"], offset=1, limit=1)["items"] == saved["items"][1:]
-    assert sync.evidence.preview(job["id"], 1, 0)["rows"][0]["close"] == 3210
-    assert sync.evidence.preview(job["id"], 1, 1)["rows"] == []
-    assert all(SECRET not in p.read_text() for p in (root / "sources").rglob("*.json"))
-    assert sync.library.list(type_id="futures.daily")["total"] == 0
-
-
 def test_observation_immutable_attempts_cancel_and_corruption(context, monkeypatch):
     engine, tasks, sync, root = context
     job, content = prepared(context, monkeypatch)
-    value = Observation.model_validate(json.loads(content)[0])
+    value = json.loads(content)[0]
     saved = sync.evidence.record(job["id"], job["token"], 0, value)
     assert sync.evidence.record(job["id"], job["token"], 0, value) == saved
     with pytest.raises(Conflict, match="changed content"):
-        sync.evidence.record(job["id"], job["token"], 0, value.model_copy(update={"rows": []}))
+        sync.evidence.record(job["id"], job["token"], 0, value | {"rows": []})
     with engine.begin() as conn:
         conn.execute(jobs.update().values(lease_until=time.time() - 1))
     replacement = tasks.claim("replacement")
     with pytest.raises(Conflict):
         sync.evidence.record(job["id"], job["token"], 0, value)
-    sync.evidence.record(job["id"], replacement["token"], 0, value.model_copy(update={"rows": []}))
+    sync.evidence.record(job["id"], replacement["token"], 0, value | {"rows": []})
     assert sync.evidence.preview(job["id"], 2, 0)["manifest"]["status"] == "EMPTY_UNCONFIRMED"
     tasks.cancel(job["id"])
     with pytest.raises(Conflict):
@@ -547,36 +430,24 @@ def test_observation_immutable_attempts_cancel_and_corruption(context, monkeypat
         sync.evidence.preview(job["id"], 1, 0)
 
 
-def test_observation_api_validation_and_io_rollback(context, monkeypatch):
-    engine, _, sync, root = context
+def test_observation_io_failure_records_nothing(context, monkeypatch):
+    _, _, sync, root = context
     job, content = prepared(context, monkeypatch)
-    client = TestClient(create_app(Settings(token=MASTER, data_root=root), raw_engine(engine)))
-    client.headers["Authorization"] = f"Bearer {MASTER}"
-    endpoint = f"/api/v1/jobs/{job['id']}/observations/0"
     evidence = json.loads(content)[0]
-    headers = {"X-Lease-Token": job["token"]}
-    assert (
-        client.post(endpoint, json=evidence, headers={"X-Lease-Token": "stale"}).status_code == 409
-    )
-    assert (
-        client.post(endpoint, json=evidence | {"token": SECRET}, headers=headers).status_code == 422
-    )
-    assert client.post(endpoint, content=b"x" * 8_000_001, headers=headers).status_code == 413
-    assert client.post(endpoint, json=evidence, headers=headers).status_code == 200
-    assert client.get(f"/api/v1/data/jobs/{job['id']}/observations/1/0").json()["total"] == 1
-    assert client.get("/api/v1/data/jobs/missing/observations").status_code == 404
+    sync.evidence.record(job["id"], job["token"], 0, evidence)
+    assert sync.evidence.preview(job["id"], 1, 0)["total"] == 1
+    with pytest.raises(KeyError):
+        sync.evidence.list("missing")
 
     submit_source(sync, request(command_id="io-failure"))
     next_job = scheduler(sync.engine).claim("next")
 
-    def fail_write(*args):
-        raise OSError("disk full")
-
-    monkeypatch.setattr("asterion.data.ingestion.atomic_write", fail_write)
-    value = Observation.model_validate(evidence).model_copy(
-        update={"observed_at": datetime.now(UTC)}
-    )
-    with pytest.raises(OSError):
+    # Evidence that cannot be written is refused and nothing is recorded.
+    blocked = root / "sources" / next_job["id"]
+    blocked.parent.mkdir(exist_ok=True)
+    blocked.write_bytes(b"not a directory")
+    value = evidence | {"observed_at": datetime.now(UTC).isoformat()}
+    with pytest.raises(ProviderError, match="无法保存"):
         sync.evidence.record(next_job["id"], next_job["token"], 0, value)
     assert sync.evidence.list(next_job["id"])["total"] == 0
 
@@ -585,7 +456,7 @@ def test_publication_must_match_retained_observation(context, monkeypatch):
     _, _, sync, _ = context
     job, content = prepared(context, monkeypatch)
     envelope = json.loads(content)
-    sync.evidence.record(job["id"], job["token"], 0, Observation.model_validate(envelope[0]))
+    sync.evidence.record(job["id"], job["token"], 0, envelope[0])
     envelope[0]["rows"][0]["close"] = 3211
     with pytest.raises(Conflict, match="changed retained"):
         sync.publish(job["id"], job["token"], canonical(envelope))
@@ -593,28 +464,17 @@ def test_publication_must_match_retained_observation(context, monkeypatch):
     sync.publish(job["id"], job["token"], content)
 
 
-def test_resume_reuses_valid_partition_preserving_time_and_publishes(context, monkeypatch):
-    _, tasks, sync, root = context
+def test_resume_reuses_valid_partition_preserving_time_and_publishes(context):
+    _, tasks, sync, _ = context
     submit_source(sync, request(end="2024-02-02"))
     first = tasks.claim("first")
 
-    def checkpoint(job):
-        return lambda index, value: sync.evidence.record(
-            job["id"], job["token"], index, Observation.model_validate(value)
-        )
+    def rows(partition):
+        return [raw(partition) | {"trade_date": partition.params["start_date"]}]
 
-    seen = []
-    fail = [True]
-
-    def fetch(self, part, credential):
-        seen.append(part.params["start_date"])
-        if fail[0] and len(seen) == 2:
-            raise ProviderError("RATE_LIMITED：synthetic")
-        return [raw(part) | {"trade_date": part.params["start_date"]}]
-
-    monkeypatch.setattr(Tushare, "fetch", fetch)
-    with pytest.raises(ProviderError):
-        collect(first["payload"], root, provider_secrets(MASTER), checkpoint=checkpoint(first))
+    # The first attempt retained only its first partition before failing.
+    envelope = json.loads(evidence_content(first, rows))
+    sync.evidence.record(first["id"], first["token"], 0, envelope[0])
     original = sync.evidence.preview(first["id"], 1, 0)
     tasks.fail(first["id"], first["token"], "synthetic failure")
     submitted = sync.retry(first["id"], "resume", resume=True)
@@ -625,25 +485,12 @@ def test_resume_reuses_valid_partition_preserving_time_and_publishes(context, mo
     reused = sync.evidence.resume(job["id"], job["token"])
     assert list(reused) == [0]
     assert sync.evidence.resume(job["id"], job["token"]) == reused
-    client = TestClient(create_app(Settings(token=MASTER, data_root=root), raw_engine(sync.engine)))
-    client.headers["Authorization"] = f"Bearer {MASTER}"
-    endpoint = f"/api/v1/jobs/{job['id']}/resume"
-    assert client.post(endpoint, headers={"X-Lease-Token": "stale"}).status_code == 409
-    response = client.post(endpoint, headers={"X-Lease-Token": job["token"]})
-    assert response.status_code == 200
-    assert response.json() == {str(k): v for k, v in reused.items()}
+    with pytest.raises(Conflict):
+        sync.evidence.resume(job["id"], "stale")
     assert reused[0]["observed_at"] == original["manifest"]["observed_at"].replace("+00:00", "Z")
-    fail[0] = False
-    seen.clear()
-    content = collect(
-        job["payload"],
-        root,
-        provider_secrets(MASTER),
-        checkpoint=checkpoint(job),
-        reused={str(k): v for k, v in reused.items()},
-    )
-    assert seen == ["20240202"]
-    version = sync.publish(job["id"], job["token"], content)
+    fresh = json.loads(evidence_content(job, rows))[1]
+    sync.evidence.record(job["id"], job["token"], 1, fresh)
+    version = sync.publish(job["id"], job["token"], canonical([reused[0], fresh]))
     assert sync.library.preview(version["id"])["total"] == 2
     saved = sync.evidence.preview(job["id"], 1, 0)
     assert saved["manifest"]["reused_from"]["job_id"] == first["id"]
@@ -657,11 +504,11 @@ def test_resume_refetches_unusable_partitions(context, monkeypatch, invalid):
     engine, tasks, sync, root = context
     req = request("calendar", end="2024-01-03") if invalid == "calendar_gap" else request()
     job, content = prepared(context, monkeypatch, req)
-    value = Observation.model_validate(json.loads(content)[0])
+    value = json.loads(content)[0]
     if invalid == "empty":
-        value.rows = []
+        value["rows"] = []
     if invalid == "price":
-        value.rows[0]["high"] = 1
+        value["rows"][0]["high"] = 1
     saved = sync.evidence.record(job["id"], job["token"], 0, value)
     path = root / saved["uri"].removeprefix("asterion://local/")
     if invalid == "corrupt":
@@ -683,11 +530,10 @@ def test_resume_refetches_unusable_partitions(context, monkeypatch, invalid):
 
 
 def test_takeover_reuses_prior_attempt_but_rejects_forged_provenance(context, monkeypatch):
-    from asterion.data.ingestion import EvidenceSource
 
     engine, tasks, sync, _ = context
     job, content = prepared(context, monkeypatch)
-    value = Observation.model_validate(json.loads(content)[0])
+    value = json.loads(content)[0]
     saved = sync.evidence.record(job["id"], job["token"], 0, value)
     with engine.begin() as conn:
         conn.execute(jobs.update().values(lease_until=time.time() - 1))
@@ -699,22 +545,23 @@ def test_takeover_reuses_prior_attempt_but_rejects_forged_provenance(context, mo
     sync.retry(job["id"], "fresh", resume=False)
     fresh = tasks.claim("fresh")
     assert sync.evidence.resume(fresh["id"], fresh["token"]) == {}
-    forged = value.model_copy(
-        update={
-            "reused_from": EvidenceSource(
-                job_id=job["id"], attempt=1, partition_index=0, checksum=saved["checksum"]
-            )
+    forged = value | {
+        "reused_from": {
+            "job_id": job["id"],
+            "attempt": 1,
+            "partition_index": 0,
+            "checksum": saved["checksum"],
         }
-    )
+    }
     with pytest.raises(Conflict):
         sync.evidence.record(fresh["id"], fresh["token"], 0, forged)
     with pytest.raises(Conflict):
-        sync.publish(fresh["id"], fresh["token"], canonical([forged.model_dump(mode="json")]))
+        sync.publish(fresh["id"], fresh["token"], canonical([forged]))
 
 
 def test_publication_observer_sees_committing_version_and_rolls_back(context, monkeypatch):
+
     from asterion.data.public import snapshot_backup_access
-    from asterion.platform.files import read_files
 
     _, tasks, sync, root = context
     job, content = prepared(context, monkeypatch)
@@ -723,7 +570,7 @@ def test_publication_observer_sees_committing_version_and_rolls_back(context, mo
     def observer(transaction, identifier):
         row = transaction.execute(select(jobs).where(jobs.c.id == identifier)).mappings().one()
         assert row["state"] == "SUCCEEDED"
-        evidence = snapshot_backup_access(transaction, read_files(root))
+        evidence = snapshot_backup_access(transaction, ArtifactStore(root, read_only=True))
         assert evidence.read(row["result"]["version_id"], limit=10)["total"] >= 1
         observed.append(identifier)
         raise ValueError("offline observer rollback")

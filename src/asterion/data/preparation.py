@@ -3,6 +3,9 @@
 import time
 from typing import Literal
 
+from asterion_bindings.catalog import SourceIdentity, catalog_digest
+from asterion_bindings.task_models import Job
+from asterion_bindings.task_repository import Conflict
 from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import JSON, Column, Float, String, Table, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -11,12 +14,8 @@ from sqlalchemy.exc import IntegrityError
 
 from asterion.data.library import stable_id
 from asterion.data.providers.public import ProviderError, SyncRequest
-from asterion.data.reference import SourceIdentity
 from asterion.data.reference_source import SourceCatalogRequest, source_catalog
-from asterion.data.reference_store import catalog_digest
 from asterion.platform.store import jobs, metadata
-from asterion.platform.tasks.public import Job
-from asterion.platform.tasks.service import Conflict
 
 TYPES = ("futures.daily", "futures.calendar", "futures.contracts")
 batches = Table(
@@ -166,7 +165,7 @@ class Preparations:
                 for item in requests:
                     plugin.plan(item)
                 # Freeze once: every job in this batch uses exactly the same configuration.
-                base = self.sync.submission_payload(requests[0])
+                base = self.sync.submission_payload_in(conn, requests[0])
                 commands = []
                 for item, capability in zip(requests, capabilities, strict=True):
                     definition = self.sync.library.types.get(capability.type_id).manifest
@@ -225,7 +224,6 @@ class Preparations:
             from asterion.data.sync_identity import task_identity
 
             task_identity(
-                self.sync.registry.get(request.provider),
                 payload | {"contract_identity": identity.model_dump(mode="json")},
             )
         except ValueError:
@@ -269,8 +267,7 @@ class Preparations:
                 payload["resume_from"] = original["id"]
             from asterion.data.sync_identity import task_identity
 
-            provider = self.sync.registry.get(payload["request"]["provider"])
-            if task_identity(provider, payload) is not None:
+            if task_identity(payload) is not None:
                 self.sync.validate_identity(conn, payload)
             existing = (
                 conn.execute(select(jobs).where(jobs.c.command_id == command_id)).mappings().first()

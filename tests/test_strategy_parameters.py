@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from asterion_bindings.execution import ExecutionFactory
 from pydantic import TypeAdapter
 from test_external_strategies import installed  # noqa: F401
 from test_research import payload, services  # noqa: F401
@@ -122,7 +123,7 @@ def test_four_types_persist_publish_and_replay(request):
     run = service.submit(request)
     claimed = scheduler(service.engine).claim("typed-parameters")
     assert claimed["payload"]["request"]["parameters"] == parameters
-    output = calculate(claimed["payload"], catalog)
+    output = calculate(claimed["payload"], catalog, ExecutionFactory())
     assert output["fills"] == []
     service.publish(claimed["id"], claimed["token"], canonical(output))
     bundles = ResearchPackages(service)
@@ -134,6 +135,8 @@ def test_four_types_persist_publish_and_replay(request):
     claimed = scheduler(service.engine).claim("typed-replay")
     assert claimed["id"] == replay["id"]
     service.publish(
-        claimed["id"], claimed["token"], canonical(calculate(claimed["payload"], catalog))
+        claimed["id"],
+        claimed["token"],
+        canonical(calculate(claimed["payload"], catalog, ExecutionFactory())),
     )
     assert service.get(replay["id"])["output"] == output

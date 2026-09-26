@@ -1,0 +1,24 @@
+{
+  "name": "@asterion/ui-intelligence-panel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "asterion": {
+    "layer": 4,
+    "kind": "panel",
+    "id": "asterion.ui.intelligence-panel"
+  },
+  "exports": {
+    "./context": "./src/context.ts",
+    "./module": "./src/module.tsx"
+  },
+  "dependencies": {
+    "@asterion/ui-kit": "workspace:*",
+    "@asterion/ui-overview": "workspace:*",
+    "@asterion/workbench": "workspace:*",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0"
+  }
+}

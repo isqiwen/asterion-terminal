@@ -2,6 +2,7 @@
 
 from typing import Literal
 
+from asterion_bindings.roles import RoleQuery
 from pydantic import Field, model_validator
 
 from asterion.contract_roles.computed import ComputedSources
@@ -12,7 +13,7 @@ from asterion.contract_roles.computed_public import (
     DailyInput,
     resolve_computed,
 )
-from asterion.contract_roles.public import RoleQuery, Strict
+from asterion.contract_roles.models import Strict
 
 
 class ContinuationRequest(Strict):

@@ -1,14 +1,14 @@
 # Fincept 数据管理源码核对
 
-核对日期：2026-09-17。对象：Fincept-Corporation/FinceptTerminal 公开仓库，固定提交 `09b70f3bc5c751d0e9507cb877de0270445034fb`。以下是静态代码核对，不是对用户本机安装版的操作验收；不覆盖闭源 Enterprise，也不把 README 功能宣传当作实现证据。
+原核对日期：2026-09-17；2026-09-22 整理。对象为 Fincept-Corporation/FinceptTerminal 固定提交 `09b70f3bc5c751d0e9507cb877de0270445034fb`。这是该提交的静态证据，不描述当前上游版本、不覆盖 Enterprise，也不代表本机操作验收。本次整理未重新抓取上游或新增实机验证；交互证据见 [实机记录](fincept-interaction-review.md)。
 
 ## 结论
 
-Fincept 已有连接器、字段标准化及原始响应留存、持久化历史行情、文件索引、工作流、缓存与清理。之前只谈连接器不够全面。
+该提交已有连接器、字段标准化及原始响应留存、持久化历史行情、文件索引、工作流、缓存与清理。
 
 在本次检查的存储表、标准化路径、历史行情路径和工作流路径中，没有确认一套贯穿这些组件的“不可变数据版本 → 固定输入的加工任务 → 发布快照 → 研究引用保护”的闭环。这里是限定范围的结论，不声称整个项目或私有版本完全没有数据治理能力。
 
-因此可以参考它的组件分工，但不能将它直接当作 Asterion 可复现量化数据仓库的完成模板。
+可参考其组件分工；Asterion 的权威数据模型和实际缺口以 [数据生命周期设计](data-lifecycle-design.md) 及验收记录为准。
 
 ## 已核对的实际行为
 
@@ -42,13 +42,13 @@ Fincept 已有连接器、字段标准化及原始响应留存、持久化历史
 
 `store_candles()` 使用 INSERT OR REPLACE，复合键是合约/交易所/频率/时间。表中没有 provider、数据版本或 available_at。相同键再次写入会取代原值；这一条路径不能单独还原修订前的研究输入，也不能单凭主键区分多来源同一根 K 线。
 
-这不是说 SQLite 天生不能版本化，而是该具体模型采用了最新值语义。Asterion 需要追加修订和固定 manifest，不静默覆盖历史快照。
+这是该模型的最新值语义，不能据此推断 SQLite 不支持版本化。
 
 ### 原始响应加 hash 不等于完整血缘
 
 normalized_data 有 mapping_id，但 [DataMappingRepository](https://github.com/Fincept-Corporation/FinceptTerminal/blob/09b70f3bc5c751d0e9507cb877de0270445034fb/fincept-qt/src/storage/repositories/DataMappingRepository.cpp) 对同一 ID 更新映射内容，没有在该表中保留映射修订历史。仅凭 mapping_id 不能保证重建当次处理规则。
 
-此外，normalize_raw 使用 raw.object() 保存原始内容，同时允许以数组作为提取输入。因此该实现不能被我们直接描述为“任意响应形态均逐字节原样留存”。Asterion 应独立保留响应/导入证据，再引用固定的映射配置与代码版本。
+此外，normalize_raw 使用 raw.object() 保存原始内容，同时允许以数组作为提取输入。因此这条路径不能描述为“任意响应形态均逐字节原样留存”。
 
 ### 文件删除与清理不是引用保护
 
@@ -56,14 +56,10 @@ FileManagerService::remove_file 直接删除文件和索引项；核对到的这
 
 ### 接口名称不代表真实存储格式
 
-HistoricalDataStore::export_parquet 在此提交实际调用 export_csv 并告警。这只说明该历史行情导出函数的实现，不能推断所有 Fincept 模块都不能处理 Parquet。Asterion 已有真实 PyArrow Parquet 发布能力，应保留现有实现，不因参考界面而退回这种兼容方式。
+HistoricalDataStore::export_parquet 在此提交实际调用 export_csv 并告警。这只说明该导出函数的实现，不能推断所有 Fincept 模块都不能处理 Parquet，也不能将按钮或接口名称视为格式证据。
 
-## Asterion 采用与不采用
+## 对星枢的参考价值
 
-采用：来源能力声明；原始与标准化结果的关联；按数据系列组织历史行情；通用字段映射；业务订阅与缓存；统一存储统计。
+来源能力声明、原始与标准化结果关联、按系列组织历史行情，以及共享订阅和缓存值得参考。行情覆盖写、可修改 mapping_id 和普通文件清理不能代替固定版本、处理依据与研究引用保护。
 
-补建：逻辑 Dataset、不可变 Version、分区 manifest、固定处理输入与代码、完整性/覆盖证据、修订历史、跨层血缘、研究引用保护与可验证备份。
-
-不照搬：行情覆盖写作为唯一权威存储；将缓存等同数据仓库；靠可修改的 mapping_id 代替处理版本；依据文件名或按钮名判断产物格式。
-
-落地设计见 [Asterion 数据生命周期设计](data-lifecycle-design.md)。本文只核对和设计，没有更改运行中的数据库与用户数据。
+Dataset、Version、分区、覆盖、血缘和备份的职责与交付情况集中在 [数据生命周期设计](data-lifecycle-design.md) 和 [实施进度](ROADMAP.md)，本文不再把这些能力统一列作“待补建”。静态比较不修改运行数据库或用户数据。

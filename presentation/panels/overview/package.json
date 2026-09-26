@@ -1,0 +1,28 @@
+{
+  "name": "@asterion/ui-overview",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "asterion": {
+    "layer": 4,
+    "kind": "panel",
+    "id": "asterion.ui.overview"
+  },
+  "exports": {
+    "./Dashboard": "./src/Dashboard.tsx",
+    "./DashboardTable": "./src/DashboardTable.tsx",
+    "./context": "./src/context.ts",
+    "./module": "./src/module.tsx",
+    "./public": "./src/public.ts"
+  },
+  "dependencies": {
+    "@asterion/api-types": "workspace:*",
+    "@asterion/runtime-client": "workspace:*",
+    "@asterion/workbench": "workspace:*",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "vitest": "^3.0.0"
+  }
+}

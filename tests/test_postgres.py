@@ -11,7 +11,7 @@ from datetime import UTC, date, datetime
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from asterion_bindings.database import create_engine
 
 from asterion.platform.store import metadata
 
@@ -40,10 +40,10 @@ def test_concurrent_workers_claim_each_job_once():
     not os.getenv("ASTERION_TEST_DATABASE_URL"), reason="PostgreSQL test URL not set"
 )
 def test_concurrent_observation_retries_are_immutable(tmp_path):
-    from asterion.data.ingestion import Observation
+    from asterion_bindings.task_repository import Conflict
+
     from asterion.data.providers.public import SyncRequest
     from asterion.data.sync import DataSync
-    from asterion.platform.tasks.service import Conflict
 
     engine = create_engine(os.environ["ASTERION_TEST_DATABASE_URL"])
     metadata.create_all(engine)
@@ -52,7 +52,7 @@ def test_concurrent_observation_retries_are_immutable(tmp_path):
         data_store(engine),
         domain_tasks(data_store(engine), "data"),
         tmp_path,
-        provider_secrets("synthetic-test-master-key"),
+        provider_secrets("synthetic-test-master-key", tmp_path),
     )
     set_token(sync, "tushare", "synthetic-test-credential")
     request = SyncRequest(
@@ -65,13 +65,13 @@ def test_concurrent_observation_retries_are_immutable(tmp_path):
     )
     submit_source(sync, request)
     job = tasks.claim("evidence-worker")
-    value = Observation(
-        partition=sync.registry.get("tushare").plan(request)[0],
-        observed_at=datetime.now(UTC),
-        rows=[
+    value = {
+        "partition": sync.registry.get("tushare").plan(request)[0].model_dump(),
+        "observed_at": datetime.now(UTC).isoformat(),
+        "rows": [
             {"exchange": "SHFE", "cal_date": "20240102", "is_open": 1, "pretrade_date": "20231229"}
         ],
-    )
+    }
     try:
         with ThreadPoolExecutor(max_workers=8) as pool:
             saved = list(
@@ -82,11 +82,11 @@ def test_concurrent_observation_retries_are_immutable(tmp_path):
         assert all(record == saved[0] for record in saved)
         assert sync.evidence.list(job["id"])["total"] == 1
         with pytest.raises(Conflict):
-            sync.evidence.record(job["id"], job["token"], 0, value.model_copy(update={"rows": []}))
+            sync.evidence.record(job["id"], job["token"], 0, value | {"rows": []})
         tasks.cancel(job["id"])
         with pytest.raises(Conflict):
             sync.evidence.record(job["id"], job["token"], 0, value)
-        assert sync.evidence.preview(job["id"], 1, 0)["rows"] == value.rows
+        assert sync.evidence.preview(job["id"], 1, 0)["rows"] == value["rows"]
         sync.retry(job["id"], str(uuid4()), resume=True)
         resumed = tasks.claim("resume-worker")
         with ThreadPoolExecutor(max_workers=8) as pool:

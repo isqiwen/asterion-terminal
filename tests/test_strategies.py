@@ -3,6 +3,8 @@
 from dataclasses import replace
 
 import pytest
+from asterion_bindings.execution import ExecutionFactory
+from asterion_bindings.plugin_host import Activation, Capability, Plugin, PluginHost
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from test_research import payload, services  # noqa: F401
@@ -10,7 +12,6 @@ from test_research import payload, services  # noqa: F401
 from asterion.api.app import create_app
 from asterion.distribution import builtin_plugins, strategy_catalog
 from asterion.platform.config import Settings
-from asterion.platform.plugins import Activation, Capability, Plugin, PluginHost
 from asterion.platform.serialization import canonical
 from asterion.research.engine import BacktestRequest, calculate
 from asterion.research.packages import ResearchPackages, digest
@@ -74,11 +75,11 @@ def test_independent_plugin_requires_only_contribution_and_assembly():
         value["request"].update(
             strategy=strategy.info.identity.model_dump(), parameters={"warmup": 2}
         )
-        result = calculate(value, catalog)
+        result = calculate(value, catalog, ExecutionFactory())
         assert result["fills"][0]["day"] == "2024-01-03"
         assert len(observed) == len(value["bars"])
         assert result["summary"]["fees"] == "2"
-        assert canonical(result) == canonical(calculate(value, catalog))
+        assert canonical(result) == canonical(calculate(value, catalog, ExecutionFactory()))
     finally:
         host.close()
 
@@ -100,18 +101,18 @@ def test_invalid_parameters_are_not_defaulted(parameters):
     value = payload()
     value["request"]["parameters"] = parameters
     with pytest.raises(ValueError):
-        calculate(value, catalog)
+        calculate(value, catalog, ExecutionFactory())
 
 
 @pytest.mark.parametrize(
     "field,value", [("id", "fixture.missing"), ("version", "unavailable"), ("digest", "f" * 64)]
 )
 def test_unavailable_identity_never_submits_or_replays(request, field, value):
-    service, request, _ = request.getfixturevalue("services")
-    job = service.submit(request)
-    request.strategy = request.strategy.model_copy(update={field: value})
+    service, body, _ = request.getfixturevalue("services")
+    job = service.submit(body)
+    strategy = body.strategy.model_copy(update={field: value})
     with pytest.raises(ValueError, match="策略"):
-        service.submit(request)
+        service.submit(body.model_copy(update={"strategy": strategy}))
     service.strategies = StrategyCatalog(())
     with pytest.raises(ValueError, match="策略"):
         service.rerun(job["id"], "cannot-rerun")
@@ -124,7 +125,7 @@ def test_invalid_intention_cannot_change_execution_or_publish():
     value = payload()
     value["request"].update(strategy=strategy.info.identity.model_dump(), parameters={"warmup": 2})
     with pytest.raises(ValueError, match="意图"):
-        calculate(value, catalog)
+        calculate(value, catalog, ExecutionFactory())
     with pytest.raises(ValueError, match="重复"):
         StrategyCatalog((strategy, strategy))
     with pytest.raises(ValueError, match="预热"):
@@ -143,7 +144,7 @@ def test_second_strategy_worker_publication_and_offline_replay(request):
     )
     run = service.submit(request)
     claimed = scheduler(service.engine).claim("momentum")
-    output = canonical(calculate(claimed["payload"], service.strategies))
+    output = canonical(calculate(claimed["payload"], service.strategies, service.execution))
     service.publish(claimed["id"], claimed["token"], output)
     packages = ResearchPackages(service)
     exported = packages.export(run["id"], True)
@@ -160,7 +161,7 @@ def test_second_strategy_worker_publication_and_offline_replay(request):
 
 def test_discovery_auth_and_missing_plugin_fail_closed(tmp_path):
     settings = Settings(token="strategy-discovery-token-minimum-length", data_root=tmp_path)
-    from sqlalchemy import create_engine
+    from asterion_bindings.database import create_engine
 
     engine = create_engine(f"sqlite:///{tmp_path}/discovery.db")
     with TestClient(create_app(settings, engine)) as client:

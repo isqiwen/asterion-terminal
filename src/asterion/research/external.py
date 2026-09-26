@@ -30,8 +30,6 @@ def validate_contribution(package, value):
     declaration = Declaration.model_validate(value)
     if declaration.id != package.id or package.id.startswith("builtin."):
         raise ValueError("策略标识必须等于插件标识，且不得占用内置命名空间")
-    if package.requires:
-        raise ValueError("策略包仅支持标准库、公共 SDK 和包内源码依赖，不支持其他已安装插件依赖")
     keys = [p.key for p in declaration.parameters]
     if len(keys) != len(set(keys)) or len(keys) > 32:
         raise ValueError("策略参数重复或超出 32 项")

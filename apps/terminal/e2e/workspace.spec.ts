@@ -4,7 +4,7 @@ test("settings open separately and apply preferences without changing the worksp
 }) => {
   await page.goto("/");
   const tabs = page.getByRole("navigation", { name: "业务工作区" });
-  await expect(tabs.getByRole("button")).toHaveCount(7);
+  await expect(tabs.getByRole("button")).toHaveCount(6);
   await expect(tabs).not.toContainText("设置");
   await expect(page.getByText("开发里程碑")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "停止后台服务" })).toHaveCount(

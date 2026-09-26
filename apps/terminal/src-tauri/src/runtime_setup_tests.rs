@@ -317,6 +317,28 @@ fn repeat_install_is_noop_and_runtime_calls_block_replacement() {
     assert!(setup.ready());
 }
 
+#[test]
+fn completed_installation_releases_inherited_descriptors_but_abandonment_does_not() {
+    let temp = Directory::new();
+    let path = temp.0.join("setup.lock");
+    let owner = File::create(&path).unwrap();
+    owner.lock_exclusive().unwrap();
+    // A fork before exec retains the same open-file description, exactly as dup
+    // does here. CLOEXEC does not close that inherited descriptor until exec.
+    let inherited = owner.try_clone().unwrap();
+    drop(InstallationLease(owner));
+    let contender = File::open(&path).unwrap();
+    assert!(FileExt::try_lock_shared(&contender).is_err());
+
+    let completed = InstallationLease(inherited);
+    let still_inherited = completed.0.try_clone().unwrap();
+    completed.finish().unwrap();
+    assert!(FileExt::try_lock_shared(&contender).is_ok());
+    // Keep the duplicate alive through the assertion; completion releases the
+    // lock deliberately, rather than waiting for every inherited fd to close.
+    drop(still_inherited);
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn macos_requires_homebrew_formula_and_uses_system_root() {

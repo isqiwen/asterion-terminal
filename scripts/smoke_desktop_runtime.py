@@ -32,7 +32,7 @@ def fixture_time(contract, start, end, *, night=False):
     import re
     from datetime import date, timedelta
 
-    from asterion.trading_time.public import TimeSpec, TimeVersion, time_id
+    from asterion_bindings.calendar import TimeSpec, TimeVersion, time_id
 
     first, last = date.fromisoformat(start), date.fromisoformat(end)
     spec = TimeSpec.model_validate(
@@ -209,7 +209,15 @@ def main():
                     assert all(provider["api_version"] == 2 for provider in by_id.values())
                     assert not by_id["tushare"]["configured"]
                     assert client.get("data/catalog").json()["total"] == 0
-                    assert len(client.get("data/types").json()) == 6
+                    assert {item["id"] for item in client.get("data/types").json()} == {
+                        "futures.role_mapping",
+                        "futures.contracts",
+                        "futures.calendar",
+                        "futures.settlement",
+                        "futures.daily",
+                        "futures.minute",
+                        "futures.bars",
+                    }
                     saved = client.post(
                         "data/providers/tushare/configuration",
                         json={"expected_revision": 0, "secrets": {"token": "synthetic-smoke-only"}},
@@ -408,7 +416,7 @@ def main():
                     assert discovered == [
                         item.model_dump(mode="json") for item in strategy_catalog().list()
                     ]
-                    from sqlalchemy import create_engine
+                    from asterion_bindings.database import create_engine
 
                     from asterion.distribution_storage import data_storage
                     from asterion.runtime.desktop import runtime_settings
@@ -518,14 +526,32 @@ def main():
                         },
                     )
                     assert wrong_role_source.status_code == 422
-                    from asterion.contract_roles.computed import algorithm_artifact
                     from asterion.contract_roles.computed_public import AlgorithmArtifact
 
                     packaged_algorithm = (
                         client.get("contract-roles/ranking/algorithm").raise_for_status().json()
                     )
-                    assert (
-                        AlgorithmArtifact.model_validate(packaged_algorithm) == algorithm_artifact()
+                    # Compare the API with a second installed process. The development
+                    # interpreter and independently built native binary have different identities.
+                    expected_algorithm = subprocess.run(
+                        [
+                            str(backend),
+                            "-I",
+                            "-c",
+                            (
+                                "from asterion.contract_roles.computed import algorithm_artifact; "
+                                "print(algorithm_artifact().model_dump_json())"
+                            ),
+                        ],
+                        cwd=state,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                        timeout=30,
+                    )
+                    assert AlgorithmArtifact.model_validate(packaged_algorithm) == (
+                        AlgorithmArtifact.model_validate_json(expected_algorithm.stdout)
                     )
                     assert client.get("contract-roles/computed").raise_for_status().json() == []
                     assert (
@@ -1127,11 +1153,11 @@ def main():
                     assert all(states[key] == "ready" for key in ("api", "database", "worker"))
                     assert states["provider:tushare"] == "unconfigured"
                     assert "provider:synthetic" not in states
-                    assert states["trading"] == "not_integrated"
-                    plugin_source = ROOT / "examples/plugins/calendar-source"
+                    assert states["trading"] == "unavailable", states
+                    plugin_source = ROOT / "examples/plugins/close-momentum"
                     archive = io.BytesIO()
                     with zipfile.ZipFile(archive, "w") as package:
-                        for filename in ("manifest.json", "plugin.py"):
+                        for filename in ("manifest.json", "plugin.py", "signal_logic.py"):
                             package.write(plugin_source / filename, filename)
                     installed = client.post(
                         "extensions/install",
@@ -1143,25 +1169,17 @@ def main():
                     )
                     installed.raise_for_status()
                     digest = installed.json()["digest"]
-                    enabled = client.post(
-                        "extensions/org.example.calendar/state",
+                    client.post(
+                        "extensions/example.close_momentum/state",
                         json={"digest": digest, "enabled": True, "trust_local_code": True},
+                    ).raise_for_status()
+                    strategies = client.get("research/strategies")
+                    strategies.raise_for_status()
+                    assert any(
+                        s["identity"]["id"] == "example.close_momentum" for s in strategies.json()
                     )
-                    enabled.raise_for_status()
-                    view = client.post(
-                        "extensions/org.example.calendar/view", json={"digest": digest}, timeout=30
-                    )
-                    view.raise_for_status()
-                    assert view.json()["rows"][0]["runtime"] == "local Python code"
                     scoped = client.post("access/scopes", json={"scope": "sources"})
                     scoped.raise_for_status()
-                    assert (
-                        client.get(
-                            "data/providers",
-                            headers={"Authorization": "Bearer " + scoped.json()["token"]},
-                        ).status_code
-                        == 200
-                    )
                     assert (
                         client.get(
                             "extensions",
@@ -1169,64 +1187,28 @@ def main():
                         ).status_code
                         == 401
                     )
+                    # Data sources are built-in only: a data source package is refused.
+                    manifest = json.loads((plugin_source / "manifest.json").read_text())
+                    manifest["contributions"] = {"data.provider": {}}
+                    rejected = io.BytesIO()
+                    with zipfile.ZipFile(rejected, "w") as package:
+                        package.writestr("manifest.json", json.dumps(manifest))
+                        package.writestr("plugin.py", "raise RuntimeError('never executed')")
+                    refused = client.post(
+                        "extensions/inspect",
+                        json={"archive": base64.b64encode(rejected.getvalue()).decode()},
+                    )
+                    assert refused.status_code == 422, refused.text
                     client.post(
-                        "extensions/org.example.calendar/state",
+                        "extensions/example.close_momentum/state",
                         json={"digest": digest, "enabled": False, "trust_local_code": False},
                     ).raise_for_status()
-                    assert (
-                        client.post(
-                            "extensions/org.example.calendar/view", json={"digest": digest}
-                        ).status_code
-                        == 409
-                    )
-                    # Development-only data fixture; never part of the shipped provider registry.
-                    fixture_factory = runpy.run_path(str(ROOT / "tests/extension_support.py"))[
-                        "package_content"
-                    ]
-                    fixture_content = fixture_factory()
-                    fixture = client.post(
-                        "extensions/install",
-                        json={
-                            "archive": base64.b64encode(fixture_content).decode(),
-                            "digest": hashlib.sha256(fixture_content).hexdigest(),
-                            "trust_local_code": True,
-                        },
-                    )
-                    fixture.raise_for_status()
-                    fixture_digest = fixture.json()["digest"]
-                    client.post(
-                        "extensions/test.calendar/state",
-                        json={"digest": fixture_digest, "enabled": True, "trust_local_code": True},
-                    ).raise_for_status()
-                    sync = client.post(
-                        "data/sync",
-                        json={
-                            "command_id": "external-installed-calendar",
-                            "provider": "test_calendar",
-                            "dataset": "calendar",
-                            "exchange": "SHFE",
-                            "start": "2024-01-02",
-                            "end": "2024-01-02",
-                        },
-                    )
-                    sync.raise_for_status()
-                    complete = wait_job(client, sync.json()["id"], state)
-                    version = client.get("data/versions/" + complete["result"]["version_id"])
-                    version.raise_for_status()
-                    assert version.json()["version"]["manifest"]["plugin_digest"] == fixture_digest
-                    client.post(
-                        "extensions/test.calendar/state",
-                        json={
-                            "digest": fixture_digest,
-                            "enabled": False,
-                            "trust_local_code": False,
-                        },
-                    ).raise_for_status()
-                    print(
-                        "PASS: installed worker invokes external data plugin and publishes fixed package provenance"
+                    assert all(
+                        s["identity"]["id"] != "example.close_momentum"
+                        for s in client.get("research/strategies").json()
                     )
                     print(
-                        "PASS: installed independent Python plugin + bundled public SDK + declarative view + server scope enforcement + disable"
+                        "PASS: installed strategy package + bundled public SDK + server scope enforcement + disable; data source packages refused"
                     )
                     print(
                         "PASS: platform PostgreSQL + installed serve + installed worker + Parquet + typed catalogue + raw lineage + mapped file import + isolated provider configuration + production-only registry + installed research and exact rerun + research workspace persistence + portable package verification and replay + CSV/report export + version reference protection and reversible archive, with clean PATH"
@@ -1265,7 +1247,11 @@ def main():
                 )
                 if result.returncode:
                     raise RuntimeError("Installed backup/restore smoke failed: " + result.stderr)
-                return json.loads(result.stdout)
+                from asterion_bindings.communication import validate
+
+                response = validate("Reply", json.loads(result.stdout))
+                assert response["error"] is None
+                return response["result"]
 
             saved = backup_call("desktop-snapshot", "--output", str(archive))
             assert saved["files"] > 0
@@ -1278,9 +1264,19 @@ def main():
             assert not (restored / "postgres/postmaster.pid").exists()
             assert (restored / "data").is_dir()
             # Exercise host indirection in the installed executable without touching launchd.
-            from asterion.runtime.environments import write
+            from asterion_bindings.files import atomic_write
 
-            write(state, {"active": str(restored), "previous": str(state), "pending": None})
+            atomic_write(
+                state / "environment.json",
+                json.dumps(
+                    {
+                        "active": str(restored),
+                        "previous": str(state),
+                        "pending": None,
+                        "protection_backup": None,
+                    }
+                ).encode(),
+            )
             assert backup_call("desktop-environment")["active"] == str(restored)
             assert backup_call("desktop-info")["data_directory"] == str(restored / "data")
             assert (

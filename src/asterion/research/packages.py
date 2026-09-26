@@ -10,6 +10,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 
+from asterion_bindings.execution import validate_prices
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import JSON, Column, String, Table, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -18,7 +19,8 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from asterion.data.public import coverage_contracts, normalize_coverage_report
 from asterion.platform.serialization import canonical
 from asterion.platform.store import jobs, metadata
-from asterion.research.engine import ENGINE, calculate, settlement_price
+from asterion.research.data_input import selected_input
+from asterion.research.engine import ENGINE, calculate
 from asterion.research.service import KIND, LIMIT, WARNINGS, validate_input, validate_time_calendar
 from asterion.research.strategies import StrategyUnavailable
 
@@ -49,21 +51,9 @@ class PortableBar(BaseModel):
 
     @model_validator(mode="after")
     def prices(self):
-        settlement_price({"settle": self.settle})
-        try:
-            values = [Decimal(getattr(self, key)) for key in ("open", "high", "low", "close")]
-            if any(
-                not p.is_finite()
-                or not 0 < p <= Decimal("1e12")
-                or int(p.normalize().as_tuple().exponent) < -8
-                for p in values
-            ):
-                raise ValueError("行情价格超出支持范围")
-            opening, high, low, close = values
-            if not low <= min(opening, close) <= max(opening, close) <= high:
-                raise ValueError("行情价格范围无效")
-        except InvalidOperation:
-            raise ValueError("行情价格无效") from None
+        validate_prices(
+            {key: getattr(self, key) for key in ("open", "high", "low", "close", "settle")}
+        )
         return self
 
 
@@ -341,12 +331,8 @@ class ResearchPackages:
                 resolution = "local_run"
             else:
                 try:
-                    preview = self.service.versions.read(config.version_id, limit=LIMIT + 1)
-                    if (
-                        preview["total"] > LIMIT
-                        or preview["version"]["manifest"]["checksum"]
-                        != content["version"]["checksum"]
-                    ):
+                    preview = selected_input(self.service.versions, config, LIMIT)
+                    if preview["version"]["manifest"]["checksum"] != content["version"]["checksum"]:
                         raise ValueError("本机版本与包内引用不一致")
                     selected = [
                         r
@@ -414,7 +400,8 @@ class ResearchPackages:
         validate_input(payload)
         if (
             digest(content["output"]) != content["output_checksum"]
-            or digest(calculate(payload, self.service.strategies)) != content["output_checksum"]
+            or digest(calculate(payload, self.service.strategies, self.service.execution))
+            != content["output_checksum"]
         ):
             raise ValueError("包内结果与固定输入重新计算的结果不一致")
         return payload, "READY", resolution

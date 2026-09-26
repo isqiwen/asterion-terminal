@@ -5,6 +5,9 @@ from copy import deepcopy
 from dataclasses import replace
 
 import pytest
+from asterion_bindings.artifacts import ArtifactStore
+from asterion_bindings.catalog import ReferenceCatalog, catalog_digest
+from asterion_bindings.files import read_files
 from storage_support import raw_engine
 from test_coverage import sync  # noqa: F401
 from test_local_coverage import local  # noqa: F401
@@ -12,9 +15,6 @@ from test_research import services  # noqa: F401
 
 from asterion.data.backup import load_evidence, validate_backup
 from asterion.data.public import VersionAccess
-from asterion.data.reference import ReferenceCatalog
-from asterion.data.reference_store import catalog_digest
-from asterion.platform.files import read_files
 from asterion.platform.serialization import canonical
 from asterion.research.service import validate_input
 
@@ -64,7 +64,7 @@ def test_same_code_cannot_hide_two_actual_lifecycles(services):  # noqa: F811
     catalog["contracts"].append(second)
     catalog["symbols"].append(later)
     report["identity"]["catalog_id"] = catalog_digest(ReferenceCatalog.model_validate(catalog))
-    service.versions = VersionAccess(port.read, lambda _: report)
+    service.versions = VersionAccess(port.read, lambda _: report, port.scan)
     with pytest.raises(ValueError, match="不同生命周期"):
         service.submit(body)
     assert service.list() == []
@@ -73,7 +73,12 @@ def test_same_code_cannot_hide_two_actual_lifecycles(services):  # noqa: F811
 def test_backup_checks_embedded_coverage_catalogue(services):  # noqa: F811
     service, _, root = services
     with raw_engine(service.engine).connect() as conn:
-        evidence = load_evidence(conn, read_files(root / "data"), lambda value: value)
+        evidence = load_evidence(
+            conn,
+            ArtifactStore(root / "data", read_only=True),
+            read_files(root / "data"),
+            lambda value: value,
+        )
     validate_backup(evidence)
     damaged = deepcopy(evidence.coverage[0])
     damaged["identity"]["catalog_id"] = "0" * 64
@@ -90,3 +95,14 @@ def test_local_code_is_explicit_and_never_inferred_from_suffix_or_case(local):  
     exact = service.coverage.check(daily["id"], body)
     assert exact["identity"]["symbol"] == "RB2610.SHF"
     assert exact["identity"]["catalog"]["inputs"][0]["version_id"] == body.contracts_version_id
+
+
+def test_coverage_report_must_match_requested_range(services):  # noqa: F811
+    service, body, _ = services
+    port = service.versions
+    report = deepcopy(port.coverage(body.coverage_report_id))
+    report["end"] = "2024-01-03"
+    service.versions = VersionAccess(port.read, lambda _: report, port.scan)
+    with pytest.raises(ValueError, match="日期范围不一致"):
+        service.submit(body)
+    assert service.list() == []

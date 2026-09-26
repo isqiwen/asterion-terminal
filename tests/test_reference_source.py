@@ -1,18 +1,20 @@
 from copy import deepcopy
 
 import pytest
+from asterion_bindings.artifacts import ArtifactStore
+from asterion_bindings.catalog import ResolutionRequest
+from asterion_bindings.files import read_files
+from entry_support import entry_lifecycle
 from fastapi.testclient import TestClient
 from storage_support import data_store
 from test_data_sync import MASTER, context, prepared, request  # noqa: F401
 
 from asterion.api.app import create_app
 from asterion.data.backup import load_evidence, validate_backup
-from asterion.data.providers.tushare import Tushare, delivery_month
-from asterion.data.reference import ResolutionRequest
+from asterion.data.providers.tushare import Tushare
 from asterion.data.reference_source import SourceCatalogRequest, source_catalog
 from asterion.data.reference_store import ReferenceStore
 from asterion.platform.config import Settings
-from asterion.platform.files import read_files
 
 
 def publish(context, monkeypatch, transform=None):  # noqa: F811
@@ -58,9 +60,12 @@ def test_synced_version_catalog_api_and_backup(context, monkeypatch):  # noqa: F
     assert release.catalog.resolve(query).contract == contract
     with pytest.raises(ValueError, match="不可知"):
         release.catalog.resolve(query.model_copy(update={"information_at": provenance.observed_at}))
+    with entry_lifecycle(str(engine.url), root) as manager:
+        assert manager.inspect(version["id"])["references"]["reference_catalogs"] == 1
     with engine.connect() as conn:
-        assert store.references(conn, version["id"]) == 1
-        evidence = load_evidence(conn, read_files(root), lambda b: b)
+        evidence = load_evidence(
+            conn, ArtifactStore(root, read_only=True), read_files(root), lambda b: b
+        )
     assert validate_backup(evidence)["reference_releases"] == 1
     from dataclasses import replace
 
@@ -73,17 +78,6 @@ def test_synced_version_catalog_api_and_backup(context, monkeypatch):  # noqa: F
     (root / version["manifest"]["path"]).write_bytes(b"damaged")
     assert client.post(endpoint + "/publish", json=body).status_code == 422
     assert len(store.list()) == 1
-
-
-@pytest.mark.parametrize("value", ["605", "2610", "202613", "000005", "2026-10", 202610])
-def test_source_does_not_guess_delivery_year(value):
-    with pytest.raises(ValueError):
-        delivery_month(value)
-
-
-def test_source_month_is_explicit_or_unknown():
-    assert delivery_month("203605") == "2036-05"
-    assert delivery_month(None) is None
 
 
 @pytest.mark.parametrize(

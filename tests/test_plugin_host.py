@@ -1,16 +1,16 @@
 from dataclasses import replace
 
 import pytest
+from asterion_bindings.database import create_engine
+from asterion_bindings.plugin_host import Activation, Capability, Plugin, PluginHost
+from asterion_bindings.resource import Resource
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from storage_support import raw_engine
 
 from asterion.api.app import create_app
 from asterion.distribution import builtin_plugins
 from asterion.platform.config import Settings
-from asterion.platform.plugins import Activation, Capability, Plugin, PluginHost
-from asterion.platform.resource import Resource
 
 
 def test_dependency_validation_happens_before_activation():
@@ -25,6 +25,34 @@ def test_dependency_validation_happens_before_activation():
         with pytest.raises(ValueError, match=match):
             PluginHost(entries)
     assert calls == []
+
+
+def test_object_resources_captured_methods_and_lazy_scopes_are_revoked():
+    from asterion_bindings.local import current_lifetimes
+
+    class Source:
+        def capture(self):
+            return current_lifetimes()
+
+    resource = Resource("fixture.source", Source)
+    retained = []
+
+    def activate(context):
+        retained.append(context.resource(resource))
+        return Activation()
+
+    host = PluginHost((Plugin("fixture.owner", (), activate, resources=(resource,)),))
+    host.activate(FastAPI(), {"fixture.owner": {resource: Source()}})
+    method = retained[0].capture
+    scopes = method()
+    assert len(scopes) == 1
+    scopes[0].check()
+    assert current_lifetimes() == ()
+    host.close()
+    with pytest.raises(ValueError, match="closed|not active"):
+        method()
+    with pytest.raises(ValueError, match="closed|not active"):
+        scopes[0].check()
 
 
 def test_ordered_activation_declared_dependencies_and_reverse_idempotent_shutdown():
@@ -131,7 +159,7 @@ def test_omitted_feature_has_no_routes_and_required_dependents_fail(tmp_path):
         assert client.get("/api/v1/health").status_code == 200
         assert client.get("/api/v1/data/providers").status_code == 404
         assert client.get("/api/v1/research/runs").status_code == 404
-        assert client.get("/api/v1/jobs").status_code == 200
+        assert client.get("/api/v1/services").status_code == 200
     engine.dispose()
 
 
@@ -158,13 +186,14 @@ def test_capability_declarations_fail_before_activation(invalid):
     assert calls == []
 
 
-@pytest.mark.parametrize("exports", ["missing", "undeclared", "wrong_type"])
+@pytest.mark.parametrize("exports", ["missing", "undeclared", "wrong_type", "invalid_key"])
 def test_invalid_exports_release_resources_and_publish_no_routes(exports):
     capability = Capability("fixture.read", "fixture.base", str)
     values = {
         "missing": {},
         "undeclared": {capability: "ok", Capability("fixture.write", "fixture.base", str): "bad"},
         "wrong_type": {capability: 1},
+        "invalid_key": {"invalid": "not a capability"},
     }
     events = []
     app = FastAPI()
@@ -241,7 +270,13 @@ def test_plugin_only_resolves_declared_resources_and_bindings_are_snapshotted():
         assert context.resource(resource) == "approved"
         with pytest.raises(ValueError, match="Undeclared resource"):
             context.resource(private)
-        assert set(context.__dataclass_fields__) == {"plugin", "_resources", "_resolve", "_hooks"}
+        assert set(context.__dataclass_fields__) == {
+            "plugin",
+            "_resources",
+            "_resolve",
+            "_hooks",
+            "_publisher",
+        }
         return Activation()
 
     host = PluginHost((Plugin("fixture.base", (), activate, resources=(resource,)),))
@@ -270,3 +305,53 @@ def test_duplicate_exception_handlers_release_plugins_without_publishing():
         host.activate(app, {})
     assert app.exception_handlers == before
     assert events == ["fixture.two", "fixture.one"]
+
+
+def test_zero_plugin_host_and_reserved_kernel_namespace():
+    host = PluginHost(())
+    host.activate(FastAPI(), {})
+    host.close()
+    with pytest.raises(ValueError, match="Reserved kernel"):
+        PluginHost((Plugin("kernel.authorization", (), lambda _: Activation()),))
+    with pytest.raises(ValueError, match="must belong to L3"):
+        PluginHost((Plugin("fixture.python", (), lambda _: Activation(), layer="L2"),))
+
+
+def test_previously_resolved_callback_is_invalid_after_host_close():
+    from collections.abc import Callable
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class Port:
+        read: Callable[[], str]
+
+    capability = Capability("fixture.read", "fixture.base", Port)
+    host = PluginHost(
+        (
+            Plugin(
+                "fixture.base",
+                (),
+                lambda _: Activation(exports={capability: Port(lambda: "active")}),
+                provides=(capability,),
+            ),
+        )
+    )
+    host.activate(FastAPI(), {})
+    port = host.resolve(capability)
+    assert port.read() == "active"
+    host.close()
+    with pytest.raises(ValueError, match="closed"):
+        port.read()
+
+
+def test_standalone_catalogue_owns_its_host_until_explicit_close():
+    from asterion.distribution import strategy_catalog
+
+    with strategy_catalog() as catalog:
+        strategy = catalog.resolve(catalog.list()[0].identity)
+        parameters = {field.key: field.default for field in strategy.info.parameters}
+        strategy.parameters(parameters)
+    with pytest.raises(ValueError, match="closed"):
+        strategy.parameters(parameters)
+    with pytest.raises(ValueError, match="not active"):
+        catalog.list()

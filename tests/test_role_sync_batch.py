@@ -1,6 +1,8 @@
 """Role batch orchestration uses declared ports and one transaction."""
 
 import pytest
+from asterion_bindings.task_models import Job
+from asterion_bindings.task_repository import task_port
 from role_source_support import port
 from sqlalchemy import select
 from test_role_tasks import setup as role_setup
@@ -11,8 +13,6 @@ from asterion.data.public import SyncAccess, SyncBatchAccess
 from asterion.data.sync_dependencies import access
 from asterion.distribution_storage import data_storage
 from asterion.platform.store import jobs
-from asterion.platform.task_port import task_port
-from asterion.platform.tasks.public import Job
 
 setup = role_setup
 

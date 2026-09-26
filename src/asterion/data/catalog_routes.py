@@ -1,72 +1,22 @@
 """Data-owned HTTP contributions, including immutable publication."""
 
-from typing import Annotated
+from asterion_bindings.catalog import (
+    ContractResolution,
+    ReferenceCatalog,
+    ReferenceRelease,
+    ResolutionRequest,
+)
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
-
-from asterion.data.importing import ImportPreview, encode_import, preview
-from asterion.data.public import Bar, ImportRequest, Snapshot, read_bars
-from asterion.data.reference import ContractResolution, ReferenceCatalog, ResolutionRequest
-from asterion.data.reference_source import SourceCatalogRequest, source_catalog
-from asterion.data.reference_store import ReferenceRelease, ReferenceSummary
-from asterion.platform.tasks.public import Job
+from asterion.data.reference_source import (
+    SourceCatalogRequest,
+    source_catalog,
+)
+from asterion.data.reference_store import ReferenceSummary
 
 
-def catalog_router(data, reference, tasks, account_access, version_reader):
+def catalog_router(reference, account_access, version_reader):
     routes = APIRouter()
-
-    @routes.post(
-        "/api/v1/imports",
-        status_code=202,
-        response_model=Job,
-        dependencies=[Depends(account_access)],
-    )
-    def import_csv(body: ImportRequest):
-        body.options.identity.validate_inputs(data.library.preview)
-        encode_import(body.model_dump())
-        return tasks.submit(
-            body.command_id,
-            "data.import_csv",
-            body.model_dump(mode="json", exclude={"command_id"}),
-        )
-
-    @routes.post(
-        "/api/v1/imports/preview",
-        response_model=ImportPreview,
-        dependencies=[Depends(account_access)],
-    )
-    def preview_import(body: ImportRequest):
-        body.options.identity.validate_inputs(data.library.preview)
-        return preview(body.csv, body.options)
-
-    @routes.post("/api/v1/jobs/{job_id}/publish")
-    async def publish(job_id: str, request: Request, x_lease_token: Annotated[str, Header()]):
-        # This first CSV slice is capped. General large-file publication is a separate protocol.
-        chunks = bytearray()
-        async for chunk in request.stream():
-            chunks.extend(chunk)
-            if len(chunks) > 8_000_000:
-                raise HTTPException(413, "Artifact exceeds 8 MB")
-        from starlette.concurrency import run_in_threadpool
-
-        return await run_in_threadpool(data.publish, job_id, x_lease_token, bytes(chunks))
-
-    @routes.get(
-        "/api/v1/snapshots", response_model=list[Snapshot], dependencies=[Depends(account_access)]
-    )
-    def list_snapshots():
-        return data.list()
-
-    @routes.get(
-        "/api/v1/snapshots/{snapshot_id}/bars",
-        response_model=list[Bar],
-        dependencies=[Depends(account_access)],
-    )
-    def bars(snapshot_id: str):
-        try:
-            return read_bars(data.path(snapshot_id))
-        except KeyError:
-            raise HTTPException(404, "Published snapshot not found")
 
     @routes.post(
         "/api/v1/reference/source/preview",

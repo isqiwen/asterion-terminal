@@ -6,10 +6,10 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal, Protocol
 
+from asterion_bindings.plugin_host import Activation, Capability, Plugin
+from asterion_bindings.resource import Resource
 from pydantic import BaseModel, ConfigDict, Field
 
-from asterion.platform.plugins import Activation, Capability, Plugin
-from asterion.platform.resource import Resource
 from asterion.research.parameters import Parameter, ParameterValue, validate_parameters
 
 

@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 
 import pytest
+from asterion_bindings.diagnostics import ProcessFailure
+from asterion_bindings.execution import ExecutionFactory
 from test_research import payload, services  # noqa: F401
 
 from asterion.distribution import extension_packages, strategy_catalog
@@ -51,13 +53,13 @@ def test_installed_multifile_strategy_and_revocation(installed):
     packages, record, catalog = installed
     assert len(catalog.list()) == 3
     value = external_payload(record)
-    output = calculate(value, catalog)
+    output = calculate(value, catalog, ExecutionFactory())
     assert output["summary"]["final_equity"] == "946"
-    assert canonical(output) == canonical(calculate(value, catalog))
+    assert canonical(output) == canonical(calculate(value, catalog, ExecutionFactory()))
     packages.select(record["manifest"]["id"], record["digest"], False)
     assert len(catalog.list()) == 2
     with pytest.raises(ValueError):
-        calculate(value, catalog)
+        calculate(value, catalog, ExecutionFactory())
     packages.remove(record["manifest"]["id"], record["digest"])
     assert packages.resolve(record["digest"])[0].id == record["manifest"]["id"]
 
@@ -67,47 +69,44 @@ def test_tampered_dependency_rejected(installed):
     _, path = packages.resolve(record["digest"])
     (path / "signal_logic.py").write_text("raise RuntimeError('changed dependency')")
     with pytest.raises(ValueError, match="变化"):
-        calculate(external_payload(record), catalog)
+        calculate(external_payload(record), catalog, ExecutionFactory())
 
 
 def test_streaming_session_timeout_and_live_revocation(installed):
     packages, record, _ = installed
     _, path = packages.resolve(record["digest"])
-    session = PackageSession(path, authorized=lambda: True, timeout=0)
-    with pytest.raises(ValueError, match="超时"):
-        session.call(
-            "strategy.open",
-            {
-                "parameters": {
-                    "lookback": 1,
-                    "threshold": "0.0000",
-                    "enabled": True,
-                    "comparison": "strict",
-                }
-            },
-        )
-    assert session.closed and session.process.poll() is not None
+    opening = {"parameters": external_payload(record)["request"]["parameters"]}
+    expired = PackageSession(path, authorized=lambda: True, timeout=0)
+    with pytest.raises(ProcessFailure, match="超时") as timeout:
+        expired.call("strategy.open", opening)
+    assert timeout.value.code == "timeout"
+    expired.close()
+    expired.close()
+    with pytest.raises(ProcessFailure):
+        expired.call("strategy.open", opening)
+
     session = PackageSession(
         path, authorized=lambda: packages.enabled(record["manifest"]["id"], record["digest"])
     )
-    assert (
-        session.call(
-            "strategy.open",
-            {
-                "parameters": {
-                    "lookback": 1,
-                    "threshold": "0.0000",
-                    "enabled": True,
-                    "comparison": "strict",
-                }
-            },
-        )
-        is None
-    )
+    assert session.call("strategy.open", opening) is None
     packages.select(record["manifest"]["id"], record["digest"], False)
-    with pytest.raises(ValueError, match="停用"):
+    with pytest.raises(ProcessFailure, match="停用") as revoked:
         session.call("strategy.close", {"trading_day": "2024-01-01", "close": "10"})
-    assert session.closed and session.process.poll() is not None
+    assert revoked.value.code == "revoked"
+
+    # Restoring permission does not revive the revoked session or its strategy state.
+    packages.select(record["manifest"]["id"], record["digest"], True)
+    with pytest.raises(ProcessFailure):
+        session.call("strategy.close", {"trading_day": "2024-01-01", "close": "10"})
+    session.close()
+    session.close()
+    fresh = PackageSession(
+        path, authorized=lambda: packages.enabled(record["manifest"]["id"], record["digest"])
+    )
+    try:
+        assert fresh.call("strategy.open", opening) is None
+    finally:
+        fresh.close()
 
 
 def test_external_strategy_publication_and_package_replay(request, installed):
@@ -130,7 +129,7 @@ def test_external_strategy_publication_and_package_replay(request, installed):
     )
     run = service.submit(request)
     claimed = scheduler(service.engine).claim("external")
-    output = canonical(calculate(claimed["payload"], catalog))
+    output = canonical(calculate(claimed["payload"], catalog, ExecutionFactory()))
     service.publish(claimed["id"], claimed["token"], output)
     bundles = ResearchPackages(service)
     exported = bundles.export(run["id"], True)
@@ -155,7 +154,7 @@ def test_backup_checks_artifact_without_executing_code(installed, services):  # 
             }
         )
     )
-    output = calculate(value, catalog)
+    output = calculate(value, catalog, ExecutionFactory())
     checksum = hashlib.sha256(canonical(output)).hexdigest()
     packages.select(record["manifest"]["id"], record["digest"], False)
     checked = []
@@ -172,6 +171,7 @@ def test_backup_checks_artifact_without_executing_code(installed, services):  # 
         lambda: iter([(value, checksum)]),
         lambda: iter(()),
         lambda: iter(()),
+        execution=ExecutionFactory(),
     )
     assert validate_backup(evidence) == {
         "research_results": 1,
@@ -197,14 +197,15 @@ def test_directory_does_not_execute_installed_code(tmp_path):
     catalog = strategy_catalog(tmp_path)
     assert len(catalog.list()) == 3
     with pytest.raises(ValueError):
-        calculate(external_payload(record), catalog)
+        calculate(external_payload(record), catalog, ExecutionFactory())
     packages.select(manifest["id"], record["digest"], False)
     manifest["version"] = "2.0.0"
+    # Packages cannot depend on other installed packages: the field is not part of the contract.
     manifest["requires"] = {"example.dependency": "1.0.0"}
     content = io.BytesIO()
     with zipfile.ZipFile(content, "w") as archive:
         archive.writestr("manifest.json", json.dumps(manifest))
         archive.writestr("plugin.py", "pass")
-    with pytest.raises(ValueError, match="依赖"):
+    with pytest.raises(ValueError):
         packages.install(content.getvalue())
     assert len(packages.list()) == 1

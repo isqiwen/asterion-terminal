@@ -6,7 +6,7 @@ from pydantic import Field
 from sqlalchemy import select
 
 from asterion.contract_roles.computed_public import digest
-from asterion.contract_roles.public import Strict
+from asterion.contract_roles.models import Strict
 from asterion.contract_roles.sequence import check_published
 from asterion.contract_roles.sync_workflow import SyncContinuation, workflows
 from asterion.data.public import DailySyncBatch

@@ -1,6 +1,9 @@
 from copy import deepcopy
 
 import pytest
+from asterion_bindings.artifacts import ArtifactStore
+from asterion_bindings.roles import RoleQuery, RoleVersion, resolve, role_id
+from entry_support import entry_lifecycle
 from fastapi.testclient import TestClient
 from role_source_support import port, sources
 from rules_support import time_version
@@ -8,7 +11,6 @@ from test_contract_roles import fixture
 from test_data_sync import MASTER, context, prepared, request  # noqa: F401
 
 from asterion.api.app import create_app
-from asterion.contract_roles.public import RoleQuery, RoleVersion, resolve, role_id
 from asterion.contract_roles.sources import RoleSourceRequest, RoleSources
 from asterion.data.providers.public import ProviderError
 from asterion.data.providers.tushare import Tushare
@@ -160,15 +162,15 @@ def test_published_mapping_preview_save_and_source_corruption(context, monkeypat
         changed = deepcopy(spec)
         changed["source_checksum"] = "0" * 64
         assert client.post(path, json=changed).status_code == 422
-        for identifier in (mapping["id"], contracts["id"]):
-            response = client.get(f"/api/v1/data/versions/{identifier}/lifecycle")
-            assert response.json()["references"]["contract_roles"] == 1
+        with entry_lifecycle(str(engine.url), root) as manager:
+            for identifier in (mapping["id"], contracts["id"]):
+                assert manager.inspect(identifier)["references"]["contract_roles"] == 1
+
         from asterion.contract_roles.plugin import RoleBackup, validate
         from asterion.data.public import snapshot_backup_access
-        from asterion.platform.files import read_files
 
         with engine.connect() as conn:
-            backup_port = snapshot_backup_access(conn, read_files(root))
+            backup_port = snapshot_backup_access(conn, ArtifactStore(root, read_only=True))
         assert validate(RoleBackup((version.model_dump(mode="json"),), backup_port, (), ())) == {
             "contract_role_versions": 1,
             "computed_role_versions": 0,

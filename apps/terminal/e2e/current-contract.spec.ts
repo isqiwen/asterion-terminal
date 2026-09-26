@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { parseLayout } from "../src/plugins/workflow/layout";
+import { parseLayout } from "@asterion/ui-terminal-workspace/layout";
 import { nativeContext } from "./native";
 
 test("unknown browser layout schema reports an error without overwriting input", async ({ page }) => {
@@ -36,7 +36,7 @@ test("provider responses without current lifecycle state cannot enable sync", as
   });
   await page.goto("/");
   await page.getByLabel("会话令牌").fill("test-current-contract-token");
-  await page.getByRole("button", {name:"连接",exact:true}).click();
+  await page.locator("form").filter({ has: page.getByLabel("会话令牌") }).getByRole("button", {name:"连接",exact:true}).click();
   await page.getByRole("navigation", {name:"业务工作区"}).getByRole("button", {name:"数据",exact:true}).click();
   await expect(page.getByText("数据源状态不符合当前接口规范", {exact:false})).toBeVisible();
   await expect(page.getByRole("option", {name:"Unsupported provider"})).toHaveCount(0);

@@ -15,7 +15,6 @@ LINUX_PACKAGES = (
     "librsvg2-dev",
     "libssl-dev",
     "postgresql-17",
-    "libpq-dev",
     "python3-dev",
 )
 
@@ -71,12 +70,11 @@ def ensure_linux(*, runtime: bool, desktop: bool, interactive: bool) -> None:
             if p
             not in {
                 "postgresql-17",
-                "libpq-dev",
                 "python3-dev",
             }
         ]
     elif not desktop:
-        packages = ["postgresql-17", "libpq-dev", "python3-dev"]
+        packages = ["postgresql-17", "python3-dev"]
     missing = apt_missing(packages)
     if not missing:
         return

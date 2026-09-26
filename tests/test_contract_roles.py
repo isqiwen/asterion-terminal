@@ -4,14 +4,9 @@ from copy import deepcopy
 from datetime import datetime
 
 import pytest
-from fastapi.testclient import TestClient
-from import_identity_support import import_identity
-from sqlalchemy import create_engine
-from test_trading_time import example
-
-from asterion.api.app import create_app
-from asterion.contract_roles.plugin import RoleBackup, validate
-from asterion.contract_roles.public import (
+from asterion_bindings.calendar import TimeSpec, TimeVersion, time_id
+from asterion_bindings.database import create_engine
+from asterion_bindings.roles import (
     NextOpening,
     RoleQuery,
     RoleSpec,
@@ -20,8 +15,13 @@ from asterion.contract_roles.public import (
     resolve,
     role_id,
 )
+from fastapi.testclient import TestClient
+from import_identity_support import import_identity
+from test_trading_time import example
+
+from asterion.api.app import create_app
+from asterion.contract_roles.plugin import RoleBackup, validate
 from asterion.platform.config import Settings
-from asterion.trading_time.public import TimeSpec, TimeVersion, time_id
 
 
 def fixture():
@@ -241,24 +241,17 @@ def test_api_immutable_persistence_auth_and_backup(tmp_path, monkeypatch):
             from asterion.contract_roles.plugin import plugin
             from asterion.contract_roles.public import ROLE_ACCESS
             from asterion.distribution import backup_inputs
-            from asterion.distribution_storage import role_storage
 
             assert app.state.plugins.resolve(ROLE_ACCESS).read(version.id) == version
-            storage = role_storage(engine)
-            with storage.connect() as transaction:
-                results = [
-                    hook(transaction, "report-1")
-                    for hook in app.state.plugins.hooks("data.references")
-                ]
-            storage.close()
-            assert {"contract_roles": 1} in results
             (tmp_path / "data").mkdir(exist_ok=True)
-            with engine.connect() as conn:
-                evidence = backup_inputs(conn, tmp_path, settings.token, (plugin,))
-            assert validate(evidence[plugin.id]) == {
-                "contract_role_versions": 1,
-                "computed_role_versions": 0,
-            }
+            with (
+                engine.connect() as conn,
+                backup_inputs(conn, tmp_path, settings.token, (plugin,)) as evidence,
+            ):
+                assert validate(evidence[plugin.id]) == {
+                    "contract_role_versions": 1,
+                    "computed_role_versions": 0,
+                }
             assert (
                 client.post(
                     "/api/v1/contract-roles/resolve", json=query(version).model_dump(mode="json")
@@ -298,11 +291,12 @@ def test_next_opening_cannot_skip_uncovered_observation_history():
 
 
 def test_role_dependency_and_export_contract():
+    from asterion_bindings.plugin_host import PluginHost
+
     from asterion.distribution import builtin_plugins
-    from asterion.platform.plugins import PluginHost
 
     with pytest.raises(ValueError, match="Missing required plugin"):
-        PluginHost(tuple(p for p in builtin_plugins() if p.id != "asterion.trading_time"))
+        PluginHost(tuple(p for p in builtin_plugins() if p.id != "asterion.data"))
 
 
 def test_retrospective_cutoff_cannot_read_later_identity_evidence():

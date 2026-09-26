@@ -1,16 +1,14 @@
 from datetime import date
 
 import pytest
+from asterion_bindings.task_repository import Conflict
 from import_identity_support import import_identity
-from storage_support import data_store, domain_tasks, scheduler
+from import_support import import_options, import_payload, publish_import
+from storage_support import data_store, scheduler
 from test_research import services  # noqa: F401
 
-from asterion.data.importing import encode_import
 from asterion.data.library import DataLibrary
-from asterion.data.public import ImportOptions, ImportRequest
-from asterion.data.snapshots import Snapshots
 from asterion.platform.serialization import canonical
-from asterion.platform.tasks.service import Conflict
 from asterion.research.engine import calculate
 from asterion.research.experiments import ExperimentRequest, Experiments
 from asterion.research.validation import Selection, Validations, validate_record
@@ -23,24 +21,15 @@ def setup(request):
         f"SHFE.rb2405,2024-01-{i:02},{i + 10},{i + 11},{i + 10},{i + 11},100,{i + 11}"
         for i in range(1, 11)
     )
-    body = ImportRequest(
-        command_id="validation-data",
-        source="fixture",
-        csv=csv,
-        options=ImportOptions(
-            identity=import_identity("SHFE.rb2405"),
-            type_id="futures.daily",
-            frequency="1d",
-            source_id="validation",
-        ),
+    options = import_options(
+        import_identity("SHFE.rb2405"),
+        type_id="futures.daily",
+        frequency="1d",
+        source_id="validation",
     )
-    tasks.submit(
-        body.command_id, "data.import_csv", body.model_dump(exclude={"command_id"}, mode="json")
-    )
+    tasks.submit("validation-data", "data.import_csv", import_payload(csv, options, "fixture"))
     job = tasks.claim("import-validation")
-    Snapshots(
-        data_store(service.engine), domain_tasks(service.engine, "data"), root / "data"
-    ).publish(job["id"], job["token"], encode_import(job["payload"])[0])
+    publish_import(service.engine, root / "data", job)
     version = next(
         v
         for v in DataLibrary(data_store(service.engine), root / "data").list(
@@ -71,7 +60,9 @@ def setup(request):
     for _ in range(2):
         job = tasks.claim("research")
         service.publish(
-            job["id"], job["token"], canonical(calculate(job["payload"], service.strategies))
+            job["id"],
+            job["token"],
+            canonical(calculate(job["payload"], service.strategies, service.execution)),
         )
     selected = Selection(
         source_run=experiment["runs"][0],
@@ -99,7 +90,7 @@ def test_frozen_selection_independent_warmup_and_result(request):
             selected.model_copy(update={"source_run": experiment["runs"][1]}),
         )
     claimed = scheduler(service.engine).claim("validation")
-    output = calculate(claimed["payload"], service.strategies)
+    output = calculate(claimed["payload"], service.strategies, service.execution)
     assert [p["position"] for p in output["curve"][:2]] == [0, 0]
     assert output["fills"][0]["day"] == "2024-01-07"
     assert output["summary"]["initial_equity"] == "1000"

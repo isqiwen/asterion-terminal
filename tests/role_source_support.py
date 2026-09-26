@@ -1,3 +1,5 @@
+from scan_support import unsupported_scan
+
 """Explicit standard source observations used by role publication tests."""
 
 from asterion.data.public import VersionAccess
@@ -60,4 +62,6 @@ def sources():
 
 
 def port(values):
-    return VersionAccess(lambda identifier, **kw: values[identifier], lambda _: None)
+    return VersionAccess(
+        lambda identifier, **kw: values[identifier], lambda _: None, unsupported_scan
+    )

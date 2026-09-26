@@ -1,0 +1,420 @@
+{
+  "$defs": {
+    "CatalogInput": {
+      "additionalProperties": false,
+      "properties": {
+        "checksum": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "version_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "version_id",
+        "checksum",
+        "source"
+      ],
+      "type": "object"
+    },
+    "Contract": {
+      "additionalProperties": false,
+      "properties": {
+        "delivery_month": {
+          "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        "last_delivery_on": {
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_trade_on": {
+          "format": "date",
+          "type": "string"
+        },
+        "listed_on": {
+          "format": "date",
+          "type": "string"
+        },
+        "product_id": {
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        }
+      },
+      "required": [
+        "id",
+        "product_id",
+        "delivery_month",
+        "listed_on",
+        "last_trade_on",
+        "provenance",
+        "last_delivery_on"
+      ],
+      "type": "object"
+    },
+    "ContractResolution": {
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "$ref": "#/$defs/Contract"
+        },
+        "mapping": {
+          "$ref": "#/$defs/SourceSymbol"
+        }
+      },
+      "required": [
+        "contract",
+        "mapping"
+      ],
+      "type": "object"
+    },
+    "Exchange": {
+      "enum": [
+        "SHFE",
+        "DCE",
+        "CZCE",
+        "CFFEX",
+        "INE",
+        "GFEX"
+      ],
+      "type": "string"
+    },
+    "FileSymbol": {
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "symbol": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "contract",
+        "source",
+        "symbol"
+      ],
+      "type": "object"
+    },
+    "ImportIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "items": {
+            "$ref": "#/$defs/FileSymbol"
+          },
+          "maxItems": 10000,
+          "minItems": 1,
+          "type": "array"
+        },
+        "catalog": {
+          "$ref": "#/$defs/ReferenceCatalog"
+        },
+        "catalog_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "information_at": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "catalog_id",
+        "catalog",
+        "information_at",
+        "bindings"
+      ],
+      "type": "object"
+    },
+    "Product": {
+      "additionalProperties": false,
+      "properties": {
+        "currency": {
+          "pattern": "^[A-Z]{3}$",
+          "type": "string"
+        },
+        "exchange": {
+          "$ref": "#/$defs/Exchange"
+        },
+        "id": {
+          "pattern": "^(SHFE|DCE|CZCE|CFFEX|INE|GFEX)\\.[A-Z]+$",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        }
+      },
+      "required": [
+        "id",
+        "exchange",
+        "name",
+        "currency",
+        "provenance"
+      ],
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "available_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "source_version": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "source_version",
+        "observed_at",
+        "available_at"
+      ],
+      "type": "object"
+    },
+    "ReferenceCatalog": {
+      "additionalProperties": false,
+      "properties": {
+        "contracts": {
+          "items": {
+            "$ref": "#/$defs/Contract"
+          },
+          "type": "array"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/CatalogInput"
+          },
+          "type": "array"
+        },
+        "products": {
+          "items": {
+            "$ref": "#/$defs/Product"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "format": "uint8",
+          "maximum": 2,
+          "minimum": 2,
+          "type": "integer"
+        },
+        "symbols": {
+          "items": {
+            "$ref": "#/$defs/SourceSymbol"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_version",
+        "inputs",
+        "products",
+        "contracts",
+        "symbols"
+      ],
+      "type": "object"
+    },
+    "ReferenceRelease": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog": {
+          "$ref": "#/$defs/ReferenceCatalog"
+        },
+        "id": {
+          "type": "string"
+        },
+        "published_at": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "published_at",
+        "catalog"
+      ],
+      "type": "object"
+    },
+    "ResolutionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "information_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "symbol": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "trading_day": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "symbol",
+        "trading_day",
+        "information_at"
+      ],
+      "type": "object"
+    },
+    "SourceIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog": {
+          "$ref": "#/$defs/ReferenceCatalog"
+        },
+        "catalog_id": {
+          "type": "string"
+        },
+        "information_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "symbol": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "catalog_id",
+        "catalog",
+        "source",
+        "symbol",
+        "information_at"
+      ],
+      "type": "object"
+    },
+    "SourceSymbol": {
+      "additionalProperties": false,
+      "properties": {
+        "contract_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
+        "source": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{0,63}$",
+          "type": "string"
+        },
+        "symbol": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^\\S+$",
+          "type": "string"
+        },
+        "valid_from": {
+          "format": "date",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "symbol",
+        "contract_id",
+        "valid_from",
+        "valid_until",
+        "provenance"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/Provenance"
+    },
+    {
+      "$ref": "#/$defs/Product"
+    },
+    {
+      "$ref": "#/$defs/Contract"
+    },
+    {
+      "$ref": "#/$defs/SourceSymbol"
+    },
+    {
+      "$ref": "#/$defs/ResolutionRequest"
+    },
+    {
+      "$ref": "#/$defs/ContractResolution"
+    },
+    {
+      "$ref": "#/$defs/CatalogInput"
+    },
+    {
+      "$ref": "#/$defs/ReferenceCatalog"
+    },
+    {
+      "$ref": "#/$defs/SourceIdentity"
+    },
+    {
+      "$ref": "#/$defs/FileSymbol"
+    },
+    {
+      "$ref": "#/$defs/ImportIdentity"
+    },
+    {
+      "$ref": "#/$defs/ReferenceRelease"
+    }
+  ],
+  "title": "Models"
+}

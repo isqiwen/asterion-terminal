@@ -1,0 +1,10 @@
+.role-start { border: 1px solid var(--line); padding: 12px; margin: 12px 0; }
+.role-start p { margin: 8px 0; color: var(--muted); }
+.role-start fieldset { border: 1px solid var(--line); margin: 12px 0; padding: 12px; min-width: 0; }
+.role-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px; margin: 8px 0; }
+.role-fields label { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.role-summary { display: flex; gap: 16px; flex-wrap: wrap; }
+.role-summary dt { color: var(--muted); }
+.role-summary dd { margin: 4px 0; overflow-wrap: anywhere; }
+.role-start pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; }
+.role-start [role="alert"] { color: var(--danger); }

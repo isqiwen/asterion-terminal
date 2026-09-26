@@ -3,8 +3,8 @@ import time
 from unittest.mock import Mock
 
 import pytest
+from asterion_bindings.database import create_engine
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 from storage_support import raw_engine
 

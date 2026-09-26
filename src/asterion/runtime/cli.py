@@ -1,5 +1,4 @@
 import argparse
-import logging
 from pathlib import Path
 
 from asterion.platform.config import Settings
@@ -27,6 +26,7 @@ def main():
             "desktop-rollback",
         ],
     )
+    parser.add_argument("--communication-context")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--state", type=Path)
@@ -54,29 +54,39 @@ def main():
                 parser.error("--pg-root is required")
             supervise(args.state, args.pg_root)
             return
-        from asterion.runtime import environments
-        from asterion.runtime.backup import create_backup, managed_backup, restore_backup
+        from asterion_bindings.communication import activate, context, loads, reply, validate
 
+        from asterion.runtime.backup import create_backup, managed_backup, restore_backup
+        from asterion.runtime.environment import EnvironmentHost
+
+        trace = (
+            validate("Context", loads(args.communication_context))
+            if args.communication_context
+            else context(600)
+        )
         host = args.state.resolve()
         if args.pg_root is None:
             parser.error("--pg-root is required")
         try:
-            with environments.maintenance(
-                host, wait=args.role in {"desktop-bootstrap", "desktop-info"}
+            with (
+                activate(trace),
+                EnvironmentHost(
+                    host, args.pg_root, wait=args.role in {"desktop-bootstrap", "desktop-info"}
+                ) as environment,
             ):
                 if args.role not in {"desktop-info", "desktop-environment", "desktop-snapshot"}:
-                    environments.recover(host, args.pg_root)
-                state = environments.active(host)
+                    environment.recover()
+                state = environment.active()
                 if args.role == "desktop-info":
-                    result = environments.info(host)
+                    result = environment.info()
                 elif args.role == "desktop-environment":
-                    result = environments.status(host)
+                    result = environment.status()
                 elif args.role == "desktop-activate":
                     if args.target is None:
                         parser.error("--target is required")
-                    result = environments.switch(host, args.pg_root, args.target)
+                    result = environment.switch(args.target)
                 elif args.role == "desktop-rollback":
-                    result = environments.switch(host, args.pg_root)
+                    result = environment.switch()
                 elif args.role == "desktop-snapshot":
                     if args.output is None:
                         parser.error("--output is required")
@@ -96,15 +106,25 @@ def main():
                     result = {"status": "stopped"}
                 else:
                     result = bootstrap(state, args.pg_root)
-                print(json.dumps(result))
+                print(json.dumps(reply({"context": trace}, result), allow_nan=False))
         except Exception:  # noqa: BLE001 - database exceptions may contain credentials
+            print(
+                json.dumps(
+                    reply(
+                        {"context": trace},
+                        error={
+                            "code": "OPERATION_FAILED",
+                            "message": "本机维护失败，请检查运行环境诊断",
+                        },
+                    )
+                )
+            )
             parser.exit(
                 1,
                 "本机维护失败。请检查维护任务、目录、空间及版本兼容；若切换中断，重新启动服务会重试恢复原环境。原数据目录仍保留。\n",
             )
         return
     settings = Settings()
-    logging.basicConfig(level=logging.INFO)
     if args.role == "init":
         from asterion.platform.store import database
         from asterion.runtime.initialize import initialize

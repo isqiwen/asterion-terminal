@@ -1,17 +1,20 @@
 """Create test credentials through the current revisioned configuration contract."""
 
-from pydantic import SecretStr
-
-from asterion.data.configuration import ConfigurationUpdate
-
 
 def set_token(service, provider, token):
-    state = service.configuration.state(provider)
-    return service.configuration.apply(
+    state = service.sources.state(provider)
+    return service.sources.apply(
         provider,
-        ConfigurationUpdate(
-            expected_revision=state.revision,
-            values=state.values,
-            secrets={"token": SecretStr(token) if token else None},
-        ),
+        state["revision"],
+        values=state["values"],
+        secrets={"token": token or None},
     )
+
+
+def saved_values(service, owner, provider=None):
+    """The runnable values saved for `owner`, read back through a fixed snapshot."""
+    provider = provider or owner
+    with service.engine.connect() as conn:
+        fixed = service.sources.fix_for_task(conn, owner, provider)["configuration"]
+    spec = service.registry.get(provider).manifest.configuration.model_dump(mode="json")
+    return service.credentials.resolve(fixed, owner, spec)

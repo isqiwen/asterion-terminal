@@ -3,16 +3,21 @@ from copy import deepcopy
 from decimal import Decimal
 
 import pytest
+from asterion_bindings.artifacts import ArtifactStore
+from asterion_bindings.execution import ExecutionFactory
+from asterion_bindings.rules import RulePeriod, RuleSpec
+from entry_support import entry_lifecycle
 from fastapi.testclient import TestClient
 from import_identity_support import source_identity
 from rules_support import rule_version
+from scan_support import unsupported_scan
 from storage_support import raw_engine, scheduler
 from test_data_sync import MASTER, context, prepared, request  # noqa: F401
 from test_research import services as research_services  # noqa: F401
 from test_research import version_access
 
 from asterion.api.app import create_app
-from asterion.contract_rules.public import Period, RuleAccess, RuleSpec
+from asterion.contract_rules.public import RuleAccess
 from asterion.contract_rules.service import Rules
 from asterion.contract_rules.settlement import (
     SettlementConfirmation,
@@ -166,8 +171,8 @@ def test_confirmation_units_time_authenticity_and_reference(context, monkeypatch
             ).status_code
             == 200
         )
-        status = client.get(f"/api/v1/data/versions/{version['id']}/lifecycle")
-        assert status.json()["references"]["contract_rules"] == 1
+    with entry_lifecycle(str(engine.url), root) as manager:
+        assert manager.inspect(version["id"])["references"]["contract_rules"] == 1
 
 
 def test_null_is_unknown_and_cannot_confirm(context, monkeypatch):  # noqa: F811
@@ -181,14 +186,15 @@ def test_null_is_unknown_and_cannot_confirm(context, monkeypatch):  # noqa: F811
             trading_day="2024-01-02",
         )
     )
-    evidence.row.long_margin_rate = None
+    evidence = evidence.model_copy(
+        update={"row": evidence.row.model_copy(update={"long_margin_rate": None})}
+    )
     with pytest.raises(ValueError, match="缺失"):
         confirmation(evidence)
 
 
 def test_frozen_settlement_rules_replay_without_source(research_services):  # noqa: F811
-    from asterion.contract_rules.settlement_contract import SettlementEvidence
-    from asterion.research.public import _input_versions
+    from asterion_bindings.rules import SettlementEvidence
 
     research, body, _ = research_services
     req = request("settlement", symbol="RB2405.SHF", start="2023-12-29", end="2023-12-29")
@@ -218,7 +224,7 @@ def test_frozen_settlement_rules_replay_without_source(research_services):  # no
         "rows": rows,
         "total": 1,
     }
-    port = VersionAccess(lambda *a, **kw: source, lambda _: None)
+    port = VersionAccess(lambda *a, **kw: source, lambda _: None, unsupported_scan)
     rules = Rules(rule_storage(raw_engine(research.engine)), port)
     evidence = rules.settlement.preview(
         SettlementRequest(
@@ -244,8 +250,9 @@ def test_frozen_settlement_rules_replay_without_source(research_services):  # no
     rule = rules.save(RuleSpec.model_validate(spec))
     run = research.submit(body.model_copy(update={"rules": rule}))
     claimed = scheduler(research.engine).claim("settlement")
-    assert "settlement-fixed" in _input_versions(claimed["payload"])
-    content = canonical(calculate(claimed["payload"], strategy_catalog()))
+    # The run pins the settlement evidence of its frozen rules.
+    assert "settlement-fixed" in json.dumps(claimed["payload"])
+    content = canonical(calculate(claimed["payload"], strategy_catalog(), ExecutionFactory()))
     research.publish(run["id"], claimed["token"], content)
     packages = ResearchPackages(research)
     exported = packages.export(run["id"], True)
@@ -259,23 +266,25 @@ def test_frozen_settlement_rules_replay_without_source(research_services):  # no
     def unavailable(*a, **kw):
         pytest.fail("Replay must use frozen evidence")
 
-    research.versions = VersionAccess(unavailable, unavailable)
+    research.versions = VersionAccess(unavailable, unavailable, unavailable)
     research.rules = RuleAccess(unavailable)
     imported = packages.receive("offline", exported)
     replay = packages.replay("offline", imported["id"], "settlement-replay")
     claimed = scheduler(research.engine).claim("offline")
-    assert canonical(calculate(claimed["payload"], strategy_catalog())) == content
+    assert (
+        canonical(calculate(claimed["payload"], strategy_catalog(), ExecutionFactory())) == content
+    )
     research.publish(replay["id"], claimed["token"], content)
     assert research.get(replay["id"])["result"]["reproduction_matches"]
     # Embedded contracts themselves guard causality even without any catalogue.
     invalid = period.model_dump(mode="json")
     invalid["start"] = "2023-12-29"
     with pytest.raises(ValueError, match="盘后"):
-        Period.model_validate(invalid)
+        RulePeriod.model_validate(invalid)
 
 
 def test_settlement_uses_standard_contract_not_provider_symbol():
-    from asterion.contract_rules.settlement_contract import SettlementRow
+    from asterion_bindings.rules import SettlementRow
 
     row = dict.fromkeys(SettlementRow.model_fields) | {
         "symbol": "opaque:instrument-42",
@@ -304,7 +313,9 @@ def test_settlement_uses_standard_contract_not_provider_symbol():
         "rows": [row],
         "total": 1,
     }
-    mapping = SettlementMapping(VersionAccess(lambda *a, **kw: source, lambda _: None))
+    mapping = SettlementMapping(
+        VersionAccess(lambda *a, **kw: source, lambda _: None, unsupported_scan)
+    )
     evidence = mapping.preview(
         SettlementRequest(
             version_id="independent-settlement",
@@ -326,19 +337,27 @@ def test_settlement_uses_standard_contract_not_provider_symbol():
 def test_contract_backup_requires_identity_without_rewriting_files(context, monkeypatch, dataset):  # noqa: F811
     from dataclasses import replace
 
+    from asterion_bindings.files import read_files
     from credential_helpers import provider_secrets
     from sqlalchemy import select
 
     from asterion.data.backup import DataBackup, validate_backup
     from asterion.data.library import versions
-    from asterion.platform.files import read_files
 
     version = publish(context, monkeypatch, dataset=dataset)
     service = context[2]
     with service.engine.connect() as conn:
         records = tuple(dict(row) for row in conn.execute(select(versions)).mappings())
     evidence = DataBackup(
-        records, (), (), (), read_files(service.root), provider_secrets(MASTER).decrypt
+        records,
+        (),
+        (),
+        (),
+        (),
+        (),
+        ArtifactStore(service.root, read_only=True),
+        read_files(service.root),
+        provider_secrets(MASTER, service.root).opens,
     )
     assert validate_backup(evidence)["versions"] == len(records)
     damaged = deepcopy(records)
@@ -352,7 +371,7 @@ def test_contract_backup_requires_identity_without_rewriting_files(context, monk
 
 
 def test_settlement_identity_rejects_different_listing_and_source():
-    from asterion.contract_rules.settlement_contract import SettlementRow
+    from asterion_bindings.rules import SettlementRow
 
     row = dict.fromkeys(SettlementRow.model_fields) | {
         "symbol": "opaque:42",
@@ -379,7 +398,9 @@ def test_settlement_identity_rejects_different_listing_and_source():
         "rows": [row],
         "total": 1,
     }
-    mapping = SettlementMapping(VersionAccess(lambda *a, **kw: source, lambda _: None))
+    mapping = SettlementMapping(
+        VersionAccess(lambda *a, **kw: source, lambda _: None, unsupported_scan)
+    )
     request = SettlementRequest(
         version_id="fixed", contract_id="SHFE.RB.202610.20240103", trading_day="2024-01-02"
     )
