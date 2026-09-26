@@ -1,20 +1,18 @@
 import { expect, test } from "@playwright/test";
 import { nativeContext } from "./native";
 
-test("install requires explicit trust, renders declarative view and preserves unavailable selection", async ({ context, page }) => {
+test("install requires explicit trust and preserves artifacts when disabled or removed", async ({ context, page }) => {
   await nativeContext(context);
   let installed = false;
   let enabled = false;
   let inspections = 0;
-  let viewCalls = 0;
   const digest = "a".repeat(64);
-  const manifest = { id: "example.calendar", title: "独立测试插件", version: "1.0.0", description: "开发测试", requires: {}, contributions: { "ui.table": {} } };
-  const view = { id: "status", title: "来源状态", columns: [{ key: "value", label: "状态" }] };
+  const manifest = { id: "example.strategy", title: "独立测试插件", version: "1.0.0", description: "开发测试", layer: "L3", contributions: { "research.strategy": {} } };
   await context.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path.includes("/security")) return route.fallback();
     if (path.endsWith("/access/scopes")) return route.fulfill({ json: { token: "scoped-test", expires: Date.now() / 1000 + 300 } });
-    if (path.endsWith("/extensions/example.calendar/diagnostics")) return route.fulfill({ json: { digest, items: [{ id: "call-1", started: 1726800000, duration_ms: 30001, phase: "strategy.close", code: "timeout", calls: 12 }] } });
+    if (path.endsWith("/extensions/example.strategy/diagnostics")) return route.fulfill({ json: { digest, items: [{ id: "call-1", started: 1726800000, duration_ms: 30001, phase: "strategy.close", code: "timeout", calls: 12 }] } });
     if (path.endsWith("/extensions/inspect")) {
       inspections++;
       if (Buffer.from(route.request().postDataJSON().archive, "base64").toString() === "broken") return route.fulfill({ status: 422, json: { detail: "插件包格式无效" } });
@@ -22,16 +20,14 @@ test("install requires explicit trust, renders declarative view and preserves un
       return route.fulfill({ json: { manifest, digest } });
     }
     if (path.endsWith("/extensions/install")) { expect(route.request().postDataJSON().trust_local_code).toBe(true); expect(route.request().postDataJSON().digest).toBe(digest); installed = true; enabled = true; return route.fulfill({ json: { manifest, digest, enabled } }); }
-    if (path.endsWith("/extensions/example.calendar/state")) {
+    if (path.endsWith("/extensions/example.strategy/state")) {
       const body = route.request().postDataJSON();
       expect(body.digest).toBe(digest);
       if (body.enabled) expect(body.trust_local_code).toBe(true);
       enabled = body.enabled;
       return route.fulfill({ json: { manifest, digest, enabled } });
     }
-    if (path.endsWith("/extensions/example.calendar/remove")) { expect(enabled).toBe(false); installed = false; return route.fulfill({ json: { status: "removed", retained: digest } }); }
-    if (path.endsWith("/extensions/views")) return route.fulfill({ json: { items: enabled ? [{ plugin_id: manifest.id, digest, view }] : [] } });
-    if (path.endsWith("/extensions/example.calendar/view")) { viewCalls++; return route.fulfill({ json: { rows: [{ value: "<script>plain text</script>" }] } }); }
+    if (path.endsWith("/extensions/example.strategy/remove")) { expect(enabled).toBe(false); installed = false; return route.fulfill({ json: { status: "removed", retained: digest } }); }
     if (path.endsWith("/extensions")) return route.fulfill({ json: { items: installed ? [{ manifest, digest, enabled }] : [] } });
     const user = { email: "plugins@example.com", first_name: "Plugin", last_name: "Test" };
     return route.fulfill({ json: path.endsWith("/login") ? { session: "session", user } : path.endsWith("/me") ? user : path.endsWith("/health") ? { status: "ready" } : [] });
@@ -76,7 +72,7 @@ test("install requires explicit trust, renders declarative view and preserves un
   await page.getByRole("button", { name: "信任并安装启用", exact: true }).click();
   await expect(page.getByText("已启用", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "运行诊断", exact: true }).click();
-  const diagnostics = page.getByRole("region", { name: "example.calendar 运行诊断" });
+  const diagnostics = page.getByRole("region", { name: "example.strategy 运行诊断" });
   await expect(diagnostics).toContainText("strategy.close");
   await expect(diagnostics).toContainText("30001 ms");
   await expect(diagnostics).toContainText("执行超时");
@@ -85,13 +81,8 @@ test("install requires explicit trust, renders declarative view and preserves un
   await workspace.goto("/");
   await expect(workspace.getByRole("button", { name: "总览", exact: true })).toBeVisible();
   await expect(workspace.getByRole("button", { name: "扩展", exact: true })).toHaveCount(0);
-  expect(viewCalls).toBe(0);
-  await page.getByRole("button", { name: "查看插件视图", exact: true }).click();
-  await expect(page.getByRole("table", { name: "来源状态" })).toContainText("<script>plain text</script>");
   await page.getByRole("button", { name: "停用", exact: true }).click();
   await expect(page.getByText("已停用", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "刷新", exact: true }).click();
-  await expect(page.getByText("插件视图不可用。", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "移除", exact: true }).click();
   await expect(page.getByText("尚未安装本地插件。", { exact: false })).toBeVisible();
 });

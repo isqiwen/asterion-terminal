@@ -1,20 +1,10 @@
 import pytest
-from sqlalchemy import (
-    Column,
-    Integer,
-    MetaData,
-    String,
-    Table,
-    create_engine,
-    inspect,
-    select,
-    text,
-)
+from asterion_bindings.database import create_engine
+from asterion_bindings.storage import Storage, initialize_schema, initialize_stores
+from asterion_bindings.task_repository import Tasks, task_port
+from sqlalchemy import Column, Integer, MetaData, String, Table, inspect, select, text
 
-from asterion.platform.storage import Storage, initialize_schema, initialize_stores
 from asterion.platform.store import jobs
-from asterion.platform.task_port import task_port
-from asterion.platform.tasks.service import Tasks
 
 
 @pytest.fixture
@@ -23,7 +13,9 @@ def stores():
     metadata = MetaData()
     owned = Table("owned", metadata, Column("id", Integer, primary_key=True))
     foreign = Table("foreign", metadata, Column("id", Integer, primary_key=True))
-    initialize_schema(engine, (owned, foreign, jobs))
+    from asterion.platform.communication.events import TABLES
+
+    initialize_schema(engine, (owned, foreign, jobs, *TABLES))
     store = Storage(engine, (owned,), read=(jobs,))
     yield engine, store, owned, foreign
     engine.dispose()

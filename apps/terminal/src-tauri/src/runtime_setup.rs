@@ -16,6 +16,18 @@ fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
+struct InstallationLease(File);
+impl InstallationLease {
+    fn finish(self) -> Result<()> {
+        // Called only after successful completion, once all installation commands
+        // have exited. An unrelated concurrent fork can still hold a CLOEXEC
+        // duplicate, so closing our descriptor alone need not release the flock.
+        // Do not unlock in Drop: on failure or parent exit, a running installer
+        // intentionally retains this same lease through its stdin descriptor.
+        FileExt::unlock(&self.0).map_err(err)
+    }
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Artifact {
@@ -376,6 +388,8 @@ impl Setup {
             .map_err(err)?;
         lock.try_lock_exclusive()
             .map_err(|_| "另一个窗口正在安装，请等待完成后重试".to_string())?;
+        let lease = InstallationLease(lock);
+        let lock = &lease.0;
         fs::create_dir_all(&self.root).map_err(err)?;
         #[cfg(unix)]
         {
@@ -383,11 +397,11 @@ impl Setup {
             fs::set_permissions(&self.root, fs::Permissions::from_mode(0o700)).map_err(err)?;
         }
         // System dependency failure must not revoke an existing Python environment.
-        self.ensure_postgres(&lock, &mut report)?;
+        self.ensure_postgres(lock, &mut report)?;
         if self.ready() {
-            return Ok(());
+            return lease.finish();
         }
-        self.replace_installed_runtime(&lock)?;
+        self.replace_installed_runtime(lock)?;
         let cache = parent.join("cache");
         fs::create_dir_all(&cache).map_err(err)?;
         let dependency_progress = std::cell::RefCell::new(DependencyProgress::default());
@@ -431,7 +445,7 @@ impl Setup {
                 .arg(&python)
                 .arg(&environment),
             &self.root,
-            &lock,
+            lock,
             120,
         )?;
         stage(3, 0, None);
@@ -454,7 +468,7 @@ impl Setup {
                 .arg(self.python())
                 .arg(self.bundle.join("requirements.txt")),
             &self.root,
-            &lock,
+            lock,
             1800,
             |line| {
                 dependency_progress.borrow_mut().observe(line);
@@ -470,7 +484,7 @@ impl Setup {
                 .arg(self.python())
                 .arg(self.bundle.join(&self.manifest.wheel)),
             &self.root,
-            &lock,
+            lock,
             120,
         )?;
         dependency_progress.borrow_mut().phase = "verifying".into();
@@ -481,17 +495,17 @@ impl Setup {
                 .args(["pip", "check", "--python"])
                 .arg(self.python()),
             &self.root,
-            &lock,
+            lock,
             120,
         )?;
         stage(4, 1, Some(3));
-        run(self.command(&self.python()).args(["-I", "-c", "import sys, asterion.runtime.cli, asterion_plugin_sdk, pyarrow, psycopg; from openctp_ctp import mdapi; assert '.'.join(map(str, sys.version_info[:3])) == sys.argv[1]"]).arg(&self.manifest.python_version), &self.root, &lock, 120)?;
+        run(self.command(&self.python()).args(["-I", "-c", "import sys, asterion.runtime.cli, asterion_plugin_sdk, pyarrow, psycopg; from openctp_ctp import mdapi; assert '.'.join(map(str, sys.version_info[:3])) == sys.argv[1]"]).arg(&self.manifest.python_version), &self.root, lock, 120)?;
         stage(4, 2, Some(3));
         self.check_postgres()?;
         stage(4, 3, Some(3));
         fs::write(self.root.join("ready.tmp"), &self.id).map_err(err)?;
         fs::rename(self.root.join("ready.tmp"), self.root.join("ready")).map_err(err)?;
-        Ok(())
+        lease.finish()
     }
 }
 

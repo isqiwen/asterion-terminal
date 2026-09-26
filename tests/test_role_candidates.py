@@ -117,8 +117,9 @@ def test_saved_candidate_evidence_reverified_against_source():
 
 
 def test_consecutive_source_windows_publish_before_each_effective_opening():
+    from asterion_bindings.roles import RoleQuery
+
     from asterion.contract_roles.computed_public import ComputedVersion, digest, resolve_computed
-    from asterion.contract_roles.public import RoleQuery
 
     values, body = evidence()
     payload = body.model_dump(mode="json")

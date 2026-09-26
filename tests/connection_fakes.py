@@ -2,7 +2,11 @@
 
 import threading
 import time
-from uuid import uuid4
+from contextlib import contextmanager
+from dataclasses import replace
+from weakref import WeakKeyDictionary
+
+from asterion_bindings.secrets import secret_port
 
 from asterion.connections.public import (
     CREDENTIAL_SCOPE,
@@ -16,7 +20,6 @@ from asterion.connections.public import (
     SourceInstrument,
 )
 from asterion.connections.service import ConnectionService, SaveConnection
-from asterion.platform.secrets import secret_port
 
 
 def instrument(**changes):
@@ -56,20 +59,17 @@ class Session:
     def stop_market(self):
         pass
 
-    def meta(self, generation):
+    def meta(self, request):
         return {
-            "connection_id": self.profile.connection_id,
-            "generation": generation,
-            "request_id": uuid4().hex,
-            "started_at": time.time(),
+            **request.model_dump(),
             "observed_at": time.time(),
             "complete": True,
         }
 
-    def instruments(self, generation, cancel):
-        return InstrumentBatch(**self.meta(generation), instruments=self.rows)
+    def instruments(self, request, cancel):
+        return InstrumentBatch(**self.meta(request), instruments=self.rows)
 
-    def account(self, generation, cancel):
+    def account(self, request, cancel):
         self.account_reads += 1
         self.entered.set()
         if self.release:
@@ -79,7 +79,7 @@ class Session:
         if self.fail:
             raise RuntimeError("private credential must not leak")
         return AccountBatch(
-            **self.meta(generation),
+            **self.meta(request),
             source_account_id=self.profile.config["user"],
             account=AccountSummary(
                 currency="CNY",
@@ -108,14 +108,14 @@ def contribution(identifier="fixture", features=None):
             id=identifier,
             owner="test." + identifier,
             title=identifier,
-            capabilities=features
+            capabilities=tuple(features)
             if features is not None
-            else ["market_quotes", "instrument_catalog", "account_snapshot", "positions"],
-            fields=[
+            else ("market_quotes", "instrument_catalog", "account_snapshot", "positions"),
+            fields=(
                 ConfigField(key="user", label="User", identity=True),
                 ConfigField(key="endpoint", label="Endpoint"),
                 ConfigField(key="password", label="Password", secret=True),
-            ],
+            ),
         ),
         validate,
         Session,
@@ -134,6 +134,28 @@ def save_body(**changes):
     )
 
 
+_sessions = WeakKeyDictionary()
+
+
+def source_session(service, identifier):
+    """Test connector owns its SDK objects; no production internals are exposed."""
+    return _sessions[service].get(identifier)
+
+
+@contextmanager
+def blocked_profiles_path(service):
+    """An actual filesystem publication failure, without replacing native I/O."""
+    directory = service.path.parent
+    retained = directory.with_name(directory.name + "-retained")
+    directory.rename(retained)
+    directory.write_text("not-a-directory")
+    try:
+        yield
+    finally:
+        directory.unlink()
+        retained.rename(directory)
+
+
 def manager(root, contributions=None):
     contributions = contributions or [contribution()]
     service = ConnectionService(
@@ -141,7 +163,19 @@ def manager(root, contributions=None):
         secret_port("test-connections-key", CREDENTIAL_SCOPE),
         {c.descriptor.id: c.descriptor.owner for c in contributions},
     )
-    service.initialize([lambda c=c: c for c in contributions])
+    sessions = {}
+    _sessions[service] = sessions
+
+    def tracked(item):
+        def factory(profile, secrets):
+            session = item.factory(profile, secrets)
+            sessions[profile.connection_id] = session
+            return session
+
+        return replace(item, factory=factory)
+
+    tracked_sources = [tracked(c) for c in contributions]
+    service.initialize([lambda c=c: c for c in tracked_sources])
     return service
 
 

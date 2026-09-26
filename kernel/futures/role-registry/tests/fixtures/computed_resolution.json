@@ -1,0 +1,28 @@
+{
+  "version_id": "3032fbc705bd01c693ebbee7ec779c70ff531021f85a9511ab892c19c6c26755",
+  "contract": {
+    "delivery_month": "2025-08",
+    "id": "SHFE.AU.202508.20240617",
+    "last_delivery_on": null,
+    "last_trade_on": "2025-08-15",
+    "listed_on": "2024-06-17",
+    "product_id": "SHFE.AU",
+    "provenance": {
+      "available_at": "2020-01-01T00:00:00Z",
+      "observed_at": "2020-01-01T00:00:00Z",
+      "source": "offline-feed",
+      "source_version": "contracts-1"
+    }
+  },
+  "session": {
+    "end": "2025-04-12T02:30:00+08:00",
+    "phase": "continuous",
+    "session": "night",
+    "start": "2025-04-11T21:00:00+08:00",
+    "trading_day": "2025-04-14"
+  },
+  "available_at": "2025-04-11T20:00:00+08:00",
+  "availability_basis": "local_observation",
+  "historical_publication_attested": false,
+  "execution_authorized": false
+}

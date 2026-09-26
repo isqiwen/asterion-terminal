@@ -1,0 +1,16 @@
+.data-browser { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+.data-directory { flex: 0 0 250px; overflow: auto; padding: 10px; border-right: 1px solid var(--line); }
+.data-directory ul { list-style: none; padding-left: 14px; margin: 4px 0; }
+.data-directory > ul { padding-left: 0; }
+.data-directory-row { display: flex; align-items: start; }
+.data-directory-toggle { flex: 0 0 22px; padding: 4px; }
+.data-directory button { text-align: left; max-width: 100%; overflow-wrap: anywhere; white-space: normal; }
+.data-directory [aria-current="location"] { color: var(--accent); background: var(--panel); }
+.data-directory [role="alert"] { color: var(--danger); overflow-wrap: anywhere; }
+.data-directory-content { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: auto; }
+.data-breadcrumb { display: flex; gap: 4px; flex-wrap: wrap; padding: 8px; border-bottom: 1px solid var(--line); }
+.data-breadcrumb button + button::before { content: "/ "; color: var(--muted); }
+@media (max-width: 900px) { .data-browser { flex-direction: column; overflow: auto; } .data-directory { flex-basis: auto; max-height: 220px; border-right: 0; border-bottom: 1px solid var(--line); } .data-directory-content { overflow: visible; flex: 0 0 auto; } }
+.data-directory .panel-footnote { white-space: normal; }
+.data-directory-row button { border-color: transparent; }
+.data-directory-row button:hover { border-color: var(--line); }

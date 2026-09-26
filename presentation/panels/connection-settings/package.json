@@ -1,0 +1,25 @@
+{
+  "name": "@asterion/ui-connection-settings",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "asterion": {
+    "layer": 4,
+    "kind": "panel",
+    "id": "asterion.ui.connection-settings"
+  },
+  "exports": {
+    "./context": "./src/context.ts",
+    "./module": "./src/module.tsx",
+    "./public": "./src/public.ts"
+  },
+  "dependencies": {
+    "@asterion/api-types": "workspace:*",
+    "@asterion/runtime-client": "workspace:*",
+    "@asterion/workbench": "workspace:*",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0"
+  }
+}

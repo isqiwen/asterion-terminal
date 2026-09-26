@@ -2,11 +2,29 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Asterion: Entry",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/.venv/bin/asterion-server",
+      "args": [
+        "--listen",
+        "127.0.0.1:8000",
+        "--upstream",
+        "http://127.0.0.1:8001"
+      ],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
       "name": "Asterion: API",
       "type": "debugpy",
       "request": "launch",
       "module": "asterion.runtime.cli",
-      "args": ["serve"],
+      "args": [
+        "serve",
+        "--port",
+        "8001"
+      ],
       "cwd": "${workspaceFolder}",
       "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal",
@@ -18,7 +36,9 @@
       "type": "debugpy",
       "request": "launch",
       "module": "asterion.runtime.cli",
-      "args": ["worker"],
+      "args": [
+        "worker"
+      ],
       "cwd": "${workspaceFolder}",
       "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal",
@@ -37,7 +57,11 @@
   "compounds": [
     {
       "name": "Asterion: Backend",
-      "configurations": ["Asterion: API", "Asterion: Worker"],
+      "configurations": [
+        "Asterion: Entry",
+        "Asterion: API",
+        "Asterion: Worker"
+      ],
       "stopAll": true
     }
   ]

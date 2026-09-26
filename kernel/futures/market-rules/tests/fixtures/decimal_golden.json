@@ -1,0 +1,545 @@
+{
+  "settlement": [
+    {
+      "input": {
+        "evidence": {
+          "provider": "fixture",
+          "version_id": "settlement-fixed",
+          "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "connection_id": null,
+          "observed_at": "2024-01-01T08:00:00.001+08:00",
+          "row": {
+            "symbol": "opaque:rb2405",
+            "exchange": "SHFE",
+            "contract": "SHFE.rb2405",
+            "trading_day": "2023-12-29",
+            "settle": "-0.00",
+            "trading_fee_rate": "0.050",
+            "trading_fee": "3.000",
+            "delivery_fee": null,
+            "b_hedging_margin_rate": null,
+            "s_hedging_margin_rate": null,
+            "long_margin_rate": "12",
+            "short_margin_rate": null,
+            "offset_today_fee": null
+          },
+          "contract": {
+            "delivery_month": "2024-05",
+            "id": "SHFE.RB.202405.20230516",
+            "last_delivery_on": null,
+            "last_trade_on": "2024-05-15",
+            "listed_on": "2023-05-16",
+            "product_id": "SHFE.RB",
+            "provenance": {
+              "available_at": "2020-01-01T00:00:00Z",
+              "observed_at": "2020-01-01T00:00:00Z",
+              "source": "fixture",
+              "source_version": "1"
+            }
+          }
+        },
+        "fee_field": "trading_fee_rate",
+        "fee_unit": "percent",
+        "margin_unit": "percent",
+        "fee_scope": "long_open_and_non_today_close",
+        "availability_assumption": "after_source_day",
+        "interpretation": "  explicit research assumption  "
+      },
+      "normalized": {
+        "evidence": {
+          "provider": "fixture",
+          "version_id": "settlement-fixed",
+          "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "connection_id": null,
+          "observed_at": "2024-01-01T08:00:00.001000+08:00",
+          "row": {
+            "symbol": "opaque:rb2405",
+            "exchange": "SHFE",
+            "contract": "SHFE.rb2405",
+            "trading_day": "2023-12-29",
+            "settle": "-0.00",
+            "trading_fee_rate": "0.050",
+            "trading_fee": "3.000",
+            "delivery_fee": null,
+            "b_hedging_margin_rate": null,
+            "s_hedging_margin_rate": null,
+            "long_margin_rate": "12",
+            "short_margin_rate": null,
+            "offset_today_fee": null
+          },
+          "contract": {
+            "delivery_month": "2024-05",
+            "id": "SHFE.RB.202405.20230516",
+            "last_delivery_on": null,
+            "last_trade_on": "2024-05-15",
+            "listed_on": "2023-05-16",
+            "product_id": "SHFE.RB",
+            "provenance": {
+              "available_at": "2020-01-01T00:00:00Z",
+              "observed_at": "2020-01-01T00:00:00Z",
+              "source": "fixture",
+              "source_version": "1"
+            }
+          }
+        },
+        "fee_field": "trading_fee_rate",
+        "fee_unit": "percent",
+        "margin_unit": "percent",
+        "fee_scope": "long_open_and_non_today_close",
+        "availability_assumption": "after_source_day",
+        "interpretation": "explicit research assumption"
+      },
+      "values": [
+        "notional",
+        "0.0005",
+        "0.12"
+      ]
+    },
+    {
+      "input": {
+        "evidence": {
+          "provider": "fixture",
+          "version_id": "settlement-fixed",
+          "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "connection_id": null,
+          "observed_at": "2024-01-01T08:00:00.001+08:00",
+          "row": {
+            "symbol": "opaque:rb2405",
+            "exchange": "SHFE",
+            "contract": "SHFE.rb2405",
+            "trading_day": "2023-12-29",
+            "settle": "-0.00",
+            "trading_fee_rate": "5.000",
+            "trading_fee": "3.000",
+            "delivery_fee": null,
+            "b_hedging_margin_rate": null,
+            "s_hedging_margin_rate": null,
+            "long_margin_rate": "12",
+            "short_margin_rate": null,
+            "offset_today_fee": null
+          },
+          "contract": {
+            "delivery_month": "2024-05",
+            "id": "SHFE.RB.202405.20230516",
+            "last_delivery_on": null,
+            "last_trade_on": "2024-05-15",
+            "listed_on": "2023-05-16",
+            "product_id": "SHFE.RB",
+            "provenance": {
+              "available_at": "2020-01-01T00:00:00Z",
+              "observed_at": "2020-01-01T00:00:00Z",
+              "source": "fixture",
+              "source_version": "1"
+            }
+          }
+        },
+        "fee_field": "trading_fee_rate",
+        "fee_unit": "permille",
+        "margin_unit": "percent",
+        "fee_scope": "long_open_and_non_today_close",
+        "availability_assumption": "after_source_day",
+        "interpretation": "  explicit research assumption  "
+      },
+      "normalized": {
+        "evidence": {
+          "provider": "fixture",
+          "version_id": "settlement-fixed",
+          "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "connection_id": null,
+          "observed_at": "2024-01-01T08:00:00.001000+08:00",
+          "row": {
+            "symbol": "opaque:rb2405",
+            "exchange": "SHFE",
+            "contract": "SHFE.rb2405",
+            "trading_day": "2023-12-29",
+            "settle": "-0.00",
+            "trading_fee_rate": "5.000",
+            "trading_fee": "3.000",
+            "delivery_fee": null,
+            "b_hedging_margin_rate": null,
+            "s_hedging_margin_rate": null,
+            "long_margin_rate": "12",
+            "short_margin_rate": null,
+            "offset_today_fee": null
+          },
+          "contract": {
+            "delivery_month": "2024-05",
+            "id": "SHFE.RB.202405.20230516",
+            "last_delivery_on": null,
+            "last_trade_on": "2024-05-15",
+            "listed_on": "2023-05-16",
+            "product_id": "SHFE.RB",
+            "provenance": {
+              "available_at": "2020-01-01T00:00:00Z",
+              "observed_at": "2020-01-01T00:00:00Z",
+              "source": "fixture",
+              "source_version": "1"
+            }
+          }
+        },
+        "fee_field": "trading_fee_rate",
+        "fee_unit": "permille",
+        "margin_unit": "percent",
+        "fee_scope": "long_open_and_non_today_close",
+        "availability_assumption": "after_source_day",
+        "interpretation": "explicit research assumption"
+      },
+      "values": [
+        "notional",
+        "0.005",
+        "0.12"
+      ]
+    },
+    {
+      "input": {
+        "evidence": {
+          "provider": "fixture",
+          "version_id": "settlement-fixed",
+          "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "connection_id": null,
+          "observed_at": "2024-01-01T08:00:00.001+08:00",
+          "row": {
+            "symbol": "opaque:rb2405",
+            "exchange": "SHFE",
+            "contract": "SHFE.rb2405",
+            "trading_day": "2023-12-29",
+            "settle": "-0.00",
+            "trading_fee_rate": "1E-7",
+            "trading_fee": "3.000",
+            "delivery_fee": null,
+            "b_hedging_margin_rate": null,
+            "s_hedging_margin_rate": null,
+            "long_margin_rate": "12",
+            "short_margin_rate": null,
+            "offset_today_fee": null
+          },
+          "contract": {
+            "delivery_month": "2024-05",
+            "id": "SHFE.RB.202405.20230516",
+            "last_delivery_on": null,
+            "last_trade_on": "2024-05-15",
+            "listed_on": "2023-05-16",
+            "product_id": "SHFE.RB",
+            "provenance": {
+              "available_at": "2020-01-01T00:00:00Z",
+              "observed_at": "2020-01-01T00:00:00Z",
+              "source": "fixture",
+              "source_version": "1"
+            }
+          }
+        },
+        "fee_field": "trading_fee_rate",
+        "fee_unit": "ratio",
+        "margin_unit": "percent",
+        "fee_scope": "long_open_and_non_today_close",
+        "availability_assumption": "after_source_day",
+        "interpretation": "  explicit research assumption  "
+      },
+      "normalized": {
+        "evidence": {
+          "provider": "fixture",
+          "version_id": "settlement-fixed",
+          "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "connection_id": null,
+          "observed_at": "2024-01-01T08:00:00.001000+08:00",
+          "row": {
+            "symbol": "opaque:rb2405",
+            "exchange": "SHFE",
+            "contract": "SHFE.rb2405",
+            "trading_day": "2023-12-29",
+            "settle": "-0.00",
+            "trading_fee_rate": "1E-7",
+            "trading_fee": "3.000",
+            "delivery_fee": null,
+            "b_hedging_margin_rate": null,
+            "s_hedging_margin_rate": null,
+            "long_margin_rate": "12",
+            "short_margin_rate": null,
+            "offset_today_fee": null
+          },
+          "contract": {
+            "delivery_month": "2024-05",
+            "id": "SHFE.RB.202405.20230516",
+            "last_delivery_on": null,
+            "last_trade_on": "2024-05-15",
+            "listed_on": "2023-05-16",
+            "product_id": "SHFE.RB",
+            "provenance": {
+              "available_at": "2020-01-01T00:00:00Z",
+              "observed_at": "2020-01-01T00:00:00Z",
+              "source": "fixture",
+              "source_version": "1"
+            }
+          }
+        },
+        "fee_field": "trading_fee_rate",
+        "fee_unit": "ratio",
+        "margin_unit": "percent",
+        "fee_scope": "long_open_and_non_today_close",
+        "availability_assumption": "after_source_day",
+        "interpretation": "explicit research assumption"
+      },
+      "values": [
+        "notional",
+        "1E-7",
+        "0.12"
+      ]
+    },
+    {
+      "input": {
+        "evidence": {
+          "provider": "fixture",
+          "version_id": "settlement-fixed",
+          "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "connection_id": null,
+          "observed_at": "2024-01-01T08:00:00.001+08:00",
+          "row": {
+            "symbol": "opaque:rb2405",
+            "exchange": "SHFE",
+            "contract": "SHFE.rb2405",
+            "trading_day": "2023-12-29",
+            "settle": "-0.00",
+            "trading_fee_rate": "0.12345678901234567890123456785",
+            "trading_fee": "3.000",
+            "delivery_fee": null,
+            "b_hedging_margin_rate": null,
+            "s_hedging_margin_rate": null,
+            "long_margin_rate": "12",
+            "short_margin_rate": null,
+            "offset_today_fee": null
+          },
+          "contract": {
+            "delivery_month": "2024-05",
+            "id": "SHFE.RB.202405.20230516",
+            "last_delivery_on": null,
+            "last_trade_on": "2024-05-15",
+            "listed_on": "2023-05-16",
+            "product_id": "SHFE.RB",
+            "provenance": {
+              "available_at": "2020-01-01T00:00:00Z",
+              "observed_at": "2020-01-01T00:00:00Z",
+              "source": "fixture",
+              "source_version": "1"
+            }
+          }
+        },
+        "fee_field": "trading_fee_rate",
+        "fee_unit": "ratio",
+        "margin_unit": "percent",
+        "fee_scope": "long_open_and_non_today_close",
+        "availability_assumption": "after_source_day",
+        "interpretation": "  explicit research assumption  "
+      },
+      "normalized": {
+        "evidence": {
+          "provider": "fixture",
+          "version_id": "settlement-fixed",
+          "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "connection_id": null,
+          "observed_at": "2024-01-01T08:00:00.001000+08:00",
+          "row": {
+            "symbol": "opaque:rb2405",
+            "exchange": "SHFE",
+            "contract": "SHFE.rb2405",
+            "trading_day": "2023-12-29",
+            "settle": "-0.00",
+            "trading_fee_rate": "0.12345678901234567890123456785",
+            "trading_fee": "3.000",
+            "delivery_fee": null,
+            "b_hedging_margin_rate": null,
+            "s_hedging_margin_rate": null,
+            "long_margin_rate": "12",
+            "short_margin_rate": null,
+            "offset_today_fee": null
+          },
+          "contract": {
+            "delivery_month": "2024-05",
+            "id": "SHFE.RB.202405.20230516",
+            "last_delivery_on": null,
+            "last_trade_on": "2024-05-15",
+            "listed_on": "2023-05-16",
+            "product_id": "SHFE.RB",
+            "provenance": {
+              "available_at": "2020-01-01T00:00:00Z",
+              "observed_at": "2020-01-01T00:00:00Z",
+              "source": "fixture",
+              "source_version": "1"
+            }
+          }
+        },
+        "fee_field": "trading_fee_rate",
+        "fee_unit": "ratio",
+        "margin_unit": "percent",
+        "fee_scope": "long_open_and_non_today_close",
+        "availability_assumption": "after_source_day",
+        "interpretation": "explicit research assumption"
+      },
+      "values": [
+        "notional",
+        "0.1234567890123456789012345678",
+        "0.12"
+      ]
+    },
+    {
+      "input": {
+        "evidence": {
+          "provider": "fixture",
+          "version_id": "settlement-fixed",
+          "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "connection_id": null,
+          "observed_at": "2024-01-01T08:00:00.001+08:00",
+          "row": {
+            "symbol": "opaque:rb2405",
+            "exchange": "SHFE",
+            "contract": "SHFE.rb2405",
+            "trading_day": "2023-12-29",
+            "settle": "-0.00",
+            "trading_fee_rate": "0.12345678901234567890123456795",
+            "trading_fee": "3.000",
+            "delivery_fee": null,
+            "b_hedging_margin_rate": null,
+            "s_hedging_margin_rate": null,
+            "long_margin_rate": "12",
+            "short_margin_rate": null,
+            "offset_today_fee": null
+          },
+          "contract": {
+            "delivery_month": "2024-05",
+            "id": "SHFE.RB.202405.20230516",
+            "last_delivery_on": null,
+            "last_trade_on": "2024-05-15",
+            "listed_on": "2023-05-16",
+            "product_id": "SHFE.RB",
+            "provenance": {
+              "available_at": "2020-01-01T00:00:00Z",
+              "observed_at": "2020-01-01T00:00:00Z",
+              "source": "fixture",
+              "source_version": "1"
+            }
+          }
+        },
+        "fee_field": "trading_fee_rate",
+        "fee_unit": "ratio",
+        "margin_unit": "percent",
+        "fee_scope": "long_open_and_non_today_close",
+        "availability_assumption": "after_source_day",
+        "interpretation": "  explicit research assumption  "
+      },
+      "normalized": {
+        "evidence": {
+          "provider": "fixture",
+          "version_id": "settlement-fixed",
+          "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "connection_id": null,
+          "observed_at": "2024-01-01T08:00:00.001000+08:00",
+          "row": {
+            "symbol": "opaque:rb2405",
+            "exchange": "SHFE",
+            "contract": "SHFE.rb2405",
+            "trading_day": "2023-12-29",
+            "settle": "-0.00",
+            "trading_fee_rate": "0.12345678901234567890123456795",
+            "trading_fee": "3.000",
+            "delivery_fee": null,
+            "b_hedging_margin_rate": null,
+            "s_hedging_margin_rate": null,
+            "long_margin_rate": "12",
+            "short_margin_rate": null,
+            "offset_today_fee": null
+          },
+          "contract": {
+            "delivery_month": "2024-05",
+            "id": "SHFE.RB.202405.20230516",
+            "last_delivery_on": null,
+            "last_trade_on": "2024-05-15",
+            "listed_on": "2023-05-16",
+            "product_id": "SHFE.RB",
+            "provenance": {
+              "available_at": "2020-01-01T00:00:00Z",
+              "observed_at": "2020-01-01T00:00:00Z",
+              "source": "fixture",
+              "source_version": "1"
+            }
+          }
+        },
+        "fee_field": "trading_fee_rate",
+        "fee_unit": "ratio",
+        "margin_unit": "percent",
+        "fee_scope": "long_open_and_non_today_close",
+        "availability_assumption": "after_source_day",
+        "interpretation": "explicit research assumption"
+      },
+      "values": [
+        "notional",
+        "0.1234567890123456789012345680",
+        "0.12"
+      ]
+    }
+  ],
+  "fees": [
+    {
+      "price": "1234567890123456789012345678",
+      "multiplier": "3.14159265",
+      "lots": 7,
+      "rate": "0.12345678",
+      "precision": 28,
+      "fee": "3351797980308717902709281788"
+    },
+    {
+      "price": "1.2345678901234567890123456785",
+      "multiplier": "1",
+      "lots": 1,
+      "rate": "1",
+      "precision": 28,
+      "fee": "1.234567890123456789012345678"
+    },
+    {
+      "price": "1.2345678901234567890123456795",
+      "multiplier": "1",
+      "lots": 1,
+      "rate": "1",
+      "precision": 28,
+      "fee": "1.234567890123456789012345680"
+    },
+    {
+      "price": "-0.00",
+      "multiplier": "10.000",
+      "lots": 2,
+      "rate": "0.10",
+      "precision": 28,
+      "fee": "-0E-7"
+    },
+    {
+      "price": "1234567890123456789012345678",
+      "multiplier": "3.14159265",
+      "lots": 7,
+      "rate": "0.12345678",
+      "precision": 40,
+      "fee": "3351797980308717902709281787.824115631411"
+    },
+    {
+      "price": "1.2345678901234567890123456785",
+      "multiplier": "1",
+      "lots": 1,
+      "rate": "1",
+      "precision": 40,
+      "fee": "1.2345678901234567890123456785"
+    },
+    {
+      "price": "1.2345678901234567890123456795",
+      "multiplier": "1",
+      "lots": 1,
+      "rate": "1",
+      "precision": 40,
+      "fee": "1.2345678901234567890123456795"
+    },
+    {
+      "price": "-0.00",
+      "multiplier": "10.000",
+      "lots": 2,
+      "rate": "0.10",
+      "precision": 40,
+      "fee": "-0E-7"
+    }
+  ]
+}

@@ -1,11 +1,11 @@
 """Append-only, content-addressed contract rules owned by this plugin."""
 
+from asterion_bindings.rules import RuleSpec, RuleVersion, rule_id
 from sqlalchemy import JSON, Column, String, Table, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from asterion.contract_rules.mapping import SourceMapping
-from asterion.contract_rules.public import RuleSpec, RuleVersion, rule_id
 from asterion.contract_rules.settlement import SettlementMapping
 from asterion.data.public import VersionAccess
 from asterion.platform.store import metadata

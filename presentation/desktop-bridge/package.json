@@ -1,0 +1,24 @@
+{
+  "name": "@asterion/desktop-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "asterion": {
+    "layer": 4,
+    "kind": "presentation"
+  },
+  "exports": {
+    "./desktop": "./src/desktop.ts",
+    "./native": "./src/native.ts",
+    "./useConnection": "./src/useConnection.ts"
+  },
+  "dependencies": {
+    "@asterion/runtime-client": "workspace:*",
+    "@tauri-apps/api": "^2.0.0",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "vitest": "^3.0.0"
+  }
+}

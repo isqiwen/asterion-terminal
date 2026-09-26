@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
-from connection_fakes import instrument, manager, save_body
+from connection_fakes import instrument, manager, save_body, source_session
 
 from asterion.connector_ctp.query import query_instruments
 from asterion.market.contracts import ContractChoicesService
@@ -28,7 +28,7 @@ def directory(root, rows=None, clock=lambda: NOW):
     connection = manager(root)
     key = connection.save(save_body()).connection_id
     connection.connect(key)
-    connection.runtime[key].session.rows = rows if rows is not None else [instrument()]
+    source_session(connection, key).rows = rows if rows is not None else [instrument()]
     catalog = ContractChoicesService(
         root / "catalog", lambda cancel: connection.instruments(key, cancel), clock
     )
@@ -243,7 +243,7 @@ def test_failed_or_cancelled_refresh_retains_last_complete(tmp_path, monkeypatch
 
 def test_missing_from_next_batch_is_not_expired(tmp_path):
     catalog, connection, key = directory(tmp_path)
-    connection.runtime[key].session.rows = [
+    source_session(connection, key).rows = [
         instrument(symbol="ag2612", product="ag", name="白银2612")
     ]
     catalog.request_refresh(connection.profile(key))

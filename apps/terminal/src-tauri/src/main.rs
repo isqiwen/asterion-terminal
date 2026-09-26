@@ -1,46 +1,47 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-mod session;
-mod workspace;
-mod plugins;
-mod distribution;
+use asterion_kernel::{communication, transport};
+use asterion_foundation::wire_generated;
 mod runtime_setup;
 mod network_stats;
 use std::sync::Mutex;
 use runtime_setup::{Progress, Setup};
-use workspace::{Workspace, desktop_workspace_read, desktop_workspace_patch, desktop_workspace_open, desktop_workspace_ready, desktop_workspace_merge};
-use session::{AccountSession, desktop_account_read, desktop_account_write, desktop_window_id};
+use asterion_desktop_bridge::{workspace, session, window};
+use asterion_product_terminal as distribution;
+use asterion_desktop_bridge::workspace::Workspace;
+use asterion_desktop_bridge::session::AccountSession;
+use asterion_desktop_bridge::window::show_settings;
 use std::process::Command;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager};
 #[cfg(target_os = "macos")]
 use tauri::menu::{Menu, MenuItem, MenuItemKind};
 
-fn backend_call(app: &AppHandle, role: &str) -> Result<serde_json::Value, String> {
-    backend_request(app, role, &[])
+fn backend_call(app: &AppHandle, role: &str, context: &wire_generated::Context) -> Result<serde_json::Value, String> {
+    backend_request(app, role, &[], context)
 }
 
-fn backend_request(app: &AppHandle, role: &str, extra: &[String]) -> Result<serde_json::Value, String> {
+fn backend_request(app: &AppHandle, role: &str, extra: &[String], context: &wire_generated::Context) -> Result<serde_json::Value, String> {
     let resources = app.path().resource_dir().map_err(|e| e.to_string())?;
     let state = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let setup = Setup::load(&resources.join("setup"), &state)?;
     let lease = setup.runtime_lease()?;
-    let output = Command::new(setup.python())
-        .args(["-I", "-m", "asterion.runtime.cli"])
+    let mut command = Command::new(setup.python());
+    command.args(["-I", "-m", "asterion.runtime.cli"])
         .arg(role).args(extra)
+        .arg("--communication-context").arg(serde_json::to_string(&context).map_err(|e| e.to_string())?)
         .arg("--state").arg(state)
         .arg("--pg-root").arg(setup.postgres_root())
         .env("PYTHONDONTWRITEBYTECODE", "1")
-        .stdin(lease.try_clone().map_err(|e| e.to_string())?)
-        .output().map_err(|e| format!("无法启动本机运行环境：{e}"))?;
+        .stdin(lease.try_clone().map_err(|e| e.to_string())?);
+    let output = transport::capture(command, context).map_err(|e| e.to_string())?;
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).chars().take(3000).collect());
+        return communication::decode_reply(context, &output.stdout).map_err(|e| e.to_string()).and_then(|_| Err("本机操作异常终止".into()));
     }
-    if role == "desktop-stop" { return Ok(serde_json::json!({"status": "stopped"})); }
-    serde_json::from_slice(&output.stdout).map_err(|_| "本机服务没有返回有效会话，请重试".into())
+    communication::decode_reply(context, &output.stdout).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn desktop_session(app: AppHandle) -> Result<serde_json::Value, String> {
-    tauri::async_runtime::spawn_blocking(move || backend_call(&app, "desktop-bootstrap"))
+async fn desktop_session(app: AppHandle, communication: wire_generated::Context) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || backend_call(&app, "desktop-bootstrap", &communication))
         .await.map_err(|e| e.to_string())?
 }
 
@@ -81,85 +82,53 @@ async fn desktop_setup_install(app: AppHandle) -> Result<Progress, String> {
     Ok(progress.clone())
 }
 #[tauri::command]
-fn desktop_setup_window(window: tauri::WebviewWindow, setup: bool) -> Result<(), String> {
-    window.set_min_size(Some(tauri::LogicalSize::new(640.0, 580.0))).map_err(|e| e.to_string())?;
-    window.set_size(tauri::LogicalSize::new(if setup { 800.0 } else { 1440.0 }, if setup { 640.0 } else { 940.0 })).map_err(|e| e.to_string())?;
-    window.center().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn desktop_stop(app: AppHandle) -> Result<serde_json::Value, String> {
-    tauri::async_runtime::spawn_blocking(move || backend_call(&app, "desktop-stop"))
+async fn desktop_stop(app: AppHandle, communication: wire_generated::Context) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || backend_call(&app, "desktop-stop", &communication))
         .await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-async fn desktop_backup(app: AppHandle) -> Result<serde_json::Value, String> {
-    tauri::async_runtime::spawn_blocking(move || backend_call(&app, "desktop-backup"))
+async fn desktop_backup(app: AppHandle, communication: wire_generated::Context) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || backend_call(&app, "desktop-backup", &communication))
         .await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-async fn desktop_restore(app: AppHandle, archive: String, target: String) -> Result<serde_json::Value, String> {
+async fn desktop_restore(app: AppHandle, archive: String, target: String, communication: wire_generated::Context) -> Result<serde_json::Value, String> {
     if !std::path::Path::new(&archive).is_absolute() || !std::path::Path::new(&target).is_absolute() {
         return Err("请输入备份和新恢复目录的完整路径".into());
     }
-    tauri::async_runtime::spawn_blocking(move || backend_request(&app, "desktop-restore", &["--archive".into(), archive, "--target".into(), target]))
-        .await.map_err(|e| e.to_string())?
-}
-
-fn show_settings(app: &AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("settings") {
-        window.unminimize().map_err(|e| e.to_string())?;
-        return window.set_focus().map_err(|e| e.to_string());
-    }
-    WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("index.html?screen=settings".into()))
-        .disable_drag_drop_handler()
-        .decorations(!cfg!(target_os = "linux"))
-        .title("设置 · Asterion Terminal").inner_size(800.0, 580.0)
-        .min_inner_size(680.0, 460.0).center().build().map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-fn open_settings(app: AppHandle) -> Result<(), String> { show_settings(&app) }
-
-#[tauri::command]
-async fn desktop_info(app: AppHandle) -> Result<serde_json::Value, String> {
-    tauri::async_runtime::spawn_blocking(move || backend_call(&app, "desktop-info"))
+    tauri::async_runtime::spawn_blocking(move || backend_request(&app, "desktop-restore", &["--archive".into(), archive, "--target".into(), target], &communication))
         .await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-async fn desktop_environment(app: AppHandle) -> Result<serde_json::Value, String> {
-    tauri::async_runtime::spawn_blocking(move || backend_call(&app, "desktop-environment"))
+async fn desktop_info(app: AppHandle, communication: wire_generated::Context) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || backend_call(&app, "desktop-info", &communication))
         .await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-async fn desktop_activate(app: AppHandle, target: Option<String>) -> Result<serde_json::Value, String> {
+async fn desktop_environment(app: AppHandle, communication: wire_generated::Context) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || backend_call(&app, "desktop-environment", &communication))
+        .await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn desktop_activate(app: AppHandle, target: Option<String>, communication: wire_generated::Context) -> Result<serde_json::Value, String> {
     if target.as_ref().is_some_and(|path| !std::path::Path::new(path).is_absolute()) {
         return Err("请输入恢复目录的完整路径".into());
     }
     let handle = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         if let Some(path) = target {
-            backend_request(&handle, "desktop-activate", &["--target".into(), path])
+            backend_request(&handle, "desktop-activate", &["--target".into(), path], &communication)
         } else {
-            backend_call(&handle, "desktop-rollback")
+            backend_call(&handle, "desktop-rollback", &communication)
         }
     }).await.map_err(|e| e.to_string())?;
     if result.is_err() { return result; }
-    // Revoke shared native authentication and discard every window's stale endpoint and drafts.
-    if let Ok(mut session) = app.state::<AccountSession>().0.lock() {
-        session.token = None;
-        session.revision += 1;
-    }
-    for window in app.webview_windows().values() {
-        if let Err(error) = window.eval("window.location.reload()") {
-            eprintln!("Cannot refresh environment window: {error}");
-        }
-    }
+    session::invalidate_windows(&app);
     result
 }
 
@@ -175,6 +144,7 @@ fn main() {
     tauri::Builder::default()
         .manage(SetupState::default())
         .manage(AccountSession::default())
+        .manage(distribution::native_windows())
         .manage(Workspace::new(distribution::workspace_profile()))
         .on_window_event(workspace::window_event)
         .setup(|app| {
@@ -199,12 +169,21 @@ fn main() {
                 if let Err(error) = show_settings(app) { eprintln!("Cannot open settings: {error}"); }
             }
         })
-        .invoke_handler(tauri::generate_handler![desktop_setup_status, desktop_setup_install, desktop_setup_window, desktop_session, desktop_stop, desktop_backup, desktop_restore, desktop_info, desktop_environment, desktop_activate, open_settings, desktop_account_read, desktop_account_write, desktop_window_id, desktop_workspace_read, desktop_workspace_patch, desktop_workspace_open, desktop_workspace_ready, desktop_workspace_merge])
+        .invoke_handler({
+            let dispatch: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![desktop_setup_status, desktop_setup_install, window::desktop_setup_window, desktop_session, desktop_stop, desktop_backup, desktop_restore, desktop_info, desktop_environment, desktop_activate, window::open_settings, session::desktop_account_read, session::desktop_account_write, window::desktop_window_id, workspace::desktop_workspace_read, workspace::desktop_workspace_patch, workspace::desktop_workspace_open, workspace::desktop_workspace_ready, workspace::desktop_workspace_merge]);
+            move |invoke: tauri::ipc::Invoke<tauri::Wry>| {
+                if let Err(error) = asterion_desktop_bridge::communication::native_context(&invoke) {
+                    invoke.resolver.reject(error);
+                    return true;
+                }
+                dispatch(invoke)
+            }
+        })
         .build(tauri::generate_context!())
         .expect("failed to build Asterion desktop host")
          .run(|app, event| {
             if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
-                if let Ok(mut s) = app.state::<Workspace>().0.lock() { s.quitting = true; }
+                workspace::exit_requested(app);
             }
             #[cfg(target_os = "macos")]
             if matches!(event, tauri::RunEvent::Reopen { has_visible_windows: false, .. }) {

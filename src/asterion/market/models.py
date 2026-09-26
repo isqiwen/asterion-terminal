@@ -3,6 +3,7 @@
 from datetime import date
 from typing import Literal
 
+from asterion_bindings.market_feed import Quote
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from asterion.connections.public import SourceInstrument, Subscription
@@ -20,28 +21,6 @@ class Watchlist(MarketModel):
         if len({s.symbol for s in self.subscriptions}) != len(self.subscriptions):
             raise ValueError("自选代码不能重复")
         return self
-
-
-class Quote(MarketModel):
-    exchange: str
-    symbol: str
-    last: float | None
-    previous_settlement: float | None
-    change: float | None
-    change_percent: float | None
-    high: float | None
-    low: float | None
-    volume: int | None
-    open_interest: float | None
-    trading_day: str
-    source_time: str
-    action_day: str
-    status: Literal[
-        "current", "disconnected", "time_unknown", "time_ahead", "not_updated", "delayed"
-    ] = "time_unknown"
-    event_at: float | None
-    received_at: float
-    stale: bool = True
 
 
 class MarketState(MarketModel):

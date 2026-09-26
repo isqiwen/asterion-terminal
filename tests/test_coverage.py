@@ -13,8 +13,10 @@ from datetime import UTC, date, datetime
 from uuid import uuid4
 
 import pytest
+from asterion_bindings.database import create_engine
+from asterion_bindings.task_repository import Conflict
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import select, text
 from test_cumulative import pending, publish
 
 from asterion.api.app import create_app
@@ -25,7 +27,6 @@ from asterion.data.sync import DataSync
 from asterion.platform.config import Settings
 from asterion.platform.serialization import canonical
 from asterion.platform.store import jobs, metadata
-from asterion.platform.tasks.service import Conflict
 
 MASTER = "synthetic-coverage-master-key"
 
@@ -38,7 +39,7 @@ def sync(tmp_path):
         data_store(engine),
         domain_tasks(data_store(engine), "data"),
         tmp_path,
-        provider_secrets(MASTER),
+        provider_secrets(MASTER, tmp_path),
     )
     set_token(service, "tushare", "synthetic-only-token")
     return service
@@ -385,14 +386,19 @@ def test_concurrent_refill_commands_create_one_atomic_batch(tmp_path):
     schema = "coverage_" + uuid4().hex
     with admin.begin() as conn:
         conn.execute(text(f"CREATE SCHEMA {schema}"))
-    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
+    engine = create_engine(
+        url,
+        connect_args={"options": f"-csearch_path={schema}"},
+        pool_size=2,
+        pool_timeout=5,
+    )
     try:
         metadata.create_all(engine)
         service = DataSync(
             data_store(engine),
             domain_tasks(data_store(engine), "data"),
             tmp_path,
-            provider_secrets(MASTER),
+            provider_secrets(MASTER, tmp_path),
         )
         set_token(service, "tushare", "synthetic-token")
         daily, _, _ = setup_range(service)
@@ -435,7 +441,7 @@ def test_refill_tracking_restores_current_attempts_without_submitting(sync, monk
         data_store(sync.engine),
         domain_tasks(data_store(sync.engine), "data"),
         sync.root,
-        provider_secrets(MASTER),
+        provider_secrets(MASTER, sync.root),
     )
     before_read = len(scheduler(restored.engine).list())
     current = restored.coverage.tracking(report["id"])

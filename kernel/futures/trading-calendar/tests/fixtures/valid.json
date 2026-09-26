@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "exchange": "SHFE",
+  "product": "AU",
+  "title": "测试跨周末及假日",
+  "timezone": "Asia/Shanghai",
+  "calendar_source": "测试完整自然日日历",
+  "night_source": "测试节前不开夜盘",
+  "calendar": [
+    {
+      "date": "2025-04-02",
+      "is_open": true,
+      "night_open": true
+    },
+    {
+      "date": "2025-04-03",
+      "is_open": true,
+      "night_open": false
+    },
+    {
+      "date": "2025-04-04",
+      "is_open": false,
+      "night_open": false
+    },
+    {
+      "date": "2025-04-05",
+      "is_open": false,
+      "night_open": false
+    },
+    {
+      "date": "2025-04-06",
+      "is_open": false,
+      "night_open": false
+    },
+    {
+      "date": "2025-04-07",
+      "is_open": true,
+      "night_open": true
+    },
+    {
+      "date": "2025-04-08",
+      "is_open": true,
+      "night_open": true
+    },
+    {
+      "date": "2025-04-09",
+      "is_open": true,
+      "night_open": true
+    },
+    {
+      "date": "2025-04-10",
+      "is_open": true,
+      "night_open": true
+    },
+    {
+      "date": "2025-04-11",
+      "is_open": true,
+      "night_open": true
+    },
+    {
+      "date": "2025-04-12",
+      "is_open": false,
+      "night_open": false
+    },
+    {
+      "date": "2025-04-13",
+      "is_open": false,
+      "night_open": false
+    },
+    {
+      "date": "2025-04-14",
+      "is_open": true,
+      "night_open": true
+    }
+  ],
+  "periods": [
+    {
+      "start": "2025-04-03",
+      "end": "2025-04-14",
+      "source": "测试时段",
+      "day": [
+        {
+          "start": "09:00:00",
+          "end": "10:15:00",
+          "end_offset": 0,
+          "phase": "continuous"
+        },
+        {
+          "start": "10:30:00",
+          "end": "11:30:00",
+          "end_offset": 0,
+          "phase": "continuous"
+        },
+        {
+          "start": "13:30:00",
+          "end": "15:00:00",
+          "end_offset": 0,
+          "phase": "continuous"
+        }
+      ],
+      "night": [
+        {
+          "start": "20:55:00",
+          "end": "21:00:00",
+          "end_offset": 0,
+          "phase": "auction"
+        },
+        {
+          "start": "21:00:00",
+          "end": "02:30:00",
+          "end_offset": 1,
+          "phase": "continuous"
+        }
+      ]
+    }
+  ],
+  "exceptions": []
+}

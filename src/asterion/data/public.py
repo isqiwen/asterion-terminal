@@ -1,28 +1,23 @@
 """Data interface v1. CSV imports are immutable; invalid input fails atomically."""
 
-import csv
-import hashlib
-import io
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime
-from decimal import Decimal
-from typing import Annotated, Literal
+from datetime import date
+from typing import Literal
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from asterion_bindings.catalog import Contract as Contract  # noqa: PLC0414
+from asterion_bindings.catalog import ReferenceCatalog as ReferenceCatalog  # noqa: PLC0414
+from asterion_bindings.catalog import ResolutionRequest as ResolutionRequest  # noqa: PLC0414
+from asterion_bindings.catalog import SourceIdentity as SourceIdentity  # noqa: PLC0414
+from asterion_bindings.catalog import validate_market_code as validate_market_code  # noqa: PLC0414
+from asterion_bindings.data_sources import SourceCredentials
+from asterion_bindings.plugin_host import Capability
+from asterion_bindings.resource import Resource
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from asterion.data.import_identity import ImportIdentity
-from asterion.data.reference import Contract as Contract  # noqa: PLC0414
-from asterion.data.reference import ReferenceCatalog as ReferenceCatalog  # noqa: PLC0414
-from asterion.data.reference import ResolutionRequest as ResolutionRequest  # noqa: PLC0414
-from asterion.data.reference import SourceIdentity as SourceIdentity  # noqa: PLC0414
-from asterion.data.reference import validate_market_code as validate_market_code  # noqa: PLC0414
-from asterion.platform.plugins import Capability
-from asterion.platform.resource import Resource
-from asterion.platform.secrets import SecretPort, SecretScope
+from asterion.data.scan_public import ScanRequest, ScanResult
 
 
 @dataclass(frozen=True)
@@ -31,114 +26,10 @@ class VersionAccess:
 
     read: Callable
     coverage: Callable
+    scan: Callable[[ScanRequest], ScanResult]
 
 
 VERSION_ACCESS = Capability("data.versions", "asterion.data", VersionAccess)
-
-
-Price = Annotated[Decimal, Field(gt=0, max_digits=20, decimal_places=8)]
-
-
-class Bar(BaseModel):
-    contract: str = Field(
-        pattern=r"^(?:(SHFE|DCE|CZCE|CFFEX|INE|GFEX)\.[A-Za-z]+[0-9]{3,4}|SIM\.DEMO001)$"
-    )
-    event_time: AwareDatetime
-    available_at: AwareDatetime
-    trading_day: date
-    open: Price
-    high: Price
-    low: Price
-    close: Price
-    volume: int = Field(ge=0)
-
-    @model_validator(mode="after")
-    def check(self):
-        if self.event_time.microsecond:
-            raise ValueError("CSV bar v1 requires whole-second event_time")
-        if self.low > min(self.open, self.close) or self.high < max(self.open, self.close):
-            raise ValueError("OHLC price bounds are inconsistent")
-        if self.available_at < self.event_time:
-            raise ValueError("available_at must not precede event_time")
-        return self
-
-
-from asterion.trading_time.public import TimeVersion
-
-
-class ImportOptions(BaseModel):
-    identity: ImportIdentity
-    trading_time: TimeVersion | None = None
-    timestamp_semantics: Literal["bar_start", "bar_end"] | None = None
-    model_config = ConfigDict(extra="forbid")
-    type_id: Literal["futures.bars", "futures.daily"] = "futures.bars"
-    frequency: Literal["unspecified", "1m", "5m", "15m", "30m", "1h", "1d"] = "unspecified"
-    source_id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,40}$")
-    column_mapping: dict[str, str] = Field(default_factory=dict, max_length=20)
-
-    @model_validator(mode="after")
-    def semantics(self):
-        if self.type_id == "futures.bars" and (
-            self.trading_time is None
-            or self.timestamp_semantics is None
-            or self.frequency == "unspecified"
-        ):
-            raise ValueError("日内行情必须选择交易时间版本、明确频率及时间戳起止口径")
-        if self.type_id == "futures.daily" and self.frequency != "1d":
-            raise ValueError("日线频率必须为 1d")
-        if self.type_id == "futures.bars" and self.frequency == "1d":
-            raise ValueError("日线请使用期货日线类型")
-        return self
-
-
-class ImportRequest(BaseModel):
-    command_id: str = Field(min_length=1, max_length=100)
-    source: str = Field(min_length=1, max_length=200)
-    csv: str = Field(min_length=1, max_length=2_000_000)
-    options: ImportOptions
-
-
-def encode_csv(content: str) -> tuple[bytes, dict]:
-    bars = [Bar.model_validate(row) for row in csv.DictReader(io.StringIO(content))]
-    if not bars:
-        raise ValueError("Source returned no rows; no snapshot published")
-    keys = [(bar.contract, bar.event_time) for bar in bars]
-    if len(keys) != len(set(keys)):
-        raise ValueError("Duplicate contract/event_time keys")
-    bars.sort(key=lambda b: (b.contract, b.event_time))
-    schema = pa.schema(
-        [
-            ("contract", pa.string()),
-            ("event_time", pa.timestamp("us", tz="UTC")),
-            ("available_at", pa.timestamp("us", tz="UTC")),
-            ("trading_day", pa.date32()),
-            *[(name, pa.decimal128(20, 8)) for name in ("open", "high", "low", "close")],
-            ("volume", pa.int64()),
-        ]
-    )
-    table = pa.Table.from_pylist([b.model_dump() for b in bars], schema=schema)
-    output = pa.BufferOutputStream()
-    pq.write_table(table, output)
-    data = output.getvalue().to_pybytes()
-    return data, {
-        "schema_version": 1,
-        "demo": any(bar.contract == "SIM.DEMO001" for bar in bars),
-        "rows": len(bars),
-        "checksum": hashlib.sha256(data).hexdigest(),
-        "contracts": sorted({b.contract for b in bars}),
-        "start": min(b.event_time for b in bars).isoformat(),
-        "end": max(b.event_time for b in bars).isoformat(),
-    }
-
-
-def read_bars(path, limit=1000):
-    parquet = pq.ParquetFile(path)
-    batch = next(parquet.iter_batches(batch_size=limit))
-    rows = batch.to_pylist()
-    return [
-        {k: str(v) if isinstance(v, (Decimal, datetime, date)) else v for k, v in row.items()}
-        for row in rows
-    ]
 
 
 class VersionReader:
@@ -155,6 +46,11 @@ class VersionReader:
 
     def read(self, version_id: str, *, limit: int):
         return self._library.preview(version_id, limit=limit)
+
+    def scan(self, request):
+        from asterion.data.scanning import scan
+
+        return scan(self._library, request)
 
     def coverage(self, report_id: str):
         """Return a stored, validated report without resolving newer reference versions."""
@@ -179,6 +75,8 @@ def normalize_coverage_report(value):
 
 
 class Manifest(BaseModel):
+    storage: Literal["parquet", "version"]
+    version_id: str | None = None
     demo: bool = False
     frequency: str | None = None
     time_semantics: str | None = None
@@ -193,6 +91,14 @@ class Manifest(BaseModel):
     source: str
     state: Literal["PUBLISHED"]
 
+    @model_validator(mode="after")
+    def fixed_storage(self):
+        if self.storage == "version" and not self.version_id:
+            raise ValueError("图表投影必须固定数据版本")
+        if self.storage == "parquet" and self.version_id is not None:
+            raise ValueError("独立图表文件不能声明版本投影")
+        return self
+
 
 class Snapshot(BaseModel):
     id: str
@@ -200,18 +106,7 @@ class Snapshot(BaseModel):
     manifest: Manifest
 
 
-CREDENTIAL_SCOPE = SecretScope(b"asterion.provider.credentials.v1", b"configuration-snapshot-v1")
-CREDENTIALS = Resource("data.credentials", SecretPort)
-
-
-@dataclass(frozen=True)
-class SyncReporter:
-    progress: Callable[[int, int], None]
-    checkpoint: Callable[[int, dict], None]
-    resume: Callable[[], dict]
-
-
-SYNC_REPORTER = Resource("data.sync_reporter", SyncReporter)
+CREDENTIALS = Resource("data.credentials", SourceCredentials)
 
 
 def coverage_contracts(value: dict, days: list[date]) -> list[dict]:
@@ -226,25 +121,11 @@ def coverage_contracts(value: dict, days: list[date]) -> list[dict]:
 
 def source_contract(source: dict, contract_id: str):
     """Resolve one canonical lifecycle from verified standard source observations."""
-    from asterion.data.reference_source import SourceCatalogRequest, source_catalog
-    from asterion.data.types import Contract as ContractRow
+    from asterion_bindings import data_identity
+    from asterion_bindings.catalog import Contract
 
-    matches = []
-    for raw in source["rows"]:
-        row = ContractRow.model_validate(raw)
-        if row.delivery_month is None:
-            continue
-        identifier = f"{row.exchange}.{row.product}.{row.delivery_month.replace('-', '')}.{row.listed:%Y%m%d}"
-        if identifier == contract_id:
-            matches.append(raw)
-    if len(matches) != 1:
-        raise ValueError("资料中没有唯一匹配的规范合约身份")
-    row = matches[0]
-    catalog = source_catalog(
-        lambda identifier, limit: source,
-        SourceCatalogRequest(version_id=source["version"]["id"], symbols=[row["symbol"]]),
-    )
-    return next(item for item in catalog.contracts if item.id == contract_id), row
+    contract, row = data_identity.source_contract(source, contract_id)
+    return Contract.model_validate(contract), row
 
 
 def source_contract_catalog(reader, version_id: str, symbols: list[str]) -> ReferenceCatalog:
@@ -254,11 +135,15 @@ def source_contract_catalog(reader, version_id: str, symbols: list[str]) -> Refe
     return source_catalog(reader, SourceCatalogRequest(version_id=version_id, symbols=symbols))
 
 
-def snapshot_backup_access(conn, files) -> VersionAccess:
-    """Freeze metadata; verify standard snapshots and every cumulative partition read."""
+def snapshot_backup_access(conn, artifacts) -> VersionAccess:
+    """Freeze metadata; verify standard snapshots and every cumulative partition read.
+
+    ``artifacts`` is a read-only artifact grant over the backed-up data root.
+    """
     from sqlalchemy import select
 
-    from asterion.data.library import versions
+    from asterion.data.library import read_artifact, versions
+    from asterion.data.partitions import read_partition, version_partitions
 
     records = {r["id"]: dict(r) for r in conn.execute(select(versions)).mappings()}
 
@@ -270,36 +155,32 @@ def snapshot_backup_access(conn, files) -> VersionAccess:
             "partition_manifest",
         }:
             raise ValueError("恢复依据必须是标准表格快照")
-        content = files.read(manifest["path"])
-        if hashlib.sha256(content).hexdigest() != manifest["checksum"]:
-            raise ValueError("恢复依据文件校验和不一致")
-        provenance = None
         if manifest["format"] == "partition_manifest":
-            index = json.loads(content)
-            if index.get("schema_version") != 1 or index["partitions"] != manifest["partitions"]:
-                raise ValueError("恢复依据分区清单不一致")
-            rows = []
-            for part in index["partitions"]:
-                data = files.read(f"artifacts/{part['checksum']}.parquet")
-                if hashlib.sha256(data).hexdigest() != part["checksum"]:
-                    raise ValueError("恢复依据分区校验和不一致")
-                batch = pq.ParquetFile(pa.BufferReader(data)).read(use_threads=False)
-                if batch.num_rows != part["rows"]:
-                    raise ValueError("恢复依据分区行数不一致")
-                rows.extend(batch.to_pylist())
+            rows = [
+                row
+                for part in version_partitions(artifacts, manifest)
+                for row in read_partition(artifacts, part)
+            ]
             if len(rows) != record["rows"]:
                 raise ValueError("恢复依据行数不一致")
             selected = rows[:limit]
-            provenance = [
-                {"observed_at": r["_observed_at"], "raw_version_id": r["_raw_version_id"]}
-                for r in selected
-            ]
             return {
                 "version": record,
                 "total": record["rows"],
-                "row_sources": provenance,
+                "row_sources": [
+                    {"observed_at": r["_observed_at"], "raw_version_id": r["_raw_version_id"]}
+                    for r in selected
+                ],
                 "rows": [{k: v for k, v in r.items() if not k.startswith("_")} for r in selected],
             }
+        content = read_artifact(
+            artifacts,
+            manifest["path"],
+            manifest["checksum"],
+            manifest["bytes"],
+            missing="恢复依据文件缺失",
+            changed="恢复依据文件校验和不一致",
+        )
         table = pq.ParquetFile(pa.BufferReader(content)).read(use_threads=False)
         if table.num_rows != record["rows"]:
             raise ValueError("恢复依据行数不一致")
@@ -312,7 +193,10 @@ def snapshot_backup_access(conn, files) -> VersionAccess:
     def no_coverage(_):
         raise ValueError("快照恢复端口不提供覆盖报告")
 
-    return VersionAccess(read, no_coverage)
+    def no_scan(_):
+        raise ValueError("备份证据端口不提供在线批次扫描")
+
+    return VersionAccess(read, no_coverage, no_scan)
 
 
 def fixed_daily_evidence(reader, version_id: str):

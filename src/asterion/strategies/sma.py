@@ -3,7 +3,8 @@
 from hashlib import sha256
 from pathlib import Path
 
-from asterion.platform.plugins import Activation, Capability, Plugin
+from asterion_bindings.plugin_host import Activation, Capability, Plugin
+
 from asterion.research.public import (
     ClosedBar,
     IntegerParameter,

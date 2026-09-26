@@ -1,0 +1,34 @@
+[package]
+name = "asterion-kernel"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[package.metadata.asterion]
+layer = "L1"
+kind = "mechanism"
+
+[lints]
+workspace = true
+
+[dependencies]
+zip.workspace = true
+rustix.workspace = true
+asterion-foundation.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hmac = { workspace = true }
+hex = { workspace = true }
+base64 = { workspace = true }
+fernet.workspace = true
+zeroize.workspace = true
+uuid.workspace = true
+rusqlite.workspace = true
+tempfile.workspace = true
+nix.workspace = true
+scrypt.workspace = true
+getrandom.workspace = true
+subtle.workspace = true
+postgres.workspace = true
+bytes.workspace = true

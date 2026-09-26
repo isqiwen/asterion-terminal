@@ -7,7 +7,6 @@ from storage_support import scheduler
 
 from asterion.data.providers.public import SyncRequest
 from asterion.data.providers.tushare import Tushare
-from asterion.data.sync_admission import SyncSubmission, admit
 from asterion.platform.serialization import canonical
 
 
@@ -65,9 +64,4 @@ def submit_source(sync, request):
             ]
         )
         references = [sync.publish(task["id"], task["token"], content)]
-    return admit(
-        sync,
-        SyncSubmission.model_validate(
-            request.model_dump() | {"contracts_version_id": references[0]["id"]}
-        ),
-    )
+    return sync.admit(request.model_dump() | {"contracts_version_id": references[0]["id"]})

@@ -1,0 +1,33 @@
+{
+  "name": "@asterion/ui-data-panel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "asterion": {
+    "layer": 4,
+    "kind": "panel",
+    "id": "asterion.ui.data-panel"
+  },
+  "exports": {
+    "./CoverageReferences": "./src/CoverageReferences.tsx",
+    "./Inspector": "./src/Inspector.tsx",
+    "./client": "./src/client.ts",
+    "./context": "./src/context.ts",
+    "./module": "./src/module.tsx",
+    "./requests": "./src/requests.ts"
+  },
+  "dependencies": {
+    "@asterion/api-types": "workspace:*",
+    "@asterion/runtime-client": "workspace:*",
+    "@asterion/ui-role-panel": "workspace:*",
+    "@asterion/ui-task-center": "workspace:*",
+    "@asterion/ui-trading-time-controls": "workspace:*",
+    "@asterion/workbench": "workspace:*",
+    "react": "^19.0.0",
+    "@asterion/ui-overview": "workspace:*",
+    "@asterion/ui-account-settings": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0"
+  }
+}

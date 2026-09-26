@@ -3,10 +3,9 @@
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
+from asterion_bindings.recovery import BackupCheck
+from asterion_bindings.rules import RuleVersion
 from sqlalchemy import text
-
-from asterion.contract_rules.public import RuleVersion
-from asterion.platform.backup import BackupCheck
 
 
 @dataclass(frozen=True)

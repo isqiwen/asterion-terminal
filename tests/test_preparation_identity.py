@@ -2,18 +2,18 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
+from asterion_bindings.artifacts import ArtifactStore
+from asterion_bindings.task_repository import Conflict
 from sqlalchemy import select
 from storage_support import scheduler
 from test_preparation import request, sync  # noqa: F401
 
-from asterion.data.configuration import ConfigurationUpdate
 from asterion.data.library import versions
 from asterion.data.preparation import Preparations, batches
 from asterion.data.providers.public import SyncRequest
 from asterion.data.providers.tushare import Tushare
 from asterion.platform.serialization import canonical
 from asterion.platform.store import jobs
-from asterion.platform.tasks.service import Conflict
 
 
 def evidence(job, *, incomplete=False, bad_day=False, last_day="20261015"):
@@ -85,10 +85,7 @@ def test_dependency_pins_accepted_configuration_and_publishes_once(sync):  # noq
     batch = sync.preparations.submit(request())
     with sync.engine.connect() as conn:
         accepted = conn.execute(select(batches.c.daily_payload)).scalar_one()
-    sync.configuration.apply(
-        "tushare",
-        ConfigurationUpdate(expected_revision=1, secrets={"token": "changed-fixture-token"}),
-    )
+    sync.sources.apply("tushare", 1, secrets={"token": "changed-fixture-token"})
     source = reference_job(sync)
     content = evidence(source)
     version = sync.publish(source["id"], source["token"], content)
@@ -162,14 +159,19 @@ def test_reference_outside_request_lifecycle_never_queues_daily(sync):  # noqa: 
 
 
 def test_backup_rejects_corrupt_preparation_journal_without_rewrite(sync):  # noqa: F811
+    from asterion_bindings.files import read_files
     from storage_support import raw_engine
 
     from asterion.data.backup import load_evidence, validate_backup
-    from asterion.platform.files import read_files
 
     sync.preparations.submit(request())
     with raw_engine(sync.engine).connect() as conn:
-        accepted = load_evidence(conn, read_files(sync.root), lambda value: value)
+        accepted = load_evidence(
+            conn,
+            ArtifactStore(sync.root, read_only=True),
+            read_files(sync.root),
+            lambda value: value,
+        )
     validate_backup(accepted)
     damaged = accepted.preparations[0] | {"daily_state": "SUBMITTED"}
     with pytest.raises(ValueError, match="缺少固定来源身份"):

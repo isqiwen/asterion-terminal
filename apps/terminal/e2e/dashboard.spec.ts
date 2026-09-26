@@ -15,7 +15,20 @@ async function dashboard(context: BrowserContext, page: Page, empty = false) {
   }));
   await context.route("**/api/v1/**", (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path.endsWith("/market/state")) return route.fulfill({json:{environment:"simnow",state:"disconnected",detail:"行情源未连接",configuration:{version:1,front:"",user_id:"",subscriptions:[]},quotes:[],subscription_errors:{},observed_at:Date.now()/1000}});
+    if (path.endsWith("/connections")) return route.fulfill({ json: {
+      connections: [{ connection_id: "dashboard-connection", connector_id: "fixture", name: "测试连接",
+        config_revision: 1, config: {}, secret_saved: {}, capabilities: ["market_quotes", "account_snapshot"], available: true,
+        market: { state: "disconnected", detail: "行情源未连接", generation: 0 },
+        account: { state: "disconnected", detail: "账户源未连接", generation: 0 },
+      }],
+      connectors: [{ id: "fixture", owner: "fixture.connector", version: 1, title: "测试接入", instructions: "", capabilities: ["market_quotes", "account_snapshot"], fields: [] }], selected_id: "dashboard-connection", active_id: null, notice: "",
+    } });
+    if (path.endsWith("/trading/account")) return route.fulfill({ json: {
+      connection_id: "dashboard-connection", connection_name: "测试连接", state: "disconnected",
+      detail: "账户源未连接", stale: true, observed_at: null, account: null, positions: [],
+      margin_ratio: null, available_ratio: null, risk_detail: "等待账户数据；风险暂无法评估",
+    } });
+    if (path.endsWith("/market/state")) return route.fulfill({json:{connection_id:"dashboard-connection",connection_name:"测试连接",state:"disconnected",detail:"行情源未连接",configuration:{subscriptions:[]},quotes:[],contract_names:{},subscription_errors:{},observed_at:Date.now()/1000}});
     if (path.includes("/account/security")) return route.fallback();
     if (route.request().method() === "POST" && !/login|access\/scopes/.test(path)) writes.push(path);
     if (path.endsWith("/access/scopes")) return route.fulfill({ json: { token: "scope-fixture", expires: Date.now() / 1000 + 300 } });
@@ -68,8 +81,8 @@ test("empty dashboard retains market, combined account and risk without invented
   const account=page.getByRole("region",{name:"账户与持仓",exact:true});
   await expect(account.getByLabel("资金摘要").locator("dd")).toHaveText(["—","—","—","—"]);
   await expect(account.getByRole("table",{name:"持仓明细"})).toContainText("今仓");
-  await expect(account).toContainText("持仓数据暂不可用");
-  await expect(page.getByRole("button",{name:"查看接入状态 ↗",exact:true})).toHaveCount(1);
+  await expect(account).toContainText("持仓尚未确认");
+  await expect(account.getByRole("button",{name:"配置连接",exact:true})).toHaveCount(1);
   const m=await page.getByRole("region",{name:"实时行情",exact:true}).boundingBox();
   const a=await account.boundingBox();
   expect(m!.x+m!.width).toBeLessThan(a!.x);

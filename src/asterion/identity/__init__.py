@@ -1,1 +1,1 @@
-"""Local terminal accounts and email verification."""
+"""Account access decided by the Rust entry; this process only reads it."""

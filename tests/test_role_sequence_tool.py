@@ -4,8 +4,9 @@ import importlib.util
 from pathlib import Path
 
 import pytest
+from asterion_bindings.database import create_engine
 from role_source_support import port
-from sqlalchemy import create_engine, insert, select
+from sqlalchemy import insert, select
 from test_role_sequence import campaign
 
 from asterion.contract_roles.plugin import computed_versions

@@ -6,10 +6,9 @@ from pathlib import Path
 
 
 def run(target: Path):
-    import resource
+    from asterion_bindings.transport import child_limits
 
-    resource.setrlimit(resource.RLIMIT_FSIZE, (8_000_000, 8_000_000))
-    resource.setrlimit(resource.RLIMIT_CPU, (30, 30))
+    child_limits()
     sys.dont_write_bytecode = True
     target = target.resolve()
     sys.path.insert(0, str(target))

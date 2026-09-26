@@ -5,7 +5,8 @@ import threading
 import time
 from types import SimpleNamespace
 from typing import cast
-from uuid import uuid4
+
+from asterion_bindings.plugin_host import Activation, Plugin
 
 from asterion.connections.public import (
     AccountBatch,
@@ -15,7 +16,6 @@ from asterion.connections.public import (
     ConnectorError,
     InstrumentBatch,
 )
-from asterion.platform.plugins import Activation, Plugin
 
 from .feed import CtpFeed
 from .normalize import observation, quote
@@ -78,7 +78,7 @@ class Session:
             if feed:
                 feed.close()
 
-    def read(self, kind, generation, cancel):
+    def read(self, kind, request, cancel):
         while not self.query_lock.acquire(timeout=0.1):
             if cancel.is_set() or self.closed.is_set():
                 raise ConnectorError("查询已取消", "session_invalid", False)
@@ -88,14 +88,10 @@ class Session:
             while time.monotonic() < self.next_query:
                 if cancel.is_set() or self.closed.wait(0.05):
                     raise ConnectorError("查询已取消", "session_invalid", False)
-            started = time.time()
             query = query_instruments if kind == "instruments" else query_account
             raw = query(self.configuration, self.password, cancel)
             meta = {
-                "connection_id": self.profile.connection_id,
-                "generation": generation,
-                "request_id": uuid4().hex,
-                "started_at": started,
+                **request.model_dump(),
                 "observed_at": time.time(),
                 "complete": True,
             }
@@ -115,11 +111,11 @@ class Session:
             self.next_query = time.monotonic() + 1.1
             self.query_lock.release()
 
-    def instruments(self, generation, cancel):
-        return cast(InstrumentBatch, self.read("instruments", generation, cancel))
+    def instruments(self, request, cancel):
+        return cast(InstrumentBatch, self.read("instruments", request, cancel))
 
-    def account(self, generation, cancel):
-        return cast(AccountBatch, self.read("account", generation, cancel))
+    def account(self, request, cancel):
+        return cast(AccountBatch, self.read("account", request, cancel))
 
     def close(self):
         self.closed.set()
@@ -136,8 +132,8 @@ def contribution():
             owner="asterion.connector.ctp",
             title="CTP",
             instructions="请填写服务方提供的 BrokerID、投资者代码、行情和交易前置、AppID、认证码及密码。当前仅开放行情与账户只读查询。",
-            capabilities=["market_quotes", "instrument_catalog", "account_snapshot", "positions"],
-            fields=[
+            capabilities=("market_quotes", "instrument_catalog", "account_snapshot", "positions"),
+            fields=(
                 ConfigField(key="broker_id", label="BrokerID", identity=True),
                 ConfigField(key="user_id", label="投资者代码", identity=True),
                 ConfigField(key="front", label="行情前置"),
@@ -145,7 +141,7 @@ def contribution():
                 ConfigField(key="app_id", label="AppID"),
                 ConfigField(key="auth_code", label="认证码", secret=True),
                 ConfigField(key="password", label="账户密码", secret=True),
-            ],
+            ),
         ),
         validate,
         Session,

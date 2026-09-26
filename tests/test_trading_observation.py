@@ -4,7 +4,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
-from connection_fakes import access, manager, save_body
+from connection_fakes import access, manager, save_body, source_session
 
 from asterion.connector_ctp.normalize import observation
 from asterion.trading.observation import AccountService
@@ -95,7 +95,7 @@ def test_snapshot_ratio_failure_stale_and_session(tmp_path):
     assert first.margin_ratio == 20 and not first.stale
     clock[0] += 61
     assert service.snapshot().stale
-    connection.runtime[key].session.fail = True
+    source_session(connection, key).fail = True
     failed = service.refresh(force=True)
     assert failed.stale and failed.account.balance == 100 and "private" not in failed.detail
     connection.disconnect(key)

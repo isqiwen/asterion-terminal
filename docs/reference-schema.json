@@ -3,12 +3,6 @@
     "CatalogInput": {
       "additionalProperties": false,
       "properties": {
-        "version_id": {
-          "maxLength": 100,
-          "minLength": 1,
-          "title": "Version Id",
-          "type": "string"
-        },
         "checksum": {
           "pattern": "^[0-9a-f]{64}$",
           "title": "Checksum",
@@ -19,12 +13,18 @@
           "minLength": 1,
           "title": "Source",
           "type": "string"
+        },
+        "version_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Version Id",
+          "type": "string"
         }
       },
       "required": [
-        "version_id",
         "checksum",
-        "source"
+        "source",
+        "version_id"
       ],
       "title": "CatalogInput",
       "type": "object"
@@ -32,29 +32,15 @@
     "Contract": {
       "additionalProperties": false,
       "properties": {
-        "id": {
-          "maxLength": 100,
-          "minLength": 1,
-          "title": "Id",
-          "type": "string"
-        },
-        "product_id": {
-          "title": "Product Id",
-          "type": "string"
-        },
         "delivery_month": {
           "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$",
           "title": "Delivery Month",
           "type": "string"
         },
-        "listed_on": {
-          "format": "date",
-          "title": "Listed On",
-          "type": "string"
-        },
-        "last_trade_on": {
-          "format": "date",
-          "title": "Last Trade On",
+        "id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Id",
           "type": "string"
         },
         "last_delivery_on": {
@@ -69,17 +55,31 @@
           ],
           "title": "Last Delivery On"
         },
+        "last_trade_on": {
+          "format": "date",
+          "title": "Last Trade On",
+          "type": "string"
+        },
+        "listed_on": {
+          "format": "date",
+          "title": "Listed On",
+          "type": "string"
+        },
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
         "provenance": {
           "$ref": "#/$defs/Provenance"
         }
       },
       "required": [
-        "id",
-        "product_id",
         "delivery_month",
-        "listed_on",
-        "last_trade_on",
+        "id",
         "last_delivery_on",
+        "last_trade_on",
+        "listed_on",
+        "product_id",
         "provenance"
       ],
       "title": "Contract",
@@ -88,9 +88,9 @@
     "Product": {
       "additionalProperties": false,
       "properties": {
-        "id": {
-          "pattern": "^(SHFE|DCE|CZCE|CFFEX|INE|GFEX)\\.[A-Z]+$",
-          "title": "Id",
+        "currency": {
+          "pattern": "^[A-Z]{3}$",
+          "title": "Currency",
           "type": "string"
         },
         "exchange": {
@@ -105,14 +105,14 @@
           "title": "Exchange",
           "type": "string"
         },
+        "id": {
+          "pattern": "^(SHFE|DCE|CZCE|CFFEX|INE|GFEX)\\.[A-Z]+$",
+          "title": "Id",
+          "type": "string"
+        },
         "name": {
           "minLength": 1,
           "title": "Name",
-          "type": "string"
-        },
-        "currency": {
-          "pattern": "^[A-Z]{3}$",
-          "title": "Currency",
           "type": "string"
         },
         "provenance": {
@@ -120,10 +120,10 @@
         }
       },
       "required": [
-        "id",
-        "exchange",
-        "name",
         "currency",
+        "exchange",
+        "id",
+        "name",
         "provenance"
       ],
       "title": "Product",
@@ -132,6 +132,16 @@
     "Provenance": {
       "additionalProperties": false,
       "properties": {
+        "available_at": {
+          "format": "date-time",
+          "title": "Available At",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
         "source": {
           "minLength": 1,
           "title": "Source",
@@ -141,23 +151,13 @@
           "minLength": 1,
           "title": "Source Version",
           "type": "string"
-        },
-        "observed_at": {
-          "format": "date-time",
-          "title": "Observed At",
-          "type": "string"
-        },
-        "available_at": {
-          "format": "date-time",
-          "title": "Available At",
-          "type": "string"
         }
       },
       "required": [
-        "source",
-        "source_version",
+        "available_at",
         "observed_at",
-        "available_at"
+        "source",
+        "source_version"
       ],
       "title": "Provenance",
       "type": "object"
@@ -165,6 +165,15 @@
     "SourceSymbol": {
       "additionalProperties": false,
       "properties": {
+        "contract_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Contract Id",
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        },
         "source": {
           "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{0,63}$",
           "title": "Source",
@@ -177,12 +186,6 @@
           "title": "Symbol",
           "type": "string"
         },
-        "contract_id": {
-          "maxLength": 100,
-          "minLength": 1,
-          "title": "Contract Id",
-          "type": "string"
-        },
         "valid_from": {
           "format": "date",
           "title": "Valid From",
@@ -192,18 +195,15 @@
           "format": "date",
           "title": "Valid Until",
           "type": "string"
-        },
-        "provenance": {
-          "$ref": "#/$defs/Provenance"
         }
       },
       "required": [
+        "contract_id",
+        "provenance",
         "source",
         "symbol",
-        "contract_id",
         "valid_from",
-        "valid_until",
-        "provenance"
+        "valid_until"
       ],
       "title": "SourceSymbol",
       "type": "object"
@@ -211,10 +211,12 @@
   },
   "additionalProperties": false,
   "properties": {
-    "schema_version": {
-      "const": 2,
-      "title": "Schema Version",
-      "type": "integer"
+    "contracts": {
+      "items": {
+        "$ref": "#/$defs/Contract"
+      },
+      "title": "Contracts",
+      "type": "array"
     },
     "inputs": {
       "items": {
@@ -230,12 +232,11 @@
       "title": "Products",
       "type": "array"
     },
-    "contracts": {
-      "items": {
-        "$ref": "#/$defs/Contract"
-      },
-      "title": "Contracts",
-      "type": "array"
+    "schema_version": {
+      "maximum": 2,
+      "minimum": 2,
+      "title": "Schema Version",
+      "type": "integer"
     },
     "symbols": {
       "items": {
@@ -246,10 +247,10 @@
     }
   },
   "required": [
-    "schema_version",
+    "contracts",
     "inputs",
     "products",
-    "contracts",
+    "schema_version",
     "symbols"
   ],
   "title": "ReferenceCatalog",

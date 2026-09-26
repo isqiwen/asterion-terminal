@@ -4,9 +4,12 @@ import io
 import zipfile
 
 import pytest
+from asterion_bindings.database import create_engine
+from asterion_bindings.execution import ExecutionFactory
+from asterion_bindings.tasks import ExecutionContext
 from fastapi.testclient import TestClient
 from rules_support import rule_access
-from sqlalchemy import create_engine, select
+from sqlalchemy import select
 from storage_support import data_store, domain_tasks, raw_engine, research_store, scheduler
 from test_research import services  # noqa: F401 - shared pytest fixture
 
@@ -16,7 +19,7 @@ from asterion.data.public import VersionAccess, VersionReader
 from asterion.distribution import strategy_catalog
 from asterion.platform.config import Settings
 from asterion.platform.store import metadata
-from asterion.platform.tasks.execution import ExecutionContext
+from asterion.research.execution import EXECUTION
 from asterion.research.packages import ResearchPackages, csv_text, digest, parse_package
 from asterion.research.service import Backtests
 from asterion.research.strategies import STRATEGY_RESOURCE
@@ -32,7 +35,13 @@ def completed(request):
         job["id"],
         job["token"],
         execute(
-            ExecutionContext((STRATEGY_RESOURCE,), {STRATEGY_RESOURCE: strategy_catalog()}),
+            ExecutionContext(
+                (
+                    STRATEGY_RESOURCE,
+                    EXECUTION,
+                ),
+                {STRATEGY_RESOURCE: strategy_catalog(), EXECUTION: ExecutionFactory()},
+            ),
             job["payload"],
         )[0],
     )
@@ -84,6 +93,7 @@ def test_transfer_requires_data_and_reproduces_exact_output(completed, tmp_path)
         version_access(engine, tmp_path / "other-data"),
         rule_access(engine),
         strategy_catalog(),
+        ExecutionFactory(),
     )
     portable = ResearchPackages(target)
     missing = portable.receive("alice", source.export(ident))
@@ -100,7 +110,13 @@ def test_transfer_requires_data_and_reproduces_exact_output(completed, tmp_path)
         job["id"],
         job["token"],
         execute(
-            ExecutionContext((STRATEGY_RESOURCE,), {STRATEGY_RESOURCE: strategy_catalog()}),
+            ExecutionContext(
+                (
+                    STRATEGY_RESOURCE,
+                    EXECUTION,
+                ),
+                {STRATEGY_RESOURCE: strategy_catalog(), EXECUTION: ExecutionFactory()},
+            ),
             job["payload"],
         )[0],
     )
@@ -202,5 +218,6 @@ def test_missing_required_parameters_prevent_replay_without_mutating_input(compl
 
 
 def version_access(engine, root):
+    root.mkdir(exist_ok=True)
     reader = VersionReader(data_store(engine), root)
-    return VersionAccess(reader.read, reader.coverage)
+    return VersionAccess(reader.read, reader.coverage, reader.scan)

@@ -1,9 +1,8 @@
 from copy import deepcopy
 
 import pytest
+from asterion_bindings.catalog import ReferenceCatalog
 from pydantic import ValidationError
-
-from asterion.data.reference import ReferenceCatalog
 
 
 def fixture():
@@ -84,7 +83,7 @@ def test_reference_rejects_inconsistent_data(change):
 
 
 def query(symbol="RB2610.SHF", day="2026-09-14", information="2026-09-14T00:00:00Z"):
-    from asterion.data.reference import ResolutionRequest
+    from asterion_bindings.catalog import ResolutionRequest
 
     return ResolutionRequest.model_validate(
         {

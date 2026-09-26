@@ -7,9 +7,15 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
 
+from asterion_bindings import data_sync
+from asterion_bindings.artifacts import ArtifactStore
+from asterion_bindings.calendar import TimeVersion
+from asterion_bindings.data_sources import SourceCredentials
+from asterion_bindings.database import create_engine
+from asterion_bindings.roles import RoleQuery
+from asterion_bindings.task_repository import Tasks, task_port
 from fastapi.testclient import TestClient
 from pydantic import AwareDatetime, BaseModel, ConfigDict, model_validator
-from sqlalchemy import create_engine
 from verify_tushare import Report, read_connection
 
 from asterion.api.app import create_app
@@ -17,24 +23,16 @@ from asterion.contract_roles.candidates import CandidateRequest, CandidateScope,
 from asterion.contract_roles.computed import replay_computed
 from asterion.contract_roles.computed_public import ComputedRequest, ComputedVersion, DailyInput
 from asterion.contract_roles.plugin import RoleBackup, validate
-from asterion.contract_roles.public import RoleQuery
 from asterion.contract_roles.ranking import RankingPolicy
 from asterion.data.catalog import snapshots
-from asterion.data.configuration import ConfigurationUpdate
 from asterion.data.providers.public import SyncRequest
-from asterion.data.public import CREDENTIAL_SCOPE, snapshot_backup_access
-from asterion.data.sync import DataSync, collect
-from asterion.data.sync_admission import SyncSubmission, admit
+from asterion.data.public import snapshot_backup_access
+from asterion.data.sync import DataSync
 from asterion.distribution_storage import data_storage
+from asterion.platform.communication.schema import initialize_core
 from asterion.platform.config import Settings
-from asterion.platform.files import read_files
-from asterion.platform.secrets import secret_port
 from asterion.platform.serialization import canonical
-from asterion.platform.store import jobs
-from asterion.platform.task_port import task_port
-from asterion.platform.tasks.service import Tasks
-from asterion.runtime.environments import active
-from asterion.trading_time.public import TimeVersion
+from asterion.runtime.environment import EnvironmentHost
 
 
 class ComputationCase(BaseModel):
@@ -61,6 +59,13 @@ class ComputationCase(BaseModel):
         return self
 
 
+def collect_evidence(sync, credentials, job) -> bytes:
+    """Collect a claimed task from Tushare with the entry's Rust collection."""
+    return data_sync.collect(
+        "sqlite:///" + str(sync.root / "acceptance.db"), credentials, sync.root, job
+    )
+
+
 def suite(report: Report, case: ComputationCase, configuration: dict):
     root = report.root
     key = secrets.token_urlsafe(32)
@@ -68,19 +73,17 @@ def suite(report: Report, case: ComputationCase, configuration: dict):
         os.open(root / "runtime.key", os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600), "w"
     ) as file:
         file.write(key)
-    secret = secret_port(key, CREDENTIAL_SCOPE)
+    secret = SourceCredentials(key, root)
     engine = create_engine("sqlite:///" + str(root / "acceptance.db"), hide_parameters=True)
     try:
-        jobs.create(engine)
+        initialize_core(engine)
         tasks = Tasks(engine, lease_seconds=240)
         storage = data_storage(engine)
         storage.initialize(snapshots)
         sync = DataSync(
             storage, task_port(tasks, frozenset({"data.sync", "data.import_csv"})), root, secret
         )
-        sync.configuration.apply(
-            "tushare", ConfigurationUpdate(expected_revision=0, values={}, secrets=configuration)
-        )
+        sync.sources.apply("tushare", 0, secrets=configuration)
         fixed = {}
         report.value["versions"] = fixed
 
@@ -94,22 +97,19 @@ def suite(report: Report, case: ComputationCase, configuration: dict):
                 start=start,
                 end=end,
             )
-            accepted = admit(
-                sync,
-                SyncSubmission.model_validate(
-                    request.model_dump()
-                    | {
-                        "contracts_version_id": fixed["contracts"]["id"]
-                        if dataset == "daily"
-                        else None,
-                    }
-                ),
+            accepted = sync.admit(
+                request.model_dump()
+                | {
+                    "contracts_version_id": fixed["contracts"]["id"]
+                    if dataset == "daily"
+                    else None,
+                }
             )
             job = tasks.claim("computed-role-acceptance")
             if job is None or job["id"] != accepted["id"]:
                 raise ValueError("验收任务领取失败")
             try:
-                content = collect(job["payload"], root, secret)
+                content = collect_evidence(sync, secret, job)
                 version = sync.publish(job["id"], job["token"], content)
             except Exception:
                 tasks.fail(job["id"], job["token"], "验收采集失败；检查分阶段报告")
@@ -283,7 +283,7 @@ def suite(report: Report, case: ComputationCase, configuration: dict):
 
         def backup():
             with engine.connect() as conn:
-                access = snapshot_backup_access(conn, read_files(root))
+                access = snapshot_backup_access(conn, ArtifactStore(root, read_only=True))
             return validate(RoleBackup((), access, (version.model_dump(mode="json"),), ()))
 
         report.step("backup_sources", backup)
@@ -316,7 +316,8 @@ def main():
     try:
         case = ComputationCase.model_validate_json(args.case.read_bytes())
         host, output = args.host.resolve(), args.output.resolve()
-        state = active(host)
+        with EnvironmentHost(host) as environment:
+            state = environment.active()
         if any(output.is_relative_to(p) or p.is_relative_to(output) for p in (host, state)):
             raise ValueError("输出必须与活动环境独立")
         report = Report(output, case)

@@ -4,10 +4,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
-from credential_helpers import provider_secrets
-
-from asterion.data.providers.tushare import Tushare
-from asterion.data.sync import Credentials
+from offline_collection import offline
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("verify_tushare", ROOT / "scripts/verify_tushare.py")
@@ -68,7 +65,11 @@ def rows(partition):
 
 
 def test_acceptance_retains_fixed_inputs_and_replays_offline(tmp_path, monkeypatch):
-    monkeypatch.setattr(Tushare, "fetch", lambda self, partition, configuration: rows(partition))
+    monkeypatch.setattr(
+        acceptance,
+        "collect_evidence",
+        offline(lambda self, partition, configuration: rows(partition)),
+    )
     root = tmp_path / "result"
     report = acceptance.Report(root, case())
     acceptance.suite(report, case(), {"token": "fixture-private-token"})
@@ -100,7 +101,7 @@ def test_failed_stage_keeps_completed_evidence_and_redacts_exception(tmp_path, m
             raise RuntimeError("private-token-and-payload")
         return rows(partition)
 
-    monkeypatch.setattr(Tushare, "fetch", fetch)
+    monkeypatch.setattr(acceptance, "collect_evidence", offline(fetch))
     report = acceptance.Report(tmp_path / "result", case())
     with pytest.raises(RuntimeError):
         acceptance.suite(report, case(), {"token": "private-token-and-payload"})
@@ -139,14 +140,3 @@ def test_output_refuses_overwrite(tmp_path):
 def test_case_validation_precedes_network(change):
     with pytest.raises(ValueError):
         acceptance.Case.model_validate(case().model_dump() | change)
-
-
-def test_reading_credentials_does_not_create_or_modify_directories(tmp_path):
-    credentials = Credentials(tmp_path / "absent", provider_secrets("fixture-secret"))
-    with pytest.raises(ValueError):
-        credentials.read_configuration("a" * 64, "tushare", 1, 0)
-    assert not (tmp_path / "absent").exists()
-    ref = credentials.freeze_configuration("tushare", 1, {"token": "fixture"}, 1)
-    credentials.root.chmod(0o750)
-    assert credentials.read_configuration(ref, "tushare", 1, 1) == {"token": "fixture"}
-    assert credentials.root.stat().st_mode & 0o777 == 0o750

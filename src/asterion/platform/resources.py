@@ -1,11 +1,11 @@
-from asterion.platform.resource import Resource
+from asterion_bindings.resource import Resource
 
 """Bootstrap resource contracts; distribution assembly assigns individual grants."""
 
 from pathlib import Path
 
-from asterion.platform.storage import Storage
-from asterion.platform.task_port import TaskPort
+from asterion_bindings.storage import Storage
+from asterion_bindings.task_repository import TaskPort
 
 STORAGE = Resource("runtime.storage", Storage)
 DATA_ROOT = Resource("runtime.data_root", Path)

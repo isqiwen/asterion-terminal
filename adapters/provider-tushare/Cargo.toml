@@ -1,0 +1,26 @@
+[package]
+name = "asterion-provider-tushare"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[package.metadata.asterion]
+layer = "L3"
+kind = "adapter"
+
+[dependencies]
+asterion-data-store.workspace = true
+bigdecimal.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+regex.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+
+[features]
+# Test builds only: `set_test_endpoint` points the vendor endpoint at a stand-in.
+test-endpoint = []
+
+[lints]
+workspace = true

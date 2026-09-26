@@ -5,19 +5,20 @@ import json
 from datetime import date
 from decimal import Decimal
 
+from asterion_bindings.execution import ExecutionFactory, settlement_price
+from asterion_bindings.task_repository import Conflict
 from sqlalchemy import JSON, Column, String, Table, select
 
 from asterion.contract_rules.public import RuleAccess
 from asterion.data.public import VersionAccess, coverage_contracts, normalize_coverage_report
 from asterion.platform.serialization import canonical
 from asterion.platform.store import jobs, metadata
-from asterion.platform.tasks.service import Conflict
+from asterion.research.data_input import selected_input
 from asterion.research.engine import (
     ENGINE,
     BacktestRequest,
     calculate,
     frozen_request,
-    settlement_price,
 )
 from asterion.research.strategies import StrategyCatalog
 
@@ -64,7 +65,7 @@ def validate_input(payload):
     ):
         raise ValueError("研究输入校验和不一致")
     for bar in payload["bars"]:
-        settlement_price(bar)
+        settlement_price(bar.get("settle"))
         request.rules.spec.trading_time.spec.daily(
             bar["contract"], date.fromisoformat(bar["trading_day"])
         )
@@ -108,12 +109,19 @@ def validate_input(payload):
 
 class Backtests:
     def __init__(
-        self, engine, tasks, versions: VersionAccess, rules: RuleAccess, strategies: StrategyCatalog
+        self,
+        engine,
+        tasks,
+        versions: VersionAccess,
+        rules: RuleAccess,
+        strategies: StrategyCatalog,
+        execution: ExecutionFactory,
     ):
         self.engine, self.tasks = engine, tasks
         self.versions = versions
         self.rules = rules
         self.strategies = strategies
+        self.execution = execution
         engine.initialize(results)
 
     def submit(self, body: BacktestRequest):
@@ -137,7 +145,7 @@ class Backtests:
         strategy.parameters(body.parameters)
         request = body.model_dump(mode="json", exclude={"command_id"})
         try:
-            preview = self.versions.read(body.version_id, limit=LIMIT + 1)
+            preview = selected_input(self.versions, body, LIMIT)
         except KeyError:
             raise ValueError("找不到指定数据版本") from None
         version = preview["version"]
@@ -146,8 +154,6 @@ class Backtests:
             raise ValueError("回测需要标准化日线数据版本")
         if manifest.get("demo"):
             raise ValueError("研究运行不接受演示数据")
-        if preview["total"] > LIMIT:
-            raise ValueError("第一版仅支持最多 5000 行的单合约数据版本")
         selected = []
         seen = set()
         for index, row in enumerate(preview["rows"]):
@@ -174,7 +180,7 @@ class Backtests:
                 {
                     "trading_day": day.isoformat(),
                     "contract": contract,
-                    "settle": str(settlement_price(row)),
+                    "settle": str(settlement_price(row.get("settle"))),
                     **{key: str(value) for key, value in prices.items()},
                     "provenance": sources[index]
                     if sources
@@ -310,8 +316,9 @@ class Backtests:
             validate_input(row["payload"])
             frozen = frozen_request(row["payload"]["request"])
             self.strategies.resolve(frozen.strategy).parameters(frozen.parameters)
-            # Copy the exact frozen input, even if the source catalogue has changed.
-            return self.tasks.submit(command_id, KIND, row["payload"])
+        # The frozen input is immutable; release its read transaction before
+        # opening the independent task submission transaction.
+        return self.tasks.submit(command_id, KIND, row["payload"])
 
     def publish(self, job_id, token, content):
         checksum = hashlib.sha256(content).hexdigest()
@@ -337,7 +344,7 @@ class Backtests:
             if row["kind"] != KIND:
                 raise Conflict("不是研究任务")
             validate_input(row["payload"])
-            expected = canonical(calculate(row["payload"], self.strategies))
+            expected = canonical(calculate(row["payload"], self.strategies, self.execution))
             if content != expected:
                 raise ValueError("回测结果与固定输入不一致")
             # Recheck expiry after computation; publication and task completion are atomic.

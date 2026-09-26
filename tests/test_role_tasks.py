@@ -4,22 +4,22 @@ from datetime import datetime
 from importlib import import_module
 
 import pytest
-from sqlalchemy import create_engine, select
+from asterion_bindings.database import create_engine
+from asterion_bindings.task_repository import Tasks, task_port
+from sqlalchemy import select
 from test_role_sequence import campaign
 
 from asterion.contract_roles.plugin import computed_versions
 from asterion.contract_roles.tasks import KIND, RoleTasks, Submission, execute
 from asterion.distribution_storage import role_storage
-from asterion.platform.store import jobs
-from asterion.platform.task_port import task_port
-from asterion.platform.tasks.service import Tasks
+from asterion.platform.communication.schema import initialize_core
 
 
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
     values, sources, first, second, body = campaign()
     engine = create_engine(f"sqlite:///{tmp_path}/tasks.db")
-    jobs.create(engine)
+    initialize_core(engine)
     storage = role_storage(engine)
     storage.initialize(computed_versions)
     with storage.begin() as conn:
@@ -129,7 +129,7 @@ def test_task_api_authentication_and_pending_source_references(setup, tmp_path, 
     from asterion.contract_roles.computed import ComputedSources
     from asterion.platform.config import Settings
 
-    _, tasks, storage, values, second, body = setup
+    _, tasks, _, values, second, body = setup
     monkeypatch.setattr(
         ComputedSources, "__init__", lambda self, versions: setattr(self, "versions", port(values))
     )
@@ -145,12 +145,6 @@ def test_task_api_authentication_and_pending_source_references(setup, tmp_path, 
         queued = response.json()
         assert "payload" not in queued and "token" not in queued
         assert client.post(path, json=body.model_dump(mode="json")).json()["id"] == queued["id"]
-        with storage.connect() as conn:
-            refs = [
-                hook(conn, "daily-11-0")
-                for hook in client.app.state.plugins.hooks("data.references")
-            ]
-        assert {"contract_roles": 1} in refs
         claimed = tasks.claim("api-worker")
         content, _ = execute(None, claimed["payload"])
         result = client.post(

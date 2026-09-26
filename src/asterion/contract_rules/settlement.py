@@ -2,13 +2,15 @@
 
 from datetime import date
 
-from asterion.contract_rules.mapping import MappingRequest
-from asterion.contract_rules.public import Period, RuleSpec
-from asterion.contract_rules.settlement_contract import (
+from asterion_bindings.rules import (
+    RulePeriod,
+    RuleSpec,
     SettlementBasis,
     SettlementEvidence,
     SettlementRow,
 )
+
+from asterion.contract_rules.mapping import MappingRequest
 from asterion.data.public import SourceIdentity, VersionAccess
 
 
@@ -78,19 +80,10 @@ class SettlementMapping:
         if current != evidence:
             raise ValueError("结算依据与固定数据版本不一致")
 
-    def confirm(self, body: SettlementConfirmation) -> Period:
+    def confirm(self, body: SettlementConfirmation) -> RulePeriod:
         basis = SettlementBasis.model_validate(body.model_dump(exclude={"start", "end"}))
         self.verify(basis)
-        mode, fee, margin = basis.values()
-        return Period(
-            start=body.start,
-            end=body.end,
-            fee_mode=mode,
-            open_fee=fee,
-            close_fee=fee,
-            margin_rate=margin,
-            settlement_basis=basis,
-        )
+        return basis.period(body.start, body.end)
 
     def validate(self, spec: RuleSpec):
         for period in spec.periods:

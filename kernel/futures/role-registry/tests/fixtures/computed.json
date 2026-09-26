@@ -1,0 +1,224 @@
+{
+  "version_id": "3032fbc705bd01c693ebbee7ec779c70ff531021f85a9511ab892c19c6c26755",
+  "product_id": "SHFE.AU",
+  "catalog": {
+    "contracts": [
+      {
+        "delivery_month": "2025-06",
+        "id": "SHFE.AU.202506.20240617",
+        "last_delivery_on": null,
+        "last_trade_on": "2025-06-16",
+        "listed_on": "2024-06-17",
+        "product_id": "SHFE.AU",
+        "provenance": {
+          "available_at": "2020-01-01T00:00:00Z",
+          "observed_at": "2020-01-01T00:00:00Z",
+          "source": "offline-feed",
+          "source_version": "contracts-1"
+        }
+      },
+      {
+        "delivery_month": "2025-08",
+        "id": "SHFE.AU.202508.20240617",
+        "last_delivery_on": null,
+        "last_trade_on": "2025-08-15",
+        "listed_on": "2024-06-17",
+        "product_id": "SHFE.AU",
+        "provenance": {
+          "available_at": "2020-01-01T00:00:00Z",
+          "observed_at": "2020-01-01T00:00:00Z",
+          "source": "offline-feed",
+          "source_version": "contracts-1"
+        }
+      }
+    ],
+    "inputs": [
+      {
+        "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "source": "offline-feed",
+        "version_id": "contracts-1"
+      }
+    ],
+    "products": [
+      {
+        "currency": "CNY",
+        "exchange": "SHFE",
+        "id": "SHFE.AU",
+        "name": "AU",
+        "provenance": {
+          "available_at": "2020-01-01T00:00:00Z",
+          "observed_at": "2020-01-01T00:00:00Z",
+          "source": "offline-feed",
+          "source_version": "contracts-1"
+        }
+      }
+    ],
+    "schema_version": 2,
+    "symbols": [
+      {
+        "contract_id": "SHFE.AU.202506.20240617",
+        "provenance": {
+          "available_at": "2020-01-01T00:00:00Z",
+          "observed_at": "2020-01-01T00:00:00Z",
+          "source": "offline-feed",
+          "source_version": "contracts-1"
+        },
+        "source": "offline-feed",
+        "symbol": "opaque-au",
+        "valid_from": "2024-06-17",
+        "valid_until": "2025-06-16"
+      },
+      {
+        "contract_id": "SHFE.AU.202508.20240617",
+        "provenance": {
+          "available_at": "2020-01-01T00:00:00Z",
+          "observed_at": "2020-01-01T00:00:00Z",
+          "source": "offline-feed",
+          "source_version": "contracts-1"
+        },
+        "source": "offline-feed",
+        "symbol": "opaque-au-next",
+        "valid_from": "2024-06-17",
+        "valid_until": "2025-08-15"
+      }
+    ]
+  },
+  "trading_time": {
+    "id": "b5b5c5113c42aed3aec9c86b24ae19c1fe17c639e3990e4c2d12e6eb04e75939",
+    "spec": {
+      "calendar": [
+        {
+          "date": "2025-04-02",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-04-03",
+          "is_open": true,
+          "night_open": false
+        },
+        {
+          "date": "2025-04-04",
+          "is_open": false,
+          "night_open": false
+        },
+        {
+          "date": "2025-04-05",
+          "is_open": false,
+          "night_open": false
+        },
+        {
+          "date": "2025-04-06",
+          "is_open": false,
+          "night_open": false
+        },
+        {
+          "date": "2025-04-07",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-04-08",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-04-09",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-04-10",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-04-11",
+          "is_open": true,
+          "night_open": true
+        },
+        {
+          "date": "2025-04-12",
+          "is_open": false,
+          "night_open": false
+        },
+        {
+          "date": "2025-04-13",
+          "is_open": false,
+          "night_open": false
+        },
+        {
+          "date": "2025-04-14",
+          "is_open": true,
+          "night_open": true
+        }
+      ],
+      "calendar_source": "测试完整自然日日历",
+      "exceptions": [],
+      "exchange": "SHFE",
+      "night_source": "测试节前不开夜盘",
+      "periods": [
+        {
+          "day": [
+            {
+              "end": "10:15:00",
+              "end_offset": 0,
+              "phase": "continuous",
+              "start": "09:00:00"
+            },
+            {
+              "end": "11:30:00",
+              "end_offset": 0,
+              "phase": "continuous",
+              "start": "10:30:00"
+            },
+            {
+              "end": "15:00:00",
+              "end_offset": 0,
+              "phase": "continuous",
+              "start": "13:30:00"
+            }
+          ],
+          "end": "2025-04-14",
+          "night": [
+            {
+              "end": "21:00:00",
+              "end_offset": 0,
+              "phase": "auction",
+              "start": "20:55:00"
+            },
+            {
+              "end": "02:30:00",
+              "end_offset": 1,
+              "phase": "continuous",
+              "start": "21:00:00"
+            }
+          ],
+          "source": "测试时段",
+          "start": "2025-04-03"
+        }
+      ],
+      "product": "AU",
+      "schema_version": 1,
+      "timezone": "Asia/Shanghai",
+      "title": "测试跨周末及假日"
+    }
+  },
+  "published_at": "2025-04-11T20:00:00+08:00",
+  "records": [
+    {
+      "available_at": "2025-04-10T15:05:00+08:00",
+      "effective_day": "2025-04-11",
+      "effective_start": "2025-04-10T21:00:00+08:00",
+      "main": "SHFE.AU.202506.20240617",
+      "secondary": "SHFE.AU.202508.20240617"
+    },
+    {
+      "available_at": "2025-04-11T15:05:00+08:00",
+      "effective_day": "2025-04-14",
+      "effective_start": "2025-04-11T21:00:00+08:00",
+      "main": "SHFE.AU.202508.20240617",
+      "secondary": "SHFE.AU.202506.20240617"
+    }
+  ]
+}

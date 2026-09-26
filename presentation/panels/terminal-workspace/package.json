@@ -1,0 +1,46 @@
+{
+  "name": "@asterion/ui-terminal-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "asterion": {
+    "layer": 4,
+    "kind": "panel",
+    "id": "asterion.ui.terminal-workspace"
+  },
+  "exports": {
+    "./Frame": "./src/Frame.tsx",
+    "./SetupGate": "./src/SetupGate.tsx",
+    "./assembly": "./src/assembly.tsx",
+    "./commands": "./src/commands.ts",
+    "./context": "./src/context.ts",
+    "./layout": "./src/layout.ts",
+    "./module": "./src/module.ts",
+    "./settingsContext": "./src/settingsContext.ts"
+  },
+  "dependencies": {
+    "@asterion/desktop-bridge": "workspace:*",
+    "@asterion/runtime-client": "workspace:*",
+    "@asterion/ui-account-settings": "workspace:*",
+    "@asterion/ui-appearance-settings": "workspace:*",
+    "@asterion/ui-connection-settings": "workspace:*",
+    "@asterion/ui-data-panel": "workspace:*",
+    "@asterion/ui-extension-settings": "workspace:*",
+    "@asterion/ui-intelligence-panel": "workspace:*",
+    "@asterion/ui-kit": "workspace:*",
+    "@asterion/ui-maintenance-panel": "workspace:*",
+    "@asterion/ui-market-panel": "workspace:*",
+    "@asterion/ui-overview": "workspace:*",
+    "@asterion/ui-research-panel": "workspace:*",
+    "@asterion/ui-role-panel": "workspace:*",
+    "@asterion/ui-task-center": "workspace:*",
+    "@asterion/ui-trading-panel": "workspace:*",
+    "@asterion/workbench": "workspace:*",
+    "@tauri-apps/api": "^2.0.0",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "vitest": "^3.0.0"
+  }
+}

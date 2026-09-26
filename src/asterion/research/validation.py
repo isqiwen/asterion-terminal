@@ -5,13 +5,13 @@ import time
 from datetime import date
 from typing import Literal
 
+from asterion_bindings.task_repository import Conflict
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import JSON, Column, Float, String, Table, select
 from sqlalchemy.exc import IntegrityError
 
 from asterion.platform.serialization import canonical
 from asterion.platform.store import jobs, metadata
-from asterion.platform.tasks.service import Conflict
 from asterion.research.engine import BacktestRequest
 from asterion.research.experiments import Experiments
 from asterion.research.service import KIND, validate_input

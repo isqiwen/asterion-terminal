@@ -7,13 +7,14 @@ from test_role_tasks import setup as role_setup
 
 setup = role_setup
 
+from asterion_bindings.task_repository import task_port
+
 from asterion.contract_roles.sync_workflow import SyncContinuation, SyncWorkflow
 from asterion.contract_roles.tasks import KIND
 from asterion.data.public import SyncAccess
 from asterion.data.sync_dependencies import access
 from asterion.distribution_storage import data_storage
 from asterion.platform.store import jobs
-from asterion.platform.task_port import task_port
 
 
 def workflow(setup):

@@ -78,7 +78,9 @@ def prepare() -> Path:
             }
         )
         subprocess.run(
-            ["uv", "build", "--wheel", "--out-dir", str(stage / "wheel")],
+            # Build the wheel from a fresh sdist so removed modules cannot linger
+            # in setuptools' previous build/lib directory and enter the product.
+            ["uv", "build", "--out-dir", str(stage / "wheel")],
             cwd=ROOT,
             env=env,
             check=True,

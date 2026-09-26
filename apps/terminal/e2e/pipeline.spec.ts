@@ -14,7 +14,7 @@ test("real worker publishes data and UI restores the task after reload", async (
   const time = await timeResponse.json();
   await page.goto("/");
   await page.getByLabel("会话令牌").fill(process.env.ASTERION_TOKEN!);
-  await page.getByRole("button", { name: "连接", exact: true }).click();
+  await page.locator("form").filter({ has: page.getByLabel("会话令牌") }).getByRole("button", { name: "连接", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "查看服务状态（本机 API可达）" }),
   ).toBeVisible();
@@ -30,8 +30,6 @@ test("real worker publishes data and UI restores the task after reload", async (
   await page.getByLabel("文件合约代码 1",{exact:true}).fill("SHFE.rb2610");
   await page.getByLabel("目录来源代码 1",{exact:true}).selectOption(JSON.stringify({source:"tushare",symbol:"RB2610.SHF"}));
   await page.getByLabel("导入数据类型").selectOption("futures.bars");
-  await page.getByLabel("规则合约目录", {exact:true}).selectOption(release.id);
-  await page.getByLabel("规则合约", {exact:true}).selectOption(identity.catalog.contracts[0].id);
   await page.getByLabel("交易时间版本",{exact:true}).selectOption(time.id);
   await page.getByLabel("时间戳口径",{exact:true}).selectOption("bar_start");
   await page
@@ -48,7 +46,7 @@ test("real worker publishes data and UI restores the task after reload", async (
   await page.getByRole("button", { name: "创建采集任务" }).click();
   const job = await (await submitted).json();
   const jobRow = page.getByRole("row").filter({ hasText: job.id.slice(0, 8) });
-  await expect(page.getByRole("status")).toContainText("请求已接收");
+  await expect(page.getByRole("status").filter({ hasText: "请求已接收" })).toContainText("请求已接收");
   await expect(jobRow.getByText("已完成", { exact: true })).toBeVisible({
     timeout: 20000,
   });
@@ -80,19 +78,19 @@ test("real worker publishes data and UI restores the task after reload", async (
     page.getByRole("heading", { name: "市场", exact: true }),
   ).toBeVisible();
   await page.getByLabel("会话令牌").fill(process.env.ASTERION_TOKEN!);
-  await page.getByRole("button", { name: "连接", exact: true }).click();
+  await page.locator("form").filter({ has: page.getByLabel("会话令牌") }).getByRole("button", { name: "连接", exact: true }).click();
   await expect(jobRow.getByText("已完成", { exact: true })).toBeVisible();
 });
 
 test("invalid token can be corrected without reloading", async ({ page }) => {
   await page.goto("/");
   await page.getByLabel("会话令牌").fill("invalid-token");
-  await page.getByRole("button", { name: "连接", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText(
+  await page.locator("form").filter({ has: page.getByLabel("会话令牌") }).getByRole("button", { name: "连接", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ has: page.getByRole("button", { name: "关闭提示" }) })).toContainText(
     "请求身份无效或无权访问此接口",
   );
   await page.getByLabel("会话令牌").fill(process.env.ASTERION_TOKEN!);
-  await page.getByRole("button", { name: "连接", exact: true }).click();
+  await page.locator("form").filter({ has: page.getByLabel("会话令牌") }).getByRole("button", { name: "连接", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "查看服务状态（本机 API可达）" }),
   ).toBeVisible();
@@ -148,7 +146,7 @@ test("real rules editor freezes a version but exploration still requires coverag
   expect(daily).toBeTruthy();
   await page.goto("/");
   await page.getByLabel("会话令牌").fill(process.env.ASTERION_TOKEN!);
-  await page.getByRole("button", { name: "连接", exact: true }).click();
+  await page.locator("form").filter({ has: page.getByLabel("会话令牌") }).getByRole("button", { name: "连接", exact: true }).click();
   await page.getByRole("button", { name: "研究", exact: true }).click();
   await page
     .getByRole("combobox", { name: "日线数据集", exact: true })

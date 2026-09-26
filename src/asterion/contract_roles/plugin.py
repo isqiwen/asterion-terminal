@@ -1,10 +1,25 @@
 """Provider role evidence registration and fixed-version diagnostics, owned by this plugin."""
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from asterion_bindings.calendar import Span
+from asterion_bindings.plugin_host import Activation, Plugin
+from asterion_bindings.recovery import BackupCheck
+from asterion_bindings.roles import (
+    NextOpening,
+    RoleQuery,
+    RoleResolution,
+    RoleSpec,
+    RoleVersion,
+    next_opening,
+    resolve,
+    role_id,
+)
+from asterion_bindings.task_models import Job
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from sqlalchemy import JSON, Column, String, Table, select
+from sqlalchemy import JSON, Column, String, Table, select, true
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from starlette.concurrency import run_in_threadpool
@@ -26,23 +41,14 @@ from asterion.contract_roles.computed_public import (
     digest,
     resolve_computed,
 )
-from asterion.contract_roles.public import (
-    ROLE_ACCESS,
-    NextOpening,
-    RoleAccess,
-    RoleQuery,
-    RoleResolution,
-    RoleSpec,
-    RoleVersion,
-    next_opening,
-    resolve,
-    role_id,
-)
+from asterion.contract_roles.hierarchy import RoleDirectory
+from asterion.contract_roles.public import ROLE_ACCESS, RoleAccess
 from asterion.contract_roles.ranking import RankingRequest, RankingResult, rank_roles
 from asterion.contract_roles.sequence import (
     ContinuationRequest,
     SequenceRequest,
     SequenceResult,
+    check_published,
     continuation,
     verify_sequence,
 )
@@ -59,12 +65,8 @@ from asterion.contract_roles.sync_workflow import (
 from asterion.contract_roles.tasks import RoleTasks, Submission, handler
 from asterion.data.public import SYNC_ACCESS, SYNC_BATCH_ACCESS, VERSION_ACCESS, VersionAccess
 from asterion.identity.public import ACCOUNT_ACCESS
-from asterion.platform.backup import BackupCheck
-from asterion.platform.plugins import Activation, Plugin
 from asterion.platform.resources import STORAGE, TASKS
-from asterion.platform.store import jobs, metadata
-from asterion.platform.tasks.public import Job
-from asterion.trading_time.public import Span
+from asterion.platform.store import metadata
 
 versions = Table(
     "contract_role_versions",
@@ -210,8 +212,23 @@ def activate(context):
     def sequence_verify(body: SequenceRequest):
         return verify_sequence(computed, read_computed, body)
 
+    @router.get("/hierarchy", response_model=list[RoleDirectory])
+    def hierarchy():
+        counts = Counter()
+        with storage.connect() as conn:
+            for spec in conn.execute(select(computed_versions.c.spec)).scalars():
+                for role in ("main", "secondary"):
+                    counts[(spec["request"]["product_id"], role)] += 1
+            for spec in conn.execute(select(versions.c.spec)).scalars():
+                for role in {row["role"] for row in spec["reports"]}:
+                    counts[(spec["product_id"], role)] += 1
+        return [
+            RoleDirectory(product_id=product, role=role, count=count)
+            for (product, role), count in sorted(counts.items())
+        ]
+
     @router.get("/computed", response_model=list[ComputedVersion])
-    def computed_listing(limit: int = 50, offset: int = 0):
+    def computed_listing(limit: int = 50, offset: int = 0, product_id: str = ""):
         if not 1 <= limit <= 100 or offset < 0:
             raise HTTPException(422, "分页范围无效")
         with storage.connect() as conn:
@@ -219,6 +236,11 @@ def activate(context):
                 ComputedVersion.model_validate(dict(row))
                 for row in conn.execute(
                     select(computed_versions)
+                    .where(
+                        computed_versions.c.spec["request"]["product_id"].as_string() == product_id
+                        if product_id
+                        else true()
+                    )
                     .order_by(computed_versions.c.id)
                     .limit(limit)
                     .offset(offset)
@@ -251,6 +273,39 @@ def activate(context):
             )
         return read_computed(identifier)
 
+    @router.post("/computed/start", response_model=ComputedVersion)
+    def computed_start(body: ComputedSpec):
+        """Publish a timely single-day seed; retries preserve its first publication."""
+        computed.verify(body)
+        if len(body.input.observations) != 1:
+            raise ValueError("首次连续发布必须只包含一个观测交易日")
+        identifier = digest(body.model_dump(mode="json"))
+        insert = pg_insert if storage.dialect.name == "postgresql" else sqlite_insert
+        with storage.begin() as conn:
+            existing = (
+                conn.execute(select(computed_versions).where(computed_versions.c.id == identifier))
+                .mappings()
+                .first()
+            )
+            record = (
+                ComputedVersion.model_validate(dict(existing))
+                if existing
+                else ComputedVersion(id=identifier, spec=body, published_at=datetime.now(UTC))
+            )
+            check_published(record)
+            conn.execute(
+                insert(computed_versions)
+                .values(
+                    id=identifier,
+                    spec=body.model_dump(mode="json"),
+                    published_at=record.published_at.isoformat(),
+                )
+                .on_conflict_do_nothing(index_elements=["id"])
+            )
+        record = read_computed(identifier)
+        check_published(record)
+        return record
+
     @router.post("/computed/resolve", response_model=ComputedResolution)
     def computed_lookup(body: RoleQuery):
         return resolve_computed(read_computed(body.version_id), body)
@@ -260,14 +315,22 @@ def activate(context):
         return replay_computed(body)
 
     @router.get("", response_model=list[RoleVersion])
-    def listing(limit: int = 50, offset: int = 0):
+    def listing(limit: int = 50, offset: int = 0, product_id: str = ""):
         if not 1 <= limit <= 100 or offset < 0:
             raise HTTPException(422, "分页范围无效")
         with storage.connect() as conn:
             return [
                 RoleVersion.model_validate(dict(r))
                 for r in conn.execute(
-                    select(versions).order_by(versions.c.id).limit(limit).offset(offset)
+                    select(versions)
+                    .where(
+                        versions.c.spec["product_id"].as_string() == product_id
+                        if product_id
+                        else true()
+                    )
+                    .order_by(versions.c.id)
+                    .limit(limit)
+                    .offset(offset)
                 ).mappings()
             ]
 
@@ -312,35 +375,6 @@ def activate(context):
     def algorithm():
         return algorithm_artifact()
 
-    def references(transaction, version_id):
-        with storage.borrow(transaction) as reader:
-            count = sum(
-                spec["source_version"] == version_id
-                or any(item["version_id"] == version_id for item in spec["catalog"]["inputs"])
-                for spec in reader.execute(select(versions.c.spec)).scalars()
-            )
-            count += sum(
-                spec["request"]["contracts_version_id"] == version_id
-                or any(item["version_id"] == version_id for item in spec["request"]["daily_inputs"])
-                for spec in reader.execute(select(computed_versions.c.spec)).scalars()
-            )
-            count += sum(
-                payload["spec"]["request"]["contracts_version_id"] == version_id
-                or any(
-                    item["version_id"] == version_id
-                    for item in payload["spec"]["request"]["daily_inputs"]
-                )
-                for payload in reader.execute(select(jobs.c.payload)).scalars()
-            )
-            for request in reader.execute(select(workflows.c.request)).scalars():
-                count += sum(
-                    entry["version_id"] == version_id
-                    for entry in context.require(SYNC_ACCESS).inspect(
-                        reader, request["sync_job_ids"], False
-                    )
-                )
-        return {"contract_roles": count}
-
     return Activation(
         exports={
             ROLE_ACCESS: RoleAccess(read),
@@ -348,13 +382,13 @@ def activate(context):
         },
         routers=(router, worker_router),
         close=storage.close,
-        hooks={"data.references": (references,), "data.sync_published": (sync_workflow.published,)},
+        hooks={"data.sync_published": (sync_workflow.published,)},
     )
 
 
 plugin = Plugin(
     "asterion.contract_roles",
-    ("asterion.identity", "asterion.data", "asterion.trading_time"),
+    ("asterion.identity", "asterion.data"),
     activate,
     consumes=(ACCOUNT_ACCESS, VERSION_ACCESS, SYNC_ACCESS, SYNC_BATCH_ACCESS),
     provides=(ROLE_ACCESS, COMPUTED_ROLE_ACCESS),

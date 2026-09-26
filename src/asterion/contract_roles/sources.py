@@ -2,11 +2,11 @@
 
 from datetime import UTC, datetime, timedelta
 
+from asterion_bindings.calendar import TimeVersion
+from asterion_bindings.roles import RoleReport, RoleSpec
 from pydantic import BaseModel, ConfigDict, Field
 
-from asterion.contract_roles.public import RoleReport, RoleSpec
 from asterion.data.public import ResolutionRequest, VersionAccess, source_contract_catalog
-from asterion.trading_time.public import TimeVersion
 
 
 class RoleSourceRequest(BaseModel):

@@ -4,7 +4,9 @@ from datetime import date, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from asterion.connections.public import AccountSummary, Position, QuoteEvent
+from asterion_bindings.market_feed import QuoteEvent
+
+from asterion.connections.public import AccountSummary, Position
 
 
 def money(value, nonnegative=False):

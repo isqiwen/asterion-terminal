@@ -1,13 +1,13 @@
 from uuid import uuid4
 
 import pytest
+from asterion_bindings.database import create_engine
+from asterion_bindings.task_repository import Conflict
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from storage_support import raw_engine, research_store
 
 from asterion.api.app import create_app
 from asterion.platform.config import Settings
-from asterion.platform.tasks.service import Conflict
 from asterion.research.workspace import DocumentUpdate, ResearchWorkspace
 
 
@@ -72,16 +72,14 @@ def test_draft_cannot_persist_acknowledgement_or_arbitrary_payload():
         update(token="secret")
 
 
-def test_workspace_api_auth_and_owner_is_server_derived(tmp_path, identity_instances):
+def test_workspace_api_auth_and_owner_is_server_derived(tmp_path, accounts):
     engine = create_engine(f"sqlite:///{tmp_path}/api.db")
     app = create_app(
         Settings(token="test-workspace-runtime-token", data_root=tmp_path, require_account=True),
         raw_engine(engine),
     )
-    identity = identity_instances[-1]
-    # Verify endpoint dependencies and ownership without depending on registration UI.
-    identity.pin.require_unlocked = lambda session: None
-    identity.me = lambda session: {"email": f"{session}@example.com"}
+    for name in ("alice", "bob"):
+        accounts[name] = ("unlocked", f"{name}@example.com")
     client = TestClient(app)
     assert client.get("/api/v1/research/workspace").status_code == 401
     client.headers.update(
@@ -98,11 +96,6 @@ def test_workspace_api_auth_and_owner_is_server_derived(tmp_path, identity_insta
         ).status_code
         == 409
     )
-    from asterion.identity.service import IdentityError
-
-    def locked(_):
-        raise IdentityError("locked", 423, "TERMINAL_LOCKED")
-
-    identity.pin.require_unlocked = locked
+    accounts["bob"] = ("locked", "bob@example.com")
     assert client.post("/api/v1/research/workspace/draft", json=body).status_code == 423
     engine.dispose()

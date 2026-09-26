@@ -1,21 +1,24 @@
 import json
-import multiprocessing
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from contextlib import nullcontext
 
 import httpx
 import pytest
-from credential_helpers import provider_secrets
-from rules_support import intraday_options
+from asterion_bindings.authority import Grant, worker_token
+from asterion_bindings.communication import context as communication_context
+from asterion_bindings.task_handlers import TaskHandler, TaskHandlerRegistry
+from worker_support import inline_computation
 
-from asterion.platform.authorization import worker_token
 from asterion.platform.config import Settings
-from asterion.platform.tasks.handlers import PublicationResult, TaskHandler, TaskHandlerRegistry
 from asterion.runtime import worker
-from asterion.runtime.handlers import handlers
 
 CSV = """contract,event_time,available_at,trading_day,open,high,low,close,volume
 SHFE.rb2610,2026-09-14T13:00:00Z,2026-09-14T13:01:00Z,2026-09-15,3200,3220,3190,3210,100
 """
+
+
+@pytest.fixture(autouse=True)
+def isolated_worker_state(monkeypatch, tmp_path):
+    monkeypatch.setenv("ASTERION_DATA_ROOT", str(tmp_path / "data"))
 
 
 def offline_report(context, payload):
@@ -40,7 +43,25 @@ def test_registry_rejects_duplicate_and_unknown_kinds():
     with pytest.raises(ValueError, match="Unsupported job kind"):
         registry.get("research.unknown")
     with pytest.raises(ValueError, match="Unsupported job kind"):
-        worker.execute_job(Settings(), {"kind": "research.unknown"})
+        worker.execute_job(
+            Settings(), {"communication": communication_context(), "kind": "research.unknown"}
+        )
+
+
+def test_empty_claim_does_not_start_a_computation_process(monkeypatch):
+    requests = []
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("No task was claimed; TaskProcess must not start")
+
+    def transport(request):
+        requests.append(request.url.path)
+        return httpx.Response(200, content=b"null", headers={"Content-Type": "application/json"})
+
+    monkeypatch.setattr(worker, "TaskProcess", forbidden)
+    http_client(monkeypatch, transport)
+    assert worker.run_once(Settings(api_url="http://worker.test"), "idle-worker") is False
+    assert requests == ["/api/v1/jobs/claim"]
 
 
 @pytest.mark.parametrize("suffix", ["https://other.test", "//other.test", "/../fail", "/x?q=1"])
@@ -49,15 +70,179 @@ def test_handler_publication_stays_under_claimed_job(suffix):
         TaskHandler("research.report", offline_report, suffix)
 
 
+@pytest.mark.parametrize("kind", ["report", ".report", "research.", "Research.report", "a..b"])
+def test_handler_requires_rust_validated_namespaced_kind(kind):
+    with pytest.raises(ValueError, match="namespaced ID"):
+        TaskHandler(kind, offline_report, "/publish")
+
+
+@pytest.mark.parametrize(
+    "grant",
+    [
+        Grant("/jobs/:id/progress", ("GET",)),
+        Grant("/jobs/:id/progress", ("POST", "GET")),
+        Grant("/jobs/:id/progress", ("POST",), descendants=True),
+        Grant("/other/:id/progress", ("POST",)),
+        Grant("/jobs/:id/", ("POST",)),
+        Grant("/jobs/:id/../progress", ("POST",)),
+        Grant("/jobs/:id/progress?job=other", ("POST",)),
+        Grant("/jobs/:id/progress/:other", ("POST",)),
+        Grant("/jobs/:id/:id", ("POST",)),
+    ],
+)
+def test_handler_rejects_invalid_worker_request_declarations(grant):
+    with pytest.raises(ValueError, match="exact job-relative POST"):
+        TaskHandler("fixture.run", offline_report, "/publish", requests=(grant,))
+
+
+@pytest.mark.parametrize("operation", ["claim", "heartbeat", "fail", "cancel"])
+def test_handler_cannot_contribute_task_control_operations(operation):
+    with pytest.raises(ValueError, match="control operations"):
+        TaskHandler("fixture.run", offline_report, f"/{operation}")
+    with pytest.raises(ValueError, match="control operations"):
+        TaskHandler(
+            "fixture.run",
+            offline_report,
+            "/publish",
+            requests=(Grant(f"/jobs/:id/{operation}", ("POST",)),),
+        )
+
+
+def test_native_handler_registration_rejection_does_not_shift_callback_indices():
+    first = TaskHandler("fixture.first", offline_report, "/publish-first")
+    second = TaskHandler("fixture.second", offline_report, "/publish-second")
+    registry = TaskHandlerRegistry((first,))
+    with pytest.raises(ValueError, match="Duplicate task handler"):
+        registry.register(first)
+    registry.register(second)
+    assert registry.get(first.kind) is first
+    assert registry.get(second.kind) is second
+    assert {grant.path for grant in registry.worker_grants()} == {
+        "/jobs/claim",
+        "/jobs/:id/heartbeat",
+        "/jobs/:id/fail",
+        "/jobs/:id/publish-first",
+        "/jobs/:id/publish-second",
+    }
+
+
+def test_worker_request_port_checks_current_handler_before_http_and_closes(monkeypatch):
+    retained = []
+    requests = []
+
+    def resources(settings, kind, post):
+        retained.append(post)
+        return nullcontext({})
+
+    def execute(context, payload):
+        post = retained[0]
+        assert post("/progress", {"completed": 1}, lease_in_body=True) == {}
+        for suffix in (
+            "/other",
+            "/heartbeat",
+            "/fail",
+            "/publish",
+            "/progress/../other",
+            "/progress?job=other",
+            "//other.test/progress",
+        ):
+            with pytest.raises(ValueError, match="not granted"):
+                post(suffix, {}, lease_in_body=True)
+        return b"complete", {}
+
+    def transport(request):
+        requests.append(request)
+        return httpx.Response(200, json={})
+
+    registry = TaskHandlerRegistry(
+        (
+            TaskHandler(
+                "fixture.run",
+                execute,
+                "/publish",
+                requests=(Grant("/jobs/:id/progress", ("POST",)),),
+            ),
+            TaskHandler(
+                "fixture.other",
+                offline_report,
+                "/publish-other",
+                requests=(Grant("/jobs/:id/other", ("POST",)),),
+            ),
+        )
+    )
+    monkeypatch.setattr(worker, "handlers", registry)
+    monkeypatch.setattr(worker, "execution_resources", resources)
+    http_client(monkeypatch, transport)
+    assert worker.execute_job(
+        Settings(api_url="http://worker.test"),
+        {
+            "communication": communication_context(),
+            "id": "current",
+            "kind": "fixture.run",
+            "token": "lease",
+            "payload": {},
+        },
+    ) == (b"complete", {})
+    assert len(requests) == 1
+    assert requests[0].url.path == "/api/v1/jobs/current/progress"
+    assert json.loads(requests[0].content) == {"completed": 1, "token": "lease"}
+    assert requests[0].headers["X-Lease-Token"] == "lease"
+    with pytest.raises(ValueError, match="closed"):
+        retained[0]("/progress")
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("phase", ["resources", "execute"])
+def test_worker_request_scope_closes_when_setup_or_callback_fails(monkeypatch, phase):
+    retained = []
+
+    def resources(settings, kind, post):
+        retained.append(post)
+        if phase == "resources":
+            raise RuntimeError("Resource activation failed")
+        return nullcontext({})
+
+    def execute(context, payload):
+        raise RuntimeError("Task execution failed")
+
+    monkeypatch.setattr(
+        worker,
+        "handlers",
+        TaskHandlerRegistry(
+            (
+                TaskHandler(
+                    "fixture.run",
+                    execute,
+                    "/publish",
+                    requests=(Grant("/jobs/:id/progress", ("POST",)),),
+                ),
+            )
+        ),
+    )
+    monkeypatch.setattr(worker, "execution_resources", resources)
+    with pytest.raises(RuntimeError, match="failed"):
+        worker.execute_job(
+            Settings(api_url="http://worker.test"),
+            {
+                "communication": communication_context(),
+                "id": "current",
+                "kind": "fixture.run",
+                "token": "lease",
+                "payload": {},
+            },
+        )
+    with pytest.raises(ValueError, match="closed"):
+        retained[0]("/progress")
+
+
 def test_new_builtin_handler_runs_without_worker_dispatch_changes(monkeypatch):
     registry = TaskHandlerRegistry()
     registry.register(TaskHandler("research.report", offline_report, "/publish-report"))
     monkeypatch.setattr(worker, "handlers", registry)
-    monkeypatch.setattr(
-        worker, "ProcessPoolExecutor", lambda **kwargs: ThreadPoolExecutor(max_workers=1)
-    )
+    inline_computation(monkeypatch)
     job = {
         "id": "job-report",
+        "communication": communication_context(),
         "kind": "research.report",
         "token": "lease-fence",
         "payload": {"input": "immutable-version"},
@@ -84,7 +269,13 @@ def test_new_builtin_handler_runs_without_worker_dispatch_changes(monkeypatch):
 
 def test_unknown_claim_fails_without_falling_back_to_csv_publication(monkeypatch):
     requests = []
-    job = {"id": "unknown", "kind": "unknown", "token": "lease-fence", "payload": {}}
+    job = {
+        "id": "unknown",
+        "communication": communication_context(),
+        "kind": "unknown",
+        "token": "lease-fence",
+        "payload": {},
+    }
 
     def transport(request):
         requests.append(request)
@@ -102,12 +293,16 @@ def test_unknown_claim_fails_without_falling_back_to_csv_publication(monkeypatch
     }
 
 
-@pytest.mark.parametrize(
-    ("kind", "endpoint"), [("data.import_csv", "/publish"), ("data.sync", "/publish-data")]
-)
+@pytest.mark.parametrize(("kind", "endpoint"), [("research.backtest", "/publish-research")])
 def test_worker_preserves_executor_boundary_and_builtin_publication(monkeypatch, kind, endpoint):
     requests = []
-    job = {"id": "built-in", "kind": kind, "token": "lease-fence", "payload": {}}
+    job = {
+        "id": "built-in",
+        "communication": communication_context(),
+        "kind": kind,
+        "token": "lease-fence",
+        "payload": {},
+    }
 
     def execute_job(settings, claimed):
         assert claimed == job
@@ -118,9 +313,7 @@ def test_worker_preserves_executor_boundary_and_builtin_publication(monkeypatch,
         return httpx.Response(200, json=job if request.url.path.endswith("/claim") else {})
 
     monkeypatch.setattr(worker, "execute_job", execute_job)
-    monkeypatch.setattr(
-        worker, "ProcessPoolExecutor", lambda **kwargs: ThreadPoolExecutor(max_workers=1)
-    )
+    inline_computation(monkeypatch)
     http_client(monkeypatch, transport)
     assert worker.run_once(Settings(api_url="http://worker.test"), "test-worker")
     assert [request.url.path for request in requests] == [
@@ -131,81 +324,8 @@ def test_worker_preserves_executor_boundary_and_builtin_publication(monkeypatch,
     assert requests[-1].headers["X-Lease-Token"] == "lease-fence"
 
 
-def test_csv_builtin_executes_in_spawned_process():
-    assert handlers.get("data.import_csv").publish_suffix == "/publish"
-    job = {
-        "kind": "data.import_csv",
-        "payload": {
-            "options": intraday_options(),
-            "csv": CSV,
-        },
-    }
-    with ProcessPoolExecutor(
-        max_workers=1, mp_context=multiprocessing.get_context("spawn")
-    ) as pool:
-        content, manifest = pool.submit(worker.execute_job, Settings(), job).result(timeout=20)
-    assert content.startswith(b"PAR1")
-    assert manifest["rows"] == 1
-    assert manifest["contracts"] == ["SHFE.rb2610"]
-
-
-def test_sync_builtin_preserves_progress_observations_and_resume(monkeypatch, tmp_path):
-    job = {"id": "sync", "kind": "data.sync", "token": "lease-fence", "payload": {"plan": []}}
-    requests = []
-    resume = [{"index": 1, "validated": True}]
-
-    def transport(request):
-        requests.append(request)
-        return httpx.Response(200, json=resume if request.url.path.endswith("/resume") else {})
-
-    def collect(payload, data_root, secrets, progress, checkpoint, checkpoints):
-        assert payload == job["payload"]
-        assert data_root == tmp_path
-        approved = provider_secrets("test-runtime-key")
-        assert secrets.decrypt(approved.encrypt(b"fixture-credential")) == b"fixture-credential"
-        assert secrets.fingerprint(b"fixture") == approved.fingerprint(b"fixture")
-        assert checkpoints == resume
-        progress(1, 2)
-        checkpoint(1, {"observed": "fixture"})
-        return b"collected artifact"
-
-    monkeypatch.setattr("asterion.data.sync.collect", collect)
-    http_client(monkeypatch, transport)
-    result = worker.execute_job(
-        Settings(token="test-runtime-key", api_url="http://worker.test", data_root=tmp_path), job
-    )
-    assert result == (b"collected artifact", {})
-    assert handlers.get("data.sync").publish_suffix == "/publish-data"
-    assert [request.url.path for request in requests] == [
-        "/api/v1/jobs/sync/resume",
-        "/api/v1/jobs/sync/progress",
-        "/api/v1/jobs/sync/observations/1",
-    ]
-    assert requests[0].headers["X-Lease-Token"] == "lease-fence"
-    assert json.loads(requests[1].content) == {"token": "lease-fence", "completed": 1, "total": 2}
-    assert requests[2].headers["X-Lease-Token"] == "lease-fence"
-    assert json.loads(requests[2].content) == {"observed": "fixture"}
-    assert all(
-        r.headers["Authorization"] == f"Bearer {worker_token('test-runtime-key')}" for r in requests
-    )
-
-
-@pytest.mark.parametrize(
-    ("kind", "detail", "error", "match"),
-    [
-        ("data.sync", "价格边界错误", ValueError, "价格边界错误"),
-        ("data.sync", {"field": "price"}, ValueError, "数据发布校验失败"),
-        ("data.import_csv", "invalid CSV", ValueError, "422"),
-    ],
-)
-def test_publication_error_semantics_belong_to_handler(kind, detail, error, match):
-    response = PublicationResult(422, detail)
-    with pytest.raises(error, match=match):
-        handlers.get(kind).check_publication(response)
-
-
 def test_executor_receives_input_and_only_explicit_resources(monkeypatch):
-    from asterion.platform.resource import Resource
+    from asterion_bindings.resource import Resource
 
     resource = Resource("fixture.input", str)
     retained = []
@@ -226,11 +346,14 @@ def test_executor_receives_input_and_only_explicit_resources(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        worker, "execution_resources", lambda settings, kind, post: {resource: "approved"}
+        worker,
+        "execution_resources",
+        lambda settings, kind, post: nullcontext({resource: "approved"}),
     )
     assert worker.execute_job(
         Settings(token="hidden"),
         {
+            "communication": communication_context(),
             "kind": "fixture.run",
             "token": "lease",
             "payload": {"input": "value"},
@@ -242,7 +365,7 @@ def test_executor_receives_input_and_only_explicit_resources(monkeypatch):
 
 @pytest.mark.parametrize("invalid", ["missing", "extra", "type", "duplicate"])
 def test_execution_grants_are_checked_before_invoking_handler(monkeypatch, invalid):
-    from asterion.platform.resource import Resource
+    from asterion_bindings.resource import Resource
 
     resource = Resource("fixture.input", str)
     declarations = (resource, resource) if invalid == "duplicate" else (resource,)
@@ -252,6 +375,11 @@ def test_execution_grants_are_checked_before_invoking_handler(monkeypatch, inval
     if invalid == "extra":
         bindings[Resource("fixture.other", str)] = "not approved"
     calls = []
+
+    def execute(context, payload):
+        calls.append(payload)
+        return b"unexpected result", {}
+
     monkeypatch.setattr(
         worker,
         "handlers",
@@ -259,7 +387,7 @@ def test_execution_grants_are_checked_before_invoking_handler(monkeypatch, inval
             (
                 TaskHandler(
                     "fixture.run",
-                    lambda context, payload: calls.append(payload),
+                    execute,
                     "/publish",
                     resources=declarations,
                 ),
@@ -268,7 +396,10 @@ def test_execution_grants_are_checked_before_invoking_handler(monkeypatch, inval
     )
     monkeypatch.setattr(worker, "execution_resources", lambda settings, kind, post: bindings)
     with pytest.raises((ValueError, TypeError)):
-        worker.execute_job(Settings(), {"kind": "fixture.run", "payload": {}})
+        worker.execute_job(
+            Settings(),
+            {"communication": communication_context(), "kind": "fixture.run", "payload": {}},
+        )
     assert calls == []
 
 
@@ -291,15 +422,20 @@ def test_publication_callback_cannot_bypass_core_http_failure_check(monkeypatch)
             )
         ),
     )
-    monkeypatch.setattr(
-        worker, "ProcessPoolExecutor", lambda **kwargs: ThreadPoolExecutor(max_workers=1)
-    )
+    inline_computation(monkeypatch)
 
     def transport(request):
         requests.append(request.url.path)
         if request.url.path.endswith("/claim"):
             return httpx.Response(
-                200, json={"id": "fixture", "kind": "fixture.run", "token": "lease", "payload": {}}
+                200,
+                json={
+                    "id": "fixture",
+                    "communication": communication_context(),
+                    "kind": "fixture.run",
+                    "token": "lease",
+                    "payload": {},
+                },
             )
         if request.url.path.endswith("/publish"):
             return httpx.Response(500, json={"detail": "failed"})
@@ -310,47 +446,66 @@ def test_publication_callback_cannot_bypass_core_http_failure_check(monkeypatch)
     assert requests[-1] == "/api/v1/jobs/fixture/fail"
 
 
-def test_sync_reporting_is_job_bound_expires_and_does_not_expose_http_errors(monkeypatch):
-    from asterion.data.public import SYNC_REPORTER
+def test_worker_failure_logs_only_native_categories(monkeypatch, tmp_path, caplog):
+    from asterion_bindings.communication import activate
+    from asterion_bindings.diagnostics import events
 
-    retained = []
     requests = []
+    job = {
+        "id": "private-job-reference",
+        "communication": communication_context(),
+        "kind": "fixture.fail",
+        "token": "private-lease-token",
+        "payload": {"input": "private-payload"},
+    }
 
-    def execute(context, payload):
-        reporter = context.resource(SYNC_REPORTER)
-        retained.append(reporter)
-        with pytest.raises(ValueError, match="Invalid observation index"):
-            reporter.checkpoint("../other", {})
-        with pytest.raises(ValueError, match="任务执行通道") as failure:
-            reporter.resume()
-        assert not hasattr(failure.value, "request")
-        assert "runtime-secret" not in str(failure.value)
-        return b"result", {}
-
-    from dataclasses import replace
-
-    monkeypatch.setattr(
-        worker,
-        "handlers",
-        TaskHandlerRegistry((replace(handlers.get("data.sync"), execute=execute),)),
-    )
+    def fail(context, payload):
+        raise ValueError("private-exception-detail")
 
     def transport(request):
         requests.append(request)
-        return httpx.Response(409, json={"detail": "expired lease"})
+        return httpx.Response(200, json=job if request.url.path.endswith("/claim") else {})
 
-    http_client(monkeypatch, transport)
-    worker.execute_job(
-        Settings(token="runtime-secret", api_url="http://worker.test"),
-        {
-            "id": "current",
-            "kind": "data.sync",
-            "token": "lease",
-            "payload": {},
-        },
+    monkeypatch.setattr(
+        worker, "handlers", TaskHandlerRegistry((TaskHandler("fixture.fail", fail, "/publish"),))
     )
-    assert [request.url.path for request in requests] == ["/api/v1/jobs/current/resume"]
-    assert requests[0].headers["X-Lease-Token"] == "lease"
-    with pytest.raises(ValueError, match="closed"):
-        retained[0].resume()
-    assert len(requests) == 1
+    monkeypatch.setattr(
+        worker, "execute_job", lambda settings, claimed: fail(None, claimed["payload"])
+    )
+    inline_computation(monkeypatch)
+    http_client(monkeypatch, transport)
+    other = communication_context()
+    with activate(other):
+        assert worker.run_once(
+            Settings(token="private-runtime-key", data_root=tmp_path, api_url="http://worker.test"),
+            "worker",
+        )
+    assert requests[-1].url.path.endswith("/fail")
+    rows = events(tmp_path / ".diagnostics")
+    assert rows[0]["component"] == "worker" and rows[0]["code"] == "execution_failed"
+    assert rows[0]["correlation_id"] == job["communication"]["correlation_id"]
+    assert rows[0]["request_id"] == job["communication"]["request_id"]
+    assert rows[0]["request_id"] != other["request_id"]
+    assert "private" not in json.dumps(rows)
+    assert "private" not in caplog.text
+    assert b"private" not in (tmp_path / ".diagnostics" / "diagnostics.sqlite").read_bytes()
+
+
+def test_control_plane_failure_stays_failed_when_native_logging_cannot_write(monkeypatch, tmp_path):
+    import httpx
+
+    def unavailable(request):
+        raise httpx.ConnectError("private transport detail", request=request)
+
+    http_client(monkeypatch, unavailable)
+    (tmp_path / ".diagnostics").write_text("preserve")
+    with pytest.raises(httpx.ConnectError, match="private transport detail"):
+        worker.run(
+            Settings(
+                token="diagnostics-test-runtime-key-long",
+                data_root=tmp_path,
+                api_url="http://worker.test",
+            ),
+            once=True,
+        )
+    assert (tmp_path / ".diagnostics").read_text() == "preserve"

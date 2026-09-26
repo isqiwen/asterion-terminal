@@ -49,10 +49,8 @@ class DataType:
         return self._coverage(rows, start, end) if self._coverage else "RETURNED_ROWS_ONLY"
 
     def validate(self, rows: list[dict]):
+        """Row checks and primary-key uniqueness, both in the Rust data store."""
         self._validate(rows)
-        keys = [tuple(str(row[k]) for k in self.manifest.primary_key) for row in rows]
-        if len(keys) != len(set(keys)):
-            raise ProviderError("返回了重复数据键，未发布")
 
 
 class TypeRegistry:

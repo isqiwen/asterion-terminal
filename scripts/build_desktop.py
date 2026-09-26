@@ -22,7 +22,6 @@ def dependency_hint(host: str) -> str:
             "On Debian 13, install the system build dependencies once:\n"
             "  sudo apt update\n"
             f"  sudo apt install {' '.join(LINUX_PACKAGES)}\n"
-            "libpq-dev provides pg_config. Other distributions: see README.md.\n"
             "Then rerun Asterion: Build as your normal user."
         )
     return "Install the build prerequisites listed in README.md, then rerun Asterion: Build."

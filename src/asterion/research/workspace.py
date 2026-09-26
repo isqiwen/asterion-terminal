@@ -3,13 +3,13 @@
 import time
 from typing import Literal
 
+from asterion_bindings.rules import RuleVersion
+from asterion_bindings.task_repository import Conflict
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import JSON, Boolean, Column, Float, Integer, String, Table, select
 from sqlalchemy.exc import IntegrityError
 
-from asterion.contract_rules.public import RuleVersion
 from asterion.platform.store import metadata
-from asterion.platform.tasks.service import Conflict
 from asterion.research.parameters import ParameterValue
 from asterion.research.strategies import StrategyRef
 

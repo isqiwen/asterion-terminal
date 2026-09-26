@@ -6,12 +6,13 @@ from decimal import Decimal
 from fractions import Fraction
 from typing import Literal
 
+from asterion_bindings.calendar import TimeVersion
+from asterion_bindings.roles import RoleCalendar
 from pydantic import AwareDatetime, Field
 
-from asterion.contract_roles.public import NextOpening, Strict, next_opening
+from asterion.contract_roles.models import Strict
 from asterion.data.public import ReferenceCatalog
 from asterion.platform.serialization import canonical
-from asterion.trading_time.public import TimeVersion
 
 
 class RankingPolicy(Strict):
@@ -96,6 +97,7 @@ def rank_roles(body: RankingRequest) -> RankingResult:
     if body.initial_main is not None and body.initial_main not in candidates:
         raise ValueError("初始主力不在候选集合")
     product = next(p for p in body.catalog.products if p.id == body.product_id)
+    opening_calendar = RoleCalendar(product_id=body.product_id, trading_time=body.trading_time)
     spans = body.trading_time.spec.spans()
     days = sorted({s.trading_day for s in spans})
     observed = [o.trading_day for o in body.observations]
@@ -122,14 +124,7 @@ def rank_roles(body: RankingRequest) -> RankingResult:
             + [catalog[c].provenance.available_at for c in candidates]
             + [product.provenance.available_at]
         )
-        opening = next_opening(
-            NextOpening(
-                product_id=body.product_id,
-                trading_time=body.trading_time,
-                observation_end=end,
-                available_at=available,
-            )
-        )
+        opening = opening_calendar.next_opening(end, available)
         if decisions and opening.trading_day <= decisions[-1].effective_day:
             raise ValueError("延迟观测产生重叠或倒序生效日；不能覆盖先前决定")
         eligible = {c for c in active if catalog[c].last_trade_on >= opening.trading_day}

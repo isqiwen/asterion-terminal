@@ -1,28 +1,18 @@
 """Content identity for the installed runtime, independent of paths and mtimes."""
 
-import hashlib
 import sys
 from pathlib import Path
 
+from asterion_bindings.files import trusted_tree_digest
+
 
 def tree_digest(roots: tuple[Path, ...]) -> str:
-    digest = hashlib.sha256()
-    for index, root in enumerate(roots):
-        if not root.exists():
-            raise ValueError("运行文件缺失，请重新安装完整应用")
-        paths = [root] if root.is_file() else sorted(root.rglob("*"))
-        for path in paths:
-            relative = path.relative_to(root) if root.is_dir() else Path(root.name)
-            if "__pycache__" in relative.parts or path.suffix == ".pyc":
-                continue
-            if not path.is_file():
-                continue
-            name = f"{index}/{relative.as_posix()}".encode()
-            digest.update(len(name).to_bytes(8, "big"))
-            digest.update(name)
-            with path.open("rb") as stream:
-                digest.update(hashlib.file_digest(stream, "sha256").digest())
-    return digest.hexdigest()
+    try:
+        return trusted_tree_digest(
+            roots, excluded_components=("__pycache__",), excluded_suffixes=(".pyc",)
+        )
+    except FileNotFoundError:
+        raise ValueError("运行文件缺失，请重新安装完整应用") from None
 
 
 def postgres_identity_roots(pg_root: Path) -> tuple[Path, ...]:
@@ -32,6 +22,8 @@ def postgres_identity_roots(pg_root: Path) -> tuple[Path, ...]:
 
 
 def runtime_identity(pg_root: Path) -> str:
+    import asterion_bindings
+
     environment = Path(sys.prefix)
     # Installed environments include interpreter, locked dependencies and PostgreSQL.
     # The developer checkout is hashed directly when running development commands.
@@ -40,4 +32,5 @@ def runtime_identity(pg_root: Path) -> str:
             (environment, environment.parent / "interpreter", *postgres_identity_roots(pg_root))
         )
     source = Path(__file__).resolve().parents[2]
-    return tree_digest((source / "asterion", source / "asterion_plugin_sdk"))
+    bindings = Path(asterion_bindings.__file__).resolve().parent
+    return tree_digest((source / "asterion", source / "asterion_plugin_sdk", bindings))

@@ -1,0 +1,25 @@
+{
+  "name": "@asterion/runtime-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "asterion": {
+    "layer": 4,
+    "kind": "presentation"
+  },
+  "exports": {
+    "./client": "./src/client.ts",
+    "./communication": "./src/communication.ts",
+    "./events": "./src/events.ts",
+    "./requests": "./src/requests.ts",
+    "./useRequestClient": "./src/useRequestClient.ts"
+  },
+  "dependencies": {
+    "@asterion/api-types": "workspace:*",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "vitest": "^3.0.0"
+  }
+}

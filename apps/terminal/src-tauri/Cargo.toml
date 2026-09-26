@@ -3,9 +3,16 @@ name = "asterion-terminal"
 version = "0.1.0"
 edition = "2021"
 default-run = "asterion-terminal"
+[package.metadata.asterion]
+layer = "L5"
+kind = "entry"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 [dependencies]
+asterion-desktop-bridge = { path = "../../../presentation/desktop-bridge" }
+asterion-product-terminal = { path = "../../../products/terminal" }
+asterion-foundation = { path = "../../../kernel/foundation" }
+asterion-kernel = { path = "../../../kernel/mechanisms" }
 tauri = { version = "2", features = [] }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }

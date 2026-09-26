@@ -415,7 +415,7 @@ test("synthetic sync uses capability defaults without credentials and preserves 
   expect(submissions[0]).not.toHaveProperty("token");
   await page.getByLabel("结束日期", { exact: true }).fill("2024-01-11");
   await page.getByRole("button", { name: "开始同步", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("同步任务已提交");
+  await expect(page.getByRole("status").filter({ hasText: "同步任务已提交" })).toContainText("同步任务已提交");
   expect(submissions[2].command_id).not.toBe(submissions[1].command_id);
   await expect(
     page.getByRole("cell", { name: "数据源同步", exact: true }),

@@ -7,7 +7,6 @@ from uuid import uuid4
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from asterion.data.artifacts import atomic_write
 from asterion.data.coverage import CoverageRequest, DailyCoverage
 from asterion.data.library import DataLibrary
 from asterion.platform.serialization import canonical
@@ -49,8 +48,10 @@ def reference_inputs(storage, root):
         library.types.get("futures." + kind).validate(rows)
         output = pa.BufferOutputStream()
         pq.write_table(pa.Table.from_pylist(rows), output)
-        atomic_write(root / folder / "standard.parquet", output.getvalue().to_pybytes())
-        atomic_write(root / folder / "raw.json", canonical(rows))
+        standard = library.artifacts.put(
+            folder + "/standard.parquet", output.getvalue().to_pybytes()
+        )
+        raw = library.artifacts.put(folder + "/raw.json", canonical(rows))
         observed = datetime.now(UTC).isoformat()
         with storage.begin() as conn:
             _, ids[kind] = library.publish_pair(
@@ -59,9 +60,9 @@ def reference_inputs(storage, root):
                 type_id="futures." + kind,
                 source="test-reference",
                 scope={"exchange": "SHFE", "symbol": ""},
-                raw_path=folder + "/raw.json",
+                raw=raw,
                 raw_format="fixture",
-                standard_path=folder + "/standard.parquet",
+                standard=standard,
                 row_count=len(rows),
                 detail={"observed_at": observed, "available_at": observed, "demo": False},
             )

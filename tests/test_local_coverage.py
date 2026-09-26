@@ -1,10 +1,12 @@
+from asterion_bindings.execution import ExecutionFactory
+from asterion_bindings.tasks import ExecutionContext
 from import_identity_support import import_identity
 from rules_support import rule_access, rule_version
 from storage_support import data_store, domain_tasks, research_store, scheduler
 
 from asterion.data.public import VersionAccess, VersionReader
 from asterion.distribution import strategy_catalog
-from asterion.platform.tasks.execution import ExecutionContext
+from asterion.research.execution import EXECUTION
 from asterion.research.strategies import STRATEGY_RESOURCE
 
 """File coverage requires explicit immutable references and never queues source refills."""
@@ -13,16 +15,14 @@ from datetime import date
 from uuid import uuid4
 
 import pytest
+from import_support import import_options, import_payload, publish_import
 from sqlalchemy import select
 from test_coverage import calendar, contracts, sync  # noqa: F401
 from test_research import config
 
 from asterion.data.coverage import CoverageRequest
-from asterion.data.importing import encode_import
 from asterion.data.library import versions
 from asterion.data.providers.public import ProviderError
-from asterion.data.public import ImportOptions, ImportRequest
-from asterion.data.snapshots import Snapshots
 from asterion.research.packages import ResearchPackages
 from asterion.research.service import Backtests
 from asterion.research.worker import execute
@@ -35,24 +35,14 @@ def local(request):
     raw = "contract,trading_day,open,high,low,close,vol,settle\n" + "\n".join(
         f"SHFE.rb2610,2024-01-0{d},10,12,9,11,100,10.5" for d in (2, 3, 4)
     )
-    body = ImportRequest(
-        command_id=str(uuid4()),
-        source="file-history",
-        csv=raw,
-        options=ImportOptions(
-            identity=import_identity("SHFE.rb2610"),
-            type_id="futures.daily",
-            frequency="1d",
-            source_id="history",
-        ),
+    options = import_options(
+        import_identity("SHFE.rb2610"), type_id="futures.daily", frequency="1d", source_id="history"
     )
     service.tasks.submit(
-        body.command_id, "data.import_csv", body.model_dump(exclude={"command_id"}, mode="json")
+        str(uuid4()), "data.import_csv", import_payload(raw, options, "file-history")
     )
     job = scheduler(service.engine).claim("import")
-    Snapshots(
-        data_store(service.engine), domain_tasks(data_store(service.engine), "data"), root
-    ).publish(job["id"], job["token"], encode_import(job["payload"])[0])
+    publish_import(service.engine, root, job)
     daily = service.library.list(type_id="futures.daily", layer="STANDARD")["items"][0]
     contract = contracts(service)
     cal = calendar(service, {f"2024-01-0{d}": 1 for d in (2, 3, 4, 5)})
@@ -84,6 +74,7 @@ def test_explicit_local_evidence_strict_research_and_portable_replay(local):
         version_access(service.engine, service.library.root),
         rule_access(service.engine, "SHFE.rb2610"),
         strategy_catalog(),
+        ExecutionFactory(),
     )
     body = config().model_copy(
         update={
@@ -102,7 +93,13 @@ def test_explicit_local_evidence_strict_research_and_portable_replay(local):
         job["id"],
         claimed["token"],
         execute(
-            ExecutionContext((STRATEGY_RESOURCE,), {STRATEGY_RESOURCE: strategy_catalog()}),
+            ExecutionContext(
+                (
+                    STRATEGY_RESOURCE,
+                    EXECUTION,
+                ),
+                {STRATEGY_RESOURCE: strategy_catalog(), EXECUTION: ExecutionFactory()},
+            ),
             claimed["payload"],
         )[0],
     )
@@ -168,4 +165,4 @@ def test_external_mapping_requires_complete_explicit_input(missing):
 
 def version_access(engine, root):
     reader = VersionReader(data_store(engine), root)
-    return VersionAccess(reader.read, reader.coverage)
+    return VersionAccess(reader.read, reader.coverage, reader.scan)

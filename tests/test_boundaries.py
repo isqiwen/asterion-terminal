@@ -64,8 +64,8 @@ def test_platform_and_business_do_not_depend_on_application_assembly():
                         "identity",
                         "trading",
                         "market",
-        "connections",
-        "connector_ctp",
+                        "connections",
+                        "connector_ctp",
                         "contract_rules",
                         "trading_time",
                         "intelligence",
@@ -74,51 +74,76 @@ def test_platform_and_business_do_not_depend_on_application_assembly():
                     assert parts[1] in {"platform", "runtime"}, (path, name)
 
 
-def test_terminal_mechanisms_do_not_import_feature_plugins_or_product_assembly():
+def test_shared_presentation_does_not_import_panels_or_product_assembly():
+    import json
     import re
 
-    root = Path(__file__).resolve().parents[1] / "apps" / "terminal" / "src"
-    for directory in (
-        "api",
-        "components",
-        "extensions",
-        "settings",
-        "workspace",
-        "startup",
-        "deployment",
-    ):
-        for path in (root / directory).rglob("*.ts*"):
+    root = Path(__file__).resolve().parents[1]
+    features = {
+        json.loads(path.read_text())["name"]
+        for base in (root / "presentation" / "panels", root / "products")
+        for path in base.glob("*/package.json")
+    }
+    assert features
+    directories = list((root / "presentation").glob("*/src"))
+    assert directories and all(d.parent.name != "panels" for d in directories)
+    for directory in directories:
+        sources = list(directory.rglob("*.ts*"))
+        assert sources, directory
+        for path in sources:
             if ".test." in path.name:
                 continue
             for imported in re.findall(
-                r'(?:from\s*|import\s*)["\']([^"\']+)["\']', path.read_text()
+                r'(?:from\s*|import\s*(?:\(\s*)?)["\']([^"\']+)["\']', path.read_text()
             ):
-                if not imported.startswith("."):
-                    continue
-                target = (path.parent / imported).resolve()
-                assert not target.is_relative_to(root / "plugins"), (path, imported)
-                assert target != root / "distribution", (path, imported)
+                package = "/".join(imported.split("/")[:2])
+                assert package not in features, (path, imported)
+                if imported.startswith("."):
+                    target = (path.parent / imported).resolve()
+                    assert not target.is_relative_to(root / "presentation" / "panels"), (
+                        path,
+                        imported,
+                    )
+                    assert not target.is_relative_to(root / "products"), (path, imported)
 
 
 def test_feature_request_consumers_use_credential_free_ports():
     import re
 
-    root = Path(__file__).resolve().parents[1] / "apps" / "terminal" / "src"
-    transport = {root / "api" / name for name in ("client", "useConnection", "useRequestClient")}
-    for domain in ("data", "research", "tasks"):
-        for path in (root / "plugins" / domain).rglob("*.ts*"):
+    root = Path(__file__).resolve().parents[1]
+    transport = {
+        "@asterion/runtime-client/client",
+        "@asterion/runtime-client/useRequestClient",
+        "@asterion/desktop-bridge/useConnection",
+        "@asterion/desktop-bridge/desktop",
+    }
+    transport_sources = {
+        root / "presentation" / package / "src" / module
+        for package, module in (
+            ("runtime-client", "client"),
+            ("runtime-client", "useRequestClient"),
+            ("desktop-bridge", "useConnection"),
+            ("desktop-bridge", "desktop"),
+        )
+    }
+    for domain in ("data-panel", "research-panel", "task-center"):
+        sources = list((root / "presentation" / "panels" / domain / "src").rglob("*.ts*"))
+        assert sources, domain
+        for path in sources:
             if ".test." in path.name:
                 continue
             for imported in re.findall(
-                r'(?:from\s*|import\s*)["\']([^"\']+)["\']', path.read_text()
+                r'(?:from\s*|import\s*(?:\(\s*)?)["\']([^"\']+)["\']', path.read_text()
             ):
+                assert imported not in transport, (path, imported)
                 if imported.startswith("."):
-                    assert (path.parent / imported).resolve() not in transport, (path, imported)
+                    target = (path.parent / imported).resolve().with_suffix("")
+                    assert target not in transport_sources, (path, imported)
 
 
 def test_feature_worker_entries_do_not_import_runtime_configuration_or_transport():
     root = Path(__file__).resolve().parents[1] / "src" / "asterion"
-    for domain in ("data", "research"):
+    for domain in ("research",):
         path = root / domain / "worker.py"
         for node in ast.walk(ast.parse(path.read_text())):
             names = []
@@ -130,5 +155,5 @@ def test_feature_worker_entries_do_not_import_runtime_configuration_or_transport
                 assert name not in {
                     "httpx",
                     "asterion.platform.config",
-                    "asterion.platform.secrets",
+                    "asterion_bindings.secrets",
                 }, (path, name)

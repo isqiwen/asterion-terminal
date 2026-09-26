@@ -1,15 +1,13 @@
 """Immutable reference catalog releases; publication does not attest source authority."""
 
-import hashlib
-import json
 import time
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from asterion_bindings.catalog import ReferenceCatalog, ReferenceRelease, catalog_digest
+from pydantic import BaseModel
 from sqlalchemy import JSON, Column, Float, String, Table, select
 from sqlalchemy.exc import IntegrityError
 
 from asterion.data.library import versions
-from asterion.data.reference import ReferenceCatalog
 from asterion.data.reference_source import validate_catalog_input
 from asterion.platform.store import metadata
 
@@ -20,29 +18,6 @@ releases = Table(
     Column("published_at", Float, nullable=False),
     Column("catalog", JSON, nullable=False),
 )
-
-
-class ReferenceRelease(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    published_at: float
-    catalog: ReferenceCatalog
-
-    @model_validator(mode="after")
-    def fingerprint(self):
-        if self.id != catalog_digest(self.catalog):
-            raise ValueError("合约目录版本指纹不一致")
-        return self
-
-
-def catalog_digest(catalog: ReferenceCatalog) -> str:
-    content = json.dumps(
-        catalog.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode()
-    if len(content) > 4_000_000:
-        raise ValueError("Reference catalog exceeds 4 MB")
-    return hashlib.sha256(content).hexdigest()
 
 
 class ReferenceSummary(BaseModel):
@@ -116,12 +91,3 @@ class ReferenceStore:
             )
             for r in validated
         ]
-
-    def references(self, conn, version_id):
-        return sum(
-            any(
-                item.version_id == version_id
-                for item in ReferenceRelease.model_validate(dict(row)).catalog.inputs
-            )
-            for row in conn.execute(select(releases)).mappings()
-        )

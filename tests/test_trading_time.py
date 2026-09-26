@@ -1,18 +1,9 @@
-from import_identity_support import import_identity
-
 """Natural dates, exchange days, holiday exceptions and bar boundaries."""
 
 from datetime import date, datetime
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-
-from asterion.api.app import create_app
-from asterion.data.importing import mapped
-from asterion.data.public import ImportOptions
-from asterion.platform.config import Settings
-from asterion.trading_time.public import TimeSpec, TimeVersion, time_id
+from asterion_bindings.calendar import TimeSpec
 
 
 def example():
@@ -156,70 +147,7 @@ def test_incomplete_or_ambiguous_contract_fails(change):
         TimeSpec.model_validate(value)
 
 
-def test_import_cannot_accept_wrong_day_or_cross_break():
+def test_contract_outside_the_version_is_not_resolved():
     spec = TimeSpec.model_validate(example())
-    version = TimeVersion(id=time_id(spec), spec=spec)
-    options = ImportOptions(
-        identity=import_identity("SHFE.au2506"),
-        type_id="futures.bars",
-        frequency="1m",
-        source_id="test",
-        trading_time=version,
-        timestamp_semantics="bar_end",
-    )
-    header = "contract,event_time,available_at,trading_day,open,high,low,close,volume\n"
-    row = "SHFE.au2506,2025-04-12T02:30:00+08:00,2025-04-12T02:30:00+08:00,2025-04-14,10,11,9,10,2"
-    assert mapped(header + row, options)[0]["trading_day"] == "2025-04-14"
-    derived = mapped(header.replace("trading_day,", "") + row.replace("2025-04-14,", ""), options)
-    assert derived[0]["trading_day"] == "2025-04-14"
-    with pytest.raises(ValueError, match="交易日错误"):
-        mapped(header + row.replace("2025-04-14", "2025-04-12"), options)
-    with pytest.raises(ValueError):
-        mapped(header + row.replace("02:30:00", "21:00:00"), options)
     with pytest.raises(ValueError):
         spec.resolve("SHFE.rb2506", datetime.fromisoformat("2025-04-14T09:00:00+08:00"))
-
-
-def test_authenticated_api_persists_exact_version_and_resolves(tmp_path):
-    engine = create_engine(f"sqlite:///{tmp_path}/time.db")
-    app = create_app(
-        Settings(
-            token="trading-time-test-token-at-least-24", data_root=tmp_path, require_account=False
-        ),
-        engine,
-    )
-    client = TestClient(app)
-    assert client.get("/api/v1/trading-time").status_code == 401
-    client.headers["Authorization"] = "Bearer trading-time-test-token-at-least-24"
-    saved = client.post("/api/v1/trading-time", json=example()).raise_for_status().json()
-    assert client.post("/api/v1/trading-time", json=example()).json() == saved
-    assert client.get("/api/v1/trading-time").json() == [saved]
-    result = (
-        client.post(
-            "/api/v1/trading-time/resolve",
-            json={
-                "version": saved,
-                "contract": "SHFE.au2506",
-                "timestamp": "2025-04-12T01:00:00+08:00",
-                "boundary": "event",
-            },
-        )
-        .raise_for_status()
-        .json()
-    )
-    assert result["trading_day"] == "2025-04-14"
-    saved["spec"]["title"] = "改动"
-    assert (
-        client.post(
-            "/api/v1/trading-time/resolve",
-            json={
-                "version": saved,
-                "contract": "SHFE.au2506",
-                "timestamp": "2025-04-12T01:00:00+08:00",
-                "boundary": "event",
-            },
-        ).status_code
-        == 422
-    )
-    app.state.plugins.close()
-    engine.dispose()

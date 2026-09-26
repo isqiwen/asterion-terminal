@@ -1,8 +1,6 @@
 """Explicit, synthetic identity evidence for tests; never a production catalogue."""
 
-from asterion.data.import_identity import ImportIdentity
-from asterion.data.reference import ReferenceCatalog
-from asterion.data.reference_store import catalog_digest
+from asterion_bindings.catalog import ImportIdentity, ReferenceCatalog, catalog_digest
 
 
 def import_identity(contract="SHFE.rb2405"):
@@ -64,7 +62,7 @@ def import_identity(contract="SHFE.rb2405"):
 
 
 def source_identity(contract, source, symbol):
-    from asterion.data.reference import SourceIdentity
+    from asterion_bindings.catalog import SourceIdentity
 
     value = import_identity(contract)
     catalog = value["catalog"]

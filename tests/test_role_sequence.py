@@ -128,8 +128,8 @@ def test_protected_api_continuation_publication_and_sequence(tmp_path, monkeypat
     from datetime import datetime
     from importlib import import_module
 
+    from asterion_bindings.database import create_engine
     from fastapi.testclient import TestClient
-    from sqlalchemy import create_engine
 
     from asterion.api.app import create_app
     from asterion.platform.config import Settings

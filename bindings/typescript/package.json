@@ -1,0 +1,14 @@
+{
+  "name": "@asterion/api-types",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "asterion": {
+    "layer": 4,
+    "kind": "presentation"
+  },
+  "exports": {
+    "./schema": "./src/schema.d.ts",
+    "./wire.generated": "./src/wire.generated.ts"
+  }
+}

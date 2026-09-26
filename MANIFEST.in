@@ -1,0 +1,10 @@
+include Cargo.toml Cargo.lock
+include setup.cfg
+recursive-include contracts *.json
+recursive-include kernel *.toml *.rs *.json
+recursive-include adapters *.toml *.rs *.json
+recursive-include examples/strategies *.py *.json *.md
+recursive-include bindings/python *.toml *.rs *.py *.pyi py.typed
+recursive-include presentation *.toml *.rs
+recursive-include products/terminal *.toml *.rs
+recursive-include services *.toml *.rs *.json

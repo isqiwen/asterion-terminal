@@ -3,6 +3,9 @@
 from copy import deepcopy
 
 import pytest
+from asterion_bindings.artifacts import ArtifactStore
+from asterion_bindings.catalog import catalog_digest
+from asterion_bindings.roles import RoleQuery
 from role_source_support import port, sources
 from test_contract_roles import fixture
 from test_role_ranking import request as diagnostic_request
@@ -14,9 +17,7 @@ from asterion.contract_roles.computed_public import (
     digest,
     resolve_computed,
 )
-from asterion.contract_roles.public import RoleQuery
 from asterion.data.public import SourceIdentity, source_contract_catalog
-from asterion.data.reference_store import catalog_digest
 
 
 def evidence():
@@ -187,19 +188,19 @@ def test_computed_resolution_checks_publication_time_and_auction():
     later = version.model_copy(update={"published_at": version.published_at.replace(year=2026)})
     with pytest.raises(ValueError, match="发布晚于"):
         resolve_computed(later, query)
-    auction = query.model_copy(update={"timestamp": query.timestamp.replace(hour=20, minute=56)})
+    auction_time = query.timestamp.replace(hour=20, minute=56)
+    auction = query.model_copy(update={"timestamp": auction_time, "information_at": auction_time})
     with pytest.raises(ValueError, match="尚未生效"):
         resolve_computed(version, auction)
 
 
 def test_api_append_only_auth_sources_references_backup(tmp_path, monkeypatch):
+    from asterion_bindings.database import create_engine
     from fastapi.testclient import TestClient
-    from sqlalchemy import create_engine
 
     from asterion.api.app import create_app
     from asterion.contract_roles.computed_public import COMPUTED_ROLE_ACCESS
     from asterion.contract_roles.plugin import RoleBackup, validate
-    from asterion.distribution_storage import role_storage
     from asterion.platform.config import Settings
 
     values, body = evidence()
@@ -233,14 +234,6 @@ def test_api_append_only_auth_sources_references_backup(tmp_path, monkeypatch):
                 "contract_role_versions": 0,
                 "computed_role_versions": 1,
             }
-            storage = role_storage(engine)
-            with storage.connect() as conn:
-                refs = [
-                    hook(conn, "daily-10-0")
-                    for hook in client.app.state.plugins.hooks("data.references")
-                ]
-            storage.close()
-            assert {"contract_roles": 1} in refs
             values["daily-10-0"]["rows"][0]["oi"] = "101"
             assert client.post(path, json=spec).status_code == 422
             assert client.get(path + "/" + saved["id"]).json() == saved
@@ -255,15 +248,14 @@ def test_real_version_reader_partition_backup_and_corruption(tmp_path):
 
     import pyarrow as pa
     import pyarrow.parquet as pq
+    from asterion_bindings.database import create_engine
     from fastapi.testclient import TestClient
-    from sqlalchemy import create_engine
 
     from asterion.api.app import create_app
     from asterion.contract_roles.plugin import RoleBackup, validate
     from asterion.data.library import collections, versions
     from asterion.data.public import snapshot_backup_access
     from asterion.platform.config import Settings
-    from asterion.platform.files import read_files
     from asterion.platform.serialization import canonical
 
     values, body = evidence()
@@ -293,12 +285,25 @@ def test_real_version_reader_partition_backup_and_corruption(tmp_path):
             checksum = hashlib.sha256(data).hexdigest()
             (root / "artifacts" / f"{checksum}.parquet").write_bytes(data)
             manifest["format"] = "partition_manifest"
-            manifest["partitions"] = [{"key": "2025-04", "rows": len(rows), "checksum": checksum}]
+            days = sorted(r["trading_day"] for r in rows)
+            manifest["partitions"] = [
+                {
+                    "key": "2025-04",
+                    "checksum": checksum,
+                    "rows": len(rows),
+                    "bytes": len(data),
+                    "first": days[0],
+                    "last": days[-1],
+                    "inputs": ["offline-raw"],
+                    "replaces": None,
+                }
+            ]
             content = canonical({"schema_version": 1, "partitions": manifest["partitions"]})
         else:
             manifest["format"] = "parquet"
             content = parquet(rows)
         manifest["checksum"] = hashlib.sha256(content).hexdigest()
+        manifest["bytes"] = len(content)
         manifest["path"] = f"artifacts/{identifier}.data"
         (root / manifest["path"]).write_bytes(content)
         with engine.begin() as conn:
@@ -348,19 +353,17 @@ def test_real_version_reader_partition_backup_and_corruption(tmp_path):
             saved = client.post(path, json=spec)
             assert saved.status_code == 200, saved.text
             with engine.connect() as conn:
-                backup = snapshot_backup_access(conn, read_files(root))
+                backup = snapshot_backup_access(conn, ArtifactStore(root, read_only=True))
             record = saved.json()
             assert validate(RoleBackup((), backup, (record,), ()))["computed_role_versions"] == 1
             from asterion.contract_roles.plugin import plugin
             from asterion.distribution import backup_inputs
 
-            with engine.connect() as conn:
-                assert (
-                    validate(backup_inputs(conn, tmp_path, settings.token, (plugin,))[plugin.id])[
-                        "computed_role_versions"
-                    ]
-                    == 1
-                )
+            with (
+                engine.connect() as conn,
+                backup_inputs(conn, tmp_path, settings.token, (plugin,)) as inputs,
+            ):
+                assert validate(inputs[plugin.id])["computed_role_versions"] == 1
             bad_part = values["daily-11-1"]["version"]["manifest"]["partitions"][0]
             (root / "artifacts" / f"{bad_part['checksum']}.parquet").write_bytes(b"corrupt")
             assert client.post(path, json=spec).status_code == 422

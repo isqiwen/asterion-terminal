@@ -1,5 +1,5 @@
-import { parseLayout } from "../src/plugins/workflow/layout";
-import type { BrowserContext } from "@playwright/test";
+import { parseLayout } from "@asterion/ui-terminal-workspace/layout";
+import type { BrowserContext, Page } from "@playwright/test";
 export async function nativeContext(
   context: BrowserContext,
   handlers: Record<
@@ -7,6 +7,18 @@ export async function nativeContext(
     (args: Record<string, unknown>) => unknown | Promise<unknown>
   > = {},
 ) {
+  // Synthetic core event source for UI fixtures. Each page signals a refresh;
+  // dedicated communication tests verify real cursor and retry semantics.
+  const events = async (page: Page) => page.route("**/api/v1/communication/events**", route => {
+    const url = new URL(route.request().url());
+    const after = url.searchParams.get("after") ?? "0";
+    const topic = url.searchParams.get("topic")!;
+    if (after === "latest") return route.fulfill({json: {items: [], cursor: "0"}});
+    const sequence = String(BigInt(after) + 1n);
+    return route.fulfill({json: {items: [{version:1,id:"a".repeat(32),topic,owner:"fixture",stream:"fixture",sequence,correlation_id:"b".repeat(32),causation_id:null,payload:{}}],cursor:sequence}});
+  });
+  await Promise.all(context.pages().map(events));
+  context.on("page", page => { void events(page); });
   let elapsed = 0,
     pin = "246810";
   let security = {

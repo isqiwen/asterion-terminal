@@ -1,60 +1,68 @@
-"""Copy-on-write monthly series with row-level observation provenance."""
+"""Application orchestration of cumulative versions; merge and verification are Rust L2."""
 
-import hashlib
-import json
 import time
-from collections import defaultdict
-from datetime import date, datetime, timedelta
 
-import pyarrow as pa
-import pyarrow.parquet as pq
+from asterion_bindings.artifacts import ArtifactStore
+from asterion_bindings.data_partitions import (
+    cumulative_series,
+    merge,
+    read_index,
+    verify_version,
+)
+from asterion_bindings.data_partitions import read_partition as native_partition
+from asterion_bindings.data_store import MergeRequest, ParentVersion, Partition, PartitionedVersion
+from pydantic import ValidationError
 from sqlalchemy import select
 
-from asterion.data.artifacts import atomic_write
 from asterion.data.library import collections, stable_id, versions
 from asterion.data.providers.public import ProviderError
-from asterion.platform.serialization import canonical
-
-SERIES = "monthly-observed-v1"
-SUPPORTED = {"futures.daily", "futures.calendar"}
 
 
-def read_partition(root, part):
-    path = root / "artifacts" / f"{part['checksum']}.parquet"
+def _partitioned(manifest) -> PartitionedVersion:
+    return PartitionedVersion(
+        path=manifest["path"],
+        checksum=manifest["checksum"],
+        bytes=manifest["bytes"],
+        partitions=manifest["partitions"],
+    )
+
+
+def version_partitions(store: ArtifactStore, manifest) -> tuple[Partition, ...]:
+    """Partitions of a fixed version, verified against its recorded index artifact."""
     try:
-        content = path.read_bytes()
-    except FileNotFoundError:
-        raise ProviderError("分区文件缺失") from None
-    if hashlib.sha256(content).hexdigest() != part["checksum"]:
-        raise ProviderError("分区文件校验和不一致")
-    return pq.ParquetFile(pa.BufferReader(content)).read(use_threads=False).to_pylist()
+        return read_index(store, _partitioned(manifest))
+    except ValidationError:
+        raise ProviderError("版本分区记录不符合当前契约") from None
+    except ValueError as error:
+        raise ProviderError(str(error)) from None
 
 
-def calendar_gaps(rows, time_field):
-    days = {row[time_field] for row in rows}
-    cursor, end = date.fromisoformat(min(days)), date.fromisoformat(max(days))
-    gaps, start = [], None
-    while cursor <= end + timedelta(days=1):
-        missing = cursor <= end and cursor.isoformat() not in days
-        if missing and start is None:
-            start = cursor
-        if not missing and start is not None:
-            gaps.append(
-                {"start": start.isoformat(), "end": (cursor - timedelta(days=1)).isoformat()}
-            )
-            start = None
-        cursor += timedelta(days=1)
-    return gaps
+def verified_partitions(store: ArtifactStore, manifest) -> tuple[Partition, ...]:
+    """Verify a fixed version's index and every partition's bytes without decoding."""
+    try:
+        return verify_version(store, _partitioned(manifest))
+    except ValidationError:
+        raise ProviderError("版本分区记录不符合当前契约") from None
+    except ValueError as error:
+        raise ProviderError(str(error)) from None
+
+
+def read_partition(store: ArtifactStore, part: Partition) -> list[dict]:
+    try:
+        return native_partition(store, part).to_pylist()
+    except ValueError as error:
+        raise ProviderError(str(error)) from None
 
 
 def prepare(library, conn, *, job_id, type_id, source, scope, rows, observed_by_key):
     """Hold the collection lock until the caller commits its fenced publication."""
-    data_type = library.types.get(type_id)
-    definition = data_type.manifest
-    time_field = definition.time_field
-    if type_id not in SUPPORTED or time_field is None:
+    definition = library.types.get(type_id).manifest
+    series = cumulative_series(type_id)
+    if series is None or definition.time_field is None:
         raise ProviderError("该类型尚不支持累积发布")
-    dataset_id = library.ensure_collection(conn, type_id, source, scope, "STANDARD", SERIES)
+    if not rows:
+        raise ProviderError("累积发布记录为空")
+    dataset_id = library.ensure_collection(conn, type_id, source, scope, "STANDARD", series)
     conn.execute(
         select(collections.c.id).where(collections.c.id == dataset_id).with_for_update()
     ).one()
@@ -70,114 +78,54 @@ def prepare(library, conn, *, job_id, type_id, source, scope, rows, observed_by_
     )
     raw_dataset_id = stable_id(library.identity(type_id, source, scope, "RAW"))
     raw_id = stable_id({"dataset_id": raw_dataset_id, "job_id": job_id})
-    previous = {}
-    if parent:
-        manifest = parent["manifest"]
-        try:
-            content = (library.root / manifest["path"]).read_bytes()
-        except FileNotFoundError:
-            raise ProviderError("父版本分区清单缺失") from None
-        if hashlib.sha256(content).hexdigest() != manifest["checksum"]:
-            raise ProviderError("父版本清单校验和不一致")
-        previous = {part["key"]: part for part in json.loads(content)["partitions"]}
-
-    incoming = defaultdict(list)
-    for row in rows:
-        incoming[row[time_field][:7]].append(row)
-    changes = {"added": 0, "revised": 0, "refreshed": 0, "unchanged": 0, "stale_ignored": 0}
-    partitions, cumulative = [], []
-
-    def primary_key(row):
-        return tuple(row[field] for field in definition.primary_key)
-
-    for month in sorted(previous.keys() | incoming.keys()):
-        old = read_partition(library.root, previous[month]) if month in previous else []
-        merged = {primary_key(row): row for row in old}
-        changed = False
-        for row in incoming[month]:
-            key = primary_key(row)
-            observed_at = observed_by_key[key]
-            current = merged.get(key)
-            if current:
-                same = row == {k: v for k, v in current.items() if not k.startswith("_")}
-                incoming_time = datetime.fromisoformat(observed_at)
-                current_time = datetime.fromisoformat(current["_observed_at"])
-                if incoming_time < current_time:
-                    changes["stale_ignored"] += 1
-                    continue
-                if incoming_time == current_time:
-                    if not same:
-                        raise ProviderError("相同采集时间出现不同记录，拒绝自动裁决")
-                    changes["unchanged"] += 1
-                    continue
-                changes["refreshed" if same else "revised"] += 1
-            else:
-                changes["added"] += 1
-            merged[key] = row | {"_observed_at": observed_at, "_raw_version_id": raw_id}
-            changed = True
-        values = sorted(merged.values(), key=lambda row: (row[time_field], primary_key(row)))
-        if changed:
-            output = pa.BufferOutputStream()
-            pq.write_table(pa.Table.from_pylist(values), output)
-            content = output.getvalue().to_pybytes()
-            digest = hashlib.sha256(content).hexdigest()
-            path = library.root / "artifacts" / f"{digest}.parquet"
-            if path.exists():
-                if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
-                    raise ProviderError("已存在的分区文件校验和不一致")
-            else:
-                atomic_write(path, content)
-            part = {
-                "key": month,
-                "checksum": digest,
-                "rows": len(values),
-                "bytes": len(content),
-                "first": values[0][time_field],
-                "last": values[-1][time_field],
-                "inputs": sorted({row["_raw_version_id"] for row in values}),
-                "replaces": previous[month]["checksum"] if month in previous else None,
-            }
-        else:
-            part = previous[month]
-        partitions.append(part)
-        cumulative.extend(values)
-    data_type.validate(cumulative)
-    coverage = "RETURNED_ROWS_ONLY"
-    gaps = None
-    if type_id == "futures.calendar":
-        gaps = calendar_gaps(cumulative, time_field)
-        coverage = "CALENDAR_GAPS" if gaps else "CALENDAR_COMPLETE"
-    path = library.root / "datasets" / job_id / "partitions.json"
-    atomic_write(path, canonical({"schema_version": 1, "partitions": partitions}))
-    detail = {
-        "observed_at": max((row["_observed_at"] for row in cumulative), key=datetime.fromisoformat),
-        "available_at": max(
-            (row["_observed_at"] for row in cumulative), key=datetime.fromisoformat
-        ),
-        "parent_version_id": parent["id"] if parent else None,
-        "revision": parent["manifest"]["revision"] + 1 if parent else 1,
-        "merge_policy": "LATEST_OBSERVED_ROW_NO_DELETIONS",
-        "changes": changes,
-        "partitions": partitions,
-        "logical_bytes": sum(part["bytes"] for part in partitions),
-        "first": cumulative[0][time_field],
-        "last": cumulative[-1][time_field],
-        "coverage": coverage,
-        "coverage_gaps": gaps,
-        "acquired_rows": len(rows),
-    }
+    columns = tuple(rows[0])
+    if any(row.keys() != rows[0].keys() for row in rows):
+        raise ProviderError("采集记录字段不一致")
+    try:
+        previous = None
+        if parent:
+            manifest = parent["manifest"]
+            previous = ParentVersion(
+                id=parent["id"],
+                revision=manifest["revision"],
+                observed_at=manifest["observed_at"],
+                coverage_gaps=manifest["coverage_gaps"],
+                first=manifest["first"],
+                last=manifest["last"],
+                index=_partitioned(manifest),
+            )
+        request = MergeRequest(
+            job_id=job_id,
+            type_id=type_id,
+            time_field=definition.time_field,
+            primary_key=tuple(definition.primary_key),
+            raw_version_id=raw_id,
+            parent=previous,
+            columns=columns,
+            rows=tuple(tuple(row[column] for column in columns) for row in rows),
+            observed_at=tuple(
+                observed_by_key[tuple(row[field] for field in definition.primary_key)]
+                for row in rows
+            ),
+        )
+        outcome = merge(library.artifacts, request)
+    except ValidationError:
+        raise ProviderError("累积发布输入或父版本记录不符合当前契约") from None
+    except ValueError as error:
+        raise ProviderError(str(error)) from None
     return (
-        cumulative,
-        path,
+        outcome["touched"],
+        outcome["index"],
         {
-            "series": SERIES,
+            "series": outcome["series"],
             "semantics": "CUMULATIVE",
             "format": "partition_manifest",
-            "rows": len(cumulative),
+            "rows": outcome["rows"],
             "parent_inputs": [parent["id"]] if parent else [],
             "created_at": max(time.time(), parent["created_at"] + 0.000001)
             if parent
             else time.time(),
-            "detail": detail,
+            "detail": outcome["detail"],
+            "metrics": outcome["metrics"],
         },
     )

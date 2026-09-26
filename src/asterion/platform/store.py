@@ -1,4 +1,5 @@
-from sqlalchemy import JSON, Column, Float, Integer, MetaData, String, Table, create_engine
+from asterion_bindings.database import create_engine
+from sqlalchemy import JSON, Column, Float, Integer, MetaData, String, Table
 
 metadata = MetaData()
 jobs = Table(

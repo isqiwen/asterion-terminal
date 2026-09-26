@@ -11,6 +11,10 @@ target/
 .DS_Store
 playwright-report/
 test-results/
+*.egg-info/
+build/
+bindings/python/asterion_bindings/*.so
+bindings/python/asterion_bindings/*.pyd
 apps/terminal/src-tauri/runtime/
 apps/terminal/src-tauri/setup/
 apps/terminal/src-tauri/gen/

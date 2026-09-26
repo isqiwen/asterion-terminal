@@ -13,22 +13,20 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
+from asterion_bindings.database import create_engine
+from asterion_bindings.task_repository import Conflict
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import select, text
 
 from asterion.api.app import create_app
-from asterion.data.configuration import ConfigurationUpdate
-from asterion.data.connections import ConnectionUpdate, NewConnection
 from asterion.data.coverage import CoverageRequest
 from asterion.data.preparation import TYPES, batches
-from asterion.data.providers import ProviderRegistry
 from asterion.data.providers.public import ProviderError, SyncRequest
 from asterion.data.providers.tushare import Tushare
 from asterion.data.sync import DataSync
 from asterion.platform.config import Settings
 from asterion.platform.serialization import canonical
 from asterion.platform.store import jobs, metadata
-from asterion.platform.tasks.service import Conflict
 
 
 @pytest.fixture
@@ -39,7 +37,7 @@ def sync(tmp_path):
         data_store(engine),
         domain_tasks(data_store(engine), "data"),
         tmp_path,
-        provider_secrets("preparation-test-master-key-long-enough"),
+        provider_secrets("preparation-test-master-key-long-enough", tmp_path),
     )
     set_token(service, "tushare", "fixture-private-token")
     yield service
@@ -64,19 +62,16 @@ def request(**changes):
 def test_batch_freezes_once_and_idempotency_survives_configuration_and_lifecycle_changes(
     sync, monkeypatch
 ):
-    connection = sync.connections.create(NewConnection(provider="tushare", name="研究专用"))
-    sync.configuration.apply(
-        connection["id"],
-        ConfigurationUpdate(expected_revision=0, secrets={"token": "named-private-token"}),
-    )
+    connection = sync.sources.create("tushare", "研究专用")
+    sync.sources.apply(connection["id"], 0, secrets={"token": "named-private-token"})
     calls = []
-    original = sync.credentials.freeze_configuration
+    original = sync.submission_payload_in
 
-    def freeze(*args):
-        calls.append(args[0])
-        return original(*args)
+    def freeze(conn, request):
+        calls.append(request.connection_id)
+        return original(conn, request)
 
-    monkeypatch.setattr(sync.credentials, "freeze_configuration", freeze)
+    monkeypatch.setattr(sync, "submission_payload_in", freeze)
     body = request(connection_id=connection["id"])
     batch = sync.preparations.submit(body)
     assert batch.connection_name == "研究专用" and len(batch.tasks) == 2
@@ -93,14 +88,10 @@ def test_batch_freezes_once_and_idempotency_survives_configuration_and_lifecycle
     assert refs["futures.calendar"]["symbol"] == ""
     assert refs["futures.contracts"]["start"] is None
     assert refs["futures.contracts"]["symbol"] == ""
-    sync.configuration.apply(
-        connection["id"],
-        ConfigurationUpdate(expected_revision=1, secrets={"token": "changed-private-token"}),
-    )
-    sync.connections.update(
-        connection["id"], ConnectionUpdate(expected_revision=0, name="停用连接", state="disabled")
-    )
-    assert sync.preparations.submit(body).id == batch.id and len(calls) == 2
+    sync.sources.apply(connection["id"], 1, secrets={"token": "changed-private-token"})
+    sync.sources.update(connection["id"], 0, "停用连接", "disabled")
+    # An accepted batch is replayed without fixing the configuration again.
+    assert sync.preparations.submit(body).id == batch.id and len(calls) == 1
     assert len(scheduler(sync.engine).list()) == 2
     assert (
         "private-token" not in batch.model_dump_json()
@@ -143,7 +134,7 @@ def test_retry_and_restart_keep_batch_and_completed_inputs(sync):
         data_store(sync.engine),
         domain_tasks(data_store(sync.engine), "data"),
         sync.root,
-        provider_secrets("preparation-test-master-key-long-enough"),
+        provider_secrets("preparation-test-master-key-long-enough", sync.root),
     )
     current = restored.preparations.get(batch.id)
     assert len(current.tasks) == 2
@@ -223,35 +214,6 @@ def test_atomic_three_inputs_publish_and_check_exact_versions(sync):
     assert checked["daily_version_id"] == versions["futures.daily"]
 
 
-def test_capabilities_resolve_by_type_not_vendor_ids(sync):
-    class Renamed(Tushare):
-        manifest = Tushare.manifest.model_copy(
-            update={
-                "capabilities": [
-                    c.model_copy(update={"id": "alt_" + c.id})
-                    for c in Tushare.manifest.capabilities
-                ]
-            }
-        )
-
-        def plan(self, request):
-            original = request.model_copy(update={"dataset": request.dataset.removeprefix("alt_")})
-            return Tushare().plan(original)
-
-    sync.registry = ProviderRegistry((Renamed(),))
-    sync.connections.plugins = sync.registry
-    batch = sync.preparations.submit(request(dataset="alt_daily"))
-    assert len(batch.tasks) == 2
-    with sync.engine.connect() as conn:
-        payloads = conn.execute(select(jobs.c.payload)).scalars().all()
-        payloads.append(conn.execute(select(batches.c.daily_payload)).scalar_one())
-    assert {p["request"]["dataset"] for p in payloads} == {
-        "alt_daily",
-        "alt_calendar",
-        "alt_contracts",
-    }
-
-
 def test_api_requires_account_and_returns_safe_current_status(sync):
     settings = Settings(token="preparation-test-master-key-long-enough", data_root=sync.root)
     client = TestClient(create_app(settings, raw_engine(sync.engine)))
@@ -288,7 +250,7 @@ def test_postgres_concurrent_same_command_creates_only_reference_jobs(tmp_path):
             data_store(engine),
             domain_tasks(data_store(engine), "data"),
             tmp_path,
-            provider_secrets("fixture-master"),
+            provider_secrets("fixture-master", tmp_path),
         )
         set_token(service, "tushare", "fixture-token")
         with ThreadPoolExecutor(max_workers=4) as pool:

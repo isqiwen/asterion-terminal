@@ -1,0 +1,24 @@
+{
+  "name": "@asterion/ui-extension-settings",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "asterion": {
+    "layer": 4,
+    "kind": "panel",
+    "id": "asterion.ui.extension-settings"
+  },
+  "exports": {
+    "./context": "./src/context.ts",
+    "./module": "./src/module.tsx",
+    "./requests": "./src/requests.ts"
+  },
+  "dependencies": {
+    "@asterion/runtime-client": "workspace:*",
+    "@asterion/workbench": "workspace:*",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0"
+  }
+}

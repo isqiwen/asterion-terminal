@@ -1,26 +1,23 @@
+from asterion_bindings.execution import ExecutionFactory
+from asterion_bindings.tasks import ExecutionContext
 from storage_support import data_store, raw_engine, research_store, scheduler
 
 from asterion.distribution import strategy_catalog
-from asterion.platform.tasks.execution import ExecutionContext
+from asterion.research.execution import EXECUTION
 from asterion.research.strategies import STRATEGY_RESOURCE
 
 """Archiving changes visibility, never immutable inputs or replay availability."""
 
 import copy
-from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
+from asterion_bindings.task_repository import Conflict
+from entry_support import entry_lifecycle
 from sqlalchemy import select
 from test_research import services  # noqa: F401
 
-from asterion.api.app import create_app
 from asterion.data.library import DataLibrary, versions
-from asterion.data.lifecycle import ArchiveRequest, VersionLifecycle
-from asterion.platform.config import Settings
-from asterion.platform.tasks.service import Conflict
 from asterion.research.packages import ResearchPackages
-from asterion.research.public import version_references
 from asterion.research.worker import execute
 from asterion.research.workspace import DocumentUpdate, ResearchWorkspace
 
@@ -31,13 +28,9 @@ def lifecycle(request):
     workspace = ResearchWorkspace(research_store(research.engine))
     packages = ResearchPackages(research)
     library = DataLibrary(data_store(research.engine), root / "data")
-
-    def references(transaction, version_id):
-        with research_store(research.engine).borrow(transaction) as reader:
-            return version_references(reader, version_id)
-
-    manager = VersionLifecycle(data_store(research.engine), (references,))
-    return research, body, workspace, packages, library, manager
+    url = str(raw_engine(research.engine).url)
+    with entry_lifecycle(url, root / "data") as manager:
+        yield research, body, workspace, packages, library, manager
 
 
 def test_archive_preserves_frozen_inputs_templates_packages_and_original_files(lifecycle):
@@ -55,7 +48,13 @@ def test_archive_preserves_frozen_inputs_templates_packages_and_original_files(l
         submitted["id"],
         claimed["token"],
         execute(
-            ExecutionContext((STRATEGY_RESOURCE,), {STRATEGY_RESOURCE: strategy_catalog()}),
+            ExecutionContext(
+                (
+                    STRATEGY_RESOURCE,
+                    EXECUTION,
+                ),
+                {STRATEGY_RESOURCE: strategy_catalog(), EXECUTION: ExecutionFactory()},
+            ),
             claimed["payload"],
         )[0],
     )
@@ -67,13 +66,15 @@ def test_archive_preserves_frozen_inputs_templates_packages_and_original_files(l
         "research_runs": 1,
         "research_documents": 1,
         "research_packages": 1,
+        "reference_catalogs": 0,
+        "contract_rules": 0,
+        "contract_roles": 0,
     }
     assert "private@example.com" not in str(state)
     assert state["protected"] and not state["can_delete"]
-    request = ArchiveRequest(archived=True, expected_revision=0)
-    archived = manager.archive(body.version_id, request)
+    archived = manager.archive(body.version_id, archived=True, expected_revision=0)
     assert archived["archived"] and archived["revision"] == 1
-    assert manager.archive(body.version_id, request) == archived
+    assert manager.archive(body.version_id, archived=True, expected_revision=0) == archived
     assert library.list(type_id="futures.daily", layer="STANDARD")["total"] == 0
     assert library.list(type_id="futures.daily", layer="STANDARD", include_archived=True)["items"][
         0
@@ -82,10 +83,10 @@ def test_archive_preserves_frozen_inputs_templates_packages_and_original_files(l
     assert library.preview(body.version_id) == before
     assert research.rerun(submitted["id"], "archived-rerun")["state"] == "QUEUED"
     assert packages.receive("other-account", package)["can_replay"]
-    restored = manager.archive(body.version_id, ArchiveRequest(archived=False, expected_revision=1))
+    restored = manager.archive(body.version_id, archived=False, expected_revision=1)
     assert not restored["archived"] and restored["revision"] == 2
     with pytest.raises(Conflict):
-        manager.archive(body.version_id, request)
+        manager.archive(body.version_id, archived=True, expected_revision=0)
     assert library.list(type_id="futures.daily", layer="STANDARD")["total"] == 1
 
 
@@ -101,7 +102,7 @@ def test_latest_archive_does_not_silently_select_older_version_and_raw_lineage(l
         old = copy.deepcopy(row)
         old.update(id="old-version", created_at=row["created_at"] - 10)
         conn.execute(versions.insert().values(**old))
-    manager.archive(body.version_id, ArchiveRequest(archived=True, expected_revision=0))
+    manager.archive(body.version_id, archived=True, expected_revision=0)
     assert library.list(type_id="futures.daily", layer="STANDARD")["items"] == []
     assert {r["id"] for r in library.history(original["dataset_id"])["items"]} == {
         body.version_id,
@@ -116,39 +117,27 @@ def test_latest_archive_does_not_silently_select_older_version_and_raw_lineage(l
     )
     assert manager.inspect(body.version_id)["archived"]
     with pytest.raises(KeyError):
-        manager.archive("missing", ArchiveRequest(archived=True, expected_revision=0))
+        manager.archive("missing", archived=True, expected_revision=0)
 
 
 def test_archive_api_auth_cas_and_no_deletion(lifecycle):
-    research, body, _, _, library, _ = lifecycle
-    settings = Settings(
-        database_url=str(raw_engine(research.engine).url),
-        data_root=Path(library.root),
-        token="test-lifecycle-token-at-least-24",
-        require_account=False,
-    )
-    client = TestClient(create_app(settings))
-    path = f"/api/v1/data/versions/{body.version_id}"
-    assert client.get(path + "/lifecycle").status_code == 401
-    client.headers["Authorization"] = "Bearer test-lifecycle-token-at-least-24"
+    _, body, _, _, library, manager = lifecycle
+    client = manager.client
+    path = f"/data/versions/{body.version_id}"
+    anonymous = client.get(path + "/lifecycle", headers={"Authorization": ""})
+    assert anonymous.status_code == 401
     assert client.get(path + "/lifecycle").json()["revision"] == 0
+    archive = {"archived": True, "expected_revision": 0}
+    assert client.post(path + "/archive", json=archive).status_code == 200
+    stale = {"archived": False, "expected_revision": 0}
+    assert client.post(path + "/archive", json=stale).status_code == 409
+    for invalid in ({"archived": True}, {**archive, "expected_revision": -1}, {**archive, "x": 1}):
+        assert client.post(path + "/archive", json=invalid).status_code == 422
+    assert library.list(type_id="futures.daily", layer="STANDARD")["total"] == 0
     assert (
-        client.post(path + "/archive", json={"archived": True, "expected_revision": 0}).status_code
-        == 200
+        library.list(type_id="futures.daily", layer="STANDARD", include_archived=True)["total"] == 1
     )
-    assert (
-        client.post(path + "/archive", json={"archived": False, "expected_revision": 0}).status_code
-        == 409
-    )
-    assert (
-        client.get("/api/v1/data/catalog?type_id=futures.daily&layer=STANDARD").json()["total"] == 0
-    )
-    assert (
-        client.get(
-            "/api/v1/data/catalog?type_id=futures.daily&layer=STANDARD&include_archived=true"
-        ).json()["total"]
-        == 1
-    )
+    # Versions have no deletion operation.
     assert client.delete(path).status_code == 405
 
 
@@ -157,7 +146,7 @@ def test_postgres_archive_compare_and_swap(tmp_path):
     from concurrent.futures import ThreadPoolExecutor
     from uuid import uuid4
 
-    from sqlalchemy import create_engine
+    from asterion_bindings.database import create_engine
 
     from asterion.data.library import collections
     from asterion.data.version_state import version_states
@@ -184,21 +173,19 @@ def test_postgres_archive_compare_and_swap(tmp_path):
                 manifest={"inputs": []},
             )
         )
-    manager = VersionLifecycle(data_store(engine))
 
     def update(archived):
         try:
-            return manager.archive(ident, ArchiveRequest(archived=archived, expected_revision=0))[
-                "revision"
-            ]
+            return manager.archive(ident, archived=archived, expected_revision=0)["revision"]
         except Conflict:
             return "conflict"
 
     try:
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            outcomes = list(pool.map(update, [True, False]))
-        assert sorted(map(str, outcomes)) == ["1", "conflict"]
-        assert manager.inspect(ident)["revision"] == 1
+        with entry_lifecycle(url, tmp_path) as manager:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                outcomes = list(pool.map(update, [True, False]))
+            assert sorted(map(str, outcomes)) == ["1", "conflict"]
+            assert manager.inspect(ident)["revision"] == 1
     finally:
         with engine.begin() as conn:
             conn.execute(version_states.delete().where(version_states.c.version_id == ident))

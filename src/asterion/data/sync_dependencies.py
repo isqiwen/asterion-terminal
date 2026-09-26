@@ -1,9 +1,9 @@
 """Data-owned public projection for dependent functional workflows."""
 
+from asterion_bindings.artifacts import ArtifactStore
 from sqlalchemy import select
 
 from asterion.data.public import SyncAccess, snapshot_backup_access
-from asterion.platform.files import read_files
 from asterion.platform.store import jobs
 
 
@@ -43,6 +43,6 @@ def access(storage, root):
 
     def versions(transaction):
         with storage.borrow(transaction) as conn:
-            return snapshot_backup_access(conn, read_files(root))
+            return snapshot_backup_access(conn, ArtifactStore(root, read_only=True))
 
     return SyncAccess(inspect, versions)
