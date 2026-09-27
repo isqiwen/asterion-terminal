@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 const root = fileURLToPath(new URL("../..", import.meta.url));
+// C++ build that serves the dev bridge; Windows desktop builds use Release.
+const cppBuild = process.env.ASTERION_CPP_BUILD ?? resolve(root, "build/Debug");
 const port = 1420;
 const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 
@@ -15,7 +17,7 @@ function localCore(): Plugin {
     configureServer(server) {
       const executable =
         "asterion_terminal_dev_bridge" + (process.platform === "win32" ? ".exe" : "");
-      const child = spawn(resolve(root, "build/Debug", executable), [], {
+      const child = spawn(resolve(cppBuild, executable), [], {
         env: {
           ...process.env,
           ASTERION_REMOTE_RESOURCES:

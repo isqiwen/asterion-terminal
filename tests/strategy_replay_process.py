@@ -21,10 +21,12 @@ for binary in (strategy,trading,certificates,protoc):
 
 def wire(schema, kind, content, decode=False):
     package = "protocol" if schema == "trading" else schema
-    return subprocess.run([protoc, f"--proto_path={proto_root}",
+    output = subprocess.run([protoc, f"--proto_path={proto_root}",
         f"--{'decode' if decode else 'encode'}=asterion.{package}.v1.{kind}",
         str(Path(proto_root)/f"asterion/v1/{schema}.proto")], input=content,
         capture_output=True, check=True).stdout
+    # protoc writes text format with CRLF on Windows; assertions use LF.
+    return output.replace(b"\r\n", b"\n") if decode else output
 
 def request(schema, operation):
     prefix = "version: 1 correlation_id: 'request' session_id: "

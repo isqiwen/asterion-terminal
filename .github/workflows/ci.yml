@@ -115,6 +115,9 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # Windows desktop builds link Release C++ (see scripts/desktop.py).
+      ASTERION_CPP_BUILD: ${{ github.workspace }}/build/${{ runner.os == 'Windows' && 'Release' || 'Debug' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -145,7 +148,7 @@ jobs:
           path: build/linux-bundles
       - name: Build and link native desktop
         run: python scripts/desktop.py check
-      - run: ctest --preset conan-debug --output-on-failure
+      - run: ctest --preset conan-${{ runner.os == 'Windows' && 'release' || 'debug' }} --output-on-failure
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
       - name: Build platform installer

@@ -22,7 +22,10 @@ test("Terminal deploys and controls a service through Node Agent", async ({ page
   const root = join(folder, "node");
   await mkdir(root);
   const binary = (name: string) =>
-    resolve(__dirname, "../../../build/Debug", name + (process.platform === "win32" ? ".exe" : ""));
+    resolve(
+      process.env.ASTERION_CPP_BUILD ?? resolve(__dirname, "../../../build/Debug"),
+      name + (process.platform === "win32" ? ".exe" : ""),
+    );
   execFileSync(binary("asterion_test_certificates"), [folder]);
   const management = await freePort(),
     servicePort = await freePort();

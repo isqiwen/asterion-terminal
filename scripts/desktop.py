@@ -117,7 +117,10 @@ def main():
         resources.mkdir(parents=True, exist_ok=True)
     env["ASTERION_REMOTE_RESOURCES"] = str(resources)
     profile = ROOT / "build/local-profile"
-    configuration = "Release" if mode == "build" else "Debug"
+    # Rust's MSVC target always links the release CRT, and protobuf's CMake
+    # forces the debug CRT for Debug builds, so Windows desktop builds use
+    # Release C++ in every mode.
+    configuration = "Release" if mode == "build" or sys.platform == "win32" else "Debug"
     preset = "conan-" + configuration.lower()
     install = ["conan", "install", ".", "-s", "build_type=" + configuration, "-s", "compiler.cppstd=20", "-c", "tools.cmake.cmaketoolchain:generator=Ninja", "--build=missing"]
     if profile.exists():

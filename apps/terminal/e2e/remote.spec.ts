@@ -11,7 +11,11 @@ test("saved remote profile connects through mTLS and reconnects without stopping
 }) => {
   const folder = await mkdtemp(join(tmpdir(), "asterion-remote-e2e-"));
   const suffix = process.platform === "win32" ? ".exe" : "";
-  const binary = (name: string) => resolve(__dirname, "../../../build/Debug", name + suffix);
+  const binary = (name: string) =>
+    resolve(
+      process.env.ASTERION_CPP_BUILD ?? resolve(__dirname, "../../../build/Debug"),
+      name + suffix,
+    );
   const account = join(folder, "ledger");
   await mkdir(account);
   execFileSync(binary("asterion_test_certificates"), [folder]);
