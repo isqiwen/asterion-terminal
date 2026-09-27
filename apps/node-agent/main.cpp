@@ -25,9 +25,6 @@
 #include <thread>
 #include <stdexcept>
 #ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
 #include <windows.h>
 #endif
 namespace fs = std::filesystem;
@@ -558,15 +555,15 @@ public:
           throw std::invalid_argument("unsupported firewall action");
         auto* report = response.mutable_firewall();
         const auto& plan = firewall_plan_;
-        report->set_token(plan.at("token"));
-        report->set_source(plan.at("source"));
-        report->set_port(plan.at("port"));
-        report->set_backend(plan.at("backend"));
-        report->set_state(plan.at("state"));
-        report->set_can_apply(plan.at("can_apply"));
-        report->set_rule(plan.at("rule"));
-        report->set_action(plan.at("action"));
-        report->set_verification(plan.at("verification"));
+        report->set_token(plan.at("token").get<std::string>());
+        report->set_source(plan.at("source").get<std::string>());
+        report->set_port(plan.at("port").get<std::uint32_t>());
+        report->set_backend(plan.at("backend").get<std::string>());
+        report->set_state(plan.at("state").get<std::string>());
+        report->set_can_apply(plan.at("can_apply").get<bool>());
+        report->set_rule(plan.at("rule").get<std::string>());
+        report->set_action(plan.at("action").get<std::string>());
+        report->set_verification(plan.at("verification").get<std::string>());
         return response;
       }
       if (r.has_status()) {

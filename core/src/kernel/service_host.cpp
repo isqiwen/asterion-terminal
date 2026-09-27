@@ -11,9 +11,6 @@
 #include <thread>
 #include <type_traits>
 #ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
 #include <windows.h>
 #else
 #include <csignal>

@@ -109,14 +109,14 @@ MarketClient::~MarketClient() = default;
 void MarketClient::connect(const Json& params) {
   wire::Request request;
   auto* c = request.mutable_connect();
-  c->set_front(params.at("front"));
-  c->set_broker(params.at("broker"));
-  c->set_user(params.at("user"));
-  c->set_password(params.at("password"));
+  c->set_front(params.at("front").get<std::string>());
+  c->set_broker(params.at("broker").get<std::string>());
+  c->set_user(params.at("user").get<std::string>());
+  c->set_password(params.at("password").get<std::string>());
   for (const auto& id : params.at("instruments")) {
     auto* i = c->add_instruments();
-    i->set_venue(id.at("venue"));
-    i->set_symbol(id.at("symbol"));
+    i->set_venue(id.at("venue").get<std::string>());
+    i->set_symbol(id.at("symbol").get<std::string>());
   }
   impl_->publish(impl_->call(std::move(request)).snapshot());
 }
@@ -124,8 +124,8 @@ void MarketClient::subscribe(const Json& ids) {
   wire::Request request;
   for (const auto& id : ids) {
     auto* i = request.mutable_subscribe()->add_instruments();
-    i->set_venue(id.at("venue"));
-    i->set_symbol(id.at("symbol"));
+    i->set_venue(id.at("venue").get<std::string>());
+    i->set_symbol(id.at("symbol").get<std::string>());
   }
   if (ids.empty())
     request.mutable_subscribe();

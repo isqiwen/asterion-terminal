@@ -7,7 +7,6 @@
 #include <sstream>
 #include <stdexcept>
 #ifdef _WIN32
-#define NOMINMAX
 #include <windows.h>
 #else
 #include <fcntl.h>

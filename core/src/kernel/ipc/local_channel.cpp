@@ -8,9 +8,6 @@
 #include <thread>
 #include <stdexcept>
 #ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
 // windows.h must precede sddl.h, which depends on its declarations.
 #include <windows.h>
 #include <sddl.h>
