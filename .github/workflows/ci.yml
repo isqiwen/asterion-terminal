@@ -41,7 +41,8 @@ jobs:
       - run: python scripts/prepare_ctp.py
       - run: conan install . -s build_type=Debug -s compiler.cppstd=20 -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
       - run: cmake --preset conan-debug
-      - run: cmake --build --preset conan-debug
+      # -k 0 reports every failing translation unit in one run, not only the first.
+      - run: cmake --build --preset conan-debug -- -k 0
       - run: ctest --preset conan-debug --output-on-failure
       - name: Prepare Linux user service manager
         if: runner.os == 'Linux'

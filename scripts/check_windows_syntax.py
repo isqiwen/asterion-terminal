@@ -25,7 +25,8 @@ def check(entry):
         if a in ("-o", "-arch", "-isysroot", "-MF", "-MT", "-MQ"): skip = True; continue
         if a.startswith(("-mmacosx", "-fsanitize", "-fcolor", "-MD", "-MMD", "-W", "-g", "-stdlib")) or a == "-c" or a == src: continue
         keep.append(a)
-    cmd = ["x86_64-w64-mingw32-g++", "-fsyntax-only", "-std=c++20", "-D_WIN32_WINNT=0x0A00", "-DNOMINMAX", "-DSPDLOG_WCHAR_FILENAMES", *keep, src]
+    cmd = ["x86_64-w64-mingw32-g++", "-fsyntax-only", "-std=c++20", "-D_WIN32_WINNT=0x0A00", "-DNOMINMAX",  # mirrors the project-wide Windows definition in CMakeLists.txt
+           "-DSPDLOG_WCHAR_FILENAMES", *keep, src]
     r = subprocess.run(cmd, cwd=entry["directory"], capture_output=True, text=True)
     errors = [l for l in r.stderr.splitlines() if "error:" in l]
     return (src, errors[:6]) if errors else (src, [])

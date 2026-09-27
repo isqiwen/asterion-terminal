@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.25)
 project(Asterion VERSION 0.1.0 LANGUAGES CXX)
+# windows.h otherwise defines min/max macros that break std::numeric_limits
+# and std::min/max; every Windows translation unit gets the same definition.
+if(WIN32)
+  add_compile_definitions(NOMINMAX)
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
   message(FATAL_ERROR "Linux currently supports x86_64 only")
