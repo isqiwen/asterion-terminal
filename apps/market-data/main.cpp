@@ -156,7 +156,7 @@ int main(int argc, char** argv) {
     // concurrency is bounded by workers and a full host rejects immediately.
     service::HostOptions options;
     options.workers = 16;
-    options.queue = 1;
+    options.queue = 0;
     options.handshake = 2s;
     service::ServiceHost host(transport, serve, options);
     if (!host.run())

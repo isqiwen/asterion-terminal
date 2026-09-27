@@ -612,7 +612,7 @@ public:
         digest(u.sha256());
         const auto platform = current_platform();
         if (u.os() != platform.os || u.arch() != platform.arch || !u.size() ||
-            u.size() > 128 * 1024 * 1024)
+            u.size() > max_artifact_bytes)
           throw std::invalid_argument("artifact platform or size mismatch");
         const auto path = root_ / "uploads" / u.sha256();
         safe(path);

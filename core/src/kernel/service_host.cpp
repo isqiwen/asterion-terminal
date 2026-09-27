@@ -165,37 +165,49 @@ struct ServiceHost::Impl {
   HostOptions options;
   std::stop_source stop;
   std::atomic<std::size_t> active{0};
+  // Accepted connections submitted to the pool but not yet started.
+  std::atomic<std::size_t> pending{0};
   std::unique_ptr<ThreadPool> pool;
   std::unique_ptr<ipc::TlsListener> tcp;
   std::unique_ptr<ipc::Listener> local;
 
-  template <class Pending> void dispatch(Pending pending) {
-    auto peer = std::make_shared<Pending>(std::move(pending));
+  template <class Pending> void dispatch(Pending pending_connection) {
+    auto peer = std::make_shared<Pending>(std::move(pending_connection));
     const auto accepted = Clock::now();
-    // A full queue throws here and the unqueued connection is dropped.
-    static_cast<void>(pool->submit([this, peer, accepted](std::stop_token) {
-      // Count before checking stop so a drain never misses a running handler.
-      ++active;
-      struct Release {
-        std::atomic<std::size_t>& count;
-        ~Release() { --count; }
-      } release{active};
-      const auto token = stop.get_token();
-      if (token.stop_requested())
-        return;
-      try {
-        if constexpr (std::is_same_v<Pending, ipc::TlsPendingConnection>) {
-          ChannelConnection<ipc::TlsChannel> connection(
-              std::move(*peer).handshake(options.handshake), accepted);
-          handler(connection, token);
-        } else {
-          ChannelConnection<Pending> connection(std::move(*peer), accepted);
-          handler(connection, token);
+    // Only the accept thread admits, so this bound cannot be overshot; a
+    // rejected connection closes when `peer` is destroyed.
+    if (active.load() + pending.load() >= options.workers + options.queue)
+      throw Error(ErrorCode::resource_exhausted, "service is at capacity");
+    ++pending;
+    try {
+      static_cast<void>(pool->submit([this, peer, accepted](std::stop_token) {
+        // Count before checking stop so a drain never misses a running handler.
+        ++active;
+        --pending;
+        struct Release {
+          std::atomic<std::size_t>& count;
+          ~Release() { --count; }
+        } release{active};
+        const auto token = stop.get_token();
+        if (token.stop_requested())
+          return;
+        try {
+          if constexpr (std::is_same_v<Pending, ipc::TlsPendingConnection>) {
+            ChannelConnection<ipc::TlsChannel> connection(
+                std::move(*peer).handshake(options.handshake), accepted);
+            handler(connection, token);
+          } else {
+            ChannelConnection<Pending> connection(std::move(*peer), accepted);
+            handler(connection, token);
+          }
+        } catch (const std::exception&) {
+          // Only this connection closes; requests are never replayed.
         }
-      } catch (const std::exception&) {
-        // Only this connection closes; requests are never replayed.
-      }
-    }));
+      }));
+    } catch (...) {
+      --pending;
+      throw;
+    }
   }
   template <class Accept> void serve(Accept accept) {
     while (!stop_requested()) {
@@ -230,7 +242,11 @@ ServiceHost::ServiceHost(Transport transport, Handler handler, HostOptions optio
   impl_->transport = std::move(transport);
   impl_->handler = std::move(handler);
   impl_->options = std::move(options);
-  impl_->pool = std::make_unique<ThreadPool>(impl_->options.workers, impl_->options.queue);
+  if (!impl_->options.workers)
+    throw std::invalid_argument("service host requires at least one worker");
+  // Capacity for every admitted connection; admission enforces the bound.
+  impl_->pool = std::make_unique<ThreadPool>(impl_->options.workers,
+                                             impl_->options.workers + impl_->options.queue);
   if (impl_->transport.remote())
     impl_->tcp = std::make_unique<ipc::TlsListener>(impl_->transport.bind, impl_->transport.port,
                                                     impl_->transport.tls);

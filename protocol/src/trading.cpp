@@ -273,11 +273,12 @@ v1::Command encode_command(const Json& c) {
 Json decode_command(const v1::Command& c) {
   Json result{{"request_id", c.request_id()}};
   switch (c.operation_case()) {
-  case v1::Command::kReplayCalendar:
-    result.update(
-        {{"action", "replay_calendar"},
-         {"publication", decode_calendar_publication(c.replay_calendar().publication())}});
+  case v1::Command::kReplayCalendar: {
+    // Decoded before the braced initializer (GCC < 13 PR66139 leak).
+    auto publication = decode_calendar_publication(c.replay_calendar().publication());
+    result.update({{"action", "replay_calendar"}, {"publication", std::move(publication)}});
     break;
+  }
   case v1::Command::kReplaySettle:
     if (c.replay_settle().day_index() >= 64)
       throw std::invalid_argument("invalid settlement day index");
@@ -456,19 +457,27 @@ Json decode_snapshot(const v1::Snapshot& s) {
   result["positions"] = Json::array();
   result["orders"] = Json::array();
   result["fills"] = Json::array();
-  for (const auto& p : s.positions())
-    result["positions"].push_back({{"side", side(p.side())},
+  // Enum decoding rejects unknown values; it runs before each braced
+  // initializer (GCC < 13 PR66139 leak).
+  for (const auto& p : s.positions()) {
+    const auto position_side = side(p.side());
+    result["positions"].push_back({{"side", position_side},
                                    {"bucket", p.today() ? "today" : "yesterday"},
                                    {"quantity", get(p.quantity())},
                                    {"basis", get(p.basis())}});
-  for (const auto& o : s.orders())
+  }
+  for (const auto& o : s.orders()) {
+    const auto order_side = side(o.side());
+    const auto order_offset = offset(o.offset());
+    const auto order_state = state(o.state());
     result["orders"].push_back({{"id", o.id()},
-                                {"side", side(o.side())},
-                                {"offset", offset(o.offset())},
+                                {"side", order_side},
+                                {"offset", order_offset},
                                 {"quantity", get(o.quantity())},
                                 {"limit_price", get(o.limit_price())},
                                 {"filled", get(o.filled())},
-                                {"state", state(o.state())}});
+                                {"state", order_state}});
+  }
   for (const auto& f : s.fills())
     result["fills"].push_back({{"id", f.id()},
                                {"order_id", f.order_id()},

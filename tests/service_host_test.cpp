@@ -130,3 +130,35 @@ TEST_F(ServiceHostTest, HealthChannelAnswersIndependently) {
   ignored.send("other", 1s);
   EXPECT_THROW(static_cast<void>(ignored.receive(1500ms)), std::exception);
 }
+
+TEST_F(ServiceHostTest, AdmitsABurstUpToCapacityAndRejectsBeyondIt) {
+  service::HostOptions options;
+  options.workers = 4;
+  options.queue = 0;
+  options.poll = 20ms;
+  std::atomic<int> started{0};
+  service::ServiceHost host(
+      local(),
+      [&](service::Connection& connection, std::stop_token) {
+        ++started;
+        connection.send("echo:" + connection.receive(3s), 1s);
+      },
+      options);
+  auto served = std::async(std::launch::async, [&] { return host.run(); });
+  std::vector<ipc::Channel> clients;
+  for (int i = 0; i < 4; ++i)
+    clients.push_back(connect(endpoint));
+  const auto deadline = std::chrono::steady_clock::now() + 3s;
+  while (started < 4 && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(5ms);
+  ASSERT_EQ(started.load(), 4) << "idle workers must accept the whole burst";
+  auto excess = connect(endpoint);
+  excess.send("late", 1s);
+  EXPECT_THROW(static_cast<void>(excess.receive(1s)), std::exception) << "no capacity left";
+  for (int i = 0; i < 4; ++i) {
+    clients[i].send(std::to_string(i), 1s);
+    EXPECT_EQ(clients[i].receive(2s), "echo:" + std::to_string(i));
+  }
+  service::request_stop();
+  EXPECT_TRUE(served.get());
+}

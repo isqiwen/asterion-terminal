@@ -32,9 +32,10 @@ extern "C" char* asterion_terminal_call(void* runtime, const char* request) noex
   try {
     if (!runtime || !request || std::strlen(request) > 65536)
       throw std::invalid_argument("invalid native API request");
-    return copy(
-        json{{"result", static_cast<Terminal*>(runtime)->dispatch(asterion::parse_json(request))}}
-            .dump());
+    // Dispatch before building the envelope: GCC < 13 leaks initializer_list
+    // elements when a later element throws (PR66139).
+    auto result = static_cast<Terminal*>(runtime)->dispatch(asterion::parse_json(request));
+    return copy(json{{"result", std::move(result)}}.dump());
   } catch (const std::exception& e) {
     return error(asterion::error_name(asterion::classify(e)).data(), e.what());
   } catch (...) {

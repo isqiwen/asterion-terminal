@@ -10,8 +10,9 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <sddl.h>
+// windows.h must precede sddl.h, which depends on its declarations.
 #include <windows.h>
+#include <sddl.h>
 #else
 #include <cerrno>
 #include <fcntl.h>

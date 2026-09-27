@@ -8,8 +8,9 @@
 #include <stdexcept>
 #include <thread>
 #ifdef _WIN32
-#include <sddl.h>
+// windows.h must precede sddl.h, which depends on its declarations.
 #include <windows.h>
+#include <sddl.h>
 #else
 #include <unistd.h>
 #endif

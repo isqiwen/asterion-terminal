@@ -75,8 +75,8 @@ std::string sha256_bytes(std::string_view bytes) {
 }
 std::string sha256_file(const std::filesystem::path& path) {
   if (!std::filesystem::is_regular_file(path) || std::filesystem::is_symlink(path) ||
-      std::filesystem::file_size(path) > 128 * 1024 * 1024)
-    throw std::invalid_argument("artifact must be a regular file of at most 128 MiB");
+      std::filesystem::file_size(path) > max_artifact_bytes)
+    throw std::invalid_argument("artifact must be a regular file within the Agent size limit");
   std::ifstream input(path, std::ios::binary);
   std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> context(EVP_MD_CTX_new(),
                                                                   EVP_MD_CTX_free);

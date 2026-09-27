@@ -83,6 +83,9 @@ private:
 };
 
 struct HostOptions {
+  // Concurrent handlers, and connections allowed to wait while all workers are
+  // busy. Admission counts both, so a burst is never rejected merely because
+  // idle workers have not yet picked up queued connections. queue may be 0.
   std::size_t workers = 8;
   std::size_t queue = 8;
   // Mutual TLS must complete within this bound, inside the pool.

@@ -118,8 +118,8 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
                       day.settlement_source()});
     }
     schedule = std::make_shared<PaperReplaySchedule>(instrument, ticks, std::move(days));
-    replay = {{"publication", protocol::decode_calendar_publication(publication)},
-              {"settled_days", 0}};
+    auto decoded = protocol::decode_calendar_publication(publication);
+    replay = {{"publication", std::move(decoded)}, {"settled_days", 0}};
     return;
   }
   if (action == "replay_settle") {
