@@ -40,8 +40,8 @@ flowchart TB
 
 | 位置 | 职责 | 当前状态 |
 | --- | --- | --- |
-| `core/` | C++ 基础、领域、内核机制；运行时属于内核 | 生命周期、Decimal、同步事件与基础标的/订单模型 |
-| `plugins/` | 跨应用复用的具体能力插件 | runtime-info 工具插件、CSV 数据插件 |
+| `core/` | C++ 基础、领域、内核机制；运行时属于内核 | Decimal/ID/时间/错误码、插件生命周期、Runtime、IPC 与 TCP+mTLS、子进程与持久文件写入；期货合约、订单、单合约账本、交易时段与风险端口 |
+| `plugins/` | 跨应用复用的具体能力插件 | 数据（CSV 逐笔/结算表、CTP 行情）、执行（Paper）、存储（文件日志）、策略（CTA SMA）、风控（订单限额）、工具（runtime-info、因子分析） |
 | `apps/terminal/plugins/contract.ts` | Terminal 插件接口定义 | 宿主能力、插件身份、版本、工作区与卡片贡献 |
 | `apps/terminal/src/ui/` | Terminal 内置 UI 库，不是业务插件 | 原主题、外观偏好 |
 | `apps/terminal/src/` | Terminal 内置宿主与产品装配 | 窗口、工作台、设置、桥接、插件选择 |
@@ -82,6 +82,8 @@ CMake 目标按职责命名为 `asterion_foundation`、`asterion_kernel`、`aste
 | Tool | ToolPort | 分析、报告、通知与工作流 |
 | UI | 统一应用 API 与 UI contribution 契约 | 页面与交互，不持有权威业务状态 |
 
+已落地的端口按首个期货用例建立，是“期货 v1 端口”，不是多资产抽象：RiskPort 的上下文直接读取单合约 `FuturesAccount`，ExecutionPort 使用期货开平标志 `Offset`，StrategyPort 只输出单合约非负目标持仓。第二种资产接入时应按其用例扩展或新增端口，而不是把这些签名当作通用模型。
+
 这些端口是设计边界；MarketDataPort 已落地为历史逐笔读取接口，LiveMarketDataPort 提供实时报价、订阅状态及合并前有界事件分页，ExecutionPort 支持规范化下单/撤单/状态，存储用例以通用 JournalPort 支持有序持久提交与恢复。其余端口尚未为未设计的请求生成空接口。UI 的贡献契约与原生插件 ABI 分开，七类插件不意味着全部需要同一种二进制格式。
 
 首个可运行切片使用显式注册的可信 C++ 插件，具有描述符、精确契约版本、依赖图、启动回滚和逆序停止。同一工具链编译，当前不支持动态库发现、安装、热卸载或第三方二进制 ABI。之后若实现动态插件，边界采用显式版本的 C ABI 或进程协议，不暴露 STL、C++ 异常或跨模块所有权。
@@ -97,6 +99,10 @@ CMake 目标按职责命名为 `asterion_foundation`、`asterion_kernel`、`aste
 原主题保存在 `apps/terminal/src/ui/`，Workbench 与 WindowFrame 在 `apps/terminal/src/host/`，Dashboard 在 `apps/terminal/plugins/overview/`。沿用 `rust` 分支视觉与交互设计，不恢复旧业务请求、账户状态、Python 服务或 Rust 领域实现。
 
 当前桌面链路为 **React → Tauri invoke → Rust 薄桥 → C++ Terminal 编排 → Protobuf（本机 IPC / TCP + mTLS）→ 独立交易进程**。CSV 预览与界面状态留在 Terminal；账户账本、Paper 执行和文件日志由 `apps/trading/` 会话持有。C ABI 仍负责进程内跨语言调用；它本身不是 IPC。
+
+C ABI 可并发调用：C++ 编排内部串行化所有触及服务的操作；有操作进行时，`runtime.snapshot` 立即返回最近一次快照并标记 `stale`，不排队等待，因此一个慢服务或一次长部署不会冻结所有窗口。Tauri 薄桥不再持有全局锁。交易状态读取期限为 3 秒，变更保留 10 秒（超时即结果未知）。
+
+内核的 MessageBus、Scheduler、AccessPolicy 与 Observability 目前只经 Runtime 在 Terminal 编排中使用，且只有单一本机调用主体 `terminal.local`，能力检查尚不构成多主体授权；各独立服务进程使用内核的 IPC、线程池与进程机制，但各自实现请求循环，尚未采用 Runtime。“事件驱动”在当前实现中指单进程内的同步事件与有序持久事件（策略宿主、交易日志），不是跨进程事件总线。
 
 实际交易进程协议定义在 `protocol/proto/`，通用通道与子进程机制在 Core kernel，业务路由在应用。本机使用 Unix Socket / Windows Named Pipe；跨机器使用 TCP + mTLS。Terminal 设置保存服务地址与证书路径，本机和远程交易服务均由 Agent 管理、独立于桌面存活，账本保存在服务端。实盘/模拟作为同一交易程序的独立实例，当前实盘模式拒绝启动，不以模拟替代。实时行情宿主命名为 `market-data`，已接入只读 CTP 数据插件，历史模拟不依赖它。完整职责、工程归属、CLI11 与验收边界见 [进程架构](process-architecture.md)。
 

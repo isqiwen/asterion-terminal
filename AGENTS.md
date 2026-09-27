@@ -77,8 +77,18 @@ Linux 当前仅支持 x86_64（本机 Terminal、Agent、业务服务及远程�
 
 ## 已批准的独立应用工程（2026-09-27）
 
-维护者明确要求建立 `apps/strategy/`、`apps/backtest/`、`apps/factor/`、`apps/data-pipeline/`、`apps/task-service/`，程序分别为 `asterion-strategy`、`asterion-backtest`、`asterion-factor`、`asterion-data-pipeline`、`asterion-task-service`。策略宿主不使用 strategy-worker 名称；回测与因子分开，不设置合并的 research-worker。Backtest 与 Task Service 已有首条独立研究执行链，范围见 docs/research-tasks.md；Factor 已实现独立的成交动量计算与评价，范围见 docs/factor-research.md，已接入持久化任务、Agent 类型化派发和 Terminal 结果展示；Data Pipeline 已有 CSV 发布、来源校验、持久化任务和 Terminal 版本选择，范围见 docs/data-publication.md；Strategy 已实现有序事件、持久化意图、本机 IPC / TCP mTLS 与恢复，范围见 docs/strategy-host.md；已接入 Agent 服务管理和恢复；Terminal 暂可观察/启停已部署服务，交易进程已提供可撤销授权和目标持仓交接，宿主已集成自动历史回放与交接恢复，Terminal 已接入本机配置、授权运行、观察与撤销；程序已纳入本机与远程 Linux 服务包，实例仅在显式授权后创建；已实现托管服务停止后显式更新，Agent 自身已实现程序发布、显式事务恢复和本机升级编排，macOS 独立系统服务验收通过；维护状态已原子封锁并发写操作；已接入本机程序检查、升级与持久化继续恢复入口，macOS 隔离系统注册验收通过，Linux systemd 与 Windows 计划任务原生升级仍待验证。业务未实现时明确拒绝执行，不伪报健康、不自动启动、不加入部署包。应用装配 Core 与插件；共享算法不复制到应用。Task Service 管业务任务与执行尝试，Node Agent 管机器进程，两者不可混淆。
+维护者明确要求建立 `apps/strategy/`、`apps/backtest/`、`apps/factor/`、`apps/data-pipeline/`、`apps/task-service/`，程序分别为 `asterion-strategy`、`asterion-backtest`、`asterion-factor`、`asterion-data-pipeline`、`asterion-task-service`。策略宿主不使用 strategy-worker 名称；回测与因子分开，不设置合并的 research-worker。 各工程的实现进度与验收范围记录在 `docs/implementation.md`，不写入本文件。业务未实现时明确拒绝执行，不伪报健康、不自动启动、不加入部署包。应用装配 Core 与插件；共享算法不复制到应用。Task Service 管业务任务与执行尝试，Node Agent 管机器进程，两者不可混淆。
 
 ## Agent 升级体验（2026-09-27 最新决定）
 
 本机组件升级由启动流程自动协调，正常情况下用户不需要理解 Agent、点击升级或手工停止服务。保留身份、配置与业务数据；本次开发机清理不作为产品升级方案。运行中任务/交易必须先建立可恢复维护边界，不能强杀后宣称无感升级。当前已接入空闲 Agent 的自动检查/更新/继续恢复；运行中排空和恢复的设计与验收要求见 `docs/agent-upgrades.md`。此决定替代此前要求启动页显式确认 Agent 升级的产品交互。
+
+## 工程约定（2026-09-27 架构评审）
+
+- C++ 按 `.clang-format`（clang-format 23.1.1）、前端按 Prettier 格式化；提交前运行 `pnpm format`，CI 检查。
+- 领域对象通过类型化查询交互；JSON 快照只用于协议边界与展示，不作为内部接口。
+- Core 与服务只输出英文诊断，跨进程错误必须携带 `ErrorCode`；面向用户的新诊断同时登记到 `apps/terminal/src/i18n/locales/diagnostics.*.json`。
+- 改变撮合、费用/保证金、风控或交易命令语义时，必须提升 `apps/trading/paper_session.cpp` 中的日志引擎标识；恢复拒绝不同标识，不静默重算历史。
+- 持久状态与密钥通过 `kernel/durable_file.hpp` 写入；TLS 服务在接收线程只接收 TCP，握手放入有界工作池。
+- Terminal 状态读取不得排队在长操作之后；新增的长操作不得持有全局锁阻塞其他窗口。
+

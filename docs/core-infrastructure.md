@@ -69,9 +69,13 @@ spdlog 和 fmt 使用 Conan 的 header-only 选项，代码编入内核静态库
 
 ## Terminal 集成
 
-Terminal 在 `apps/terminal/native/terminal_application.cpp` 组装 Runtime，注册 `runtime.snapshot` 与 `futures.inspect_csv`，为本机调用者授予对应能力。文件和行数限额由应用声明为启动配置；CSV 源仍通过数据插件提供。预览状态保存在 Terminal 资源作用域内，完整文件通过后才替换。状态响应提供累计调用诊断，不改变现有界面设计。
+Terminal 在 `apps/terminal/native/terminal_application.cpp` 组装 Runtime，各业务域命令分别在 `commands_{paper,node,research,strategy,market}.cpp` 注册，共享状态在 `application_impl.hpp`；注册 `runtime.snapshot` 与 `futures.inspect_csv`，为本机调用者授予对应能力。文件和行数限额由应用声明为启动配置；CSV 源仍通过数据插件提供。预览状态保存在 Terminal 资源作用域内，完整文件通过后才替换。状态响应提供累计调用诊断，不改变现有界面设计。
 
-C ABI 使用统一严格 JSON 解析和核心错误码。CSV 解析错误、无权限、未知命令、重复 JSON 字段都不会越过 ABI 抛出异常。此集成没有引入实盘交易入口。
+C ABI 使用统一严格 JSON 解析和核心错误码（`classify` 统一映射异常，跨进程错误经 `throw_remote_error` 还原）。
+
+### 持久文件写入
+
+`kernel/durable_file.hpp` 提供 `write_file_durably`、`sync_directory` 与 `replace_file_durably`：写完后强制落盘（macOS 使用 F_FULLFSYNC，其他 POSIX 使用 fsync，Windows 使用 FlushFileBuffers），`owner_only` 从创建起即为 0600，密钥不会先以默认权限存在。交易日志、Agent 服务与防火墙记录、Agent 升级事务、节点身份证书与私钥、SSH 注册状态均使用该机制。CSV 解析错误、无权限、未知命令、重复 JSON 字段都不会越过 ABI 抛出异常。此集成没有引入实盘交易入口。
 
 ## 验收与剩余能力
 
@@ -113,7 +117,7 @@ Linux x86_64 仿真容器全量 134/134 通过（`build/ipc-capacity-linux.log`�
 
 ### 可分派的 TLS 握手
 
-TlsListener::accept_pending 只等待 TCP，返回不具备应用帧收发接口的 TlsPendingConnection。调用者可把该对象移动到有界执行器，在独立线程中以正超时调用 handshake；只有双向认证成功才返回 TlsChannel。原有 accept 仍提供完整同步接收用例，两者均不提供明文或跳过证书验证的模式。独立连接事件循环与共享证书配置上下文的所有权保持明确，监听器本身仅供单个接收线程使用。应用的线程数、排队容量、入站期限与业务串行化由 Agent 装配，未下沉业务规则到 Core。
+TlsListener::accept_pending 只等待 TCP，返回不具备应用帧收发接口的 TlsPendingConnection。调用者可把该对象移动到有界执行器，在独立线程中以正超时调用 handshake；只有双向认证成功才返回 TlsChannel。原有 accept 仍提供完整同步接收用例，两者均不提供明文或跳过证书验证的模式。独立连接事件循环与共享证书配置上下文的所有权保持明确，监听器本身仅供单个接收线程使用。应用的线程数、排队容量、入站期限与业务串行化由应用装配，未下沉业务规则到 Core。Agent、Task Service、交易、策略与行情服务均在接收线程只接收 TCP，在有界工作池中完成双向认证；`trading_tls_admission` 验证静默的未认证连接不会阻塞合法客户端。
 
 ### TCP 接入的空闲期限与完成竞争
 
