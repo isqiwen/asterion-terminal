@@ -95,6 +95,8 @@ export function NodeServices({
   }
   useEffect(() => {
     void run("node.local", {});
+    // Attach the local node monitor once when the page opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
     <section aria-label={t("部署与服务")}>

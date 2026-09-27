@@ -9,6 +9,13 @@ const Panel = lazy(() => import("./Panel").then(module => ({ default: module.Pan
 export const plugin: TerminalPlugin = {
   id: "asterion.terminal.research",
   apiVersion: 1,
+  commands: [
+    "research.local",
+    "research.submit",
+    "research.factor.submit",
+    "research.action",
+    "research.result",
+  ],
   languageResources: { "zh-CN": zh, "en-US": en },
   tasks: context =>
     (context.snapshot?.research?.tasks ?? [])

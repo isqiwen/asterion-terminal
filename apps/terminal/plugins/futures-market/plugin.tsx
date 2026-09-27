@@ -10,6 +10,7 @@ const Panel = lazy(() => import("./Workspace").then(module => ({ default: module
 export const plugin: TerminalPlugin = {
   id: "asterion.terminal.futures-market",
   apiVersion: 1,
+  commands: ["market.local", "market.connect", "market.subscribe", "market.disconnect"],
   languageResources: { "zh-CN": zh, "en-US": en },
   workspace: {
     id: "workspace.market",

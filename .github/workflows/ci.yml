@@ -21,6 +21,8 @@ jobs:
         run: pnpm format:check
       - name: TypeScript types
         run: pnpm exec tsc --noEmit -p apps/terminal/tsconfig.json
+      - name: TypeScript lint
+        run: pnpm lint
   core:
     strategy:
       fail-fast: false

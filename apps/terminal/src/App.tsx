@@ -18,6 +18,7 @@ import {
 } from "@asterion/desktop-bridge/client";
 import { Settings } from "./settings/Settings";
 import { terminalPlugins, workspaces } from "./plugins";
+import { scopedContext } from "./host/plugin-registry";
 import type { TerminalContext } from "../plugins/contract";
 import "./ui/theme/style.css";
 import "./terminal.css";
@@ -68,6 +69,8 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   useEffect(() => {
     void refresh();
     return () => {
+      // A counter, not a DOM ref: invalidates responses that arrive after unmount.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       ++generation.current;
     };
   }, [refresh]);
@@ -88,7 +91,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, []);
+  }, [settingsWindow]);
   const [visible, setVisible] = useState(() => !document.hidden);
   useEffect(() => {
     const update = () => setVisible(!document.hidden);
@@ -169,14 +172,21 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     inspect,
     trade,
   };
-  context.widgets = terminalPlugins.flatMap(plugin => plugin.widgets?.(context) ?? []);
-  const current = workspaces.find(item => item.id === view)!;
+  // Each plugin sees the shared context with trade/inspect scoped to its
+  // declared commands.
+  context.widgets = terminalPlugins.flatMap(
+    plugin => plugin.widgets?.(scopedContext(plugin, context)) ?? [],
+  );
+  const currentPlugin = terminalPlugins.find(plugin => plugin.workspace.id === view)!;
+  const current = currentPlugin.workspace;
   const Panel = current.component;
-  const backgroundTasks = terminalPlugins.flatMap(plugin => plugin.tasks?.(context) ?? []);
+  const panelContext = scopedContext(currentPlugin, context);
+  const backgroundTasks = terminalPlugins.flatMap(
+    plugin => plugin.tasks?.(scopedContext(plugin, context)) ?? [],
+  );
   return (
     <WindowFrame
       title={settingsWindow ? t("设置") + " — Asterion Terminal" : t("星枢 · Asterion Terminal")}
-      language={locale === "zh-CN" ? "zh" : "en"}
     >
       {settingsWindow ? (
         <Settings
@@ -254,7 +264,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
           body={
             <main className="terminal-business">
               <Suspense fallback={<p role="status">{t("正在加载工作区…")}</p>}>
-                <Panel {...context} />
+                <Panel {...panelContext} />
               </Suspense>
             </main>
           }

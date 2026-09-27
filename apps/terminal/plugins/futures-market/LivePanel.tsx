@@ -4,7 +4,6 @@ import {
   ErrorNotice,
   asDisplayError,
   translate,
-  getLocale,
   type DisplayError,
   type MessageValues,
   type TerminalContext,

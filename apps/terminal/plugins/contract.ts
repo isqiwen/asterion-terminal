@@ -45,9 +45,15 @@ export type TerminalContext = {
   trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
   inspect: (params: CsvRequest) => Promise<void>;
 };
+// Core methods a plugin may invoke; the host rejects anything undeclared.
+export type PluginCommand = TerminalCommand | "futures.inspect_csv";
 export type TerminalPlugin = {
   id: string;
   apiVersion: 1;
+  // Declared capability: the host scopes context.trade/inspect to these.
+  // Built-in plugins are trusted code; this prevents accidental coupling
+  // between plugins, it is not a sandbox.
+  commands: readonly PluginCommand[];
   languageResources?: LanguageResources;
   workspace: {
     id: string;

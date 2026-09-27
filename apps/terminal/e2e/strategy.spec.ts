@@ -1,4 +1,4 @@
-import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
+import { openSettingsWindow } from "./settings-helper";
 import { test, expect } from "@playwright/test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";

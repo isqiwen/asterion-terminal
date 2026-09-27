@@ -10,6 +10,7 @@ const Panel = lazy(() => import("./Dashboard").then(module => ({ default: module
 export const plugin: TerminalPlugin = {
   id: "asterion.terminal.overview",
   apiVersion: 1,
+  commands: [],
   languageResources: { "zh-CN": zh, "en-US": en },
   workspace: {
     id: "workspace.overview",

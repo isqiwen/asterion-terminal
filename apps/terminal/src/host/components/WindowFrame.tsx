@@ -15,15 +15,7 @@ const edges = [
   "SouthEast",
   "SouthWest",
 ] as const;
-export function WindowFrame({
-  children,
-  title,
-  language,
-}: {
-  children: ReactNode;
-  title: string;
-  language: string;
-}) {
+export function WindowFrame({ children, title }: { children: ReactNode; title: string }) {
   const [custom, setCustom] = useState(false);
   useEffect(() => {
     document.title = title;

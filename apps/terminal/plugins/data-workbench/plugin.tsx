@@ -9,6 +9,15 @@ const Panel = lazy(() => import("./DataPanel").then(module => ({ default: module
 export const plugin: TerminalPlugin = {
   id: "asterion.terminal.data-workbench",
   apiVersion: 1,
+  commands: [
+    "futures.inspect_csv",
+    "research.local",
+    "research.action",
+    "research.result",
+    "research.calendar.submit",
+    "research.data.submit",
+    "research.data.use",
+  ],
   languageResources: { "zh-CN": zh, "en-US": en },
   tasks: context =>
     (context.snapshot?.research?.tasks ?? [])

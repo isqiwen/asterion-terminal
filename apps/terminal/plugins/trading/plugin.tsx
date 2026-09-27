@@ -10,6 +10,14 @@ const Panel = lazy(() => import("./Panel").then(module => ({ default: module.Pan
 export const plugin: TerminalPlugin = {
   id: "asterion.terminal.trading",
   apiVersion: 1,
+  commands: [
+    "paper.create",
+    "paper.open",
+    "paper.close",
+    "paper.act",
+    "strategy.run",
+    "strategy.revoke",
+  ],
   languageResources: { "zh-CN": zh, "en-US": en },
   workspace: {
     id: "workspace.trading",
@@ -25,7 +33,6 @@ export const plugin: TerminalPlugin = {
   widgets: context => {
     const paper = context.snapshot?.paper;
     const recovery = paper?.storage_state === "recovery_required";
-    const openTrading = () => context.navigate("workspace.trading");
     return [
       {
         id: "trading.portfolio",

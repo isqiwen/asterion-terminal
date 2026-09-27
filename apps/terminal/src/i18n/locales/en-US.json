@@ -318,5 +318,7 @@
   "在交易工作区创建或恢复模拟会话。": "Create or resume a simulation in the Trading workspace.",
   "部署说明": "Deployment details",
   "对象不存在": "Not found",
-  "需要恢复后继续": "Recovery required"
+  "需要恢复后继续": "Recovery required",
+  "UI 插件命令声明无效: {p0}": "Invalid UI plugin command declaration: {p0}",
+  "插件 {p0} 未声明命令 {p1}": "Plugin {p0} did not declare command {p1}"
 }

@@ -1,4 +1,4 @@
-import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
+import { openSettingsWindow } from "./settings-helper";
 import { test, expect } from "@playwright/test";
 
 test("local deployment needs no SSH and remote deployment is Linux only", async ({ page }) => {

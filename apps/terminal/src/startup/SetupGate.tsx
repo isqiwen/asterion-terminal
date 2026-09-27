@@ -75,6 +75,9 @@ export function SetupGate({ children }: { children: ReactNode }) {
   }
   useEffect(() => {
     if (returning) void start();
+    // start() is guarded by inFlight and must run once per returning launch,
+    // not whenever its closure is recreated.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [returning]);
   function enter() {
     try {
@@ -86,7 +89,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
   }
   if (entered) return children;
   return (
-    <WindowFrame title={t("Asterion Terminal — 启动设置")} language={language}>
+    <WindowFrame title={t("Asterion Terminal — 启动设置")}>
       <main className="first-setup" aria-label={t("首次设置与启动")}>
         <div className="setup-language-control">
           <select

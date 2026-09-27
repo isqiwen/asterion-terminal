@@ -1,4 +1,4 @@
-import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
+import { openSettingsWindow } from "./settings-helper";
 import { test, expect } from "@playwright/test";
 test("compact footer exposes services, tasks and navigation", async ({ page }) => {
   await page.goto("/");
@@ -44,4 +44,19 @@ test("compact footer exposes services, tasks and navigation", async ({ page }) =
     panel.getByRole("button", { name: "连接设置", exact: true }),
   );
   await expect(page.getByRole("button", { name: "检查本机 Agent", exact: true })).toBeVisible();
+});
+
+test("revisioned polls accept unchanged replies from an idle core", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible();
+  // Exercise the real bridge module in the page, not a copy of its logic.
+  const result = await page.evaluate(async () => {
+    // Served by the Vite dev server; typed from the same source file.
+    const path = "/src/bridge/client.ts";
+    const client = (await import(/* @vite-ignore */ path)) as typeof import("../src/bridge/client");
+    const first = await client.request("runtime.snapshot");
+    const poll = await client.pollSnapshot(first.revision);
+    return { revision: first.revision, poll };
+  });
+  expect(result.poll).toMatchObject({ unchanged: true, revision: result.revision });
 });

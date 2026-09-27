@@ -1,4 +1,4 @@
-import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
+import { openSettingsWindow } from "./settings-helper";
 import { test, expect } from "@playwright/test";
 import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -111,7 +111,9 @@ test("Terminal deploys and controls a service through Node Agent", async ({ page
     const pid = Number(await readFile(join(process.env.ASTERION_SSH_FIXTURE!, "pid"), "utf8"));
     try {
       process.kill(pid, "SIGTERM");
-    } catch {}
+    } catch {
+      /* The SSH fixture may already have exited. */
+    }
     await rm(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
   }
 });

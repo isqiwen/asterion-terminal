@@ -2,12 +2,13 @@ import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 import { test, expect } from "@playwright/test";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve, relative } from "node:path";
-import { registerTerminalPlugins } from "../src/host/plugin-registry";
-import type { TerminalPlugin } from "../plugins/contract";
+import { registerTerminalPlugins, scopedContext } from "../src/host/plugin-registry";
+import type { TerminalContext, TerminalPlugin } from "../plugins/contract";
 
 const plugin: TerminalPlugin = {
   id: "test.panel",
   apiVersion: 1,
+  commands: ["research.local"],
   workspace: {
     id: "test.workspace",
     title: "Test",
@@ -27,6 +28,24 @@ test("registration rejects conflicting identities and unsupported contracts", ()
   plugin.workspace.title = "Changed by caller";
   expect(registered[0].workspace.title).toBe("Test");
   expect(Object.isFrozen(registered)).toBe(true);
+});
+
+test("plugins can only invoke the commands they declare", async () => {
+  expect(() =>
+    registerTerminalPlugins([{ ...plugin, commands: undefined } as unknown as TerminalPlugin]),
+  ).toThrow("命令声明");
+  const calls: string[] = [];
+  const base = {
+    trade: async (method: string) => void calls.push(method),
+    inspect: async () => void calls.push("futures.inspect_csv"),
+  } as unknown as TerminalContext;
+  const [registered] = registerTerminalPlugins([plugin]);
+  const scoped = scopedContext(registered, base);
+  await scoped.trade("research.local");
+  await expect(scoped.trade("paper.act")).rejects.toThrow("paper.act");
+  await expect(scoped.inspect({} as never)).rejects.toThrow("futures.inspect_csv");
+  expect(calls).toEqual(["research.local"]);
+  expect(Object.isFrozen(registered.commands)).toBe(true);
 });
 
 test("shared code does not import an application or a concrete plugin", () => {

@@ -471,10 +471,10 @@ export type CsvRequest = {
   quantity_increment: string;
   multiplier: string;
 };
-export async function request(
+async function call(
   method: "runtime.snapshot" | "futures.inspect_csv" | TerminalCommand,
-  params: Record<string, unknown> = {},
-): Promise<Snapshot> {
+  params: Record<string, unknown>,
+): Promise<unknown> {
   const body = JSON.stringify({ version: 1, method, params });
   let raw: string;
   if (nativeDesktop) raw = await invoke<string>("terminal_request", { request: body });
@@ -490,7 +490,10 @@ export async function request(
   const envelope = JSON.parse(raw);
   if (envelope.error)
     throw new BackendError(envelope.error.code ?? "operation_failed", envelope.error.message);
-  const value = envelope.result as Snapshot;
+  return envelope.result;
+}
+function snapshotContract(result: unknown): Snapshot {
+  const value = result as Snapshot;
   if (
     !value ||
     value.protocol !== 1 ||
@@ -501,6 +504,12 @@ export async function request(
     throw new Error(t("本机核心返回了不支持的状态契约"));
   }
   return value;
+}
+export async function request(
+  method: "runtime.snapshot" | "futures.inspect_csv" | TerminalCommand,
+  params: Record<string, unknown> = {},
+): Promise<Snapshot> {
+  return snapshotContract(await call(method, params));
 }
 export function timestamp(ns: string | null): string {
   if (!ns) return "—";
@@ -535,5 +544,11 @@ export async function exportLinuxInitializer(): Promise<boolean> {
 // Polls send the last revision they saw; an unchanged core returns no state.
 export type SnapshotUnchanged = { unchanged: true; revision: number; refreshed_at_ms: number };
 export async function pollSnapshot(since: number): Promise<Snapshot | SnapshotUnchanged> {
-  return (await request("runtime.snapshot", { since })) as Snapshot | SnapshotUnchanged;
+  const result = (await call("runtime.snapshot", { since })) as Partial<SnapshotUnchanged>;
+  if (result?.unchanged === true) {
+    if (typeof result.revision !== "number" || typeof result.refreshed_at_ms !== "number")
+      throw new Error(t("本机核心返回了不支持的状态契约"));
+    return result as SnapshotUnchanged;
+  }
+  return snapshotContract(result);
 }

@@ -1,4 +1,4 @@
-import { ErrorNotice, asDisplayError, type DisplayError } from "../contract";
+import { ErrorNotice, type DisplayError } from "../contract";
 import { translate, type MessageValues } from "../contract";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.overview", key, values);
