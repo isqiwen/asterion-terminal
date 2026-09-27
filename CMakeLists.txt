@@ -28,6 +28,8 @@ if(ASTERION_SANITIZERS)
   endif()
   target_compile_options(asterion_foundation PUBLIC -fsanitize=${ASTERION_SANITIZERS} -fno-omit-frame-pointer)
   target_link_options(asterion_foundation PUBLIC -fsanitize=${ASTERION_SANITIZERS})
+  # Instrumented builds run several times slower; timing assertions scale.
+  target_compile_definitions(asterion_foundation PUBLIC ASTERION_SANITIZED=1)
 endif()
 
 add_library(asterion_kernel STATIC core/src/kernel/plugin_manager.cpp core/src/kernel/runtime.cpp core/src/kernel/logger.cpp core/src/kernel/ipc/local_channel.cpp core/src/kernel/ipc/tls_channel.cpp core/src/kernel/process/child.cpp core/src/kernel/process/artifact.cpp core/src/kernel/process/owner.cpp core/src/kernel/durable_file.cpp core/src/kernel/service_host.cpp)

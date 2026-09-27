@@ -18,8 +18,8 @@ import uuid
 from bundle_fixture import make_bundle
 
 
-def run(args, **kwargs):
-    return subprocess.run(args, check=True, timeout=30, **kwargs)
+def run(args, timeout=30, **kwargs):
+    return subprocess.run(args, check=True, timeout=timeout, **kwargs)
 
 
 def port():
@@ -118,7 +118,9 @@ def main():
             generated = call('node.key.prepare', dict(id=identity))['ssh_key']
             (root / 'client.pub').write_text(generated['public_key'])
             if linux:
-                run([*sudo, '/usr/bin/python3', '-I', str(Path(__file__).resolve().parents[1] / 'scripts/node/initialize-linux.py'), '--public-key', str(root / 'client.pub')])
+                # Longer than the initializer's own 60 s per-command limit so a
+                # stuck step is reported by name instead of killed silently.
+                run([*sudo, '/usr/bin/python3', '-I', str(Path(__file__).resolve().parents[1] / 'scripts/node/initialize-linux.py'), '--public-key', str(root / 'client.pub')], timeout=150)
             with (root / 'sshd.log').open('w') as log:
                 sshd = subprocess.Popen([*sudo, '/usr/sbin/sshd', '-D', '-e', '-f', str(config)], stdout=log, stderr=log)
             time.sleep(1)
@@ -169,7 +171,10 @@ def main():
             if linux:
                 run([*sudo, 'systemctl', 'daemon-reload'])
                 run([*sudo, 'rm', '-f', '/usr/local/sbin/asterion-host', '/etc/ssh/asterion_authorized_keys', '/etc/ssh/sshd_config.d/00-asterion.conf', '/etc/sudoers.d/asterion-host'])
-                subprocess.run([*sudo, 'userdel', '--remove', 'asterion'], timeout=30, check=True)
+                # Exit 6: the account was never created because initialization failed earlier.
+                removed = subprocess.run([*sudo, 'userdel', '--remove', 'asterion'], timeout=30)
+                if removed.returncode not in (0, 6):
+                    raise subprocess.CalledProcessError(removed.returncode, removed.args)
                 run([*sudo, 'systemctl', 'reload', 'ssh.service'])
 
 

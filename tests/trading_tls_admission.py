@@ -11,6 +11,10 @@ import subprocess
 import sys
 import tempfile
 import time
+import os
+
+# Sanitizer builds run several times slower.
+SCALE = float(os.environ.get("ASTERION_TIMING_SCALE", "1"))
 
 executable, certificates = sys.argv[1:]
 with tempfile.TemporaryDirectory(prefix="ast-trading-admission-") as folder:
@@ -63,7 +67,7 @@ with tempfile.TemporaryDirectory(prefix="ast-trading-admission-") as folder:
                 response = receive(size)
                 assert response.startswith(b"\x08\x01\x12\x03adm\x18\x01\x22\x03hb1\x72"), response
             elapsed = time.monotonic() - started
-            assert elapsed < 3, f"authenticated client waited {elapsed:.1f}s behind a silent peer"
+            assert elapsed < 3 * SCALE, f"authenticated client waited {elapsed:.1f}s behind a silent peer"
     finally:
         process.kill()
         _, diagnostic = process.communicate(timeout=10)

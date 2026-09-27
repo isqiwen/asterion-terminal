@@ -177,3 +177,8 @@ jobs:
       - run: cmake --preset conan-debug -DASTERION_SANITIZERS=${{ matrix.sanitizer }}
       - run: cmake --build --preset conan-debug
       - run: ctest --preset conan-debug --output-on-failure
+        env:
+          ASTERION_TIMING_SCALE: '20'
+          # Uninstrumented protobuf poisons its own arena memory through
+          # inlined header code; ignore manual poisoning, keep heap checks.
+          ASAN_OPTIONS: ${{ contains(matrix.sanitizer, 'address') && 'allow_user_poisoning=0' || '' }}

@@ -12,6 +12,9 @@ import sys
 import tempfile
 import time
 
+# Sanitizer builds run several times slower.
+SCALE = float(os.environ.get("ASTERION_TIMING_SCALE", "1"))
+
 if os.name == "nt":
     print("POSIX signal semantics only")
     sys.exit(0)
@@ -39,7 +42,7 @@ with tempfile.TemporaryDirectory(prefix="ast-stop-", dir="/tmp") as folder:
         code = process.wait(timeout=5)
         elapsed = time.monotonic() - started
         assert code == 0, f"exit code {code}"
-        assert elapsed < .5, f"graceful stop took {elapsed:.2f}s"
+        assert elapsed < .5 * SCALE, f"graceful stop took {elapsed:.2f}s"
         assert not endpoint.exists(), "local socket left behind"
     finally:
         if process.poll() is None:

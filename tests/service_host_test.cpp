@@ -1,3 +1,4 @@
+#include "timing.hpp"
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/service_host.hpp>
@@ -101,7 +102,8 @@ TEST_F(ServiceHostTest, ReportsIncompleteDrainWhileAHandlerIsStillReading) {
   const auto started = std::chrono::steady_clock::now();
   service::request_stop();
   EXPECT_FALSE(served.get());
-  EXPECT_LT(std::chrono::steady_clock::now() - started, 1s) << "stop does not wait for idle reads";
+  EXPECT_LT(std::chrono::steady_clock::now() - started, asterion::testing_support::bound(1s))
+      << "stop does not wait for idle reads";
 }
 
 TEST_F(ServiceHostTest, TickRunsOnTheAcceptThreadWhileIdle) {

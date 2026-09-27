@@ -1,3 +1,4 @@
+#include "timing.hpp"
 #include <gtest/gtest.h>
 #include <asterion/domain/account.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -766,7 +767,8 @@ TEST(PaperExecution, RestingOrdersDoNotMakeReplayQuadratic) {
   while (execution.cursor() < execution.size())
     execution.advance();
   // Previously every event copied the full ledger (O(events x orders)).
-  EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(10));
+  EXPECT_LT(std::chrono::steady_clock::now() - started,
+            asterion::testing_support::bound(std::chrono::seconds(10)));
   EXPECT_EQ(execution.account().fills().size(), 0U);
   EXPECT_EQ(execution.account().orders().size(), resting);
 }

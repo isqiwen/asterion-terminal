@@ -1,3 +1,4 @@
+#include "timing.hpp"
 #include <gtest/gtest.h>
 #include <asterion/terminal.h>
 #include <asterion/domain/futures.hpp>
@@ -208,7 +209,8 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
   while (!done) {
     const auto started = std::chrono::steady_clock::now();
     const auto status = call(runtime.get(), request("runtime.snapshot"));
-    EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::milliseconds(500));
+    EXPECT_LT(std::chrono::steady_clock::now() - started,
+              asterion::testing_support::bound(std::chrono::milliseconds(500)));
     if (!done) {
       ++concurrent_reads;
       EXPECT_TRUE(status["result"]["dataset"].is_null()) << "import not yet published";
