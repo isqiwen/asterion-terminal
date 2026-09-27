@@ -1,66 +1,42 @@
 #include "ctp_feed.hpp"
 #include <CLI/CLI.hpp>
-#include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/ipc/tls_channel.hpp>
 #include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/process/owner.hpp>
+#include <asterion/kernel/service_host.hpp>
 #include <asterion/protocol/market.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <atomic>
-#include <csignal>
+#include <cstdlib>
 #include <iostream>
 #include <mutex>
 #include <thread>
 using namespace asterion;
 using namespace std::chrono_literals;
 namespace wire = asterion::market::v1;
-namespace {
-volatile std::sig_atomic_t stopping = 0;
-void stop(int) {
-  stopping = 1;
-}
-} // namespace
 int main(int argc, char** argv) {
   CLI::App app{"Asterion read-only live market-data host"};
   app.set_version_flag("--version", "Asterion Market Data 0.1.0");
-  std::string service, endpoint, health_endpoint, directory, bind, sdk;
-  unsigned short port = 0;
+  std::string service, health_endpoint, directory, sdk;
   std::uint64_t owner_pid = 0;
-  ipc::TlsIdentity tls;
+  service::Transport transport;
   app.add_option("--session", service)->required();
   app.add_option("--directory", directory)->required()->check(CLI::ExistingDirectory);
-  app.add_option("--endpoint", endpoint);
+  app.add_option("--endpoint", transport.endpoint);
   app.add_option("--health-endpoint", health_endpoint);
-  app.add_option("--bind", bind);
-  app.add_option("--port", port);
-  app.add_option("--tls-ca", tls.ca_file);
-  app.add_option("--tls-cert", tls.certificate_file);
-  app.add_option("--tls-key", tls.private_key_file);
+  app.add_option("--bind", transport.bind);
+  app.add_option("--port", transport.port);
+  app.add_option("--tls-ca", transport.tls.ca_file);
+  app.add_option("--tls-cert", transport.tls.certificate_file);
+  app.add_option("--tls-key", transport.tls.private_key_file);
   app.add_option("--ctp-library", sdk);
   app.add_option("--owner-pid", owner_pid);
   argv = app.ensure_utf8(argv);
   CLI11_PARSE(app, argc, argv);
   try {
     validate_id(service);
-    const bool remote = !bind.empty();
-    if (remote ? (!endpoint.empty() || !port || tls.ca_file.empty() ||
-                  tls.certificate_file.empty() || tls.private_key_file.empty())
-               : (endpoint.empty() || port || !tls.ca_file.empty() ||
-                  !tls.certificate_file.empty() || !tls.private_key_file.empty()))
-      throw std::invalid_argument("choose local IPC or TCP with mutual TLS");
+    transport.validate();
     const auto instance = unique_process_id();
-    std::signal(SIGINT, stop);
-    std::signal(SIGTERM, stop);
-    std::unique_ptr<ProcessOwner> owner;
-    if (owner_pid)
-      owner = std::make_unique<ProcessOwner>(owner_pid);
-    std::jthread owner_watch([&](std::stop_token token) {
-      while (!token.stop_requested()) {
-        if (owner && !owner->alive())
-          std::_Exit(4);
-        std::this_thread::sleep_for(200ms);
-      }
-    });
+    service::install_stop_signals();
+    service::OwnerWatch owner(owner_pid);
     PluginManager plugins;
     ctp::Feed* feed = nullptr;
     std::mutex mutex;
@@ -73,7 +49,7 @@ int main(int argc, char** argv) {
         state.phase = sdk.empty() ? "sdk_unavailable" : "disconnected";
       return protocol::encode_market(state, instance);
     };
-    auto serve = [&](auto channel, std::stop_token token, bool health_only) {
+    auto serve = [&](service::Connection& channel, std::stop_token token) {
       try {
         wire::Request request;
         if (!request.ParseFromString(channel.receive(2s)))
@@ -87,8 +63,6 @@ int main(int argc, char** argv) {
           validate_id(request.correlation_id());
           if (request.version() != 1 || request.service_id() != service)
             throw std::invalid_argument("market service identity mismatch");
-          if (health_only && !request.has_heartbeat())
-            throw std::invalid_argument("health channel accepts heartbeat only");
           if (request.has_heartbeat()) {
             auto* h = response.mutable_health();
             h->set_instance_id(instance);
@@ -103,7 +77,7 @@ int main(int argc, char** argv) {
           } else if (request.has_watch()) {
             // Coalesced quote snapshots; intermediate ticks are not a
             // historical tick archive.
-            while (!token.stop_requested() && !stopping) {
+            while (!token.stop_requested()) {
               *response.mutable_snapshot() = snapshot();
               channel.send(response.SerializeAsString(), 2s);
               std::this_thread::sleep_for(250ms);
@@ -161,61 +135,32 @@ int main(int argc, char** argv) {
       } catch (const std::exception&) { /* Bounded peer failure never stops the managed feed. */
       }
     };
-    std::unique_ptr<ipc::Listener> health;
-    if (!health_endpoint.empty())
-      health = std::make_unique<ipc::Listener>(health_endpoint);
-    std::jthread health_thread([&](std::stop_token token) {
-      while (health && !token.stop_requested() && !stopping) {
-        try {
-          serve(health->accept(200ms), token, true);
-        } catch (const Error&) {
-        }
-      }
+    service::HealthChannel health(health_endpoint, [&](const std::string& frame) {
+      wire::Request request;
+      if (!request.ParseFromString(frame))
+        return std::string();
+      protocol::validate_message(request);
+      validate_id(request.correlation_id());
+      if (request.version() != 1 || request.service_id() != service || !request.has_heartbeat())
+        return std::string();
+      wire::Response response;
+      response.set_version(1);
+      response.set_service_id(service);
+      response.set_correlation_id(request.correlation_id());
+      auto* h = response.mutable_health();
+      h->set_instance_id(instance);
+      h->set_phase(snapshot().phase());
+      return response.SerializeAsString();
     });
-    struct Worker {
-      std::shared_ptr<std::atomic<bool>> done;
-      std::jthread thread;
-    };
-    std::vector<Worker> workers;
-    // Handshakes run on the per-client worker, never on the accept loop.
-    auto launch = [&](auto connection) {
-      std::erase_if(workers, [](const Worker& w) { return w.done->load(); });
-      if (workers.size() >= 16)
-        return;
-      auto done = std::make_shared<std::atomic<bool>>(false);
-      workers.push_back({done, std::jthread([&, done, connection = std::move(connection)](
-                                                std::stop_token token) mutable {
-                           try {
-                             if constexpr (requires { std::move(connection).handshake(2s); })
-                               serve(std::move(connection).handshake(2s), token, false);
-                             else
-                               serve(std::move(connection), token, false);
-                           } catch (const std::exception&) {
-                           }
-                           done->store(true);
-                         })});
-    };
-    if (remote) {
-      ipc::TlsListener listener(bind, port, tls);
-      while (!stopping) {
-        try {
-          launch(listener.accept_pending(200ms));
-        } catch (const Error&) {
-        }
-      }
-    } else {
-      ipc::Listener listener(endpoint);
-      while (!stopping) {
-        try {
-          launch(listener.accept(200ms));
-        } catch (const Error&) {
-        }
-      }
-    }
-    for (auto& worker : workers)
-      worker.thread.request_stop();
-    for (auto& worker : workers)
-      worker.thread.join();
+    // Watch requests stream until the client leaves or the service stops, so
+    // concurrency is bounded by workers and a full host rejects immediately.
+    service::HostOptions options;
+    options.workers = 16;
+    options.queue = 1;
+    options.handshake = 2s;
+    service::ServiceHost host(transport, serve, options);
+    if (!host.run())
+      std::_Exit(0);
   } catch (const std::exception& e) {
     std::cerr << e.what() << '\n';
     return 1;

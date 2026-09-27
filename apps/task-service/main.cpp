@@ -1,12 +1,10 @@
 #include "task_store.hpp"
 #include <CLI/CLI.hpp>
-#include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/ipc/tls_channel.hpp>
 #include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/process/owner.hpp>
-#include <asterion/kernel/thread_pool.hpp>
+#include <asterion/kernel/service_host.hpp>
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -15,22 +13,21 @@ using namespace std::chrono_literals;
 int main(int argc, char** argv) {
   CLI::App app{"Asterion durable task service (Agent-dispatched backtest workers)"};
   app.set_version_flag("--version", "asterion-task-service " ASTERION_PRODUCT_VERSION);
-  std::string directory, endpoint, service, bind, health_endpoint, worker_endpoint;
+  std::string directory, service, health_endpoint, worker_endpoint;
   unsigned worker_timeout = 30;
   app.add_option("--worker-timeout", worker_timeout,
                  "Seconds without worker progress before interruption")
       ->check(CLI::Range(1, 300));
-  unsigned short port = 0;
   std::uint64_t owner_pid = 0;
-  asterion::ipc::TlsIdentity tls;
+  asterion::service::Transport transport;
   app.add_option("--directory", directory)->check(CLI::ExistingDirectory);
-  app.add_option("--endpoint", endpoint);
+  app.add_option("--endpoint", transport.endpoint);
   app.add_option("--session", service);
-  app.add_option("--bind", bind);
-  app.add_option("--port", port)->check(CLI::Range(1, 65535));
-  app.add_option("--tls-ca", tls.ca_file);
-  app.add_option("--tls-cert", tls.certificate_file);
-  app.add_option("--tls-key", tls.private_key_file);
+  app.add_option("--bind", transport.bind);
+  app.add_option("--port", transport.port)->check(CLI::Range(1, 65535));
+  app.add_option("--tls-ca", transport.tls.ca_file);
+  app.add_option("--tls-cert", transport.tls.certificate_file);
+  app.add_option("--tls-key", transport.tls.private_key_file);
   app.add_option("--worker-endpoint", worker_endpoint, "Private same-machine worker IPC");
   app.add_option("--health-endpoint", health_endpoint);
   app.add_option("--owner-pid", owner_pid);
@@ -43,23 +40,17 @@ int main(int argc, char** argv) {
   }
   try {
     asterion::validate_id(service);
-    const bool remote = !bind.empty();
-    if (directory.empty() ||
-        (remote ? (!endpoint.empty() || !port || tls.ca_file.empty() ||
-                   tls.certificate_file.empty() || tls.private_key_file.empty())
-                : (endpoint.empty() || port || !tls.ca_file.empty() ||
-                   !tls.certificate_file.empty() || !tls.private_key_file.empty())))
-      throw std::invalid_argument("choose local endpoint OR TCP bind/port with "
-                                  "all TLS files and a task directory");
+    if (directory.empty())
+      throw std::invalid_argument("a task directory is required");
+    transport.validate();
     asterion::tasks::Store store(std::filesystem::absolute(
         std::filesystem::path(std::u8string(directory.begin(), directory.end()))));
     const auto started = std::chrono::steady_clock::now();
     const auto instance = asterion::unique_process_id();
     std::mutex mutex;
     std::atomic<bool> degraded{false};
-    std::unique_ptr<asterion::ProcessOwner> owner;
-    if (owner_pid)
-      owner = std::make_unique<asterion::ProcessOwner>(owner_pid);
+    asterion::service::install_stop_signals();
+    asterion::service::OwnerWatch owner(owner_pid);
     namespace wire = asterion::research::v1;
     struct Lease {
       std::string token;
@@ -206,86 +197,47 @@ int main(int argc, char** argv) {
       }
       return response;
     };
-    auto dispatch = [&](asterion::ThreadPool& pool, auto pending) {
-      const auto deadline = std::chrono::steady_clock::now() + 10s;
-      auto peer = std::make_shared<decltype(pending)>(std::move(pending));
-      static_cast<void>(pool.submit([&, peer, deadline](std::stop_token stop) {
-        try {
-          auto remaining = [&] {
-            const auto left = deadline - std::chrono::steady_clock::now();
-            if (stop.stop_requested() || left <= std::chrono::steady_clock::duration::zero())
-              throw asterion::Error(asterion::ErrorCode::unavailable,
-                                    "task request admission timed out");
-            return std::chrono::ceil<std::chrono::milliseconds>(left);
-          };
-          auto channel = [&] {
-            if constexpr (requires { std::move(*peer).handshake(3s); })
-              return std::move(*peer).handshake(
-                  std::min(remaining(), std::chrono::milliseconds{3000}));
-            else
-              return std::move(*peer);
-          }();
-          const auto frame = channel.receive(remaining());
-          channel.send(respond(frame, false, deadline, stop).SerializeAsString(), 3s);
-        } catch (const std::exception&) {
-          // Close only this peer. Never replay a query or mutation.
-        }
-      }));
+    // One request per connection. The whole admission (queueing, TLS and the
+    // request read) is bounded from the moment the transport was accepted.
+    auto handle = [&](asterion::service::Connection& channel, std::stop_token stop) {
+      const auto deadline = channel.accepted_at() + 10s;
+      const auto left = deadline - std::chrono::steady_clock::now();
+      if (left <= std::chrono::steady_clock::duration::zero())
+        throw asterion::Error(asterion::ErrorCode::unavailable, "task request admission timed out");
+      const auto frame = channel.receive(std::chrono::ceil<std::chrono::milliseconds>(left));
+      channel.send(respond(frame, false, deadline, stop).SerializeAsString(), 3s);
     };
-    std::unique_ptr<asterion::ipc::Listener> health;
-    if (!health_endpoint.empty())
-      health = std::make_unique<asterion::ipc::Listener>(health_endpoint);
-    std::jthread supervisor([&](std::stop_token stop) {
-      while (!stop.stop_requested()) {
-        if (owner && !owner->alive())
-          std::_Exit(4);
-        if (!health) {
-          std::this_thread::sleep_for(100ms);
-          continue;
-        }
-        try {
-          auto channel = health->accept(100ms);
-          const auto deadline = std::chrono::steady_clock::now() + 1s;
-          channel.send(respond(channel.receive(1s), true, deadline, stop).SerializeAsString(), 1s);
-        } catch (const std::exception&) {
-        }
-      }
+    asterion::service::HealthChannel health(health_endpoint, [&](const std::string& frame) {
+      return respond(frame, true, std::chrono::steady_clock::now() + 1s, std::stop_token{})
+          .SerializeAsString();
     });
-    std::unique_ptr<asterion::ipc::Listener> workers;
-    if (!worker_endpoint.empty())
-      workers = std::make_unique<asterion::ipc::Listener>(worker_endpoint);
-    // Private worker progress has its own capacity; public slow peers cannot
-    // consume the slots needed to complete/cancel already-running work.
-    asterion::ThreadPool worker_clients(4, 8);
-    std::jthread worker_server([&](std::stop_token stop) {
-      while (workers && !stop.stop_requested()) {
-        try {
-          dispatch(worker_clients, workers->accept(200ms));
-        } catch (const asterion::Error&) {
-        }
-      }
-    });
-    std::unique_ptr<asterion::ipc::Listener> local;
-    std::unique_ptr<asterion::ipc::TlsListener> tcp;
-    if (remote)
-      tcp = std::make_unique<asterion::ipc::TlsListener>(bind, port, tls);
-    else
-      local = std::make_unique<asterion::ipc::Listener>(endpoint);
-    // Listener ownership stays on this thread. Each pool joins before the
-    // store/mutex/leases are destroyed. Task state remains serialized.
-    asterion::ThreadPool clients(8, 8);
-    for (;;) {
-      try {
-        if (remote)
-          dispatch(clients, tcp->accept_pending(200ms));
-        else
-          dispatch(clients, local->accept(200ms));
-      } catch (const asterion::Error&) {
-        // Idle poll or bounded overload: destroy the unqueued connection.
-      }
+    // Private worker progress has its own host and capacity; public slow peers
+    // cannot consume the slots needed to complete/cancel running work.
+    std::unique_ptr<asterion::service::ServiceHost> worker_host;
+    std::jthread worker_server;
+    if (!worker_endpoint.empty()) {
+      asterion::service::HostOptions worker_options;
+      worker_options.workers = 4;
+      worker_host = std::make_unique<asterion::service::ServiceHost>(
+          asterion::service::Transport{worker_endpoint, {}, 0, {}}, handle, worker_options);
+      worker_server = std::jthread([&] {
+        if (!worker_host->run())
+          std::_Exit(0);
+      });
+    }
+    // Lease expiry runs on the public accept thread between polls; task state
+    // remains serialized by the mutex.
+    asterion::service::HostOptions options;
+    options.handshake = 3s;
+    options.tick = [&] {
       std::lock_guard lock(mutex);
       expire_leases();
-    }
+    };
+    asterion::service::ServiceHost host(transport, handle, options);
+    if (!host.run())
+      std::_Exit(0);
+    worker_server = {};
+    return 0;
   } catch (const std::exception& error) {
     std::cerr << "Task service failed: " << error.what() << '\n';
     return 1;

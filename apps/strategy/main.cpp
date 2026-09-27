@@ -1,12 +1,10 @@
 #include "replay.hpp"
-#include <asterion/kernel/thread_pool.hpp>
 #include "session.hpp"
 #include <CLI/CLI.hpp>
-#include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/ipc/tls_channel.hpp>
 #include <asterion/kernel/process/child.hpp>
-#include <asterion/kernel/process/owner.hpp>
+#include <asterion/kernel/service_host.hpp>
 #include <atomic>
+#include <cstdlib>
 #include <iostream>
 #include <mutex>
 #include <thread>
@@ -14,20 +12,19 @@ using namespace std::chrono_literals;
 int main(int argc, char** argv) {
   CLI::App app{"Asterion trusted strategy host: durable events and target intents"};
   app.set_version_flag("--version", "asterion-strategy " ASTERION_PRODUCT_VERSION);
-  std::string endpoint, directory, session_id, bind, health_endpoint;
-  unsigned short port = 0;
+  std::string directory, session_id, health_endpoint;
   std::uint64_t owner_pid = 0;
-  asterion::ipc::TlsIdentity tls;
+  asterion::service::Transport transport;
   app.add_option("--directory", directory, "Existing dedicated strategy journal directory")
       ->required()
       ->check(CLI::ExistingDirectory);
   app.add_option("--session", session_id, "Immutable strategy session identity")->required();
-  app.add_option("--endpoint", endpoint, "Private local IPC endpoint");
-  app.add_option("--bind", bind, "TCP bind address");
-  app.add_option("--port", port, "TCP port")->check(CLI::Range(1, 65535));
-  app.add_option("--tls-ca", tls.ca_file, "Dedicated client CA PEM");
-  app.add_option("--tls-cert", tls.certificate_file, "Server certificate PEM");
-  app.add_option("--tls-key", tls.private_key_file, "Server private key PEM");
+  app.add_option("--endpoint", transport.endpoint, "Private local IPC endpoint");
+  app.add_option("--bind", transport.bind, "TCP bind address");
+  app.add_option("--port", transport.port, "TCP port")->check(CLI::Range(1, 65535));
+  app.add_option("--tls-ca", transport.tls.ca_file, "Dedicated client CA PEM");
+  app.add_option("--tls-cert", transport.tls.certificate_file, "Server certificate PEM");
+  app.add_option("--tls-key", transport.tls.private_key_file, "Server private key PEM");
   app.add_option("--health-endpoint", health_endpoint, "Private supervisor health channel");
   app.add_option("--owner-pid", owner_pid, "Agent process identity");
   argv = app.ensure_utf8(argv);
@@ -36,31 +33,16 @@ int main(int argc, char** argv) {
     using namespace asterion;
     namespace wire = strategy::v1;
     validate_id(session_id);
-    const bool remote = !bind.empty();
-    if (remote ? (!endpoint.empty() || !port || tls.ca_file.empty() ||
-                  tls.certificate_file.empty() || tls.private_key_file.empty())
-               : (endpoint.empty() || port || !tls.ca_file.empty() ||
-                  !tls.certificate_file.empty() || !tls.private_key_file.empty()))
-      throw std::invalid_argument("choose --endpoint OR --bind/--port with all three TLS files");
-    if (!health_endpoint.empty() && health_endpoint == endpoint)
+    transport.validate();
+    if (!health_endpoint.empty() && health_endpoint == transport.endpoint)
       throw std::invalid_argument("health and event endpoints must be distinct");
     const std::filesystem::path path(std::u8string(directory.begin(), directory.end()));
     if (!path.is_absolute() || std::filesystem::is_symlink(path) ||
         std::filesystem::exists(path / "pending.tmp") ||
         std::filesystem::is_symlink(path / "pending.tmp"))
       throw std::invalid_argument("strategy directory requires inspection or is not absolute");
-    std::unique_ptr<ProcessOwner> owner;
-    std::jthread owner_watch;
-    if (owner_pid) {
-      owner = std::make_unique<ProcessOwner>(owner_pid);
-      owner_watch = std::jthread([&](std::stop_token stop) {
-        while (!stop.stop_requested()) {
-          if (!owner->alive())
-            std::_Exit(4);
-          std::this_thread::sleep_for(200ms);
-        }
-      });
-    }
+    service::install_stop_signals();
+    service::OwnerWatch owner(owner_pid);
     std::unique_ptr<strategy::Session> session;
     if (std::filesystem::exists(path / "00000000.json"))
       session = std::make_unique<strategy::Session>(path, session_id);
@@ -87,28 +69,17 @@ int main(int argc, char** argv) {
       response.set_session_id(session_id);
       response.set_correlation_id(request.correlation_id());
     };
-    std::unique_ptr<ipc::Listener> health_listener;
-    std::jthread health_worker;
-    if (!health_endpoint.empty()) {
-      health_listener = std::make_unique<ipc::Listener>(health_endpoint);
-      health_worker = std::jthread([&](std::stop_token stop) {
-        while (!stop.stop_requested()) {
-          try {
-            auto channel = health_listener->accept(200ms);
-            wire::Request request;
-            wire::Response response;
-            if (!request.ParseFromString(channel.receive(1s)))
-              continue;
-            validate(request, response);
-            if (!request.has_heartbeat())
-              continue;
-            health(response);
-            channel.send(response.SerializeAsString(), 1s);
-          } catch (const std::exception&) {
-          }
-        }
-      });
-    }
+    service::HealthChannel health_channel(health_endpoint, [&](const std::string& frame) {
+      wire::Request request;
+      wire::Response response;
+      if (!request.ParseFromString(frame))
+        return std::string();
+      validate(request, response);
+      if (!request.has_heartbeat())
+        return std::string();
+      health(response);
+      return response.SerializeAsString();
+    });
     std::mutex session_mutex;
     std::string replay_phase, replay_error;
     std::unique_ptr<strategy::Replay> replay;
@@ -143,7 +114,7 @@ int main(int argc, char** argv) {
         }
       }
     });
-    auto serve = [&](auto& channel) {
+    auto serve = [&](service::Connection& channel, std::stop_token) {
       // One bounded request per connection; an idle client cannot hold the
       // event writer forever. Health uses its own channel and never touches the
       // plugin.
@@ -195,39 +166,15 @@ int main(int argc, char** argv) {
 
       channel.send(response.SerializeAsString(), 5s);
     };
-    // Accept on this thread; handshake and the single bounded request run in
-    // the pool. serve() takes the session lock only after a frame arrives.
-    ThreadPool clients(4, 8);
-    auto dispatch = [&](auto connection) {
-      auto peer = std::make_shared<decltype(connection)>(std::move(connection));
-      static_cast<void>(clients.submit([&, peer](std::stop_token) {
-        try {
-          if constexpr (requires { std::move(*peer).handshake(1s); }) {
-            auto channel = std::move(*peer).handshake(1s);
-            serve(channel);
-          } else
-            serve(*peer);
-        } catch (const std::exception&) {
-        }
-      }));
-    };
-    if (remote) {
-      ipc::TlsListener listener(bind, port, tls);
-      for (;;) {
-        try {
-          dispatch(listener.accept_pending());
-        } catch (const std::exception&) {
-        }
-      }
-    } else {
-      ipc::Listener listener(endpoint);
-      for (;;) {
-        try {
-          dispatch(listener.accept(1s));
-        } catch (const std::exception&) {
-        }
-      }
-    }
+    // One bounded request per connection; serve() takes the session lock only
+    // after a frame arrives, so handshakes and slow peers never hold it.
+    service::HostOptions options;
+    options.workers = 4;
+    options.handshake = 1s;
+    service::ServiceHost host(transport, serve, options);
+    if (!host.run())
+      std::_Exit(0);
+    return 0;
   } catch (const std::exception& error) {
     std::cerr << "Strategy process failed: " << error.what() << '\n';
     return 1;
