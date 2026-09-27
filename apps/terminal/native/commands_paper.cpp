@@ -25,13 +25,12 @@ void Application::Impl::register_paper_commands() {
     json costs = json::object();
     for (auto key : {"margin_per_lot", "open_fee", "close_today_fee", "close_yesterday_fee"})
       costs[key] = text(p, key);
-    json manifest{{"version", 1},
-                  {"type", "historical_paper"},
-                  {"contract", contract},
-                  {"costs", costs},
-                  {"risk", risk_parameters(p)},
-                  {"deposit", text(p, "deposit")},
-                  {"ticks", preview->replay}};
+    // Validated before the braced initializer (GCC < 13 PR66139 leak).
+    const auto risk = risk_parameters(p);
+    const auto deposit = text(p, "deposit");
+    json manifest{
+        {"version", 1}, {"type", "historical_paper"}, {"contract", contract},    {"costs", costs},
+        {"risk", risk}, {"deposit", deposit},         {"ticks", preview->replay}};
     if (remote)
       paper->create(manifest);
     else {

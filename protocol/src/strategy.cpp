@@ -24,9 +24,12 @@ Json decode_replay_plan(const strategy::v1::ReplayPlan& p) {
     if (calendar.at("calendar").at("contract") != decode_contract(p.dataset().contract()))
       throw std::invalid_argument("strategy calendar contract does not match dataset");
   }
+  // Evaluated before the braced initializer: GCC < 13 leaks already-built
+  // initializer_list elements when a later element throws (PR66139).
+  auto dataset = decode_dataset(p.dataset());
   return {{"version", 2},
           {"calendar_publication", calendar},
-          {"dataset", decode_dataset(p.dataset())},
+          {"dataset", std::move(dataset)},
           {"trading_session", p.trading_session()},
           {"grant_id", p.grant_id()},
           {"agent_endpoint", p.agent_endpoint()},

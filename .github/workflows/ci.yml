@@ -61,6 +61,11 @@ jobs:
           sudo apt-get install -y openssh-server
           sudo mkdir -p /run/sshd
           sudo systemctl start ssh.service
+      - name: Repair runner sudoers permissions
+        if: runner.os == 'Linux'
+        # The hosted image ships /etc/sudoers.d/runner with mode 0640, which
+        # the initializer's full visudo check rightly rejects.
+        run: sudo chmod 0440 /etc/sudoers.d/runner
       - name: Real SSH and native system service acceptance
         if: runner.os == 'Linux'
         timeout-minutes: 8

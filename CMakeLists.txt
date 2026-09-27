@@ -26,7 +26,9 @@ if(ASTERION_SANITIZERS)
   if(MSVC OR NOT ASTERION_SANITIZERS MATCHES "^(address,undefined|thread)$")
     message(FATAL_ERROR "Sanitizers require Clang/GCC and address,undefined or thread")
   endif()
-  target_compile_options(asterion_foundation PUBLIC -fsanitize=${ASTERION_SANITIZERS} -fno-omit-frame-pointer)
+  # -g1 keeps line tables for sanitizer stacks; full Linux DWARF would push
+  # instrumented services past the Agent's 128 MiB artifact limit.
+  target_compile_options(asterion_foundation PUBLIC -fsanitize=${ASTERION_SANITIZERS} -fno-omit-frame-pointer -g1)
   target_link_options(asterion_foundation PUBLIC -fsanitize=${ASTERION_SANITIZERS})
   # Instrumented builds run several times slower; timing assertions scale.
   target_compile_definitions(asterion_foundation PUBLIC ASTERION_SANITIZED=1)

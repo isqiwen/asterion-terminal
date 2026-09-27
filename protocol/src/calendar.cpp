@@ -113,8 +113,11 @@ Json provenance(const data::v1::CalendarPublication& p) {
   if (p.version() != 1 || !p.has_calendar() || p.importer() != "asterion.csv.settlement.v1")
     throw std::invalid_argument("invalid calendar publication");
   metadata(p.source_name(), p.source_sha256(), p.source_bytes());
+  // Evaluated before the braced initializer: GCC < 13 leaks already-built
+  // initializer_list elements when a later element throws (PR66139).
+  auto calendar = decode_calendar(p.calendar());
   return {{"version", 1},
-          {"calendar", decode_calendar(p.calendar())},
+          {"calendar", std::move(calendar)},
           {"source_name", p.source_name()},
           {"source_sha256", p.source_sha256()},
           {"source_bytes", p.source_bytes()},

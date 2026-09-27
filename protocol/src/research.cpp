@@ -52,11 +52,14 @@ Json decode_backtest(const research::v1::BacktestInput& input) {
         publication.at("calendar").at("contract") != decode_contract(input.paper().contract()))
       throw std::invalid_argument("calendar publication does not match backtest contract and days");
   }
+  // Evaluated before the braced initializer: GCC < 13 leaks already-built
+  // initializer_list elements when a later element throws (PR66139).
+  auto paper = decode_input(input.paper());
   return {{"version", 5},
           {"calendar_publication", publication},
           {"days", days},
           {"dataset_revision", input.dataset_revision()},
-          {"paper", decode_input(input.paper())},
+          {"paper", std::move(paper)},
           {"sma",
            {{"fast", input.sma().fast()},
             {"slow", input.sma().slow()},
@@ -167,13 +170,15 @@ Json decode_task_result(const research::v1::TaskResponse& response, const std::s
       task.completed() != task.total() || task.result_digest().size() != 64 ||
       task.result_digest().find_first_not_of("0123456789abcdef") != std::string::npos)
     throw std::invalid_argument("research result task identity or completion mismatch");
-  Json envelope = {{"id", id}, {"kind", metadata.at("kind")}, {"task", metadata}};
+  const auto kind = metadata.at("kind");
+  Json envelope = {{"id", id}, {"kind", kind}, {"task", metadata}};
   auto range = [](const Json& ticks) {
     if (!ticks.is_array() || ticks.empty())
       throw std::invalid_argument("research input has no observations");
-    return Json{{"count", ticks.size()},
-                {"first_timestamp_ns", ticks.front().at("timestamp_ns")},
-                {"last_timestamp_ns", ticks.back().at("timestamp_ns")}};
+    const auto first = ticks.front().at("timestamp_ns");
+    const auto last = ticks.back().at("timestamp_ns");
+    return Json{
+        {"count", ticks.size()}, {"first_timestamp_ns", first}, {"last_timestamp_ns", last}};
   };
   if (task.kind() == research::v1::BACKTEST && task.has_input() && response.has_backtest()) {
     auto experiment = decode_backtest(task.input());

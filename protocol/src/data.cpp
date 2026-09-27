@@ -45,8 +45,11 @@ Json provenance(const data::v1::DatasetPublication& p) {
       p.source_sha256().find_first_not_of("0123456789abcdef") != std::string::npos ||
       !p.source_bytes() || p.source_bytes() > 32 * 1024 * 1024)
     throw std::invalid_argument("invalid dataset provenance");
+  // Evaluated before the braced initializer: GCC < 13 leaks already-built
+  // initializer_list elements when a later element throws (PR66139).
+  auto dataset = decode_dataset(p.dataset());
   return {{"version", 1},
-          {"dataset", decode_dataset(p.dataset())},
+          {"dataset", std::move(dataset)},
           {"source_name", p.source_name()},
           {"source_sha256", p.source_sha256()},
           {"source_bytes", p.source_bytes()},

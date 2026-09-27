@@ -198,13 +198,16 @@ Json decode_input(const v1::PaperInput& input) {
     rows.push_back({{"timestamp_ns", std::to_string(t.timestamp_ns())},
                     {"price", get(t.price())},
                     {"quantity", get(t.quantity())}});
+  // Evaluated before the braced initializer: GCC < 13 leaks already-built
+  // initializer_list elements when a later element throws (PR66139).
+  auto risk = decode_risk(input.risk());
   return {{"version", 1},
           {"type", "historical_paper"},
           {"contract", contract(input.contract())},
           {"costs", costs(input.costs())},
           {"deposit", get(input.deposit())},
-          {"ticks", rows},
-          {"risk", decode_risk(input.risk())}};
+          {"ticks", std::move(rows)},
+          {"risk", std::move(risk)}};
 }
 v1::Command encode_command(const Json& c) {
   v1::Command result;
@@ -405,7 +408,10 @@ Json decode_snapshot(const v1::Snapshot& s) {
       !s.has_realized() || !s.has_unrealized() || !s.has_mark() || s.total() == 0 ||
       s.total() > 10000 || s.cursor() > s.total() || (s.cursor() == 0) == s.has_timestamp_ns())
     throw std::invalid_argument("incomplete trading snapshot");
-  Json result{{"risk", decode_risk(s.risk())},
+  // Evaluated before the braced initializer: GCC < 13 leaks already-built
+  // initializer_list elements when a later element throws (PR66139).
+  auto risk = decode_risk(s.risk());
+  Json result{{"risk", std::move(risk)},
               {"contract", contract(s.contract())},
               {"costs", costs(s.costs())},
               {"mode", "historical_paper"},
