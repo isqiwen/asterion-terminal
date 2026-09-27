@@ -1,6 +1,7 @@
+import { removeFolder } from "./cleanup";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 import { test, expect } from "@playwright/test";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
@@ -133,6 +134,6 @@ test("saved remote profile connects through mTLS and reconnects without stopping
       server.kill();
       await new Promise<void>(done => server.once("exit", () => done()));
     }
-    await rm(folder, { recursive: true, force: true });
+    await removeFolder(folder);
   }
 });

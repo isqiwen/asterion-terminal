@@ -1,3 +1,4 @@
+import { removeFolder } from "./cleanup";
 import { openSettingsWindow } from "./settings-helper";
 import { test, expect } from "@playwright/test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
@@ -106,7 +107,7 @@ test("strategy runs through Agent and can relinquish its paper account", async (
   } finally {
     if (service) await rpc("node.action", { id: "local", service, action: "stop" });
     await rpc("paper.close");
-    await rm(folder, { recursive: true, force: true });
+    await removeFolder(folder);
   }
 });
 
@@ -262,6 +263,6 @@ test("published calendar drives strategy settlement and survives service restart
   } finally {
     if (service) await rpc("node.action", { id: "local", service, action: "stop" });
     await rpc("paper.close");
-    await rm(folder, { recursive: true, force: true });
+    await removeFolder(folder);
   }
 });

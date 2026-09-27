@@ -1,6 +1,7 @@
+import { removeFolder } from "./cleanup";
 import { test, expect } from "@playwright/test";
 import { openSettingsWindow } from "./settings-helper";
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,6 +63,6 @@ test("firewall changes require a concrete preview and explicit confirmation", as
     await preview.getByRole("button", { name: "确认撤销上述规则" }).click();
     await expect(preview).toContainText("本系统记录的规则已撤销");
   } finally {
-    await rm(folder, { recursive: true, force: true });
+    await removeFolder(folder);
   }
 });

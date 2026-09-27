@@ -1,6 +1,7 @@
+import { removeFolder } from "./cleanup";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 import { test, expect } from "@playwright/test";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -84,6 +85,6 @@ test("durable task order and dates survive reload independently of task IDs", as
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
   } finally {
-    await rm(folder, { recursive: true, force: true });
+    await removeFolder(folder);
   }
 });

@@ -1,7 +1,8 @@
+import { removeFolder } from "./cleanup";
 import { test, expect, type APIRequestContext } from "@playwright/test";
 import { createGenerator } from "ts-json-schema-generator";
 import Ajv from "ajv";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -155,6 +156,6 @@ test("C++ snapshots conform to the Terminal API types in every state", async ({ 
     check("market connected", connected);
     check("market disconnected", await call(page.request, "market.disconnect"));
   } finally {
-    await rm(folder, { recursive: true, force: true });
+    await removeFolder(folder);
   }
 });

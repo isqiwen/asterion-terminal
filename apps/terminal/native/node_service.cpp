@@ -22,7 +22,8 @@ std::string utf8(const fs::path& p) {
   const auto s = p.u8string();
   return {s.begin(), s.end()};
 }
-bool command(const fs::path& binary, const std::vector<std::string>& args) {
+// Used by the launchd and Task Scheduler paths; systemd uses require_command only.
+[[maybe_unused]] bool command(const fs::path& binary, const std::vector<std::string>& args) {
   ChildProcess child(binary, args, true);
   if (!child.wait(std::chrono::seconds(15)))
     throw std::runtime_error("service manager timed out");

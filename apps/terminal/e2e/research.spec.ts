@@ -1,6 +1,7 @@
+import { removeFolder } from "./cleanup";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 import { test, expect } from "@playwright/test";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -184,6 +185,6 @@ for (const variant of ["day session", "night sessions", "multiple days"])
           .screenshot({ path: join(__dirname, "../test-results/research-night-english.png") });
       }
     } finally {
-      await rm(folder, { recursive: true, force: true });
+      await removeFolder(folder);
     }
   });

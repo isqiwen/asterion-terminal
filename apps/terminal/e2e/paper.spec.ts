@@ -1,5 +1,6 @@
+import { removeFolder } from "./cleanup";
 import { test, expect } from "@playwright/test";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -112,6 +113,6 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
     await page.request.post("/__asterion/api", {
       data: { version: 1, method: "paper.close", params: {} },
     });
-    await rm(folder, { recursive: true, force: true });
+    await removeFolder(folder);
   }
 });

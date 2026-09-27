@@ -17,6 +17,8 @@ test("overview keeps empty summaries compact and preserves saved layouts", async
   });
   await page.addInitScript(({ key, layout }) => localStorage.setItem(key, layout), { key, layout });
   // Explicit empty-state fixture; no fabricated market prices or account balances.
+  // Polls keep arriving while the test finishes; unrouteAll below ignores
+  // handlers whose responses were disposed with the page.
   await page.route("**/__asterion/api", async route => {
     const response = await route.fetch();
     if (route.request().postDataJSON()?.method !== "runtime.snapshot") {
@@ -51,4 +53,5 @@ test("overview keeps empty summaries compact and preserves saved layouts", async
     "aria-selected",
     "true",
   );
+  await page.unrouteAll({ behavior: "ignoreErrors" });
 });

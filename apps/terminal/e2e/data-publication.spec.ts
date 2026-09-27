@@ -1,5 +1,6 @@
+import { removeFolder } from "./cleanup";
 import { test, expect } from "@playwright/test";
-import { mkdtemp, writeFile, rm, unlink } from "node:fs/promises";
+import { mkdtemp, writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -67,6 +68,6 @@ test("published data remains usable for research after source deletion", async (
     ).toBeVisible();
     await expect(research.getByText("发布中", { exact: true })).toHaveCount(0);
   } finally {
-    await rm(folder, { recursive: true, force: true });
+    await removeFolder(folder);
   }
 });

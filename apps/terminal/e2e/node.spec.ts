@@ -1,6 +1,7 @@
+import { removeFolder } from "./cleanup";
 import { openSettingsWindow } from "./settings-helper";
 import { test, expect } from "@playwright/test";
-import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -117,6 +118,6 @@ test("Terminal deploys and controls a service through Node Agent", async ({ page
     } catch {
       /* The SSH fixture may already have exited. */
     }
-    await rm(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+    await removeFolder(folder);
   }
 });

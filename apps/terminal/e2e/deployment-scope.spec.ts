@@ -43,7 +43,9 @@ test("Terminal generates and reuses a public key without exposing the private ke
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.getByRole("button", { name: "复制公钥", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "公钥已复制" })).toBeVisible();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(original);
+  // The Windows clipboard stores CRLF line endings.
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied.replace(/\r\n/g, "\n").trim()).toBe(original.replace(/\r\n/g, "\n").trim());
   await page.getByRole("button", { name: "生成或查看本机公钥", exact: true }).click();
   await expect(publicKey).toHaveValue(original);
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain("PRIVATE KEY");

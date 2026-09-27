@@ -1,3 +1,4 @@
+import { removeFolder } from "./cleanup";
 import { test, expect } from "@playwright/test";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -98,6 +99,6 @@ test("calendar publication survives source deletion and stays outside research t
     await research.getByLabel("日程来源", { exact: true }).selectOption("");
     await expect(research.getByLabel("交易日", { exact: true })).toHaveValue("");
   } finally {
-    await rm(folder, { recursive: true, force: true });
+    await removeFolder(folder);
   }
 });
