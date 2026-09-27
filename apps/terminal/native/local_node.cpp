@@ -1,6 +1,7 @@
 #include "node_client.hpp"
 #include "node_program.hpp"
 #include "node_service.hpp"
+#include <asterion/kernel/environment.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
@@ -24,8 +25,7 @@ namespace fs = std::filesystem;
 using namespace std::chrono_literals;
 namespace {
 fs::path environment(const char* name) {
-  const auto* p = std::getenv(name);
-  return p ? fs::path(std::u8string(p, p + std::strlen(p))) : fs::path{};
+  return environment_path(name).value_or(fs::path{});
 }
 std::string utf8(const fs::path& p) {
   const auto s = p.u8string();
@@ -58,7 +58,7 @@ fs::path bundled_agent() {
 
 } // namespace
 Json local_node_program_status() {
-  if (std::getenv("ASTERION_NODE_DIRECTORY"))
+  if (environment_variable("ASTERION_NODE_DIRECTORY"))
     return Json{{"state", "isolated"},
                 {"expected_digest", ""},
                 {"installed_digest", ""},
@@ -67,7 +67,7 @@ Json local_node_program_status() {
   return inspect_node_program(source, root / "bin" / source.filename(), root);
 }
 NodeEndpoint upgrade_local_node(const std::string& expected) {
-  if (std::getenv("ASTERION_NODE_DIRECTORY"))
+  if (environment_variable("ASTERION_NODE_DIRECTORY"))
     throw std::runtime_error("system Agent upgrade is unavailable in isolated development");
   const auto root = local_root(), source = bundled_agent();
   if (!root.is_absolute() || fs::is_symlink(root))
@@ -140,7 +140,7 @@ NodeEndpoint local_node() {
   } catch (const Error&) {
   }
   const auto executable = bundled_agent();
-  if (std::getenv("ASTERION_NODE_DIRECTORY")) {
+  if (environment_variable("ASTERION_NODE_DIRECTORY")) {
     // Explicit development/test isolation never registers a login service.
     ChildProcess process(executable, {"--directory", utf8(root), "--endpoint", endpoint}, true);
     process.release();

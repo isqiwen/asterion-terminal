@@ -1,3 +1,9 @@
+#include <asterion/kernel/environment.hpp>
+#ifdef _WIN32
+#include <windows.h>
+#endif
+#include <cstdlib>
+#include <cstring>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -290,4 +296,25 @@ TEST(Kernel, DurableFilesAreOwnerOnlyAndReplaceAtomically) {
   EXPECT_THROW(replace_file_durably(root / "link", "x"), std::runtime_error);
 #endif
   std::filesystem::remove_all(root);
+}
+TEST(Kernel, EnvironmentLookupsAreUnicodeAndTreatEmptyAsUnset) {
+  const char* name = "ASTERION_TEST_ENVIRONMENT_PATH";
+  const std::string value = "/tmp/用户/数据";
+#ifdef _WIN32
+  const std::wstring key(name, name + std::strlen(name));
+  const std::filesystem::path expected(std::u8string(value.begin(), value.end()));
+  ASSERT_TRUE(SetEnvironmentVariableW(key.c_str(), expected.wstring().c_str()));
+#else
+  ASSERT_EQ(::setenv(name, value.c_str(), 1), 0);
+#endif
+  EXPECT_EQ(environment_variable(name), value);
+  EXPECT_EQ(environment_path(name),
+            std::filesystem::path(std::u8string(value.begin(), value.end())));
+#ifdef _WIN32
+  SetEnvironmentVariableW(key.c_str(), L"");
+#else
+  ::setenv(name, "", 1);
+#endif
+  EXPECT_FALSE(environment_variable(name).has_value());
+  EXPECT_FALSE(environment_path("ASTERION_TEST_ENVIRONMENT_UNSET").has_value());
 }

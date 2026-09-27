@@ -1,4 +1,5 @@
 #include "application_impl.hpp"
+#include <asterion/kernel/environment.hpp>
 #include <stdexcept>
 
 namespace asterion::terminal {
@@ -168,9 +169,8 @@ void Application::Impl::register_node_commands() {
     auto program = [&](const char* variable, const char* name) {
       if (id != "local")
         return bundled_linux_program(arch, name);
-      const auto* configured = std::getenv(variable);
-      return configured ? std::filesystem::path(
-                              std::u8string(configured, configured + std::strlen(configured)))
+      const auto configured = environment_path(variable);
+      return configured ? *configured
                         : current_executable().parent_path() /
                               (std::string(name) + (os == "windows" ? ".exe" : ""));
     };
@@ -184,9 +184,8 @@ void Application::Impl::register_node_commands() {
       if (id != "local")
         provider = bundled_linux_program(arch, "ctp-md.so");
       else {
-        const auto* configured = std::getenv("ASTERION_CTP_LIBRARY");
-        provider = configured ? std::filesystem::path(
-                                    std::u8string(configured, configured + std::strlen(configured)))
+        const auto configured = environment_path("ASTERION_CTP_LIBRARY");
+        provider = configured ? *configured
                               : current_executable().parent_path() /
                                     ("ctp-md" + std::string(os == "windows" ? ".dll"
                                                             : os == "macos" ? ".dylib"

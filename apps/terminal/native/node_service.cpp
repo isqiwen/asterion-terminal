@@ -1,4 +1,5 @@
 #include "node_service.hpp"
+#include <asterion/kernel/environment.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
@@ -84,10 +85,10 @@ void manage_node_service(const fs::path& executable, const fs::path& root,
     return result;
   };
 #ifdef __APPLE__
-  const auto* home = std::getenv("HOME");
+  const auto home = environment_path("HOME");
   if (!home)
     throw std::runtime_error("HOME is unavailable");
-  const auto directory = fs::path(home) / "Library/LaunchAgents";
+  const auto directory = *home / "Library/LaunchAgents";
   if (!stopping)
     fs::create_directories(directory);
   if (name.empty())
@@ -210,7 +211,7 @@ void manage_node_service(const fs::path& executable, const fs::path& root,
   }
 
 #else
-  const auto* home = std::getenv("HOME");
+  const auto home = environment_path("HOME");
   if (!home)
     throw std::runtime_error("HOME is unavailable");
   auto quote = [](const std::string& value) {
@@ -226,7 +227,7 @@ void manage_node_service(const fs::path& executable, const fs::path& root,
     }
     return out + "\"";
   };
-  const auto folder = fs::path(home) / ".config/systemd/user";
+  const auto folder = *home / ".config/systemd/user";
   if (!stopping)
     fs::create_directories(folder);
   if (name.empty())

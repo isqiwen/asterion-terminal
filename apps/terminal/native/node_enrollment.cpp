@@ -1,6 +1,7 @@
 #include "node_enrollment.hpp"
 #include "firewall.hpp"
 #include "remote_bundle.hpp"
+#include <asterion/kernel/environment.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/process/artifact.hpp>
@@ -56,17 +57,16 @@ std::string batch_quote(const std::string& s) {
   return r + "\"";
 }
 fs::path state_root() {
-  const char* test = std::getenv("ASTERION_NODE_DIRECTORY");
-  if (test)
-    return path(test) / "enrollments";
+  if (const auto test = environment_path("ASTERION_NODE_DIRECTORY"))
+    return *test / "enrollments";
 #ifdef _WIN32
-  const char* home = std::getenv("LOCALAPPDATA");
+  const auto home = environment_path("LOCALAPPDATA");
 #else
-  const char* home = std::getenv("HOME");
+  const auto home = environment_path("HOME");
 #endif
   if (!home)
     throw std::runtime_error("local user data directory unavailable");
-  return path(home) / ".asterion" / "nodes";
+  return *home / ".asterion" / "nodes";
 }
 void write(const fs::path& p, const std::string& content) {
   if (fs::is_symlink(p))
@@ -74,8 +74,8 @@ void write(const fs::path& p, const std::string& content) {
   write_file_durably(p, content);
 }
 fs::path tool(const char* name) {
-  if (const char* test = std::getenv("ASTERION_SSH_TOOL_DIRECTORY")) {
-    const auto root = path(test);
+  if (const auto test = environment_path("ASTERION_SSH_TOOL_DIRECTORY")) {
+    const auto root = *test;
     if (!root.is_absolute())
       throw std::invalid_argument("SSH tool directory must be absolute");
     return root / name;

@@ -39,7 +39,7 @@ if(ASTERION_SANITIZERS)
   target_compile_definitions(asterion_foundation PUBLIC ASTERION_SANITIZED=1)
 endif()
 
-add_library(asterion_kernel STATIC core/src/kernel/plugin_manager.cpp core/src/kernel/runtime.cpp core/src/kernel/logger.cpp core/src/kernel/ipc/local_channel.cpp core/src/kernel/ipc/tls_channel.cpp core/src/kernel/process/child.cpp core/src/kernel/process/artifact.cpp core/src/kernel/process/owner.cpp core/src/kernel/durable_file.cpp core/src/kernel/service_host.cpp)
+add_library(asterion_kernel STATIC core/src/kernel/plugin_manager.cpp core/src/kernel/runtime.cpp core/src/kernel/logger.cpp core/src/kernel/ipc/local_channel.cpp core/src/kernel/ipc/tls_channel.cpp core/src/kernel/process/child.cpp core/src/kernel/process/artifact.cpp core/src/kernel/process/owner.cpp core/src/kernel/durable_file.cpp core/src/kernel/service_host.cpp core/src/kernel/environment.cpp)
 add_library(Asterion::Kernel ALIAS asterion_kernel)
 target_link_libraries(asterion_kernel PUBLIC Asterion::Foundation Threads::Threads PRIVATE spdlog::spdlog_header_only asio::asio OpenSSL::SSL)
 target_link_libraries(asterion_kernel PRIVATE $<$<PLATFORM_ID:Windows>:advapi32>)

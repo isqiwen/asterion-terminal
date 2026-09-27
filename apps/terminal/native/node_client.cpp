@@ -1,4 +1,5 @@
 #include "node_client.hpp"
+#include <asterion/kernel/environment.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -322,13 +323,11 @@ ServiceEndpoint NodeClient::local_session(const std::filesystem::path& directory
   }
   if (service.empty()) {
     service = "paper-" + unique_process_id();
-    const char* configured = std::getenv("ASTERION_TRADING_EXECUTABLE");
-    auto executable =
-        configured
-            ? std::filesystem::path(std::u8string(configured, configured + std::strlen(configured)))
-            : current_executable().parent_path() / (current_platform().os == "windows"
-                                                        ? "asterion-trading.exe"
-                                                        : "asterion-trading");
+    const auto configured = environment_path("ASTERION_TRADING_EXECUTABLE");
+    auto executable = configured ? *configured
+                                 : current_executable().parent_path() /
+                                       (current_platform().os == "windows" ? "asterion-trading.exe"
+                                                                           : "asterion-trading");
     const auto platform = current_platform();
     deploy(executable, platform.os, platform.arch, service, 0, value);
   } else
@@ -350,18 +349,16 @@ ServiceEndpoint NodeClient::local_market() {
   if (!exists) {
     const auto platform = current_platform();
     const auto root = current_executable().parent_path();
-    const char* configured = std::getenv("ASTERION_MARKET_EXECUTABLE");
-    const auto executable =
-        configured
-            ? std::filesystem::path(std::u8string(configured, configured + std::strlen(configured)))
-            : root /
-                  (platform.os == "windows" ? "asterion-market-data.exe" : "asterion-market-data");
-    const char* library = std::getenv("ASTERION_CTP_LIBRARY");
-    auto sdk = library
-                   ? std::filesystem::path(std::u8string(library, library + std::strlen(library)))
-                   : root / ("ctp-md" + std::string(platform.os == "windows" ? ".dll"
-                                                    : platform.os == "macos" ? ".dylib"
-                                                                             : ".so"));
+    const auto configured = environment_path("ASTERION_MARKET_EXECUTABLE");
+    const auto executable = configured
+                                ? *configured
+                                : root / (platform.os == "windows" ? "asterion-market-data.exe"
+                                                                   : "asterion-market-data");
+    const auto library = environment_path("ASTERION_CTP_LIBRARY");
+    auto sdk = library ? *library
+                       : root / ("ctp-md" + std::string(platform.os == "windows" ? ".dll"
+                                                        : platform.os == "macos" ? ".dylib"
+                                                                                 : ".so"));
     if (!std::filesystem::exists(sdk))
       sdk.clear();
     deploy(executable, platform.os, platform.arch, service, 0, {}, "market", sdk);
@@ -385,10 +382,8 @@ ServiceEndpoint NodeClient::local_research() {
     const auto platform = current_platform();
     const auto root = current_executable().parent_path();
     auto executable = [&](const char* env, const std::string& name) {
-      const char* configured = std::getenv(env);
-      return configured ? std::filesystem::path(
-                              std::u8string(configured, configured + std::strlen(configured)))
-                        : root / (name + (platform.os == "windows" ? ".exe" : ""));
+      const auto configured = environment_path(env);
+      return configured ? *configured : root / (name + (platform.os == "windows" ? ".exe" : ""));
     };
     deploy(executable("ASTERION_TASK_EXECUTABLE", "asterion-task-service"), platform.os,
            platform.arch, service, 0, {}, "research", {},
@@ -416,12 +411,11 @@ ServiceEndpoint NodeClient::local_strategy(const std::string& service) {
   }
   if (!exists) {
     const auto platform = current_platform();
-    const char* configured = std::getenv("ASTERION_STRATEGY_EXECUTABLE");
+    const auto configured = environment_path("ASTERION_STRATEGY_EXECUTABLE");
     const auto executable =
-        configured
-            ? std::filesystem::path(std::u8string(configured, configured + std::strlen(configured)))
-            : current_executable().parent_path() /
-                  (platform.os == "windows" ? "asterion-strategy.exe" : "asterion-strategy");
+        configured ? *configured
+                   : current_executable().parent_path() /
+                         (platform.os == "windows" ? "asterion-strategy.exe" : "asterion-strategy");
     deploy(executable, platform.os, platform.arch, service, 0, {}, "strategy");
   } else
     action(service, "start");

@@ -1,4 +1,5 @@
 #include "remote_bundle.hpp"
+#include <asterion/kernel/environment.hpp>
 #include <vector>
 #include <asterion/kernel/process/artifact.hpp>
 #include <cstdlib>
@@ -28,10 +29,10 @@ fs::path checked_bundle(const std::string& arch) {
   configured.resize(copied);
   const fs::path root(configured);
 #else
-  const auto* configured = std::getenv("ASTERION_REMOTE_RESOURCES");
+  const auto configured = environment_path("ASTERION_REMOTE_RESOURCES");
   if (!configured)
     throw std::runtime_error("desktop package lacks bundled Linux service resources");
-  const fs::path root(configured);
+  const fs::path root(*configured);
 #endif
   const auto folder = root / arch;
   if (!root.is_absolute() || fs::is_symlink(root) || fs::is_symlink(folder))
