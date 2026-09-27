@@ -24,6 +24,7 @@
 #include <nlohmann/json.hpp>
 #include <mutex>
 #include <stdexcept>
+#include <atomic>
 #include <condition_variable>
 #include <map>
 #include <thread>
@@ -59,6 +60,10 @@ struct Application::Impl {
   // Incremented by every command under `operations`; a background refresh
   // that overlapped a command is discarded instead of publishing older state.
   std::uint64_t mutations = 0;
+  // True while a command (not the background refresher) holds `operations`.
+  // Probes return the published snapshot only then; a refresher step is
+  // short (one client call) and worth waiting for.
+  std::atomic<bool> command_running{false};
   // Published snapshot, guarded by cache_mutex. runtime.snapshot only reads it.
   std::mutex cache_mutex;
   std::condition_variable_any refresh_wake;

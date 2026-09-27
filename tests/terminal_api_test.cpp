@@ -211,10 +211,13 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
     const auto status = call(runtime.get(), request("runtime.snapshot"));
     EXPECT_LT(std::chrono::steady_clock::now() - started,
               asterion::testing_support::bound(std::chrono::milliseconds(500)));
-    if (!done) {
+    // The import may publish between this read and the done flag; either way
+    // a reader sees no dataset or the complete one, never a partial state.
+    const auto& dataset = status["result"]["dataset"];
+    if (dataset.is_null())
       ++concurrent_reads;
-      EXPECT_TRUE(status["result"]["dataset"].is_null()) << "import not yet published";
-    }
+    else
+      EXPECT_EQ(dataset["count"], 200000);
   }
   slow.join();
   EXPECT_GT(concurrent_reads, 0) << "import finished before a concurrent read was observed";

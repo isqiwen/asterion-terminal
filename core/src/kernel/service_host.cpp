@@ -58,6 +58,12 @@ public:
     channel_.send(payload, timeout);
   }
   Clock::time_point accepted_at() const noexcept override { return accepted_; }
+  std::string peer_address() const override {
+    if constexpr (requires { channel_.peer_address(); })
+      return channel_.peer_address();
+    else
+      return {};
+  }
 
 private:
   C channel_;
@@ -160,6 +166,8 @@ struct ServiceHost::Impl {
   std::stop_source stop;
   std::atomic<std::size_t> active{0};
   std::unique_ptr<ThreadPool> pool;
+  std::unique_ptr<ipc::TlsListener> tcp;
+  std::unique_ptr<ipc::Listener> local;
 
   template <class Pending> void dispatch(Pending pending) {
     auto peer = std::make_shared<Pending>(std::move(pending));
@@ -223,20 +231,22 @@ ServiceHost::ServiceHost(Transport transport, Handler handler, HostOptions optio
   impl_->handler = std::move(handler);
   impl_->options = std::move(options);
   impl_->pool = std::make_unique<ThreadPool>(impl_->options.workers, impl_->options.queue);
+  if (impl_->transport.remote())
+    impl_->tcp = std::make_unique<ipc::TlsListener>(impl_->transport.bind, impl_->transport.port,
+                                                    impl_->transport.tls);
+  else
+    impl_->local = std::make_unique<ipc::Listener>(impl_->transport.endpoint);
 }
 ServiceHost::~ServiceHost() = default;
 bool ServiceHost::run() {
   auto& impl = *impl_;
-  {
-    // Listeners live only while serving; destruction unlinks local sockets.
-    if (impl.transport.remote()) {
-      ipc::TlsListener listener(impl.transport.bind, impl.transport.port, impl.transport.tls);
-      impl.serve([&] { return listener.accept_pending(impl.options.poll); });
-    } else {
-      ipc::Listener listener(impl.transport.endpoint);
-      impl.serve([&] { return listener.accept(impl.options.poll); });
-    }
-  }
+  if (impl.tcp)
+    impl.serve([&] { return impl.tcp->accept_pending(impl.options.poll); });
+  else
+    impl.serve([&] { return impl.local->accept(impl.options.poll); });
+  // Stop accepting first; destroying a local listener unlinks its socket.
+  impl.tcp.reset();
+  impl.local.reset();
   impl.stop.request_stop();
   const auto deadline = Clock::now() + impl.options.drain;
   while (impl.active.load() && Clock::now() < deadline)

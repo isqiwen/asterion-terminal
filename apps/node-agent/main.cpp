@@ -1,5 +1,6 @@
 #include "firewall.hpp"
 #include "windows_service.hpp"
+#include <asterion/kernel/service_host.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <CLI/CLI.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
@@ -16,7 +17,6 @@
 #include <asterion/v1/research.pb.h>
 #include <asterion/v1/strategy.pb.h>
 #include <atomic>
-#include <csignal>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -34,11 +34,6 @@ namespace wire = asterion::node::v1;
 using namespace asterion;
 using namespace std::chrono_literals;
 namespace {
-volatile std::sig_atomic_t stopping = 0;
-std::atomic<bool> service_stopping{false};
-void stop(int) {
-  stopping = 1;
-}
 std::string utf8(const fs::path& p) {
   const auto s = p.u8string();
   return {s.begin(), s.end()};
@@ -834,136 +829,104 @@ int main(int argc, char** argv) {
 #ifdef _WIN32
   app.add_option("--windows-service", system_service);
 #endif
-  std::string directory, bind, endpoint, transport_log;
-  unsigned short port = 0;
-  ipc::TlsIdentity tls;
+  std::string directory, transport_log;
+  service::Transport transport;
   app.add_option("--directory", directory)->required()->check(CLI::ExistingDirectory);
-  app.add_option("--endpoint", endpoint);
+  app.add_option("--endpoint", transport.endpoint);
   app.add_option("--transport-log", transport_log,
                  "Optional absolute path for bounded transport diagnostics");
-  app.add_option("--bind", bind);
-  app.add_option("--port", port)->check(CLI::Range(1, 65535));
-  app.add_option("--tls-ca", tls.ca_file);
-  app.add_option("--tls-cert", tls.certificate_file);
-  app.add_option("--tls-key", tls.private_key_file);
+  app.add_option("--bind", transport.bind);
+  app.add_option("--port", transport.port)->check(CLI::Range(1, 65535));
+  app.add_option("--tls-ca", transport.tls.ca_file);
+  app.add_option("--tls-cert", transport.tls.certificate_file);
+  app.add_option("--tls-key", transport.tls.private_key_file);
   argv = app.ensure_utf8(argv);
   CLI11_PARSE(app, argc, argv);
   auto run = [&]() -> int {
     try {
-      std::signal(SIGINT, stop);
-      std::signal(SIGTERM, stop);
-      // Bind before starting any children: another agent cannot adopt this
-      // port.
-      const bool local = !endpoint.empty();
-      if (local ? (!bind.empty() || port || !tls.ca_file.empty() || !tls.certificate_file.empty() ||
-                   !tls.private_key_file.empty())
-                : (bind.empty() || !port || tls.ca_file.empty() || tls.certificate_file.empty() ||
-                   tls.private_key_file.empty()))
-        throw std::invalid_argument("choose local endpoint OR TCP with complete TLS identity");
+      service::install_stop_signals();
+      transport.validate();
       const fs::path root(std::u8string(directory.begin(), directory.end()));
       if (!root.is_absolute() || !fs::is_directory(root))
         throw std::invalid_argument("agent requires an existing absolute directory");
       safe(root);
       asterion::FileLock ownership(root, "agent.lock");
-      std::unique_ptr<ipc::TlsListener> tcp;
-      std::unique_ptr<ipc::Listener> ipc_listener;
-      if (local) {
 #ifndef _WIN32
-        safe(endpoint);
-        fs::remove(endpoint);
+      if (!transport.remote()) {
+        // Only the Agent holding agent.lock owns this path; a stale socket
+        // from a crashed predecessor is replaced.
+        safe(transport.endpoint);
+        fs::remove(transport.endpoint);
+      }
 #endif
-        ipc_listener = std::make_unique<ipc::Listener>(endpoint);
-      } else
-        tcp = std::make_unique<ipc::TlsListener>(bind, port, tls);
       const auto pid_file = root / "agent.pid";
       safe(pid_file);
       {
         std::ofstream pid(pid_file);
         pid << current_process_id();
       }
-      std::unique_ptr<Logger> transport;
+      std::unique_ptr<Logger> transport_logger;
       if (!transport_log.empty()) {
         const fs::path path(std::u8string(transport_log.begin(), transport_log.end()));
         if (!path.is_absolute())
           throw std::invalid_argument("transport log path must be absolute");
         safe(path);
-        transport = std::make_unique<Logger>(
+        transport_logger = std::make_unique<Logger>(
             LoggerOptions{.name = "agent-transport", .stderr_sink = false, .file = path});
       }
-      Agent agent(root, tls, bind, port);
-      std::uint64_t next_connection = 0;
-      // Destroy/join clients before Agent and its supervised state. Admission,
-      // handshake and reads are bounded; business mutations remain serialized.
-      ThreadPool clients(8, 8);
-      auto dispatch = [&](auto pending) {
-        auto peer = std::make_shared<decltype(pending)>(std::move(pending));
-        const auto deadline = std::chrono::steady_clock::now() + 10s;
+      std::unique_ptr<Agent> agent;
+      std::atomic<std::uint64_t> next_connection{0};
+      // One bounded request per connection. Admission (queueing, TLS and the
+      // read) is bounded from accept; business mutations stay serialized in
+      // Agent::dispatch.
+      auto handle = [&](service::Connection& channel, std::stop_token stop) {
+        const auto deadline = channel.accepted_at() + 10s;
         const auto connection = ++next_connection;
-        static_cast<void>(
-            clients.submit([peer, &agent, &transport, deadline, connection](std::stop_token stop) {
-              std::string stage = "handshake", operation = "unknown";
-              const auto report = [&](std::string_view outcome) {
-                if (transport) {
-                  transport->write(LogLevel::info, "agent.transport",
-                                   {{"connection", connection},
-                                    {"operation", operation},
-                                    {"stage", stage},
-                                    {"outcome", outcome}});
-                  transport->flush();
-                }
-              };
-              try {
-                auto remaining = [&] {
-                  const auto left = deadline - std::chrono::steady_clock::now();
-                  if (stop.stop_requested() || left <= std::chrono::steady_clock::duration::zero())
-                    throw Error(ErrorCode::unavailable, "Agent request admission timed out");
-                  return std::chrono::ceil<std::chrono::milliseconds>(left);
-                };
-                auto channel = [&] {
-                  if constexpr (requires { std::move(*peer).handshake(10s); })
-                    return std::move(*peer).handshake(remaining());
-                  else
-                    return std::move(*peer);
-                }();
-                stage = "receive";
-                wire::Request request;
-                const auto payload = channel.receive(remaining());
-                stage = "parse";
-                if (!request.ParseFromString(payload)) {
-                  report("rejected");
-                  return;
-                }
-                if (const auto* field = request.GetDescriptor()->FindFieldByNumber(
-                        static_cast<int>(request.operation_case())))
-                  operation = field->name();
-                stage = "peer";
-                std::string address;
-                if constexpr (requires { channel.peer_address(); })
-                  address = channel.peer_address();
-                stage = "dispatch";
-                const auto response =
-                    agent.dispatch(request, address, deadline, stop).SerializeAsString();
-                stage = "send";
-                channel.send(response, 10s);
-                report("completed");
-              } catch (const std::exception&) {
-                report("failed");
-                // Only this peer is closed; never retry an operation or stop
-                // Agent.
-              }
-            }));
-      };
-      while (!stopping && !service_stopping.load()) {
+        std::string stage = "receive", operation = "unknown";
+        const auto report = [&](std::string_view outcome) {
+          if (transport_logger) {
+            transport_logger->write(LogLevel::info, "agent.transport",
+                                    {{"connection", connection},
+                                     {"operation", operation},
+                                     {"stage", stage},
+                                     {"outcome", outcome}});
+            transport_logger->flush();
+          }
+        };
         try {
-          if (local)
-            dispatch(ipc_listener->accept(1s));
-          else
-            dispatch(tcp->accept_pending(1s));
-        } catch (const Error&) {
-          // Idle timeout, rejected peer or full bounded queue. Unscheduled
-          // channels are destroyed here, including unauthenticated TCP peers.
+          const auto left = deadline - std::chrono::steady_clock::now();
+          if (stop.stop_requested() || left <= std::chrono::steady_clock::duration::zero())
+            throw Error(ErrorCode::unavailable, "Agent request admission timed out");
+          wire::Request request;
+          const auto payload = channel.receive(std::chrono::ceil<std::chrono::milliseconds>(left));
+          stage = "parse";
+          if (!request.ParseFromString(payload)) {
+            report("rejected");
+            return;
+          }
+          if (const auto* field = request.GetDescriptor()->FindFieldByNumber(
+                  static_cast<int>(request.operation_case())))
+            operation = field->name();
+          stage = "dispatch";
+          const auto response =
+              agent->dispatch(request, channel.peer_address(), deadline, stop).SerializeAsString();
+          stage = "send";
+          channel.send(response, 10s);
+          report("completed");
+        } catch (const std::exception&) {
+          report("failed");
+          // Only this peer is closed; never retry an operation or stop Agent.
         }
-      }
+      };
+      // Bind before starting any children: another agent cannot adopt this
+      // endpoint while supervised services start.
+      service::HostOptions options;
+      options.handshake = 10s;
+      options.poll = 1s;
+      service::ServiceHost host(transport, handle, options);
+      agent = std::make_unique<Agent>(root, transport.tls, transport.bind, transport.port);
+      if (!host.run())
+        std::_Exit(0);
     } catch (const std::exception& error) {
       std::cerr << "Node failed: " << error.what() << '\n';
       return 1;
@@ -972,7 +935,7 @@ int main(int argc, char** argv) {
   };
 #ifdef _WIN32
   if (!system_service.empty())
-    return asterion::node::run_service(system_service, run, [] { service_stopping = true; });
+    return asterion::node::run_service(system_service, run, [] { service::request_stop(); });
 #endif
   return run();
 }

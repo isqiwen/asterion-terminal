@@ -36,6 +36,8 @@ public:
   // When the transport was accepted, before queueing and authentication, so
   // handlers can bound the whole admission rather than only their own reads.
   virtual std::chrono::steady_clock::time_point accepted_at() const noexcept = 0;
+  // Remote IP for TCP peers; empty for local IPC.
+  virtual std::string peer_address() const = 0;
 };
 
 // Process-wide cooperative stop request. install_stop_signals() routes
@@ -94,7 +96,8 @@ struct HostOptions {
   std::function<void()> tick;
 };
 
-// Owns the listener. The accept thread only accepts transports; mutual TLS and
+// Binds the listener on construction, so a process can claim its endpoint
+// before starting anything else. The accept thread only accepts transports; mutual TLS and
 // the handler run in the bounded pool, and overload drops the new connection.
 // The handler owns framing and must bound every receive; its exceptions close
 // only that connection.

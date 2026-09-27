@@ -198,24 +198,40 @@ json Application::Impl::dispatch(const json& request) {
   const auto method = text(request, "method");
   const auto& params = request.at("params");
   // Polls pass `since` and always read the published snapshot. A plain read is
-  // an explicit probe: fresh when idle, otherwise the published snapshot
-  // marked stale. Neither ever waits behind a command or a service RPC.
+  // an explicit probe: fresh, except while a command runs, when it returns the
+  // published snapshot marked stale. A probe may wait for one background
+  // refresher step (a single client call) but never behind a command.
   std::unique_lock operation(operations, std::defer_lock);
   if (method == "runtime.snapshot") {
     const bool poll = params.is_object() && params.contains("since");
-    if (poll || !operation.try_lock()) {
-      if (auto published = read_published(params); !published.is_null()) {
-        if (!poll)
-          published["stale"] = true;
+    auto published_read = [&]() -> json {
+      auto published = read_published(params);
+      if (!published.is_null() && !poll)
+        published["stale"] = true;
+      return published;
+    };
+    if (poll)
+      if (auto published = published_read(); !published.is_null())
         return published;
-      }
-      if (!operation.owns_lock())
-        operation.lock();
+    while (!operation.try_lock()) {
+      if (command_running.load())
+        if (auto published = published_read(); !published.is_null())
+          return published;
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
   } else {
     operation.lock();
     ++mutations;
+    command_running = true;
   }
+  struct Clear {
+    std::atomic<bool>& flag;
+    bool active;
+    ~Clear() {
+      if (active)
+        flag = false;
+    }
+  } clear{command_running, method != "runtime.snapshot"};
   auto result = core.dispatch("terminal.local", method,
                               method == "runtime.snapshot" ? json::object() : params);
   if (result.is_object() && result.contains("protocol")) {
