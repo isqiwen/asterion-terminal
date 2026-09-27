@@ -3,10 +3,22 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 namespace asterion::ipc {
 struct TlsIdentity {
   std::string ca_file, certificate_file, private_key_file;
 };
+// Authorization role of a certificate, carried in its subject as
+// OU=asterion:<role>. The node CA issues all roles at enrollment and discards
+// its key, so roles cannot be forged without that key.
+//   admin   - deploy, upload and run programs, maintenance, firewall
+//   client  - business calls only (trading, market data, research, strategy)
+//   service - calls between services
+// local marks same-user IPC peers; unknown means no recognised role.
+enum class PeerRole { unknown, admin, client, service, local };
+std::string_view role_name(PeerRole role) noexcept;
+// The subject value for a role, e.g. "asterion:admin".
+std::string role_subject(PeerRole role);
 // Single-owner framed TCP stream. Mutual TLS is mandatory; no plaintext mode.
 // Distinct channels have independent event loops and may be used concurrently.
 // Move ownership between threads; never operate on one channel concurrently.
@@ -24,6 +36,8 @@ public:
   std::string receive(std::chrono::milliseconds timeout);
   void send(const std::string& payload, std::chrono::milliseconds timeout);
   std::string peer_address() const;
+  // Role of the authenticated peer certificate.
+  PeerRole peer_role() const;
   void close() noexcept;
 
 private:

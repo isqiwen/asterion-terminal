@@ -23,7 +23,7 @@ struct Identity {
   Key key{EVP_PKEY_Q_keygen(nullptr, nullptr, "EC", "prime256v1"), EVP_PKEY_free};
   Cert certificate{X509_new(), X509_free};
   Identity(const char* name, int serial, Identity* issuer = nullptr, bool expired = false,
-           const char* names = "DNS:localhost,IP:127.0.0.1") {
+           const char* names = "DNS:localhost,IP:127.0.0.1", const char* role = nullptr) {
     check(key && certificate);
     auto* cert = certificate.get();
     auto* ca = issuer ? issuer->certificate.get() : cert;
@@ -35,6 +35,10 @@ struct Identity {
     auto* subject = X509_get_subject_name(cert);
     check(X509_NAME_add_entry_by_txt(subject, "CN", MBSTRING_ASC,
                                      reinterpret_cast<const unsigned char*>(name), -1, -1, 0) == 1);
+    if (role)
+      check(X509_NAME_add_entry_by_txt(subject, "OU", MBSTRING_ASC,
+                                       reinterpret_cast<const unsigned char*>(role), -1, -1,
+                                       0) == 1);
     check(X509_set_issuer_name(cert, X509_get_subject_name(ca)) == 1);
     extension(cert, ca, NID_basic_constraints, issuer ? "critical,CA:FALSE" : "critical,CA:TRUE");
     extension(cert, ca, NID_key_usage,
@@ -79,10 +83,19 @@ int main(int argc, char** argv) {
   argv = app.ensure_utf8(argv);
   CLI11_PARSE(app, argc, argv);
   const std::filesystem::path path(std::u8string(directory.begin(), directory.end()));
+  // Roles as issued at node enrollment: the operator's client is admin, the
+  // node's server certificate is a service, trading-client is business-only.
+  constexpr auto localhost = "DNS:localhost,IP:127.0.0.1";
   Identity ca("test-ca", 1), other("untrusted-ca", 2),
-      server("server", 3, &ca, false, server_names.c_str()), client("client", 4, &ca),
-      stranger("stranger", 5, &other), expired("expired", 6, &ca, true);
-  Identity wrong("wrong-server", 7, &ca, false, "DNS:wrong.example.invalid");
+      server("server", 3, &ca, false, server_names.c_str(), "asterion:service"),
+      client("client", 4, &ca, false, localhost, "asterion:admin"),
+      stranger("stranger", 5, &other, false, localhost, "asterion:admin"),
+      expired("expired", 6, &ca, true, localhost, "asterion:admin");
+  Identity wrong("wrong-server", 7, &ca, false, "DNS:wrong.example.invalid", "asterion:service");
+  Identity trading("trading-client", 8, &ca, false, localhost, "asterion:client"),
+      unroled("unroled", 9, &ca, false, localhost);
+  trading.save(path, "trading-client");
+  unroled.save(path, "unroled");
   wrong.save(path, "wrong");
   ca.save(path, "ca");
   other.save(path, "other");

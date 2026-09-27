@@ -7,6 +7,7 @@
 #include <memory>
 #include <stop_token>
 #include <string>
+#include <vector>
 #include <stdexcept>
 
 // Common process skeleton for Asterion services: transport selection, stop
@@ -39,6 +40,8 @@ public:
   virtual std::chrono::steady_clock::time_point accepted_at() const noexcept = 0;
   // Remote IP for TCP peers; empty for local IPC.
   virtual std::string peer_address() const = 0;
+  // Certificate role for TCP peers; local for same-user IPC peers.
+  virtual ipc::PeerRole peer_role() const = 0;
 };
 
 // Process-wide cooperative stop request. install_stop_signals() routes
@@ -98,6 +101,11 @@ struct HostOptions {
   Milliseconds drain{400};
   // Optional housekeeping on the accept thread after every poll.
   std::function<void()> tick;
+  // TCP peers whose certificate carries none of these roles are closed after
+  // the handshake, before the handler runs. Local IPC peers are always
+  // admitted (same OS user). Operation-level checks stay in the handler.
+  std::vector<ipc::PeerRole> roles{ipc::PeerRole::admin, ipc::PeerRole::client,
+                                   ipc::PeerRole::service};
 };
 
 // Binds the listener on construction, so a process can claim its endpoint

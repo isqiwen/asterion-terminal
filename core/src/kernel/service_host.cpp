@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/process/owner.hpp>
@@ -60,6 +61,12 @@ public:
       return channel_.peer_address();
     else
       return {};
+  }
+  ipc::PeerRole peer_role() const override {
+    if constexpr (requires { channel_.peer_role(); })
+      return channel_.peer_role();
+    else
+      return ipc::PeerRole::local;
   }
 
 private:
@@ -192,6 +199,8 @@ struct ServiceHost::Impl {
           if constexpr (std::is_same_v<Pending, ipc::TlsPendingConnection>) {
             ChannelConnection<ipc::TlsChannel> connection(
                 std::move(*peer).handshake(options.handshake), accepted);
+            if (std::ranges::find(options.roles, connection.peer_role()) == options.roles.end())
+              return; // Authenticated but not authorized for this service.
             handler(connection, token);
           } else {
             ChannelConnection<Pending> connection(std::move(*peer), accepted);

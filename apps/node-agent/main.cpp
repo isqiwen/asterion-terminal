@@ -441,7 +441,7 @@ public:
       fs::remove_all(sockets_, ec);
     }
   }
-  wire::Response dispatch(const wire::Request& r, const std::string& peer,
+  wire::Response dispatch(const wire::Request& r, const std::string& peer, ipc::PeerRole role,
                           std::chrono::steady_clock::time_point deadline, std::stop_token stop) {
     std::lock_guard lock(mutex_);
     wire::Response response;
@@ -454,6 +454,11 @@ public:
       validate_id(r.correlation_id());
       if (r.version() != 1)
         throw std::invalid_argument("unsupported node protocol");
+      // Anyone the node CA certified may read status; everything that installs,
+      // runs, reconfigures or exposes programs needs the admin certificate.
+      if (!r.has_status() && role != ipc::PeerRole::admin && role != ipc::PeerRole::local)
+        throw Error(ErrorCode::permission_denied,
+                    "this operation requires the node administrator certificate");
       if (r.has_maintenance()) {
         const auto& request = r.maintenance();
         validate_id(request.operation_id());
@@ -907,7 +912,8 @@ int main(int argc, char** argv) {
             operation = field->name();
           stage = "dispatch";
           const auto response =
-              agent->dispatch(request, channel.peer_address(), deadline, stop).SerializeAsString();
+              agent->dispatch(request, channel.peer_address(), channel.peer_role(), deadline, stop)
+                  .SerializeAsString();
           stage = "send";
           channel.send(response, 10s);
           report("completed");

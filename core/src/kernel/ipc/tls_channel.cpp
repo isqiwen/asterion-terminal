@@ -74,6 +74,54 @@ std::string TlsChannel::peer_address() const {
     throw std::logic_error("closed TLS channel");
   return impl_->stream.lowest_layer().remote_endpoint().address().to_string();
 }
+std::string_view role_name(PeerRole role) noexcept {
+  switch (role) {
+  case PeerRole::admin:
+    return "admin";
+  case PeerRole::client:
+    return "client";
+  case PeerRole::service:
+    return "service";
+  case PeerRole::local:
+    return "local";
+  case PeerRole::unknown:
+    break;
+  }
+  return "unknown";
+}
+std::string role_subject(PeerRole role) {
+  if (role == PeerRole::unknown || role == PeerRole::local)
+    throw std::invalid_argument("only admin, client and service roles are issued");
+  return "asterion:" + std::string(role_name(role));
+}
+PeerRole TlsChannel::peer_role() const {
+  if (!impl_)
+    throw std::logic_error("closed TLS channel");
+  // The handshake already verified this certificate against the node CA.
+  std::unique_ptr<X509, decltype(&X509_free)> peer(
+      SSL_get1_peer_certificate(impl_->stream.native_handle()), X509_free);
+  if (!peer)
+    return PeerRole::unknown;
+  const auto* subject = X509_get_subject_name(peer.get());
+  PeerRole found = PeerRole::unknown;
+  for (int index = X509_NAME_get_index_by_NID(subject, NID_organizationalUnitName, -1); index >= 0;
+       index = X509_NAME_get_index_by_NID(subject, NID_organizationalUnitName, index)) {
+    const auto* data = X509_NAME_ENTRY_get_data(X509_NAME_get_entry(subject, index));
+    const std::string_view value(reinterpret_cast<const char*>(ASN1_STRING_get0_data(data)),
+                                 static_cast<std::size_t>(ASN1_STRING_length(data)));
+    PeerRole role = PeerRole::unknown;
+    for (const auto candidate : {PeerRole::admin, PeerRole::client, PeerRole::service})
+      if (value == role_subject(candidate))
+        role = candidate;
+    // Exactly one recognised role; several conflicting ones grant nothing.
+    if (role != PeerRole::unknown) {
+      if (found != PeerRole::unknown && found != role)
+        return PeerRole::unknown;
+      found = role;
+    }
+  }
+  return found;
+}
 void TlsChannel::close() noexcept {
   impl_.reset();
 }
