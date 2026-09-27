@@ -12,6 +12,7 @@
 #include <fstream>
 #include <mutex>
 #include <thread>
+#include <stdexcept>
 #ifndef _WIN32
 #include <sys/stat.h>
 #include <unistd.h>

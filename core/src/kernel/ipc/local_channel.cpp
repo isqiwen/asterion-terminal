@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <limits>
 #include <thread>
+#include <stdexcept>
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX

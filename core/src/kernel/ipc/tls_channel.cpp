@@ -7,6 +7,7 @@
 #include <asterion/kernel/ipc/tls_channel.hpp>
 #include <filesystem>
 #include <fstream>
+#include <stdexcept>
 namespace asterion::ipc {
 namespace {
 using Tcp = asio::ip::tcp;

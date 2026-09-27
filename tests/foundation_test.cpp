@@ -133,7 +133,8 @@ TEST(Foundation, ErrorCodesRoundTripAndExceptionsClassify) {
   EXPECT_EQ(classify(std::runtime_error("x")), ErrorCode::operation_failed);
   EXPECT_EQ(classify(std::bad_alloc()), ErrorCode::resource_exhausted);
   try {
-    (void)Json::parse("{");
+    const auto never = Json::parse("{");
+    static_cast<void>(never);
   } catch (const std::exception& e) {
     EXPECT_EQ(classify(e), ErrorCode::invalid_request);
   }

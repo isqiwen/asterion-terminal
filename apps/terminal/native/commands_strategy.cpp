@@ -1,4 +1,5 @@
 #include "application_impl.hpp"
+#include <stdexcept>
 
 namespace asterion::terminal {
 // Strategy runs: authorization handoff between the paper account and the strategy host.

@@ -3,6 +3,7 @@
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
 #include <charconv>
+#include <stdexcept>
 namespace asterion::protocol {
 void encode_settlement_days(const Json& days,
                             google::protobuf::RepeatedPtrField<data::v1::SettlementDay>& result) {

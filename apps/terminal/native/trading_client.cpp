@@ -7,6 +7,7 @@
 #include <cstring>
 #include <thread>
 #include <optional>
+#include <stdexcept>
 #ifndef _WIN32
 #include <sys/stat.h>
 #endif

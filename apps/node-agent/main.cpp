@@ -23,6 +23,7 @@
 #include <mutex>
 #include <regex>
 #include <thread>
+#include <stdexcept>
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX

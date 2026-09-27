@@ -7,6 +7,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <mutex>
+#include <stdexcept>
 using namespace std::chrono_literals;
 int main(int argc, char** argv) {
   CLI::App app{"Asterion trading session host (one account ledger per process)"};

@@ -3,6 +3,7 @@
 #include <array>
 #include <random>
 #include <thread>
+#include <stdexcept>
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX

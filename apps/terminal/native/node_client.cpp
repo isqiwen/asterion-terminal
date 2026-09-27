@@ -10,6 +10,7 @@
 #include <fstream>
 #include <mutex>
 #include <thread>
+#include <stdexcept>
 namespace asterion::terminal {
 namespace wire = asterion::node::v1;
 using namespace std::chrono_literals;

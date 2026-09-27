@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <asterion/domain/futures.hpp>
 #include <asterion/domain/trading_schedule.hpp>
+#include <stdexcept>
 namespace asterion::backtest {
 namespace {
 Decimal decimal(const protocol::v1::Decimal& value) {

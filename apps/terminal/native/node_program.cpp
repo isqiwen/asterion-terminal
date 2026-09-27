@@ -7,6 +7,7 @@
 #include <asterion/kernel/process/file_lock.hpp>
 #include <fstream>
 #include <thread>
+#include <stdexcept>
 #ifdef _WIN32
 #include <windows.h>
 #endif

@@ -182,10 +182,18 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
   ASSERT_TRUE(runtime);
   const auto first = call(runtime.get(), request("runtime.snapshot"));
   ASSERT_TRUE(first.contains("result"));
-  const auto revision = first["result"]["revision"].get<std::uint64_t>();
+  auto revision = first["result"]["revision"].get<std::uint64_t>();
   EXPECT_GT(first["result"]["refreshed_at_ms"].get<std::int64_t>(), 0);
-  // An unchanged revision returns no state at all.
-  const auto same = call(runtime.get(), request("runtime.snapshot", {{"since", revision}}));
+  // The probe's own call count is published by the next background refresh,
+  // so wait for the state to settle; then an unchanged revision carries no state.
+  json same;
+  for (int attempt = 0; attempt < 5; ++attempt) {
+    same = call(runtime.get(), request("runtime.snapshot", {{"since", revision}}));
+    if (same["result"].value("unchanged", false))
+      break;
+    revision = same["result"]["revision"].get<std::uint64_t>();
+    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+  }
   EXPECT_EQ(same["result"]["unchanged"], true);
   EXPECT_EQ(same["result"]["revision"], revision);
   EXPECT_FALSE(same["result"].contains("dataset"));

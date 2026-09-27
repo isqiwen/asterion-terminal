@@ -1,4 +1,5 @@
 #include "application_impl.hpp"
+#include <stdexcept>
 
 namespace asterion::terminal {
 // Read-only live market service.

@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <thread>
+#include <stdexcept>
 namespace asterion::terminal {
 using namespace std::chrono_literals;
 namespace wire = research::v1;

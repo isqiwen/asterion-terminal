@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <thread>
+#include <stdexcept>
 int main(int argc, char** argv) {
   CLI::App app{"Asterion validated CSV import and immutable dataset publication"};
   app.set_version_flag("--version", "asterion-data-pipeline " ASTERION_PRODUCT_VERSION);

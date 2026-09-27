@@ -1,6 +1,7 @@
 #pragma once
 #include <filesystem>
 #include <string_view>
+#include <stdexcept>
 namespace asterion {
 // Creates or truncates `path`, writes all of `contents` and forces it to stable
 // storage before returning (F_FULLFSYNC on macOS, fsync elsewhere, and

@@ -1,6 +1,7 @@
 #include <asterion/domain/futures.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
+#include <stdexcept>
 namespace asterion::protocol {
 namespace {
 Json contents(const data::v1::TradeDataset& dataset) {

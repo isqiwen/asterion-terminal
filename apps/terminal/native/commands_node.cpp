@@ -1,4 +1,5 @@
 #include "application_impl.hpp"
+#include <stdexcept>
 
 namespace asterion::terminal {
 // Node lifecycle: SSH enrollment, firewall, Agent upgrade, service deployment.

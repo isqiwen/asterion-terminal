@@ -9,6 +9,7 @@
 #include <iostream>
 #include <mutex>
 #include <thread>
+#include <stdexcept>
 using namespace asterion;
 using namespace std::chrono_literals;
 namespace wire = asterion::market::v1;

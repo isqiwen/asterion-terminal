@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <stdexcept>
 #ifdef _WIN32
 #include <windows.h>
 #endif

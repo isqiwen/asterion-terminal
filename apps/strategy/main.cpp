@@ -8,6 +8,7 @@
 #include <iostream>
 #include <mutex>
 #include <thread>
+#include <stdexcept>
 using namespace std::chrono_literals;
 int main(int argc, char** argv) {
   CLI::App app{"Asterion trusted strategy host: durable events and target intents"};

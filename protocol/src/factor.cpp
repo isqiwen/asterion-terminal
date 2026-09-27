@@ -2,6 +2,7 @@
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <cmath>
+#include <stdexcept>
 namespace asterion::protocol {
 namespace {
 Json dataset(const research::v1::FactorInput& input) {

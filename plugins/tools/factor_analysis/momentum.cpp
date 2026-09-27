@@ -3,6 +3,7 @@
 #include <cmath>
 #include <numeric>
 #include <vector>
+#include <stdexcept>
 namespace asterion {
 std::optional<unsigned>
 select_momentum_lookback(std::span<const MomentumCandidateScore> candidates) {

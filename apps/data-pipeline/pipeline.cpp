@@ -4,6 +4,7 @@
 #include <asterion/domain/futures.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <fstream>
+#include <stdexcept>
 namespace asterion::data_pipeline {
 namespace fs = std::filesystem;
 namespace {

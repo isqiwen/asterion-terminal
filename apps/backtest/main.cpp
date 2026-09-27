@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <thread>
+#include <stdexcept>
 int main(int argc, char** argv) {
   CLI::App app{"Asterion single-day futures backtest (SMA long/flat, next-tick "
                "limit fills)"};

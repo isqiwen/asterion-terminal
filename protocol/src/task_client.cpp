@@ -2,6 +2,7 @@
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/protocol/task_client.hpp>
 #include <iostream>
+#include <stdexcept>
 namespace asterion::protocol {
 using namespace std::chrono_literals;
 int run_task_worker(const std::string& endpoint, const std::string& host, unsigned short port,

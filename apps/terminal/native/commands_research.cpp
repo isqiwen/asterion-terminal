@@ -1,4 +1,5 @@
 #include "application_impl.hpp"
+#include <stdexcept>
 
 namespace asterion::terminal {
 // Research tasks: backtest, factor, calendar and data publication.

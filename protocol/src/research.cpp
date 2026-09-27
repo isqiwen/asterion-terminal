@@ -5,6 +5,7 @@
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/research.hpp>
 #include <charconv>
+#include <stdexcept>
 namespace asterion::protocol {
 std::string dataset_revision(const v1::PaperInput& input) {
   return make_trade_dataset(input.contract(), input.ticks()).revision();

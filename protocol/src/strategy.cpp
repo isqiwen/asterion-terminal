@@ -1,5 +1,6 @@
 #include <asterion/foundation/id.hpp>
 #include <asterion/protocol/strategy.hpp>
+#include <stdexcept>
 namespace asterion::protocol {
 Json decode_replay_plan(const strategy::v1::ReplayPlan& p) {
   validate_message(p);

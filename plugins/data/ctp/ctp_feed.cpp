@@ -14,6 +14,7 @@
 #include <set>
 #include <thread>
 #include <utility>
+#include <stdexcept>
 #ifdef _WIN32
 #include <windows.h>
 #else

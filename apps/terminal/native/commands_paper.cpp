@@ -1,4 +1,5 @@
 #include "application_impl.hpp"
+#include <stdexcept>
 
 namespace asterion::terminal {
 // Paper trading sessions: create, connect, recover and act on an account.

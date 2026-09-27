@@ -752,7 +752,12 @@ TEST(FuturesAccount, TypedQueriesMatchSnapshotAndRejectedFillsLeaveLedgerUntouch
   EXPECT_FALSE(account.fill({"e1", "o1", d("1"), d("100")}));
 }
 TEST(PaperExecution, RestingOrdersDoNotMakeReplayQuadratic) {
+  // Smaller under sanitizers: the point is linear scaling, not absolute size.
+#ifdef ASTERION_SANITIZED
+  constexpr std::size_t events = 2000, resting = 400;
+#else
   constexpr std::size_t events = 10000, resting = 2000;
+#endif
   std::vector<TradeTick> ticks;
   for (std::size_t i = 0; i < events; ++i)
     ticks.push_back({instrument().id, static_cast<std::int64_t>(i + 1), d("100"), d("1")});

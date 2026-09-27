@@ -4,6 +4,7 @@
 #include <asterion/protocol/data.hpp>
 #include <charconv>
 #include <type_traits>
+#include <stdexcept>
 namespace asterion::trading {
 namespace {
 std::string string(const Json& value, const char* key) {

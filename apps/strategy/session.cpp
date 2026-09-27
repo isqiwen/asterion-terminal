@@ -4,6 +4,7 @@
 #include <asterion/domain/futures.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/strategy.hpp>
+#include <stdexcept>
 namespace asterion::strategy {
 namespace {
 Instrument instrument(const protocol::v1::Contract& c) {

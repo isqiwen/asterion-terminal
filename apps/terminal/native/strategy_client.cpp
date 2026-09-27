@@ -3,6 +3,7 @@
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <thread>
+#include <stdexcept>
 using namespace std::chrono_literals;
 namespace asterion::terminal {
 StrategyClient::StrategyClient(ServiceEndpoint endpoint) : endpoint_(std::move(endpoint)) {

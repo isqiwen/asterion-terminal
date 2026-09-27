@@ -3,6 +3,7 @@
 #include <openssl/pem.h>
 #include <openssl/x509v3.h>
 #include <fstream>
+#include <stdexcept>
 namespace asterion::terminal {
 namespace {
 void check(bool ok) {

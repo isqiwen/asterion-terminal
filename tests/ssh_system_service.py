@@ -141,7 +141,7 @@ def main():
             old_pid = health()['health']['services'][0]['pid']
             run(service_command('restart'))
             wait(lambda: service_running() and health()['health']['services'][0]['pid'] != old_pid)
-            call('node.action', dict(kind='paper', id=identity, service='paper-acceptance', action='stop'))
+            call('node.action', dict(id=identity, service='paper-acceptance', action='stop'))
             run(service_command('restart'))
             # Reattach after restart: explicit stopped state must survive.
             time.sleep(2)

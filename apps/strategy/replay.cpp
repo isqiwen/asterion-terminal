@@ -7,6 +7,7 @@
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/protocol/strategy.hpp>
 #include <asterion/v1/node.pb.h>
+#include <stdexcept>
 using namespace std::chrono_literals;
 namespace asterion::strategy {
 namespace {

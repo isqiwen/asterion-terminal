@@ -2,6 +2,7 @@
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <google/protobuf/unknown_field_set.h>
+#include <stdexcept>
 namespace asterion::protocol {
 namespace {
 void set(v1::Decimal* target, const Json& value) {

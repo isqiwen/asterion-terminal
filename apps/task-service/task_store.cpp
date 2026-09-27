@@ -12,6 +12,7 @@
 #include <asterion/protocol/factor.hpp>
 #include <map>
 #include <set>
+#include <stdexcept>
 namespace asterion::tasks {
 namespace wire = research::v1;
 namespace fs = std::filesystem;

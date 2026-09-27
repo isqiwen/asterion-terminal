@@ -7,6 +7,7 @@
 #include <memory>
 #include <stop_token>
 #include <string>
+#include <stdexcept>
 
 // Common process skeleton for Asterion services: transport selection, stop
 // signals, supervisor liveness, the private health channel and a listener

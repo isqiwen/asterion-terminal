@@ -3,6 +3,7 @@
 #include "walk_forward.hpp"
 #include <array>
 #include <asterion/domain/futures.hpp>
+#include <stdexcept>
 namespace asterion::factor {
 namespace {
 Instrument instrument(const protocol::v1::Contract& c) {

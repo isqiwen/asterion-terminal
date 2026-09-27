@@ -9,6 +9,7 @@
 #include <map>
 #include <mutex>
 #include <thread>
+#include <stdexcept>
 using namespace std::chrono_literals;
 int main(int argc, char** argv) {
   CLI::App app{"Asterion durable task service (Agent-dispatched backtest workers)"};

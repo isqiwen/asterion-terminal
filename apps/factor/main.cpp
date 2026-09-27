@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <thread>
+#include <stdexcept>
 int main(int argc, char** argv) {
   CLI::App app{"Asterion event-momentum factor evaluation and development-only "
                "window comparison"};

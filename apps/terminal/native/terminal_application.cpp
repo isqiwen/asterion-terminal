@@ -1,4 +1,5 @@
 #include "application_impl.hpp"
+#include <stdexcept>
 
 namespace asterion::terminal {
 void fields(const json& object, std::initializer_list<std::string_view> names) {

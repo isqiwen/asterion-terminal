@@ -4,6 +4,7 @@
 #include <openssl/evp.h>
 #include <fstream>
 #include <regex>
+#include <stdexcept>
 #ifdef _WIN32
 #include <windows.h>
 #endif
