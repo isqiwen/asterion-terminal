@@ -1,0 +1,56 @@
+{
+  "macos": {
+    "ThostFtdcMdApi.h": {
+      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_MacOS_20240716/ThostFtdcMdApi.h",
+      "sha256": "744b6890028b5265f2a91dd6b43821ec71fb0512770a6f5e8fb01056f6f2d4e8"
+    },
+    "ThostFtdcUserApiDataType.h": {
+      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_MacOS_20240716/ThostFtdcUserApiDataType.h",
+      "sha256": "8de1bf4c06abd87b21ad0f7ee239286fde0c28c1562e81f85e5fc770a8c8830c"
+    },
+    "ThostFtdcUserApiStruct.h": {
+      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_MacOS_20240716/ThostFtdcUserApiStruct.h",
+      "sha256": "13458040d1a7840e0e9b7ea77acc9251088e591a4e7e8be86fc6c44340d789b5"
+    },
+    "ctp-md.dylib": {
+      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_MacOS_20240716/thostmduserapi_se.framework/Versions/A/thostmduserapi_se",
+      "sha256": "ff5ac3928a131b24973b9900efa1175410e5db57b9d64c937e07ae553150f1bf"
+    }
+  },
+  "linux": {
+    "ThostFtdcMdApi.h": {
+      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_20240607_api_traderapi_se_linux64/ThostFtdcMdApi.h",
+      "sha256": "ab22fdfb57de538c13d694a78db40c3fccf9e0ff5f1f1180a869e23df7a8d764"
+    },
+    "ThostFtdcUserApiDataType.h": {
+      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_20240607_api_traderapi_se_linux64/ThostFtdcUserApiDataType.h",
+      "sha256": "9bf8c9c96d199911139c4872d50a5bc9653a26081da57c44b307ef90b51119f9"
+    },
+    "ThostFtdcUserApiStruct.h": {
+      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_20240607_api_traderapi_se_linux64/ThostFtdcUserApiStruct.h",
+      "sha256": "6531a7cb052ae59ff4658c04dd1418cf1acfee24f2c0e6d15a7104b41c45a521"
+    },
+    "ctp-md.so": {
+      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_20240607_api_traderapi_se_linux64/thostmduserapi_se.so",
+      "sha256": "6da3e23a041418b57506811a9a36b43c2dd53d5e9becf4b88ae083807d6084de"
+    }
+  },
+  "windows": {
+    "ThostFtdcMdApi.h": {
+      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_20240607_traderapi64_se_windows/ThostFtdcMdApi.h",
+      "sha256": "e767fb98a516ee7e5ad864f0bfae4a3d6c2032b10b4dee4f6e6f7922da61698a"
+    },
+    "ThostFtdcUserApiDataType.h": {
+      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_20240607_traderapi64_se_windows/ThostFtdcUserApiDataType.h",
+      "sha256": "eed3356e138b325bce7f5aa97bbd1564d3d76dc808c89912a465222415494e9f"
+    },
+    "ThostFtdcUserApiStruct.h": {
+      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_20240607_traderapi64_se_windows/ThostFtdcUserApiStruct.h",
+      "sha256": "380970fa5105a82c0e55317cf3764e0d3894fa35d63632d3bbb3e53a3caa9ae7"
+    },
+    "ctp-md.dll": {
+      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_20240607_traderapi64_se_windows/thostmduserapi_se.dll",
+      "sha256": "72a833786836ce6e6026bc0c19a06bd3c1b0279cb1ea9df0297b1c2916cad98b"
+    }
+  }
+}

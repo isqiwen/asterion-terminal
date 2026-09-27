@@ -1,124 +1,131 @@
-# 星枢分层架构
+# Asterion 多资产架构
 
-更新：2026-09-24。星枢是期货量化终端，目标为分钟/日线研究、实时行情、稳定模拟与实盘。本文定义层级、语言与扩展边界，是目标设计；现有代码与目标的差距见[进度](ROADMAP.md)，目录见[工程结构](engineering-structure.md)。
+本设计落实维护者 2026-09-26 提供的架构图，以及随后确认的“保留 Tauri 外壳，核心全部改为 C++”。图中的产品和插件名称代表目标能力，不代表已经接入。
 
-## 基本决定
+当前交付顺序以维护者最新决定为准：**第一种资产为期货，第一种产品为 Asterion Terminal，界面保持 `rust` 分支设计一致**。多资产及其他 UI 仍是架构目标，先完成期货桌面垂直链路。
 
-维护者于 2026-09-24 确定，取代此前“核心提供机制、插件实现功能”的设计：
+![唯一当前架构图](assets/architecture.png)
 
-1. **期货核心属于内核。** 期货核心概念与定义用 Rust 实现、静态编译，不能通过插件、配置或产品装配替换或改变语义。
-2. **扩展点只有三类：数据源适配、券商接入、策略。** 数据源与券商接入只允许内置 Rust 实现，随发行版编译、不可安装；策略可以是内置或用户安装的 Python 策略包。
-3. **Python 只用于计算。** 研究与回测的批量计算、策略、参数优化与统计分析用 Python；其余后端全部用 Rust。
-4. **内置功能不套运行时插件机制。** 模块静态组合，没有激活顺序、钩子、提供者选择、停用或替换。
+此图是本仓库的架构基准，固定路径为 `docs/assets/architecture.png`，仅保存最新文件，历史使用 Git 查询。下方 Mermaid 只是依赖关系说明，不是另一个架构版本。
 
-## 层级与模块
+进程默认部署在本机，也可经 Terminal 管理部署到不同机器。架构图表示逻辑职责，不要求所有组件位于同一台机器。所有承载业务服务的机器均运行 Node Agent；本机随 Terminal 自动引导用户级 Agent，远端目标机通过 Terminal 的 SSH 引导安装 Agent，随后使用统一管理协议；见 [服务管理](service-management.md)。
 
-自上而下变更频率降低、变更门槛提高。箭头是主要依赖方向，不是进程边界。
+## 系统边界
 
-~~~mermaid
+```mermaid
 flowchart TB
-    product["L5 产品装配与启动入口"]
-    presentation["L4 工作台、共享控件、业务面板"]
-    services["L3 应用服务 · Rust"]
-    compute["L3 计算 · Python"]
-    domain["L2 期货领域 · 内核"]
-    kernel["L1 通用机制 · 内核"]
-    foundation["L0 基础 · 内核"]
-    product --> presentation
-    presentation --> services
-    services --> compute
-    services --> domain
-    domain --> kernel
-    kernel --> foundation
-~~~
+  Host[应用宿主：Terminal、Web、CLI、Notebook]
+  UI[业务 UI 插件：页面、面板、卡片]
+  Tauri[Tauri：窗口与本机启动桥]
+  API[统一应用 API / C++ 服务]
+  Domain[交易领域：标的、行情、订单、持仓、账户、日历、风险基础]
+  Kernel[内核机制：插件生命周期、消息、资源、调度、配置、可观测性]
+  Foundation[基础：ID、时间、Decimal、错误、序列化、并发]
+  Plugins[数据 / 执行 / 存储 / 策略 / 风控 / 工具插件]
+  External[外部数据商、交易所、券商、数据库、云与其他服务]
+  Host --> UI
+  UI --> API
+  Tauri --> API
+  API --> Domain
+  Domain --> Kernel
+  Kernel --> Foundation
+  Plugins --> Domain
+  Plugins --> Kernel
+  Plugins --> External
+```
 
-| 层级 | 内容 | 语言 | 可变性 |
-|---|---|---|---|
-| L5 产品装配 | 桌面与后台启动入口、默认工作区 | Rust、TypeScript、声明配置 | 只装配与启动，不保存业务事实 |
-| L4 表现 | 工作台、共享控件、业务面板；薄原生桥 | TypeScript/React、CSS；桥为 Rust | 构建期组合，不是运行时插件；只拥有视图状态 |
-| L3 应用服务 | 服务/API、用例编排、任务调度、采集流水线、实时运行、回测编排、身份与账户、备份恢复；内置数据源与券商适配 | Rust | 随需求演进；只经 L2 公开接口改变业务状态 |
-| L3 计算 | 研究与回测批量计算、策略、参数优化、统计分析与报告 | Python | 无状态计算进程；可安装策略包 |
-| L2 期货领域 | 下表模块 | Rust | 内核：固定、不可替换 |
-| L1 通用机制 | 授权与凭据、任务/租约、数据库与事务、文件与工件、事件、通信/传输、诊断、进程/环境、策略包宿主 | Rust | 内核：固定；不识别期货业务 |
-| L0 基础 | 标识、错误、时间/取消契约、十进制、通用值与纯校验 | Rust | 内核：最高稳定性；无 I/O 与上层依赖 |
+箭头表示使用关系。插件实现公开端口，内核不依赖某个具体插件；产品装配选择具体实现。统一领域模型保持研究、回测、模拟与实盘的身份、数量、订单和账户语义一致。不同资产的结算和交易规则不能靠一个无语义的属性字典掩盖差异，应逐个用例设计明确模型。
 
-L0、L1、L2 合称内核，由项目核心维护者维护，不具有安装、停用、替换入口，产品装配也不能选择其他实现。L1 与 L2 分开是为了依赖纪律和可测试：通用机制不识别合约、来源、策略或界面，期货领域不复制授权、租约、事务、文件与通信机制。
+## 目录与职责
 
-| L2 模块 | 唯一责任 | 可依赖的 L2 模块 |
-|---|---|---|
-| instrument-catalog | 品种与实际合约身份、生命周期及来源代码映射 | 无 |
-| trading-calendar | 交易日、时段、特别日的固定版本与时间解析 | instrument-catalog |
-| market-rules | 合约规格与交易规则语义、有效期与规则解析 | instrument-catalog、trading-calendar |
-| connections | 具名连接、秘密引用、会话代次、通道授权与状态 | 无 |
-| data-store | 行情版本、分区与合并、质量/覆盖、血缘与有界扫描 | instrument-catalog、trading-calendar |
-| market-feed | 规范实时事件、订阅复用、顺序、时效与缓冲 | instrument-catalog、trading-calendar、connections |
-| role-registry | 主力/次主力角色版本、计算方法、候选、可知性、发布准入与时点解析 | instrument-catalog、trading-calendar、data-store |
-| continuous | 连续序列构造、切换、复权与血缘 | instrument-catalog、trading-calendar、data-store、role-registry |
-| execution | 单账户订单/成交/持仓/资金/冻结/结算与恢复的一致状态机；风险准入；模拟撮合模型 | instrument-catalog、trading-calendar、market-rules、connections |
-| rollover | 双腿换月计划、非原子执行与恢复 | instrument-catalog、trading-calendar、market-rules、role-registry、execution |
+| 位置 | 职责 | 当前状态 |
+| --- | --- | --- |
+| `core/` | C++ 基础、领域、内核机制；运行时属于内核 | 生命周期、Decimal、同步事件与基础标的/订单模型 |
+| `plugins/` | 跨应用复用的具体能力插件 | runtime-info 工具插件、CSV 数据插件 |
+| `apps/terminal/plugins/contract.ts` | Terminal 插件接口定义 | 宿主能力、插件身份、版本、工作区与卡片贡献 |
+| `apps/terminal/src/ui/` | Terminal 内置 UI 库，不是业务插件 | 原主题、外观偏好 |
+| `apps/terminal/src/` | Terminal 内置宿主与产品装配 | 窗口、工作台、设置、桥接、插件选择 |
+| `apps/terminal/plugins/` | Terminal 专属 UI 插件 | 总览、期货行情、数据、研究与交易工作区 |
+| `apps/terminal/native/` | Terminal 专属 C++ 应用编排 | 状态读取、CSV 完整校验后发布会话预览 |
+| `protocol/` | 跨进程/跨机器 Protobuf 契约、消息校验与表示转换；生成代码位于构建目录 | 不包含传输机制或业务执行 |
+| `bindings/c/` | C ABI 句柄、内存与异常边界封装 | 当前导出 Terminal 应用 API，不含 CSV 算法 |
+| `apps/strategy/` | 策略执行宿主，复用具体策略插件 | 有序事件与持久化意图、IPC/TCP mTLS、重启恢复；Agent 管理已接入；模拟授权交接已实现；自动历史回放已接入；Terminal 本机配置、授权与撤销已接入；程序已纳入分发；托管服务显式更新已实现；Agent 自身升级待完成 |
+| `apps/backtest/` | 历史回测任务宿主 | 单日 SMA 回测与 Agent 监管的任务工作进程 |
+| `apps/factor/` | 因子计算、挖掘与评估任务宿主 | 事件动量分析、持久化任务、Agent 派发与 Terminal 结果展示 |
+| `apps/data-pipeline/` | 历史数据处理任务宿主 | CSV 快照任务、来源校验、不可覆盖发布与 Terminal 版本选择 |
+| `apps/task-service/` | 持久化任务与执行尝试管理 | 类型化服务、恢复、取消与结果校验；自动调度待接入 |
+| `apps/cli/` | CLI 产品入口与装配 | CSV 校验 |
+| `apps/terminal/dev/` | Terminal 浏览器开发与测试桥接 | JSON-lines 调用真实 C++ Terminal API，不是独立服务产品 |
+| `tests/`、`apps/terminal/e2e/` | 核心、契约、边界与界面验收 | CTest 与 Playwright |
 
-执行状态必须原子一致，因此订单、持仓、资金不拆成各自记账的模块。规则数值（手续费、保证金、日历、合约规格）以带版本和来源证据的数据输入；内核固定语义、校验与解析，不因数值变化修改代码。主力计算方法是有明确标识的固定方法集合，不接受外部算法。
+是否为插件与是否可复用是独立维度。Terminal 专属插件通过 `apps/terminal/plugins/contract.ts` 获取应用能力；注册校验位于 `apps/terminal/src/host/plugin-registry.ts`，产品装配位于 `apps/terminal/src/plugins.ts`。只有独立于 Terminal 布局及应用能力的面板才适合提取到顶层 `plugins/ui/`，当前不创建空目录。交易与研究是同一 Terminal 的工作区，不为它们创建独立应用。
 
-## 扩展点
+宿主选取插件，插件贡献工作区与卡片；宿主不再根据业务名称分支渲染面板。注册先检查插件身份、契约版本、工作区身份冲突，再生成导航。面板通过 React lazy 按需加载，React 负责挂载和 effect 清理。这是可信内置插件机制，不支持动态安装、热卸载、依赖解析或不可信插件隔离。交易插件已接入历史模拟账户与交易面板；研究插件仍显示明确的未接入页面。
 
-| 扩展点 | 实现方式 | 边界 |
-|---|---|---|
-| 数据源适配 | 内置 Rust 模块，如 provider-tushare | 实现 L2 声明的来源端口；只解释供应商字段并返回原始证据与候选；身份、时间、规则、覆盖与发布校验在 L2 |
-| 券商接入 | 内置 Rust 模块，如 connector-ctp（C++ SDK 经 FFI） | 只接受 execution 授权后的请求；回报先进入执行链，不直接改账户 |
-| 策略 | 内置或用户安装的 Python 策略包 | 隔离进程运行，只接收固定输入、输出交易意图或信号；无发单端口、账户写权限、凭据、数据库或任意文件访问 |
+`runtime.snapshot` 是 API 方法名，表示查询应用状态，并不要求建立顶层 runtime 目录。C++ 内核生命周期仍在 `core/src/kernel/`。当前 Terminal 编排装配 CSV 数据、Paper 执行与文件日志存储插件；通用业务命令注册与工具插件用例分离尚未实现，不能将目录整理视为整个后端插件化完成。
 
-不提供：替换或扩展任何 L0–L2 模块、自定义期货语义、第三方数据源或券商插件、UI 插件、脚本钩子。新增数据源或券商是新增内置 Rust 模块并随发行版发布。策略包安装、信任与执行约束见[策略插件契约](plugin-system.md)。
+当前主题、样式与外观偏好仅服务 Terminal，归属应用内。待第二个应用出现实际复用需求后再提取共享库；React 组件不能直接用于 CLI 或所有界面技术。当前插件接口仅服务 Terminal，不设顶层 SDK。待出现明确使用者与稳定边界后，再提取跨应用或语言 SDK。
 
-## 依赖规则
+CMake 目标按职责命名为 `asterion_foundation`、`asterion_kernel`、`asterion_domain`；允许 `domain → kernel → foundation` 的依赖方向，内核不反向依赖领域。Core 指三者组成的整体，不单指 kernel。
 
-| 来源层 | 可依赖范围 |
-|---|---|
-| L0 | 标准库与审查过的基础库 |
-| L1 | L0；同层机制公开接口 |
-| L2 | L0/L1 公开接口；上表同层白名单，无环 |
-| L3 应用服务 | L0–L2 公开接口；适配器只实现 L2 声明的端口；经计算接口调用 Python |
-| L3 计算 | 只经 Rust 提供的计算接口取得输入、返回结果；不直接访问数据库、工件、凭据或券商 |
-| L4 | L3 服务 API 的生成客户端、同层 UI 基础；工作台可用批准的通信/诊断宿主端口 |
-| L5 | 各层公开装配入口；只用于组合启动，不能替换内核或绕过授权 |
+除维护者明确授权建立的上述应用工程入口外，尚未实现的目录不创建空壳。仍未实现业务的入口只提供帮助与版本并拒绝执行；首条研究服务链路的实际范围见 [研究任务](research-tasks.md)，其中研究服务已加入本机启动流程，回测按任务启动；其余未实现业务的入口不分发。Conan 负责外部依赖，CMake target 表达模块依赖；Rust/Cargo 只用于 Tauri 桌面外壳，不能承载第二套核心。
 
-普通 UI 不直接调用 L2 写接口、访问数据库或任意原生 IPC。跨模块只用声明的公开接口，禁止私有导入、共享表写入或任意 HTTP 路径绕过。
+## 插件与端口
 
-## 内核边界
+| 插件类型 | 目标公开边界 | 插件负责 |
+| --- | --- | --- |
+| Data | MarketDataPort | 供应商认证、请求、字段转换与数据获取 |
+| Execution | ExecutionPort | 经授权的交易请求和回报、券商协议 |
+| Storage | StoragePort | PostgreSQL、DuckDB、文件等持久化实现 |
+| Strategy | StrategyPort | 基于明确输入输出信号或交易意图 |
+| Risk | RiskPort | 风险评估与合规规则，不能绕过执行链的强制校验 |
+| Tool | ToolPort | 分析、报告、通知与工作流 |
+| UI | 统一应用 API 与 UI contribution 契约 | 页面与交互，不持有权威业务状态 |
 
-- 授权、资源控制、租约、任务调度、事务、工件、事件与策略包宿主是固定 Rust 机制，不依赖任何策略包完成初始化、授权、调度、事务或诊断；零策略包时内核仍可初始化、诊断并通过自身测试。
-- 运行凭据校验、作用域授权、会话权限与撤销执行属于 L1；账户注册、登录与 PIN 等用例属于 L3 应用服务。缺少账户时受保护操作保持拒绝，不能借空宿主绕过。
-- 文件锁、受限文件访问、一次写入的工件、流式归档、完整目录的原子发布及发布结果归 L1；备份选取哪些业务目录、验证哪些领域事实归 L3 与领域所有者。发布后同步失败必须明确标记“目标已可见”，不得假定回滚或自动删除已发布数据。
-- 连接配置、通道代次和报价时效属于 L2；券商 SDK 对象与字段解析留在内置适配器。
+这些端口是设计边界；MarketDataPort 已落地为历史逐笔读取接口，LiveMarketDataPort 提供实时报价、订阅状态及合并前有界事件分页，ExecutionPort 支持规范化下单/撤单/状态，存储用例以通用 JournalPort 支持有序持久提交与恢复。其余端口尚未为未设计的请求生成空接口。UI 的贡献契约与原生插件 ABI 分开，七类插件不意味着全部需要同一种二进制格式。
 
-**通信和日志属于 L1。** L0 定义通用线协议及纯校验；L1 的 `communication` 管理因果上下文与截止时间，`transport` 管理有界进程收发与回收，`events` 管理事务事件授权、序号及重放，`diagnostics` 管理结构化诊断的计时、存储与保留上限。运行诊断允许写入失败而不改变任务结果；订单、成交、资金和审计事实必须由权威领域经事务持久化，不能依赖尽力写入的诊断日志。实现边界见[通信与诊断](internal-communication.md)。
+首个可运行切片使用显式注册的可信 C++ 插件，具有描述符、精确契约版本、依赖图、启动回滚和逆序停止。同一工具链编译，当前不支持动态库发现、安装、热卸载或第三方二进制 ABI。之后若实现动态插件，边界采用显式版本的 C ABI 或进程协议，不暴露 STL、C++ 异常或跨模块所有权。
 
-## 稳定接口与变更纪律
+`PluginManager` 在单线程控制面运行。先验证完整依赖图，再调用 start；启动失败的插件自行释放部分资源，宿主逆序停止此前成功启动的插件。stop 不抛异常。注册期间验证重复身份、契约、类型和依赖格式；运行中禁止注册。统一 Runtime 现已组合有界工作线程、消息队列、资源作用域、调度泵、配置、权限和调用观测；Terminal 已接入命令入口。当前仍无持久消息或不可信代码隔离，详细语义见 [Core 基础设施](core-infrastructure.md)。
 
-越底层，公开接口越小、变更门槛越高；新增数据源、策略、页面或业务参数不能成为修改 L0/L1 的理由。L0–L2 公开接口变更必须给出：现有接口不能表达的具体需求、全部受影响调用方、精度/时序/错误/取消/所有权语义、故障及性能验证结果。
+安全隔离不是插件类别的附带属性。进程内插件拥有进程权限；用户策略和不可信代码需要独立工作进程与能力限制，尚未实现前不能加载不可信代码。图中的 Python / C++ / Rust 策略代表未来 SDK 选择，不表示恢复 Rust 核心。
 
-接口稳定指语义与使用契约，不承诺 Rust 动态库 ABI。跨语言只用明确绑定或版本化消息；消息描述单源生成，未知契约拒绝。契约确需改变时，同批替换实现、全部调用方、生成类型、契约测试、打包及备份/复现检查，并删除旧入口；不保留兼容包装、双协议或旧执行器。历史数据与结果原样保留，不支持时明确报错。见[项目原则](../AGENTS.md)。
+最新图按 CTA、因子、统计套利、做市、组合、机器学习、事件驱动和自定义划分策略能力；通过统一 Strategy API 接入，语言 SDK 独立于策略类型。数据输入包括 CSV/Parquet 与 WebSocket，存储包括文件系统/NAS；Paper Trading 是明确的模拟执行插件，不冒充实盘连接。Notebook 与工具插件也覆盖研究可视化、回测分析、因子分析与数据清洗。
 
-## 运行与性能
+## 原界面复用
 
-层级不等于进程。desktop 启动 L4 视图；后台服务承载 API、调度与实时运行；计算进程承载 Python 批量计算与策略。默认单机，关闭窗口不停止后台，机器睡眠/关机仍会中断运行；无跨机账户自动接管承诺。
+原主题保存在 `apps/terminal/src/ui/`，Workbench 与 WindowFrame 在 `apps/terminal/src/host/`，Dashboard 在 `apps/terminal/plugins/overview/`。沿用 `rust` 分支视觉与交互设计，不恢复旧业务请求、账户状态、Python 服务或 Rust 领域实现。
 
-| 路径 | 目标执行方式 |
-|---|---|
-| 研究批量 | Rust 扫描、校验并以 Arrow 批次提供固定输入；Python 计算特征、信号与统计；撮合与记账经 Rust execution |
-| 实时执行 | Rust 的行情、执行、券商适配组合；账户单写者持有状态；Python 策略按声明频率在隔离进程回调，有超时与积压规则 |
-| 策略 | 分钟/日线等声明频率；Python 回调不承诺与全 Rust 路径相同延迟 |
-| UI | 消费快照和增量投影，可合并显示更新；不拖慢账户处理或丢弃交易事实 |
+当前桌面链路为 **React → Tauri invoke → Rust 薄桥 → C++ Terminal 编排 → Protobuf（本机 IPC / TCP + mTLS）→ 独立交易进程**。CSV 预览与界面状态留在 Terminal；账户账本、Paper 执行和文件日志由 `apps/trading/` 会话持有。C ABI 仍负责进程内跨语言调用；它本身不是 IPC。
 
-Rust 本身不保证高性能。Python 绑定只做边界转换，批量原生计算在允许时释放解释器占用；隔离进程另用明确 IPC。Arrow C Data 适用于同进程列式交换，不是跨进程协议，也不保证每次零拷贝。[PyO3 并行说明](https://pyo3.rs/main/parallelism)、[Arrow C Data](https://arrow.apache.org/docs/format/CDataInterface.html)
+实际交易进程协议定义在 `protocol/proto/`，通用通道与子进程机制在 Core kernel，业务路由在应用。本机使用 Unix Socket / Windows Named Pipe；跨机器使用 TCP + mTLS。Terminal 设置保存服务地址与证书路径，本机和远程交易服务均由 Agent 管理、独立于桌面存活，账本保存在服务端。实盘/模拟作为同一交易程序的独立实例，当前实盘模式拒绝启动，不以模拟替代。实时行情宿主命名为 `market-data`，已接入只读 CTP 数据插件，历史模拟不依赖它。完整职责、工程归属、CLI11 与验收边界见 [进程架构](process-architecture.md)。
 
-先建立固定硬件/构建下的冷/热查询、吞吐、峰值内存、混合负载 p95/p99、积压和恢复基线，再验收替换；无测量不声称提速。控制小消息、批量数据和实时事件采用各自有界通道，不为每个模块建立服务或引入消息中间件。
+浏览器开发仍由 Vite 中间件经 `asterion_terminal_dev_bridge` 调用同一界面 API；其交易操作同样启动并访问独立交易进程，不恢复旧服务或保留另一套交易后端。
 
-## 不可削弱的业务边界
+已复用原终端主题、Workbench、WindowFrame、Dashboard 布局交互；数据、市场、设置面板直接消费新的 C++ 状态。交易面板已经接入单合约历史模拟账户、委托、成交与持仓，研究与实盘功能仍未接入。没有复制旧账户/API 协议。UI 的完整迁移仍需后续业务接入与验收，当前包含可恢复的首条期货历史模拟交易链路，精确范围见 [期货模拟交易](paper-trading.md)。
 
-- 数据源适配解释供应商字段并固定证据；instrument-catalog、trading-calendar、market-rules 各自校验发布，不能反查 data-store 形成依赖环。通用工件引用与一次写入归 L1，内容语义归所有者；hash 不认证来源真实性或历史可知性。
-- execution 完整执行授权、身份/规则/账户/风险检查，意图持久化先于发送。策略无原始发单端口；券商接入只接受执行链授权请求。未知发送结果不盲重发，重启先对账；必需能力缺失或失败时关闭相关执行能力，保留安全恢复入口。
-- 实时运行将未经显示合并的规范行情交给策略与执行链；陈旧、缺口、溢出明确上报，停止依赖该行情的新意图，保留撤单与对账。本地序号不证明来源完整。
-- 历史回测、模拟与实盘共用账户语义，不承诺相同成交。角色先解析为实际合约；连续价格不进入实际成交账。文件完整后目录事务发布、租约有效性、引用保护和备份恢复继续强制执行。
-- UI 只恢复视图和引用，不能在恢复时自动下单或重复提交任务。用户操作改动仍须遵守 [Fincept 要求](fincept-interaction-review.md)。
+## 构建参考
 
-领域完成条件见[F1–F6](futures-domain.md)。设计图、目录或绑定存在都不等于迁移或领域验收完成。
+采用 Conan 官方的 [CMake 集成](https://docs.conan.io/2/integrations/cmake.html) 与 [CMakeToolchain](https://docs.conan.io/2/reference/tools/cmake/cmaketoolchain.html) 生成工具链和本地 presets。终端 API 使用 nlohmann_json 并锁定依赖。Tauri 本机调用遵循 [官方 command 接口](https://v2.tauri.app/develop/calling-rust/)，窗口权限限制在本地终端窗口。
+
+## 平台边界
+
+Linux、Windows、macOS 为一等支持目标，复用同一套核心与业务插件。`bindings/` 保留顶层。平台差异收敛到编译配置、系统桥接与打包，详情和当前验收范围见 [平台说明](platforms.md)。
+
+防火墙管理归属 Node Agent 与 Terminal 部署编排：SSH 首次检查、已部署服务通过 Protobuf/mTLS 检查，来源 IP 与端口预览后明确确认。Linux UFW / Windows 规则适配已接入，macOS 返回手动配置状态；当前权限与验收边界见 [服务管理](service-management.md)。Core 仅提供进程和通信机制。
+
+
+## 部署范围（2026-09-27 最新决定）
+
+本机部署支持 Linux、Windows、macOS，使用当前用户的系统托管机制和本机 IPC，不需要 SSH、私钥或目标机器初始化。远程部署目标仅支持 Linux，使用专用 asterion 账户、独立初始化脚本及 SSH 引导，后续通过 mTLS 管理。不再提供远程 macOS/Windows 安装流程；不影响三平台 Terminal、Agent 与业务服务的本机运行。设置中的“本机部署”和“远程 Linux”分开显示，默认本机。
+
+
+桌面分发内置同版本的本机服务、Linux x86_64 远程服务及 Linux 初始化脚本。Terminal 提供脚本导出，自动探测远端架构并选择内置程序；不要求用户下载部署材料或选择可执行文件。Linux x86_64 构建产物由 CI 汇集，校验版本、架构和摘要后打入每种桌面安装包。
+
+## Terminal 多语言
+
+中英文属于内置宿主基础设施，语言切换、持久化和资源校验归 `apps/terminal/src/i18n/`。各 UI 插件拥有自己的语言资源，通过公开契约注册到插件 ID 命名空间。Core 保持语言无关，界面按错误码显示本地化摘要。见 [中英文实现与边界](localization.md)。
+
+## 实时行情服务
+
+`apps/market-data/` 已提供独立只读行情宿主，由 Agent 管理，与交易进程分别部署。连接、订阅、快照推送和心跳使用 `protocol/proto/asterion/v1/market.proto`，支持本机 IPC 与 TCP/mTLS。CTP 供应商代码在数据插件中，详见 [CTP 行情及验收边界](ctp-market-data.md)。

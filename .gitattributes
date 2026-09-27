@@ -1,0 +1,2 @@
+# The Linux initializer is embedded byte-for-byte in every desktop package.
+scripts/node/initialize-linux.py text eol=lf

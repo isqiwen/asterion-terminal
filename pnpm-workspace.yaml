@@ -1,9 +1,0 @@
-packages:
-  - apps/*
-  - presentation/*
-  - presentation/panels/*
-  - products/*
-  - bindings/typescript
-
-allowBuilds:
-  esbuild@0.25.12: true

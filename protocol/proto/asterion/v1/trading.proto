@@ -1,0 +1,68 @@
+syntax = "proto3";
+package asterion.protocol.v1;
+
+import "asterion/v1/domain.proto";
+import "asterion/v1/data.proto";
+
+message Costs { Decimal margin_per_lot = 1; Decimal open_fee = 2; Decimal close_today_fee = 3; Decimal close_yesterday_fee = 4; }
+message RiskLimits { Decimal max_order_quantity = 1; Decimal max_gross_quantity = 2; uint64 max_working_orders = 3; }
+message PaperInput { Contract contract = 1; Costs costs = 2; Decimal deposit = 3; repeated Tick ticks = 4; RiskLimits risk = 5; }
+enum Mode { MODE_UNSPECIFIED = 0; PAPER = 1; LIVE = 2; }
+enum Side { SIDE_UNSPECIFIED = 0; BUY = 1; SELL = 2; }
+enum Offset { OFFSET_UNSPECIFIED = 0; OPEN = 1; CLOSE_TODAY = 2; CLOSE_YESTERDAY = 3; }
+enum OrderState { ORDER_STATE_UNSPECIFIED = 0; ACCEPTED = 1; PARTIALLY_FILLED = 2; FILLED = 3; CANCELLED = 4; REJECTED = 5; }
+message Empty {}
+message Submit { string order_id = 1; Side side = 2; Offset offset = 3; Decimal quantity = 4; Decimal price = 5; }
+message Cancel { string order_id = 1; }
+message Settle { Decimal price = 1; }
+// Owner-controlled authorization for a trusted strategy on a fresh historical
+// paper account. These identifiers are fencing identities, not secret tokens.
+message StrategyGrant {
+  string grant_id = 1; string strategy_id = 2; string stream_id = 3;
+  string dataset_revision = 4; Decimal max_quantity = 5;
+}
+message StrategyRevoke { string grant_id = 1; }
+message StrategyTarget {
+  string grant_id = 1; string strategy_id = 2; string stream_id = 3;
+  string dataset_revision = 4; uint64 sequence = 5;
+  int64 timestamp_ns = 6; Decimal target_quantity = 7;
+}
+message StrategyAuthorization {
+  StrategyGrant grant = 1; bool active = 2; uint64 last_sequence = 3;
+}
+message ReplayCalendar { asterion.data.v1.CalendarPublication publication = 1; }
+message ReplaySettle { uint32 day_index = 1; }
+message ReplayState { asterion.data.v1.CalendarPublication publication = 1; uint32 settled_days = 2; bool settlement_due = 3; bool session_end = 4; }
+message Command {
+  string request_id = 1;
+  oneof operation { Empty advance = 2; Submit submit = 3; Cancel cancel = 4; Settle settle = 5; StrategyGrant strategy_grant = 6; StrategyRevoke strategy_revoke = 7; StrategyTarget strategy_target = 8; ReplayCalendar replay_calendar = 9; ReplaySettle replay_settle = 10; }
+}
+// A connection is bound to one immutable process session and mode.
+message Request {
+  uint32 version = 1;
+  string session_id = 2;
+  Mode mode = 3;
+  string correlation_id = 4;
+  oneof operation { Empty snapshot = 10; PaperInput create = 11; Empty recover = 12; Command command = 13; Empty shutdown = 14; Empty attach = 15; Empty heartbeat = 16; }
+}
+message Position { Side side = 1; bool today = 2; Decimal quantity = 3; Decimal basis = 4; }
+message Order { string id = 1; Side side = 2; Offset offset = 3; Decimal quantity = 4; Decimal limit_price = 5; Decimal filled = 6; OrderState state = 7; }
+message Fill { string id = 1; string order_id = 2; Decimal quantity = 3; Decimal price = 4; }
+message Snapshot {
+  Contract contract = 1; Costs costs = 2;
+  Decimal balance = 3; Decimal equity = 4; Decimal available = 5;
+  Decimal margin = 6; Decimal frozen = 7; Decimal fees = 8;
+  Decimal realized = 9; Decimal unrealized = 10; Decimal mark = 11;
+  uint32 cursor = 12; uint32 total = 13; optional int64 timestamp_ns = 14;
+  bool recovery_required = 15;
+  StrategyAuthorization strategy = 19;
+  RiskLimits risk = 20;
+  ReplayState replay = 21;
+  repeated Position positions = 16; repeated Order orders = 17; repeated Fill fills = 18;
+}
+message Error { string code = 1; string message = 2; }
+message Health { string instance_id = 1; string version = 2; uint64 uptime_ms = 3; bool initialized = 4; bool recovery_required = 5; }
+message Response {
+  uint32 version = 1; string session_id = 2; Mode mode = 3; string correlation_id = 4;
+  oneof result { Snapshot snapshot = 10; Error error = 11; Empty closed = 12; Empty uninitialized = 13; Health health = 14; }
+}

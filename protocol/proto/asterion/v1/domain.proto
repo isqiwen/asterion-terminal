@@ -1,0 +1,16 @@
+syntax = "proto3";
+package asterion.protocol.v1;
+
+// All authoritative decimal values use exactly eight fractional decimal places.
+message Decimal { sint64 units = 1; }
+message Contract {
+  string venue = 1;
+  string symbol = 2;
+  string currency = 3;
+  Decimal price_increment = 4;
+  Decimal quantity_increment = 5;
+  Decimal multiplier = 6;
+  string product = 7;
+  string delivery_month = 8;
+}
+message Tick { int64 timestamp_ns = 1; Decimal price = 2; Decimal quantity = 3; }

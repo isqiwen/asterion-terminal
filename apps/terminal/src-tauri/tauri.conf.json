@@ -4,16 +4,15 @@
   "version": "0.1.0",
   "identifier": "me.asterion.terminal",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "pnpm --dir ../.. dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "ASTERION \u00b7 \u661f\u67a2",
+        "title": "星枢 · Asterion Terminal",
         "width": 1440,
         "height": 940,
         "minWidth": 800,
@@ -21,14 +20,11 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     }
   },
   "bundle": {
     "active": true,
-    "resources": {
-      "setup/": "setup/"
-    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -36,8 +32,22 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "externalBin": [
+      "binaries/asterion-trading",
+      "binaries/asterion-node-agent",
+      "binaries/asterion-market-data",
+      "binaries/asterion-task-service",
+      "binaries/asterion-backtest",
+      "binaries/asterion-factor",
+      "binaries/asterion-data-pipeline",
+      "binaries/asterion-strategy"
+    ],
+    "resources": {
+      "resources/native/": "native/",
+      "resources/remote-linux/x86_64/": "remote-linux/x86_64/"
+    },
     "macOS": {
-      "minimumSystemVersion": "13.0"
+      "entitlements": "Entitlements.plist"
     }
   }
 }

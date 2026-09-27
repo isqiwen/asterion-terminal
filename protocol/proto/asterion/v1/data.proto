@@ -1,0 +1,68 @@
+syntax = "proto3";
+package asterion.data.v1;
+import "asterion/v1/domain.proto";
+
+// Content identity excludes experiment parameters, source paths and CSV spelling.
+message TradeDataset {
+  uint32 version = 1;
+  string revision = 2;
+  asterion.protocol.v1.Contract contract = 3;
+  repeated asterion.protocol.v1.Tick ticks = 4;
+}
+// Local file import. A remote caller must not forward a client-local path.
+message CsvImport {
+  uint32 version = 1;
+  string source_path = 2;
+  string source_sha256 = 3;
+  asterion.protocol.v1.Contract contract = 4;
+}
+message DatasetPublication {
+  uint32 version = 1;
+  string id = 2;
+  TradeDataset dataset = 3;
+  string source_name = 4;
+  string source_sha256 = 5;
+  uint64 source_bytes = 6;
+  string importer = 7;
+}
+// Immutable uploaded contents, never a client-local path. The numeric CSV format
+// is ASCII; line endings and decimal spelling are preserved for provenance.
+message CsvSnapshot {
+  uint32 version = 1;
+  string source_name = 2;
+  string source_sha256 = 3;
+  asterion.protocol.v1.Contract contract = 4;
+  string contents = 5;
+}
+
+message TradingSession { int64 begin_ns = 1; int64 end_ns = 2; }
+message SettlementDay {
+  string trading_day = 1;
+  repeated TradingSession sessions = 2;
+  string schedule_source = 3;
+  asterion.protocol.v1.Decimal settlement_price = 4;
+  string settlement_source = 5;
+}
+
+message SettlementCalendar {
+  uint32 version = 1;
+  string revision = 2;
+  asterion.protocol.v1.Contract contract = 3;
+  repeated SettlementDay days = 4;
+}
+message CalendarCsvSnapshot {
+  uint32 version = 1;
+  string source_name = 2;
+  string source_sha256 = 3;
+  asterion.protocol.v1.Contract contract = 4;
+  string contents = 5;
+}
+message CalendarPublication {
+  uint32 version = 1;
+  string id = 2;
+  SettlementCalendar calendar = 3;
+  string source_name = 4;
+  string source_sha256 = 5;
+  uint64 source_bytes = 6;
+  string importer = 7;
+}
