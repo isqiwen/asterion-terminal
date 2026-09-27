@@ -59,3 +59,7 @@ Node Agent 和交易程序由各原生平台编译。CI 先在 Ubuntu 24.04 的 
 ## 非 Windows 机器上的 Windows 分支检查
 
 `scripts/check_windows_syntax.py` 使用 mingw-w64 头文件（如 `brew install mingw-w64`）和本机构建的 `compile_commands.json`（配置时加 `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`），对所有含 `_WIN32` 分支的源文件做 Windows 目标的语法检查，可在推送前发现缺失声明、头文件顺序和类型错误。它近似 MSVC，不能代替 Windows 原生构建与 CI 验收。
+
+## Windows 桌面构建的 C++ 配置
+
+Rust 的 MSVC 目标无论 debug 还是 release 都链接 Release 动态 CRT（`/MD`），而 protobuf 的 CMake 会在 Debug 配置下强制使用 Debug CRT（`/MDd`），两者无法链接。因此 Windows 上的桌面构建（`pnpm desktop`、`desktop:check`、`desktop:build`）一律使用 Release 配置的 C++（`build/Release`）。开发桥、界面测试与 CI 通过 `ASTERION_CPP_BUILD` 指定 C++ 构建目录，未设置时默认 `build/Debug`。纯 C++ 的 core 测试仍在 Windows Debug 下运行。
