@@ -3,6 +3,7 @@
 #include <asterion/domain/futures.hpp>
 #include <asterion/protocol/data.hpp>
 #include <charconv>
+#include <type_traits>
 namespace asterion::trading {
 namespace {
 std::string string(const Json& value, const char* key) {
@@ -13,6 +14,11 @@ std::string string(const Json& value, const char* key) {
 }
 Decimal decimal(const Json& value, const char* key) {
   return Decimal::parse(string(value, key));
+}
+// No consumed events, orders or positions.
+bool fresh(const PaperExecution& engine) {
+  return engine.cursor() == 0 && engine.account().orders().empty() &&
+         engine.account().positions().empty();
 }
 } // namespace
 std::unique_ptr<PaperExecution> PaperSession::build(const Json& manifest) {
@@ -63,9 +69,7 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
   const bool controlled = !authorization.is_null() && authorization.at("active") == true;
   if (action == "replay_calendar") {
     require_fields(command, {"request_id", "action", "publication"});
-    const auto state = engine.snapshot();
-    if (controlled || schedule || state.at("cursor") != 0 || !state.at("orders").empty() ||
-        !state.at("positions").empty())
+    if (controlled || schedule || !fresh(engine))
       throw std::invalid_argument("calendar binding requires a fresh unowned account");
     const auto publication = protocol::encode_calendar_publication(command.at("publication"));
     if (protocol::decode_contract(publication.calendar().contract()) != manifest_.at("contract"))
@@ -101,7 +105,7 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
     if (!schedule || !command.at("day_index").is_number_integer() ||
         command.at("day_index") != replay.at("settled_days"))
       throw std::invalid_argument("unexpected replay settlement day");
-    const auto cursor = engine.snapshot().at("cursor").get<std::size_t>();
+    const auto cursor = engine.cursor();
     if (!cursor || !schedule->event(cursor - 1).day_end ||
         schedule->event(cursor - 1).day != command.at("day_index").get<std::size_t>())
       throw std::invalid_argument("replay day has not completed");
@@ -119,9 +123,7 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
                              "dataset_revision", "max_quantity"});
     for (const auto* field : {"grant_id", "strategy_id", "stream_id"})
       validate_id(string(command, field));
-    const auto state = engine.snapshot();
-    if (controlled || state.at("cursor") != 0 || !state.at("positions").empty() ||
-        !state.at("orders").empty())
+    if (controlled || !fresh(engine))
       throw std::invalid_argument("strategy grant requires an unowned fresh account");
     for (const auto& [id, previous] : commands_) {
       (void)id;
@@ -158,17 +160,20 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
     for (const auto* field : {"grant_id", "strategy_id", "stream_id", "dataset_revision"})
       if (command.at(field) != authorization.at(field))
         throw std::invalid_argument("strategy authorization mismatch");
-    const auto state = engine.snapshot();
+    const auto cursor = engine.cursor();
+    const auto timestamp = engine.timestamp_ns();
     if (!command.at("sequence").is_number_integer() || command.at("sequence") < 1 ||
-        command.at("sequence") != state.at("cursor") ||
+        command.at("sequence") != cursor ||
         command.at("sequence") <= authorization.at("last_sequence") ||
-        command.at("timestamp_ns") != state.at("timestamp_ns"))
+        command.at("timestamp_ns") !=
+            (timestamp ? Json(std::to_string(*timestamp)) : Json(nullptr)))
       throw std::invalid_argument("strategy intent is not for the current unconsumed event");
     const auto target = decimal(command, "target_quantity");
     if (target < Decimal{} || target > decimal(authorization, "max_quantity"))
       throw std::invalid_argument("strategy target exceeds authorized position limit");
-    if (!schedule || !schedule->event(state.at("cursor").get<std::size_t>() - 1).session_end)
-      engine.reconcile_long_target(string(command, "request_id"), target, decimal(state, "mark"));
+    if (!schedule || !schedule->event(cursor - 1).session_end)
+      engine.reconcile_long_target(string(command, "request_id"), target,
+                                   engine.account().last_mark());
     authorization["last_sequence"] = command.at("sequence");
     return;
   }
@@ -176,7 +181,7 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
     throw std::invalid_argument("revoke strategy authorization before manual account operations");
   if (action == "advance") {
     require_fields(command, {"request_id", "action"});
-    const auto cursor = engine.snapshot().at("cursor").get<std::size_t>();
+    const auto cursor = engine.cursor();
     if (schedule && cursor < schedule->size() &&
         schedule->event(cursor).day != replay.at("settled_days").get<std::size_t>())
       throw std::invalid_argument("settle the completed replay day before advancing");
@@ -194,7 +199,7 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
   } else if (action == "submit") {
     require_fields(command,
                    {"request_id", "action", "order_id", "side", "offset", "quantity", "price"});
-    const auto cursor = engine.snapshot().at("cursor").get<std::size_t>();
+    const auto cursor = engine.cursor();
     if (schedule && (!cursor || schedule->event(cursor - 1).session_end))
       throw std::invalid_argument("cannot submit after the last replay event of a session");
     const auto side = string(command, "side"), offset = string(command, "offset");
@@ -250,6 +255,7 @@ PaperSession::~PaperSession() {
   if (engine_)
     engine_->stop();
 }
+static_assert(std::is_nothrow_move_assignable_v<PaperExecution>);
 void PaperSession::execute(const Json& command) {
   if (failed_)
     throw std::runtime_error("提交状态不确定，请关闭并重新打开会话恢复");
@@ -264,9 +270,11 @@ void PaperSession::execute(const Json& command) {
   auto replay = replay_;
   auto schedule = schedule_;
   apply(candidate, authorization, replay, schedule, command);
-  // Allocate all in-memory state before committing durable state.
-  auto commands = commands_;
-  commands.emplace(id, command);
+  // Allocate all in-memory state before committing durable state: the node is
+  // spliced into commands_ afterwards without allocation.
+  std::map<std::string, Json> staging;
+  staging.emplace(id, command);
+  auto entry = staging.extract(staging.begin());
   try {
     journal_.append(command);
   } catch (...) {
@@ -277,7 +285,7 @@ void PaperSession::execute(const Json& command) {
   authorization_.swap(authorization);
   replay_.swap(replay);
   schedule_.swap(schedule);
-  commands_.swap(commands);
+  commands_.insert(std::move(entry));
 }
 Json PaperSession::snapshot() const {
   auto result = engine_->snapshot();

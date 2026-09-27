@@ -83,8 +83,8 @@ research::v1::BacktestResult run(const research::v1::BacktestInput& input, std::
   auto peak = decimal(p.deposit());
   Decimal drawdown;
   const auto add_equity = [&](std::int64_t time, research::v1::EquityEvent event,
-                              const Json& account) {
-    const auto equity = Decimal::parse(account.at("equity").get<std::string>());
+                              const FuturesAccount& account) {
+    const auto equity = account.balance() + account.unrealized();
     peak = std::max(peak, equity);
     drawdown = std::max(drawdown, peak - equity);
     auto* point = result.add_equity();
@@ -98,10 +98,8 @@ research::v1::BacktestResult run(const research::v1::BacktestInput& input, std::
     // Orders generated after tick N can only fill at N+1 or later. Shared
     // per-tick volume and limit-price matching come from the paper plugin.
     execution.advance();
-    auto account = execution.snapshot();
-    for (const auto& order : account.at("orders"))
-      if (order.at("state") == "accepted" || order.at("state") == "partially_filled")
-        execution.cancel(order.at("id").get<std::string>());
+    execution.cancel_open_orders();
+    const auto& account = execution.account();
     const auto target = strategy.on_tick(data[index]);
     if (target && !schedule.event(index).session_end) {
       execution.reconcile_long_target("sma." + std::to_string(index), *target, data[index].price);
@@ -114,22 +112,18 @@ research::v1::BacktestResult run(const research::v1::BacktestInput& input, std::
         execution.settle(decimal(day.settlement_price()));
       else
         execution.settle_before_next(boundary, decimal(day.settlement_price()));
-      account = execution.snapshot();
       add_equity(boundary, research::v1::DAILY_SETTLEMENT, account);
       auto* settled = result.add_settlements();
       settled->set_trading_day(day.trading_day());
       settled->set_timestamp_ns(boundary);
       *settled->mutable_price() = day.settlement_price();
-      const auto amount = [&](const char* name) {
-        return Decimal::parse(account.at(name).get<std::string>()).raw();
-      };
-      settled->mutable_balance()->set_units(amount("balance"));
-      settled->mutable_equity()->set_units(amount("equity"));
-      settled->mutable_realized()->set_units(amount("realized"));
-      settled->mutable_fees()->set_units(amount("fees"));
+      settled->mutable_balance()->set_units(account.balance().raw());
+      settled->mutable_equity()->set_units((account.balance() + account.unrealized()).raw());
+      settled->mutable_realized()->set_units(account.realized().raw());
+      settled->mutable_fees()->set_units(account.fees().raw());
       Decimal quantity;
-      for (const auto& lot : account.at("positions"))
-        quantity = quantity + Decimal::parse(lot.at("quantity").get<std::string>());
+      for (const auto& lot : account.positions())
+        quantity = quantity + lot.quantity;
       settled->mutable_position_quantity()->set_units(quantity.raw());
     }
     if (progress)

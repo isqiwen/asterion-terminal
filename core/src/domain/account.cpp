@@ -1,6 +1,7 @@
 #include <asterion/domain/account.hpp>
 #include <algorithm>
 #include <stdexcept>
+#include <type_traits>
 
 namespace asterion {
 namespace {
@@ -63,12 +64,14 @@ FuturesAccount::FuturesAccount(Instrument instrument, Decimal deposit, FuturesCo
       !instrument_.quantity_increment.multiple_of(one))
     throw std::invalid_argument("期货账户需要正数初始资金与整手规格");
 }
-AccountOrder& FuturesAccount::find(const std::string& id) {
-  auto it = std::find_if(orders_.begin(), orders_.end(),
-                         [&](const auto& x) { return x.order.request().id == id; });
-  if (it == orders_.end())
+std::size_t FuturesAccount::index_of(const std::string& id) const {
+  const auto found = order_index_.find(id);
+  if (found == order_index_.end())
     throw std::invalid_argument("订单不存在");
-  return *it;
+  return found->second;
+}
+bool FuturesAccount::has_working_orders() const noexcept {
+  return std::ranges::any_of(orders_, active);
 }
 Decimal FuturesAccount::margin() const {
   Decimal result;
@@ -108,109 +111,133 @@ Decimal FuturesAccount::closable(Side side, bool today) const {
       result = result - item.order.remaining_quantity();
   return result;
 }
+// Every check and every value that can overflow is computed before the first
+// mutation; the remaining mutations either cannot throw or are rolled back.
 void FuturesAccount::submit(LimitOrder request, Offset offset) {
-  auto next = *this;
-  next.submit_in_place(std::move(request), offset);
-  *this = std::move(next);
-}
-void FuturesAccount::submit_in_place(LimitOrder request, Offset offset) {
   (void)offset_name(offset);
   if (request.side != Side::buy && request.side != Side::sell)
     throw std::invalid_argument("无效买卖方向");
   if (orders_.size() >= 10000)
     throw std::invalid_argument("模拟账户最多保留 10000 笔委托");
-  for (const auto& item : orders_)
-    if (item.order.request().id == request.id)
-      throw std::invalid_argument("订单标识重复");
+  if (order_index_.contains(request.id))
+    throw std::invalid_argument("订单标识重复");
   if (request.limit_price <= zero)
     throw std::invalid_argument("当前期货模拟模型要求正数限价");
-  Order order(request, instrument_);
+  Order order(std::move(request), instrument_);
+  const auto& accepted = order.request();
   if (mark_ == zero)
     throw std::invalid_argument("请先回放一笔行情");
-  if (offset != Offset::open && closable(request.side == Side::buy ? Side::sell : Side::buy,
-                                         offset == Offset::close_today) < request.quantity)
+  if (offset != Offset::open && closable(accepted.side == Side::buy ? Side::sell : Side::buy,
+                                         offset == Offset::close_today) < accepted.quantity)
     throw std::invalid_argument("可平持仓不足或已被其他委托冻结");
   const auto required =
-      request.quantity *
+      accepted.quantity *
       (costs_.fee(offset) + (offset == Offset::open ? costs_.margin_per_lot : zero));
-  if (offset == Offset::open && required > available())
+  const auto before = available();
+  if (offset == Offset::open && required > before)
     throw std::invalid_argument("可用资金不足");
+  // The post-submit ledger must remain representable.
+  (void)(frozen() + required);
+  (void)(before - required);
   order.accept();
+  auto id = accepted.id;
   orders_.push_back({std::move(order), offset});
-  (void)available();
+  try {
+    order_index_.emplace(std::move(id), orders_.size() - 1);
+  } catch (...) {
+    orders_.pop_back();
+    throw;
+  }
 }
 void FuturesAccount::cancel(const std::string& id) {
-  auto next = *this;
-  next.find(id).order.cancel();
-  *this = std::move(next);
+  orders_[index_of(id)].order.cancel();
 }
+static_assert(std::is_nothrow_move_assignable_v<Order>);
+static_assert(std::is_nothrow_move_constructible_v<Fill>);
 bool FuturesAccount::fill(const Fill& report) {
-  for (const auto& previous : fills_)
-    if (previous.execution_id == report.execution_id) {
-      if (previous == report)
-        return false;
-      throw std::invalid_argument("成交标识冲突");
-    }
-  auto next = *this;
-  next.fill_in_place(report);
-  *this = std::move(next);
-  return true;
-}
-void FuturesAccount::fill_in_place(const Fill& report) {
+  if (const auto previous = fill_index_.find(report.execution_id); previous != fill_index_.end()) {
+    if (fills_[previous->second] == report)
+      return false;
+    throw std::invalid_argument("成交标识冲突");
+  }
   if (report.price <= zero)
     throw std::invalid_argument("当前期货模拟模型要求正数成交价");
-  auto& item = find(report.order_id);
-  item.order.apply(report);
+  auto& item = orders_[index_of(report.order_id)];
+  auto order = item.order;
+  order.apply(report);
+  const auto side = order.request().side;
   const auto fee = report.quantity * costs_.fee(item.offset);
-  fees_ = fees_ + fee;
-  balance_ = balance_ - fee;
+  auto fees = fees_ + fee;
+  auto balance = balance_ - fee;
+  auto realized = realized_;
+  auto lots = lots_;
   if (item.offset == Offset::open)
-    lots_.push_back({item.order.request().side, true, report.quantity, report.price});
+    lots.push_back({side, true, report.quantity, report.price});
   else {
     auto remaining = report.quantity;
-    for (auto& lot : lots_) {
+    for (auto& lot : lots) {
       if (remaining == zero)
         break;
-      if (lot.side == item.order.request().side ||
-          lot.today != (item.offset == Offset::close_today))
+      if (lot.side == side || lot.today != (item.offset == Offset::close_today))
         continue;
       const auto amount = std::min(remaining, lot.quantity);
       const auto pnl =
           (lot.side == Side::buy ? report.price - lot.price : lot.price - report.price) * amount *
           instrument_.multiplier;
-      balance_ = balance_ + pnl;
-      realized_ = realized_ + pnl;
+      balance = balance + pnl;
+      realized = realized + pnl;
       lot.quantity = lot.quantity - amount;
       remaining = remaining - amount;
     }
     if (remaining != zero)
       throw std::logic_error("成交超过可平持仓");
-    std::erase_if(lots_, [](const auto& lot) { return lot.quantity == zero; });
+    std::erase_if(lots, [](const auto& lot) { return lot.quantity == zero; });
   }
-  fills_.push_back(report);
+  auto recorded = report;
+  fills_.reserve(fills_.size() + 1);
+  fill_index_.emplace(report.execution_id, fills_.size());
+  // Commit: no operation below can throw.
+  item.order = std::move(order);
+  lots_ = std::move(lots);
+  fees_ = fees;
+  balance_ = balance;
+  realized_ = realized;
+  fills_.push_back(std::move(recorded));
+  return true;
 }
 void FuturesAccount::mark(Decimal price) {
   if (price <= zero || !price.multiple_of(instrument_.price_increment))
     throw std::invalid_argument("无效标记价格");
-  auto next = *this;
-  next.mark_ = price;
-  (void)next.available();
-  *this = std::move(next);
+  const auto previous = mark_;
+  mark_ = price;
+  try {
+    (void)available();
+  } catch (...) {
+    mark_ = previous;
+    throw;
+  }
 }
 void FuturesAccount::settle(Decimal price) {
-  auto next = *this;
-  for (const auto& item : orders_)
-    if (active(item))
-      throw std::invalid_argument("结算前必须撤销所有未完成委托");
-  next.mark(price);
-  const auto pnl = next.unrealized();
-  next.balance_ = next.balance_ + pnl;
-  next.realized_ = next.realized_ + pnl;
-  for (auto& lot : next.lots_) {
-    lot.today = false;
-    lot.price = price;
+  if (has_working_orders())
+    throw std::invalid_argument("结算前必须撤销所有未完成委托");
+  const auto previous = mark_;
+  mark(price);
+  try {
+    const auto pnl = unrealized();
+    const auto balance = balance_ + pnl;
+    const auto realized = realized_ + pnl;
+    auto lots = lots_;
+    for (auto& lot : lots) {
+      lot.today = false;
+      lot.price = price;
+    }
+    lots_ = std::move(lots);
+    balance_ = balance;
+    realized_ = realized;
+  } catch (...) {
+    mark_ = previous;
+    throw;
   }
-  *this = std::move(next);
 }
 Json FuturesAccount::snapshot() const {
   Json positions = Json::array(), orders = Json::array(), fills = Json::array();

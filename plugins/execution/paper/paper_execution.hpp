@@ -1,6 +1,7 @@
 #pragma once
 #include <asterion/domain/execution_port.hpp>
 #include <asterion/domain/risk_port.hpp>
+#include <optional>
 namespace asterion {
 class PaperExecution final : public ExecutionPort {
 public:
@@ -21,6 +22,12 @@ public:
   // Single-contract long/flat target, routed through normal account checks.
   void reconcile_long_target(const std::string& order_id, Decimal target, Decimal price);
   Json snapshot() const override;
+  const FuturesAccount& account() const noexcept { return account_; }
+  // Number of consumed replay events; the next advance consumes ticks[cursor].
+  std::size_t cursor() const noexcept { return cursor_; }
+  std::size_t size() const noexcept { return ticks_->size(); }
+  // Timestamp of the last consumed event, if any.
+  std::optional<std::int64_t> timestamp_ns() const;
 
 private:
   void require_running() const;

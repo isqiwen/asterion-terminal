@@ -729,3 +729,45 @@ TEST(PaperSession, ScheduledStrategyCannotPlaceOrdersAcrossSessionOrSkipSettleme
   session.execute(replay_settle_command("day1", 1));
   EXPECT_EQ(session.snapshot().at("replay").at("settled_days"), 2);
 }
+TEST(FuturesAccount, TypedQueriesMatchSnapshotAndRejectedFillsLeaveLedgerUntouched) {
+  FuturesAccount account(instrument(), d("100000"), costs());
+  account.mark(d("100"));
+  account.submit(order("o1", Side::buy, "2", "100"), Offset::open);
+  ASSERT_TRUE(account.fill({"e1", "o1", d("1"), d("100")}));
+  account.mark(d("103"));
+  const auto before = account.snapshot();
+  EXPECT_EQ(before.at("available"), account.available().str());
+  EXPECT_EQ(before.at("frozen"), account.frozen().str());
+  EXPECT_EQ(before.at("margin"), account.margin().str());
+  EXPECT_EQ(before.at("unrealized"), account.unrealized().str());
+  EXPECT_EQ(before.at("mark"), account.last_mark().str());
+  EXPECT_TRUE(account.has_working_orders());
+  // Limit violation, conflicting duplicate and unknown order all fail atomically.
+  EXPECT_THROW(account.fill({"e2", "o1", d("1"), d("101")}), std::invalid_argument);
+  EXPECT_THROW(account.fill({"e1", "o1", d("1"), d("99")}), std::invalid_argument);
+  EXPECT_THROW(account.fill({"e3", "missing", d("1"), d("100")}), std::invalid_argument);
+  EXPECT_THROW(account.submit(order("o1", Side::buy, "1", "100"), Offset::open),
+               std::invalid_argument);
+  EXPECT_EQ(account.snapshot(), before);
+  EXPECT_FALSE(account.fill({"e1", "o1", d("1"), d("100")}));
+}
+TEST(PaperExecution, RestingOrdersDoNotMakeReplayQuadratic) {
+  constexpr std::size_t events = 10000, resting = 2000;
+  std::vector<TradeTick> ticks;
+  for (std::size_t i = 0; i < events; ++i)
+    ticks.push_back({instrument().id, static_cast<std::int64_t>(i + 1), d("100"), d("1")});
+  auto limits = std::make_shared<OrderLimits>(OrderLimitsConfig{d("10"), d("100000"), resting});
+  limits->start();
+  PaperExecution execution(instrument(), d("100000000"), costs(), std::move(ticks), limits);
+  execution.start();
+  execution.advance();
+  for (std::size_t i = 0; i < resting; ++i)
+    execution.submit(order("rest." + std::to_string(i), Side::buy, "1", "90"), Offset::open);
+  const auto started = std::chrono::steady_clock::now();
+  while (execution.cursor() < execution.size())
+    execution.advance();
+  // Previously every event copied the full ledger (O(events x orders)).
+  EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(10));
+  EXPECT_EQ(execution.account().fills().size(), 0U);
+  EXPECT_EQ(execution.account().orders().size(), resting);
+}

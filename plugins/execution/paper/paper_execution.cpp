@@ -41,38 +41,49 @@ void PaperExecution::cancel(const std::string& id) {
   require_running();
   account_.cancel(id);
 }
+namespace {
+bool working(const AccountOrder& item) {
+  return item.order.state() == OrderState::accepted ||
+         item.order.state() == OrderState::partially_filled;
+}
+bool crosses(const AccountOrder& item, Decimal price) {
+  const auto& request = item.order.request();
+  return working(item) &&
+         (request.side == Side::buy ? price <= request.limit_price : price >= request.limit_price);
+}
+} // namespace
 void PaperExecution::advance() {
   require_running();
   if (cursor_ == ticks_->size())
     throw std::invalid_argument("行情已回放结束");
+  const auto& tick = ticks_->at(cursor_);
+  if (std::ranges::none_of(account_.orders(),
+                           [&](const auto& item) { return crosses(item, tick.price); })) {
+    // Nothing can fill: marking alone has a strong guarantee, no ledger copy.
+    account_.mark(tick.price);
+    ++cursor_;
+    return;
+  }
   auto next = account_;
   auto sequence = execution_sequence_;
-  const auto& tick = ticks_->at(cursor_);
   next.mark(tick.price);
   auto liquidity = tick.quantity;
-  // Snapshot order sequence before fills: arrival order, shared per-tick
-  // volume.
-  const auto orders = next.orders();
-  for (const auto& item : orders) {
-    if (liquidity == Decimal{})
-      break;
-    if (item.order.state() != OrderState::accepted &&
-        item.order.state() != OrderState::partially_filled)
+  // Arrival order, shared per-tick volume. Fills and cancels never append
+  // orders, so indexes stay stable during the pass.
+  for (std::size_t i = 0; i < next.orders().size() && liquidity != Decimal{}; ++i) {
+    const auto& item = next.orders()[i];
+    if (!crosses(item, tick.price))
       continue;
-    const auto& request = item.order.request();
-    if ((request.side == Side::buy && tick.price > request.limit_price) ||
-        (request.side == Side::sell && tick.price < request.limit_price))
-      continue;
-    if (item.offset == Offset::open &&
-        Decimal::parse(next.snapshot().at("available").get<std::string>()) < Decimal{}) {
-      next.cancel(request.id);
+    const auto id = item.order.request().id;
+    if (item.offset == Offset::open && next.available() < Decimal{}) {
+      next.cancel(id);
       continue;
     }
     auto quantity = quantize(std::min(liquidity, item.order.remaining_quantity()),
                              account_.instrument().quantity_increment, Rounding::floor);
     if (quantity == Decimal{})
       continue;
-    next.fill({"paper.fill." + std::to_string(++sequence), request.id, quantity, tick.price});
+    next.fill({"paper.fill." + std::to_string(++sequence), id, quantity, tick.price});
     liquidity = liquidity - quantity;
   }
   account_ = std::move(next);
@@ -96,11 +107,10 @@ void PaperExecution::settle_before_next(std::int64_t boundary_ns, Decimal price)
 }
 void PaperExecution::cancel_open_orders() {
   require_running();
-  const auto orders = account_.orders();
-  for (const auto& item : orders)
-    if (item.order.state() == OrderState::accepted ||
-        item.order.state() == OrderState::partially_filled)
-      account_.cancel(item.order.request().id);
+  // Cancelling a working order cannot fail, so the loop is all-or-nothing.
+  for (std::size_t i = 0; i < account_.orders().size(); ++i)
+    if (working(account_.orders()[i]))
+      account_.cancel(account_.orders()[i].order.request().id);
 }
 void PaperExecution::reconcile_long_target(const std::string& order_id, Decimal target,
                                            Decimal price) {
@@ -110,14 +120,15 @@ void PaperExecution::reconcile_long_target(const std::string& order_id, Decimal 
   if (target < Decimal{} || !target.multiple_of(account_.instrument().quantity_increment))
     throw std::invalid_argument("target must be nonnegative and lot aligned");
   Decimal today, yesterday;
-  const auto state = account_.snapshot();
-  for (const auto& lot : state.at("positions")) {
-    if (lot.at("side") != "buy")
+  for (const auto& lot : account_.positions()) {
+    if (lot.side != Side::buy)
       throw std::invalid_argument("long/flat target requires long positions");
-    auto& bucket = lot.at("bucket") == "today" ? today : yesterday;
-    bucket = bucket + Decimal::parse(lot.at("quantity").get<std::string>());
+    auto& bucket = lot.today ? today : yesterday;
+    bucket = bucket + lot.quantity;
   }
   const auto current = today + yesterday;
+  if (target == current && !account_.has_working_orders())
+    return;
   // All child orders are checked against one candidate account. Rejection of
   // the second close must not cancel or partially replace existing orders.
   auto candidate = *this;
@@ -141,6 +152,11 @@ void PaperExecution::reconcile_long_target(const std::string& order_id, Decimal 
                        Offset::close_today);
   }
   *this = std::move(candidate);
+}
+std::optional<std::int64_t> PaperExecution::timestamp_ns() const {
+  if (!cursor_)
+    return std::nullopt;
+  return ticks_->at(cursor_ - 1).timestamp_ns;
 }
 Json PaperExecution::snapshot() const {
   auto result = account_.snapshot();
