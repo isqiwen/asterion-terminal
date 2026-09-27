@@ -122,4 +122,9 @@ Backtest 与 Task Service 已有首条独立研究执行链，范围见 docs/res
 - C ABI 可并发调用，状态读取不再排队在长操作之后；Tauri 薄桥去掉全局锁。
 - 交易、策略、行情服务的 mTLS 握手移出接收线程；开发桥校验 Host；持久状态统一经 `kernel/durable_file.hpp` 落盘。
 - Terminal 编排按业务域拆分为 `commands_*.cpp`；插件契约不再依赖总览插件。
+- 服务宿主：交易、策略、行情、任务服务与 Node Agent 共用 `kernel/service_host`（传输、停机信号、监督检测、健康通道、有界准入与排空），见 [Core 基础设施](core-infrastructure.md#服务宿主)。
+- Terminal 状态：后台按业务部分刷新并发布带 revision 的快照，界面轮询不再触发服务 RPC。
+- 交易会话命令就地执行，失败按引擎变更序号判断是否需要从已提交序列重建。
+- UI 插件声明可调用的命令，宿主按声明限定；ESLint（react-hooks）与 e2e 类型检查接入 CI。
+- 三平台 CI：修复 Windows 行尾导致的 Conan 版本不一致、锁文件缺少 Windows 构建依赖、`windows.h`/`sddl.h` 包含顺序；ASan/UBSan 与 TSan 任务纳入计时倍率；修复 GCC 13 之前初始化列表在异常路径上的泄漏。
 - 格式：C++ 使用 clang-format 23.1.1（`.clang-format`），前端使用 Prettier（`.prettierrc.json`），CI style 任务检查两者与 tsc。

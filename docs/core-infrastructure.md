@@ -73,6 +73,18 @@ Terminal 在 `apps/terminal/native/terminal_application.cpp` 组装 Runtime，�
 
 C ABI 使用统一严格 JSON 解析和核心错误码（`classify` 统一映射异常，跨进程错误经 `throw_remote_error` 还原）。
 
+### 服务宿主
+
+`kernel/service_host.hpp` 是交易、策略、行情、任务服务与 Node Agent 共用的进程骨架，业务路由、帧格式与协议校验仍在各应用：
+
+- `Transport`：本机 IPC 端点与 TCP + mTLS 二选一，不提供明文 TCP；
+- `install_stop_signals` / `request_stop`：SIGINT/SIGTERM（Windows 为控制台事件与服务停止回调）请求协作式停机；
+- `OwnerWatch`：监督进程消失时请求停机，宽限期（默认 2 秒）后仍未退出则以退出码 4 立即结束；持久状态从不依赖优雅停机；
+- `HealthChannel`：独立线程上的私有健康通道，与业务工作池隔离；
+- `ServiceHost`：构造时即绑定监听（Agent 因此在启动受管服务前占有端点），接收线程只接收传输，mTLS 握手与处理函数在有界工作池内执行；准入按“执行中 + 等待中”与 `workers + queue` 比较，突发连接不会因空闲线程尚未取走任务而被误拒，`queue = 0` 表示全部繁忙才拒绝；`tick` 在接收线程执行周期性维护（任务租约过期）；停机时先关闭监听（删除本机 socket），再给在途处理函数 `drain`（默认 400 ms，小于 Agent 的 500 ms 升级窗口），未排空时调用方以 `std::_Exit` 结束。
+
+`service_graceful_stop` 验证四个服务收到 SIGTERM 后在 500 ms 内以 0 退出并删除 socket；此前服务不处理 SIGTERM，Agent 总是升级为 SIGKILL。
+
 ### 持久文件写入
 
 `kernel/durable_file.hpp` 提供 `write_file_durably`、`sync_directory` 与 `replace_file_durably`：写完后强制落盘（macOS 使用 F_FULLFSYNC，其他 POSIX 使用 fsync，Windows 使用 FlushFileBuffers），`owner_only` 从创建起即为 0600，密钥不会先以默认权限存在。交易日志、Agent 服务与防火墙记录、Agent 升级事务、节点身份证书与私钥、SSH 注册状态均使用该机制。CSV 解析错误、无权限、未知命令、重复 JSON 字段都不会越过 ABI 抛出异常。此集成没有引入实盘交易入口。
