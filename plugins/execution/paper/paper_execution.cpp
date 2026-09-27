@@ -9,14 +9,14 @@ PaperExecution::PaperExecution(Instrument instrument, Decimal deposit, FuturesCo
   if (!risk_)
     throw std::invalid_argument("risk plugin is required");
   if (ticks_->empty() || ticks_->size() > 10000)
-    throw std::invalid_argument("模拟回放需要 1 至 10000 笔历史成交");
+    throw std::invalid_argument("paper replay requires 1 to 10000 historical trades");
   std::int64_t previous = 0;
   for (const auto& tick : *ticks_) {
     tick.validate(instrument);
     if (tick.price <= Decimal{})
-      throw std::invalid_argument("当前期货模拟模型要求正数行情价格");
+      throw std::invalid_argument("futures paper model requires positive market prices");
     if (tick.timestamp_ns < previous)
-      throw std::invalid_argument("历史成交时间必须升序");
+      throw std::invalid_argument("historical trade times must be ascending");
     previous = tick.timestamp_ns;
   }
 }
@@ -25,16 +25,16 @@ PluginDescriptor PaperExecution::descriptor() const {
 }
 void PaperExecution::require_running() const {
   if (!running_)
-    throw std::logic_error("模拟执行插件未启动");
+    throw std::logic_error("paper execution plugin is not started");
 }
 void PaperExecution::submit(LimitOrder order, Offset offset) {
   require_running();
   if (cursor_ == ticks_->size())
-    throw std::invalid_argument("行情已回放结束，不能新增委托");
+    throw std::invalid_argument("replay has finished; no new orders accepted");
   const auto decision = assess_order(*risk_, account_, order, offset);
   if (!decision.allowed())
     throw std::invalid_argument("pre-trade risk rejected: " +
-                                std::to_string(static_cast<int>(decision.reason)));
+                                std::string(risk_reason_name(decision.reason)));
   account_.submit(std::move(order), offset);
 }
 void PaperExecution::cancel(const std::string& id) {
@@ -55,7 +55,7 @@ bool crosses(const AccountOrder& item, Decimal price) {
 void PaperExecution::advance() {
   require_running();
   if (cursor_ == ticks_->size())
-    throw std::invalid_argument("行情已回放结束");
+    throw std::invalid_argument("replay has finished");
   const auto& tick = ticks_->at(cursor_);
   if (std::ranges::none_of(account_.orders(),
                            [&](const auto& item) { return crosses(item, tick.price); })) {
@@ -93,7 +93,7 @@ void PaperExecution::advance() {
 void PaperExecution::settle(Decimal price) {
   require_running();
   if (cursor_ != ticks_->size())
-    throw std::invalid_argument("本次回放结束后才能手动结算");
+    throw std::invalid_argument("manual settlement is allowed only after the replay finishes");
   account_.settle(price);
 }
 void PaperExecution::settle_before_next(std::int64_t boundary_ns, Decimal price) {

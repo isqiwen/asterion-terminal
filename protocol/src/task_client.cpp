@@ -39,7 +39,7 @@ int run_task_worker(const std::string& endpoint, const std::string& host, unsign
         response.correlation_id() != request.correlation_id())
       throw std::runtime_error("task response identity mismatch");
     if (response.has_error())
-      throw std::runtime_error(response.error().message());
+      throw_remote_error(response.error().code(), response.error().message());
     if (request.has_claim() ? !response.has_attempt() : !response.has_task())
       throw std::runtime_error("unexpected task response");
     return response;

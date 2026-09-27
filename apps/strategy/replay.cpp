@@ -22,7 +22,7 @@ protocol::v1::Snapshot exchange(const v1::ReplayPlan& plan, protocol::v1::Reques
         response.correlation_id() != request.correlation_id())
       throw std::runtime_error("strategy trading response identity mismatch");
     if (response.has_error())
-      throw std::runtime_error(response.error().message());
+      throw_remote_error(response.error().code(), response.error().message());
     if (!response.has_snapshot())
       throw std::runtime_error("strategy requires an initialized paper account");
     static_cast<void>(protocol::decode_snapshot(response.snapshot()));

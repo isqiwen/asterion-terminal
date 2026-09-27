@@ -150,8 +150,9 @@ int main(int argc, char** argv) {
         } catch (const Error& e) {
           response.mutable_error()->set_code(std::string(error_name(e.code())));
           response.mutable_error()->set_message(e.what());
-        } catch (const std::exception&) {
-          response.mutable_error()->set_code("invalid_request");
+        } catch (const std::exception& e) {
+          // Provider diagnostics may echo configuration; only the code crosses.
+          response.mutable_error()->set_code(std::string(error_name(classify(e))));
           response.mutable_error()->set_message(
               "Market request rejected; check configuration and SDK "
               "availability");

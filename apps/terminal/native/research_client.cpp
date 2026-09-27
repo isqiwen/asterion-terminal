@@ -72,7 +72,7 @@ struct ResearchClient::Impl {
         response.correlation_id() != request.correlation_id())
       throw Error(ErrorCode::unavailable, "research response identity mismatch");
     if (response.has_error())
-      throw std::invalid_argument(response.error().message());
+      throw_remote_error(response.error().code(), response.error().message());
     if (request.has_list() ? !response.has_tasks()
         : request.has_result()
             ? (!response.has_backtest() && !response.has_factor() && !response.has_publication() &&

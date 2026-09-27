@@ -828,6 +828,7 @@ public:
         throw std::invalid_argument("missing node operation");
       response.mutable_accepted();
     } catch (const std::exception& error) {
+      response.mutable_error()->set_code(std::string(error_name(classify(error))));
       response.mutable_error()->set_message(error.what());
     }
     return response;

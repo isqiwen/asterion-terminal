@@ -22,7 +22,7 @@ strategy::v1::Response StrategyClient::call(strategy::v1::Request request, bool 
         response.correlation_id() != request.correlation_id())
       throw std::runtime_error("strategy response identity mismatch");
     if (response.has_error())
-      throw std::invalid_argument(response.error().message());
+      throw_remote_error(response.error().code(), response.error().message());
     if (!response.has_snapshot() && !response.has_uninitialized())
       throw std::runtime_error("missing strategy snapshot");
     return response;

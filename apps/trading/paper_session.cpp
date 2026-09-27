@@ -9,7 +9,7 @@ namespace {
 std::string string(const Json& value, const char* key) {
   auto result = value.at(key).get<std::string>();
   if (result.empty() || result.find('\0') != std::string::npos)
-    throw std::invalid_argument("无效模拟交易字段");
+    throw std::invalid_argument("invalid paper trading field");
   return result;
 }
 Decimal decimal(const Json& value, const char* key) {
@@ -47,7 +47,7 @@ std::unique_ptr<PaperExecution> PaperSession::build(const Json& manifest) {
   require_fields(manifest, {"version", "type", "contract", "costs", "deposit", "ticks", "risk"});
   if (!manifest.at("version").is_number_integer() || manifest.at("version") != 1 ||
       manifest.at("type") != "historical_paper")
-    throw std::invalid_argument("不支持的模拟会话版本");
+    throw std::invalid_argument("unsupported paper session version");
   const auto& c = manifest.at("contract");
   require_fields(c, {"venue", "symbol", "currency", "price_increment", "quantity_increment",
                      "multiplier", "product", "delivery_month"});
@@ -64,7 +64,7 @@ std::unique_ptr<PaperExecution> PaperSession::build(const Json& manifest) {
   require_fields(costs, {"margin_per_lot", "open_fee", "close_today_fee", "close_yesterday_fee"});
   const auto& rows = manifest.at("ticks");
   if (!rows.is_array() || rows.empty() || rows.size() > 10000)
-    throw std::invalid_argument("模拟回放需要 1 至 10000 笔历史成交");
+    throw std::invalid_argument("paper replay requires 1 to 10000 historical trades");
   std::vector<TradeTick> ticks;
   for (const auto& row : rows) {
     require_fields(row, {"timestamp_ns", "price", "quantity"});
@@ -72,7 +72,7 @@ std::unique_ptr<PaperExecution> PaperSession::build(const Json& manifest) {
     std::int64_t ns = 0;
     auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), ns);
     if (error != std::errc{} || end != value.data() + value.size() || std::to_string(ns) != value)
-      throw std::invalid_argument("无效历史成交时间");
+      throw std::invalid_argument("invalid historical trade time");
     ticks.push_back({contract.instrument.id, ns, decimal(row, "price"), decimal(row, "quantity")});
   }
   auto risk = std::make_shared<OrderLimits>(decode_order_limits(manifest.at("risk")));
@@ -226,9 +226,9 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
       throw std::invalid_argument("cannot submit after the last replay event of a session");
     const auto side = string(command, "side"), offset = string(command, "offset");
     if (side != "buy" && side != "sell")
-      throw std::invalid_argument("无效买卖方向");
+      throw std::invalid_argument("invalid order side");
     if (offset != "open" && offset != "close_today" && offset != "close_yesterday")
-      throw std::invalid_argument("无效开平标志");
+      throw std::invalid_argument("invalid open/close offset");
     validate_id(string(command, "order_id"));
     engine.submit({string(command, "order_id"), instrument_, side == "buy" ? Side::buy : Side::sell,
                    decimal(command, "quantity"), decimal(command, "price")},
@@ -236,7 +236,7 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
                   : offset == "close_today" ? Offset::close_today
                                             : Offset::close_yesterday);
   } else
-    throw std::invalid_argument("不支持的模拟交易操作");
+    throw std::invalid_argument("unsupported paper trading operation");
 }
 PaperSession::PaperSession(std::filesystem::path directory, const Json& create_manifest)
     : journal_(directory) {
@@ -248,7 +248,7 @@ PaperSession::PaperSession(std::filesystem::path directory, const Json& create_m
   auto records = journal_.read();
   if (!create_manifest.is_null()) {
     if (!records.empty())
-      throw std::invalid_argument("交易目录已有会话，请使用恢复功能");
+      throw std::invalid_argument("directory already holds a session; recover it instead");
     manifest_ = create_manifest;
     engine_ = build(manifest_);
     engine_->start();
@@ -256,7 +256,7 @@ PaperSession::PaperSession(std::filesystem::path directory, const Json& create_m
         {{"format", journal_format}, {"engine", journal_engine}, {"manifest", manifest_}});
   } else {
     if (records.empty())
-      throw std::invalid_argument("目录中没有可恢复的模拟会话");
+      throw std::invalid_argument("directory holds no recoverable paper session");
     const auto& header = records.front();
     if (!header.is_object() || !header.contains("format") || header.at("format") != journal_format)
       throw std::invalid_argument("unsupported trading journal format; this build reads format 2 "
@@ -280,7 +280,7 @@ PaperSession::PaperSession(std::filesystem::path directory, const Json& create_m
     const auto& command = records[i].at("command");
     const auto id = string(command, "request_id");
     if (commands_.contains(id))
-      throw std::invalid_argument("交易日志包含重复请求，拒绝恢复");
+      throw std::invalid_argument("trading journal contains a duplicate request; recovery refused");
     apply(*engine_, authorization_, replay_, schedule_, command);
     if (outcome(*engine_, authorization_, replay_) != records[i].at("outcome"))
       throw std::invalid_argument("trading journal replay diverged from the recorded outcome at "
@@ -296,11 +296,11 @@ PaperSession::~PaperSession() {
 static_assert(std::is_nothrow_move_assignable_v<PaperExecution>);
 void PaperSession::execute(const Json& command) {
   if (failed_)
-    throw std::runtime_error("提交状态不确定，请关闭并重新打开会话恢复");
+    throw std::runtime_error("commit outcome unknown; close and reopen the session to recover");
   const auto id = string(command, "request_id");
   if (auto it = commands_.find(id); it != commands_.end()) {
     if (it->second != command)
-      throw std::invalid_argument("请求标识被不同操作重复使用");
+      throw std::invalid_argument("request identity reused by a different operation");
     return;
   }
   auto candidate = *engine_;

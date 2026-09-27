@@ -154,7 +154,8 @@ NodeEndpoint local_node() {
     const auto installed = bin / executable.filename();
     if (fs::exists(installed)) {
       if (sha256_file(installed) != sha256_file(executable))
-        throw std::runtime_error("本机 Agent 版本不同，需要显式升级系统服务");
+        throw std::runtime_error(
+            "local Agent version differs; upgrade the system service explicitly");
     } else
       fs::copy_file(executable, installed);
     install_node_service(installed, root, endpoint);

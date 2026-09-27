@@ -190,7 +190,7 @@ public:
     if (key.size() > 65536 || key.find('\0') != std::string::npos ||
         !key.starts_with("-----BEGIN ") || key.find("PRIVATE KEY-----") == std::string::npos ||
         key.find("-----END ") == std::string::npos)
-      throw std::invalid_argument("请粘贴完整的 SSH 私钥内容");
+      throw std::invalid_argument("paste the complete SSH private key");
 #ifdef _WIN32
     HANDLE token = nullptr;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
@@ -278,7 +278,7 @@ struct Ssh {
     const auto known = path(p.at("known_hosts").get<std::string>());
     if (!known.is_absolute() || !fs::is_regular_file(known) ||
         utf8(known).find_first_of("%\r\n\"") != std::string::npos)
-      throw std::invalid_argument("请选择已通过可信渠道核验的 known_hosts 文件");
+      throw std::invalid_argument("choose a known_hosts file verified through a trusted channel");
     options = {"-F", "none",
                "-o", "BatchMode=yes",
                "-o", "StrictHostKeyChecking=yes",
@@ -317,7 +317,8 @@ struct Ssh {
     args.insert(args.end(), {"-p", port, "-l", user, "--", host, cmd});
     ChildProcess child(tool("ssh"), args, true, output);
     if (!child.wait(30s) || child.exit_code() != 0)
-      throw std::runtime_error("SSH 检查失败：核对主机身份、登录权限及目标 Linux 平台");
+      throw std::runtime_error("SSH inspection failed; verify host identity, login permission and "
+                               "target Linux platform");
     if (fs::file_size(output) > 65536)
       throw std::runtime_error("SSH report too large");
     std::ifstream input(output);
@@ -330,7 +331,8 @@ struct Ssh {
                  user + "@" + (host.find(':') == std::string::npos ? host : "[" + host + "]")});
     ChildProcess child(tool("sftp"), args, true);
     if (!child.wait(120s) || child.exit_code() != 0)
-      throw std::runtime_error("SSH 上传失败；检查认证、主机身份及目标目录权限");
+      throw std::runtime_error(
+          "SSH upload failed; check authentication, host identity and target directory permission");
   }
 };
 unsigned short port(const Json& p, const char* key) {
@@ -393,8 +395,8 @@ Json prepare_ssh_key(const std::string& id) {
   const auto directory = base / id;
   if (!fs::exists(directory) && !fs::is_symlink(directory)) {
     if (fs::exists(root / id / "enrollment.json"))
-      throw std::invalid_argument(
-          "已有节点缺少本机 SSH 密钥；请由管理员显式重新授权，不自动生成替代密钥");
+      throw std::invalid_argument("existing node has no local SSH key; an administrator must "
+                                  "re-authorize explicitly, no replacement key is generated");
     private_directory(directory);
     try {
       ChildProcess generate(tool("ssh-keygen"),
@@ -550,7 +552,7 @@ NodeEndpoint enrolled_node(const std::string& id) {
   const auto file = root / "enrollment.json";
   if (fs::is_symlink(root) || fs::is_symlink(file) || !fs::is_regular_file(file) ||
       fs::file_size(file) > 65536)
-    throw std::invalid_argument("节点尚未完成 SSH 身份配置");
+    throw std::invalid_argument("node SSH identity is not configured");
   std::ifstream in(file);
   Json j = Json::parse(in);
   if (j.at("version") != 1 || j.at("id") != id || j.at("os") != "linux")
@@ -565,14 +567,14 @@ NodeEndpoint enroll_node(const Json& p) {
   SshIdentity identity(selected_ssh_key(p));
   Ssh ssh(p, identity.file());
   if (ssh.user != "asterion" || agent_port < 1024)
-    throw std::invalid_argument(
-        "Linux 节点使用初始化脚本创建的 asterion 账户，Agent 端口不得小于 1024");
+    throw std::invalid_argument("Linux nodes use the asterion account created by the initializer; "
+                                "the Agent port must be at least 1024");
   const auto detected = ssh.report(
       "set -eu\ntest \"$(uname -s)\" = Linux\ncase \"$(uname -m)\" in x86_64) arch=x86_64;; *) "
       "exit 3;; esac\nprintf '{\"os\":\"linux\",\"arch\":\"%s\"}\\n' \"$arch\"\n",
       "linux");
   if (detected.size() != 2 || detected.at("os") != "linux")
-    throw std::invalid_argument("远程部署仅支持 Linux");
+    throw std::invalid_argument("remote deployment supports Linux only");
   const HostPlatform platform{"linux", detected.at("arch").get<std::string>()};
   const auto binary = bundled_linux_program(platform.arch, "asterion-node-agent");
   const auto digest = sha256_file(binary);
@@ -580,7 +582,8 @@ NodeEndpoint enroll_node(const Json& p) {
       "test \"$(uname -s)\" = Linux && test \"$(uname -m)\" = " + quote("x86_64") +
       " && test \"$(id -un)\" = asterion && sudo -n /usr/local/sbin/asterion-host --manage check";
   if (!ssh.command(probe))
-    throw std::runtime_error("SSH 校验失败：请检查主机身份、认证、Linux 平台与机器初始化状态");
+    throw std::runtime_error("SSH verification failed; check host identity, authentication, Linux "
+                             "platform and host initialization");
   const auto base = state_root();
   if (fs::is_symlink(base))
     throw std::invalid_argument("invalid enrollment root");
@@ -599,7 +602,8 @@ NodeEndpoint enroll_node(const Json& p) {
     std::ifstream in(root / "enrollment.json");
     Json previous = Json::parse(in);
     if (previous != config)
-      throw std::invalid_argument("节点名称已用于另一安装配置，不覆盖原身份或服务");
+      throw std::invalid_argument(
+          "node name is used by another installation; its identity and services are not replaced");
     try {
       NodeClient existing(endpoint(root, config));
       return endpoint(root, config);
@@ -645,7 +649,8 @@ NodeEndpoint enroll_node(const Json& p) {
     const auto execute = "sh " + quote(stage + "/install");
     if (!ssh.command(execute, 60s))
       throw std::runtime_error(
-          "系统服务安装未完成；保留本机身份，未覆盖已有远端安装，请检查目标服务及权限");
+          "system service installation incomplete; local identity kept and existing remote "
+          "installation untouched, check the target service and permissions");
   } catch (...) {
     ssh.command("rm -rf -- " + quote(stage));
     throw;
@@ -663,8 +668,8 @@ NodeEndpoint enroll_node(const Json& p) {
       return config_endpoint;
     } catch (const Error&) {
       if (std::chrono::steady_clock::now() >= deadline)
-        throw std::runtime_error(
-            "Agent 已安装，但 TCP/mTLS 心跳不可达；检查管理端口防火墙后连接节点，不要重复安装");
+        throw std::runtime_error("Agent installed but its TCP/mTLS heartbeat is unreachable; check "
+                                 "the management port firewall, then connect without reinstalling");
       std::this_thread::sleep_for(500ms);
     }
   }

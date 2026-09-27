@@ -12,13 +12,13 @@ namespace fs = std::filesystem;
 namespace {
 fs::path checked_bundle(const std::string& arch) {
   if (arch != "x86_64")
-    throw std::invalid_argument("不支持的远程 Linux 架构");
+    throw std::invalid_argument("unsupported remote Linux architecture");
 #ifdef _WIN32
   // Read the process environment directly: the Rust host sets this after
   // startup.
   const auto size = GetEnvironmentVariableW(L"ASTERION_REMOTE_RESOURCES", nullptr, 0);
   if (!size)
-    throw std::runtime_error("桌面包缺少内置 Linux 服务资源");
+    throw std::runtime_error("desktop package lacks bundled Linux service resources");
   std::wstring configured(size, L'\0');
   const auto copied =
       GetEnvironmentVariableW(L"ASTERION_REMOTE_RESOURCES", configured.data(), size);
@@ -29,7 +29,7 @@ fs::path checked_bundle(const std::string& arch) {
 #else
   const auto* configured = std::getenv("ASTERION_REMOTE_RESOURCES");
   if (!configured)
-    throw std::runtime_error("桌面包缺少内置 Linux 服务资源");
+    throw std::runtime_error("desktop package lacks bundled Linux service resources");
   const fs::path root(configured);
 #endif
   const auto folder = root / arch;
@@ -37,13 +37,14 @@ fs::path checked_bundle(const std::string& arch) {
     throw std::invalid_argument("invalid bundled resource directory");
   const auto manifest = folder / "manifest.json";
   if (fs::is_symlink(manifest) || !fs::is_regular_file(manifest) || fs::file_size(manifest) > 65536)
-    throw std::runtime_error("桌面包缺少目标 Linux 架构资源，请重新安装完整安装包");
+    throw std::runtime_error("desktop package lacks resources for the target Linux architecture; "
+                             "reinstall the complete package");
   std::ifstream input(manifest);
   const auto info = nlohmann::json::parse(input);
   if (info.size() != 5 || info.at("version") != 1 ||
       info.at("product_version") != ASTERION_PRODUCT_VERSION || info.at("os") != "linux" ||
       info.at("arch") != arch || info.at("files").size() != 10)
-    throw std::invalid_argument("内置 Linux 服务版本不匹配");
+    throw std::invalid_argument("bundled Linux service version mismatch");
   std::vector<std::string> names{
       "asterion-node-agent",    "asterion-trading",  "asterion-market-data",
       "asterion-task-service",  "asterion-backtest", "asterion-factor",
@@ -55,11 +56,11 @@ fs::path checked_bundle(const std::string& arch) {
     if (fs::is_symlink(file) || !fs::is_regular_file(file) ||
         fs::file_size(file) > 256 * 1024 * 1024 ||
         sha256_file(file) != info.at("files").at(name).get<std::string>())
-      throw std::invalid_argument("内置 Linux 资源校验失败");
+      throw std::invalid_argument("bundled Linux resource verification failed");
     if (std::string(name) != "initialize-linux.py") {
       const auto platform = artifact_platform(file);
       if (platform.os != "linux" || platform.arch != arch)
-        throw std::invalid_argument("内置 Linux 程序架构不匹配");
+        throw std::invalid_argument("bundled Linux program architecture mismatch");
     }
   }
   return folder;
@@ -83,7 +84,7 @@ std::string bundled_linux_initializer() {
 }
 void export_bundled_initializer(const fs::path& destination) {
   if (!destination.is_absolute() || fs::exists(destination) || fs::is_symlink(destination))
-    throw std::invalid_argument("请选择尚不存在的初始化脚本保存路径");
+    throw std::invalid_argument("choose a save path for the initializer that does not exist yet");
   fs::copy_file(checked_bundle("x86_64") / "initialize-linux.py", destination);
 }
 

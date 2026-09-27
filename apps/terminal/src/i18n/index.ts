@@ -1,11 +1,17 @@
 import { useSyncExternalStore } from "react";
 import zh from "./locales/zh-CN.json";
 import en from "./locales/en-US.json";
+import diagnosticsZh from "./locales/diagnostics.zh-CN.json";
+import diagnosticsEn from "./locales/diagnostics.en-US.json";
 export type Locale = "zh-CN" | "en-US";
 export type LanguageResources = Readonly<Record<Locale, Readonly<Record<string, string>>>>;
 export type MessageValues = Readonly<Record<string, string | number>>;
 const preference = "asterion.locale";
-const resources = new Map<string, LanguageResources>([["host", { "zh-CN": zh, "en-US": en }]]);
+// "diagnostics" localizes known English core diagnostics; unknown ones fall back to the error code.
+const resources = new Map<string, LanguageResources>([
+  ["host", { "zh-CN": zh, "en-US": en }],
+  ["diagnostics", { "zh-CN": diagnosticsZh, "en-US": diagnosticsEn }],
+]);
 const listeners = new Set<() => void>();
 let locale: Locale = "zh-CN";
 if (typeof window !== "undefined") {

@@ -2,6 +2,7 @@
 #include <asterion/domain/account.hpp>
 #include <asterion/kernel/plugin.hpp>
 #include <cstddef>
+#include <string_view>
 namespace asterion {
 // Trusted execution supplies a consistent pre-submit snapshot. Quantities are
 // gross, not netted; unfilled close orders do not reduce potential exposure.
@@ -21,6 +22,23 @@ enum class RiskReason {
   gross_quantity,
   working_orders
 };
+constexpr std::string_view risk_reason_name(RiskReason reason) noexcept {
+  switch (reason) {
+  case RiskReason::allowed:
+    return "allowed";
+  case RiskReason::unavailable:
+    return "unavailable";
+  case RiskReason::invalid_context:
+    return "invalid_context";
+  case RiskReason::order_quantity:
+    return "order_quantity";
+  case RiskReason::gross_quantity:
+    return "gross_quantity";
+  case RiskReason::working_orders:
+    return "working_orders";
+  }
+  return "unavailable";
+}
 struct RiskDecision {
   RiskReason reason;
   [[nodiscard]] bool allowed() const noexcept { return reason == RiskReason::allowed; }

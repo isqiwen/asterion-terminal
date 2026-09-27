@@ -316,5 +316,7 @@
   "诊断信息": "Diagnostics",
   "正在处理…": "Working…",
   "在交易工作区创建或恢复模拟会话。": "Create or resume a simulation in the Trading workspace.",
-  "部署说明": "Deployment details"
+  "部署说明": "Deployment details",
+  "对象不存在": "Not found",
+  "需要恢复后继续": "Recovery required"
 }

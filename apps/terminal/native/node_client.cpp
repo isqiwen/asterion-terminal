@@ -73,7 +73,7 @@ struct NodeClient::Impl {
       if (response.version() != 1 || response.correlation_id() != request.correlation_id())
         throw Error(ErrorCode::unavailable, "node response identity mismatch");
       if (response.has_error())
-        throw std::invalid_argument(response.error().message());
+        throw_remote_error(response.error().code(), response.error().message());
       if (request.has_status()     ? !response.has_status()
           : request.has_firewall() ? !response.has_firewall()
                                    : !response.has_accepted())
@@ -236,7 +236,8 @@ void NodeClient::deploy(const std::filesystem::path& path, const std::string& os
     throw std::invalid_argument("selected artifact platform does not match node");
   for (const auto& existing : impl_->cached.at("services"))
     if (existing.at("id") == service)
-      throw std::invalid_argument("服务已存在，不覆盖原程序或账本");
+      throw std::invalid_argument(
+          "service already exists; its program and ledger are not replaced");
   auto upload_artifact = [&](const std::filesystem::path& path) {
     return impl_->upload_artifact(path, os, arch);
   };
@@ -301,7 +302,7 @@ ServiceEndpoint NodeClient::local_session(const std::filesystem::path& directory
     throw std::invalid_argument("local Agent required");
   if (!directory.is_absolute() || !std::filesystem::is_directory(directory) ||
       std::filesystem::is_symlink(directory))
-    throw std::invalid_argument("请选择已存在的绝对路径交易记录目录");
+    throw std::invalid_argument("choose an existing absolute trading record directory");
   if (std::filesystem::exists(directory / "pending.tmp") ||
       std::filesystem::is_symlink(directory / "pending.tmp"))
     throw std::invalid_argument("incomplete trading journal write; preserve it "

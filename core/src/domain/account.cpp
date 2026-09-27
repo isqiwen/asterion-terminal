@@ -20,7 +20,7 @@ const char* offset_name(Offset value) {
   case Offset::close_yesterday:
     return "close_yesterday";
   }
-  throw std::invalid_argument("无效开平标志");
+  throw std::invalid_argument("invalid open/close offset");
 }
 const char* state_name(OrderState value) {
   switch (value) {
@@ -37,13 +37,13 @@ const char* state_name(OrderState value) {
   case OrderState::rejected:
     return "rejected";
   }
-  throw std::invalid_argument("无效订单状态");
+  throw std::invalid_argument("invalid order state");
 }
 } // namespace
 void FuturesCosts::validate() const {
   if (margin_per_lot <= zero || open_fee < zero || close_today_fee < zero ||
       close_yesterday_fee < zero)
-    throw std::invalid_argument("每手保证金必须为正，手续费不能为负");
+    throw std::invalid_argument("margin per lot must be positive and fees nonnegative");
 }
 Decimal FuturesCosts::fee(Offset offset) const {
   switch (offset) {
@@ -54,7 +54,7 @@ Decimal FuturesCosts::fee(Offset offset) const {
   case Offset::close_yesterday:
     return close_yesterday_fee;
   }
-  throw std::invalid_argument("无效开平标志");
+  throw std::invalid_argument("invalid open/close offset");
 }
 FuturesAccount::FuturesAccount(Instrument instrument, Decimal deposit, FuturesCosts costs)
     : instrument_(std::move(instrument)), costs_(costs), balance_(deposit) {
@@ -62,12 +62,13 @@ FuturesAccount::FuturesAccount(Instrument instrument, Decimal deposit, FuturesCo
   costs_.validate();
   if (instrument_.asset_class != AssetClass::futures || deposit <= zero ||
       !instrument_.quantity_increment.multiple_of(one))
-    throw std::invalid_argument("期货账户需要正数初始资金与整手规格");
+    throw std::invalid_argument(
+        "futures account requires a positive deposit and whole-lot quantity increment");
 }
 std::size_t FuturesAccount::index_of(const std::string& id) const {
   const auto found = order_index_.find(id);
   if (found == order_index_.end())
-    throw std::invalid_argument("订单不存在");
+    throw std::invalid_argument("order does not exist");
   return found->second;
 }
 bool FuturesAccount::has_working_orders() const noexcept {
@@ -116,26 +117,27 @@ Decimal FuturesAccount::closable(Side side, bool today) const {
 void FuturesAccount::submit(LimitOrder request, Offset offset) {
   (void)offset_name(offset);
   if (request.side != Side::buy && request.side != Side::sell)
-    throw std::invalid_argument("无效买卖方向");
+    throw std::invalid_argument("invalid order side");
   if (orders_.size() >= 10000)
-    throw std::invalid_argument("模拟账户最多保留 10000 笔委托");
+    throw std::invalid_argument("paper account holds at most 10000 orders");
   if (order_index_.contains(request.id))
-    throw std::invalid_argument("订单标识重复");
+    throw std::invalid_argument("duplicate order identity");
   if (request.limit_price <= zero)
-    throw std::invalid_argument("当前期货模拟模型要求正数限价");
+    throw std::invalid_argument("futures paper model requires a positive limit price");
   Order order(std::move(request), instrument_);
   const auto& accepted = order.request();
   if (mark_ == zero)
-    throw std::invalid_argument("请先回放一笔行情");
+    throw std::invalid_argument("replay at least one market event first");
   if (offset != Offset::open && closable(accepted.side == Side::buy ? Side::sell : Side::buy,
                                          offset == Offset::close_today) < accepted.quantity)
-    throw std::invalid_argument("可平持仓不足或已被其他委托冻结");
+    throw std::invalid_argument(
+        "insufficient closable position or already reserved by other orders");
   const auto required =
       accepted.quantity *
       (costs_.fee(offset) + (offset == Offset::open ? costs_.margin_per_lot : zero));
   const auto before = available();
   if (offset == Offset::open && required > before)
-    throw std::invalid_argument("可用资金不足");
+    throw std::invalid_argument("insufficient available funds");
   // The post-submit ledger must remain representable.
   (void)(frozen() + required);
   (void)(before - required);
@@ -158,10 +160,10 @@ bool FuturesAccount::fill(const Fill& report) {
   if (const auto previous = fill_index_.find(report.execution_id); previous != fill_index_.end()) {
     if (fills_[previous->second] == report)
       return false;
-    throw std::invalid_argument("成交标识冲突");
+    throw std::invalid_argument("execution identity conflicts with an earlier report");
   }
   if (report.price <= zero)
-    throw std::invalid_argument("当前期货模拟模型要求正数成交价");
+    throw std::invalid_argument("futures paper model requires a positive fill price");
   auto& item = orders_[index_of(report.order_id)];
   auto order = item.order;
   order.apply(report);
@@ -190,7 +192,7 @@ bool FuturesAccount::fill(const Fill& report) {
       remaining = remaining - amount;
     }
     if (remaining != zero)
-      throw std::logic_error("成交超过可平持仓");
+      throw std::logic_error("fill exceeds closable position");
     std::erase_if(lots, [](const auto& lot) { return lot.quantity == zero; });
   }
   auto recorded = report;
@@ -207,7 +209,7 @@ bool FuturesAccount::fill(const Fill& report) {
 }
 void FuturesAccount::mark(Decimal price) {
   if (price <= zero || !price.multiple_of(instrument_.price_increment))
-    throw std::invalid_argument("无效标记价格");
+    throw std::invalid_argument("invalid mark price");
   const auto previous = mark_;
   mark_ = price;
   try {
@@ -219,7 +221,7 @@ void FuturesAccount::mark(Decimal price) {
 }
 void FuturesAccount::settle(Decimal price) {
   if (has_working_orders())
-    throw std::invalid_argument("结算前必须撤销所有未完成委托");
+    throw std::invalid_argument("cancel all working orders before settlement");
   const auto previous = mark_;
   mark(price);
   try {

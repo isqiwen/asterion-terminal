@@ -17,6 +17,8 @@
 
 日期和时间按当前语言格式化；历史期货成交时间仍明确使用北京时间，不因为语言切换改变交易时区。金额、合约代码、路径、账户和连接参数保持原值，不翻译协议字段和技术标识。
 
-C++ C ABI 已有结构化错误码。桥接保留错误码与原始诊断，界面翻译错误摘要；“详情”展开原始诊断。现阶段通用错误码不能区分每一种业务拒绝原因，具体原因仍保留在详情。服务日志、操作系统错误和第三方诊断不宣称已全部翻译。
+C++ 只输出英文诊断，不含界面语言文字。错误码定义于 `core/include/asterion/foundation/error.hpp`（invalid_request、unavailable、conflict、permission_denied、resource_exhausted、cancelled、not_found、recovery_required、operation_failed、internal_error），`classify` 把异常统一映射为错误码；交易、策略、行情、任务服务与 Node Agent 的 Protobuf 错误都携带错误码，Terminal 客户端用 `throw_remote_error` 还原，C ABI 原样传给界面，不再在跨进程时丢失。
+
+界面摘要按以下顺序确定：已登记的英文诊断（`apps/terminal/src/i18n/locales/diagnostics.*.json`，键为中文文案）显示为当前语言的具体原因；否则按错误码显示通用摘要。“详情”始终展开 `code: 原始诊断`。新增面向用户的 C++ 诊断时应同时登记到 diagnostics 语言包；未登记的诊断仍可用但只显示通用摘要。服务日志、操作系统错误和第三方诊断不宣称已全部翻译。
 
 资源随安装包提供，无需联网获取语言包；当前不提供用户安装语言包、动态第三方语言扩展或系统语言自动推断。

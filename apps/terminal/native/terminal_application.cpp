@@ -26,10 +26,10 @@ using nlohmann::json;
 using namespace asterion;
 void fields(const json& object, std::initializer_list<std::string_view> names) {
   if (!object.is_object() || object.size() != names.size())
-    throw std::invalid_argument("请求字段不符合当前契约");
+    throw std::invalid_argument("request fields do not match the current contract");
   for (const auto name : names)
     if (!object.contains(name))
-      throw std::invalid_argument("请求缺少必填字段");
+      throw std::invalid_argument("request is missing a required field");
 }
 json risk_parameters(const json& p) {
   const auto count = p.at("max_working_orders").get<std::string>();
@@ -45,10 +45,10 @@ json risk_parameters(const json& p) {
 std::string text(const json& object, const char* name) {
   const auto& value = object.at(name);
   if (!value.is_string())
-    throw std::invalid_argument("文本字段类型错误");
+    throw std::invalid_argument("text field has the wrong type");
   auto result = value.get<std::string>();
   if (result.empty() || result.find('\0') != std::string::npos)
-    throw std::invalid_argument("文本字段为空或包含非法字符");
+    throw std::invalid_argument("text field is empty or contains an invalid character");
   return result;
 }
 unsigned short port_number(const json& p, const char* name) {
@@ -56,7 +56,7 @@ unsigned short port_number(const json& p, const char* name) {
   unsigned int port = 0;
   const auto [end, ec] = std::from_chars(raw.data(), raw.data() + raw.size(), port);
   if (ec != std::errc{} || end != raw.data() + raw.size() || !port || port > 65535)
-    throw std::invalid_argument("端口必须为 1–65535");
+    throw std::invalid_argument("port must be between 1 and 65535");
   return static_cast<unsigned short>(port);
 }
 struct PreviewState {
@@ -104,10 +104,10 @@ struct Application::Impl {
                    "close_yesterday_fee", "max_order_quantity", "max_gross_quantity",
                    "max_working_orders"});
       if (paper && !remote)
-        throw std::invalid_argument("请先关闭当前模拟会话");
+        throw std::invalid_argument("close the current paper session first");
       auto preview = core.resources().resolve<PreviewState>("terminal", "preview").lock();
       if (preview->dataset.is_null())
-        throw std::invalid_argument("请先导入期货历史逐笔数据");
+        throw std::invalid_argument("import historical futures trades first");
       json contract = json::object();
       for (auto key : {"venue", "symbol", "currency", "price_increment", "quantity_increment",
                        "multiplier", "product", "delivery_month"})
@@ -137,15 +137,15 @@ struct Application::Impl {
       fields(p, {"host", "port", "session", "mode", "ca_file", "certificate_file",
                  "private_key_file"});
       if (paper)
-        throw std::invalid_argument("请先断开当前交易连接");
+        throw std::invalid_argument("disconnect the current trading connection first");
       if (text(p, "mode") != "paper")
-        throw std::invalid_argument("实盘交易未开放");
+        throw std::invalid_argument("live trading is not available");
       const auto port_text = text(p, "port");
       unsigned int port = 0;
       const auto [end, ec] =
           std::from_chars(port_text.data(), port_text.data() + port_text.size(), port);
       if (ec != std::errc{} || end != port_text.data() + port_text.size() || !port || port > 65535)
-        throw std::invalid_argument("端口必须为 1–65535");
+        throw std::invalid_argument("port must be between 1 and 65535");
       ServiceEndpoint config{
           text(p, "host"),
           text(p, "session"),
@@ -157,14 +157,14 @@ struct Application::Impl {
     core.command("paper.reconnect", "paper.manage", [this](const json& p) {
       fields(p, {});
       if (!paper)
-        throw std::invalid_argument("请先选择连接配置");
+        throw std::invalid_argument("choose a connection profile first");
       paper->reconnect();
       return snapshot();
     });
     core.command("paper.open", "paper.manage", [this](const json& p) {
       fields(p, {"directory"});
       if (paper)
-        throw std::invalid_argument("请先关闭当前模拟会话");
+        throw std::invalid_argument("close the current paper session first");
       if (!nodes.contains("local"))
         nodes.emplace("local", std::make_unique<NodeClient>(local_node()));
       const auto directory = text(p, "directory");
@@ -179,7 +179,7 @@ struct Application::Impl {
     });
     core.command("paper.act", "paper.manage", [this](const json& p) {
       if (!paper)
-        throw std::invalid_argument("请先创建或恢复模拟会话");
+        throw std::invalid_argument("create or recover a paper session first");
       paper->execute(p);
       return snapshot();
     });
@@ -649,14 +649,14 @@ struct Application::Impl {
     core.command("node.disconnect", "node.manage", [this](const json& p) {
       fields(p, {"id"});
       if (text(p, "id") == "local")
-        throw std::invalid_argument("本机节点监控不能移除");
+        throw std::invalid_argument("the local node monitor cannot be removed");
       nodes.erase(text(p, "id"));
       return snapshot();
     });
     core.command("node.attach", "node.manage", [this](const json& p) {
       fields(p, {"id", "service"});
       if (paper)
-        throw std::invalid_argument("请先断开当前交易会话");
+        throw std::invalid_argument("disconnect the current trading session first");
       paper = std::make_unique<TradingClient>(
           nodes.at(text(p, "id"))->service_endpoint(text(p, "service")));
       return snapshot();
@@ -667,7 +667,8 @@ struct Application::Impl {
       const auto status = node.status();
       if (status.at("state") != "online" || status.at("health").at("os") != "linux" ||
           status.at("health").at("version") != ASTERION_PRODUCT_VERSION)
-        throw std::invalid_argument("远程服务需要同版本的在线 Linux Agent");
+        throw std::invalid_argument(
+            "remote services require an online Linux Agent of the same version");
       const auto arch = status.at("health").at("arch").get<std::string>();
       const auto kind = text(p, "kind");
       if (kind != "paper" && kind != "market" && kind != "research")
@@ -789,7 +790,7 @@ struct Application::Impl {
   json dispatch(const json& request) {
     fields(request, {"version", "method", "params"});
     if (request.at("version") != 1 || !request.at("version").is_number_integer())
-      throw std::invalid_argument("不支持的 API 版本");
+      throw std::invalid_argument("unsupported API version");
     const auto method = text(request, "method");
     const auto& params = request.at("params");
     return core.dispatch("terminal.local", method, params);
@@ -809,10 +810,10 @@ struct Application::Impl {
     const auto utf8_path = text(params, "path");
     const auto path = std::filesystem::path(std::u8string(utf8_path.begin(), utf8_path.end()));
     if (!path.is_absolute() || !std::filesystem::is_regular_file(path))
-      throw std::invalid_argument("请选择存在的本机 CSV 文件");
+      throw std::invalid_argument("choose an existing local CSV file");
     if (std::filesystem::file_size(path) >
         core.configuration().at("preview.max_bytes").get<std::uintmax_t>())
-      throw std::invalid_argument("预览文件不得超过 32 MiB");
+      throw std::invalid_argument("preview file must not exceed 32 MiB");
     const auto limit = core.configuration().at("preview.max_bytes").get<std::size_t>();
     std::ifstream file(path, std::ios::binary);
     std::string bytes(limit + 1, '\0');
@@ -833,7 +834,7 @@ struct Application::Impl {
     Decimal quantity;
     while (auto tick = input->next()) {
       if (++count > core.configuration().at("preview.max_rows").get<std::size_t>())
-        throw std::invalid_argument("预览最多读取 250000 笔成交");
+        throw std::invalid_argument("preview reads at most 250000 trades");
       if (count == 1)
         first = std::to_string(tick->timestamp_ns);
       quantity = quantity + tick->quantity;

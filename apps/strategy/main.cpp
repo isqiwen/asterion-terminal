@@ -187,7 +187,8 @@ int main(int argc, char** argv) {
         std::lock_guard lock(session_mutex);
         initialized = bool(session);
         degraded = (session && session->recovery_required()) || replay_phase == "blocked";
-        response.mutable_error()->set_code("operation_failed");
+        response.mutable_error()->set_code(
+            std::string(asterion::error_name(asterion::classify(error))));
         response.mutable_error()->set_message(error.what());
       }
 

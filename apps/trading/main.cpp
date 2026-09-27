@@ -176,7 +176,8 @@ int main(int argc, char** argv) {
                   asterion::protocol::encode_snapshot(session->snapshot());
             }
           } catch (const std::exception& error) {
-            response.mutable_error()->set_code("operation_failed");
+            response.mutable_error()->set_code(
+                std::string(asterion::error_name(asterion::classify(error))));
             response.mutable_error()->set_message(error.what());
           }
           initialized = bool(session);

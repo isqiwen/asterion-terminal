@@ -122,3 +122,29 @@ TEST(Foundation, BoundedConcurrency) {
     values.insert(*value);
   EXPECT_TRUE((values.size() == 4000)) << "concurrent queue loses no accepted items";
 }
+TEST(Foundation, ErrorCodesRoundTripAndExceptionsClassify) {
+  for (const auto code : error_codes)
+    EXPECT_EQ(parse_error_code(error_name(code)), code);
+  EXPECT_FALSE(parse_error_code("future_code").has_value());
+  EXPECT_EQ(classify(Error(ErrorCode::conflict, "x")), ErrorCode::conflict);
+  EXPECT_EQ(classify(std::invalid_argument("x")), ErrorCode::invalid_request);
+  EXPECT_EQ(classify(std::overflow_error("x")), ErrorCode::invalid_request);
+  EXPECT_EQ(classify(std::logic_error("x")), ErrorCode::conflict);
+  EXPECT_EQ(classify(std::runtime_error("x")), ErrorCode::operation_failed);
+  EXPECT_EQ(classify(std::bad_alloc()), ErrorCode::resource_exhausted);
+  try {
+    (void)Json::parse("{");
+  } catch (const std::exception& e) {
+    EXPECT_EQ(classify(e), ErrorCode::invalid_request);
+  }
+  try {
+    throw_remote_error("not_found", "missing");
+  } catch (const Error& e) {
+    EXPECT_EQ(e.code(), ErrorCode::not_found);
+  }
+  try {
+    throw_remote_error("from_newer_peer", "?");
+  } catch (const Error& e) {
+    EXPECT_EQ(e.code(), ErrorCode::operation_failed);
+  }
+}

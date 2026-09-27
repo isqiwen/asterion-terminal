@@ -52,8 +52,8 @@ struct TradingClient::Impl {
   ~Impl() { close(); }
   Json call(wire::Request request) {
     if (failed)
-      throw Error(ErrorCode::unavailable,
-                  "交易连接已断开；远程会话请在设置中重新连接，本机会话请从原目录恢复");
+      throw Error(ErrorCode::unavailable, "trading connection lost; reconnect remote sessions in "
+                                          "Settings, recover local sessions from their directory");
     request.set_version(1);
     request.set_session_id(session_id);
     request.set_mode(wire::PAPER);
@@ -104,7 +104,7 @@ struct TradingClient::Impl {
       return last_snapshot;
     }
     if (response.has_error())
-      throw std::invalid_argument(response.error().message());
+      throw_remote_error(response.error().code(), response.error().message());
     if (response.has_uninitialized()) {
       last_snapshot = nullptr;
       return nullptr;
@@ -130,7 +130,7 @@ TradingClient::TradingClient(const std::filesystem::path& directory, const Json&
     *create.mutable_create() = protocol::encode_input(manifest);
     impl_->call(std::move(create));
   } else if (impl_->last_snapshot.is_null())
-    throw std::invalid_argument("交易记录尚未初始化");
+    throw std::invalid_argument("trading record is not initialized");
   monitor();
 }
 TradingClient::TradingClient(const ServiceEndpoint& config)
