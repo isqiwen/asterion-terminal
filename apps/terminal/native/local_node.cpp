@@ -21,11 +21,11 @@ namespace asterion::terminal {
 namespace fs = std::filesystem;
 using namespace std::chrono_literals;
 namespace {
-fs::path environment(const char *name) {
-  const auto *p = std::getenv(name);
+fs::path environment(const char* name) {
+  const auto* p = std::getenv(name);
   return p ? fs::path(std::u8string(p, p + std::strlen(p))) : fs::path{};
 }
-std::string utf8(const fs::path &p) {
+std::string utf8(const fs::path& p) {
   const auto s = p.u8string();
   return {s.begin(), s.end()};
 }
@@ -35,8 +35,7 @@ fs::path local_root() {
 #ifdef _WIN32
     root = environment("LOCALAPPDATA") / "Asterion" / "node";
 #elif defined(__APPLE__)
-    root = environment("HOME") / "Library" / "Application Support" /
-           "Asterion" / "node";
+    root = environment("HOME") / "Library" / "Application Support" / "Asterion" / "node";
 #else
     root = environment("XDG_DATA_HOME");
     if (root.empty())
@@ -49,9 +48,9 @@ fs::path local_root() {
 fs::path bundled_agent() {
   auto executable = environment("ASTERION_NODE_AGENT_EXECUTABLE");
   if (executable.empty())
-    executable = current_executable().parent_path() /
-                 (current_platform().os == "windows" ? "asterion-node-agent.exe"
-                                                     : "asterion-node-agent");
+    executable =
+        current_executable().parent_path() /
+        (current_platform().os == "windows" ? "asterion-node-agent.exe" : "asterion-node-agent");
   return executable;
 }
 
@@ -65,16 +64,14 @@ Json local_node_program_status() {
   const auto root = local_root(), source = bundled_agent();
   return inspect_node_program(source, root / "bin" / source.filename(), root);
 }
-NodeEndpoint upgrade_local_node(const std::string &expected) {
+NodeEndpoint upgrade_local_node(const std::string& expected) {
   if (std::getenv("ASTERION_NODE_DIRECTORY"))
-    throw std::runtime_error(
-        "system Agent upgrade is unavailable in isolated development");
+    throw std::runtime_error("system Agent upgrade is unavailable in isolated development");
   const auto root = local_root(), source = bundled_agent();
   if (!root.is_absolute() || fs::is_symlink(root))
     throw std::invalid_argument("invalid local Agent directory");
   const auto file = root / "ipc-id";
-  if (fs::is_symlink(file) || !fs::is_regular_file(file) ||
-      fs::file_size(file) > 64)
+  if (fs::is_symlink(file) || !fs::is_regular_file(file) || fs::file_size(file) > 64)
     throw std::runtime_error("invalid Agent identity file");
   std::ifstream input(file);
   std::string identity;
@@ -86,11 +83,9 @@ NodeEndpoint upgrade_local_node(const std::string &expected) {
 #ifdef _WIN32
   const auto endpoint = "asterion.node." + identity;
 #else
-  const auto endpoint =
-      (fs::path("/tmp") / ("ast-node-" + identity) / "node.sock").string();
+  const auto endpoint = (fs::path("/tmp") / ("ast-node-" + identity) / "node.sock").string();
 #endif
-  upgrade_node_service(source, root / "bin" / source.filename(), root, endpoint,
-                       expected);
+  upgrade_node_service(source, root / "bin" / source.filename(), root, endpoint, expected);
   return NodeEndpoint{"local", "localhost", 0, {}, endpoint};
 }
 NodeEndpoint local_node() {
@@ -104,13 +99,11 @@ NodeEndpoint local_node() {
   fs::permissions(root, fs::perms::owner_all);
 #endif
   FileLock ownership(root, "bootstrap.lock");
-  for (const auto &file :
-       {"agent-upgrade.json", "agent-upgrade.pending",
-        "agent-service-upgrade.json", "agent-service-upgrade.pending"}) {
+  for (const auto& file : {"agent-upgrade.json", "agent-upgrade.pending",
+                           "agent-service-upgrade.json", "agent-service-upgrade.pending"}) {
     const auto pending = root / file;
     if (fs::exists(pending) || fs::is_symlink(pending))
-      throw std::runtime_error(
-          "unfinished Agent update requires explicit recovery");
+      throw std::runtime_error("unfinished Agent update requires explicit recovery");
   }
   // Persist a random socket namespace; never trust a shared predictable socket.
   const auto identity_file = root / "ipc-id";
@@ -128,8 +121,7 @@ NodeEndpoint local_node() {
     if (!out)
       throw std::runtime_error("cannot persist Agent identity");
   }
-  if (identity.size() != 32 ||
-      identity.find_first_not_of("0123456789abcdef") != std::string::npos)
+  if (identity.size() != 32 || identity.find_first_not_of("0123456789abcdef") != std::string::npos)
     throw std::invalid_argument("invalid Agent identity");
 #ifdef _WIN32
   const auto endpoint = "asterion.node." + identity;
@@ -138,8 +130,8 @@ NodeEndpoint local_node() {
   if (::mkdir(sockets.c_str(), 0700) != 0 && errno != EEXIST)
     throw std::runtime_error("cannot create Agent socket directory");
   struct stat st{};
-  if (::lstat(sockets.c_str(), &st) || !S_ISDIR(st.st_mode) ||
-      st.st_uid != ::getuid() || (st.st_mode & 077) != 0)
+  if (::lstat(sockets.c_str(), &st) || !S_ISDIR(st.st_mode) || st.st_uid != ::getuid() ||
+      (st.st_mode & 077) != 0)
     throw std::runtime_error("Agent socket directory is not private");
   const auto endpoint = (sockets / "node.sock").string();
 #endif
@@ -147,13 +139,12 @@ NodeEndpoint local_node() {
   try {
     NodeClient probe(config);
     return config;
-  } catch (const Error &) {
+  } catch (const Error&) {
   }
   const auto executable = bundled_agent();
   if (std::getenv("ASTERION_NODE_DIRECTORY")) {
     // Explicit development/test isolation never registers a login service.
-    ChildProcess process(
-        executable, {"--directory", utf8(root), "--endpoint", endpoint}, true);
+    ChildProcess process(executable, {"--directory", utf8(root), "--endpoint", endpoint}, true);
     process.release();
   } else {
     const auto bin = root / "bin";
@@ -173,7 +164,7 @@ NodeEndpoint local_node() {
     try {
       NodeClient probe(config);
       return config;
-    } catch (const Error &) {
+    } catch (const Error&) {
       if (std::chrono::steady_clock::now() >= deadline)
         throw;
       std::this_thread::sleep_for(50ms);

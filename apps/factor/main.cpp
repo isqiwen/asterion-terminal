@@ -6,11 +6,10 @@
 #include <fstream>
 #include <iostream>
 #include <thread>
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   CLI::App app{"Asterion event-momentum factor evaluation and development-only "
                "window comparison"};
-  app.set_version_flag("--version",
-                       "asterion-factor " ASTERION_PRODUCT_VERSION);
+  app.set_version_flag("--version", "asterion-factor " ASTERION_PRODUCT_VERSION);
   std::string input_path, output_path, endpoint, host, service, task;
   unsigned short port = 0;
   asterion::ipc::TlsIdentity tls;
@@ -26,8 +25,7 @@ int main(int argc, char **argv) {
   app.add_option("--task", task);
   app.add_option("--input", input_path, "Typed FactorInput Protobuf file")
       ->check(CLI::ExistingFile);
-  app.add_option("--directory", output_path,
-                 "Existing empty result journal directory")
+  app.add_option("--directory", output_path, "Existing empty result journal directory")
       ->check(CLI::ExistingDirectory);
   argv = app.ensure_utf8(argv);
   CLI11_PARSE(app, argc, argv);
@@ -47,35 +45,28 @@ int main(int argc, char **argv) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
       }
     });
-    if (!task.empty() || !service.empty() || !endpoint.empty() ||
-        !host.empty() || port || !tls.ca_file.empty() ||
-        !tls.certificate_file.empty() || !tls.private_key_file.empty()) {
+    if (!task.empty() || !service.empty() || !endpoint.empty() || !host.empty() || port ||
+        !tls.ca_file.empty() || !tls.certificate_file.empty() || !tls.private_key_file.empty()) {
       if (!input_path.empty() || !output_path.empty())
-        throw std::invalid_argument(
-            "choose task worker OR standalone file mode");
+        throw std::invalid_argument("choose task worker OR standalone file mode");
       return asterion::protocol::run_task_worker(
-          endpoint, host, port, tls, service, task,
-          asterion::research::v1::FACTOR,
-          [](const auto &input, auto stop, const auto &progress) {
+          endpoint, host, port, tls, service, task, asterion::research::v1::FACTOR,
+          [](const auto& input, auto stop, const auto& progress) {
             asterion::research::v1::TaskFinish result;
-            *result.mutable_factor() =
-                asterion::factor::run(input.factor(), stop, progress);
+            *result.mutable_factor() = asterion::factor::run(input.factor(), stop, progress);
             return result;
           });
     }
     if (input_path.empty() || output_path.empty())
       throw std::invalid_argument("both --input and --directory are required");
-    const auto path = std::filesystem::path(
-        std::u8string(input_path.begin(), input_path.end()));
-    const auto destination = std::filesystem::path(
-        std::u8string(output_path.begin(), output_path.end()));
-    if (std::filesystem::is_symlink(path) ||
-        !std::filesystem::is_regular_file(path) ||
+    const auto path = std::filesystem::path(std::u8string(input_path.begin(), input_path.end()));
+    const auto destination =
+        std::filesystem::path(std::u8string(output_path.begin(), output_path.end()));
+    if (std::filesystem::is_symlink(path) || !std::filesystem::is_regular_file(path) ||
         std::filesystem::file_size(path) > 16 * 1024 * 1024)
       throw std::invalid_argument("invalid factor input file");
     if (std::filesystem::is_symlink(destination))
-      throw std::invalid_argument(
-          "result directory must not be a symbolic link");
+      throw std::invalid_argument("result directory must not be a symbolic link");
     std::ifstream stream(path, std::ios::binary);
     const std::string raw{std::istreambuf_iterator<char>(stream), {}};
     asterion::research::v1::FactorInput input;
@@ -95,7 +86,7 @@ int main(int argc, char **argv) {
                    {"result", decoded}});
     std::cout << decoded.dump() << '\n';
     return 0;
-  } catch (const std::exception &error) {
+  } catch (const std::exception& error) {
     std::cerr << "Factor analysis failed: " << error.what() << '\n';
     return 1;
   }

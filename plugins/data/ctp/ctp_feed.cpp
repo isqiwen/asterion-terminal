@@ -29,39 +29,35 @@ std::int64_t now() {
 template <std::size_t N> std::string field(const char (&value)[N]) {
   return {value, std::find(value, value + N, '\0')};
 }
-template <std::size_t N> void copy(char (&dest)[N], const std::string &value) {
-  if (value.empty() || value.size() >= N ||
-      value.find('\0') != std::string::npos)
+template <std::size_t N> void copy(char (&dest)[N], const std::string& value) {
+  if (value.empty() || value.size() >= N || value.find('\0') != std::string::npos)
     throw std::invalid_argument("invalid CTP credential length");
   std::memcpy(dest, value.data(), value.size());
 }
-void erase(std::string &value) {
-  volatile char *p = value.data();
+void erase(std::string& value) {
+  volatile char* p = value.data();
   for (std::size_t i = 0; i < value.size(); ++i)
     p[i] = 0;
   value.clear();
 }
 } // namespace
-void validate_instruments(const std::vector<InstrumentId> &ids) {
+void validate_instruments(const std::vector<InstrumentId>& ids) {
   if (ids.size() > 50)
     throw std::invalid_argument("at most 50 market subscriptions");
   std::set<std::string> symbols;
-  for (const auto &id : ids) {
+  for (const auto& id : ids) {
     id.validate();
-    if (!std::set<std::string>{"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"}
-             .contains(id.venue) ||
+    if (!std::set<std::string>{"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"}.contains(id.venue) ||
         !std::regex_match(id.symbol, std::regex("[A-Za-z]{1,3}[0-9]{3,4}")) ||
         !symbols.insert(id.symbol).second)
-      throw std::invalid_argument(
-          "use unique dated futures contracts and a supported venue");
+      throw std::invalid_argument("use unique dated futures contracts and a supported venue");
   }
 }
 std::optional<Decimal> price(double value) {
   if (!std::isfinite(value) || std::abs(value) > 1e10)
     return {};
   char text[96];
-  const auto result = std::to_chars(text, text + sizeof(text), value,
-                                    std::chars_format::fixed, 8);
+  const auto result = std::to_chars(text, text + sizeof(text), value, std::chars_format::fixed, 8);
   if (result.ec != std::errc{})
     return {};
   try {
@@ -70,25 +66,21 @@ std::optional<Decimal> price(double value) {
     return {};
   }
 }
-std::int64_t source_time(const std::string &day, const std::string &time,
-                         int millisecond) {
-  if (day.size() != 8 || time.size() != 8 || time[2] != ':' || time[5] != ':' ||
-      millisecond < 0 || millisecond > 999)
+std::int64_t source_time(const std::string& day, const std::string& time, int millisecond) {
+  if (day.size() != 8 || time.size() != 8 || time[2] != ':' || time[5] != ':' || millisecond < 0 ||
+      millisecond > 999)
     return 0;
-  auto number = [](const std::string &s, std::size_t pos, std::size_t count) {
+  auto number = [](const std::string& s, std::size_t pos, std::size_t count) {
     int n = -1;
-    const auto [p, e] =
-        std::from_chars(s.data() + pos, s.data() + pos + count, n);
+    const auto [p, e] = std::from_chars(s.data() + pos, s.data() + pos + count, n);
     return e == std::errc{} && p == s.data() + pos + count ? n : -1;
   };
-  const auto y = number(day, 0, 4), m = number(day, 4, 2),
-             d = number(day, 6, 2), h = number(time, 0, 2),
-             min = number(time, 3, 2), sec = number(time, 6, 2);
-  const std::chrono::year_month_day date{
-      std::chrono::year{y}, std::chrono::month{static_cast<unsigned>(m)},
-      std::chrono::day{static_cast<unsigned>(d)}};
-  if (!date.ok() || y < 2000 || h < 0 || h > 23 || min < 0 || min > 59 ||
-      sec < 0 || sec > 59)
+  const auto y = number(day, 0, 4), m = number(day, 4, 2), d = number(day, 6, 2),
+             h = number(time, 0, 2), min = number(time, 3, 2), sec = number(time, 6, 2);
+  const std::chrono::year_month_day date{std::chrono::year{y},
+                                         std::chrono::month{static_cast<unsigned>(m)},
+                                         std::chrono::day{static_cast<unsigned>(d)}};
+  if (!date.ok() || y < 2000 || h < 0 || h > 23 || min < 0 || min > 59 || sec < 0 || sec > 59)
     return 0;
   return std::chrono::duration_cast<std::chrono::milliseconds>(
              std::chrono::sys_days{date}.time_since_epoch())
@@ -99,13 +91,13 @@ struct Feed::Impl final : CThostFtdcMdSpi {
   mutable std::recursive_mutex mutex;
   std::filesystem::path flow;
   Configuration config;
-  CThostFtdcMdApi *api = nullptr;
+  CThostFtdcMdApi* api = nullptr;
 #ifdef _WIN32
   HMODULE library = nullptr;
 #else
-  void *library = nullptr;
+  void* library = nullptr;
 #endif
-  using Factory = CThostFtdcMdApi *(*)(const char *, bool, bool);
+  using Factory = CThostFtdcMdApi* (*)(const char*, bool, bool);
   Factory factory = nullptr;
   LiveMarketSnapshot state;
   const std::string stream_id = unique_process_id();
@@ -131,7 +123,7 @@ struct Feed::Impl final : CThostFtdcMdSpi {
   void record_status() noexcept {
     try {
       auto status = state;
-      for (auto &subscription : status.subscriptions)
+      for (auto& subscription : status.subscriptions)
         subscription.quote.reset();
       record({0, now(), std::move(status)});
     } catch (...) {
@@ -142,28 +134,26 @@ struct Feed::Impl final : CThostFtdcMdSpi {
   bool closing = false, logged_in = false;
   bool login_pending = false, subscription_pending = false;
   std::jthread commands;
-  explicit Impl(const std::filesystem::path &path,
-                const std::filesystem::path &directory, std::size_t capacity)
+  explicit Impl(const std::filesystem::path& path, const std::filesystem::path& directory,
+                std::size_t capacity)
       : flow(directory), event_capacity(capacity) {
     if (!capacity || capacity > 65536)
       throw std::invalid_argument("market event capacity must be 1..65536");
 #ifdef _WIN32
     library = LoadLibraryExW(path.c_str(), nullptr,
-                             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
-                                 LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+                             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     if (library)
-      factory = reinterpret_cast<Factory>(GetProcAddress(
-          library, "?CreateFtdcMdApi@CThostFtdcMdApi@@SAPEAV1@PEBD_N1@Z"));
+      factory = reinterpret_cast<Factory>(
+          GetProcAddress(library, "?CreateFtdcMdApi@CThostFtdcMdApi@@SAPEAV1@PEBD_N1@Z"));
 #else
     library = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (library)
-      factory = reinterpret_cast<Factory>(
-          dlsym(library, "_ZN15CThostFtdcMdApi15CreateFtdcMdApiEPKcbb"));
+      factory =
+          reinterpret_cast<Factory>(dlsym(library, "_ZN15CThostFtdcMdApi15CreateFtdcMdApiEPKcbb"));
 #endif
     if (!factory) {
       unload();
-      throw Error(ErrorCode::unavailable,
-                  "CTP 6.7.7 market SDK unavailable or incompatible");
+      throw Error(ErrorCode::unavailable, "CTP 6.7.7 market SDK unavailable or incompatible");
     }
   }
   void unload() {
@@ -181,7 +171,7 @@ struct Feed::Impl final : CThostFtdcMdSpi {
     unload();
   }
   void close() {
-    CThostFtdcMdApi *old;
+    CThostFtdcMdApi* old;
     {
       std::lock_guard lock(mutex);
       closing = true;
@@ -249,7 +239,7 @@ struct Feed::Impl final : CThostFtdcMdSpi {
       }
       if (login) {
         const int code = api->ReqUserLogin(&request, 1);
-        volatile char *secret = request.Password;
+        volatile char* secret = request.Password;
         for (std::size_t i = 0; i < sizeof(request.Password); ++i)
           secret[i] = 0;
         if (code)
@@ -261,25 +251,23 @@ struct Feed::Impl final : CThostFtdcMdSpi {
       }
       if (subscribe) {
         std::vector<std::string> removed;
-        for (const auto &id : sent)
+        for (const auto& id : sent)
           if (std::find(desired.begin(), desired.end(), id) == desired.end())
             removed.push_back(id.symbol);
-        std::vector<char *> names;
-        for (auto &name : removed)
+        std::vector<char*> names;
+        for (auto& name : removed)
           names.push_back(name.data());
         int code = names.empty()
                        ? 0
-                       : api->UnSubscribeMarketData(
-                             names.data(), static_cast<int>(names.size()));
+                       : api->UnSubscribeMarketData(names.data(), static_cast<int>(names.size()));
         names.clear();
-        for (auto &id : desired)
+        for (auto& id : desired)
           names.push_back(id.symbol.data());
         if (!code && !names.empty())
-          code = api->SubscribeMarketData(names.data(),
-                                          static_cast<int>(names.size()));
+          code = api->SubscribeMarketData(names.data(), static_cast<int>(names.size()));
         if (code)
           callback([&] {
-            for (auto &sub : state.subscriptions) {
+            for (auto& sub : state.subscriptions) {
               sub.state = "error";
               sub.error_code = code;
             }
@@ -309,13 +297,13 @@ struct Feed::Impl final : CThostFtdcMdSpi {
       logged_in = false;
       state.phase = "reconnecting";
       state.error_code = reason;
-      for (auto &s : state.subscriptions)
+      for (auto& s : state.subscriptions)
         s.state = "pending";
       ++state.sequence;
     });
   }
-  void OnRspUserLogin(CThostFtdcRspUserLoginField *,
-                      CThostFtdcRspInfoField *info, int, bool last) override {
+  void OnRspUserLogin(CThostFtdcRspUserLoginField*, CThostFtdcRspInfoField* info, int,
+                      bool last) override {
     callback([&] {
       if (info && info->ErrorID) {
         state.phase = "error";
@@ -334,12 +322,12 @@ struct Feed::Impl final : CThostFtdcMdSpi {
       }
     });
   }
-  void OnRspSubMarketData(CThostFtdcSpecificInstrumentField *instrument,
-                          CThostFtdcRspInfoField *info, int, bool) override {
+  void OnRspSubMarketData(CThostFtdcSpecificInstrumentField* instrument,
+                          CThostFtdcRspInfoField* info, int, bool) override {
     callback([&] {
       if (!instrument)
         return;
-      for (auto &s : state.subscriptions)
+      for (auto& s : state.subscriptions)
         if (s.instrument.symbol == field(instrument->InstrumentID)) {
           s.error_code = info ? info->ErrorID : 0;
           s.state = s.error_code ? "error" : "subscribed";
@@ -347,8 +335,8 @@ struct Feed::Impl final : CThostFtdcMdSpi {
         }
     });
   }
-  void OnRspUnSubMarketData(CThostFtdcSpecificInstrumentField *,
-                            CThostFtdcRspInfoField *info, int, bool) override {
+  void OnRspUnSubMarketData(CThostFtdcSpecificInstrumentField*, CThostFtdcRspInfoField* info, int,
+                            bool) override {
     callback([&] {
       if (info && info->ErrorID) {
         state.phase = "error";
@@ -357,7 +345,7 @@ struct Feed::Impl final : CThostFtdcMdSpi {
       }
     });
   }
-  void OnRspError(CThostFtdcRspInfoField *info, int, bool) override {
+  void OnRspError(CThostFtdcRspInfoField* info, int, bool) override {
     callback([&] {
       if (info && info->ErrorID) {
         state.phase = "error";
@@ -366,12 +354,12 @@ struct Feed::Impl final : CThostFtdcMdSpi {
       }
     });
   }
-  void OnRtnDepthMarketData(CThostFtdcDepthMarketDataField *tick) override {
+  void OnRtnDepthMarketData(CThostFtdcDepthMarketDataField* tick) override {
     callback(
         [&] {
           if (!tick || !logged_in)
             return;
-          for (auto &s : state.subscriptions)
+          for (auto& s : state.subscriptions)
             if (s.instrument.symbol == field(tick->InstrumentID)) {
               const auto venue = field(tick->ExchangeID);
               if (!venue.empty() && venue != s.instrument.venue)
@@ -381,8 +369,7 @@ struct Feed::Impl final : CThostFtdcMdSpi {
               q.action_day = field(tick->ActionDay);
               q.trading_day = field(tick->TradingDay);
               q.update_time = field(tick->UpdateTime);
-              q.source_ms = source_time(q.action_day, q.update_time,
-                                        tick->UpdateMillisec);
+              q.source_ms = source_time(q.action_day, q.update_time, tick->UpdateMillisec);
               q.received_ms = now();
               q.last = price(tick->LastPrice);
               q.bid = price(tick->BidPrice1);
@@ -394,10 +381,8 @@ struct Feed::Impl final : CThostFtdcMdSpi {
               q.bid_quantity = std::max(0, tick->BidVolume1);
               q.ask_quantity = std::max(0, tick->AskVolume1);
               q.volume = std::max(0, tick->Volume);
-              const bool out_of_order =
-                  s.quote && q.source_ms && s.quote->source_ms > q.source_ms;
-              record(
-                  {0, q.received_ms, MarketQuoteObservation{q, out_of_order}});
+              const bool out_of_order = s.quote && q.source_ms && s.quote->source_ms > q.source_ms;
+              record({0, q.received_ms, MarketQuoteObservation{q, out_of_order}});
               if (out_of_order) {
                 ++state.out_of_order;
                 ++state.sequence;
@@ -411,8 +396,8 @@ struct Feed::Impl final : CThostFtdcMdSpi {
         true);
   }
 };
-Feed::Feed(const std::filesystem::path &library,
-           const std::filesystem::path &flow, std::size_t event_capacity)
+Feed::Feed(const std::filesystem::path& library, const std::filesystem::path& flow,
+           std::size_t event_capacity)
     : impl_(std::make_unique<Impl>(library, flow, event_capacity)) {}
 Feed::~Feed() = default;
 PluginDescriptor Feed::descriptor() const {
@@ -428,10 +413,9 @@ void Feed::stop() noexcept {
   } catch (...) {
   }
 }
-void Feed::connect(Configuration config, const std::vector<InstrumentId> &ids) {
+void Feed::connect(Configuration config, const std::vector<InstrumentId>& ids) {
   validate_instruments(ids);
-  if (!std::regex_match(config.front,
-                        std::regex("tcp://[A-Za-z0-9.-]+:[0-9]{1,5}")))
+  if (!std::regex_match(config.front, std::regex("tcp://[A-Za-z0-9.-]+:[0-9]{1,5}")))
     throw std::invalid_argument("invalid CTP front address");
   const auto port = std::stoi(config.front.substr(config.front.rfind(':') + 1));
   if (port < 1 || port > 65535)
@@ -447,7 +431,7 @@ void Feed::connect(Configuration config, const std::vector<InstrumentId> &ids) {
     impl_->config = std::move(config);
     impl_->wanted = ids;
     impl_->state.subscriptions.clear();
-    for (const auto &id : ids)
+    for (const auto& id : ids)
       impl_->state.subscriptions.push_back({id, "pending", 0, {}});
     impl_->closing = false;
     impl_->state.phase = "connecting";
@@ -477,7 +461,7 @@ void Feed::connect(Configuration config, const std::vector<InstrumentId> &ids) {
     }
   });
 }
-void Feed::subscribe(const std::vector<InstrumentId> &ids) {
+void Feed::subscribe(const std::vector<InstrumentId>& ids) {
   validate_instruments(ids);
   std::lock_guard lock(impl_->mutex);
   if (!impl_->api || impl_->closing)
@@ -485,9 +469,9 @@ void Feed::subscribe(const std::vector<InstrumentId> &ids) {
   auto previous = impl_->state.subscriptions;
   impl_->state.subscriptions.clear();
   impl_->wanted = ids;
-  for (const auto &id : ids) {
+  for (const auto& id : ids) {
     MarketSubscription s{id, "pending", 0, {}};
-    for (const auto &old : previous)
+    for (const auto& old : previous)
       if (old.instrument == id)
         s.quote = old.quote;
     impl_->state.subscriptions.push_back(std::move(s));
@@ -500,8 +484,7 @@ LiveMarketSnapshot Feed::snapshot() const {
   std::lock_guard lock(impl_->mutex);
   return impl_->state;
 }
-MarketEventBatch Feed::events_after(const std::string &stream_id,
-                                    std::uint64_t cursor,
+MarketEventBatch Feed::events_after(const std::string& stream_id, std::uint64_t cursor,
                                     std::size_t limit) const {
   std::lock_guard lock(impl_->mutex);
   if (!limit || limit > 1024 || cursor > impl_->event_sequence ||
@@ -510,11 +493,10 @@ MarketEventBatch Feed::events_after(const std::string &stream_id,
   MarketEventBatch batch;
   batch.stream_id = impl_->stream_id;
   batch.latest_sequence = impl_->event_sequence;
-  batch.oldest_sequence =
-      impl_->events.empty() ? 0 : impl_->events.front().sequence;
+  batch.oldest_sequence = impl_->events.empty() ? 0 : impl_->events.front().sequence;
   batch.gap = batch.oldest_sequence > 0 && cursor < batch.oldest_sequence - 1;
   batch.failed = impl_->event_failed;
-  for (const auto &event : impl_->events) {
+  for (const auto& event : impl_->events) {
     if (event.sequence <= cursor)
       continue;
     batch.events.push_back(event);
@@ -523,5 +505,7 @@ MarketEventBatch Feed::events_after(const std::string &stream_id,
   }
   return batch;
 }
-void Feed::disconnect() { impl_->close(); }
+void Feed::disconnect() {
+  impl_->close();
+}
 } // namespace asterion::ctp

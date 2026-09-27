@@ -8,8 +8,8 @@ struct OrderLimitsConfig {
   void validate() const;
 };
 // Explicit immutable session configuration; unknown/missing fields reject.
-Json encode_order_limits(const OrderLimitsConfig &config);
-OrderLimitsConfig decode_order_limits(const Json &value);
+Json encode_order_limits(const OrderLimitsConfig& config);
+OrderLimitsConfig decode_order_limits(const Json& value);
 // Single-instrument quantity limits, with pending opening orders reserved at
 // their full remaining size. No credit for cancellations or closes not filled.
 class OrderLimits final : public RiskPort {
@@ -18,7 +18,7 @@ public:
   PluginDescriptor descriptor() const override;
   void start() override { running_ = true; }
   void stop() noexcept override { running_ = false; }
-  RiskDecision evaluate(const PreTradeRiskContext &context) const override;
+  RiskDecision evaluate(const PreTradeRiskContext& context) const override;
 
 private:
   OrderLimitsConfig config_;

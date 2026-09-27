@@ -7,7 +7,7 @@
 #include <mutex>
 #include <thread>
 class Fake final : public CThostFtdcMdApi {
-  CThostFtdcMdSpi *spi = nullptr;
+  CThostFtdcMdSpi* spi = nullptr;
   std::recursive_mutex mutex;
   std::jthread worker;
 
@@ -35,20 +35,19 @@ public:
     });
   }
   int Join() override { return 0; }
-  const char *GetTradingDay() override { return "20260928"; }
-  void RegisterFront(char *) override {}
-  void RegisterNameServer(char *) override {}
-  void RegisterFensUserInfo(CThostFtdcFensUserInfoField *) override {}
-  void RegisterSpi(CThostFtdcMdSpi *value) override {
+  const char* GetTradingDay() override { return "20260928"; }
+  void RegisterFront(char*) override {}
+  void RegisterNameServer(char*) override {}
+  void RegisterFensUserInfo(CThostFtdcFensUserInfoField*) override {}
+  void RegisterSpi(CThostFtdcMdSpi* value) override {
     std::lock_guard lock(mutex);
     spi = value;
   }
-  int SubscribeMarketData(char *names[], int count) override {
+  int SubscribeMarketData(char* names[], int count) override {
     std::lock_guard lock(mutex);
     for (int i = 0; i < count; ++i) {
       CThostFtdcSpecificInstrumentField instrument{};
-      std::strncpy(instrument.InstrumentID, names[i],
-                   sizeof(instrument.InstrumentID) - 1);
+      std::strncpy(instrument.InstrumentID, names[i], sizeof(instrument.InstrumentID) - 1);
       CThostFtdcRspInfoField info{};
       if (std::string(names[i]).starts_with("bad"))
         info.ErrorID = 31;
@@ -85,10 +84,10 @@ public:
     }
     return 0;
   }
-  int UnSubscribeMarketData(char *[], int) override { return 0; }
-  int SubscribeForQuoteRsp(char *[], int) override { return 0; }
-  int UnSubscribeForQuoteRsp(char *[], int) override { return 0; }
-  int ReqUserLogin(CThostFtdcReqUserLoginField *login, int id) override {
+  int UnSubscribeMarketData(char*[], int) override { return 0; }
+  int SubscribeForQuoteRsp(char*[], int) override { return 0; }
+  int UnSubscribeForQuoteRsp(char*[], int) override { return 0; }
+  int ReqUserLogin(CThostFtdcReqUserLoginField* login, int id) override {
     std::lock_guard lock(mutex);
     CThostFtdcRspInfoField info{};
     if (std::string(login->Password) == "reject-test-only")
@@ -97,13 +96,12 @@ public:
       spi->OnRspUserLogin(nullptr, &info, id, true);
     return 0;
   }
-  int ReqUserLogout(CThostFtdcUserLogoutField *, int) override { return 0; }
-  int ReqQryMulticastInstrument(CThostFtdcQryMulticastInstrumentField *,
-                                int) override {
-    return 0;
-  }
+  int ReqUserLogout(CThostFtdcUserLogoutField*, int) override { return 0; }
+  int ReqQryMulticastInstrument(CThostFtdcQryMulticastInstrumentField*, int) override { return 0; }
 };
-CThostFtdcMdApi *CThostFtdcMdApi::CreateFtdcMdApi(const char *, bool, bool) {
+CThostFtdcMdApi* CThostFtdcMdApi::CreateFtdcMdApi(const char*, bool, bool) {
   return new Fake;
 }
-const char *CThostFtdcMdApi::GetApiVersion() { return "TEST-ONLY"; }
+const char* CThostFtdcMdApi::GetApiVersion() {
+  return "TEST-ONLY";
+}

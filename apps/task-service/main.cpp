@@ -12,13 +12,10 @@
 #include <mutex>
 #include <thread>
 using namespace std::chrono_literals;
-int main(int argc, char **argv) {
-  CLI::App app{
-      "Asterion durable task service (Agent-dispatched backtest workers)"};
-  app.set_version_flag("--version",
-                       "asterion-task-service " ASTERION_PRODUCT_VERSION);
-  std::string directory, endpoint, service, bind, health_endpoint,
-      worker_endpoint;
+int main(int argc, char** argv) {
+  CLI::App app{"Asterion durable task service (Agent-dispatched backtest workers)"};
+  app.set_version_flag("--version", "asterion-task-service " ASTERION_PRODUCT_VERSION);
+  std::string directory, endpoint, service, bind, health_endpoint, worker_endpoint;
   unsigned worker_timeout = 30;
   app.add_option("--worker-timeout", worker_timeout,
                  "Seconds without worker progress before interruption")
@@ -34,8 +31,7 @@ int main(int argc, char **argv) {
   app.add_option("--tls-ca", tls.ca_file);
   app.add_option("--tls-cert", tls.certificate_file);
   app.add_option("--tls-key", tls.private_key_file);
-  app.add_option("--worker-endpoint", worker_endpoint,
-                 "Private same-machine worker IPC");
+  app.add_option("--worker-endpoint", worker_endpoint, "Private same-machine worker IPC");
   app.add_option("--health-endpoint", health_endpoint);
   app.add_option("--owner-pid", owner_pid);
   argv = app.ensure_utf8(argv);
@@ -52,13 +48,11 @@ int main(int argc, char **argv) {
         (remote ? (!endpoint.empty() || !port || tls.ca_file.empty() ||
                    tls.certificate_file.empty() || tls.private_key_file.empty())
                 : (endpoint.empty() || port || !tls.ca_file.empty() ||
-                   !tls.certificate_file.empty() ||
-                   !tls.private_key_file.empty())))
+                   !tls.certificate_file.empty() || !tls.private_key_file.empty())))
       throw std::invalid_argument("choose local endpoint OR TCP bind/port with "
                                   "all TLS files and a task directory");
-    asterion::tasks::Store store(
-        std::filesystem::absolute(std::filesystem::path(
-            std::u8string(directory.begin(), directory.end()))));
+    asterion::tasks::Store store(std::filesystem::absolute(
+        std::filesystem::path(std::u8string(directory.begin(), directory.end()))));
     const auto started = std::chrono::steady_clock::now();
     const auto instance = asterion::unique_process_id();
     std::mutex mutex;
@@ -85,17 +79,15 @@ int main(int argc, char **argv) {
           ++it;
       }
     };
-    auto respond = [&](const std::string &frame, bool health_only,
-                       std::chrono::steady_clock::time_point deadline,
-                       std::stop_token stop) {
+    auto respond = [&](const std::string& frame, bool health_only,
+                       std::chrono::steady_clock::time_point deadline, std::stop_token stop) {
       wire::TaskRequest request;
       wire::TaskResponse response;
       response.set_version(1);
       response.set_service_id(service);
       try {
         auto admitted = [&] {
-          if (stop.stop_requested() ||
-              std::chrono::steady_clock::now() >= deadline)
+          if (stop.stop_requested() || std::chrono::steady_clock::now() >= deadline)
             throw asterion::Error(asterion::ErrorCode::unavailable,
                                   "task request admission timed out");
         };
@@ -106,17 +98,16 @@ int main(int argc, char **argv) {
         response.set_correlation_id(request.correlation_id());
         asterion::validate_id(request.correlation_id());
         if (request.version() != 1 || request.service_id() != service)
-          throw std::invalid_argument(
-              "task protocol version or service mismatch");
+          throw std::invalid_argument("task protocol version or service mismatch");
         if (request.has_heartbeat()) {
-          auto *health = response.mutable_health();
+          auto* health = response.mutable_health();
           health->set_instance_id(instance);
           health->set_version(ASTERION_PRODUCT_VERSION);
           health->set_recovery_required(degraded);
-          health->set_uptime_ms(static_cast<std::uint64_t>(
-              std::chrono::duration_cast<std::chrono::milliseconds>(
-                  std::chrono::steady_clock::now() - started)
-                  .count()));
+          health->set_uptime_ms(
+              static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                             std::chrono::steady_clock::now() - started)
+                                             .count()));
           return response;
         }
         if (health_only)
@@ -126,8 +117,9 @@ int main(int argc, char **argv) {
         expire_leases();
         admitted();
         if (request.has_submit()) {
-          const auto &p = request.submit();
-          if(p.has_calendar()) *response.mutable_task()=store.submit(p.id(),p.calendar());
+          const auto& p = request.submit();
+          if (p.has_calendar())
+            *response.mutable_task() = store.submit(p.id(), p.calendar());
           else if (p.has_data())
             *response.mutable_task() = store.submit(p.id(), p.data());
           else if (p.has_factor())
@@ -145,8 +137,9 @@ int main(int argc, char **argv) {
         else if (request.has_retry())
           *response.mutable_task() = store.retry(request.retry().id());
         else if (request.has_result()) {
-          const auto &id = request.result().id();
-          if(store.get(id).kind()==wire::CALENDAR_IMPORT) *response.mutable_calendar_publication()=store.calendar_publication(id);
+          const auto& id = request.result().id();
+          if (store.get(id).kind() == wire::CALENDAR_IMPORT)
+            *response.mutable_calendar_publication() = store.calendar_publication(id);
           else if (store.get(id).kind() == wire::DATA_IMPORT)
             *response.mutable_publication() = store.publication(id);
           else if (store.get(id).kind() == wire::FACTOR)
@@ -157,21 +150,22 @@ int main(int argc, char **argv) {
         } else if (request.has_claim()) {
           if (store.get(request.claim().id()).kind() != request.claim().kind())
             throw std::invalid_argument("worker kind does not match task");
-          auto *attempt = response.mutable_attempt();
+          auto* attempt = response.mutable_attempt();
           attempt->set_token(store.claim(request.claim().id()));
-          leases[request.claim().id()] = {
-              attempt->token(), std::chrono::steady_clock::now() +
-                                    std::chrono::seconds(worker_timeout)};
+          leases[request.claim().id()] = {attempt->token(),
+                                          std::chrono::steady_clock::now() +
+                                              std::chrono::seconds(worker_timeout)};
           *attempt->mutable_task() = store.get(request.claim().id());
         } else if (request.has_progress()) {
-          const auto &p = request.progress();
+          const auto& p = request.progress();
           store.progress(p.id(), p.token(), p.completed());
-          leases.at(p.id()).expires = std::chrono::steady_clock::now() +
-                                      std::chrono::seconds(worker_timeout);
+          leases.at(p.id()).expires =
+              std::chrono::steady_clock::now() + std::chrono::seconds(worker_timeout);
           *response.mutable_task() = store.get(p.id());
         } else if (request.has_finish()) {
-          const auto &p = request.finish();
-          if(p.has_calendar_publication()) store.finish(p.id(),p.token(),p.calendar_publication());
+          const auto& p = request.finish();
+          if (p.has_calendar_publication())
+            store.finish(p.id(), p.token(), p.calendar_publication());
           else if (p.has_publication())
             store.finish(p.id(), p.token(), p.publication());
           else if (p.has_factor())
@@ -183,12 +177,12 @@ int main(int argc, char **argv) {
           leases.erase(p.id());
           *response.mutable_task() = store.get(p.id());
         } else if (request.has_fail()) {
-          const auto &p = request.fail();
+          const auto& p = request.fail();
           store.fail(p.id(), p.token(), p.error());
           leases.erase(p.id());
           *response.mutable_task() = store.get(p.id());
         } else if (request.has_cancel_ack()) {
-          const auto &p = request.cancel_ack();
+          const auto& p = request.cancel_ack();
           store.acknowledge_cancel(p.id(), p.token());
           leases.erase(p.id());
           *response.mutable_task() = store.get(p.id());
@@ -196,32 +190,30 @@ int main(int argc, char **argv) {
           throw std::invalid_argument("missing task operation");
         if (response.has_task() && !request.has_get())
           response.mutable_task()->clear_input();
-      } catch (const asterion::Error &error) {
-        response.mutable_error()->set_code(
-            std::string(asterion::error_name(error.code())));
+      } catch (const asterion::Error& error) {
+        response.mutable_error()->set_code(std::string(asterion::error_name(error.code())));
         response.mutable_error()->set_message(error.what());
-      } catch (const std::invalid_argument &error) {
+      } catch (const std::invalid_argument& error) {
         response.mutable_error()->set_code("invalid_request");
         response.mutable_error()->set_message(error.what());
-      } catch (const std::out_of_range &) {
+      } catch (const std::out_of_range&) {
         response.mutable_error()->set_code("not_found");
         response.mutable_error()->set_message("unknown task");
-      } catch (const std::exception &error) {
+      } catch (const std::exception& error) {
         degraded = true;
         response.mutable_error()->set_code("recovery_required");
         response.mutable_error()->set_message(error.what());
       }
       return response;
     };
-    auto dispatch = [&](asterion::ThreadPool &pool, auto pending) {
+    auto dispatch = [&](asterion::ThreadPool& pool, auto pending) {
       const auto deadline = std::chrono::steady_clock::now() + 10s;
       auto peer = std::make_shared<decltype(pending)>(std::move(pending));
       static_cast<void>(pool.submit([&, peer, deadline](std::stop_token stop) {
         try {
           auto remaining = [&] {
             const auto left = deadline - std::chrono::steady_clock::now();
-            if (stop.stop_requested() ||
-                left <= std::chrono::steady_clock::duration::zero())
+            if (stop.stop_requested() || left <= std::chrono::steady_clock::duration::zero())
               throw asterion::Error(asterion::ErrorCode::unavailable,
                                     "task request admission timed out");
             return std::chrono::ceil<std::chrono::milliseconds>(left);
@@ -234,9 +226,8 @@ int main(int argc, char **argv) {
               return std::move(*peer);
           }();
           const auto frame = channel.receive(remaining());
-          channel.send(
-              respond(frame, false, deadline, stop).SerializeAsString(), 3s);
-        } catch (const std::exception &) {
+          channel.send(respond(frame, false, deadline, stop).SerializeAsString(), 3s);
+        } catch (const std::exception&) {
           // Close only this peer. Never replay a query or mutation.
         }
       }));
@@ -255,10 +246,8 @@ int main(int argc, char **argv) {
         try {
           auto channel = health->accept(100ms);
           const auto deadline = std::chrono::steady_clock::now() + 1s;
-          channel.send(respond(channel.receive(1s), true, deadline, stop)
-                           .SerializeAsString(),
-                       1s);
-        } catch (const std::exception &) {
+          channel.send(respond(channel.receive(1s), true, deadline, stop).SerializeAsString(), 1s);
+        } catch (const std::exception&) {
         }
       }
     });
@@ -272,7 +261,7 @@ int main(int argc, char **argv) {
       while (workers && !stop.stop_requested()) {
         try {
           dispatch(worker_clients, workers->accept(200ms));
-        } catch (const asterion::Error &) {
+        } catch (const asterion::Error&) {
         }
       }
     });
@@ -291,13 +280,13 @@ int main(int argc, char **argv) {
           dispatch(clients, tcp->accept_pending(200ms));
         else
           dispatch(clients, local->accept(200ms));
-      } catch (const asterion::Error &) {
+      } catch (const asterion::Error&) {
         // Idle poll or bounded overload: destroy the unqueued connection.
       }
       std::lock_guard lock(mutex);
       expire_leases();
     }
-  } catch (const std::exception &error) {
+  } catch (const std::exception& error) {
     std::cerr << "Task service failed: " << error.what() << '\n';
     return 1;
   }

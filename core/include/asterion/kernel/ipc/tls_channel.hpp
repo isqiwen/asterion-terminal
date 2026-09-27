@@ -15,15 +15,14 @@ class TlsChannel {
 public:
   TlsChannel();
   ~TlsChannel();
-  TlsChannel(TlsChannel &&) noexcept;
-  TlsChannel &operator=(TlsChannel &&) noexcept;
-  TlsChannel(const TlsChannel &) = delete;
-  TlsChannel &operator=(const TlsChannel &) = delete;
-  static TlsChannel connect(const std::string &host, std::uint16_t port,
-                            const TlsIdentity &identity,
-                            std::chrono::milliseconds timeout);
+  TlsChannel(TlsChannel&&) noexcept;
+  TlsChannel& operator=(TlsChannel&&) noexcept;
+  TlsChannel(const TlsChannel&) = delete;
+  TlsChannel& operator=(const TlsChannel&) = delete;
+  static TlsChannel connect(const std::string& host, std::uint16_t port,
+                            const TlsIdentity& identity, std::chrono::milliseconds timeout);
   std::string receive(std::chrono::milliseconds timeout);
-  void send(const std::string &payload, std::chrono::milliseconds timeout);
+  void send(const std::string& payload, std::chrono::milliseconds timeout);
   std::string peer_address() const;
   void close() noexcept;
 
@@ -39,10 +38,10 @@ class TlsPendingConnection {
 public:
   TlsPendingConnection();
   ~TlsPendingConnection();
-  TlsPendingConnection(TlsPendingConnection &&) noexcept;
-  TlsPendingConnection &operator=(TlsPendingConnection &&) noexcept;
-  TlsPendingConnection(const TlsPendingConnection &) = delete;
-  TlsPendingConnection &operator=(const TlsPendingConnection &) = delete;
+  TlsPendingConnection(TlsPendingConnection&&) noexcept;
+  TlsPendingConnection& operator=(TlsPendingConnection&&) noexcept;
+  TlsPendingConnection(const TlsPendingConnection&) = delete;
+  TlsPendingConnection& operator=(const TlsPendingConnection&) = delete;
   TlsChannel handshake(std::chrono::milliseconds timeout) &&;
 
 private:
@@ -51,19 +50,17 @@ private:
 };
 class TlsListener {
 public:
-  TlsListener(const std::string &bind_address, std::uint16_t port,
-              const TlsIdentity &identity);
+  TlsListener(const std::string& bind_address, std::uint16_t port, const TlsIdentity& identity);
   ~TlsListener();
-  TlsListener(const TlsListener &) = delete;
-  TlsListener &operator=(const TlsListener &) = delete;
+  TlsListener(const TlsListener&) = delete;
+  TlsListener& operator=(const TlsListener&) = delete;
   // Only the listener owner calls accept. Handshakes belong to independent
   // pending connections and can run on different threads.
-  TlsPendingConnection accept_pending(
-      std::chrono::milliseconds wait_timeout = std::chrono::milliseconds{-1});
+  TlsPendingConnection
+  accept_pending(std::chrono::milliseconds wait_timeout = std::chrono::milliseconds{-1});
   // Synchronous convenience: accept TCP, then enforce a bounded handshake.
-  TlsChannel accept(
-      std::chrono::milliseconds handshake_timeout,
-      std::chrono::milliseconds wait_timeout = std::chrono::milliseconds{-1});
+  TlsChannel accept(std::chrono::milliseconds handshake_timeout,
+                    std::chrono::milliseconds wait_timeout = std::chrono::milliseconds{-1});
 
 private:
   struct Impl;

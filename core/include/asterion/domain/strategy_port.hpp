@@ -7,6 +7,6 @@ namespace asterion {
 // order and routes any resulting orders through the account execution chain.
 class StrategyPort : public Plugin {
 public:
-    virtual std::optional<Decimal> on_tick(const TradeTick& tick) = 0;
+  virtual std::optional<Decimal> on_tick(const TradeTick& tick) = 0;
 };
-}
+} // namespace asterion

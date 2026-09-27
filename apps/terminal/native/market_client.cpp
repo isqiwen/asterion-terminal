@@ -27,7 +27,7 @@ struct MarketClient::Impl {
         request.mutable_snapshot();
         publish(call(request).snapshot());
         break;
-      } catch (const Error &) {
+      } catch (const Error&) {
         if (std::chrono::steady_clock::now() >= deadline)
           throw;
         std::this_thread::sleep_for(100ms);
@@ -47,11 +47,10 @@ struct MarketClient::Impl {
             }
           };
           if (endpoint.endpoint.empty())
-            stream(ipc::TlsChannel::connect(endpoint.host, endpoint.port,
-                                            endpoint.tls, 2s));
+            stream(ipc::TlsChannel::connect(endpoint.host, endpoint.port, endpoint.tls, 2s));
           else
             stream(ipc::Channel::connect(endpoint.endpoint, 2s));
-        } catch (const std::exception &) {
+        } catch (const std::exception&) {
           std::unique_lock lock(mutex);
           online = false;
           wake.wait_for(lock, 2s, [&] { return stop.stop_requested(); });
@@ -65,12 +64,12 @@ struct MarketClient::Impl {
     if (worker.joinable())
       worker.join();
   }
-  void identify(wire::Request &request) {
+  void identify(wire::Request& request) {
     request.set_version(1);
     request.set_service_id(endpoint.session);
     request.set_correlation_id("market." + std::to_string(++sequence));
   }
-  wire::Response decode(const std::string &raw, const wire::Request &request) {
+  wire::Response decode(const std::string& raw, const wire::Request& request) {
     wire::Response response;
     if (!response.ParseFromString(raw))
       throw Error(ErrorCode::unavailable, "invalid market response");
@@ -79,10 +78,9 @@ struct MarketClient::Impl {
         response.correlation_id() != request.correlation_id())
       throw Error(ErrorCode::unavailable, "market response identity mismatch");
     if (response.has_error())
-      throw Error(response.error().code() == "conflict" ? ErrorCode::conflict
-                  : response.error().code() == "unavailable"
-                      ? ErrorCode::unavailable
-                      : ErrorCode::invalid_request,
+      throw Error(response.error().code() == "conflict"      ? ErrorCode::conflict
+                  : response.error().code() == "unavailable" ? ErrorCode::unavailable
+                                                             : ErrorCode::invalid_request,
                   response.error().message());
     if (!response.has_snapshot() || response.snapshot().instance_id().empty())
       throw Error(ErrorCode::unavailable, "missing market snapshot");
@@ -96,11 +94,10 @@ struct MarketClient::Impl {
       return decode(channel.receive(3s), request);
     };
     return endpoint.endpoint.empty()
-               ? exchange(ipc::TlsChannel::connect(endpoint.host, endpoint.port,
-                                                   endpoint.tls, 3s))
+               ? exchange(ipc::TlsChannel::connect(endpoint.host, endpoint.port, endpoint.tls, 3s))
                : exchange(ipc::Channel::connect(endpoint.endpoint, 3s));
   }
-  void publish(const wire::Snapshot &state) {
+  void publish(const wire::Snapshot& state) {
     std::lock_guard lock(mutex);
     if (cached.is_null() || cached.at("instance_id") != state.instance_id() ||
         cached.at("sequence").get<std::uint64_t>() <= state.sequence())
@@ -112,24 +109,24 @@ struct MarketClient::Impl {
 MarketClient::MarketClient(ServiceEndpoint endpoint)
     : impl_(std::make_unique<Impl>(std::move(endpoint))) {}
 MarketClient::~MarketClient() = default;
-void MarketClient::connect(const Json &params) {
+void MarketClient::connect(const Json& params) {
   wire::Request request;
-  auto *c = request.mutable_connect();
+  auto* c = request.mutable_connect();
   c->set_front(params.at("front"));
   c->set_broker(params.at("broker"));
   c->set_user(params.at("user"));
   c->set_password(params.at("password"));
-  for (const auto &id : params.at("instruments")) {
-    auto *i = c->add_instruments();
+  for (const auto& id : params.at("instruments")) {
+    auto* i = c->add_instruments();
     i->set_venue(id.at("venue"));
     i->set_symbol(id.at("symbol"));
   }
   impl_->publish(impl_->call(std::move(request)).snapshot());
 }
-void MarketClient::subscribe(const Json &ids) {
+void MarketClient::subscribe(const Json& ids) {
   wire::Request request;
-  for (const auto &id : ids) {
-    auto *i = request.mutable_subscribe()->add_instruments();
+  for (const auto& id : ids) {
+    auto* i = request.mutable_subscribe()->add_instruments();
     i->set_venue(id.at("venue"));
     i->set_symbol(id.at("symbol"));
   }
@@ -145,8 +142,7 @@ void MarketClient::disconnect() {
 Json MarketClient::snapshot() const {
   std::lock_guard lock(impl_->mutex);
   auto out = impl_->cached;
-  out["transport_online"] =
-      impl_->online && std::chrono::steady_clock::now() - impl_->seen < 5s;
+  out["transport_online"] = impl_->online && std::chrono::steady_clock::now() - impl_->seen < 5s;
   out["service"] = impl_->endpoint.session;
   return out;
 }

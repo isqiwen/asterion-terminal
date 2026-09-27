@@ -13,15 +13,14 @@ using namespace asterion;
 namespace fs = std::filesystem;
 namespace {
 struct Directory {
-  fs::path path =
-      fs::temp_directory_path() / ("asterion-data-" + unique_process_id());
+  fs::path path = fs::temp_directory_path() / ("asterion-data-" + unique_process_id());
   Directory() { fs::create_directory(path); }
   ~Directory() {
     std::error_code error;
     fs::remove_all(path, error);
   }
 };
-void write(const fs::path &path, const std::string &bytes) {
+void write(const fs::path& path, const std::string& bytes) {
   std::ofstream file(path, std::ios::binary);
   file << bytes;
 }
@@ -33,32 +32,28 @@ std::string csv(bool alternate = false, std::size_t count = 40) {
             std::to_string(100 + i % 3) + (alternate ? ".000,1.0" : ",1") + end;
   return text;
 }
-data::v1::CsvImport spec(const fs::path &source, const std::string &bytes) {
+data::v1::CsvImport spec(const fs::path& source, const std::string& bytes) {
   write(source, bytes);
   data::v1::CsvImport input;
   input.set_version(1);
   const auto name = source.u8string();
   input.set_source_path(std::string(name.begin(), name.end()));
   input.set_source_sha256(sha256_bytes(bytes));
-  *input.mutable_contract() =
-      protocol::encode_contract({{"venue", "SHFE"},
-                                 {"symbol", "rb2610"},
-                                 {"currency", "CNY"},
-                                 {"price_increment", "1"},
-                                 {"quantity_increment", "1"},
-                                 {"multiplier", "10"},
-                                 {"product", "rb"},
-                                 {"delivery_month", "2026-10"}});
+  *input.mutable_contract() = protocol::encode_contract({{"venue", "SHFE"},
+                                                         {"symbol", "rb2610"},
+                                                         {"currency", "CNY"},
+                                                         {"price_increment", "1"},
+                                                         {"quantity_increment", "1"},
+                                                         {"multiplier", "10"},
+                                                         {"product", "rb"},
+                                                         {"delivery_month", "2026-10"}});
   return input;
 }
 } // namespace
-TEST(DataPipeline,
-     NormalizedContentIdentityIsSharedByResearchWhileProvenanceStaysDistinct) {
+TEST(DataPipeline, NormalizedContentIdentityIsSharedByResearchWhileProvenanceStaysDistinct) {
   Directory root;
-  const auto first =
-      data_pipeline::import_csv(spec(root.path / "one.csv", csv()));
-  const auto second =
-      data_pipeline::import_csv(spec(root.path / "two.csv", csv(true)));
+  const auto first = data_pipeline::import_csv(spec(root.path / "one.csv", csv()));
+  const auto second = data_pipeline::import_csv(spec(root.path / "two.csv", csv(true)));
   EXPECT_EQ(first.dataset().revision(), second.dataset().revision());
   EXPECT_NE(first.source_sha256(), second.source_sha256());
   EXPECT_NE(first.id(), second.id());
@@ -75,27 +70,21 @@ TEST(DataPipeline,
   *factor.mutable_ticks() = first.dataset().ticks();
   factor.add_lookbacks(2);
   factor.set_horizon(1);
-  EXPECT_EQ(protocol::factor_dataset_revision(factor),
-            first.dataset().revision());
-  EXPECT_EQ(protocol::encode_publication(protocol::decode_publication(first))
-                .SerializeAsString(),
+  EXPECT_EQ(protocol::factor_dataset_revision(factor), first.dataset().revision());
+  EXPECT_EQ(protocol::encode_publication(protocol::decode_publication(first)).SerializeAsString(),
             first.SerializeAsString());
   auto changed = first.dataset();
-  changed.mutable_ticks(0)->mutable_quantity()->set_units(
-      Decimal::parse("2").raw());
+  changed.mutable_ticks(0)->mutable_quantity()->set_units(Decimal::parse("2").raw());
   EXPECT_THROW(protocol::decode_dataset(changed), std::invalid_argument);
 }
-TEST(DataPipeline,
-     RejectsChangedSourceBadRowsOversizeAndCancellationWithoutRepairingInput) {
+TEST(DataPipeline, RejectsChangedSourceBadRowsOversizeAndCancellationWithoutRepairingInput) {
   Directory root;
   auto input = spec(root.path / "input.csv", csv());
   write(root.path / "input.csv", csv(true));
   EXPECT_THROW(data_pipeline::import_csv(input), std::invalid_argument);
-  input = spec(root.path / "input.csv",
-               "timestamp_ns,price,quantity\n2,100,1\n1,101,1\n");
+  input = spec(root.path / "input.csv", "timestamp_ns,price,quantity\n2,100,1\n1,101,1\n");
   EXPECT_THROW(data_pipeline::import_csv(input), std::runtime_error);
-  input =
-      spec(root.path / "input.csv", "timestamp_ns,price,quantity\n1,100.5,1\n");
+  input = spec(root.path / "input.csv", "timestamp_ns,price,quantity\n1,100.5,1\n");
   EXPECT_THROW(data_pipeline::import_csv(input), std::runtime_error);
   input = spec(root.path / "input.csv", csv(false, 10001));
   EXPECT_THROW(data_pipeline::import_csv(input), std::invalid_argument);
@@ -104,16 +93,14 @@ TEST(DataPipeline,
   input = spec(root.path / "input.csv", csv());
   std::stop_source stop;
   stop.request_stop();
-  EXPECT_THROW(data_pipeline::import_csv(input, stop.get_token()),
-               std::runtime_error);
+  EXPECT_THROW(data_pipeline::import_csv(input, stop.get_token()), std::runtime_error);
   input.GetReflection()->MutableUnknownFields(&input)->AddVarint(99, 1);
   EXPECT_THROW(data_pipeline::import_csv(input), std::invalid_argument);
 }
 TEST(DataPipeline, RetainsDuplicateEventsAndDoesNotInventCalendarOrPriceRules) {
   Directory root;
   const auto input =
-      spec(root.path / "input.csv",
-           "timestamp_ns,price,quantity\n1,0,1\n1,0,1\n2,-1,1\n");
+      spec(root.path / "input.csv", "timestamp_ns,price,quantity\n1,0,1\n1,0,1\n2,-1,1\n");
   const auto publication = data_pipeline::import_csv(input);
   ASSERT_EQ(publication.dataset().ticks_size(), 3);
   EXPECT_EQ(publication.dataset().ticks(0).SerializeAsString(),
@@ -126,25 +113,20 @@ TEST(DataPipeline, RetainsDuplicateEventsAndDoesNotInventCalendarOrPriceRules) {
   tampered.set_source_name("other.csv");
   EXPECT_THROW(protocol::decode_publication(tampered), std::invalid_argument);
 }
-TEST(
-    DataPipeline,
-    CommittedPublicationSurvivesSourceDeletionAndRejectsOverwriteOrPartialWrites) {
+TEST(DataPipeline, CommittedPublicationSurvivesSourceDeletionAndRejectsOverwriteOrPartialWrites) {
   Directory root;
   const auto output = root.path / "published";
   fs::create_directory(output);
-  const auto value =
-      data_pipeline::import_csv(spec(root.path / "source.csv", csv()));
+  const auto value = data_pipeline::import_csv(spec(root.path / "source.csv", csv()));
   EXPECT_TRUE(data_pipeline::publish(value, output));
   EXPECT_FALSE(data_pipeline::publish(value, output));
   fs::remove(root.path / "source.csv");
-  EXPECT_EQ(data_pipeline::read(output).SerializeAsString(),
-            value.SerializeAsString());
+  EXPECT_EQ(data_pipeline::read(output).SerializeAsString(), value.SerializeAsString());
   auto other = value;
   other.set_source_name("other.csv");
   other.set_id(protocol::publication_id(other));
   EXPECT_THROW(data_pipeline::publish(other, output), std::invalid_argument);
-  EXPECT_EQ(data_pipeline::read(output).SerializeAsString(),
-            value.SerializeAsString());
+  EXPECT_EQ(data_pipeline::read(output).SerializeAsString(), value.SerializeAsString());
   const auto partial = root.path / "partial";
   fs::create_directory(partial);
   write(partial / "pending.tmp", "interrupted");
@@ -159,26 +141,19 @@ TEST(DataPipeline, IndependentProgramPublishesAndInspectsWithoutOriginalInput) {
   Directory root;
   const auto output = root.path / "published";
   fs::create_directory(output);
-  const auto source = root.path / fs::path(u8"历史.csv"),
-             input_file = root.path / "import.pb";
+  const auto source = root.path / fs::path(u8"历史.csv"), input_file = root.path / "import.pb";
   const auto input = spec(source, csv());
   write(input_file, input.SerializeAsString());
-  auto execute = [&](const std::vector<std::string> &args) {
+  auto execute = [&](const std::vector<std::string>& args) {
     ChildProcess process(ASTERION_PIPELINE_PATH, args);
     EXPECT_TRUE(process.wait(std::chrono::seconds(10)));
     return process.exit_code();
   };
-  EXPECT_EQ(
-      execute({"--input", input_file.string(), "--directory", output.string()}),
-      0);
+  EXPECT_EQ(execute({"--input", input_file.string(), "--directory", output.string()}), 0);
   const auto id = data_pipeline::read(output).id();
-  EXPECT_EQ(
-      execute({"--input", input_file.string(), "--directory", output.string()}),
-      0);
+  EXPECT_EQ(execute({"--input", input_file.string(), "--directory", output.string()}), 0);
   write(source, csv(true));
-  EXPECT_NE(
-      execute({"--input", input_file.string(), "--directory", output.string()}),
-      0);
+  EXPECT_NE(execute({"--input", input_file.string(), "--directory", output.string()}), 0);
   fs::remove(source);
   fs::remove(input_file);
   EXPECT_EQ(execute({"--inspect", "--directory", output.string()}), 0);
@@ -193,8 +168,7 @@ protected:
   fs::path root;
   data::v1::CsvSnapshot input;
   void SetUp() override {
-    input =
-        data_pipeline::capture_csv(spec(directory.path / "source.csv", csv()));
+    input = data_pipeline::capture_csv(spec(directory.path / "source.csv", csv()));
     fs::remove(directory.path / "source.csv");
     root = directory.path / "tasks";
     fs::create_directory(root);
@@ -231,16 +205,15 @@ TEST_F(DataTasks, DurableUploadCancellationFencingAndResultValidation) {
     EXPECT_THROW(store.factor_result("data"), std::invalid_argument);
   }
   tasks::Store recovered(root);
-  EXPECT_EQ(recovered.publication("data").SerializeAsString(),
-            expected.SerializeAsString());
+  EXPECT_EQ(recovered.publication("data").SerializeAsString(), expected.SerializeAsString());
   EXPECT_EQ(recovered.get("data").attempt(), 2U);
 }
 TEST_F(DataTasks, TypedWorkerRunsAndWrongExecutableCannotClaim) {
 #ifdef _WIN32
   const std::string endpoint = "asterion.data." + unique_process_id();
 #else
-  const auto socket_root = std::filesystem::path("/tmp") /
-                           ("ast-f-" + unique_process_id().substr(0, 12));
+  const auto socket_root =
+      std::filesystem::path("/tmp") / ("ast-f-" + unique_process_id().substr(0, 12));
   std::filesystem::create_directory(socket_root);
   std::filesystem::permissions(socket_root, std::filesystem::perms::owner_all);
   struct Cleanup {
@@ -254,8 +227,8 @@ TEST_F(DataTasks, TypedWorkerRunsAndWrongExecutableCannotClaim) {
 #endif
   const auto utf8 = root.u8string();
   ChildProcess service(ASTERION_TASK_SERVICE_PATH,
-                       {"--directory", std::string(utf8.begin(), utf8.end()),
-                        "--endpoint", endpoint, "--session", "data-tests"});
+                       {"--directory", std::string(utf8.begin(), utf8.end()), "--endpoint",
+                        endpoint, "--session", "data-tests"});
   auto call = [&](wire::TaskRequest request) {
     request.set_version(1);
     request.set_service_id("data-tests");
@@ -276,7 +249,7 @@ TEST_F(DataTasks, TypedWorkerRunsAndWrongExecutableCannotClaim) {
       ping.mutable_heartbeat();
       call(ping);
       break;
-    } catch (const std::exception &) {
+    } catch (const std::exception&) {
       if (service.exited() || std::chrono::steady_clock::now() > deadline)
         throw;
       std::this_thread::sleep_for(20ms);
@@ -287,9 +260,8 @@ TEST_F(DataTasks, TypedWorkerRunsAndWrongExecutableCannotClaim) {
   *submit.mutable_submit()->mutable_data() = input;
   call(submit);
   {
-    ChildProcess wrong(
-        ASTERION_BACKTEST_PATH,
-        {"--endpoint", endpoint, "--session", "data-tests", "--task", "run"});
+    ChildProcess wrong(ASTERION_BACKTEST_PATH,
+                       {"--endpoint", endpoint, "--session", "data-tests", "--task", "run"});
     ASSERT_TRUE(wrong.wait(10s));
     EXPECT_NE(wrong.exit_code(), 0);
   }
@@ -298,9 +270,8 @@ TEST_F(DataTasks, TypedWorkerRunsAndWrongExecutableCannotClaim) {
   EXPECT_EQ(call(get).task().state(), wire::QUEUED);
   EXPECT_EQ(call(get).task().attempt(), 0U);
   {
-    ChildProcess worker(
-        ASTERION_PIPELINE_PATH,
-        {"--endpoint", endpoint, "--session", "data-tests", "--task", "run"});
+    ChildProcess worker(ASTERION_PIPELINE_PATH,
+                        {"--endpoint", endpoint, "--session", "data-tests", "--task", "run"});
     ASSERT_TRUE(worker.wait(10s));
     EXPECT_EQ(worker.exit_code(), 0);
   }
@@ -316,8 +287,7 @@ TEST_F(DataTasks, TypedWorkerRunsAndWrongExecutableCannotClaim) {
   call(submit);
   {
     ChildProcess worker(ASTERION_PIPELINE_PATH,
-                        {"--endpoint", endpoint, "--session", "data-tests",
-                         "--task", "bad-rows"});
+                        {"--endpoint", endpoint, "--session", "data-tests", "--task", "bad-rows"});
     ASSERT_TRUE(worker.wait(10s));
     EXPECT_NE(worker.exit_code(), 0);
   }

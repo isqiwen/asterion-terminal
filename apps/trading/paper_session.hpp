@@ -8,18 +8,16 @@ class PaperSession {
 public:
   // create_manifest absent means recover an existing session without rewriting
   // it.
-  PaperSession(std::filesystem::path directory,
-               const Json &create_manifest = nullptr);
+  PaperSession(std::filesystem::path directory, const Json& create_manifest = nullptr);
   ~PaperSession();
-  void execute(const Json &command);
+  void execute(const Json& command);
   Json snapshot() const;
   bool recovery_required() const noexcept { return failed_; }
 
 private:
-  static std::unique_ptr<PaperExecution> build(const Json &manifest);
-  void apply(PaperExecution &engine, Json &authorization, Json &replay,
-             std::shared_ptr<const PaperReplaySchedule> &schedule,
-             const Json &command) const;
+  static std::unique_ptr<PaperExecution> build(const Json& manifest);
+  void apply(PaperExecution& engine, Json& authorization, Json& replay,
+             std::shared_ptr<const PaperReplaySchedule>& schedule, const Json& command) const;
   FileJournal journal_;
   std::unique_ptr<PaperExecution> engine_;
   Json manifest_;

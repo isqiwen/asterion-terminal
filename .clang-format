@@ -1,0 +1,12 @@
+# Asterion C++ style. Include order is significant on Windows; never sort.
+BasedOnStyle: LLVM
+ColumnLimit: 100
+PointerAlignment: Left
+SortIncludes: Never
+IncludeBlocks: Preserve
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortLambdasOnASingleLine: All
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false

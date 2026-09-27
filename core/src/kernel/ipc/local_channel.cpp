@@ -25,7 +25,7 @@ namespace asterion::ipc {
 namespace {
 using Clock = std::chrono::steady_clock;
 using Deadline = Clock::time_point;
-[[noreturn]] void failed(const char *message) {
+[[noreturn]] void failed(const char* message) {
   throw Error(ErrorCode::unavailable, message);
 }
 Deadline deadline(std::chrono::milliseconds timeout) {
@@ -36,13 +36,10 @@ Deadline deadline(std::chrono::milliseconds timeout) {
 int remaining(Deadline end) {
   if (end == Deadline::max())
     return -1;
-  auto ms =
-      std::chrono::duration_cast<std::chrono::milliseconds>(end - Clock::now())
-          .count();
+  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - Clock::now()).count();
   if (ms <= 0)
     failed("IPC timeout; command outcome may be unknown");
-  return static_cast<int>(
-      std::min<std::int64_t>(ms, std::numeric_limits<int>::max()));
+  return static_cast<int>(std::min<std::int64_t>(ms, std::numeric_limits<int>::max()));
 }
 // Connection establishment has not sent a command. Capacity waits share this
 // single deadline; frame failures never enter the connection retry loop.
@@ -53,16 +50,14 @@ int connection_remaining(Deadline end) {
   if (left <= Clock::duration::zero())
     failed("IPC connection timeout; no command was sent");
   const auto ms = std::chrono::ceil<std::chrono::milliseconds>(left).count();
-  return static_cast<int>(
-      std::min<std::int64_t>(ms, std::numeric_limits<int>::max()));
+  return static_cast<int>(std::min<std::int64_t>(ms, std::numeric_limits<int>::max()));
 }
 #ifdef _WIN32
 using Handle = HANDLE;
 const Handle invalid = INVALID_HANDLE_VALUE;
-std::wstring pipe_name(const std::string &name) {
+std::wstring pipe_name(const std::string& name) {
   if (!name.starts_with("asterion.") || name.size() > 100 ||
-      name.find_first_not_of(
-          "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-") !=
+      name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-") !=
           std::string::npos)
     throw std::invalid_argument("invalid local pipe name");
   return L"\\\\.\\pipe\\" + std::wstring(name.begin(), name.end());
@@ -71,15 +66,12 @@ void release(Handle h) {
   if (h != invalid)
     CloseHandle(h);
 }
-void wait_operation(Handle file, OVERLAPPED &operation, Deadline end,
-                    DWORD &transferred) {
+void wait_operation(Handle file, OVERLAPPED& operation, Deadline end, DWORD& transferred) {
   DWORD wait = INFINITE;
   if (end != Deadline::max())
     wait = static_cast<DWORD>(std::clamp<std::int64_t>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(end -
-                                                              Clock::now())
-            .count(),
-        0, std::numeric_limits<int>::max()));
+        std::chrono::duration_cast<std::chrono::milliseconds>(end - Clock::now()).count(), 0,
+        std::numeric_limits<int>::max()));
   if (WaitForSingleObject(operation.hEvent, wait) != WAIT_OBJECT_0) {
     CancelIoEx(file, &operation);
     GetOverlappedResult(file, &operation, &transferred, TRUE);
@@ -88,8 +80,7 @@ void wait_operation(Handle file, OVERLAPPED &operation, Deadline end,
   if (!GetOverlappedResult(file, &operation, &transferred, FALSE))
     failed("IPC peer disconnected");
 }
-void transfer(Handle file, char *data, std::size_t size, bool writing,
-              Deadline end) {
+void transfer(Handle file, char* data, std::size_t size, bool writing, Deadline end) {
   while (size) {
     (void)remaining(end);
     OVERLAPPED op{};
@@ -98,8 +89,7 @@ void transfer(Handle file, char *data, std::size_t size, bool writing,
       failed("cannot allocate IPC event");
     DWORD count = 0;
     try {
-      const DWORD chunk =
-          static_cast<DWORD>(std::min<std::size_t>(size, 65536));
+      const DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(size, 65536));
       const BOOL result = writing ? WriteFile(file, data, chunk, &count, &op)
                                   : ReadFile(file, data, chunk, &count, &op);
       if (!result) {
@@ -128,19 +118,17 @@ struct Security {
     DWORD size = 0;
     GetTokenInformation(token, TokenUser, nullptr, 0, &size);
     std::string buffer(size, '\0');
-    const BOOL ok =
-        GetTokenInformation(token, TokenUser, buffer.data(), size, &size);
+    const BOOL ok = GetTokenInformation(token, TokenUser, buffer.data(), size, &size);
     CloseHandle(token);
     if (!ok)
       failed("cannot identify IPC user");
     LPWSTR sid = nullptr;
-    if (!ConvertSidToStringSidW(
-            reinterpret_cast<TOKEN_USER *>(buffer.data())->User.Sid, &sid))
+    if (!ConvertSidToStringSidW(reinterpret_cast<TOKEN_USER*>(buffer.data())->User.Sid, &sid))
       failed("cannot encode IPC identity");
     const std::wstring acl = L"D:P(A;;GA;;;" + std::wstring(sid) + L")";
     LocalFree(sid);
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            acl.c_str(), SDDL_REVISION_1, &descriptor, nullptr))
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(acl.c_str(), SDDL_REVISION_1,
+                                                              &descriptor, nullptr))
       failed("cannot secure IPC pipe");
     attributes.lpSecurityDescriptor = descriptor;
   }
@@ -157,8 +145,7 @@ void release(Handle h) {
     ::close(h);
 }
 void configure(Handle fd) {
-  if (::fcntl(fd, F_SETFD, FD_CLOEXEC) < 0 ||
-      ::fcntl(fd, F_SETFL, O_NONBLOCK) < 0)
+  if (::fcntl(fd, F_SETFD, FD_CLOEXEC) < 0 || ::fcntl(fd, F_SETFL, O_NONBLOCK) < 0)
     failed("cannot configure IPC socket");
 #ifdef __APPLE__
   int enabled = 1;
@@ -166,11 +153,10 @@ void configure(Handle fd) {
     failed("cannot configure IPC socket");
 #endif
 }
-sockaddr_un address(const std::string &endpoint) {
+sockaddr_un address(const std::string& endpoint) {
   sockaddr_un addr{};
   addr.sun_family = AF_UNIX;
-  if (endpoint.empty() || endpoint.front() != '/' ||
-      endpoint.find('\0') != std::string::npos ||
+  if (endpoint.empty() || endpoint.front() != '/' || endpoint.find('\0') != std::string::npos ||
       endpoint.size() >= sizeof(addr.sun_path))
     throw std::invalid_argument("invalid local socket path");
   std::memcpy(addr.sun_path, endpoint.c_str(), endpoint.size() + 1);
@@ -197,15 +183,13 @@ void ready(Handle fd, short events, Deadline end) {
     if (result < 0 && errno == EINTR)
       continue;
     if (result <= 0)
-      failed(
-          "IPC timeout or transport failure; command outcome may be unknown");
+      failed("IPC timeout or transport failure; command outcome may be unknown");
     if (descriptor.revents & POLLNVAL)
       failed("IPC channel closed");
     return;
   }
 }
-void transfer(Handle fd, char *data, std::size_t size, bool writing,
-              Deadline end) {
+void transfer(Handle fd, char* data, std::size_t size, bool writing, Deadline end) {
   while (size) {
     ready(fd, writing ? POLLOUT : POLLIN, end);
 #ifdef MSG_NOSIGNAL
@@ -213,10 +197,8 @@ void transfer(Handle fd, char *data, std::size_t size, bool writing,
 #else
     constexpr int send_flags = 0;
 #endif
-    const auto count = writing ? ::send(fd, data, size, send_flags)
-                               : ::recv(fd, data, size, 0);
-    if (count < 0 &&
-        (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
+    const auto count = writing ? ::send(fd, data, size, send_flags) : ::recv(fd, data, size, 0);
+    if (count < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK))
       continue;
     if (count <= 0)
       failed("IPC peer disconnected");
@@ -232,32 +214,29 @@ struct Channel::Impl {
 };
 Channel::Channel() : impl_(std::make_unique<Impl>()) {}
 Channel::~Channel() = default;
-Channel::Channel(Channel &&) noexcept = default;
-Channel &Channel::operator=(Channel &&) noexcept = default;
+Channel::Channel(Channel&&) noexcept = default;
+Channel& Channel::operator=(Channel&&) noexcept = default;
 void Channel::close() noexcept {
   if (impl_) {
     release(impl_->handle);
     impl_->handle = invalid;
   }
 }
-Channel Channel::connect(const std::string &endpoint,
-                         std::chrono::milliseconds timeout) {
+Channel Channel::connect(const std::string& endpoint, std::chrono::milliseconds timeout) {
   const auto end = deadline(timeout);
   Channel result;
 #ifdef _WIN32
   const auto name = pipe_name(endpoint);
   for (;;) {
     (void)connection_remaining(end);
-    result.impl_->handle =
-        CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-                    OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+    result.impl_->handle = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                                       OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
     if (result.impl_->handle != invalid)
       break;
     if (GetLastError() != ERROR_PIPE_BUSY)
       failed("IPC endpoint is not ready");
     const auto left = connection_remaining(end);
-    const DWORD wait =
-        left < 0 ? NMPWAIT_WAIT_FOREVER : static_cast<DWORD>(left);
+    const DWORD wait = left < 0 ? NMPWAIT_WAIT_FOREVER : static_cast<DWORD>(left);
     if (!WaitNamedPipeW(name.c_str(), wait)) {
       if (GetLastError() == ERROR_SEM_TIMEOUT)
         failed("IPC connection timeout; no command was sent");
@@ -273,15 +252,14 @@ Channel Channel::connect(const std::string &endpoint,
     if (result.impl_->handle < 0)
       failed("cannot create IPC socket");
     configure(result.impl_->handle);
-    if (::connect(result.impl_->handle,
-                  reinterpret_cast<const sockaddr *>(&addr), sizeof(addr)) == 0)
+    if (::connect(result.impl_->handle, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) ==
+        0)
       break;
     int error = errno;
     if (error == EINPROGRESS) {
       ready(result.impl_->handle, POLLOUT, end);
       socklen_t length = sizeof(error);
-      if (::getsockopt(result.impl_->handle, SOL_SOCKET, SO_ERROR, &error,
-                       &length) < 0)
+      if (::getsockopt(result.impl_->handle, SOL_SOCKET, SO_ERROR, &error, &length) < 0)
         failed("IPC connection failed");
       if (error == 0)
         break;
@@ -289,13 +267,11 @@ Channel Channel::connect(const std::string &endpoint,
     // A full AF_UNIX listen queue is EAGAIN on Linux, ECONNREFUSED on
     // macOS. Refused endpoints may also be stale: wait only to the caller's
     // deadline. Invalid paths, permissions and identity errors never retry.
-    if (error != EAGAIN && error != EWOULDBLOCK && error != ECONNREFUSED &&
-        error != EINTR)
+    if (error != EAGAIN && error != EWOULDBLOCK && error != ECONNREFUSED && error != EINTR)
       failed("IPC endpoint is not ready");
     result.close();
     const auto left = connection_remaining(end);
-    std::this_thread::sleep_for(
-        std::chrono::milliseconds(left < 0 ? 10 : std::min(left, 10)));
+    std::this_thread::sleep_for(std::chrono::milliseconds(left < 0 ? 10 : std::min(left, 10)));
     // A failed socket's state is unspecified. Recreate rather than reuse it.
   }
 #endif
@@ -310,14 +286,11 @@ std::string Channel::receive(std::chrono::milliseconds timeout) {
   auto end = deadline(timeout);
   std::array<unsigned char, 4> header{};
   try {
-    transfer(impl_->handle, reinterpret_cast<char *>(header.data()), 1, false,
-             end);
+    transfer(impl_->handle, reinterpret_cast<char*>(header.data()), 1, false, end);
     if (timeout.count() < 0)
       end = Clock::now() + std::chrono::seconds(10);
-    transfer(impl_->handle, reinterpret_cast<char *>(header.data()) + 1, 3,
-             false, end);
-    const std::size_t size = (std::size_t(header[0]) << 24) |
-                             (std::size_t(header[1]) << 16) |
+    transfer(impl_->handle, reinterpret_cast<char*>(header.data()) + 1, 3, false, end);
+    const std::size_t size = (std::size_t(header[0]) << 24) | (std::size_t(header[1]) << 16) |
                              (std::size_t(header[2]) << 8) | header[3];
     if (!size || size > max_frame)
       throw Error(ErrorCode::resource_exhausted, "invalid IPC frame length");
@@ -329,23 +302,19 @@ std::string Channel::receive(std::chrono::milliseconds timeout) {
     throw;
   }
 }
-void Channel::send(const std::string &payload,
-                   std::chrono::milliseconds timeout) {
+void Channel::send(const std::string& payload, std::chrono::milliseconds timeout) {
   if (payload.empty() || payload.size() > max_frame)
     throw Error(ErrorCode::resource_exhausted, "IPC frame too large or empty");
   if (!impl_ || impl_->handle == invalid)
     failed("IPC channel closed");
   const auto size = static_cast<std::uint32_t>(payload.size());
-  std::array<unsigned char, 4> header{static_cast<unsigned char>(size >> 24),
-                                      static_cast<unsigned char>(size >> 16),
-                                      static_cast<unsigned char>(size >> 8),
-                                      static_cast<unsigned char>(size)};
+  std::array<unsigned char, 4> header{
+      static_cast<unsigned char>(size >> 24), static_cast<unsigned char>(size >> 16),
+      static_cast<unsigned char>(size >> 8), static_cast<unsigned char>(size)};
   const auto end = deadline(timeout);
   try {
-    transfer(impl_->handle, reinterpret_cast<char *>(header.data()),
-             header.size(), true, end);
-    transfer(impl_->handle, const_cast<char *>(payload.data()), payload.size(),
-             true, end);
+    transfer(impl_->handle, reinterpret_cast<char*>(header.data()), header.size(), true, end);
+    transfer(impl_->handle, const_cast<char*>(payload.data()), payload.size(), true, end);
   } catch (...) {
     close();
     throw;
@@ -369,12 +338,11 @@ Listener::Listener(std::string endpoint) : impl_(std::make_unique<Impl>()) {
   impl_->endpoint = std::move(endpoint);
 #ifdef _WIN32
   Security security;
-  impl_->handle = CreateNamedPipeW(
-      pipe_name(impl_->endpoint).c_str(),
-      PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
-      PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT |
-          PIPE_REJECT_REMOTE_CLIENTS,
-      PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, &security.attributes);
+  impl_->handle =
+      CreateNamedPipeW(pipe_name(impl_->endpoint).c_str(),
+                       PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
+                       PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                       PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, &security.attributes);
   if (impl_->handle == invalid)
     failed("cannot create exclusive local IPC pipe");
 #else
@@ -383,8 +351,7 @@ Listener::Listener(std::string endpoint) : impl_(std::make_unique<Impl>()) {
   if (impl_->handle < 0)
     failed("cannot create IPC listener");
   configure(impl_->handle);
-  if (::bind(impl_->handle, reinterpret_cast<const sockaddr *>(&addr),
-             sizeof(addr)) < 0)
+  if (::bind(impl_->handle, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) < 0)
     failed("IPC endpoint already exists or is inaccessible");
   impl_->bound = true;
   if (::chmod(impl_->endpoint.c_str(), 0600) < 0)
@@ -420,12 +387,10 @@ Channel Listener::accept(std::chrono::milliseconds timeout) {
   // permits repeated/concurrent clients without an ownership gap in which a
   // different listener could acquire FILE_FLAG_FIRST_PIPE_INSTANCE.
   Security security;
-  const auto next = CreateNamedPipeW(pipe_name(impl_->endpoint).c_str(),
-                                     PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-                                     PIPE_TYPE_BYTE | PIPE_READMODE_BYTE |
-                                         PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-                                     PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0,
-                                     &security.attributes);
+  const auto next = CreateNamedPipeW(
+      pipe_name(impl_->endpoint).c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+      PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+      PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, &security.attributes);
   if (next == invalid) {
     DisconnectNamedPipe(impl_->handle);
     failed("cannot replenish local IPC listener");

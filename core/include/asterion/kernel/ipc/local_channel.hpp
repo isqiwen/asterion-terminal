@@ -11,16 +11,15 @@ public:
   static constexpr std::size_t max_frame = 16 * 1024 * 1024;
   Channel();
   ~Channel();
-  Channel(Channel &&) noexcept;
-  Channel &operator=(Channel &&) noexcept;
-  Channel(const Channel &) = delete;
-  Channel &operator=(const Channel &) = delete;
+  Channel(Channel&&) noexcept;
+  Channel& operator=(Channel&&) noexcept;
+  Channel(const Channel&) = delete;
+  Channel& operator=(const Channel&) = delete;
   // Busy local endpoints wait within one deadline. No application bytes are
   // sent here, and send/receive failures never reconnect or replay frames.
-  static Channel connect(const std::string &endpoint,
-                         std::chrono::milliseconds timeout);
+  static Channel connect(const std::string& endpoint, std::chrono::milliseconds timeout);
   std::string receive(std::chrono::milliseconds timeout);
-  void send(const std::string &payload, std::chrono::milliseconds timeout);
+  void send(const std::string& payload, std::chrono::milliseconds timeout);
   void close() noexcept;
 
 private:
@@ -32,8 +31,8 @@ class Listener {
 public:
   explicit Listener(std::string endpoint);
   ~Listener();
-  Listener(const Listener &) = delete;
-  Listener &operator=(const Listener &) = delete;
+  Listener(const Listener&) = delete;
+  Listener& operator=(const Listener&) = delete;
   Channel accept(std::chrono::milliseconds timeout);
 
 private:

@@ -5,10 +5,8 @@
 namespace asterion {
 double price_return(Decimal from, Decimal to);
 // Undefined for constant series. Ranks use the average rank for ties.
-std::optional<double> correlation(std::span<const double> x,
-                                  std::span<const double> y);
-std::optional<double> rank_correlation(std::span<const double> x,
-                                       std::span<const double> y);
+std::optional<double> correlation(std::span<const double> x, std::span<const double> y);
+std::optional<double> rank_correlation(std::span<const double> x, std::span<const double> y);
 struct MomentumCandidateScore {
   unsigned lookback;
   std::optional<double> development_spearman;
@@ -23,7 +21,7 @@ public:
   PluginDescriptor descriptor() const override;
   void start() override;
   void stop() noexcept override;
-  std::optional<double> on_tick(const TradeTick &tick) override;
+  std::optional<double> on_tick(const TradeTick& tick) override;
 
 private:
   Instrument instrument_;

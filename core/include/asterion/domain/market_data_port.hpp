@@ -11,7 +11,7 @@ namespace asterion {
 // nullopt means confirmed end of this input; errors must throw, never look empty.
 class MarketDataPort : public Plugin {
 public:
-    [[nodiscard]] virtual const Instrument& instrument() const noexcept = 0;
-    virtual std::optional<TradeTick> next() = 0;
+  [[nodiscard]] virtual const Instrument& instrument() const noexcept = 0;
+  virtual std::optional<TradeTick> next() = 0;
 };
 } // namespace asterion

@@ -7,6 +7,6 @@ namespace asterion {
 // A streaming factor receives only the current event and its prior history.
 class FactorPort : public Plugin {
 public:
-  virtual std::optional<double> on_tick(const TradeTick &tick) = 0;
+  virtual std::optional<double> on_tick(const TradeTick& tick) = 0;
 };
 } // namespace asterion

@@ -7,4 +7,4 @@ Json change_node_firewall(const Json& parameters, const Json& plan);
 NodeEndpoint enroll_node(const Json& parameters);
 NodeEndpoint enrolled_node(const std::string& id);
 void create_node_identity(const std::filesystem::path& directory, const std::string& host);
-}
+} // namespace asterion::terminal

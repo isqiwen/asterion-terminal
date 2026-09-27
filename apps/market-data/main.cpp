@@ -16,9 +16,11 @@ using namespace std::chrono_literals;
 namespace wire = asterion::market::v1;
 namespace {
 volatile std::sig_atomic_t stopping = 0;
-void stop(int) { stopping = 1; }
+void stop(int) {
+  stopping = 1;
+}
 } // namespace
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   CLI::App app{"Asterion read-only live market-data host"};
   app.set_version_flag("--version", "Asterion Market Data 0.1.0");
   std::string service, endpoint, health_endpoint, directory, bind, sdk;
@@ -26,9 +28,7 @@ int main(int argc, char **argv) {
   std::uint64_t owner_pid = 0;
   ipc::TlsIdentity tls;
   app.add_option("--session", service)->required();
-  app.add_option("--directory", directory)
-      ->required()
-      ->check(CLI::ExistingDirectory);
+  app.add_option("--directory", directory)->required()->check(CLI::ExistingDirectory);
   app.add_option("--endpoint", endpoint);
   app.add_option("--health-endpoint", health_endpoint);
   app.add_option("--bind", bind);
@@ -43,11 +43,10 @@ int main(int argc, char **argv) {
   try {
     validate_id(service);
     const bool remote = !bind.empty();
-    if (remote
-            ? (!endpoint.empty() || !port || tls.ca_file.empty() ||
-               tls.certificate_file.empty() || tls.private_key_file.empty())
-            : (endpoint.empty() || port || !tls.ca_file.empty() ||
-               !tls.certificate_file.empty() || !tls.private_key_file.empty()))
+    if (remote ? (!endpoint.empty() || !port || tls.ca_file.empty() ||
+                  tls.certificate_file.empty() || tls.private_key_file.empty())
+               : (endpoint.empty() || port || !tls.ca_file.empty() ||
+                  !tls.certificate_file.empty() || !tls.private_key_file.empty()))
       throw std::invalid_argument("choose local IPC or TCP with mutual TLS");
     const auto instance = unique_process_id();
     std::signal(SIGINT, stop);
@@ -63,7 +62,7 @@ int main(int argc, char **argv) {
       }
     });
     PluginManager plugins;
-    ctp::Feed *feed = nullptr;
+    ctp::Feed* feed = nullptr;
     std::mutex mutex;
     auto snapshot = [&] {
       std::lock_guard lock(mutex);
@@ -89,21 +88,18 @@ int main(int argc, char **argv) {
           if (request.version() != 1 || request.service_id() != service)
             throw std::invalid_argument("market service identity mismatch");
           if (health_only && !request.has_heartbeat())
-            throw std::invalid_argument(
-                "health channel accepts heartbeat only");
+            throw std::invalid_argument("health channel accepts heartbeat only");
           if (request.has_heartbeat()) {
-            auto *h = response.mutable_health();
+            auto* h = response.mutable_health();
             h->set_instance_id(instance);
             h->set_phase(snapshot().phase());
           } else if (request.has_events()) {
             std::lock_guard lock(mutex);
             if (!feed)
-              throw Error(ErrorCode::unavailable,
-                          "market event stream not started");
-            const auto &read = request.events();
-            *response.mutable_events() =
-                protocol::encode_market_events(feed->events_after(
-                    read.stream_id(), read.after_sequence(), read.limit()));
+              throw Error(ErrorCode::unavailable, "market event stream not started");
+            const auto& read = request.events();
+            *response.mutable_events() = protocol::encode_market_events(
+                feed->events_after(read.stream_id(), read.after_sequence(), read.limit()));
           } else if (request.has_watch()) {
             // Coalesced quote snapshots; intermediate ticks are not a
             // historical tick archive.
@@ -119,32 +115,28 @@ int main(int argc, char **argv) {
               if (request.has_connect()) {
                 if (feed && feed->snapshot().phase != "disconnected" &&
                     feed->snapshot().phase != "error")
-                  throw Error(ErrorCode::conflict,
-                              "disconnect current market session first");
+                  throw Error(ErrorCode::conflict, "disconnect current market session first");
                 if (!feed) {
                   auto plugin = std::make_unique<ctp::Feed>(
-                      std::filesystem::path(
-                          std::u8string(sdk.begin(), sdk.end())),
-                      std::filesystem::path(
-                          std::u8string(directory.begin(), directory.end())) /
+                      std::filesystem::path(std::u8string(sdk.begin(), sdk.end())),
+                      std::filesystem::path(std::u8string(directory.begin(), directory.end())) /
                           "ctp-flow");
                   feed = plugin.get();
                   plugins.add(std::move(plugin));
                   plugins.start();
                 }
-                auto *c = request.mutable_connect();
+                auto* c = request.mutable_connect();
                 std::vector<InstrumentId> ids;
-                for (const auto &i : c->instruments())
+                for (const auto& i : c->instruments())
                   ids.push_back({i.venue(), i.symbol()});
-                ctp::Configuration config{c->front(), c->broker(), c->user(),
-                                          c->password()};
+                ctp::Configuration config{c->front(), c->broker(), c->user(), c->password()};
                 c->clear_password();
                 feed->connect(std::move(config), ids);
               } else if (request.has_subscribe()) {
                 if (!feed)
                   throw Error(ErrorCode::conflict, "connect market data first");
                 std::vector<InstrumentId> ids;
-                for (const auto &i : request.subscribe().instruments())
+                for (const auto& i : request.subscribe().instruments())
                   ids.push_back({i.venue(), i.symbol()});
                 feed->subscribe(ids);
               } else if (request.has_disconnect()) {
@@ -155,18 +147,17 @@ int main(int argc, char **argv) {
             }
             *response.mutable_snapshot() = snapshot();
           }
-        } catch (const Error &e) {
+        } catch (const Error& e) {
           response.mutable_error()->set_code(std::string(error_name(e.code())));
           response.mutable_error()->set_message(e.what());
-        } catch (const std::exception &) {
+        } catch (const std::exception&) {
           response.mutable_error()->set_code("invalid_request");
           response.mutable_error()->set_message(
               "Market request rejected; check configuration and SDK "
               "availability");
         }
         channel.send(response.SerializeAsString(), 2s);
-      } catch (const std::exception
-                   &) { /* Bounded peer failure never stops the managed feed. */
+      } catch (const std::exception&) { /* Bounded peer failure never stops the managed feed. */
       }
     };
     std::unique_ptr<ipc::Listener> health;
@@ -176,7 +167,7 @@ int main(int argc, char **argv) {
       while (health && !token.stop_requested() && !stopping) {
         try {
           serve(health->accept(200ms), token, true);
-        } catch (const Error &) {
+        } catch (const Error&) {
         }
       }
     });
@@ -186,23 +177,22 @@ int main(int argc, char **argv) {
     };
     std::vector<Worker> workers;
     auto launch = [&](auto channel) {
-      std::erase_if(workers, [](const Worker &w) { return w.done->load(); });
+      std::erase_if(workers, [](const Worker& w) { return w.done->load(); });
       if (workers.size() >= 16)
         return;
       auto done = std::make_shared<std::atomic<bool>>(false);
-      workers.push_back(
-          {done, std::jthread([&, done, channel = std::move(channel)](
-                                  std::stop_token token) mutable {
-             serve(std::move(channel), token, false);
-             done->store(true);
-           })});
+      workers.push_back({done, std::jthread([&, done, channel = std::move(channel)](
+                                                std::stop_token token) mutable {
+                           serve(std::move(channel), token, false);
+                           done->store(true);
+                         })});
     };
     if (remote) {
       ipc::TlsListener listener(bind, port, tls);
       while (!stopping) {
         try {
           launch(listener.accept(2s, 200ms));
-        } catch (const Error &) {
+        } catch (const Error&) {
         }
       }
     } else {
@@ -210,15 +200,15 @@ int main(int argc, char **argv) {
       while (!stopping) {
         try {
           launch(listener.accept(200ms));
-        } catch (const Error &) {
+        } catch (const Error&) {
         }
       }
     }
-    for (auto &worker : workers)
+    for (auto& worker : workers)
       worker.thread.request_stop();
-    for (auto &worker : workers)
+    for (auto& worker : workers)
       worker.thread.join();
-  } catch (const std::exception &e) {
+  } catch (const std::exception& e) {
     std::cerr << e.what() << '\n';
     return 1;
   }

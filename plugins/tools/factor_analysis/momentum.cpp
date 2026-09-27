@@ -11,10 +11,9 @@ select_momentum_lookback(std::span<const MomentumCandidateScore> candidates) {
   unsigned previous = 0;
   std::optional<unsigned> selected;
   double best = -1;
-  for (const auto &candidate : candidates) {
+  for (const auto& candidate : candidates) {
     if (candidate.lookback <= previous || candidate.lookback > 10000)
-      throw std::invalid_argument(
-          "momentum windows must be ascending and unique");
+      throw std::invalid_argument("momentum windows must be ascending and unique");
     previous = candidate.lookback;
     if (!candidate.development_spearman)
       continue;
@@ -36,8 +35,7 @@ double price_return(Decimal from, Decimal to) {
   return static_cast<double>(static_cast<long double>(to.raw() - from.raw()) /
                              static_cast<long double>(from.raw()));
 }
-std::optional<double> correlation(std::span<const double> x,
-                                  std::span<const double> y) {
+std::optional<double> correlation(std::span<const double> x, std::span<const double> y) {
   if (x.size() != y.size() || x.size() < 2)
     throw std::invalid_argument("correlation requires equally sized series "
                                 "with at least two observations");
@@ -76,15 +74,13 @@ std::vector<double> ranks(std::span<const double> values) {
   for (auto value : values)
     if (!std::isfinite(value))
       throw std::invalid_argument("non-finite observation");
-  std::sort(order.begin(), order.end(),
-            [&](auto a, auto b) { return values[a] < values[b]; });
+  std::sort(order.begin(), order.end(), [&](auto a, auto b) { return values[a] < values[b]; });
   std::vector<double> result(values.size());
   for (std::size_t begin = 0; begin < order.size();) {
     auto end = begin + 1;
     while (end < order.size() && values[order[end]] == values[order[begin]])
       ++end;
-    const auto rank =
-        (static_cast<double>(begin) + static_cast<double>(end - 1)) / 2 + 1;
+    const auto rank = (static_cast<double>(begin) + static_cast<double>(end - 1)) / 2 + 1;
     for (auto i = begin; i < end; ++i)
       result[order[i]] = rank;
     begin = end;
@@ -92,8 +88,7 @@ std::vector<double> ranks(std::span<const double> values) {
   return result;
 }
 } // namespace
-std::optional<double> rank_correlation(std::span<const double> x,
-                                       std::span<const double> y) {
+std::optional<double> rank_correlation(std::span<const double> x, std::span<const double> y) {
   return correlation(ranks(x), ranks(y));
 }
 MomentumFactor::MomentumFactor(Instrument instrument, std::size_t lookback)
@@ -103,10 +98,7 @@ MomentumFactor::MomentumFactor(Instrument instrument, std::size_t lookback)
     throw std::invalid_argument("lookback must be 1..10000 events");
 }
 PluginDescriptor MomentumFactor::descriptor() const {
-  return {"asterion.tool.factor.momentum",
-          PluginKind::tool,
-          plugin_contract_version,
-          {}};
+  return {"asterion.tool.factor.momentum", PluginKind::tool, plugin_contract_version, {}};
 }
 void MomentumFactor::start() {
   if (running_)
@@ -115,17 +107,18 @@ void MomentumFactor::start() {
   last_time_ = -1;
   running_ = true;
 }
-void MomentumFactor::stop() noexcept { running_ = false; }
-std::optional<double> MomentumFactor::on_tick(const TradeTick &tick) {
+void MomentumFactor::stop() noexcept {
+  running_ = false;
+}
+std::optional<double> MomentumFactor::on_tick(const TradeTick& tick) {
   if (!running_)
     throw std::logic_error("factor is stopped");
   tick.validate(instrument_);
   if (tick.price <= Decimal{} || tick.timestamp_ns < last_time_)
     throw std::invalid_argument("invalid factor price or event order");
-  const auto result =
-      history_.size() == lookback_
-          ? std::optional<double>(price_return(history_.front(), tick.price))
-          : std::nullopt;
+  const auto result = history_.size() == lookback_
+                          ? std::optional<double>(price_return(history_.front(), tick.price))
+                          : std::nullopt;
   history_.push_back(tick.price);
   if (history_.size() > lookback_)
     history_.pop_front();

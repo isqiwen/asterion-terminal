@@ -6,9 +6,8 @@
 #include <asterion/protocol/strategy.hpp>
 namespace asterion::strategy {
 namespace {
-Instrument instrument(const protocol::v1::Contract &c) {
-  if (!c.has_price_increment() || !c.has_quantity_increment() ||
-      !c.has_multiplier())
+Instrument instrument(const protocol::v1::Contract& c) {
+  if (!c.has_price_increment() || !c.has_quantity_increment() || !c.has_multiplier())
     throw std::invalid_argument("incomplete strategy contract");
   Instrument value{{c.venue(), c.symbol()},
                    AssetClass::futures,
@@ -19,17 +18,15 @@ Instrument instrument(const protocol::v1::Contract &c) {
   FuturesContract{value, c.product(), c.delivery_month()}.validate();
   return value;
 }
-Json config_json(const v1::Config &config) {
+Json config_json(const v1::Config& config) {
   protocol::validate_message(config);
   validate_id(config.session_id());
   validate_id(config.stream_id());
-  if (config.version() != 1 || !config.has_contract() ||
-      !config.has_quantity() ||
+  if (config.version() != 1 || !config.has_contract() || !config.has_quantity() ||
       config.plugin_id() != "asterion.strategy.cta.sma-long-flat")
     throw std::invalid_argument("unsupported strategy configuration");
   // Plugin owns the algorithm's parameter and lot-size constraints.
-  MovingAverage validation(instrument(config.contract()), config.fast(),
-                           config.slow(),
+  MovingAverage validation(instrument(config.contract()), config.fast(), config.slow(),
                            Decimal::from_raw(config.quantity().units()));
   Json result = {{"version", 1},
                  {"session_id", config.session_id()},
@@ -47,18 +44,18 @@ Json config_json(const v1::Config &config) {
   }
   return result;
 }
-v1::Config parse_config(const Json &j) {
+v1::Config parse_config(const Json& j) {
   if (j.contains("replay"))
-    require_fields(j, {"version", "session_id", "stream_id", "contract",
-                       "plugin_id", "fast", "slow", "quantity", "replay"});
+    require_fields(j, {"version", "session_id", "stream_id", "contract", "plugin_id", "fast",
+                       "slow", "quantity", "replay"});
   else
-    require_fields(j, {"version", "session_id", "stream_id", "contract",
-                       "plugin_id", "fast", "slow", "quantity"});
-  for (const auto *field : {"version", "fast", "slow", "quantity"})
+    require_fields(j, {"version", "session_id", "stream_id", "contract", "plugin_id", "fast",
+                       "slow", "quantity"});
+  for (const auto* field : {"version", "fast", "slow", "quantity"})
     if (!j.at(field).is_number_integer())
       throw std::invalid_argument("invalid strategy configuration number");
-  if (j.at("version") != 1 || j.at("fast") < 1 || j.at("fast") > 10000 ||
-      j.at("slow") < 2 || j.at("slow") > 10000)
+  if (j.at("version") != 1 || j.at("fast") < 1 || j.at("fast") > 10000 || j.at("slow") < 2 ||
+      j.at("slow") > 10000)
     throw std::invalid_argument("invalid strategy configuration range");
   v1::Config c;
   c.set_version(1);
@@ -76,21 +73,19 @@ v1::Config parse_config(const Json &j) {
     throw std::invalid_argument("noncanonical strategy configuration");
   return c;
 }
-Json event_json(const v1::Event &event) {
+Json event_json(const v1::Event& event) {
   protocol::validate_message(event);
-  if (!event.has_tick() || !event.tick().has_price() ||
-      !event.tick().has_quantity() || !event.sequence() ||
-      event.sequence() > 10000)
-    throw std::invalid_argument(
-        "strategy event requires a tick and sequence in 1..10000");
+  if (!event.has_tick() || !event.tick().has_price() || !event.tick().has_quantity() ||
+      !event.sequence() || event.sequence() > 10000)
+    throw std::invalid_argument("strategy event requires a tick and sequence in 1..10000");
   return {{"stream_id", event.stream_id()},
           {"sequence", event.sequence()},
           {"tick", protocol::decode_tick(event.tick())}};
 }
-Json receipt_json(const v1::Receipt &receipt) {
+Json receipt_json(const v1::Receipt& receipt) {
   Json result{{"sequence", receipt.sequence()}, {"intent", nullptr}};
   if (receipt.has_intent()) {
-    const auto &i = receipt.intent();
+    const auto& i = receipt.intent();
     result["intent"] = {{"id", i.id()},
                         {"sequence", i.sequence()},
                         {"timestamp_ns", i.timestamp_ns()},
@@ -107,19 +102,17 @@ struct Session::Impl {
   std::vector<Json> events;
   std::vector<v1::Receipt> receipts;
   bool poisoned = false;
-  explicit Impl(const std::filesystem::path &directory) : journal(directory) {}
-  std::pair<std::unique_ptr<MovingAverage>, v1::Receipt>
-  prepare(const v1::Event &event) {
+  explicit Impl(const std::filesystem::path& directory) : journal(directory) {}
+  std::pair<std::unique_ptr<MovingAverage>, v1::Receipt> prepare(const v1::Event& event) {
     auto candidate = std::make_unique<MovingAverage>(*plugin);
-    const auto &tick = event.tick();
-    const auto target = candidate->on_tick(
-        {instrument(config.contract()).id, tick.timestamp_ns(),
-         Decimal::from_raw(tick.price().units()),
-         Decimal::from_raw(tick.quantity().units())});
+    const auto& tick = event.tick();
+    const auto target = candidate->on_tick({instrument(config.contract()).id, tick.timestamp_ns(),
+                                            Decimal::from_raw(tick.price().units()),
+                                            Decimal::from_raw(tick.quantity().units())});
     v1::Receipt receipt;
     receipt.set_sequence(event.sequence());
     if (target) {
-      auto *intent = receipt.mutable_intent();
+      auto* intent = receipt.mutable_intent();
       intent->set_sequence(event.sequence());
       intent->set_timestamp_ns(tick.timestamp_ns());
       intent->mutable_target_quantity()->set_units(target->raw());
@@ -132,8 +125,8 @@ struct Session::Impl {
     return {std::move(candidate), std::move(receipt)};
   }
 };
-Session::Session(const std::filesystem::path &directory,
-                 const std::string &session_id, const v1::Config *create)
+Session::Session(const std::filesystem::path& directory, const std::string& session_id,
+                 const v1::Config* create)
     : impl_(std::make_unique<Impl>(directory)) {
   validate_id(session_id);
   if (!directory.is_absolute() || !std::filesystem::is_directory(directory) ||
@@ -152,14 +145,12 @@ Session::Session(const std::filesystem::path &directory,
   if (records.empty()) {
     if (!create)
       throw std::invalid_argument("strategy session is not initialized");
-    impl_->journal.append({{"version", 1},
-                           {"type", "strategy.config"},
-                           {"config", config_json(*create)}});
+    impl_->journal.append(
+        {{"version", 1}, {"type", "strategy.config"}, {"config", config_json(*create)}});
     records = impl_->journal.read();
   }
   require_fields(records.front(), {"version", "type", "config"});
-  if (!records.front().at("version").is_number_integer() ||
-      records.front().at("version") != 1 ||
+  if (!records.front().at("version").is_number_integer() || records.front().at("version") != 1 ||
       records.front().at("type") != "strategy.config" || records.size() > 10001)
     throw std::invalid_argument("unsupported strategy journal");
   impl_->config = parse_config(records.front().at("config"));
@@ -169,27 +160,24 @@ Session::Session(const std::filesystem::path &directory,
     verify_config(*create);
   impl_->intent_scope = config_json(impl_->config);
   if (impl_->config.has_replay())
-    impl_->intent_scope = {
-        {"configuration_sha256", sha256_bytes(impl_->intent_scope.dump())}};
+    impl_->intent_scope = {{"configuration_sha256", sha256_bytes(impl_->intent_scope.dump())}};
   impl_->plugin = std::make_unique<MovingAverage>(
-      instrument(impl_->config.contract()), impl_->config.fast(),
-      impl_->config.slow(),
+      instrument(impl_->config.contract()), impl_->config.fast(), impl_->config.slow(),
       Decimal::from_raw(impl_->config.quantity().units()));
   impl_->plugin->start();
   impl_->events.reserve(10000);
   impl_->receipts.reserve(10000);
   for (std::size_t index = 1; index < records.size(); ++index) {
-    const auto &r = records[index];
+    const auto& r = records[index];
     require_fields(r, {"version", "type", "event", "receipt"});
     if (!r.at("version").is_number_integer() || r.at("version") != 1 ||
         r.at("type") != "strategy.event")
       throw std::invalid_argument("unsupported strategy event record");
-    const auto &j = r.at("event");
+    const auto& j = r.at("event");
     require_fields(j, {"stream_id", "sequence", "tick"});
     if (!j.at("sequence").is_number_integer() || j.at("sequence") != index ||
         j.at("stream_id") != impl_->config.stream_id())
-      throw std::invalid_argument(
-          "strategy journal stream or sequence mismatch");
+      throw std::invalid_argument("strategy journal stream or sequence mismatch");
     v1::Event event;
     event.set_stream_id(impl_->config.stream_id());
     event.set_sequence(index);
@@ -205,19 +193,22 @@ Session::Session(const std::filesystem::path &directory,
   }
 }
 Session::~Session() = default;
-const v1::Config &Session::config() const noexcept { return impl_->config; }
+const v1::Config& Session::config() const noexcept {
+  return impl_->config;
+}
 std::uint64_t Session::processed() const noexcept {
   return impl_->events.size();
 }
-bool Session::recovery_required() const noexcept { return impl_->poisoned; }
-void Session::verify_config(const v1::Config &config) const {
+bool Session::recovery_required() const noexcept {
+  return impl_->poisoned;
+}
+void Session::verify_config(const v1::Config& config) const {
   if (config_json(config) != config_json(impl_->config))
     throw std::invalid_argument("strategy configuration conflict");
 }
-v1::Receipt Session::apply(const v1::Event &event) {
+v1::Receipt Session::apply(const v1::Event& event) {
   if (impl_->poisoned)
-    throw std::runtime_error(
-        "strategy journal requires inspection and recovery");
+    throw std::runtime_error("strategy journal requires inspection and recovery");
   const auto payload = event_json(event);
   if (event.stream_id() != impl_->config.stream_id())
     throw std::invalid_argument("strategy stream mismatch");

@@ -8,8 +8,7 @@ namespace asterion {
 // Market observations are not authoritative account ledger entries.
 struct MarketQuote {
   InstrumentId instrument;
-  std::optional<Decimal> last, bid, ask, previous_settlement, high, low,
-      open_interest;
+  std::optional<Decimal> last, bid, ask, previous_settlement, high, low, open_interest;
   std::int64_t bid_quantity = 0, ask_quantity = 0, volume = 0;
   std::string action_day, trading_day, update_time;
   std::int64_t source_ms = 0, received_ms = 0;
@@ -51,12 +50,11 @@ struct MarketEventBatch {
 class LiveMarketDataPort : public Plugin {
 public:
   virtual ~LiveMarketDataPort() = default;
-  virtual void subscribe(const std::vector<InstrumentId> &instruments) = 0;
+  virtual void subscribe(const std::vector<InstrumentId>& instruments) = 0;
   virtual LiveMarketSnapshot snapshot() const = 0;
   // Non-destructive bounded reads. Only the initial cursor (0) may omit stream
   // identity. Consumers advance their cursor only after committing the batch.
-  virtual MarketEventBatch events_after(const std::string &stream_id,
-                                        std::uint64_t cursor,
+  virtual MarketEventBatch events_after(const std::string& stream_id, std::uint64_t cursor,
                                         std::size_t limit) const = 0;
   virtual void disconnect() = 0;
 };

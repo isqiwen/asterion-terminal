@@ -22,7 +22,7 @@ struct ResearchClient::Impl {
       try {
         refresh();
         break;
-      } catch (const Error &) {
+      } catch (const Error&) {
         if (std::chrono::steady_clock::now() > deadline)
           throw;
         std::this_thread::sleep_for(50ms);
@@ -38,7 +38,7 @@ struct ResearchClient::Impl {
         try {
           std::lock_guard lock(commands);
           refresh();
-        } catch (const std::exception &e) {
+        } catch (const std::exception& e) {
           std::lock_guard lock(mutex);
           online = false;
           error = e.what();
@@ -62,8 +62,7 @@ struct ResearchClient::Impl {
     };
     const auto raw =
         endpoint.endpoint.empty()
-            ? exchange(ipc::TlsChannel::connect(endpoint.host, endpoint.port,
-                                                endpoint.tls, 5s))
+            ? exchange(ipc::TlsChannel::connect(endpoint.host, endpoint.port, endpoint.tls, 5s))
             : exchange(ipc::Channel::connect(endpoint.endpoint, 5s));
     wire::TaskResponse response;
     if (!response.ParseFromString(raw))
@@ -71,13 +70,13 @@ struct ResearchClient::Impl {
     protocol::validate_message(response);
     if (response.version() != 1 || response.service_id() != endpoint.session ||
         response.correlation_id() != request.correlation_id())
-      throw Error(ErrorCode::unavailable,
-                  "research response identity mismatch");
+      throw Error(ErrorCode::unavailable, "research response identity mismatch");
     if (response.has_error())
       throw std::invalid_argument(response.error().message());
     if (request.has_list() ? !response.has_tasks()
         : request.has_result()
-            ? (!response.has_backtest() && !response.has_factor() && !response.has_publication() && !response.has_calendar_publication())
+            ? (!response.has_backtest() && !response.has_factor() && !response.has_publication() &&
+               !response.has_calendar_publication())
             : !response.has_task())
       throw Error(ErrorCode::unavailable, "unexpected research response");
     return response;
@@ -87,7 +86,7 @@ struct ResearchClient::Impl {
     request.mutable_list();
     const auto response = call(request);
     Json values = Json::array();
-    for (const auto &task : response.tasks().tasks())
+    for (const auto& task : response.tasks().tasks())
       values.push_back(protocol::decode_task(task));
     std::lock_guard lock(mutex);
     tasks = std::move(values);
@@ -101,15 +100,13 @@ ResearchClient::~ResearchClient() = default;
 Json ResearchClient::status() const {
   std::lock_guard lock(impl_->mutex);
   return {{"service", impl_->endpoint.session},
-          {"host", impl_->endpoint.endpoint.empty() ? impl_->endpoint.host
-                                                    : "localhost"},
+          {"host", impl_->endpoint.endpoint.empty() ? impl_->endpoint.host : "localhost"},
           {"remote", impl_->endpoint.endpoint.empty()},
           {"online", impl_->online},
           {"error", impl_->error},
           {"tasks", impl_->tasks}};
 }
-void ResearchClient::submit(const std::string &id,
-                            const wire::BacktestInput &input) {
+void ResearchClient::submit(const std::string& id, const wire::BacktestInput& input) {
   std::lock_guard lock(impl_->commands);
   wire::TaskRequest request;
   request.mutable_submit()->set_id(id);
@@ -117,8 +114,7 @@ void ResearchClient::submit(const std::string &id,
   impl_->call(request);
   impl_->refresh();
 }
-void ResearchClient::submit(const std::string &id,
-                            const wire::FactorInput &input) {
+void ResearchClient::submit(const std::string& id, const wire::FactorInput& input) {
   std::lock_guard lock(impl_->commands);
   wire::TaskRequest request;
   request.mutable_submit()->set_id(id);
@@ -126,18 +122,23 @@ void ResearchClient::submit(const std::string &id,
   impl_->call(request);
   impl_->refresh();
 }
-void ResearchClient::submit(const std::string &id, const data::v1::CsvSnapshot &input) {
+void ResearchClient::submit(const std::string& id, const data::v1::CsvSnapshot& input) {
   std::lock_guard lock(impl_->commands);
-  wire::TaskRequest request; request.mutable_submit()->set_id(id);
+  wire::TaskRequest request;
+  request.mutable_submit()->set_id(id);
   *request.mutable_submit()->mutable_data() = input;
-  impl_->call(request); impl_->refresh();
+  impl_->call(request);
+  impl_->refresh();
 }
-void ResearchClient::submit(const std::string &id,const data::v1::CalendarCsvSnapshot &input) {
+void ResearchClient::submit(const std::string& id, const data::v1::CalendarCsvSnapshot& input) {
   std::lock_guard lock(impl_->commands);
-  research::v1::TaskRequest request;request.mutable_submit()->set_id(id);*request.mutable_submit()->mutable_calendar()=input;
-  impl_->call(request);impl_->refresh();
+  research::v1::TaskRequest request;
+  request.mutable_submit()->set_id(id);
+  *request.mutable_submit()->mutable_calendar() = input;
+  impl_->call(request);
+  impl_->refresh();
 }
-void ResearchClient::action(const std::string &id, const std::string &action) {
+void ResearchClient::action(const std::string& id, const std::string& action) {
   std::lock_guard lock(impl_->commands);
   wire::TaskRequest request;
   if (action == "cancel")
@@ -149,7 +150,7 @@ void ResearchClient::action(const std::string &id, const std::string &action) {
   impl_->call(request);
   impl_->refresh();
 }
-Json ResearchClient::result(const std::string &id) {
+Json ResearchClient::result(const std::string& id) {
   std::lock_guard lock(impl_->commands);
   wire::TaskRequest request;
   request.mutable_result()->set_id(id);

@@ -11,17 +11,15 @@ void cancelled(std::stop_token stop) {
   if (stop.stop_requested())
     throw std::runtime_error("data import cancelled");
 }
-void directory_check(const fs::path &directory) {
-  if (!directory.is_absolute() || !fs::is_directory(directory) ||
-      fs::is_symlink(directory))
+void directory_check(const fs::path& directory) {
+  if (!directory.is_absolute() || !fs::is_directory(directory) || fs::is_symlink(directory))
     throw std::invalid_argument(
         "publication requires an existing absolute directory without symlinks");
-  if (fs::exists(directory / "pending.tmp") ||
-      fs::is_symlink(directory / "pending.tmp"))
+  if (fs::exists(directory / "pending.tmp") || fs::is_symlink(directory / "pending.tmp"))
     throw std::invalid_argument(
         "incomplete publication write; preserve the directory for inspection");
 }
-data::v1::DatasetPublication record(const Json &value) {
+data::v1::DatasetPublication record(const Json& value) {
   require_fields(value, {"version", "type", "publication"});
   if (!value.at("version").is_number_integer() || value.at("version") != 1 ||
       value.at("type") != "dataset.published")
@@ -29,19 +27,15 @@ data::v1::DatasetPublication record(const Json &value) {
   return protocol::encode_publication(value.at("publication"));
 }
 } // namespace
-data::v1::CsvSnapshot capture_csv(const data::v1::CsvImport &input,
-                                  std::stop_token stop) {
+data::v1::CsvSnapshot capture_csv(const data::v1::CsvImport& input, std::stop_token stop) {
   cancelled(stop);
   protocol::validate_message(input);
-  if (input.version() != 1 || !input.has_contract() ||
-      input.source_sha256().size() != 64 ||
-      input.source_sha256().find_first_not_of("0123456789abcdef") !=
-          std::string::npos)
+  if (input.version() != 1 || !input.has_contract() || input.source_sha256().size() != 64 ||
+      input.source_sha256().find_first_not_of("0123456789abcdef") != std::string::npos)
     throw std::invalid_argument(
         "CSV import requires version, contract and expected source SHA-256");
-  const auto &c = input.contract();
-  if (!c.has_price_increment() || !c.has_quantity_increment() ||
-      !c.has_multiplier())
+  const auto& c = input.contract();
+  if (!c.has_price_increment() || !c.has_quantity_increment() || !c.has_multiplier())
     throw std::invalid_argument("incomplete import contract");
   Instrument instrument{{c.venue(), c.symbol()},
                         AssetClass::futures,
@@ -50,15 +44,14 @@ data::v1::CsvSnapshot capture_csv(const data::v1::CsvImport &input,
                         Decimal::from_raw(c.quantity_increment().units()),
                         Decimal::from_raw(c.multiplier().units())};
   FuturesContract{instrument, c.product(), c.delivery_month()}.validate();
-  const auto &name = input.source_path();
+  const auto& name = input.source_path();
   if (name.find('\0') != std::string::npos)
     throw std::invalid_argument("invalid CSV path");
   const fs::path path(std::u8string(name.begin(), name.end()));
   constexpr std::size_t limit = 32 * 1024 * 1024;
-  if (!path.is_absolute() || fs::is_symlink(path) ||
-      !fs::is_regular_file(path) || fs::file_size(path) > limit)
-    throw std::invalid_argument(
-        "CSV source must be an absolute regular file of at most 32 MiB");
+  if (!path.is_absolute() || fs::is_symlink(path) || !fs::is_regular_file(path) ||
+      fs::file_size(path) > limit)
+    throw std::invalid_argument("CSV source must be an absolute regular file of at most 32 MiB");
   std::ifstream file(path, std::ios::binary);
   if (!file)
     throw std::runtime_error("cannot read CSV source");
@@ -66,8 +59,7 @@ data::v1::CsvSnapshot capture_csv(const data::v1::CsvImport &input,
   file.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
   const auto size = static_cast<std::size_t>(file.gcount());
   if (file.bad() || !file.eof() || size > limit)
-    throw std::runtime_error(
-        "CSV source exceeds limit or cannot be read completely");
+    throw std::runtime_error("CSV source exceeds limit or cannot be read completely");
   bytes.resize(size);
   const auto hash = sha256_bytes(bytes);
   if (hash != input.source_sha256())
@@ -83,19 +75,18 @@ data::v1::CsvSnapshot capture_csv(const data::v1::CsvImport &input,
   static_cast<void>(protocol::decode_csv_snapshot(snapshot));
   return snapshot;
 }
-data::v1::DatasetPublication import_csv(const data::v1::CsvImport &input,
-                                        std::stop_token stop) {
+data::v1::DatasetPublication import_csv(const data::v1::CsvImport& input, std::stop_token stop) {
   return import_snapshot(capture_csv(input, stop), stop);
 }
 data::v1::DatasetPublication
-import_snapshot(const data::v1::CsvSnapshot &input, std::stop_token stop,
-                const std::function<void(std::size_t, std::size_t)> &progress) {
+import_snapshot(const data::v1::CsvSnapshot& input, std::stop_token stop,
+                const std::function<void(std::size_t, std::size_t)>& progress) {
   cancelled(stop);
   static_cast<void>(protocol::decode_csv_snapshot(input));
   const auto total = input.contents().size();
   if (progress)
     progress(0, total);
-  const auto &c = input.contract();
+  const auto& c = input.contract();
   Instrument instrument{{c.venue(), c.symbol()},
                         AssetClass::futures,
                         c.currency(),
@@ -110,7 +101,7 @@ import_snapshot(const data::v1::CsvSnapshot &input, std::stop_token stop,
     if (ticks.size() >= 10000)
       throw std::invalid_argument("publication currently supports at most "
                                   "10000 events; no rows were dropped");
-    auto *target = ticks.Add();
+    auto* target = ticks.Add();
     target->set_timestamp_ns(tick->timestamp_ns);
     target->mutable_price()->set_units(tick->price.raw());
     target->mutable_quantity()->set_units(tick->quantity.raw());
@@ -132,43 +123,34 @@ import_snapshot(const data::v1::CsvSnapshot &input, std::stop_token stop,
   cancelled(stop);
   return result;
 }
-void verify_result(const data::v1::CsvSnapshot &input,
-                   const data::v1::DatasetPublication &result) {
-  if (protocol::decode_publication(result) !=
-      protocol::decode_publication(import_snapshot(input)))
-    throw std::invalid_argument(
-        "publication does not match immutable CSV input");
+void verify_result(const data::v1::CsvSnapshot& input, const data::v1::DatasetPublication& result) {
+  if (protocol::decode_publication(result) != protocol::decode_publication(import_snapshot(input)))
+    throw std::invalid_argument("publication does not match immutable CSV input");
 }
-bool publish(const data::v1::DatasetPublication &publication,
-             const fs::path &directory) {
+bool publish(const data::v1::DatasetPublication& publication, const fs::path& directory) {
   const auto payload = protocol::decode_publication(publication);
   directory_check(directory);
   FileJournal journal(directory);
   journal.start();
   const auto records = journal.read();
   if (!records.empty()) {
-    if (records.size() != 1 ||
-        protocol::decode_publication(record(records.front())) != payload)
-      throw std::invalid_argument(
-          "publication directory already contains different data");
+    if (records.size() != 1 || protocol::decode_publication(record(records.front())) != payload)
+      throw std::invalid_argument("publication directory already contains different data");
     return false;
   }
-  journal.append({{"version", 1},
-                  {"type", "dataset.published"},
-                  {"publication", payload}});
+  journal.append({{"version", 1}, {"type", "dataset.published"}, {"publication", payload}});
   return true;
 }
-data::v1::DatasetPublication read(const fs::path &directory) {
+data::v1::DatasetPublication read(const fs::path& directory) {
   directory_check(directory);
   FileJournal journal(directory);
   journal.start();
   const auto records = journal.read();
   if (records.size() != 1)
-    throw std::invalid_argument(
-        "directory has no single committed publication");
+    throw std::invalid_argument("directory has no single committed publication");
   return record(records.front());
 }
-Json summary(const data::v1::DatasetPublication &p) {
+Json summary(const data::v1::DatasetPublication& p) {
   static_cast<void>(protocol::decode_publication(p));
   return {{"id", p.id()},
           {"revision", p.dataset().revision()},
@@ -176,9 +158,7 @@ Json summary(const data::v1::DatasetPublication &p) {
           {"source_name", p.source_name()},
           {"source_sha256", p.source_sha256()},
           {"source_bytes", p.source_bytes()},
-          {"first_timestamp_ns",
-           std::to_string(p.dataset().ticks(0).timestamp_ns())},
-          {"last_timestamp_ns",
-           std::to_string(p.dataset().ticks().rbegin()->timestamp_ns())}};
+          {"first_timestamp_ns", std::to_string(p.dataset().ticks(0).timestamp_ns())},
+          {"last_timestamp_ns", std::to_string(p.dataset().ticks().rbegin()->timestamp_ns())}};
 }
 } // namespace asterion::data_pipeline

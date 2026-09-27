@@ -2,10 +2,11 @@
 #include <gtest/gtest.h>
 using namespace asterion;
 namespace {
-Decimal d(const char *text) { return Decimal::parse(text); }
+Decimal d(const char* text) {
+  return Decimal::parse(text);
+}
 Instrument instrument() {
-  return {
-      {"SHFE", "rb2610"}, AssetClass::futures, "CNY", d("1"), d("1"), d("10")};
+  return {{"SHFE", "rb2610"}, AssetClass::futures, "CNY", d("1"), d("1"), d("10")};
 }
 } // namespace
 TEST(OrderLimits, lifecycle_and_exact_bounds) {
@@ -16,8 +17,7 @@ TEST(OrderLimits, lifecycle_and_exact_bounds) {
   EXPECT_EQ(risk.descriptor().kind, PluginKind::risk);
   EXPECT_EQ(risk.evaluate(context).reason, RiskReason::unavailable);
   risk.start();
-  EXPECT_TRUE(
-      risk.evaluate(context).allowed()); // Exactly 10 total and 2 working.
+  EXPECT_TRUE(risk.evaluate(context).allowed()); // Exactly 10 total and 2 working.
   context.pending_open_quantity = d("5");
   EXPECT_EQ(risk.evaluate(context).reason, RiskReason::gross_quantity);
   context.pending_open_quantity = d("4");
@@ -39,8 +39,7 @@ TEST(OrderLimits, gross_risk_does_not_net_sides_or_credit_pending_closes) {
   context.offset = Offset::close_today;
   EXPECT_TRUE(risk.evaluate(context).allowed());
   context.gross_position_quantity = d("20");
-  EXPECT_TRUE(
-      risk.evaluate(context).allowed()); // Permit reducing over-limit risk.
+  EXPECT_TRUE(risk.evaluate(context).allowed()); // Permit reducing over-limit risk.
   context.offset = Offset::open;
   EXPECT_EQ(risk.evaluate(context).reason, RiskReason::gross_quantity);
 }
@@ -74,8 +73,7 @@ TEST(OrderLimits, exposure_check_does_not_overflow_before_rejecting) {
   EXPECT_EQ(risk.evaluate(context).reason, RiskReason::gross_quantity);
 }
 
-TEST(OrderLimits,
-     derives_exposure_from_real_ledger_through_partial_fill_and_cancel) {
+TEST(OrderLimits, derives_exposure_from_real_ledger_through_partial_fill_and_cancel) {
   auto spec = instrument();
   FuturesAccount account(spec, d("10000"), {d("100"), d("0"), d("0"), d("0")});
   account.mark(d("100"));
@@ -86,25 +84,21 @@ TEST(OrderLimits,
   account.submit(first, Offset::open);
   LimitOrder next{"next", spec.id, Side::sell, d("2"), d("100")};
   const auto before = account.snapshot();
-  EXPECT_EQ(assess_order(risk, account, next, Offset::open).reason,
-            RiskReason::gross_quantity);
+  EXPECT_EQ(assess_order(risk, account, next, Offset::open).reason, RiskReason::gross_quantity);
   EXPECT_EQ(account.snapshot(), before);
   account.fill({"fill.1", "first", d("2"), d("100")});
   // A partial fill moves pending exposure to positions, without freeing quota.
-  EXPECT_EQ(assess_order(risk, account, next, Offset::open).reason,
-            RiskReason::gross_quantity);
+  EXPECT_EQ(assess_order(risk, account, next, Offset::open).reason, RiskReason::gross_quantity);
   account.cancel("first");
   EXPECT_TRUE(assess_order(risk, account, next, Offset::open).allowed());
   account.submit(next, Offset::open);
   account.fill({"fill.2", "next", d("2"), d("100")});
   // Long 2 + short 2 is gross 4, never net zero.
   LimitOrder third{"third", spec.id, Side::buy, d("2"), d("100")};
-  EXPECT_EQ(assess_order(risk, account, third, Offset::open).reason,
-            RiskReason::gross_quantity);
+  EXPECT_EQ(assess_order(risk, account, third, Offset::open).reason, RiskReason::gross_quantity);
   LimitOrder close{"close", spec.id, Side::sell, d("2"), d("100")};
   account.submit(close, Offset::close_today);
-  EXPECT_EQ(assess_order(risk, account, third, Offset::open).reason,
-            RiskReason::gross_quantity);
+  EXPECT_EQ(assess_order(risk, account, third, Offset::open).reason, RiskReason::gross_quantity);
   account.fill({"fill.3", "close", d("2"), d("100")});
   EXPECT_TRUE(assess_order(risk, account, third, Offset::open).allowed());
 }
@@ -117,8 +111,7 @@ TEST(OrderLimits, configuration_roundtrips_without_defaults_or_rewriting) {
   EXPECT_EQ(decoded.max_gross_quantity, original.max_gross_quantity);
   EXPECT_EQ(decoded.max_working_orders, original.max_working_orders);
   EXPECT_EQ(encode_order_limits(decoded), encoded);
-  for (const auto *key :
-       {"max_order_quantity", "max_gross_quantity", "max_working_orders"}) {
+  for (const auto* key : {"max_order_quantity", "max_gross_quantity", "max_working_orders"}) {
     auto missing = encoded;
     missing.erase(key);
     EXPECT_THROW(decode_order_limits(missing), std::exception);

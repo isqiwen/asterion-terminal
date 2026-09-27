@@ -4,11 +4,12 @@
 namespace asterion::terminal {
 class Application {
 public:
-    Application();
-    ~Application();
-    nlohmann::json dispatch(const nlohmann::json& request);
+  Application();
+  ~Application();
+  nlohmann::json dispatch(const nlohmann::json& request);
+
 private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
 };
-}
+} // namespace asterion::terminal

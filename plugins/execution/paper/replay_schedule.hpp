@@ -10,10 +10,9 @@ public:
     std::size_t day, session;
     bool session_end, day_end;
   };
-  PaperReplaySchedule(const Instrument &, const std::vector<TradeTick> &,
-                      std::vector<SettlementDay>);
-  const Event &event(std::size_t index) const { return events_.at(index); }
-  const SettlementDay &day(std::size_t index) const { return days_.at(index); }
+  PaperReplaySchedule(const Instrument&, const std::vector<TradeTick>&, std::vector<SettlementDay>);
+  const Event& event(std::size_t index) const { return events_.at(index); }
+  const SettlementDay& day(std::size_t index) const { return days_.at(index); }
   std::size_t size() const noexcept { return events_.size(); }
 
 private:

@@ -11,14 +11,10 @@ struct TradingSession {
 // exchange hours, holidays or a night session's date from wall-clock time.
 class TradingDaySchedule final {
 public:
-  TradingDaySchedule(std::string trading_day,
-                     std::vector<TradingSession> sessions);
-  const std::string &trading_day() const noexcept { return day_; }
-  const std::vector<TradingSession> &sessions() const noexcept {
-    return sessions_;
-  }
-  std::optional<std::size_t>
-  session_index(std::int64_t timestamp_ns) const noexcept;
+  TradingDaySchedule(std::string trading_day, std::vector<TradingSession> sessions);
+  const std::string& trading_day() const noexcept { return day_; }
+  const std::vector<TradingSession>& sessions() const noexcept { return sessions_; }
+  std::optional<std::size_t> session_index(std::int64_t timestamp_ns) const noexcept;
 
 private:
   std::string day_;

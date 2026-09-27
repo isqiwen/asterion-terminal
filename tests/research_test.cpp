@@ -7,7 +7,9 @@
 #include <gtest/gtest.h>
 using namespace asterion;
 namespace {
-Decimal d(const char *text) { return Decimal::parse(text); }
+Decimal d(const char* text) {
+  return Decimal::parse(text);
+}
 research::v1::BacktestInput input() {
   const auto manifest = Json{{"version", 1},
                              {"type", "historical_paper"},
@@ -38,17 +40,17 @@ research::v1::BacktestInput input() {
   // fills.
   std::int64_t time = 1790298000000000000LL;
   for (auto price : {100, 101, 102, 101, 100, 101, 103}) {
-    auto *tick = result.mutable_paper()->add_ticks();
+    auto* tick = result.mutable_paper()->add_ticks();
     tick->set_timestamp_ns(time);
     time += 1000000000;
     tick->mutable_price()->set_units(d(std::to_string(price).c_str()).raw());
     tick->mutable_quantity()->set_units(d("1").raw());
   }
-  auto *day = result.add_days();
+  auto* day = result.add_days();
   day->set_schedule_source("test fixture");
   day->set_settlement_source("test settlement");
   day->mutable_settlement_price()->set_units(d("103").raw());
-  auto *session = day->add_sessions();
+  auto* session = day->add_sessions();
   session->set_begin_ns(1790298000000000000LL);
   session->set_end_ns(1790298010000000000LL);
   day->set_trading_day("2026-09-25");
@@ -66,16 +68,14 @@ TEST(Research, HashUsesExactSnapshotAndExcludesExperimentCosts) {
   const auto revision = spec.dataset_revision();
   spec.mutable_paper()->mutable_deposit()->set_units(d("20000").raw());
   EXPECT_EQ(protocol::dataset_revision(spec.paper()), revision);
-  spec.mutable_paper()->mutable_ticks(0)->mutable_price()->set_units(
-      d("99").raw());
+  spec.mutable_paper()->mutable_ticks(0)->mutable_price()->set_units(d("99").raw());
   EXPECT_NE(protocol::dataset_revision(spec.paper()), revision);
   EXPECT_THROW(backtest::validate(spec), std::invalid_argument);
 }
 TEST(Research, DeterministicNextTickExecutionFeesAndDrawdown) {
   const auto spec = input();
   const auto result = backtest::run(spec);
-  EXPECT_EQ(result.SerializeAsString(),
-            backtest::run(spec).SerializeAsString());
+  EXPECT_EQ(result.SerializeAsString(), backtest::run(spec).SerializeAsString());
   ASSERT_EQ(result.account().fills_size(), 2);
   EXPECT_EQ(result.account().fills(0).price().units(), d("101").raw());
   EXPECT_EQ(result.account().fills(1).price().units(), d("101").raw());
@@ -92,8 +92,8 @@ TEST(Research, DeterministicNextTickExecutionFeesAndDrawdown) {
 }
 TEST(Research, RejectsUnsupportedDaysAndStopsCooperatively) {
   auto spec = input();
-  spec.mutable_paper()->mutable_ticks(6)->set_timestamp_ns(
-      spec.paper().ticks(6).timestamp_ns() + 86400LL * 1000000000);
+  spec.mutable_paper()->mutable_ticks(6)->set_timestamp_ns(spec.paper().ticks(6).timestamp_ns() +
+                                                           86400LL * 1000000000);
   spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
   spec = input();
@@ -111,8 +111,7 @@ TEST(Research, RejectsUnsupportedDaysAndStopsCooperatively) {
   EXPECT_EQ(done, 1U);
 }
 TEST(Research, SmaWarmupAndLifecycleUseSamePluginOutsideBacktest) {
-  Instrument instrument{
-      {"SHFE", "rb2610"}, AssetClass::futures, "CNY", d("1"), d("1"), d("10")};
+  Instrument instrument{{"SHFE", "rb2610"}, AssetClass::futures, "CNY", d("1"), d("1"), d("10")};
   MovingAverage strategy(instrument, 1, 3, d("1"));
   TradeTick tick{instrument.id, 100, d("100"), d("1")};
   EXPECT_THROW(strategy.on_tick(tick), std::logic_error);
@@ -133,8 +132,7 @@ TEST(Research, SmaWarmupAndLifecycleUseSamePluginOutsideBacktest) {
 TEST(Research, InputRoundTripRejectsUnknownOrMissingFields) {
   const auto spec = input();
   const auto json = protocol::decode_backtest(spec);
-  EXPECT_EQ(protocol::encode_backtest(json).SerializeAsString(),
-            spec.SerializeAsString());
+  EXPECT_EQ(protocol::encode_backtest(json).SerializeAsString(), spec.SerializeAsString());
   auto bad = json;
   bad["unknown"] = true;
   EXPECT_THROW(protocol::encode_backtest(bad), Error);
@@ -148,8 +146,8 @@ TEST(Research, InputRoundTripRejectsUnknownOrMissingFields) {
 
 namespace {
 struct TaskDirectory {
-  std::filesystem::path path = std::filesystem::temp_directory_path() /
-                               ("asterion-research-" + unique_process_id());
+  std::filesystem::path path =
+      std::filesystem::temp_directory_path() / ("asterion-research-" + unique_process_id());
   TaskDirectory() { std::filesystem::create_directory(path); }
   ~TaskDirectory() {
     std::error_code ignored;
@@ -162,8 +160,7 @@ TEST(ResearchTasks, DuplicateSubmissionAndStaleAttemptsAreFenced) {
   tasks::Store store(directory.path);
   auto spec = input();
   const auto first = store.submit("job1", spec);
-  EXPECT_EQ(store.submit("job1", spec).SerializeAsString(),
-            first.SerializeAsString());
+  EXPECT_EQ(store.submit("job1", spec).SerializeAsString(), first.SerializeAsString());
   spec.mutable_sma()->mutable_quantity()->set_units(d("2").raw());
   EXPECT_THROW(store.submit("job1", spec), std::invalid_argument);
   const auto old = store.claim("job1");
@@ -176,13 +173,11 @@ TEST(ResearchTasks, DuplicateSubmissionAndStaleAttemptsAreFenced) {
   store.retry("job1");
   const auto next = store.claim("job1");
   EXPECT_NE(old, next);
-  EXPECT_THROW(store.finish("job1", old, backtest::run(input())),
-               std::invalid_argument);
+  EXPECT_THROW(store.finish("job1", old, backtest::run(input())), std::invalid_argument);
   store.finish("job1", next, backtest::run(input()));
   EXPECT_EQ(store.get("job1").attempt(), 2U);
   EXPECT_EQ(store.get("job1").state(), research::v1::SUCCEEDED);
-  EXPECT_EQ(store.result("job1").SerializeAsString(),
-            backtest::run(input()).SerializeAsString());
+  EXPECT_EQ(store.result("job1").SerializeAsString(), backtest::run(input()).SerializeAsString());
   EXPECT_THROW(store.retry("job1"), std::invalid_argument);
 }
 TEST(ResearchTasks, RestartRetainsQueueAndResultsButInterruptsUnconfirmedWork) {
@@ -219,9 +214,7 @@ TEST(ResearchTasks, ModifiedResultNeverLoadsAsSuccess) {
     store.finish("done", store.claim("done"), backtest::run(input()));
   }
   {
-    std::ofstream file(directory.path / "done" / "results" / "1" /
-                           "00000000.json",
-                       std::ios::app);
+    std::ofstream file(directory.path / "done" / "results" / "1" / "00000000.json", std::ios::app);
     file << " ";
   }
   EXPECT_THROW(tasks::Store corrupted(directory.path), std::invalid_argument);
@@ -254,8 +247,7 @@ struct ResearchProcess : testing::Test {
 #ifdef _WIN32
     endpoint = "asterion.research." + unique_process_id();
 #else
-    sockets = std::filesystem::path("/tmp") /
-              ("ast-r-" + unique_process_id().substr(0, 12));
+    sockets = std::filesystem::path("/tmp") / ("ast-r-" + unique_process_id().substr(0, 12));
     std::filesystem::create_directory(sockets);
     std::filesystem::permissions(sockets, std::filesystem::perms::owner_all);
     endpoint = (sockets / "task.sock").string();
@@ -270,19 +262,17 @@ struct ResearchProcess : testing::Test {
     }
   }
   research_wire::TaskResponse call(research_wire::TaskRequest request,
-                                   const std::string &target = "") {
+                                   const std::string& target = "") {
     request.set_version(1);
     request.set_service_id("research");
     request.set_correlation_id(unique_process_id());
-    auto channel =
-        ipc::Channel::connect(target.empty() ? endpoint : target, 2s);
+    auto channel = ipc::Channel::connect(target.empty() ? endpoint : target, 2s);
     channel.send(request.SerializeAsString(), 2s);
     research_wire::TaskResponse response;
     if (!response.ParseFromString(channel.receive(2s)))
       throw std::runtime_error("bad research response");
     protocol::validate_message(response);
-    if (response.version() != 1 ||
-        response.service_id() != request.service_id() ||
+    if (response.version() != 1 || response.service_id() != request.service_id() ||
         response.correlation_id() != request.correlation_id())
       throw std::runtime_error("wrong research response identity");
     if (response.has_error())
@@ -291,18 +281,16 @@ struct ResearchProcess : testing::Test {
   }
   void start() {
 #ifndef _WIN32
-    std::filesystem::remove(
-        endpoint); // This test exclusively owns the private directory.
+    std::filesystem::remove(endpoint); // This test exclusively owns the private directory.
     std::filesystem::remove(endpoint + ".worker");
 #endif
     const auto directory_utf8 = directory.path.u8string();
     service = std::make_unique<ChildProcess>(
         ASTERION_TASK_SERVICE_PATH,
-        std::vector<std::string>{
-            "--directory",
-            std::string(directory_utf8.begin(), directory_utf8.end()),
-            "--endpoint", endpoint, "--worker-endpoint", endpoint + ".worker",
-            "--session", "research", "--worker-timeout", "2"});
+        std::vector<std::string>{"--directory",
+                                 std::string(directory_utf8.begin(), directory_utf8.end()),
+                                 "--endpoint", endpoint, "--worker-endpoint", endpoint + ".worker",
+                                 "--session", "research", "--worker-timeout", "2"});
     const auto deadline = std::chrono::steady_clock::now() + 10s;
     for (;;) {
       try {
@@ -310,14 +298,14 @@ struct ResearchProcess : testing::Test {
         req.mutable_heartbeat();
         call(req);
         break;
-      } catch (const std::exception &) {
+      } catch (const std::exception&) {
         if (service->exited() || std::chrono::steady_clock::now() > deadline)
           throw;
         std::this_thread::sleep_for(20ms);
       }
     }
   }
-  void submit(const std::string &id) {
+  void submit(const std::string& id) {
     research_wire::TaskRequest request;
     request.mutable_submit()->set_id(id);
     *request.mutable_submit()->mutable_input() = input();
@@ -325,12 +313,10 @@ struct ResearchProcess : testing::Test {
   }
 };
 } // namespace
-TEST_F(ResearchProcess,
-       WorkerRunsWithoutSubmittingClientAndResultSurvivesRestart) {
+TEST_F(ResearchProcess, WorkerRunsWithoutSubmittingClientAndResultSurvivesRestart) {
   submit("run1"); // Every request closes its connection; no UI client remains.
-  ChildProcess worker(
-      ASTERION_BACKTEST_PATH,
-      {"--endpoint", endpoint, "--session", "research", "--task", "run1"});
+  ChildProcess worker(ASTERION_BACKTEST_PATH,
+                      {"--endpoint", endpoint, "--session", "research", "--task", "run1"});
   ASSERT_TRUE(worker.wait(15s));
   ASSERT_EQ(worker.exit_code(), 0);
   research_wire::TaskRequest result;
@@ -361,7 +347,7 @@ TEST_F(ResearchProcess, RestartFencesClaimedWorkAndQueuedCancelStaysCancelled) {
   get.mutable_get()->set_id("interrupted");
   EXPECT_EQ(call(get).task().state(), research_wire::INTERRUPTED);
   research_wire::TaskRequest finish;
-  auto *f = finish.mutable_finish();
+  auto* f = finish.mutable_finish();
   f->set_id("interrupted");
   f->set_token(token);
   *f->mutable_result() = backtest::run(input());
@@ -370,9 +356,8 @@ TEST_F(ResearchProcess, RestartFencesClaimedWorkAndQueuedCancelStaysCancelled) {
   research_wire::TaskRequest cancel;
   cancel.mutable_cancel()->set_id("cancelled");
   EXPECT_EQ(call(cancel).task().state(), research_wire::CANCELLED);
-  ChildProcess worker(
-      ASTERION_BACKTEST_PATH,
-      {"--endpoint", endpoint, "--session", "research", "--task", "cancelled"});
+  ChildProcess worker(ASTERION_BACKTEST_PATH,
+                      {"--endpoint", endpoint, "--session", "research", "--task", "cancelled"});
   ASSERT_TRUE(worker.wait(10s));
   EXPECT_NE(worker.exit_code(), 0);
 }
@@ -418,8 +403,7 @@ TEST(ResearchTasks, RejectsMismatchedResultContractAndMetrics) {
   result.mutable_max_drawdown()->set_units(0);
   EXPECT_THROW(store.finish("job", token, result), std::invalid_argument);
   EXPECT_EQ(store.get("job").state(), research::v1::RUNNING);
-  EXPECT_FALSE(
-      std::filesystem::exists(directory.path / "job" / "results" / "1"));
+  EXPECT_FALSE(std::filesystem::exists(directory.path / "job" / "results" / "1"));
   store.finish("job", token, backtest::run(input()));
 }
 
@@ -431,8 +415,7 @@ TEST(ResearchTasks, RejectsResultWithDifferentRiskConfiguration) {
   const auto token = store.claim("risk-result");
   auto result = backtest::run(spec);
   result.mutable_account()->mutable_risk()->set_max_working_orders(999);
-  EXPECT_THROW(store.finish("risk-result", token, result),
-               std::invalid_argument);
+  EXPECT_THROW(store.finish("risk-result", token, result), std::invalid_argument);
   EXPECT_EQ(store.get("risk-result").state(), research::v1::RUNNING);
   store.finish("risk-result", token, backtest::run(spec));
   EXPECT_EQ(store.result("risk-result").account().risk().SerializeAsString(),
@@ -461,21 +444,17 @@ TEST(ResearchTasks, SubmissionOrderSurvivesEqualTimesClockRollbackAndRestart) {
     EXPECT_EQ(store.list().tasks(0).id(), "z-first");
     EXPECT_EQ(store.list().tasks(1).id(), "a-second");
     EXPECT_EQ(store.list().tasks(2).id(), "m-latest");
-    EXPECT_EQ(store.submit("z-first", input()).SerializeAsString(),
-              first.SerializeAsString());
+    EXPECT_EQ(store.submit("z-first", input()).SerializeAsString(), first.SerializeAsString());
     EXPECT_EQ(latest.submission_sequence(), 3U);
   }
   tasks::Store restored(directory.path, clock);
-  EXPECT_EQ(restored.get("z-first").SerializeAsString(),
-            first.SerializeAsString());
-  EXPECT_EQ(restored.get("m-latest").SerializeAsString(),
-            latest.SerializeAsString());
+  EXPECT_EQ(restored.get("z-first").SerializeAsString(), first.SerializeAsString());
+  EXPECT_EQ(restored.get("m-latest").SerializeAsString(), latest.SerializeAsString());
   EXPECT_EQ(restored.list().tasks(2).id(), "m-latest");
   EXPECT_EQ(restored.submit("b-next", input()).submission_sequence(), 4U);
   EXPECT_EQ(restored.list().tasks(3).id(), "b-next");
 }
-TEST(ResearchTasks,
-     DurableUpdatesDoNotChangeSubmissionIdentityOrReorderRetries) {
+TEST(ResearchTasks, DurableUpdatesDoNotChangeSubmissionIdentityOrReorderRetries) {
   TaskDirectory directory;
   auto clock = std::make_shared<TaskClock>();
   research::v1::Task retried;
@@ -496,8 +475,7 @@ TEST(ResearchTasks,
     clock->value += 1000000000;
     retried = store.retry("first");
     EXPECT_EQ(retried.updated_at_ms(), clock->value / 1000000);
-    EXPECT_EQ(retried.SerializeAsString(),
-              store.get("first").SerializeAsString());
+    EXPECT_EQ(retried.SerializeAsString(), store.get("first").SerializeAsString());
     EXPECT_EQ(retried.submitted_at_ms(), original.submitted_at_ms());
     EXPECT_EQ(retried.submission_sequence(), original.submission_sequence());
     EXPECT_EQ(store.list().tasks(0).id(), "first");
@@ -509,13 +487,10 @@ TEST(ResearchTasks,
     EXPECT_THROW(protocol::decode_task(missing), std::invalid_argument);
   }
   tasks::Store restored(directory.path, clock);
-  EXPECT_EQ(restored.get("first").SerializeAsString(),
-            retried.SerializeAsString());
+  EXPECT_EQ(restored.get("first").SerializeAsString(), retried.SerializeAsString());
 }
-TEST(ResearchTasks,
-     RejectsMissingOrDuplicateChronologyWithoutRewritingEvidence) {
-  for (const auto &mode :
-       {"old", "missing", "duplicate", "gap", "negative", "overflow"}) {
+TEST(ResearchTasks, RejectsMissingOrDuplicateChronologyWithoutRewritingEvidence) {
+  for (const auto& mode : {"old", "missing", "duplicate", "gap", "negative", "overflow"}) {
     SCOPED_TRACE(mode);
     TaskDirectory directory;
     {
@@ -560,11 +535,9 @@ TEST_F(ResearchProcess, SilentWorkerPeerDoesNotBlockWorkerControl) {
   research_wire::TaskRequest claim;
   claim.mutable_claim()->set_id("claim-me");
   claim.mutable_claim()->set_kind(research_wire::BACKTEST);
-  EXPECT_EQ(call(claim, endpoint + ".worker").attempt().task().state(),
-            research_wire::RUNNING);
+  EXPECT_EQ(call(claim, endpoint + ".worker").attempt().task().state(), research_wire::RUNNING);
 }
-TEST_F(ResearchProcess,
-       ExternalSaturationPreservesWorkerControlAndLeaseExpiry) {
+TEST_F(ResearchProcess, ExternalSaturationPreservesWorkerControlAndLeaseExpiry) {
   submit("expired");
   research_wire::TaskRequest claim;
   claim.mutable_claim()->set_id("expired");
@@ -576,12 +549,10 @@ TEST_F(ResearchProcess,
   research_wire::TaskRequest get;
   get.mutable_get()->set_id("expired");
   const auto deadline = std::chrono::steady_clock::now() + 4s;
-  while (call(get, endpoint + ".worker").task().state() ==
-             research_wire::RUNNING &&
+  while (call(get, endpoint + ".worker").task().state() == research_wire::RUNNING &&
          std::chrono::steady_clock::now() < deadline)
     std::this_thread::sleep_for(30ms);
-  EXPECT_EQ(call(get, endpoint + ".worker").task().state(),
-            research_wire::INTERRUPTED);
+  EXPECT_EQ(call(get, endpoint + ".worker").task().state(), research_wire::INTERRUPTED);
   research_wire::TaskRequest progress;
   progress.mutable_progress()->set_id("expired");
   progress.mutable_progress()->set_token(token);
@@ -589,8 +560,7 @@ TEST_F(ResearchProcess,
   EXPECT_THROW(call(progress, endpoint + ".worker"), std::runtime_error);
 }
 
-TEST(ResearchTasks,
-     CompletedResultCarriesPersistedExperimentAndRejectsMismatchedEvidence) {
+TEST(ResearchTasks, CompletedResultCarriesPersistedExperimentAndRejectsMismatchedEvidence) {
   TaskDirectory directory;
   {
     tasks::Store store(directory.path);
@@ -602,41 +572,29 @@ TEST(ResearchTasks,
   *response.mutable_backtest() = restored.result("evidence");
   *response.mutable_result_task() = restored.get("evidence");
   const auto value = protocol::decode_task_result(response, "evidence");
-  EXPECT_EQ(value.at("experiment").at("sma"),
-            Json({{"fast", 1}, {"slow", 3}, {"quantity", "1"}}));
+  EXPECT_EQ(value.at("experiment").at("sma"), Json({{"fast", 1}, {"slow", 3}, {"quantity", "1"}}));
   EXPECT_EQ(value.at("experiment").at("paper").at("deposit"), "10000");
-  EXPECT_EQ(
-      value.at("experiment").at("paper").at("costs").at("close_today_fee"),
-      "3");
-  EXPECT_EQ(
-      value.at("experiment").at("paper").at("risk").at("max_order_quantity"),
-      "100");
+  EXPECT_EQ(value.at("experiment").at("paper").at("costs").at("close_today_fee"), "3");
+  EXPECT_EQ(value.at("experiment").at("paper").at("risk").at("max_order_quantity"), "100");
   EXPECT_FALSE(value.at("experiment").at("paper").contains("ticks"));
   EXPECT_EQ(value.at("experiment").at("data").at("count"), 7);
-  EXPECT_EQ(value.at("task").at("result_digest"),
-            restored.get("evidence").result_digest());
-  EXPECT_THROW(protocol::decode_task_result(response, "other"),
-               std::invalid_argument);
+  EXPECT_EQ(value.at("task").at("result_digest"), restored.get("evidence").result_digest());
+  EXPECT_THROW(protocol::decode_task_result(response, "other"), std::invalid_argument);
   auto bad = response;
   bad.clear_result_task();
-  EXPECT_THROW(protocol::decode_task_result(bad, "evidence"),
-               std::invalid_argument);
+  EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
   bad = response;
   bad.mutable_result_task()->set_state(research::v1::RUNNING);
-  EXPECT_THROW(protocol::decode_task_result(bad, "evidence"),
-               std::invalid_argument);
+  EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
   bad = response;
   bad.mutable_backtest()->set_dataset_revision(std::string(64, '0'));
-  EXPECT_THROW(protocol::decode_task_result(bad, "evidence"),
-               std::invalid_argument);
+  EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
   bad = response;
   bad.mutable_result_task()->clear_definition();
-  EXPECT_THROW(protocol::decode_task_result(bad, "evidence"),
-               std::invalid_argument);
+  EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
   bad = response;
   bad.mutable_result_task()->set_kind(research::v1::FACTOR);
-  EXPECT_THROW(protocol::decode_task_result(bad, "evidence"),
-               std::invalid_argument);
+  EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
 }
 
 namespace {
@@ -645,10 +603,9 @@ research::v1::BacktestInput overnight_input() {
   // Explicit caller-defined night/day mapping, not an exchange calendar.
   constexpr std::int64_t night = 1790254800000000000LL;
   for (int i = 0; i < 3; ++i)
-    spec.mutable_paper()->mutable_ticks(i)->set_timestamp_ns(
-        night + std::int64_t{i} * 1000000000);
+    spec.mutable_paper()->mutable_ticks(i)->set_timestamp_ns(night + std::int64_t{i} * 1000000000);
   spec.mutable_days(0)->clear_sessions();
-  auto *session = spec.mutable_days(0)->add_sessions();
+  auto* session = spec.mutable_days(0)->add_sessions();
   session->set_begin_ns(night);
   session->set_end_ns(night + 3000000000LL);
   session = spec.mutable_days(0)->add_sessions();
@@ -666,8 +623,7 @@ TEST(Research, ExplicitNightSessionsDoNotCarryWorkingOrdersAcrossBreaks) {
   EXPECT_EQ(result.account().equity().units(), d("10000").raw());
   EXPECT_EQ(result.equity_size(), 8);
   EXPECT_EQ(protocol::decode_backtest(spec).at("days").at(0).at("sessions").size(), 2U);
-  EXPECT_EQ(protocol::encode_backtest(protocol::decode_backtest(spec))
-                .SerializeAsString(),
+  EXPECT_EQ(protocol::encode_backtest(protocol::decode_backtest(spec)).SerializeAsString(),
             spec.SerializeAsString());
   spec.mutable_days(0)->mutable_sessions(0)->set_end_ns(spec.paper().ticks(2).timestamp_ns());
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
@@ -681,14 +637,13 @@ TEST(Research, ExplicitNightSessionsDoNotCarryWorkingOrdersAcrossBreaks) {
   spec.set_version(2);
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
 }
-TEST(ResearchTasks,
-     SessionEvidencePersistsAndDifferentBoundaryResultsAreRejected) {
+TEST(ResearchTasks, SessionEvidencePersistsAndDifferentBoundaryResultsAreRejected) {
   TaskDirectory root;
   auto spec = overnight_input();
   const auto expected = backtest::run(spec);
   auto different = spec;
   different.mutable_days(0)->clear_sessions();
-  auto *session = different.mutable_days(0)->add_sessions();
+  auto* session = different.mutable_days(0)->add_sessions();
   session->set_begin_ns(spec.days(0).sessions(0).begin_ns());
   session->set_end_ns(spec.days(0).sessions(1).end_ns());
   const auto wrong = backtest::run(different);
@@ -701,113 +656,125 @@ TEST(ResearchTasks,
     store.finish("night", token, expected);
   }
   tasks::Store recovered(root.path);
-  EXPECT_EQ(recovered.result("night").SerializeAsString(),
-            expected.SerializeAsString());
-  EXPECT_EQ(recovered.get("night").input().SerializeAsString(),
-            spec.SerializeAsString());
+  EXPECT_EQ(recovered.result("night").SerializeAsString(), expected.SerializeAsString());
+  EXPECT_EQ(recovered.get("night").input().SerializeAsString(), spec.SerializeAsString());
 }
 
 namespace {
 research::v1::BacktestInput multiday_input() {
-  auto spec=input();
+  auto spec = input();
   spec.mutable_paper()->clear_ticks();
-  const std::int64_t first=1790298000000000000LL;
-  const std::int64_t next=first+3LL*86400*1000000000;
-  int index=0;
-  for (const auto price : {100,101,102,101,104,103,102,103}) {
-    auto* tick=spec.mutable_paper()->add_ticks();
-    tick->set_timestamp_ns((index<4?first:next)+(index%4)*1000000000LL);
+  const std::int64_t first = 1790298000000000000LL;
+  const std::int64_t next = first + 3LL * 86400 * 1000000000;
+  int index = 0;
+  for (const auto price : {100, 101, 102, 101, 104, 103, 102, 103}) {
+    auto* tick = spec.mutable_paper()->add_ticks();
+    tick->set_timestamp_ns((index < 4 ? first : next) + (index % 4) * 1000000000LL);
     tick->mutable_price()->set_units(d(std::to_string(price).c_str()).raw());
     tick->mutable_quantity()->set_units(d("1").raw());
     ++index;
   }
-  spec.mutable_days(0)->mutable_sessions(0)->set_end_ns(first+4000000000LL);
+  spec.mutable_days(0)->mutable_sessions(0)->set_end_ns(first + 4000000000LL);
   spec.mutable_days(0)->mutable_settlement_price()->set_units(d("105").raw());
-  auto* day=spec.add_days();
-  *day=spec.days(0);
+  auto* day = spec.add_days();
+  *day = spec.days(0);
   day->set_trading_day("2026-09-28");
   day->mutable_sessions(0)->set_begin_ns(next);
-  day->mutable_sessions(0)->set_end_ns(next+4000000000LL);
+  day->mutable_sessions(0)->set_end_ns(next + 4000000000LL);
   day->mutable_settlement_price()->set_units(d("110").raw());
   spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
   return spec;
 }
-}
+} // namespace
 TEST(Research, MultidaySettlementCarriesSmaAndChargesYesterdayClose) {
-  const auto spec=multiday_input();
-  const auto result=backtest::run(spec);
-  ASSERT_EQ(result.settlements_size(),2);
-  EXPECT_EQ(result.settlements(0).price().units(),d("105").raw());
-  EXPECT_EQ(result.settlements(0).equity().units(),d("10038").raw());
-  EXPECT_EQ(result.settlements(0).position_quantity().units(),d("1").raw());
-  EXPECT_EQ(result.settlements(1).position_quantity().units(),0);
-  EXPECT_EQ(result.account().balance().units(),d("10014").raw());
-  EXPECT_EQ(result.account().fees().units(),d("6").raw());
-  EXPECT_EQ(result.account().realized().units(),d("20").raw());
-  EXPECT_EQ(result.max_drawdown().units(),d("30").raw());
-  ASSERT_EQ(result.account().orders_size(),2);
-  EXPECT_EQ(result.account().orders(1).offset(),protocol::v1::CLOSE_YESTERDAY);
-  ASSERT_EQ(result.equity_size(),10);
-  EXPECT_EQ(result.equity(4).event(),research::v1::DAILY_SETTLEMENT);
-  EXPECT_EQ(result.equity(4).timestamp_ns(),spec.days(0).sessions(0).end_ns());
-  EXPECT_EQ(result.equity(5).event(),research::v1::TRADE_MARK);
-  EXPECT_EQ(result.equity(9).equity().units(),result.account().equity().units());
-  EXPECT_EQ(result.SerializeAsString(),backtest::run(spec).SerializeAsString());
+  const auto spec = multiday_input();
+  const auto result = backtest::run(spec);
+  ASSERT_EQ(result.settlements_size(), 2);
+  EXPECT_EQ(result.settlements(0).price().units(), d("105").raw());
+  EXPECT_EQ(result.settlements(0).equity().units(), d("10038").raw());
+  EXPECT_EQ(result.settlements(0).position_quantity().units(), d("1").raw());
+  EXPECT_EQ(result.settlements(1).position_quantity().units(), 0);
+  EXPECT_EQ(result.account().balance().units(), d("10014").raw());
+  EXPECT_EQ(result.account().fees().units(), d("6").raw());
+  EXPECT_EQ(result.account().realized().units(), d("20").raw());
+  EXPECT_EQ(result.max_drawdown().units(), d("30").raw());
+  ASSERT_EQ(result.account().orders_size(), 2);
+  EXPECT_EQ(result.account().orders(1).offset(), protocol::v1::CLOSE_YESTERDAY);
+  ASSERT_EQ(result.equity_size(), 10);
+  EXPECT_EQ(result.equity(4).event(), research::v1::DAILY_SETTLEMENT);
+  EXPECT_EQ(result.equity(4).timestamp_ns(), spec.days(0).sessions(0).end_ns());
+  EXPECT_EQ(result.equity(5).event(), research::v1::TRADE_MARK);
+  EXPECT_EQ(result.equity(9).equity().units(), result.account().equity().units());
+  EXPECT_EQ(result.SerializeAsString(), backtest::run(spec).SerializeAsString());
 }
 TEST(Research, FinalSettlementRevaluesOpenPositionAndParticipatesInDrawdown) {
-  auto spec=multiday_input();
-  spec.mutable_days()->DeleteSubrange(1,1);
-  spec.mutable_paper()->mutable_ticks()->DeleteSubrange(4,4);
+  auto spec = multiday_input();
+  spec.mutable_days()->DeleteSubrange(1, 1);
+  spec.mutable_paper()->mutable_ticks()->DeleteSubrange(4, 4);
   spec.mutable_days(0)->mutable_settlement_price()->set_units(d("90").raw());
   spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
-  const auto result=backtest::run(spec);
-  EXPECT_EQ(result.account().equity().units(),d("9888").raw());
-  EXPECT_EQ(result.account().realized().units(),d("-110").raw());
-  EXPECT_EQ(result.account().unrealized().units(),0);
-  EXPECT_EQ(result.max_drawdown().units(),d("112").raw());
-  ASSERT_EQ(result.account().positions_size(),1);
-  EXPECT_EQ(result.account().positions(0).basis().units(),d("90").raw());
-  EXPECT_EQ(result.equity(3).equity().units(),d("9998").raw());
-  EXPECT_EQ(result.equity(4).event(),research::v1::DAILY_SETTLEMENT);
+  const auto result = backtest::run(spec);
+  EXPECT_EQ(result.account().equity().units(), d("9888").raw());
+  EXPECT_EQ(result.account().realized().units(), d("-110").raw());
+  EXPECT_EQ(result.account().unrealized().units(), 0);
+  EXPECT_EQ(result.max_drawdown().units(), d("112").raw());
+  ASSERT_EQ(result.account().positions_size(), 1);
+  EXPECT_EQ(result.account().positions(0).basis().units(), d("90").raw());
+  EXPECT_EQ(result.equity(3).equity().units(), d("9998").raw());
+  EXPECT_EQ(result.equity(4).event(), research::v1::DAILY_SETTLEMENT);
 }
 TEST(Research, MultidayRequiresExplicitValidCompleteEvidence) {
-  const auto original=multiday_input();
-  EXPECT_EQ(protocol::encode_backtest(protocol::decode_backtest(original)).SerializeAsString(),original.SerializeAsString());
-  auto spec=original;spec.mutable_days(1)->clear_settlement_price();
-  EXPECT_THROW(backtest::run(spec),std::invalid_argument);
-  spec=original;spec.mutable_days(1)->mutable_settlement_price()->set_units(d("-1").raw());
-  EXPECT_THROW(backtest::run(spec),std::invalid_argument);
-  spec=original;spec.mutable_days(1)->set_settlement_source(" ");
-  EXPECT_THROW(backtest::run(spec),std::invalid_argument);
-  spec=original;spec.mutable_days(1)->mutable_settlement_price()->set_units(d("110.5").raw());
-  EXPECT_THROW(backtest::run(spec),std::invalid_argument);
-  spec=original;spec.mutable_days(1)->set_trading_day(spec.days(0).trading_day());
-  EXPECT_THROW(backtest::run(spec),std::invalid_argument);
-  spec=original;spec.mutable_days(1)->mutable_sessions(0)->set_begin_ns(spec.days(0).sessions(0).begin_ns());
-  EXPECT_THROW(backtest::run(spec),std::invalid_argument);
-  spec=original;spec.mutable_paper()->mutable_ticks()->DeleteSubrange(4,4);
+  const auto original = multiday_input();
+  EXPECT_EQ(protocol::encode_backtest(protocol::decode_backtest(original)).SerializeAsString(),
+            original.SerializeAsString());
+  auto spec = original;
+  spec.mutable_days(1)->clear_settlement_price();
+  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+  spec = original;
+  spec.mutable_days(1)->mutable_settlement_price()->set_units(d("-1").raw());
+  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+  spec = original;
+  spec.mutable_days(1)->set_settlement_source(" ");
+  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+  spec = original;
+  spec.mutable_days(1)->mutable_settlement_price()->set_units(d("110.5").raw());
+  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+  spec = original;
+  spec.mutable_days(1)->set_trading_day(spec.days(0).trading_day());
+  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+  spec = original;
+  spec.mutable_days(1)->mutable_sessions(0)->set_begin_ns(spec.days(0).sessions(0).begin_ns());
+  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+  spec = original;
+  spec.mutable_paper()->mutable_ticks()->DeleteSubrange(4, 4);
   spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
-  EXPECT_THROW(backtest::run(spec),std::invalid_argument);
-  spec=original;spec.set_version(3);
-  EXPECT_THROW(backtest::run(spec),std::invalid_argument);
-  auto json=protocol::decode_backtest(original);
-  json["days"][0]["settlement_price"]="105.0";
-  EXPECT_THROW(protocol::encode_backtest(json),std::invalid_argument);
+  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+  spec = original;
+  spec.set_version(3);
+  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+  auto json = protocol::decode_backtest(original);
+  json["days"][0]["settlement_price"] = "105.0";
+  EXPECT_THROW(protocol::encode_backtest(json), std::invalid_argument);
 }
 TEST(ResearchTasks, MultidayEvidenceRestoresAndForgedSettlementCannotCommit) {
   TaskDirectory root;
-  const auto spec=multiday_input();const auto expected=backtest::run(spec);
-  auto altered=spec;altered.mutable_days(0)->mutable_settlement_price()->set_units(d("107").raw());
-  const auto wrong=backtest::run(altered);
-  EXPECT_EQ(wrong.account().equity().units(),expected.account().equity().units());
+  const auto spec = multiday_input();
+  const auto expected = backtest::run(spec);
+  auto altered = spec;
+  altered.mutable_days(0)->mutable_settlement_price()->set_units(d("107").raw());
+  const auto wrong = backtest::run(altered);
+  EXPECT_EQ(wrong.account().equity().units(), expected.account().equity().units());
   {
-    tasks::Store store(root.path);store.submit("multiday",spec);const auto token=store.claim("multiday");
-    EXPECT_THROW(store.finish("multiday",token,wrong),std::invalid_argument);
-    auto forged=expected;forged.mutable_settlements(0)->mutable_price()->set_units(d("106").raw());
-    EXPECT_THROW(store.finish("multiday",token,forged),std::invalid_argument);
-    store.finish("multiday",token,expected);
+    tasks::Store store(root.path);
+    store.submit("multiday", spec);
+    const auto token = store.claim("multiday");
+    EXPECT_THROW(store.finish("multiday", token, wrong), std::invalid_argument);
+    auto forged = expected;
+    forged.mutable_settlements(0)->mutable_price()->set_units(d("106").raw());
+    EXPECT_THROW(store.finish("multiday", token, forged), std::invalid_argument);
+    store.finish("multiday", token, expected);
   }
   tasks::Store restored(root.path);
-  EXPECT_EQ(restored.result("multiday").SerializeAsString(),expected.SerializeAsString());
-  EXPECT_EQ(restored.get("multiday").input().SerializeAsString(),spec.SerializeAsString());
+  EXPECT_EQ(restored.result("multiday").SerializeAsString(), expected.SerializeAsString());
+  EXPECT_EQ(restored.get("multiday").input().SerializeAsString(), spec.SerializeAsString());
 }

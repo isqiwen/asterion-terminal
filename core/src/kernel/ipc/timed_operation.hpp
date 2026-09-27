@@ -6,8 +6,8 @@ enum class DeadlinePolicy { strict, preserve_accepted };
 // Drain both operation and cancellation completion before destroying their
 // state.
 template <class Start, class Cancel>
-void run(asio::io_context &io, std::chrono::milliseconds timeout, Start start,
-         Cancel cancel, DeadlinePolicy policy = DeadlinePolicy::strict) {
+void run(asio::io_context& io, std::chrono::milliseconds timeout, Start start, Cancel cancel,
+         DeadlinePolicy policy = DeadlinePolicy::strict) {
   io.restart();
   asio::steady_timer timer(io);
   asio::error_code result;
@@ -40,7 +40,6 @@ void run(asio::io_context &io, std::chrono::milliseconds timeout, Start start,
   if (expired && (policy == DeadlinePolicy::strict || !completed || result))
     throw Error(ErrorCode::unavailable, "TCP/TLS operation timed out");
   if (result)
-    throw Error(ErrorCode::unavailable,
-                "TCP/TLS connection failed: " + result.message());
+    throw Error(ErrorCode::unavailable, "TCP/TLS connection failed: " + result.message());
 }
 } // namespace asterion::ipc::detail

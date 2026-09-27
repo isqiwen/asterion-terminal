@@ -14,12 +14,10 @@ struct LocalIpc : testing::Test {
   std::string endpoint;
   void SetUp() override {
 #ifdef _WIN32
-    root = std::filesystem::temp_directory_path() /
-           ("ast-ipc-" + unique_process_id());
+    root = std::filesystem::temp_directory_path() / ("ast-ipc-" + unique_process_id());
     endpoint = "asterion.ipc." + unique_process_id();
 #else
-    root = std::filesystem::path("/tmp") /
-           ("ast-ipc-" + unique_process_id().substr(0, 12));
+    root = std::filesystem::path("/tmp") / ("ast-ipc-" + unique_process_id().substr(0, 12));
     endpoint = (root / "channel").string();
 #endif
     std::filesystem::create_directory(root);
@@ -33,12 +31,11 @@ struct LocalIpc : testing::Test {
     for (unsigned i = 0; i < 16; ++i) {
       try {
         channels.push_back(ipc::Channel::connect(endpoint, 20ms));
-      } catch (const Error &) {
+      } catch (const Error&) {
         return channels;
       }
     }
-    throw std::runtime_error(
-        "fixture did not saturate pending IPC connections");
+    throw std::runtime_error("fixture did not saturate pending IPC connections");
   }
 };
 } // namespace
@@ -101,13 +98,12 @@ TEST_F(LocalIpc, ConcurrentConnectionBurstDeliversEachFrameOnce) {
     seen.at(id) = true;
     channel.send(message, 5s);
   }
-  for (auto &client : clients)
+  for (auto& client : clients)
     client.get();
   EXPECT_THROW(listener.accept(30ms), Error);
 }
 TEST_F(LocalIpc, InvalidAndMissingEndpointsFailWithoutPayload) {
-  EXPECT_THROW(ipc::Channel::connect("invalid endpoint", 1s),
-               std::invalid_argument);
+  EXPECT_THROW(ipc::Channel::connect("invalid endpoint", 1s), std::invalid_argument);
   const auto start = std::chrono::steady_clock::now();
   EXPECT_THROW(ipc::Channel::connect(endpoint, 100ms), Error);
   EXPECT_LT(std::chrono::steady_clock::now() - start, 1s);

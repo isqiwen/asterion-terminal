@@ -10,25 +10,24 @@
 namespace asterion::terminal {
 namespace fs = std::filesystem;
 namespace {
-fs::path checked_bundle(const std::string &arch) {
+fs::path checked_bundle(const std::string& arch) {
   if (arch != "x86_64")
     throw std::invalid_argument("不支持的远程 Linux 架构");
 #ifdef _WIN32
   // Read the process environment directly: the Rust host sets this after
   // startup.
-  const auto size =
-      GetEnvironmentVariableW(L"ASTERION_REMOTE_RESOURCES", nullptr, 0);
+  const auto size = GetEnvironmentVariableW(L"ASTERION_REMOTE_RESOURCES", nullptr, 0);
   if (!size)
     throw std::runtime_error("桌面包缺少内置 Linux 服务资源");
   std::wstring configured(size, L'\0');
-  const auto copied = GetEnvironmentVariableW(L"ASTERION_REMOTE_RESOURCES",
-                                              configured.data(), size);
+  const auto copied =
+      GetEnvironmentVariableW(L"ASTERION_REMOTE_RESOURCES", configured.data(), size);
   if (!copied || copied >= size)
     throw std::runtime_error("invalid bundled resource environment");
   configured.resize(copied);
   const fs::path root(configured);
 #else
-  const auto *configured = std::getenv("ASTERION_REMOTE_RESOURCES");
+  const auto* configured = std::getenv("ASTERION_REMOTE_RESOURCES");
   if (!configured)
     throw std::runtime_error("桌面包缺少内置 Linux 服务资源");
   const fs::path root(configured);
@@ -37,19 +36,20 @@ fs::path checked_bundle(const std::string &arch) {
   if (!root.is_absolute() || fs::is_symlink(root) || fs::is_symlink(folder))
     throw std::invalid_argument("invalid bundled resource directory");
   const auto manifest = folder / "manifest.json";
-  if (fs::is_symlink(manifest) || !fs::is_regular_file(manifest) ||
-      fs::file_size(manifest) > 65536)
-    throw std::runtime_error(
-        "桌面包缺少目标 Linux 架构资源，请重新安装完整安装包");
+  if (fs::is_symlink(manifest) || !fs::is_regular_file(manifest) || fs::file_size(manifest) > 65536)
+    throw std::runtime_error("桌面包缺少目标 Linux 架构资源，请重新安装完整安装包");
   std::ifstream input(manifest);
   const auto info = nlohmann::json::parse(input);
   if (info.size() != 5 || info.at("version") != 1 ||
-      info.at("product_version") != ASTERION_PRODUCT_VERSION ||
-      info.at("os") != "linux" || info.at("arch") != arch ||
-      info.at("files").size() != 10)
+      info.at("product_version") != ASTERION_PRODUCT_VERSION || info.at("os") != "linux" ||
+      info.at("arch") != arch || info.at("files").size() != 10)
     throw std::invalid_argument("内置 Linux 服务版本不匹配");
-  std::vector<std::string> names{"asterion-node-agent", "asterion-trading", "asterion-market-data", "asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline", "asterion-strategy", "initialize-linux.py"};
-  if(arch=="x86_64")names.push_back("ctp-md.so");
+  std::vector<std::string> names{
+      "asterion-node-agent",    "asterion-trading",  "asterion-market-data",
+      "asterion-task-service",  "asterion-backtest", "asterion-factor",
+      "asterion-data-pipeline", "asterion-strategy", "initialize-linux.py"};
+  if (arch == "x86_64")
+    names.push_back("ctp-md.so");
   for (const auto& name : names) {
     const auto file = folder / name;
     if (fs::is_symlink(file) || !fs::is_regular_file(file) ||
@@ -65,9 +65,12 @@ fs::path checked_bundle(const std::string &arch) {
   return folder;
 }
 } // namespace
-fs::path bundled_linux_program(const std::string &arch,
-                               const std::string &program) {
-  if (program != "asterion-node-agent" && program != "asterion-trading" && program != "asterion-market-data" && program != "asterion-task-service" && program != "asterion-backtest" && program != "asterion-factor" && program != "asterion-data-pipeline" && program != "asterion-strategy" && !(program=="ctp-md.so" && arch=="x86_64"))
+fs::path bundled_linux_program(const std::string& arch, const std::string& program) {
+  if (program != "asterion-node-agent" && program != "asterion-trading" &&
+      program != "asterion-market-data" && program != "asterion-task-service" &&
+      program != "asterion-backtest" && program != "asterion-factor" &&
+      program != "asterion-data-pipeline" && program != "asterion-strategy" &&
+      !(program == "ctp-md.so" && arch == "x86_64"))
     throw std::invalid_argument("invalid bundled program");
   return checked_bundle(arch) / program;
 }
@@ -78,9 +81,8 @@ std::string bundled_linux_initializer() {
   std::ifstream input(path);
   return {std::istreambuf_iterator<char>(input), {}};
 }
-void export_bundled_initializer(const fs::path &destination) {
-  if (!destination.is_absolute() || fs::exists(destination) ||
-      fs::is_symlink(destination))
+void export_bundled_initializer(const fs::path& destination) {
+  if (!destination.is_absolute() || fs::exists(destination) || fs::is_symlink(destination))
     throw std::invalid_argument("请选择尚不存在的初始化脚本保存路径");
   fs::copy_file(checked_bundle("x86_64") / "initialize-linux.py", destination);
 }

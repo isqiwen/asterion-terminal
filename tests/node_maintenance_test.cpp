@@ -11,8 +11,7 @@ using namespace asterion::terminal;
 using namespace std::chrono_literals;
 namespace fs = std::filesystem;
 TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
-  const auto root = fs::temp_directory_path() /
-                    ("ast-maint-" + unique_process_id().substr(0, 8));
+  const auto root = fs::temp_directory_path() / ("ast-maint-" + unique_process_id().substr(0, 8));
   fs::create_directories(root / "ledger");
   fs::create_directories(root / "agent");
   struct Cleanup {
@@ -27,39 +26,34 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
 #else
   const auto endpoint = (root / "agent.sock").string();
 #endif
-  ChildProcess agent(
-      ASTERION_AGENT_PATH,
-      {"--directory", (root / "agent").string(), "--endpoint", endpoint});
+  ChildProcess agent(ASTERION_AGENT_PATH,
+                     {"--directory", (root / "agent").string(), "--endpoint", endpoint});
   NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
   std::unique_ptr<NodeClient> client;
   const auto deadline = std::chrono::steady_clock::now() + 10s;
   while (!client) {
     try {
       client = std::make_unique<NodeClient>(config);
-    } catch (const std::exception &) {
+    } catch (const std::exception&) {
       ASSERT_FALSE(agent.exited());
       ASSERT_LT(std::chrono::steady_clock::now(), deadline);
       std::this_thread::sleep_for(50ms);
     }
   }
-  const auto instance =
-      client->status().at("health").at("instance_id").get<std::string>();
+  const auto instance = client->status().at("health").at("instance_id").get<std::string>();
   const auto platform = current_platform();
   client->deploy(ASTERION_TRADE_PATH, platform.os, platform.arch, "paper", 0,
                  (root / "ledger").string());
-  EXPECT_THROW(client->maintenance(true, "upgrade.test", instance),
-               std::exception);
+  EXPECT_THROW(client->maintenance(true, "upgrade.test", instance), std::exception);
   client->action("paper", "stop");
-  EXPECT_THROW(client->maintenance(true, "upgrade.test", "different"),
-               std::exception);
+  EXPECT_THROW(client->maintenance(true, "upgrade.test", "different"), std::exception);
   client->maintenance(true, "upgrade.test", instance);
   client->maintenance(true, "upgrade.test",
                       instance); // Exact retry is idempotent.
   EXPECT_THROW(client->maintenance(true, "other", instance), std::exception);
   NodeClient second(config);
   EXPECT_TRUE(second.status().at("health").at("maintenance").get<bool>());
-  EXPECT_EQ(second.status().at("health").at("pid").get<std::uint64_t>(),
-            agent.id());
+  EXPECT_EQ(second.status().at("health").at("pid").get<std::uint64_t>(), agent.id());
   EXPECT_THROW(second.action("paper", "start"), std::exception);
   EXPECT_THROW(second.action("paper", "stop"), std::exception);
   EXPECT_THROW(second.maintenance(false, "wrong", instance), std::exception);
@@ -96,8 +90,7 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
     node::v1::Response response;
     ASSERT_TRUE(response.ParseFromString(channel.receive(3s)));
     ASSERT_TRUE(response.has_error());
-    EXPECT_NE(response.error().message().find("maintenance"),
-              std::string::npos);
+    EXPECT_NE(response.error().message().find("maintenance"), std::string::npos);
   }
   client->maintenance(false, "upgrade.test", instance);
   for (int i = 0; i < 4; ++i) {
@@ -105,7 +98,7 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
       try {
         client->maintenance(true, "race", instance);
         return std::string{};
-      } catch (const std::exception &error) {
+      } catch (const std::exception& error) {
         return std::string(error.what());
       }
     });
@@ -113,19 +106,17 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
       try {
         second.action("paper", "start");
         return std::string{};
-      } catch (const std::exception &error) {
+      } catch (const std::exception& error) {
         return std::string(error.what());
       }
     });
     const auto enter_error = enter.get(), start_error = start.get();
     const bool entered = enter_error.empty(), started = start_error.empty();
-    ASSERT_NE(entered, started)
-        << "maintenance: " << enter_error << "; start: " << start_error;
+    ASSERT_NE(entered, started) << "maintenance: " << enter_error << "; start: " << start_error;
     NodeClient observed(config);
     const auto health = observed.status().at("health");
     EXPECT_EQ(health.at("maintenance").get<bool>(), entered);
-    EXPECT_EQ(health.at("services").at(0).at("desired_running").get<bool>(),
-              started);
+    EXPECT_EQ(health.at("services").at(0).at("desired_running").get<bool>(), started);
     if (entered)
       client->maintenance(false, "race", instance);
     else
@@ -133,11 +124,9 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
   }
 }
 
-TEST(NodeMaintenance,
-     AcknowledgedMutationIsNotReportedFailedWhenStatusReadFails) {
+TEST(NodeMaintenance, AcknowledgedMutationIsNotReportedFailedWhenStatusReadFails) {
   for (const bool maintenance : {true, false}) {
-    const auto root = fs::temp_directory_path() /
-                      ("ast-ack-" + unique_process_id().substr(0, 8));
+    const auto root = fs::temp_directory_path() / ("ast-ack-" + unique_process_id().substr(0, 8));
     fs::create_directory(root);
     struct Cleanup {
       fs::path root;
@@ -163,13 +152,12 @@ TEST(NodeMaintenance,
         response.set_correlation_id(request.correlation_id());
         if (i == 0) {
           EXPECT_TRUE(request.has_status());
-          auto *status = response.mutable_status();
+          auto* status = response.mutable_status();
           status->set_instance_id("test-instance");
           status->set_os("test-os");
           status->set_arch("test-arch");
         } else if (i == 1) {
-          EXPECT_TRUE(maintenance ? request.has_maintenance()
-                                  : request.has_action());
+          EXPECT_TRUE(maintenance ? request.has_maintenance() : request.has_action());
           response.mutable_accepted();
         } else {
           EXPECT_TRUE(request.has_status());
@@ -195,8 +183,7 @@ TEST(NodeMaintenance,
 }
 
 TEST(NodeMaintenance, SilentLocalPeerDoesNotBlockHealthyStatus) {
-  const auto root = fs::temp_directory_path() /
-                    ("ast-slow-" + unique_process_id().substr(0, 8));
+  const auto root = fs::temp_directory_path() / ("ast-slow-" + unique_process_id().substr(0, 8));
   fs::create_directory(root);
   struct Cleanup {
     fs::path root;
@@ -210,15 +197,14 @@ TEST(NodeMaintenance, SilentLocalPeerDoesNotBlockHealthyStatus) {
 #else
   const auto endpoint = (root / "agent.sock").string();
 #endif
-  ChildProcess agent(ASTERION_AGENT_PATH,
-                     {"--directory", root.string(), "--endpoint", endpoint});
+  ChildProcess agent(ASTERION_AGENT_PATH, {"--directory", root.string(), "--endpoint", endpoint});
   NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
   const auto deadline = std::chrono::steady_clock::now() + 10s;
   for (;;) {
     try {
       NodeClient ready(config);
       break;
-    } catch (const Error &) {
+    } catch (const Error&) {
       ASSERT_FALSE(agent.exited());
       ASSERT_LT(std::chrono::steady_clock::now(), deadline);
       std::this_thread::sleep_for(20ms);
@@ -228,6 +214,5 @@ TEST(NodeMaintenance, SilentLocalPeerDoesNotBlockHealthyStatus) {
   std::unique_ptr<NodeClient> healthy;
   ASSERT_NO_THROW(healthy = std::make_unique<NodeClient>(config));
   EXPECT_EQ(healthy->status().at("state"), "online");
-  EXPECT_EQ(healthy->status().at("health").at("pid").get<std::uint64_t>(),
-            agent.id());
+  EXPECT_EQ(healthy->status().at("health").at("pid").get<std::uint64_t>(), agent.id());
 }

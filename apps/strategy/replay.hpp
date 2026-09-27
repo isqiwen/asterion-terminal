@@ -5,20 +5,19 @@ namespace asterion {
 class PaperReplaySchedule;
 }
 namespace asterion::strategy {
-using TradingCall =
-    std::function<protocol::v1::Snapshot(protocol::v1::Request)>;
+using TradingCall = std::function<protocol::v1::Snapshot(protocol::v1::Request)>;
 // One step at a time under the host's session mutex. The immutable plan and
 // strategy journal, plus the trading journal, determine recovery; no second
 // ledger.
 class Replay {
 public:
-  explicit Replay(Session &session, TradingCall transport = {});
+  explicit Replay(Session& session, TradingCall transport = {});
   void probe();
   // true means the replay has reached its end and its grant has been revoked.
   bool step();
 
 private:
-  Session &session_;
+  Session& session_;
   v1::Config config_;
   std::string identity_;
   TradingCall call_;

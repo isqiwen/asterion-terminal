@@ -7,8 +7,8 @@ class MarketClient {
 public:
   explicit MarketClient(ServiceEndpoint endpoint);
   ~MarketClient();
-  void connect(const Json &params);
-  void subscribe(const Json &instruments);
+  void connect(const Json& params);
+  void subscribe(const Json& instruments);
   void disconnect();
   Json snapshot() const;
 

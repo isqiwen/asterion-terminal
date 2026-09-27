@@ -10,29 +10,24 @@
 #include <mutex>
 #include <thread>
 using namespace std::chrono_literals;
-int main(int argc, char **argv) {
-  CLI::App app{
-      "Asterion trusted strategy host: durable events and target intents"};
-  app.set_version_flag("--version",
-                       "asterion-strategy " ASTERION_PRODUCT_VERSION);
+int main(int argc, char** argv) {
+  CLI::App app{"Asterion trusted strategy host: durable events and target intents"};
+  app.set_version_flag("--version", "asterion-strategy " ASTERION_PRODUCT_VERSION);
   std::string endpoint, directory, session_id, bind, health_endpoint;
   unsigned short port = 0;
   std::uint64_t owner_pid = 0;
   asterion::ipc::TlsIdentity tls;
-  app.add_option("--directory", directory,
-                 "Existing dedicated strategy journal directory")
+  app.add_option("--directory", directory, "Existing dedicated strategy journal directory")
       ->required()
       ->check(CLI::ExistingDirectory);
-  app.add_option("--session", session_id, "Immutable strategy session identity")
-      ->required();
+  app.add_option("--session", session_id, "Immutable strategy session identity")->required();
   app.add_option("--endpoint", endpoint, "Private local IPC endpoint");
   app.add_option("--bind", bind, "TCP bind address");
   app.add_option("--port", port, "TCP port")->check(CLI::Range(1, 65535));
   app.add_option("--tls-ca", tls.ca_file, "Dedicated client CA PEM");
   app.add_option("--tls-cert", tls.certificate_file, "Server certificate PEM");
   app.add_option("--tls-key", tls.private_key_file, "Server private key PEM");
-  app.add_option("--health-endpoint", health_endpoint,
-                 "Private supervisor health channel");
+  app.add_option("--health-endpoint", health_endpoint, "Private supervisor health channel");
   app.add_option("--owner-pid", owner_pid, "Agent process identity");
   argv = app.ensure_utf8(argv);
   CLI11_PARSE(app, argc, argv);
@@ -41,23 +36,18 @@ int main(int argc, char **argv) {
     namespace wire = strategy::v1;
     validate_id(session_id);
     const bool remote = !bind.empty();
-    if (remote
-            ? (!endpoint.empty() || !port || tls.ca_file.empty() ||
-               tls.certificate_file.empty() || tls.private_key_file.empty())
-            : (endpoint.empty() || port || !tls.ca_file.empty() ||
-               !tls.certificate_file.empty() || !tls.private_key_file.empty()))
-      throw std::invalid_argument(
-          "choose --endpoint OR --bind/--port with all three TLS files");
+    if (remote ? (!endpoint.empty() || !port || tls.ca_file.empty() ||
+                  tls.certificate_file.empty() || tls.private_key_file.empty())
+               : (endpoint.empty() || port || !tls.ca_file.empty() ||
+                  !tls.certificate_file.empty() || !tls.private_key_file.empty()))
+      throw std::invalid_argument("choose --endpoint OR --bind/--port with all three TLS files");
     if (!health_endpoint.empty() && health_endpoint == endpoint)
-      throw std::invalid_argument(
-          "health and event endpoints must be distinct");
-    const std::filesystem::path path(
-        std::u8string(directory.begin(), directory.end()));
+      throw std::invalid_argument("health and event endpoints must be distinct");
+    const std::filesystem::path path(std::u8string(directory.begin(), directory.end()));
     if (!path.is_absolute() || std::filesystem::is_symlink(path) ||
         std::filesystem::exists(path / "pending.tmp") ||
         std::filesystem::is_symlink(path / "pending.tmp"))
-      throw std::invalid_argument(
-          "strategy directory requires inspection or is not absolute");
+      throw std::invalid_argument("strategy directory requires inspection or is not absolute");
     std::unique_ptr<ProcessOwner> owner;
     std::jthread owner_watch;
     if (owner_pid) {
@@ -76,19 +66,18 @@ int main(int argc, char **argv) {
     const auto instance = unique_process_id();
     const auto started = std::chrono::steady_clock::now();
     std::atomic<bool> initialized{bool(session)}, degraded{false};
-    auto health = [&](wire::Response &response) {
-      auto *h = response.mutable_health();
+    auto health = [&](wire::Response& response) {
+      auto* h = response.mutable_health();
       h->set_instance_id(instance);
       h->set_version(ASTERION_PRODUCT_VERSION);
       h->set_initialized(initialized);
       h->set_recovery_required(degraded);
-      h->set_uptime_ms(static_cast<std::uint64_t>(
-          std::chrono::duration_cast<std::chrono::milliseconds>(
-              std::chrono::steady_clock::now() - started)
-              .count()));
+      h->set_uptime_ms(
+          static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                         std::chrono::steady_clock::now() - started)
+                                         .count()));
     };
-    auto validate = [&](const wire::Request &request,
-                        wire::Response &response) {
+    auto validate = [&](const wire::Request& request, wire::Response& response) {
       protocol::validate_message(request);
       validate_id(request.correlation_id());
       if (request.version() != 1 || request.session_id() != session_id)
@@ -114,7 +103,7 @@ int main(int argc, char **argv) {
               continue;
             health(response);
             channel.send(response.SerializeAsString(), 1s);
-          } catch (const std::exception &) {
+          } catch (const std::exception&) {
           }
         }
       });
@@ -128,8 +117,8 @@ int main(int argc, char **argv) {
       while (!stop.stop_requested()) {
         std::this_thread::sleep_for(50ms);
         std::lock_guard lock(session_mutex);
-        if (!session || !session->config().has_replay() ||
-            replay_phase == "completed" || replay_phase == "blocked")
+        if (!session || !session->config().has_replay() || replay_phase == "completed" ||
+            replay_phase == "blocked")
           continue;
         try {
           if (!replay) {
@@ -144,17 +133,16 @@ int main(int argc, char **argv) {
           replay_phase = replay->step() ? "completed" : "running";
           replay_error.clear();
           degraded = false;
-        } catch (const std::exception &error) {
+        } catch (const std::exception& error) {
           replay_error = error.what();
-          if (replay_probed ||
-              std::chrono::steady_clock::now() >= probe_deadline) {
+          if (replay_probed || std::chrono::steady_clock::now() >= probe_deadline) {
             replay_phase = "blocked";
             degraded = true;
           }
         }
       }
     });
-    auto serve = [&](auto &channel) {
+    auto serve = [&](auto& channel) {
       // One bounded request per connection; an idle client cannot hold the
       // event writer forever. Health uses its own channel and never touches the
       // plugin.
@@ -173,15 +161,13 @@ int main(int argc, char **argv) {
           if (session)
             session->verify_config(request.create());
           else
-            session = std::make_unique<strategy::Session>(path, session_id,
-                                                          &request.create());
+            session = std::make_unique<strategy::Session>(path, session_id, &request.create());
           *response.mutable_snapshot() = session->snapshot();
         } else if (request.has_event()) {
           if (!session)
             throw std::invalid_argument("strategy session is not initialized");
           if (session->config().has_replay())
-            throw std::invalid_argument(
-                "replay session owns its source events");
+            throw std::invalid_argument("replay session owns its source events");
           *response.mutable_receipt() = session->apply(request.event());
         } else if (request.has_snapshot()) {
           if (session)
@@ -190,21 +176,17 @@ int main(int argc, char **argv) {
             response.mutable_uninitialized();
         } else
           throw std::invalid_argument("missing strategy operation");
-        if (response.has_snapshot() && session &&
-            session->config().has_replay()) {
+        if (response.has_snapshot() && session && session->config().has_replay()) {
           response.mutable_snapshot()->mutable_replay()->set_phase(
               replay_phase.empty() ? "waiting" : replay_phase);
-          response.mutable_snapshot()->mutable_replay()->set_error(
-              replay_error);
+          response.mutable_snapshot()->mutable_replay()->set_error(replay_error);
         }
         initialized = bool(session);
-        degraded = (session && session->recovery_required()) ||
-                   replay_phase == "blocked";
-      } catch (const std::exception &error) {
+        degraded = (session && session->recovery_required()) || replay_phase == "blocked";
+      } catch (const std::exception& error) {
         std::lock_guard lock(session_mutex);
         initialized = bool(session);
-        degraded = (session && session->recovery_required()) ||
-                   replay_phase == "blocked";
+        degraded = (session && session->recovery_required()) || replay_phase == "blocked";
         response.mutable_error()->set_code("operation_failed");
         response.mutable_error()->set_message(error.what());
       }
@@ -217,7 +199,7 @@ int main(int argc, char **argv) {
         try {
           auto channel = listener.accept(1s);
           serve(channel);
-        } catch (const std::exception &) {
+        } catch (const std::exception&) {
         }
       }
     } else {
@@ -226,11 +208,11 @@ int main(int argc, char **argv) {
         try {
           auto channel = listener.accept(1s);
           serve(channel);
-        } catch (const std::exception &) {
+        } catch (const std::exception&) {
         }
       }
     }
-  } catch (const std::exception &error) {
+  } catch (const std::exception& error) {
     std::cerr << "Strategy process failed: " << error.what() << '\n';
     return 1;
   }

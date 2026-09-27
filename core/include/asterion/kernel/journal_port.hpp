@@ -6,7 +6,7 @@ namespace asterion {
 // implementation must refuse further writes until reopened and recovered.
 class JournalPort : public Plugin {
 public:
-    virtual std::vector<Json> read() const = 0;
-    virtual void append(const Json& record) = 0;
+  virtual std::vector<Json> read() const = 0;
+  virtual void append(const Json& record) = 0;
 };
-}
+} // namespace asterion

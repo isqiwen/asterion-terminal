@@ -26,10 +26,7 @@ TEST(TransportDeadline, IdleCancellationWithoutAcceptRemainsTimeout) {
   std::function<void(asio::error_code)> complete;
   EXPECT_THROW(run(
                    io, 0ms, [&](auto done) { complete = done; },
-                   [&] {
-                     asio::post(
-                         io, [&] { complete(asio::error::operation_aborted); });
-                   },
+                   [&] { asio::post(io, [&] { complete(asio::error::operation_aborted); }); },
                    DeadlinePolicy::preserve_accepted),
                Error);
 }
@@ -45,8 +42,7 @@ TEST(TransportDeadline, CompletedOperationDoesNotWaitForDeadline) {
   asio::io_context io;
   bool cancelled = false;
   EXPECT_NO_THROW(run(
-      io, 10s,
-      [&](auto done) { asio::post(io, [done] { done(asio::error_code{}); }); },
+      io, 10s, [&](auto done) { asio::post(io, [done] { done(asio::error_code{}); }); },
       [&] { cancelled = true; }, DeadlinePolicy::preserve_accepted));
   EXPECT_FALSE(cancelled);
 }

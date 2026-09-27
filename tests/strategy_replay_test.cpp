@@ -9,8 +9,7 @@ using namespace asterion;
 namespace fs = std::filesystem;
 namespace {
 struct Fixture {
-  fs::path root =
-      fs::temp_directory_path() / ("asterion-replay-" + unique_process_id());
+  fs::path root = fs::temp_directory_path() / ("asterion-replay-" + unique_process_id());
   Json manifest;
   strategy::v1::Config config;
   std::unique_ptr<trading::PaperSession> account;
@@ -55,10 +54,9 @@ struct Fixture {
     config.set_slow(2);
     config.mutable_quantity()->set_units(100000000);
     *config.mutable_contract() = p.contract();
-    auto *plan = config.mutable_replay();
+    auto* plan = config.mutable_replay();
     plan->set_version(2);
-    *plan->mutable_dataset() =
-        protocol::make_trade_dataset(p.contract(), p.ticks());
+    *plan->mutable_dataset() = protocol::make_trade_dataset(p.contract(), p.ticks());
     plan->set_trading_session("account");
     plan->set_grant_id("grant");
     plan->set_host("localhost");
@@ -66,28 +64,24 @@ struct Fixture {
     plan->set_tls_ca("test-ca");
     plan->set_tls_cert("test-cert");
     plan->set_tls_key("test-key");
-    account =
-        std::make_unique<trading::PaperSession>(root / "account", manifest);
+    account = std::make_unique<trading::PaperSession>(root / "account", manifest);
     if (scheduled) {
       google::protobuf::RepeatedPtrField<data::v1::SettlementDay> days;
       protocol::encode_settlement_days(
           Json::array({{{"trading_day", "2026-09-25"},
-                        {"sessions",
-                         Json::array({{{"begin_ns", "1"}, {"end_ns", "4"}}})},
+                        {"sessions", Json::array({{{"begin_ns", "1"}, {"end_ns", "4"}}})},
                         {"schedule_source", "fixture"},
                         {"settlement_price", "105"},
                         {"settlement_source", "fixture"}},
                        {{"trading_day", "2026-09-28"},
-                        {"sessions",
-                         Json::array({{{"begin_ns", "4"}, {"end_ns", "7"}}})},
+                        {"sessions", Json::array({{{"begin_ns", "4"}, {"end_ns", "7"}}})},
                         {"schedule_source", "fixture"},
                         {"settlement_price", "110"},
                         {"settlement_source", "fixture"}}}),
           days);
       data::v1::CalendarPublication publication;
       publication.set_version(1);
-      *publication.mutable_calendar() =
-          protocol::make_settlement_calendar(p.contract(), days);
+      *publication.mutable_calendar() = protocol::make_settlement_calendar(p.contract(), days);
       publication.set_source_name("fixture.csv");
       publication.set_source_sha256(std::string(64, 'a'));
       publication.set_source_bytes(1);
@@ -96,8 +90,7 @@ struct Fixture {
       *plan->mutable_calendar_publication() = publication;
       account->execute({{"request_id", "calendar"},
                         {"action", "replay_calendar"},
-                        {"publication",
-                         protocol::decode_calendar_publication(publication)}});
+                        {"publication", protocol::decode_calendar_publication(publication)}});
     }
     account->execute({{"request_id", "grant.request"},
                       {"action", "strategy_grant"},
@@ -106,8 +99,7 @@ struct Fixture {
                       {"stream_id", "dataset"},
                       {"dataset_revision", plan->dataset().revision()},
                       {"max_quantity", "1"}});
-    session = std::make_unique<strategy::Session>(root / "strategy", "replay",
-                                                  &config);
+    session = std::make_unique<strategy::Session>(root / "strategy", "replay", &config);
   }
   ~Fixture() {
     session.reset();
@@ -140,24 +132,19 @@ struct Fixture {
   }
 };
 } // namespace
-TEST(StrategyReplay,
-     EveryCommitBoundaryRecoversWithoutSkippingEventsOrDuplicatingOrders) {
-  for (const auto &boundary :
-       {"before-advance", "after-advance", "before-target", "after-target",
-        "after-revoke"}) {
+TEST(StrategyReplay, EveryCommitBoundaryRecoversWithoutSkippingEventsOrDuplicatingOrders) {
+  for (const auto& boundary :
+       {"before-advance", "after-advance", "before-target", "after-target", "after-revoke"}) {
     SCOPED_TRACE(boundary);
     Fixture f;
     bool interrupted = false;
     strategy::Replay driver(*f.session, [&](auto r) {
-      const auto &c = r.command();
+      const auto& c = r.command();
       const bool selected =
           r.has_command() &&
-          ((std::string(boundary).find("advance") != std::string::npos &&
-            c.has_advance()) ||
-           (std::string(boundary).find("target") != std::string::npos &&
-            c.has_strategy_target()) ||
-           (std::string(boundary).find("revoke") != std::string::npos &&
-            c.has_strategy_revoke()));
+          ((std::string(boundary).find("advance") != std::string::npos && c.has_advance()) ||
+           (std::string(boundary).find("target") != std::string::npos && c.has_strategy_target()) ||
+           (std::string(boundary).find("revoke") != std::string::npos && c.has_strategy_revoke()));
       const bool fail = selected && !interrupted;
       if (fail && std::string(boundary).starts_with("before")) {
         interrupted = true;
@@ -193,9 +180,8 @@ TEST(StrategyReplay,
 TEST(StrategyReplay, RevocationAndDivergentClocksStopWithoutFurtherMutation) {
   {
     Fixture f;
-    f.account->execute({{"request_id", "stop"},
-                        {"action", "strategy_revoke"},
-                        {"grant_id", "grant"}});
+    f.account->execute(
+        {{"request_id", "stop"}, {"action", "strategy_revoke"}, {"grant_id", "grant"}});
     const auto before = f.account->snapshot();
     strategy::Replay driver(*f.session, [&](auto r) { return f.call(r); });
     EXPECT_THROW(driver.step(), std::invalid_argument);
@@ -204,7 +190,7 @@ TEST(StrategyReplay, RevocationAndDivergentClocksStopWithoutFurtherMutation) {
   }
   {
     Fixture f;
-    for (const auto *id : {"a", "b"})
+    for (const auto* id : {"a", "b"})
       f.account->execute({{"request_id", id}, {"action", "advance"}});
     const auto before = f.account->snapshot();
     strategy::Replay driver(*f.session, [&](auto r) { return f.call(r); });
@@ -213,8 +199,7 @@ TEST(StrategyReplay, RevocationAndDivergentClocksStopWithoutFurtherMutation) {
     EXPECT_EQ(f.session->processed(), 0U);
   }
 }
-TEST(StrategyReplay,
-     PlanRejectsMixedConnectionsAndCorruptDatasetBeforeWriting) {
+TEST(StrategyReplay, PlanRejectsMixedConnectionsAndCorruptDatasetBeforeWriting) {
   Fixture f;
   const auto json = protocol::decode_replay_plan(f.config.replay());
   EXPECT_EQ(protocol::encode_replay_plan(json).SerializeAsString(),
@@ -228,13 +213,11 @@ TEST(StrategyReplay,
   auto wrong = f.config;
   wrong.mutable_contract()->set_symbol("rb2611");
   fs::create_directory(f.root / "wrong");
-  EXPECT_THROW((strategy::Session(f.root / "wrong", "replay", &wrong)),
-               std::invalid_argument);
+  EXPECT_THROW((strategy::Session(f.root / "wrong", "replay", &wrong)), std::invalid_argument);
   EXPECT_TRUE(fs::is_empty(f.root / "wrong"));
 }
 
-TEST(StrategyReplay,
-     ScheduledReplayRecoversBeforeAndAfterEachSettlementCommit) {
+TEST(StrategyReplay, ScheduledReplayRecoversBeforeAndAfterEachSettlementCommit) {
   Fixture reference(true);
   reference.finish();
   const auto expected = reference.account->snapshot();
@@ -248,8 +231,7 @@ TEST(StrategyReplay,
       bool injected = false;
       {
         strategy::Replay driver(*f.session, [&](auto request) {
-          if (!injected && request.has_command() &&
-              request.command().has_replay_settle() &&
+          if (!injected && request.has_command() && request.command().has_replay_settle() &&
               request.command().replay_settle().day_index() == day) {
             injected = true;
             if (committed)
@@ -286,7 +268,7 @@ TEST(StrategyReplay, CalendarIdentityAndScheduleModeMustMatchAccount) {
   EXPECT_THROW(missing.probe(), std::invalid_argument);
   auto forged = [&](auto request) {
     auto state = scheduled.call(request);
-    auto *publication = state.mutable_replay()->mutable_publication();
+    auto* publication = state.mutable_replay()->mutable_publication();
     publication->set_source_name("other.csv");
     publication->set_id(protocol::calendar_publication_id(*publication));
     return state;
@@ -305,8 +287,7 @@ TEST(StrategyReplay, ScheduledExecutionMatchesBacktestLedgerAndFillEconomics) {
   input.set_version(5);
   *input.mutable_paper() = protocol::encode_input(f.manifest);
   input.set_dataset_revision(f.config.replay().dataset().revision());
-  *input.mutable_calendar_publication() =
-      f.config.replay().calendar_publication();
+  *input.mutable_calendar_publication() = f.config.replay().calendar_publication();
   *input.mutable_days() = input.calendar_publication().calendar().days();
   input.mutable_sma()->set_fast(f.config.fast());
   input.mutable_sma()->set_slow(f.config.slow());
@@ -314,18 +295,16 @@ TEST(StrategyReplay, ScheduledExecutionMatchesBacktestLedgerAndFillEconomics) {
   const auto result = backtest::run(input);
   const auto expected = protocol::decode_snapshot(result.account());
   const auto actual = f.account->snapshot();
-  for (const auto *key :
-       {"balance", "equity", "available", "margin", "frozen", "fees",
-        "realized", "unrealized", "mark", "positions", "cursor", "total"})
+  for (const auto* key : {"balance", "equity", "available", "margin", "frozen", "fees", "realized",
+                          "unrealized", "mark", "positions", "cursor", "total"})
     EXPECT_EQ(actual.at(key), expected.at(key)) << key;
-  const auto fills = [](const Json &account) {
+  const auto fills = [](const Json& account) {
     Json values = Json::array();
-    for (const auto &fill : account.at("fills")) {
-      const auto &orders = account.at("orders");
-      const auto order = std::find_if(
-          orders.begin(), orders.end(), [&](const auto &candidate) {
-            return candidate.at("id") == fill.at("order_id");
-          });
+    for (const auto& fill : account.at("fills")) {
+      const auto& orders = account.at("orders");
+      const auto order = std::find_if(orders.begin(), orders.end(), [&](const auto& candidate) {
+        return candidate.at("id") == fill.at("order_id");
+      });
       if (order == orders.end())
         throw std::runtime_error("missing fill order");
       values.push_back({{"price", fill.at("price")},
