@@ -12,7 +12,7 @@ if sys.platform != "darwin":
 label = f"gui/{os.getuid()}/me.asterion.node-agent"
 if subprocess.run(["/bin/launchctl", "print", label], capture_output=True).returncode == 0:
     raise SystemExit("An existing Asterion service is registered; refusing to modify it")
-with tempfile.TemporaryDirectory(prefix="asterion-launchd-") as folder:
+with tempfile.TemporaryDirectory(prefix="asterion-launchd-", ignore_cleanup_errors=True) as folder:
     env = dict(os.environ, HOME=folder)
     env.pop("ASTERION_NODE_DIRECTORY", None)
     host = subprocess.Popen([sys.argv[1]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env)

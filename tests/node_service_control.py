@@ -27,7 +27,7 @@ def wait(check):
 def alive(pid):
     try:os.kill(pid,0);return True
     except ProcessLookupError:return False
-with tempfile.TemporaryDirectory(prefix='ast-os-',dir='/tmp') as folder:
+with tempfile.TemporaryDirectory(prefix='ast-os-',dir='/tmp', ignore_cleanup_errors=True) as folder:
     root=Path(folder).resolve();home=root/'home';home.mkdir();state=root/'state';state.mkdir();bin_dir=state/'bin';bin_dir.mkdir()
     binary=bin_dir/'asterion-node-agent';shutil.copy2(build/'asterion-node-agent',binary)
     endpoint=str(root/'agent.sock');env=dict(os.environ,HOME=str(home))

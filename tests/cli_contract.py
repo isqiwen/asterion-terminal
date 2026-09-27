@@ -10,7 +10,7 @@ for binary in sys.argv[1:]:
         assert result.returncode == 0 and result.stdout, (binary, option, result)
     result = subprocess.run([binary, "--not-an-option"], capture_output=True, text=True, timeout=10)
     assert result.returncode != 0 and result.stderr, binary
-with tempfile.TemporaryDirectory(prefix="asterion-live-denied-") as folder:
+with tempfile.TemporaryDirectory(prefix="asterion-live-denied-", ignore_cleanup_errors=True) as folder:
     result = subprocess.run([sys.argv[3], "--mode", "live", "--session", "live.test",
                              "--endpoint", "asterion.test", "--directory", folder],
                             capture_output=True, text=True, timeout=10)
@@ -20,7 +20,7 @@ print("CLI11 help, version, invalid arguments and fail-closed live mode verified
 
 # Every independent application requires an explicit operation/configuration.
 for binary in sys.argv[5:]:
-    with tempfile.TemporaryDirectory(prefix="asterion-cli-empty-") as folder:
+    with tempfile.TemporaryDirectory(prefix="asterion-cli-empty-", ignore_cleanup_errors=True) as folder:
         result = subprocess.run([str(Path(binary).resolve())], cwd=folder,
                                 capture_output=True, text=True, timeout=10)
         assert result.returncode != 0 and result.stderr, (binary, result)

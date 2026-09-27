@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <vector>
 #include "timed_operation.hpp"
 #include <array>
 #include <asio.hpp>
@@ -99,8 +101,18 @@ TlsChannel TlsChannel::connect(const std::string& host, std::uint16_t port,
                                });
       },
       [&] { resolver.cancel(); });
-  p.operation(remaining(end),
-              [&](auto done) { asio::async_connect(p.stream.next_layer(), addresses, done); });
+  // IPv4 first: services bind IPv4 addresses by default, and "localhost" often
+  // resolves to ::1 first. On Windows a refused connection only fails after
+  // SYN retransmission (about 2 s), which a v6-first order paid on every call.
+  std::vector<Tcp::endpoint> endpoints;
+  for (const auto& entry : addresses)
+    endpoints.push_back(entry.endpoint());
+  std::stable_partition(endpoints.begin(), endpoints.end(),
+                        [](const Tcp::endpoint& e) { return e.address().is_v4(); });
+  p.operation(remaining(end), [&](auto done) {
+    asio::async_connect(p.stream.next_layer(), endpoints,
+                        [done](asio::error_code ec, const Tcp::endpoint&) { done(ec); });
+  });
   p.operation(remaining(end),
               [&](auto done) { p.stream.async_handshake(asio::ssl::stream_base::client, done); });
   return channel;

@@ -76,7 +76,7 @@ elif not windows:
     check = command(["/usr/bin/systemctl", "--user", "show-environment"])
     assert check.returncode == 0, "A working systemd user manager is required: " + check.stderr
 
-with tempfile.TemporaryDirectory(prefix="ast-native-") as folder:
+with tempfile.TemporaryDirectory(prefix="ast-native-", ignore_cleanup_errors=True) as folder:
     root = Path(folder).resolve()
     state = root / "state"
     (state / "bin").mkdir(parents=True)

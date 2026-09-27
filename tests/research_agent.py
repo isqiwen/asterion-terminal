@@ -40,7 +40,7 @@ def completed(process, task_id="agent-recovery"):
     raise AssertionError(snapshot)
 
 
-with tempfile.TemporaryDirectory(prefix="asterion-research-agent-") as folder:
+with tempfile.TemporaryDirectory(prefix="asterion-research-agent-", ignore_cleanup_errors=True) as folder:
     csv = Path(folder) / "ticks.csv"
     prices = [100, 101, 102, 101, 104, 103, 102, 103]
     csv.write_text("timestamp_ns,price,quantity\n" + "".join(

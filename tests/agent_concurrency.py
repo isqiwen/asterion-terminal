@@ -47,7 +47,7 @@ def fields(data):
             result[number] = data[offset:end]; offset = end
     return result
 
-with tempfile.TemporaryDirectory(prefix="ast-agent-concurrency-") as folder:
+with tempfile.TemporaryDirectory(prefix="ast-agent-concurrency-", ignore_cleanup_errors=True) as folder:
     root = Path(folder); (root / "state").mkdir()
     subprocess.run([certificates, folder], check=True)
     with socket.socket() as reserve:

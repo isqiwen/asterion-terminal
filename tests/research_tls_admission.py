@@ -9,7 +9,7 @@ import tempfile
 import time
 
 executable, certificates = sys.argv[1:]
-with tempfile.TemporaryDirectory(prefix="ast-research-admission-") as folder:
+with tempfile.TemporaryDirectory(prefix="ast-research-admission-", ignore_cleanup_errors=True) as folder:
     root = Path(folder)
     (root / "tasks").mkdir()
     subprocess.run([certificates, folder], check=True)

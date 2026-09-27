@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 import time
-with tempfile.TemporaryDirectory(prefix="asterion-local-health-") as folder:
+with tempfile.TemporaryDirectory(prefix="asterion-local-health-", ignore_cleanup_errors=True) as folder:
     root = Path(folder); (root / "ledger").mkdir(); source = root / "ticks.csv"
     source.write_text("timestamp_ns,price,quantity\n100,100,1\n200,101,1\n")
     host = subprocess.Popen([sys.argv[1]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)

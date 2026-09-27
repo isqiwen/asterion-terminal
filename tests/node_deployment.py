@@ -42,7 +42,7 @@ def stop(p):
     _, diagnostic = p.communicate(timeout=15)
     if diagnostic:
         print(diagnostic, file=sys.stderr)
-with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-") as folder:
+with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup_errors=True) as folder:
     root = Path(folder); state = root / "node"; state.mkdir()
     subprocess.run([certificates, folder], check=True)
     management, trade_port = port(), port()

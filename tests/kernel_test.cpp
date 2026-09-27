@@ -280,16 +280,21 @@ TEST(Kernel, DurableFilesAreOwnerOnlyAndReplaceAtomically) {
   std::filesystem::create_directory(root);
   const auto file = root / "secret.pem";
   write_file_durably(file, "first");
-  std::ifstream first(file, std::ios::binary);
-  EXPECT_EQ(std::string(std::istreambuf_iterator<char>(first), {}), "first");
+  {
+    // Closed before the replacement: Windows cannot replace an open file.
+    std::ifstream first(file, std::ios::binary);
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(first), {}), "first");
+  }
 #ifndef _WIN32
   using std::filesystem::perms;
   EXPECT_EQ(std::filesystem::status(file).permissions() & perms::all,
             perms::owner_read | perms::owner_write);
 #endif
   replace_file_durably(file, "second");
-  std::ifstream second(file, std::ios::binary);
-  EXPECT_EQ(std::string(std::istreambuf_iterator<char>(second), {}), "second");
+  {
+    std::ifstream second(file, std::ios::binary);
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(second), {}), "second");
+  }
   EXPECT_FALSE(std::filesystem::exists(root / "secret.pem.tmp"));
 #ifndef _WIN32
   std::filesystem::create_symlink(file, root / "link");

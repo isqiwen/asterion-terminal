@@ -42,7 +42,7 @@ def main():
 
     terminal = None
     registered = False
-    with tempfile.TemporaryDirectory(prefix='asterion-user-supervisor-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='asterion-user-supervisor-', ignore_cleanup_errors=True) as temporary:
         root = Path(temporary); state = root / 'state'; state.mkdir()
         command([str(build / 'asterion_test_certificates'), str(root)])
         sockets = [socket.socket(), socket.socket()]

@@ -60,7 +60,7 @@ def main():
         sc('failure', name, 'reset=', '3600', 'actions=', 'restart/1000/restart/1000/none/0')
         sc('start', name)
         wait(lambda: (state / 'agent.pid').is_file())
-        with tempfile.TemporaryDirectory(prefix='asterion-scm-client-') as directory:
+        with tempfile.TemporaryDirectory(prefix='asterion-scm-client-', ignore_cleanup_errors=True) as directory:
             enrollment = Path(directory) / 'enrollments' / 'acceptance'; enrollment.mkdir(parents=True)
             for file in ('ca.crt', 'client.crt', 'client.key'):
                 shutil.copyfile(root / file, enrollment / file)

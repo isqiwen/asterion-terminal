@@ -64,7 +64,7 @@ def main():
     run([*sudo, 'test', '!', '-e', str(installation)])
     run([*sudo, 'test', '!', '-e', str(definition)])
     terminal = sshd = None
-    with tempfile.TemporaryDirectory(prefix='asterion-native-ssh-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='asterion-native-ssh-', ignore_cleanup_errors=True) as temporary:
         root = Path(temporary)
         for name in ('host',):
             run(['/usr/bin/ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', str(root / name)])

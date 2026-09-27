@@ -32,7 +32,7 @@ def kill(process):
     process.stdout.close()
 
 
-with tempfile.TemporaryDirectory(prefix="asterion-crash-中文-") as temporary:
+with tempfile.TemporaryDirectory(prefix="asterion-crash-中文-", ignore_cleanup_errors=True) as temporary:
     directory = Path(temporary) / "account"
     directory.mkdir()
     source = Path(temporary) / "ticks.csv"

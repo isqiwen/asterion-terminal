@@ -52,7 +52,7 @@ class HostInitialization(unittest.TestCase):
             self.assertEqual(run.call_args.args, ('/usr/bin/systemctl', 'enable', '--now', 'asterion-node-agent-node-1.service'))
 
     def test_existing_files_and_symlinks_not_overwritten(self):
-        with tempfile.TemporaryDirectory() as root, patch.object(host, 'protected_directory'):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as root, patch.object(host, 'protected_directory'):
             existing = Path(root) / 'existing'
             existing.write_text('unrelated configuration')
             link = Path(root) / 'link'
@@ -63,7 +63,7 @@ class HostInitialization(unittest.TestCase):
             self.assertEqual(existing.read_text(), 'unrelated configuration')
 
     def test_writable_administrative_parent_rejected(self):
-        with tempfile.TemporaryDirectory() as root:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as root:
             path = Path(root)
             path.chmod(0o777)
             with self.assertRaises(ValueError):

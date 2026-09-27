@@ -17,7 +17,7 @@ import os
 SCALE = float(os.environ.get("ASTERION_TIMING_SCALE", "1"))
 
 executable, certificates = sys.argv[1:]
-with tempfile.TemporaryDirectory(prefix="ast-trading-admission-") as folder:
+with tempfile.TemporaryDirectory(prefix="ast-trading-admission-", ignore_cleanup_errors=True) as folder:
     root = Path(folder)
     (root / "ledger").mkdir()
     subprocess.run([certificates, folder], check=True)

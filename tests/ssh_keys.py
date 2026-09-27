@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 
-with tempfile.TemporaryDirectory(prefix='asterion-managed-key-') as folder:
+with tempfile.TemporaryDirectory(prefix='asterion-managed-key-', ignore_cleanup_errors=True) as folder:
     root=Path(folder)
     tools=root/'tools'; tools.mkdir()
     remote=root/'remote'; remote.mkdir()

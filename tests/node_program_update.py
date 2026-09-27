@@ -13,7 +13,7 @@ fixture, agent, revision = map(lambda value: Path(value).resolve(), sys.argv[1:]
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 assert digest(agent) != digest(revision)
-with tempfile.TemporaryDirectory(prefix="ast-upgrade-") as folder:
+with tempfile.TemporaryDirectory(prefix="ast-upgrade-", ignore_cleanup_errors=True) as folder:
     root = Path(folder).resolve()
     (root / "bin").mkdir()
     installed = root / "bin" / agent.name

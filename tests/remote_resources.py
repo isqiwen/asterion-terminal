@@ -12,7 +12,7 @@ from bundle_fixture import make_bundle
 source=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('resources',source/'scripts/remote_resources.py')
 resources=importlib.util.module_from_spec(spec);spec.loader.exec_module(resources)
-with tempfile.TemporaryDirectory() as folder:
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
  root=Path(folder); fixture=make_bundle(root/'fixture'); archives=root/'archives'; archives.mkdir()
  for arch in resources.ARCHES:
   with zipfile.ZipFile(archives/f'asterion-services-linux-{arch}.zip','w') as archive:

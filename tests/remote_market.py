@@ -9,7 +9,7 @@ import time
 build=Path(sys.argv[1]).resolve()
 ext='.exe' if sys.platform=='win32' else ''
 sdk='asterion_test_ctp.dll' if sys.platform=='win32' else 'libasterion_test_ctp.dylib' if sys.platform=='darwin' else 'libasterion_test_ctp.so'
-with tempfile.TemporaryDirectory(prefix='asterion-market-tls-') as folder:
+with tempfile.TemporaryDirectory(prefix='asterion-market-tls-', ignore_cleanup_errors=True) as folder:
     root=Path(folder)
     subprocess.run([str(build/('asterion_test_certificates'+ext)),folder],check=True)
     with socket.socket() as probe:

@@ -135,6 +135,8 @@ struct Feed::Impl final : CThostFtdcMdSpi {
   bool closing = false, logged_in = false;
   bool login_pending = false, subscription_pending = false;
   std::jthread commands;
+  // Background release of the previous SDK instance; see close().
+  std::jthread retiring;
   explicit Impl(const std::filesystem::path& path, const std::filesystem::path& directory,
                 std::size_t capacity)
       : flow(directory), event_capacity(capacity) {
@@ -169,12 +171,27 @@ struct Feed::Impl final : CThostFtdcMdSpi {
   }
   ~Impl() {
     close();
+    // The SDK must be fully released before its library is unloaded.
+    finish_release();
     unload();
   }
+  // Waits for a previous close() to release its SDK instance.
+  void finish_release() {
+    if (retiring.joinable())
+      retiring.join();
+  }
+  // Marks the session disconnected at once and releases the vendor SDK in the
+  // background: Release() can block for seconds while the SDK is still
+  // retrying an unreachable front (notably on Windows), which must not hold
+  // the service's request path. Idempotent; connect() and the destructor
+  // wait for the release before reusing or unloading the SDK.
   void close() {
     CThostFtdcMdApi* old;
     {
       std::lock_guard lock(mutex);
+      erase(config.password);
+      if (closing)
+        return;
       closing = true;
       logged_in = false;
       old = api;
@@ -183,16 +200,22 @@ struct Feed::Impl final : CThostFtdcMdSpi {
       ++state.sequence;
       record_status();
     }
+    finish_release();
     commands.request_stop();
-    if (commands.joinable())
-      commands.join();
-    api = nullptr;
-    if (old) {
-      old->RegisterSpi(nullptr);
-      old->Release();
-    }
-    std::lock_guard lock(mutex);
-    erase(config.password);
+    retiring = std::jthread([this, old, runner = std::move(commands)]() mutable {
+      // The command thread reads `api` outside the lock after checking
+      // `closing`, so it must stop before the instance is released.
+      runner.request_stop();
+      if (runner.joinable())
+        runner.join();
+      if (old) {
+        old->RegisterSpi(nullptr);
+        old->Release();
+      }
+      std::lock_guard lock(mutex);
+      if (api == old)
+        api = nullptr;
+    });
   }
   template <class F> void callback(F action, bool quote = false) noexcept {
     try {
@@ -427,6 +450,7 @@ void Feed::connect(Configuration config, const std::vector<InstrumentId>& ids) {
   copy(check.Password, config.password);
   std::memset(check.Password, 0, sizeof(check.Password));
   impl_->close();
+  impl_->finish_release();
   {
     std::lock_guard lock(impl_->mutex);
     impl_->config = std::move(config);

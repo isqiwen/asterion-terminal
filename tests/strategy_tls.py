@@ -23,7 +23,7 @@ def request(operation):
                                 "correlation_id: 'tls.request' " + operation).encode())
 
 
-with tempfile.TemporaryDirectory(prefix="asterion-strategy-tls-") as folder:
+with tempfile.TemporaryDirectory(prefix="asterion-strategy-tls-", ignore_cleanup_errors=True) as folder:
     root = Path(folder)
     journal = root / "journal"
     journal.mkdir()

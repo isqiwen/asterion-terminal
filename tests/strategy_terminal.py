@@ -24,7 +24,7 @@ def close(process):
     process.kill();process.communicate(timeout=10)
 
 
-with tempfile.TemporaryDirectory(prefix="asterion-strategy-terminal-") as folder:
+with tempfile.TemporaryDirectory(prefix="asterion-strategy-terminal-", ignore_cleanup_errors=True) as folder:
     root=Path(folder);source=root/"ticks.csv";account=root/"account";account.mkdir()
     prices=[100,101,100,102,99,103]*10
     contents="timestamp_ns,price,quantity\n"+"".join(f"{i+1},{price},1\n" for i,price in enumerate(prices))

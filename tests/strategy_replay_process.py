@@ -36,7 +36,7 @@ def port():
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
-with tempfile.TemporaryDirectory(prefix="asterion-auto-replay-") as folder:
+with tempfile.TemporaryDirectory(prefix="asterion-auto-replay-", ignore_cleanup_errors=True) as folder:
     root=Path(folder)
     for name in ("strategy", "account"): (root/name).mkdir()
     subprocess.run([certificates, folder], check=True, capture_output=True)

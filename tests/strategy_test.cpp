@@ -20,7 +20,7 @@ namespace wire = strategy::v1;
 namespace {
 struct Directory {
 #ifdef _WIN32
-  fs::path path = fs::temp_directory_path() / ("asterion-strategy-" + unique_process_id());
+  fs::path path = fs::temp_directory_path() / ("asterion.strategy." + unique_process_id());
 #else
   fs::path path = fs::path("/tmp") / ("ast-s-" + unique_process_id().substr(0, 12));
 #endif
@@ -214,8 +214,8 @@ TEST(Strategy, IndependentProcessRecoversAndRetriesAfterClientDisconnect) {
   Directory dir;
   const auto c = config();
 #ifdef _WIN32
-  const auto endpoint = "asterion-strategy-" + unique_process_id();
-  const auto health_endpoint = endpoint + "-health";
+  const auto endpoint = "asterion.strategy." + unique_process_id();
+  const auto health_endpoint = endpoint + ".health";
 #else
   const auto endpoint = (dir.path / "events.sock").string();
   const auto health_endpoint = (dir.path / "health.sock").string();
@@ -283,7 +283,7 @@ TEST(StrategyAgent, DeploymentRestartAndDesiredStateAreIndependentOfClients) {
   const auto state = root.path / "agent";
   fs::create_directory(state);
 #ifdef _WIN32
-  const auto endpoint = "asterion-agent-strategy-" + unique_process_id();
+  const auto endpoint = "asterion.agent-strategy." + unique_process_id();
 #else
   const auto endpoint = (root.path / "agent.sock").string();
 #endif
@@ -525,8 +525,8 @@ TEST(StrategyExecution, TwoProcessesRecoverAuthorizedTargetsWithoutDuplicateOrde
   fs::create_directory(root.path / "strategy");
   fs::create_directory(root.path / "trading");
 #ifdef _WIN32
-  const auto endpoint = "asterion-strategy-exec-" + unique_process_id();
-  const auto trade_endpoint = "asterion-trade-exec-" + unique_process_id();
+  const auto endpoint = "asterion.strategy-exec." + unique_process_id();
+  const auto trade_endpoint = "asterion.trade-exec." + unique_process_id();
 #else
   const auto endpoint = (root.path / "s.sock").string();
   const auto trade_endpoint = (root.path / "t.sock").string();

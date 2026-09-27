@@ -8,7 +8,7 @@ import tempfile
 import signal
 import time
 from bundle_fixture import make_bundle
-with tempfile.TemporaryDirectory(prefix="asterion-ssh-ui-") as folder:
+with tempfile.TemporaryDirectory(prefix="asterion-ssh-ui-", ignore_cleanup_errors=True) as folder:
     root = Path(folder); tools = root / "tools"; tools.mkdir(); remote = root / "remote"; remote.mkdir()
     resources=make_bundle(root / "resources", Path(__file__).resolve().parents[1] / "build/Debug")
     env = dict(os.environ, ASTERION_REMOTE_RESOURCES=str(resources))

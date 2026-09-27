@@ -19,7 +19,7 @@ if os.name == "nt":
     print("POSIX signal semantics only")
     sys.exit(0)
 kind, executable = sys.argv[1:3]
-with tempfile.TemporaryDirectory(prefix="ast-stop-", dir="/tmp") as folder:
+with tempfile.TemporaryDirectory(prefix="ast-stop-", dir="/tmp", ignore_cleanup_errors=True) as folder:
     root = Path(folder)
     (root / "data").mkdir()
     endpoint = root / "service.sock"

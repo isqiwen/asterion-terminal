@@ -30,7 +30,7 @@ def stop(process):
         process.kill()
     process.communicate(timeout=10)
 
-with tempfile.TemporaryDirectory(prefix="asterion-tcp-中文-") as folder:
+with tempfile.TemporaryDirectory(prefix="asterion-tcp-中文-", ignore_cleanup_errors=True) as folder:
     root = Path(folder)
     subprocess.run([certificates, folder], check=True, timeout=20)
     account = root / "server-ledger"
