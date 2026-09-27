@@ -1,6 +1,7 @@
 #include "node_program.hpp"
 #include "node_client.hpp"
 #include "node_service.hpp"
+#include <asterion/kernel/durable_file.hpp>
 #include <asterion/foundation/serialization.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
@@ -27,6 +28,7 @@ void publish(const fs::path& source, const fs::path& destination) {
     throw std::runtime_error("cannot publish Agent update");
 #else
   fs::rename(source, destination);
+  sync_directory(destination.parent_path());
 #endif
 }
 } // namespace
@@ -126,11 +128,7 @@ void replace_node_program(const fs::path& source, const fs::path& installed, con
       throw std::runtime_error("unrecorded staged Agent requires inspection");
     if (target == expected_digest)
       return;
-    std::ofstream out(pending, std::ios::binary);
-    out << transaction.dump();
-    out.close();
-    if (!out)
-      throw std::runtime_error("cannot record Agent update");
+    write_file_durably(pending, transaction.dump());
     publish(pending, journal);
   }
   const auto observed = sha256_file(installed);
@@ -209,11 +207,7 @@ void upgrade_node_service(const fs::path& source, const fs::path& installed, con
     if (fs::exists(pending_path))
       throw std::runtime_error("unfinished Agent service update record requires inspection");
     record["phase"] = phase;
-    std::ofstream output(pending_path, std::ios::binary);
-    output << record.dump();
-    output.close();
-    if (!output)
-      throw std::runtime_error("cannot persist Agent service update");
+    write_file_durably(pending_path, record.dump());
     publish(pending_path, record_path);
   };
   NodeEndpoint config{"local", "localhost", 0, {}, endpoint};

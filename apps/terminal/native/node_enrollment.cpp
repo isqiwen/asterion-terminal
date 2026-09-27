@@ -1,6 +1,7 @@
 #include "node_enrollment.hpp"
 #include "firewall.hpp"
 #include "remote_bundle.hpp"
+#include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
@@ -69,11 +70,7 @@ fs::path state_root() {
 void write(const fs::path& p, const std::string& content) {
   if (fs::is_symlink(p))
     throw std::invalid_argument("enrollment path cannot be a symlink");
-  std::ofstream out(p, std::ios::binary);
-  out << content;
-  out.close();
-  if (!out)
-    throw std::runtime_error("cannot write enrollment state");
+  write_file_durably(p, content);
 }
 fs::path tool(const char* name) {
   if (const char* test = std::getenv("ASTERION_SSH_TOOL_DIRECTORY")) {

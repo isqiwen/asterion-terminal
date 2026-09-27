@@ -1,4 +1,5 @@
 #include "node_service.hpp"
+#include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
 #include <chrono>
@@ -42,11 +43,8 @@ void write(const fs::path& file, const std::string& text, bool require_existing)
   }
   if (require_existing)
     throw std::runtime_error("owned service definition is missing");
-  std::ofstream out(file);
-  out << text;
-  out.close();
-  if (!out)
-    throw std::runtime_error("cannot write service configuration");
+  // Service definitions are read by the OS service manager, not only this user.
+  write_file_durably(file, text, false);
 }
 } // namespace
 void manage_node_service(const fs::path& executable, const fs::path& root,

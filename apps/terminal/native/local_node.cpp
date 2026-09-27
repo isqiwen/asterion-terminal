@@ -1,6 +1,7 @@
 #include "node_client.hpp"
 #include "node_program.hpp"
 #include "node_service.hpp"
+#include <asterion/kernel/durable_file.hpp>
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/process/artifact.hpp>
@@ -115,11 +116,7 @@ NodeEndpoint local_node() {
     input >> identity;
   } else {
     identity = unique_process_id();
-    std::ofstream out(identity_file);
-    out << identity;
-    out.close();
-    if (!out)
-      throw std::runtime_error("cannot persist Agent identity");
+    write_file_durably(identity_file, identity);
   }
   if (identity.size() != 32 || identity.find_first_not_of("0123456789abcdef") != std::string::npos)
     throw std::invalid_argument("invalid Agent identity");

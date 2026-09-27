@@ -1,4 +1,5 @@
 #include "node_enrollment.hpp"
+#include <asterion/kernel/durable_file.hpp>
 #include <openssl/pem.h>
 #include <openssl/x509v3.h>
 #include <fstream>
@@ -50,14 +51,8 @@ struct Identity {
     char* data = nullptr;
     const auto count = BIO_get_mem_data(bio.get(), &data);
     check(count > 0);
-    std::ofstream out(path, std::ios::binary);
-    out.write(data, count);
-    out.close();
-    check(bool(out));
-#ifndef _WIN32
-    std::filesystem::permissions(path, std::filesystem::perms::owner_read |
-                                           std::filesystem::perms::owner_write);
-#endif
+    // Created 0600 from the first byte; a key never exists with wider access.
+    write_file_durably(path, std::string_view(data, static_cast<std::size_t>(count)));
   }
 };
 } // namespace

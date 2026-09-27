@@ -177,14 +177,21 @@ int main(int argc, char** argv) {
       std::jthread thread;
     };
     std::vector<Worker> workers;
-    auto launch = [&](auto channel) {
+    // Handshakes run on the per-client worker, never on the accept loop.
+    auto launch = [&](auto connection) {
       std::erase_if(workers, [](const Worker& w) { return w.done->load(); });
       if (workers.size() >= 16)
         return;
       auto done = std::make_shared<std::atomic<bool>>(false);
-      workers.push_back({done, std::jthread([&, done, channel = std::move(channel)](
+      workers.push_back({done, std::jthread([&, done, connection = std::move(connection)](
                                                 std::stop_token token) mutable {
-                           serve(std::move(channel), token, false);
+                           try {
+                             if constexpr (requires { std::move(connection).handshake(2s); })
+                               serve(std::move(connection).handshake(2s), token, false);
+                             else
+                               serve(std::move(connection), token, false);
+                           } catch (const std::exception&) {
+                           }
                            done->store(true);
                          })});
     };
@@ -192,7 +199,7 @@ int main(int argc, char** argv) {
       ipc::TlsListener listener(bind, port, tls);
       while (!stopping) {
         try {
-          launch(listener.accept(2s, 200ms));
+          launch(listener.accept_pending(200ms));
         } catch (const Error&) {
         }
       }

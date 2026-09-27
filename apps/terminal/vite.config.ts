@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 const root = fileURLToPath(new URL("../..", import.meta.url));
+const port = 1420;
+const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 
 // Development-only transport to the same C++ API used by Tauri. No fake backend.
 function localCore(): Plugin {
@@ -22,8 +24,11 @@ function localCore(): Plugin {
       child.stderr.on("data", data => server.config.logger.error(String(data)));
       server.httpServer?.once("close", () => child.kill());
       server.middlewares.use("/__asterion/api", (req, res) => {
+        // This middleware runs before Vite's own host check, so it enforces one
+        // itself: a DNS-rebound page carries an attacker-chosen Host header.
+        const host = req.headers.host ?? "";
         if (req.method !== "POST" || req.headers["content-type"] !== "application/json" ||
-            (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)) {
+            !allowedHosts.has(host) || (req.headers.origin && req.headers.origin !== `http://${host}`)) {
           res.statusCode = 403; res.end("Forbidden"); return;
         }
         let body = "";
@@ -53,5 +58,5 @@ export default defineConfig({
     "@asterion/overview": resolve(root, "apps/terminal/plugins/overview"),
     "@asterion/terminal": resolve(root, "apps/terminal/src"),
   } },
-  server: { host: "127.0.0.1", port: 1420, strictPort: true, fs: { allow: [root] } },
+  server: { host: "127.0.0.1", port, strictPort: true, fs: { allow: [root] } },
 });

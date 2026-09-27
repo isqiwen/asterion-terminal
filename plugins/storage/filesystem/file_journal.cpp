@@ -1,4 +1,5 @@
 #include "file_journal.hpp"
+#include <asterion/kernel/durable_file.hpp>
 #include <fstream>
 #include <algorithm>
 #include <cerrno>
@@ -19,37 +20,6 @@ std::string name(std::size_t index) {
   std::ostringstream out;
   out << std::setfill('0') << std::setw(8) << index << ".json";
   return out.str();
-}
-void durable_write(const std::filesystem::path& path, const std::string& contents) {
-#ifdef _WIN32
-  HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                            FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (file == INVALID_HANDLE_VALUE)
-    throw std::runtime_error("cannot write paper trading journal");
-  DWORD written = 0;
-  bool ok =
-      WriteFile(file, contents.data(), static_cast<DWORD>(contents.size()), &written, nullptr) &&
-      written == contents.size() && FlushFileBuffers(file);
-  CloseHandle(file);
-#else
-  int file = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
-  if (file < 0)
-    throw std::runtime_error("cannot write paper trading journal");
-  std::size_t offset = 0;
-  while (offset < contents.size()) {
-    auto n = ::write(file, contents.data() + offset, contents.size() - offset);
-    if (n < 0 && errno == EINTR)
-      continue;
-    if (n <= 0)
-      break;
-    offset += static_cast<std::size_t>(n);
-  }
-  bool ok = offset == contents.size() && ::fsync(file) == 0;
-  ::close(file);
-#endif
-  if (!ok)
-    throw std::runtime_error(
-        "paper trading journal write or sync failed; reopen the session to recover");
 }
 } // namespace
 FileJournal::FileJournal(std::filesystem::path directory) : directory_(std::move(directory)) {
@@ -157,7 +127,7 @@ void FileJournal::append(const Json& record) {
     const auto temporary = directory_ / "pending.tmp";
     if (std::filesystem::is_symlink(temporary))
       throw std::invalid_argument("symbolic link temporary journal refused");
-    durable_write(temporary, data);
+    write_file_durably(temporary, data);
     const auto target = directory_ / name(count_);
     if (std::filesystem::exists(target))
       throw std::runtime_error("trading journal sequence conflict");
@@ -166,13 +136,7 @@ void FileJournal::append(const Json& record) {
       throw std::runtime_error("trading journal commit failed");
 #else
     std::filesystem::rename(temporary, target);
-    const int dir = ::open(directory_.c_str(), O_RDONLY);
-    if (dir < 0)
-      throw std::runtime_error("cannot sync trading record directory");
-    const int result = ::fsync(dir);
-    ::close(dir);
-    if (result != 0)
-      throw std::runtime_error("trading record directory sync failed");
+    sync_directory(directory_);
 #endif
     ++count_;
     bytes_ += data.size();

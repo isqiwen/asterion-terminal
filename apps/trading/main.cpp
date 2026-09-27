@@ -188,11 +188,17 @@ int main(int argc, char** argv) {
       }
     };
     asterion::ThreadPool clients(8, 8);
-    auto dispatch = [&](auto channel) {
-      auto peer = std::make_shared<decltype(channel)>(std::move(channel));
+    // The listener thread only accepts transports. Mutual TLS completes inside
+    // the bounded pool, so an unauthenticated peer cannot stall accept.
+    auto dispatch = [&](auto connection) {
+      auto peer = std::make_shared<decltype(connection)>(std::move(connection));
       static_cast<void>(clients.submit([&, peer](std::stop_token stop) {
         try {
-          serve(*peer, stop);
+          if constexpr (requires { std::move(*peer).handshake(10s); }) {
+            auto channel = std::move(*peer).handshake(10s);
+            serve(channel, stop);
+          } else
+            serve(*peer, stop);
         } catch (const std::exception&) { /* Disconnect affects only this client. */
         }
       }));
@@ -201,8 +207,7 @@ int main(int argc, char** argv) {
       asterion::ipc::TlsListener listener(bind_address, port, tls);
       for (;;) {
         try {
-          auto channel = listener.accept(10s);
-          dispatch(std::move(channel));
+          dispatch(listener.accept_pending());
         } catch (const std::exception&) { /* A failed client never terminates
                                              the ledger owner. */
         }

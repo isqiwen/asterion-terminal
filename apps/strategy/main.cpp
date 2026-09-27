@@ -1,4 +1,5 @@
 #include "replay.hpp"
+#include <asterion/kernel/thread_pool.hpp>
 #include "session.hpp"
 #include <CLI/CLI.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
@@ -194,12 +195,27 @@ int main(int argc, char** argv) {
 
       channel.send(response.SerializeAsString(), 5s);
     };
+    // Accept on this thread; handshake and the single bounded request run in
+    // the pool. serve() takes the session lock only after a frame arrives.
+    ThreadPool clients(4, 8);
+    auto dispatch = [&](auto connection) {
+      auto peer = std::make_shared<decltype(connection)>(std::move(connection));
+      static_cast<void>(clients.submit([&, peer](std::stop_token) {
+        try {
+          if constexpr (requires { std::move(*peer).handshake(1s); }) {
+            auto channel = std::move(*peer).handshake(1s);
+            serve(channel);
+          } else
+            serve(*peer);
+        } catch (const std::exception&) {
+        }
+      }));
+    };
     if (remote) {
       ipc::TlsListener listener(bind, port, tls);
       for (;;) {
         try {
-          auto channel = listener.accept(1s);
-          serve(channel);
+          dispatch(listener.accept_pending());
         } catch (const std::exception&) {
         }
       }
@@ -207,8 +223,7 @@ int main(int argc, char** argv) {
       ipc::Listener listener(endpoint);
       for (;;) {
         try {
-          auto channel = listener.accept(1s);
-          serve(channel);
+          dispatch(listener.accept(1s));
         } catch (const std::exception&) {
         }
       }

@@ -1,5 +1,6 @@
 #include "firewall.hpp"
 #include "windows_service.hpp"
+#include <asterion/kernel/durable_file.hpp>
 #include <CLI/CLI.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/ipc/tls_channel.hpp>
@@ -115,19 +116,14 @@ class Agent {
     if (fs::exists(pending))
       throw std::runtime_error("unfinished service configuration requires explicit recovery");
     const auto configuration = this->configuration(s);
-    {
-      std::ofstream out(pending, std::ios::binary);
-      out << configuration.dump();
-      out.flush();
-      if (!out)
-        throw std::runtime_error("cannot persist service configuration");
-    }
+    write_file_durably(pending, configuration.dump());
 #ifdef _WIN32
     if (!MoveFileExW(pending.c_str(), path.c_str(),
                      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
       throw std::runtime_error("cannot publish service configuration");
 #else
     fs::rename(pending, path);
+    sync_directory(path.parent_path());
 #endif
   }
   void start(const std::string& name, Service& s) {
@@ -550,11 +546,7 @@ public:
             throw std::invalid_argument("no owned firewall rule");
           if (!remove) {
             fs::create_directory(file.parent_path());
-            std::ofstream output(file);
-            output << plan.dump();
-            output.close();
-            if (!output)
-              throw std::runtime_error("cannot record firewall ownership");
+            replace_file_durably(file, plan.dump());
           }
           const auto changed = asterion::node::run_firewall_script(
               os, asterion::node::firewall_change(os, plan.at("source"), service.port,
