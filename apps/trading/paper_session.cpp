@@ -15,6 +15,28 @@ std::string string(const Json& value, const char* key) {
 Decimal decimal(const Json& value, const char* key) {
   return Decimal::parse(string(value, key));
 }
+// Journal record 0 carries this identity. Bump it whenever a change to
+// matching, account/fee/margin arithmetic, risk evaluation or command
+// semantics could make replaying an existing journal produce a different
+// ledger. Recovery refuses a journal written under a different identity rather
+// than silently recomputing history with new rules.
+const std::string journal_engine = "asterion.paper-futures.v1";
+constexpr int journal_format = 2;
+// Cheap fingerprint of post-command state. Replay must reproduce it exactly.
+Json outcome(const PaperExecution& engine, const Json& authorization, const Json& replay) {
+  const auto& account = engine.account();
+  Decimal long_quantity, short_quantity;
+  for (const auto& lot : account.positions()) {
+    auto& total = lot.side == Side::buy ? long_quantity : short_quantity;
+    total = total + lot.quantity;
+  }
+  return {{"cursor", engine.cursor()},         {"balance", account.balance().str()},
+          {"fees", account.fees().str()},      {"realized", account.realized().str()},
+          {"frozen", account.frozen().str()},  {"mark", account.last_mark().str()},
+          {"orders", account.orders().size()}, {"fills", account.fills().size()},
+          {"long", long_quantity.str()},       {"short", short_quantity.str()},
+          {"authorization", authorization},    {"replay", replay}};
+}
 // No consumed events, orders or positions.
 bool fresh(const PaperExecution& engine) {
   return engine.cursor() == 0 && engine.account().orders().empty() &&
@@ -230,11 +252,22 @@ PaperSession::PaperSession(std::filesystem::path directory, const Json& create_m
     manifest_ = create_manifest;
     engine_ = build(manifest_);
     engine_->start();
-    journal_.append(manifest_);
+    journal_.append(
+        {{"format", journal_format}, {"engine", journal_engine}, {"manifest", manifest_}});
   } else {
     if (records.empty())
       throw std::invalid_argument("目录中没有可恢复的模拟会话");
-    manifest_ = records.front();
+    const auto& header = records.front();
+    if (!header.is_object() || !header.contains("format") || header.at("format") != journal_format)
+      throw std::invalid_argument("unsupported trading journal format; this build reads format 2 "
+                                  "only and leaves the directory unchanged");
+    require_fields(header, {"format", "engine", "manifest"});
+    if (header.at("engine") != journal_engine)
+      throw std::invalid_argument(
+          "trading journal was written by engine " + header.at("engine").dump() +
+          " but this build implements " + journal_engine +
+          "; recovery refused instead of recomputing history under different rules");
+    manifest_ = header.at("manifest");
     engine_ = build(manifest_);
     engine_->start();
   }
@@ -243,11 +276,16 @@ PaperSession::PaperSession(std::filesystem::path directory, const Json& create_m
   instrument_ = {string(manifest_.at("contract"), "venue"),
                  string(manifest_.at("contract"), "symbol")};
   for (std::size_t i = 1; i < records.size(); ++i) {
-    const auto& command = records[i];
+    require_fields(records[i], {"command", "outcome"});
+    const auto& command = records[i].at("command");
     const auto id = string(command, "request_id");
     if (commands_.contains(id))
       throw std::invalid_argument("交易日志包含重复请求，拒绝恢复");
     apply(*engine_, authorization_, replay_, schedule_, command);
+    if (outcome(*engine_, authorization_, replay_) != records[i].at("outcome"))
+      throw std::invalid_argument("trading journal replay diverged from the recorded outcome at "
+                                  "record " +
+                                  std::to_string(i) + "; recovery refused");
     commands_.emplace(id, command);
   }
 }
@@ -275,8 +313,9 @@ void PaperSession::execute(const Json& command) {
   std::map<std::string, Json> staging;
   staging.emplace(id, command);
   auto entry = staging.extract(staging.begin());
+  const Json record{{"command", command}, {"outcome", outcome(candidate, authorization, replay)}};
   try {
-    journal_.append(command);
+    journal_.append(record);
   } catch (...) {
     failed_ = true;
     throw;

@@ -771,3 +771,50 @@ TEST(PaperExecution, RestingOrdersDoNotMakeReplayQuadratic) {
   EXPECT_EQ(execution.account().fills().size(), 0U);
   EXPECT_EQ(execution.account().orders().size(), resting);
 }
+namespace {
+Json read_record(const std::filesystem::path& file) {
+  std::ifstream input(file, std::ios::binary);
+  return Json::parse(std::string{std::istreambuf_iterator<char>(input), {}});
+}
+void write_record(const std::filesystem::path& file, const Json& value) {
+  std::ofstream(file, std::ios::binary | std::ios::trunc) << value.dump();
+}
+void recorded_session(const std::filesystem::path& path) {
+  PaperSession session(path, manifest());
+  session.execute(advance("tick1"));
+  session.execute(submit("buy", "buy", "open", "100"));
+  session.execute(advance("tick2"));
+}
+} // namespace
+TEST(PaperSession, JournalHeaderPinsFormatAndEngineSemantics) {
+  Directory directory;
+  recorded_session(directory.path);
+  const auto header_file = directory.path / "00000000.json";
+  const auto header = read_record(header_file);
+  EXPECT_EQ(header.at("format"), 2);
+  EXPECT_EQ(header.at("manifest"), manifest());
+  auto foreign = header;
+  foreign["engine"] = "asterion.paper-futures.v0";
+  write_record(header_file, foreign);
+  EXPECT_THROW(PaperSession{directory.path}, std::invalid_argument);
+  // Format 1 journals stored the bare manifest; they are refused, never migrated.
+  write_record(header_file, manifest());
+  EXPECT_THROW(PaperSession{directory.path}, std::invalid_argument);
+  EXPECT_EQ(read_record(header_file), manifest());
+  write_record(header_file, header);
+  EXPECT_NO_THROW(PaperSession{directory.path});
+}
+TEST(PaperSession, ReplayDivergingFromRecordedOutcomeIsRefused) {
+  Directory directory;
+  recorded_session(directory.path);
+  const auto file = directory.path / "00000003.json";
+  auto record = read_record(file);
+  ASSERT_EQ(record.at("outcome").at("fills"), 1);
+  auto tampered = record;
+  tampered["outcome"]["balance"] = "999999";
+  write_record(file, tampered);
+  EXPECT_THROW(PaperSession{directory.path}, std::invalid_argument);
+  write_record(file, record);
+  PaperSession recovered(directory.path);
+  EXPECT_EQ(recovered.snapshot().at("fills").size(), 1U);
+}
