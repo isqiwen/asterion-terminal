@@ -34,7 +34,7 @@ struct ChildProcess::Impl {
 };
 ChildProcess::ChildProcess(const std::filesystem::path& executable,
                            const std::vector<std::string>& arguments, bool independent,
-                           const std::filesystem::path& stdout_file)
+                           const std::filesystem::path& stdout_file, bool merge_stderr)
     : impl_(std::make_unique<Impl>()) {
   if (!executable.is_absolute() || !std::filesystem::is_regular_file(executable))
     throw Error(ErrorCode::unavailable, "trading executable is missing");
@@ -88,8 +88,14 @@ ChildProcess::ChildProcess(const std::filesystem::path& executable,
                                   CREATE_NEW, FILE_ATTRIBUTE_TEMPORARY, nullptr);
     redirect.input = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
                                  &security, OPEN_EXISTING, 0, nullptr);
-    redirect.error = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                 &security, OPEN_EXISTING, 0, nullptr);
+    if (merge_stderr) {
+      if (redirect.output == INVALID_HANDLE_VALUE ||
+          !DuplicateHandle(GetCurrentProcess(), redirect.output, GetCurrentProcess(),
+                           &redirect.error, 0, TRUE, DUPLICATE_SAME_ACCESS))
+        redirect.error = INVALID_HANDLE_VALUE;
+    } else
+      redirect.error = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                   &security, OPEN_EXISTING, 0, nullptr);
     if (redirect.output == INVALID_HANDLE_VALUE || redirect.input == INVALID_HANDLE_VALUE ||
         redirect.error == INVALID_HANDLE_VALUE)
       throw Error(ErrorCode::unavailable, "cannot prepare process output");
@@ -141,8 +147,10 @@ ChildProcess::ChildProcess(const std::filesystem::path& executable,
       posix_spawnattr_destroy(&attrs);
       throw std::invalid_argument("capture path must be absolute");
     }
-    const int result = posix_spawn_file_actions_addopen(
-        &actions, STDOUT_FILENO, stdout_file.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
+    int result = posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, stdout_file.c_str(),
+                                                  O_WRONLY | O_CREAT | O_EXCL, 0600);
+    if (!result && merge_stderr)
+      result = posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDERR_FILENO);
     if (result) {
       posix_spawn_file_actions_destroy(&actions);
       posix_spawnattr_destroy(&attrs);

@@ -28,9 +28,29 @@ bool command(const fs::path& binary, const std::vector<std::string>& args) {
     throw std::runtime_error("service manager timed out");
   return child.exit_code() == 0;
 }
+// Runs a service-manager command; on failure the error names the program, its
+// first argument, the exit code and the start of its combined output.
 void require_command(const fs::path& binary, const std::vector<std::string>& args) {
-  if (!command(binary, args))
-    throw std::runtime_error("OS service manager rejected the operation or identity verification");
+  const auto capture = fs::temp_directory_path() / ("asterion-service-" + unique_process_id());
+  struct Remove {
+    fs::path file;
+    ~Remove() {
+      std::error_code ignored;
+      fs::remove(file, ignored);
+    }
+  } cleanup{capture};
+  ChildProcess child(binary, args, true, capture, true);
+  if (!child.wait(std::chrono::seconds(15)))
+    throw std::runtime_error("service manager timed out: " + utf8(binary.filename()));
+  if (child.exit_code() == 0)
+    return;
+  std::ifstream in(capture, std::ios::binary);
+  std::string output(512, '\0');
+  in.read(output.data(), static_cast<std::streamsize>(output.size()));
+  output.resize(static_cast<std::size_t>(in.gcount()));
+  throw std::runtime_error("OS service manager rejected the operation or identity verification (" +
+                           utf8(binary.filename()) + " " + (args.empty() ? "" : args.front()) +
+                           ", exit " + std::to_string(child.exit_code()) + "): " + output);
 }
 void write(const fs::path& file, const std::string& text, bool require_existing) {
   if (fs::is_symlink(file))
@@ -143,26 +163,39 @@ void manage_node_service(const fs::path& executable, const fs::path& root,
   const auto arguments = "--directory &quot;" + xml(utf8(root)) + "&quot; --endpoint &quot;" +
                          xml(endpoint) + "&quot;";
   const auto definition = root / "scheduled-task.xml";
-  write(definition,
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Task version=\"1.2\" "
-        "xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/"
-        "task\"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>" +
-            user +
-            "</UserId></LogonTrigger></Triggers><Principals><Principal "
-            "id=\"Author\"><UserId>" +
-            user +
-            "</UserId><LogonType>InteractiveToken</"
-            "LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></"
-            "Principals><Settings><MultipleInstancesPolicy>IgnoreNew</"
-            "MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</"
-            "DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</"
-            "StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</"
-            "ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</"
-            "Interval><Count>3</Count></RestartOnFailure></Settings><Actions "
-            "Context=\"Author\"><Exec><Command>" +
-            xml(utf8(executable)) + "</Command><Arguments>" + arguments +
-            "</Arguments></Exec></Actions></Task>",
-        stopping);
+  // Task Scheduler's canonical XML is UTF-16 with a byte-order mark; schtasks
+  // /XML reliably accepts only that form.
+  const std::string task_xml = "<?xml version=\"1.0\" encoding=\"UTF-16\"?><Task version=\"1.2\" "
+                               "xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/"
+                               "task\"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>" +
+                               user +
+                               "</UserId></LogonTrigger></Triggers><Principals><Principal "
+                               "id=\"Author\"><UserId>" +
+                               user +
+                               "</UserId><LogonType>InteractiveToken</"
+                               "LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></"
+                               "Principals><Settings><MultipleInstancesPolicy>IgnoreNew</"
+                               "MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</"
+                               "DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</"
+                               "StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</"
+                               "ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</"
+                               "Interval><Count>3</Count></RestartOnFailure></Settings><Actions "
+                               "Context=\"Author\"><Exec><Command>" +
+                               xml(utf8(executable)) + "</Command><Arguments>" + arguments +
+                               "</Arguments></Exec></Actions></Task>";
+  const int units = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, task_xml.data(),
+                                        static_cast<int>(task_xml.size()), nullptr, 0);
+  if (units <= 0)
+    throw std::runtime_error("service definition is not valid Unicode");
+  std::wstring wide(static_cast<std::size_t>(units), L'\0');
+  MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, task_xml.data(),
+                      static_cast<int>(task_xml.size()), wide.data(), units);
+  std::string utf16("\xFF\xFE", 2);
+  for (const wchar_t unit : wide) {
+    utf16.push_back(static_cast<char>(unit & 0xFF));
+    utf16.push_back(static_cast<char>((unit >> 8) & 0xFF));
+  }
+  write(definition, utf16, stopping);
   wchar_t system[MAX_PATH];
   const auto length = GetSystemDirectoryW(system, MAX_PATH);
   if (!length || length >= MAX_PATH)

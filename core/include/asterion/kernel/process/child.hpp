@@ -9,8 +9,11 @@ namespace asterion {
 // Owned child; no shell parsing. Close IPC before destruction for graceful exit.
 class ChildProcess {
 public:
+  // stdout_file captures standard output; merge_stderr sends standard error
+  // to the same file (for diagnostics), otherwise it is discarded.
   ChildProcess(const std::filesystem::path& executable, const std::vector<std::string>& arguments,
-               bool independent = false, const std::filesystem::path& stdout_file = {});
+               bool independent = false, const std::filesystem::path& stdout_file = {},
+               bool merge_stderr = false);
   ~ChildProcess();
   ChildProcess(const ChildProcess&) = delete;
   ChildProcess& operator=(const ChildProcess&) = delete;
