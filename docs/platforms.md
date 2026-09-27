@@ -55,3 +55,7 @@ Node Agent 和交易程序由各原生平台编译。CI 先在 Ubuntu 24.04 的 
 
 
 策略分发增量：本机 sidecar 和内置 Linux x86_64 资源包均包含 `asterion-strategy`。当前完整 Linux 资源为 Agent、Trading、Market Data、Task Service、Backtest、Factor、Data Pipeline、Strategy 八个程序，加 CTP 插件和初始化脚本。macOS DMG 已重新生成并通过包内策略/交易/研究恢复及资源校验；Windows/DEB 本轮未构建，已有部署显式升级仍待实现。证据见 `build/strategy-desktop-build.log`。
+
+## 非 Windows 机器上的 Windows 分支检查
+
+`scripts/check_windows_syntax.py` 使用 mingw-w64 头文件（如 `brew install mingw-w64`）和本机构建的 `compile_commands.json`（配置时加 `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`），对所有含 `_WIN32` 分支的源文件做 Windows 目标的语法检查，可在推送前发现缺失声明、头文件顺序和类型错误。它近似 MSVC，不能代替 Windows 原生构建与 CI 验收。
