@@ -166,6 +166,8 @@ export type FactorExperiment = {version:number;dataset_revision:string;contract:
 export type CalendarPublication = Omit<DatasetPublication,"dataset"> & {calendar:{version:number;revision:string;contract:ExperimentContract;days:BacktestExperiment["days"]}};
 export type ResearchResult = {id:string;kind:"backtest";task:ResearchTask;experiment:BacktestExperiment;result:BacktestResult}|{id:string;kind:"factor";task:ResearchTask;experiment:FactorExperiment;result:FactorResult}|{id:string;kind:"data_import";task:ResearchTask;result:DatasetPublication}|{id:string;kind:"calendar_import";task:ResearchTask;result:CalendarPublication};
 export type Snapshot = {
+    // Present when the core answered from its last snapshot because another operation was running.
+    stale?: true;
     strategy?: null | {id:string; state:"connected"|"disconnected"; phase:string; processed:number; total:number; fast?:number; slow?:number; quantity?:string; symbol?:string; error:string; account?:string; grant_id?:string; revision?:string};
     research: null | {service: string; host: string; remote: boolean; online: boolean; error: string; tasks: ResearchTask[]};
     research_result: null | ResearchResult;

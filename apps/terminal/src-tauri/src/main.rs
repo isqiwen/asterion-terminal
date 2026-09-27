@@ -2,7 +2,7 @@
 use tauri::Manager;
 use std::{
     ffi::{c_char, c_void, CStr, CString},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 extern "C" {
@@ -12,9 +12,12 @@ extern "C" {
     fn asterion_terminal_destroy(runtime: *mut c_void);
 }
 struct Runtime(*mut c_void);
-// The C++ runtime has no thread-affine OS resources. The Mutex serializes every
-// call; its state is never exposed outside this wrapper.
+// The C ABI is thread-safe for concurrent calls: the C++ runtime serializes
+// operations itself and answers status reads from its last snapshot while a
+// long operation runs, so one slow service cannot freeze every window. The
+// pointer is only destroyed by Drop, after all Arc clones are gone.
 unsafe impl Send for Runtime {}
+unsafe impl Sync for Runtime {}
 impl Runtime {
     fn new() -> Result<Self, String> {
         let pointer = unsafe { asterion_terminal_create() };
@@ -24,7 +27,7 @@ impl Runtime {
             Ok(Self(pointer))
         }
     }
-    fn request(&mut self, request: &str) -> Result<String, String> {
+    fn request(&self, request: &str) -> Result<String, String> {
         if request.len() > 65536 {
             return Err("请求过大".into());
         }
@@ -46,7 +49,7 @@ impl Drop for Runtime {
         unsafe { asterion_terminal_destroy(self.0) }
     }
 }
-type SharedRuntime = Arc<Mutex<Runtime>>;
+type SharedRuntime = Arc<Runtime>;
 
 #[tauri::command]
 async fn terminal_request(
@@ -54,12 +57,7 @@ async fn terminal_request(
     request: String,
 ) -> Result<String, String> {
     let runtime = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        runtime
-            .lock()
-            .map_err(|_| "核心状态锁不可用".to_string())?
-            .request(&request)
-    })
+    tauri::async_runtime::spawn_blocking(move || runtime.request(&request))
     .await
     .map_err(|_| "本机请求任务失败".to_string())?
 }
@@ -94,7 +92,7 @@ fn main() {
             if !cfg!(debug_assertions) || std::env::var_os("ASTERION_REMOTE_RESOURCES").is_none() {
                 std::env::set_var("ASTERION_REMOTE_RESOURCES", app.path().resource_dir()?.join("remote-linux"));
             }
-            app.manage(Arc::new(Mutex::new(Runtime::new().map_err(std::io::Error::other)?)));
+            app.manage(Arc::new(Runtime::new().map_err(std::io::Error::other)?));
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())

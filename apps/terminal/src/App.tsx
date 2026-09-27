@@ -38,7 +38,7 @@ function TerminalWorkbench({settingsWindow = false}: {settingsWindow?: boolean})
             if (current === generation.current) {
                 setSnapshot(next);
                 setError("");
-                setCheckedAt(Date.now());
+                if (!next.stale) setCheckedAt(Date.now());
             }
         }
         catch (reason) {
@@ -69,8 +69,15 @@ function TerminalWorkbench({settingsWindow = false}: {settingsWindow?: boolean})
         window.addEventListener("keydown", key);
         return () => window.removeEventListener("keydown", key);
     }, []);
+    const [visible, setVisible] = useState(() => !document.hidden);
     useEffect(() => {
-        if (busy || !snapshot || (!snapshot.connection && !snapshot.nodes?.length))
+        const update = () => setVisible(!document.hidden);
+        document.addEventListener("visibilitychange", update);
+        return () => document.removeEventListener("visibilitychange", update);
+    }, []);
+    useEffect(() => {
+        // Hidden windows stop polling; becoming visible re-runs this effect immediately.
+        if (busy || !visible || !snapshot || (!snapshot.connection && !snapshot.nodes?.length))
             return;
         let cancelled = false;
         const timer = window.setTimeout(async () => {
@@ -80,7 +87,7 @@ function TerminalWorkbench({settingsWindow = false}: {settingsWindow?: boolean})
                 if (!cancelled && current === generation.current) {
                     setSnapshot(next);
                     setError("");
-                    setCheckedAt(Date.now());
+                    if (!next.stale) setCheckedAt(Date.now());
                 }
             }
             catch (reason) {
@@ -89,7 +96,7 @@ function TerminalWorkbench({settingsWindow = false}: {settingsWindow?: boolean})
             }
         }, snapshot.market ? 500 : 2000);
         return () => { cancelled = true; window.clearTimeout(timer); };
-    }, [busy, snapshot]);
+    }, [busy, snapshot, visible]);
     async function inspect(params: CsvRequest) {
         const current = ++generation.current;
         setBusy(true);

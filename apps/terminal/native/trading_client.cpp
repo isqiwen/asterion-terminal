@@ -60,7 +60,10 @@ struct TradingClient::Impl {
     request.set_correlation_id("rpc." + std::to_string(++sequence));
     wire::Response response;
     const auto sent = std::chrono::steady_clock::now();
-    const auto timeout = request.has_heartbeat() ? 3s : 10s;
+    // Reads bound how long a status poll can wait; mutations keep a longer
+    // deadline because their outcome becomes unknown on timeout.
+    const auto timeout =
+        request.has_command() || request.has_create() || request.has_recover() ? 10s : 3s;
     try {
       if (remote->endpoint.empty())
         tcp.send(request.SerializeAsString(), timeout);

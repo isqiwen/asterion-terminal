@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <mutex>
 #include <stdexcept>
 
 namespace asterion::terminal {
@@ -793,8 +794,33 @@ struct Application::Impl {
       throw std::invalid_argument("unsupported API version");
     const auto method = text(request, "method");
     const auto& params = request.at("params");
-    return core.dispatch("terminal.local", method, params);
+    std::unique_lock operation(operations, std::defer_lock);
+    if (method == "runtime.snapshot") {
+      if (!operation.try_lock()) {
+        {
+          std::lock_guard cached(cache_mutex);
+          if (!cache.is_null()) {
+            auto result = cache;
+            result["stale"] = true;
+            return result;
+          }
+        }
+        operation.lock();
+      }
+    } else
+      operation.lock();
+    auto result = core.dispatch("terminal.local", method, params);
+    if (result.is_object() && result.contains("protocol")) {
+      auto next = result;
+      // One-shot payloads belong to the requesting call, not to later polls.
+      next.erase("initializer");
+      std::lock_guard cached(cache_mutex);
+      cache = std::move(next);
+    }
+    return result;
   }
+  std::mutex operations, cache_mutex;
+  json cache = nullptr;
   json inspect(const json& params) {
     fields(params, {"path", "venue", "symbol", "product", "delivery_month", "currency",
                     "price_increment", "quantity_increment", "multiplier"});

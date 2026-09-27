@@ -6,7 +6,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <atomic>
 #include <memory>
+#include <thread>
 
 using nlohmann::json;
 namespace {
@@ -172,4 +174,43 @@ TEST(TerminalApi, PersistentPaperRoundTripThroughCAbi) {
   EXPECT_TRUE(
       invoke("paper.act", {{"request_id", "x"}, {"action", "live_order"}}).contains("error"));
   EXPECT_TRUE(invoke("paper.close")["result"]["paper"].is_null());
+}
+TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
+  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
+                                                                      asterion_terminal_destroy);
+  ASSERT_TRUE(runtime);
+  // Before any operation completes there is no cached state: the read waits.
+  const auto first = call(runtime.get(), request("runtime.snapshot"));
+  ASSERT_TRUE(first.contains("result"));
+  EXPECT_FALSE(first["result"].contains("stale"));
+  Fixture fixture;
+  std::string csv = "timestamp_ns,price,quantity\n";
+  for (int i = 1; i <= 200000; ++i)
+    csv += std::to_string(i) + ",3510,1\n";
+  const auto file = fixture.write(csv);
+  json params{{"path", file.string()},       {"venue", "SHFE"},
+              {"symbol", "rb2610"},          {"product", "rb"},
+              {"delivery_month", "2026-10"}, {"currency", "CNY"},
+              {"price_increment", "1"},      {"quantity_increment", "1"},
+              {"multiplier", "10"}};
+  std::atomic<bool> done{false};
+  std::thread slow([&] {
+    EXPECT_TRUE(call(runtime.get(), request("futures.inspect_csv", params)).contains("result"));
+    done = true;
+  });
+  bool observed_stale = false;
+  while (!done && !observed_stale) {
+    const auto started = std::chrono::steady_clock::now();
+    const auto status = call(runtime.get(), request("runtime.snapshot"));
+    if (status["result"].value("stale", false)) {
+      observed_stale = true;
+      EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::milliseconds(500));
+      EXPECT_TRUE(status["result"]["dataset"].is_null()) << "stale state predates the import";
+    }
+  }
+  slow.join();
+  EXPECT_TRUE(observed_stale) << "import finished before a concurrent read was observed";
+  const auto fresh = call(runtime.get(), request("runtime.snapshot"));
+  EXPECT_FALSE(fresh["result"].contains("stale"));
+  EXPECT_EQ(fresh["result"]["dataset"]["count"], 200000);
 }

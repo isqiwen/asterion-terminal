@@ -7,7 +7,10 @@ extern "C" {
 #define ASTERION_NOEXCEPT
 #endif
 
-/* Opaque single-thread-owned runtime. Caller serializes all calls and destruction.
+/* Opaque runtime. asterion_terminal_call may be invoked concurrently from any
+ * thread; operations are serialized inside the runtime and a status read
+ * ("runtime.snapshot") returns the last snapshot marked "stale" while another
+ * operation runs. Destruction must not overlap any call.
  * UTF-8 JSON protocol version 1. Every response is allocated by this library;
  * free it only with asterion_terminal_free. NULL indicates allocation failure.
  * No C++ object or exception crosses this boundary. */
