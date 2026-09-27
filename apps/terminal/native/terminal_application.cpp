@@ -50,10 +50,8 @@ Application::Impl::Impl() {
   core.configuration().declare("preview.max_rows", 250000, positive_limit);
   core.access().grant("terminal.local", "runtime.read");
   core.access().grant("terminal.local", "data.inspect");
-  core.command("runtime.snapshot", "runtime.read", [this](const json& params) {
-    fields(params, {});
-    return snapshot();
-  });
+  // Only reached before the first publication; later reads never lock.
+  core.command("runtime.snapshot", "runtime.read", [this](const json&) { return snapshot(); });
   core.command("futures.inspect_csv", "data.inspect",
                [this](const json& params) { return inspect(params); });
   register_paper_commands();
@@ -62,36 +60,64 @@ Application::Impl::Impl() {
   register_strategy_commands();
   register_market_commands();
   core.start();
+  refresher = std::jthread([this](std::stop_token stop) { refresh_loop(stop); });
 }
-json Application::Impl::snapshot() {
+Application::Impl::~Impl() {
+  refresher.request_stop();
+  refresh_wake.notify_all();
+  refresher = {};
+}
+Application::Impl::Parts Application::Impl::gather_parts(bool hold_between_calls) {
+  // With hold_between_calls the caller already owns `operations`. Otherwise
+  // each client call takes it briefly, so a command waits for at most one RPC.
+  Parts parts;
+  auto step = [&](auto&& read) {
+    if (hold_between_calls) {
+      read();
+      return;
+    }
+    std::lock_guard lock(operations);
+    read();
+  };
+  step([&] {
+    parts.paper = paper ? paper->snapshot() : json(nullptr);
+    parts.connection = paper ? paper->connection() : json(nullptr);
+    parts.process = paper ? json(paper->process_id()) : json(nullptr);
+  });
+  step([&] { parts.research = research ? research->status() : json(nullptr); });
+  step([&] { parts.strategy = strategy ? strategy->status() : json(nullptr); });
+  step([&] { parts.market = market ? market->snapshot() : json(nullptr); });
+  step([&] {
+    for (const auto& [id, node] : nodes) {
+      (void)id;
+      parts.nodes.push_back(node->status());
+    }
+  });
+  return parts;
+}
+json Application::Impl::compose(const Parts& parts) {
   const auto preview = core.resources().resolve<PreviewState>("terminal", "preview").lock();
   const auto metrics = core.observations().metrics();
-  const auto account = paper ? paper->snapshot() : json(nullptr);
-  json node_status = json::array();
-  for (const auto& [id, node] : nodes) {
-    (void)id;
-    node_status.push_back(node->status());
-  }
-  return {{"research", research ? research->status() : json(nullptr)},
+  return {{"research", parts.research},
           {"research_result", research_result},
-          {"strategy", strategy ? strategy->status() : json(nullptr)},
-          {"market", market ? market->snapshot() : json(nullptr)},
+          {"strategy", parts.strategy},
+          {"market", parts.market},
           {"ssh_key", ssh_key},
           {"agent_program", agent_program},
           {"firewall_plan", firewall_plan},
-          {"nodes", node_status},
-          {"connection", paper ? paper->connection() : json(nullptr)},
+          {"nodes", parts.nodes},
+          {"connection", parts.connection},
           {"protocol", 1},
           {"product", "Asterion Terminal"},
           {"core", "C++20"},
           {"phase", "ready"},
           {"asset", "futures"},
-          {"paper", account},
+          {"paper", parts.paper},
           {"dataset", preview->dataset},
           {"diagnostics",
            {{"succeeded", metrics.succeeded},
             {"failed", metrics.failed},
-            {"trading_process_id", paper ? json(paper->process_id()) : json(nullptr)}}},
+            {"trading_process_id", parts.process}}},
           {"plugins",
            json::array(
                {{{"id", "asterion.data.csv"}, {"kind", "data"}, {"state", "available"}},
@@ -102,34 +128,101 @@ json Application::Impl::snapshot() {
           {"live_market", "not_connected"},
           {"execution", "paper_only"}};
 }
+json Application::Impl::snapshot() {
+  return compose(gather_parts(true));
+}
+void Application::Impl::publish(json next) {
+  // One-shot payloads belong to the requesting call, not to later reads.
+  next.erase("initializer");
+  const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+  std::lock_guard lock(cache_mutex);
+  if (next != cache) {
+    cache = std::move(next);
+    ++revision;
+  }
+  refreshed_at_ms = now;
+}
+json Application::Impl::read_published(const json& params) {
+  if (!params.is_object() || params.size() > 1 || (params.size() == 1 && !params.contains("since")))
+    throw std::invalid_argument("request fields do not match the current contract");
+  std::optional<std::uint64_t> since;
+  if (params.contains("since")) {
+    if (!params.at("since").is_number_unsigned())
+      throw std::invalid_argument("since must be a snapshot revision");
+    since = params.at("since").get<std::uint64_t>();
+  }
+  core.access().require("terminal.local", "runtime.read");
+  std::lock_guard lock(cache_mutex);
+  if (cache.is_null())
+    return nullptr;
+  json result = since == revision ? json{{"unchanged", true}} : cache;
+  result["revision"] = revision;
+  result["refreshed_at_ms"] = refreshed_at_ms;
+  return result;
+}
+void Application::Impl::refresh_loop(std::stop_token stop) {
+  while (!stop.stop_requested()) {
+    bool live = false;
+    try {
+      std::uint64_t before = 0;
+      {
+        std::lock_guard lock(operations);
+        before = mutations;
+      }
+      auto parts = gather_parts(false);
+      live = !parts.market.is_null();
+      json next;
+      {
+        std::lock_guard lock(operations);
+        // A command ran meanwhile and already published fresher state.
+        if (mutations == before)
+          next = compose(parts);
+      }
+      if (!next.is_null())
+        publish(std::move(next));
+    } catch (const std::exception&) {
+      // Client failures surface through their own status fields next cycle.
+    }
+    std::unique_lock lock(cache_mutex);
+    refresh_wake.wait_for(lock, stop,
+                          live ? std::chrono::milliseconds(500) : std::chrono::seconds(2),
+                          [] { return false; });
+  }
+}
 json Application::Impl::dispatch(const json& request) {
   fields(request, {"version", "method", "params"});
   if (request.at("version") != 1 || !request.at("version").is_number_integer())
     throw std::invalid_argument("unsupported API version");
   const auto method = text(request, "method");
   const auto& params = request.at("params");
+  // Polls pass `since` and always read the published snapshot. A plain read is
+  // an explicit probe: fresh when idle, otherwise the published snapshot
+  // marked stale. Neither ever waits behind a command or a service RPC.
   std::unique_lock operation(operations, std::defer_lock);
   if (method == "runtime.snapshot") {
-    if (!operation.try_lock()) {
-      {
-        std::lock_guard cached(cache_mutex);
-        if (!cache.is_null()) {
-          auto result = cache;
-          result["stale"] = true;
-          return result;
-        }
+    const bool poll = params.is_object() && params.contains("since");
+    if (poll || !operation.try_lock()) {
+      if (auto published = read_published(params); !published.is_null()) {
+        if (!poll)
+          published["stale"] = true;
+        return published;
       }
-      operation.lock();
+      if (!operation.owns_lock())
+        operation.lock();
     }
-  } else
+  } else {
     operation.lock();
-  auto result = core.dispatch("terminal.local", method, params);
+    ++mutations;
+  }
+  auto result = core.dispatch("terminal.local", method,
+                              method == "runtime.snapshot" ? json::object() : params);
   if (result.is_object() && result.contains("protocol")) {
-    auto next = result;
-    // One-shot payloads belong to the requesting call, not to later polls.
-    next.erase("initializer");
+    publish(result);
     std::lock_guard cached(cache_mutex);
-    cache = std::move(next);
+    result["revision"] = revision;
+    result["refreshed_at_ms"] = refreshed_at_ms;
   }
   return result;
 }

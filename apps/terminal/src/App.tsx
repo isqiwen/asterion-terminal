@@ -11,6 +11,7 @@ import { Workbench } from "@asterion/workbench/workspace/Workbench";
 import { usePreferences } from "./ui/preferences";
 import {
   request,
+  pollSnapshot,
   type CsvRequest,
   type Snapshot,
   type TerminalCommand,
@@ -43,22 +44,27 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   const [error, setError] = useState<DisplayError>("");
   const [checkedAt, setCheckedAt] = useState<number | null>(null);
   const generation = useRef(0);
+  const revision = useRef<number | undefined>(undefined);
+  // Every full snapshot carries the core's revision and the time the core last
+  // refreshed it; stale probes keep the previous "checked at" time.
+  const accept = useCallback((next: Snapshot) => {
+    setSnapshot(next);
+    setError("");
+    revision.current = next.revision;
+    if (!next.stale) setCheckedAt(next.refreshed_at_ms ?? Date.now());
+  }, []);
   const refresh = useCallback(async () => {
     const current = ++generation.current;
     setBusy(true);
     try {
       const next = await request("runtime.snapshot");
-      if (current === generation.current) {
-        setSnapshot(next);
-        setError("");
-        if (!next.stale) setCheckedAt(Date.now());
-      }
+      if (current === generation.current) accept(next);
     } catch (reason) {
       if (current === generation.current) setError(asDisplayError(reason));
     } finally {
       if (current === generation.current) setBusy(false);
     }
-  }, []);
+  }, [accept]);
   useEffect(() => {
     void refresh();
     return () => {
@@ -89,41 +95,40 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     document.addEventListener("visibilitychange", update);
     return () => document.removeEventListener("visibilitychange", update);
   }, []);
+  const polling = !!snapshot && (!!snapshot.connection || !!snapshot.nodes?.length);
+  const live = !!snapshot?.market;
   useEffect(() => {
-    // Hidden windows stop polling; becoming visible re-runs this effect immediately.
-    if (busy || !visible || !snapshot || (!snapshot.connection && !snapshot.nodes?.length)) return;
+    // Polls read the core's published snapshot by revision; an unchanged
+    // revision returns no state. Hidden windows stop polling.
+    if (busy || !visible || !polling) return;
     let cancelled = false;
-    const timer = window.setTimeout(
+    const timer = window.setInterval(
       async () => {
         const current = generation.current;
         try {
-          const next = await request("runtime.snapshot");
-          if (!cancelled && current === generation.current) {
-            setSnapshot(next);
+          const next = await pollSnapshot(revision.current ?? 0);
+          if (cancelled || current !== generation.current) return;
+          if ("unchanged" in next) {
             setError("");
-            if (!next.stale) setCheckedAt(Date.now());
-          }
+            setCheckedAt(next.refreshed_at_ms);
+          } else accept(next);
         } catch (reason) {
           if (!cancelled && current === generation.current) setError(asDisplayError(reason));
         }
       },
-      snapshot.market ? 500 : 2000,
+      live ? 500 : 2000,
     );
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
+      window.clearInterval(timer);
     };
-  }, [busy, snapshot, visible]);
+  }, [busy, visible, polling, live, accept]);
   async function inspect(params: CsvRequest) {
     const current = ++generation.current;
     setBusy(true);
     try {
       const next = await request("futures.inspect_csv", params);
-      if (current === generation.current) {
-        setSnapshot(next);
-        setError("");
-        setCheckedAt(Date.now());
-      }
+      if (current === generation.current) accept(next);
     } finally {
       if (current === generation.current) setBusy(false);
     }
@@ -133,11 +138,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     setBusy(true);
     try {
       const next = await request(method, params);
-      if (current === generation.current) {
-        setSnapshot(next);
-        setError("");
-        setCheckedAt(Date.now());
-      }
+      if (current === generation.current) accept(next);
     } catch (reason) {
       // A durable commit can succeed even if the response is lost. Refresh state
       // before showing the error; never automatically repeat a trading command.

@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <asterion/domain/account.hpp>
+#include <asterion/kernel/process/child.hpp>
 #include "paper_execution.hpp"
 #include "order_limits.hpp"
 #include "file_journal.hpp"
@@ -29,9 +30,7 @@ LimitOrder order(std::string id, Side side, const char* quantity, const char* pr
 }
 struct Directory {
   std::filesystem::path path =
-      std::filesystem::temp_directory_path() /
-      ("asterion-paper-中文-" +
-       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+      std::filesystem::temp_directory_path() / ("asterion-paper-中文-" + unique_process_id());
   Directory() { std::filesystem::create_directory(path); }
   ~Directory() {
     std::error_code ignored;

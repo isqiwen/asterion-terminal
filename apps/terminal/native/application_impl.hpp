@@ -24,7 +24,9 @@
 #include <nlohmann/json.hpp>
 #include <mutex>
 #include <stdexcept>
+#include <condition_variable>
 #include <map>
+#include <thread>
 #include <optional>
 
 namespace asterion::terminal {
@@ -52,11 +54,31 @@ struct Application::Impl {
   std::chrono::steady_clock::time_point firewall_expiry{};
   Runtime core{next_runtime_scope()};
   ResourceRegistry::Scope scope = core.resources().create_scope("terminal");
-  // Serializes every operation touching services; see Application.
-  std::mutex operations, cache_mutex;
+  // Serializes every operation touching service clients; see Application.
+  std::mutex operations;
+  // Incremented by every command under `operations`; a background refresh
+  // that overlapped a command is discarded instead of publishing older state.
+  std::uint64_t mutations = 0;
+  // Published snapshot, guarded by cache_mutex. runtime.snapshot only reads it.
+  std::mutex cache_mutex;
+  std::condition_variable_any refresh_wake;
   json cache = nullptr;
+  std::uint64_t revision = 0;
+  std::int64_t refreshed_at_ms = 0;
   Impl();
+  ~Impl();
+  // Full snapshot with one RPC per service; caller holds `operations`.
   json snapshot();
+  // Service-dependent parts, gathered one client call at a time.
+  struct Parts {
+    json paper = nullptr, connection = nullptr, process = nullptr, research = nullptr,
+         strategy = nullptr, market = nullptr, nodes = json::array();
+  };
+  Parts gather_parts(bool hold_between_calls);
+  json compose(const Parts& parts);
+  void publish(json snapshot);
+  json read_published(const json& params);
+  void refresh_loop(std::stop_token stop);
   json dispatch(const json& request);
   json inspect(const json& params);
   // One registration per product area; each grants its capability and adds
@@ -66,5 +88,7 @@ struct Application::Impl {
   void register_research_commands();
   void register_strategy_commands();
   void register_market_commands();
+  // Declared last: stopped and joined before any state it reads is destroyed.
+  std::jthread refresher;
 };
 } // namespace asterion::terminal

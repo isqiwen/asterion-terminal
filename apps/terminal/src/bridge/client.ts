@@ -383,6 +383,9 @@ export type ResearchResult =
 export type Snapshot = {
   // Present when the core answered from its last snapshot because another operation was running.
   stale?: true;
+  // Revision of the core's published state and when the core last refreshed it.
+  revision: number;
+  refreshed_at_ms: number;
   strategy?: null | {
     id: string;
     state: "connected" | "disconnected";
@@ -528,4 +531,9 @@ export async function exportLinuxInitializer(): Promise<boolean> {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   return true;
+}
+// Polls send the last revision they saw; an unchanged core returns no state.
+export type SnapshotUnchanged = { unchanged: true; revision: number; refreshed_at_ms: number };
+export async function pollSnapshot(since: number): Promise<Snapshot | SnapshotUnchanged> {
+  return (await request("runtime.snapshot", { since })) as Snapshot | SnapshotUnchanged;
 }

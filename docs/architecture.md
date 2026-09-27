@@ -100,7 +100,7 @@ CMake 目标按职责命名为 `asterion_foundation`、`asterion_kernel`、`aste
 
 当前桌面链路为 **React → Tauri invoke → Rust 薄桥 → C++ Terminal 编排 → Protobuf（本机 IPC / TCP + mTLS）→ 独立交易进程**。CSV 预览与界面状态留在 Terminal；账户账本、Paper 执行和文件日志由 `apps/trading/` 会话持有。C ABI 仍负责进程内跨语言调用；它本身不是 IPC。
 
-C ABI 可并发调用：C++ 编排内部串行化所有触及服务的操作；有操作进行时，`runtime.snapshot` 立即返回最近一次快照并标记 `stale`，不排队等待，因此一个慢服务或一次长部署不会冻结所有窗口。Tauri 薄桥不再持有全局锁。交易状态读取期限为 3 秒，变更保留 10 秒（超时即结果未知）。
+C ABI 可并发调用：C++ 编排内部串行化所有触及服务的命令。后台刷新线程按业务部分（交易、研究、策略、行情、节点）逐个读取服务状态，每次只在一次客户端调用期间持锁，命令最多等待一次 RPC；刷新与命令交错时丢弃该轮结果，避免发布旧状态。发布的快照带 `revision` 与 `refreshed_at_ms`：界面轮询携带 `since`，状态未变时只返回 `unchanged`，从不触发服务 RPC；不带 `since` 的读取是显式探测，空闲时现场读取，忙时返回已发布快照并标记 `stale`。刷新周期在行情连接时为 500 ms，否则 2 s。Tauri 薄桥不持有全局锁。交易状态读取期限为 3 秒，变更保留 10 秒（超时即结果未知）。
 
 内核的 MessageBus、Scheduler、AccessPolicy 与 Observability 目前只经 Runtime 在 Terminal 编排中使用，且只有单一本机调用主体 `terminal.local`，能力检查尚不构成多主体授权；各独立服务进程使用内核的 IPC、线程池与进程机制，但各自实现请求循环，尚未采用 Runtime。“事件驱动”在当前实现中指单进程内的同步事件与有序持久事件（策略宿主、交易日志），不是跨进程事件总线。
 

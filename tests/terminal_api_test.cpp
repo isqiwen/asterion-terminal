@@ -179,10 +179,16 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
   std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
                                                                       asterion_terminal_destroy);
   ASSERT_TRUE(runtime);
-  // Before any operation completes there is no cached state: the read waits.
   const auto first = call(runtime.get(), request("runtime.snapshot"));
   ASSERT_TRUE(first.contains("result"));
-  EXPECT_FALSE(first["result"].contains("stale"));
+  const auto revision = first["result"]["revision"].get<std::uint64_t>();
+  EXPECT_GT(first["result"]["refreshed_at_ms"].get<std::int64_t>(), 0);
+  // An unchanged revision returns no state at all.
+  const auto same = call(runtime.get(), request("runtime.snapshot", {{"since", revision}}));
+  EXPECT_EQ(same["result"]["unchanged"], true);
+  EXPECT_EQ(same["result"]["revision"], revision);
+  EXPECT_FALSE(same["result"].contains("dataset"));
+  EXPECT_TRUE(call(runtime.get(), request("runtime.snapshot", {{"since", "x"}})).contains("error"));
   Fixture fixture;
   std::string csv = "timestamp_ns,price,quantity\n";
   for (int i = 1; i <= 200000; ++i)
@@ -198,19 +204,20 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
     EXPECT_TRUE(call(runtime.get(), request("futures.inspect_csv", params)).contains("result"));
     done = true;
   });
-  bool observed_stale = false;
-  while (!done && !observed_stale) {
+  int concurrent_reads = 0;
+  while (!done) {
     const auto started = std::chrono::steady_clock::now();
     const auto status = call(runtime.get(), request("runtime.snapshot"));
-    if (status["result"].value("stale", false)) {
-      observed_stale = true;
-      EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::milliseconds(500));
-      EXPECT_TRUE(status["result"]["dataset"].is_null()) << "stale state predates the import";
+    EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::milliseconds(500));
+    if (!done) {
+      ++concurrent_reads;
+      EXPECT_TRUE(status["result"]["dataset"].is_null()) << "import not yet published";
     }
   }
   slow.join();
-  EXPECT_TRUE(observed_stale) << "import finished before a concurrent read was observed";
-  const auto fresh = call(runtime.get(), request("runtime.snapshot"));
-  EXPECT_FALSE(fresh["result"].contains("stale"));
+  EXPECT_GT(concurrent_reads, 0) << "import finished before a concurrent read was observed";
+  const auto fresh = call(runtime.get(), request("runtime.snapshot", {{"since", revision}}));
+  EXPECT_FALSE(fresh["result"].contains("unchanged"));
+  EXPECT_GT(fresh["result"]["revision"].get<std::uint64_t>(), revision);
   EXPECT_EQ(fresh["result"]["dataset"]["count"], 200000);
 }
