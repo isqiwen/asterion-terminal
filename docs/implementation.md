@@ -128,3 +128,6 @@ Backtest 与 Task Service 已有首条独立研究执行链，范围见 docs/res
 - UI 插件声明可调用的命令，宿主按声明限定；ESLint（react-hooks）与 e2e 类型检查接入 CI。
 - 三平台 CI：修复 Windows 行尾导致的 Conan 版本不一致、锁文件缺少 Windows 构建依赖、`windows.h`/`sddl.h` 包含顺序；ASan/UBSan 与 TSan 任务纳入计时倍率；修复 GCC 13 之前初始化列表在异常路径上的泄漏。
 - 格式：C++ 使用 clang-format 23.1.1（`.clang-format`），前端使用 Prettier（`.prettierrc.json`），CI style 任务检查两者与 tsc。
+- Terminal API 契约：`apps/terminal/src/bridge/client.ts` 中的 TS 类型是唯一来源；`snapshot-contract.spec.ts` 在测试时由这些类型生成严格 JSON Schema（不允许未声明字段），校验 C++ 在启动、导入、模拟会话、回放、研究回测与结果、行情连接/断开等状态下的真实响应及 `unchanged` 轮询回复。首次运行发现并修正了 5 处漂移（`diagnostics`、服务 `endpoint/directory`、账户合约规格、实验 `paper.type/version`、防火墙预览字段）。
+- 交易引擎 v2 与证书角色：见 [期货模拟交易](paper-trading.md) 与 [服务管理](service-management.md)。
+

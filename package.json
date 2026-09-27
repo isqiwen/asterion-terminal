@@ -27,10 +27,12 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "ajv": "^8.20.0",
     "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^5.2.0",
     "globals": "^17.12.0",
     "prettier": "^3.9.9",
+    "ts-json-schema-generator": "^2.9.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.70.1",
     "vite": "^6.0.0"

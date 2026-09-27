@@ -66,6 +66,11 @@ export type PaperAccount = {
     venue: string;
     symbol: string;
     currency: string;
+    product: string;
+    delivery_month: string;
+    price_increment: string;
+    quantity_increment: string;
+    multiplier: string;
   };
   risk: { max_order_quantity: string; max_gross_quantity: string; max_working_orders: number };
   costs: {
@@ -115,6 +120,11 @@ export type FirewallPlan = {
   rule: string;
   action: "allow" | "remove";
   verification: string;
+  // SSH-inspected plans only: target platform, the source address the node
+  // observed for this Terminal, and whether an Asterion-owned rule exists.
+  os?: string;
+  observed_source?: string;
+  owned?: boolean;
 };
 export type TerminalCommand =
   | "node.agent.upgrade"
@@ -185,6 +195,8 @@ export type NodeStatus = {
       error: string;
       health: string;
       last_heartbeat_ms: number;
+      endpoint: string;
+      directory: string;
     }[];
   };
 };
@@ -341,6 +353,8 @@ export type BacktestExperiment = {
   }[];
   sma: { fast: number; slow: number; quantity: string };
   paper: {
+    version: number;
+    type: "historical_paper";
     contract: ExperimentContract;
     deposit: string;
     costs: PaperAccount["costs"];
@@ -461,6 +475,7 @@ export type Snapshot = {
     kind: string;
     state: string;
   }[];
+  diagnostics: { succeeded: number; failed: number; trading_process_id: number | null };
   live_market: "not_connected";
   execution: "paper_only";
   paper: PaperAccount | null;
