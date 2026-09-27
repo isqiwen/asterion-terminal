@@ -8,12 +8,11 @@ void Application::Impl::register_paper_commands() {
   core.command("paper.create", "paper.manage", [this](const json& p) {
     const bool remote = paper && paper->connection().at("transport") == "tcp_tls";
     if (remote)
-      fields(p, {"deposit", "margin_per_lot", "open_fee", "close_today_fee", "close_yesterday_fee",
-                 "max_order_quantity", "max_gross_quantity", "max_working_orders"});
+      fields_with_costs(
+          p, {"deposit", "max_order_quantity", "max_gross_quantity", "max_working_orders"});
     else
-      fields(p, {"directory", "deposit", "margin_per_lot", "open_fee", "close_today_fee",
-                 "close_yesterday_fee", "max_order_quantity", "max_gross_quantity",
-                 "max_working_orders"});
+      fields_with_costs(p, {"directory", "deposit", "max_order_quantity", "max_gross_quantity",
+                            "max_working_orders"});
     if (paper && !remote)
       throw std::invalid_argument("close the current paper session first");
     auto preview = core.resources().resolve<PreviewState>("terminal", "preview").lock();
@@ -23,9 +22,7 @@ void Application::Impl::register_paper_commands() {
     for (auto key : {"venue", "symbol", "currency", "price_increment", "quantity_increment",
                      "multiplier", "product", "delivery_month"})
       contract[key] = preview->dataset.at(key);
-    json costs = json::object();
-    for (auto key : {"margin_per_lot", "open_fee", "close_today_fee", "close_yesterday_fee"})
-      costs[key] = text(p, key);
+    const auto costs = cost_parameters(p);
     // Validated before the braced initializer (GCC < 13 PR66139 leak).
     const auto risk = risk_parameters(p);
     const auto deposit = text(p, "deposit");

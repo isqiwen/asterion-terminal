@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-crash-中文-", ignore_cleanup
         })
         call(process, "paper.create", {
             "directory": str(directory), "deposit": "1000", "margin_per_lot": "100",
-            "open_fee": "2", "close_today_fee": "3", "close_yesterday_fee": "4", "max_order_quantity":"1", "max_gross_quantity":"1", "max_working_orders":"1",
+            "open_fee": "2", "close_today_fee": "3", "close_yesterday_fee": "4", "margin_rate": "0", "open_fee_rate": "0", "close_today_fee_rate": "0", "close_yesterday_fee_rate": "0", "max_order_quantity":"1", "max_gross_quantity":"1", "max_working_orders":"1",
         })
         call(process, "paper.act", {"request_id": "tick1", "action": "advance"})
         buy = {"request_id": "buy", "action": "submit", "order_id": "order1", "side": "buy",

@@ -35,7 +35,16 @@ void PaperExecution::submit(LimitOrder order, Offset offset) {
   if (!decision.allowed())
     throw std::invalid_argument("pre-trade risk rejected: " +
                                 std::string(risk_reason_name(decision.reason)));
+  // Queue estimate: a limit order joining a price level that just traded sits
+  // behind that traded quantity; a new level starts with an empty queue.
+  const auto last = cursor_ ? &ticks_->at(cursor_ - 1) : nullptr;
+  const auto ahead = last && last->price == order.limit_price ? last->quantity : Decimal{};
+  const auto id = order.id;
+  auto queue = queue_;
+  if (ahead != Decimal{})
+    queue[id] = ahead;
   account_.submit(std::move(order), offset);
+  queue_.swap(queue);
   ++revision_;
 }
 void PaperExecution::cancel(const std::string& id) {
@@ -68,16 +77,30 @@ void PaperExecution::advance() {
     return;
   }
   auto next = account_;
+  auto queue = queue_;
   auto sequence = execution_sequence_;
   next.mark(tick.price);
   auto liquidity = tick.quantity;
   // Arrival order, shared per-tick volume. Fills and cancels never append
-  // orders, so indexes stay stable during the pass.
+  // orders, so indexes stay stable during the pass. A trade through the limit
+  // fills directly; a trade at the limit first consumes the queue ahead.
   for (std::size_t i = 0; i < next.orders().size() && liquidity != Decimal{}; ++i) {
     const auto& item = next.orders()[i];
     if (!crosses(item, tick.price))
       continue;
     const auto id = item.order.request().id;
+    if (tick.price == item.order.request().limit_price) {
+      if (const auto found = queue.find(id); found != queue.end()) {
+        const auto consumed = std::min(found->second, liquidity);
+        found->second = found->second - consumed;
+        liquidity = liquidity - consumed;
+        if (found->second != Decimal{})
+          continue;
+        queue.erase(found);
+        if (liquidity == Decimal{})
+          break;
+      }
+    }
     if (item.offset == Offset::open && next.available() < Decimal{}) {
       next.cancel(id);
       continue;
@@ -90,6 +113,7 @@ void PaperExecution::advance() {
     liquidity = liquidity - quantity;
   }
   account_ = std::move(next);
+  queue_.swap(queue);
   execution_sequence_ = sequence;
   ++cursor_;
   ++revision_;
@@ -144,9 +168,13 @@ void PaperExecution::reconcile_long_target(const std::string& order_id, Decimal 
   if (target > current) {
     candidate.submit({order_id, account_.instrument().id, Side::buy, target - current, price},
                      Offset::open);
+  } else if (target < current && account_.close_policy() != ClosePolicy::explicit_buckets) {
+    // The exchange assigns buckets (and their fees) itself.
+    candidate.submit({order_id, account_.instrument().id, Side::sell, current - target, price},
+                     Offset::close);
   } else if (target < current) {
-    // Explicit simulator policy: yesterday first, then today. This is not an
-    // inferred exchange rule or fee optimization. Each bucket retains its fee.
+    // Explicit-bucket venues: yesterday first, then today. A simulator policy,
+    // not a fee optimization. Each bucket retains its fee.
     const auto old_quantity = std::min(current - target, yesterday);
     const auto new_quantity = current - target - old_quantity;
     const bool split = old_quantity > Decimal{} && new_quantity > Decimal{};

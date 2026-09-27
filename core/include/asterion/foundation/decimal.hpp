@@ -9,7 +9,8 @@ namespace asterion {
 
 // Exact fixed-point value with eight decimal places. No implicit rounding.
 // Supported range: -92233720368.54775808 to 92233720368.54775807.
-enum class Rounding { exact, toward_zero, floor, ceiling, half_even };
+// half_up rounds halves away from zero (commercial rounding, 四舍五入).
+enum class Rounding { exact, toward_zero, floor, ceiling, half_even, half_up };
 
 class Decimal final {
 public:
@@ -32,5 +33,7 @@ private:
 // Division and grid quantization require the caller to select any lossy rounding.
 Decimal divide(Decimal numerator, Decimal denominator, Rounding rounding = Rounding::exact);
 Decimal quantize(Decimal value, Decimal increment, Rounding rounding = Rounding::exact);
+// Product rounded to eight places; operator* is multiply(..., Rounding::exact).
+Decimal multiply(Decimal left, Decimal right, Rounding rounding);
 
 } // namespace asterion

@@ -4,12 +4,14 @@ package asterion.protocol.v1;
 import "asterion/v1/domain.proto";
 import "asterion/v1/data.proto";
 
-message Costs { Decimal margin_per_lot = 1; Decimal open_fee = 2; Decimal close_today_fee = 3; Decimal close_yesterday_fee = 4; }
+// Per-lot amounts plus notional rates (price x quantity x multiplier x rate).
+message Costs { Decimal margin_per_lot = 1; Decimal open_fee = 2; Decimal close_today_fee = 3; Decimal close_yesterday_fee = 4; Decimal margin_rate = 5; Decimal open_fee_rate = 6; Decimal close_today_fee_rate = 7; Decimal close_yesterday_fee_rate = 8; }
 message RiskLimits { Decimal max_order_quantity = 1; Decimal max_gross_quantity = 2; uint64 max_working_orders = 3; }
 message PaperInput { Contract contract = 1; Costs costs = 2; Decimal deposit = 3; repeated Tick ticks = 4; RiskLimits risk = 5; }
 enum Mode { MODE_UNSPECIFIED = 0; PAPER = 1; LIVE = 2; }
 enum Side { SIDE_UNSPECIFIED = 0; BUY = 1; SELL = 2; }
-enum Offset { OFFSET_UNSPECIFIED = 0; OPEN = 1; CLOSE_TODAY = 2; CLOSE_YESTERDAY = 3; }
+// CLOSE leaves bucket assignment to the exchange rule (see ClosePolicy).
+enum Offset { OFFSET_UNSPECIFIED = 0; OPEN = 1; CLOSE_TODAY = 2; CLOSE_YESTERDAY = 3; CLOSE = 4; }
 enum OrderState { ORDER_STATE_UNSPECIFIED = 0; ACCEPTED = 1; PARTIALLY_FILLED = 2; FILLED = 3; CANCELLED = 4; REJECTED = 5; }
 message Empty {}
 message Submit { string order_id = 1; Side side = 2; Offset offset = 3; Decimal quantity = 4; Decimal price = 5; }

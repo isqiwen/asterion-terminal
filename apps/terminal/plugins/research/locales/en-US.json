@@ -148,5 +148,9 @@
   "导入结算表": "Import settlement calendar",
   "结算表版本": "Settlement calendar version",
   "发布标识": "Publication ID",
-  "内容版本": "Content revision"
+  "内容版本": "Content revision",
+  "保证金率": "Margin Rate",
+  "开仓费率": "Open Fee Rate",
+  "平今费率": "Close-Today Fee Rate",
+  "平昨费率": "Close-Yesterday Fee Rate"
 }

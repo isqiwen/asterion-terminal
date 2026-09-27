@@ -19,6 +19,7 @@ export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
     open: t("开仓"),
     close_today: t("平今"),
     close_yesterday: t("平昨"),
+    close: t("平仓"),
   };
   const paper = snapshot?.paper;
   const remote = snapshot?.connection?.transport === "tcp_tls";
@@ -29,11 +30,27 @@ export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
     open_fee: "",
     close_today_fee: "",
     close_yesterday_fee: "",
+    margin_rate: "0",
+    open_fee_rate: "0",
+    close_today_fee_rate: "0",
+    close_yesterday_fee_rate: "0",
     max_order_quantity: "",
     max_gross_quantity: "",
     max_working_orders: "",
   });
   const [order, setOrder] = useState({ side: "buy", offset: "open", quantity: "1", price: "" });
+  // Mirrors the core's ClosePolicy: only SHFE/INE (and unverified venues)
+  // take explicit today/yesterday closes; the rest assign buckets themselves.
+  const venue = paper?.contract.venue ?? snapshot?.dataset?.venue ?? "";
+  const explicitBuckets = !["CFFEX", "DCE", "CZCE", "GFEX"].includes(venue);
+  const offsetValue =
+    order.offset === "open"
+      ? "open"
+      : explicitBuckets
+        ? order.offset === "close"
+          ? "close_today"
+          : order.offset
+        : "close";
   const [settlement, setSettlement] = useState("");
   const [error, setError] = useState<DisplayError>("");
   async function run(method: TerminalCommand, params: Record<string, unknown> = {}) {
@@ -137,6 +154,10 @@ export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
                     ["open_fee", t("每手开仓费")],
                     ["close_today_fee", t("每手平今费")],
                     ["close_yesterday_fee", t("每手平昨费")],
+                    ["margin_rate", t("保证金率")],
+                    ["open_fee_rate", t("开仓费率")],
+                    ["close_today_fee_rate", t("平今费率")],
+                    ["close_yesterday_fee_rate", t("平昨费率")],
                     ["max_order_quantity", t("单笔数量上限")],
                     ["max_gross_quantity", t("总持仓量上限")],
                     ["max_working_orders", t("在途委托数上限")],
@@ -219,7 +240,12 @@ export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
           <form
             onSubmit={e => {
               e.preventDefault();
-              void act({ action: "submit", order_id: crypto.randomUUID(), ...order });
+              void act({
+                action: "submit",
+                order_id: crypto.randomUUID(),
+                ...order,
+                offset: offsetValue,
+              });
             }}
           >
             <fieldset
@@ -246,12 +272,18 @@ export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
                   {t("开平仓")}
                   <select
                     aria-label={t("开平仓")}
-                    value={order.offset}
+                    value={offsetValue}
                     onChange={e => setOrder({ ...order, offset: e.target.value })}
                   >
                     <option value="open">{t("开仓")}</option>
-                    <option value="close_today">{t("平今")}</option>
-                    <option value="close_yesterday">{t("平昨")}</option>
+                    {explicitBuckets ? (
+                      <>
+                        <option value="close_today">{t("平今")}</option>
+                        <option value="close_yesterday">{t("平昨")}</option>
+                      </>
+                    ) : (
+                      <option value="close">{t("平仓")}</option>
+                    )}
                   </select>
                 </label>
                 <label>
@@ -377,13 +409,16 @@ export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
             <summary>{t("模拟规则与手动结算")}</summary>
             <p>
               {t(
-                "成交按委托先后共享下一笔行情的成交量，以该笔成交价格检查限价并撮合。无盘口、排队、滑点或强平模型。浮亏会减少可用资金，浮盈不增加可开仓资金。存储保留原始回放数据与操作日志。",
+                "成交按委托先后共享下一笔行情的成交量。价格穿过限价时直接成交；恰好触及限价时，需先消耗下单时该价位已成交的排队量。无盘口、滑点或强平模型。浮亏会减少可用资金，浮盈不增加可开仓资金。存储保留原始回放数据与操作日志。",
               )}
             </p>
             <p>
               {t("每手保证金")} {paper.costs.margin_per_lot}
               {t("；开仓 / 平今 / 平昨手续费")} {paper.costs.open_fee} /{" "}
               {paper.costs.close_today_fee} / {paper.costs.close_yesterday_fee}
+              {t("；保证金率")} {paper.costs.margin_rate}
+              {t("；开仓 / 平今 / 平昨费率")} {paper.costs.open_fee_rate} /{" "}
+              {paper.costs.close_today_fee_rate} / {paper.costs.close_yesterday_fee_rate}
               {t("。单位：")} {paper.contract.currency}。
             </p>
             {paper.replay ? (

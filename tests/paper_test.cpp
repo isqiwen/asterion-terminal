@@ -59,7 +59,11 @@ Json manifest() {
            {{"margin_per_lot", "100"},
             {"open_fee", "2"},
             {"close_today_fee", "3"},
-            {"close_yesterday_fee", "4"}}},
+            {"close_yesterday_fee", "4"},
+            {"margin_rate", "0"},
+            {"open_fee_rate", "0"},
+            {"close_today_fee_rate", "0"},
+            {"close_yesterday_fee_rate", "0"}}},
           {"ticks", Json::array({{{"timestamp_ns", "100"}, {"price", "100"}, {"quantity", "1"}},
                                  {{"timestamp_ns", "200"}, {"price", "99"}, {"quantity", "1"}},
                                  {{"timestamp_ns", "300"}, {"price", "110"}, {"quantity", "1"}}})}};
@@ -858,4 +862,97 @@ TEST(PaperSession, RejectedCommandLeavesStateAndIdempotencyUntouched) {
   // A rejected request identity was never committed and may be reused.
   session.execute(submit("bad", "buy", "open", "100"));
   EXPECT_EQ(session.snapshot().at("orders").size(), 1U);
+}
+namespace {
+Instrument venue_instrument(const char* venue, const char* symbol) {
+  return {{venue, symbol}, AssetClass::futures, "CNY", d("1"), d("1"), d("10")};
+}
+LimitOrder venue_order(const Instrument& spec, std::string id, Side side, const char* quantity,
+                       const char* price) {
+  return {std::move(id), spec.id, side, d(quantity), d(price)};
+}
+} // namespace
+TEST(FuturesCosts, NotionalRatesRoundHalfUpToTheCentAndMarginFollowsTheMark) {
+  // Per-lot 2 + 0.0023% of notional to open; 12% margin rate, no per-lot margin.
+  FuturesCosts costs{d("0"), d("2"), d("0"), d("0"), d("0.12"), d("0.000023"), d("0"), d("0")};
+  EXPECT_EQ(costs.fee(Offset::open, d("1"), d("3510.5"), d("10")).str(), "2.81"); // 2 + 0.807415
+  EXPECT_EQ(costs.margin(d("2"), d("3510.5"), d("10")).str(), "8425.2");
+  EXPECT_THROW(costs.fee(Offset::close, d("1"), d("1"), d("10")), std::invalid_argument);
+  EXPECT_THROW((FuturesCosts{d("0"), d("0"), d("0"), d("0")}.validate()), std::invalid_argument)
+      << "some margin is required";
+  EXPECT_THROW((FuturesCosts{d("0"), d("0"), d("0"), d("0"), d("1")}.validate()),
+               std::invalid_argument)
+      << "rates are below 1";
+  FuturesAccount account(venue_instrument("SHFE", "rb2610"), d("100000"), costs);
+  account.mark(d("3500"));
+  account.submit(venue_order(account.instrument(), "o", Side::buy, "1", "3500"), Offset::open);
+  ASSERT_TRUE(account.fill({"e", "o", d("1"), d("3500")}));
+  EXPECT_EQ(account.fees().str(), "2.81"); // 2 + 0.805 rounds half-up
+  EXPECT_EQ(account.margin().str(), "4200");
+  account.mark(d("3600"));
+  EXPECT_EQ(account.margin().str(), "4320") << "position margin follows the mark";
+}
+TEST(FuturesAccount, ExchangeClosePoliciesAssignBucketsAndFees) {
+  const FuturesCosts costs{d("100"), d("1"), d("5"), d("2")};
+  EXPECT_EQ(close_policy("SHFE"), ClosePolicy::explicit_buckets);
+  EXPECT_EQ(close_policy("INE"), ClosePolicy::explicit_buckets);
+  EXPECT_EQ(close_policy("CFFEX"), ClosePolicy::today_first);
+  EXPECT_EQ(close_policy("DCE"), ClosePolicy::yesterday_first);
+  EXPECT_EQ(close_policy("CZCE"), ClosePolicy::yesterday_first);
+  EXPECT_EQ(close_policy("GFEX"), ClosePolicy::yesterday_first);
+  EXPECT_EQ(close_policy("UNKNOWN"), ClosePolicy::explicit_buckets);
+  for (const auto [venue, today_first] : {std::pair{"DCE", false}, std::pair{"CFFEX", true}}) {
+    FuturesAccount account(venue_instrument(venue, "x2609"), d("100000"), costs);
+    const auto& spec = account.instrument();
+    account.mark(d("100"));
+    account.submit(venue_order(spec, "y", Side::buy, "2", "100"), Offset::open);
+    ASSERT_TRUE(account.fill({"ey", "y", d("2"), d("100")}));
+    account.settle(d("100")); // two yesterday lots
+    account.submit(venue_order(spec, "t", Side::buy, "2", "100"), Offset::open);
+    ASSERT_TRUE(account.fill({"et", "t", d("2"), d("100")})); // two today lots
+    EXPECT_THROW(
+        account.submit(venue_order(spec, "bad", Side::sell, "1", "100"), Offset::close_today),
+        std::invalid_argument)
+        << venue << " assigns buckets itself";
+    EXPECT_THROW(account.submit(venue_order(spec, "big", Side::sell, "5", "100"), Offset::close),
+                 std::invalid_argument);
+    const auto before = account.fees();
+    account.submit(venue_order(spec, "c", Side::sell, "3", "100"), Offset::close);
+    ASSERT_TRUE(account.fill({"ec", "c", d("3"), d("100")}));
+    // First bucket fully (2 lots), second bucket 1 lot; each at its own fee.
+    const auto expected = today_first ? d("2") * d("5") + d("1") * d("2")  // 12
+                                      : d("2") * d("2") + d("1") * d("5"); // 9
+    EXPECT_EQ((account.fees() - before).str(), expected.str()) << venue;
+    ASSERT_EQ(account.positions().size(), 1U);
+    EXPECT_EQ(account.positions()[0].today, !today_first) << venue;
+  }
+  FuturesAccount shfe(venue_instrument("SHFE", "rb2610"), d("100000"), costs);
+  shfe.mark(d("100"));
+  shfe.submit(venue_order(shfe.instrument(), "o", Side::buy, "1", "100"), Offset::open);
+  ASSERT_TRUE(shfe.fill({"e", "o", d("1"), d("100")}));
+  EXPECT_THROW(
+      shfe.submit(venue_order(shfe.instrument(), "c", Side::sell, "1", "100"), Offset::close),
+      std::invalid_argument)
+      << "SHFE requires an explicit bucket";
+}
+TEST(PaperExecution, OrdersJoiningATradedLevelWaitBehindItsQueue) {
+  // Tick 1 trades 3 lots at 100. A buy at 100 joins behind those 3 lots; a
+  // later buy at 101 has an empty queue at its level.
+  std::vector<TradeTick> ticks{{instrument().id, 1, d("100"), d("3")},
+                               {instrument().id, 2, d("100"), d("2")},
+                               {instrument().id, 3, d("100"), d("2")},
+                               {instrument().id, 4, d("99"), d("5")}};
+  PaperExecution execution(instrument(), d("100000"), costs(), ticks, risk());
+  execution.start();
+  execution.advance();
+  execution.submit(order("queued", Side::buy, "1", "100"), Offset::open);
+  execution.advance(); // 2 lots at 100: 1 of the 3 ahead remains
+  EXPECT_TRUE(execution.account().fills().empty());
+  execution.advance(); // 2 more at 100: 1 clears the queue, 1 fills the order
+  ASSERT_EQ(execution.account().fills().size(), 1U);
+  EXPECT_EQ(execution.account().fills()[0].order_id, "queued");
+  // Through the limit, a fresh order fills without waiting.
+  execution.submit(order("through", Side::buy, "1", "100"), Offset::open);
+  execution.advance(); // trades at 99 < 100
+  EXPECT_EQ(execution.account().fills().size(), 2U);
 }

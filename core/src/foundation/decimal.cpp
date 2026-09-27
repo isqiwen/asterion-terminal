@@ -101,18 +101,7 @@ Decimal operator-(Decimal left, Decimal right) {
 }
 
 Decimal operator*(Decimal left, Decimal right) {
-  const auto a = magnitude(left.raw_);
-  const auto b = magnitude(right.raw_);
-  const bool negative = (left.raw_ < 0) != (right.raw_ < 0);
-  const auto limit = static_cast<std::uint64_t>(max_value) + (negative ? 1U : 0U);
-  // Split the operands to avoid non-portable 128-bit integer extensions.
-  const auto fraction = (a % scale) * (b % scale);
-  if (fraction % scale != 0)
-    throw std::domain_error("decimal multiplication would require rounding");
-  auto value = checked_multiply(a / scale, b, limit);
-  value = checked_add(value, checked_multiply(a % scale, b / scale, limit), limit);
-  value = checked_add(value, fraction / scale, limit);
-  return signed_value(value, negative);
+  return multiply(left, right, Rounding::exact);
 }
 namespace {
 bool round_up(std::uint64_t remainder, std::uint64_t divisor, std::uint64_t quotient, bool negative,
@@ -131,6 +120,8 @@ bool round_up(std::uint64_t remainder, std::uint64_t divisor, std::uint64_t quot
   case Rounding::half_even:
     return remainder > divisor - remainder ||
            (remainder == divisor - remainder && quotient % 2 != 0);
+  case Rounding::half_up:
+    return remainder >= divisor - remainder && remainder != 0;
   }
   throw std::invalid_argument("unknown decimal rounding mode");
 }
@@ -172,5 +163,20 @@ Decimal quantize(Decimal value, Decimal increment, Rounding rounding) {
   if (round_up(magnitude_value % step, step, quotient, negative, rounding))
     ++quotient;
   return signed_value(checked_multiply(quotient, step, limit), negative);
+}
+Decimal multiply(Decimal left, Decimal right, Rounding rounding) {
+  const auto a = magnitude(left.raw());
+  const auto b = magnitude(right.raw());
+  const bool negative = (left.raw() < 0) != (right.raw() < 0);
+  const auto limit = static_cast<std::uint64_t>(max_value) + (negative ? 1U : 0U);
+  // raw(a*b) = a*b/scale, split to avoid non-portable 128-bit integers:
+  // a = A*scale + a0, b = B*scale + b0  =>  A*b + a0*B + a0*b0/scale.
+  const auto fraction = (a % scale) * (b % scale);
+  auto value = checked_multiply(a / scale, b, limit);
+  value = checked_add(value, checked_multiply(a % scale, b / scale, limit), limit);
+  value = checked_add(value, fraction / scale, limit);
+  if (round_up(fraction % scale, scale, value, negative, rounding))
+    value = checked_add(value, 1, limit);
+  return signed_value(value, negative);
 }
 } // namespace asterion

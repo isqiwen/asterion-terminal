@@ -1,4 +1,5 @@
 #include "application_impl.hpp"
+#include <array>
 #include <stdexcept>
 
 namespace asterion::terminal {
@@ -19,6 +20,27 @@ json risk_parameters(const json& p) {
   return {{"max_order_quantity", p.at("max_order_quantity")},
           {"max_gross_quantity", p.at("max_gross_quantity")},
           {"max_working_orders", parsed}};
+}
+namespace {
+constexpr std::array<const char*, 8> cost_keys{
+    "margin_per_lot", "open_fee",      "close_today_fee",      "close_yesterday_fee",
+    "margin_rate",    "open_fee_rate", "close_today_fee_rate", "close_yesterday_fee_rate"};
+} // namespace
+json cost_parameters(const json& p) {
+  json costs = json::object();
+  for (const auto* key : cost_keys)
+    costs[key] = text(p, key);
+  return costs;
+}
+void fields_with_costs(const json& object, std::initializer_list<std::string_view> names) {
+  if (!object.is_object() || object.size() != names.size() + cost_keys.size())
+    throw std::invalid_argument("request fields do not match the current contract");
+  for (const auto name : names)
+    if (!object.contains(name))
+      throw std::invalid_argument("request is missing a required field");
+  for (const auto* key : cost_keys)
+    if (!object.contains(key))
+      throw std::invalid_argument("request is missing a required field");
 }
 std::string text(const json& object, const char* name) {
   const auto& value = object.at(name);

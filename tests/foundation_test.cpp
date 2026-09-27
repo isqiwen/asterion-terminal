@@ -149,3 +149,18 @@ TEST(Foundation, ErrorCodesRoundTripAndExceptionsClassify) {
     EXPECT_EQ(e.code(), ErrorCode::operation_failed);
   }
 }
+TEST(Foundation, DecimalMultiplicationRoundsOnlyWhenAsked) {
+  const auto d = [](const char* v) { return Decimal::parse(v); };
+  // 35105 x 0.000023450001 is not representable in eight places.
+  const auto notional = d("35105.5");
+  const auto rate = d("0.00002345");
+  EXPECT_THROW(static_cast<void>(notional * rate), std::domain_error);
+  EXPECT_EQ(multiply(notional, rate, Rounding::half_up).str(), "0.82322398");
+  EXPECT_EQ(multiply(notional, rate, Rounding::toward_zero).str(), "0.82322397");
+  EXPECT_EQ(multiply(d("0.00000001"), d("0.5"), Rounding::half_up).str(), "0.00000001");
+  EXPECT_EQ(multiply(d("-0.00000001"), d("0.5"), Rounding::half_up).str(), "-0.00000001");
+  EXPECT_EQ(multiply(d("0.00000001"), d("0.5"), Rounding::half_even).str(), "0");
+  EXPECT_EQ(quantize(d("0.825"), d("0.01"), Rounding::half_up).str(), "0.83");
+  EXPECT_EQ(quantize(d("-0.825"), d("0.01"), Rounding::half_up).str(), "-0.83");
+  EXPECT_EQ((d("3510") * d("10")).str(), "35100");
+}

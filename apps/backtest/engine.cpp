@@ -21,8 +21,7 @@ Instrument instrument(const protocol::v1::Contract& c) {
           decimal(c.multiplier())};
 }
 FuturesCosts costs(const protocol::v1::Costs& c) {
-  return {decimal(c.margin_per_lot()), decimal(c.open_fee()), decimal(c.close_today_fee()),
-          decimal(c.close_yesterday_fee())};
+  return protocol::futures_costs(c);
 }
 std::vector<TradeTick> ticks(const protocol::v1::PaperInput& p) {
   std::vector<TradeTick> result;
@@ -80,7 +79,7 @@ research::v1::BacktestResult run(const research::v1::BacktestInput& input, std::
   research::v1::BacktestResult result;
   result.set_version(3);
   result.set_dataset_revision(input.dataset_revision());
-  result.set_engine_version("asterion.backtest.sma-long-flat.v3");
+  result.set_engine_version(protocol::backtest_engine_version);
   auto peak = decimal(p.deposit());
   Decimal drawdown;
   const auto add_equity = [&](std::int64_t time, research::v1::EquityEvent event,

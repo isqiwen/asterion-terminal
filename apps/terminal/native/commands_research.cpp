@@ -22,9 +22,8 @@ void Application::Impl::register_research_commands() {
     return snapshot();
   });
   core.command("research.submit", "node.manage", [this](const json& p) {
-    fields(p, {"id", "days", "calendar_task", "fast", "slow", "quantity", "deposit",
-               "margin_per_lot", "open_fee", "close_today_fee", "close_yesterday_fee",
-               "max_order_quantity", "max_gross_quantity", "max_working_orders"});
+    fields_with_costs(p, {"id", "days", "calendar_task", "fast", "slow", "quantity", "deposit",
+                          "max_order_quantity", "max_gross_quantity", "max_working_orders"});
     if (!research)
       throw std::invalid_argument("research service is not connected");
     const auto preview = core.resources().resolve<PreviewState>("terminal", "preview").lock();
@@ -34,9 +33,7 @@ void Application::Impl::register_research_commands() {
     for (auto key : {"venue", "symbol", "currency", "price_increment", "quantity_increment",
                      "multiplier", "product", "delivery_month"})
       contract[key] = preview->dataset.at(key);
-    json costs = json::object();
-    for (auto key : {"margin_per_lot", "open_fee", "close_today_fee", "close_yesterday_fee"})
-      costs[key] = text(p, key);
+    const auto costs = cost_parameters(p);
     // Validated before the braced initializer (GCC < 13 PR66139 leak).
     const auto risk = risk_parameters(p);
     const auto deposit = text(p, "deposit");

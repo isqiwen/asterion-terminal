@@ -145,6 +145,10 @@ TEST(TerminalApi, PersistentPaperRoundTripThroughCAbi) {
                                          {"open_fee", "2"},
                                          {"close_today_fee", "3"},
                                          {"close_yesterday_fee", "4"},
+                                         {"margin_rate", "0"},
+                                         {"open_fee_rate", "0"},
+                                         {"close_today_fee_rate", "0"},
+                                         {"close_yesterday_fee_rate", "0"},
                                          {"max_order_quantity", "100"},
                                          {"max_gross_quantity", "100"},
                                          {"max_working_orders", "100"}});

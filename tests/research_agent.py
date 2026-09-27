@@ -57,7 +57,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-research-agent-", ignore_clean
         call(process, "research.submit", {"calendar_task":"",
             "id": "agent-recovery", "days":[{"trading_day": "2026-09-25", "schedule_source":"test fixture", "settlement_price":"105", "settlement_source":"test settlement", "sessions":[{"begin_ns":"1790298000000000000","end_ns":"1790298010000000000"}]},{"trading_day":"2026-09-28","schedule_source":"second fixture","settlement_price":"110","settlement_source":"second settlement","sessions":[{"begin_ns":"1790557200000000000","end_ns":"1790557210000000000"}]}], "fast": 1, "slow": 3,
             "quantity": "1", "deposit": "10000", "margin_per_lot": "100",
-            "open_fee": "2", "close_today_fee": "3", "close_yesterday_fee": "4", "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100",
+            "open_fee": "2", "close_today_fee": "3", "close_yesterday_fee": "4", "margin_rate": "0", "open_fee_rate": "0", "close_today_fee_rate": "0", "close_yesterday_fee_rate": "0", "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100",
         })
         csv.write_text("timestamp_ns,price,quantity\n" + "".join(
             f"{1790298000000000000 + index * 1000000000},{100 + index + index % 3},1\n"
@@ -117,7 +117,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-research-agent-", ignore_clean
         assert len(rolling_result["result"]["folds"]) == 2 and len(rolling_result["result"]["samples"]) == 78
         assert rolling_result["experiment"]["evaluation"] == {"mode":"walk_forward","training_events":80,"validation_events":40}
         call(process,"research.data.use",{"id":"data-recovery"})
-        call(process,"research.submit",{"id":"calendar-backtest","calendar_task":"calendar-recovery","days":None,"fast":1,"slow":3,"quantity":"1","deposit":"10000","margin_per_lot":"100","open_fee":"2","close_today_fee":"3","close_yesterday_fee":"4","max_order_quantity":"100","max_gross_quantity":"100","max_working_orders":"100"})
+        call(process,"research.submit",{"id":"calendar-backtest","calendar_task":"calendar-recovery","days":None,"fast":1,"slow":3,"quantity":"1","deposit":"10000","margin_per_lot":"100","open_fee":"2","close_today_fee":"3","close_yesterday_fee":"4","margin_rate":"0","open_fee_rate":"0","close_today_fee_rate":"0","close_yesterday_fee_rate":"0","max_order_quantity":"100","max_gross_quantity":"100","max_working_orders":"100"})
         calendar_backtest_task=completed(process,"calendar-backtest")
         calendar_backtest=call(process,"research.result",{"id":"calendar-backtest"})["research_result"]
         assert calendar_backtest["experiment"]["calendar_publication"]==calendar_result["result"]

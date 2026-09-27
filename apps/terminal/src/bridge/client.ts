@@ -73,6 +73,11 @@ export type PaperAccount = {
     open_fee: string;
     close_today_fee: string;
     close_yesterday_fee: string;
+    // Notional rates: price x quantity x multiplier x rate.
+    margin_rate: string;
+    open_fee_rate: string;
+    close_today_fee_rate: string;
+    close_yesterday_fee_rate: string;
   };
   positions: {
     side: "buy" | "sell";

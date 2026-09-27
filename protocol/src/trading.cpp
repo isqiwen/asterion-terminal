@@ -32,6 +32,8 @@ v1::Offset offset(const std::string& value) {
     return v1::CLOSE_TODAY;
   if (value == "close_yesterday")
     return v1::CLOSE_YESTERDAY;
+  if (value == "close")
+    return v1::CLOSE;
   throw std::invalid_argument("invalid offset");
 }
 std::string offset(v1::Offset value) {
@@ -41,6 +43,8 @@ std::string offset(v1::Offset value) {
     return "close_today";
   if (value == v1::CLOSE_YESTERDAY)
     return "close_yesterday";
+  if (value == v1::CLOSE)
+    return "close";
   throw std::invalid_argument("invalid offset");
 }
 v1::OrderState state(const std::string& value) {
@@ -96,22 +100,44 @@ Json contract(const v1::Contract& c) {
           {"product", c.product()},
           {"delivery_month", c.delivery_month()}};
 }
-v1::Costs costs(const Json& c) {
-  require_fields(c, {"margin_per_lot", "open_fee", "close_today_fee", "close_yesterday_fee"});
+} // namespace
+v1::Costs encode_costs(const Json& c) {
+  require_fields(c, {"margin_per_lot", "open_fee", "close_today_fee", "close_yesterday_fee",
+                     "margin_rate", "open_fee_rate", "close_today_fee_rate",
+                     "close_yesterday_fee_rate"});
   v1::Costs result;
   set(result.mutable_margin_per_lot(), c.at("margin_per_lot"));
   set(result.mutable_open_fee(), c.at("open_fee"));
   set(result.mutable_close_today_fee(), c.at("close_today_fee"));
   set(result.mutable_close_yesterday_fee(), c.at("close_yesterday_fee"));
+  set(result.mutable_margin_rate(), c.at("margin_rate"));
+  set(result.mutable_open_fee_rate(), c.at("open_fee_rate"));
+  set(result.mutable_close_today_fee_rate(), c.at("close_today_fee_rate"));
+  set(result.mutable_close_yesterday_fee_rate(), c.at("close_yesterday_fee_rate"));
+  futures_costs(result).validate();
   return result;
 }
-Json costs(const v1::Costs& c) {
+Json decode_costs(const v1::Costs& c) {
+  if (!c.has_margin_per_lot() || !c.has_open_fee() || !c.has_close_today_fee() ||
+      !c.has_close_yesterday_fee() || !c.has_margin_rate() || !c.has_open_fee_rate() ||
+      !c.has_close_today_fee_rate() || !c.has_close_yesterday_fee_rate())
+    throw std::invalid_argument("missing explicit paper costs");
   return {{"margin_per_lot", get(c.margin_per_lot())},
           {"open_fee", get(c.open_fee())},
           {"close_today_fee", get(c.close_today_fee())},
-          {"close_yesterday_fee", get(c.close_yesterday_fee())}};
+          {"close_yesterday_fee", get(c.close_yesterday_fee())},
+          {"margin_rate", get(c.margin_rate())},
+          {"open_fee_rate", get(c.open_fee_rate())},
+          {"close_today_fee_rate", get(c.close_today_fee_rate())},
+          {"close_yesterday_fee_rate", get(c.close_yesterday_fee_rate())}};
 }
-} // namespace
+FuturesCosts futures_costs(const v1::Costs& c) {
+  const auto value = [](const v1::Decimal& d) { return Decimal::from_raw(d.units()); };
+  return {value(c.margin_per_lot()),       value(c.open_fee()),
+          value(c.close_today_fee()),      value(c.close_yesterday_fee()),
+          value(c.margin_rate()),          value(c.open_fee_rate()),
+          value(c.close_today_fee_rate()), value(c.close_yesterday_fee_rate())};
+}
 void validate_message(const google::protobuf::Message& message) {
   const auto* reflection = message.GetReflection();
   if (reflection->GetUnknownFields(message).field_count())
@@ -182,7 +208,7 @@ v1::PaperInput encode_input(const Json& m) {
   v1::PaperInput result;
   *result.mutable_risk() = encode_risk(m.at("risk"));
   *result.mutable_contract() = contract(m.at("contract"));
-  *result.mutable_costs() = costs(m.at("costs"));
+  *result.mutable_costs() = encode_costs(m.at("costs"));
   set(result.mutable_deposit(), m.at("deposit"));
   if (!m.at("ticks").is_array() || m.at("ticks").size() > 10000)
     throw std::invalid_argument("invalid tick count");
@@ -191,9 +217,8 @@ v1::PaperInput encode_input(const Json& m) {
   return result;
 }
 Json decode_input(const v1::PaperInput& input) {
-  if (!input.has_costs() || !input.costs().has_open_fee() || !input.costs().has_close_today_fee() ||
-      !input.costs().has_close_yesterday_fee())
-    throw std::invalid_argument("missing explicit paper fees");
+  if (!input.has_costs())
+    throw std::invalid_argument("missing explicit paper costs");
   Json rows = Json::array();
   for (const auto& t : input.ticks())
     rows.push_back({{"timestamp_ns", std::to_string(t.timestamp_ns())},
@@ -205,7 +230,7 @@ Json decode_input(const v1::PaperInput& input) {
   return {{"version", 1},
           {"type", "historical_paper"},
           {"contract", contract(input.contract())},
-          {"costs", costs(input.costs())},
+          {"costs", decode_costs(input.costs())},
           {"deposit", get(input.deposit())},
           {"ticks", std::move(rows)},
           {"risk", std::move(risk)}};
@@ -361,7 +386,7 @@ v1::Snapshot encode_snapshot(const Json& s) {
   }
   *result.mutable_risk() = encode_risk(s.at("risk"));
   *result.mutable_contract() = contract(s.at("contract"));
-  *result.mutable_costs() = costs(s.at("costs"));
+  *result.mutable_costs() = encode_costs(s.at("costs"));
 #define VALUE(name) set(result.mutable_##name(), s.at(#name))
   VALUE(balance);
   VALUE(equity);
@@ -415,7 +440,7 @@ Json decode_snapshot(const v1::Snapshot& s) {
   auto risk = decode_risk(s.risk());
   Json result{{"risk", std::move(risk)},
               {"contract", contract(s.contract())},
-              {"costs", costs(s.costs())},
+              {"costs", decode_costs(s.costs())},
               {"mode", "historical_paper"},
               {"persistent", true},
               {"storage_state", s.recovery_required() ? "recovery_required" : "ready"},

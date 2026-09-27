@@ -21,7 +21,8 @@ Decimal decimal(const Json& value, const char* key) {
 // semantics could make replaying an existing journal produce a different
 // ledger. Recovery refuses a journal written under a different identity rather
 // than silently recomputing history with new rules.
-const std::string journal_engine = "asterion.paper-futures.v1";
+// v2: notional cost rates, exchange close policies, queue-position matching.
+const std::string journal_engine = "asterion.paper-futures.v2";
 constexpr int journal_format = 2;
 // Cheap fingerprint of post-command state. Replay must reproduce it exactly.
 Json outcome(const PaperExecution& engine, const Json& authorization, const Json& replay) {
@@ -62,7 +63,6 @@ std::unique_ptr<PaperExecution> PaperSession::build(const Json& manifest) {
                            string(c, "delivery_month")};
   contract.validate();
   const auto& costs = manifest.at("costs");
-  require_fields(costs, {"margin_per_lot", "open_fee", "close_today_fee", "close_yesterday_fee"});
   const auto& rows = manifest.at("ticks");
   if (!rows.is_array() || rows.empty() || rows.size() > 10000)
     throw std::invalid_argument("paper replay requires 1 to 10000 historical trades");
@@ -78,11 +78,9 @@ std::unique_ptr<PaperExecution> PaperSession::build(const Json& manifest) {
   }
   auto risk = std::make_shared<OrderLimits>(decode_order_limits(manifest.at("risk")));
   risk->start();
-  return std::make_unique<PaperExecution>(
-      contract.instrument, decimal(manifest, "deposit"),
-      FuturesCosts{decimal(costs, "margin_per_lot"), decimal(costs, "open_fee"),
-                   decimal(costs, "close_today_fee"), decimal(costs, "close_yesterday_fee")},
-      std::move(ticks), std::move(risk));
+  return std::make_unique<PaperExecution>(contract.instrument, decimal(manifest, "deposit"),
+                                          protocol::futures_costs(protocol::encode_costs(costs)),
+                                          std::move(ticks), std::move(risk));
 }
 void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& replay,
                          std::shared_ptr<const PaperReplaySchedule>& schedule,
@@ -228,13 +226,15 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
     const auto side = string(command, "side"), offset = string(command, "offset");
     if (side != "buy" && side != "sell")
       throw std::invalid_argument("invalid order side");
-    if (offset != "open" && offset != "close_today" && offset != "close_yesterday")
+    if (offset != "open" && offset != "close_today" && offset != "close_yesterday" &&
+        offset != "close")
       throw std::invalid_argument("invalid open/close offset");
     validate_id(string(command, "order_id"));
     engine.submit({string(command, "order_id"), instrument_, side == "buy" ? Side::buy : Side::sell,
                    decimal(command, "quantity"), decimal(command, "price")},
                   offset == "open"          ? Offset::open
                   : offset == "close_today" ? Offset::close_today
+                  : offset == "close"       ? Offset::close
                                             : Offset::close_yesterday);
   } else
     throw std::invalid_argument("unsupported paper trading operation");

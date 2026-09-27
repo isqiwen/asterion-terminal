@@ -40,7 +40,7 @@ RiskDecision OrderLimits::evaluate(const PreTradeRiskContext& c) const {
     return {RiskReason::unavailable};
   c.order.validate(c.instrument);
   if ((c.offset != Offset::open && c.offset != Offset::close_today &&
-       c.offset != Offset::close_yesterday) ||
+       c.offset != Offset::close_yesterday && c.offset != Offset::close) ||
       c.gross_position_quantity < Decimal{} || c.pending_open_quantity < Decimal{} ||
       !c.gross_position_quantity.multiple_of(c.instrument.quantity_increment) ||
       !c.pending_open_quantity.multiple_of(c.instrument.quantity_increment))

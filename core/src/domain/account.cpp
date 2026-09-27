@@ -19,8 +19,19 @@ const char* offset_name(Offset value) {
     return "close_today";
   case Offset::close_yesterday:
     return "close_yesterday";
+  case Offset::close:
+    return "close";
   }
   throw std::invalid_argument("invalid open/close offset");
+}
+const auto cent = Decimal::parse("0.01");
+// Notional component of a cost: price x quantity x multiplier x rate,
+// rounded half-up to the cent.
+Decimal notional_part(Decimal quantity, Decimal price, Decimal multiplier, Decimal rate) {
+  if (rate == zero)
+    return zero;
+  return quantize(multiply(price * quantity * multiplier, rate, Rounding::half_up), cent,
+                  Rounding::half_up);
 }
 const char* state_name(OrderState value) {
   switch (value) {
@@ -40,24 +51,44 @@ const char* state_name(OrderState value) {
   throw std::invalid_argument("invalid order state");
 }
 } // namespace
-void FuturesCosts::validate() const {
-  if (margin_per_lot <= zero || open_fee < zero || close_today_fee < zero ||
-      close_yesterday_fee < zero)
-    throw std::invalid_argument("margin per lot must be positive and fees nonnegative");
+ClosePolicy close_policy(std::string_view venue) noexcept {
+  if (venue == "CFFEX")
+    return ClosePolicy::today_first;
+  if (venue == "DCE" || venue == "CZCE" || venue == "GFEX")
+    return ClosePolicy::yesterday_first;
+  return ClosePolicy::explicit_buckets; // SHFE, INE and anything unverified
 }
-Decimal FuturesCosts::fee(Offset offset) const {
-  switch (offset) {
+void FuturesCosts::validate() const {
+  const auto one_or_less = [](Decimal rate) { return rate >= zero && rate < one; };
+  if (margin_per_lot < zero || open_fee < zero || close_today_fee < zero ||
+      close_yesterday_fee < zero || !one_or_less(margin_rate) || !one_or_less(open_fee_rate) ||
+      !one_or_less(close_today_fee_rate) || !one_or_less(close_yesterday_fee_rate))
+    throw std::invalid_argument("costs must be nonnegative and rates below 1");
+  if (margin_per_lot == zero && margin_rate == zero)
+    throw std::invalid_argument("margin per lot or margin rate must be positive");
+}
+Decimal FuturesCosts::fee(Offset bucket, Decimal quantity, Decimal price,
+                          Decimal multiplier) const {
+  switch (bucket) {
   case Offset::open:
-    return open_fee;
+    return quantity * open_fee + notional_part(quantity, price, multiplier, open_fee_rate);
   case Offset::close_today:
-    return close_today_fee;
+    return quantity * close_today_fee +
+           notional_part(quantity, price, multiplier, close_today_fee_rate);
   case Offset::close_yesterday:
-    return close_yesterday_fee;
+    return quantity * close_yesterday_fee +
+           notional_part(quantity, price, multiplier, close_yesterday_fee_rate);
+  case Offset::close:
+    break;
   }
-  throw std::invalid_argument("invalid open/close offset");
+  throw std::invalid_argument("fee requires a position bucket");
+}
+Decimal FuturesCosts::margin(Decimal quantity, Decimal price, Decimal multiplier) const {
+  return quantity * margin_per_lot + notional_part(quantity, price, multiplier, margin_rate);
 }
 FuturesAccount::FuturesAccount(Instrument instrument, Decimal deposit, FuturesCosts costs)
-    : instrument_(std::move(instrument)), costs_(costs), balance_(deposit) {
+    : instrument_(std::move(instrument)), costs_(costs),
+      policy_(asterion::close_policy(instrument_.id.venue)), balance_(deposit) {
   instrument_.validate();
   costs_.validate();
   if (instrument_.asset_class != AssetClass::futures || deposit <= zero ||
@@ -74,10 +105,12 @@ std::size_t FuturesAccount::index_of(const std::string& id) const {
 bool FuturesAccount::has_working_orders() const noexcept {
   return std::ranges::any_of(orders_, active);
 }
+// Positions are margined at the latest mark (their basis before any mark).
 Decimal FuturesAccount::margin() const {
   Decimal result;
   for (const auto& lot : lots_)
-    result = result + lot.quantity * costs_.margin_per_lot;
+    result = result +
+             costs_.margin(lot.quantity, mark_ == zero ? lot.price : mark_, instrument_.multiplier);
   return result;
 }
 Decimal FuturesAccount::unrealized() const {
@@ -89,26 +122,42 @@ Decimal FuturesAccount::unrealized() const {
                           lot.quantity * instrument_.multiplier;
   return result;
 }
+Decimal FuturesAccount::reserved(const AccountOrder& item) const {
+  const auto quantity = item.order.remaining_quantity();
+  const auto price = item.order.request().limit_price;
+  const auto multiplier = instrument_.multiplier;
+  switch (item.offset) {
+  case Offset::open:
+    return costs_.margin(quantity, price, multiplier) +
+           costs_.fee(Offset::open, quantity, price, multiplier);
+  case Offset::close_today:
+  case Offset::close_yesterday:
+    return costs_.fee(item.offset, quantity, price, multiplier);
+  case Offset::close:
+    // The exchange picks the buckets at fill time: reserve the dearer fee.
+    return std::max(costs_.fee(Offset::close_today, quantity, price, multiplier),
+                    costs_.fee(Offset::close_yesterday, quantity, price, multiplier));
+  }
+  throw std::invalid_argument("invalid open/close offset");
+}
 Decimal FuturesAccount::frozen() const {
   Decimal result;
   for (const auto& item : orders_)
     if (active(item))
-      result = result + item.order.remaining_quantity() *
-                            (costs_.fee(item.offset) +
-                             (item.offset == Offset::open ? costs_.margin_per_lot : zero));
+      result = result + reserved(item);
   return result;
 }
 Decimal FuturesAccount::available() const {
   return std::min(balance_, balance_ + unrealized()) - margin() - frozen();
 }
-Decimal FuturesAccount::closable(Side side, bool today) const {
+Decimal FuturesAccount::closable(Side side, std::optional<bool> today) const {
   Decimal result;
   for (const auto& lot : lots_)
-    if (lot.side == side && lot.today == today)
+    if (lot.side == side && (!today || lot.today == *today))
       result = result + lot.quantity;
   for (const auto& item : orders_)
     if (active(item) && item.offset != Offset::open && item.order.request().side != side &&
-        (item.offset == Offset::close_today) == today)
+        (!today || item.offset == Offset::close || (item.offset == Offset::close_today) == *today))
       result = result - item.order.remaining_quantity();
   return result;
 }
@@ -128,13 +177,18 @@ void FuturesAccount::submit(LimitOrder request, Offset offset) {
   const auto& accepted = order.request();
   if (mark_ == zero)
     throw std::invalid_argument("replay at least one market event first");
-  if (offset != Offset::open && closable(accepted.side == Side::buy ? Side::sell : Side::buy,
-                                         offset == Offset::close_today) < accepted.quantity)
+  const bool explicit_close = offset == Offset::close_today || offset == Offset::close_yesterday;
+  if (offset != Offset::open && explicit_close != (policy_ == ClosePolicy::explicit_buckets))
+    throw std::invalid_argument(policy_ == ClosePolicy::explicit_buckets
+                                    ? "this venue requires close_today or close_yesterday"
+                                    : "this venue assigns buckets itself; use close");
+  if (offset != Offset::open &&
+      closable(accepted.side == Side::buy ? Side::sell : Side::buy,
+               explicit_close ? std::optional<bool>(offset == Offset::close_today) : std::nullopt) <
+          accepted.quantity)
     throw std::invalid_argument(
         "insufficient closable position or already reserved by other orders");
-  const auto required =
-      accepted.quantity *
-      (costs_.fee(offset) + (offset == Offset::open ? costs_.margin_per_lot : zero));
+  const auto required = reserved({order, offset});
   const auto before = available();
   if (offset == Offset::open && required > before)
     throw std::invalid_argument("insufficient available funds");
@@ -168,28 +222,50 @@ bool FuturesAccount::fill(const Fill& report) {
   auto order = item.order;
   order.apply(report);
   const auto side = order.request().side;
-  const auto fee = report.quantity * costs_.fee(item.offset);
-  auto fees = fees_ + fee;
-  auto balance = balance_ - fee;
+  const auto multiplier = instrument_.multiplier;
+  auto fees = fees_;
+  auto balance = balance_;
   auto realized = realized_;
   auto lots = lots_;
-  if (item.offset == Offset::open)
+  const auto charge = [&](Offset bucket, Decimal quantity) {
+    const auto fee = costs_.fee(bucket, quantity, report.price, multiplier);
+    fees = fees + fee;
+    balance = balance - fee;
+  };
+  if (item.offset == Offset::open) {
+    charge(Offset::open, report.quantity);
     lots.push_back({side, true, report.quantity, report.price});
-  else {
+  } else {
+    // Buckets in the order this fill consumes them.
+    std::vector<bool> buckets;
+    if (item.offset == Offset::close_today)
+      buckets = {true};
+    else if (item.offset == Offset::close_yesterday)
+      buckets = {false};
+    else if (policy_ == ClosePolicy::today_first)
+      buckets = {true, false};
+    else
+      buckets = {false, true};
     auto remaining = report.quantity;
-    for (auto& lot : lots) {
-      if (remaining == zero)
-        break;
-      if (lot.side == side || lot.today != (item.offset == Offset::close_today))
-        continue;
-      const auto amount = std::min(remaining, lot.quantity);
-      const auto pnl =
-          (lot.side == Side::buy ? report.price - lot.price : lot.price - report.price) * amount *
-          instrument_.multiplier;
-      balance = balance + pnl;
-      realized = realized + pnl;
-      lot.quantity = lot.quantity - amount;
-      remaining = remaining - amount;
+    for (const bool today : buckets) {
+      Decimal consumed;
+      for (auto& lot : lots) {
+        if (remaining == zero)
+          break;
+        if (lot.side == side || lot.today != today)
+          continue;
+        const auto amount = std::min(remaining, lot.quantity);
+        const auto pnl =
+            (lot.side == Side::buy ? report.price - lot.price : lot.price - report.price) * amount *
+            multiplier;
+        balance = balance + pnl;
+        realized = realized + pnl;
+        lot.quantity = lot.quantity - amount;
+        remaining = remaining - amount;
+        consumed = consumed + amount;
+      }
+      if (consumed != zero)
+        charge(today ? Offset::close_today : Offset::close_yesterday, consumed);
     }
     if (remaining != zero)
       throw std::logic_error("fill exceeds closable position");

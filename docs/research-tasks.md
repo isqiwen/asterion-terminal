@@ -120,7 +120,7 @@ Linux 本次全量 149/150 通过，node_deployment 在已停止的研究服务�
 
 ## 显式交易日与逐日结算
 
-BacktestInput 版本 5 要求 `days=[{trading_day,sessions,schedule_source,settlement_price,settlement_source},...]`，1–64 日，每日 1–16 个时段。单日也使用相同契约，旧顶层 trading_day/sessions/schedule_source 字段已保留为废弃编号，明确拒绝旧版本，不提供字段别名、默认补全或任务迁移。BacktestResult 为版本 3，引擎标识 `asterion.backtest.sma-long-flat.v3`。
+BacktestInput 版本 5 要求 `days=[{trading_day,sessions,schedule_source,settlement_price,settlement_source},...]`，1–64 日，每日 1–16 个时段。单日也使用相同契约，旧顶层 trading_day/sessions/schedule_source 字段已保留为废弃编号，明确拒绝旧版本，不提供字段别名、默认补全或任务迁移。BacktestResult 为版本 3，引擎标识 `asterion.backtest.sma-long-flat.v4`（v4：按名义金额比例的费用与保证金、交易所平仓规则、排队撮合；v3 结果明确拒绝，不重算）。
 
 交易日为严格递增的 YYYY-MM-DD；每个日期的时段为有序、不重叠的 UTC 纳秒半开区间 `[begin_ns,end_ns)`，日与日的区间不得交错。允许相邻时段，但仍视为两个撮合区间。每个声明的交易日至少有一笔成交，所有输入成交必须归属某一时段；不会跳过空交易日或截掉区间外成交。日期归属由输入提供，Core 的 TradingDaySchedule 只验证通用区间，不推断交易所节假日、夜盘日期或“下一个工作日”。Terminal 以北京时间输入并转成 UTC 纳秒。
 

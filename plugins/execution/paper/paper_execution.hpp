@@ -1,6 +1,7 @@
 #pragma once
 #include <asterion/domain/execution_port.hpp>
 #include <asterion/domain/risk_port.hpp>
+#include <map>
 #include <optional>
 namespace asterion {
 class PaperExecution final : public ExecutionPort {
@@ -42,6 +43,8 @@ private:
   std::uint64_t execution_sequence_ = 0;
   std::int64_t last_settlement_boundary_ = -1;
   std::uint64_t revision_ = 0;
+  // Estimated quantity still ahead of each resting order at its limit price.
+  std::map<std::string, Decimal> queue_;
   bool running_ = false;
 };
 } // namespace asterion

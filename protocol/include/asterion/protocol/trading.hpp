@@ -1,4 +1,5 @@
 #pragma once
+#include <asterion/domain/account.hpp>
 #include <asterion/foundation/serialization.hpp>
 #include <asterion/v1/trading.pb.h>
 namespace asterion::protocol {
@@ -8,6 +9,9 @@ v1::Tick encode_tick(const Json& input);
 Json decode_tick(const v1::Tick& input);
 v1::RiskLimits encode_risk(const Json& value);
 Json decode_risk(const v1::RiskLimits& value);
+v1::Costs encode_costs(const Json& costs);
+Json decode_costs(const v1::Costs& costs);
+FuturesCosts futures_costs(const v1::Costs& costs);
 v1::PaperInput encode_input(const Json& manifest);
 Json decode_input(const v1::PaperInput& input);
 v1::Command encode_command(const Json& command);

@@ -38,7 +38,11 @@ struct Fixture {
                  {{"margin_per_lot", "100"},
                   {"open_fee", "2"},
                   {"close_today_fee", "3"},
-                  {"close_yesterday_fee", "4"}}},
+                  {"close_yesterday_fee", "4"},
+                  {"margin_rate", "0"},
+                  {"open_fee_rate", "0"},
+                  {"close_today_fee_rate", "0"},
+                  {"close_yesterday_fee_rate", "0"}}},
                 {"ticks", Json::array()}};
     std::int64_t time = 0;
     for (auto price : {100, 101, 100, 102, 99, 103})

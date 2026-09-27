@@ -35,6 +35,10 @@ using nlohmann::json;
 using namespace asterion;
 void fields(const json& object, std::initializer_list<std::string_view> names);
 json risk_parameters(const json& p);
+// The eight cost fields of a paper account request (per-lot and notional rates).
+json cost_parameters(const json& p);
+// fields() for a request that also carries every cost field.
+void fields_with_costs(const json& object, std::initializer_list<std::string_view> names);
 std::string text(const json& object, const char* name);
 unsigned short port_number(const json& p, const char* name);
 std::string next_runtime_scope();

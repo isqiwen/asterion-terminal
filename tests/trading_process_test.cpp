@@ -88,7 +88,11 @@ struct Host {
          {{"margin_per_lot", "100"},
           {"open_fee", "2"},
           {"close_today_fee", "3"},
-          {"close_yesterday_fee", "4"}}},
+          {"close_yesterday_fee", "4"},
+          {"margin_rate", "0"},
+          {"open_fee_rate", "0"},
+          {"close_today_fee_rate", "0"},
+          {"close_yesterday_fee_rate", "0"}}},
         {"ticks", Json::array({{{"timestamp_ns", "100"}, {"price", "100"}, {"quantity", "1"}},
                                {{"timestamp_ns", "200"}, {"price", "101"}, {"quantity", "1"}}})}};
     *r.mutable_create() = protocol::encode_input(input);

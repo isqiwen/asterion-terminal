@@ -69,7 +69,6 @@
   "成交编号": "Fill ID",
   "价格": "Price",
   "模拟规则与手动结算": "Simulation Rules and Manual Settlement",
-  "成交按委托先后共享下一笔行情的成交量，以该笔成交价格检查限价并撮合。无盘口、排队、滑点或强平模型。浮亏会减少可用资金，浮盈不增加可开仓资金。存储保留原始回放数据与操作日志。": "Orders share the next tick volume in submission order. Its trade price determines limit eligibility and matching. There is no order book, queue, slippage or forced liquidation model. Unrealized losses reduce available funds; unrealized gains do not increase opening capacity. Storage preserves original replay data and the operation journal.",
   "；开仓 / 平今 / 平昨手续费": "; Opening / Close Today / Close Previous fees",
   "。单位：": ". Currency:",
   "回放结束并撤销剩余委托后，可输入结算价将浮盈亏计入资金、今仓转为昨仓。本版不自动跨日，也不支持在同一会话续接下一交易日。": "After replay ends and remaining orders are cancelled, enter a settlement price to realize P&L and roll today's positions into previous-day positions. This version does not advance trading days or append the next day to the same session.",
@@ -134,5 +133,13 @@
   "发布标识": "Publication ID",
   "内容版本": "Content revision",
   "结算价由绑定日程确定；每日完成后结算，再进入下一交易日。": "Settlement prices come from the bound calendar. Settle each completed day before advancing.",
-  "按日程结算": "Settle scheduled day"
+  "按日程结算": "Settle scheduled day",
+  "平仓": "Close",
+  "保证金率": "Margin Rate",
+  "开仓费率": "Open Fee Rate",
+  "平今费率": "Close-Today Fee Rate",
+  "平昨费率": "Close-Yesterday Fee Rate",
+  "；保证金率": "; margin rate",
+  "；开仓 / 平今 / 平昨费率": "; open / close-today / close-yesterday fee rates",
+  "成交按委托先后共享下一笔行情的成交量。价格穿过限价时直接成交；恰好触及限价时，需先消耗下单时该价位已成交的排队量。无盘口、滑点或强平模型。浮亏会减少可用资金，浮盈不增加可开仓资金。存储保留原始回放数据与操作日志。": "Orders share the next trade's volume in arrival order. A trade through the limit fills directly; a trade exactly at the limit first consumes the queue estimated from the volume traded at that level when the order was placed. No order book, slippage or liquidation model. Unrealized losses reduce available funds; unrealized gains do not add opening capacity. Storage keeps the original replay data and the operation journal."
 }

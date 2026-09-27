@@ -137,7 +137,7 @@ void verify_result(const wire::Task& task, const wire::BacktestResult& result) {
   if (task.kind() != wire::BACKTEST || !task.has_input())
     throw std::invalid_argument("not a backtest task");
   if (result.version() != 3 || result.dataset_revision() != task.input().dataset_revision() ||
-      result.engine_version() != "asterion.backtest.sma-long-flat.v3" ||
+      result.engine_version() != protocol::backtest_engine_version ||
       result.account().cursor() != task.total() || result.account().total() != task.total() ||
       result.equity_size() != static_cast<int>(task.total()) + task.input().days_size() ||
       result.settlements_size() != task.input().days_size() ||

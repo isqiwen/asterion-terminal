@@ -544,6 +544,10 @@ TEST(StrategyExecution, TwoProcessesRecoverAuthorizedTargetsWithoutDuplicateOrde
   input.mutable_risk()->mutable_max_gross_quantity()->set_units(10000000000LL);
   input.mutable_risk()->set_max_working_orders(100);
   input.mutable_costs()->mutable_close_yesterday_fee()->set_units(Decimal::parse("4").raw());
+  input.mutable_costs()->mutable_margin_rate()->set_units(0);
+  input.mutable_costs()->mutable_open_fee_rate()->set_units(0);
+  input.mutable_costs()->mutable_close_today_fee_rate()->set_units(0);
+  input.mutable_costs()->mutable_close_yesterday_fee_rate()->set_units(0);
   const std::vector<int> prices{100, 101, 100, 102, 99, 103};
   for (std::size_t i = 0; i < prices.size(); ++i)
     *input.add_ticks() = event(i + 1, std::to_string(prices[i])).tick();

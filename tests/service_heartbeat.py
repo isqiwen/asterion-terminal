@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-local-health-", ignore_cleanup
         response = json.loads(host.stdout.readline()); assert "result" in response, response; return response["result"]
     try:
         call("futures.inspect_csv", {"path": str(source), "venue": "SHFE", "symbol": "rb2610", "product": "rb", "delivery_month": "2026-10", "currency": "CNY", "price_increment": "1", "quantity_increment": "1", "multiplier": "10"})
-        call("paper.create", {"directory": str(root / "ledger"), "deposit": "1000", "margin_per_lot": "100", "open_fee": "2", "close_today_fee": "3", "close_yesterday_fee": "4", "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
+        call("paper.create", {"directory": str(root / "ledger"), "deposit": "1000", "margin_per_lot": "100", "open_fee": "2", "close_today_fee": "3", "close_yesterday_fee": "4", "margin_rate": "0", "open_fee_rate": "0", "close_today_fee_rate": "0", "close_yesterday_fee_rate": "0", "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
         command = {"request_id": "tick-one", "action": "advance"}
         state = call("paper.act", command)
         time.sleep(6)
