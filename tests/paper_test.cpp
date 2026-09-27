@@ -819,3 +819,38 @@ TEST(PaperSession, ReplayDivergingFromRecordedOutcomeIsRefused) {
   PaperSession recovered(directory.path);
   EXPECT_EQ(recovered.snapshot().at("fills").size(), 1U);
 }
+TEST(PaperSession, FailedCommitAfterInPlaceMutationRestoresCommittedState) {
+  Directory directory;
+  {
+    PaperSession session(directory.path, manifest());
+    session.execute(advance("tick1"));
+    session.execute(submit("rest", "buy", "open", "1"));
+    const auto committed = session.snapshot();
+    ASSERT_EQ(committed.at("orders").at(0).at("state"), "accepted");
+    // The cancel is applied in place, then the commit fails: the published
+    // state must be the committed one, not the unjournaled cancel.
+    std::filesystem::create_directory(directory.path / "pending.tmp");
+    const Json cancel{{"request_id", "cancel"}, {"action", "cancel"}, {"order_id", "order.rest"}};
+    EXPECT_THROW(session.execute(cancel), std::runtime_error);
+    auto shown = session.snapshot();
+    EXPECT_EQ(shown.at("storage_state"), "recovery_required");
+    shown["storage_state"] = committed.at("storage_state");
+    EXPECT_EQ(shown, committed);
+    std::filesystem::remove(directory.path / "pending.tmp");
+  }
+  PaperSession recovered(directory.path);
+  EXPECT_EQ(recovered.snapshot().at("orders").at(0).at("state"), "accepted");
+  recovered.execute({{"request_id", "cancel"}, {"action", "cancel"}, {"order_id", "order.rest"}});
+  EXPECT_EQ(recovered.snapshot().at("orders").at(0).at("state"), "cancelled");
+}
+TEST(PaperSession, RejectedCommandLeavesStateAndIdempotencyUntouched) {
+  Directory directory;
+  PaperSession session(directory.path, manifest());
+  session.execute(advance("tick1"));
+  const auto before = session.snapshot();
+  EXPECT_THROW(session.execute(submit("bad", "buy", "close_today", "100")), std::invalid_argument);
+  EXPECT_EQ(session.snapshot(), before);
+  // A rejected request identity was never committed and may be reused.
+  session.execute(submit("bad", "buy", "open", "100"));
+  EXPECT_EQ(session.snapshot().at("orders").size(), 1U);
+}

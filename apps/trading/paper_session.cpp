@@ -286,14 +286,25 @@ PaperSession::PaperSession(std::filesystem::path directory, const Json& create_m
       throw std::invalid_argument("trading journal replay diverged from the recorded outcome at "
                                   "record " +
                                   std::to_string(i) + "; recovery refused");
-    commands_.emplace(id, command);
+    sequence_.push_back(&commands_.emplace(id, command).first->second);
   }
+}
+void PaperSession::restore() {
+  auto engine = build(manifest_);
+  engine->start();
+  Json authorization = nullptr, replay = nullptr;
+  std::shared_ptr<const PaperReplaySchedule> schedule;
+  for (const auto* command : sequence_)
+    apply(*engine, authorization, replay, schedule, *command);
+  engine_ = std::move(engine);
+  authorization_ = std::move(authorization);
+  replay_ = std::move(replay);
+  schedule_ = std::move(schedule);
 }
 PaperSession::~PaperSession() {
   if (engine_)
     engine_->stop();
 }
-static_assert(std::is_nothrow_move_assignable_v<PaperExecution>);
 void PaperSession::execute(const Json& command) {
   if (failed_)
     throw std::runtime_error("commit outcome unknown; close and reopen the session to recover");
@@ -303,28 +314,49 @@ void PaperSession::execute(const Json& command) {
       throw std::invalid_argument("request identity reused by a different operation");
     return;
   }
-  auto candidate = *engine_;
+  // Execute in place. Every engine operation is strongly exception safe, so a
+  // rejected command with an unchanged engine revision needs no rollback; a
+  // multi-step command that failed part way, or a failed commit, rebuilds the
+  // engine from the committed sequence instead of copying the whole ledger
+  // before every command.
   auto authorization = authorization_;
   auto replay = replay_;
   auto schedule = schedule_;
-  apply(candidate, authorization, replay, schedule, command);
+  const auto before = engine_->revision();
+  try {
+    apply(*engine_, authorization, replay, schedule, command);
+  } catch (...) {
+    if (engine_->revision() != before) {
+      try {
+        restore();
+      } catch (...) {
+        failed_ = true;
+      }
+    }
+    throw;
+  }
   // Allocate all in-memory state before committing durable state: the node is
   // spliced into commands_ afterwards without allocation.
   std::map<std::string, Json> staging;
   staging.emplace(id, command);
   auto entry = staging.extract(staging.begin());
-  const Json record{{"command", command}, {"outcome", outcome(candidate, authorization, replay)}};
+  sequence_.reserve(sequence_.size() + 1);
   try {
-    journal_.append(record);
+    journal_.append({{"command", command}, {"outcome", outcome(*engine_, authorization, replay)}});
   } catch (...) {
+    // The commit outcome is unknown; show the last committed state and refuse
+    // further writes until the session is reopened and recovered.
     failed_ = true;
+    try {
+      restore();
+    } catch (...) {
+    }
     throw;
   }
-  *engine_ = std::move(candidate);
   authorization_.swap(authorization);
   replay_.swap(replay);
   schedule_.swap(schedule);
-  commands_.insert(std::move(entry));
+  sequence_.push_back(&commands_.insert(std::move(entry)).position->second);
 }
 Json PaperSession::snapshot() const {
   auto result = engine_->snapshot();

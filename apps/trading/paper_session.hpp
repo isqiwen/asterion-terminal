@@ -3,6 +3,7 @@
 #include "paper_execution.hpp"
 #include "replay_schedule.hpp"
 #include <map>
+#include <vector>
 namespace asterion::trading {
 class PaperSession {
 public:
@@ -16,6 +17,9 @@ public:
 
 private:
   static std::unique_ptr<PaperExecution> build(const Json& manifest);
+  // Rebuilds in-memory state from the manifest and the committed commands.
+  // Used only when a failed command or commit left the engine modified.
+  void restore();
   void apply(PaperExecution& engine, Json& authorization, Json& replay,
              std::shared_ptr<const PaperReplaySchedule>& schedule, const Json& command) const;
   FileJournal journal_;
@@ -27,6 +31,8 @@ private:
   std::string dataset_revision_;
   InstrumentId instrument_;
   std::map<std::string, Json> commands_;
+  // Committed commands in journal order; points into commands_ nodes.
+  std::vector<const Json*> sequence_;
   bool failed_ = false;
 };
 } // namespace asterion::trading

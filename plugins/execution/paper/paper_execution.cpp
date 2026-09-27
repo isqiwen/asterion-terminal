@@ -36,10 +36,12 @@ void PaperExecution::submit(LimitOrder order, Offset offset) {
     throw std::invalid_argument("pre-trade risk rejected: " +
                                 std::string(risk_reason_name(decision.reason)));
   account_.submit(std::move(order), offset);
+  ++revision_;
 }
 void PaperExecution::cancel(const std::string& id) {
   require_running();
   account_.cancel(id);
+  ++revision_;
 }
 namespace {
 bool working(const AccountOrder& item) {
@@ -62,6 +64,7 @@ void PaperExecution::advance() {
     // Nothing can fill: marking alone has a strong guarantee, no ledger copy.
     account_.mark(tick.price);
     ++cursor_;
+    ++revision_;
     return;
   }
   auto next = account_;
@@ -89,12 +92,14 @@ void PaperExecution::advance() {
   account_ = std::move(next);
   execution_sequence_ = sequence;
   ++cursor_;
+  ++revision_;
 }
 void PaperExecution::settle(Decimal price) {
   require_running();
   if (cursor_ != ticks_->size())
     throw std::invalid_argument("manual settlement is allowed only after the replay finishes");
   account_.settle(price);
+  ++revision_;
 }
 void PaperExecution::settle_before_next(std::int64_t boundary_ns, Decimal price) {
   require_running();
@@ -104,13 +109,16 @@ void PaperExecution::settle_before_next(std::int64_t boundary_ns, Decimal price)
     throw std::invalid_argument("settlement boundary must precede the next replay event");
   account_.settle(price);
   last_settlement_boundary_ = boundary_ns;
+  ++revision_;
 }
 void PaperExecution::cancel_open_orders() {
   require_running();
   // Cancelling a working order cannot fail, so the loop is all-or-nothing.
   for (std::size_t i = 0; i < account_.orders().size(); ++i)
-    if (working(account_.orders()[i]))
+    if (working(account_.orders()[i])) {
       account_.cancel(account_.orders()[i].order.request().id);
+      ++revision_;
+    }
 }
 void PaperExecution::reconcile_long_target(const std::string& order_id, Decimal target,
                                            Decimal price) {
@@ -152,6 +160,7 @@ void PaperExecution::reconcile_long_target(const std::string& order_id, Decimal 
                        Offset::close_today);
   }
   *this = std::move(candidate);
+  ++revision_;
 }
 std::optional<std::int64_t> PaperExecution::timestamp_ns() const {
   if (!cursor_)
