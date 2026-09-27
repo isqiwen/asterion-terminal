@@ -1,3 +1,4 @@
+import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 import { test, expect } from "@playwright/test";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve, relative } from "node:path";
@@ -52,12 +53,12 @@ test("shared code does not import an application or a concrete plugin", () => {
   }
 });
 
-test("Terminal registry drives settings and workspace navigation", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "设置", exact: true }).click();
-  await page.getByRole("button", { name: "插件", exact: true }).click();
-  await expect(page.getByText("已注册 · 按需加载", { exact: true })).toHaveCount(5);
-  await page.getByRole("button", { name: "返回工作台", exact: true }).click();
+test("Terminal registry drives settings and workspace navigation", async ({ page: workbench }) => {
+  await workbench.goto("/");
+  const settings = await openSettingsWindow(workbench);
+  await settings.getByRole("button", { name: "插件", exact: true }).click();
+  await expect(settings.getByText("已注册 · 按需加载", { exact: true })).toHaveCount(5);
+  const page = await closeSettingsWindow(settings);
   await page.getByRole("button", { name: "研究", exact: true }).click();
   await expect(page.getByRole("heading", { name: "均线回测", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "交易", exact: true }).click();

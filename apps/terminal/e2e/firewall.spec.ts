@@ -1,9 +1,12 @@
 import { test, expect } from "@playwright/test";
+import { openSettingsWindow } from "./settings-helper";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-test("firewall changes require a concrete preview and explicit confirmation", async ({ page }) => {
+test("firewall changes require a concrete preview and explicit confirmation", async ({
+  page: workbench,
+}) => {
   test.skip(
     process.platform === "win32",
     "POSIX SSH transport fixture; Windows native firewall awaits target validation",
@@ -27,9 +30,10 @@ test("firewall changes require a concrete preview and explicit confirmation", as
     const key = await readFile(join(folder, "key"), "utf8");
     const changes = join(process.env.ASTERION_SSH_FIXTURE!, "firewall-changes");
     const before = await readFile(changes, "utf8").catch(() => "");
-    await page.goto("/");
-    await page.getByRole("button", { name: "设置", exact: true }).click();
-    await page.getByRole("button", { name: "连接", exact: true }).click();
+    await workbench.goto("/");
+    // Settings is its own window; every step below runs inside it.
+    const page = await openSettingsWindow(workbench);
+    await page.getByRole("button", { name: "连接与部署", exact: true }).click();
     await page.getByRole("button", { name: "远程 Linux", exact: true }).click();
     await page.getByText("通过 SSH 添加机器", { exact: true }).click();
     for (const [label, value] of [

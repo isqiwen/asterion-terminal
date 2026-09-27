@@ -168,7 +168,10 @@ for (const variant of ["day session", "night sessions", "multiple days"])
         page = await closeSettingsWindow(page);
         await page.getByRole("button", { name: "Research", exact: true }).click();
         const english = page.getByRole("region", { name: "Backtest Result", exact: true });
-        await english.getByText("Experiment Parameters", { exact: true }).click();
+        // The parameters <details> opened in Chinese stays open across the
+        // language switch; clicking it again would collapse it.
+        if ((await english.locator("details.research-experiment").getAttribute("open")) === null)
+          await english.getByText("Experiment Parameters", { exact: true }).click();
         await expect(english).not.toContainText(/\p{Script=Han}/u);
         if (night)
           await expect(english.getByText("Trading session 2", { exact: true })).toBeVisible();
