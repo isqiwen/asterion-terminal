@@ -5,10 +5,33 @@ import type { LanguageResources } from "../src/i18n";
 export { translate, getLocale } from "../src/i18n";
 export type { MessageValues, LanguageResources } from "../src/i18n";
 import type { CsvRequest, Snapshot, TerminalCommand } from "../src/bridge/client";
-import type { DashboardWidget } from "./overview/public";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 
 // Terminal 插件接口定义：宿主提供的能力与插件贡献的工作区、卡片。
+// 契约不依赖任何具体插件；总览插件只是 DashboardWidget 的一个消费者。
+
+// Context handed to overview cards when they render.
+export type DashboardContext = Readonly<{
+  widgets: DashboardWidget[];
+  status?: ReactNode;
+  storageKey: string;
+  refresh: () => void;
+  catalogError: DisplayError;
+  openTasks: () => void;
+}>;
+export type DashboardWidget = {
+  id: string;
+  title: string;
+  category: string;
+  description: string;
+  width: 1 | 2;
+  defaultVisible?: boolean;
+  hasContent?: boolean;
+  column?: "primary" | "secondary";
+  position?: "main" | "aside";
+  attentionCount?: (context: DashboardContext) => number;
+  render: (context: DashboardContext) => ReactNode;
+};
 export type TerminalContext = {
   snapshot: Snapshot | null;
   busy: boolean;

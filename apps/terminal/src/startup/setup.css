@@ -174,4 +174,6 @@
   }
 }
 
-.setup-step > .setup-status-done { color: var(--success); }
+.setup-step > .setup-status-done {
+  color: var(--success);
+}

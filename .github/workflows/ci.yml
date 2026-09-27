@@ -1,6 +1,26 @@
 name: Cross-platform Core and Terminal
 on: [push, pull_request]
 jobs:
+  style:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install clang-format==23.1.1
+      - name: C++ formatting
+        run: git ls-files '*.cpp' '*.hpp' '*.h' | xargs clang-format --dry-run -Werror
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: TypeScript formatting
+        run: pnpm format:check
+      - name: TypeScript types
+        run: pnpm exec tsc --noEmit -p apps/terminal/tsconfig.json
   core:
     strategy:
       fail-fast: false

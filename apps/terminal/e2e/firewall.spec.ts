@@ -4,13 +4,26 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 test("firewall changes require a concrete preview and explicit confirmation", async ({ page }) => {
-  test.skip(process.platform === "win32", "POSIX SSH transport fixture; Windows native firewall awaits target validation");
+  test.skip(
+    process.platform === "win32",
+    "POSIX SSH transport fixture; Windows native firewall awaits target validation",
+  );
   const folder = await mkdtemp(join(tmpdir(), "asterion-fw-ui-"));
   try {
-    const artifact = Buffer.alloc(64); Buffer.from([0x7f, 69, 76, 70, 2, 1]).copy(artifact); artifact[18] = 62;
+    const artifact = Buffer.alloc(64);
+    Buffer.from([0x7f, 69, 76, 70, 2, 1]).copy(artifact);
+    artifact[18] = 62;
     await writeFile(join(folder, "linux-inspection-only"), artifact);
     await writeFile(join(folder, "known_hosts"), "isolated SSH test double only\n");
-    execFileSync("/usr/bin/ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", join(folder, "key")]);
+    execFileSync("/usr/bin/ssh-keygen", [
+      "-q",
+      "-t",
+      "ed25519",
+      "-N",
+      "",
+      "-f",
+      join(folder, "key"),
+    ]);
     const key = await readFile(join(folder, "key"), "utf8");
     const changes = join(process.env.ASTERION_SSH_FIXTURE!, "firewall-changes");
     const before = await readFile(changes, "utf8").catch(() => "");
@@ -19,13 +32,20 @@ test("firewall changes require a concrete preview and explicit confirmation", as
     await page.getByRole("button", { name: "连接", exact: true }).click();
     await page.getByRole("button", { name: "远程 Linux", exact: true }).click();
     await page.getByText("通过 SSH 添加机器", { exact: true }).click();
-    for (const [label, value] of [["机器名称", "fw-ui"], ["SSH 地址", "localhost"], ["SSH 用户", "tester"], ["已核验 known_hosts 文件", join(folder, "known_hosts")]]) await page.getByLabel(label, { exact: true }).fill(value);
+    for (const [label, value] of [
+      ["机器名称", "fw-ui"],
+      ["SSH 地址", "localhost"],
+      ["SSH 用户", "tester"],
+      ["已核验 known_hosts 文件", join(folder, "known_hosts")],
+    ])
+      await page.getByLabel(label, { exact: true }).fill(value);
     await page.getByLabel("SSH 密钥来源", { exact: true }).selectOption("provided");
     await page.getByLabel("SSH 私钥", { exact: true }).fill(key);
     await page.getByText("安装前检查防火墙", { exact: true }).click();
     await page.getByRole("button", { name: "检查并预览放行规则", exact: true }).click();
     const preview = page.getByRole("region", { name: "防火墙规则预览" });
-    await expect(preview).toContainText("192.0.2.10"); await expect(preview).toContainText("7442");
+    await expect(preview).toContainText("192.0.2.10");
+    await expect(preview).toContainText("7442");
     expect(await readFile(changes, "utf8").catch(() => "")).toBe(before);
     await preview.getByRole("button", { name: "确认放行上述来源和端口" }).click();
     await expect(preview).toContainText("请安装并连接 Agent");
@@ -37,5 +57,7 @@ test("firewall changes require a concrete preview and explicit confirmation", as
     await page.getByRole("button", { name: "检查已管理规则的撤销" }).click();
     await preview.getByRole("button", { name: "确认撤销上述规则" }).click();
     await expect(preview).toContainText("本系统记录的规则已撤销");
-  } finally { await rm(folder, { recursive: true, force: true }); }
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
 });

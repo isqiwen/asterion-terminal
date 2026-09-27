@@ -7,7 +7,10 @@ import { join } from "node:path";
 test("original workbench with real C++ futures preview and failure recovery", async ({ page }) => {
   const folder = await mkdtemp(join(tmpdir(), "asterion-terminal-e2e-"));
   const path = join(folder, "trades.csv");
-  await writeFile(path, "timestamp_ns,price,quantity\n1790384400000000000,3510,2\n1790384401000000000,3511,3\n");
+  await writeFile(
+    path,
+    "timestamp_ns,price,quantity\n1790384400000000000,3510,2\n1790384401000000000,3511,3\n",
+  );
   try {
     await page.goto("/");
     await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible();
@@ -49,13 +52,20 @@ test("original workbench with real C++ futures preview and failure recovery", as
     await expect(page.getByText("asterion.data.csv", { exact: true })).toBeVisible();
     page = await closeSettingsWindow(page);
     await page.getByRole("button", { name: "总览", exact: true }).click();
-    await expect(page.getByRole("tab", { name: "总览", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tab", { name: "总览", exact: true })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     await page.screenshot({ path: join(__dirname, "../test-results/workbench.png") });
-  } finally { await rm(folder, { recursive: true, force: true }); }
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
 });
 
 test("core connection failure is visible and can be retried", async ({ page }) => {
-  await page.route("**/__asterion/api", route => route.fulfill({ status: 503, body: "unavailable" }));
+  await page.route("**/__asterion/api", route =>
+    route.fulfill({ status: 503, body: "unavailable" }),
+  );
   await page.goto("/");
   await expect(page.getByRole("alert")).toContainText("本机 C++ 服务不可用");
   await page.unroute("**/__asterion/api");

@@ -5,7 +5,10 @@ test("local deployment needs no SSH and remote deployment is Linux only", async 
   await page.goto("/");
   page = await openSettingsWindow(page);
   await page.getByRole("button", { name: "连接与部署", exact: true }).click();
-  await expect(page.getByRole("button", { name: "本机部署", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "本机部署", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await expect(page.getByLabel("本机部署说明")).toContainText("无需 SSH、密钥或机器初始化脚本");
   await expect(page.getByLabel("SSH 私钥", { exact: true })).toHaveCount(0);
   await expect(page.getByText("通过 SSH 添加机器", { exact: true })).toHaveCount(0);
@@ -21,7 +24,10 @@ test("local deployment needs no SSH and remote deployment is Linux only", async 
   await expect(page.getByLabel("SSH 私钥", { exact: true })).toHaveCount(0);
 });
 
-test("Terminal generates and reuses a public key without exposing the private key", async ({ page, context }) => {
+test("Terminal generates and reuses a public key without exposing the private key", async ({
+  page,
+  context,
+}) => {
   await page.goto("/");
   page = await openSettingsWindow(page);
   await page.getByRole("button", { name: "连接与部署", exact: true }).click();
@@ -43,7 +49,6 @@ test("Terminal generates and reuses a public key without exposing the private ke
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain("PRIVATE KEY");
   await expect(page.locator("body")).not.toContainText("BEGIN OPENSSH PRIVATE KEY");
 });
-
 
 test("the Linux initializer is exported from the bundled resources", async ({ page }) => {
   await page.goto("/");

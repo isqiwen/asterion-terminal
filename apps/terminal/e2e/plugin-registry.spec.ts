@@ -5,14 +5,23 @@ import { registerTerminalPlugins } from "../src/host/plugin-registry";
 import type { TerminalPlugin } from "../plugins/contract";
 
 const plugin: TerminalPlugin = {
-  id: "test.panel", apiVersion: 1,
-  workspace: { id: "test.workspace", title: "Test", icon: "x", section: "Test", component: () => null },
+  id: "test.panel",
+  apiVersion: 1,
+  workspace: {
+    id: "test.workspace",
+    title: "Test",
+    icon: "x",
+    section: "Test",
+    component: () => null,
+  },
 };
 
 test("registration rejects conflicting identities and unsupported contracts", () => {
   expect(() => registerTerminalPlugins([plugin, plugin])).toThrow("UI 插件");
   expect(() => registerTerminalPlugins([plugin, { ...plugin, id: "other" }])).toThrow("工作区");
-  expect(() => registerTerminalPlugins([{ ...plugin, apiVersion: 2 } as unknown as typeof plugin])).toThrow("契约");
+  expect(() =>
+    registerTerminalPlugins([{ ...plugin, apiVersion: 2 } as unknown as typeof plugin]),
+  ).toThrow("契约");
   const registered = registerTerminalPlugins([plugin]);
   plugin.workspace.title = "Changed by caller";
   expect(registered[0].workspace.title).toBe("Test");
@@ -30,9 +39,13 @@ test("shared code does not import an application or a concrete plugin", () => {
   for (const directory of ["core", "plugins"]) {
     for (const file of files(resolve(root, directory))) {
       const source = readFileSync(file, "utf8");
-      const imports = [...source.matchAll(/(?:from\s*|import\s*|#include\s*)["<]([^">]+)[">]/g)].map(match => match[1]);
+      const imports = [
+        ...source.matchAll(/(?:from\s*|import\s*|#include\s*)["<]([^">]+)[">]/g),
+      ].map(match => match[1]);
       for (const name of imports) {
-        expect(name, relative(root, file)).not.toMatch(/(?:apps\/|@asterion\/(?:terminal|desktop-bridge|workbench|overview))/);
+        expect(name, relative(root, file)).not.toMatch(
+          /(?:apps\/|@asterion\/(?:terminal|desktop-bridge|workbench|overview))/,
+        );
         if (directory === "core") expect(name, relative(root, file)).not.toContain("plugins/");
       }
     }

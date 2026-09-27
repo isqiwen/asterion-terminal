@@ -8,21 +8,24 @@
     "test:e2e": "python3 tests/ssh_e2e.py pnpm exec playwright test --config apps/terminal/playwright.config.ts",
     "desktop": "node scripts/desktop.mjs dev",
     "desktop:build": "node scripts/desktop.mjs build",
-    "desktop:check": "node scripts/desktop.mjs check"
+    "desktop:check": "node scripts/desktop.mjs check",
+    "format": "prettier --write \"apps/terminal/**/*.{ts,tsx,css,json}\" scripts/desktop.mjs && git ls-files \"*.cpp\" \"*.hpp\" \"*.h\" | xargs clang-format -i",
+    "format:check": "prettier --check \"apps/terminal/**/*.{ts,tsx,css,json}\" scripts/desktop.mjs"
   },
   "dependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
     "@tauri-apps/api": "^2.0.0",
-    "@tauri-apps/plugin-dialog": "^2.0.0"
+    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",
     "@tauri-apps/cli": "^2.0.0",
+    "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@types/node": "^22.0.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "prettier": "^3.9.9",
     "typescript": "^5.7.0",
     "vite": "^6.0.0"
   }

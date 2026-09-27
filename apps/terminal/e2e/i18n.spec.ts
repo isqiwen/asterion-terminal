@@ -3,36 +3,49 @@ import { test, expect } from "@playwright/test";
 import { registerLanguageResources, translate } from "../src/i18n";
 
 test("language resources validate namespaces, keys and interpolation", () => {
-  const catalog = { "zh-CN": { "hello": "你好 {name}" }, "en-US": { "hello": "Hello {name}" } };
+  const catalog = { "zh-CN": { hello: "你好 {name}" }, "en-US": { hello: "Hello {name}" } };
   registerLanguageResources("test.languages", catalog);
   expect(translate("test.languages", "hello", { name: "Asterion" })).toBe("你好 Asterion");
   expect(() => translate("test.languages", "hello")).toThrow("argument");
   expect(() => translate("test.languages", "missing")).toThrow("Unknown translation");
   expect(() => registerLanguageResources("test.languages", catalog)).toThrow("Duplicate");
-  expect(() => registerLanguageResources("test.keys", { ...catalog, "en-US": {} })).toThrow("keys differ");
-  expect(() => registerLanguageResources("test.arguments", { ...catalog, "en-US": { hello: "Hello {other}" } })).toThrow("placeholders differ");
+  expect(() => registerLanguageResources("test.keys", { ...catalog, "en-US": {} })).toThrow(
+    "keys differ",
+  );
+  expect(() =>
+    registerLanguageResources("test.arguments", {
+      ...catalog,
+      "en-US": { hello: "Hello {other}" },
+    }),
+  ).toThrow("placeholders differ");
 });
 
-test("language switches every workspace, preserves preferences and survives reload", async ({ page }) => {
+test("language switches every workspace, preserves preferences and survives reload", async ({
+  page,
+}) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto("/");
   page = await openSettingsWindow(page);
-  await page.getByRole("button", {name:"外观",exact:true}).click();
+  await page.getByRole("button", { name: "外观", exact: true }).click();
   await page.getByLabel("显示密度", { exact: true }).selectOption("comfortable");
-  await page.getByRole("button", {name:"通用",exact:true}).click();
+  await page.getByRole("button", { name: "通用", exact: true }).click();
   await page.getByLabel("语言", { exact: true }).selectOption("en-US");
   await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
   await expect(page.getByRole("heading", { name: "General", exact: true })).toBeVisible();
-  await page.getByRole("button", {name:"Appearance",exact:true}).click();
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
   await expect(page.getByLabel("Display Density", { exact: true })).toHaveValue("comfortable");
   await page.screenshot({ path: "apps/terminal/test-results/english-settings.png" });
   await page.getByRole("button", { name: "Connections & deployment", exact: true }).click();
   await expect(page.locator(".settings-content")).not.toContainText(/\p{Script=Han}/u);
   await page.getByText("Agent Program", { exact: true }).click();
   await page.getByRole("button", { name: "Check Program Updates", exact: true }).click();
-  await expect(page.getByText("System installation is not managed in development", { exact: true })).toBeVisible();
-  const denied = await page.request.post("/__asterion/api", {data:{version:1,method:"node.agent.upgrade",params:{expected_digest:"0".repeat(64)}}});
+  await expect(
+    page.getByText("System installation is not managed in development", { exact: true }),
+  ).toBeVisible();
+  const denied = await page.request.post("/__asterion/api", {
+    data: { version: 1, method: "node.agent.upgrade", params: { expected_digest: "0".repeat(64) } },
+  });
   expect((await denied.json()).error).toBeTruthy();
 
   await page.getByRole("button", { name: "Plugins", exact: true }).click();
@@ -40,19 +53,28 @@ test("language switches every workspace, preserves preferences and survives relo
   page = await closeSettingsWindow(page);
   for (const workspace of ["Market", "Data", "Research", "Trading", "Overview"]) {
     await page.getByRole("button", { name: workspace, exact: true }).click();
-    await expect(page.getByRole("tab", { name: workspace, exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tab", { name: workspace, exact: true })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     await expect(page.locator("body")).not.toContainText(/\p{Script=Han}/u);
   }
   for (const label of await page.locator(".activity-rail .nav-label").all()) {
-    expect(await label.evaluate(element => element.getBoundingClientRect().right <= element.closest("aside")!.getBoundingClientRect().right)).toBe(true);
+    expect(
+      await label.evaluate(
+        element =>
+          element.getBoundingClientRect().right <=
+          element.closest("aside")!.getBoundingClientRect().right,
+      ),
+    ).toBe(true);
   }
   await page.screenshot({ path: "apps/terminal/test-results/english-workbench.png" });
   await page.reload();
   await expect(page.getByRole("button", { name: "Overview", exact: true })).toBeVisible();
   page = await openSettingsWindow(page);
-  await page.getByRole("button", {name:"Appearance",exact:true}).click();
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
   await expect(page.getByLabel("Display Density", { exact: true })).toHaveValue("comfortable");
-  await page.getByRole("button", {name:"General",exact:true}).click();
+  await page.getByRole("button", { name: "General", exact: true }).click();
   await page.getByLabel("Language", { exact: true }).selectOption("zh-CN");
   await expect(page.getByRole("heading", { name: "通用", exact: true })).toBeVisible();
   page = await closeSettingsWindow(page);
@@ -68,7 +90,12 @@ test.describe("first launch language", () => {
     await page.goto("/");
     await page.getByLabel("语言", { exact: true }).selectOption("en");
     await page.screenshot({ path: "apps/terminal/test-results/english-setup.png" });
-    await page.route("**/__asterion/api", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ error: { code: "permission_denied", message: "原始诊断信息" } }) }));
+    await page.route("**/__asterion/api", route =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "permission_denied", message: "原始诊断信息" } }),
+      }),
+    );
     await page.getByRole("button", { name: "BEGIN SETUP", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("Permission denied");
     await expect(page.getByRole("alert")).not.toContainText("原始诊断信息");

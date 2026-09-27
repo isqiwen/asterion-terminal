@@ -1,39 +1,180 @@
-.research-workspace { height:100%; overflow:auto; }
-.research-layout { display:grid; grid-template-columns: minmax(260px,320px) minmax(0,1fr); gap:24px; padding:20px; }
-.research-config { border-right:1px solid var(--border); padding-right:24px; }
-.research-config h3,.research-main h3 { margin:0 0 16px; font-size:14px; }
-.research-config form { margin:18px 0; }
-.research-config fieldset { display:grid; gap:14px; padding:0; border:0; min-width:0; }
-.research-config label { display:grid; gap:6px; font-size:12px; color:var(--muted); min-width:0; }
-.research-config input { width:100%; min-width:0; box-sizing:border-box; }
-.research-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
-.research-workspace details { font-size:11px; color:var(--muted); overflow-wrap:anywhere; }
-.research-workspace summary { cursor:pointer; margin-top:8px; }
-.research-main { min-width:0; }
-.research-table { overflow:auto; }
-.research-table table { width:100%; font-variant-numeric:tabular-nums; }
-.research-table th { text-align:left; font-weight:400; color:var(--muted); font-size:12px; }
-.research-table th,.research-table td { padding:12px 10px; border-bottom:1px solid var(--border); }
-.research-table td { font-size:12px; vertical-align:top; }
-.research-table td>.subtle { display:block; margin-top:5px; }
-.research-empty { padding:32px 0; color:var(--muted); }
-.research-result { margin-top:28px; padding-top:20px; border-top:1px solid var(--border); }
-.research-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; font-variant-numeric:tabular-nums; }
-.research-metrics span,.research-metrics strong { display:block; }
-.research-metrics span { font-size:11px; }.research-metrics strong { margin-top:7px; font-size:18px; overflow-wrap:anywhere; }
-.research-equity { width:100%; max-height:240px; margin-top:20px; background:var(--panel); }
-.research-range { display:flex; justify-content:space-between; gap:10px; color:var(--muted); font-size:11px; }
-@media(max-width:1000px){.research-layout{grid-template-columns:1fr;}.research-config{border-right:0;border-bottom:1px solid var(--border);padding:0 0 20px;}.research-fields{grid-template-columns:repeat(3,minmax(0,1fr));}}
-.research-modes { display:flex; gap:8px; padding:12px 20px 0; }
-.research-modes button[aria-pressed=true] { color:var(--accent); border-color:var(--accent); }
-.research-result>.research-range { margin:18px 0; }
+.research-workspace {
+  height: 100%;
+  overflow: auto;
+}
+.research-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 24px;
+  padding: 20px;
+}
+.research-config {
+  border-right: 1px solid var(--border);
+  padding-right: 24px;
+}
+.research-config h3,
+.research-main h3 {
+  margin: 0 0 16px;
+  font-size: 14px;
+}
+.research-config form {
+  margin: 18px 0;
+}
+.research-config fieldset {
+  display: grid;
+  gap: 14px;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.research-config label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 0;
+}
+.research-config input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.research-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.research-workspace details {
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.research-workspace summary {
+  cursor: pointer;
+  margin-top: 8px;
+}
+.research-main {
+  min-width: 0;
+}
+.research-table {
+  overflow: auto;
+}
+.research-table table {
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.research-table th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 12px;
+}
+.research-table th,
+.research-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.research-table td {
+  font-size: 12px;
+  vertical-align: top;
+}
+.research-table td > .subtle {
+  display: block;
+  margin-top: 5px;
+}
+.research-empty {
+  padding: 32px 0;
+  color: var(--muted);
+}
+.research-result {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.research-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.research-metrics span,
+.research-metrics strong {
+  display: block;
+}
+.research-metrics span {
+  font-size: 11px;
+}
+.research-metrics strong {
+  margin-top: 7px;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.research-equity {
+  width: 100%;
+  max-height: 240px;
+  margin-top: 20px;
+  background: var(--panel);
+}
+.research-range {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+@media (max-width: 1000px) {
+  .research-layout {
+    grid-template-columns: 1fr;
+  }
+  .research-config {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 0 0 20px;
+  }
+  .research-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.research-modes {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px 0;
+}
+.research-modes button[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.research-result > .research-range {
+  margin: 18px 0;
+}
 
-.research-experiment { margin:12px 0; }
-.experiment-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:12px; }
-.experiment-fields dt { color:var(--muted); }
-.experiment-fields dd { margin:5px 0 0; color:var(--text); }
+.research-experiment {
+  margin: 12px 0;
+}
+.experiment-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 12px;
+}
+.experiment-fields dt {
+  color: var(--muted);
+}
+.experiment-fields dd {
+  margin: 5px 0 0;
+  color: var(--text);
+}
 /* Full datetime values must remain readable in the narrow configuration rail. */
-.research-sessions .research-fields { grid-template-columns:minmax(0,1fr); }
+.research-sessions .research-fields {
+  grid-template-columns: minmax(0, 1fr);
+}
 
-.research-config .research-day {border:1px solid var(--border);padding:10px;margin:12px 0;min-width:0;}
-.experiment-day {border-top:1px solid var(--border);margin-top:12px;}
+.research-config .research-day {
+  border: 1px solid var(--border);
+  padding: 10px;
+  margin: 12px 0;
+  min-width: 0;
+}
+.experiment-day {
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+}

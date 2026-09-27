@@ -18,10 +18,13 @@ if (typeof window !== "undefined") {
   try {
     const saved = window.localStorage.getItem(preference);
     if (saved === "zh-CN" || saved === "en-US") locale = saved;
-  } catch { /* Read-only storage still allows the default language to render. */ }
+  } catch {
+    /* Read-only storage still allows the default language to render. */
+  }
   window.addEventListener("storage", event => {
     if (event.key === preference && (event.newValue === "zh-CN" || event.newValue === "en-US")) {
-      locale = event.newValue; publish();
+      locale = event.newValue;
+      publish();
     }
   });
 }
@@ -29,30 +32,50 @@ function publish() {
   if (typeof document !== "undefined") document.documentElement.lang = locale;
   listeners.forEach(listener => listener());
 }
-export function getLocale() { return locale; }
+export function getLocale() {
+  return locale;
+}
 export function setLocale(next: Locale) {
   if (next !== "zh-CN" && next !== "en-US") throw new Error("Unsupported locale");
   window.localStorage.setItem(preference, next);
-  locale = next; publish();
+  locale = next;
+  publish();
 }
 export function useLocale() {
-  const current = useSyncExternalStore(listener => { listeners.add(listener); return () => listeners.delete(listener); }, getLocale, () => "zh-CN" as Locale);
+  const current = useSyncExternalStore(
+    listener => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    getLocale,
+    () => "zh-CN" as Locale,
+  );
 
   return { locale: current, setLocale };
 }
 export function registerLanguageResources(namespace: string, catalog: LanguageResources) {
-  if (!namespace || resources.has(namespace)) throw new Error(`Duplicate language namespace: ${namespace}`);
+  if (!namespace || resources.has(namespace))
+    throw new Error(`Duplicate language namespace: ${namespace}`);
   const keys = Object.keys(catalog["zh-CN"]).sort();
-  if (JSON.stringify(keys) !== JSON.stringify(Object.keys(catalog["en-US"]).sort())) throw new Error(`Language keys differ: ${namespace}`);
+  if (JSON.stringify(keys) !== JSON.stringify(Object.keys(catalog["en-US"]).sort()))
+    throw new Error(`Language keys differ: ${namespace}`);
   for (const key of keys) {
     for (const language of ["zh-CN", "en-US"] as const) {
       const value = catalog[language][key];
-      if (!value || typeof value !== "string") throw new Error(`Missing translation: ${namespace}/${key}`);
+      if (!value || typeof value !== "string")
+        throw new Error(`Missing translation: ${namespace}/${key}`);
       const placeholders = (text: string) => (text.match(/\{\w+\}/g) ?? []).sort().join();
-      if (placeholders(value) !== placeholders(catalog["zh-CN"][key])) throw new Error(`Translation placeholders differ: ${namespace}/${key}`);
+      if (placeholders(value) !== placeholders(catalog["zh-CN"][key]))
+        throw new Error(`Translation placeholders differ: ${namespace}/${key}`);
     }
   }
-  resources.set(namespace, Object.freeze({ "zh-CN": Object.freeze({ ...catalog["zh-CN"] }), "en-US": Object.freeze({ ...catalog["en-US"] }) }));
+  resources.set(
+    namespace,
+    Object.freeze({
+      "zh-CN": Object.freeze({ ...catalog["zh-CN"] }),
+      "en-US": Object.freeze({ ...catalog["en-US"] }),
+    }),
+  );
 }
 export function translate(namespace: string, key: string, values: MessageValues = {}): string {
   const message = resources.get(namespace)?.[locale]?.[key];
@@ -69,6 +92,8 @@ if (typeof document !== "undefined") document.documentElement.lang = locale;
 export function localizeText(namespace: string, text: string): string | undefined {
   const catalog = resources.get(namespace);
   if (!catalog) return undefined;
-  const key = Object.keys(catalog["zh-CN"]).find(key => key === text || catalog["zh-CN"][key] === text || catalog["en-US"][key] === text);
+  const key = Object.keys(catalog["zh-CN"]).find(
+    key => key === text || catalog["zh-CN"][key] === text || catalog["en-US"][key] === text,
+  );
   return key === undefined ? undefined : catalog[locale][key];
 }
