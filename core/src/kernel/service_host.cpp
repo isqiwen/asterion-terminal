@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 #include <type_traits>
@@ -191,12 +192,22 @@ struct ServiceHost::Impl {
   template <class Accept> void serve(Accept accept) {
     while (!stop_requested()) {
       const auto started = Clock::now();
+      std::optional<decltype(accept())> connection;
       try {
-        dispatch(accept());
+        connection.emplace(accept());
       } catch (const std::exception&) {
-        // Idle poll, overload or a transient accept failure. Never spin.
+        // Idle poll ends after `poll`; an immediate failure is a transient
+        // accept error (for example descriptor exhaustion): never spin.
         if (Clock::now() - started < Milliseconds{10})
           std::this_thread::sleep_for(Milliseconds{50});
+      }
+      if (connection) {
+        try {
+          dispatch(std::move(*connection));
+        } catch (const std::exception&) {
+          // Overload: the unqueued connection closes at once, so excess peers
+          // are rejected as fast as they arrive.
+        }
       }
       if (options.tick)
         options.tick();
