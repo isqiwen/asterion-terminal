@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "source": {
+    "title": "交易规则——各交易所交易时段汇总（2024年8月）",
+    "url": "https://futures.hnchasing.com/cx-website/sys/common/static/temp/FBD861E6F465D0D967E12800B9723E11.pdf",
+    "reviewed": "2026-09-28",
+    "note": "Reference compilation; exchange notices prevail. Re-review when an exchange changes trading hours."
+  },
+  "utc_offset": "+08:00",
+  "day_sessions": {
+    "commodity": [["09:00", "10:15"], ["10:30", "11:30"], ["13:30", "15:00"]],
+    "cffex_index": [["09:30", "11:30"], ["13:00", "15:00"]],
+    "cffex_treasury": [["09:30", "11:30"], ["13:00", "15:15"]]
+  },
+  "night_sessions": {
+    "until_0230": ["21:00", "02:30"],
+    "until_0100": ["21:00", "01:00"],
+    "until_2300": ["21:00", "23:00"]
+  },
+  "products": {
+    "SHFE": {
+      "au": ["commodity", "until_0230"],
+      "ag": ["commodity", "until_0230"],
+      "cu": ["commodity", "until_0100"],
+      "al": ["commodity", "until_0100"],
+      "zn": ["commodity", "until_0100"],
+      "pb": ["commodity", "until_0100"],
+      "ni": ["commodity", "until_0100"],
+      "sn": ["commodity", "until_0100"],
+      "ss": ["commodity", "until_0100"],
+      "ao": ["commodity", "until_0100"],
+      "ru": ["commodity", "until_2300"],
+      "rb": ["commodity", "until_2300"],
+      "hc": ["commodity", "until_2300"],
+      "bu": ["commodity", "until_2300"],
+      "fu": ["commodity", "until_2300"],
+      "sp": ["commodity", "until_2300"],
+      "br": ["commodity", "until_2300"],
+      "wr": ["commodity", null]
+    },
+    "INE": {
+      "sc": ["commodity", "until_0230"],
+      "bc": ["commodity", "until_0100"],
+      "nr": ["commodity", "until_2300"],
+      "lu": ["commodity", "until_2300"]
+    },
+    "DCE": {
+      "p": ["commodity", "until_2300"],
+      "j": ["commodity", "until_2300"],
+      "m": ["commodity", "until_2300"],
+      "y": ["commodity", "until_2300"],
+      "a": ["commodity", "until_2300"],
+      "b": ["commodity", "until_2300"],
+      "jm": ["commodity", "until_2300"],
+      "i": ["commodity", "until_2300"],
+      "l": ["commodity", "until_2300"],
+      "v": ["commodity", "until_2300"],
+      "pp": ["commodity", "until_2300"],
+      "eg": ["commodity", "until_2300"],
+      "c": ["commodity", "until_2300"],
+      "cs": ["commodity", "until_2300"],
+      "rr": ["commodity", "until_2300"],
+      "eb": ["commodity", "until_2300"],
+      "pg": ["commodity", "until_2300"],
+      "jd": ["commodity", null],
+      "lh": ["commodity", null]
+    },
+    "CZCE": {
+      "FG": ["commodity", "until_2300"],
+      "OI": ["commodity", "until_2300"],
+      "ZC": ["commodity", "until_2300"],
+      "SR": ["commodity", "until_2300"],
+      "CF": ["commodity", "until_2300"],
+      "RM": ["commodity", "until_2300"],
+      "MA": ["commodity", "until_2300"],
+      "TA": ["commodity", "until_2300"],
+      "CY": ["commodity", "until_2300"],
+      "SA": ["commodity", "until_2300"],
+      "PF": ["commodity", "until_2300"],
+      "SH": ["commodity", "until_2300"],
+      "PX": ["commodity", "until_2300"],
+      "PR": ["commodity", "until_2300"],
+      "AP": ["commodity", null],
+      "CJ": ["commodity", null],
+      "UR": ["commodity", null],
+      "SM": ["commodity", null],
+      "SF": ["commodity", null],
+      "PK": ["commodity", null]
+    },
+    "GFEX": {
+      "si": ["commodity", null],
+      "lc": ["commodity", null],
+      "ps": ["commodity", null]
+    },
+    "CFFEX": {
+      "IF": ["cffex_index", null],
+      "IH": ["cffex_index", null],
+      "IC": ["cffex_index", null],
+      "IM": ["cffex_index", null],
+      "T": ["cffex_treasury", null],
+      "TF": ["cffex_treasury", null],
+      "TS": ["cffex_treasury", null],
+      "TL": ["cffex_treasury", null]
+    }
+  }
+}
