@@ -62,7 +62,7 @@ std::string local_time(std::int64_t utc_ns, int offset_minutes) {
   const year_month_day date{day};
   const hh_mm_ss clock{local - day};
   const int offset = offset_minutes < 0 ? -offset_minutes : offset_minutes;
-  char text[32];
+  char text[96]; // Sized for GCC -Wformat-truncation worst cases.
   std::snprintf(text, sizeof text, "%04d-%02u-%02uT%02d:%02d:%02d%c%02d:%02d",
                 static_cast<int>(date.year()), static_cast<unsigned>(date.month()),
                 static_cast<unsigned>(date.day()), static_cast<int>(clock.hours().count()),
