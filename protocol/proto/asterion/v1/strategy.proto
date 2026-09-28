@@ -1,0 +1,82 @@
+syntax = "proto3";
+import "asterion/v1/domain.proto";
+package asterion.strategy.v1;
+import "asterion/v1/trading.proto";
+import "asterion/v1/data.proto";
+
+// Local deployments resolve the current service endpoint through their Agent.
+// Remote deployments use a stable TCP/mTLS address. No credential contents.
+message ReplayPlan {
+  uint32 version = 1;
+  asterion.data.v1.TradeDataset dataset = 2;
+  string trading_session = 3;
+  string grant_id = 4;
+  string agent_endpoint = 5;
+  string host = 6;
+  uint32 port = 7;
+  string tls_ca = 8;
+  string tls_cert = 9;
+  string tls_key = 10;
+  asterion.data.v1.CalendarPublication calendar_publication = 11;
+}
+message ReplayStatus { string phase = 1; string error = 2; }
+// Immutable configuration for one trusted native strategy instance.
+message Config {
+  uint32 version = 1;
+  string session_id = 2;
+  string stream_id = 3;
+  asterion.protocol.v1.Contract contract = 4;
+  string plugin_id = 5;
+  uint32 fast = 6;
+  uint32 slow = 7;
+  asterion.protocol.v1.Decimal quantity = 8;
+  ReplayPlan replay = 9;
+}
+// Sequence starts at one. Equal timestamps and duplicate ticks are valid when
+// they have distinct sequence numbers. A source must retain its stream identity.
+message Event {
+  string stream_id = 1;
+  uint64 sequence = 2;
+  asterion.protocol.v1.Tick tick = 3;
+}
+// An observation, never an authorized order or an acknowledgement of execution.
+message Intent {
+  string id = 1;
+  uint64 sequence = 2;
+  int64 timestamp_ns = 3;
+  asterion.protocol.v1.Decimal target_quantity = 4;
+}
+message Receipt {
+  uint64 sequence = 1;
+  Intent intent = 2; // absent while the plugin is warming up
+}
+message Snapshot {
+  Config config = 1;
+  uint64 processed = 2;
+  Intent latest_intent = 3;
+  bool recovery_required = 4;
+  ReplayStatus replay = 5;
+}
+message Request {
+  uint32 version = 1;
+  string session_id = 2;
+  string correlation_id = 3;
+  oneof operation {
+    Config create = 10;
+    Event event = 11;
+    asterion.protocol.v1.Empty snapshot = 12;
+    asterion.protocol.v1.Empty heartbeat = 13;
+  }
+}
+message Response {
+  uint32 version = 1;
+  string session_id = 2;
+  string correlation_id = 3;
+  oneof result {
+    Snapshot snapshot = 10;
+    Receipt receipt = 11;
+    asterion.protocol.v1.Health health = 12;
+    asterion.protocol.v1.Error error = 13;
+    asterion.protocol.v1.Empty uninitialized = 14;
+  }
+}

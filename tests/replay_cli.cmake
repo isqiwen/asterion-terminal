@@ -1,0 +1,15 @@
+file(MAKE_DIRECTORY "${TEST_DIR}")
+set(input "${TEST_DIR}/trades.csv")
+file(WRITE "${input}" "timestamp_ns,price,quantity\n100,12.34,0.001\n101,12.35,0.002\n")
+execute_process(COMMAND "${ASTERION}" replay-csv "${input}" TEST BTC-USD crypto USD 0.01 0.001 1
+  RESULT_VARIABLE code OUTPUT_VARIABLE output ERROR_VARIABLE error)
+if(NOT code EQUAL 0 OR NOT output MATCHES "trades=2" OR NOT output MATCHES "price=12.35")
+  message(FATAL_ERROR "CSV CLI failed: ${code} ${output} ${error}")
+endif()
+file(WRITE "${input}" "timestamp_ns,price,quantity\n100,12.345,0.001\n")
+execute_process(COMMAND "${ASTERION}" replay-csv "${input}" TEST BTC-USD crypto USD 0.01 0.001 1
+  RESULT_VARIABLE code OUTPUT_VARIABLE output ERROR_VARIABLE error)
+if(code EQUAL 0 OR output MATCHES "Historical CSV validated" OR NOT error MATCHES "CSV line 2")
+  message(FATAL_ERROR "Invalid CSV must fail without a success result: ${code} ${output} ${error}")
+endif()
+file(REMOVE "${input}")

@@ -1,4 +1,0 @@
-.connection-secret { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 12px; align-items: center; }
-.connection-secret-control { display: flex; gap: 8px; align-items: center; min-width: 0; }
-.connection-secret-control input { flex: 1; min-width: 0; }
-.connection-secret-control button { flex: none; }

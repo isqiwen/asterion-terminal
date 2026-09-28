@@ -3,11 +3,38 @@
   "private": true,
   "packageManager": "pnpm@10.32.1",
   "scripts": {
-    "dev": "pnpm --filter @asterion/terminal dev",
-    "build": "pnpm --filter @asterion/terminal build",
-    "test": "pnpm --filter @asterion/terminal test"
+    "dev": "vite --config apps/terminal/vite.config.ts",
+    "build": "tsc --noEmit -p apps/terminal/tsconfig.json && vite build --config apps/terminal/vite.config.ts",
+    "test:e2e": "python3 tests/ssh_e2e.py pnpm exec playwright test --config apps/terminal/playwright.config.ts",
+    "desktop": "node scripts/desktop.mjs dev",
+    "desktop:build": "node scripts/desktop.mjs build",
+    "desktop:check": "node scripts/desktop.mjs check",
+    "format": "prettier --write \"apps/terminal/**/*.{ts,tsx,css,json}\" scripts/desktop.mjs && git ls-files \"*.cpp\" \"*.hpp\" \"*.h\" | xargs clang-format -i",
+    "format:check": "prettier --check \"apps/terminal/**/*.{ts,tsx,css,json}\" scripts/desktop.mjs",
+    "lint": "eslint \"apps/terminal/**/*.{ts,tsx}\" --max-warnings 0"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "prettier": "^3.9.6"
+    "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.51.0",
+    "@tauri-apps/cli": "^2.0.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "ajv": "^8.20.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.9",
+    "ts-json-schema-generator": "^2.9.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.70.1",
+    "vite": "^6.0.0"
   }
 }

@@ -1,5 +1,0 @@
-/* Keep a real row viewport below the fixed header when metadata fills the pane. */
-.panel-scroll.catalog-preview {
-  min-height: calc(var(--row-height) * 4);
-  scroll-padding-top: var(--row-height);
-}

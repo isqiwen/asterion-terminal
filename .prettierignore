@@ -1,1 +1,8 @@
-apps/terminal/src/api/schema.d.ts
+build/
+dist/
+node_modules/
+apps/terminal/src-tauri/
+apps/terminal/test-results/
+test-results/
+pnpm-lock.yaml
+*.md

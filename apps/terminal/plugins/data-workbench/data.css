@@ -1,0 +1,71 @@
+.futures-data > .source-actions {
+  padding: 0 16px 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.futures-data > .source-actions small {
+  color: var(--muted);
+}
+.data-publications {
+  margin: 8px 16px 20px;
+  border-top: 1px solid var(--border);
+}
+.publication-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(70px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.publication-row details {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+.publication-row code,
+.futures-data .futures-help code {
+  overflow-wrap: anywhere;
+}
+
+.data-import > summary {
+  margin: 12px 16px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.publication-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.publication-name small {
+  color: var(--muted);
+}
+
+.calendar-table {
+  overflow-x: auto;
+  margin: 12px 0;
+}
+.calendar-table table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.calendar-table th,
+.calendar-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.calendar-table th {
+  color: var(--muted);
+  font-weight: normal;
+}
+.calendar-table details {
+  margin-top: 6px;
+  color: var(--muted);
+}
+.data-publications > section code {
+  overflow-wrap: anywhere;
+}

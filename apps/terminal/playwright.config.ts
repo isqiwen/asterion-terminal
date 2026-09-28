@@ -1,14 +1,27 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
-  testDir: "e2e",
+  testDir: "./e2e",
+  outputDir: "./test-results",
+  fullyParallel: false,
+  workers: 1,
   use: {
-    channel: process.env.PLAYWRIGHT_CHANNEL,
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: "http://127.0.0.1:1420",
+          localStorage: [{ name: "asterion.setup.completed.v1", value: "1" }],
+        },
+      ],
+    },
     baseURL: "http://127.0.0.1:1420",
-    viewport: { width: 1440, height: 1000 },
+    viewport: { width: 1440, height: 900 },
+    trace: "retain-on-failure",
   },
   webServer: {
-    command: "pnpm dev",
+    command: "pnpm --dir ../.. dev",
     url: "http://127.0.0.1:1420",
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
+    timeout: 30000,
   },
 });

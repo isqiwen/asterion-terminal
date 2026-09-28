@@ -1,0 +1,6 @@
+# One byte representation on every platform: Conan recipe revisions and the
+# embedded Linux initializer are content hashes, so CRLF checkouts break them.
+* text=auto eol=lf
+*.png binary
+*.icns binary
+*.ico binary

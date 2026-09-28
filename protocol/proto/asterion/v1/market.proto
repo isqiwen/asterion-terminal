@@ -1,0 +1,40 @@
+syntax = "proto3";
+package asterion.market.v1;
+message Empty {}
+message Instrument { string venue = 1; string symbol = 2; }
+// Password exists only in an authenticated request and service memory, never a snapshot.
+message Connect { string front = 1; string broker = 2; string user = 3; string password = 4; repeated Instrument instruments = 5; }
+message Subscribe { repeated Instrument instruments = 1; }
+message Watch {}
+// Initial read: empty stream_id and after_sequence=0. Subsequent reads must
+// retain stream identity; this bounded volatile stream is not a durable archive.
+message ReadEvents { string stream_id = 1; uint64 after_sequence = 2; uint32 limit = 3; }
+message Request { uint32 version = 1; string service_id = 2; string correlation_id = 3; oneof operation { Connect connect = 10; Subscribe subscribe = 11; Empty disconnect = 12; Empty snapshot = 13; Watch watch = 14; Empty heartbeat = 15; ReadEvents events = 16; } }
+message Quote {
+  Instrument instrument = 1;
+  optional string last = 2; optional string bid = 3; optional string ask = 4;
+  int64 bid_quantity = 5; int64 ask_quantity = 6; int64 volume = 7;
+  optional string previous_settlement = 8; optional string high = 9; optional string low = 10; optional string open_interest = 11;
+  string action_day = 12; string trading_day = 13; string update_time = 14;
+  int64 source_ms = 15; int64 received_ms = 16;
+}
+message Subscription { Instrument instrument = 1; string state = 2; int32 error_code = 3; Quote quote = 4; }
+message Snapshot { string instance_id = 1; string phase = 2; int32 error_code = 3; uint64 sequence = 4; uint64 out_of_order = 5; repeated Subscription subscriptions = 6; }
+message Health { string instance_id = 1; string phase = 2; }
+message Error { string code = 1; string message = 2; }
+message Response { uint32 version = 1; string service_id = 2; string correlation_id = 3; oneof result { Snapshot snapshot = 10; Health health = 11; Error error = 12; EventBatch events = 13; } }
+
+message QuoteObservation { Quote quote = 1; bool out_of_order = 2; }
+message Event {
+  uint64 sequence = 1;
+  int64 received_ms = 2;
+  oneof observation { Snapshot status = 10; QuoteObservation quote = 11; }
+}
+message EventBatch {
+  string stream_id = 1;
+  uint64 oldest_sequence = 2;
+  uint64 latest_sequence = 3;
+  bool gap = 4;
+  bool failed = 5;
+  repeated Event events = 6;
+}
