@@ -115,22 +115,27 @@ std::vector<GeneratedDay> generate(const SessionTemplate& session,
   if (trading_days.empty() || trading_days.size() > 64)
     throw std::invalid_argument("between 1 and 64 trading days are required");
   std::vector<GeneratedDay> result;
-  std::optional<sys_days> prior = previous ? std::optional(parse_day(*previous)) : std::nullopt;
+  // A plain flag and value, not std::optional<sys_days>: GCC 13 reports a
+  // false maybe-uninitialized warning for the optional at -O2.
+  bool anchored = previous.has_value();
+  sys_days prior{};
+  if (anchored)
+    prior = parse_day(*previous);
   for (const auto& label : trading_days) {
     const auto date = parse_day(label);
     if (weekend(date))
       throw std::invalid_argument("trading day falls on a weekend: " + label);
-    if (prior && *prior >= date)
+    if (anchored && prior >= date)
       throw std::invalid_argument("trading days must be strictly increasing");
     GeneratedDay day{label, {}, false};
-    if (session.night && prior) {
+    if (session.night && anchored) {
       bool only_weekends = true;
-      for (auto between = *prior + days{1}; between < date; between += days{1})
+      for (auto between = prior + days{1}; between < date; between += days{1})
         only_weekends = only_weekends && weekend(between);
       if (only_weekends) {
         const auto& night = *session.night;
-        const auto end_date = night.end_minute <= night.begin_minute ? *prior + days{1} : *prior;
-        day.sessions.push_back({utc_ns(*prior, night.begin_minute, session.utc_offset_minutes),
+        const auto end_date = night.end_minute <= night.begin_minute ? prior + days{1} : prior;
+        day.sessions.push_back({utc_ns(prior, night.begin_minute, session.utc_offset_minutes),
                                 utc_ns(end_date, night.end_minute, session.utc_offset_minutes)});
         day.night = true;
       }
@@ -142,6 +147,7 @@ std::vector<GeneratedDay> generate(const SessionTemplate& session,
     static_cast<void>(TradingDaySchedule(label, day.sessions));
     result.push_back(std::move(day));
     prior = date;
+    anchored = true;
   }
   return result;
 }
