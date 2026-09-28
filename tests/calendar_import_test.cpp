@@ -1,4 +1,5 @@
 #include "calendar.hpp"
+#include "calendar_generate.hpp"
 #include "csv_settlement_calendar.hpp"
 #include "engine.hpp"
 #include "task_store.hpp"
@@ -329,4 +330,32 @@ TEST(CalendarTasks, RestartInterruptsClaimAndRequiresNewAttempt) {
   EXPECT_NE(token, next);
   restored.finish("interrupted", next, data_pipeline::import_calendar_snapshot(input));
   EXPECT_EQ(restored.get("interrupted").attempt(), 2U);
+}
+TEST(CalendarGenerate, TemplateSessionsImportThroughTheCsvPlugin) {
+  std::ifstream file(std::string(ASTERION_SOURCE_DIR) + "/config/futures-sessions.json");
+  const auto catalog = sessions::SessionCatalog::parse(Json::parse(file));
+  const std::string input = "trading_day,settlement_price,settlement_source\r\n"
+                            "2026-09-28,3105,\"交易所\"\"结算\"\"公告\"\r\n"
+                            "2026-09-29,3110,\"交易所,公告\"\r\n";
+  const auto csv = data_pipeline::generate_calendar_csv(catalog, "SHFE", "rb", input, "2026-09-25");
+  EXPECT_NE(csv.find("2026-09-28,2026-09-25T21:00:00+08:00,2026-09-25T23:00:00+08:00,3105,"),
+            std::string::npos);
+  CsvSettlementCalendar provider(instrument(), csv);
+  provider.start();
+  const auto days = provider.read();
+  ASSERT_EQ(days.size(), 2U);
+  EXPECT_EQ(days[0].schedule.sessions().size(), 4U);
+  EXPECT_EQ(days[0].settlement_source, "交易所\"结算\"公告");
+  EXPECT_EQ(days[1].settlement_source, "交易所,公告");
+  EXPECT_EQ(days[1].settlement_price, d("3110"));
+  EXPECT_NE(days[1].schedule_source.find("template SHFE/rb"), std::string::npos);
+  EXPECT_THROW(data_pipeline::generate_calendar_csv(catalog, "SHFE", "rb", "day,price\n"),
+               std::invalid_argument);
+  EXPECT_THROW(data_pipeline::generate_calendar_csv(
+                   catalog, "SHFE", "rb", "trading_day,settlement_price,settlement_source\n"),
+               std::invalid_argument);
+  EXPECT_THROW(
+      data_pipeline::generate_calendar_csv(
+          catalog, "SHFE", "rb", "trading_day,settlement_price,settlement_source\n2026-09-28,1\n"),
+      std::invalid_argument);
 }

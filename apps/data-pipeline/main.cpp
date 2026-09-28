@@ -1,5 +1,7 @@
 #include "pipeline.hpp"
 #include "calendar.hpp"
+#include "calendar_generate.hpp"
+#include <asterion/kernel/durable_file.hpp>
 #include <CLI/CLI.hpp>
 #include <asterion/kernel/process/owner.hpp>
 #include <asterion/protocol/task_client.hpp>
@@ -30,8 +32,55 @@ int main(int argc, char** argv) {
   app.add_option("--directory", output_directory, "Dedicated existing publication directory")
       ->check(CLI::ExistingDirectory);
   app.add_flag("--inspect", inspect, "Verify and summarize an existing publication");
+  std::string sessions_file, venue, product, settlements_file, previous_day, generated_file;
+  auto* generate = app.add_subcommand(
+      "calendar-generate",
+      "Render a settlement calendar CSV from trading days, settlement prices and a session "
+      "template");
+  generate->add_option("--sessions", sessions_file, "Session templates (futures-sessions.json)")
+      ->required()
+      ->check(CLI::ExistingFile);
+  generate->add_option("--venue", venue)->required();
+  generate->add_option("--product", product)->required();
+  generate
+      ->add_option("--settlements", settlements_file,
+                   "CSV: trading_day,settlement_price,settlement_source")
+      ->required()
+      ->check(CLI::ExistingFile);
+  generate->add_option("--previous-trading-day", previous_day,
+                       "Trading day before the first row; decides its night session");
+  generate->add_option("--output", generated_file, "New calendar CSV; must not exist")->required();
   argv = app.ensure_utf8(argv);
   CLI11_PARSE(app, argc, argv);
+  const auto path_of = [](const std::string& text) {
+    return std::filesystem::path(std::u8string(text.begin(), text.end()));
+  };
+  const auto read_small = [&](const std::string& text) {
+    const auto path = path_of(text);
+    if (std::filesystem::is_symlink(path) || !std::filesystem::is_regular_file(path) ||
+        std::filesystem::file_size(path) > 1024 * 1024)
+      throw std::invalid_argument("input must be a regular file of at most 1 MiB: " + text);
+    std::ifstream file(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(file), {});
+  };
+  if (*generate) {
+    try {
+      const auto output = path_of(generated_file);
+      if (std::filesystem::exists(std::filesystem::symlink_status(output)))
+        throw std::invalid_argument("output already exists: " + generated_file);
+      const auto catalog = asterion::sessions::SessionCatalog::parse(
+          asterion::Json::parse(read_small(sessions_file)));
+      const auto csv = asterion::data_pipeline::generate_calendar_csv(
+          catalog, venue, product, read_small(settlements_file),
+          previous_day.empty() ? std::nullopt : std::optional<std::string>(previous_day));
+      asterion::write_file_durably(output, csv, false);
+      std::cout << asterion::Json{{"output", generated_file}, {"bytes", csv.size()}}.dump() << '\n';
+      return 0;
+    } catch (const std::exception& error) {
+      std::cerr << "Calendar generation failed: " << error.what() << '\n';
+      return 1;
+    }
+  }
   if (argc == 1) {
     std::cerr << "asterion-data-pipeline: supply --input and --directory, or "
                  "--inspect and --directory.\n";

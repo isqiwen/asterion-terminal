@@ -160,6 +160,27 @@ TEST(DataPipeline, IndependentProgramPublishesAndInspectsWithoutOriginalInput) {
   EXPECT_EQ(data_pipeline::read(output).id(), id);
 }
 
+TEST(DataPipeline, CalendarGenerateWritesANewFileOnly) {
+  Directory root;
+  const auto settlements = root.path / "settlements.csv", output = root.path / "calendar.csv";
+  write(settlements, "trading_day,settlement_price,settlement_source\n2026-09-28,3105,notice\n");
+  auto execute = [&] {
+    ChildProcess process(ASTERION_PIPELINE_PATH,
+                         {"calendar-generate", "--sessions",
+                          std::string(ASTERION_SOURCE_DIR) + "/config/futures-sessions.json",
+                          "--venue", "CFFEX", "--product", "IF", "--settlements",
+                          settlements.string(), "--output", output.string()});
+    EXPECT_TRUE(process.wait(std::chrono::seconds(10)));
+    return process.exit_code();
+  };
+  EXPECT_EQ(execute(), 0);
+  std::ifstream generated(output, std::ios::binary);
+  const std::string text(std::istreambuf_iterator<char>(generated), {});
+  EXPECT_NE(text.find("2026-09-28,2026-09-28T09:30:00+08:00,2026-09-28T11:30:00+08:00,3105,"),
+            std::string::npos);
+  EXPECT_NE(execute(), 0) << "an existing output is never overwritten";
+}
+
 namespace wire = asterion::research::v1;
 using namespace std::chrono_literals;
 class DataTasks : public ::testing::Test {

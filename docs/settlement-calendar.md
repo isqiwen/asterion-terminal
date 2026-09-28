@@ -47,6 +47,20 @@ asterion-data-pipeline --settlement-calendar --inspect --directory /absolute/pub
 
 import.pb 是版本 1 的 data.v1.CsvImport，包含完整期货合约、本机源文件绝对路径和预期 SHA-256。捕获前后核对输入摘要，拒绝符号链接、超限或变动源文件。目录必须预先存在；检查时不需要原文件或输入规格。Agent 工作模式使用 `--settlement-calendar` 选择 CALENDAR_IMPORT 类型，领取任务后读取持久化的原始快照；不接受命令行文件路径或发布目录混入工作模式。
 
+## 由交易时段模板生成
+
+手工写每个时段容易出错。`config/futures-sessions.json` 按交易所/品种记录日盘与夜盘模板（北京时间），来源为期货公司汇编的《交易规则——各交易所交易时段汇总（2024年8月）》，2026-09-28 复核；交易所公告优先，交易时间调整后需更新该文件。
+
+```sh
+asterion-data-pipeline calendar-generate --sessions config/futures-sessions.json \
+  --venue SHFE --product rb --settlements settlements.csv \
+  --previous-trading-day 2026-09-25 --output calendar.csv
+```
+
+settlements.csv 表头为 `trading_day,settlement_price,settlement_source`，交易日严格递增、不得为周末。交易日列表和结算价由使用者依据交易所公告提供，工具不推断节假日。夜盘规则：交易日 D 的夜盘在上一交易日 P 的晚上进行，且仅当 P 与 D 之间只隔周六、周日；因此法定长假前最后一个交易日晚上没有夜盘。跨零点的夜盘结束于下一自然日（如周五夜盘结束于周六凌晨）。第一行的夜盘需要 `--previous-trading-day` 才能判定，未提供时不生成。
+
+schedule_source 写为 `template <交易所>/<品种>: <来源, 复核日期>`。输出文件已存在时拒绝，不覆盖；生成的 CSV 仍需通过上面的导入流程校验和发布。临时停夜盘、交易所调整时段等例外不在模板中，需要手工修改生成结果。
+
 ## 后续产品接入
 
 结算表已作为 CALENDAR_IMPORT 持久化任务进入 Task Service，由现有 Data Pipeline 程序执行；Agent 按任务类型派发。Terminal 使用当前历史数据的完整合约捕获最多 1 MiB 的本机 CSV 快照，提交后源文件删除不影响执行和恢复。Task Service 根据原始快照重新解析核对工作结果，拒绝不匹配来源；重试必须取得新执行令牌。Terminal 的“日程来源”可选择已完成发布任务。后端读取 Task Service 的结果，绑定完整发布物并严格比较合约与全部 days；发布身份、内容版本和来源保存在实验中，重启不需要原 CSV。选择发布日程时不允许同时传入手工 days；切换回手工日程解除关联，恢复此前手工表单，不自动复制/修改发布物。哈希证明内容一致，不证明外部来源权威性。旧 BacktestInput 版本 1–4 明确拒绝，既有文件不迁移、不删除。
