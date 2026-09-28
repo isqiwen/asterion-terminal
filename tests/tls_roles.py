@@ -126,9 +126,11 @@ with tempfile.TemporaryDirectory(prefix="ast-roles-", ignore_cleanup_errors=True
         assert reply and 12 in reply, reply
         error = decode(reply[12])
         assert error.get(2) == b"permission_denied", error
-        # The administrator certificate reaches the upload validation itself.
+        # The administrator certificate is authorized: the upload is accepted
+        # (matching platform) or fails its own validation, never on the role.
         reply = exchange(agent_port, root, "client", upload)
-        assert reply and 12 in reply and decode(reply[12]).get(2) != b"permission_denied", reply
+        assert reply and (11 in reply or (12 in reply and
+                                          decode(reply[12]).get(2) != b"permission_denied")), reply
         # No role: authenticated by the CA but authorized for nothing.
         assert exchange(agent_port, root, "unroled", status) is None
         # Trading service: heartbeat for a client certificate, nothing for none.
