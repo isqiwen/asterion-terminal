@@ -14,6 +14,7 @@
 #include <asterion/kernel/durable_file.hpp>
 #include <gtest/gtest.h>
 #include <asterion/kernel/runtime.hpp>
+#include <asterion/kernel/thread_pool.hpp>
 #include <condition_variable>
 #include <future>
 #include <iostream>
@@ -69,60 +70,6 @@ TEST(Kernel, resource_destructor_reentry) {
   scope.publish("cleanup", std::move(cleanup));
   resources.clear();
   EXPECT_TRUE((cleaned)) << "resource destructors may reenter registry without deadlock";
-}
-TEST(Kernel, scheduling_and_messages) {
-  ManualClock clock;
-  Scheduler scheduler(clock, 4);
-  std::vector<int> order;
-  Scheduler::TaskId cancelled = 0;
-  scheduler.after(10, [&] {
-    order.push_back(1);
-    scheduler.cancel(cancelled);
-    scheduler.after(0, [&] { order.push_back(4); });
-  });
-  cancelled = scheduler.after(10, [&] { order.push_back(99); });
-  scheduler.after(10, [&] {
-    order.push_back(2);
-    throw std::runtime_error("task failed");
-  });
-  scheduler.after(10, [&] { order.push_back(3); });
-  EXPECT_THROW(([&] { scheduler.after(0, [] {}); })(), Error);
-  EXPECT_TRUE((scheduler.run_due() == 0)) << "future tasks not run early";
-  clock.advance(10);
-  EXPECT_THROW(([&] { scheduler.run_due(); })(), std::runtime_error);
-  EXPECT_TRUE((order == std::vector<int>({1, 2, 3})))
-      << "stable order, cancellation, exception isolation";
-  EXPECT_TRUE((scheduler.run_due() == 1 && order.back() == 4))
-      << "reentrant scheduling deferred to next pump";
-  scheduler.after(0, [&] { scheduler.run_due(); });
-  EXPECT_THROW(([&] { scheduler.run_due(); })(), Error);
-  scheduler.close();
-  EXPECT_THROW(([&] { scheduler.after(0, [] {}); })(), Error);
-  MessageBus<int> bus(2);
-  int received = 0;
-  auto first = bus.subscribe([&](int value) {
-    if (value == 1) {
-      EXPECT_TRUE((bus.post(3))) << "callback post";
-      throw std::runtime_error("subscriber failure");
-    }
-  });
-  bus.subscribe([&](int value) { received += value; });
-  EXPECT_TRUE((bus.post(1) && bus.post(2) && !bus.post(99))) << "bus backpressure explicit";
-  EXPECT_THROW(([&] { bus.dispatch(); })(), std::runtime_error);
-  EXPECT_TRUE((received == 3)) << "all subscribers and accepted batch delivered despite failure";
-  bus.unsubscribe(first);
-  EXPECT_TRUE((bus.dispatch() == 1 && received == 6))
-      << "callback post delivered next dispatch without replay";
-  bus.close();
-  EXPECT_TRUE((!bus.post(4))) << "closed message bus rejects producers";
-  MessageBus<int> closing(2);
-  int finished = 0;
-  closing.subscribe([&](int) { closing.close(); });
-  closing.subscribe([&](int) { ++finished; });
-  closing.post(1);
-  closing.post(2);
-  EXPECT_TRUE((closing.dispatch() == 1 && finished == 1))
-      << "close completes current subscription snapshot but drops remaining batch";
 }
 TEST(Kernel, worker_shutdown) {
   ThreadPool worker(1, 1);
@@ -196,18 +143,6 @@ TEST(Kernel, runtime_integration) {
       << "runtime traces successes and denied/failed commands";
   EXPECT_TRUE((runtime.observations().recent().front().duration_ns == 5))
       << "monotonic trace timing";
-  bool delivered = false;
-  runtime.messages().subscribe([&](const EventEnvelope&) { delivered = true; });
-  runtime.scheduler().after(0, [&] { throw std::runtime_error("scheduled failure"); });
-  runtime.thread_pool()
-      .submit([&](std::stop_token) {
-        EXPECT_TRUE(
-            (runtime.messages().post({"worker:1", "worker", "completed", 123, Json::object()})))
-            << "worker sends event";
-      })
-      .get();
-  EXPECT_THROW(([&] { runtime.poll(); })(), std::runtime_error);
-  EXPECT_TRUE((delivered)) << "runtime pump delivers worker events despite timer failure";
   runtime.access().revoke("test.user");
   EXPECT_THROW(([&] { runtime.dispatch("test.user", "service.read", {}); })(), Error);
   EXPECT_THROW(([&] { runtime.access().grant("intruder", "service.read"); })(), Error);

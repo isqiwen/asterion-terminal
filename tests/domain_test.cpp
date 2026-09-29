@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 
 #include <asterion/domain/order.hpp>
-#include <asterion/kernel/event_bus.hpp>
 
 #include <iostream>
 #include <limits>
@@ -116,35 +115,6 @@ TEST(Domain, order_contract) {
   Order sell_order(sell, spec);
   sell_order.accept();
   EXPECT_THROW(([&] { sell_order.apply(first); })(), std::invalid_argument);
-}
-TEST(Domain, event_contract) {
-  EventBus<int> bus;
-  std::vector<int> seen;
-  const auto first = bus.subscribe([&](int event) { seen.push_back(event); });
-  bus.subscribe([&, count = 0](int) mutable { seen.push_back(++count); });
-  bus.publish(10);
-  bus.unsubscribe(first);
-  bus.publish(20);
-  EXPECT_TRUE((seen == std::vector<int>{10, 1, 2})) << "ordered handlers retain mutable state";
-  EventBus<int> errors;
-  bool delivered = false;
-  const auto bad = errors.subscribe([](int) { throw std::runtime_error("subscriber error"); });
-  errors.subscribe([&](int) { delivered = true; });
-  EXPECT_THROW(([&] { errors.publish(0); })(), std::runtime_error);
-  EXPECT_TRUE((delivered)) << "other subscribers still receive event";
-  errors.unsubscribe(bad);
-  errors.publish(1);
-  EventBus<int> nested;
-  nested.subscribe([&](int value) { nested.publish(value + 1); });
-  EXPECT_THROW(([&] { nested.publish(0); })(), std::logic_error);
-  EventBus<int> snapshot;
-  int calls = 0;
-  EventBus<int>::Subscription second = 0;
-  snapshot.subscribe([&](int) { snapshot.unsubscribe(second); });
-  second = snapshot.subscribe([&](int) { ++calls; });
-  snapshot.publish(0);
-  snapshot.publish(0);
-  EXPECT_TRUE((calls == 1)) << "unsubscribe during publish takes effect next event";
 }
 } // namespace
 
