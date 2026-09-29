@@ -1,4 +1,5 @@
 #include <asterion/domain/trading_schedule.hpp>
+#include <asterion/domain/daily_bars.hpp>
 #include <asterion/foundation/decimal.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
@@ -140,25 +141,38 @@ Json decode_task(const research::v1::Task& task) {
     throw std::invalid_argument("invalid task state");
   }
   if (task.kind() != research::v1::BACKTEST && task.kind() != research::v1::FACTOR &&
-      task.kind() != research::v1::DATA_IMPORT && task.kind() != research::v1::CALENDAR_IMPORT)
+      task.kind() != research::v1::DAILY_FACTOR && task.kind() != research::v1::DATA_IMPORT &&
+      task.kind() != research::v1::CALENDAR_IMPORT &&
+      task.kind() != research::v1::MINUTE_DOWNLOAD && task.kind() != research::v1::DAILY_DOWNLOAD)
     throw std::invalid_argument("invalid task kind");
-  return {{"kind", task.kind() == research::v1::CALENDAR_IMPORT ? "calendar_import"
-                   : task.kind() == research::v1::DATA_IMPORT   ? "data_import"
-                   : task.kind() == research::v1::FACTOR        ? "factor"
-                                                                : "backtest"},
-          {"id", task.id()},
-          {"state", state},
-          {"attempt", task.attempt()},
-          {"completed", task.completed()},
-          {"total", task.total()},
-          {"error", task.error()},
-          {"result_digest", task.result_digest()},
-          {"trading_day", task.trading_day()},
-          {"instrument", task.instrument()},
-          {"source_name", task.source_name()},
-          {"submission_sequence", task.submission_sequence()},
-          {"submitted_at_ms", task.submitted_at_ms()},
-          {"updated_at_ms", task.updated_at_ms()}};
+  Json output = {{"kind", task.kind() == research::v1::DAILY_FACTOR      ? "daily_factor"
+                          : task.kind() == research::v1::DAILY_DOWNLOAD  ? "daily_download"
+                          : task.kind() == research::v1::MINUTE_DOWNLOAD ? "minute_download"
+                          : task.kind() == research::v1::CALENDAR_IMPORT ? "calendar_import"
+                          : task.kind() == research::v1::DATA_IMPORT     ? "data_import"
+                          : task.kind() == research::v1::FACTOR          ? "factor"
+                                                                         : "backtest"},
+                 {"id", task.id()},
+                 {"state", state},
+                 {"attempt", task.attempt()},
+                 {"completed", task.completed()},
+                 {"total", task.total()},
+                 {"error", task.error()},
+                 {"result_digest", task.result_digest()},
+                 {"trading_day", task.trading_day()},
+                 {"instrument", task.instrument()},
+                 {"source_name", task.source_name()},
+                 {"submission_sequence", task.submission_sequence()},
+                 {"submitted_at_ms", task.submitted_at_ms()},
+                 {"updated_at_ms", task.updated_at_ms()}};
+  if (task.kind() == research::v1::MINUTE_DOWNLOAD) {
+    const auto interval =
+        task.has_minutes() ? task.minutes().interval_minutes() : task.minute_interval_minutes();
+    if (interval != 1 && interval != 5 && interval != 15 && interval != 30 && interval != 60)
+      throw std::invalid_argument("invalid minute dataset page response");
+    output["minute_interval_minutes"] = interval;
+  }
+  return output;
 }
 
 Json decode_task_result(const research::v1::TaskResponse& response, const std::string& id) {
@@ -181,7 +195,47 @@ Json decode_task_result(const research::v1::TaskResponse& response, const std::s
     return Json{
         {"count", ticks.size()}, {"first_timestamp_ns", first}, {"last_timestamp_ns", last}};
   };
-  if (task.kind() == research::v1::BACKTEST && task.has_input() && response.has_backtest()) {
+  if (task.kind() == research::v1::DAILY_FACTOR && task.has_daily_factor() &&
+      response.has_daily_factor()) {
+    const auto decoded = decode_daily_factor(task.daily_factor(), response.daily_factor());
+    envelope["experiment"] = decoded.at("experiment");
+    envelope["result"] = decoded.at("result");
+  } else if (task.kind() == research::v1::DAILY_DOWNLOAD && task.has_daily() &&
+             response.has_daily()) {
+    const auto& result = response.daily();
+    const auto& input = task.daily();
+    const auto begin = parse_trading_date(input.begin_day());
+    const auto end = parse_trading_date(input.end_day());
+    const auto span = (std::chrono::sys_days(end) - std::chrono::sys_days(begin)).count();
+    if (input.version() != 1 || input.ts_code().empty() || span < 0 || span > 20 * 366 ||
+        result.version() != 1 || result.manifest_sha256().size() != 64 ||
+        result.manifest_sha256().find_first_not_of("0123456789abcdef") != std::string::npos ||
+        result.directory().empty() || result.pages() != static_cast<unsigned>(span / 366 + 1) ||
+        result.rows() > static_cast<std::uint64_t>(span + 1))
+      throw std::invalid_argument("invalid daily download result");
+    envelope["result"] = {{"directory", result.directory()},
+                          {"manifest_sha256", result.manifest_sha256()},
+                          {"rows", result.rows()},
+                          {"pages", result.pages()}};
+    envelope["experiment"] = {{"ts_code", input.ts_code()},
+                              {"begin_day", input.begin_day()},
+                              {"end_day", input.end_day()}};
+  } else if (task.kind() == research::v1::MINUTE_DOWNLOAD && task.has_minutes() &&
+             response.has_minutes()) {
+    const auto& result = response.minutes();
+    const auto& input = task.minutes();
+    if (result.version() != 1 || result.manifest_sha256().size() != 64 ||
+        result.directory().empty())
+      throw std::invalid_argument("invalid minute download result");
+    envelope["result"] = {{"directory", result.directory()},
+                          {"manifest_sha256", result.manifest_sha256()},
+                          {"rows", result.rows()},
+                          {"pages", result.pages()}};
+    envelope["experiment"] = {{"ts_code", input.ts_code()},
+                              {"interval_minutes", input.interval_minutes()},
+                              {"begin_ns", std::to_string(input.begin_ns())},
+                              {"end_ns", std::to_string(input.end_ns())}};
+  } else if (task.kind() == research::v1::BACKTEST && task.has_input() && response.has_backtest()) {
     auto experiment = decode_backtest(task.input());
     if (response.backtest().dataset_revision() != task.input().dataset_revision())
       throw std::invalid_argument("backtest result does not belong to input data");

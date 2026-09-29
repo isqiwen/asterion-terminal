@@ -408,6 +408,52 @@ TEST(StrategyTrading, GrantIdentitiesCannotBeReusedAndCommandsRoundTrip) {
   EXPECT_THROW(protocol::decode_command(malformed), std::invalid_argument);
 }
 
+TEST(StrategyTrading, FailedCommitRestoresAllAuthorizationHistoryAndCommittedLedger) {
+  for (const auto& action : {"advance", "strategy_target", "strategy_revoke"}) {
+    SCOPED_TRACE(action);
+    Directory dir;
+    auto g = grant(manifest());
+    Json committed;
+    {
+      PaperSession session(dir.path, manifest());
+      session.execute(g);
+      session.execute({{"request_id", "revoke.first"},
+                       {"action", "strategy_revoke"},
+                       {"grant_id", g.at("grant_id")}});
+      g["grant_id"] = "grant.two";
+      g["request_id"] = "grant.second";
+      session.execute(g);
+      if (std::string_view(action) != "advance")
+        session.execute(advance("first.tick"));
+      if (std::string_view(action) == "strategy_revoke")
+        session.execute(target(g, "working.order", 1, "1"));
+      committed = session.snapshot();
+      Json command = advance("failed.command");
+      if (std::string_view(action) == "strategy_target")
+        command = target(g, "failed.command", 1, "1");
+      else if (std::string_view(action) == "strategy_revoke")
+        command = {
+            {"request_id", "failed.command"}, {"action", action}, {"grant_id", g.at("grant_id")}};
+      std::filesystem::create_directory(dir.path / "pending.tmp");
+      EXPECT_THROW(session.execute(command), std::runtime_error);
+      auto shown = session.snapshot();
+      EXPECT_EQ(shown.at("storage_state"), "recovery_required");
+      shown["storage_state"] = "ready";
+      EXPECT_EQ(shown, committed);
+      EXPECT_THROW(session.execute(command), std::runtime_error);
+      std::filesystem::remove(dir.path / "pending.tmp");
+    }
+    PaperSession recovered(dir.path);
+    EXPECT_EQ(recovered.snapshot(), committed);
+    recovered.execute({{"request_id", "revoke.second"},
+                       {"action", "strategy_revoke"},
+                       {"grant_id", g.at("grant_id")}});
+    auto reused = grant(manifest());
+    reused["request_id"] = "reused.first";
+    EXPECT_THROW(recovered.execute(reused), std::invalid_argument);
+  }
+}
+
 TEST(PaperExecution, FailedTargetReplacementKeepsExistingOrdersAndReserves) {
   PaperExecution engine(
       instrument(), d("200"), costs(),

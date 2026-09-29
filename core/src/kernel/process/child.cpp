@@ -134,8 +134,20 @@ ChildProcess::ChildProcess(const std::filesystem::path& executable,
   posix_spawn_file_actions_init(&actions);
   posix_spawnattr_t attrs;
   posix_spawnattr_init(&attrs);
+  // Never inherit the desktop host's IPC/debug pipes or unrelated sockets.
+  // Explicit file actions below still supply the child's standard streams.
+#ifdef __APPLE__
+  short flags = POSIX_SPAWN_CLOEXEC_DEFAULT;
+#else
+  short flags = 0;
+  if (posix_spawn_file_actions_addclosefrom_np(&actions, 3)) {
+    posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attrs);
+    throw Error(ErrorCode::unavailable, "cannot isolate child process descriptors");
+  }
+#endif
   if (independent) {
-    posix_spawnattr_setflags(&attrs, POSIX_SPAWN_SETPGROUP);
+    flags |= POSIX_SPAWN_SETPGROUP;
     posix_spawnattr_setpgroup(&attrs, 0);
     for (int descriptor = 0; descriptor < 3; ++descriptor)
       posix_spawn_file_actions_addopen(&actions, descriptor, "/dev/null",
@@ -156,6 +168,11 @@ ChildProcess::ChildProcess(const std::filesystem::path& executable,
       posix_spawnattr_destroy(&attrs);
       throw Error(ErrorCode::unavailable, "cannot prepare process output");
     }
+  }
+  if (posix_spawnattr_setflags(&attrs, flags)) {
+    posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attrs);
+    throw Error(ErrorCode::unavailable, "cannot isolate child process descriptors");
   }
   const int error =
       ::posix_spawn(&impl_->pid, executable.c_str(), &actions, &attrs, argv.data(), environ);

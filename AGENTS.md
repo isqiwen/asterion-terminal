@@ -15,41 +15,45 @@
 - 接口按具体用例建立，不为图中每个方框生成空实现，不把接口存在等同于功能完成。
 - C++ 使用 C++20、RAII、明确所有权；金额不得使用二进制浮点作为权威账本值。异常不得跨语言或动态库 ABI 边界。
 - Conan 管理 C++ 第三方依赖，CMake 管理 target 和依赖关系，单元测试使用 GoogleTest，CTest 发现并执行测试；日志使用 spdlog，C++ 产品/开发命令行入口使用 CLI11，统一由 Conan 管理依赖。禁止隐式下载依赖和全局 include/link 路径。
-- 原 React / TypeScript 界面样式与交互沿用，业务调用直接更新为新契约。保留 Tauri 桌面外壳；Rust 只负责窗口、本机启动和薄桥接，核心全部使用 C++。
+- React / TypeScript 界面采用维护者于 2026-09-28 批准的极简、精密、未来控制台风格，规范见 `docs/ui-design.md`；保留业务契约、快捷键和独立设置窗口的状态关系。桌面宿主使用 Electron，主进程通过异步 Node-API 薄桥调用 C++；不再保留 Tauri/Rust 桌面实现。渲染进程隔离、禁用 Node 集成，仅开放受限预加载接口，核心全部使用 C++。
 - 插件类型不是安全隔离。进程内原生插件只接受可信代码；未可信策略需要单独进程与能力限制。没有实现隔离前，不宣称沙箱安全。
 - 实盘执行必须经过授权、账户风控和统一执行链；缺少必要能力时拒绝执行。
 
 ## 工程归属
 
+- `apps/clients/` 放面向用户的客户端应用（当前仅 macOS Terminal）；`apps/services/` 放后台服务与按任务启动的工作程序。分类不改变独立进程、部署范围或 Core/插件边界，不创建尚无用例的 Web、Notebook、Mobile 空目录。各服务仍各自装配 Core 与插件，不建立重复业务层。
+
 - 运行时属于 Core 内核机制，不设并列的顶层 runtime。
-- 插件身份与复用范围是两个维度：跨应用插件位于 `plugins/`，Terminal 专属 UI 插件位于 `apps/terminal/plugins/`。不要因为是 UI 插件就默认共享。
-- Terminal 内置宿主（窗口、布局、导航容器、设置、桥接）与产品装配位于 `apps/terminal/src/`；插件贡献导航、页面和总览卡片。
-- `apps/terminal/src/ui/` 是 Terminal 内置主题与基础 UI 库，不强行插件化。只有出现明确跨应用复用需求后，才提取共享库，不设顶层 ui 目录。
-- Terminal 插件接口定义位于 `apps/terminal/plugins/contract.ts`，注册校验属于 `apps/terminal/src/host/plugin-registry.ts`，产品装配位于 `apps/terminal/src/plugins.ts`。当前不设顶层 sdk；待有明确使用者与稳定边界后再提取。共享目录不得反向依赖 apps。
-- 进程按生命周期和隔离边界组织：交易程序位于 `apps/trading/`，实盘/模拟是同一程序的不同会话实例，模式固定，账本/存储分离；缺少实盘能力时拒绝启动。实时行情宿主位于 `apps/market-data/`，通过 CTP 数据插件接入只读行情，历史回放不依赖它。
+- 插件身份与复用范围是两个维度：跨应用插件位于 `plugins/`，Terminal 专属 UI 插件位于 `apps/clients/terminal/plugins/`。不要因为是 UI 插件就默认共享。
+- Terminal 内置宿主（窗口、布局、导航容器、设置、桥接）与产品装配位于 `apps/clients/terminal/src/`；插件贡献导航、页面和总览卡片。
+- `apps/clients/terminal/src/ui/` 是 Terminal 内置主题与基础 UI 库，不强行插件化。只有出现明确跨应用复用需求后，才提取共享库，不设顶层 ui 目录。
+- Terminal 插件接口定义位于 `apps/clients/terminal/plugins/contract.ts`，注册校验属于 `apps/clients/terminal/src/host/plugin-registry.ts`，产品装配位于 `apps/clients/terminal/src/plugins.ts`。当前不设顶层 sdk；待有明确使用者与稳定边界后再提取。共享目录不得反向依赖 apps。
+- 进程按生命周期和隔离边界组织：交易程序位于 `apps/services/trading/`，实盘/模拟是同一程序的不同会话实例，模式固定，账本/存储分离；缺少实盘能力时拒绝启动。实时行情宿主位于 `apps/services/market-data/`，通过 CTP 数据插件接入只读行情，历史回放不依赖它。
 - 进程通信用 Protobuf 定义，schema 位于顶层 `protocol/proto/`，消息校验与表示转换也归 `protocol/`；`bindings/` 仅负责跨语言调用绑定；通用 IPC 和进程管理位于 `core/kernel` 对应头文件/源码目录，业务路由在应用中。本机 Unix Socket / Windows Named Pipe、跨机器 TCP + mTLS 的边界与当前限制见 `docs/process-architecture.md`。
-- 本机和远程统一由 Node Agent 管理服务；Terminal 不拥有交易子进程，关闭窗口/会话只断开连接。默认本机初始化时自动启动 Agent 和行情服务，模拟交易会话创建后自动启动并托管；已部署且设为运行的服务随 Agent 恢复。随桌面包提供 Agent 并注册当前用户的 OS 托管任务。远端仅通过 Terminal 的 SSH 引导安装 `apps/node-agent/` Node Agent：严格校验 SSH 主机身份、检测平台与安装权限、校验上传摘要、配置 mTLS 身份并注册系统服务。SSH 认证默认由 Terminal 本机生成并保存 Ed25519 密钥，界面只返回可复制的公钥，管理员在目标 Linux 初始化时授权；也允许本机临时粘贴已有未加密私钥。不使用 SSH Agent、用户输入的私钥路径或密码登录；私钥不进入连接配置、页面响应或远端。生成的私钥由 C++ 独立保存在本机受当前账户权限保护的密钥目录，相同机器名称复用，不静默覆盖或轮换。SSH 只执行受控安装/维护脚本，不提供任意远程命令入口；后续通过 Protobuf/mTLS 部署和管理服务，不保留手动安装产品入口。Agent 独立探测进程和业务健康并执行有限重启，Terminal 保活只负责连接，界面显示节点、进程与业务状态的区别，机制和限制见 `docs/service-management.md`。
+- 本机和远程统一由 Node Agent 管理服务；Terminal 不拥有交易子进程，关闭窗口/会话只断开连接。默认本机初始化时自动启动 Agent 和行情服务，模拟交易会话创建后自动启动并托管；已部署且设为运行的服务随 Agent 恢复。随桌面包提供 Agent 并注册当前用户的 OS 托管任务。远端仅通过 Terminal 的 SSH 引导安装 `apps/services/node-agent/` Node Agent：严格校验 SSH 主机身份、检测平台与安装权限、校验上传摘要、配置 mTLS 身份并注册系统服务。SSH 认证默认由 Terminal 本机生成并保存 Ed25519 密钥，界面只返回可复制的公钥，管理员在目标 Linux 初始化时授权；也允许本机临时粘贴已有未加密私钥。不使用 SSH Agent、用户输入的私钥路径或密码登录；私钥不进入连接配置、页面响应或远端。生成的私钥由 C++ 独立保存在本机受当前账户权限保护的密钥目录，相同机器名称复用，不静默覆盖或轮换。SSH 只执行受控安装/维护脚本，不提供任意远程命令入口；后续通过 Protobuf/mTLS 部署和管理服务，不保留手动安装产品入口。Agent 独立探测进程和业务健康并执行有限重启，Terminal 保活只负责连接，界面显示节点、进程与业务状态的区别，机制和限制见 `docs/service-management.md`。
 - Terminal 在设置中配置远程服务地址、会话与 TLS 身份文件；远程服务独立于 Terminal 存活，账本目录由服务端管理。本机与远程部署显式选择，不自动降级或重发交易命令。
-- `bindings/c/` 封装 C ABI，Terminal 专属 C++ 应用编排和交易进程客户端位于 `apps/terminal/native/`。不以 services、presentation、products 重复划分同一职责。
-- Terminal 浏览器开发与测试桥接入口位于 `apps/terminal/dev/core_bridge.cpp`，可执行程序名为 `asterion_terminal_dev_bridge`，不作为独立 API 应用；正式桌面使用 Tauri 薄桥调用 C++ 应用编排，再通过 Protobuf 访问独立交易进程，不保留进程内交易降级路径。
+- `bindings/c/` 封装 C ABI，Terminal 专属 C++ 应用编排和交易进程客户端位于 `apps/clients/terminal/native/`。不以 services、presentation、products 重复划分同一职责。
+- Terminal 浏览器开发与测试桥接入口位于 `apps/clients/terminal/dev/core_bridge.cpp`，可执行程序名为 `asterion_terminal_dev_bridge`，不作为独立 API 应用；正式桌面使用 Electron 与 Node-API 薄桥调用 C++ 应用编排，再通过 Protobuf 访问独立交易进程，不保留进程内交易降级路径。
 - 插件契约头文件位于 `core/include/asterion/kernel/plugin.hpp`；线程池位于 `kernel/thread_pool.hpp`，日志模块位于 `kernel/logger.hpp`。
 - 交易前风险契约与官方订单限额插件见 docs/pre-trade-risk.md。风险配置是模拟会话与回测的必填持久化输入，手工与策略委托统一在执行插件提交路径检查；缺失配置、插件不可用或拒绝均不得默认放行。
 - 历史模拟交易的账户语义、撮合假设、文件日志恢复和当前限制见 `docs/paper-trading.md`；模拟规则不能冒充交易所规则，实盘仍未开放。
 - Core 基础设施的线程所有权、取消、资源撤销和安全边界见 `docs/core-infrastructure.md`；内核只能提供通用机制，业务配置与命令由应用/插件注册。
-- 多语言属于 Terminal 宿主基础设施，位于 `apps/terminal/src/i18n/`；当前支持 zh-CN/en-US。宿主文案归宿主，各 UI 插件通过公开契约贡献独立命名空间的语言资源。Core 不依赖界面语言，错误码由 UI 本地化，原始诊断进入详情。
+- 多语言属于 Terminal 宿主基础设施，位于 `apps/clients/terminal/src/i18n/`；当前支持 zh-CN/en-US。宿主文案归宿主，各 UI 插件通过公开契约贡献独立命名空间的语言资源。Core 不依赖界面语言，错误码由 UI 本地化，原始诊断进入详情。
 - 当前 UI 插件为构建时注册、面板按需加载，React 管理挂载与清理；没有动态安装、热卸载或隔离，不能宣称完整第三方插件平台。
 
-- 防火墙属于应用部署管理：先检查并展示具体来源 IP / TCP 端口，显式确认后执行；只管理自身记录的规则，不开启全局防火墙、不接管已有规则。Linux UFW / Windows 的权限不足与 macOS 手动配置必须明确反馈，规则执行与网络连通性分别验收。Terminal 和所有服务继续支持三个平台。
+- 防火墙属于应用部署管理：先检查并展示具体来源 IP / TCP 端口，显式确认后执行；只管理自身记录的规则，不开启全局防火墙、不接管已有规则。Linux UFW / Windows 的权限不足与 macOS 手动配置必须明确反馈，规则执行与网络连通性分别验收。Terminal 当前仅开发 macOS；服务部署范围按下文独立约束执行。
 
 ## 当前交付优先级
 
-维护者明确：第一种资产是期货，第一种产品是 Asterion Terminal。先贯通原 React 工作台、Tauri 与 C++ 的桌面链路，保持 `rust` 分支界面设计一致，再按期货用例补齐领域、数据、研究与模拟交易。多资产、Web、Notebook、Mobile 保留为整体目标，但不得先于期货终端扩展。
+维护者明确：第一种资产是期货，第一种产品是 Asterion Terminal。先贯通 React 工作台、Electron 与 C++ 的桌面链路，按 `docs/ui-design.md` 统一界面设计，再按期货用例补齐领域、数据、研究与模拟交易。当前唯一实施与交付的产品客户端是 macOS Terminal；Web、Mobile、Notebook 等其他客户端只在架构设计中考虑，不属于当前开发任务。未经维护者再次明确批准，不启动或继续其他客户端的功能、宿主、原生工程、打包或发布工作。多资产仍保留为整体目标。
 
-## 跨平台要求
+## Terminal 平台范围（2026-09-29 最新决定）
 
-Linux、Windows、macOS 为一等支持目标，共用 C++ 核心和 Terminal 界面。平台差异收敛在工具链、系统桥接和打包配置，不复制业务实现。`bindings/` 保留顶层作为跨语言绑定的统一位置。
+当前只开发、测试和交付 macOS Terminal，使用 Electron、Apple Clang/libc++ 与 `.dmg` 分发。此决定替代此前 Terminal 三平台并行实施与验收要求。Windows、Linux Terminal 仅保留架构可移植性考虑，现有相关代码和打包配置暂停开发；未经维护者再次明确批准，不推进其平台适配、原生测试、安装包或发布，也不将其验收列为当前 macOS 工作的完成条件。旧文档和 CI 配置的存在不构成恢复开发的授权。
 
-安装包分别为 Linux `.deb`、Windows NSIS `.exe`、macOS `.dmg`。CI 在三个原生系统分别构建、测试和打包；本机通过不能代替其他系统验收。Windows 使用 MSVC，与 Rust 使用相同动态 CRT；Linux 使用 GCC/libstdc++，macOS 使用 Apple Clang/libc++。新增原生依赖需核对目标平台支持。
+保持 C++ 核心、业务服务与 macOS/Electron 宿主解耦，平台差异收敛在系统桥接和工具链，不复制业务实现，也不为未来平台预建空实现。`bindings/` 保留顶层作为跨语言绑定的统一位置。已有其他平台代码不自动删除，历史验收记录不能冒充当前交付承诺。
+
+本决定限定 Terminal 客户端平台，不取消 macOS 本机服务或 Terminal 所需的远程 Linux 服务部署能力；服务端平台范围与客户端平台范围分别管理。
 
 ## 不兼容旧设计
 
@@ -68,27 +72,45 @@ Linux、Windows、macOS 为一等支持目标，共用 C++ 核心和 Terminal �
 
 ## 部署范围（2026-09-27 最新决定）
 
-本机部署支持 Linux、Windows、macOS，使用当前用户的系统托管机制和本机 IPC，不需要 SSH、私钥或目标机器初始化。远程部署目标仅支持 Linux，使用专用 asterion 账户、独立初始化脚本及 SSH 引导，后续通过 mTLS 管理。不再提供远程 macOS/Windows 安装流程；不影响三平台 Terminal、Agent 与业务服务的本机运行。设置中的“本机部署”和“远程 Linux”分开显示，默认本机。
+本机部署支持 Linux、Windows、macOS，使用当前用户的系统托管机制和本机 IPC，不需要 SSH、私钥或目标机器初始化。远程部署目标仅支持 Linux，使用专用 asterion 账户、独立初始化脚本及 SSH 引导，后续通过 mTLS 管理。不再提供远程 macOS/Windows 安装流程；此处服务平台能力不代表 Terminal 三平台仍在开发；当前 Terminal 仅实施 macOS，本机服务随 macOS Terminal 验收，远程 Linux 服务按实际用例维护。设置中的“本机部署”和“远程 Linux”分开显示，默认本机。
 
 
 桌面分发内置同版本的本机服务、Linux x86_64 远程服务及 Linux 初始化脚本。Terminal 提供脚本导出，自动探测远端架构并选择内置程序；不要求用户下载部署材料或选择可执行文件。Linux x86_64 构建产物由 CI 汇集，校验版本、架构和摘要后打入每种桌面安装包。
 
-Linux 当前仅支持 x86_64（本机 Terminal、Agent、业务服务及远程部署），暂停 Linux ARM64 的构建、测试和分发。此限制不影响 macOS Apple Silicon。
+Linux 服务当前仅支持 x86_64（Agent、业务服务及远程部署；Linux Terminal 暂停开发），暂停 Linux ARM64 的构建、测试和分发。此限制不影响 macOS Apple Silicon。
 
 ## 已批准的独立应用工程（2026-09-27）
 
-维护者明确要求建立 `apps/strategy/`、`apps/backtest/`、`apps/factor/`、`apps/data-pipeline/`、`apps/task-service/`，程序分别为 `asterion-strategy`、`asterion-backtest`、`asterion-factor`、`asterion-data-pipeline`、`asterion-task-service`。策略宿主不使用 strategy-worker 名称；回测与因子分开，不设置合并的 research-worker。 各工程的实现进度与验收范围记录在 `docs/implementation.md`，不写入本文件。业务未实现时明确拒绝执行，不伪报健康、不自动启动、不加入部署包。应用装配 Core 与插件；共享算法不复制到应用。Task Service 管业务任务与执行尝试，Node Agent 管机器进程，两者不可混淆。
+维护者明确要求建立 `apps/services/strategy/`、`apps/services/backtest/`、`apps/services/factor/`、`apps/services/data-pipeline/`、`apps/services/task-service/`，程序分别为 `asterion-strategy`、`asterion-backtest`、`asterion-factor`、`asterion-data-pipeline`、`asterion-task-service`。策略宿主不使用 strategy-worker 名称；回测与因子分开，不设置合并的 research-worker。 各工程的实现进度与验收范围记录在 `docs/implementation.md`，不写入本文件。业务未实现时明确拒绝执行，不伪报健康、不自动启动、不加入部署包。应用装配 Core 与插件；共享算法不复制到应用。Task Service 管业务任务与执行尝试，Node Agent 管机器进程，两者不可混淆。
 
 ## Agent 升级体验（2026-09-27 最新决定）
 
-本机组件升级由启动流程自动协调，正常情况下用户不需要理解 Agent、点击升级或手工停止服务。保留身份、配置与业务数据；本次开发机清理不作为产品升级方案。运行中任务/交易必须先建立可恢复维护边界，不能强杀后宣称无感升级。当前已接入空闲 Agent 的自动检查/更新/继续恢复；运行中排空和恢复的设计与验收要求见 `docs/agent-upgrades.md`。此决定替代此前要求启动页显式确认 Agent 升级的产品交互。
+本机组件升级由启动流程自动协调，正常情况下用户不需要理解 Agent、点击升级或手工停止服务。保留身份、配置与业务数据；本次开发机清理不作为产品升级方案。运行中任务/交易必须先建立可恢复维护边界，不能强杀后宣称无感升级。自动检查、协调更新、继续恢复及各类服务的适用边界与验收要求见 `docs/agent-upgrades.md`。此决定替代此前要求启动页显式确认 Agent 升级的产品交互。
 
 ## 工程约定（2026-09-27 架构评审）
 
 - C++ 按 `.clang-format`（clang-format 23.1.1）、前端按 Prettier 格式化；提交前运行 `pnpm format`，CI 检查。
 - 领域对象通过类型化查询交互；JSON 快照只用于协议边界与展示，不作为内部接口。
-- Core 与服务只输出英文诊断，跨进程错误必须携带 `ErrorCode`；面向用户的新诊断同时登记到 `apps/terminal/src/i18n/locales/diagnostics.*.json`。
-- 改变撮合、费用/保证金、风控或交易命令语义时，必须提升 `apps/trading/paper_session.cpp` 中的日志引擎标识；恢复拒绝不同标识，不静默重算历史。
+- Core 与服务只输出英文诊断，跨进程错误必须携带 `ErrorCode`；面向用户的新诊断同时登记到 `apps/clients/terminal/src/i18n/locales/diagnostics.*.json`。
+- 改变撮合、费用/保证金、风控或交易命令语义时，必须提升 `apps/services/trading/paper_session.cpp` 中的日志引擎标识；恢复拒绝不同标识，不静默重算历史。
 - 持久状态与密钥通过 `kernel/durable_file.hpp` 写入；TLS 服务在接收线程只接收 TCP，握手放入有界工作池。
 - Terminal 状态读取不得排队在长操作之后；新增的长操作不得持有全局锁阻塞其他窗口。
 
+
+## 客户端实施范围（2026-09-29 最新决定）
+
+当前只实现 macOS Terminal 一个产品客户端。Web、Mobile（iOS / Android）、Notebook 等只作为架构扩展方向；此决定替代此前建立并持续推进 Web / Mobile 工程的要求。“持续推进项目”默认仅推进 Terminal 及其必要服务，不授权推进其他客户端。
+
+- 架构保持 Core、业务服务、协议、功能插件与 Electron 宿主解耦，未来客户端可复用业务能力；不为尚未实施的客户端预建空接口、通用 SDK、页面或服务入口。
+- 共享抽象必须服务于当前真实用例。Terminal 正在使用的 `packages/client-ui/` 绘图组件继续维护；共享代码不得反向依赖 apps 或 Electron，不因未来客户端而搬迁整套 Terminal UI。
+- 按维护者要求，Web/Mobile 原型代码、专用历史查看 UI、测试及构建入口已删除。后续 AI 不得依据旧文档重新建立这些客户端；只有维护者再次明确批准后才实施。Terminal 使用的共享图表保留，用户业务数据不受代码清理影响。
+- 独立 CLI 客户端及其构建与专用测试已按维护者要求删除，不得自动重建。服务程序及 Terminal 开发桥仍使用 CLI11 解析必要启动参数，这不属于独立 CLI 客户端。Terminal 仅开发 macOS，遵循上文“Terminal 平台范围”。
+- 后续 AI 开始工作时必须遵守本范围；文档中的旧多客户端计划、原型命令和历史验收记录不能覆盖此决定。再次实施其他客户端须由维护者明确提出。
+
+## 历史数据入口（2026-09-28 最新决定）
+
+历史数据只能通过数据源获取，不提供 CSV/JSON 文件导入或以本地文件查看替代数据源。Terminal、Web、Mobile 遵循同一要求；未接入数据服务时明确反馈，不接收无处处理的凭据或伪报下载成功。已有历史文件与已发布数据存档受保护，不自动删除或迁移。结算表的独立配置用途不变。
+
+## 客户端直接启动（2026-09-29 最新决定）
+
+维护者要求去掉整个平台账户登录系统。Desktop、Web、Mobile 不提供注册、登录、退出、账户权益或平台身份门禁，启动和测试不依赖 `asterion-cloud`。桌面进程来源校验、渲染进程隔离、本机开发桥的 Host/Origin 限制、行情商登录、服务间 mTLS、SSH 身份校验及交易风控继续保留。独立 `asterion-cloud` 工程和已有数据不由本仓库自动删除。实现与验收边界见 `docs/client-access.md`。此决定替代此前平台账户认证与商业权益接入要求。

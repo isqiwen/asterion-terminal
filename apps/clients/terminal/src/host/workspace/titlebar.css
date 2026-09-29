@@ -1,0 +1,61 @@
+/* Host-owned title bar, independent of platform account services. */
+.terminal-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.terminal-shell-content {
+  flex: 1;
+  min-height: 0;
+}
+.terminal-titlebar {
+  position: relative;
+  flex: 0 0 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  background: #111417;
+  border-bottom: 1px solid #25292d;
+}
+:root[data-integrated-titlebar="macos"] .terminal-titlebar {
+  flex-basis: 34px;
+  padding-left: 90px;
+  -webkit-app-region: drag;
+}
+.terminal-titlebar > * {
+  -webkit-app-region: no-drag;
+}
+#terminal-header-tools {
+  min-width: 0;
+  flex: 0 1 220px;
+  -webkit-app-region: no-drag;
+}
+.terminal-contract-search {
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+  min-height: 22px;
+  box-sizing: border-box;
+  border: 1px solid #25292d;
+  border-radius: 3px;
+  padding: 2px 8px;
+  background: #191c20;
+  color: #d6dadd;
+  font-size: 11px;
+  -webkit-app-region: no-drag;
+}
+.terminal-titlebar::before {
+  content: "ASTERION TERMINAL";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: #929aa1;
+  pointer-events: none;
+}
+@media (max-width: 700px) {
+  .terminal-titlebar::before {
+    display: none;
+  }
+}

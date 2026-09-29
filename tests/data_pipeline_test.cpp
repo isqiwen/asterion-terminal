@@ -200,6 +200,10 @@ TEST_F(DataTasks, DurableUploadCancellationFencingAndResultValidation) {
   {
     tasks::Store store(root);
     EXPECT_EQ(store.submit("data", input).kind(), wire::DATA_IMPORT);
+    const auto launches = store.dispatch({});
+    ASSERT_EQ(launches.launches_size(), 1);
+    EXPECT_EQ(launches.launches(0).program(), wire::DATA_PIPELINE_PROGRAM);
+    EXPECT_FALSE(launches.launches(0).settlement_calendar());
     EXPECT_EQ(store.submit("data", input).attempt(), 0U);
     EXPECT_FALSE(store.list().tasks(0).has_data());
     EXPECT_EQ(store.list().tasks(0).source_name(), input.source_name());

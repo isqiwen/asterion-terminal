@@ -34,7 +34,7 @@ Asterion::Domain → Asterion::Kernel → Asterion::Foundation
 
 ## 生命周期与线程所有权
 
-Runtime 是单次生命周期对象：created → starting → running → stopping → stopped；启动失败进入 failed，重试需创建新 Runtime。宿主串行调用配置、注册、启动、命令、调度和关闭；不要求固定 OS 线程，适用于 Tauri 的互斥调用桥。
+Runtime 是单次生命周期对象：created → starting → running → stopping → stopped；启动失败进入 failed，重试需创建新 Runtime。宿主串行调用配置、注册、启动、命令、调度和关闭；不要求固定 OS 线程，由 C++ 编排负责互斥，Electron 通过异步 Node-API 调用。
 
 启动时封存配置与授权，创建执行器并按依赖启动插件。关闭时先请求工作线程停止并 join，取消待执行任务，再关闭调度与消息队列、逆序停止插件、撤销资源。启动失败同样清理。业务回调和 `Runtime::poll` 期间拒绝递归分派、递归泵及关闭，防止在使用资源时拆除运行环境。
 
@@ -65,11 +65,11 @@ AccessPolicy 由可信宿主创建并封存，调用者身份由宿主赋予，�
 
 日志为 JSON Lines，记录事件名、级别、logger 名称、UTC 纳秒及结构化字段。password、token、secret、credential、authorization、api_key 等常见字段名会递归脱敏，拒绝过深或超过 16 KiB 的记录。脱敏不是任意文本的秘密识别器，调用方仍不得记录原始请求或凭据。Runtime 仅写生命周期与受控调用元数据。写入失败计数且不改变业务返回结果，初始文件创建失败会明确抛错。
 
-spdlog 和 fmt 使用 Conan 的 header-only 选项，代码编入内核静态库，Tauri 不需要再手工枚举第三方日志归档库。GoogleTest 通过 Conan test_requires 引入，仅用于测试；`-o with_tests=False` 可以关闭其依赖及 CMake 测试构建。
+spdlog 和 fmt 使用 Conan 的 header-only 选项，代码编入内核静态库，Node-API 模块通过 CMake 传递依赖，无需手工枚举第三方日志归档库。GoogleTest 通过 Conan test_requires 引入，仅用于测试；`-o with_tests=False` 可以关闭其依赖及 CMake 测试构建。
 
 ## Terminal 集成
 
-Terminal 在 `apps/terminal/native/terminal_application.cpp` 组装 Runtime，各业务域命令分别在 `commands_{paper,node,research,strategy,market}.cpp` 注册，共享状态在 `application_impl.hpp`；注册 `runtime.snapshot` 与 `futures.inspect_csv`，为本机调用者授予对应能力。文件和行数限额由应用声明为启动配置；CSV 源仍通过数据插件提供。预览状态保存在 Terminal 资源作用域内，完整文件通过后才替换。状态响应提供累计调用诊断，不改变现有界面设计。
+Terminal 在 `apps/clients/terminal/native/terminal_application.cpp` 组装 Runtime，各业务域命令分别在 `commands_{paper,node,research,strategy,market}.cpp` 注册，共享状态在 `application_impl.hpp`；注册 `runtime.snapshot` 与 `futures.inspect_csv`，为本机调用者授予对应能力。文件和行数限额由应用声明为启动配置；CSV 源仍通过数据插件提供。预览状态保存在 Terminal 资源作用域内，完整文件通过后才替换。状态响应提供累计调用诊断，不改变现有界面设计。
 
 C ABI 使用统一严格 JSON 解析和核心错误码（`classify` 统一映射异常，跨进程错误经 `throw_remote_error` 还原）。
 
@@ -105,7 +105,7 @@ spdlog / ThreadPool / GoogleTest 更新：Conan 固定 spdlog 1.17.0、GoogleTes
 
 ## 本机进程与 IPC 机制
 
-`kernel/ipc/local_channel.hpp` 提供有界二进制帧、期限与断线处理，Unix Socket / Windows Named Pipe 在对应源码内处理平台差异，不解释交易语义。`kernel/ipc/tls_channel.hpp` 提供跨平台 TCP、TLS 1.3 双向认证、DNS/IP 校验及同样的有界分帧；不包含服务类型、账户或业务授权。`kernel/process/child.hpp` 提供无 shell 子进程启动、等待和回收。实际 Protobuf schema 位于 protocol，交易路由在 apps/trading，客户端在 apps/terminal/native。
+`kernel/ipc/local_channel.hpp` 提供有界二进制帧、期限与断线处理，Unix Socket / Windows Named Pipe 在对应源码内处理平台差异，不解释交易语义。`kernel/ipc/tls_channel.hpp` 提供跨平台 TCP、TLS 1.3 双向认证、DNS/IP 校验及同样的有界分帧；不包含服务类型、账户或业务授权。`kernel/process/child.hpp` 提供无 shell 子进程启动、等待和回收。实际 Protobuf schema 位于 protocol，交易路由在 apps/services/trading，客户端在 apps/clients/terminal/native。
 
 当前可隔离桌面与模拟交易进程的崩溃，但不提供不可信代码沙箱或系统服务安装管理；本机模拟客户端和 Node Agent 应用层实现有限重启策略。详情见 [进程架构](process-architecture.md)。测试包含双进程独立账本、交易进程强杀恢复与 TCP/mTLS 远程连接；最新结果见 terminal-validation，三平台源码不替代 Linux/Windows 实机验收。
 
@@ -136,3 +136,7 @@ TlsListener::accept_pending 只等待 TCP，返回不具备应用帧收发接口
 监听器的 accept 空闲期限只用于让接收循环定期检查停止状态。取消 accept 与已经完成的系统接入可能竞争；若完成回调明确成功，不能仅因定时器也已触发而销毁该连接。`TlsListener::accept_pending` 使用内部 `preserve_accepted` 期限策略，取消后仍收到成功回调时返回待认证连接；取消成功且回调返回错误时仍报超时。该策略不会越过 TLS 认证，也不会重发任何请求。
 
 DNS/连接、握手和读写操作继续使用严格期限，超时取消后不得因后续成功回调而恢复已关闭的通道。内部定时执行助手位于 `core/src/kernel/ipc/timed_operation.hpp`，不是公共接口。确定性测试安排“定时器取消 → 已成功操作的完成回调”，修复前接入用例抛出超时，另外三个期限用例通过（`build/transport-deadline-red-tests.log`）。这证明了完成处理缺陷，并不证明此前 Linux 偶发截断仅由此造成。
+
+## 协作式共享文件锁（2026-09-29）
+
+`kernel/process/file_lock.hpp` 的 `FileLock::Access` 支持显式共享读取，默认仍为独占，获取失败立即返回异常，不排队等待。RAII 释放最后一个读者后允许写者进入；持有独占锁时拒绝其他读写者。应用选择访问模式，内核不理解数据集或下载业务。macOS 通过独立文件句柄和子进程验证读者共存、读写互斥与释放；Windows 保留原独占句柄语义并允许共享读者句柄，本轮未原生验收。

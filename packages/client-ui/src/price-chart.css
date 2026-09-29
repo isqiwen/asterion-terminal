@@ -1,0 +1,68 @@
+.price-chart {
+  margin: 16px 0;
+  border-block: 1px solid var(--line);
+  padding: 12px 0;
+  min-width: 0;
+}
+.price-chart svg {
+  display: block;
+  width: 100%;
+  min-height: 180px;
+  max-height: 360px;
+  touch-action: pan-y;
+}
+.price-chart svg text {
+  fill: var(--muted);
+  font-size: 11px;
+}
+.price-chart-cursor {
+  font-size: 12px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  min-height: 32px;
+}
+.price-chart-crosshair {
+  stroke: var(--muted);
+  stroke-dasharray: 3 4;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.price-chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.price-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+}
+.intraday-chart {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+.intraday-chart .price-chart-cursor {
+  min-height: 18px;
+  font-size: 11px;
+}
+.intraday-chart-frame {
+  flex: 1;
+  min-height: 180px;
+  overflow: hidden;
+}
+.intraday-chart-frame svg {
+  display: block;
+  touch-action: pan-y;
+}
+.intraday-chart-frame svg text {
+  fill: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}

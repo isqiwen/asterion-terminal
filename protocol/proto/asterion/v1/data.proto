@@ -66,3 +66,101 @@ message CalendarPublication {
   uint64 source_bytes = 6;
   string importer = 7;
 }
+
+// Credentials are not part of this durable task definition.
+message MinuteDownload {
+  uint32 version = 1;
+  string ts_code = 2;
+  uint32 interval_minutes = 3;
+  int64 begin_ns = 4;
+  int64 end_ns = 5;
+  uint32 requests_per_minute = 6;
+}
+message MinuteDownloadResult {
+  uint32 version = 1;
+  string directory = 2;
+  string manifest_sha256 = 3;
+  uint64 rows = 4;
+  uint32 pages = 5;
+}
+
+// Bounded read of a completed service-owned dataset. No filesystem paths accepted.
+message MinutePageQuery {
+  string task_id = 1;
+  uint64 offset = 2;
+  uint32 limit = 3;
+  int64 begin_ns = 4; // zero means the dataset's requested boundary
+  int64 end_ns = 5;
+  bool include_macd = 6; // dataset-origin display indicator, not a research/ledger value
+}
+message ChartMacd {
+  double diff = 1;
+  double signal = 2;
+  double histogram = 3;
+}
+message MinuteBar {
+  int64 timestamp_ns = 1;
+  asterion.protocol.v1.Decimal open = 2;
+  asterion.protocol.v1.Decimal high = 3;
+  asterion.protocol.v1.Decimal low = 4;
+  asterion.protocol.v1.Decimal close = 5;
+  asterion.protocol.v1.Decimal volume = 6;
+  asterion.protocol.v1.Decimal amount = 7;
+  asterion.protocol.v1.Decimal open_interest = 8;
+  ChartMacd macd = 9; // absent during the first 33 records or when not requested
+}
+message MinutePage {
+  uint32 version = 1;
+  string task_id = 2;
+  string source = 3;
+  string ts_code = 4;
+  uint32 interval_minutes = 5;
+  string manifest_sha256 = 6;
+  uint64 total_rows = 7;
+  uint64 matched_rows = 8;
+  uint64 offset = 9;
+  uint32 limit = 10;
+  int64 first_ns = 11;
+  int64 last_ns = 12;
+  int64 begin_ns = 13;
+  int64 end_ns = 14;
+  repeated MinuteBar bars = 15;
+}
+
+// Daily bars retain provider trading dates; no synthetic intraday timestamps.
+message DailyDownload { uint32 version = 1; string ts_code = 2; string begin_day = 3; string end_day = 4; uint32 requests_per_minute = 5; }
+message DailyDownloadResult { uint32 version = 1; string directory = 2; string manifest_sha256 = 3; uint64 rows = 4; uint32 pages = 5; }
+
+enum DailyPeriod { DAY = 0; WEEK = 1; MONTH = 2; QUARTER = 3; YEAR = 4; }
+message DailyPageQuery { string task_id = 1; uint64 offset = 2; uint32 limit = 3; string begin_day = 4; string end_day = 5; bool include_macd = 6; DailyPeriod period = 7; }
+message DailyBar {
+  string trading_day = 1;
+  asterion.protocol.v1.Decimal open = 2;
+  asterion.protocol.v1.Decimal high = 3;
+  asterion.protocol.v1.Decimal low = 4;
+  asterion.protocol.v1.Decimal close = 5;
+  asterion.protocol.v1.Decimal volume = 6;
+  asterion.protocol.v1.Decimal amount = 7;
+  asterion.protocol.v1.Decimal open_interest = 8;
+  asterion.protocol.v1.Decimal previous_close = 9;
+  asterion.protocol.v1.Decimal previous_settlement = 10;
+  asterion.protocol.v1.Decimal settlement = 11;
+  ChartMacd macd = 12;
+}
+message DailyPage {
+  uint32 version = 1;
+  string task_id = 2;
+  string source = 3;
+  string ts_code = 4;
+  string manifest_sha256 = 5;
+  uint64 total_rows = 6;
+  uint64 matched_rows = 7;
+  uint64 offset = 8;
+  uint32 limit = 9;
+  string first_day = 10;
+  string last_day = 11;
+  string begin_day = 12;
+  string end_day = 13;
+  repeated DailyBar bars = 14;
+  DailyPeriod period = 15;
+}

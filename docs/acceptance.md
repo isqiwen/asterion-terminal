@@ -7,7 +7,7 @@ CI 已覆盖三平台构建、单元/集成测试、sanitizer 与界面测试。
 前置地址与经纪商代码以 SimNow 官网或券商提供为准。
 
 ```bash
-python3 scripts/acceptance/simnow_market.py --build build/Debug \
+python3 scripts/acceptance/ctp_market.py --build build/Debug \
   --front tcp://<行情前置> --broker <经纪商代码> --user <账号> \
   --instrument SHFE:rb2610 --instrument DCE:m2609 \
   --report acceptance-simnow.json

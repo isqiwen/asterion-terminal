@@ -1,4 +1,5 @@
 #include "factor_engine.hpp"
+#include "daily_momentum.hpp"
 #include "file_journal.hpp"
 #include "momentum.hpp"
 #include <asterion/kernel/process/child.hpp>
@@ -221,6 +222,10 @@ TEST_F(FactorTasks, DurableTypeIdentityCancellationAndTamperedResult) {
   {
     tasks::Store store(root);
     auto task = store.submit("factor", input());
+    const auto launches = store.dispatch({});
+    ASSERT_EQ(launches.launches_size(), 1);
+    EXPECT_EQ(launches.launches(0).program(), wire::FACTOR_PROGRAM);
+    EXPECT_FALSE(launches.launches(0).settlement_calendar());
     EXPECT_EQ(task.kind(), wire::FACTOR);
     EXPECT_EQ(store.submit("factor", input()).id(), task.id());
     EXPECT_FALSE(store.list().tasks(0).has_factor());
@@ -676,4 +681,175 @@ TEST_F(FactorTasks, RollingEvidencePersistsAndRejectsChangedWindowsOrScores) {
   const auto evidence = protocol::decode_task_result(response, "rolling");
   EXPECT_EQ(evidence.at("experiment").at("evaluation").at("training_events"), 80);
   EXPECT_EQ(evidence.at("result").at("folds").size(), 2U);
+}
+
+TEST(Factor, PriceObservationsShareMomentumWithoutInventingTradeFields) {
+  PriceMomentum window(2);
+  EXPECT_FALSE(window.push(d("100.00000001")));
+  EXPECT_FALSE(window.push(d("105.00000001")));
+  EXPECT_THROW(window.push(d("0")), std::invalid_argument);
+  EXPECT_THROW(window.push(d("-1")), std::invalid_argument);
+  EXPECT_DOUBLE_EQ(*window.push(d("110.00000001")),
+                   price_return(d("100.00000001"), d("110.00000001")));
+  EXPECT_DOUBLE_EQ(*window.push(d("120.00000001")),
+                   price_return(d("105.00000001"), d("120.00000001")));
+  window.reset();
+  EXPECT_FALSE(window.push(d("1")));
+  EXPECT_THROW(PriceMomentum(0), std::invalid_argument);
+  EXPECT_THROW(PriceMomentum(10001), std::invalid_argument);
+  MomentumFactor trades(spec(), 2);
+  PriceMomentum prices(2);
+  trades.start();
+  for (int i = 0; i < 100; ++i) {
+    const auto price = Decimal::parse(std::to_string(100 + i + i % 3));
+    EXPECT_EQ(prices.push(price), trades.on_tick({spec().id, i, price, d("1")}));
+  }
+}
+
+TEST(Factor, DailyMomentumPreservesDatesAndNeverFeedsFutureClosesIntoFeatures) {
+  using namespace std::chrono;
+  std::vector<HistoricalDailyBar> bars;
+  for (int i = 0; i < 8; ++i) {
+    const auto price = Decimal::parse(std::to_string(100 + 10 * i));
+    bars.push_back({year_month_day{sys_days{year{2024} / January / 1} + days{2 * i}},
+                    price,
+                    price,
+                    price,
+                    price,
+                    d("1"),
+                    d("1"),
+                    d("1"),
+                    {},
+                    {},
+                    {}});
+  }
+  std::size_t completed = 0;
+  const auto all = daily_momentum_samples(bars, 2, 2, {}, [&](auto done, auto total) {
+    EXPECT_EQ(done, ++completed);
+    EXPECT_EQ(total, bars.size());
+  });
+  ASSERT_EQ(all.size(), 4);
+  EXPECT_EQ(all.front().observation_index, 2);
+  EXPECT_EQ(format_trading_date(all.front().trading_day), "2024-01-05");
+  EXPECT_EQ(format_trading_date(all.front().label_day), "2024-01-09");
+  EXPECT_DOUBLE_EQ(all.front().value, price_return(d("100"), d("120")));
+  EXPECT_DOUBLE_EQ(all.front().forward_return, price_return(d("120"), d("140")));
+  bars[4].open = bars[4].high = bars[4].low = bars[4].close = d("200");
+  const auto changed = daily_momentum_samples(bars, 2, 2);
+  EXPECT_DOUBLE_EQ(changed.front().value, all.front().value);
+  EXPECT_NE(changed.front().forward_return, all.front().forward_return);
+  EXPECT_THROW(daily_momentum_samples(bars, 0, 2), std::invalid_argument);
+  EXPECT_THROW(daily_momentum_samples(bars, 2, 0), std::invalid_argument);
+  EXPECT_THROW(daily_momentum_samples(bars, 7, 2), std::invalid_argument);
+  auto bad = bars;
+  bad[3].trading_day = bad[2].trading_day;
+  EXPECT_THROW(daily_momentum_samples(bad, 2, 2), std::invalid_argument);
+  bad[3].trading_day = bad[1].trading_day;
+  EXPECT_THROW(daily_momentum_samples(bad, 2, 2), std::invalid_argument);
+  std::stop_source stop;
+  EXPECT_THROW(daily_momentum_samples(bars, 2, 2, stop.get_token(),
+                                      [&](auto done, auto) {
+                                        if (done == 3)
+                                          stop.request_stop();
+                                      }),
+               std::runtime_error);
+  EXPECT_THROW(daily_momentum_samples(bars, 2, 2, stop.get_token()), std::runtime_error);
+}
+
+TEST(Factor, DailyInputBindsSourceAndExactBarsAndPurgesHoldoutLabels) {
+  using namespace std::chrono;
+  research::v1::DailyFactorInput input;
+  input.set_version(1);
+  input.set_lookback(2);
+  input.set_horizon(2);
+  input.set_holdout_start(40);
+  auto& dataset = *input.mutable_dataset();
+  dataset.set_version(1);
+  dataset.set_source_task_id("daily-source");
+  dataset.set_source("tushare.fut_daily");
+  dataset.set_ts_code("CU2403.SHF");
+  dataset.set_manifest_sha256(std::string(64, 'a'));
+  for (int i = 0; i < 80; ++i) {
+    auto* bar = dataset.add_bars();
+    bar->set_trading_day(
+        format_trading_date(year_month_day{sys_days{year{2023} / January / 1} + days{i}}));
+    const auto price = Decimal::parse(std::to_string(100 + i + i % 3));
+    for (auto* value :
+         {bar->mutable_open(), bar->mutable_high(), bar->mutable_low(), bar->mutable_close()})
+      value->set_units(price.raw());
+    bar->mutable_volume()->set_units(d("1").raw());
+    bar->mutable_amount()->set_units(d("100.00000001").raw());
+    bar->mutable_open_interest()->set_units(d("3").raw());
+  }
+  input.set_dataset_revision(protocol::daily_factor_revision(dataset));
+  const auto result = factor::run_daily(input);
+  EXPECT_EQ(result.input_count(), 80);
+  EXPECT_EQ(result.purged_count(), 2);
+  ASSERT_EQ(result.partitions_size(), 2);
+  EXPECT_EQ(result.partitions(0).sample_count(), 36);
+  EXPECT_EQ(result.partitions(1).sample_count(), 38);
+  EXPECT_EQ(result.samples(0).trading_day(), "2023-01-03");
+  EXPECT_EQ(result.samples(0).label_day(), "2023-01-05");
+  for (const auto& row : result.samples())
+    EXPECT_TRUE(row.observation_index() >= 40 || row.observation_index() + 2 < 40);
+  const auto decoded = protocol::decode_daily_factor(input, result);
+  EXPECT_EQ(decoded.at("experiment").at("data").at("count"), 80);
+  EXPECT_EQ(decoded.at("experiment").at("data").at("first_day"), "2023-01-01");
+  EXPECT_EQ(decoded.at("result").at("samples").size(), 74);
+  auto invalid_evidence = result;
+  invalid_evidence.mutable_samples(0)->set_label_day("2023-01-04");
+  EXPECT_THROW(protocol::decode_daily_factor(input, invalid_evidence), std::invalid_argument);
+  invalid_evidence = result;
+  invalid_evidence.mutable_samples(0)->set_value(std::numeric_limits<double>::infinity());
+  EXPECT_THROW(protocol::decode_daily_factor(input, invalid_evidence), std::invalid_argument);
+  invalid_evidence = result;
+  invalid_evidence.mutable_partitions(0)->set_sample_count(99);
+  EXPECT_THROW(protocol::decode_daily_factor(input, invalid_evidence), std::invalid_argument);
+  invalid_evidence = result;
+  invalid_evidence.set_purged_count(0);
+  EXPECT_THROW(protocol::decode_daily_factor(input, invalid_evidence), std::invalid_argument);
+  Json parameters = {{"source_task_id", "daily-source"},
+                     {"lookback", 2},
+                     {"horizon", 2},
+                     {"evaluation", {{"mode", "holdout"}, {"split_index", 40}}}};
+  EXPECT_EQ(protocol::encode_daily_factor_request(parameters).holdout_start(), 40);
+  for (const Json mutation :
+       {Json{{"lookback", 2.5}}, Json{{"horizon", 0}}, Json{{"lookback", -1}},
+        Json{{"evaluation", {{"mode", "walk_forward"}}}}, Json{{"bars", Json::array()}}}) {
+    auto invalid = parameters;
+    invalid.update(mutation);
+    EXPECT_THROW(protocol::encode_daily_factor_request(invalid), std::exception);
+  }
+  EXPECT_NO_THROW(factor::verify_daily_result(input, result));
+  auto wrong = result;
+  wrong.mutable_samples(0)->set_label_day("2023-01-04");
+  EXPECT_THROW(factor::verify_daily_result(input, wrong), std::invalid_argument);
+  auto changed = input;
+  changed.set_lookback(3);
+  EXPECT_EQ(protocol::daily_factor_revision(changed.dataset()), input.dataset_revision());
+  changed.mutable_dataset()->mutable_bars(0)->mutable_amount()->set_units(d("100.00000002").raw());
+  EXPECT_NE(protocol::daily_factor_revision(changed.dataset()), input.dataset_revision());
+  EXPECT_THROW(factor::run_daily(changed), std::invalid_argument);
+  changed = input;
+  changed.mutable_dataset()->set_source_task_id("another-source");
+  EXPECT_THROW(factor::run_daily(changed), std::invalid_argument);
+  changed = input;
+  changed.mutable_dataset()->mutable_bars(0)->clear_volume();
+  EXPECT_THROW(factor::run_daily(changed), std::invalid_argument);
+  input.set_full_sample(true);
+  EXPECT_EQ(factor::run_daily(input).samples_size(), 76);
+  for (auto& bar : *input.mutable_dataset()->mutable_bars())
+    for (auto* value :
+         {bar.mutable_open(), bar.mutable_high(), bar.mutable_low(), bar.mutable_close()})
+      value->set_units(d("100").raw());
+  input.set_dataset_revision(protocol::daily_factor_revision(input.dataset()));
+  const auto constant = factor::run_daily(input);
+  EXPECT_FALSE(constant.partitions(0).has_pearson());
+  EXPECT_FALSE(constant.partitions(0).has_spearman());
+  EXPECT_TRUE(protocol::decode_daily_factor(input, constant)
+                  .at("result")
+                  .at("partitions")
+                  .at(0)
+                  .at("pearson")
+                  .is_null());
 }

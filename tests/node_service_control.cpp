@@ -1,21 +1,25 @@
 #include "node_program.hpp"
 #include "node_service.hpp"
+#include "node_client.hpp"
+#include "market_client.hpp"
+#include <asterion/kernel/process/artifact.hpp>
 #include <CLI/CLI.hpp>
 #include <iostream>
 int main(int argc, char** argv) {
   CLI::App app{"Native user-service control acceptance"};
-  std::string operation, executable, root, endpoint, name, source, expected;
+  std::string operation, executable, root, endpoint, name, source, expected, provider;
   std::uint64_t pid = 0;
   app.add_option("--operation", operation)
       ->required()
-      ->check(
-          CLI::IsMember({"install", "stop", "replace", "upgrade", "inspect", "verify-stopped"}));
+      ->check(CLI::IsMember({"install", "stop", "replace", "upgrade", "inspect", "verify-stopped",
+                             "deploy-market", "market-status", "status"}));
   app.add_option("--executable", executable)->required();
   app.add_option("--root", root)->required();
   app.add_option("--endpoint", endpoint)->required();
   app.add_option("--name", name)->required();
   app.add_option("--pid", pid);
   app.add_option("--source", source);
+  app.add_option("--provider", provider);
   app.add_option("--expected", expected);
   argv = app.ensure_utf8(argv);
   CLI11_PARSE(app, argc, argv);
@@ -25,7 +29,31 @@ int main(int argc, char** argv) {
     auto path = [](const std::string& value) {
       return std::filesystem::path(std::u8string(value.begin(), value.end()));
     };
-    if (operation == "verify-stopped")
+    if (operation == "deploy-market" || operation == "market-status" || operation == "status") {
+      asterion::terminal::NodeClient client({"local", "localhost", 0, {}, endpoint});
+      if (operation == "deploy-market") {
+        const auto platform = asterion::current_platform();
+        client.deploy(path(source), platform.os, platform.arch, "market-running", 0, {}, "market",
+                      path(provider));
+        client.deploy(path(source), platform.os, platform.arch, "market-stopped", 0, {}, "market",
+                      path(provider));
+        client.action("market-stopped", "stop");
+        asterion::terminal::MarketClient market(
+            client.service_endpoint("market-running", "market"));
+        market.connect({{"front", "tcp://127.0.0.1:12345"},
+                        {"broker", "test"},
+                        {"user", "test"},
+                        {"password", "fixture"},
+                        {"instruments", asterion::Json::array()}});
+      }
+      if (operation == "market-status") {
+        asterion::terminal::MarketClient market(
+            client.service_endpoint("market-running", "market"));
+        std::cout << market.snapshot().dump() << '\n';
+        return 0;
+      }
+      std::cout << client.status().dump() << '\n';
+    } else if (operation == "verify-stopped")
       asterion::terminal::verify_node_service_stopped(path(executable), path(root), endpoint, name);
     else if (operation == "inspect")
       std::cout << asterion::terminal::inspect_node_program(path(source), path(executable),

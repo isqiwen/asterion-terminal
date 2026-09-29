@@ -1,0 +1,45 @@
+/* Asterion: graphite surfaces, restrained amber, precise numerical typography. */
+:root {
+  --font-ui:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei",
+    "Noto Sans CJK SC", "Noto Sans", sans-serif;
+  --font-terminal:
+    "SFMono-Regular", Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace;
+  --canvas: #0f1115;
+  --panel: #17191d;
+  --raised: #202227;
+  --hover: #272a30;
+  --pressed: #2b3542;
+  --line: #2a2d33;
+  --grid: #202329;
+  --text: #c6c8ce;
+  --text-strong: #eef2f7;
+  --muted: #979ca6;
+  --subtle: #8795a7;
+  --accent: #eab66b;
+  --accent-surface: #2b241b;
+  --accent-hover: #3b3022;
+  --accent-pressed: #493a27;
+  --accent-line: #776044;
+  --success: #70c9aa;
+  --danger: #f08b8b;
+  --danger-surface: #302024;
+  --quote-red: #ef3f60;
+  --quote-green: #00ac92;
+  --quote-up: var(--quote-red);
+  --quote-down: var(--quote-green);
+  --row-height: 26px;
+  --control-height: 28px;
+  --control-radius: 2px;
+  --panel-radius: 3px;
+  --space-page: 24px;
+  --background-grid: none;
+}
+:root[data-density="comfortable"] {
+  --row-height: 40px;
+  --control-height: 38px;
+}
+:root[data-quote-colors="international"] {
+  --quote-up: var(--quote-green);
+  --quote-down: var(--quote-red);
+}

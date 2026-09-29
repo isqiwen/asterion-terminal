@@ -5,7 +5,7 @@
 #include <stop_token>
 namespace asterion::protocol {
 using TaskProgress = std::function<void(std::size_t, std::size_t)>;
-using TaskRunner = std::function<research::v1::TaskFinish(const research::v1::Task&,
+using TaskRunner = std::function<research::v1::TaskFinish(const research::v1::TaskAttempt&,
                                                           std::stop_token, const TaskProgress&)>;
 int run_task_worker(const std::string& endpoint, const std::string& host, unsigned short port,
                     const ipc::TlsIdentity& tls, const std::string& service,

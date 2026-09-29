@@ -15,6 +15,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-ssh-ui-", ignore_cleanup_error
     env = dict(os.environ, ASTERION_REMOTE_RESOURCES=str(resources))
     sdk = "asterion_test_ctp.dll" if sys.platform == "win32" else "libasterion_test_ctp.dylib" if sys.platform == "darwin" else "libasterion_test_ctp.so"
     env["ASTERION_CTP_LIBRARY"] = str(BUILD / sdk)
+    env["ASTERION_CTP_CATALOG_LIBRARY"] = str(BUILD / sdk.replace("asterion_test_ctp", "asterion_test_ctp_trader"))
     if os.name != "nt":
         for name in ("ssh", "sftp"):
             shutil.copyfile(Path(__file__).with_name("ssh_fixture.py"), tools / name)

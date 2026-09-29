@@ -7,6 +7,7 @@ import sys
 import time
 build=Path(sys.argv[1]).resolve()
 env=dict(os.environ,ASTERION_CTP_LIBRARY=str(build/('asterion_test_ctp.dll' if sys.platform=='win32' else 'libasterion_test_ctp.dylib' if sys.platform=='darwin' else 'libasterion_test_ctp.so')))
+env['ASTERION_CTP_CATALOG_LIBRARY']=str(build/('asterion_test_ctp_trader.dll' if sys.platform=='win32' else 'libasterion_test_ctp_trader.dylib' if sys.platform=='darwin' else 'libasterion_test_ctp_trader.so'))
 process=subprocess.Popen([str(build/('asterion_terminal_dev_bridge.exe' if sys.platform=='win32' else 'asterion_terminal_dev_bridge'))],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
 def call(method,params=None):
     process.stdin.write(json.dumps(dict(version=1,method=method,params=params or {}))+'\n');process.stdin.flush()
@@ -25,10 +26,20 @@ try:
     market=state['market'];quote=market['subscriptions'][0]['quote'];assert quote['last']=='3510' and quote['bid']=='3509' and quote['ask']=='3511'
     assert quote['previous_settlement'] is None and market['out_of_order']>=1 and market['subscriptions'][1]['state']=='error'
     assert 'fixture-only-secret' not in json.dumps(state) and 'password' not in json.dumps(state)
+    state=wait(lambda s:s['market']['history']['available'] and len(s['market']['history']['points'])>0)
+    points=state['market']['history']['points']
+    assert all(p['price']=='3510' and p['symbol']=='rb2610' for p in points),points
+    assert all('volume' not in p for p in points)
     wait(lambda s:s['market']['phase']=='reconnecting')
     wait(lambda s:s['market']['phase']=='connected' and s['market']['out_of_order']>=2)
     call('market.subscribe',dict(instruments=[dict(venue='SHFE',symbol='rb2610')]))
     assert len(wait(lambda s:len(s['market']['subscriptions'])==1)['market']['subscriptions'])==1
+    call('market.catalog',dict(front='tcp://127.0.0.1:1',broker='test',user='catalog',password='fixture-only-secret',app_id='',auth_code=''))
+    state=wait(lambda s:s['market']['catalog']['phase']=='ready')
+    assert state['market']['catalog']['contracts'][0]['symbol']=='rb2610'
+    call('market.subscribe',dict(instruments=[]))
+    state=wait(lambda s:not s['market']['watchlist'])
+    assert len(state['market']['subscriptions'])==1
     call('market.disconnect');wait(lambda s:s['market']['phase']=='disconnected')
     call('market.connect',dict(front='tcp://127.0.0.1:1',broker='test',user='fixture',password='reject-test-only',instruments=[]))
     wait(lambda s:s['market']['phase']=='error' and s['market']['error_code']==3)

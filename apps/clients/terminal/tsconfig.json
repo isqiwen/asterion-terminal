@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["vite/client", "node"],
+    "baseUrl": "../../..",
+    "paths": {
+      "@asterion/workbench/*": ["apps/clients/terminal/src/host/*"],
+      "@asterion/desktop-bridge/*": ["apps/clients/terminal/src/bridge/*"],
+      "@asterion/overview/*": ["apps/clients/terminal/plugins/overview/*"],
+      "@asterion/terminal/*": ["apps/clients/terminal/src/*"],
+      "@asterion/client-ui/*": ["packages/client-ui/src/*"]
+    },
+    "resolveJsonModule": true
+  },
+  "include": ["src", "plugins", "e2e", "vite.config.ts", "playwright.config.ts"]
+}

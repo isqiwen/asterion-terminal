@@ -1,6 +1,6 @@
 # Asterion 多资产架构
 
-本设计落实维护者 2026-09-26 提供的架构图，以及随后确认的“保留 Tauri 外壳，核心全部改为 C++”。图中的产品和插件名称代表目标能力，不代表已经接入。
+本设计落实维护者 2026-09-26 提供的架构图，以及 2026-09-28 确认的“桌面切换 Electron，不保留 Tauri”，核心继续使用 C++。图中的产品和插件名称代表目标能力，不代表已经接入。
 
 当前交付顺序以维护者最新决定为准：**第一种资产为期货，第一种产品为 Asterion Terminal，界面保持 `rust` 分支设计一致**。多资产及其他 UI 仍是架构目标，先完成期货桌面垂直链路。
 
@@ -16,7 +16,7 @@
 flowchart TB
   Host[应用宿主：Terminal、Web、CLI、Notebook]
   UI[业务 UI 插件：页面、面板、卡片]
-  Tauri[Tauri：窗口与本机启动桥]
+  Electron[Electron：窗口与 Node-API 本机桥]
   API[统一应用 API / C++ 服务]
   Domain[交易领域：标的、行情、订单、持仓、账户、日历、风险基础]
   Kernel[内核机制：插件生命周期、消息、资源、调度、配置、可观测性]
@@ -25,7 +25,7 @@ flowchart TB
   External[外部数据商、交易所、券商、数据库、云与其他服务]
   Host --> UI
   UI --> API
-  Tauri --> API
+  Electron --> API
   API --> Domain
   Domain --> Kernel
   Kernel --> Foundation
@@ -38,29 +38,30 @@ flowchart TB
 
 ## 目录与职责
 
+`apps/clients/` 是面向用户的产品入口，当前仅实施 macOS Terminal，独立 CLI 与 Web/Mobile 原型已删除。`apps/services/` 是服务端应用，包含常驻服务和按任务启动的工作程序；backtest、factor、data-pipeline 不因此变成常驻服务。两类都只是应用装配，Core、protocol、bindings 和共享插件仍独立于应用。程序名、服务身份和业务数据路径不随源码目录分类改变。
+
 | 位置 | 职责 | 当前状态 |
 | --- | --- | --- |
 | `core/` | C++ 基础、领域、内核机制；运行时属于内核 | Decimal/ID/时间/错误码、插件生命周期、Runtime、IPC 与 TCP+mTLS、子进程与持久文件写入；期货合约、订单、单合约账本、交易时段与风险端口 |
 | `plugins/` | 跨应用复用的具体能力插件 | 数据（CSV 逐笔/结算表、CTP 行情）、执行（Paper）、存储（文件日志）、策略（CTA SMA）、风控（订单限额）、工具（runtime-info、因子分析） |
-| `apps/terminal/plugins/contract.ts` | Terminal 插件接口定义 | 宿主能力、插件身份、版本、工作区与卡片贡献 |
-| `apps/terminal/src/ui/` | Terminal 内置 UI 库，不是业务插件 | 原主题、外观偏好 |
-| `apps/terminal/src/` | Terminal 内置宿主与产品装配 | 窗口、工作台、设置、桥接、插件选择 |
-| `apps/terminal/plugins/` | Terminal 专属 UI 插件 | 总览、期货行情、数据、研究与交易工作区 |
-| `apps/terminal/native/` | Terminal 专属 C++ 应用编排 | 状态读取、CSV 完整校验后发布会话预览 |
+| `apps/clients/terminal/plugins/contract.ts` | Terminal 插件接口定义 | 宿主能力、插件身份、版本、工作区与卡片贡献 |
+| `apps/clients/terminal/src/ui/` | Terminal 内置 UI 库，不是业务插件 | 原主题、外观偏好 |
+| `apps/clients/terminal/src/` | Terminal 内置宿主与产品装配 | 窗口、工作台、设置、桥接、插件选择 |
+| `apps/clients/terminal/plugins/` | Terminal 专属 UI 插件 | 总览、期货行情、数据、研究与交易工作区 |
+| `apps/clients/terminal/native/` | Terminal 专属 C++ 应用编排 | 状态读取、CSV 完整校验后发布会话预览 |
 | `protocol/` | 跨进程/跨机器 Protobuf 契约、消息校验与表示转换；生成代码位于构建目录 | 不包含传输机制或业务执行 |
 | `bindings/c/` | C ABI 句柄、内存与异常边界封装 | 当前导出 Terminal 应用 API，不含 CSV 算法 |
-| `apps/strategy/` | 策略执行宿主，复用具体策略插件 | 有序事件与持久化意图、IPC/TCP mTLS、重启恢复；Agent 管理已接入；模拟授权交接已实现；自动历史回放已接入；Terminal 本机配置、授权与撤销已接入；程序已纳入分发；托管服务显式更新已实现；Agent 自身升级待完成 |
-| `apps/backtest/` | 历史回测任务宿主 | 单日 SMA 回测与 Agent 监管的任务工作进程 |
-| `apps/factor/` | 因子计算、挖掘与评估任务宿主 | 事件动量分析、持久化任务、Agent 派发与 Terminal 结果展示 |
-| `apps/data-pipeline/` | 历史数据处理任务宿主 | CSV 快照任务、来源校验、不可覆盖发布与 Terminal 版本选择 |
-| `apps/task-service/` | 持久化任务与执行尝试管理 | 类型化服务、恢复、取消与结果校验；自动调度待接入 |
-| `apps/cli/` | CLI 产品入口与装配 | CSV 校验 |
-| `apps/terminal/dev/` | Terminal 浏览器开发与测试桥接 | JSON-lines 调用真实 C++ Terminal API，不是独立服务产品 |
-| `tests/`、`apps/terminal/e2e/` | 核心、契约、边界与界面验收 | CTest 与 Playwright |
+| `apps/services/strategy/` | 策略执行宿主，复用具体策略插件 | 有序事件与持久化意图、IPC/TCP mTLS、重启恢复；Agent 管理已接入；模拟授权交接已实现；自动历史回放已接入；Terminal 本机配置、授权与撤销已接入；程序已纳入分发；托管服务显式更新已实现；Agent 自身升级待完成 |
+| `apps/services/backtest/` | 历史回测任务宿主 | 显式多日结算日程驱动的 SMA 回测与 Agent 监管的任务工作进程 |
+| `apps/services/factor/` | 因子计算、挖掘与评估任务宿主 | 事件动量分析、持久化任务、Agent 派发与 Terminal 结果展示 |
+| `apps/services/data-pipeline/` | 历史数据处理任务宿主 | CSV 快照任务、来源校验、不可覆盖发布与 Terminal 版本选择 |
+| `apps/services/task-service/` | 持久化任务与执行尝试管理 | 类型化任务、尝试令牌、恢复、取消与结果校验；Task Service 决定队列顺序、并发与工作程序角色，Agent 执行进程启动 |
+| `apps/clients/terminal/dev/` | Terminal 浏览器开发与测试桥接 | JSON-lines 调用真实 C++ Terminal API，不是独立服务产品 |
+| `tests/`、`apps/clients/terminal/e2e/` | 核心、契约、边界与界面验收 | CTest 与 Playwright |
 
-是否为插件与是否可复用是独立维度。Terminal 专属插件通过 `apps/terminal/plugins/contract.ts` 获取应用能力；注册校验位于 `apps/terminal/src/host/plugin-registry.ts`，产品装配位于 `apps/terminal/src/plugins.ts`。只有独立于 Terminal 布局及应用能力的面板才适合提取到顶层 `plugins/ui/`，当前不创建空目录。交易与研究是同一 Terminal 的工作区，不为它们创建独立应用。
+是否为插件与是否可复用是独立维度。Terminal 专属插件通过 `apps/clients/terminal/plugins/contract.ts` 获取应用能力；注册校验位于 `apps/clients/terminal/src/host/plugin-registry.ts`，产品装配位于 `apps/clients/terminal/src/plugins.ts`。只有独立于 Terminal 布局及应用能力的面板才适合提取到顶层 `plugins/ui/`，当前不创建空目录。交易与研究是同一 Terminal 的工作区，不为它们创建独立应用。
 
-宿主选取插件，插件贡献工作区与卡片；宿主不再根据业务名称分支渲染面板。注册先检查插件身份、契约版本、工作区身份冲突，再生成导航。面板通过 React lazy 按需加载，React 负责挂载和 effect 清理。这是可信内置插件机制，不支持动态安装、热卸载、依赖解析或不可信插件隔离。交易插件已接入历史模拟账户与交易面板；研究插件仍显示明确的未接入页面。
+宿主选取插件，插件贡献工作区与卡片；宿主不再根据业务名称分支渲染面板。注册先检查插件身份、契约版本、工作区身份冲突，再生成导航。面板通过 React lazy 按需加载，React 负责挂载和 effect 清理。这是可信内置插件机制，不支持动态安装、热卸载、依赖解析或不可信插件隔离。交易插件已接入历史模拟账户与交易面板；研究插件已接入回测与因子任务，最新交付范围和验收证据集中记录在 [实现矩阵](implementation.md)。
 
 `runtime.snapshot` 是 API 方法名，表示查询应用状态，并不要求建立顶层 runtime 目录。C++ 内核生命周期仍在 `core/src/kernel/`。当前 Terminal 编排装配 CSV 数据、Paper 执行与文件日志存储插件；通用业务命令注册与工具插件用例分离尚未实现，不能将目录整理视为整个后端插件化完成。
 
@@ -68,7 +69,7 @@ flowchart TB
 
 CMake 目标按职责命名为 `asterion_foundation`、`asterion_kernel`、`asterion_domain`；允许 `domain → kernel → foundation` 的依赖方向，内核不反向依赖领域。Core 指三者组成的整体，不单指 kernel。
 
-除维护者明确授权建立的上述应用工程入口外，尚未实现的目录不创建空壳。仍未实现业务的入口只提供帮助与版本并拒绝执行；首条研究服务链路的实际范围见 [研究任务](research-tasks.md)，其中研究服务已加入本机启动流程，回测按任务启动；其余未实现业务的入口不分发。Conan 负责外部依赖，CMake target 表达模块依赖；Rust/Cargo 只用于 Tauri 桌面外壳，不能承载第二套核心。
+除维护者明确授权建立的上述应用工程入口外，尚未实现的目录不创建空壳。仍未实现业务的入口只提供帮助与版本并拒绝执行；首条研究服务链路的实际范围见 [研究任务](research-tasks.md)，其中研究服务已加入本机启动流程，回测按任务启动；其余未实现业务的入口不分发。Conan 负责外部依赖，CMake target 表达模块依赖；Electron 主进程只承载桌面机制，通过 Node-API 调用 C++，不承载第二套核心。
 
 ## 插件与端口
 
@@ -96,23 +97,23 @@ CMake 目标按职责命名为 `asterion_foundation`、`asterion_kernel`、`aste
 
 ## 原界面复用
 
-原主题保存在 `apps/terminal/src/ui/`，Workbench 与 WindowFrame 在 `apps/terminal/src/host/`，Dashboard 在 `apps/terminal/plugins/overview/`。沿用 `rust` 分支视觉与交互设计，不恢复旧业务请求、账户状态、Python 服务或 Rust 领域实现。
+原主题保存在 `apps/clients/terminal/src/ui/`，Workbench 与 WindowFrame 在 `apps/clients/terminal/src/host/`，Dashboard 在 `apps/clients/terminal/plugins/overview/`。沿用 `rust` 分支视觉与交互设计，不恢复旧业务请求、账户状态、Python 服务或 Rust 领域实现。
 
-当前桌面链路为 **React → Tauri invoke → Rust 薄桥 → C++ Terminal 编排 → Protobuf（本机 IPC / TCP + mTLS）→ 独立交易进程**。CSV 预览与界面状态留在 Terminal；账户账本、Paper 执行和文件日志由 `apps/trading/` 会话持有。C ABI 仍负责进程内跨语言调用；它本身不是 IPC。
+当前桌面链路为 **React → 隔离预加载 IPC → Electron 主进程 → 异步 Node-API 薄桥 → C++ Terminal 编排 → Protobuf（本机 IPC / TCP + mTLS）→ 独立交易进程**。CSV 预览与界面状态留在 Terminal；账户账本、Paper 执行和文件日志由 `apps/services/trading/` 会话持有。C ABI 仍负责进程内跨语言调用；它本身不是 IPC。
 
-C ABI 可并发调用：C++ 编排内部串行化所有触及服务的命令。后台刷新线程按业务部分（交易、研究、策略、行情、节点）逐个读取服务状态，每次只在一次客户端调用期间持锁，命令最多等待一次 RPC；刷新与命令交错时丢弃该轮结果，避免发布旧状态。发布的快照带 `revision` 与 `refreshed_at_ms`：界面轮询携带 `since`，状态未变时只返回 `unchanged`，从不触发服务 RPC；不带 `since` 的读取是显式探测，空闲时现场读取，忙时返回已发布快照并标记 `stale`。刷新周期在行情连接时为 500 ms，否则 2 s。Tauri 薄桥不持有全局锁。交易状态读取期限为 3 秒，变更保留 10 秒（超时即结果未知）。
+C ABI 可并发调用：C++ 编排内部串行化所有触及服务的命令。后台刷新线程按业务部分（交易、研究、策略、行情、节点）逐个读取服务状态，每次只在一次客户端调用期间持锁，命令最多等待一次 RPC；刷新与命令交错时丢弃该轮结果；版本检查与发布在同一个操作锁临界区完成，避免旧结果覆盖新命令。发布的快照带 `revision` 与 `refreshed_at_ms`：界面轮询携带 `since`，状态未变时只返回 `unchanged`，从不触发服务 RPC；不带 `since` 的读取是显式探测，空闲时现场读取，忙时返回已发布快照并标记 `stale`。刷新周期在行情连接时为 500 ms，否则 2 s。Electron 薄桥不持有全局锁。交易状态读取期限为 3 秒，变更保留 10 秒（超时即结果未知）。
 
-内核的 MessageBus、Scheduler、AccessPolicy 与 Observability 目前只经 Runtime 在 Terminal 编排中使用，且只有单一本机调用主体 `terminal.local`，能力检查尚不构成多主体授权；各独立服务进程使用内核的 IPC、线程池与进程机制，但各自实现请求循环，尚未采用 Runtime。“事件驱动”在当前实现中指单进程内的同步事件与有序持久事件（策略宿主、交易日志），不是跨进程事件总线。
+内核的 MessageBus、Scheduler、AccessPolicy 与 Observability 目前只经 Runtime 在 Terminal 编排中使用，且只有单一本机调用主体 `terminal.local`，能力检查尚不构成多主体授权；各独立服务进程使用内核的 IPC、线程池与进程机制，但共用 ServiceHost 处理连接准入、健康通道与停机，业务路由仍归各应用，尚未采用 Runtime。“事件驱动”在当前实现中指单进程内的同步事件与有序持久事件（策略宿主、交易日志），不是跨进程事件总线。
 
 实际交易进程协议定义在 `protocol/proto/`，通用通道与子进程机制在 Core kernel，业务路由在应用。本机使用 Unix Socket / Windows Named Pipe；跨机器使用 TCP + mTLS。Terminal 设置保存服务地址与证书路径，本机和远程交易服务均由 Agent 管理、独立于桌面存活，账本保存在服务端。实盘/模拟作为同一交易程序的独立实例，当前实盘模式拒绝启动，不以模拟替代。实时行情宿主命名为 `market-data`，已接入只读 CTP 数据插件，历史模拟不依赖它。完整职责、工程归属、CLI11 与验收边界见 [进程架构](process-architecture.md)。
 
 浏览器开发仍由 Vite 中间件经 `asterion_terminal_dev_bridge` 调用同一界面 API；其交易操作同样启动并访问独立交易进程，不恢复旧服务或保留另一套交易后端。
 
-已复用原终端主题、Workbench、WindowFrame、Dashboard 布局交互；数据、市场、设置面板直接消费新的 C++ 状态。交易面板已经接入单合约历史模拟账户、委托、成交与持仓，研究与实盘功能仍未接入。没有复制旧账户/API 协议。UI 的完整迁移仍需后续业务接入与验收，当前包含可恢复的首条期货历史模拟交易链路，精确范围见 [期货模拟交易](paper-trading.md)。
+已复用原终端主题、Workbench、WindowFrame、Dashboard 布局交互；数据、市场、设置面板直接消费新的 C++ 状态。交易面板已经接入单合约历史模拟账户、委托、成交与持仓，研究任务已接入，实盘仍拒绝启动。没有复制旧账户/API 协议。UI 的完整迁移仍需后续业务接入与验收，当前包含可恢复的首条期货历史模拟交易链路，精确范围见 [期货模拟交易](paper-trading.md)。
 
 ## 构建参考
 
-采用 Conan 官方的 [CMake 集成](https://docs.conan.io/2/integrations/cmake.html) 与 [CMakeToolchain](https://docs.conan.io/2/reference/tools/cmake/cmaketoolchain.html) 生成工具链和本地 presets。终端 API 使用 nlohmann_json 并锁定依赖。Tauri 本机调用遵循 [官方 command 接口](https://v2.tauri.app/develop/calling-rust/)，窗口权限限制在本地终端窗口。
+采用 Conan 官方的 [CMake 集成](https://docs.conan.io/2/integrations/cmake.html) 与 [CMakeToolchain](https://docs.conan.io/2/reference/tools/cmake/cmaketoolchain.html) 生成工具链和本地 presets。终端 API 使用 nlohmann_json 并锁定依赖。Electron 本机调用通过受限预加载 IPC 与异步 Node-API；渲染进程开启沙箱和上下文隔离、禁用 Node 集成。
 
 ## 平台边界
 
@@ -130,8 +131,8 @@ Linux、Windows、macOS 为一等支持目标，复用同一套核心与业务�
 
 ## Terminal 多语言
 
-中英文属于内置宿主基础设施，语言切换、持久化和资源校验归 `apps/terminal/src/i18n/`。各 UI 插件拥有自己的语言资源，通过公开契约注册到插件 ID 命名空间。Core 保持语言无关，界面按错误码显示本地化摘要。见 [中英文实现与边界](localization.md)。
+中英文属于内置宿主基础设施，语言切换、持久化和资源校验归 `apps/clients/terminal/src/i18n/`。各 UI 插件拥有自己的语言资源，通过公开契约注册到插件 ID 命名空间。Core 保持语言无关，界面按错误码显示本地化摘要。见 [中英文实现与边界](localization.md)。
 
 ## 实时行情服务
 
-`apps/market-data/` 已提供独立只读行情宿主，由 Agent 管理，与交易进程分别部署。连接、订阅、快照推送和心跳使用 `protocol/proto/asterion/v1/market.proto`，支持本机 IPC 与 TCP/mTLS。CTP 供应商代码在数据插件中，详见 [CTP 行情及验收边界](ctp-market-data.md)。
+`apps/services/market-data/` 已提供独立只读行情宿主，由 Agent 管理，与交易进程分别部署。连接、订阅、快照推送和心跳使用 `protocol/proto/asterion/v1/market.proto`，支持本机 IPC 与 TCP/mTLS。CTP 供应商代码在数据插件中，详见 [CTP 行情及验收边界](ctp-market-data.md)。

@@ -20,9 +20,9 @@ flowchart LR
   Trading --> Ledger
 ```
 
-- `apps/node-agent/`：Node Agent 产品入口，CLI11 参数、部署用例、服务目录、进程监督与状态路由。
-- `apps/terminal/native/node_client.*`：管理协议客户端、分块上传、后台节点心跳；`trading_client.*`：交易连接保活和只读重连，不创建或重启交易进程。`local_node.*` / `node_service.*` 负责本机 Agent 引导与 OS 用户服务注册。
-- `apps/terminal/src/settings/`：当前产品的部署与状态界面。这是宿主设置，不作为共享 UI 插件。
+- `apps/services/node-agent/`：Node Agent 产品入口，CLI11 参数、部署用例、服务目录、进程监督与状态路由。
+- `apps/clients/terminal/native/node_client.*`：管理协议客户端、分块上传、后台节点心跳；`trading_client.*`：交易连接保活和只读重连，不创建或重启交易进程。`local_node.*` / `node_service.*` 负责本机 Agent 引导与 OS 用户服务注册。
+- `apps/clients/terminal/src/settings/`：当前产品的部署与状态界面。这是宿主设置，不作为共享 UI 插件。
 - `protocol/proto/asterion/v1/node.proto`：状态、上传、发布、部署、启动/停止/重启及业务健康契约；交易协议中的 Health 表示业务就绪状态。
 - `core/kernel/ipc` 与 `core/kernel/process`：通用 TCP/TLS、进程所有权、父进程存活检查、SHA-256 和原生程序平台识别。Core 不识别交易服务配置，不执行远程 shell。
 
@@ -60,7 +60,7 @@ Agent 地址随机标识持久保存在私有数据目录，跨进程引导使�
 
 本机保存 enrollment 配置和身份，重试保持相同身份；同名节点的主机、端口、平台或程序摘要变化会拒绝覆盖。远端安装使用固定的独占节点目录和安装记录；已存在内容必须匹配当前安装身份，不覆盖不明服务或历史账本。连接失败但服务已安装时，可点击“连接已安装节点”继续验证，后续不再使用 SSH。暂存目录尝试清理；SSH 中断时可能留下仅该安装用户可读的暂存目录。
 
-SSH 安装用例在 `apps/terminal/native/node_enrollment.*`，证书生成在 `node_identity.cpp`；SCM 适配在 `apps/node-agent/windows_service.hpp`。Core 仅提供通用进程机制和退出码，不加入 SSH 业务分派。`ASTERION_SSH_TOOL_DIRECTORY` 仅用于显式工具路径/测试替身，不使用 PATH 隐式回退。
+SSH 安装用例在 `apps/clients/terminal/native/node_enrollment.*`，证书生成在 `node_identity.cpp`；SCM 适配在 `apps/services/node-agent/windows_service.hpp`。Core 仅提供通用进程机制和退出码，不加入 SSH 业务分派。`ASTERION_SSH_TOOL_DIRECTORY` 仅用于显式工具路径/测试替身，不使用 PATH 隐式回退。
 
 每个桌面包内置同版本 Linux x86_64 Agent、交易程序和初始化脚本。服务 ZIP 由 `scripts/deployment_bundle.py` 在 Linux 构建环境生成，由 `scripts/remote_resources.py` 校验后嵌入安装包，仅作为 CI 构建材料。用户无需下载、解压或选择程序文件；交易程序根据已认证 Agent 的平台、架构和版本自动选择。初始化脚本可在界面导出。当前没有交互密码认证、证书自动轮换、Agent 自身版本升级或卸载界面。证书到期与版本变更需要后续维护能力，不自动重置身份或删除数据。
 
@@ -146,7 +146,7 @@ Terminal、Agent、交易及后续服务仍支持 Windows / Linux / macOS，未�
 - macOS 返回手动配置提示；尚未自动配置 PF 来源规则或应用防火墙。不会为了统一接口覆盖全局 PF 配置。
 - 规则只定义本次新增的允许范围；系统中已有宽泛放行规则不会因此变为严格隔离策略。云安全组、网关与企业网络策略由外部管理员管理。
 
-应用归属：防火墙脚本适配位于 `apps/node-agent/firewall.*`，由 Node Agent 和 Terminal SSH 引导共用；规则确认与机器配置在应用层。Core 只新增受控子进程 stdout 捕获和 TLS 对端地址查询机制。Protobuf 的 Firewall / FirewallPlan 描述 Agent 检查与确认操作。
+应用归属：防火墙脚本适配位于 `apps/services/node-agent/firewall.*`，由 Node Agent 和 Terminal SSH 引导共用；规则确认与机器配置在应用层。Core 只新增受控子进程 stdout 捕获和 TLS 对端地址查询机制。Protobuf 的 Firewall / FirewallPlan 描述 Agent 检查与确认操作。
 
 Linux 专用账户初始化及其防火墙只读权限见 [机器初始化](host-initialization.md)。此流程不会自动授予端口修改权限。
 
@@ -157,13 +157,13 @@ Linux 专用账户初始化及其防火墙只读权限见 [机器初始化](host
 
 ## 实时行情服务
 
-`apps/market-data/` 已提供独立只读行情宿主，由 Agent 管理，与交易进程分别部署。连接、订阅、快照推送和心跳使用 `protocol/proto/asterion/v1/market.proto`，支持本机 IPC 与 TCP/mTLS。CTP 供应商代码在数据插件中，详见 [CTP 行情及验收边界](ctp-market-data.md)。
+`apps/services/market-data/` 已提供独立只读行情宿主，由 Agent 管理，与交易进程分别部署。连接、订阅、快照推送和心跳使用 `protocol/proto/asterion/v1/market.proto`，支持本机 IPC 与 TCP/mTLS。CTP 供应商代码在数据插件中，详见 [CTP 行情及验收边界](ctp-market-data.md)。
 
 行情接入后，Agent 的受管服务配置使用 version 2，必须显式记录服务类型和可选供应商库摘要。旧配置拒绝加载，不自动补字段、覆盖或删除。部署验收应使用同一构建版本的 Terminal、Agent 和服务；升级旧环境前需单独处理已有服务与数据，不能把旧 Agent 的响应当成新协议成功。
 
 ## 研究任务服务
 
-`research` 服务类型部署 Task Service 和匹配的 Backtest 程序，两者均来自内置且通过校验的 Linux 资源。`worker_artifact` 只允许用于研究服务；行情供应商库不能混入研究服务。Agent 每秒查看任务队列，每个研究服务最多同时运行两个回测子进程，通过本机专用 IPC 访问任务服务。工作进程受 Agent 监督，停止研究服务会停止其工作进程，任务恢复按研究协议处理；进程重启不等于自动重试中断任务。跨机器客户端通过该服务的 TCP/mTLS 端口提交和查询。
+`research` 服务类型部署 Task Service 和匹配的 Backtest 程序，两者均来自内置且通过校验的 Linux 资源。`worker_artifact` 只允许用于研究服务；行情供应商库不能混入研究服务。Agent 每秒通过本机专用 IPC 上报存活工作进程，由 Task Service 决定提交顺序、最多两个并发工作进程和回测/因子/数据程序角色。Agent 根据计划启动已部署且校验通过的程序，保留独立于业务并发策略的进程资源上限。工作进程受 Agent 监督，停止研究服务会停止其工作进程，任务恢复按研究协议处理；进程重启不等于自动重试中断任务。跨机器客户端通过该服务的 TCP/mTLS 端口提交和查询。
 
 
 ## 已停止服务的程序更新
@@ -193,7 +193,7 @@ macOS 使用唯一临时 launchd 标签完成真实注册、错误 PID/配置拒
 
 ### Agent 程序发布与升级编排（开发中）
 
-本机升级实现位于 `apps/terminal/native/node_program.cpp`，仍是 Terminal 应用编排，不属于内核。程序发布核对当前摘要、目标平台、暂存摘要，持有 Agent 工作目录锁后原子替换。更新记录为 `agent-upgrade.json`，未完成记录、残缺暂存或冲突内容均保留并拒绝普通启动；只有显式调用同一更新事务才能继续，不自动删除异常现场或回退程序。记录发布与程序替换使用文件系统原子重命名；尚未做断电持久性验收。
+本机升级实现位于 `apps/clients/terminal/native/node_program.cpp`，仍是 Terminal 应用编排，不属于内核。程序发布核对当前摘要、目标平台、暂存摘要，持有 Agent 工作目录锁后原子替换。更新记录为 `agent-upgrade.json`，未完成记录、残缺暂存或冲突内容均保留并拒绝普通启动；只有显式调用同一更新事务才能继续，不自动删除异常现场或回退程序。记录发布与程序替换使用文件系统原子重命名；尚未做断电持久性验收。
 
 系统服务编排在 `bootstrap.lock` 内检查在线 Agent 的业务服务均已停止，核验系统注册身份，再停止、替换、重新注册启动和检查健康。Agent 不可达时拒绝升级，不把连接失败当作停止证明。底层发布恢复与系统服务升级是不同环节：后者尚无用户可用的恢复入口。
 

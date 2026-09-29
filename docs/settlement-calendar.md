@@ -32,7 +32,7 @@ trading_day,session_begin,session_end,settlement_price,schedule_source,settlemen
 - `plugins/data/csv/csv_settlement_calendar.*`：官方 CSV 结算表插件，复用插件生命周期与取消语义。
 - `protocol/proto/asterion/v1/data.proto`：共享 SettlementDay / TradingSession、SettlementCalendar、CalendarCsvSnapshot、CalendarPublication。BacktestInput 版本 5 使用同一个 SettlementDay 字段模型，并保存可选的完整 CalendarPublication 证据；不添加旧字段别名或迁移路径。
 - `protocol/src/calendar.cpp`：共享交易日校验、规范表示、内容摘要与发布身份；研究输入与数据发布调用同一个日期/区间校验入口。
-- `apps/data-pipeline/calendar.*`：本地文件捕获、插件装配、来源重算、持久化发布和读取。输入保持在当前应用层，Core 不读取供应商文件。
+- `apps/services/data-pipeline/calendar.*`：本地文件捕获、插件装配、来源重算、持久化发布和读取。输入保持在当前应用层，Core 不读取供应商文件。
 
 内容版本对规范合约及完整交易日记录求 SHA-256，包含各日时段、结算价和来源说明。不同但等价的时区字符串或 LF/CRLF 可以对应相同内容版本。发布 ID 另外绑定文件名、原始字节 SHA-256、字节数和导入器 `asterion.csv.settlement.v1`，因此保留原文件差异。摘要是内容身份，不是外部数字签名。工作结果可根据原始快照重新解析核对；原始文件路径不进入发布物。
 

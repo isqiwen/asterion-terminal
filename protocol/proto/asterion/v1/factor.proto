@@ -1,5 +1,6 @@
 syntax = "proto3";
 import "asterion/v1/domain.proto";
+import "asterion/v1/data.proto";
 package asterion.research.v1;
 import "asterion/v1/trading.proto";
 
@@ -69,4 +70,52 @@ message FactorFold {
   repeated FactorCandidate candidates = 5;
   FactorPartition development = 6;
   FactorPartition holdout = 7;
+}
+
+// Daily close research retains provider trading dates. No trade timestamps,
+// synthetic quantities, contract multiplier or execution assumptions.
+message DailyFactorDataset {
+  uint32 version = 1;
+  string source_task_id = 2;
+  string source = 3;
+  string ts_code = 4;
+  string manifest_sha256 = 5;
+  repeated asterion.data.v1.DailyBar bars = 6;
+}
+message DailyFactorInput {
+  uint32 version = 1;
+  string dataset_revision = 2;
+  DailyFactorDataset dataset = 3;
+  uint32 lookback = 4;
+  uint32 horizon = 5;
+  oneof evaluation {
+    bool full_sample = 6;
+    uint32 holdout_start = 7;
+  }
+}
+message DailyFactorSample {
+  uint32 observation_index = 1;
+  string trading_day = 2;
+  string label_day = 3;
+  double value = 4;
+  double forward_return = 5;
+}
+message DailyFactorResult {
+  uint32 version = 1;
+  string dataset_revision = 2;
+  string engine_version = 3;
+  uint32 lookback = 4;
+  uint32 horizon = 5;
+  uint32 input_count = 6;
+  repeated DailyFactorSample samples = 7;
+  repeated FactorPartition partitions = 8;
+  uint32 purged_count = 9;
+}
+
+// Clients select a service-owned completed download; they cannot upload bars or provenance.
+message DailyFactorRequest {
+  string source_task_id = 1;
+  uint32 lookback = 2;
+  uint32 horizon = 3;
+  oneof evaluation { bool full_sample = 4; uint32 holdout_start = 5; }
 }

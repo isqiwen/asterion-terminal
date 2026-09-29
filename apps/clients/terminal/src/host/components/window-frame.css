@@ -1,0 +1,12 @@
+.window-frame {
+  position: relative;
+  height: 100%;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  background: var(--canvas);
+}
+.window-content {
+  min-height: 0;
+  overflow: hidden;
+  contain: layout;
+}

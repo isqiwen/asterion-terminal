@@ -1,0 +1,7 @@
+add_library(asterion_data_pipeline STATIC pipeline.cpp minutes.cpp daily.cpp calendar.cpp calendar_generate.cpp)
+target_include_directories(asterion_data_pipeline PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(asterion_data_pipeline PUBLIC asterion_tushare asterion_protocol asterion_sessions PRIVATE asterion_chart_indicators asterion_csv asterion_file_journal)
+add_executable(asterion-data-pipeline main.cpp)
+target_compile_features(asterion-data-pipeline PRIVATE cxx_std_20)
+target_compile_definitions(asterion-data-pipeline PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
+target_link_libraries(asterion-data-pipeline PRIVATE asterion_data_pipeline asterion_task_client CLI11::CLI11 $<$<PLATFORM_ID:Windows>:shell32>)

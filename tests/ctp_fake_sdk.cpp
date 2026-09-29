@@ -44,6 +44,8 @@ public:
     spi = value;
   }
   int SubscribeMarketData(char* names[], int count) override {
+    if (count > 50)
+      return -3;
     std::lock_guard lock(mutex);
     for (int i = 0; i < count; ++i) {
       CThostFtdcSpecificInstrumentField instrument{};
@@ -73,8 +75,27 @@ public:
       tick.AskPrice1 = 3511;
       tick.BidVolume1 = 2;
       tick.AskVolume1 = 3;
+      tick.BidPrice2 = 3508.25;
+      tick.BidVolume2 = 4;
+      tick.AskPrice2 = 3512.5;
+      tick.AskVolume2 = 5;
+      tick.BidPrice3 = std::numeric_limits<double>::max();
+      tick.BidVolume3 = 8;
+      tick.AskPrice3 = 3513;
+      tick.AskVolume3 = 0;
+      tick.BidPrice4 = 3506;
+      tick.BidVolume4 = -1;
+      tick.BidPrice5 = 3505;
+      tick.BidVolume5 = 10;
+      tick.AskPrice5 = 3515;
+      tick.AskVolume5 = 11;
       tick.Volume = 5;
       tick.OpenInterest = 100;
+      tick.PreOpenInterest = 125.25;
+      tick.PreClosePrice = 3480.125;
+      tick.OpenPrice = 3490.25;
+      tick.UpperLimitPrice = 3800.5;
+      tick.LowerLimitPrice = std::numeric_limits<double>::max();
       tick.PreSettlementPrice = std::numeric_limits<double>::max();
       tick.UpdateMillisec = 500;
       spi->OnRtnDepthMarketData(&tick);

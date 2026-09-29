@@ -184,6 +184,42 @@ TEST(ResearchTasks, DuplicateSubmissionAndStaleAttemptsAreFenced) {
   EXPECT_EQ(store.result("job1").SerializeAsString(), backtest::run(input()).SerializeAsString());
   EXPECT_THROW(store.retry("job1"), std::invalid_argument);
 }
+TEST(ResearchTasks, DispatchOwnsSubmissionOrderCapacityAndDoesNotClaimBeforeLaunch) {
+  TaskDirectory directory;
+  tasks::Store store(directory.path);
+  for (const auto* id : {"z-first", "a-second", "m-third"})
+    store.submit(id, input());
+  research::v1::TaskDispatch processes;
+  auto launches = store.dispatch(processes);
+  ASSERT_EQ(launches.launches_size(), 2);
+  EXPECT_EQ(launches.launches(0).task_id(), "z-first");
+  EXPECT_EQ(launches.launches(1).task_id(), "a-second");
+  EXPECT_EQ(launches.launches(0).program(), research::v1::BACKTEST_PROGRAM);
+  EXPECT_FALSE(launches.launches(0).settlement_calendar());
+  EXPECT_EQ(store.get("z-first").state(), research::v1::QUEUED);
+  EXPECT_EQ(store.get("z-first").attempt(), 0U);
+  // An OS process may be running before it claims its attempt.
+  processes.add_running("z-first");
+  launches = store.dispatch(processes);
+  ASSERT_EQ(launches.launches_size(), 1);
+  EXPECT_EQ(launches.launches(0).task_id(), "a-second");
+  processes.add_running("a-second");
+  EXPECT_EQ(store.dispatch(processes).launches_size(), 0);
+  processes.clear_running();
+  store.cancel("z-first");
+  const auto token = store.claim("a-second");
+  launches = store.dispatch(processes);
+  ASSERT_EQ(launches.launches_size(), 1);
+  EXPECT_EQ(launches.launches(0).task_id(), "m-third");
+  store.interrupt("a-second", token, "test worker exited");
+  EXPECT_EQ(store.dispatch(processes).launches_size(), 1);
+  store.retry("a-second");
+  launches = store.dispatch(processes);
+  EXPECT_EQ(launches.launches(0).task_id(), "a-second");
+  processes.add_running("a-second");
+  processes.add_running("a-second");
+  EXPECT_THROW(store.dispatch(processes), std::invalid_argument);
+}
 TEST(ResearchTasks, RestartRetainsQueueAndResultsButInterruptsUnconfirmedWork) {
   TaskDirectory directory;
   {
@@ -222,6 +258,68 @@ TEST(ResearchTasks, ModifiedResultNeverLoadsAsSuccess) {
     file << " ";
   }
   EXPECT_THROW(tasks::Store corrupted(directory.path), std::invalid_argument);
+}
+TEST(ResearchTasks, VerificationSnapshotCannotBypassCancellationOrANewerAttempt) {
+  for (const bool retry : {false, true}) {
+    SCOPED_TRACE(retry);
+    TaskDirectory directory;
+    tasks::Store store(directory.path);
+    store.submit("job", input());
+    research::v1::TaskFinish request;
+    request.set_id("job");
+    request.set_token(store.claim("job"));
+    *request.mutable_result() = backtest::run(input());
+    auto pending = store.prepare_finish(request);
+    EXPECT_THROW(store.finish(pending), std::invalid_argument);
+    // The host can service other operations while verification owns only copies.
+    store.progress("job", request.token(), 1);
+    store.cancel("job");
+    if (retry) {
+      store.acknowledge_cancel("job", request.token());
+      store.retry("job");
+      EXPECT_NE(store.claim("job"), request.token());
+    }
+    pending.verify();
+    if (retry) {
+      EXPECT_THROW(store.finish(std::move(pending)), std::invalid_argument);
+      EXPECT_EQ(store.get("job").state(), research::v1::RUNNING);
+      EXPECT_EQ(store.get("job").attempt(), 2U);
+    } else {
+      store.finish(std::move(pending));
+      EXPECT_EQ(store.get("job").state(), research::v1::CANCELLED);
+    }
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "job" / "results" / "1"));
+  }
+}
+TEST(ResearchTasks, VerificationSnapshotIsOwnedAndExpiredAttemptCannotCommit) {
+  TaskDirectory directory;
+  tasks::Store store(directory.path);
+  store.submit("job", input());
+  research::v1::TaskFinish request;
+  request.set_id("job");
+  request.set_token(store.claim("job"));
+  *request.mutable_result() = backtest::run(input());
+  auto pending = store.prepare_finish(request);
+  request.mutable_result()->set_dataset_revision("changed.after.prepare");
+  EXPECT_NO_THROW(pending.verify());
+  store.interrupt("job", request.token(), "test lease expired");
+  EXPECT_THROW(store.finish(std::move(pending)), std::invalid_argument);
+  EXPECT_EQ(store.get("job").state(), research::v1::INTERRUPTED);
+  EXPECT_FALSE(std::filesystem::exists(directory.path / "job" / "results" / "1"));
+}
+TEST(ResearchTasks, RepeatedVerifiedReadsStillDetectChangedResultBytes) {
+  TaskDirectory directory;
+  tasks::Store store(directory.path);
+  store.submit("done", input());
+  const auto expected = backtest::run(input());
+  store.finish("done", store.claim("done"), expected);
+  for (int i = 0; i < 3; ++i)
+    EXPECT_EQ(store.result("done").SerializeAsString(), expected.SerializeAsString());
+  {
+    std::ofstream file(directory.path / "done" / "results" / "1" / "00000000.json", std::ios::app);
+    file << " ";
+  }
+  EXPECT_THROW(store.result("done"), std::invalid_argument);
 }
 TEST(ResearchTasks, InvalidInputAndQueuedCancellationDoNotRunAnything) {
   TaskDirectory directory;
@@ -287,14 +385,15 @@ struct ResearchProcess : testing::Test {
 #ifndef _WIN32
     std::filesystem::remove(endpoint); // This test exclusively owns the private directory.
     std::filesystem::remove(endpoint + ".worker");
+    std::filesystem::remove(endpoint + ".health");
 #endif
     const auto directory_utf8 = directory.path.u8string();
     service = std::make_unique<ChildProcess>(
         ASTERION_TASK_SERVICE_PATH,
-        std::vector<std::string>{"--directory",
-                                 std::string(directory_utf8.begin(), directory_utf8.end()),
-                                 "--endpoint", endpoint, "--worker-endpoint", endpoint + ".worker",
-                                 "--session", "research", "--worker-timeout", "2"});
+        std::vector<std::string>{
+            "--directory", std::string(directory_utf8.begin(), directory_utf8.end()), "--endpoint",
+            endpoint, "--worker-endpoint", endpoint + ".worker", "--health-endpoint",
+            endpoint + ".health", "--session", "research", "--worker-timeout", "2"});
     const auto deadline = std::chrono::steady_clock::now() + 10s;
     for (;;) {
       try {
@@ -781,4 +880,36 @@ TEST(ResearchTasks, MultidayEvidenceRestoresAndForgedSettlementCannotCommit) {
   tasks::Store restored(root.path);
   EXPECT_EQ(restored.result("multiday").SerializeAsString(), expected.SerializeAsString());
   EXPECT_EQ(restored.get("multiday").input().SerializeAsString(), spec.SerializeAsString());
+}
+
+TEST_F(ResearchProcess, UpgradeFreezesAdmissionsWaitsForCompletionAndPreservesQueuedWork) {
+  submit("active");
+  submit("queued");
+  research_wire::TaskRequest claim;
+  claim.mutable_claim()->set_id("active");
+  claim.mutable_claim()->set_kind(research_wire::BACKTEST);
+  const auto attempt = call(claim, endpoint + ".worker").attempt();
+  research_wire::TaskRequest freeze;
+  freeze.mutable_quiesce();
+  EXPECT_THROW(call(freeze), std::runtime_error);
+  EXPECT_TRUE(call(freeze, endpoint + ".health").has_health());
+  EXPECT_THROW(submit("blocked"), std::runtime_error);
+  research_wire::TaskRequest stop;
+  stop.mutable_quiesce()->set_stop(true);
+  EXPECT_THROW(call(stop, endpoint + ".health"), std::runtime_error);
+  ASSERT_FALSE(service->exited());
+  research_wire::TaskRequest finish;
+  finish.mutable_finish()->set_id("active");
+  finish.mutable_finish()->set_token(attempt.token());
+  *finish.mutable_finish()->mutable_result() = backtest::run(input());
+  call(finish, endpoint + ".worker");
+  EXPECT_TRUE(call(stop, endpoint + ".health").has_health());
+  ASSERT_TRUE(service->wait(15s));
+  EXPECT_EQ(service->exit_code(), 0);
+  start();
+  research_wire::TaskRequest get;
+  get.mutable_get()->set_id("active");
+  EXPECT_EQ(call(get).task().state(), research_wire::SUCCEEDED);
+  get.mutable_get()->set_id("queued");
+  EXPECT_EQ(call(get).task().state(), research_wire::QUEUED);
 }

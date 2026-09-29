@@ -1,0 +1,10 @@
+{
+  "name": "asterion-terminal",
+  "version": "0.1.0",
+  "description": "Asterion quantitative trading terminal",
+  "author": "Asterion",
+  "private": true,
+  "main": "main.cjs",
+  "homepage": "https://github.com/isqiwen/asterion-terminal",
+  "desktopName": "asterion-terminal.desktop"
+}

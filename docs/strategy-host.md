@@ -1,6 +1,6 @@
 # 独立策略宿主
 
-`apps/strategy/` 装配可信策略插件；程序为 `asterion-strategy`。第一条路径复用 `asterion.strategy.cta.sma-long-flat`，接收有序成交事件，输出目标持仓意图。账本、订单授权、风控、提交与成交仍由交易服务负责。交易进程已提供策略授权和目标持仓交接命令；两个独立进程的测试链路已贯通，自动回放驱动已集成进策略宿主；Terminal 已接入本机配置、授权运行、进度观察与撤销。Agent 已管理策略进程，Terminal 的服务列表可观察、启停和重启已部署实例。
+`apps/services/strategy/` 装配可信策略插件；程序为 `asterion-strategy`。第一条路径复用 `asterion.strategy.cta.sma-long-flat`，接收有序成交事件，输出目标持仓意图。账本、订单授权、风控、提交与成交仍由交易服务负责。交易进程已提供策略授权和目标持仓交接命令；两个独立进程的测试链路已贯通，自动回放驱动已集成进策略宿主；Terminal 已接入本机配置、授权运行、进度观察与撤销。Agent 已管理策略进程，Terminal 的服务列表可观察、启停和重启已部署实例。
 
 ## 已实现的契约
 
@@ -66,7 +66,7 @@ Linux x86_64 Ubuntu 容器本次全量 103/103 通过（`build/strategy-executio
 
 Config 可显式携带不可变 ReplayPlan：完整版本化成交数据、目标模拟交易会话、已存在的 grant_id，以及本机 Agent 地址或远端 TCP/mTLS 地址与身份文件路径。计划不携带私钥内容。驱动不会创建账户或自行授权，必须先由受信任控制端准备匹配数据版本的账户及授权。自动会话拒绝外部手工注入策略事件。
 
-`apps/strategy/replay.cpp` 按账户和策略的两个持久化游标恢复。账户与策略相同进度时，先用原意图身份核对/补交，再提交下一笔确定身份的 advance；账户仅领先一笔时，消费已经推进的那笔数据；领先更多或策略反超则拒绝运行。序号、时间、合约、数据版本、授权实例和限额均校验。所有新订单仍由 Trading 进程处理；算法只收到逐笔历史输入，不接收未来标签。
+`apps/services/strategy/replay.cpp` 按账户和策略的两个持久化游标恢复。账户与策略相同进度时，先用原意图身份核对/补交，再提交下一笔确定身份的 advance；账户仅领先一笔时，消费已经推进的那笔数据；领先更多或策略反超则拒绝运行。序号、时间、合约、数据版本、授权实例和限额均校验。所有新订单仍由 Trading 进程处理；算法只收到逐笔历史输入，不接收未来标签。
 
 意图 request_id 来自已持久化 receipt，advance/finish 身份由不可变计划确定。不会对不明手工命令进行猜测或重发。运行期间的连接或业务错误进入 blocked 并停止推进；修复后通过 Agent 重启实例，从已知命令身份和两份日志重新核对。启动阶段最多 20 秒仅重试读取依赖状态，不发送试探性变更。
 
@@ -99,7 +99,7 @@ Linux x86_64 Ubuntu 容器全量 110/110 通过（`build/strategy-terminal-linux
 
 ## 策略分发验证
 
-桌面包提供当前平台的 `asterion-strategy`，同时嵌入 Linux x86_64 对应程序。Linux 清单包含 8 个应用程序、CTP 数据插件和初始化脚本，共 10 项资源；Python staging 与 C++ 运行时均校验策略文件、架构和摘要。CI 的 Linux 构建目标和三平台 Tauri sidecar 列表已同步。Tauri 显式链接策略参数校验所需的 SMA 静态库。
+桌面包提供当前平台的 `asterion-strategy`，同时嵌入 Linux x86_64 对应程序。Linux 清单包含 8 个应用程序、CTP 数据插件和初始化脚本，共 10 项资源；Python staging 与 C++ 运行时均校验策略文件、架构和摘要。CI 的 Linux 构建目标和三平台 Electron 资源列表已同步。Node-API 模块通过 CMake 显式链接策略参数校验所需的 SMA 静态库。
 
 macOS 资源校验/SSH 回归 2/2、Linux 策略/资源/部署回归 3/3。`pnpm desktop:build` 成功，挂载 DMG 后验证应用与各程序签名、内置 Linux 资源，并以包内 Agent/Trading/Strategy 运行 `strategy_terminal`，确认独立运行、重启幂等及离线撤销；包内研究恢复和 CTP SDK 回环也通过。证据为 `build/strategy-bundle-tests.log`、`build/strategy-bundle-linux.log` 和 `build/strategy-desktop-build.log`。
 

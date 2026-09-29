@@ -1,0 +1,94 @@
+#pragma once
+#include "ctp_catalog.hpp"
+#include <asterion/foundation/error.hpp>
+#include <asterion/v1/market.pb.h>
+#include <atomic>
+#include <mutex>
+#include <thread>
+namespace asterion::market_data {
+// Owns one bounded provider operation. Reading state never waits for SDK I/O.
+class CatalogJob {
+public:
+  ~CatalogJob() { worker_.request_stop(); }
+  void start(const std::filesystem::path& library, const std::filesystem::path& flow,
+             ctp::CatalogConfiguration config) {
+    if (!done_.load())
+      throw Error(ErrorCode::conflict, "CTP catalog query is already running");
+    if (worker_.joinable())
+      worker_.join();
+    std::lock_guard lock(mutex_);
+    state_.Clear();
+    state_.set_phase("loading");
+    ++revision_;
+    done_ = false;
+    try {
+      worker_ = std::jthread(
+          [this, library, flow, config = std::move(config)](std::stop_token stop) mutable {
+            market::v1::CatalogState result;
+            try {
+              const auto catalog = ctp::read_catalog(library, flow, std::move(config), stop);
+              result.set_phase("ready");
+              result.set_trading_day(catalog.trading_day);
+              for (const auto& entry : catalog.contracts) {
+                auto* item = result.add_contracts();
+                item->mutable_instrument()->set_venue(entry.instrument.venue);
+                item->mutable_instrument()->set_symbol(entry.instrument.symbol);
+                item->set_product(entry.product);
+                item->set_name(entry.name);
+                item->set_expiry(entry.expiry);
+                item->set_multiplier(entry.multiplier);
+                item->set_price_tick(entry.price_tick.str());
+              }
+            } catch (const Error& error) {
+              result.set_phase("error");
+              result.set_error_code(std::string(error_name(error.code())));
+              result.set_diagnostic(error.what());
+            } catch (const std::exception&) {
+              result.set_phase("error");
+              result.set_error_code("operation_failed");
+              result.set_diagnostic("CTP catalog query failed");
+            }
+            {
+              std::lock_guard lock(mutex_);
+              if (!stop.stop_requested()) {
+                state_ = std::move(result);
+                ++revision_;
+              }
+            }
+            done_ = true;
+          });
+    } catch (...) {
+      done_ = true;
+      state_.set_phase("error");
+      state_.set_error_code("operation_failed");
+      state_.set_diagnostic("CTP catalog worker could not start");
+      ++revision_;
+      throw;
+    }
+  }
+  void cancel() {
+    worker_.request_stop();
+    std::lock_guard lock(mutex_);
+    state_.Clear();
+    state_.set_phase("unconfigured");
+    ++revision_;
+  }
+  bool running() const { return !done_.load(); }
+  std::pair<std::uint64_t, market::v1::CatalogState> snapshot() const {
+    std::lock_guard lock(mutex_);
+    return {revision_, state_};
+  }
+
+private:
+  mutable std::mutex mutex_;
+  market::v1::CatalogState state_ = [] {
+    market::v1::CatalogState s;
+    s.set_phase("unconfigured");
+    return s;
+  }();
+  std::uint64_t revision_ = 0;
+  std::atomic<bool> done_ = true;
+  // Declared last: join before destroying callback state.
+  std::jthread worker_;
+};
+} // namespace asterion::market_data

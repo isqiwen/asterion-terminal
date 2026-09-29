@@ -1,17 +1,33 @@
 # 期货优先的 Asterion Terminal
 
+## 当前 macOS Electron 验收（2026-09-29）
+
+当前只交付 macOS Terminal，直接启动，不依赖平台账户或 Cloud。以下早期 Tauri、历史文件导入与跨平台记录是历史证据，不代表当前产品入口或交付承诺。
+
+```sh
+pnpm desktop:check
+ASTERION_TEST_NODE_ISOLATED=1 pnpm test:desktop
+```
+
+`desktop:check` 编译并准备 Electron 原生资源及测试辅助程序。`test:desktop` 在临时用户目录与临时 Node Agent 中执行，包含真实 C++ 桥接、窗口隔离与设置、快捷键、Agent 独立存活和模拟账本重启恢复。
+
+历史数据链路现在也纳入同一原生验收：测试专用 `asterion_test_minutes` 通过真实数据插件与 Task Store API 生成 120 根明确测试数据；只替换供应商 HTTP 响应，不替换 Task Service、原生桥或界面响应。辅助程序要求隔离环境、规定的研究目录、空任务存储以及独占所有权，不能写入运行中的服务；不复制进桌面资源。Electron 验收真实并行分页、八位小数、状态快照不携带分页、时间筛选、停止服务后保留页面、重启后恢复读取，以及市场图表分页和非零 MACD 值与服务结果一致。
+
+截图可通过 `ASTERION_UI_SCREENSHOTS` 指定输出目录；测试辅助程序默认取 `build/Debug/asterion_test_minutes`，使用其他测试构建目录时由 `ASTERION_TEST_MINUTE_FIXTURE` 显式指定。最终通过记录：`build/native-history-electron.log`；截图：`build/native-history-check/native-history-viewer.png` 与 `native-history-market.png`。这仍是隔离测试数据，不代表真实供应商账户下载验收，也没有重新生成 DMG。
+
+
 ## 界面与代码来源
 
 参考 `rust` 分支 `8d5bc418a79a84b0dfe9310035b8611ffc450ced`。初始移植时以下八个界面源文件与该分支逐字节一致（后续国际化等变更见本文末尾验收记录）：
 
-- `apps/terminal/src/ui/theme/style.css`
-- `apps/terminal/src/ui/theme/tokens.css`
-- `apps/terminal/src/host/workspace/Workbench.tsx`
-- `apps/terminal/src/host/components/WindowFrame.tsx`
-- `apps/terminal/src/host/components/window-frame.css`
-- `apps/terminal/plugins/overview/Dashboard.tsx`
-- `apps/terminal/plugins/overview/layout.ts`
-- `apps/terminal/plugins/overview/dashboard.css`
+- `apps/clients/terminal/src/ui/theme/style.css`
+- `apps/clients/terminal/src/ui/theme/tokens.css`
+- `apps/clients/terminal/src/host/workspace/Workbench.tsx`
+- `apps/clients/terminal/src/host/components/WindowFrame.tsx`
+- `apps/clients/terminal/src/host/components/window-frame.css`
+- `apps/clients/terminal/plugins/overview/Dashboard.tsx`
+- `apps/clients/terminal/plugins/overview/layout.ts`
+- `apps/clients/terminal/plugins/overview/dashboard.css`
 
 保留原深色橙色主题、64px/40px 导航、工作区标签、工具栏、状态栏、总览布局编辑与共享交互反馈。窗口框架、总览编辑器消费的上下文直接调整为新 C++ 契约；旧服务/API、身份后端、账户凭据、Python 运行时没有恢复。
 
@@ -24,7 +40,7 @@
 3. 数据 → 选择本机 CSV → 填写交易所、品种、实际合约、交割月份、价格步长、每手乘数和手数步长 → 校验并预览。
 4. C++ 校验完整文件后发布内存中的会话预览；错误保留此前有效预览。数据只读，不覆盖原文件。
 5. 市场展示历史成交序列及最近 240 笔成交，明确标记“历史数据 · 非实时”，纳秒时间使用字符串传递。
-6. 设置 → 外观可调整原密度和涨跌配色；设置 → 插件显示本次发行版可用的 CSV 插件。
+6. 设置 → 偏好设置可调整原密度和涨跌配色；设置 → 插件显示本次发行版可用的 CSV 插件。
 
 期货首批身份校验限定国内六个期货交易所。交割月份与规格由用户提供，尚未关联交易所正式资料、交易日历、保证金、涨跌停或结算规则。价格图使用浮点坐标仅用于显示，权威价格、成交量、输入校验仍在 C++ Decimal 中。
 
@@ -34,7 +50,7 @@
 - TypeScript / Vite 生产构建通过；Cargo check、Clippy `-D warnings`、Rustfmt 检查通过。
 - Playwright 2/2：使用真实 C++ 开发传输，验证启动、原导航折叠宽度、布局编辑、CSV → 历史行情、非法主力代码拒绝、旧预览保留、设置入口与断连重试。
 - Playwright 行情输入是临时目录中的测试数据，不打包进终端，不登记为生产行情。
-- UI 截图在 `apps/terminal/test-results/`；该目录不提交。
+- UI 截图在 `apps/clients/terminal/test-results/`；该目录不提交。
 
 ## macOS 原生验收（2026-09-26）
 
@@ -53,17 +69,17 @@
 
 ## 工程归属调整验收
 
-当前宿主与专属插件统一归属 `apps/terminal/`，Terminal 内置 UI 库位于 `apps/terminal/src/ui/`，插件接口定义位于 `apps/terminal/plugins/contract.ts`，注册校验位于 `apps/terminal/src/host/plugin-registry.ts`。五个工作区使用插件贡献生成导航，业务卡片由行情、交易、数据插件提供；设置列表来自实际注册记录。面板代码按需加载。
+当前宿主与专属插件统一归属 `apps/clients/terminal/`，Terminal 内置 UI 库位于 `apps/clients/terminal/src/ui/`，插件接口定义位于 `apps/clients/terminal/plugins/contract.ts`，注册校验位于 `apps/clients/terminal/src/host/plugin-registry.ts`。五个工作区使用插件贡献生成导航，业务卡片由行情、交易、数据插件提供；设置列表来自实际注册记录。面板代码按需加载。
 
 本次目录调整后重新执行 C++ 构建/CTest、前端构建和 Playwright（含冲突注册、共享代码依赖边界、插件设置列表和工作区切换）。上文的原生 DMG 交互记录属于调整前验证，不代表本次产物已重新做原生交互验收。
 
 本次实际结果：C++ CTest 6/6、Playwright 5/5、TypeScript/Vite 构建、Tauri cargo check、git diff --check 通过；上述 8 个视觉与布局文件与 rust 分支再次逐字节核对一致。本次未重新打包或进行原生 DMG 交互验收。
 
-Terminal UI 库归属调整：已移入 `apps/terminal/src/ui/`，移除顶层 ui 及旧 ui-kit 导入别名。此次前端构建与 Playwright 5/5 通过，主题文件与 rust 参考逐字节一致，未重新打包。
+Terminal UI 库归属调整：已移入 `apps/clients/terminal/src/ui/`，移除顶层 ui 及旧 ui-kit 导入别名。此次前端构建与 Playwright 5/5 通过，主题文件与 rust 参考逐字节一致，未重新打包。
 
 Terminal 插件接口归属调整：移除顶层 sdk，接口定义与宿主注册校验分别归入应用内；此次 TypeScript/Vite 构建与 Playwright 5/5 通过，未重新打包。
 
-开发桥接归属调整：入口为 `apps/terminal/dev/core_bridge.cpp`，Vite 启动 `asterion_terminal_dev_bridge`。C++ 构建及 CTest 6/6、前端构建、Playwright 5/5 通过；本次未重新打包。
+开发桥接归属调整：入口为 `apps/clients/terminal/dev/core_bridge.cpp`，Vite 启动 `asterion_terminal_dev_bridge`。C++ 构建及 CTest 6/6、前端构建、Playwright 5/5 通过；本次未重新打包。
 
 三平台基础设施调整：CI 扩展至 Linux/Windows/macOS 原生构建与打包；本机 macOS Debug 原生链接、Debug/Release CTest 各 6/6、Playwright 5/5、Release DMG 构建与挂载签名校验通过。Linux/Windows 流水线尚未执行，原生安装交互待验收。
 
@@ -83,7 +99,7 @@ Core 基础设施集成后：Debug/Release CTest 各 8/8、ASan/UBSan 8/8、TSan
 ## 独立交易进程、Protobuf 与 CLI11（2026-09-26）
 
 - 当前三个 C++ 产品/开发入口 `asterion`、`asterion_terminal_dev_bridge`、`asterion-trading` 使用 CLI11；依赖经 Conan 锁定，Windows 参数显式转换 UTF-8。没有创建空的 market-data 或 worker 工程。
-- PaperSession 移入 `apps/trading/`，Terminal 改为 Protobuf 客户端，不链接 Paper/文件日志实现。实际通信使用 Unix Socket / Windows Named Pipe，通用进程与 IPC 机制位于 Core kernel。实时行情宿主的目标名称为 market-data，历史模拟不依赖它。
+- PaperSession 移入 `apps/services/trading/`，Terminal 改为 Protobuf 客户端，不链接 Paper/文件日志实现。实际通信使用 Unix Socket / Windows Named Pipe，通用进程与 IPC 机制位于 Core kernel。实时行情宿主的目标名称为 market-data，历史模拟不依赖它。
 - macOS Debug、Release、ASan/UBSan、TSan 各 44/44（40 个 GoogleTest、4 个进程集成测试）。新增精确数值、未知字段、帧大小、断线/期限、版本/模式/会话拒绝、两个独立账户进程以及 CLI11 帮助/版本/非法参数测试。
 - Protobuf 会话从宿主启动独立交易进程；强杀交易子进程后宿主继续响应并返回明确恢复状态。重新启动并打开日志后，重复请求幂等，账户与回放状态恢复。测试使用中文临时路径。
 - TypeScript/Vite 构建及 Playwright 6/6 通过，交易界面与总览均验证崩溃后的恢复提示；保留原界面风格。
@@ -220,7 +236,7 @@ SSH 变更最终回归：macOS Debug、Release、ASan/UBSan、TSan 均 **47/47 C
 
 ## Node Agent 工程与发布命名
 
-- 管理进程工程位于 `apps/node-agent/`，CMake 和可执行文件统一为 `asterion-node-agent`，本机程序路径覆盖使用 `ASTERION_NODE_AGENT_EXECUTABLE`。节点模型、Node 协议和 `nodes` 数据目录保持原有含义。
+- 管理进程工程位于 `apps/services/node-agent/`，CMake 和可执行文件统一为 `asterion-node-agent`，本机程序路径覆盖使用 `ASTERION_NODE_AGENT_EXECUTABLE`。节点模型、Node 协议和 `nodes` 数据目录保持原有含义。
 - 同步 Tauri sidecar、Linux 双架构资源 manifest、SSH 安装、初始化助手及平台服务注册：macOS `me.asterion.node-agent`、Windows `AsterionNodeAgent`、Linux `asterion-node-agent.service`（远端带节点 ID）。不提供旧名称别名或自动迁移已有服务。
 - 验收：macOS Debug CTest 54 项通过、1 项 Linux 专属测试跳过；Linux 原生相关集成测试 7/7 通过；Playwright 12 项通过、1 项跳过。Linux x86_64 / ARM64 Release 均已重编译，Agent 版本输出为 Asterion Node Agent。Windows 服务名称与打包配置已同步，未进行 Windows 实机验收。
 - 新 DMG 已生成，挂载验证只包含新名称的 Linux 双架构资源；本机 sidecar 名称、签名、版本及服务恢复测试通过。当前已安装应用不会由构建命令自动替换，需使用新安装包更新。
@@ -279,7 +295,7 @@ macOS 原生 CTest 91 通过 / 1 Linux 专用跳过；Linux x86_64 仿真容器 
 
 ## 策略控制增量
 
-交易工作区已通过真实 C++ 桥运行可信 SMA 历史模拟，授权激活时禁止手动操作，撤销后恢复。浏览器策略/原工作台 3/3、策略/中英文 4/4 通过，截图位于 `apps/terminal/test-results/strategy-running.png` 和 `strategy-revoked.png`。原生测试另外验证关闭 Terminal 后继续运行、原 CSV 删除后完成、重复交接不重复下单、策略进程离线时仍可撤销账户授权。macOS 109 通过/1 Linux 专属跳过，Linux x86_64 容器 110/110。策略程序随后已加入安装包并完成挂载 DMG 内集成验证，见 [策略分发验证](strategy-host.md#策略分发验证)；Windows 原生与物理跨机器待验收。
+交易工作区已通过真实 C++ 桥运行可信 SMA 历史模拟，授权激活时禁止手动操作，撤销后恢复。浏览器策略/原工作台 3/3、策略/中英文 4/4 通过，截图位于 `apps/clients/terminal/test-results/strategy-running.png` 和 `strategy-revoked.png`。原生测试另外验证关闭 Terminal 后继续运行、原 CSV 删除后完成、重复交接不重复下单、策略进程离线时仍可撤销账户授权。macOS 109 通过/1 Linux 专属跳过，Linux x86_64 容器 110/110。策略程序随后已加入安装包并完成挂载 DMG 内集成验证，见 [策略分发验证](strategy-host.md#策略分发验证)；Windows 原生与物理跨机器待验收。
 
 
 ## 风险限额与 Agent 升级分发
@@ -363,7 +379,7 @@ Linux x86_64 仿真容器首次全量 149/150，node_deployment 更新阶段出�
 
 `build/research-evidence-desktop-build.log` 记录完整构建与只读挂载验收：镜像校验、包内签名、八个本机服务程序、Linux 内置资源与初始化脚本验证通过；挂载后的交易恢复/去重、研究任务及实验结果恢复、策略授权与撤销、CTP SDK 回环启动/释放通过。验证完成后镜像已卸载。
 
-产物为 `apps/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg`，大小 79030290 字节，SHA-256 `53d4941df4d46354a225651dbe00ab0d8a45862fdaf3511dcf5790ec7d28b3e9`。签名仍为 ad-hoc，未公证；本轮未操作打包后的原生窗口，未替换已安装应用或用户服务/数据，未构建 Windows EXE 与 Linux DEB。Linux 验证为 amd64 仿真容器，不能代替物理跨机器、Windows 原生或真实行情账号验收。此前偶发截断仍保留诊断追踪，不宣称排除所有来源。
+产物为 `apps/clients/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg`，大小 79030290 字节，SHA-256 `53d4941df4d46354a225651dbe00ab0d8a45862fdaf3511dcf5790ec7d28b3e9`。签名仍为 ad-hoc，未公证；本轮未操作打包后的原生窗口，未替换已安装应用或用户服务/数据，未构建 Windows EXE 与 Linux DEB。Linux 验证为 amd64 仿真容器，不能代替物理跨机器、Windows 原生或真实行情账号验收。此前偶发截断仍保留诊断追踪，不宣称排除所有来源。
 
 ### 因子滚动验证
 
@@ -371,7 +387,7 @@ Linux x86_64 仿真容器首次全量 149/150，node_deployment 更新阶段出�
 
 ### 滚动验证 DMG 交付
 
-`build/factor-rolling-desktop-build.log` 记录新版 DMG 的完整构建和只读挂载检查；新增包内版本 4 滚动任务、逐轮配置与结果恢复通过，其他交易/策略/行情回环检查通过。内置 Linux x86_64 服务与初始化脚本来自当前已验证构建。产物仍位于 `apps/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg`，79096723 字节，SHA-256 `63c2076a064b9cda8f101f3be2a0b679260604ccfdc77267ec3a151c0a3eadc9`。验证后已卸载，未操作已安装应用及用户服务/数据。签名为 ad-hoc，未公证；本轮不含 Windows 原生、Linux DEB、物理跨机器或外部行情账号验收。
+`build/factor-rolling-desktop-build.log` 记录新版 DMG 的完整构建和只读挂载检查；新增包内版本 4 滚动任务、逐轮配置与结果恢复通过，其他交易/策略/行情回环检查通过。内置 Linux x86_64 服务与初始化脚本来自当前已验证构建。产物仍位于 `apps/clients/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg`，79096723 字节，SHA-256 `63c2076a064b9cda8f101f3be2a0b679260604ccfdc77267ec3a151c0a3eadc9`。验证后已卸载，未操作已安装应用及用户服务/数据。签名为 ad-hoc，未公证；本轮不含 Windows 原生、Linux DEB、物理跨机器或外部行情账号验收。
 
 
 ### 回测显式交易时段验收
@@ -389,7 +405,7 @@ BacktestInput 版本 3 支持一个明确交易日内的夜盘、日盘及休市
 
 `build/backtest-sessions-desktop-build.log` 记录本轮完整打包和只读挂载验收。包内回测使用输入版本 3 与结果版本 2；本机八个服务程序、Linux x86_64 内置服务与初始化脚本校验通过。挂载后的交易恢复与命令去重、研究/因子滚动/数据发布结果恢复、策略授权运行与撤销、CTP SDK 回环生命周期均通过，镜像已卸载。研究进程集成使用显式日盘时段；夜盘另由上述原生与浏览器测试验证。
 
-产物 `apps/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg`，79142292 字节，SHA-256 `598d15b97b35ee870a981107099fdb796109e3f49773915236e9575c4ea6e682`。签名仍为 ad-hoc、未公证；没有 Windows 原生或 Linux DEB 构建，没有原生 Tauri 窗口或物理远程验收。未安装到用户应用目录、未更新用户 Agent、未修改用户历史数据。
+产物 `apps/clients/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg`，79142292 字节，SHA-256 `598d15b97b35ee870a981107099fdb796109e3f49773915236e9575c4ea6e682`。签名仍为 ad-hoc、未公证；没有 Windows 原生或 Linux DEB 构建，没有原生 Tauri 窗口或物理远程验收。未安装到用户应用目录、未更新用户 Agent、未修改用户历史数据。
 
 
 ### 跨日执行前提：事件间结算与混合持仓目标
@@ -422,7 +438,7 @@ Linux x86_64 仿真容器完整 CTest 168/168（281.65 秒，`build/multiday-lin
 
 `build/multiday-desktop-build.log` 记录完整构建及只读挂载检查。包内研究任务已使用输入版本 4 / 结果版本 3，关闭 Terminal、删除原 CSV、更新并重启服务后，两个交易日的结算和原输入证据完整恢复。包内交易与策略恢复、撤销、CTP SDK 回环生命周期通过；八个本机服务签名及 Linux x86_64 的 10 个资源文件摘要校验通过。镜像已卸载，未替换用户安装或更新用户 Agent。
 
-产物 `apps/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg`，79244463 字节，SHA-256 `941867c8c16053721bd27a42ed08fbafc6946af317fb8f97d9ad477e8c8b3f20`。签名为 ad-hoc，未公证；未构建 Windows EXE / Linux DEB，未操作原生 Tauri 窗口，未进行物理跨机或外部行情账号验收。
+产物 `apps/clients/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg`，79244463 字节，SHA-256 `941867c8c16053721bd27a42ed08fbafc6946af317fb8f97d9ad477e8c8b3f20`。签名为 ad-hoc，未公证；未构建 Windows EXE / Linux DEB，未操作原生 Tauri 窗口，未进行物理跨机或外部行情账号验收。
 
 
 ### 结算 CSV 与不可变发布基础
@@ -459,7 +475,7 @@ macOS Debug 全量 CTest 177 通过、1 Linux 专属 node_deployment 跳过（�
 
 Linux 补充 research_agent_recovery 场景通过（build/calendar-binding-linux-recovery.log），服务 ZIP 的 10 个文件摘要与构建程序及仓库初始化脚本逐项一致。macOS Release 构建及 pnpm desktop:build 成功（build/calendar-binding-desktop-build.log）。
 
-当前 DMG：apps/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg；79,503,705 字节；SHA-256 `8b40e5d5c0ceebd61c7107e3afeb2892b085a9640353b1f94eff48704eb53ec5`。包含 BacktestInput 5、结算表任务/导入/查看/回测版本绑定与 Linux x86_64 服务包、初始化脚本。
+当前 DMG：apps/clients/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg；79,503,705 字节；SHA-256 `8b40e5d5c0ceebd61c7107e3afeb2892b085a9640353b1f94eff48704eb53ec5`。包含 BacktestInput 5、结算表任务/导入/查看/回测版本绑定与 Linux x86_64 服务包、初始化脚本。
 
 只读挂载后验证镜像校验和、应用及本机进程签名、Linux 服务与初始化资源；包内 Trading、Task Service、Backtest、Factor、Data Pipeline、Strategy 经真实独立进程恢复场景通过。结算表发布绑定回测在源文件删除与研究服务重启后完整证据一致；策略自动回放与撤销通过。CTP 厂商 SDK 工厂/回环启动/释放通过，未连接外部行情服务器。挂载已卸载，未修改已安装应用或用户数据。
 
@@ -503,7 +519,7 @@ Ubuntu 24 x86_64 容器 Release 全量 CTest 186/186，通过耗时 287.17 秒�
 
 Linux 一致性与日终双进程测试补验 2/2（build/strategy-calendar-linux-parity.log），服务 ZIP 的 10 个文件摘要与当前 Linux 构建及初始化脚本逐项一致。pnpm desktop:build 成功（build/strategy-calendar-desktop-build.log）。
 
-当前 DMG 为 apps/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg，79,992,749 字节，SHA-256 `85912584d9b5e87d3f4601525d2a2044a862c43a5f486ea3c815a66947c33aec`。包含交易日程绑定/持久化结算、ReplayPlan 2、策略日程选择与手动接管、最新本机与 Linux x86_64 程序及初始化脚本。
+当前 DMG 为 apps/clients/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg，79,992,749 字节，SHA-256 `85912584d9b5e87d3f4601525d2a2044a862c43a5f486ea3c815a66947c33aec`。包含交易日程绑定/持久化结算、ReplayPlan 2、策略日程选择与手动接管、最新本机与 Linux x86_64 程序及初始化脚本。
 
 只读挂载校验镜像、签名和 Linux 资源通过，包内交易/研究/策略恢复通过。新增 CTest strategy_calendar_process 使用挂载包内的 Strategy/Trading（通过既有测试程序环境覆盖），完成日终提交后暂扣回复、强制终止双进程及后续恢复；1/1 通过，1.63 秒。CTP SDK 工厂/回环生命周期通过，未接外部行情。挂载已卸载，未修改已安装程序或用户数据。当前仍是 ad-hoc 签名、未公证，Windows NSIS/Linux DEB 和物理跨机本轮未验收。
 
@@ -520,7 +536,7 @@ macOS Debug 和 Linux x86_64 Release：相关 8/8 测试通过，覆盖真实行
 
 启动页现在在部署任何行情/研究服务前检查 Agent 程序，对 `update_available` / `recovery_required` 展示明确提示和显式升级/恢复入口。升级成功后重新执行完整启动检查；不自动覆盖程序或清理数据。旧 Agent 不认识在线升级协议时，提示需要维护更新，拒绝绕过维护协议。该修改不等于已经更新用户安装中的系统服务。
 
-启动修复安装包已于 2026-09-27 17:00（Asia/Shanghai）生成：`apps/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg`，80,033,625 字节，SHA256 `08871970fd089fa4bc202fd66194fa24bc93eba0fbd81d90dd28c1738fa267e6`。包含启动 Agent 预检/升级入口和合并前行情事件读取；Linux x86_64 内置服务包也已重新生成，10 个材料摘要校验通过。启动页浏览器测试 2/2，通过日志 `build/startup-agent-preflight-retest.log`；完整打包验证见 `build/startup-fix-desktop-build.log`，DMG 校验、签名、包内交易/研究/策略恢复与 CTP 厂商 SDK 回环通过，挂载已弹出。签名为本机 ad-hoc，未公证；未替换 `/Applications` 的程序或旧常驻 Agent，未完成旧 Agent 的维护更新。
+启动修复安装包已于 2026-09-27 17:00（Asia/Shanghai）生成：`apps/clients/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg`，80,033,625 字节，SHA256 `08871970fd089fa4bc202fd66194fa24bc93eba0fbd81d90dd28c1738fa267e6`。包含启动 Agent 预检/升级入口和合并前行情事件读取；Linux x86_64 内置服务包也已重新生成，10 个材料摘要校验通过。启动页浏览器测试 2/2，通过日志 `build/startup-agent-preflight-retest.log`；完整打包验证见 `build/startup-fix-desktop-build.log`，DMG 校验、签名、包内交易/研究/策略恢复与 CTP 厂商 SDK 回环通过，挂载已弹出。签名为本机 ad-hoc，未公证；未替换 `/Applications` 的程序或旧常驻 Agent，未完成旧 Agent 的维护更新。
 
 
 ### 自动准备与本机清理（最新决定）
@@ -529,20 +545,24 @@ macOS Debug 和 Linux x86_64 Release：相关 8/8 测试通过，覆盖真实行
 
 启动页已将空闲 Agent 更新/继续恢复纳入自动启动流程，完成后重新检查程序一致性，移除必经的升级按钮。浏览器启动测试 3/3，日志 `build/automatic-agent-startup-tests.log`。运行中业务的自动排空和恢复仍待实现，不能把本测试当作该能力验收；设计见 `docs/agent-upgrades.md`。
 
-新 DMG 于 2026-09-27T17:10:07（Asia/Shanghai）生成，80,033,565 字节，SHA256 `b6a1d15d85c6f0d0f05b21bd38b38095833f1d1402eab7b71cc729d6fe81c080`，路径 `apps/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg`。打包、签名、包内交易/研究/策略恢复和厂商 SDK 回环验证成功，日志 `build/automatic-agent-desktop-build.log`。仍为 macOS ARM64 本机 ad-hoc 签名且未公证；未替换已安装应用。
+新 DMG 于 2026-09-27T17:10:07（Asia/Shanghai）生成，80,033,565 字节，SHA256 `b6a1d15d85c6f0d0f05b21bd38b38095833f1d1402eab7b71cc729d6fe81c080`，路径 `apps/clients/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg`。打包、签名、包内交易/研究/策略恢复和厂商 SDK 回环验证成功，日志 `build/automatic-agent-desktop-build.log`。仍为 macOS ARM64 本机 ad-hoc 签名且未公证；未替换已安装应用。
 
 ### 底栏与左下角交互
 
-参考 `rust:presentation/panels/terminal-workspace/src/Workspace.tsx` 的底栏信息顺序，以及 `rust:presentation/workbench/src/components/ServiceStatus.tsx` 的向上展开服务详情。新组件归 Terminal 宿主 `apps/terminal/src/host/components/ServiceStatus.tsx`，使用当前 Snapshot，不引入旧 HTTP API、登录或安全状态。
+参考 `rust:presentation/panels/terminal-workspace/src/Workspace.tsx` 的底栏信息顺序，以及 `rust:presentation/workbench/src/components/ServiceStatus.tsx` 的向上展开服务详情。新组件归 Terminal 宿主 `apps/clients/terminal/src/host/components/ServiceStatus.tsx`，使用当前 Snapshot，不引入旧 HTTP API、登录或安全状态。
 
 底栏为服务详情入口、运行/排队任务数量、当前语言的状态读取时间与交易工作区入口。服务详情可重新读取状态或打开连接设置，支持外部点击及 Escape 关闭并恢复焦点；失联节点的缓存服务统一显示待确认。左下角提供任务中心和设置快捷操作。尚未实现的锁定、账户退出与独立窗口未添加虚假按钮。
 
-构建通过；底栏/总览/模拟交易/终端故障恢复 5/5，策略回归在独立环境中 2/2。证据 `build/status-bar-final-tests.log`、`build/status-bar-strategy-tests.log`。首次联合测试发现并修复 host 命名空间缺少模拟交易翻译；策略套件与已有模拟会话状态冲突，因此其验收单独使用隔离 Agent。截图 `apps/terminal/test-results/status-bar-services.png` 已人工检查，为明确的测试环境数据。
+构建通过；底栏/总览/模拟交易/终端故障恢复 5/5，策略回归在独立环境中 2/2。证据 `build/status-bar-final-tests.log`、`build/status-bar-strategy-tests.log`。首次联合测试发现并修复 host 命名空间缺少模拟交易翻译；策略套件与已有模拟会话状态冲突，因此其验收单独使用隔离 Agent。截图 `apps/clients/terminal/test-results/status-bar-services.png` 已人工检查，为明确的测试环境数据。
 
-该 UI 已打入 2026-09-27T17:26:33（Asia/Shanghai）生成的 macOS ARM64 DMG，80,034,427 字节，SHA256 `48f838b84550d9376b621b0ac5a5592b493d6b9d1dfc6d07faec85ee7e6305f4`，路径 `apps/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg`。打包校验与包内服务验收通过（`build/status-bar-desktop-build.log`），未替换已安装应用。
+该 UI 已打入 2026-09-27T17:26:33（Asia/Shanghai）生成的 macOS ARM64 DMG，80,034,427 字节，SHA256 `48f838b84550d9376b621b0ac5a5592b493d6b9d1dfc6d07faec85ee7e6305f4`，路径 `apps/clients/terminal/src-tauri/target/release/bundle/dmg/Asterion Terminal_0.1.0_aarch64.dmg`。打包校验与包内服务验收通过（`build/status-bar-desktop-build.log`），未替换已安装应用。
 
 ### 独立设置窗口（2026-09-27）
 
 已按 [设置窗口契约](terminal-settings.md) 实现独立窗口、重复聚焦、工作台草稿保留、分类整理及跨窗口偏好同步。macOS Tauri 编译通过，浏览器交互回归 8/8，部署与窗口回归 5/5（窗口用例重复一次）。日志 `build/settings-window-tests.log`、`build/settings-window-deployment-tests.log`。
 
 新 macOS ARM64 DMG 于 2026-09-27T21:58:01（Asia/Shanghai）生成，80,046,963 字节，SHA256 `3d9181c53e5576ef94af386ea8098631fe161eb57d915a6edd7e6a9ce78349d8`。打包校验、内置 Linux 材料校验、交易/研究/策略恢复和厂商 CTP SDK 回环通过，日志 `build/settings-window-package.log`。本机 ad-hoc 签名，未公证，未替换已安装应用。原生多窗口交互仍待实机验证，不以浏览器测试代替三平台验收。
+
+## 重构后桌面完整复验（2026-09-28）
+
+本轮启动、重复升级、原生窗口、期货数据/回测/模拟交易与恢复、迁移路径和 Windows 条件代码的结果，统一记录于 [桌面验收](desktop-acceptance.md)。记录区分全量、失败后定向复验、原生 macOS 和跨平台未验证项；当前发行打包缺少同源码版本的 Linux x86_64 服务材料，不能把本机编译成功视为新安装包交付。

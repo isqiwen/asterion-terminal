@@ -1,7 +1,12 @@
 #pragma once
 #include <asterion/protocol/trading.hpp>
+#include <asterion/domain/daily_bars.hpp>
 #include <asterion/v1/data.pb.h>
 namespace asterion::protocol {
+data::v1::DailyBar encode_daily_bar(const HistoricalDailyBar&);
+HistoricalDailyBar daily_bar(const data::v1::DailyBar&);
+Json decode_daily_page(const data::v1::DailyPage&);
+Json decode_minute_page(const data::v1::MinutePage&);
 Json decode_csv_snapshot(const data::v1::CsvSnapshot& input);
 data::v1::CsvSnapshot encode_csv_snapshot(const Json& input);
 // Ordered, exact Decimal trade events; duplicates are retained, never cleaned

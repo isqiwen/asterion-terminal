@@ -7,7 +7,7 @@ Data Pipeline 的第一条真实执行链为：类型化 CSV 导入请求 → �
 - `protocol/proto/asterion/v1/data.proto` 定义 TradeDataset、CsvImport、CsvSnapshot 和 DatasetPublication。
 - `protocol/src/data.cpp` 负责严格格式、摘要和领域约束校验。TradeDataset 版本 1 包含实际合约与有序 Decimal 成交，不包含交易成本、策略参数、路径或交易日假设。
 - CSV 解析仍在 `plugins/data/csv/`。支持文件流和拥有所有权的字节快照，两种入口共用解析器；导入器对同一快照计算 SHA-256 并解析。
-- `apps/data-pipeline/` 编排导入和发布；文件持久化复用 filesystem-journal 的公开契约与原子记录机制，不在 Core 写入 CSV 业务规则。
+- `apps/services/data-pipeline/` 编排导入和发布；文件持久化复用 filesystem-journal 的公开契约与原子记录机制，不在 Core 写入 CSV 业务规则。
 
 内容 revision 对规范化合约与完整有序成交计算 SHA-256。不同换行或小数拼写，只要规范化数据完全相同，即得到相同 revision。时间相同的多笔成交按原顺序保留，不擅自合并。
 
@@ -60,3 +60,5 @@ macOS 全量 CTest 92 项中 91 项通过、Linux 专用部署 1 项跳过（bui
 ## 结算表发布
 
 已增加独立的结算表 CSV 插件、共享交易日契约与不可变 CalendarPublication，可由 Data Pipeline CLI 发布/检查，供多日回测复用。已加入持久化任务、Agent 派发、Terminal 导入和回测版本选择，完整边界见 [结算表](settlement-calendar.md)。
+
+Tushare 期货历史分钟使用独立 Bar 数据集与本机托管下载任务，不进入本页的逐笔 CSV 契约。下载、取消、恢复及后续研究边界见 [Tushare 期货分钟](tushare-futures.md)。

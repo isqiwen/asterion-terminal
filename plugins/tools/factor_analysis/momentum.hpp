@@ -15,6 +15,18 @@ struct MomentumCandidateScore {
 // choose the smaller window. Undefined scores are excluded, never zero-filled.
 std::optional<unsigned>
 select_momentum_lookback(std::span<const MomentumCandidateScore> candidates);
+// Ordered positive-price observations. The source adapter owns instrument,
+// time and sampling semantics; this window never creates trade events.
+class PriceMomentum {
+public:
+  explicit PriceMomentum(std::size_t lookback);
+  void reset() noexcept;
+  std::optional<double> push(Decimal price);
+
+private:
+  std::size_t lookback_;
+  std::deque<Decimal> history_;
+};
 class MomentumFactor final : public FactorPort {
 public:
   MomentumFactor(Instrument instrument, std::size_t lookback);
@@ -25,8 +37,7 @@ public:
 
 private:
   Instrument instrument_;
-  std::size_t lookback_;
-  std::deque<Decimal> history_;
+  PriceMomentum prices_;
   std::int64_t last_time_ = -1;
   bool running_ = false;
 };

@@ -32,9 +32,9 @@
 | 历史撮合、推进与模拟参数使用 | `plugins/execution/paper/` |
 | 通用有序持久日志契约 | `core/include/asterion/kernel/journal_port.hpp` |
 | 文件提交、锁与读取实现 | `plugins/storage/filesystem/` |
-| 会话装配与恢复 | `apps/trading/paper_session.*` |
-| 进程入口与客户端编排 | `apps/trading/main.cpp`、`apps/terminal/native/trading_client.*`、`terminal_application.cpp` |
-| 交易面板及总览卡片 | `apps/terminal/plugins/trading/` |
+| 会话装配与恢复 | `apps/services/trading/paper_session.*` |
+| 进程入口与客户端编排 | `apps/services/trading/main.cpp`、`apps/clients/terminal/native/trading_client.*`、`terminal_application.cpp` |
+| 交易面板及总览卡片 | `apps/clients/terminal/plugins/trading/` |
 
 新增执行、存储插件使用公开 C++ Plugin/ExecutionPort/JournalPort 契约，当前由应用会话显式拥有与管理生命周期，是可信内置组件。交易会话在独立 C++ 进程运行，由 Terminal 通过 Protobuf 本机 IPC 或 TCP+mTLS 调用，Rust 不实现账本。进程和 CLI11 边界见 [进程架构](process-architecture.md)。JournalPort 为本用例的存储边界，不虚构已经实现通用数据库查询 StoragePort。余额/持仓约束是账本基础检查；独立 RiskPort 和官方订单限额插件现已接入同一提交路径，详见 [交易前风险](pre-trade-risk.md)。风险配置必须随会话显式持久化；实盘授权与券商回报链尚未实现。
 
@@ -96,3 +96,10 @@ Playwright 在原工作台通过真实 C++ 后端完成导入、创建、开仓�
 结算经候选账本、日志提交和原命令身份去重；同 request_id 相同命令只确认已完成操作，新身份重复同日拒绝。重启重放还原绑定、结算计数、持仓今昨桶与账本。授权撤销不解除日程。ReplayPlan 版本 2 已携带相应日程证据并自动提交日终结算；Terminal 选择、进度和手动接管已接入；独立进程的更多日终中断点验收仍待扩展。
 
 协议公共 Decimal/Contract/Tick 提取为 domain.proto，使 data.proto 与 trading.proto 使用相同领域消息且无循环依赖；字段编号和命名空间保持不变，没有别名或协议转发。
+
+
+## 提交失败时的授权重放（2026-09-28）
+
+新命令和从磁盘首次恢复的命令按已提交历史检查授权 ID 唯一性；内存回滚仅重放此前已验证的提交序列，不再把完整历史中的自身授权判作重复授权。跟踪命令所需的映射节点和序列容量在改变引擎之前分配。提交失败仍进入 recovery_required，并展示最后已提交的账户与授权状态，不能继续执行交易命令。
+
+此修复不改变合法命令的撮合、费用、风控或账本结果，日志格式 2 与引擎 asterion.paper-futures.v2 保持不变；没有重算或迁移用户历史数据。回归覆盖先撤销再重新授权，以及 advance、策略目标和撤销授权在提交失败后的完整状态恢复。

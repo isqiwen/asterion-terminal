@@ -1,0 +1,568 @@
+.watchlist-workspace,
+.contract-workspace {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  background: #08090a;
+  color: #a4a7ae;
+  font-size: 11px;
+  height: 100%;
+}
+.watchlist-workspace {
+  grid-template-columns: minmax(0, 3fr) minmax(280px, 1fr);
+}
+.watchlist-sheet,
+.watchlist-chart-pane,
+.contract-watchlist,
+.contract-chart-panel,
+.contract-information,
+.contract-right > section {
+  background: #101114;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+.watchlist-sheet {
+  display: flex;
+  flex-direction: column;
+}
+.quote-tabs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 25px;
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+.quote-tabs button,
+.quote-group-strip {
+  font-size: 10px;
+}
+.quote-tabs button {
+  min-height: 19px;
+  padding: 1px 7px;
+  border: 0;
+  background: transparent;
+  color: #94979e;
+}
+.quote-tabs button[aria-pressed="true"] {
+  background: #292b30;
+  color: #e0e2e5;
+}
+.quote-tabs .quote-settings {
+  margin-left: auto;
+}
+.quote-group-strip {
+  padding: 3px 9px;
+  border-bottom: 1px solid #1b1d21;
+  color: #bebfc4;
+}
+.watchlist-table-scroll {
+  overflow: auto;
+  min-height: 0;
+}
+.watchlist-table {
+  table-layout: fixed;
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 1150px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.watchlist-table th,
+.watchlist-table td {
+  text-align: right;
+  padding: 0 5px;
+  white-space: nowrap;
+  height: 21px;
+  border: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.watchlist-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #101114;
+  font-size: 9px;
+  font-weight: 400;
+  color: #8d9096;
+  height: 25px;
+}
+.watchlist-table th:first-child {
+  width: 24px;
+}
+.watchlist-table th:nth-child(2),
+.watchlist-table th:nth-child(3) {
+  width: 78px;
+  text-align: left;
+}
+.watchlist-table td:nth-child(2),
+.watchlist-table td:nth-child(3) {
+  text-align: left;
+}
+.watchlist-table :is(th, td):nth-child(-n + 3) {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #101114;
+}
+.watchlist-table :is(th, td):nth-child(2) {
+  left: 24px;
+}
+.watchlist-table :is(th, td):nth-child(3) {
+  left: 102px;
+  box-shadow: 1px 0 #292b30;
+}
+.watchlist-table th:nth-child(-n + 3) {
+  z-index: 3;
+}
+.watchlist-table tbody tr:nth-child(even) td:nth-child(-n + 3) {
+  background: #1a1b1e;
+}
+.watchlist-table tr[data-selected="true"] td:nth-child(-n + 3) {
+  background: #151b24;
+}
+.watchlist-table button {
+  position: relative;
+  display: block;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  min-height: 0;
+  text-align: inherit;
+  width: 100%;
+}
+.watchlist-table th button > span {
+  position: relative;
+  display: inline-block;
+}
+.watchlist-table th[aria-sort] button > span::before {
+  position: absolute;
+  right: calc(100% + 4px);
+  color: #c9ccd2;
+  content: "↓";
+}
+.watchlist-table th[aria-sort="ascending"] button > span::before {
+  content: "↑";
+}
+.watchlist-table th:nth-child(2)[aria-sort] button > span::before,
+.watchlist-table th:nth-child(3)[aria-sort] button > span::before {
+  left: calc(100% + 4px);
+  right: auto;
+}
+.watchlist-table th[aria-sort] {
+  color: #d6d9df;
+}
+.watchlist-table tr:nth-child(even) {
+  background: #1a1b1e;
+}
+.watchlist-table tr[data-selected="true"] {
+  outline: 1px solid #456795;
+  outline-offset: -1px;
+}
+.watchlist-table td > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.quote-sheet-note {
+  margin-top: auto;
+  padding: 5px 9px;
+  font-size: 9px;
+  color: #696d75;
+}
+.watchlist-charts {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 4px;
+  min-height: 0;
+  min-width: 0;
+}
+.watchlist-chart-pane {
+  display: flex;
+  flex-direction: column;
+}
+.quote-pane-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 8px;
+  min-height: 25px;
+  flex-shrink: 0;
+  font-size: 10px;
+}
+.quote-pane-title > strong {
+  color: #e8a735;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quote-pane-title > :not(strong) {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.quote-pane-title small {
+  margin-left: auto;
+  color: #686e78;
+}
+.quote-pane-title .quote-freshness {
+  color: #e5b45a;
+  font-size: 9px;
+}
+.quote-empty {
+  color: #717680;
+  font-size: 10px;
+  padding: 10px;
+  margin: 0;
+}
+.contract-live-chart {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  position: relative;
+}
+.quote-data-note {
+  font-size: 9px;
+  padding: 2px 8px;
+  color: #707680;
+}
+.quote-data-note p {
+  margin: 3px 0;
+}
+.watchlist-workspace [data-tone="up"],
+.contract-workspace [data-tone="up"] {
+  color: var(--quote-up);
+}
+.watchlist-workspace [data-tone="down"],
+.contract-workspace [data-tone="down"] {
+  color: var(--quote-down);
+}
+.watchlist-workspace [data-tone="symbol"] {
+  color: #d9a138;
+}
+.contract-workspace {
+  grid-template-columns: minmax(200px, 18.5fr) minmax(350px, 55.5fr) minmax(280px, 26fr);
+}
+.contract-watchlist > header,
+.contract-right section > header {
+  min-height: 27px;
+  font-size: 11px;
+  padding: 6px 9px;
+  font-weight: 400;
+}
+.contract-watchlist > header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: 34px;
+  min-height: 34px;
+  background: #101114;
+  display: flex;
+  justify-content: space-between;
+}
+.contract-watchlist header button {
+  font-size: 9px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #91959b;
+}
+.contract-list-heading,
+.contract-list-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 0.7fr 1fr;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  font-size: 10px;
+  text-align: right;
+}
+.contract-list-heading > span:first-child,
+.contract-list-row > span:first-child {
+  text-align: left;
+  min-width: 0;
+}
+.contract-list-row > span:first-child b {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.contract-list-heading {
+  position: sticky;
+  top: 34px;
+  z-index: 2;
+  background: #101114;
+  color: #81858d;
+  height: 25px;
+}
+.contract-watchlist {
+  container-type: inline-size;
+  container-name: contract-list;
+  scroll-padding-top: 59px;
+  scroll-padding-bottom: 4px;
+}
+.contract-list-row {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  min-height: 38px;
+  border-radius: 0;
+}
+.contract-list-row[aria-pressed="true"] {
+  outline: 1px solid #456795;
+  outline-offset: -1px;
+  background: #151b24;
+}
+.contract-list-row b {
+  font-weight: 400;
+  color: #dda731;
+}
+.contract-list-row small {
+  display: block;
+  font-size: 9px;
+}
+.contract-list-row > span:first-child small {
+  color: #6d727d;
+}
+.contract-list-row svg {
+  width: 100%;
+  height: 24px;
+}
+.contract-center {
+  display: grid;
+  grid-template-rows: minmax(300px, 3fr) minmax(120px, 1fr);
+  gap: 4px;
+  min-height: 0;
+  min-width: 0;
+}
+.contract-chart-panel {
+  display: flex;
+  flex-direction: column;
+}
+.contract-information > button {
+  display: block;
+  font-size: 10px;
+  margin: 6px 10px;
+}
+.contract-right {
+  display: grid;
+  grid-template-rows: 1fr 1fr 1fr 1.65fr;
+  gap: 4px;
+  min-height: 0;
+  min-width: 0;
+}
+.contract-last {
+  font-size: 23px;
+  padding: 0 9px;
+  font-weight: 500;
+}
+.contract-summary dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0 9px;
+  gap: 3px 15px;
+  margin: 3px 0;
+}
+.contract-summary dl > div {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+}
+.contract-summary dd {
+  margin: 0;
+  color: #c0c3c8;
+}
+.contract-summary > small {
+  display: block;
+  color: #7f8490;
+  padding: 4px 9px;
+}
+.depth-ratio {
+  height: 4px;
+  background: var(--quote-down);
+  margin: 12px 9px;
+}
+.depth-ratio > span {
+  height: 100%;
+  display: block;
+  background: var(--quote-up);
+}
+.depth-ratio[data-empty="true"] {
+  background: #25282e;
+}
+.depth-level {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 0.7fr 0.7fr 1.2fr 1fr;
+  text-align: center;
+  font-size: 10px;
+  padding: 8px;
+}
+.tick-heading {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  padding: 4px 9px;
+  font-size: 9px;
+  color: #737983;
+}
+.contract-order label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 9px;
+  font-size: 10px;
+}
+.contract-order input {
+  font-size: 10px;
+  min-height: 24px;
+  flex: 1;
+  width: 0;
+}
+.contract-order > .primary {
+  display: block;
+  width: calc(100% - 18px);
+  margin: 4px 9px;
+  font-size: 11px;
+  min-height: 26px;
+  background: #4479ee;
+  color: white;
+  border: 0;
+}
+.watchlist-chart-pane .market-history-chart,
+.contract-chart-panel .market-history-chart {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0 5px;
+  overflow: auto;
+}
+.watchlist-chart-pane .market-chart-title {
+  display: none;
+}
+.watchlist-chart-pane .price-chart,
+.contract-chart-panel .price-chart {
+  flex: 1 0 auto;
+  min-height: min-content;
+  display: flex;
+  flex-direction: column;
+}
+.watchlist-chart-pane .market-history-chart > :not(.price-chart),
+.contract-chart-panel .market-history-chart > :not(.price-chart),
+.watchlist-chart-pane .price-chart > :not(svg),
+.contract-chart-panel .price-chart > :not(svg) {
+  flex-shrink: 0;
+}
+.watchlist-chart-pane .price-chart svg,
+.contract-chart-panel .price-chart svg {
+  flex: 1 0 190px;
+  width: 100%;
+  min-height: 190px;
+  height: 190px;
+}
+.watchlist-chart-pane .price-chart-cursor,
+.contract-chart-panel .price-chart-cursor {
+  font-size: 9px;
+  min-height: 16px;
+  margin: 0 8px;
+}
+.watchlist-chart-pane .price-chart-controls,
+.contract-chart-panel .price-chart-controls {
+  font-size: 9px;
+}
+.watchlist-chart-pane .price-chart-controls button,
+.contract-chart-panel .price-chart-controls button {
+  font-size: 9px;
+  padding: 1px 4px;
+  min-height: 17px;
+}
+@media (max-width: 1000px) {
+  .contract-workspace {
+    grid-template-columns: 180px minmax(300px, 1fr) 250px;
+    overflow: auto;
+  }
+  .watchlist-workspace {
+    grid-template-columns: minmax(350px, 1fr) 280px;
+    overflow: auto;
+  }
+}
+
+.watchlist-chart-pane .price-chart svg,
+.contract-chart-panel .price-chart svg {
+  max-height: none;
+}
+.watchlist-chart-pane .price-chart,
+.contract-chart-panel .price-chart {
+  margin: 0;
+  padding: 4px 0;
+  border: 0;
+}
+.contract-live-chart {
+  --price-line: #527fd7;
+}
+.contract-list-heading,
+.contract-list-row {
+  grid-template-columns:
+    minmax(0, 1.15fr) minmax(0, 1.1fr) minmax(0, 0.65fr) minmax(0, 0.5fr)
+    minmax(0, 0.65fr) minmax(0, 0.85fr);
+  gap: 3px;
+}
+.contract-order-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 0 9px;
+  gap: 4px;
+}
+.contract-order .contract-order-fields label {
+  padding: 3px 5px;
+  border: 1px solid #24272c;
+}
+.contract-order .contract-order-fields input {
+  border: 0;
+  background: transparent;
+  min-height: 20px;
+}
+
+.watchlist-sheet .quote-tabs {
+  min-height: 21px;
+  padding: 1px 8px;
+}
+.watchlist-sheet .quote-group-strip {
+  line-height: 12px;
+  padding: 2px 9px;
+}
+.watchlist-table th {
+  height: 21px;
+}
+.contract-right {
+  grid-template-rows: 0.9fr 1fr 1fr 1.65fr;
+}
+.depth-level {
+  padding: 2px 8px;
+}
+
+@container contract-list (max-width: 340px) {
+  .contract-list-heading,
+  .contract-list-row {
+    grid-template-columns: minmax(0, 1.2fr) minmax(40px, 1fr) minmax(58px, 0.9fr);
+    gap: 6px;
+  }
+
+  .contract-list-heading > :nth-child(3),
+  .contract-list-heading > :nth-child(4),
+  .contract-list-heading > :nth-child(5),
+  .contract-list-row > :nth-child(3),
+  .contract-list-row > :nth-child(4),
+  .contract-list-row > :nth-child(5) {
+    display: none;
+  }
+}

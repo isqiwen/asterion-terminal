@@ -1,4 +1,5 @@
 syntax = "proto3";
+import "asterion/v1/node.proto";
 import "asterion/v1/domain.proto";
 package asterion.research.v1;
 import "asterion/v1/trading.proto";
@@ -55,10 +56,10 @@ enum TaskState {
   CANCELLED = 6;
   INTERRUPTED = 7;
 }
-enum TaskKind { TASK_KIND_UNSPECIFIED = 0; BACKTEST = 1; FACTOR = 2; DATA_IMPORT = 3; CALENDAR_IMPORT = 4; }
+enum TaskKind { TASK_KIND_UNSPECIFIED = 0; BACKTEST = 1; FACTOR = 2; DATA_IMPORT = 3; CALENDAR_IMPORT = 4; MINUTE_DOWNLOAD = 5; DAILY_DOWNLOAD = 6; DAILY_FACTOR = 7; }
 message Task {
   string id = 1;
-  oneof definition { BacktestInput input = 2; FactorInput factor = 11; asterion.data.v1.CsvSnapshot data = 13; asterion.data.v1.CalendarCsvSnapshot calendar = 18; }
+  oneof definition { BacktestInput input = 2; FactorInput factor = 11; asterion.data.v1.CsvSnapshot data = 13; asterion.data.v1.CalendarCsvSnapshot calendar = 18; asterion.data.v1.MinuteDownload minutes = 19; asterion.data.v1.DailyDownload daily = 21; DailyFactorInput daily_factor = 22; }
   TaskKind kind = 12;
   TaskState state = 3;
   uint32 attempt = 4;
@@ -69,6 +70,7 @@ message Task {
   string trading_day = 9;
   string instrument = 10;
   string source_name = 14;
+  uint32 minute_interval_minutes = 20; // summary projection; zero for other task kinds
   // Service-owned durable order, independent of task ID and wall-clock changes.
   uint32 submission_sequence = 15;
   // UTC wall-clock observations in milliseconds; not used for durations/order.
@@ -78,12 +80,25 @@ message Task {
 message TaskList { repeated Task tasks = 1; }
 message TaskClaim { string id = 1; TaskKind kind = 2; }
 message TaskId { string id = 1; }
-message TaskSubmit { string id = 1; oneof definition { BacktestInput input = 2; FactorInput factor = 3; asterion.data.v1.CsvSnapshot data = 4; asterion.data.v1.CalendarCsvSnapshot calendar = 5; } }
-message TaskAttempt { Task task = 1; string token = 2; }
+message TaskSubmit { string id = 1; oneof definition { BacktestInput input = 2; FactorInput factor = 3; asterion.data.v1.CsvSnapshot data = 4; asterion.data.v1.CalendarCsvSnapshot calendar = 5; asterion.data.v1.MinuteDownload minutes = 6; asterion.data.v1.DailyDownload daily = 8; DailyFactorRequest daily_factor = 9; } string provider_token = 7; }
+message TaskAttempt { Task task = 1; string token = 2; string provider_token = 3; string output_directory = 4; }
 message TaskProgress { string id = 1; string token = 2; uint32 completed = 3; }
-message TaskFinish { string id = 1; string token = 2; oneof output { BacktestResult result = 3; FactorResult factor = 4; asterion.data.v1.DatasetPublication publication = 5; asterion.data.v1.CalendarPublication calendar_publication = 6; } }
-message TaskFailure { string id = 1; string token = 2; string error = 3; }
+message TaskFinish { string id = 1; string token = 2; oneof output { BacktestResult result = 3; FactorResult factor = 4; asterion.data.v1.DatasetPublication publication = 5; asterion.data.v1.CalendarPublication calendar_publication = 6; asterion.data.v1.MinuteDownloadResult minutes = 7; asterion.data.v1.DailyDownloadResult daily = 8; DailyFactorResult daily_factor = 9; } }
+message TaskFailure { string id = 1; string token = 2; string error = 3; string error_code = 4; }
 message TaskCancelAck { string id = 1; string token = 2; }
+// Private Task Service -> Agent dispatch contract. The Agent reports processes;
+// Task Service owns queue ordering, task-kind mapping and concurrency policy.
+enum WorkerProgram { WORKER_PROGRAM_UNSPECIFIED = 0; BACKTEST_PROGRAM = 1; FACTOR_PROGRAM = 2; DATA_PIPELINE_PROGRAM = 3; }
+message TaskDispatch { repeated string running = 1; }
+message TaskLaunch {
+  string task_id = 1;
+  WorkerProgram program = 2;
+  bool settlement_calendar = 3;
+  bool minute_download = 4;
+  bool daily_download = 5;
+  bool daily_factor = 6;
+}
+message TaskLaunches { repeated TaskLaunch launches = 1; }
 message TaskRequest {
   uint32 version = 1;
   string service_id = 2;
@@ -101,6 +116,9 @@ message TaskRequest {
     TaskFinish finish = 19;
     TaskFailure fail = 20;
     TaskCancelAck cancel_ack = 21;
+    asterion.data.v1.MinutePageQuery minute_page = 23;
+    asterion.data.v1.DailyPageQuery daily_page = 24;
+    TaskDispatch dispatch = 22; asterion.node.v1.Quiesce quiesce = 30;
   }
 }
 message TaskHealth { string instance_id = 1; string version = 2; uint64 uptime_ms = 3; bool recovery_required = 4; }
@@ -120,5 +138,11 @@ message TaskResponse {
     FactorResult factor = 16;
     asterion.data.v1.DatasetPublication publication = 17;
     asterion.data.v1.CalendarPublication calendar_publication = 19;
+    TaskLaunches launches = 20;
+    asterion.data.v1.MinuteDownloadResult minutes = 21;
+    asterion.data.v1.MinutePage minute_page = 22;
+    asterion.data.v1.DailyDownloadResult daily = 23;
+    asterion.data.v1.DailyPage daily_page = 24;
+    DailyFactorResult daily_factor = 25;
   }
 }

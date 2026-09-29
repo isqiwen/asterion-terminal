@@ -275,6 +275,10 @@ TEST(CalendarTasks, DurableCancellationRetryFencingAndSourceValidation) {
   {
     tasks::Store store(directory);
     const auto submitted = store.submit("calendar", input);
+    const auto launches = store.dispatch({});
+    ASSERT_EQ(launches.launches_size(), 1);
+    EXPECT_EQ(launches.launches(0).program(), research::v1::DATA_PIPELINE_PROGRAM);
+    EXPECT_TRUE(launches.launches(0).settlement_calendar());
     EXPECT_EQ(submitted.kind(), research::v1::CALENDAR_IMPORT);
     EXPECT_EQ(store.submit("calendar", input).submission_sequence(),
               submitted.submission_sequence());

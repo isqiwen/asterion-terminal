@@ -10,7 +10,9 @@ int run_task_worker(const std::string& endpoint, const std::string& host, unsign
                     const std::string& task, research::v1::TaskKind kind,
                     const TaskRunner& runner) {
   if (kind != research::v1::BACKTEST && kind != research::v1::FACTOR &&
-      kind != research::v1::DATA_IMPORT && kind != research::v1::CALENDAR_IMPORT)
+      kind != research::v1::DAILY_FACTOR && kind != research::v1::DATA_IMPORT &&
+      kind != research::v1::CALENDAR_IMPORT && kind != research::v1::MINUTE_DOWNLOAD &&
+      kind != research::v1::DAILY_DOWNLOAD)
     throw std::invalid_argument("unsupported worker kind");
   validate_id(service);
   validate_id(task);
@@ -56,7 +58,7 @@ int run_task_worker(const std::string& endpoint, const std::string& host, unsign
   std::stop_source cancel;
   auto last = std::chrono::steady_clock::now() - 1s;
   try {
-    const auto result = runner(attempt.task(), cancel.get_token(), [&](auto completed, auto total) {
+    const auto result = runner(attempt, cancel.get_token(), [&](auto completed, auto total) {
       const auto now = std::chrono::steady_clock::now();
       if (now - last < 100ms && completed != total)
         return;
@@ -98,6 +100,7 @@ int run_task_worker(const std::string& endpoint, const std::string& host, unsign
         p->set_id(task);
         p->set_token(token);
         p->set_error(std::string(error.what()).substr(0, 1024));
+        p->set_error_code(std::string(error_name(classify(error))));
       }
       static_cast<void>(call(report));
     } catch (const std::exception&) {

@@ -5,18 +5,26 @@ from pathlib import Path
 import platform
 import sys
 import zipfile
+import subprocess
+from service_fingerprint import fingerprint
 
 if sys.platform != "linux":
     raise SystemExit("Remote service bundles target Linux only; desktop bundles include local native services separately")
 build = Path(sys.argv[1]).resolve()
+subprocess.run(["cmake", "--build", str(build), "--target", "asterion-node-agent", "asterion-trading",
+    "asterion-market-data", "asterion-task-service", "asterion-backtest", "asterion-factor",
+    "asterion-data-pipeline", "asterion-strategy"], check=True)
+source_hash = fingerprint()
+if (build / "service-source.sha256").read_text().strip() != source_hash:
+    raise SystemExit("Build directory service source does not match this checkout")
 os_name = "linux"
 if platform.machine().lower() not in ('x86_64', 'amd64'):
     raise SystemExit('Linux currently supports x86_64 only')
 arch = "x86_64"
 files = [build / name for name in ("asterion-node-agent", "asterion-trading", "asterion-market-data", "asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline", "asterion-strategy")]
-if arch == "x86_64": files.append(build / "ctp-md.so")
-product_version = json.loads((Path(__file__).resolve().parents[1] / "apps/terminal/src-tauri/tauri.conf.json").read_text())["version"]
-manifest = {"version": 1, "product_version": product_version, "os": os_name, "arch": arch, "files": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in files}}
+if arch == "x86_64": files.extend([build / "ctp-md.so", build / "ctp-trader.so"])
+product_version = json.loads((Path(__file__).resolve().parents[1] / "apps/clients/terminal/electron/package.json").read_text())["version"]
+manifest = {"version": 2, "source_sha256": source_hash, "product_version": product_version, "os": os_name, "arch": arch, "files": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in files}}
 initializer = Path(__file__).parent / "node/initialize-linux.py"
 manifest["files"]["initialize-linux.py"] = hashlib.sha256(initializer.read_bytes()).hexdigest()
 output = build / "deployment"

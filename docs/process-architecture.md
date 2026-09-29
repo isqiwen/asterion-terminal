@@ -6,7 +6,7 @@
 
 ```mermaid
 flowchart LR
-    WebView[Terminal React / WebView] <-->|Tauri IPC| Desktop[Terminal 宿主：Rust 薄桥与 C++ 应用编排]
+    WebView[Terminal React / WebView] <-->|Electron IPC| Desktop[Terminal 宿主：Node-API 薄桥与 C++ 应用编排]
     Desktop <-->|Protobuf：本机 IPC 或 TCP + mTLS| Trading[asterion-trading：Agent 受管交易服务]
     Desktop <-->|Node Protobuf：本机 IPC 或 TCP + mTLS| Agent[每台机器的 Node Agent]
     Agent -->|部署 / 健康检查 / 启停重启| Trading
@@ -24,15 +24,15 @@ flowchart LR
 
 | 进程 / 工程 | 职责 | 当前状态 |
 | --- | --- | --- |
-| `apps/terminal/` | 桌面宿主、界面、本机交互、交易客户端 | 已实现 |
-| `apps/node-agent/` | 目标机器上的部署、进程监督和状态服务 | 支持模拟交易程序上传、部署、启动/停止、有限重启 |
-| `apps/trading/` | 单会话账户、基础风控、订单与执行、恢复 | 本机子进程与 TCP 远程 Paper 服务已实现；实盘拒绝启动 |
-| `apps/market-data/` | 实时行情源连接、订阅、标准化、时效状态、分发与按配置录制 | 已接入 CTP MdApi，只读一档快照及合并前事件分页/缺口检测；尚未持久录制或接入交易会话 |
-| `apps/strategy/` | 策略执行宿主，计划向交易会话提交意图，也可由回测协调隔离执行 | 有序事件与持久化意图、IPC/TCP mTLS、重启恢复与 Agent 管理；已有模拟账户授权交接，宿主自动历史回放已接入，Terminal 配置待接入，见 [策略宿主](strategy-host.md) |
-| `apps/backtest/` | 历史回放、模拟时钟、策略、撮合与绩效的任务编排 | 单日 SMA 回测与独立任务工作进程已实现；本机 Agent/UI 已接入 |
-| `apps/factor/` | 因子计算、挖掘与评估任务 | 事件动量分析、持久化任务、Agent 派发与 Terminal 结果 |
-| `apps/data-pipeline/` | 历史下载、导入、清洗、校验与数据集发布任务 | CSV 发布任务、来源校验与 Terminal 版本选择 |
-| `apps/task-service/` | 持久化任务、认领、取消和结果索引 | 本机 IPC / TCP+mTLS 服务与恢复已实现；本机 Agent 自动分配已接入 |
+| `apps/clients/terminal/` | 桌面宿主、界面、本机交互、交易客户端 | 已实现 |
+| `apps/services/node-agent/` | 目标机器上的部署、进程监督和状态服务 | 支持模拟交易程序上传、部署、启动/停止、有限重启 |
+| `apps/services/trading/` | 单会话账户、基础风控、订单与执行、恢复 | 本机子进程与 TCP 远程 Paper 服务已实现；实盘拒绝启动 |
+| `apps/services/market-data/` | 实时行情源连接、订阅、标准化、时效状态、分发与按配置录制 | 已接入 CTP MdApi，只读一档快照及合并前事件分页/缺口检测；尚未持久录制或接入交易会话 |
+| `apps/services/strategy/` | 策略执行宿主，计划向交易会话提交意图，也可由回测协调隔离执行 | 有序事件与持久化意图、IPC/TCP mTLS、重启恢复与 Agent 管理；已有模拟账户授权交接，宿主自动历史回放已接入，Terminal 配置待接入，见 [策略宿主](strategy-host.md) |
+| `apps/services/backtest/` | 历史回放、模拟时钟、策略、撮合与绩效的任务编排 | 单日 SMA 回测与独立任务工作进程已实现；本机 Agent/UI 已接入 |
+| `apps/services/factor/` | 因子计算、挖掘与评估任务 | 事件动量分析、持久化任务、Agent 派发与 Terminal 结果 |
+| `apps/services/data-pipeline/` | 历史下载、导入、清洗、校验与数据集发布任务 | CSV 发布任务、来源校验与 Terminal 版本选择 |
+| `apps/services/task-service/` | 持久化任务、认领、取消和结果索引 | 本机 IPC / TCP+mTLS 服务与恢复已实现；本机 Agent 自动分配已接入 |
 
 五个新工程各自通过 `apps/<name>/CMakeLists.txt` 构建 `asterion-<name>`。其中 Backtest 与 Task Service 已实现首条独立进程执行链，详见 [研究任务](research-tasks.md)。Strategy 已有持久化意图、独立进程恢复、可信 SMA 历史回放和可撤销模拟账户授权，见 [策略宿主](strategy-host.md)；Data Pipeline 已接入 CSV 数据发布任务、Agent 和 Terminal；Factor 已有成交动量分析、任务派发与 Terminal 结果展示；可信 SMA 插件已由 Backtest 使用。研究服务已注册为 Agent 服务，本机初始化启动 Task Service，回测、因子和数据发布按任务启动；桌面打包配置已加入四个研究/数据程序，macOS DMG 和 Linux x86_64 容器部署已验证，Windows 原生仍待验收。
 
@@ -47,8 +47,6 @@ market-data 可供 Terminal、实盘会话、实时模拟会话复用行情连�
 Conan 管理 `cli11/2.6.0`，CMake 使用 `CLI11::CLI11`。C++ 产品/开发入口统一使用 CLI11，新建应用入口同样通过 Conan 使用该依赖：
 
 ```text
-asterion --help
-asterion replay-csv FILE VENUE SYMBOL ASSET CURRENCY PRICE_STEP QTY_STEP MULTIPLIER
 asterion_terminal_dev_bridge --help
 asterion-node-agent --help
 asterion-market-data --help
@@ -71,12 +69,12 @@ asterion-trading --mode paper --session SESSION --endpoint ENDPOINT --directory 
 | 编解码与表示转换 | `protocol/src/trading.cpp` | Protobuf 与当前应用/领域数据表示之间转换，不计算账本 |
 | 通用传输 | `core/include/asterion/kernel/ipc/`、`core/src/kernel/ipc/` | 帧、通道、期限、断线与大小限制，不识别交易命令 |
 | 进程所有权 | `core/include/asterion/kernel/process/`、`core/src/kernel/process/` | 无 shell 启动、等待、退出回收 |
-| 服务端业务路由 | `apps/trading/main.cpp` | 验证协议/会话/模式，调用会话编排 |
-| 交易客户端 | `apps/terminal/native/trading_client.*` | 本机或远程业务连接、请求关联、重新附着与故障状态 |
+| 服务端业务路由 | `apps/services/trading/main.cpp` | 验证协议/会话/模式，调用会话编排 |
+| 交易客户端 | `apps/clients/terminal/native/trading_client.*` | 本机或远程业务连接、请求关联、重新附着与故障状态 |
 
 Protobuf 由 Conan 管理，CMake 调用对应的 protoc 生成 C++ 到 `build/<配置>/generated/`。不把生成代码提交到源码树，不临时联网下载生成器。当前是同平台原生构建，未提供交叉编译工具链；生成器与运行库锁定为同一版本。
 
-实际跨交易进程通信是二进制 Protobuf，不在消息中塞 JSON 字符串或 Struct 字典。金额为 `Decimal { sint64 units }`，固定八位小数；纳秒为 int64，类型和单位明确。浏览器界面仍通过 Tauri JSON invoke/C ABI 或开发桥调用界面 API，这是 UI 适配边界，不是第二种交易进程协议。文件日志继续使用自己的严格版本化持久格式，并不拿 wire schema 代替存储版本。
+实际跨交易进程通信是二进制 Protobuf，不在消息中塞 JSON 字符串或 Struct 字典。金额为 `Decimal { sint64 units }`，固定八位小数；纳秒为 int64，类型和单位明确。浏览器界面仍通过 受限预加载 IPC / Node-API / C ABI 或开发桥调用界面 API，这是 UI 适配边界，不是第二种交易进程协议。文件日志继续使用自己的严格版本化持久格式，并不拿 wire schema 代替存储版本。
 
 本机部署使用 Linux/macOS Unix Domain Socket、Windows Named Pipe；跨机器部署使用 TCP + TLS 1.3 双向证书认证。相同应用协议运行在两种传输上。同一连接双向请求/响应，4 字节大端长度前缀，帧限制 16 MiB。请求携带协议版本、会话 ID、固定模式、关联 ID；交易操作另有持久 request_id。未知字段、版本、会话或模式不匹配均拒绝。账本和任务状态的业务变更串行提交，不绕过统一账户语义；网络接收可使用有界工作线程。研究服务将外部连接与私有工作进程连接分配到独立线程池，具体容量与期限见 [研究任务](research-tasks.md#研究服务连接容量与工作通道隔离)。
 
@@ -115,13 +113,15 @@ asterion-trading --mode paper --session paper.research \
 
 ## 打包与验收
 
-Tauri 使用 externalBin 打包 `asterion-node-agent` 和 `asterion-trading`；构建脚本按 Rust 本机 target triple 准备 sidecar。安装后从桌面可执行程序同目录定位，不搜索 PATH。开发/测试可显式设置 `ASTERION_TRADING_EXECUTABLE`，缺失时失败，不退回进程内交易。
+Electron Builder 将本机程序、CTP 库及 Node-API 模块打入 resources/native；主进程只使用相对于应用资源目录的显式路径，不搜索 PATH。开发版使用 build/electron-resources/native。缺少材料时拒绝启动，不退回进程内交易。
 
-Rust 仍然只承担桌面和薄调用桥。Conan 导出 Protobuf/Abseil、OpenSSL/Zlib 与 Asio 的真实静态链接及系统依赖信息供 Rust 构建读取，不硬编码 Conan 缓存位置。原有 C ABI 保留在顶层 bindings/c。
+Electron 只承担窗口、受限 IPC 与异步调用桥。CMake 将 Conan 依赖链接到 Node-API 模块，C ABI 保留在顶层 bindings/c，不再导出 Cargo 链接清单。
+
+Node-API 桥使用 Core 有界线程池：普通请求 4 个工作线程、最多 16 个未完成调用，`runtime.snapshot` 独立 1 个线程、最多 8 个调用。额度包含尚未送达 JavaScript 的结果；超额明确拒绝，不自动重试命令。桥只按方法选择队列，协议校验仍由 C ABI 负责。结果通过 Node-API 线程安全回调回到 JavaScript，避免共用 libuv 工作池造成状态读取排队。环境强制退出时，逐请求关闭回调并等待生产任务结束，再释放 Runtime；已经执行的 C++ 调用仍受自身 I/O 期限约束，不宣称即时取消。测试慢服务是独立 fixture 模块，不进入桌面资源。
 
 测试覆盖 CLI 参数、Protobuf 精确数值、未知字段、传输大小/期限/断线、协议/模式/会话隔离、双进程独立账本、交易进程被强杀后桌面仍可响应，以及关闭/恢复后的幂等与账本一致性。跨平台源码存在不等于已通过三平台验收；实际结果见 terminal-validation。
 
-实现参考：[CLI11](https://github.com/CLIUtils/CLI11)、[Protobuf C++](https://protobuf.dev/reference/cpp/cpp-generated/)、[Tauri sidecar](https://v2.tauri.app/zh-cn/develop/sidecar/)。
+实现参考：[CLI11](https://github.com/CLIUtils/CLI11)、[Protobuf C++](https://protobuf.dev/reference/cpp/cpp-generated/)、[Electron 原生模块](https://www.electronjs.org/docs/latest/tutorial/using-native-node-modules)。
 
 TCP/TLS 实现参考：[OpenSSL 身份校验](https://docs.openssl.org/3.6/man3/SSL_set1_host/)、[Asio SSL](https://think-async.com/Asio/asio-1.28.0/doc/asio/overview/ssl.html)。
 
@@ -129,4 +129,4 @@ Node Agent 部署、默认本机行为、后台心跳、有限重启与状态语
 
 ## 实时行情服务
 
-`apps/market-data/` 已提供独立只读行情宿主，由 Agent 管理，与交易进程分别部署。连接、订阅、快照推送和心跳使用 `protocol/proto/asterion/v1/market.proto`，支持本机 IPC 与 TCP/mTLS。CTP 供应商代码在数据插件中，详见 [CTP 行情及验收边界](ctp-market-data.md)。
+`apps/services/market-data/` 已提供独立只读行情宿主，由 Agent 管理，与交易进程分别部署。连接、订阅、快照推送和心跳使用 `protocol/proto/asterion/v1/market.proto`，支持本机 IPC 与 TCP/mTLS。CTP 供应商代码在数据插件中，详见 [CTP 行情及验收边界](ctp-market-data.md)。

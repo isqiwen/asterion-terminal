@@ -56,6 +56,16 @@ with tempfile.TemporaryDirectory(prefix="ast-research-admission-", ignore_cleanu
                 assert 0 < size <= 4096
                 response = receive(size)
                 assert response.startswith(b"\x08\x01\x12\x09admission\x1a\x07delayed\x6a"), response
+        with socket.create_connection(("127.0.0.1", port), timeout=3) as raw:
+            with context.wrap_socket(raw, server_hostname="localhost") as channel:
+                # Authenticated public clients must not request worker dispatch.
+                request = b"\x08\x01\x12\x09admission\x1a\x07blocked\xb2\x01\x00"
+                channel.sendall(struct.pack("!I", len(request)) + request)
+                size = struct.unpack("!I", receive(4))[0]
+                assert 0 < size <= 4096
+                response = receive(size)
+                assert b"task dispatch requires the private worker channel" in response, response
+
     finally:
         process.kill()
         _, diagnostic = process.communicate(timeout=10)

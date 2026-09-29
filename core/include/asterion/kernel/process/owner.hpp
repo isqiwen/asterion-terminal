@@ -3,6 +3,8 @@
 #include <memory>
 namespace asterion {
 std::uint64_t current_process_id() noexcept;
+// Read-only liveness probe. Reused PIDs conservatively remain live; never signals a process.
+bool process_running(std::uint64_t pid);
 // A managed child must stop if its supervising process disappears.
 class ProcessOwner {
 public:
