@@ -14,8 +14,8 @@
   display: flex;
   align-items: center;
   padding: 0 16px;
-  background: #111417;
-  border-bottom: 1px solid #25292d;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--line);
 }
 :root[data-integrated-titlebar="macos"] .terminal-titlebar {
   flex-basis: 34px;
@@ -36,11 +36,11 @@
   height: 22px;
   min-height: 22px;
   box-sizing: border-box;
-  border: 1px solid #25292d;
+  border: 1px solid var(--line);
   border-radius: 3px;
   padding: 2px 8px;
-  background: #191c20;
-  color: #d6dadd;
+  background: var(--panel);
+  color: var(--text-strong);
   font-size: 11px;
   -webkit-app-region: no-drag;
 }
@@ -51,11 +51,33 @@
   transform: translateX(-50%);
   font-size: 10px;
   letter-spacing: 2px;
-  color: #929aa1;
+  color: var(--muted);
   pointer-events: none;
 }
 @media (max-width: 700px) {
   .terminal-titlebar::before {
     display: none;
   }
+}
+
+/* A single accent hairline fades out from the centre of the title bar. */
+.terminal-titlebar::after {
+  content: "";
+  position: absolute;
+  left: 30%;
+  right: 30%;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-line), transparent);
+  pointer-events: none;
+}
+.terminal-titlebar::before {
+  letter-spacing: 0.42em;
+  color: var(--subtle);
+  font-weight: 500;
+}
+.terminal-contract-search:focus-visible {
+  outline: none;
+  border-color: var(--accent-line);
+  box-shadow: var(--accent-glow);
 }

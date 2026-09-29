@@ -182,3 +182,36 @@ html[lang="en-US"] .activity-rail.expanded {
 html[lang="en-US"] .activity-rail.expanded {
   width: 64px;
 }
+
+/* Rail: icon column with a luminous active marker. */
+.activity-rail .workspace-tabs button {
+  color: var(--subtle);
+}
+.activity-rail .workspace-tabs button.active {
+  background: transparent;
+  color: var(--accent);
+}
+.activity-rail .workspace-tabs button.active::before {
+  box-shadow: 0 0 8px var(--accent);
+}
+.activity-rail .workspace-tabs button:enabled:not(.active):hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-strong);
+}
+.rail-actions button:enabled:hover {
+  background: transparent;
+  border-color: transparent;
+}
+.status-bar {
+  border-top: 1px solid var(--line);
+  color: var(--subtle);
+}
+.status-bar button {
+  border: 0;
+  color: var(--muted);
+}
+.status-bar button:enabled:not([aria-disabled="true"]):hover {
+  background: transparent;
+  color: var(--accent);
+}

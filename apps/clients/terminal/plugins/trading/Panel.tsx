@@ -93,7 +93,7 @@ export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
         <>
           <p className="dashboard-caption">
             {t(
-              "使用已导入的单合约历史成交创建模拟账户。操作写入交易服务所在机器的专用目录，可在重启后恢复。",
+              "选择已发布的单合约成交数据创建模拟账户。会话写入交易服务所在机器的专用目录，重启后可恢复。",
             )}
           </p>
           <form
@@ -203,7 +203,7 @@ export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
           </form>
           <p className="dashboard-caption">
             {t(
-              "每手固定保证金与手续费由你填写，不代表交易所规则。首版最多 10000 笔，按一个交易日模拟，不自动识别夜盘或跨日。",
+              "保证金与手续费由你填写，不代表交易所规则。最多 10000 笔，按一个交易日模拟，不自动识别夜盘或跨日。",
             )}
           </p>
         </>

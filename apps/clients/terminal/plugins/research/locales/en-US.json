@@ -26,7 +26,6 @@
   "任务已提交，可关闭窗口。": "Task submitted. You can close the window.",
   "撮合说明": "Execution Model",
   "策略仅做多或空仓。信号在后续成交上按限价和成交量撮合；未成交部分在下一次决策前撤销。末尾持仓按末笔价格估值，不强制平仓。": "Long or flat positions only. Signals match later trades using limit prices and available volume. Unfilled orders are cancelled before the next decision. Remaining positions are valued at the last price, without forced liquidation.",
-  "当前不支持夜盘、跨日结算或真实交易所队列模型。保证金与手续费由你填写。": "Night sessions, daily settlement and exchange queue models are not supported yet. Specify margin and fees explicitly.",
   "研究任务": "Research Tasks",
   "暂无研究任务": "No research tasks",
   "合约 / 交易日": "Contract / Trading Day",

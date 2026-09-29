@@ -1,43 +1,64 @@
-/* Asterion: graphite surfaces, restrained amber, precise numerical typography. */
+/* Asterion: deep-space surfaces, hairline structure, one cyan signal. */
 :root {
   --font-ui:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei",
-    "Noto Sans CJK SC", "Noto Sans", sans-serif;
-  --font-terminal:
-    "SFMono-Regular", Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace;
-  --canvas: #0f1115;
-  --panel: #17191d;
-  --raised: #202227;
-  --hover: #272a30;
-  --pressed: #2b3542;
-  --line: #2a2d33;
-  --grid: #202329;
-  --text: #c6c8ce;
-  --text-strong: #eef2f7;
-  --muted: #979ca6;
-  --subtle: #8795a7;
-  --accent: #eab66b;
-  --accent-surface: #2b241b;
-  --accent-hover: #3b3022;
-  --accent-pressed: #493a27;
-  --accent-line: #776044;
-  --success: #70c9aa;
-  --danger: #f08b8b;
-  --danger-surface: #302024;
-  --quote-red: #ef3f60;
-  --quote-green: #00ac92;
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+  --font-terminal: "SF Mono", "SFMono-Regular", Menlo, monospace;
+
+  /* Surfaces, darkest to brightest. */
+  --canvas: #06080b;
+  --panel: #0b0e13;
+  --raised: #11161d;
+  --hover: #161d26;
+  --pressed: #1c2531;
+
+  /* Structure: 1px hairlines only. */
+  --line: #1a212b;
+  --grid: #121821;
+  --row-alt: rgb(255 255 255 / 1.8%);
+  --overlay: rgb(2 4 8 / 72%);
+
+  /* Text. */
+  --text: #c5ccd6;
+  --text-strong: #eef4fb;
+  --muted: #7c8796;
+  --subtle: #5c6776;
+
+  /* The single interactive signal. */
+  --accent: #38d6f2;
+  --accent-surface: rgb(56 214 242 / 8%);
+  --accent-hover: rgb(56 214 242 / 14%);
+  --accent-pressed: rgb(56 214 242 / 22%);
+  --accent-line: rgb(56 214 242 / 45%);
+  --accent-glow: 0 0 0 1px rgb(56 214 242 / 35%), 0 0 14px rgb(56 214 242 / 18%);
+
+  /* States. */
+  --success: #34d399;
+  --warning: #e5b45a;
+  --danger: #ff5c7a;
+  --danger-surface: rgb(255 92 122 / 8%);
+
+  /* Market values. */
+  --quote-red: #ff2e55;
+  --quote-green: #12c29b;
   --quote-up: var(--quote-red);
   --quote-down: var(--quote-green);
+  --quote-activity: #2fc6d6;
+  --chart-average: #e5b45a;
+  --intraday-line: var(--accent);
+  --intraday-average: var(--chart-average);
+  --price-line: var(--accent);
+  --chart-area: rgb(56 214 242 / 12%);
+
   --row-height: 26px;
   --control-height: 28px;
   --control-radius: 2px;
-  --panel-radius: 3px;
-  --space-page: 24px;
+  --panel-radius: 2px;
+  --space-page: 20px;
   --background-grid: none;
 }
 :root[data-density="comfortable"] {
-  --row-height: 40px;
-  --control-height: 38px;
+  --row-height: 36px;
+  --control-height: 34px;
 }
 :root[data-quote-colors="international"] {
   --quote-up: var(--quote-green);

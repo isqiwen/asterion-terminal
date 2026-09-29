@@ -234,7 +234,8 @@ test("chart panes retain intervals and indicators across contracts without subst
   const emptyDepth = page.getByRole("img", { name: "暂无买卖盘数量", exact: true });
   await expect(emptyDepth).toHaveAttribute("data-empty", "true");
   await expect(emptyDepth.locator("span")).toHaveCount(0);
-  await expect(emptyDepth).toHaveCSS("background-color", "rgb(37, 40, 46)");
+  // Empty ratio uses the raised surface token (#11161d).
+  await expect(emptyDepth).toHaveCSS("background-color", "rgb(17, 22, 29)");
   await page.screenshot({ path: "build/contract-empty-depth.png" });
   await expect(contract.getByRole("button", { name: "1 min", exact: true })).toHaveAttribute(
     "aria-pressed",

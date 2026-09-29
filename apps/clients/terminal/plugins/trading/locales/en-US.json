@@ -8,7 +8,6 @@
   "平昨": "Close Previous",
   "期货模拟交易": "Futures Paper Trading",
   "历史回放 · 非实盘": "Historical Replay · Not Live",
-  "使用已导入的单合约历史成交创建模拟账户。操作写入交易服务所在机器的专用目录，可在重启后恢复。": "Create a paper account from imported trades for one contract. Operations are recorded in a dedicated directory on the trading service machine and can be recovered after restart.",
   "交易记录目录": "Trading Journal Directory",
   "已存在的专用空目录；恢复时选择原目录": "Existing dedicated empty directory; choose the original directory to recover",
   "选择目录": "Choose Directory",
@@ -25,7 +24,6 @@
   "每手平今费": "Close Today Fee per Lot",
   "每手平昨费": "Close Previous Fee per Lot",
   "创建模拟会话": "Create Paper Session",
-  "每手固定保证金与手续费由你填写，不代表交易所规则。首版最多 10000 笔，按一个交易日模拟，不自动识别夜盘或跨日。": "You define fixed margin and fees per lot; these are not exchange rules. This version supports up to 10000 records for one simulated trading day and does not detect night sessions or day changes.",
   "笔": "records",
   "回放下一笔": "Replay Next Tick",
   "断开连接": "Disconnect",
@@ -146,5 +144,7 @@
   "交易费用": "Trading costs",
   "委托与持仓限制": "Order & position limits",
   "选择历史数据": "Select historical data",
-  "尚未选择": "Not selected"
+  "尚未选择": "Not selected",
+  "选择已发布的单合约成交数据创建模拟账户。会话写入交易服务所在机器的专用目录，重启后可恢复。": "Create a paper account from a published single-contract trade dataset. The session is written to a dedicated directory on the trading service machine and can be restored after restart.",
+  "保证金与手续费由你填写，不代表交易所规则。最多 10000 笔，按一个交易日模拟，不自动识别夜盘或跨日。": "Margins and fees are entered by you and are not exchange rules. Up to 10,000 trades, simulated as one trading day without automatic night-session or rollover handling."
 }

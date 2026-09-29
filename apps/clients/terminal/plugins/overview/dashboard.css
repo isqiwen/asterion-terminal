@@ -301,7 +301,7 @@
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: #0009;
+  background: var(--overlay);
   display: grid;
   place-items: center;
 }
@@ -312,7 +312,7 @@
   background: var(--panel);
   border: 1px solid var(--line);
   padding: 16px;
-  box-shadow: 0 20px 80px #0008;
+  box-shadow: 0 20px 80px var(--overlay);
 }
 .widget-catalog > header {
   display: flex;
@@ -345,7 +345,7 @@
 }
 
 .widget-catalog::backdrop {
-  background: #0009;
+  background: var(--overlay);
 }
 .widget-catalog {
   color: var(--text);
@@ -768,10 +768,10 @@
 }
 .widget-catalog {
   border-radius: 12px;
-  box-shadow: 0 24px 80px #0008;
+  box-shadow: 0 24px 80px var(--overlay);
 }
 .widget-catalog::backdrop {
-  background: #06090dc9;
+  background: var(--overlay);
 }
 @media (max-width: 900px) {
   .dashboard {

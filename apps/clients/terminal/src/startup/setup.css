@@ -138,7 +138,7 @@
   cursor: pointer;
 }
 .setup-begin:hover:not(:disabled) {
-  background: #f3c88c;
+  background: var(--accent);
 }
 .setup-begin:disabled {
   opacity: 0.55;

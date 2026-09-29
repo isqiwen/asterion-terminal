@@ -264,7 +264,7 @@
   z-index: 50;
   background: var(--panel);
   border: 1px solid var(--line);
-  box-shadow: 0 8px 30px #0008;
+  box-shadow: 0 8px 30px var(--overlay);
   padding: 12px;
   color: var(--text);
   font-size: 12px;

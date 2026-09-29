@@ -229,7 +229,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
       ) : (
         <Workbench
           title={current.title}
-          showToolbar={!current.hideToolbar}
+          showToolbar={!current.hideToolbar && !!WorkspaceToolbar}
           navigation={workspaces.map(item => ({
             ...item,
             active: item.id === view,
@@ -255,12 +255,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
               </button>
             </>
           }
-          toolbar={
-            <>
-              <span className="environment">{t("期货")}</span>
-              {WorkspaceToolbar && <WorkspaceToolbar {...panelContext} />}
-            </>
-          }
+          toolbar={WorkspaceToolbar && <WorkspaceToolbar {...panelContext} />}
           notices={
             error ? (
               <div className="alert" role="alert">
