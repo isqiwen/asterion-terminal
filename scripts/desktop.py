@@ -181,8 +181,18 @@ def main():
             "in this directory, or set ASTERION_LINUX_BUNDLES to its directory. "
             "Desktop packaging requires the bundled remote services."
         )
-    if mode == "build" or archives.is_dir():
-        run([sys.executable, str(ROOT / "scripts/remote_resources.py"), "stage", "--archives", str(archives)])
+    stage = [sys.executable, str(ROOT / "scripts/remote_resources.py"), "stage", "--archives", str(archives)]
+    if mode == "dev" and archives.is_dir():
+        # Development must not block on the cross-built Linux bundle. A stale
+        # bundle is never staged: remote Linux deployment reports it missing.
+        if subprocess.run(stage, cwd=ROOT, env=env).returncode != 0:
+            shutil.rmtree(resources, ignore_errors=True)
+            resources.mkdir(parents=True, exist_ok=True)
+            print("WARNING: Linux service bundle does not match this source; "
+                  "remote Linux deployment is unavailable in this dev session. "
+                  "Rebuild it before desktop:check/build.", file=sys.stderr)
+    elif mode != "dev" or archives.is_dir():
+        run(stage)
     else:
         resources.mkdir(parents=True, exist_ok=True)
     env["ASTERION_REMOTE_RESOURCES"] = str(resources)
