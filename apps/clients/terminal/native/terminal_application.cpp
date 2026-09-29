@@ -186,6 +186,30 @@ void Application::Impl::publish(json next) {
   }
   refreshed_at_ms = now;
 }
+// A poll that states the market revisions it holds receives only quote rows
+// changed after them; an unchanged catalog is sent without its contracts.
+// Any mismatch in subscription set sends every row.
+void Application::Impl::trim_market(json& result, const json& params) {
+  if (!params.contains("market_rows") || !result.contains("market") ||
+      !result.at("market").is_object())
+    return;
+  auto& market = result["market"];
+  if (market.value("subscription_set", std::uint64_t{0}) ==
+      params.at("market_set").get<std::uint64_t>()) {
+    const auto held = params.at("market_rows").get<std::uint64_t>();
+    json changed = json::array();
+    for (const auto& row : market.at("subscriptions"))
+      if (row.value("revision", std::uint64_t{0}) > held)
+        changed.push_back(row);
+    market["subscriptions"] = std::move(changed);
+    market["delta"] = true;
+  }
+  auto& catalog = market["catalog"];
+  if (catalog.value("revision", std::uint64_t{0}) == params.at("catalog").get<std::uint64_t>()) {
+    catalog["contracts"] = json::array();
+    catalog["omitted"] = true;
+  }
+}
 json Application::Impl::read_published(const json& params) {
   std::optional<std::uint64_t> since;
   if (params.contains("since"))
@@ -195,6 +219,8 @@ json Application::Impl::read_published(const json& params) {
   if (cache.is_null())
     return nullptr;
   json result = since == revision ? json{{"unchanged", true}} : cache;
+  if (since != revision)
+    trim_market(result, params);
   result["revision"] = revision;
   result["refreshed_at_ms"] = refreshed_at_ms;
   return result;
@@ -253,12 +279,16 @@ json Application::Impl::dispatch(const json& request) {
   if (method == "runtime.snapshot") {
     // Validate before choosing a fresh or cached read. Invalid input must not
     // become accepted merely because no command currently owns the lock.
-    if (!params.is_object() || params.size() > 1 ||
-        (params.size() == 1 && !params.contains("since")))
+    const bool incremental = params.is_object() && params.contains("market_rows");
+    if (!params.is_object() ||
+        (incremental ? params.size() != 4 || !params.contains("since") ||
+                           !params.contains("market_set") || !params.contains("catalog")
+                     : params.size() > 1 || (params.size() == 1 && !params.contains("since"))))
       throw std::invalid_argument("request fields do not match the current contract");
     const bool poll = params.contains("since");
-    if (poll && !params.at("since").is_number_unsigned())
-      throw std::invalid_argument("since must be a snapshot revision");
+    for (const auto* name : {"since", "market_rows", "market_set", "catalog"})
+      if (params.contains(name) && !params.at(name).is_number_unsigned())
+        throw std::invalid_argument("snapshot revisions must be unsigned integers");
     auto published_read = [&]() -> json {
       auto published = read_published(params);
       if (!published.is_null() && !poll)

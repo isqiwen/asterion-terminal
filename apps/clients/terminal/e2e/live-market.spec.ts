@@ -78,8 +78,19 @@ test("read-only market workspace receives C++ test SDK quotes without storing cr
   );
   await expect(panel.getByRole("button", { name: "启动本机行情服务" })).toHaveCount(0);
   await expect(connect).toBeEnabled();
+  // Polls after connecting carry held market revisions and receive deltas.
+  const incremental = page.waitForResponse(async response => {
+    const body = response.request().postDataJSON() as { params?: Record<string, unknown> } | null;
+    if (!response.url().includes("/__asterion/api") || body?.params?.market_rows === undefined)
+      return false;
+    const json = (await response.json()) as {
+      result?: { unchanged?: boolean; market?: { delta?: boolean } };
+    };
+    return json.result?.unchanged === true || json.result?.market?.delta === true;
+  });
   await connect.click();
   await expect(panel.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
+  await incremental;
   const detail = panel.getByRole("complementary", { name: "合约详情" });
   await detail.getByRole("button", { name: "Tick", exact: true }).first().click();
   await expect(panel.getByRole("img", { name: "最近报价走势" })).toBeVisible();

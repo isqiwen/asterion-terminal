@@ -57,9 +57,11 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   const [checkedAt, setCheckedAt] = useState<number | null>(null);
   const generation = useRef(0);
   const revision = useRef<number | undefined>(undefined);
+  const held = useRef<Snapshot | null>(null);
   // Every full snapshot carries the core's revision and the time the core last
   // refreshed it; stale probes keep the previous "checked at" time.
   const accept = useCallback((next: Snapshot) => {
+    held.current = next;
     setSnapshot(next);
     setError("");
     revision.current = next.revision;
@@ -127,7 +129,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
       async () => {
         const current = generation.current;
         try {
-          const next = await pollSnapshot(revision.current ?? 0);
+          const next = await pollSnapshot(revision.current ?? 0, held.current);
           if (cancelled || current !== generation.current) return;
           if ("unchanged" in next) {
             setError("");
@@ -155,7 +157,10 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
       // before showing the error; never automatically repeat a trading command.
       try {
         const next = await request("runtime.snapshot");
-        if (current === generation.current) setSnapshot(next);
+        if (current === generation.current) {
+          held.current = next;
+          setSnapshot(next);
+        }
       } catch {
         /* Keep the original command error. */
       }

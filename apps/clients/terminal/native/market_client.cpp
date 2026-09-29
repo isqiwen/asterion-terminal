@@ -5,11 +5,18 @@
 #include <asterion/protocol/trading.hpp>
 #include <atomic>
 #include <condition_variable>
+#include <algorithm>
+#include <map>
 #include <mutex>
 #include <thread>
 namespace asterion::terminal {
 namespace wire = asterion::market::v1;
 using namespace std::chrono_literals;
+namespace {
+// Process-wide so a replaced market client never reuses a revision a
+// Terminal window already holds; polls then receive complete state.
+std::atomic<std::uint64_t> sync_revision{0};
+} // namespace
 struct MarketClient::Impl {
   ServiceEndpoint endpoint;
   mutable std::mutex mutex;
@@ -21,6 +28,11 @@ struct MarketClient::Impl {
   bool online = false;
   std::atomic<std::uint64_t> sequence{0};
   std::chrono::steady_clock::time_point seen{};
+  // Change tracking for incremental Terminal polls (see annotate()).
+  std::map<std::string, std::pair<Json, std::uint64_t>> rows;
+  std::vector<std::string> keys;
+  Json catalog = nullptr;
+  std::uint64_t set_revision = 0, catalog_revision = 0;
   explicit Impl(ServiceEndpoint value) : endpoint(std::move(value)) {
     const auto deadline = std::chrono::steady_clock::now() + 10s;
     for (;;) {
@@ -131,11 +143,41 @@ struct MarketClient::Impl {
                ? exchange(ipc::TlsChannel::connect(endpoint.host, endpoint.port, endpoint.tls, 3s))
                : exchange(ipc::Channel::connect(endpoint.endpoint, 3s));
   }
+  // Stamps each quote row with the revision of its last change, and the
+  // subscription set and catalog with their own revisions.
+  void annotate() {
+    auto& subscriptions = cached.at("subscriptions");
+    std::vector<std::string> next;
+    next.reserve(subscriptions.size());
+    for (auto& row : subscriptions) {
+      auto key = row.at("venue").get<std::string>() + "." + row.at("symbol").get<std::string>();
+      auto found = rows.find(key);
+      if (found == rows.end() || found->second.first != row)
+        found = rows.insert_or_assign(key, std::pair{row, ++sync_revision}).first;
+      row["revision"] = found->second.second;
+      next.push_back(std::move(key));
+    }
+    if (next != keys || !set_revision) {
+      keys = std::move(next);
+      set_revision = ++sync_revision;
+      std::erase_if(rows, [&](const auto& item) {
+        return std::ranges::find(keys, item.first) == keys.end();
+      });
+    }
+    if (cached.at("catalog") != catalog || !catalog_revision) {
+      catalog = cached.at("catalog");
+      catalog_revision = ++sync_revision;
+    }
+    cached["subscription_set"] = set_revision;
+    cached["catalog"]["revision"] = catalog_revision;
+  }
   void publish(const wire::Snapshot& state) {
     std::lock_guard lock(mutex);
     if (cached.is_null() || cached.at("instance_id") != state.instance_id() ||
-        cached.at("sequence").get<std::uint64_t>() <= state.sequence())
+        cached.at("sequence").get<std::uint64_t>() <= state.sequence()) {
       cached = protocol::decode_market(state);
+      annotate();
+    }
     online = true;
     seen = std::chrono::steady_clock::now();
   }

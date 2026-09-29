@@ -105,6 +105,7 @@ struct Application::Impl {
   void register_research_commands();
   void register_strategy_commands();
   void register_market_commands();
+  void trim_market(json& result, const json& params);
   // Declared last: stopped and joined before any state it reads is destroyed.
   std::jthread refresher;
 };
