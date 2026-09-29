@@ -383,7 +383,7 @@ TEST(TerminalDailyFactor, SubmissionDoesNotBlockOtherWindowsAndRejectsChangedSer
   EXPECT_NE(app.dispatch(request("runtime.snapshot")).at("research").at("connection_id"), first_id);
   source.release();
   try {
-    pending.get();
+    (void)pending.get();
     FAIL() << "obsolete service response must not be published";
   } catch (const Error& error) {
     EXPECT_EQ(
