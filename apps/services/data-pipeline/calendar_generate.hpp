@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 namespace asterion::data_pipeline {
-// Renders a settlement calendar CSV (docs/settlement-calendar.md) from
+// Renders a settlement calendar CSV (format: docs/market-data.md) from
 // "trading_day,settlement_price,settlement_source" rows and a product's session
 // template. The trading days and settlement prices are the caller's evidence;
 // the template only supplies session times, recorded in schedule_source.
