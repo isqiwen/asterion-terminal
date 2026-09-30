@@ -40,7 +40,9 @@ try:
     call('market.subscribe',dict(instruments=[]))
     state=wait(lambda s:not s['market']['watchlist'])
     assert len(state['market']['subscriptions'])==1
-    call('market.disconnect');wait(lambda s:s['market']['phase']=='disconnected')
+    state=call('market.disconnect');state=wait(lambda s:s['market']['phase']=='disconnected')
+    # The last ready catalog stays available offline, marked as a cached copy.
+    catalog=state['market']['catalog'];assert catalog['phase']=='cached' and catalog['contracts'][0]['symbol']=='rb2610',catalog
     call('market.connect',dict(front='tcp://127.0.0.1:1',broker='test',user='fixture',password='reject-test-only',instruments=[]))
     wait(lambda s:s['market']['phase']=='error' and s['market']['error_code']==3)
     call('market.disconnect')

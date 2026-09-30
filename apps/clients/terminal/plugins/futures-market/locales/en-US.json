@@ -274,5 +274,6 @@
   "返回的数据与所选合约不匹配": "Returned data does not match the selected contract",
   "郑州商品期货": "Zhengzhou Commodities",
   "金融期货": "Financial Futures",
-  "历史K线": "History candles"
+  "历史K线": "History candles",
+  "合约目录来自 {day} 的本机缓存，连接后更新。": "Contract catalog from the local copy of {day}; it refreshes after connecting."
 }

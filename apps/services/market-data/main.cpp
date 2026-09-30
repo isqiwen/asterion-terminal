@@ -49,6 +49,8 @@ int main(int argc, char** argv) {
     std::mutex mutex;
     bool quiescing = false;
     market_data::CatalogJob catalog;
+    catalog.persist_to(std::filesystem::path(std::u8string(directory.begin(), directory.end())) /
+                       "ctp-catalog.pb");
     std::vector<InstrumentId> watchlist;
     std::uint64_t applied_catalog = 0, extra_sequence = 0;
     // Minute bars and one-minute change from the ordered event stream, not

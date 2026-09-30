@@ -158,6 +158,11 @@ export function LivePanel({ context }: { context: TerminalContext }) {
           </p>
         ) : null}
         {market?.catalog?.phase === "loading" && <p role="status">{t("正在获取完整合约目录…")}</p>}
+        {market?.catalog?.phase === "cached" && (
+          <p role="status">
+            {t("合约目录来自 {day} 的本机缓存，连接后更新。", { day: market.catalog.trading_day })}
+          </p>
+        )}
         {market?.catalog?.phase === "error" && (
           <p role="alert">
             {t("合约目录获取失败，请检查目录前置与认证配置。")}

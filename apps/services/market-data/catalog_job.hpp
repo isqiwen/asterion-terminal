@@ -1,6 +1,9 @@
 #pragma once
 #include "ctp_catalog.hpp"
 #include <asterion/foundation/error.hpp>
+#include <asterion/kernel/durable_file.hpp>
+#include <filesystem>
+#include <fstream>
 #include <asterion/v1/market.pb.h>
 #include <atomic>
 #include <mutex>
@@ -10,6 +13,24 @@ namespace asterion::market_data {
 class CatalogJob {
 public:
   ~CatalogJob() { worker_.request_stop(); }
+  // The last ready catalog is kept in `file` and offered as phase "cached"
+  // (with its trading day) whenever no live query result is available.
+  void persist_to(std::filesystem::path file) {
+    std::lock_guard lock(mutex_);
+    file_ = std::move(file);
+    if (std::filesystem::is_regular_file(file_) && !std::filesystem::is_symlink(file_) &&
+        std::filesystem::file_size(file_) <= 64 * 1024 * 1024) {
+      std::ifstream input(file_, std::ios::binary);
+      market::v1::CatalogState stored;
+      if (stored.ParseFromIstream(&input) && stored.phase() == "ready" &&
+          stored.contracts_size() > 0) {
+        stored.set_phase("cached");
+        cached_ = std::move(stored);
+        state_ = cached_;
+        ++revision_;
+      }
+    }
+  }
   void start(const std::filesystem::path& library, const std::filesystem::path& flow,
              ctp::CatalogConfiguration config) {
     if (!done_.load())
@@ -52,6 +73,15 @@ public:
             {
               std::lock_guard lock(mutex_);
               if (!stop.stop_requested()) {
+                if (result.phase() == "ready" && !file_.empty()) {
+                  try {
+                    replace_file_durably(file_, result.SerializeAsString());
+                    cached_ = result;
+                    cached_.set_phase("cached");
+                  } catch (const std::exception&) {
+                    // The live catalog stays usable; only the offline copy is stale.
+                  }
+                }
                 state_ = std::move(result);
                 ++revision_;
               }
@@ -70,8 +100,12 @@ public:
   void cancel() {
     worker_.request_stop();
     std::lock_guard lock(mutex_);
-    state_.Clear();
-    state_.set_phase("unconfigured");
+    if (cached_.contracts_size())
+      state_ = cached_;
+    else {
+      state_.Clear();
+      state_.set_phase("unconfigured");
+    }
     ++revision_;
   }
   bool running() const { return !done_.load(); }
@@ -87,6 +121,8 @@ private:
     s.set_phase("unconfigured");
     return s;
   }();
+  market::v1::CatalogState cached_;
+  std::filesystem::path file_;
   std::uint64_t revision_ = 0;
   std::atomic<bool> done_ = true;
   // Declared last: join before destroying callback state.
