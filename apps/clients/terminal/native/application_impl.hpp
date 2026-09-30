@@ -57,7 +57,10 @@ struct Application::Impl {
   std::atomic<std::uint64_t> research_generation{0};
   std::unique_ptr<StrategyClient> strategy;
   json native_plugins = nullptr;
-  DataConnections data_connections{local_node_directory() / "data-connections"};
+  // Remembered credentials live in the keychain; the helper is found next to
+  // the Terminal programs or through ASTERION_KEYCHAIN_EXECUTABLE.
+  DataConnections data_connections{local_node_directory() / "data-connections",
+                                   keychain_store(keychain_helper())};
   json connection_verification = nullptr;
   DataConnection resolve_data_connection(const std::string& id, const std::string& revision,
                                          const std::string& source);

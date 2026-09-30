@@ -18,6 +18,7 @@ struct NodeEndpoint {
 };
 NodeEndpoint local_node();
 std::filesystem::path local_node_directory();
+std::filesystem::path keychain_helper();
 Json local_node_program_status();
 NodeEndpoint upgrade_local_node(const std::string& expected);
 struct ServiceDeployment {

@@ -449,6 +449,9 @@ const os = require("node:os");
     const restoredProfiles = (await call("runtime.snapshot")).data_connections;
     assert.equal(restoredProfiles.find(item => item.id === profile.id).credential_ready, false);
     assert.equal(restoredProfiles.find(item => item.id === "remembered").credential_ready, true);
+    // The remembered token lives in the login keychain; remove the test entry.
+    const remembered = restoredProfiles.find(item => item.id === "remembered");
+    await call("research.connections.remove", { id: remembered.id, revision: remembered.revision });
     const restored = managed(await call("runtime.snapshot"));
     assert.equal(restored.desired_running, false);
     assert.deepEqual(restored.plugin_artifacts, [fixtureHash]);

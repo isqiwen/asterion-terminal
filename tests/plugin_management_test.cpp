@@ -108,7 +108,7 @@ TEST_F(PluginManagement, ConfigurationKeepsVersionRevisionAndStoppedState) {
 }
 } // namespace
 
-#include "data_connections.hpp"
+#include "credential_fixture.hpp"
 namespace {
 data::v1::HistoryConnectionSchema connection_schema(bool remember = true) {
   data::v1::HistoryConnectionSchema schema;
@@ -120,7 +120,8 @@ data::v1::HistoryConnectionSchema connection_schema(bool remember = true) {
 }
 } // namespace
 TEST_F(PluginManagement, ConnectionCredentialsStayPrivateAndSessionCredentialsExpire) {
-  terminal::DataConnections store(root / "connections");
+  const auto keychain = std::make_shared<test::MemoryCredentials>();
+  terminal::DataConnections store(root / "connections", keychain);
   terminal::DataConnection input{"alpha", "First", "fixture.minutes", "test.independent.c", "",
                                  30,      false,   "fixture-secret"};
   store.save(input, "", "replace", connection_schema());
@@ -130,12 +131,18 @@ TEST_F(PluginManagement, ConnectionCredentialsStayPrivateAndSessionCredentialsEx
   std::ifstream file(root / "connections/alpha.json");
   const std::string contents{std::istreambuf_iterator<char>(file), {}};
   EXPECT_EQ(contents.find("fixture-secret"), std::string::npos);
-  terminal::DataConnections reopened(root / "connections");
+  terminal::DataConnections reopened(root / "connections", keychain);
   EXPECT_TRUE(reopened.get("alpha").credential.empty());
   input.remember = true;
   input.credential.clear();
   store.save(input, saved.revision, "keep", connection_schema());
   EXPECT_EQ(reopened.get("alpha").credential, "fixture-secret");
+  ASSERT_EQ(keychain->items.size(), 1U) << "remembered secrets live only in the credential store";
+  {
+    std::ifstream remembered(root / "connections/alpha.json");
+    const std::string text{std::istreambuf_iterator<char>(remembered), {}};
+    EXPECT_EQ(text.find("fixture-secret"), std::string::npos);
+  }
   EXPECT_EQ(fs::status(root / "connections/alpha.json").permissions() & fs::perms::all,
             fs::perms::owner_read | fs::perms::owner_write);
   EXPECT_THROW(store.save(input, saved.revision, "keep", connection_schema()), Error);
@@ -143,13 +150,18 @@ TEST_F(PluginManagement, ConnectionCredentialsStayPrivateAndSessionCredentialsEx
   const auto current = store.get("alpha");
   store.remove("alpha", current.revision);
   EXPECT_TRUE(store.snapshot().empty());
+  EXPECT_TRUE(keychain->items.empty());
   EXPECT_EQ(saved.credential, "fixture-secret");
 }
 TEST_F(PluginManagement, ConnectionsRejectForbiddenPersistenceAndUnsafePaths) {
-  terminal::DataConnections store(root / "connections");
+  terminal::DataConnections store(root / "connections",
+                                  std::make_shared<test::MemoryCredentials>());
   terminal::DataConnection input{"alpha", "First", "fixture.minutes", "test.independent.c", "",
                                  30,      true,    "fixture-secret"};
   EXPECT_THROW(store.save(input, "", "replace", connection_schema(false)), std::invalid_argument);
+  // Without a credential store nothing can be remembered.
+  terminal::DataConnections unavailable(root / "connections", nullptr);
+  EXPECT_THROW(unavailable.save(input, "", "replace", connection_schema()), std::invalid_argument);
   input.remember = false;
   input.requests_per_minute = 61;
   EXPECT_THROW(store.save(input, "", "replace", connection_schema()), std::invalid_argument);

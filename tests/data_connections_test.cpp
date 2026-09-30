@@ -1,4 +1,4 @@
-#include "data_connections.hpp"
+#include "credential_fixture.hpp"
 #include <asterion/kernel/process/child.hpp>
 #include <algorithm>
 #include <fstream>
@@ -29,7 +29,8 @@ terminal::DataConnection connection(const std::string& id, bool remember) {
 TEST(DataConnections, UnreadableFileIsListedWithoutFailingTheSnapshot) {
   Directory root;
   fs::create_directory(root.path);
-  terminal::DataConnections connections(root.path / "data-connections");
+  terminal::DataConnections connections(root.path / "data-connections",
+                                        std::make_shared<test::MemoryCredentials>());
   EXPECT_TRUE(connections.snapshot().empty());
   connections.save(connection("one", true), "", "replace", schema());
   ASSERT_EQ(connections.snapshot().size(), 1U);
@@ -49,7 +50,8 @@ TEST(DataConnections, UnreadableFileIsListedWithoutFailingTheSnapshot) {
 TEST(DataConnections, SnapshotReflectsSavesAndRemovalsThroughTheCache) {
   Directory root;
   fs::create_directory(root.path);
-  terminal::DataConnections connections(root.path / "data-connections");
+  terminal::DataConnections connections(root.path / "data-connections",
+                                        std::make_shared<test::MemoryCredentials>());
   connections.save(connection("one", false), "", "replace", schema());
   auto listed = connections.snapshot();
   ASSERT_EQ(listed.size(), 1U);

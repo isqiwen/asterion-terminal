@@ -203,6 +203,13 @@ if(ASTERION_NODE_HEADERS)
   endif()
 endif()
 
+if(APPLE)
+  # Kept free of project libraries so its code signature, which the keychain
+  # uses to grant access, only changes when this file does.
+  add_executable(asterion-keychain apps/clients/terminal/native/keychain/main.cpp)
+  target_link_libraries(asterion-keychain PRIVATE "-framework Security" "-framework CoreFoundation")
+  add_dependencies(asterion_terminal_api asterion-keychain)
+endif()
 add_executable(asterion_terminal_dev_bridge apps/clients/terminal/dev/core_bridge.cpp)
 target_link_libraries(asterion_terminal_dev_bridge PRIVATE asterion_terminal_api CLI11::CLI11 $<$<PLATFORM_ID:Windows>:shell32>)
 

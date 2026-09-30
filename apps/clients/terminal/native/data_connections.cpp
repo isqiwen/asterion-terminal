@@ -7,6 +7,13 @@
 #include <regex>
 #include <optional>
 #include <algorithm>
+#include <asterion/kernel/process/artifact.hpp>
+#ifdef __APPLE__
+#include <cerrno>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 namespace asterion::terminal {
 namespace fs = std::filesystem;
 namespace {
@@ -22,10 +29,106 @@ Json encode(const DataConnection& connection) {
           {"plugin_id", connection.plugin_id},
           {"revision", connection.revision},
           {"requests_per_minute", connection.requests_per_minute},
-          {"remember", connection.remember},
-          {"credential", connection.remember ? connection.credential : ""}};
+          {"remember", connection.remember}};
 }
+#ifdef __APPLE__
+struct Output {
+  int status = 1;
+  std::string text;
+};
+// Runs the helper with an optional stdin payload; no shell, bounded output.
+Output run(const fs::path& helper, const std::vector<std::string>& arguments,
+           const std::string& input) {
+  int in[2], out[2];
+  if (::pipe(in) != 0)
+    throw std::runtime_error("credential store unavailable");
+  if (::pipe(out) != 0) {
+    ::close(in[0]);
+    ::close(in[1]);
+    throw std::runtime_error("credential store unavailable");
+  }
+  posix_spawn_file_actions_t actions;
+  posix_spawn_file_actions_init(&actions);
+  posix_spawn_file_actions_adddup2(&actions, in[0], 0);
+  posix_spawn_file_actions_adddup2(&actions, out[1], 1);
+  for (const int fd : {in[0], in[1], out[0], out[1]})
+    posix_spawn_file_actions_addclose(&actions, fd);
+  std::vector<std::string> owned{helper.string()};
+  owned.insert(owned.end(), arguments.begin(), arguments.end());
+  std::vector<char*> argv;
+  for (auto& item : owned)
+    argv.push_back(item.data());
+  argv.push_back(nullptr);
+  char* environment[] = {nullptr};
+  pid_t pid = 0;
+  const auto spawned =
+      posix_spawn(&pid, helper.c_str(), &actions, nullptr, argv.data(), environment);
+  posix_spawn_file_actions_destroy(&actions);
+  ::close(in[0]);
+  ::close(out[1]);
+  Output result;
+  if (spawned == 0) {
+    for (std::size_t offset = 0; offset < input.size();) {
+      const auto n = ::write(in[1], input.data() + offset, input.size() - offset);
+      if (n <= 0)
+        break;
+      offset += static_cast<std::size_t>(n);
+    }
+  }
+  ::close(in[1]);
+  if (spawned == 0) {
+    char buffer[1024];
+    for (ssize_t n; (n = ::read(out[0], buffer, sizeof buffer)) > 0;)
+      if (result.text.size() < 8192)
+        result.text.append(buffer, static_cast<std::size_t>(n));
+    int status = 0;
+    while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+    }
+    result.status = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+  }
+  ::close(out[0]);
+  if (spawned != 0)
+    throw std::runtime_error("credential store unavailable");
+  return result;
+}
+class Keychain final : public CredentialStore {
+public:
+  explicit Keychain(fs::path helper) : helper_(std::move(helper)) {}
+  std::optional<std::string> load(const std::string& account) override {
+    const auto output = run(helper_, {"get", account}, {});
+    if (output.status == 3)
+      return std::nullopt;
+    if (output.status != 0)
+      throw Error(ErrorCode::unavailable, "keychain credential is unavailable");
+    return output.text;
+  }
+  void store(const std::string& account, const std::string& secret) override {
+    if (run(helper_, {"set", account}, secret).status != 0)
+      throw Error(ErrorCode::unavailable, "cannot save credential to the keychain");
+  }
+  void erase(const std::string& account) override {
+    if (run(helper_, {"delete", account}, {}).status != 0)
+      throw Error(ErrorCode::unavailable, "cannot remove credential from the keychain");
+  }
+
+private:
+  fs::path helper_;
+};
+#endif
 } // namespace
+std::shared_ptr<CredentialStore> keychain_store(const fs::path& helper) {
+#ifdef __APPLE__
+  if (helper.is_absolute() && fs::is_regular_file(helper) && !fs::is_symlink(helper))
+    return std::make_shared<Keychain>(helper);
+#else
+  (void)helper;
+#endif
+  return nullptr;
+}
+std::string DataConnections::account(const std::string& id) const {
+  // Isolated nodes (tests, development) never share keychain entries.
+  return sha256_bytes(directory_.string()).substr(0, 16) + "/" + id;
+}
 fs::path DataConnections::path(const std::string& id) const {
   if (!std::regex_match(id, std::regex("[A-Za-z0-9][A-Za-z0-9_-]{0,63}")))
     throw std::invalid_argument("invalid data connection identity");
@@ -41,21 +144,21 @@ DataConnection DataConnections::get(const std::string& id) const {
   std::ifstream input(file);
   const std::string contents{std::istreambuf_iterator<char>(input), {}};
   const auto document = parse_json(contents, 8192);
-  if (document.size() != 9 || document.at("version") != 1 || document.at("id") != id)
+  if (document.size() != 8 || document.at("version") != 1 || document.at("id") != id)
     throw std::invalid_argument("invalid data connection storage");
   DataConnection connection{document.at("id"),       document.at("name"),
                             document.at("source"),   document.at("plugin_id"),
                             document.at("revision"), document.at("requests_per_minute"),
-                            document.at("remember"), document.at("credential")};
+                            document.at("remember"), ""};
   if (connection.name.empty() || connection.name.size() > 128 || connection.source.empty() ||
       connection.plugin_id.empty() || connection.revision.empty() ||
-      connection.credential.size() > 256 ||
       !document.at("requests_per_minute").is_number_unsigned() ||
       connection.requests_per_minute < 1 || connection.requests_per_minute > 500)
     throw std::invalid_argument("invalid data connection storage");
-  if (!connection.remember) {
-    if (!connection.credential.empty())
-      throw std::invalid_argument("invalid data connection storage");
+  if (connection.remember) {
+    if (remembered_)
+      connection.credential = remembered_->load(account(id)).value_or("");
+  } else {
     const auto found = session_credentials_.find(id);
     if (found != session_credentials_.end() && found->second.first == connection.revision)
       connection.credential = found->second.second;
@@ -118,7 +221,7 @@ void DataConnections::save(DataConnection connection, const std::string& expecte
   if (connection.name.empty() || connection.name.size() > 128 || connection.source.empty() ||
       connection.plugin_id.empty() || !connection.requests_per_minute ||
       connection.requests_per_minute > schema.requests_per_minute_max() ||
-      (connection.remember && !schema.remember_allowed()))
+      (connection.remember && (!schema.remember_allowed() || !remembered_)))
     throw std::invalid_argument("invalid data connection settings");
   if (current &&
       (current->source != connection.source || current->plugin_id != connection.plugin_id))
@@ -138,6 +241,13 @@ void DataConnections::save(DataConnection connection, const std::string& expecte
   if (!current && read_all().size() >= 128)
     throw std::invalid_argument("too many data connections");
   connection.revision = unique_process_id();
+  // The secret changes first: a failed file write leaves the old revision.
+  if (remembered_) {
+    if (connection.remember && !connection.credential.empty())
+      remembered_->store(account(connection.id), connection.credential);
+    else
+      remembered_->erase(account(connection.id));
+  }
   replace_file_durably(file, encode(connection).dump(), true);
   cached_.reset();
   if (connection.remember)
@@ -150,6 +260,8 @@ void DataConnections::remove(const std::string& id, const std::string& expected)
   FileLock lock(directory_, "connections.lock");
   if (get(id).revision != expected)
     throw Error(ErrorCode::conflict, "data connection changed; inspect again");
+  if (remembered_)
+    remembered_->erase(account(id));
   fs::remove(file);
   sync_directory(directory_);
   cached_.reset();

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <asterion/kernel/environment.hpp>
 #include <chrono>
+#include <ctime>
 #include <regex>
 namespace asterion {
 namespace {
@@ -54,7 +55,13 @@ void remove_expired(const std::filesystem::path& file, unsigned retention_days) 
   const auto directory = file.parent_path();
   const auto stem = file.stem().string(), extension = file.extension().string();
   const std::regex dated(R"((\d{4})-(\d{2})-(\d{2}))");
-  const auto today = std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now());
+  // File names use the local date, as the daily sink does.
+  const auto now = std::time(nullptr);
+  std::tm local{};
+  localtime_r(&now, &local);
+  const auto today = std::chrono::sys_days(std::chrono::year_month_day{
+      std::chrono::year(local.tm_year + 1900), std::chrono::month(local.tm_mon + 1),
+      std::chrono::day(local.tm_mday)});
   std::error_code ignored;
   for (const auto& entry : std::filesystem::directory_iterator(directory, ignored)) {
     const auto name = entry.path().filename().string();

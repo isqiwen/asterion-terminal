@@ -1,3 +1,4 @@
+#include <ctime>
 #include <chrono>
 #include <cstdio>
 #include <gtest/gtest.h>
@@ -60,12 +61,12 @@ TEST(Logger, FilteringRedactionAndConcurrentWrites) {
 TEST_F(LogFixture, DailyFilesKeepThirtyDaysAndLeaveOtherFiles) {
   // Dated files from earlier days: one inside the window, one outside it.
   const auto dated = [&](int days_ago) {
-    const std::chrono::year_month_day day{
-        std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now()) -
-        std::chrono::days(days_ago)};
+    // Local dates, as the daily sink names its files.
+    const auto when = std::time(nullptr) - static_cast<std::time_t>(days_ago) * 86400;
+    std::tm local{};
+    localtime_r(&when, &local);
     char name[32];
-    std::snprintf(name, sizeof name, "service_%04d-%02u-%02u.log", static_cast<int>(day.year()),
-                  static_cast<unsigned>(day.month()), static_cast<unsigned>(day.day()));
+    std::strftime(name, sizeof name, "service_%Y-%m-%d.log", &local);
     return directory / name;
   };
   std::ofstream(dated(29)) << "recent\n";

@@ -252,7 +252,7 @@ def main():
     suffix = ".exe" if sys.platform == "win32" else ""
     native = ROOT / "build/electron-resources/native"
     native.mkdir(parents=True, exist_ok=True)
-    names = ("asterion-trading", "asterion-node-agent", "asterion-market-data", "asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline", "asterion-strategy")
+    names = ("asterion-trading", "asterion-node-agent", "asterion-market-data", "asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline", "asterion-strategy") + (("asterion-keychain",) if sys.platform == "darwin" else ())
     programs = [ROOT / "build" / configuration / (name + suffix) for name in names]
     programs.append(ROOT / "build" / configuration / "asterion_terminal.node")
     for source in programs:

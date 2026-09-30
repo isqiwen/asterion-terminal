@@ -57,6 +57,12 @@ fs::path bundled_agent() {
 }
 
 } // namespace
+std::filesystem::path keychain_helper() {
+  auto executable = environment("ASTERION_KEYCHAIN_EXECUTABLE");
+  if (executable.empty())
+    executable = current_executable().parent_path() / "asterion-keychain";
+  return executable;
+}
 std::filesystem::path local_node_directory() {
   return local_root();
 }
