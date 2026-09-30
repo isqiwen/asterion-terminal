@@ -20,6 +20,14 @@ test("market board groups exchanges and links contract selection without inventi
     if (body.result?.market) {
       body.result.market = {
         ...body.result.market,
+        // These views are specified without a contract catalog; a catalog
+        // cached by an earlier session must not leak into them.
+        catalog: {
+          ...body.result.market.catalog,
+          phase: "unconfigured",
+          trading_day: "",
+          contracts: [],
+        },
         transport_online: true,
         phase: "connected",
         error_code: 0,
