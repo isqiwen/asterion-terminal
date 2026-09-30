@@ -220,8 +220,7 @@ void Application::Impl::register_research_commands() {
     // a data source does not provide are entered by the user.
     std::string key;
     for (const auto& task : research->tasks())
-      if (task.at("id") == p.at("source_task_id") &&
-          task.at("state") == "succeeded" &&
+      if (task.at("id") == p.at("source_task_id") && task.at("state") == "succeeded" &&
           (task.at("kind") == "minute_download" || task.at("kind") == "daily_download"))
         key = task.at("instrument").get<std::string>();
     if (key.empty())
@@ -229,20 +228,20 @@ void Application::Impl::register_research_commands() {
     const auto id = HistoryIdentity::parse(key).exchange_id();
     const auto identity = HistoryIdentity::parse(key);
     auto product = id.symbol.substr(0, identity.product.size());
-    const auto request = protocol::encode_bar_dataset_request(
-        {{"source_task_id", p.at("source_task_id")},
-         {"settlement_task_id", p.at("settlement_task_id")},
-         {"begin_day", p.at("begin_day")},
-         {"end_day", p.at("end_day")},
-         {"contract",
-          {{"venue", id.venue},
-           {"symbol", id.symbol},
-           {"currency", "CNY"},
-           {"price_increment", text(p, "price_increment")},
-           {"quantity_increment", "1"},
-           {"multiplier", text(p, "multiplier")},
-           {"product", std::move(product)},
-           {"delivery_month", identity.delivery_month}}}});
+    const auto request =
+        protocol::encode_bar_dataset_request({{"source_task_id", p.at("source_task_id")},
+                                              {"settlement_task_id", p.at("settlement_task_id")},
+                                              {"begin_day", p.at("begin_day")},
+                                              {"end_day", p.at("end_day")},
+                                              {"contract",
+                                               {{"venue", id.venue},
+                                                {"symbol", id.symbol},
+                                                {"currency", "CNY"},
+                                                {"price_increment", text(p, "price_increment")},
+                                                {"quantity_increment", "1"},
+                                                {"multiplier", text(p, "multiplier")},
+                                                {"product", std::move(product)},
+                                                {"delivery_month", identity.delivery_month}}}});
     auto dataset = research->bar_dataset(request);
     const auto& bars = dataset.bars();
     const auto& first = bars.Get(0);

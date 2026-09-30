@@ -12,6 +12,8 @@ export const plugin: TerminalPlugin = {
   apiVersion: 1,
   commands: [
     "research.local",
+    "research.dataset.select",
+    "research.dataset.clear",
     "research.submit",
     "research.factor.submit",
     "research.daily-factor.submit",

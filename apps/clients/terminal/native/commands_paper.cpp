@@ -31,6 +31,9 @@ void Application::Impl::register_paper_commands() {
       paper = std::make_unique<TradingClient>(
           std::filesystem::path(std::u8string(directory.begin(), directory.end())), manifest);
     }
+    // Every dataset carries data-source settlement prices, so each trading
+    // day ends with its bound settlement instead of a typed price.
+    paper->execute({{"request_id", "replay-days"}, {"action", "replay_days"}});
     return snapshot();
   });
   core.command("paper.connect", "paper.manage", [this](const json& p) {

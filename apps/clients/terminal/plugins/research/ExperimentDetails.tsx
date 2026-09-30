@@ -4,10 +4,9 @@ const t = (key: string) => translate("asterion.terminal.research", key);
 type Evidence = Extract<ResearchResult, { kind: "backtest" | "factor" }>;
 export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
   const experiment = evidence.experiment;
-  const contract =
-    evidence.kind === "backtest"
-      ? evidence.experiment.paper.contract
-      : evidence.experiment.contract;
+  const dataset =
+    evidence.kind === "backtest" ? evidence.experiment.paper.dataset : evidence.experiment.dataset;
+  const contract = dataset.contract;
   const rows: [string, string | number][] = [
     ["合约", `${contract.venue} · ${contract.symbol}`],
     ["品种代码", contract.product],
@@ -16,7 +15,12 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
     ["价格步长", contract.price_increment],
     ["数量步长", contract.quantity_increment],
     ["币种", contract.currency],
-    ["输入成交", experiment.data.count],
+    ["K 线周期（分钟）", experiment.data.interval_minutes],
+    ["输入 K 线", experiment.data.count],
+    ["交易日范围", `${experiment.data.first_day} – ${experiment.data.last_day}`],
+    ["数据源", experiment.data.source],
+    ["K 线下载任务", dataset.source_task_id],
+    ["结算价下载任务", dataset.settlement_task_id],
   ];
   if (evidence.kind === "backtest") {
     const { paper, sma } = evidence.experiment;
@@ -40,8 +44,8 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
   } else {
     const { lookbacks, horizon, evaluation } = evidence.experiment;
     rows.push(
-      ["候选回看笔数", lookbacks.join(", ")],
-      ["未来收益笔数", horizon],
+      ["候选回看 K 线数", lookbacks.join(", ")],
+      ["未来收益 K 线数", horizon],
       [
         "评价方式",
         t(
@@ -55,10 +59,10 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
     );
     if (evaluation.mode === "walk_forward")
       rows.push(
-        ["训练成交笔数", evaluation.training_events],
-        ["每轮验证笔数", evaluation.validation_events],
+        ["训练 K 线数", evaluation.training_events],
+        ["每轮验证 K 线数", evaluation.validation_events],
       );
-    if (evaluation.mode === "holdout") rows.push(["前段成交笔数", evaluation.split_index]);
+    if (evaluation.mode === "holdout") rows.push(["前段 K 线数", evaluation.split_index]);
   }
   return (
     <details className="research-experiment">
@@ -72,51 +76,6 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
           </div>
         ))}
       </dl>
-      {evidence.kind === "backtest" &&
-        evidence.experiment.days.map(day => (
-          <div className="experiment-day" key={day.trading_day}>
-            <h4>
-              {t("交易日")} · {day.trading_day}
-            </h4>
-            <dl className="experiment-fields">
-              {[
-                ["时段来源", day.schedule_source],
-                ["结算价", day.settlement_price],
-                ["结算价来源", day.settlement_source],
-              ].map(([label, value]) => (
-                <div key={label}>
-                  <dt>{t(label)}</dt>
-                  <dd>{value}</dd>
-                </div>
-              ))}
-            </dl>
-            <dl className="experiment-fields">
-              {day.sessions.map((session, index) => (
-                <div key={session.begin_ns}>
-                  <dt>
-                    {t("交易时段")} {index + 1}
-                  </dt>
-                  <dd>
-                    {timestamp(session.begin_ns)} – {timestamp(session.end_ns)}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        ))}
-      {evidence.kind === "backtest" && evidence.experiment.calendar_publication && (
-        <details>
-          <summary>{t("结算表版本")}</summary>
-          <p>{evidence.experiment.calendar_publication.source_name}</p>
-          <p>
-            {t("发布标识")} <code>{evidence.experiment.calendar_publication.id}</code>
-          </p>
-          <p>
-            {t("内容版本")}{" "}
-            <code>{evidence.experiment.calendar_publication.calendar.revision}</code>
-          </p>
-        </details>
-      )}
       <p>
         {t("输入时间范围（北京时间）")}: {timestamp(experiment.data.first_timestamp_ns)} –{" "}
         {timestamp(experiment.data.last_timestamp_ns)}

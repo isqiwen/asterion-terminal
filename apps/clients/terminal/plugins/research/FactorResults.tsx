@@ -18,7 +18,7 @@ export function FactorResults({
             ? "滚动验证"
             : result.partitions.length === 2
               ? "时间留出评价"
-              : "按成交笔数计算 · 样本内评价",
+              : "按 K 线计算 · 样本内评价",
         )}
       </p>
       {result.folds.length > 0 && (
@@ -33,7 +33,7 @@ export function FactorResults({
                   <th>{t("轮次")}</th>
                   <th>{t("训练区间")}</th>
                   <th>{t("验证区间")}</th>
-                  <th>{t("回看笔数")}</th>
+                  <th>{t("回看 K 线数")}</th>
                   <th>{t("有效样本")}</th>
                   <th>Pearson</th>
                   <th>Spearman</th>
@@ -71,7 +71,7 @@ export function FactorResults({
                 </p>
                 {fold.candidates.map(c => (
                   <p key={c.lookback}>
-                    {t("回看笔数")} {c.lookback} · Spearman {correlation(c.development_spearman)}
+                    {t("回看 K 线数")} {c.lookback} · Spearman {correlation(c.development_spearman)}
                   </p>
                 ))}
               </section>
@@ -82,7 +82,7 @@ export function FactorResults({
       {result.selection_rule === "development_abs_spearman" && (
         <>
           <p>
-            {t("选中回看笔数")}: <strong>{result.lookback}</strong>
+            {t("选中回看 K 线数")}: <strong>{result.lookback}</strong>
           </p>
           <details>
             <summary>{t("候选比较")}</summary>
@@ -91,7 +91,7 @@ export function FactorResults({
               <table>
                 <thead>
                   <tr>
-                    <th>{t("回看笔数")}</th>
+                    <th>{t("回看 K 线数")}</th>
                     <th>{t("有效样本")}</th>
                     <th>Spearman</th>
                   </tr>
@@ -184,7 +184,7 @@ export function FactorResults({
         <summary>{t("结果详情")}</summary>
         <p>{id}</p>
         <p>
-          {t("共同预热笔数")}: {result.evaluation_warmup}
+          {t("共同预热 K 线数")}: {result.evaluation_warmup}
         </p>
         <p>
           {t("输入成交")}: {result.input_count} · {t("剔除跨界标签")}: {result.purged_count}
@@ -198,10 +198,10 @@ export function FactorResults({
         <p>
           {!result.folds.length && (
             <>
-              {t("回看笔数")}: {result.lookback} ·{" "}
+              {t("回看 K 线数")}: {result.lookback} ·{" "}
             </>
           )}
-          {t("未来收益笔数")}: {result.horizon}
+          {t("未来收益 K 线数")}: {result.horizon}
         </p>
         <p>
           {t("数据版本")} <code>{result.dataset_revision}</code>

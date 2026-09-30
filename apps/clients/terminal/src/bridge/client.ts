@@ -3,13 +3,7 @@ import { translate, type MessageValues, getLocale } from "../i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 import { desktop, save } from "./desktop";
 import { nativeDesktop } from "./desktop";
-export type Tick = {
-  timestamp_ns: string;
-  price: string;
-  quantity: string;
-};
-export type Dataset = {
-  filename: string;
+export type FuturesContract = {
   venue: string;
   symbol: string;
   product: string;
@@ -18,25 +12,44 @@ export type Dataset = {
   price_increment: string;
   quantity_increment: string;
   multiplier: string;
+};
+// Bars resolved by the research service from completed data-source downloads.
+export type DatasetSelection = {
+  source_task_id: string;
+  settlement_task_id: string;
+  begin_day: string;
+  end_day: string;
+  contract: FuturesContract;
+  venue: string;
+  symbol: string;
+  revision: string;
+  source: string;
+  interval_minutes: number;
   count: number;
-  quantity: string;
-  first_timestamp_ns: string | null;
-  last_timestamp_ns: string | null;
-  last_price: string | null;
-  ticks: Tick[];
-  source: "local_csv" | "published_csv";
-  publication_ready: boolean;
-  publication_id?: string;
-  revision?: string;
-  specification_source: "user_supplied";
-  persistent: boolean;
+  days: number;
+  first_day: string;
+  last_day: string;
+  first_timestamp_ns: string;
+  last_timestamp_ns: string;
+  last_close: string;
+};
+// A dataset recorded in experiment evidence; bars and days are omitted.
+export type DatasetEvidence = {
+  version: number;
+  revision: string;
+  source: string;
+  source_task_id: string;
+  settlement_task_id: string;
+  manifest_sha256: string;
+  settlement_manifest_sha256: string;
+  interval_minutes: number;
+  contract: FuturesContract;
 };
 export type PaperAccount = {
   replay?: {
-    publication: CalendarPublication;
     settled_days: number;
+    day_end: boolean;
     settlement_due: boolean;
-    session_end: boolean;
   };
   mode: "historical_paper";
   persistent: true;
@@ -62,16 +75,7 @@ export type PaperAccount = {
   cursor: number;
   total: number;
   timestamp_ns: string | null;
-  contract: {
-    venue: string;
-    symbol: string;
-    currency: string;
-    product: string;
-    delivery_month: string;
-    price_increment: string;
-    quantity_increment: string;
-    multiplier: string;
-  };
+  contract: FuturesContract;
   risk: { max_order_quantity: string; max_gross_quantity: string; max_working_orders: number };
   costs: {
     margin_per_lot: string;
@@ -147,15 +151,14 @@ export type TerminalCommand =
   | "research.submit"
   | "research.factor.submit"
   | "research.daily-factor.submit"
-  | "research.calendar.submit"
-  | "research.data.submit"
   | "research.daily.page"
   | "research.daily.submit"
   | "research.minutes.page"
   | "research.minutes.submit"
   | "research.contracts.load"
   | "research.datasets"
-  | "research.data.use"
+  | "research.dataset.select"
+  | "research.dataset.clear"
   | "research.action"
   | "research.result"
   | "market.local"
@@ -354,30 +357,6 @@ export type FactorResult = {
     forward_return: number;
   }[];
 };
-export type DatasetPublication = {
-  version: number;
-  id: string;
-  source_name: string;
-  source_sha256: string;
-  source_bytes: number;
-  importer: string;
-  dataset: {
-    version: number;
-    revision: string;
-    ticks: Tick[];
-    contract: Pick<
-      Dataset,
-      | "venue"
-      | "symbol"
-      | "product"
-      | "delivery_month"
-      | "currency"
-      | "price_increment"
-      | "quantity_increment"
-      | "multiplier"
-    >;
-  };
-};
 export type HistoryConnectionSchema = {
   credential_label_en: string;
   credential_label_zh: string;
@@ -419,14 +398,7 @@ export type ResearchTask = {
   provider_artifact?: string;
   risk_artifact?: string;
   data_source?: string;
-  kind:
-    | "backtest"
-    | "factor"
-    | "daily_factor"
-    | "data_import"
-    | "calendar_import"
-    | "minute_download"
-    | "daily_download";
+  kind: "backtest" | "factor" | "daily_factor" | "minute_download" | "daily_download";
   id: string;
   state:
     | "queued"
@@ -471,24 +443,20 @@ export type ExperimentData = {
   count: number;
   first_timestamp_ns: string;
   last_timestamp_ns: string;
+  first_day: string;
+  last_day: string;
+  interval_minutes: number;
+  source: string;
+  source_task_id: string;
 };
-export type ExperimentContract = DatasetPublication["dataset"]["contract"];
 export type BacktestExperiment = {
   version: number;
-  calendar_publication: CalendarPublication | null;
   dataset_revision: string;
-  days: {
-    trading_day: string;
-    sessions: { begin_ns: string; end_ns: string }[];
-    schedule_source: string;
-    settlement_price: string;
-    settlement_source: string;
-  }[];
   sma: { fast: number; slow: number; quantity: string };
   paper: {
     version: number;
     type: "historical_paper";
-    contract: ExperimentContract;
+    dataset: DatasetEvidence;
     deposit: string;
     costs: PaperAccount["costs"];
     risk: PaperAccount["risk"];
@@ -498,7 +466,7 @@ export type BacktestExperiment = {
 export type FactorExperiment = {
   version: number;
   dataset_revision: string;
-  contract: ExperimentContract;
+  dataset: DatasetEvidence;
   lookbacks: number[];
   horizon: number;
   evaluation:
@@ -506,14 +474,6 @@ export type FactorExperiment = {
     | { mode: "holdout"; split_index: number }
     | { mode: "walk_forward"; training_events: number; validation_events: number };
   data: ExperimentData;
-};
-export type CalendarPublication = Omit<DatasetPublication, "dataset"> & {
-  calendar: {
-    version: number;
-    revision: string;
-    contract: ExperimentContract;
-    days: BacktestExperiment["days"];
-  };
 };
 export type DailyFactorExperiment = {
   version: number;
@@ -575,8 +535,6 @@ export type ResearchResult =
       experiment: FactorExperiment;
       result: FactorResult;
     }
-  | { id: string; kind: "data_import"; task: ResearchTask; result: DatasetPublication }
-  | { id: string; kind: "calendar_import"; task: ResearchTask; result: CalendarPublication }
   | {
       id: string;
       kind: "minute_download";
@@ -762,7 +720,7 @@ export type Snapshot = {
       phase: string;
     };
   } | null;
-  dataset: Dataset | null;
+  dataset: DatasetSelection | null;
   native_plugins: null | {
     directory: string;
     managed_directory?: string;
@@ -778,19 +736,8 @@ export type Snapshot = {
   execution: "paper_only";
   paper: PaperAccount | null;
 };
-export type CsvRequest = {
-  path: string;
-  venue: string;
-  symbol: string;
-  product: string;
-  delivery_month: string;
-  currency: string;
-  price_increment: string;
-  quantity_increment: string;
-  multiplier: string;
-};
 async function call(
-  method: "runtime.snapshot" | "futures.inspect_csv" | TerminalCommand,
+  method: "runtime.snapshot" | TerminalCommand,
   params: Record<string, unknown>,
 ): Promise<unknown> {
   const body = JSON.stringify({ version: 1, method, params });
@@ -824,7 +771,7 @@ function snapshotContract(result: unknown): Snapshot {
   return value;
 }
 export async function request(
-  method: "runtime.snapshot" | "futures.inspect_csv" | TerminalCommand,
+  method: "runtime.snapshot" | TerminalCommand,
   params: Record<string, unknown> = {},
 ): Promise<Snapshot> {
   return snapshotContract(await call(method, params));

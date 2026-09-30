@@ -24,28 +24,16 @@ export const plugin: TerminalPlugin = {
   languageResources: { "zh-CN": zh, "en-US": en },
   tasks: context =>
     (context.snapshot?.research?.tasks ?? [])
-      .filter(
-        task =>
-          task.kind === "data_import" ||
-          task.kind === "calendar_import" ||
-          task.kind === "minute_download" ||
-          task.kind === "daily_download",
-      )
+      .filter(task => task.kind === "minute_download" || task.kind === "daily_download")
       .map(task => ({
         id: task.id,
         title: `${task.source_name} · ${task.instrument}`,
         status: t(
           {
             queued: "排队中",
-            running:
-              task.kind === "minute_download" || task.kind === "daily_download"
-                ? "下载中"
-                : "发布中",
+            running: "下载中",
             cancel_requested: "正在取消",
-            succeeded:
-              task.kind === "minute_download" || task.kind === "daily_download"
-                ? "已完成"
-                : "已发布",
+            succeeded: "已完成",
             failed: "失败",
             cancelled: "已取消",
             interrupted: "已中断",
@@ -53,13 +41,7 @@ export const plugin: TerminalPlugin = {
         ),
         completed: task.completed,
         total: task.total,
-        open: () =>
-          context.navigate("workspace.data", {
-            page:
-              task.kind === "minute_download" || task.kind === "daily_download"
-                ? "history"
-                : "records",
-          }),
+        open: () => context.navigate("workspace.data", { page: "history" }),
       })),
   workspace: {
     id: "workspace.data",
@@ -84,10 +66,14 @@ export const plugin: TerminalPlugin = {
         hasContent: !!data,
         render: () => (
           <div className="overview-data">
-            <strong>{data ? data.filename : t("尚未选择历史数据")}</strong>
+            <strong>{data ? `${data.venue} · ${data.symbol}` : t("尚未选择历史数据")}</strong>
             <p>
               {data
-                ? t(data.persistent ? "已加载发布版本" : "已完成逐笔校验 · 仅当前会话预览")
+                ? t("{count} 根 K 线 · {first} – {last}", {
+                    count: data.count,
+                    first: data.first_day,
+                    last: data.last_day,
+                  })
                 : t("选择数据源和具体月份合约，下载完整历史数据。")}
             </p>
             <button onClick={openData}>{t("打开数据工作区")}</button>

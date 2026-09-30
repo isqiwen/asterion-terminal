@@ -4,6 +4,7 @@ import {
   useWorkspaceRequestId,
   translate,
   getLocale,
+  DatasetPicker,
   ErrorNotice,
   asDisplayError,
   type DisplayError,
@@ -14,7 +15,6 @@ import { timestamp, type TerminalCommand } from "../../src/bridge/client";
 import "./research.css";
 import { DailyFactorForm, DailyFactorResults } from "./DailyFactor";
 import { FactorResults } from "./FactorResults";
-import { TradingDaysEditor, emptyTradingDay } from "./TradingDays";
 import { ExperimentDetails } from "./ExperimentDetails";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.research", key, values);
@@ -57,8 +57,6 @@ export function Panel({
     validation: "",
   });
   const destination = JSON.stringify([research?.connection_id]);
-  const [calendarTask, setCalendarTask] = useWorkspaceDraft(`calendar:${destination}`, "");
-  const [days, setDays] = useWorkspaceDraft("days", () => [emptyTradingDay()]);
   const [parameters, setParameters] = useWorkspaceDraft("parameters", {
     fast: "5",
     slow: "20",
@@ -80,7 +78,7 @@ export function Panel({
   const [submitted, setSubmitted] = useWorkspaceDraft(`submitted:${destination}:${mode}`, "");
   const [pendingId, setPendingId] = useWorkspaceRequestId(
     "submission",
-    JSON.stringify([destination, mode, calendarTask, factorParameters, days, parameters, data]),
+    JSON.stringify([destination, mode, factorParameters, parameters, data?.revision]),
   );
   async function run(method: TerminalCommand, params: Record<string, unknown> = {}) {
     setError("");
@@ -97,26 +95,10 @@ export function Panel({
     const id = pendingId ?? `${mode}-${crypto.randomUUID()}`;
     setPendingId(id);
     try {
-      const nanos = (value: string) => {
-        const milliseconds = Date.parse(`${value}+08:00`);
-        if (!Number.isSafeInteger(milliseconds) || milliseconds < 0)
-          throw new Error(t("请填写有效的北京时间时段"));
-        return (BigInt(milliseconds) * 1000000n).toString();
-      };
       const payload =
         mode === "backtest"
           ? {
               id,
-              calendar_task: calendarTask,
-              days: calendarTask
-                ? null
-                : days.map(day => ({
-                    ...day,
-                    sessions: day.sessions.map(row => ({
-                      begin_ns: nanos(row.begin),
-                      end_ns: nanos(row.end),
-                    })),
-                  })),
               ...parameters,
               fast: Number(parameters.fast),
               slow: Number(parameters.slow),
@@ -207,60 +189,18 @@ export function Panel({
           ) : (
             <>
               <h3>{t(mode === "backtest" ? "回测设置" : "因子设置")}</h3>
-              <p>
-                {data
-                  ? `${data.venue} · ${data.symbol} · ${data.count} ${t("笔成交")}`
-                  : t("先选择已发布的成交数据")}
-              </p>
-              <button
-                disabled={busy}
-                onClick={() => navigate("workspace.data", { page: "records" })}
-              >
-                {t("选择已发布成交数据")}
-              </button>
+              <DatasetPicker snapshot={snapshot} busy={busy} trade={trade} />
               <p className="subtle">
-                {t(mode === "backtest" ? "单合约 · 最多 64 个交易日 / 10000 笔" : "按成交笔数计算")}
-              </p>
-              <p className="subtle">
-                {t("当前模型使用成交事件；日线请使用日线因子，分钟 K 线尚不支持研究。")}
+                {t(
+                  mode === "backtest"
+                    ? "单合约 · 最多 20000 根 K 线；委托在下一根 K 线撮合，交易日结束按数据源结算价结算"
+                    : "按 K 线收盘价计算",
+                )}
               </p>
               <form onSubmit={event => void submit(event)}>
-                <fieldset disabled={busy}>
+                <fieldset disabled={busy || !data}>
                   {mode === "backtest" ? (
                     <>
-                      <label>
-                        {t("日程来源")}
-                        <select
-                          aria-label={t("日程来源")}
-                          value={calendarTask}
-                          onChange={event => setCalendarTask(event.target.value)}
-                        >
-                          <option value="">{t("手工日程")}</option>
-                          {research?.tasks
-                            .filter(
-                              task => task.kind === "calendar_import" && task.state === "succeeded",
-                            )
-                            .map(task => (
-                              <option key={task.id} value={task.id}>
-                                {task.source_name} · {task.instrument} ·{" "}
-                                {new Date(task.submitted_at_ms).toLocaleString(getLocale())}
-                              </option>
-                            ))}
-                        </select>
-                      </label>
-                      {calendarTask ? (
-                        <p className="subtle">
-                          {t("使用发布日程；切换为手工日程将解除版本关联。")}
-                        </p>
-                      ) : (
-                        <TradingDaysEditor days={days} onChange={setDays} />
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => navigate("workspace.data", { page: "records" })}
-                      >
-                        {t("导入结算表")}
-                      </button>
                       <div className="research-fields">
                         {(
                           [
@@ -323,8 +263,8 @@ export function Panel({
                       <div className="research-fields">
                         {(
                           [
-                            ["lookback", "回看笔数"],
-                            ["horizon", "未来收益笔数"],
+                            ["lookback", "回看 K 线数"],
+                            ["horizon", "未来收益 K 线数"],
                           ] as const
                         ).map(([key, label]) => (
                           <label key={key}>
@@ -366,9 +306,9 @@ export function Panel({
                       </label>
                       {factorParameters.evaluation === "holdout" && (
                         <label>
-                          {t("前段成交笔数")}
+                          {t("前段 K 线数")}
                           <input
-                            aria-label={t("前段成交笔数")}
+                            aria-label={t("前段 K 线数")}
                             type="number"
                             min="1"
                             max={data ? data.count - 1 : 9999}
@@ -386,8 +326,8 @@ export function Panel({
                           <div className="research-fields">
                             {(
                               [
-                                ["training", "训练成交笔数"],
-                                ["validation", "每轮验证笔数"],
+                                ["training", "训练 K 线数"],
+                                ["validation", "每轮验证 K 线数"],
                               ] as const
                             ).map(([key, label]) => (
                               <label key={key}>
@@ -633,7 +573,9 @@ export function Panel({
                     </tbody>
                   </table>
                 </div>
-                <p className="subtle">{t("手续费为累计值，权益曲线包含逐笔估值和日终结算。")}</p>
+                <p className="subtle">
+                  {t("手续费为累计值，权益曲线包含每根 K 线的估值和日终结算。")}
+                </p>
               </details>
               <ExperimentDetails evidence={result} />
               <details>

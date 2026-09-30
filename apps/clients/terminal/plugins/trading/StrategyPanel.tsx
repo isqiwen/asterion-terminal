@@ -3,11 +3,12 @@ import {
   ErrorNotice,
   asDisplayError,
   translate,
-  getLocale,
+  type MessageValues,
   type DisplayError,
   type TerminalContext,
 } from "../contract";
-const t = (key: string) => translate("asterion.terminal.trading", key);
+const t = (key: string, values?: MessageValues) =>
+  translate("asterion.terminal.trading", key, values);
 
 export function StrategyPanel({
   snapshot,
@@ -19,7 +20,6 @@ export function StrategyPanel({
     fast: "5",
     slow: "20",
     quantity: "1",
-    calendar_task: "",
   });
   const [attempted, setAttempted] = useState(false);
   const [error, setError] = useState<DisplayError>("");
@@ -130,29 +130,6 @@ export function StrategyPanel({
                 </label>
               ))}
             </div>
-            <label>
-              {t("日程来源")}
-              <select
-                aria-label={t("日程来源")}
-                value={parameters.calendar_task}
-                disabled={
-                  attempted && (active || strategy?.id === `strategy-${id}` || !!paper?.replay)
-                }
-                onChange={event =>
-                  setParameters({ ...parameters, calendar_task: event.target.value })
-                }
-              >
-                <option value="">{t("无日程（不自动结算）")}</option>
-                {snapshot?.research?.tasks
-                  .filter(task => task.kind === "calendar_import" && task.state === "succeeded")
-                  .map(task => (
-                    <option key={task.id} value={task.id}>
-                      {task.source_name} · {task.instrument} ·{" "}
-                      {new Date(task.submitted_at_ms).toLocaleString(getLocale())}
-                    </option>
-                  ))}
-              </select>
-            </label>
             <div className="source-actions">
               <button type="submit" className="primary" disabled={!snapshot?.dataset}>
                 {t(retry ? "重试同一配置" : "授权并运行")}
@@ -167,20 +144,13 @@ export function StrategyPanel({
           {t("选择历史数据并创建新的本机模拟账户后，可运行策略。")}
         </p>
       )}
-      {paper?.replay && (
-        <details className="futures-help">
-          <summary>
-            {t("结算日程")} · {paper.replay.settled_days} /{" "}
-            {paper.replay.publication.calendar.days.length}
-          </summary>
-          <p>{paper.replay.publication.source_name}</p>
-          <p>
-            {t("发布标识")} <code>{paper.replay.publication.id}</code>
-          </p>
-          <p>
-            {t("内容版本")} <code>{paper.replay.publication.calendar.revision}</code>
-          </p>
-        </details>
+      {paper?.replay && snapshot?.dataset && (
+        <p className="dashboard-caption">
+          {t("已结算 {settled} / {days} 个交易日", {
+            settled: paper.replay.settled_days,
+            days: snapshot.dataset.days,
+          })}
+        </p>
       )}
       {error && (
         <p role="alert" className="alert">
@@ -191,7 +161,7 @@ export function StrategyPanel({
         <summary>{t("策略详情")}</summary>
         <p>
           {t(
-            "按成交笔数计算均线，仅做多或空仓；信号最早在下一笔撮合。结束时撤销未成交委托，不自动平仓。",
+            "按 K 线收盘价计算均线，仅做多或空仓；信号在下一根 K 线撮合，每个交易日结束按数据源结算价结算。结束时撤销未成交委托，不自动平仓。",
           )}
         </p>
         {strategy && (

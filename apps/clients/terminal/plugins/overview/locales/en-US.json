@@ -48,7 +48,6 @@
   "已添加": "Added",
   "添加{p0}": "Add {p0}",
   "总览布局不符合当前契约，原始记录已保留": "Overview layout does not match the current contract. The original record is preserved.",
-  "工作概览": "Work Overview",
   "Dashboard 组件不符合当前契约": "Dashboard widget does not match the current contract",
   "状态待确认": "Status unavailable",
   "{count} 项需关注": "{count} need attention",

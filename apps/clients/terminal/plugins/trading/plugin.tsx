@@ -16,6 +16,8 @@ export const plugin: TerminalPlugin = {
     "paper.open",
     "paper.close",
     "paper.act",
+    "research.dataset.select",
+    "research.dataset.clear",
     "strategy.run",
     "strategy.revoke",
   ],

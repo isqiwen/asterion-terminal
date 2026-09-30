@@ -1,4 +1,4 @@
-import { ErrorNotice, asDisplayError, type DisplayError } from "../contract";
+import { DatasetPicker, ErrorNotice, asDisplayError, type DisplayError } from "../contract";
 import { useWorkspaceDraft, translate, type MessageValues } from "../contract";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.trading", key, values);
@@ -8,7 +8,7 @@ import { open } from "@asterion/desktop-bridge/desktop";
 import { nativeDesktop } from "../../src/bridge/desktop";
 import { timestamp, type TerminalCommand } from "../../src/bridge/client";
 import type { TerminalContext } from "../contract";
-export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
+export function Panel({ snapshot, busy, trade }: TerminalContext) {
   const states: Record<string, string | number> = {
     accepted: t("待成交"),
     partially_filled: t("部分成交"),
@@ -93,9 +93,10 @@ export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
         <>
           <p className="dashboard-caption">
             {t(
-              "选择已发布的单合约成交数据创建模拟账户。会话写入交易服务所在机器的专用目录，重启后可恢复。",
+              "选择从数据源下载的单合约 K 线创建模拟账户。会话写入交易服务所在机器的专用目录，重启后可恢复。",
             )}
           </p>
+          <DatasetPicker snapshot={snapshot} busy={busy} trade={trade} />
           <form
             onSubmit={e => {
               e.preventDefault();
@@ -135,18 +136,6 @@ export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
                   {t("。记录目录由服务端管理。")}
                 </p>
               )}
-              <p>
-                {t("当前数据：")}{" "}
-                {snapshot?.dataset
-                  ? t("{p0} · {p1} 笔", { p0: snapshot.dataset.symbol, p1: snapshot.dataset.count })
-                  : t("尚未选择")}{" "}
-                <button
-                  type="button"
-                  onClick={() => navigate("workspace.data", { page: "history" })}
-                >
-                  {t("选择历史数据")}
-                </button>
-              </p>
               {[
                 {
                   title: t("账户与保证金"),
@@ -203,7 +192,7 @@ export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
           </form>
           <p className="dashboard-caption">
             {t(
-              "保证金与手续费由你填写，不代表交易所规则。最多 10000 笔，按一个交易日模拟，不自动识别夜盘或跨日。",
+              "保证金与手续费由你填写，不代表交易所规则。委托在下一根 K 线以保守价格撮合，每根最多成交该 K 线成交量的 10%；每个交易日结束按日线结算价结算。",
             )}
           </p>
         </>
@@ -213,13 +202,13 @@ export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
             <strong>
               {paper.contract.venue} · {paper.contract.symbol}
             </strong>
-            <span>{t("{cursor} / {total} 笔", { cursor: paper.cursor, total: paper.total })}</span>
+            <span>{t("{cursor} / {total} 根", { cursor: paper.cursor, total: paper.total })}</span>
             <span>{timestamp(paper.timestamp_ns)}</span>
             <button
               disabled={blocked || paper.cursor === paper.total || paper.replay?.settlement_due}
               onClick={() => void act({ action: "advance" })}
             >
-              {t("回放下一笔")}
+              {t("回放下一根")}
             </button>
             <span className="panel-spacer" />
             <button disabled={busy} onClick={() => void run("paper.close")}>
@@ -269,10 +258,7 @@ export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
           >
             <fieldset
               disabled={
-                blocked ||
-                !paper.cursor ||
-                paper.cursor === paper.total ||
-                paper.replay?.session_end
+                blocked || !paper.cursor || paper.cursor === paper.total || paper.replay?.day_end
               }
             >
               <div className="futures-fields">
@@ -329,7 +315,7 @@ export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
                 <button className="primary" type="submit">
                   {t("提交模拟委托")}
                 </button>
-                <span className="subtle">{t("下单后从下一笔行情开始撮合")}</span>
+                <span className="subtle">{t("下单后从下一根 K 线开始撮合")}</span>
               </div>
             </fieldset>
           </form>
@@ -434,7 +420,7 @@ export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
             <summary>{t("模拟规则与手动结算")}</summary>
             <p>
               {t(
-                "成交按委托先后共享下一笔行情的成交量。价格穿过限价时直接成交；恰好触及限价时，需先消耗下单时该价位已成交的排队量。无盘口、滑点或强平模型。浮亏会减少可用资金，浮盈不增加可开仓资金。存储保留原始回放数据与操作日志。",
+                "委托在下一根 K 线撮合：买单在最低价不高于限价时按开盘价与限价中较低者成交，卖单对称；每根最多成交该 K 线成交量的 10%，按委托先后分配。无盘口、滑点或强平模型。浮亏会减少可用资金，浮盈不增加可开仓资金。存储保留数据集与操作日志。",
               )}
             </p>
             <p>
@@ -448,21 +434,21 @@ export function Panel({ snapshot, busy, trade, navigate }: TerminalContext) {
             </p>
             {paper.replay ? (
               <>
-                <p>{t("结算价由绑定日程确定；每日完成后结算，再进入下一交易日。")}</p>
+                <p>{t("结算价来自数据源日线；每个交易日回放完成后结算，再进入下一交易日。")}</p>
                 <button
                   disabled={blocked || !paper.replay.settlement_due}
                   onClick={() =>
                     void act({ action: "replay_settle", day_index: paper.replay!.settled_days })
                   }
                 >
-                  {t("按日程结算")}
+                  {t("日终结算")}
                 </button>
               </>
             ) : (
               <>
                 <p>
                   {t(
-                    "回放结束并撤销剩余委托后，可输入结算价将浮盈亏计入资金、今仓转为昨仓。本版不自动跨日，也不支持在同一会话续接下一交易日。",
+                    "此会话未绑定结算日程。回放结束并撤销剩余委托后，可输入结算价将浮盈亏计入资金、今仓转为昨仓。",
                   )}
                 </p>
                 <label>
