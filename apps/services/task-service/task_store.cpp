@@ -204,9 +204,9 @@ struct Store::Impl {
   // Task index and state history: one row per task, one per state change.
   std::unique_ptr<sqlite::Database> database;
   std::map<std::string, Entry> entries;
-  // Directories without an indexed task (earlier formats, or a submission
-  // interrupted before its commit) stay untouched and reserve their IDs.
-  std::set<std::string> retired;
+  // A submission interrupted after creating its directory but before its index
+  // commit leaves the directory; it is not loaded and its ID stays reserved.
+  std::set<std::string> uncommitted;
   bool failed = false;
   std::shared_ptr<const Clock> clock;
   std::uint32_t last_sequence = 0;
@@ -256,7 +256,7 @@ struct Store::Impl {
       if (!item.is_directory())
         throw std::invalid_argument("unknown task store entry");
       if (!indexed.contains(name))
-        retired.insert(name);
+        uncommitted.insert(name);
     }
     sqlite::Database::Statement tasks(*database,
                                       "SELECT id, manifest FROM tasks ORDER BY sequence");
@@ -576,15 +576,15 @@ wire::Task Store::submit_task(wire::Task task) {
     throw std::invalid_argument("invalid task id");
   prepare(task);
   impl_->writable();
-  if (impl_->retired.contains(id))
-    throw std::invalid_argument("task id belongs to a retired task kept on disk");
+  if (impl_->uncommitted.contains(id))
+    throw std::invalid_argument("task directory exists without committed submission");
   if (impl_->entries.contains(id)) {
     const auto current = get(id);
     if (current.kind() != task.kind() || definition(current) != definition(task))
       throw std::invalid_argument("task id already belongs to different input");
     return current;
   }
-  if (impl_->entries.size() + impl_->retired.size() >= 1000)
+  if (impl_->entries.size() + impl_->uncommitted.size() >= 1000)
     throw std::invalid_argument("task store capacity reached");
   task.set_submission_sequence(impl_->last_sequence + 1);
   task.set_submitted_at_ms(impl_->now_ms());

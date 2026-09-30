@@ -431,13 +431,16 @@ const os = require("node:os");
     await expect(page.getByRole("button", { name: "总览", exact: true })).toBeVisible({
       timeout: 60000,
     });
-    const originalTaskManifest = JSON.parse(
-      await fs.readFile(
-        path.join(temp, "node/services/research/ledger/third-party-minutes/journal/00000000.json"),
-        "utf8",
-      ),
+    // The research service is stopped here, so its task index can be read.
+    const index = new (require("node:sqlite").DatabaseSync)(
+      path.join(temp, "node/services/research/ledger/tasks.sqlite"),
+      { readOnly: true },
     );
-    assert.equal(originalTaskManifest.version, 3);
+    const originalTaskManifest = JSON.parse(
+      index.prepare("SELECT manifest FROM tasks WHERE id = ?").get("third-party-minutes").manifest,
+    );
+    index.close();
+    assert.equal(originalTaskManifest.version, 4);
     assert.equal(
       originalTaskManifest.provider_artifact,
       inventory.find(item => item.id === "test.independent.c").sha256,

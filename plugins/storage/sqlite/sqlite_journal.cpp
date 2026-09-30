@@ -43,10 +43,6 @@ void check_journal_directory(const std::filesystem::path& directory,
         throw std::invalid_argument("invalid internal file in trading directory");
       continue;
     }
-    // Earlier versions kept one JSON file per record. They are left untouched.
-    if (name == "00000000.json" || name == "writer.lock")
-      throw std::invalid_argument(
-          "this directory uses a retired journal format; choose a new empty directory");
     throw std::invalid_argument(
         "trading directory contains unknown files; use a dedicated directory");
   }

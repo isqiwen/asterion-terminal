@@ -398,7 +398,6 @@
   "保存副本前风控插件已改变": "risk plugin artifact changed before capture",
   "该任务不应携带风控插件摘要": "unexpected task risk artifact",
   "日志附属目录无效": "invalid journal sidecar directory",
-  "this directory uses a retired journal format; choose a new empty directory": "this directory uses a retired journal format; choose a new empty directory",
   "trading directory contains unknown files; use a dedicated directory": "trading directory contains unknown files; use a dedicated directory",
   "database is in use by another writer": "database is in use by another writer",
   "database file is corrupted": "database file is corrupted",

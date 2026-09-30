@@ -117,14 +117,14 @@ TEST(HistoryArchive, NormalizationChangesCreateNewRevisionAndRejectResume) {
   EXPECT_NE(record.daily_result().manifest_sha256(), next.daily_result().manifest_sha256());
   EXPECT_EQ(archive.datasets({}).size(), 2);
 }
-TEST(HistoryArchive, RejectsObsoleteFormatAndCorruptChunksWithoutOverwriting) {
+TEST(HistoryArchive, RejectsUnsupportedVersionAndCorruptChunksWithoutOverwriting) {
   Folder root;
   history_files::Archive archive(root.path);
   AlternateDaily provider;
   const auto record = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "one");
-  auto old = record.daily();
-  old.set_version(1);
-  EXPECT_THROW(history_files::daily_range(old), std::invalid_argument);
+  auto unsupported = record.daily();
+  unsupported.set_version(1);
+  EXPECT_THROW(history_files::daily_range(unsupported), std::invalid_argument);
   const auto chunk = std::filesystem::path(record.daily_result().directory()) / "daily-0.parquet";
   replace_file_durably(chunk, "corrupted");
   data::v1::DailyPageQuery query;

@@ -210,12 +210,9 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     );
     assert.match(denied.message, /risk rejected/);
     assert.deepEqual((await call("runtime.snapshot")).paper, before);
-    const header = JSON.parse(await fs.readFile(path.join(account, "00000000.json"), "utf8"));
-    assert.equal(header.format, 4);
-    assert.equal(header.risk_artifact, completed.risk_artifact);
     assert.equal(
       await digest(path.join(account, "plugins", "risk-plugin.dylib")),
-      header.risk_artifact,
+      completed.risk_artifact,
     );
     await call("paper.close");
     await call("paper.open", { directory: account });

@@ -192,19 +192,6 @@ TEST(SqliteJournal, ExclusiveWriterRecoveryAndCorruptionRejection) {
   EXPECT_ANY_THROW(corrupt.start());
   EXPECT_EQ(std::filesystem::file_size(file), size) << "corrupt journal kept for inspection";
 }
-TEST(SqliteJournal, RetiredFileJournalIsRejectedAndLeftUntouched) {
-  Directory directory;
-  std::ofstream(directory.path / "00000000.json") << "{}";
-  SqliteJournal journal(directory.path);
-  try {
-    journal.start();
-    FAIL() << "retired format accepted";
-  } catch (const std::invalid_argument& error) {
-    EXPECT_NE(std::string(error.what()).find("retired journal format"), std::string::npos);
-  }
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "journal.sqlite"));
-  EXPECT_EQ(std::filesystem::file_size(directory.path / "00000000.json"), 2);
-}
 TEST(PaperSession, RecoversExactLedgerAndIdempotencyAcrossRestart) {
   Directory directory;
   Json expected;
@@ -837,7 +824,7 @@ TEST(PaperSession, JournalHeaderPinsFormatAndEngineSemantics) {
   foreign["engine"] = "asterion.paper-futures.v0";
   write_record(header_file, foreign);
   EXPECT_THROW(PaperSession{directory.path}, std::invalid_argument);
-  // Format 1 journals stored the bare manifest; they are refused, never migrated.
+  // A header without the format and engine fields is refused and left as is.
   write_record(header_file, manifest());
   EXPECT_THROW(PaperSession{directory.path}, std::invalid_argument);
   EXPECT_EQ(read_record(header_file), manifest());

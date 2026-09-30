@@ -56,6 +56,6 @@ try:
     for file in Path(os.environ["ASTERION_NODE_DIRECTORY"]).rglob("*"):
         if file.is_file() and not file.is_symlink() and file.suffix in {".json", ".log"}:
             assert params["token"].encode() not in file.read_bytes(), file.name
-    print("Whole-contract lookup rejection, legacy range rejection and credential exclusion passed")
+    print("Whole-contract lookup rejection, unsupported range rejection and credential exclusion passed")
 finally:
     close(process)
