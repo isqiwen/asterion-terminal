@@ -10,6 +10,8 @@ public:
   explicit ResearchClient(ServiceEndpoint endpoint);
   ~ResearchClient();
   Json status() const;
+  // Task list read from the service now, not the last poll.
+  Json tasks();
   data::v1::HistorySource source(const std::string& id) const;
   data::v1::HistoryConnectionVerification verify_connection(const std::string& source,
                                                             const std::string& credential);

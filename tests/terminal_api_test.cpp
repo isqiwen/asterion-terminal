@@ -110,7 +110,7 @@ TEST(TerminalApi, Contracts) {
   EXPECT_EQ(dataset["last_close"], "101");
   EXPECT_TRUE(dataset["last_timestamp_ns"].is_string());
   auto invalid = params;
-  invalid["contract"]["delivery_month"] = "2026-13";
+  invalid["price_increment"] = "0";
   EXPECT_TRUE(call(runtime.get(), request("research.dataset.select", invalid)).contains("error"));
   EXPECT_EQ(call(runtime.get(), request("runtime.snapshot"))["result"]["dataset"], dataset);
   EXPECT_TRUE(call(runtime.get(), request("futures.inspect_csv", {{"path", "removed.csv"}}))

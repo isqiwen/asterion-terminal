@@ -76,7 +76,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-strategy-terminal-", ignore_cl
         call(process,"paper.close")
         source.write_text(contents);second=root/"second";second.mkdir()
         call(process,"research.local")
-        call(process,"research.dataset.select",{"source_task_id":"fixture0-bars","settlement_task_id":"fixture0-settlement","begin_day":"","end_day":"","contract":{"venue":"SHFE","symbol":"rb2610","product":"rb","delivery_month":"2026-10","currency":"CNY","price_increment":"1","quantity_increment":"1","multiplier":"10"}})
+        call(process,"research.dataset.select",{"source_task_id":"fixture0-bars","settlement_task_id":"fixture0-settlement","begin_day":"","end_day":"","price_increment":"1","multiplier":"10"})
         call(process,"paper.create",{"directory":str(second),"deposit":"10000","margin_per_lot":"100","open_fee":"2","close_today_fee":"3","close_yesterday_fee":"4","margin_rate":"0","open_fee_rate":"0","close_today_fee_rate":"0","close_yesterday_fee_rate":"0", "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
         call(process,"strategy.run",{"id":"cancelled","fast":"1","slow":"2","quantity":"1"})
         revoked=call(process,"strategy.revoke",{"grant_id":"grant.strategy-cancelled"})["paper"]

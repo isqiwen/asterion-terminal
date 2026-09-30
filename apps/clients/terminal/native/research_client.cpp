@@ -161,6 +161,14 @@ Json ResearchClient::status() const {
           {"sources", impl_->sources},
           {"tasks", impl_->tasks}};
 }
+Json ResearchClient::tasks() {
+  {
+    std::lock_guard lock(impl_->commands);
+    impl_->refresh();
+  }
+  std::lock_guard lock(impl_->mutex);
+  return impl_->tasks;
+}
 void ResearchClient::submit(const std::string& id, const wire::BacktestRequest& input) {
   std::lock_guard lock(impl_->commands);
   wire::TaskRequest request;

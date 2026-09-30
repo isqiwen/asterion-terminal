@@ -44,7 +44,7 @@ def completed(process, task_id="agent-recovery"):
 def select(process, identity):
     return call(process,"research.dataset.select",{
         "source_task_id":identity+"-bars","settlement_task_id":identity+"-settlement",
-        "begin_day":"","end_day":"","contract":{"venue":"SHFE","symbol":"rb2610","product":"rb","delivery_month":"2026-10","currency":"CNY","price_increment":"1","quantity_increment":"1","multiplier":"10"}})
+        "begin_day":"","end_day":"","price_increment":"1","multiplier":"10"})
 
 with tempfile.TemporaryDirectory(prefix="asterion-research-agent-", ignore_cleanup_errors=True):
     process=launch()

@@ -102,6 +102,7 @@ inline Json seed_history(const std::filesystem::path& root, const std::vector<in
           {"settlement_task_id", id + "-settlement"},
           {"begin_day", ""},
           {"end_day", ""},
-          {"contract", protocol::decode_contract(contract())}};
+          {"price_increment", "1"},
+          {"multiplier", "10"}};
 }
 } // namespace asterion::test
