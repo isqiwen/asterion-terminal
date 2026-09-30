@@ -34,4 +34,6 @@ DailyDatasetInfo download_daily(HistoricalDailyPort&, const HistoricalDailyRange
 DailyDatasetInfo inspect_daily(const std::filesystem::path&);
 // At most twenty years of one bar per date. Verify all hashes before returning.
 DailyDataset read_daily(const std::filesystem::path&);
+// Trading days present in a complete dataset; every page digest is checked.
+std::vector<std::string> daily_trading_days(const std::filesystem::path&);
 } // namespace asterion::history_files

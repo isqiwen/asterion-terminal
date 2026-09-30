@@ -63,7 +63,7 @@ struct ResearchClient::Impl {
     auto exchange = [&](auto channel) {
       // Dataset resolution reads and verifies every stored segment; large
       // research datasets (and submissions that resolve one) take longer.
-      const bool dataset = request.has_bar_dataset() ||
+      const bool dataset = request.has_bar_dataset() || request.has_history_coverage() ||
                            (request.has_submit() && (request.submit().has_backtest() ||
                                                      request.submit().has_factor_request()));
       channel.send(request.SerializeAsString(), dataset ? 30s : 5s);
@@ -88,6 +88,7 @@ struct ResearchClient::Impl {
     if (request.has_verify_connection()  ? !response.has_connection_verification()
         : request.has_history_catalog()  ? !response.has_history_catalog()
         : request.has_history_datasets() ? !response.has_history_datasets()
+        : request.has_history_coverage() ? !response.has_history_coverage()
         : request.has_daily_page()       ? !response.has_daily_page()
         : request.has_minute_page()      ? !response.has_minute_page()
         : request.has_bar_dataset()      ? !response.has_bar_dataset()
@@ -252,6 +253,27 @@ Json ResearchClient::datasets(const data::v1::HistoryFilter& filter) {
                      {"end", row.end()},
                      {"interval_minutes", row.interval_minutes()},
                      {"rows", row.rows()}});
+  return items;
+}
+Json ResearchClient::coverage(const data::v1::HistoryFilter& filter) {
+  wire::TaskRequest request;
+  *request.mutable_history_coverage() = filter;
+  const auto response = impl_->call(request);
+  Json items = Json::array();
+  for (const auto& row : response.history_coverage().items()) {
+    Json days = Json::array();
+    for (const auto& day : row.uncovered_days())
+      days.push_back(day);
+    items.push_back({{"contract_id", row.contract_id()},
+                     {"minute_days", row.minute_days()},
+                     {"minute_first", row.minute_first()},
+                     {"minute_last", row.minute_last()},
+                     {"daily_days", row.daily_days()},
+                     {"daily_first", row.daily_first()},
+                     {"daily_last", row.daily_last()},
+                     {"uncovered", row.uncovered()},
+                     {"uncovered_days", std::move(days)}});
+  }
   return items;
 }
 std::vector<HistoryListing> ResearchClient::catalog(const std::string& source,

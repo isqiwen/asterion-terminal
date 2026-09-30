@@ -334,6 +334,23 @@ Json download_minutes(HistoricalBarPort& provider, const HistoricalBarRange& ran
   }
   return manifest;
 }
+std::vector<std::string> minute_trading_days(const std::filesystem::path& dir) {
+  directory_check(dir);
+  FileLock lock(dir, "minutes.lock", FileLock::Access::shared);
+  const auto manifest = read_json(dir / manifest_name);
+  if (manifest.at("version") != 3 || !manifest.at("complete").get<bool>())
+    throw std::invalid_argument("minute dataset is incomplete");
+  std::vector<std::filesystem::path> files;
+  for (const auto& segment : manifest.at("segments")) {
+    const auto path = dir / segment_name(segment.at("first_page").get<unsigned>());
+    if (segment.at("file") != path.filename().string() || std::filesystem::is_symlink(path) ||
+        !std::filesystem::is_regular_file(path) ||
+        sha256_file(path) != segment.at("sha256").get<std::string>())
+      throw std::invalid_argument("minute dataset digest mismatch");
+    files.push_back(path);
+  }
+  return parquet::trading_days(files, true);
+}
 HistorySemantics minute_semantics(const std::filesystem::path& dir) {
   return decode_semantics(inspect_minutes(dir).at("semantics"));
 }

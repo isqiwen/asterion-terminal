@@ -255,7 +255,8 @@ json Application::Impl::dispatch(const json& request) {
   const auto method = text(request, "method");
   const bool market_query = method == "market.minutes";
   const bool history_query = market_query || method == "research.minutes.page" ||
-                             method == "research.daily.page" || method == "research.datasets";
+                             method == "research.daily.page" || method == "research.datasets" ||
+                             method == "research.coverage";
   const bool research_io = method == "research.daily-factor.submit" || method == "research.result";
   const auto& params = request.at("params");
   // Polls pass `since` and always read the published snapshot. A plain read is
@@ -416,7 +417,7 @@ json Application::Impl::dispatch(const json& request) {
     result["revision"] = revision;
     result["refreshed_at_ms"] = refreshed_at_ms;
   }
-  if (method == "research.datasets") {
+  if (method == "research.datasets" || method == "research.coverage") {
     auto reader = research;
     const auto generation = research_generation.load();
     data::v1::HistoryFilter filter;
@@ -427,10 +428,11 @@ json Application::Impl::dispatch(const json& request) {
     clear.active = false;
     command_running = false;
     operation.unlock();
-    auto datasets = reader->datasets(filter);
+    auto rows = method == "research.coverage" ? reader->coverage(filter) : reader->datasets(filter);
     if (generation != research_generation.load())
       throw Error(ErrorCode::conflict, "research service changed during archive query");
-    result["history_datasets"] = std::move(datasets);
+    result[method == "research.coverage" ? "history_coverage" : "history_datasets"] =
+        std::move(rows);
   } else if (market_query) {
     auto reader = market;
     clear.active = false;

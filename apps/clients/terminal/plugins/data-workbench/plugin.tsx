@@ -15,6 +15,7 @@ export const plugin: TerminalPlugin = {
     "research.action",
     "research.result",
     "research.datasets",
+    "research.coverage",
     "research.daily.submit",
     "research.daily.page",
     "research.minutes.submit",

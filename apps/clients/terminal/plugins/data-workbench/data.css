@@ -304,3 +304,15 @@
 .history-page:has(.history-viewer) > .history-capabilities {
   display: none;
 }
+
+.coverage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.coverage-table th,
+.coverage-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}

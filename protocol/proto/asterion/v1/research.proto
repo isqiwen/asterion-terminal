@@ -132,6 +132,7 @@ message TaskRequest {
     asterion.data.v1.HistoryCatalogQuery history_catalog = 26;
     asterion.data.v1.HistoryFilter history_datasets = 27;
     asterion.data.v1.HistoryConnectionVerify verify_connection = 28;
+    asterion.data.v1.HistoryFilter history_coverage = 29;
     TaskDispatch dispatch = 22; asterion.node.v1.Quiesce quiesce = 30;
   }
 }
@@ -161,5 +162,6 @@ message TaskResponse {
     asterion.data.v1.HistoryCatalog history_catalog = 27;
     asterion.data.v1.HistoryDatasets history_datasets = 28;
     asterion.data.v1.HistoryConnectionVerification connection_verification = 29;
+    asterion.data.v1.HistoryCoverages history_coverage = 30;
   }
 }

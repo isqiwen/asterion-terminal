@@ -20,6 +20,8 @@ using DownloadProgress =
 Json download_minutes(HistoricalBarPort&, const HistoricalBarRange&, const std::filesystem::path&,
                       unsigned requests_per_minute, std::stop_token = {}, DownloadProgress = {});
 HistorySemantics minute_semantics(const std::filesystem::path&);
+// Trading days present in a complete dataset; every segment digest is checked.
+std::vector<std::string> minute_trading_days(const std::filesystem::path&);
 Json inspect_minutes(const std::filesystem::path&);
 // Validates every page/hash, only complete datasets are consumable by research.
 void read_minutes(const std::filesystem::path&, const std::function<void(const HistoricalBar&)>&);

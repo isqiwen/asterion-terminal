@@ -23,6 +23,8 @@ public:
   void submit(const std::string&, const data::v1::MinuteDownload&, const std::string& token);
   void submit(const std::string&, const data::v1::DailyDownload&, const std::string& token);
   Json datasets(const data::v1::HistoryFilter&);
+  // Per-contract trading-day coverage of the archive.
+  Json coverage(const data::v1::HistoryFilter&);
   std::vector<HistoryListing> catalog(const std::string& source, const std::string& credential,
                                       const std::string& venue, const std::string& product);
   Json daily_page(const data::v1::DailyPageQuery&);

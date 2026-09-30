@@ -1,3 +1,4 @@
+#include "history_coverage.hpp"
 #include <asterion/kernel/logger.hpp>
 #include <asterion/kernel/native_plugin.hpp>
 #include "task_store.hpp"
@@ -162,6 +163,10 @@ int main(int argc, char** argv) {
             out->set_rows(item.rows);
           }
           response.mutable_history_datasets();
+        } else if (request.has_history_coverage()) {
+          const auto filter = request.history_coverage();
+          lock.unlock();
+          *response.mutable_history_coverage() = asterion::tasks::history_coverage(archive, filter);
         } else if (request.has_verify_connection()) {
           const auto& query = request.verify_connection();
           lock.unlock();

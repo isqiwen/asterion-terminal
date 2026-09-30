@@ -241,4 +241,38 @@ std::vector<HistoricalDailyBar> read_daily_bars(const fs::path& path) {
   }
   return bars;
 }
+std::vector<std::string> trading_days(const std::vector<fs::path>& files, bool minute) {
+  if (files.empty())
+    return {};
+  Engine engine;
+  std::string list = "[";
+  for (const auto& file : files) {
+    require_schema(engine, file,
+                   minute ? "timestamp_ns BIGINT, open DECIMAL(18,8), high DECIMAL(18,8),"
+                            " low DECIMAL(18,8), close DECIMAL(18,8), volume DECIMAL(38,8),"
+                            " amount DECIMAL(38,8), open_interest DECIMAL(38,8),"
+                            " trading_day VARCHAR"
+                          : "trading_day DATE, open DECIMAL(18,8), high DECIMAL(18,8),"
+                            " low DECIMAL(18,8), close DECIMAL(18,8), volume DECIMAL(38,8),"
+                            " amount DECIMAL(38,8), open_interest DECIMAL(38,8),"
+                            " previous_close DECIMAL(18,8), previous_settlement DECIMAL(18,8),"
+                            " settlement DECIMAL(18,8)");
+    list += (list.size() > 1 ? ", " : "") + literal(file);
+  }
+  list += "]";
+  const auto day = minute ? std::string("trading_day") : "strftime(trading_day, '%Y-%m-%d')";
+  const auto result = engine.run("SELECT DISTINCT " + day + " AS day FROM read_parquet(" + list +
+                                 ") WHERE " + day + " <> '' ORDER BY day");
+  std::vector<std::string> days;
+  while (auto chunk = result->Fetch()) {
+    chunk->Flatten();
+    const auto* values = duckdb::FlatVector::GetData<duckdb::string_t>(chunk->data[0]);
+    for (duckdb::idx_t row = 0; row < chunk->size(); ++row) {
+      auto text = values[row].GetString();
+      (void)parse_trading_date(text);
+      days.push_back(std::move(text));
+    }
+  }
+  return days;
+}
 } // namespace asterion::parquet

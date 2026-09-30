@@ -921,3 +921,28 @@ TEST(ResearchDatasets, SettlementDaysWithoutMinuteBarsAreListedAsUncovered) {
   EXPECT_EQ(dataset.uncovered_days(0), "2026-09-24");
   EXPECT_EQ(dataset.revision(), protocol::bar_dataset_revision(dataset));
 }
+#include "history_coverage.hpp"
+TEST(ResearchDatasets, CoverageCountsTradingDaysPerContractAcrossTheArchive) {
+  TaskDirectory directory;
+  test::seed_history(directory.path, {100, 101, 102, 103}, "coverage", {"2026-09-23", "2026-09-25"},
+                     {"2026-09-23", "2026-09-24", "2026-09-25"});
+  {
+    tasks::Store store(directory.path);
+  } // publishes completed downloads to the archive
+  history_files::Archive archive(directory.path / "history");
+  data::v1::HistoryFilter filter;
+  filter.set_venue("SHFE");
+  filter.set_product("rb");
+  const auto coverage = tasks::history_coverage(archive, filter);
+  ASSERT_EQ(coverage.items_size(), 1);
+  const auto& row = coverage.items(0);
+  EXPECT_EQ(row.contract_id(), "SHFE/rb/2026-10");
+  EXPECT_EQ(row.minute_days(), 2U);
+  EXPECT_EQ(row.minute_first(), "2026-09-23");
+  EXPECT_EQ(row.daily_days(), 3U);
+  EXPECT_EQ(row.uncovered(), 1U);
+  ASSERT_EQ(row.uncovered_days_size(), 1);
+  EXPECT_EQ(row.uncovered_days(0), "2026-09-24");
+  filter.set_product("cu");
+  EXPECT_EQ(tasks::history_coverage(archive, filter).items_size(), 0);
+}

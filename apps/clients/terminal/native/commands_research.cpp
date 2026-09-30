@@ -85,6 +85,12 @@ void Application::Impl::register_research_commands() {
       throw std::invalid_argument("connect research service first");
     return snapshot();
   });
+  core.command("research.coverage", "node.manage", [this](const json& p) {
+    fields(p, {"venue", "product", "contract_id", "source"});
+    if (!research)
+      throw std::invalid_argument("connect research service first");
+    return snapshot();
+  });
   core.command("research.daily.page", "node.manage", [this](const json& p) {
     (void)daily_page_query(p);
     if (!research)

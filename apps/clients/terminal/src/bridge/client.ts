@@ -159,6 +159,7 @@ export type TerminalCommand =
   | "research.minutes.submit"
   | "research.contracts.load"
   | "research.datasets"
+  | "research.coverage"
   | "research.dataset.select"
   | "research.dataset.clear"
   | "research.action"
@@ -556,6 +557,18 @@ export type ResearchResult =
       experiment: { contract_id: string; begin_day: string; end_day: string };
       result: { directory: string; manifest_sha256: string; rows: number; pages: number };
     };
+// Trading days per contract across archived minute and daily versions.
+export type HistoryCoverage = {
+  contract_id: string;
+  minute_days: number;
+  minute_first: string;
+  minute_last: string;
+  daily_days: number;
+  daily_first: string;
+  daily_last: string;
+  uncovered: number;
+  uncovered_days: string[];
+};
 export type HistoryDatasetRecord = {
   id: string;
   contract_id: string;
@@ -650,6 +663,7 @@ export type Snapshot = {
   history_page: HistoryPage | null;
   history_contracts: HistoryContractCatalog;
   history_datasets?: HistoryDatasetRecord[];
+  history_coverage?: HistoryCoverage[];
   // Present when the core answered from its last snapshot because another operation was running.
   stale?: true;
   // Revision of the core's published state and when the core last refreshed it.

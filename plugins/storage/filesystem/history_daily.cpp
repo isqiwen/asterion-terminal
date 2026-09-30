@@ -251,6 +251,23 @@ DailyDatasetInfo download_daily(HistoricalDailyPort& provider, const HistoricalD
   }
   return info(manifest);
 }
+std::vector<std::string> daily_trading_days(const std::filesystem::path& dir) {
+  directory_check(dir);
+  FileLock lock(dir, "daily.lock", FileLock::Access::shared);
+  const auto manifest = read_json(dir / manifest_name);
+  if (manifest.at("version") != 3 || !manifest.at("complete").get<bool>())
+    throw std::invalid_argument("daily dataset is incomplete");
+  std::vector<std::filesystem::path> files;
+  for (unsigned i = 0; i < manifest.at("pages").size(); ++i) {
+    const auto path = dir / filename(i);
+    if (std::filesystem::is_symlink(path) || !std::filesystem::is_regular_file(path) ||
+        sha256_file(path) != manifest.at("pages").at(i).at("sha256").get<std::string>())
+      throw std::invalid_argument("daily dataset digest mismatch");
+    if (manifest.at("pages").at(i).at("rows").get<std::uint64_t>())
+      files.push_back(path);
+  }
+  return parquet::trading_days(files, false);
+}
 DailyDatasetInfo inspect_daily(const std::filesystem::path& dir) {
   directory_check(dir);
   FileLock lock(dir, "daily.lock", FileLock::Access::shared);

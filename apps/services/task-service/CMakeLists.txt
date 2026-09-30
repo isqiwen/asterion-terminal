@@ -1,4 +1,4 @@
-add_library(asterion_task_store STATIC task_store.cpp daily_factor_source.cpp bar_dataset_source.cpp)
+add_library(asterion_task_store STATIC task_store.cpp daily_factor_source.cpp bar_dataset_source.cpp history_coverage.cpp)
 target_include_directories(asterion_task_store PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(asterion_task_store PUBLIC asterion_history_files asterion_history_providers asterion_backtest_engine asterion_factor_engine PRIVATE asterion_sqlite asterion_risk_providers)
 add_executable(asterion-task-service main.cpp)

@@ -139,6 +139,16 @@ message HistoryRecord { uint32 version = 1; oneof definition { MinuteDownload mi
 message HistoryFilter { string venue = 1; string product = 2; string contract_id = 3; string source = 4; }
 message HistoryDataset { string id = 1; string contract_id = 2; string source = 3; string revision = 4; string begin = 5; string end = 6; uint32 interval_minutes = 7; uint64 rows = 8; }
 message HistoryDatasets { repeated HistoryDataset items = 1; }
+// Trading days per contract across the archive's minute and daily versions.
+// Uncovered days are daily trading days, between the first and last minute
+// days, that no minute version contains; only the first 50 are listed.
+message HistoryCoverage {
+  string contract_id = 1;
+  uint32 minute_days = 2; string minute_first = 3; string minute_last = 4;
+  uint32 daily_days = 5; string daily_first = 6; string daily_last = 7;
+  uint32 uncovered = 8; repeated string uncovered_days = 9;
+}
+message HistoryCoverages { repeated HistoryCoverage items = 1; }
 
 // Installed native capabilities; account permissions are checked by the provider.
 message HistorySource {

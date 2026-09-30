@@ -53,7 +53,11 @@ export type TerminalContext = {
   refresh: () => void;
   query: (
     method:
-      "research.minutes.page" | "research.daily.page" | "research.datasets" | "market.minutes",
+      | "research.minutes.page"
+      | "research.daily.page"
+      | "research.datasets"
+      | "research.coverage"
+      | "market.minutes",
     params: Record<string, unknown>,
   ) => Promise<Snapshot>;
   trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
