@@ -3,6 +3,45 @@
 #include <stdexcept>
 
 namespace asterion::terminal {
+namespace {
+// Uploads and starts a bundled Linux service on a remote Agent of this version.
+void deploy_service(NodeClient& node, const json& p) {
+  const auto status = node.inspect_status();
+  if (!status.online || !status.health || status.health->os() != "linux" ||
+      status.health->version() != ASTERION_PRODUCT_VERSION)
+    throw std::invalid_argument(
+        "remote services require an online Linux Agent of the same version");
+  const auto& arch = status.health->arch();
+  const auto kind = parse_service_kind(text(p, "kind"));
+  if (kind == node::v1::STRATEGY)
+    throw std::invalid_argument("invalid service kind");
+  node.deploy({.service = text(p, "service"),
+               .kind = kind,
+               .platform = {.os = "linux", .arch = arch},
+               .programs = bundled_service_programs(arch, kind),
+               .port = port_number(p, "port")});
+}
+// Replaces a stopped service's programs with this Terminal's build.
+void update_service(NodeClient& node, bool local, const json& p) {
+  const auto service = text(p, "service");
+  const auto state = node.inspect_status();
+  if (!state.online || !state.health)
+    throw std::invalid_argument("connect the node before updating");
+  const auto& health = *state.health;
+  auto kind = node::v1::UNSPECIFIED_SERVICE;
+  for (const auto& service_status : health.services())
+    if (service_status.id() == service)
+      kind = service_status.kind();
+  if (kind != node::v1::PAPER_TRADING && kind != node::v1::MARKET_DATA &&
+      kind != node::v1::TASK_SERVICE && kind != node::v1::STRATEGY)
+    throw std::invalid_argument("unknown service kind");
+  node.update({.service = service,
+               .expected_revision = text(p, "revision"),
+               .platform = {.os = health.os(), .arch = health.arch()},
+               .programs = local ? local_service_programs(kind)
+                                 : bundled_service_programs(health.arch(), kind)});
+}
+} // namespace
 // Node lifecycle: SSH enrollment, firewall, Agent upgrade, service deployment.
 void Application::Impl::register_node_commands() {
   core.access().grant("terminal.local", "node.manage");
@@ -36,7 +75,7 @@ void Application::Impl::register_node_commands() {
     if (!p.at("plugins").is_array())
       throw std::invalid_argument("invalid native plugin selection");
     if (!nodes.contains("local"))
-      nodes.emplace("local", std::make_unique<NodeClient>(local_node()));
+      nodes.emplace("local", std::make_shared<NodeClient>(local_node()));
     const auto endpoint =
         nodes.at("local")->local_research(p.at("plugins").get<std::vector<std::string>>());
     research = std::make_shared<ResearchClient>(endpoint);
@@ -47,9 +86,11 @@ void Application::Impl::register_node_commands() {
     fields(p, {"id", "service", "revision", "plugins"});
     if (!p.at("plugins").is_array())
       throw std::invalid_argument("invalid native plugin selection");
-    nodes.at(text(p, "id"))
-        ->configure_plugins(text(p, "service"), text(p, "revision"),
-                            p.at("plugins").get<std::vector<std::string>>());
+    const auto node = nodes.at(text(p, "id"));
+    without_operations([&] {
+      node->configure_plugins(text(p, "service"), text(p, "revision"),
+                              p.at("plugins").get<std::vector<std::string>>());
+    });
     return snapshot();
   });
   core.command("node.initializer.export", "node.manage", [this](const json& p) {
@@ -73,9 +114,12 @@ void Application::Impl::register_node_commands() {
     fields(p, {"id", "service", "action", "token"});
     firewall_plan = nullptr;
     firewall_parameters = nullptr;
-    firewall_plan =
-        nodes.at(text(p, "id"))
-            ->firewall(text(p, "service"), text(p, "action"), p.at("token").get<std::string>());
+    const auto node = nodes.at(text(p, "id"));
+    auto plan = without_operations([&] {
+      return node->firewall(text(p, "service"), text(p, "action"),
+                            p.at("token").get<std::string>());
+    });
+    firewall_plan = std::move(plan);
     return snapshot();
   });
   core.command("node.firewall.inspect", "node.manage", [this](const json& p) {
@@ -83,7 +127,7 @@ void Application::Impl::register_node_commands() {
                "agent_port", "firewall_port", "firewall_action"});
     firewall_plan = nullptr;
     firewall_parameters = nullptr;
-    auto plan = inspect_node_firewall(p);
+    auto plan = without_operations([&] { return inspect_node_firewall(p); });
     plan["transport"] = "ssh";
     plan["token"] = unique_process_id();
     firewall_parameters = p;
@@ -103,22 +147,29 @@ void Application::Impl::register_node_commands() {
     firewall_parameters = nullptr;
     auto plan = firewall_plan;
     firewall_plan = nullptr;
-    firewall_plan = change_node_firewall(parameters, plan);
+    auto changed = without_operations([&] { return change_node_firewall(parameters, plan); });
+    firewall_plan = std::move(changed);
     return snapshot();
   });
   core.command("node.bootstrap", "node.manage", [this](const json& p) {
     fields(p, {"id", "host", "ssh_port", "username", "key_source", "private_key", "known_hosts",
                "agent_port"});
-    auto config = enroll_node(p);
-    const auto id = config.id;
-    nodes.insert_or_assign(id, std::make_unique<NodeClient>(config));
+    auto [id, node] = without_operations([&] {
+      auto config = enroll_node(p);
+      auto key = config.id;
+      return std::pair{std::move(key), std::make_shared<NodeClient>(std::move(config))};
+    });
+    nodes.insert_or_assign(id, std::move(node));
     return snapshot();
   });
   core.command("node.connect", "node.manage", [this](const json& p) {
     fields(p, {"id"});
-    auto config = enrolled_node(text(p, "id"));
-    const auto id = config.id;
-    nodes.insert_or_assign(id, std::make_unique<NodeClient>(config));
+    auto [id, node] = without_operations([&] {
+      auto config = enrolled_node(text(p, "id"));
+      auto key = config.id;
+      return std::pair{std::move(key), std::make_shared<NodeClient>(std::move(config))};
+    });
+    nodes.insert_or_assign(id, std::move(node));
     return snapshot();
   });
   core.command("node.agent.upgrade", "node.manage", [this](const json& p) {
@@ -130,9 +181,9 @@ void Application::Impl::register_node_commands() {
         agent_program.at("expected_digest") != expected)
       throw std::runtime_error("inspect the current Agent update before continuing");
     try {
-      const auto endpoint = upgrade_local_node(expected);
-      nodes.erase("local");
-      nodes.emplace("local", std::make_unique<NodeClient>(endpoint));
+      auto node = without_operations(
+          [&] { return std::make_shared<NodeClient>(upgrade_local_node(expected)); });
+      nodes.insert_or_assign("local", std::move(node));
       agent_program = local_node_program_status();
     } catch (...) {
       try {
@@ -153,7 +204,7 @@ void Application::Impl::register_node_commands() {
   core.command("node.local", "node.manage", [this](const json& p) {
     fields(p, {});
     if (!nodes.contains("local"))
-      nodes.emplace("local", std::make_unique<NodeClient>(local_node()));
+      nodes.emplace("local", std::make_shared<NodeClient>(local_node()));
     return snapshot();
   });
   core.command("node.disconnect", "node.manage", [this](const json& p) {
@@ -173,47 +224,14 @@ void Application::Impl::register_node_commands() {
   });
   core.command("node.deploy", "node.manage", [this](const json& p) {
     fields(p, {"id", "service", "port", "kind"});
-    auto& node = *nodes.at(text(p, "id"));
-    const auto status = node.inspect_status();
-    if (!status.online || !status.health || status.health->os() != "linux" ||
-        status.health->version() != ASTERION_PRODUCT_VERSION)
-      throw std::invalid_argument(
-          "remote services require an online Linux Agent of the same version");
-    const auto& arch = status.health->arch();
-    const auto kind = parse_service_kind(text(p, "kind"));
-    if (kind == node::v1::STRATEGY)
-      throw std::invalid_argument("invalid service kind");
-    const auto programs = bundled_service_programs(arch, kind);
-    node.deploy({.service = text(p, "service"),
-                 .kind = kind,
-                 .platform = {.os = "linux", .arch = arch},
-                 .programs = programs,
-                 .port = port_number(p, "port")});
+    const auto node = nodes.at(text(p, "id"));
+    without_operations([&] { deploy_service(*node, p); });
     return snapshot();
   });
   core.command("node.update", "node.manage", [this](const json& p) {
     fields(p, {"id", "service", "revision"});
-    const auto id = text(p, "id"), service = text(p, "service");
-    auto& node = *nodes.at(id);
-    const auto state = node.inspect_status();
-    if (!state.online || !state.health)
-      throw std::invalid_argument("connect the node before updating");
-    const auto& health = *state.health;
-    const auto& os = health.os();
-    const auto& arch = health.arch();
-    auto kind = node::v1::UNSPECIFIED_SERVICE;
-    for (const auto& service_status : health.services())
-      if (service_status.id() == service)
-        kind = service_status.kind();
-    if (kind != node::v1::PAPER_TRADING && kind != node::v1::MARKET_DATA &&
-        kind != node::v1::TASK_SERVICE && kind != node::v1::STRATEGY)
-      throw std::invalid_argument("unknown service kind");
-    const auto programs =
-        id == "local" ? local_service_programs(kind) : bundled_service_programs(arch, kind);
-    node.update({.service = service,
-                 .expected_revision = text(p, "revision"),
-                 .platform = {.os = os, .arch = arch},
-                 .programs = programs});
+    const auto node = nodes.at(text(p, "id"));
+    without_operations([&] { update_service(*node, text(p, "id") == "local", p); });
     return snapshot();
   });
   core.command("node.action", "node.manage", [this](const json& p) {

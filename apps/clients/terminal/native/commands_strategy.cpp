@@ -47,7 +47,7 @@ void Application::Impl::register_strategy_commands() {
     plan->set_agent_endpoint(local.endpoint);
     static_cast<void>(protocol::decode_replay_plan(*plan));
     if (!nodes.contains("local"))
-      nodes.emplace("local", std::make_unique<NodeClient>(local));
+      nodes.emplace("local", std::make_shared<NodeClient>(local));
     auto next =
         std::make_unique<StrategyClient>(nodes.at("local")->local_strategy(config.session_id()));
     // Three cross-process steps: bind day-end settlement, grant the account,
@@ -76,7 +76,7 @@ void Application::Impl::register_strategy_commands() {
   core.command("strategy.attach", "node.manage", [this](const json& p) {
     fields(p, {"id", "service"});
     if (text(p, "id") == "local" && !nodes.contains("local"))
-      nodes.emplace("local", std::make_unique<NodeClient>(local_node()));
+      nodes.emplace("local", std::make_shared<NodeClient>(local_node()));
     strategy = std::make_unique<StrategyClient>(
         nodes.at(text(p, "id"))
             ->service_endpoint(text(p, "service"), asterion::node::v1::STRATEGY));
@@ -101,7 +101,7 @@ void Application::Impl::register_strategy_commands() {
         throw std::invalid_argument("connect the matching paper account "
                                     "before revoking this strategy");
       if (!nodes.contains("local"))
-        nodes.emplace("local", std::make_unique<NodeClient>(local));
+        nodes.emplace("local", std::make_shared<NodeClient>(local));
       observer = std::make_unique<TradingClient>(nodes.at("local")->service_endpoint(
           plan.trading_session(), asterion::node::v1::PAPER_TRADING));
       account = observer.get();

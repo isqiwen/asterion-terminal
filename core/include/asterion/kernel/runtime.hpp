@@ -45,6 +45,5 @@ private:
   PluginManager plugins_;
   std::map<std::string, Command> commands_;
   RuntimeState state_ = RuntimeState::created;
-  bool dispatching_ = false;
 };
 } // namespace asterion

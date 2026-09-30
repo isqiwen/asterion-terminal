@@ -28,7 +28,7 @@ void Application::Impl::register_paper_commands() {
       paper->create(manifest);
     else {
       if (!nodes.contains("local"))
-        nodes.emplace("local", std::make_unique<NodeClient>(local_node()));
+        nodes.emplace("local", std::make_shared<NodeClient>(local_node()));
       const auto directory = text(p, "directory");
       paper = std::make_unique<TradingClient>(
           std::filesystem::path(std::u8string(directory.begin(), directory.end())), manifest);
@@ -71,7 +71,7 @@ void Application::Impl::register_paper_commands() {
     if (paper)
       throw std::invalid_argument("close the current paper session first");
     if (!nodes.contains("local"))
-      nodes.emplace("local", std::make_unique<NodeClient>(local_node()));
+      nodes.emplace("local", std::make_shared<NodeClient>(local_node()));
     const auto directory = text(p, "directory");
     paper = std::make_unique<TradingClient>(
         std::filesystem::path(std::u8string(directory.begin(), directory.end())));

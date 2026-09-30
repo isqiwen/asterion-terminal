@@ -1,6 +1,9 @@
 #include <asterion/kernel/runtime.hpp>
 namespace asterion {
 namespace {
+// Commands may run concurrently on different threads; only a handler that
+// dispatches again on its own thread is recursive.
+thread_local const Runtime* dispatching = nullptr;
 Clock& required_clock(const std::shared_ptr<Clock>& clock) {
   if (!clock)
     throw Error(ErrorCode::invalid_request, "runtime requires a clock");
@@ -53,7 +56,7 @@ void Runtime::start() {
   }
 }
 void Runtime::stop() {
-  if (dispatching_ || state_ == RuntimeState::starting)
+  if (dispatching == this || state_ == RuntimeState::starting)
     throw Error(ErrorCode::conflict, "cannot stop during runtime callback");
   if (state_ == RuntimeState::stopped || state_ == RuntimeState::stopping)
     return;
@@ -69,16 +72,17 @@ Json Runtime::dispatch(const std::string& principal, const std::string& method,
                        const Json& params) {
   if (state_ != RuntimeState::running)
     throw Error(ErrorCode::unavailable, "runtime not running");
-  if (dispatching_)
+  if (dispatching == this)
     throw Error(ErrorCode::conflict, "recursive runtime dispatch");
   validate_id(method);
   const auto found = commands_.find(method);
   const auto operation = found == commands_.end() ? "runtime.unknown" : method;
   const auto trace = ids_.next();
   const auto start = clock_->monotonic_now();
-  dispatching_ = true;
+  const auto* previous = dispatching;
+  dispatching = this;
   auto finish = [&](bool success) noexcept {
-    dispatching_ = false;
+    dispatching = previous;
     // Telemetry failure must never change a completed business result.
     try {
       const auto end = clock_->monotonic_now();

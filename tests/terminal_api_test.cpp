@@ -1,6 +1,7 @@
 #include "../apps/clients/terminal/native/market_history.hpp"
 #include "timing.hpp"
 #include "history_fixture.hpp"
+#include <asterion/kernel/process/child.hpp>
 #include <gtest/gtest.h>
 #include <asterion/terminal.h>
 #include <asterion/domain/futures.hpp>
@@ -427,4 +428,62 @@ TEST(TerminalApi, LargeResearchDatasetsBacktestButPaperSessionsStaySmall) {
   ASSERT_TRUE(refused.contains("error"));
   EXPECT_NE(refused["error"]["message"].get<std::string>().find("at most 20000 bars"),
             std::string::npos);
+}
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+TEST(TerminalApi, LongNodeOperationsDoNotBlockOtherCommands) {
+  // An SSH peer that accepts and never speaks: the probe waits for its timeout.
+  const int listener = ::socket(AF_INET, SOCK_STREAM, 0);
+  ASSERT_GE(listener, 0);
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  ASSERT_EQ(::bind(listener, reinterpret_cast<sockaddr*>(&address), sizeof address), 0);
+  ASSERT_EQ(::listen(listener, 8), 0);
+  socklen_t size = sizeof address;
+  ASSERT_EQ(::getsockname(listener, reinterpret_cast<sockaddr*>(&address), &size), 0);
+  const auto port = std::to_string(ntohs(address.sin_port));
+  const auto folder =
+      std::filesystem::temp_directory_path() / ("asterion-ssh-" + asterion::unique_process_id());
+  std::filesystem::create_directory(folder);
+  ASSERT_EQ(std::system(
+                ("ssh-keygen -q -t ed25519 -N '' -f '" + (folder / "key").string() + "'").c_str()),
+            0);
+  std::ofstream(folder / "known_hosts") << "";
+  std::ifstream key_file(folder / "key");
+  const std::string key{std::istreambuf_iterator<char>(key_file), {}};
+  const json inspect{{"id", "silent"},
+                     {"host", "127.0.0.1"},
+                     {"ssh_port", port},
+                     {"username", "tester"},
+                     {"key_source", "provided"},
+                     {"private_key", key},
+                     {"known_hosts", (folder / "known_hosts").string()},
+                     {"agent_port", "7443"},
+                     {"firewall_port", "7443"},
+                     {"firewall_action", "allow"}};
+  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
+                                                                      asterion_terminal_destroy);
+  std::atomic<bool> done{false};
+  std::thread slow([&] {
+    (void)call(runtime.get(), request("node.firewall.inspect", inspect));
+    done = true;
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  ASSERT_FALSE(done.load()) << "the probe should still be waiting for the silent peer";
+  const auto started = std::chrono::steady_clock::now();
+  const auto other = call(runtime.get(), request("research.dataset.clear"));
+  EXPECT_TRUE(other.contains("result")) << other.dump();
+  EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(2));
+  const auto second = call(runtime.get(), request("node.firewall.inspect", inspect));
+  ASSERT_TRUE(second.contains("error"));
+  EXPECT_NE(second["error"]["message"].get<std::string>().find("another node operation"),
+            std::string::npos);
+  EXPECT_FALSE(done.load());
+  slow.join();
+  ::close(listener);
+  std::filesystem::remove_all(folder);
 }

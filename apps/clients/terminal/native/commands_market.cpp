@@ -7,7 +7,7 @@ void Application::Impl::register_market_commands() {
   core.command("market.local", "node.manage", [this](const json& p) {
     fields(p, {});
     if (!nodes.contains("local"))
-      nodes.emplace("local", std::make_unique<NodeClient>(local_node()));
+      nodes.emplace("local", std::make_shared<NodeClient>(local_node()));
     if (!market)
       market = std::make_unique<MarketClient>(nodes.at("local")->local_market());
     return snapshot();

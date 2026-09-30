@@ -381,6 +381,11 @@ json Application::Impl::dispatch(const json& request) {
                          std::chrono::system_clock::now().time_since_epoch())
                          .count();
   }
+  struct Active {
+    std::unique_lock<std::mutex>*& slot;
+    ~Active() { slot = nullptr; }
+  } active{operation_lock};
+  operation_lock = &operation;
   auto result = core.dispatch("terminal.local", method,
                               method == "runtime.snapshot" ? json::object() : params);
   if (!history_query && !research_io && result.is_object() && result.contains("protocol")) {

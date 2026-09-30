@@ -75,7 +75,8 @@ struct Application::Impl {
   std::int64_t history_cutoff = 0;
   std::shared_ptr<MarketClient> market;
   std::unique_ptr<TradingClient> paper;
-  std::map<std::string, std::unique_ptr<NodeClient>> nodes;
+  // Shared so long node I/O can keep its client while the map changes.
+  std::map<std::string, std::shared_ptr<NodeClient>> nodes;
   json firewall_plan = nullptr, firewall_parameters = nullptr, ssh_key = nullptr,
        agent_program = nullptr;
   std::chrono::steady_clock::time_point firewall_expiry{};
@@ -95,6 +96,34 @@ struct Application::Impl {
   // Probes return the published snapshot only then; a refresher step is
   // short (one client call) and worth waiting for.
   std::atomic<bool> command_running{false};
+  // The dispatch lock of the command running on this thread, if any.
+  std::unique_lock<std::mutex>* operation_lock = nullptr;
+  // Serializes long node operations (SSH, uploads, upgrades) among themselves;
+  // they run without `operations`, so other commands proceed meanwhile.
+  std::mutex node_operations;
+  // Runs `io` without the client-operation lock and relocks before returning.
+  // Captured clients must be shared pointers; state is read again afterwards.
+  template <class F> decltype(auto) without_operations(F&& io) {
+    std::unique_lock node(node_operations, std::try_to_lock);
+    if (!node)
+      throw Error(ErrorCode::conflict,
+                  "another node operation is in progress; retry after it completes");
+    auto* lock = operation_lock;
+    if (!lock || !lock->owns_lock())
+      throw std::logic_error("node operation outside a Terminal command");
+    command_running = false;
+    lock->unlock();
+    struct Relock {
+      Impl& self;
+      std::unique_lock<std::mutex>& lock;
+      ~Relock() {
+        lock.lock();
+        ++self.mutations;
+        self.command_running = true;
+      }
+    } relock{*this, *lock};
+    return io();
+  }
   // Published snapshot, guarded by cache_mutex. runtime.snapshot only reads it.
   std::mutex cache_mutex;
   std::condition_variable_any refresh_wake;

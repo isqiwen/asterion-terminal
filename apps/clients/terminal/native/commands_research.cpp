@@ -197,7 +197,7 @@ void Application::Impl::register_research_commands() {
   core.command("research.local", "node.manage", [this](const json& p) {
     fields(p, {});
     if (!nodes.contains("local"))
-      nodes.emplace("local", std::make_unique<NodeClient>(local_node()));
+      nodes.emplace("local", std::make_shared<NodeClient>(local_node()));
     auto next = std::make_shared<ResearchClient>(nodes.at("local")->local_research());
     research = std::move(next);
     research_result = nullptr;
