@@ -8,7 +8,7 @@ import "asterion/v1/data.proto";
 // Remote deployments use a stable TCP/mTLS address. No credential contents.
 message ReplayPlan {
   uint32 version = 1;
-  asterion.data.v1.TradeDataset dataset = 2;
+  asterion.data.v1.BarDataset dataset = 2;
   string trading_session = 3;
   string grant_id = 4;
   string agent_endpoint = 5;
@@ -17,7 +17,7 @@ message ReplayPlan {
   string tls_ca = 8;
   string tls_cert = 9;
   string tls_key = 10;
-  asterion.data.v1.CalendarPublication calendar_publication = 11;
+  reserved 11;
 }
 message ReplayStatus { string phase = 1; string error = 2; }
 // Immutable configuration for one trusted native strategy instance.
@@ -32,12 +32,13 @@ message Config {
   asterion.protocol.v1.Decimal quantity = 8;
   ReplayPlan replay = 9;
 }
-// Sequence starts at one. Equal timestamps and duplicate ticks are valid when
-// they have distinct sequence numbers. A source must retain its stream identity.
+// Sequence starts at one and increases by one per completed bar. A source
+// must retain its stream identity.
 message Event {
   string stream_id = 1;
   uint64 sequence = 2;
-  asterion.protocol.v1.Tick tick = 3;
+  reserved 3;
+  asterion.protocol.v1.Bar bar = 4;
 }
 // An observation, never an authorized order or an acknowledgement of execution.
 message Intent {

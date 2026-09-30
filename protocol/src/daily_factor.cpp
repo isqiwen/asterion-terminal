@@ -102,7 +102,7 @@ Json decode_daily_factor(const research::v1::DailyFactorInput& input,
         {"data",
          {{"source_task_id", data.source_task_id()},
           {"source", data.source()},
-          {"ts_code", data.ts_code()},
+          {"contract_id", data.contract_id()},
           {"manifest_sha256", data.manifest_sha256()},
           {"count", count},
           {"first_day", data.bars(0).trading_day()},
@@ -119,9 +119,12 @@ Json decode_daily_factor(const research::v1::DailyFactorInput& input,
 std::vector<HistoricalDailyBar> daily_factor_bars(const research::v1::DailyFactorDataset& input) {
   validate_message(input);
   validate_id(input.source_task_id());
-  if (input.version() != 1 || input.source() != "tushare.fut_daily" || input.ts_code().empty() ||
-      input.ts_code().size() > 64 ||
-      input.ts_code().find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.") !=
+  validate_history_source(input.source());
+  (void)HistoryIdentity::parse(input.contract_id());
+  if (input.version() != 1 || input.source().empty() || input.contract_id().empty() ||
+      input.contract_id().size() > 64 ||
+      input.contract_id().find_first_not_of(
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/-") !=
           std::string::npos ||
       input.manifest_sha256().size() != 64 ||
       input.manifest_sha256().find_first_not_of("0123456789abcdef") != std::string::npos ||
@@ -161,7 +164,7 @@ std::string daily_factor_revision(const research::v1::DailyFactorDataset& input)
       {"kind", "futures.daily-close"},
       {"source_task_id", input.source_task_id()},
       {"source", input.source()},
-      {"ts_code", input.ts_code()},
+      {"contract_id", input.contract_id()},
       {"manifest_sha256", input.manifest_sha256()},
       {"bars", rows}}.dump());
 }

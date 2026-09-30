@@ -6,7 +6,7 @@ Json decode_replay_plan(const strategy::v1::ReplayPlan& p) {
   validate_message(p);
   validate_id(p.trading_session());
   validate_id(p.grant_id());
-  if (p.version() != 2 || !p.has_dataset())
+  if (p.version() != 3 || !p.has_dataset())
     throw std::invalid_argument("unsupported strategy replay plan");
   for (const auto* value :
        {&p.agent_endpoint(), &p.host(), &p.tls_ca(), &p.tls_cert(), &p.tls_key()})
@@ -19,17 +19,10 @@ Json decode_replay_plan(const strategy::v1::ReplayPlan& p) {
                p.tls_cert().empty() || p.tls_key().empty()))
     throw std::invalid_argument(
         "replay requires a local Agent OR complete remote TCP/mTLS identity");
-  Json calendar = nullptr;
-  if (p.has_calendar_publication()) {
-    calendar = decode_calendar_publication(p.calendar_publication());
-    if (calendar.at("calendar").at("contract") != decode_contract(p.dataset().contract()))
-      throw std::invalid_argument("strategy calendar contract does not match dataset");
-  }
   // Evaluated before the braced initializer: GCC < 13 leaks already-built
   // initializer_list elements when a later element throws (PR66139).
-  auto dataset = decode_dataset(p.dataset());
-  return {{"version", 2},
-          {"calendar_publication", calendar},
+  auto dataset = decode_bar_dataset(p.dataset());
+  return {{"version", 3},
           {"dataset", std::move(dataset)},
           {"trading_session", p.trading_session()},
           {"grant_id", p.grant_id()},
@@ -42,15 +35,13 @@ Json decode_replay_plan(const strategy::v1::ReplayPlan& p) {
 }
 strategy::v1::ReplayPlan encode_replay_plan(const Json& j) {
   require_fields(j, {"version", "dataset", "trading_session", "grant_id", "agent_endpoint", "host",
-                     "port", "tls_ca", "tls_cert", "tls_key", "calendar_publication"});
-  if (!j.at("version").is_number_integer() || j.at("version") != 2 ||
+                     "port", "tls_ca", "tls_cert", "tls_key"});
+  if (!j.at("version").is_number_integer() || j.at("version") != 3 ||
       !j.at("port").is_number_integer() || j.at("port") < 0 || j.at("port") > 65535)
     throw std::invalid_argument("invalid replay plan version or port");
   strategy::v1::ReplayPlan p;
-  p.set_version(2);
-  if (!j.at("calendar_publication").is_null())
-    *p.mutable_calendar_publication() = encode_calendar_publication(j.at("calendar_publication"));
-  *p.mutable_dataset() = encode_dataset(j.at("dataset"));
+  p.set_version(3);
+  *p.mutable_dataset() = encode_bar_dataset(j.at("dataset"));
   p.set_trading_session(j.at("trading_session").get<std::string>());
   p.set_grant_id(j.at("grant_id").get<std::string>());
   p.set_agent_endpoint(j.at("agent_endpoint").get<std::string>());

@@ -30,7 +30,7 @@ test("fresh setup requires consent, reports real failure, retries and persists c
           body: JSON.stringify({ error: { message: "Market start failed" } }),
         });
     }
-    if (body.method === "research.local") {
+    if (["research.local", "research.local.create"].includes(body.method)) {
       researchStarts++;
       if (failResearch)
         return route.fulfill({
@@ -117,7 +117,11 @@ for (const updateState of ["update_available", "recovery_required"])
         upgraded = true;
         return route.fulfill({ json: inspectedResponse });
       }
-      if (["node.local", "market.local", "research.local"].includes(body.method)) {
+      if (
+        ["node.local", "market.local", "research.local", "research.local.create"].includes(
+          body.method,
+        )
+      ) {
         expect(upgraded).toBe(true);
         serviceStarts++;
       }
@@ -139,7 +143,7 @@ for (const failure of ["market", "research", "stale"] as const)
     let fail = true;
     await page.route("**/__asterion/api", async route => {
       const body = route.request().postDataJSON();
-      if (body.method === "research.local") started = true;
+      if (["research.local", "research.local.create"].includes(body.method)) started = true;
       if (body.method === "runtime.snapshot" && started && fail) {
         const response = await route.fetch();
         const value = await response.json();
@@ -194,7 +198,12 @@ for (const [diagnostic, summary, english] of [
           json: { error: { code: "unavailable", message: diagnostic } },
         });
       }
-      if (["node.local", "market.local", "research.local"].includes(body.method)) serviceStarts++;
+      if (
+        ["node.local", "market.local", "research.local", "research.local.create"].includes(
+          body.method,
+        )
+      )
+        serviceStarts++;
       return route.continue();
     });
     await page.goto("/");

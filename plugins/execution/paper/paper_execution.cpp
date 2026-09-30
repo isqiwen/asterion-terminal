@@ -3,21 +3,22 @@
 #include <stdexcept>
 namespace asterion {
 PaperExecution::PaperExecution(Instrument instrument, Decimal deposit, FuturesCosts costs,
-                               std::vector<TradeTick> ticks, std::shared_ptr<const RiskPort> risk)
+                               std::vector<MarketBar> bars, std::shared_ptr<const RiskPort> risk)
     : account_(instrument, deposit, costs), risk_(std::move(risk)),
-      ticks_(std::make_shared<const std::vector<TradeTick>>(std::move(ticks))) {
+      bars_(std::make_shared<const std::vector<MarketBar>>(std::move(bars))) {
   if (!risk_)
     throw std::invalid_argument("risk plugin is required");
-  if (ticks_->empty() || ticks_->size() > 10000)
-    throw std::invalid_argument("paper replay requires 1 to 10000 historical trades");
-  std::int64_t previous = 0;
-  for (const auto& tick : *ticks_) {
-    tick.validate(instrument);
-    if (tick.price <= Decimal{})
+  if (bars_->empty() || bars_->size() > paper_max_bars)
+    throw std::invalid_argument("paper replay requires 1 to 20000 historical bars");
+  const MarketBar* previous = nullptr;
+  for (const auto& bar : *bars_) {
+    bar.validate(instrument);
+    if (bar.low <= Decimal{})
       throw std::invalid_argument("futures paper model requires positive market prices");
-    if (tick.timestamp_ns < previous)
-      throw std::invalid_argument("historical trade times must be ascending");
-    previous = tick.timestamp_ns;
+    if (previous &&
+        (bar.timestamp_ns <= previous->timestamp_ns || bar.trading_day < previous->trading_day))
+      throw std::invalid_argument("historical bars must be strictly ascending");
+    previous = &bar;
   }
 }
 PluginDescriptor PaperExecution::descriptor() const {
@@ -29,22 +30,13 @@ void PaperExecution::require_running() const {
 }
 void PaperExecution::submit(LimitOrder order, Offset offset) {
   require_running();
-  if (cursor_ == ticks_->size())
+  if (cursor_ == bars_->size())
     throw std::invalid_argument("replay has finished; no new orders accepted");
   const auto decision = assess_order(*risk_, account_, order, offset);
   if (!decision.allowed())
     throw std::invalid_argument("pre-trade risk rejected: " +
                                 std::string(risk_reason_name(decision.reason)));
-  // Queue estimate: a limit order joining a price level that just traded sits
-  // behind that traded quantity; a new level starts with an empty queue.
-  const auto last = cursor_ ? &ticks_->at(cursor_ - 1) : nullptr;
-  const auto ahead = last && last->price == order.limit_price ? last->quantity : Decimal{};
-  const auto id = order.id;
-  auto queue = queue_;
-  if (ahead != Decimal{})
-    queue[id] = ahead;
   account_.submit(std::move(order), offset);
-  queue_.swap(queue);
   ++revision_;
 }
 void PaperExecution::cancel(const std::string& id) {
@@ -57,82 +49,73 @@ bool working(const AccountOrder& item) {
   return item.order.state() == OrderState::accepted ||
          item.order.state() == OrderState::partially_filled;
 }
-bool crosses(const AccountOrder& item, Decimal price) {
+// Conservative fill price on a bar, or none when the bar never reached the limit.
+std::optional<Decimal> fill_price(const AccountOrder& item, const MarketBar& bar) {
+  if (!working(item))
+    return std::nullopt;
   const auto& request = item.order.request();
-  return working(item) &&
-         (request.side == Side::buy ? price <= request.limit_price : price >= request.limit_price);
+  if (request.side == Side::buy)
+    return bar.low <= request.limit_price ? std::optional(std::min(bar.open, request.limit_price))
+                                          : std::nullopt;
+  return bar.high >= request.limit_price ? std::optional(std::max(bar.open, request.limit_price))
+                                         : std::nullopt;
 }
 } // namespace
 void PaperExecution::advance() {
   require_running();
-  if (cursor_ == ticks_->size())
+  if (cursor_ == bars_->size())
     throw std::invalid_argument("replay has finished");
-  const auto& tick = ticks_->at(cursor_);
+  const auto& bar = bars_->at(cursor_);
   if (std::ranges::none_of(account_.orders(),
-                           [&](const auto& item) { return crosses(item, tick.price); })) {
+                           [&](const auto& item) { return fill_price(item, bar).has_value(); })) {
     // Nothing can fill: marking alone has a strong guarantee, no ledger copy.
-    account_.mark(tick.price);
+    account_.mark(bar.close);
     ++cursor_;
     ++revision_;
     return;
   }
   auto next = account_;
-  auto queue = queue_;
   auto sequence = execution_sequence_;
-  next.mark(tick.price);
-  auto liquidity = tick.quantity;
-  // Arrival order, shared per-tick volume. Fills and cancels never append
-  // orders, so indexes stay stable during the pass. A trade through the limit
-  // fills directly; a trade at the limit first consumes the queue ahead.
+  auto liquidity = quantize(multiply(bar.volume, paper_bar_participation, Rounding::floor),
+                            account_.instrument().quantity_increment, Rounding::floor);
+  // Arrival order shares the bar's participation volume. Fills and cancels
+  // never append orders, so indexes stay stable during the pass.
   for (std::size_t i = 0; i < next.orders().size() && liquidity != Decimal{}; ++i) {
     const auto& item = next.orders()[i];
-    if (!crosses(item, tick.price))
+    const auto price = fill_price(item, bar);
+    if (!price)
       continue;
     const auto id = item.order.request().id;
-    if (tick.price == item.order.request().limit_price) {
-      if (const auto found = queue.find(id); found != queue.end()) {
-        const auto consumed = std::min(found->second, liquidity);
-        found->second = found->second - consumed;
-        liquidity = liquidity - consumed;
-        if (found->second != Decimal{})
-          continue;
-        queue.erase(found);
-        if (liquidity == Decimal{})
-          break;
-      }
-    }
     if (item.offset == Offset::open && next.available() < Decimal{}) {
       next.cancel(id);
       continue;
     }
-    auto quantity = quantize(std::min(liquidity, item.order.remaining_quantity()),
-                             account_.instrument().quantity_increment, Rounding::floor);
-    if (quantity == Decimal{})
-      continue;
-    next.fill({"paper.fill." + std::to_string(++sequence), id, quantity, tick.price});
+    const auto quantity = std::min(liquidity, item.order.remaining_quantity());
+    next.fill({"paper.fill." + std::to_string(++sequence), id, quantity, *price});
     liquidity = liquidity - quantity;
   }
+  next.mark(bar.close);
   account_ = std::move(next);
-  queue_.swap(queue);
   execution_sequence_ = sequence;
   ++cursor_;
   ++revision_;
 }
 void PaperExecution::settle(Decimal price) {
   require_running();
-  if (cursor_ != ticks_->size())
+  if (cursor_ != bars_->size())
     throw std::invalid_argument("manual settlement is allowed only after the replay finishes");
   account_.settle(price);
   ++revision_;
 }
-void PaperExecution::settle_before_next(std::int64_t boundary_ns, Decimal price) {
+void PaperExecution::settle_day_end(Decimal price) {
   require_running();
-  if (cursor_ == 0 || cursor_ == ticks_->size() || boundary_ns <= last_settlement_boundary_ ||
-      boundary_ns <= ticks_->at(cursor_ - 1).timestamp_ns ||
-      boundary_ns > ticks_->at(cursor_).timestamp_ns)
-    throw std::invalid_argument("settlement boundary must precede the next replay event");
+  if (cursor_ == 0 || cursor_ == bars_->size())
+    throw std::invalid_argument("day-end settlement must fall between replay days");
+  const auto& day = bars_->at(cursor_ - 1).trading_day;
+  if (day == bars_->at(cursor_).trading_day || day == last_settled_day_)
+    throw std::invalid_argument("settlement must follow the last bar of an unsettled day");
   account_.settle(price);
-  last_settlement_boundary_ = boundary_ns;
+  last_settled_day_ = day;
   ++revision_;
 }
 void PaperExecution::cancel_open_orders() {
@@ -193,14 +176,14 @@ void PaperExecution::reconcile_long_target(const std::string& order_id, Decimal 
 std::optional<std::int64_t> PaperExecution::timestamp_ns() const {
   if (!cursor_)
     return std::nullopt;
-  return ticks_->at(cursor_ - 1).timestamp_ns;
+  return bars_->at(cursor_ - 1).timestamp_ns;
 }
 Json PaperExecution::snapshot() const {
   auto result = account_.snapshot();
   result["cursor"] = cursor_;
-  result["total"] = ticks_->size();
+  result["total"] = bars_->size();
   result["timestamp_ns"] =
-      cursor_ ? Json(std::to_string(ticks_->at(cursor_ - 1).timestamp_ns)) : Json(nullptr);
+      cursor_ ? Json(std::to_string(bars_->at(cursor_ - 1).timestamp_ns)) : Json(nullptr);
   result["mode"] = "historical_paper";
   return result;
 }

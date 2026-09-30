@@ -4,9 +4,9 @@
 #include <optional>
 namespace asterion {
 // Dimensionless research features, not monetary ledger values or trade intents.
-// A streaming factor receives only the current event and its prior history.
+// A streaming factor receives only the current completed bar and its history.
 class FactorPort : public Plugin {
 public:
-  virtual std::optional<double> on_tick(const TradeTick& tick) = 0;
+  virtual std::optional<double> on_bar(const MarketBar& bar) = 0;
 };
 } // namespace asterion

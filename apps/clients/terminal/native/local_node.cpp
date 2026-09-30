@@ -57,6 +57,9 @@ fs::path bundled_agent() {
 }
 
 } // namespace
+std::filesystem::path local_node_directory() {
+  return local_root();
+}
 Json local_node_program_status() {
   if (environment_variable("ASTERION_NODE_DIRECTORY"))
     return Json{{"state", "isolated"},

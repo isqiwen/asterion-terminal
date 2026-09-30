@@ -24,6 +24,7 @@ const t = (key: string) => translate("asterion.terminal.futures-market", key);
 export function ContractHistory({
   venue,
   symbol,
+  historyContractId,
   context,
   preferLongest = false,
   preferenceKey = preferLongest ? "history-long" : "history-main",
@@ -31,6 +32,7 @@ export function ContractHistory({
 }: {
   venue: string;
   symbol: string;
+  historyContractId?: string;
   context: TerminalContext;
   preferLongest?: boolean;
   preferenceKey?: string;
@@ -38,12 +40,18 @@ export function ContractHistory({
   fixedPeriod?: number | "day" | "week" | "month" | "quarter" | "year";
 }) {
   const { snapshot, query, busy, navigate } = context;
+  const contractId =
+    historyContractId ??
+    snapshot?.market?.catalog.contracts.find(
+      item => item.venue === venue && item.symbol.toUpperCase() === symbol.toUpperCase(),
+    )?.contract_id;
   const datasets = (snapshot?.research?.tasks ?? [])
     .filter(
       task =>
         (task.kind === "minute_download" || task.kind === "daily_download") &&
         task.state === "succeeded" &&
-        task.instrument.toUpperCase() === `${venue}/${symbol}`.toUpperCase(),
+        !!contractId &&
+        task.instrument === contractId,
     )
     .sort((a, b) => b.submission_sequence - a.submission_sequence);
   const periods = [
@@ -148,10 +156,7 @@ export function ContractHistory({
   }, [datasetKey, id, offset, online, retry, daily, activePeriod]);
   const responsePage = response?.key === datasetKey ? response.page : null;
   const rawPage =
-    responsePage?.id === id &&
-    responsePage.ts_code.split(".")[0].toUpperCase() === symbol.toUpperCase()
-      ? responsePage
-      : null;
+    responsePage?.id === id && responsePage.contract_id === contractId ? responsePage : null;
   const leading = rawPage?.offset ? historyLookback : 0;
   const page = rawPage
     ? {

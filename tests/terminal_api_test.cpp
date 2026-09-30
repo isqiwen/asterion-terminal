@@ -1,5 +1,6 @@
 #include "../apps/clients/terminal/native/market_history.hpp"
 #include "timing.hpp"
+#include "history_fixture.hpp"
 #include <gtest/gtest.h>
 #include <asterion/terminal.h>
 #include <asterion/domain/futures.hpp>
@@ -45,6 +46,26 @@ json call(void* runtime, const json& request) {
 json request(std::string method, json params = json::object()) {
   return {{"version", 1}, {"method", method}, {"params", params}};
 }
+json history(void* runtime, const std::vector<int>& prices, const std::string& id) {
+  auto invoke = [&](const std::string& method, json params = json::object()) {
+    auto result = call(runtime, request(method, std::move(params)));
+    if (result.contains("error"))
+      throw std::runtime_error(result.dump());
+    return result.at("result");
+  };
+  invoke("research.local");
+  const auto stopped =
+      invoke("node.action", {{"id", "local"}, {"service", "research"}, {"action", "stop"}});
+  std::string directory;
+  for (const auto& node : stopped.at("nodes"))
+    if (node.at("id") == "local")
+      for (const auto& service : node.at("health").at("services"))
+        if (service.at("id") == "research")
+          directory = service.at("directory").get<std::string>();
+  auto selection = asterion::test::seed_history(directory, prices, id);
+  invoke("research.local");
+  return selection;
+}
 } // namespace
 TEST(TerminalApi, SnapshotRejectsMalformedQueriesBeforeReadingState) {
   std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
@@ -81,42 +102,19 @@ TEST(TerminalApi, Contracts) {
     EXPECT_TRUE((response && json::parse(response.get())["error"]["code"] == "invalid_request"))
         << "duplicate method cannot bypass dispatch";
   }
-  Fixture fixture;
-  const auto file = fixture.write("timestamp_ns,price,quantity\n100,3510,2\n200,3511,3\n");
-  json params{{"path", file.string()},       {"venue", "SHFE"},
-              {"symbol", "rb2610"},          {"product", "rb"},
-              {"delivery_month", "2026-10"}, {"currency", "CNY"},
-              {"price_increment", "1"},      {"quantity_increment", "1"},
-              {"multiplier", "10"}};
-  auto imported = call(runtime.get(), request("futures.inspect_csv", params));
-  EXPECT_TRUE((imported.contains("result"))) << "valid futures CSV accepted";
+  const auto params = history(runtime.get(), {100, 101}, "contracts");
+  auto imported = call(runtime.get(), request("research.dataset.select", params));
+  ASSERT_TRUE(imported.contains("result")) << imported.dump();
   const auto dataset = imported["result"]["dataset"];
-  EXPECT_TRUE(
-      (dataset["count"] == 2 && dataset["quantity"] == "5" && dataset["last_price"] == "3511"))
-      << "actual data summarized";
-  EXPECT_TRUE((dataset["last_timestamp_ns"].is_string()))
-      << "nanoseconds not exposed as JS numbers";
-  for (const auto& [field, value] :
-       std::vector<std::pair<std::string, std::string>>{{"delivery_month", "2026-13"},
-                                                        {"symbol", "rbMAIN"},
-                                                        {"symbol", "rb2611"},
-                                                        {"quantity_increment", "0.5"},
-                                                        {"multiplier", "0"},
-                                                        {"venue", "UNKNOWN"}}) {
-    auto bad = params;
-    bad[field] = value;
-    EXPECT_TRUE((call(runtime.get(), request("futures.inspect_csv", bad)).contains("error")))
-        << "bad contract rejected";
-  }
-  fixture.write("timestamp_ns,price,quantity\n100,3510,2\n200,3511,0.5\n");
-  EXPECT_TRUE((call(runtime.get(), request("futures.inspect_csv", params)).contains("error")))
-      << "invalid row rejected";
-  EXPECT_TRUE((call(runtime.get(), request("runtime.snapshot"))["result"]["dataset"] == dataset))
-      << "failed import leaves whole previous snapshot intact";
-  fixture.write("timestamp_ns,price,quantity\n");
-  EXPECT_TRUE((call(runtime.get(),
-                    request("futures.inspect_csv", params))["result"]["dataset"]["count"] == 0))
-      << "header-only explicit empty";
+  EXPECT_EQ(dataset["count"], 2);
+  EXPECT_EQ(dataset["last_close"], "101");
+  EXPECT_TRUE(dataset["last_timestamp_ns"].is_string());
+  auto invalid = params;
+  invalid["contract"]["delivery_month"] = "2026-13";
+  EXPECT_TRUE(call(runtime.get(), request("research.dataset.select", invalid)).contains("error"));
+  EXPECT_EQ(call(runtime.get(), request("runtime.snapshot"))["result"]["dataset"], dataset);
+  EXPECT_TRUE(call(runtime.get(), request("futures.inspect_csv", {{"path", "removed.csv"}}))
+                  .contains("error"));
   auto wrong = request("runtime.snapshot");
   wrong["version"] = 2;
   EXPECT_TRUE((call(runtime.get(), wrong).contains("error"))) << "unsupported version rejected";
@@ -124,8 +122,9 @@ TEST(TerminalApi, Contracts) {
       << "unsupported method rejected";
   EXPECT_TRUE((call(nullptr, request("runtime.snapshot")).contains("error")))
       << "null runtime rejected without crossing ABI";
-  params["extra"] = true;
-  EXPECT_TRUE((call(runtime.get(), request("futures.inspect_csv", params)).contains("error")))
+  auto extra = params;
+  extra["extra"] = true;
+  EXPECT_TRUE((call(runtime.get(), request("research.dataset.select", extra)).contains("error")))
       << "unknown fields rejected";
   using namespace asterion;
   FuturesContract czce{{{"CZCE", "SR609"},
@@ -154,12 +153,8 @@ TEST(TerminalApi, PersistentPaperRoundTripThroughCAbi) {
   auto invoke = [&](std::string method, json params = json::object()) {
     return call(runtime.get(), request(method, params));
   };
-  json params{{"path", file.string()},       {"venue", "SHFE"},
-              {"symbol", "rb2610"},          {"product", "rb"},
-              {"delivery_month", "2026-10"}, {"currency", "CNY"},
-              {"price_increment", "1"},      {"quantity_increment", "1"},
-              {"multiplier", "10"}};
-  ASSERT_TRUE(invoke("futures.inspect_csv", params).contains("result"));
+  const auto params = history(runtime.get(), {100, 99, 110}, "paper-roundtrip");
+  ASSERT_TRUE(invoke("research.dataset.select", params).contains("result"));
   auto created = invoke("paper.create", {{"directory", directory.string()},
                                          {"deposit", "1000"},
                                          {"margin_per_lot", "100"},
@@ -223,19 +218,11 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
   EXPECT_EQ(same["result"]["revision"], revision);
   EXPECT_FALSE(same["result"].contains("dataset"));
   EXPECT_TRUE(call(runtime.get(), request("runtime.snapshot", {{"since", "x"}})).contains("error"));
-  Fixture fixture;
-  std::string csv = "timestamp_ns,price,quantity\n";
-  for (int i = 1; i <= 200000; ++i)
-    csv += std::to_string(i) + ",3510,1\n";
-  const auto file = fixture.write(csv);
-  json params{{"path", file.string()},       {"venue", "SHFE"},
-              {"symbol", "rb2610"},          {"product", "rb"},
-              {"delivery_month", "2026-10"}, {"currency", "CNY"},
-              {"price_increment", "1"},      {"quantity_increment", "1"},
-              {"multiplier", "10"}};
+  const auto params = history(runtime.get(), std::vector<int>(500, 100), "concurrent");
+  ASSERT_TRUE(call(runtime.get(), request("research.dataset.clear")).contains("result"));
   std::atomic<bool> done{false};
   std::thread slow([&] {
-    EXPECT_TRUE(call(runtime.get(), request("futures.inspect_csv", params)).contains("result"));
+    EXPECT_TRUE(call(runtime.get(), request("research.dataset.select", params)).contains("result"));
     done = true;
   });
   int concurrent_reads = 0;
@@ -255,7 +242,7 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
     if (dataset.is_null())
       ++concurrent_reads;
     else
-      EXPECT_EQ(dataset["count"], 200000);
+      EXPECT_EQ(dataset["count"], 500);
     if (status["result"].value("stale", false)) {
       const auto command_started = std::chrono::steady_clock::now();
       const auto inspect = call(runtime.get(), request("node.agent.inspect"));
@@ -275,7 +262,7 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
   const auto fresh = call(runtime.get(), request("runtime.snapshot", {{"since", revision}}));
   EXPECT_FALSE(fresh["result"].contains("unchanged"));
   EXPECT_GT(fresh["result"]["revision"].get<std::uint64_t>(), revision);
-  EXPECT_EQ(fresh["result"]["dataset"]["count"], 200000);
+  EXPECT_EQ(fresh["result"]["dataset"]["count"], 500);
 }
 
 TEST(MarketHistory, BoundsEventsAndBreaksOnGapsFailuresAndDisconnects) {

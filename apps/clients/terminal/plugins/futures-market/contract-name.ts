@@ -119,7 +119,7 @@ export function contractName(
     return `${label}${row.symbol.slice(contract.product.length)}`;
   if (catalog?.exchange.toUpperCase() !== row.venue.toUpperCase()) return undefined;
   const name = catalog.items
-    .find(item => item.code.split(".")[0].toUpperCase() === row.symbol.toUpperCase())
+    .find(item => !!contract?.contract_id && item.code === contract.contract_id)
     ?.name.trim();
   return name || undefined;
 }

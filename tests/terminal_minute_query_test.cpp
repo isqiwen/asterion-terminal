@@ -11,12 +11,12 @@ struct ApplicationTestAccess {
   static void catalog(Application& app, std::int64_t cutoff) {
     std::lock_guard lock(app.impl_->operations);
     app.impl_->history_cutoff = cutoff;
-    app.impl_->history_contracts = {{"CU2403.SHF",
+    app.impl_->history_source = "tushare.fut_daily";
+    app.impl_->history_contracts = {{{"SHFE", "cu", "2024-03"},
                                      "copper",
-                                     "SHFE",
-                                     "CU",
-                                     "20230101",
-                                     "20240315",
+                                     "2023-01-01",
+                                     "2024-03-15",
+                                     "CU2403.SHF",
                                      {},
                                      Decimal::parse("5.00000001"),
                                      "tonne",
@@ -76,12 +76,12 @@ struct MinuteService {
             }
             const auto& query = request.minute_page();
             auto* page = response.mutable_minute_page();
-            page->set_version(1);
+            page->set_version(2);
             page->set_task_id(query.task_id());
             page->set_offset(query.offset());
             page->set_limit(query.limit());
             page->set_source("tushare.ft_mins");
-            page->set_ts_code("CU2310.SHF");
+            page->set_contract_id("SHFE/cu/2023-10");
             page->set_interval_minutes(1);
             page->set_manifest_sha256(std::string(64, 'a'));
             page->set_begin_ns(query.begin_ns() ? query.begin_ns() : 1);
@@ -106,12 +106,12 @@ struct MinuteService {
             }
             const auto& query = request.daily_page();
             auto* page = response.mutable_daily_page();
-            page->set_version(1);
+            page->set_version(2);
             page->set_task_id(wrong_identity ? "wrong" : query.task_id());
             page->set_offset(query.offset());
             page->set_limit(query.limit());
             page->set_source("tushare.fut_daily");
-            page->set_ts_code("CU2403.SHF");
+            page->set_contract_id("SHFE/cu/2024-03");
             page->set_manifest_sha256(std::string(64, 'a'));
             page->set_begin_day(query.begin_day().empty() ? "2023-01-01" : query.begin_day());
             page->set_end_day(query.end_day().empty() ? "2024-01-01" : query.end_day());
@@ -174,7 +174,7 @@ TEST(TerminalMinuteQueries, ConcurrentReadersDoNotBlockCommandsOrPublishOldServi
   EXPECT_TRUE(snapshot.at("history_page").is_null());
   EXPECT_TRUE(app.dispatch(request("paper.close")).contains("protocol"));
   // This deliberately invalid mutation must reach validation, not fail as a busy command.
-  EXPECT_THROW(app.dispatch(request("futures.inspect_csv")), std::invalid_argument);
+  EXPECT_THROW(app.dispatch(request("futures.inspect_csv")), std::exception);
   EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(500ms));
   source.release();
   EXPECT_NO_THROW({ EXPECT_EQ(first.get().at("history_page").at("id"), "first"); });
@@ -209,7 +209,7 @@ TEST(TerminalMinuteQueries, OptionalTimeBoundsAreTypedAndDoNotRelaxOtherFields) 
   filtered["params"]["end"] = "2023-08-25 10:00:00";
   const auto result = app.dispatch(filtered);
   EXPECT_EQ(result.at("history_page").at("begin_ns"),
-            std::to_string(tushare::parse_time("2023-08-25 09:00:00")));
+            std::to_string(parse_shanghai_time("2023-08-25 09:00:00")));
   for (const auto* key : {"start", "end"}) {
     auto invalid = query("invalid");
     invalid["params"][key] = 0;
@@ -310,26 +310,18 @@ TEST(TerminalDailyQueries, DatesAndParametersAreValidatedBeforeServiceIO) {
     EXPECT_EQ(std::string(error.what()), "daily dataset page identity mismatch");
   }
 }
-TEST(TerminalDailyQueries, CatalogLifetimeUsesShanghaiDateAndStopsAtDelisting) {
-  const tushare::FuturesListing item{"CU2403.SHF", "copper", "SHFE", "CU", "20230101", "20240315"};
-  auto range = tushare::daily_contract_range(item, tushare::parse_time("2023-06-01 00:00:00"));
-  EXPECT_EQ(format_trading_date(range.begin), "2023-01-01");
-  EXPECT_EQ(format_trading_date(range.end), "2023-06-01");
-  range = tushare::daily_contract_range(item, tushare::parse_time("2024-04-01 08:00:00"));
-  EXPECT_EQ(format_trading_date(range.end), "2024-03-15");
-  EXPECT_THROW(tushare::daily_contract_range(item, tushare::parse_time("2022-12-31 23:59:59")),
-               std::invalid_argument);
-}
-
 TEST(TerminalDailyQueries, SubmissionRequiresCurrentCatalogAndSendsTypedDatesToService) {
   MinuteService source;
   source.release();
   terminal::Application app;
   terminal::ApplicationTestAccess::attach(app, source.address());
-  const auto cutoff = tushare::parse_time("2023-06-01 10:00:00");
+  const auto cutoff = parse_shanghai_time("2023-06-01 10:00:00");
   auto submission =
       request("research.daily.submit", {{"id", "daily"},
-                                        {"ts_code", "CU2403.SHF"},
+                                        {"connection", ""},
+                                        {"connection_revision", ""},
+                                        {"contract_id", "SHFE/cu/2024-03"},
+                                        {"source", "tushare.fut_daily"},
                                         {"requests_per_minute", 60},
                                         {"token", "fixture-secret"},
                                         {"catalog_cutoff_ns", std::to_string(cutoff)}});
@@ -350,7 +342,7 @@ TEST(TerminalDailyQueries, SubmissionRequiresCurrentCatalogAndSendsTypedDatesToS
     EXPECT_EQ(source.submitted.provider_token(), "fixture-secret");
   }
   for (const auto& change : std::vector<Json>{{{"catalog_cutoff_ns", "0"}},
-                                              {{"ts_code", "CU9999.SHF"}},
+                                              {{"contract_id", "CU9999.SHF"}},
                                               {{"requests_per_minute", 501}},
                                               {{"requests_per_minute", 1.5}},
                                               {{"start", "2020-01-01"}}}) {

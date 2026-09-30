@@ -16,11 +16,12 @@ def make_bundle(root, native=None):
     for arch, machine in [('x86_64',62)]:
         folder=root/arch; folder.mkdir(parents=True,exist_ok=True)
         header=bytearray(64); header[:6]=b'\x7fELF\x02\x01'; header[18:20]=machine.to_bytes(2,'little')
-        for name in ['asterion-node-agent','asterion-trading','asterion-market-data', 'asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'asterion-strategy']+(['ctp-md.so','ctp-trader.so'] if arch=='x86_64' else []):
+        for name in ['asterion-node-agent','asterion-trading','asterion-market-data', 'asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'asterion-strategy','plugins/asterion-tushare.so','plugins/asterion-order-limits.so']+(['ctp-md.so','ctp-trader.so'] if arch=='x86_64' else []):
+            (folder/name).parent.mkdir(parents=True,exist_ok=True)
             if native and platform.system()=='Linux' and arch==native_arch:
                 shutil.copyfile(Path(native)/name,folder/name)
             else: (folder/name).write_bytes(header)
         shutil.copyfile(source/'scripts/node/initialize-linux.py',folder/'initialize-linux.py')
-        manifest=dict(version=2,source_sha256=fingerprint(),product_version=version,os='linux',arch=arch,files={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in folder.iterdir() if p.name!='manifest.json'})
+        manifest=dict(version=2,source_sha256=fingerprint(),product_version=version,os='linux',arch=arch,files={p.relative_to(folder).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in folder.rglob('*') if p.is_file() and p.name!='manifest.json'})
         (folder/'manifest.json').write_text(json.dumps(manifest))
     return root

@@ -1,6 +1,6 @@
 #include "daily_factor_source.hpp"
 #include "factor_engine.hpp"
-#include "daily.hpp"
+#include "history_daily.hpp"
 #include "tushare.hpp"
 #include "task_store.hpp"
 #include <asterion/protocol/data.hpp>
@@ -25,7 +25,11 @@ struct Folder {
 };
 HistoricalDailyRange range() {
   using namespace std::chrono;
-  return {{"SHFE", "CU2403"}, year(2023) / January / 1, year(2024) / January / 3};
+  return {{"SHFE", "cu", "2024-03"},
+          year(2023) / January / 1,
+          year(2024) / January / 3,
+          "tushare.fut_daily",
+          "CU2403.SHF"};
 }
 std::string response(const std::string& body) {
   auto date = Json::parse(body).at("params").at("start_date").get<std::string>();
@@ -49,7 +53,7 @@ TEST(DailyStorage, PersistsTypedValuesAndResumesAfterCancellationWithoutRedownlo
   provider.start();
   std::stop_source stop;
   EXPECT_THROW(
-      data_pipeline::download_daily(provider, range(), folder.path, 500, stop.get_token(),
+      history_files::download_daily(provider, range(), folder.path, 500, stop.get_token(),
                                     [&](unsigned completed, unsigned total, std::uint64_t rows) {
                                       EXPECT_EQ(total, 2);
                                       EXPECT_EQ(rows, completed);
@@ -57,17 +61,17 @@ TEST(DailyStorage, PersistsTypedValuesAndResumesAfterCancellationWithoutRedownlo
                                         stop.request_stop();
                                     }),
       std::runtime_error);
-  const auto partial = data_pipeline::inspect_daily(folder.path);
+  const auto partial = history_files::inspect_daily(folder.path);
   EXPECT_FALSE(partial.complete);
   EXPECT_EQ(partial.pages, 1);
-  EXPECT_THROW(data_pipeline::read_daily(folder.path), std::invalid_argument);
+  EXPECT_THROW(history_files::read_daily(folder.path), std::invalid_argument);
   const auto first = contents(folder.path / "daily-0.json");
-  const auto result = data_pipeline::download_daily(provider, range(), folder.path, 500);
+  const auto result = history_files::download_daily(provider, range(), folder.path, 500);
   EXPECT_TRUE(result.complete);
   EXPECT_EQ(result.rows, 2);
   EXPECT_EQ(starts, (std::vector<std::string>{"20230101", "20240102"}));
   EXPECT_EQ(first, contents(folder.path / "daily-0.json"));
-  const auto data = data_pipeline::read_daily(folder.path);
+  const auto data = history_files::read_daily(folder.path);
   ASSERT_EQ(data.bars.size(), 2);
   EXPECT_EQ(data.info.manifest_sha256, result.manifest_sha256);
   EXPECT_EQ(format_trading_date(data.bars[1].trading_day), "2024-01-02");
@@ -75,7 +79,7 @@ TEST(DailyStorage, PersistsTypedValuesAndResumesAfterCancellationWithoutRedownlo
   EXPECT_EQ(data.bars[0].amount.str(), "1234567.89012345");
   EXPECT_FALSE(data.bars[0].previous_close);
   EXPECT_EQ(data.bars[0].previous_settlement, Decimal::parse("99.5"));
-  EXPECT_EQ(data_pipeline::download_daily(provider, range(), folder.path, 500).rows, 2);
+  EXPECT_EQ(history_files::download_daily(provider, range(), folder.path, 500).rows, 2);
   EXPECT_EQ(starts.size(), 2);
   for (const auto& file : std::filesystem::directory_iterator(folder.path))
     EXPECT_EQ(contents(file.path()).find("fixture-secret"), std::string::npos);
@@ -88,21 +92,21 @@ TEST(DailyStorage, RecoversDurableUnindexedPageAndRejectsChangedOrCorruptedInput
     return response(body);
   });
   provider.start();
-  data_pipeline::download_daily(provider, range(), folder.path, 500);
+  history_files::download_daily(provider, range(), folder.path, 500);
   auto manifest = Json::parse(contents(folder.path / "daily.json"));
   manifest["pages"].erase(1);
   manifest["rows"] = 1;
   manifest["complete"] = false;
   replace_file_durably(folder.path / "daily.json", manifest.dump());
-  EXPECT_TRUE(data_pipeline::download_daily(provider, range(), folder.path, 500).complete);
+  EXPECT_TRUE(history_files::download_daily(provider, range(), folder.path, 500).complete);
   EXPECT_EQ(requests, 2); // No HTTP call for the validated orphan segment.
   auto changed = range();
   changed.end = std::chrono::year(2024) / std::chrono::January / 4;
-  EXPECT_THROW(data_pipeline::download_daily(provider, changed, folder.path, 500),
+  EXPECT_THROW(history_files::download_daily(provider, changed, folder.path, 500),
                std::invalid_argument);
   replace_file_durably(folder.path / "daily-1.json", "{}");
-  EXPECT_THROW(data_pipeline::read_daily(folder.path), std::invalid_argument);
-  EXPECT_THROW(data_pipeline::download_daily(provider, range(), folder.path, 500),
+  EXPECT_THROW(history_files::read_daily(folder.path), std::invalid_argument);
+  EXPECT_THROW(history_files::download_daily(provider, range(), folder.path, 500),
                std::invalid_argument);
   EXPECT_EQ(requests, 2);
 }
@@ -110,54 +114,58 @@ TEST(DailyStorage, SharedReadersExcludeWritersAndRejectForeignDirectories) {
   Folder folder;
   tushare::Daily provider("fixture", [](const auto& body, auto) { return response(body); });
   provider.start();
-  data_pipeline::download_daily(provider, range(), folder.path, 500);
+  history_files::download_daily(provider, range(), folder.path, 500);
   {
     FileLock reader(folder.path, "daily.lock", FileLock::Access::shared);
-    EXPECT_EQ(data_pipeline::read_daily(folder.path).bars.size(), 2);
-    EXPECT_THROW(data_pipeline::download_daily(provider, range(), folder.path, 500),
+    EXPECT_EQ(history_files::read_daily(folder.path).bars.size(), 2);
+    EXPECT_THROW(history_files::download_daily(provider, range(), folder.path, 500),
                  std::exception);
   }
   {
     FileLock writer(folder.path, "daily.lock");
-    EXPECT_THROW(data_pipeline::read_daily(folder.path), std::exception);
+    EXPECT_THROW(history_files::read_daily(folder.path), std::exception);
   }
   Folder foreign;
   replace_file_durably(foreign.path / "existing-data", "preserve");
-  EXPECT_THROW(data_pipeline::download_daily(provider, range(), foreign.path, 500),
+  EXPECT_THROW(history_files::download_daily(provider, range(), foreign.path, 500),
                std::invalid_argument);
   EXPECT_EQ(contents(foreign.path / "existing-data"), "preserve");
 }
 
 TEST(DailyTasks, ValidatesDefinitionsDispatchesDailyAndRestoresVerifiedResults) {
   Folder folder;
-  const Json definition = {{"version", 1},
-                           {"ts_code", "CU2403.SHF"},
+  const Json definition = {{"version", 2},
+                           {"contract_id", "SHFE/cu/2024-03"},
+                           {"source", "tushare.fut_daily"},
+                           {"source_instrument", "CU2403.SHF"},
                            {"begin_day", "2023-01-01"},
                            {"end_day", "2024-01-03"},
                            {"requests_per_minute", 500}};
-  const auto input = data_pipeline::daily_request(definition);
-  EXPECT_EQ(data_pipeline::daily_request_json(input), definition);
-  for (const auto& mutation : std::vector<Json>{{{"version", 2}},
+  const auto input = history_files::daily_request(definition);
+  EXPECT_EQ(history_files::daily_request_json(input), definition);
+  for (const auto& mutation : std::vector<Json>{{{"version", 1}},
                                                 {{"requests_per_minute", 0}},
                                                 {{"requests_per_minute", 501}},
                                                 {{"requests_per_minute", 1.5}},
                                                 {{"begin_day", "2023-02-29"}},
                                                 {{"end_day", "2022-01-01"}},
-                                                {{"ts_code", "CU.SHF"}},
+                                                {{"contract_id", "CU.SHF"}},
                                                 {{"unknown", 1}}}) {
     auto bad = definition;
     bad.update(mutation);
-    EXPECT_THROW(data_pipeline::daily_request(bad), std::exception);
+    EXPECT_THROW(history_files::daily_request(bad), std::exception);
   }
   {
     tasks::Store store(folder.path);
     const auto task = store.submit("daily", input, "fixture-secret");
     EXPECT_EQ(task.kind(), research::v1::DAILY_DOWNLOAD);
     EXPECT_EQ(task.total(), 2);
-    EXPECT_EQ(store.submit("daily", input, "fixture-secret").submission_sequence(),
+    EXPECT_EQ(store.submit("daily", input, "replacement-must-not-overwrite").submission_sequence(),
               task.submission_sequence());
     const auto dispatch = store.dispatch({});
     ASSERT_EQ(dispatch.launches_size(), 1);
+    EXPECT_EQ(dispatch.launches(0).provider_artifact(), store.get("daily").provider_artifact());
+    EXPECT_EQ(dispatch.launches(0).provider_artifact().size(), 64);
     EXPECT_TRUE(dispatch.launches(0).daily_download());
     EXPECT_FALSE(dispatch.launches(0).minute_download());
     EXPECT_EQ(dispatch.launches(0).program(), research::v1::DATA_PIPELINE_PROGRAM);
@@ -167,15 +175,16 @@ TEST(DailyTasks, ValidatesDefinitionsDispatchesDailyAndRestoresVerifiedResults) 
     store.download_attempt(attempt);
     EXPECT_EQ(attempt.provider_token(), "fixture-secret");
     const auto dir = std::filesystem::path(attempt.output_directory());
-    EXPECT_EQ(dir, folder.path / "daily" / "daily");
+    EXPECT_EQ(dir, folder.path / "history" / "SHFE" / "cu" / "2024-03" / "tushare.fut_daily" /
+                       "daily" / "daily");
     tushare::Daily provider(attempt.provider_token(),
                             [](const auto& body, auto) { return response(body); });
     provider.start();
-    data_pipeline::download_daily(provider, data_pipeline::daily_range(input), dir, 500);
+    history_files::download_daily(provider, history_files::daily_range(input), dir, 500);
     research::v1::TaskFinish finish;
     finish.set_id("daily");
     finish.set_token(attempt.token());
-    *finish.mutable_daily() = data_pipeline::daily_result(dir);
+    *finish.mutable_daily() = history_files::daily_result(dir);
     auto wrong = finish;
     wrong.mutable_daily()->set_directory(folder.path.string());
     EXPECT_THROW(store.prepare_finish(wrong), std::invalid_argument);
@@ -201,7 +210,7 @@ TEST(DailyTasks, ValidatesDefinitionsDispatchesDailyAndRestoresVerifiedResults) 
     result.mutable_daily()->set_manifest_sha256(std::string(64, 'z'));
     EXPECT_THROW(protocol::decode_task_result(result, "daily"), std::invalid_argument);
     for (const auto& file : std::filesystem::recursive_directory_iterator(folder.path))
-      if (file.is_regular_file() && file.path().filename() != "tushare.token")
+      if (file.is_regular_file() && file.path().filename() != "provider.credential")
         EXPECT_EQ(contents(file.path()).find("fixture-secret"), std::string::npos);
   }
   tasks::Store restored(folder.path);
@@ -211,8 +220,10 @@ TEST(DailyTasks, ValidatesDefinitionsDispatchesDailyAndRestoresVerifiedResults) 
 }
 TEST(DailyTasks, CancellationFencesVerifiedCompletionAndRetryReusesStoredPages) {
   Folder folder;
-  const auto input = data_pipeline::daily_request({{"version", 1},
-                                                   {"ts_code", "CU2403.SHF"},
+  const auto input = history_files::daily_request({{"version", 2},
+                                                   {"contract_id", "SHFE/cu/2024-03"},
+                                                   {"source", "tushare.fut_daily"},
+                                                   {"source_instrument", "CU2403.SHF"},
                                                    {"begin_day", "2024-01-02"},
                                                    {"end_day", "2024-01-03"},
                                                    {"requests_per_minute", 500}});
@@ -228,11 +239,11 @@ TEST(DailyTasks, CancellationFencesVerifiedCompletionAndRetryReusesStoredPages) 
     store.download_attempt(attempt);
     tushare::Daily provider("fixture", [](const auto& body, auto) { return response(body); });
     provider.start();
-    data_pipeline::download_daily(provider, data_pipeline::daily_range(input),
+    history_files::download_daily(provider, history_files::daily_range(input),
                                   attempt.output_directory(), 500);
     finish.set_id("daily");
     finish.set_token(first_token);
-    *finish.mutable_daily() = data_pipeline::daily_result(attempt.output_directory());
+    *finish.mutable_daily() = history_files::daily_result(attempt.output_directory());
     auto completion = store.prepare_finish(finish);
     completion.verify();
     store.cancel("daily");
@@ -255,7 +266,7 @@ TEST(DailyTasks, CancellationFencesVerifiedCompletionAndRetryReusesStoredPages) 
     return response(body);
   });
   provider.start();
-  data_pipeline::download_daily(provider, data_pipeline::daily_range(input),
+  history_files::download_daily(provider, history_files::daily_range(input),
                                 attempt.output_directory(), 500);
   EXPECT_EQ(requests, 0);
   finish.set_token(attempt.token());
@@ -269,19 +280,22 @@ TEST(DailyTasks, CancellationFencesVerifiedCompletionAndRetryReusesStoredPages) 
 TEST(DailyTasks, RealServiceDispatchAndManagedWorkerResumeCompletedSourceData) {
   using namespace std::chrono_literals;
   Folder folder;
-  const auto input = data_pipeline::daily_request({{"version", 1},
-                                                   {"ts_code", "CU2403.SHF"},
+  const auto input = history_files::daily_request({{"version", 2},
+                                                   {"contract_id", "SHFE/cu/2024-03"},
+                                                   {"source", "tushare.fut_daily"},
+                                                   {"source_instrument", "CU2403.SHF"},
                                                    {"begin_day", "2024-01-02"},
                                                    {"end_day", "2024-01-03"},
                                                    {"requests_per_minute", 500}});
   {
     tasks::Store store(folder.path);
     store.submit("daily", input, "fixture");
-    const auto dir = folder.path / "daily" / "daily";
-    std::filesystem::create_directory(dir);
+    const auto dir = folder.path / "history" / "SHFE" / "cu" / "2024-03" / "tushare.fut_daily" /
+                     "daily" / "daily";
+    std::filesystem::create_directories(dir);
     tushare::Daily provider("fixture", [](const auto& body, auto) { return response(body); });
     provider.start();
-    data_pipeline::download_daily(provider, data_pipeline::daily_range(input), dir, 500);
+    history_files::download_daily(provider, history_files::daily_range(input), dir, 500);
   }
   const auto socket_dir =
       std::filesystem::path("/tmp") / ("ast-d-" + unique_process_id().substr(0, 12));
@@ -374,8 +388,10 @@ TEST(DailyTasks, RealServiceDispatchAndManagedWorkerResumeCompletedSourceData) {
 TEST(DailyPages, DatePagingKeepsExactPricesMissingSettlementAndDatasetOriginMacd) {
   using namespace std::chrono;
   Folder folder;
-  const auto input = data_pipeline::daily_request({{"version", 1},
-                                                   {"ts_code", "CU2403.SHF"},
+  const auto input = history_files::daily_request({{"version", 2},
+                                                   {"contract_id", "SHFE/cu/2024-03"},
+                                                   {"source", "tushare.fut_daily"},
+                                                   {"source_instrument", "CU2403.SHF"},
                                                    {"begin_day", "2023-01-01"},
                                                    {"end_day", "2023-06-01"},
                                                    {"requests_per_minute", 500}});
@@ -393,13 +409,13 @@ TEST(DailyPages, DatePagingKeepsExactPricesMissingSettlementAndDatasetOriginMacd
     return data.dump();
   });
   provider.start();
-  data_pipeline::download_daily(provider, data_pipeline::daily_range(input), folder.path, 500);
-  const auto result = data_pipeline::daily_result(folder.path);
+  history_files::download_daily(provider, history_files::daily_range(input), folder.path, 500);
+  const auto result = history_files::daily_result(folder.path);
   data::v1::DailyPageQuery query;
   query.set_task_id("daily");
   query.set_limit(120);
   query.set_include_macd(true);
-  const auto all = data_pipeline::read_daily_page(input, result, query);
+  const auto all = history_files::read_daily_page(input, result, query);
   ASSERT_EQ(all.bars_size(), 120);
   EXPECT_EQ(all.first_day(), "2023-01-01");
   EXPECT_EQ(all.last_day(), "2023-04-30");
@@ -414,34 +430,34 @@ TEST(DailyPages, DatePagingKeepsExactPricesMissingSettlementAndDatasetOriginMacd
   EXPECT_FALSE(decoded.at("bars")[0].contains("timestamp_ns"));
   query.set_offset(110);
   query.set_limit(5);
-  const auto paged = data_pipeline::read_daily_page(input, result, query);
+  const auto paged = history_files::read_daily_page(input, result, query);
   query.set_offset(0);
   query.set_begin_day(all.bars(110).trading_day());
-  const auto filtered = data_pipeline::read_daily_page(input, result, query);
+  const auto filtered = history_files::read_daily_page(input, result, query);
   EXPECT_EQ(filtered.matched_rows(), 10);
   for (int i = 0; i < 5; ++i) {
     EXPECT_EQ(paged.bars(i).SerializeAsString(), all.bars(i + 110).SerializeAsString());
     EXPECT_EQ(filtered.bars(i).SerializeAsString(), paged.bars(i).SerializeAsString());
   }
   query.set_begin_day("2023-05-01");
-  const auto empty = data_pipeline::read_daily_page(input, result, query);
+  const auto empty = history_files::read_daily_page(input, result, query);
   EXPECT_EQ(empty.matched_rows(), 0);
   EXPECT_EQ(empty.total_rows(), 120);
   EXPECT_TRUE(protocol::decode_daily_page(empty).at("bars").empty());
   query.set_offset(1);
-  EXPECT_THROW(data_pipeline::read_daily_page(input, result, query), std::invalid_argument);
+  EXPECT_THROW(history_files::read_daily_page(input, result, query), std::invalid_argument);
   query.set_offset(0);
   query.set_begin_day("");
   query.set_limit(201);
-  EXPECT_THROW(data_pipeline::read_daily_page(input, result, query), std::invalid_argument);
+  EXPECT_THROW(history_files::read_daily_page(input, result, query), std::invalid_argument);
   query.set_limit(5);
   query.set_begin_day("2023-02-29");
-  EXPECT_THROW(data_pipeline::read_daily_page(input, result, query), std::invalid_argument);
+  EXPECT_THROW(history_files::read_daily_page(input, result, query), std::invalid_argument);
   query.set_begin_day("2023-06-02");
-  EXPECT_THROW(data_pipeline::read_daily_page(input, result, query), std::invalid_argument);
+  EXPECT_THROW(history_files::read_daily_page(input, result, query), std::invalid_argument);
   query.set_begin_day("");
   query.set_offset(120);
-  EXPECT_THROW(data_pipeline::read_daily_page(input, result, query), std::invalid_argument);
+  EXPECT_THROW(history_files::read_daily_page(input, result, query), std::invalid_argument);
   auto malformed = all;
   malformed.mutable_bars(0)->clear_amount();
   EXPECT_THROW(protocol::decode_daily_page(malformed), std::invalid_argument);
@@ -455,24 +471,26 @@ TEST(DailyPages, DatePagingKeepsExactPricesMissingSettlementAndDatasetOriginMacd
   malformed.set_manifest_sha256(std::string(64, 'z'));
   EXPECT_THROW(protocol::decode_daily_page(malformed), std::invalid_argument);
   malformed = all;
-  malformed.set_source("tushare.ft_mins");
+  malformed.set_source("invalid/source");
   EXPECT_THROW(protocol::decode_daily_page(malformed), std::invalid_argument);
   query.set_offset(0);
   {
     FileLock reader(folder.path, "daily.lock", FileLock::Access::shared);
-    EXPECT_EQ(data_pipeline::read_daily_page(input, result, query).bars_size(), 5);
+    EXPECT_EQ(history_files::read_daily_page(input, result, query).bars_size(), 5);
   }
   {
     FileLock writer(folder.path, "daily.lock");
-    EXPECT_THROW(data_pipeline::read_daily_page(input, result, query), std::runtime_error);
+    EXPECT_THROW(history_files::read_daily_page(input, result, query), std::runtime_error);
   }
   replace_file_durably(folder.path / "daily-0.json", "{}");
-  EXPECT_THROW(data_pipeline::read_daily_page(input, result, query), std::invalid_argument);
+  EXPECT_THROW(history_files::read_daily_page(input, result, query), std::invalid_argument);
 }
 TEST(DailyPages, EmptyDatasetRetainsRequestedDatesWithoutInventedCoverage) {
   Folder folder;
-  const auto input = data_pipeline::daily_request({{"version", 1},
-                                                   {"ts_code", "CU2403.SHF"},
+  const auto input = history_files::daily_request({{"version", 2},
+                                                   {"contract_id", "SHFE/cu/2024-03"},
+                                                   {"source", "tushare.fut_daily"},
+                                                   {"source_instrument", "CU2403.SHF"},
                                                    {"begin_day", "2023-01-01"},
                                                    {"end_day", "2023-01-03"},
                                                    {"requests_per_minute", 500}});
@@ -482,26 +500,28 @@ TEST(DailyPages, EmptyDatasetRetainsRequestedDatesWithoutInventedCoverage) {
     return data.dump();
   });
   provider.start();
-  data_pipeline::download_daily(provider, data_pipeline::daily_range(input), folder.path, 500);
-  auto result = data_pipeline::daily_result(folder.path);
+  history_files::download_daily(provider, history_files::daily_range(input), folder.path, 500);
+  auto result = history_files::daily_result(folder.path);
   data::v1::DailyPageQuery query;
   query.set_task_id("empty");
   query.set_limit(10);
-  const auto page = data_pipeline::read_daily_page(input, result, query);
+  const auto page = history_files::read_daily_page(input, result, query);
   EXPECT_TRUE(page.first_day().empty());
   EXPECT_TRUE(page.last_day().empty());
   EXPECT_EQ(page.begin_day(), "2023-01-01");
   EXPECT_EQ(page.end_day(), "2023-01-03");
   EXPECT_TRUE(protocol::decode_daily_page(page).at("bars").empty());
   result.set_rows(1);
-  EXPECT_THROW(data_pipeline::read_daily_page(input, result, query), std::invalid_argument);
+  EXPECT_THROW(history_files::read_daily_page(input, result, query), std::invalid_argument);
 }
 
 TEST(DailyPages, WeeklyAndMonthlyAggregateBeforeFilteringPagingAndMacd) {
   using namespace std::chrono;
   Folder folder;
-  const auto input = data_pipeline::daily_request({{"version", 1},
-                                                   {"ts_code", "CU2403.SHF"},
+  const auto input = history_files::daily_request({{"version", 2},
+                                                   {"contract_id", "SHFE/cu/2024-03"},
+                                                   {"source", "tushare.fut_daily"},
+                                                   {"source_instrument", "CU2403.SHF"},
                                                    {"begin_day", "2023-01-01"},
                                                    {"end_day", "2023-12-31"},
                                                    {"requests_per_minute", 500}});
@@ -518,14 +538,14 @@ TEST(DailyPages, WeeklyAndMonthlyAggregateBeforeFilteringPagingAndMacd) {
     return data.dump();
   });
   provider.start();
-  data_pipeline::download_daily(provider, data_pipeline::daily_range(input), folder.path, 500);
-  const auto result = data_pipeline::daily_result(folder.path);
+  history_files::download_daily(provider, history_files::daily_range(input), folder.path, 500);
+  const auto result = history_files::daily_result(folder.path);
   data::v1::DailyPageQuery query;
   query.set_task_id("weekly");
   query.set_limit(200);
   query.set_include_macd(true);
   query.set_period(data::v1::WEEK);
-  const auto all = data_pipeline::read_daily_page(input, result, query);
+  const auto all = history_files::read_daily_page(input, result, query);
   EXPECT_EQ(all.total_rows(), 53);
   EXPECT_EQ(all.bars(0).trading_day(), "2023-01-01");
   EXPECT_EQ(all.bars(1).trading_day(), "2023-01-08");
@@ -536,10 +556,10 @@ TEST(DailyPages, WeeklyAndMonthlyAggregateBeforeFilteringPagingAndMacd) {
   EXPECT_EQ(protocol::decode_daily_page(all).at("period"), "week");
   query.set_offset(40);
   query.set_limit(3);
-  const auto paged = data_pipeline::read_daily_page(input, result, query);
+  const auto paged = history_files::read_daily_page(input, result, query);
   query.set_offset(0);
   query.set_begin_day(all.bars(40).trading_day());
-  const auto filtered = data_pipeline::read_daily_page(input, result, query);
+  const auto filtered = history_files::read_daily_page(input, result, query);
   for (int i = 0; i < 3; ++i) {
     EXPECT_EQ(paged.bars(i).SerializeAsString(), all.bars(40 + i).SerializeAsString());
     EXPECT_EQ(filtered.bars(i).SerializeAsString(), all.bars(40 + i).SerializeAsString());
@@ -547,26 +567,26 @@ TEST(DailyPages, WeeklyAndMonthlyAggregateBeforeFilteringPagingAndMacd) {
   query.set_begin_day("");
   query.set_limit(200);
   query.set_period(data::v1::MONTH);
-  const auto months = data_pipeline::read_daily_page(input, result, query);
+  const auto months = history_files::read_daily_page(input, result, query);
   EXPECT_EQ(months.total_rows(), 12);
   EXPECT_EQ(months.bars(0).trading_day(), "2023-01-31");
   EXPECT_EQ(Decimal::from_raw(months.bars(0).volume().units()).str(), "62");
   EXPECT_EQ(Decimal::from_raw(months.bars(0).amount().units()).str(), "310000");
   EXPECT_EQ(protocol::decode_daily_page(months).at("period"), "month");
   query.set_period(data::v1::QUARTER);
-  const auto quarters = data_pipeline::read_daily_page(input, result, query);
+  const auto quarters = history_files::read_daily_page(input, result, query);
   ASSERT_EQ(quarters.total_rows(), 4);
   EXPECT_EQ(quarters.bars(0).trading_day(), "2023-03-31");
   EXPECT_EQ(Decimal::from_raw(quarters.bars(0).volume().units()).str(), "180");
   EXPECT_EQ(protocol::decode_daily_page(quarters).at("period"), "quarter");
   query.set_offset(1);
   query.set_limit(1);
-  EXPECT_EQ(data_pipeline::read_daily_page(input, result, query).bars(0).SerializeAsString(),
+  EXPECT_EQ(history_files::read_daily_page(input, result, query).bars(0).SerializeAsString(),
             quarters.bars(1).SerializeAsString());
   query.set_offset(0);
   query.set_limit(200);
   query.set_period(data::v1::YEAR);
-  const auto years = data_pipeline::read_daily_page(input, result, query);
+  const auto years = history_files::read_daily_page(input, result, query);
   ASSERT_EQ(years.total_rows(), 1);
   EXPECT_EQ(years.bars(0).trading_day(), "2023-12-31");
   EXPECT_EQ(Decimal::from_raw(years.bars(0).volume().units()).str(), "730");
@@ -574,7 +594,7 @@ TEST(DailyPages, WeeklyAndMonthlyAggregateBeforeFilteringPagingAndMacd) {
   EXPECT_FALSE(years.bars(0).has_macd());
   EXPECT_EQ(protocol::decode_daily_page(years).at("period"), "year");
   query.set_period(static_cast<data::v1::DailyPeriod>(99));
-  EXPECT_THROW(data_pipeline::read_daily_page(input, result, query), std::invalid_argument);
+  EXPECT_THROW(history_files::read_daily_page(input, result, query), std::invalid_argument);
   auto bad = months;
   bad.set_period(static_cast<data::v1::DailyPeriod>(99));
   EXPECT_THROW(protocol::decode_daily_page(bad), std::invalid_argument);
@@ -584,8 +604,10 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   using namespace std::chrono;
   Folder folder;
   auto store = std::make_unique<tasks::Store>(folder.path);
-  const auto request = data_pipeline::daily_request({{"version", 1},
-                                                     {"ts_code", "CU2403.SHF"},
+  const auto request = history_files::daily_request({{"version", 2},
+                                                     {"contract_id", "SHFE/cu/2024-03"},
+                                                     {"source", "tushare.fut_daily"},
+                                                     {"source_instrument", "CU2403.SHF"},
                                                      {"begin_day", "2023-01-01"},
                                                      {"end_day", "2023-04-01"},
                                                      {"requests_per_minute", 500}});
@@ -608,9 +630,9 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
     return data.dump();
   });
   provider.start();
-  data_pipeline::download_daily(provider, data_pipeline::daily_range(request),
+  history_files::download_daily(provider, history_files::daily_range(request),
                                 attempt.output_directory(), 500);
-  const auto result = data_pipeline::daily_result(attempt.output_directory());
+  const auto result = history_files::daily_result(attempt.output_directory());
   EXPECT_THROW(tasks::daily_factor_dataset(store->get("source"), result), std::invalid_argument);
   research::v1::TaskFinish finish;
   finish.set_id("source");
@@ -624,7 +646,7 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   ASSERT_EQ(dataset.bars_size(), 80);
   EXPECT_EQ(dataset.source_task_id(), "source");
   EXPECT_EQ(dataset.manifest_sha256(), result.manifest_sha256());
-  EXPECT_EQ(dataset.ts_code(), request.ts_code());
+  EXPECT_EQ(dataset.contract_id(), request.contract_id());
   EXPECT_EQ(dataset.bars(0).amount().units(), Decimal::parse("1.00000001").raw());
   EXPECT_FALSE(dataset.bars(0).has_previous_close());
   EXPECT_FALSE(dataset.bars(0).has_settlement());
@@ -768,7 +790,7 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   wrong.set_rows(result.rows() + 1);
   EXPECT_THROW(tasks::daily_factor_dataset(source, wrong), std::invalid_argument);
   auto mismatched = source;
-  mismatched.mutable_daily()->set_ts_code("CU2404.SHF");
+  mismatched.mutable_daily()->set_contract_id("SHFE/cu/2024-04");
   EXPECT_THROW(tasks::daily_factor_dataset(mismatched, result), std::invalid_argument);
   mismatched = source;
   mismatched.mutable_daily()->set_end_day("2023-04-02");
@@ -783,4 +805,35 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   EXPECT_THROW(tasks::daily_factor_dataset(source, result), std::invalid_argument);
   // The accepted snapshot remains usable after its source is damaged; no lazy file references.
   EXPECT_EQ(factor::run_daily(input).SerializeAsString(), analysis.SerializeAsString());
+}
+TEST(DailyTasks, ProviderArtifactIsImmutableAcrossRetryAndStoreRestart) {
+  Folder folder;
+  const auto input = history_files::daily_request({{"version", 2},
+                                                   {"contract_id", "SHFE/cu/2024-03"},
+                                                   {"source", "tushare.fut_daily"},
+                                                   {"source_instrument", "CU2403.SHF"},
+                                                   {"begin_day", "2024-01-02"},
+                                                   {"end_day", "2024-01-03"},
+                                                   {"requests_per_minute", 60}});
+  std::string artifact;
+  {
+    tasks::Store store(folder.path);
+    artifact = store.submit("pinned", input, "fixture").provider_artifact();
+    ASSERT_EQ(artifact.size(), 64);
+    store.cancel("pinned");
+  }
+  {
+    tasks::Store store(folder.path);
+    EXPECT_EQ(store.retry("pinned").provider_artifact(), artifact);
+    EXPECT_EQ(store.dispatch({}).launches(0).provider_artifact(), artifact);
+  }
+  const auto path = folder.path / "pinned/journal/00000000.json";
+  auto manifest = Json::parse(std::ifstream(path));
+  manifest["version"] = 2;
+  manifest.erase("provider_artifact");
+  const auto evidence = manifest.dump();
+  replace_file_durably(path, evidence);
+  EXPECT_THROW(tasks::Store{folder.path}, std::invalid_argument);
+  std::ifstream stream(path);
+  EXPECT_EQ(std::string(std::istreambuf_iterator<char>(stream), {}), evidence);
 }

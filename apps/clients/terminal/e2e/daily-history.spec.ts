@@ -26,9 +26,10 @@ test("daily source viewer and market chart preserve dates, missing settlement an
         {
           id: "daily-fixture",
           kind: "daily_download",
+          data_source: "tushare.fut_daily",
           state: "succeeded",
           attempt: 1,
-          instrument: "SHFE/rb2610",
+          instrument: "SHFE/rb/2026-10",
           submission_sequence: 1,
           source_name: "Explicit daily fixture",
           result_digest: "b".repeat(64),
@@ -43,6 +44,24 @@ test("daily source viewer and market chart preserve dates, missing settlement an
     };
     data.result.market = {
       ...data.result.market!,
+      catalog: {
+        phase: "ready",
+        error_code: "",
+        diagnostic: "",
+        trading_day: "2026-09-25",
+        contracts: [
+          {
+            venue: "SHFE",
+            symbol: "rb2610",
+            product: "rb",
+            expiry: "20261015",
+            contract_id: "SHFE/rb/2026-10",
+            multiplier: 10,
+            price_tick: "1",
+            name: "螺纹钢2610",
+          },
+        ],
+      },
       transport_online: true,
       phase: "connected",
       watchlist: [{ venue: "SHFE", symbol: "rb2610" }],
@@ -72,7 +91,7 @@ test("daily source viewer and market chart preserve dates, missing settlement an
       data.result.daily_page = {
         id: mismatch ? "wrong-dataset" : "daily-fixture",
         source: "tushare.fut_daily",
-        ts_code: "RB2610.SHF",
+        contract_id: "SHFE/rb/2026-10",
         manifest_sha256: "b".repeat(64),
         total_rows: total,
         matched_rows: count,

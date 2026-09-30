@@ -122,7 +122,7 @@ export function NodeServices({
           <h3>{t("本机部署")}</h3>
           <p>
             {t(
-              "支持 Windows、macOS 和 Linux。使用当前系统账户自动管理 Agent，无需 SSH、密钥或机器初始化脚本。在期货工作台创建模拟会话时，交易服务由本机 Agent 按需启动。",
+              "macOS Terminal 使用当前系统账户自动管理 Agent，无需 SSH、密钥或机器初始化脚本。在期货工作台创建模拟会话时，交易服务由本机 Agent 按需启动。",
             )}
           </p>
           <button disabled={busy} onClick={() => void run("node.local", {})}>

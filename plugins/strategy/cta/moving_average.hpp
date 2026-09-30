@@ -2,14 +2,14 @@
 #include <asterion/domain/strategy_port.hpp>
 #include <deque>
 namespace asterion {
-// Long/flat SMA trend strategy. No clock, data source or execution ownership.
+// Long/flat SMA trend strategy on bar closes. No clock, data source or execution ownership.
 class MovingAverage final : public StrategyPort {
 public:
   MovingAverage(Instrument instrument, std::size_t fast, std::size_t slow, Decimal quantity);
   PluginDescriptor descriptor() const override;
   void start() override;
   void stop() noexcept override;
-  std::optional<Decimal> on_tick(const TradeTick& tick) override;
+  std::optional<Decimal> on_bar(const MarketBar& bar) override;
 
 private:
   Instrument instrument_;

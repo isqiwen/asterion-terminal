@@ -9,7 +9,7 @@
 ## 能做什么
 
 - **行情**：CTP 实时行情（全市场合约目录、期货全景、自选、五档、分时、分钟 K 线）；Tushare 历史分钟线与日线下载及图表查看。
-- **研究**：持久化任务服务，SMA 回测、单合约动量因子评价、数据发布与结算表。
+- **研究**：持久化任务服务，K 线数据集驱动的 SMA 回测和单合约因子评价，独立历史版本仓库。
 - **交易**：历史数据驱动的模拟交易（账户、持仓、冻结、手续费、手动结算、交易前限额），可信 SMA 策略授权运行。实盘未开放。
 - **服务管理**：随桌面提供的 Node Agent 托管本机服务；可通过 SSH 引导部署到远程 Linux x86_64。
 
@@ -38,7 +38,7 @@ pnpm desktop                        # 构建并启动桌面开发窗口
 | 路径 | 内容 |
 | --- | --- |
 | `core/` | C++ 基础（Decimal、ID、时间、错误）、内核（插件、IPC、进程、日志）、期货领域模型 |
-| `plugins/` | 数据（CTP、Tushare、CSV、交易时段）、执行（模拟、CTP）、存储、策略、风控、工具插件 |
+| `plugins/` | 数据（CTP、Tushare、历史数据源注册）、执行（模拟、CTP）、存储、策略、风控、工具插件 |
 | `protocol/` | Protobuf 契约与校验 |
 | `apps/services/` | 独立服务：node-agent、market-data、trading、task-service、backtest、factor、data-pipeline、strategy |
 | `apps/clients/terminal/` | 桌面终端：Electron 主进程、React 宿主与工作区插件、C++ 应用编排 |
@@ -57,3 +57,5 @@ pnpm desktop                        # 构建并启动桌面开发窗口
 - [服务与部署](docs/services.md)
 - [现状与下一步](docs/status.md)
 - [贡献约束](AGENTS.md)
+
+第三方数据源与风控插件接入：[原生插件 SDK](docs/native-plugins.md)。

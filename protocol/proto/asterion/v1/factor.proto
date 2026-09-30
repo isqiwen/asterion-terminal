@@ -4,20 +4,30 @@ import "asterion/v1/data.proto";
 package asterion.research.v1;
 import "asterion/v1/trading.proto";
 
-// Immutable ordered event data, without account costs or execution assumptions.
+// Immutable bars resolved by the task service; no account or execution assumptions.
 message FactorInput {
-  uint32 version = 1;
+  uint32 version = 1; // 5
   string dataset_revision = 2;
-  asterion.protocol.v1.Contract contract = 3;
-  repeated asterion.protocol.v1.Tick ticks = 4;
-  reserved 5;
+  reserved 3, 4, 5;
+  asterion.data.v1.BarDataset dataset = 11;
   repeated uint32 lookbacks = 9; // Strictly ascending, unique; 1..32 candidates.
   uint32 horizon = 6;
   // Required explicit evaluation; full_sample must be true.
   oneof evaluation {
     bool full_sample = 7;
     WalkForwardEvaluation walk_forward = 10;
-    uint32 holdout_start = 8; // Zero-based first holdout event.
+    uint32 holdout_start = 8; // Zero-based first holdout bar.
+  }
+}
+// Client submission: the task service resolves the dataset itself.
+message FactorRequest {
+  asterion.data.v1.BarDatasetRequest data = 1;
+  repeated uint32 lookbacks = 2;
+  uint32 horizon = 3;
+  oneof evaluation {
+    bool full_sample = 4;
+    WalkForwardEvaluation walk_forward = 5;
+    uint32 holdout_start = 6;
   }
 }
 message WalkForwardEvaluation {
@@ -78,7 +88,7 @@ message DailyFactorDataset {
   uint32 version = 1;
   string source_task_id = 2;
   string source = 3;
-  string ts_code = 4;
+  reserved 4; string contract_id = 20;
   string manifest_sha256 = 5;
   repeated asterion.data.v1.DailyBar bars = 6;
 }

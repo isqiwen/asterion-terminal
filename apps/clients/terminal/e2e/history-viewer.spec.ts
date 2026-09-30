@@ -30,7 +30,7 @@ test("dataset viewer charts exact bars, pages, filters and retains the last page
       viewed = {
         id: "viewer-fixture",
         source: "tushare.ft_mins",
-        ts_code: "CU2310.SHF",
+        contract_id: "SHFE/cu/2023-10",
         interval_minutes: 1,
         manifest_sha256: "b".repeat(64),
         total_rows: 120,
@@ -70,6 +70,7 @@ test("dataset viewer charts exact bars, pages, filters and retains the last page
     data.result.research!.tasks = [
       {
         kind: "minute_download",
+        data_source: "tushare.ft_mins",
         id: "viewer-fixture",
         state: "succeeded",
         attempt: 1,
@@ -78,8 +79,8 @@ test("dataset viewer charts exact bars, pages, filters and retains the last page
         error: "",
         result_digest: "b".repeat(64),
         trading_day: "",
-        instrument: "SHFE/CU2310",
-        source_name: "Tushare CU2310.SHF",
+        instrument: "SHFE/cu/2023-10",
+        source_name: "Tushare SHFE/cu/2023-10",
         submission_sequence: 1,
         submitted_at_ms: Date.now(),
         updated_at_ms: Date.now(),

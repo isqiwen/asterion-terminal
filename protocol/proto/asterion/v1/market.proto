@@ -6,7 +6,7 @@ message Instrument { string venue = 1; string symbol = 2; }
 // Password exists only in an authenticated request and service memory, never a snapshot.
 message Connect { string front = 1; string broker = 2; string user = 3; string password = 4; repeated Instrument instruments = 5; }
 message CatalogRequest { string front = 1; string broker = 2; string user = 3; string password = 4; string app_id = 5; string auth_code = 6; }
-message CatalogContract { Instrument instrument = 1; string product = 2; string expiry = 3; int32 multiplier = 4; string price_tick = 5; string name = 6; }
+message CatalogContract { Instrument instrument = 1; string product = 2; string expiry = 3; int32 multiplier = 4; string price_tick = 5; string name = 6; string contract_id = 7; }
 message CatalogState { string phase = 1; string error_code = 2; string diagnostic = 3; string trading_day = 4; repeated CatalogContract contracts = 5; }
 message Subscribe { repeated Instrument instruments = 1; }
 message Watch {}

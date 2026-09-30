@@ -63,15 +63,18 @@ TEST(Domain, decimal_contract) {
 TEST(Domain, market_contract) {
   auto spec = instrument();
   spec.validate();
-  TradeTick{spec.id, 0, d("-0.2"), d("1")}.validate(spec);
-  EXPECT_THROW(([&] { TradeTick{spec.id, -1, d("1"), d("1")}.validate(spec); })(),
-               std::invalid_argument);
-  EXPECT_THROW(([&] { TradeTick{spec.id, 1, d("1.1"), d("1")}.validate(spec); })(),
-               std::invalid_argument);
-  EXPECT_THROW(([&] { TradeTick{{"OTHER", spec.id.symbol}, 1, d("1"), d("1")}.validate(spec); })(),
-               std::invalid_argument);
-  EXPECT_THROW(([&] { TradeTick{spec.id, 1, d("1"), d("0.5")}.validate(spec); })(),
-               std::invalid_argument);
+  const auto ok = [&](MarketBar bar) { bar.validate(spec); };
+  const auto bad = [&](MarketBar bar) {
+    EXPECT_THROW(([&] { bar.validate(spec); })(), std::invalid_argument);
+  };
+  // Negative prices can be valid in some derivative markets.
+  ok({"2026-09-28", 0, d("-0.2"), d("0"), d("-0.4"), d("-0.2"), d("1")});
+  bad({"2026-09-28", -1, d("1"), d("1"), d("1"), d("1"), d("1")});
+  bad({"2026-09-28", 1, d("1.1"), d("2"), d("1"), d("1"), d("1")});
+  bad({"2026-09-28", 1, d("1"), d("1"), d("1"), d("1"), d("0.5")});
+  bad({"2026-09-28", 1, d("1"), d("1"), d("2"), d("1"), d("1")}); // low above high
+  bad({"2026-09-28", 1, d("3"), d("2"), d("1"), d("1"), d("1")}); // open above high
+  bad({"2026-02-30", 1, d("1"), d("1"), d("1"), d("1"), d("1")}); // invalid trading day
   spec.price_increment = Decimal{};
   EXPECT_THROW(([&] { spec.validate(); })(), std::invalid_argument);
 }
@@ -117,23 +120,3 @@ TEST(Domain, order_contract) {
   EXPECT_THROW(([&] { sell_order.apply(first); })(), std::invalid_argument);
 }
 } // namespace
-
-#include <asterion/domain/trading_schedule.hpp>
-TEST(TradingSchedule, ExplicitLabelsAndHalfOpenOrderedSessions) {
-  asterion::TradingDaySchedule schedule("2026-09-28", {{10, 20}, {30, 40}, {40, 50}});
-  EXPECT_EQ(schedule.trading_day(), "2026-09-28");
-  EXPECT_FALSE(schedule.session_index(9));
-  EXPECT_EQ(schedule.session_index(10), 0U);
-  EXPECT_EQ(schedule.session_index(19), 0U);
-  EXPECT_FALSE(schedule.session_index(20));
-  EXPECT_FALSE(schedule.session_index(29));
-  EXPECT_EQ(schedule.session_index(40), 2U);
-  EXPECT_FALSE(schedule.session_index(50));
-  EXPECT_THROW((asterion::TradingDaySchedule("2026-02-29", {{10, 20}})), std::invalid_argument);
-  EXPECT_THROW((asterion::TradingDaySchedule("2026-09-28", {{10, 20}, {19, 30}})),
-               std::invalid_argument);
-  EXPECT_THROW((asterion::TradingDaySchedule("2026-09-28", {{20, 30}, {10, 20}})),
-               std::invalid_argument);
-  EXPECT_THROW((asterion::TradingDaySchedule("2026-09-28", {{10, 10}})), std::invalid_argument);
-  EXPECT_THROW((asterion::TradingDaySchedule("2026-09-28", {})), std::invalid_argument);
-}

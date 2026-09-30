@@ -1,6 +1,9 @@
+#include <asterion/kernel/native_plugin.hpp>
 #include "task_store.hpp"
-#include "minutes.hpp"
-#include "daily.hpp"
+#include "history_minutes.hpp"
+#include "history_daily.hpp"
+#include "history_providers.hpp"
+#include "history_archive.hpp"
 #include <CLI/CLI.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/service_host.hpp>
@@ -35,6 +38,8 @@ int main(int argc, char** argv) {
   app.add_option("--health-endpoint", health_endpoint);
   app.add_option("--owner-pid", owner_pid);
   argv = app.ensure_utf8(argv);
+  std::string plugin_directory;
+  app.add_option("--plugin-directory", plugin_directory)->check(CLI::ExistingDirectory);
   CLI11_PARSE(app, argc, argv);
   if (argc == 1) {
     std::cerr << "asterion-task-service: supply --session, --directory and a "
@@ -42,12 +47,16 @@ int main(int argc, char** argv) {
     return 3;
   }
   try {
+    if (!plugin_directory.empty())
+      asterion::configure_native_plugins(plugin_directory);
     asterion::validate_id(service);
     if (directory.empty())
       throw std::invalid_argument("a task directory is required");
     transport.validate();
+    (void)asterion::history_providers::sources();
     asterion::tasks::Store store(std::filesystem::absolute(
         std::filesystem::path(std::u8string(directory.begin(), directory.end()))));
+    asterion::history_files::Archive archive(std::filesystem::absolute(directory) / "history");
     const auto started = std::chrono::steady_clock::now();
     const auto instance = asterion::unique_process_id();
     std::mutex mutex;
@@ -135,20 +144,87 @@ int main(int argc, char** argv) {
                           (!worker && request.has_claim())))
           throw asterion::Error(asterion::ErrorCode::unavailable,
                                 "task service is preparing for upgrade");
-        if (request.has_daily_page()) {
+        if (request.has_history_datasets()) {
+          const auto& q = request.history_datasets();
+          lock.unlock();
+          const asterion::HistoryStorePort& repository = archive;
+          for (const auto& item :
+               repository.datasets({q.venue(), q.product(), q.contract_id(), q.source()})) {
+            auto* out = response.mutable_history_datasets()->add_items();
+            out->set_id(item.id);
+            out->set_contract_id(item.contract.key());
+            out->set_source(item.source);
+            out->set_revision(item.revision);
+            out->set_begin(item.begin);
+            out->set_end(item.end);
+            out->set_interval_minutes(item.interval_minutes);
+            out->set_rows(item.rows);
+          }
+          response.mutable_history_datasets();
+        } else if (request.has_verify_connection()) {
+          const auto& query = request.verify_connection();
+          lock.unlock();
+          auto* result = response.mutable_connection_verification();
+          for (const auto& check : asterion::history_providers::verify_connection(
+                   query.source(), query.credential(), stop)) {
+            auto* out = result->add_checks();
+            out->set_scope(check.scope);
+            out->set_state(check.state);
+          }
+        } else if (request.has_history_catalog()) {
+          const auto& query = request.history_catalog();
+          lock.unlock();
+          auto* catalog = response.mutable_history_catalog();
+          catalog->set_source(query.source());
+          for (const auto& item : asterion::history_providers::catalog(
+                   query.source(), query.credential(), query.venue(), query.product(), stop)) {
+            auto* row = catalog->add_items();
+            row->set_contract_id(item.identity.key());
+            row->set_source_instrument(item.source_instrument);
+            row->set_name(item.name);
+            row->set_list_date(item.list_date);
+            row->set_delist_date(item.delist_date);
+            if (item.multiplier)
+              row->mutable_multiplier()->set_units(item.multiplier->raw());
+            if (item.per_unit)
+              row->mutable_per_unit()->set_units(item.per_unit->raw());
+            if (item.trade_unit)
+              row->set_trade_unit(*item.trade_unit);
+            if (item.quote_unit)
+              row->set_quote_unit(*item.quote_unit);
+          }
+        } else if (request.has_daily_page()) {
           const auto& query = request.daily_page();
-          const auto task = store.get(query.task_id());
-          const auto result = store.daily_result(query.task_id());
+          if (!query.dataset_id().empty() && !query.task_id().empty())
+            throw std::invalid_argument("choose dataset or task query");
+          const auto record = query.dataset_id().empty() ? asterion::data::v1::HistoryRecord{}
+                                                         : archive.get(query.dataset_id());
+          const auto input =
+              query.dataset_id().empty() ? store.get(query.task_id()).daily() : record.daily();
+          const auto result = query.dataset_id().empty() ? store.daily_result(query.task_id())
+                                                         : record.daily_result();
           lock.unlock();
           *response.mutable_daily_page() =
-              asterion::data_pipeline::read_daily_page(task.daily(), result, query);
+              asterion::history_files::read_daily_page(input, result, query);
         } else if (request.has_minute_page()) {
           const auto& query = request.minute_page();
-          const auto task = store.get(query.task_id());
-          const auto result = store.minute_result(query.task_id());
+          if (!query.dataset_id().empty() && !query.task_id().empty())
+            throw std::invalid_argument("choose dataset or task query");
+          const auto record = query.dataset_id().empty() ? asterion::data::v1::HistoryRecord{}
+                                                         : archive.get(query.dataset_id());
+          const auto input =
+              query.dataset_id().empty() ? store.get(query.task_id()).minutes() : record.minutes();
+          const auto result = query.dataset_id().empty() ? store.minute_result(query.task_id())
+                                                         : record.minute_result();
           lock.unlock(); // Dataset files are read outside the shared task-state lock.
           *response.mutable_minute_page() =
-              asterion::data_pipeline::read_minute_page(task.minutes(), result, query);
+              asterion::history_files::read_minute_page(input, result, query);
+        } else if (request.has_bar_dataset()) {
+          const auto sources = store.prepare_dataset(request.bar_dataset());
+          lock.unlock();
+          *response.mutable_bar_dataset() = asterion::tasks::resolve_bar_dataset(sources);
+          lock.lock();
+          store.confirm_sources(sources);
         } else if (request.has_dispatch())
           *response.mutable_launches() = store.dispatch(request.dispatch());
         else if (request.has_submit()) {
@@ -165,25 +241,83 @@ int main(int argc, char** argv) {
               throw asterion::Error(asterion::ErrorCode::unavailable,
                                     "task service is preparing for upgrade");
             *response.mutable_task() = store.submit(std::move(submission));
+          } else if (p.has_backtest() || p.has_factor_request()) {
+            // Clients select downloads; the service resolves and freezes the bars.
+            const auto sources = store.prepare_dataset(
+                p.has_backtest() ? p.backtest().data() : p.factor_request().data());
+            lock.unlock();
+            auto dataset = asterion::tasks::resolve_bar_dataset(sources);
+            lock.lock();
+            admitted();
+            if (quiescing)
+              throw asterion::Error(asterion::ErrorCode::unavailable,
+                                    "task service is preparing for upgrade");
+            store.confirm_sources(sources);
+            if (p.has_backtest()) {
+              const auto& b = p.backtest();
+              wire::BacktestInput input;
+              input.set_version(6);
+              input.set_dataset_revision(dataset.revision());
+              auto* paper = input.mutable_paper();
+              *paper->mutable_costs() = b.costs();
+              *paper->mutable_deposit() = b.deposit();
+              *paper->mutable_risk() = b.risk();
+              *paper->mutable_dataset() = std::move(dataset);
+              *input.mutable_sma() = b.sma();
+              *response.mutable_task() = store.submit(p.id(), input);
+            } else {
+              const auto& f = p.factor_request();
+              wire::FactorInput input;
+              input.set_version(5);
+              input.set_dataset_revision(dataset.revision());
+              *input.mutable_dataset() = std::move(dataset);
+              *input.mutable_lookbacks() = f.lookbacks();
+              input.set_horizon(f.horizon());
+              if (f.has_full_sample())
+                input.set_full_sample(f.full_sample());
+              else if (f.has_walk_forward())
+                *input.mutable_walk_forward() = f.walk_forward();
+              else if (f.has_holdout_start())
+                input.set_holdout_start(f.holdout_start());
+              *response.mutable_task() = store.submit(p.id(), input);
+            }
           } else if (p.has_daily())
             *response.mutable_task() = store.submit(p.id(), p.daily(), p.provider_token());
           else if (p.has_minutes())
             *response.mutable_task() = store.submit(p.id(), p.minutes(), p.provider_token());
-          else if (p.has_calendar())
-            *response.mutable_task() = store.submit(p.id(), p.calendar());
-          else if (p.has_data())
-            *response.mutable_task() = store.submit(p.id(), p.data());
-          else if (p.has_factor())
-            *response.mutable_task() = store.submit(p.id(), p.factor());
-          else if (p.has_input())
-            *response.mutable_task() = store.submit(p.id(), p.input());
           else
             throw std::invalid_argument("missing task input");
         } else if (request.has_get())
           *response.mutable_task() = store.get(request.get().id());
-        else if (request.has_list())
+        else if (request.has_list()) {
           *response.mutable_tasks() = store.list();
-        else if (request.has_cancel())
+          for (const auto& source : asterion::history_providers::sources()) {
+            auto* out = response.mutable_tasks()->add_sources();
+            out->set_id(source.id);
+            out->set_name(source.name);
+            out->set_plugin_id(source.plugin_id);
+            out->set_normalization(source.semantics.normalization);
+            out->set_timezone(source.semantics.timezone);
+            out->set_timestamp_semantics(source.semantics.timestamp_semantics);
+            for (const auto& venue : source.venues)
+              out->add_venues(venue);
+            for (auto interval : source.intervals)
+              out->add_intervals(interval);
+            out->set_max_requests_per_minute(source.max_requests_per_minute);
+            out->set_credential_required(source.credential_required);
+            if (source.connection) {
+              auto* schema = out->mutable_connection();
+              schema->set_credential_label_en(source.connection->credential_label_en);
+              schema->set_credential_label_zh(source.connection->credential_label_zh);
+              schema->set_credential_required(source.connection->credential_required);
+              schema->set_remember_allowed(source.connection->remember_allowed);
+              schema->set_credential_max_length(source.connection->credential_max_length);
+              schema->set_requests_per_minute_default(
+                  source.connection->requests_per_minute_default);
+              schema->set_requests_per_minute_max(source.connection->requests_per_minute_max);
+            }
+          }
+        } else if (request.has_cancel())
           *response.mutable_task() = store.cancel(request.cancel().id());
         else if (request.has_retry())
           *response.mutable_task() = store.retry(request.retry().id());
@@ -195,10 +329,6 @@ int main(int argc, char** argv) {
             *response.mutable_daily() = store.daily_result(id);
           else if (store.get(id).kind() == wire::MINUTE_DOWNLOAD)
             *response.mutable_minutes() = store.minute_result(id);
-          else if (store.get(id).kind() == wire::CALENDAR_IMPORT)
-            *response.mutable_calendar_publication() = store.calendar_publication(id);
-          else if (store.get(id).kind() == wire::DATA_IMPORT)
-            *response.mutable_publication() = store.publication(id);
           else if (store.get(id).kind() == wire::FACTOR)
             *response.mutable_factor() = store.factor_result(id);
           else

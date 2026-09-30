@@ -36,6 +36,7 @@ public:
                 item->set_product(entry.product);
                 item->set_name(entry.name);
                 item->set_expiry(entry.expiry);
+                item->set_contract_id(entry.contract_id);
                 item->set_multiplier(entry.multiplier);
                 item->set_price_tick(entry.price_tick.str());
               }

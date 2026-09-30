@@ -11,6 +11,7 @@ std::string daily_factor_revision(const research::v1::DailyFactorDataset&);
 void validate_daily_factor(const research::v1::DailyFactorInput&);
 std::string factor_dataset_revision(const research::v1::FactorInput& input);
 research::v1::FactorInput encode_factor(const Json& input);
+research::v1::FactorRequest encode_factor_request(const Json& input);
 Json decode_factor(const research::v1::FactorInput& input);
 Json decode_factor_result(const research::v1::FactorResult& result);
 } // namespace asterion::protocol

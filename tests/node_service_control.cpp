@@ -33,13 +33,17 @@ int main(int argc, char** argv) {
       asterion::terminal::NodeClient client({"local", "localhost", 0, {}, endpoint});
       if (operation == "deploy-market") {
         const auto platform = asterion::current_platform();
-        client.deploy(path(source), platform.os, platform.arch, "market-running", 0, {}, "market",
-                      path(provider));
-        client.deploy(path(source), platform.os, platform.arch, "market-stopped", 0, {}, "market",
-                      path(provider));
+        client.deploy({.service = "market-running",
+                       .kind = asterion::node::v1::MARKET_DATA,
+                       .platform = platform,
+                       .programs = {.executable = path(source), .provider = path(provider)}});
+        client.deploy({.service = "market-stopped",
+                       .kind = asterion::node::v1::MARKET_DATA,
+                       .platform = platform,
+                       .programs = {.executable = path(source), .provider = path(provider)}});
         client.action("market-stopped", "stop");
         asterion::terminal::MarketClient market(
-            client.service_endpoint("market-running", "market"));
+            client.service_endpoint("market-running", asterion::node::v1::MARKET_DATA));
         market.connect({{"front", "tcp://127.0.0.1:12345"},
                         {"broker", "test"},
                         {"user", "test"},
@@ -48,7 +52,7 @@ int main(int argc, char** argv) {
       }
       if (operation == "market-status") {
         asterion::terminal::MarketClient market(
-            client.service_endpoint("market-running", "market"));
+            client.service_endpoint("market-running", asterion::node::v1::MARKET_DATA));
         std::cout << market.snapshot().dump() << '\n';
         return 0;
       }

@@ -1,6 +1,5 @@
 import { translate, useWorkspaceDraft, type TerminalContext } from "../contract";
 import { ContractHistory } from "./ContractHistory";
-import { contractName } from "./contract-name";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
 export function MarketPanel({ context }: { context: TerminalContext }) {
@@ -13,19 +12,22 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
       task.state === "succeeded",
   );
   const instruments = [...new Set(completed.map(task => task.instrument))].sort();
-  const nameFor = (instrument: string) => {
-    const [venue, symbol] = instrument.split("/");
-    return venue && symbol
-      ? contractName({ venue, symbol }, context.snapshot?.history_contracts)
-      : undefined;
-  };
+  const catalogContract = (instrument: string) =>
+    context.snapshot?.market?.catalog.contracts.find(item => item.contract_id === instrument);
+  const nameFor = (instrument: string) =>
+    context.snapshot?.history_contracts?.items
+      .find(item => item.code === instrument)
+      ?.name.trim() ||
+    catalogContract(instrument)?.name.trim() ||
+    undefined;
   const visible = instruments.filter(instrument =>
-    `${instrument} ${nameFor(instrument) ?? ""}`
+    `${instrument} ${catalogContract(instrument)?.symbol ?? ""} ${nameFor(instrument) ?? ""}`
       .toUpperCase()
       .includes(search.trim().toUpperCase()),
   );
   const active = visible.includes(selected) ? selected : visible[0];
-  const [venue, symbol] = active?.split("/") ?? [];
+  const venue = active?.split("/")[0];
+  const symbol = active;
   return (
     <section className="history-market-board" aria-label={t("历史行情")}>
       <div className="history-market-contracts">
@@ -109,7 +111,13 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
       </div>
       <div className="history-market-detail">
         {active && venue && symbol ? (
-          <ContractHistory key={active} venue={venue} symbol={symbol} context={context} />
+          <ContractHistory
+            key={active}
+            venue={venue}
+            symbol={symbol}
+            historyContractId={active}
+            context={context}
+          />
         ) : (
           <div className="market-chart-empty">
             {instruments.length ? (

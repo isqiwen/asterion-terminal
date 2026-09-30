@@ -130,3 +130,51 @@
   padding: 12px 8px;
   vertical-align: top;
 }
+
+.native-plugin-service {
+  margin-block: 1.25rem;
+  padding-block: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+.native-plugin-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-block: 0.5rem;
+}
+.native-plugin-choice input {
+  width: auto;
+}
+.native-plugin-service code,
+.settings-table code {
+  overflow-wrap: anywhere;
+}
+
+.native-plugin-manager .data-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+.native-plugin-manager .data-table th,
+.native-plugin-manager .data-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+.native-plugin-manager .data-table th:nth-child(1) {
+  width: 29%;
+}
+.native-plugin-manager .data-table th:nth-child(2) {
+  width: 13%;
+}
+.native-plugin-manager .data-table th:nth-child(3) {
+  width: 31%;
+}
+.native-plugin-manager fieldset,
+.native-plugin-service fieldset {
+  min-width: 0;
+  margin-block: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}

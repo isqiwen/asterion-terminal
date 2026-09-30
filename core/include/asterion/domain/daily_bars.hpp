@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/domain/market.hpp>
+#include <asterion/domain/history_identity.hpp>
 #include <asterion/kernel/plugin.hpp>
 #include <chrono>
 #include <optional>
@@ -21,11 +21,14 @@ struct HistoricalDailyBar {
   void validate() const;
 };
 struct HistoricalDailyRange {
-  InstrumentId instrument;
+  HistoryIdentity instrument;
   std::chrono::year_month_day begin, end; // inclusive provider trading dates
+  std::string source;
+  std::string source_instrument = {};
 };
 class HistoricalDailyPort : public Plugin {
 public:
+  virtual HistorySemantics semantics() const = 0;
   virtual std::vector<HistoricalDailyBar> read(const HistoricalDailyRange&, std::stop_token) = 0;
 };
 } // namespace asterion

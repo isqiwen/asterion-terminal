@@ -2,25 +2,31 @@
 #include "momentum.hpp"
 #include "walk_forward.hpp"
 #include <array>
-#include <asterion/domain/futures.hpp>
+#include <asterion/protocol/data.hpp>
 #include <stdexcept>
 namespace asterion::factor {
 namespace {
-Instrument instrument(const protocol::v1::Contract& c) {
-  return {{c.venue(), c.symbol()},
-          AssetClass::futures,
-          c.currency(),
-          Decimal::from_raw(c.price_increment().units()),
-          Decimal::from_raw(c.quantity_increment().units()),
-          Decimal::from_raw(c.multiplier().units())};
+const google::protobuf::RepeatedPtrField<protocol::v1::Bar>&
+bars(const research::v1::FactorInput& input) {
+  return input.dataset().bars();
 }
-TradeTick tick(const Instrument& spec, const protocol::v1::Tick& t) {
-  return {spec.id, t.timestamp_ns(), Decimal::from_raw(t.price().units()),
-          Decimal::from_raw(t.quantity().units())};
+// A contiguous bar range as its own valid dataset, with matching trading days.
+data::v1::BarDataset bar_slice(const data::v1::BarDataset& source, unsigned begin, unsigned end) {
+  auto result = source;
+  result.clear_bars();
+  result.clear_days();
+  for (auto i = begin; i < end; ++i)
+    *result.add_bars() = source.bars(static_cast<int>(i));
+  for (const auto& day : source.days())
+    if (day.trading_day() >= result.bars(0).trading_day() &&
+        day.trading_day() <= result.bars(result.bars_size() - 1).trading_day())
+      *result.add_days() = day;
+  result.set_revision(protocol::bar_dataset_revision(result));
+  return result;
 }
 std::vector<FactorFoldRange> folds(const research::v1::FactorInput& input) {
   std::vector<std::int64_t> times;
-  for (const auto& event : input.ticks())
+  for (const auto& event : bars(input))
     times.push_back(event.timestamp_ns());
   return plan_factor_walk_forward(times, input.lookbacks(input.lookbacks_size() - 1),
                                   input.horizon(), input.walk_forward().training_events(),
@@ -38,35 +44,27 @@ void verify_result(const research::v1::FactorInput& input,
 }
 void validate(const research::v1::FactorInput& input) {
   static_cast<void>(protocol::decode_factor(input));
-  const auto& c = input.contract();
-  const auto spec = instrument(c);
-  FuturesContract{spec, c.product(), c.delivery_month()}.validate();
-  // Event-count horizons, not exchange calendar sessions or evenly timed bars.
-  if (static_cast<unsigned>(input.ticks_size()) <
+  // Bar-count horizons, not exchange calendar sessions.
+  if (static_cast<unsigned>(bars(input).size()) <
       input.lookbacks(input.lookbacks_size() - 1) + input.horizon() + 30)
     throw std::invalid_argument("factor analysis requires at least 30 labelled "
                                 "observations after warmup and tail exclusion");
   if (input.has_holdout_start()) {
     const auto split = input.holdout_start();
-    const auto count = static_cast<unsigned>(input.ticks_size());
+    const auto count = static_cast<unsigned>(bars(input).size());
     if (split < input.lookbacks(input.lookbacks_size() - 1) + input.horizon() + 30 ||
         count - split < input.horizon() + 30)
       throw std::invalid_argument(
           "each factor partition requires at least 30 labelled observations");
-    if (input.ticks(static_cast<int>(split - 1)).timestamp_ns() >=
-        input.ticks(static_cast<int>(split)).timestamp_ns())
+    if (bars(input)[static_cast<int>(split - 1)].timestamp_ns() >=
+        bars(input)[static_cast<int>(split)].timestamp_ns())
       throw std::invalid_argument("factor split must separate distinct timestamps");
   }
   if (input.has_walk_forward())
     static_cast<void>(folds(input));
-  std::int64_t previous = -1;
-  for (const auto& value : input.ticks()) {
-    const auto t = tick(spec, value);
-    t.validate(spec);
-    if (t.price <= Decimal{} || t.timestamp_ns < previous)
-      throw std::invalid_argument("invalid factor price or event order");
-    previous = t.timestamp_ns;
-  }
+  for (const auto& bar : bars(input))
+    if (bar.close().units() <= 0)
+      throw std::invalid_argument("factor analysis requires positive closes");
 }
 std::size_t work_units(const research::v1::FactorInput& input) {
   // Callers validate the bounded input first.
@@ -76,7 +74,7 @@ std::size_t work_units(const research::v1::FactorInput& input) {
     return plan.size() * (training + input.walk_forward().validation_events() +
                           (input.lookbacks_size() > 1 ? input.lookbacks_size() * training : 0));
   }
-  return static_cast<std::size_t>(input.ticks_size()) +
+  return static_cast<std::size_t>(bars(input).size()) +
          (input.lookbacks_size() > 1
               ? static_cast<std::size_t>(input.lookbacks_size()) * input.holdout_start()
               : 0);
@@ -86,11 +84,11 @@ research::v1::FactorResult run(const research::v1::FactorInput& input, std::stop
   validate(input);
   if (input.has_walk_forward()) {
     research::v1::FactorResult result;
-    result.set_version(4);
+    result.set_version(5);
     result.set_dataset_revision(input.dataset_revision());
-    result.set_engine_version("asterion.factor.event-momentum.v4");
+    result.set_engine_version("asterion.factor.bar-momentum.v5");
     result.set_horizon(input.horizon());
-    result.set_input_count(input.ticks_size());
+    result.set_input_count(static_cast<unsigned>(bars(input).size()));
     result.set_evaluation_warmup(input.lookbacks(input.lookbacks_size() - 1));
     result.set_selection_rule(input.lookbacks_size() > 1 ? "rolling_development_abs_spearman"
                                                          : "rolling_fixed");
@@ -101,10 +99,9 @@ research::v1::FactorResult run(const research::v1::FactorInput& input, std::stop
         throw std::runtime_error("factor analysis cancelled");
       auto slice = input;
       slice.set_holdout_start(range.training_end - range.training_begin);
-      slice.clear_ticks();
-      for (auto i = range.training_begin; i < range.validation_end; ++i)
-        *slice.add_ticks() = input.ticks(i);
-      slice.set_dataset_revision(protocol::factor_dataset_revision(slice));
+      *slice.mutable_dataset() =
+          bar_slice(input.dataset(), range.training_begin, range.validation_end);
+      slice.set_dataset_revision(slice.dataset().revision());
       const auto evaluated = run(slice, stop, [&](std::size_t done, std::size_t) {
         if (progress)
           progress(completed + done, total);
@@ -135,17 +132,17 @@ research::v1::FactorResult run(const research::v1::FactorInput& input, std::stop
       throw std::runtime_error("factor analysis cancelled");
     return result;
   }
-  const auto spec = instrument(input.contract());
+  const auto spec = protocol::instrument(input.dataset().contract());
 
   research::v1::FactorResult result;
-  result.set_version(4);
+  result.set_version(5);
   result.set_dataset_revision(input.dataset_revision());
-  result.set_engine_version("asterion.factor.event-momentum.v4");
+  result.set_engine_version("asterion.factor.bar-momentum.v5");
 
   result.set_horizon(input.horizon());
-  result.set_input_count(static_cast<unsigned>(input.ticks_size()));
+  result.set_input_count(static_cast<unsigned>(bars(input).size()));
   std::array<std::vector<double>, 2> values, labels;
-  const auto count = static_cast<std::size_t>(input.ticks_size());
+  const auto count = static_cast<std::size_t>(bars(input).size());
   const auto warmup = input.lookbacks(input.lookbacks_size() - 1);
   result.set_evaluation_warmup(warmup);
   unsigned selected = input.lookbacks(0);
@@ -168,14 +165,14 @@ research::v1::FactorResult run(const research::v1::FactorInput& input, std::stop
       for (unsigned i = 0; i < input.holdout_start(); ++i) {
         if (stop.stop_requested())
           throw std::runtime_error("factor analysis cancelled");
-        const auto event = tick(spec, input.ticks(static_cast<int>(i)));
-        const auto feature = candidate.on_tick(event);
+        const auto event = protocol::market_bar(bars(input)[static_cast<int>(i)]);
+        const auto feature = candidate.on_bar(event);
         if (feature && i >= warmup && i + input.horizon() < input.holdout_start()) {
           features.push_back(*feature);
           outcomes.push_back(price_return(
-              event.price,
+              event.close,
               Decimal::from_raw(
-                  input.ticks(static_cast<int>(i + input.horizon())).price().units())));
+                  bars(input)[static_cast<int>(i + input.horizon())].close().units())));
         }
         advance();
       }
@@ -199,8 +196,8 @@ research::v1::FactorResult run(const research::v1::FactorInput& input, std::stop
   for (std::size_t i = 0; i < count; ++i) {
     if (stop.stop_requested())
       throw std::runtime_error("factor analysis cancelled");
-    const auto event = tick(spec, input.ticks(static_cast<int>(i)));
-    const auto value = factor.on_tick(event);
+    const auto event = protocol::market_bar(bars(input)[static_cast<int>(i)]);
+    const auto value = factor.on_bar(event);
     // Only the evaluator reads the future label; it never enters FactorPort.
     if (value && i >= warmup && i + input.horizon() < count) {
       const auto split = input.has_holdout_start() ? input.holdout_start() : count;
@@ -210,8 +207,8 @@ research::v1::FactorResult run(const research::v1::FactorInput& input, std::stop
         continue;
       }
       const auto partition = i < split ? 0U : 1U;
-      const auto& future = input.ticks(static_cast<int>(i + input.horizon()));
-      const auto label = price_return(event.price, Decimal::from_raw(future.price().units()));
+      const auto& future = bars(input)[static_cast<int>(i + input.horizon())];
+      const auto label = price_return(event.close, Decimal::from_raw(future.close().units()));
       auto* sample = result.add_samples();
       sample->set_event_index(static_cast<unsigned>(i));
       sample->set_timestamp_ns(event.timestamp_ns);

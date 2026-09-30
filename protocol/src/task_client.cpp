@@ -10,8 +10,7 @@ int run_task_worker(const std::string& endpoint, const std::string& host, unsign
                     const std::string& task, research::v1::TaskKind kind,
                     const TaskRunner& runner) {
   if (kind != research::v1::BACKTEST && kind != research::v1::FACTOR &&
-      kind != research::v1::DAILY_FACTOR && kind != research::v1::DATA_IMPORT &&
-      kind != research::v1::CALENDAR_IMPORT && kind != research::v1::MINUTE_DOWNLOAD &&
+      kind != research::v1::DAILY_FACTOR && kind != research::v1::MINUTE_DOWNLOAD &&
       kind != research::v1::DAILY_DOWNLOAD)
     throw std::invalid_argument("unsupported worker kind");
   validate_id(service);

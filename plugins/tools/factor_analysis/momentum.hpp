@@ -33,7 +33,7 @@ public:
   PluginDescriptor descriptor() const override;
   void start() override;
   void stop() noexcept override;
-  std::optional<double> on_tick(const TradeTick& tick) override;
+  std::optional<double> on_bar(const MarketBar& bar) override;
 
 private:
   Instrument instrument_;

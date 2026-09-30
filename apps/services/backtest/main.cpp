@@ -1,3 +1,4 @@
+#include <asterion/kernel/native_plugin.hpp>
 #include "engine.hpp"
 #include "file_journal.hpp"
 #include "task_worker.hpp"
@@ -28,6 +29,8 @@ int main(int argc, char** argv) {
       ->check(CLI::ExistingFile);
   app.add_option("--directory", output_path, "Existing empty result journal directory")
       ->check(CLI::ExistingDirectory);
+  std::string plugin_directory;
+  app.add_option("--plugin-directory", plugin_directory)->check(CLI::ExistingDirectory);
   argv = app.ensure_utf8(argv);
   CLI11_PARSE(app, argc, argv);
   if (argc == 1) {
@@ -36,6 +39,9 @@ int main(int argc, char** argv) {
     return 3;
   }
   try {
+    if (!plugin_directory.empty())
+      asterion::configure_native_plugins(
+          std::filesystem::path(std::u8string(plugin_directory.begin(), plugin_directory.end())));
     std::unique_ptr<asterion::ProcessOwner> owner;
     if (owner_pid)
       owner = std::make_unique<asterion::ProcessOwner>(owner_pid);

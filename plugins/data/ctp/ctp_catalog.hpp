@@ -12,6 +12,7 @@ struct CatalogConfiguration {
 struct CatalogContract {
   InstrumentId instrument;
   std::string name, product, expiry;
+  std::string contract_id = {};
   int multiplier = 0;
   Decimal price_tick;
 };

@@ -1,3 +1,7 @@
+#include <set>
+#include "plugin_artifacts.hpp"
+#include "service_configuration.hpp"
+#include "managed_paths.hpp"
 #include "firewall.hpp"
 #include "windows_service.hpp"
 #include <asterion/kernel/service_host.hpp>
@@ -32,34 +36,20 @@ namespace wire = asterion::node::v1;
 using namespace asterion;
 using namespace std::chrono_literals;
 namespace {
+using namespace asterion::agent;
 std::string utf8(const fs::path& p) {
   const auto s = p.u8string();
   return {s.begin(), s.end()};
 }
-void id(const std::string& s) {
-  if (!std::regex_match(s, std::regex("[A-Za-z0-9][A-Za-z0-9_-]{0,63}")))
-    throw std::invalid_argument("invalid service id");
-}
-void digest(const std::string& s) {
-  if (!std::regex_match(s, std::regex("[a-f0-9]{64}")))
-    throw std::invalid_argument("invalid artifact digest");
-}
-void safe(const fs::path& p) {
-  if (fs::is_symlink(p))
-    throw std::invalid_argument("managed paths cannot be symlinks");
-}
 struct Service {
-  wire::ServiceKind kind = wire::UNSPECIFIED_SERVICE;
-  std::string catalog_artifact, provider_artifact, worker_artifact, factor_artifact, data_artifact,
-      worker_endpoint;
+  ServiceConfiguration configuration;
+  std::string worker_endpoint;
   std::map<std::string, std::unique_ptr<ChildProcess>> workers;
   std::chrono::steady_clock::time_point dispatch_at{};
-  std::string artifact, error, endpoint, health_endpoint, health = "starting", directory;
+  std::string error, endpoint, health_endpoint, health = "starting";
   std::int64_t last_heartbeat = 0;
   unsigned failures = 0;
   std::chrono::steady_clock::time_point probe{};
-  unsigned short port = 0;
-  bool desired = true;
   unsigned int restarts = 0;
   std::unique_ptr<ChildProcess> process;
   std::chrono::steady_clock::time_point retry{};
@@ -68,6 +58,7 @@ class Agent {
   Json firewall_plan_ = nullptr;
   std::chrono::steady_clock::time_point firewall_expiry_{};
   fs::path root_;
+  PluginArtifacts plugins_{root_};
   ipc::TlsIdentity tls_;
   std::string bind_;
   fs::path sockets_;
@@ -93,47 +84,47 @@ class Agent {
   fs::path binary(const std::string& hash) const {
     return root_ / "artifacts" / (hash + (current_platform().os == "windows" ? ".exe" : ".bin"));
   }
-  Json configuration(const Service& s) const {
-    Json value{{"version", 2},
-               {"kind", static_cast<int>(s.kind)},
-               {"provider_artifact", s.provider_artifact},
-               {"artifact", s.artifact},
-               {"port", s.port},
-               {"desired", s.desired},
-               {"directory", s.directory}};
-    if (!s.catalog_artifact.empty())
-      value["catalog_artifact"] = s.catalog_artifact;
-    if (s.kind == wire::TASK_SERVICE) {
-      value["worker_artifact"] = s.worker_artifact;
-      value["factor_artifact"] = s.factor_artifact;
-      value["data_artifact"] = s.data_artifact;
-    }
-    return value;
+  std::string revision(const ServiceConfiguration& configuration) const {
+    return service_revision(configuration);
   }
-  std::string revision(const Service& s) const { return sha256_bytes(configuration(s).dump()); }
-  void save(const std::string& name, const Service& s) {
-    const auto path = root_ / "services" / name / "service.json";
-    const auto pending = path.parent_path() / "service.pending";
-    safe(path);
-    safe(pending);
-    if (fs::exists(pending))
-      throw std::runtime_error("unfinished service configuration requires explicit recovery");
-    const auto configuration = this->configuration(s);
-    write_file_durably(pending, configuration.dump());
-#ifdef _WIN32
-    if (!MoveFileExW(pending.c_str(), path.c_str(),
-                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-      throw std::runtime_error("cannot publish service configuration");
-#else
-    fs::rename(pending, path);
-    sync_directory(path.parent_path());
-#endif
+  void save(const std::string& name, const ServiceConfiguration& configuration) {
+    save_service_configuration(root_ / "services" / name, configuration);
+  }
+  void configure_plugins(const wire::ConfigurePlugins& request) {
+    validate_service_id(request.service_id());
+    validate_artifact_digest(request.expected_revision());
+    auto& current = services_.at(request.service_id());
+    if (current.configuration.kind != wire::TASK_SERVICE)
+      throw std::invalid_argument("service does not support managed native plugins");
+    if (current.configuration.desired || (current.process && !current.process->exited()) ||
+        !current.workers.empty())
+      throw std::invalid_argument("stop the service before configuring plugins");
+    if (revision(current.configuration) != request.expected_revision())
+      throw std::invalid_argument("service configuration changed; inspect again");
+    auto next = current.configuration;
+    next.desired = false;
+    next.plugin_artifacts.assign(request.artifacts().begin(), request.artifacts().end());
+    plugins_.verify(next.plugin_artifacts);
+    for (const auto& hash : next.plugin_artifacts) {
+      const auto actual = artifact_platform(binary(hash)), expected = current_platform();
+      if (actual.os != expected.os || actual.arch != expected.arch)
+        throw std::invalid_argument("native plugin platform mismatch");
+    }
+    std::sort(next.plugin_artifacts.begin(), next.plugin_artifacts.end());
+    // Persist the complete selection before changing the stopped service in memory.
+    save(request.service_id(), next);
+    current.configuration.plugin_artifacts = std::move(next.plugin_artifacts);
+    current.process.reset();
+    current.restarts = 0;
+    current.error.clear();
+    current.health = "offline";
+    current.last_heartbeat = 0;
   }
   void start(const std::string& name, Service& s) {
     s.workers.clear();
     try {
-      const auto executable = binary(s.artifact);
-      if (sha256_file(executable) != s.artifact)
+      const auto executable = binary(s.configuration.artifact);
+      if (sha256_file(executable) != s.configuration.artifact)
         throw std::runtime_error("artifact integrity check failed");
       s.endpoint = utf8(sockets_ / (name + ".sock"));
       s.health_endpoint = utf8(sockets_ / (name + ".health"));
@@ -150,57 +141,61 @@ class Agent {
 #endif
       std::vector<std::string> args{"--owner-pid",       std::to_string(current_process_id()),
                                     "--session",         name,
-                                    "--directory",       s.directory,
+                                    "--directory",       s.configuration.directory,
                                     "--health-endpoint", s.health_endpoint};
-      if (s.kind == wire::TASK_SERVICE) {
-        if (sha256_file(binary(s.data_artifact)) != s.data_artifact)
+      if (s.configuration.kind == wire::TASK_SERVICE || s.configuration.kind == wire::PAPER_TRADING)
+        args.insert(args.end(),
+                    {"--plugin-directory",
+                     utf8(plugins_.materialize(name, s.configuration.plugin_artifacts))});
+      if (s.configuration.kind == wire::TASK_SERVICE) {
+        if (sha256_file(binary(s.configuration.data_artifact)) != s.configuration.data_artifact)
           throw std::runtime_error("data worker integrity check failed");
-        if (sha256_file(binary(s.factor_artifact)) != s.factor_artifact)
+        if (sha256_file(binary(s.configuration.factor_artifact)) != s.configuration.factor_artifact)
           throw std::runtime_error("factor worker integrity check failed");
-        if (sha256_file(binary(s.worker_artifact)) != s.worker_artifact)
+        if (sha256_file(binary(s.configuration.worker_artifact)) != s.configuration.worker_artifact)
           throw std::runtime_error("backtest worker integrity check failed");
         args.insert(args.end(), {"--worker-endpoint", s.worker_endpoint});
       }
-      if (s.kind == wire::PAPER_TRADING)
+      if (s.configuration.kind == wire::PAPER_TRADING)
         args.insert(args.end(), {"--mode", "paper"});
-      if (s.kind == wire::MARKET_DATA && !s.provider_artifact.empty()) {
-        const auto source = binary(s.provider_artifact);
-        if (sha256_file(source) != s.provider_artifact)
+      if (s.configuration.kind == wire::MARKET_DATA && !s.configuration.provider_artifact.empty()) {
+        const auto source = binary(s.configuration.provider_artifact);
+        if (sha256_file(source) != s.configuration.provider_artifact)
           throw std::runtime_error("provider artifact integrity check failed");
-        const auto library =
-            root_ / "services" / name /
-            (s.provider_artifact + std::string(current_platform().os == "windows" ? ".dll"
-                                               : current_platform().os == "macos" ? ".dylib"
-                                                                                  : ".so"));
-        safe(library);
+        const auto library = root_ / "services" / name /
+                             (s.configuration.provider_artifact +
+                              std::string(current_platform().os == "windows" ? ".dll"
+                                          : current_platform().os == "macos" ? ".dylib"
+                                                                             : ".so"));
+        require_managed_path(library);
         if (!fs::exists(library))
           fs::copy_file(source, library);
-        else if (sha256_file(library) != s.provider_artifact)
+        else if (sha256_file(library) != s.configuration.provider_artifact)
           throw std::runtime_error("provider library changed");
         args.insert(args.end(), {"--ctp-library", utf8(library)});
       }
-      if (s.kind == wire::MARKET_DATA && !s.catalog_artifact.empty()) {
-        const auto source = binary(s.catalog_artifact);
-        if (sha256_file(source) != s.catalog_artifact)
+      if (s.configuration.kind == wire::MARKET_DATA && !s.configuration.catalog_artifact.empty()) {
+        const auto source = binary(s.configuration.catalog_artifact);
+        if (sha256_file(source) != s.configuration.catalog_artifact)
           throw std::runtime_error("catalog artifact integrity check failed");
-        const auto library =
-            root_ / "services" / name /
-            (s.catalog_artifact + std::string(current_platform().os == "macos"     ? ".dylib"
-                                              : current_platform().os == "windows" ? ".dll"
-                                                                                   : ".so"));
-        safe(library);
+        const auto library = root_ / "services" / name /
+                             (s.configuration.catalog_artifact +
+                              std::string(current_platform().os == "macos"     ? ".dylib"
+                                          : current_platform().os == "windows" ? ".dll"
+                                                                               : ".so"));
+        require_managed_path(library);
         if (!fs::exists(library))
           fs::copy_file(source, library);
-        else if (sha256_file(library) != s.catalog_artifact)
+        else if (sha256_file(library) != s.configuration.catalog_artifact)
           throw std::runtime_error("catalog library changed");
         args.insert(args.end(), {"--ctp-catalog-library", utf8(library)});
       }
       if (local_)
         args.insert(args.end(), {"--endpoint", s.endpoint});
       else
-        args.insert(args.end(),
-                    {"--bind", bind_, "--port", std::to_string(s.port), "--tls-ca", tls_.ca_file,
-                     "--tls-cert", tls_.certificate_file, "--tls-key", tls_.private_key_file});
+        args.insert(args.end(), {"--bind", bind_, "--port", std::to_string(s.configuration.port),
+                                 "--tls-ca", tls_.ca_file, "--tls-cert", tls_.certificate_file,
+                                 "--tls-key", tls_.private_key_file});
       s.process = std::make_unique<ChildProcess>(executable, args);
       s.health = "starting";
       s.last_heartbeat = 0;
@@ -215,7 +210,7 @@ class Agent {
   }
   void save_upgrade() {
     const auto path = root_ / "maintenance-plan.json";
-    safe(path);
+    require_managed_path(path);
     try {
       replace_file_durably(path, upgrade_.dump());
     } catch (...) {
@@ -280,9 +275,9 @@ class Agent {
       }
       ready = false;
       try {
-        if (s.kind == wire::MARKET_DATA)
+        if (s.configuration.kind == wire::MARKET_DATA)
           quiesce_service<market::v1::Request, market::v1::Response>(name, s, true);
-        else if (s.kind == wire::TASK_SERVICE)
+        else if (s.configuration.kind == wire::TASK_SERVICE)
           quiesce_service<research::v1::TaskRequest, research::v1::TaskResponse>(name, s,
                                                                                  s.workers.empty());
       } catch (const std::exception& e) {
@@ -317,12 +312,12 @@ class Agent {
       if (!maintenance_.empty())
         throw std::runtime_error("Agent is already in maintenance");
       for (const auto& [name, s] : services_)
-        if ((s.desired || s.process || !s.workers.empty()) && s.kind != wire::MARKET_DATA &&
-            s.kind != wire::TASK_SERVICE)
+        if ((s.configuration.desired || s.process || !s.workers.empty()) &&
+            s.configuration.kind != wire::MARKET_DATA && s.configuration.kind != wire::TASK_SERVICE)
           throw std::runtime_error("service lacks an automatic upgrade recovery boundary: " + name);
       Json revisions = Json::object();
       for (const auto& [name, s] : services_)
-        revisions[name] = revision(s);
+        revisions[name] = revision(s.configuration);
       Json processes = Json::array();
       for (const auto& [name, s] : services_) {
         if (s.process)
@@ -343,13 +338,14 @@ class Agent {
       upgrade_["phase"] = "restoring";
       save_upgrade();
       for (auto& [name, s] : services_)
-        if (s.desired)
+        if (s.configuration.desired)
           start(name, s);
     } else if (request.action() == "complete") {
       if (phase != "restoring")
         throw std::runtime_error("upgrade services have not resumed");
       for (const auto& [name, s] : services_)
-        if (s.desired && (!s.process || (s.health != "ready" && s.health != "awaiting_input")))
+        if (s.configuration.desired &&
+            (!s.process || (s.health != "ready" && s.health != "awaiting_input")))
           throw std::runtime_error("upgrade is waiting for restored service health");
       upgrade_["phase"] = "complete";
       save_upgrade();
@@ -393,28 +389,24 @@ class Agent {
       validate_id(launch.task_id());
       if (service.workers.contains(launch.task_id()))
         throw std::runtime_error("dispatch repeated a running task");
-      if (launch.daily_factor() &&
-          (launch.program() != research::v1::FACTOR_PROGRAM || launch.daily_download() ||
-           launch.minute_download() || launch.settlement_calendar()))
+      if (launch.daily_factor() && (launch.program() != research::v1::FACTOR_PROGRAM ||
+                                    launch.daily_download() || launch.minute_download()))
         throw std::invalid_argument("invalid daily factor worker launch");
-      if (launch.daily_download() && (launch.minute_download() || launch.settlement_calendar() ||
-                                      launch.program() != research::v1::DATA_PIPELINE_PROGRAM))
-        throw std::invalid_argument("invalid daily worker launch");
-      if (launch.minute_download() &&
-          (launch.settlement_calendar() || launch.program() != research::v1::DATA_PIPELINE_PROGRAM))
-        throw std::invalid_argument("invalid minute worker launch");
-      if (launch.settlement_calendar() && launch.program() != research::v1::DATA_PIPELINE_PROGRAM)
-        throw std::runtime_error("invalid worker program mode");
+      // The data pipeline only runs data-source downloads.
+      if ((launch.program() == research::v1::DATA_PIPELINE_PROGRAM) !=
+              (launch.daily_download() || launch.minute_download()) ||
+          (launch.daily_download() && launch.minute_download()))
+        throw std::invalid_argument("invalid download worker launch");
       std::string artifact;
       switch (launch.program()) {
       case research::v1::BACKTEST_PROGRAM:
-        artifact = service.worker_artifact;
+        artifact = service.configuration.worker_artifact;
         break;
       case research::v1::FACTOR_PROGRAM:
-        artifact = service.factor_artifact;
+        artifact = service.configuration.factor_artifact;
         break;
       case research::v1::DATA_PIPELINE_PROGRAM:
-        artifact = service.data_artifact;
+        artifact = service.configuration.data_artifact;
         break;
       default:
         throw std::runtime_error("unsupported worker program");
@@ -426,8 +418,12 @@ class Agent {
                                     "--endpoint",  service.worker_endpoint,
                                     "--session",   name,
                                     "--task",      launch.task_id()};
-      if (launch.settlement_calendar())
-        args.push_back("--settlement-calendar");
+      if (launch.program() == research::v1::DATA_PIPELINE_PROGRAM)
+        args.insert(args.end(), {"--plugin-directory",
+                                 utf8(plugins_.materialize(name, {launch.provider_artifact()}))});
+      if (launch.program() == research::v1::BACKTEST_PROGRAM)
+        args.insert(args.end(), {"--plugin-directory",
+                                 utf8(plugins_.materialize(name, {launch.risk_artifact()}))});
       if (launch.minute_download())
         args.push_back("--minute-download");
       if (launch.daily_download())
@@ -450,75 +446,22 @@ public:
 #endif
     if (!root_.is_absolute() || !fs::is_directory(root_))
       throw std::invalid_argument("agent requires an existing absolute directory");
-    safe(root_);
+    require_managed_path(root_);
     for (const auto* name : {"artifacts", "services", "uploads"}) {
-      safe(root_ / name);
+      require_managed_path(root_ / name);
       fs::create_directory(root_ / name);
     }
     for (const auto& entry : fs::directory_iterator(root_ / "services")) {
-      safe(entry.path());
+      require_managed_path(entry.path());
       const auto name = entry.path().filename().string();
-      id(name);
-      const auto path = entry.path() / "service.json";
-      safe(path);
-      safe(entry.path() / "service.pending");
-      if (fs::exists(entry.path() / "service.pending"))
-        throw std::runtime_error("unfinished service configuration requires explicit recovery");
-      if (!fs::is_regular_file(path) || fs::file_size(path) > 65536)
-        throw std::invalid_argument("invalid managed configuration file");
-      std::ifstream input(path);
-      std::string raw{std::istreambuf_iterator<char>(input), {}};
-      auto j = parse_json(raw, 65536);
-      if (j.size() != (j.at("kind") == static_cast<int>(wire::TASK_SERVICE) ? 10U : 7U) +
-                          (j.contains("catalog_artifact") ? 1U : 0U) ||
-          j.at("version") != 2 || !j.at("desired").is_boolean() ||
-          !j.at("port").is_number_unsigned())
-        throw std::invalid_argument("invalid managed service configuration");
+      validate_service_id(name);
       Service s;
-      s.kind = static_cast<wire::ServiceKind>(j.at("kind").get<int>());
-      s.provider_artifact = j.at("provider_artifact").get<std::string>();
-      if (j.contains("catalog_artifact")) {
-        if (s.kind != wire::MARKET_DATA)
-          throw std::invalid_argument("catalog library only belongs to market data");
-        s.catalog_artifact = j.at("catalog_artifact").get<std::string>();
-        digest(s.catalog_artifact);
-      }
-      if (s.kind != wire::PAPER_TRADING && s.kind != wire::MARKET_DATA &&
-          s.kind != wire::TASK_SERVICE && s.kind != wire::STRATEGY)
-        throw std::invalid_argument("unsupported service kind");
-      if (!s.provider_artifact.empty()) {
-        if (s.kind != wire::MARKET_DATA)
-          throw std::invalid_argument("provider library only belongs to market data");
-        digest(s.provider_artifact);
-      }
-      if (s.kind == wire::TASK_SERVICE) {
-        s.worker_artifact = j.at("worker_artifact").get<std::string>();
-        digest(s.worker_artifact);
-        s.factor_artifact = j.at("factor_artifact").get<std::string>();
-        digest(s.factor_artifact);
-        s.data_artifact = j.at("data_artifact").get<std::string>();
-        digest(s.data_artifact);
-        if (!s.provider_artifact.empty())
-          throw std::invalid_argument("task service does not load a market provider");
-      }
-      s.artifact = j.at("artifact").get<std::string>();
-      digest(s.artifact);
-      const auto port = j.at("port").get<unsigned int>();
-      if (port > 65535 || (local_ ? port != 0 : (!port || port == control_port_)))
-        throw std::invalid_argument("invalid managed port");
-      s.port = static_cast<unsigned short>(port);
-      s.desired = j.at("desired").get<bool>();
-      s.directory = j.at("directory").get<std::string>();
-      const fs::path ledger(std::u8string(s.directory.begin(), s.directory.end()));
-      if (!ledger.is_absolute())
-        throw std::invalid_argument("ledger must be absolute");
-      safe(ledger);
-      if (!fs::is_directory(ledger))
-        throw std::invalid_argument("managed ledger is missing");
+      s.configuration = load_service_configuration(entry.path(), local_, control_port_);
+      plugins_.verify(s.configuration.plugin_artifacts);
       services_.emplace(name, std::move(s));
     }
     const auto upgrade_path = root_ / "maintenance-plan.json";
-    safe(upgrade_path);
+    require_managed_path(upgrade_path);
     if (fs::exists(upgrade_path)) {
       if (fs::file_size(upgrade_path) > 65536)
         throw std::runtime_error("invalid upgrade plan size");
@@ -536,11 +479,12 @@ public:
       if (upgrade_active() && upgrade_.at("services").size() != services_.size())
         throw std::runtime_error("upgrade service configuration changed");
       for (const auto& [name, service] : services_)
-        if (upgrade_active() && upgrade_.at("services").at(name) != revision(service))
+        if (upgrade_active() && upgrade_.at("services").at(name) != revision(service.configuration))
           throw std::runtime_error("upgrade service configuration changed");
     }
     for (auto& [name, service] : services_)
-      if (service.desired && (!upgrade_active() || upgrade_.at("phase") == "restoring"))
+      if (service.configuration.desired &&
+          (!upgrade_active() || upgrade_.at("phase") == "restoring"))
         start(name, service);
     supervisor_ = std::jthread([this](std::stop_token token) {
       while (!token.stop_requested()) {
@@ -565,7 +509,7 @@ public:
             s.probe = std::chrono::steady_clock::now() + 5s;
             try {
               auto channel = ipc::Channel::connect(s.health_endpoint, 500ms);
-              if (s.kind == wire::MARKET_DATA) {
+              if (s.configuration.kind == wire::MARKET_DATA) {
                 market::v1::Request ping;
                 ping.set_version(1);
                 ping.set_service_id(name);
@@ -584,7 +528,7 @@ public:
                 s.health = phase == "connected"                             ? "ready"
                            : phase == "error" || phase == "sdk_unavailable" ? "degraded"
                                                                             : "awaiting_input";
-              } else if (s.kind == wire::TASK_SERVICE) {
+              } else if (s.configuration.kind == wire::TASK_SERVICE) {
                 research::v1::TaskRequest ping;
                 ping.set_version(1);
                 ping.set_service_id(name);
@@ -600,7 +544,7 @@ public:
                     reply.health().instance_id().empty())
                   throw std::runtime_error("task health identity mismatch");
                 s.health = reply.health().recovery_required() ? "degraded" : "ready";
-              } else if (s.kind == wire::STRATEGY) {
+              } else if (s.configuration.kind == wire::STRATEGY) {
                 strategy::v1::Request ping;
                 ping.set_version(1);
                 ping.set_session_id(name);
@@ -653,8 +597,8 @@ public:
               }
             }
           }
-          if (!upgrade_active() && s.kind == wire::TASK_SERVICE && s.process && s.desired &&
-              std::chrono::steady_clock::now() >= s.dispatch_at) {
+          if (!upgrade_active() && s.configuration.kind == wire::TASK_SERVICE && s.process &&
+              s.configuration.desired && std::chrono::steady_clock::now() >= s.dispatch_at) {
             s.dispatch_at = std::chrono::steady_clock::now() + 1s;
             try {
               dispatch_tasks(name, s);
@@ -662,7 +606,7 @@ public:
               s.error = e.what();
             }
           }
-          if (s.desired && !s.process && s.restarts < 3 &&
+          if (s.configuration.desired && !s.process && s.restarts < 3 &&
               std::chrono::steady_clock::now() >= s.retry) {
             ++s.restarts;
             start(name, s);
@@ -713,7 +657,7 @@ public:
           if (!maintenance_.empty() && maintenance_ != request.operation_id())
             throw std::runtime_error("Agent already belongs to another maintenance operation");
           for (const auto& [name, service] : services_)
-            if (service.desired || (service.process && !service.process->exited()) ||
+            if (service.configuration.desired || (service.process && !service.process->exited()) ||
                 !service.workers.empty())
               throw std::runtime_error("stop all managed services before maintenance");
           maintenance_ = request.operation_id();
@@ -731,12 +675,12 @@ public:
         if (local_ || peer.empty())
           throw std::invalid_argument("firewall management requires a remote TLS node");
         const auto& operation = r.firewall();
-        id(operation.service_id());
+        validate_service_id(operation.service_id());
         const auto& service = services_.at(operation.service_id());
         const auto os = current_platform().os;
         const auto file = root_ / "firewall" / (operation.service_id() + ".json");
-        safe(file.parent_path());
-        safe(file);
+        require_managed_path(file.parent_path());
+        require_managed_path(file);
         Json owned = nullptr;
         if (fs::exists(file)) {
           if (fs::file_size(file) > 65536)
@@ -758,7 +702,7 @@ public:
               {"service", operation.service_id()},
               {"source", remove && !owned.is_null() ? owned.at("source").get<std::string>() : peer},
               {"peer", peer},
-              {"port", service.port},
+              {"port", service.configuration.port},
               {"backend", observed.at("backend")},
               {"state", observed.at("state")},
               {"can_apply",
@@ -792,7 +736,7 @@ public:
             replace_file_durably(file, plan.dump());
           }
           const auto changed = asterion::node::run_firewall_script(
-              os, asterion::node::firewall_change(os, plan.at("source"), service.port,
+              os, asterion::node::firewall_change(os, plan.at("source"), service.configuration.port,
                                                   plan.at("rule"), remove));
           if (changed != Json{{"changed", true}})
             throw std::runtime_error("invalid firewall result");
@@ -833,51 +777,53 @@ public:
         for (auto& [name, s] : services_) {
           auto* service = status->add_services();
           service->set_id(name);
-          service->set_kind(s.kind);
+          service->set_kind(s.configuration.kind);
           service->set_active_workers(static_cast<unsigned>(s.workers.size()));
-          service->set_artifact(s.artifact);
-          service->set_revision(revision(s));
-          service->set_port(s.port);
-          service->set_desired_running(s.desired);
+          service->set_artifact(s.configuration.artifact);
+          service->set_revision(revision(s.configuration));
+          for (const auto& hash : s.configuration.plugin_artifacts)
+            service->add_plugin_artifacts(hash);
+          service->set_port(s.configuration.port);
+          service->set_desired_running(s.configuration.desired);
           service->set_restarts(s.restarts);
           service->set_error(s.error);
           const bool running = s.process && !s.process->exited();
-          service->set_state(running           ? "running"
-                             : !s.desired      ? "stopped"
-                             : s.restarts >= 3 ? "failed"
-                                               : "restarting");
+          service->set_state(running                    ? "running"
+                             : !s.configuration.desired ? "stopped"
+                             : s.restarts >= 3          ? "failed"
+                                                        : "restarting");
           service->set_pid(running ? s.process->id() : 0);
           service->set_health(running ? s.health : "offline");
           service->set_last_heartbeat_ms(s.last_heartbeat);
           if (local_) {
             service->set_endpoint(s.endpoint);
-            service->set_directory(s.directory);
+            service->set_directory(s.configuration.directory);
           }
         }
         return response;
       }
       if (r.has_upload()) {
         const auto& u = r.upload();
-        digest(u.sha256());
+        validate_artifact_digest(u.sha256());
         const auto platform = current_platform();
         if (u.os() != platform.os || u.arch() != platform.arch || !u.size() ||
             u.size() > max_artifact_bytes)
           throw std::invalid_argument("artifact platform or size mismatch");
         const auto path = root_ / "uploads" / u.sha256();
-        safe(path);
+        require_managed_path(path);
         std::ofstream out(path, std::ios::binary | std::ios::trunc);
         if (!out)
           throw std::runtime_error("cannot create upload");
         uploads_[u.sha256()] = {u.size(), 0};
       } else if (r.has_chunk()) {
         const auto& c = r.chunk();
-        digest(c.sha256());
+        validate_artifact_digest(c.sha256());
         auto& u = uploads_.at(c.sha256());
         if (c.offset() != u.offset || c.data().empty() || c.data().size() > 1024 * 1024 ||
             c.data().size() > u.size - u.offset)
           throw std::invalid_argument("invalid upload chunk");
         const auto path = root_ / "uploads" / c.sha256();
-        safe(path);
+        require_managed_path(path);
         std::ofstream out(path, std::ios::binary | std::ios::app);
         out.write(c.data().data(), static_cast<std::streamsize>(c.data().size()));
         out.flush();
@@ -886,7 +832,7 @@ public:
         u.offset += c.data().size();
       } else if (r.has_finish()) {
         const auto hash = r.finish().sha256();
-        digest(hash);
+        validate_artifact_digest(hash);
         const auto u = uploads_.at(hash);
         const auto path = root_ / "uploads" / hash;
         if (u.offset != u.size || sha256_file(path) != hash)
@@ -896,7 +842,7 @@ public:
         if (actual.os != platform.os || actual.arch != platform.arch)
           throw std::invalid_argument("uploaded executable platform mismatch");
         const auto target = binary(hash);
-        safe(target);
+        require_managed_path(target);
         if (fs::exists(target)) {
           if (sha256_file(target) != hash)
             throw std::runtime_error("existing artifact corrupted");
@@ -908,33 +854,33 @@ public:
         uploads_.erase(hash);
       } else if (r.has_deploy()) {
         const auto& d = r.deploy();
-        id(d.service_id());
-        digest(d.sha256());
+        validate_service_id(d.service_id());
+        validate_artifact_digest(d.sha256());
         if (d.kind() != wire::PAPER_TRADING && d.kind() != wire::MARKET_DATA &&
             d.kind() != wire::TASK_SERVICE && d.kind() != wire::STRATEGY)
           throw std::invalid_argument("explicit service kind required");
         if (!d.provider_artifact().empty()) {
           if (d.kind() != wire::MARKET_DATA)
             throw std::invalid_argument("provider library only belongs to market data");
-          digest(d.provider_artifact());
+          validate_artifact_digest(d.provider_artifact());
           if (sha256_file(binary(d.provider_artifact())) != d.provider_artifact())
             throw std::invalid_argument("provider artifact not installed");
         }
         if (!d.catalog_artifact().empty()) {
           if (d.kind() != wire::MARKET_DATA)
             throw std::invalid_argument("catalog library only belongs to market data");
-          digest(d.catalog_artifact());
+          validate_artifact_digest(d.catalog_artifact());
           if (sha256_file(binary(d.catalog_artifact())) != d.catalog_artifact())
             throw std::invalid_argument("catalog artifact not installed");
         }
         if (d.kind() == wire::TASK_SERVICE) {
-          digest(d.data_artifact());
+          validate_artifact_digest(d.data_artifact());
           if (sha256_file(binary(d.data_artifact())) != d.data_artifact())
             throw std::invalid_argument("data worker is not installed");
-          digest(d.factor_artifact());
+          validate_artifact_digest(d.factor_artifact());
           if (sha256_file(binary(d.factor_artifact())) != d.factor_artifact())
             throw std::invalid_argument("factor worker is not installed");
-          digest(d.worker_artifact());
+          validate_artifact_digest(d.worker_artifact());
           if (sha256_file(binary(d.worker_artifact())) != d.worker_artifact())
             throw std::invalid_argument("backtest worker is not installed");
         } else if (!d.worker_artifact().empty() || !d.factor_artifact().empty() ||
@@ -947,59 +893,64 @@ public:
                                       "replacement is not supported");
         for (const auto& [name, s] : services_) {
           (void)name;
-          if (d.port() && s.port == d.port())
+          if (d.port() && s.configuration.port == d.port())
             throw std::invalid_argument("port already assigned");
         }
         if (sha256_file(binary(d.sha256())) != d.sha256())
           throw std::invalid_argument("artifact not installed");
         const auto folder = root_ / "services" / d.service_id();
         Service s;
-        s.kind = d.kind();
-        s.provider_artifact = d.provider_artifact();
-        s.catalog_artifact = d.catalog_artifact();
-        s.worker_artifact = d.worker_artifact();
-        s.factor_artifact = d.factor_artifact();
-        s.data_artifact = d.data_artifact();
-        s.artifact = d.sha256();
-        s.port = static_cast<unsigned short>(d.port());
-        if (local_ && s.kind == wire::PAPER_TRADING) {
+        s.configuration.kind = d.kind();
+        s.configuration.plugin_artifacts.assign(d.plugin_artifacts().begin(),
+                                                d.plugin_artifacts().end());
+        plugins_.verify(s.configuration.plugin_artifacts);
+        s.configuration.provider_artifact = d.provider_artifact();
+        s.configuration.catalog_artifact = d.catalog_artifact();
+        s.configuration.worker_artifact = d.worker_artifact();
+        s.configuration.factor_artifact = d.factor_artifact();
+        s.configuration.data_artifact = d.data_artifact();
+        s.configuration.artifact = d.sha256();
+        s.configuration.port = static_cast<unsigned short>(d.port());
+        if (local_ && s.configuration.kind == wire::PAPER_TRADING) {
           const fs::path ledger(std::u8string(d.directory().begin(), d.directory().end()));
           if (!ledger.is_absolute() || !fs::is_directory(ledger))
             throw std::invalid_argument("local ledger must be an existing absolute directory");
-          safe(ledger);
-          s.directory = utf8(fs::canonical(ledger));
+          require_managed_path(ledger);
+          s.configuration.directory = utf8(fs::canonical(ledger));
           for (const auto& [name, existing] : services_) {
             (void)name;
-            if (existing.directory == s.directory)
+            if (existing.configuration.directory == s.configuration.directory)
               throw std::invalid_argument("ledger already managed by another service");
           }
         } else {
           if (!d.directory().empty())
             throw std::invalid_argument("service directory is Agent-owned");
-          s.directory = utf8(folder / "ledger");
+          s.configuration.directory = utf8(folder / "ledger");
         }
         if (!fs::create_directory(folder))
           throw std::invalid_argument("service directory already exists");
-        if (!local_ || s.kind != wire::PAPER_TRADING)
+        if (!local_ || s.configuration.kind != wire::PAPER_TRADING)
           fs::create_directory(folder / "ledger");
-        save(d.service_id(), s);
+        save(d.service_id(), s.configuration);
         auto [it, added] = services_.emplace(d.service_id(), std::move(s));
         (void)added;
         start(it->first, it->second);
+      } else if (r.has_configure_plugins()) {
+        configure_plugins(r.configure_plugins());
       } else if (r.has_update()) {
         const auto& u = r.update();
-        id(u.service_id());
-        digest(u.expected_revision());
+        validate_service_id(u.service_id());
+        validate_artifact_digest(u.expected_revision());
         auto& current = services_.at(u.service_id());
-        if (current.desired || (current.process && !current.process->exited()) ||
+        if (current.configuration.desired || (current.process && !current.process->exited()) ||
             !current.workers.empty())
           throw std::invalid_argument("stop the service before updating its programs");
-        if (revision(current) != u.expected_revision())
+        if (revision(current.configuration) != u.expected_revision())
           throw std::invalid_argument("service configuration changed; inspect again");
         auto verified = [&](const std::string& hash) {
-          digest(hash);
+          validate_artifact_digest(hash);
           const auto path = binary(hash);
-          safe(path);
+          require_managed_path(path);
           if (sha256_file(path) != hash)
             throw std::invalid_argument("update artifact is missing or corrupted");
           const auto actual = artifact_platform(path), platform = current_platform();
@@ -1008,26 +959,25 @@ public:
         };
         verified(u.artifact());
         if (!u.catalog_artifact().empty()) {
-          if (current.kind != wire::MARKET_DATA)
+          if (current.configuration.kind != wire::MARKET_DATA)
             throw std::invalid_argument("catalog library only belongs to market data");
           verified(u.catalog_artifact());
         }
-        if (current.kind == wire::MARKET_DATA) {
+        if (current.configuration.kind == wire::MARKET_DATA) {
           if (!u.provider_artifact().empty())
             verified(u.provider_artifact());
         } else if (!u.provider_artifact().empty())
           throw std::invalid_argument("provider library only belongs to market data");
-        if (current.kind == wire::TASK_SERVICE) {
+        if (current.configuration.kind == wire::TASK_SERVICE) {
           verified(u.worker_artifact());
           verified(u.factor_artifact());
           verified(u.data_artifact());
         } else if (!u.worker_artifact().empty() || !u.factor_artifact().empty() ||
                    !u.data_artifact().empty())
           throw std::invalid_argument("worker artifacts only belong to task service");
-        Service next;
-        next.kind = current.kind;
-        next.port = current.port;
-        next.directory = current.directory;
+        auto next = current.configuration;
+        next.plugin_artifacts.assign(u.plugin_artifacts().begin(), u.plugin_artifacts().end());
+        plugins_.verify(next.plugin_artifacts);
         next.desired = false;
         next.artifact = u.artifact();
         next.provider_artifact = u.provider_artifact();
@@ -1039,30 +989,25 @@ public:
         // rewrite, automatic restart, or implicit binary rollback occurs.
         save(u.service_id(), next);
         current.process.reset();
-        current.artifact = next.artifact;
-        current.provider_artifact = next.provider_artifact;
-        current.catalog_artifact = next.catalog_artifact;
-        current.worker_artifact = next.worker_artifact;
-        current.factor_artifact = next.factor_artifact;
-        current.data_artifact = next.data_artifact;
+        current.configuration = std::move(next);
         current.restarts = 0;
         current.error.clear();
         current.health = "offline";
         current.last_heartbeat = 0;
       } else if (r.has_action()) {
         const auto& a = r.action();
-        id(a.service_id());
+        validate_service_id(a.service_id());
         auto& s = services_.at(a.service_id());
         if (a.kind() != wire::Action::START && a.kind() != wire::Action::STOP &&
             a.kind() != wire::Action::RESTART)
           throw std::invalid_argument("unknown service action");
         const bool desired = a.kind() != wire::Action::STOP;
-        const bool previous = s.desired;
-        s.desired = desired;
+        const bool previous = s.configuration.desired;
+        s.configuration.desired = desired;
         try {
-          save(a.service_id(), s);
+          save(a.service_id(), s.configuration);
         } catch (...) {
-          s.desired = previous;
+          s.configuration.desired = previous;
           throw;
         }
         if (!desired) {
@@ -1113,18 +1058,18 @@ int main(int argc, char** argv) {
       const fs::path root(std::u8string(directory.begin(), directory.end()));
       if (!root.is_absolute() || !fs::is_directory(root))
         throw std::invalid_argument("agent requires an existing absolute directory");
-      safe(root);
+      require_managed_path(root);
       asterion::FileLock ownership(root, "agent.lock");
 #ifndef _WIN32
       if (!transport.remote()) {
         // Only the Agent holding agent.lock owns this path; a stale socket
         // from a crashed predecessor is replaced.
-        safe(transport.endpoint);
+        require_managed_path(transport.endpoint);
         fs::remove(transport.endpoint);
       }
 #endif
       const auto pid_file = root / "agent.pid";
-      safe(pid_file);
+      require_managed_path(pid_file);
       {
         std::ofstream pid(pid_file);
         pid << current_process_id();
@@ -1134,7 +1079,7 @@ int main(int argc, char** argv) {
         const fs::path path(std::u8string(transport_log.begin(), transport_log.end()));
         if (!path.is_absolute())
           throw std::invalid_argument("transport log path must be absolute");
-        safe(path);
+        require_managed_path(path);
         transport_logger = std::make_unique<Logger>(
             LoggerOptions{.name = "agent-transport", .stderr_sink = false, .file = path});
       }

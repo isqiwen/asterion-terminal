@@ -207,3 +207,24 @@
 .setup-error {
   max-height: 160px;
 }
+
+.setup-plugins {
+  text-align: left;
+  margin-block: 1rem;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.setup-plugins label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-block: 0.5rem;
+  font-size: 12px;
+}
+.setup-plugins input {
+  width: auto;
+}
+.setup-plugins p {
+  font-size: 12px;
+  color: var(--muted);
+}

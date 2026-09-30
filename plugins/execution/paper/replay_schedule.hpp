@@ -1,22 +1,24 @@
 #pragma once
 #include <asterion/domain/market.hpp>
-#include <asterion/domain/settlement_calendar_port.hpp>
+#include <string>
+#include <vector>
 namespace asterion {
-// Explicit historical simulator policy. Does not infer exchange hours or
-// settlement prices, and does not make the data publication rules stricter.
+// Groups a bar replay into trading days. Every bar's day must have exactly one
+// settlement and every settlement day must have bars. Nothing is inferred.
 class PaperReplaySchedule final {
 public:
   struct Event {
-    std::size_t day, session;
-    bool session_end, day_end;
+    std::size_t day;
+    bool day_end;
   };
-  PaperReplaySchedule(const Instrument&, const std::vector<TradeTick>&, std::vector<SettlementDay>);
+  PaperReplaySchedule(const Instrument&, const std::vector<MarketBar>&, std::vector<DaySettlement>);
   const Event& event(std::size_t index) const { return events_.at(index); }
-  const SettlementDay& day(std::size_t index) const { return days_.at(index); }
+  const DaySettlement& day(std::size_t index) const { return days_.at(index); }
   std::size_t size() const noexcept { return events_.size(); }
+  std::size_t days() const noexcept { return days_.size(); }
 
 private:
-  std::vector<SettlementDay> days_;
+  std::vector<DaySettlement> days_;
   std::vector<Event> events_;
 };
 } // namespace asterion

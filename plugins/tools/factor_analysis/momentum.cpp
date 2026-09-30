@@ -127,14 +127,14 @@ void MomentumFactor::start() {
 void MomentumFactor::stop() noexcept {
   running_ = false;
 }
-std::optional<double> MomentumFactor::on_tick(const TradeTick& tick) {
+std::optional<double> MomentumFactor::on_bar(const MarketBar& bar) {
   if (!running_)
     throw std::logic_error("factor is stopped");
-  tick.validate(instrument_);
-  if (tick.price <= Decimal{} || tick.timestamp_ns < last_time_)
+  bar.validate(instrument_);
+  if (bar.close <= Decimal{} || bar.timestamp_ns <= last_time_)
     throw std::invalid_argument("invalid factor price or event order");
-  const auto result = prices_.push(tick.price);
-  last_time_ = tick.timestamp_ns;
+  const auto result = prices_.push(bar.close);
+  last_time_ = bar.timestamp_ns;
   return result;
 }
 } // namespace asterion

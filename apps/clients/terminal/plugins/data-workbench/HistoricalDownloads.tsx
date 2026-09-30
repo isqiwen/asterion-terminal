@@ -40,18 +40,27 @@ function SourceDownloads({
     rate: String(source.rate.default),
   });
   const [viewId, setViewId] = useState<string | null>(null);
+  const [connectionId, setConnectionId] = useState("");
+  const savedConnections =
+    snapshot?.data_connections?.filter(item => item.source === source.id) ?? [];
+  const connection = savedConnections.find(item => item.id === connectionId);
   const [token, setToken] = useState(""); // Never retain credentials in workspace drafts/storage.
   const [error, setError] = useState<DisplayError>("");
   const research = snapshot?.research;
   const catalog = source.catalog(snapshot);
   const matchingCatalog =
-    catalog?.exchange === form.exchange && catalog.product === form.product ? catalog : null;
+    catalog?.exchange === form.exchange &&
+    catalog.product === form.product &&
+    catalog.connection === (connection?.id ?? "") &&
+    catalog.connection_revision === (connection?.revision ?? "")
+      ? catalog
+      : null;
   const contracts = matchingCatalog?.items ?? [];
   const selected = contracts.find(item => item.code === form.code);
   const cutoff = matchingCatalog?.cutoff_ns ?? "0";
   const [pending, setPending] = useWorkspaceRequestId(
     `historySubmission:${source.id}`,
-    JSON.stringify([research?.connection_id, form, cutoff]),
+    JSON.stringify([research?.connection_id, form, cutoff, connection?.id, connection?.revision]),
   );
   const tasks = research?.tasks.filter(source.ownsTask) ?? [];
   const result = snapshot?.research_result ? source.dataset(snapshot.research_result) : null;
@@ -97,7 +106,16 @@ function SourceDownloads({
             if (!selected || !matchingCatalog) return;
             const id = pending ?? `history-${crypto.randomUUID()}`;
             setPending(id);
-            void run(source.command, { id, ...source.parameters(form, token, matchingCatalog) })
+            void run(source.command, {
+              id,
+              ...source.parameters(
+                { ...form, rate: connection ? String(connection.requests_per_minute) : form.rate },
+                connection ? "" : token,
+                matchingCatalog,
+              ),
+              connection: connection?.id ?? "",
+              connection_revision: connection?.revision ?? "",
+            })
               .then(ok => {
                 if (ok) setPending(null);
               })
@@ -132,25 +150,56 @@ function SourceDownloads({
                 />
               </label>
               <label>
-                {t(source.credential.label)}
-                <input
-                  type="password"
-                  autoComplete="off"
-                  required={source.credential.required}
-                  maxLength={source.credential.maxLength}
-                  value={token}
-                  onChange={event => setToken(event.target.value)}
-                />
+                {t("使用连接")}
+                <select
+                  aria-label={t("使用连接")}
+                  value={connectionId}
+                  onChange={event => {
+                    setConnectionId(event.target.value);
+                    setToken("");
+                    setForm(previous => ({ ...previous, code: "" }));
+                  }}
+                >
+                  <option value="">{t("临时凭据")}</option>
+                  {savedConnections.map(item => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
               </label>
+              {!connection && (
+                <label>
+                  {source.credential.label}
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    required={source.credential.required}
+                    maxLength={source.credential.maxLength}
+                    value={token}
+                    onChange={event => setToken(event.target.value)}
+                  />
+                </label>
+              )}
+              {connection && source.credential.required && !connection.credential_ready && (
+                <p>{t("请在设置中重新输入连接凭据。")}</p>
+              )}
               <div className="history-catalog-action">
                 <button
                   type="button"
-                  disabled={!token || !form.product}
+                  disabled={
+                    (source.credential.required &&
+                      !(connection ? connection.credential_ready : token)) ||
+                    !form.product
+                  }
                   onClick={() =>
                     void run(source.catalogCommand, {
+                      source: source.id,
                       exchange: form.exchange,
                       product: form.product,
-                      token,
+                      token: connection ? "" : token,
+                      connection: connection?.id ?? "",
+                      connection_revision: connection?.revision ?? "",
                     })
                   }
                 >
@@ -194,7 +243,8 @@ function SourceDownloads({
                   min="1"
                   max={source.rate.max}
                   required
-                  value={form.rate}
+                  disabled={!!connection}
+                  value={connection ? String(connection.requests_per_minute) : form.rate}
                   onChange={event => update("rate", event.target.value)}
                 />
               </label>
@@ -394,8 +444,10 @@ function SourceDownloads({
 }
 
 export function HistoricalDownloads(context: TerminalContext) {
-  const [sourceId, setSourceId] = useWorkspaceDraft("historySource", historySources[0].id);
-  const source = historySources.find(item => item.id === sourceId);
+  const [connectionError, setConnectionError] = useState<DisplayError>("");
+  const sources = historySources(context.snapshot?.research?.sources ?? []);
+  const [sourceId, setSourceId] = useWorkspaceDraft("historySource", "");
+  const source = sources.find(item => item.id === sourceId) ?? sources[0];
   return (
     <section className="futures-data history-page" aria-label={t("历史数据")}>
       <header className="history-heading">
@@ -408,10 +460,10 @@ export function HistoricalDownloads(context: TerminalContext) {
           {t("数据源")}
           <select
             aria-label={t("数据源")}
-            value={sourceId}
+            value={source?.id ?? ""}
             onChange={event => setSourceId(event.target.value)}
           >
-            {historySources.map(item => (
+            {sources.map(item => (
               <option key={item.id} value={item.id}>
                 {item.name} · {t(item.dataType)}
               </option>
@@ -438,7 +490,23 @@ export function HistoricalDownloads(context: TerminalContext) {
           />
         </>
       ) : (
-        <p role="alert">{t("数据源不可用")}</p>
+        <>
+          <p role="alert">{t("数据源不可用")}</p>
+          {!context.snapshot?.research?.online && (
+            <button
+              disabled={context.busy}
+              onClick={() => {
+                setConnectionError("");
+                void context
+                  .trade("research.local")
+                  .catch(error => setConnectionError(asDisplayError(error)));
+              }}
+            >
+              {t("连接本机研究服务")}
+            </button>
+          )}
+          <ErrorNotice error={connectionError} />
+        </>
       )}
     </section>
   );

@@ -23,6 +23,7 @@ const resources = app.isPackaged
   ? process.resourcesPath
   : path.join(root, "build/electron-resources");
 const suffix = process.platform === "win32" ? ".exe" : "";
+process.env.ASTERION_PLUGIN_DIRECTORY ??= path.join(resources, "native", "plugins");
 const variables = {
   ASTERION_TRADING_EXECUTABLE: "asterion-trading",
   ASTERION_NODE_AGENT_EXECUTABLE: "asterion-node-agent",

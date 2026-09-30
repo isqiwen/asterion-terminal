@@ -1,5 +1,7 @@
 #pragma once
 #include "file_journal.hpp"
+#include "risk_module.hpp"
+#include <optional>
 #include "paper_execution.hpp"
 #include "replay_schedule.hpp"
 #include <map>
@@ -16,7 +18,7 @@ public:
   bool recovery_required() const noexcept { return failed_; }
 
 private:
-  static std::unique_ptr<PaperExecution> build(const Json& manifest);
+  std::unique_ptr<PaperExecution> build(const Json& manifest);
   // Rebuilds in-memory state from the manifest and the committed commands.
   // Used only when a failed command or commit left the engine modified.
   void restore();
@@ -25,6 +27,7 @@ private:
   void apply(PaperExecution& engine, Json& authorization, Json& replay,
              std::shared_ptr<const PaperReplaySchedule>& schedule, const Json& command) const;
   FileJournal journal_;
+  std::optional<risk_providers::Module> risk_module_;
   std::unique_ptr<PaperExecution> engine_;
   Json manifest_;
   Json authorization_ = nullptr;

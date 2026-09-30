@@ -1,15 +1,16 @@
+#include "risk_module.hpp"
 #include "daily_factor_source.hpp"
-#include "calendar.hpp"
-#include "minutes.hpp"
-#include "daily.hpp"
-#include "tushare.hpp"
+#include "bar_dataset_source.hpp"
+#include "history_minutes.hpp"
+#include "history_daily.hpp"
+#include "history_providers.hpp"
+#include "history_archive.hpp"
 #include <asterion/kernel/durable_file.hpp>
 #include <fstream>
 #include "task_store.hpp"
 #include "engine.hpp"
 #include "factor_engine.hpp"
 #include "file_journal.hpp"
-#include "pipeline.hpp"
 #include <algorithm>
 #include <asterion/foundation/decimal.hpp>
 #include <asterion/kernel/process/artifact.hpp>
@@ -54,53 +55,38 @@ void prepare(wire::Task& task) {
     protocol::validate_daily_factor(task.daily_factor());
     task.set_kind(wire::DAILY_FACTOR);
     task.set_source_name(task.daily_factor().dataset().source_task_id());
-    task.set_instrument(task.daily_factor().dataset().ts_code());
+    task.set_instrument(task.daily_factor().dataset().contract_id());
     task.set_total(static_cast<unsigned>(task.daily_factor().dataset().bars_size()));
   } else if (task.has_daily()) {
-    const auto range = data_pipeline::daily_range(task.daily());
+    const auto range = history_files::daily_range(task.daily());
     task.set_kind(wire::DAILY_DOWNLOAD);
-    task.set_source_name("Tushare " + task.daily().ts_code());
-    task.set_instrument(range.instrument.venue + "/" + range.instrument.symbol);
-    task.set_total(data_pipeline::daily_work_units(task.daily()));
+    task.set_source_name(task.daily().source() + " " + task.daily().contract_id());
+    task.set_instrument(range.instrument.key());
+    task.set_total(history_files::daily_work_units(task.daily()));
   } else if (task.has_minutes()) {
-    const auto range = data_pipeline::minute_range(task.minutes());
+    const auto range = history_files::minute_range(task.minutes());
     task.set_kind(wire::MINUTE_DOWNLOAD);
-    task.set_source_name("Tushare " + task.minutes().ts_code());
-    task.set_instrument(range.instrument.venue + "/" + range.instrument.symbol);
+    task.set_source_name(task.minutes().source() + " " + task.minutes().contract_id());
+    task.set_instrument(range.instrument.key());
     task.set_total(static_cast<unsigned>((range.end_ns - range.begin_ns) / 86400000000000LL + 1));
-  } else if (task.has_calendar()) {
-    static_cast<void>(protocol::decode_calendar_snapshot(task.calendar()));
-    task.set_kind(wire::CALENDAR_IMPORT);
-    task.set_source_name(task.calendar().source_name());
-    task.set_instrument(task.calendar().contract().venue() + "/" +
-                        task.calendar().contract().symbol());
-    task.set_total(static_cast<unsigned>(task.calendar().contents().size()));
-    task.clear_trading_day();
-  } else if (task.has_data()) {
-    if (task.data().contents().size() > 4 * 1024 * 1024)
-      throw std::invalid_argument("uploaded CSV task exceeds 4 MiB");
-    static_cast<void>(protocol::decode_csv_snapshot(task.data()));
-    task.set_kind(wire::DATA_IMPORT);
-    task.set_source_name(task.data().source_name());
-    task.set_instrument(task.data().contract().venue() + "/" + task.data().contract().symbol());
-    task.set_total(static_cast<unsigned>(task.data().contents().size()));
-    task.clear_trading_day();
   } else if (task.has_factor()) {
     factor::validate(task.factor());
     task.set_kind(wire::FACTOR);
-    task.set_instrument(task.factor().contract().venue() + "/" + task.factor().contract().symbol());
+    const auto& c = task.factor().dataset().contract();
+    task.set_instrument(c.venue() + "/" + c.symbol());
+    task.set_source_name(task.factor().dataset().source_task_id());
     task.set_total(static_cast<unsigned>(factor::work_units(task.factor())));
     task.clear_trading_day();
   } else if (task.has_input()) {
     backtest::validate(task.input());
     task.set_kind(wire::BACKTEST);
-    task.set_instrument(task.input().paper().contract().venue() + "/" +
-                        task.input().paper().contract().symbol());
-    task.set_trading_day(task.input().days(0).trading_day());
-    if (task.input().days_size() > 1)
-      task.set_trading_day(task.trading_day() + " / " +
-                           task.input().days().rbegin()->trading_day());
-    task.set_total(static_cast<unsigned>(task.input().paper().ticks_size()));
+    const auto& dataset = task.input().paper().dataset();
+    task.set_instrument(dataset.contract().venue() + "/" + dataset.contract().symbol());
+    task.set_source_name(dataset.source_task_id());
+    task.set_trading_day(dataset.days(0).trading_day());
+    if (dataset.days_size() > 1)
+      task.set_trading_day(task.trading_day() + " / " + dataset.days().rbegin()->trading_day());
+    task.set_total(static_cast<unsigned>(dataset.bars_size()));
   } else
     throw std::invalid_argument("task requires an explicit input type");
   task.set_state(wire::QUEUED);
@@ -109,13 +95,9 @@ Json definition(const wire::Task& task) {
   if (task.kind() == wire::DAILY_FACTOR && task.has_daily_factor())
     return bytes(task.daily_factor());
   if (task.kind() == wire::DAILY_DOWNLOAD && task.has_daily())
-    return data_pipeline::daily_request_json(task.daily());
+    return history_files::daily_request_json(task.daily());
   if (task.kind() == wire::MINUTE_DOWNLOAD && task.has_minutes())
-    return data_pipeline::minute_request_json(task.minutes());
-  if (task.kind() == wire::CALENDAR_IMPORT && task.has_calendar())
-    return protocol::decode_calendar_snapshot(task.calendar());
-  if (task.kind() == wire::DATA_IMPORT && task.has_data())
-    return protocol::decode_csv_snapshot(task.data());
+    return history_files::minute_request_json(task.minutes());
   if (task.kind() == wire::FACTOR && task.has_factor())
     return protocol::decode_factor(task.factor());
   if (task.kind() == wire::BACKTEST && task.has_input())
@@ -162,17 +144,19 @@ void transition(const wire::Task& before, const std::string& old_token, const wi
   if (after.error().size() > 1024)
     throw std::invalid_argument("task error exceeds limit");
 }
-void verify_result(const wire::Task& task, const wire::BacktestResult& result) {
+void verify_result(const wire::Task& task, const wire::BacktestResult& result,
+                   const fs::path& directory) {
   protocol::validate_message(result);
   if (task.kind() != wire::BACKTEST || !task.has_input())
     throw std::invalid_argument("not a backtest task");
-  if (result.version() != 3 || result.dataset_revision() != task.input().dataset_revision() ||
+  if (result.version() != 4 || result.dataset_revision() != task.input().dataset_revision() ||
       result.engine_version() != protocol::backtest_engine_version ||
       result.account().cursor() != task.total() || result.account().total() != task.total() ||
-      result.equity_size() != static_cast<int>(task.total()) + task.input().days_size() ||
-      result.settlements_size() != task.input().days_size() ||
+      result.equity_size() !=
+          static_cast<int>(task.total()) + task.input().paper().dataset().days_size() ||
+      result.settlements_size() != task.input().paper().dataset().days_size() ||
       result.account().contract().SerializeAsString() !=
-          task.input().paper().contract().SerializeAsString() ||
+          task.input().paper().dataset().contract().SerializeAsString() ||
       result.account().costs().SerializeAsString() !=
           task.input().paper().costs().SerializeAsString() ||
       result.account().risk().SerializeAsString() !=
@@ -197,7 +181,9 @@ void verify_result(const wire::Task& task, const wire::BacktestResult& result) {
   for (const auto& order : result.account().orders())
     if (order.state() == protocol::v1::ACCEPTED || order.state() == protocol::v1::PARTIALLY_FILLED)
       throw std::invalid_argument("result retains active orders");
-  if (backtest::result_json(result) != backtest::result_json(backtest::run(task.input())))
+  const auto risk_module = risk_providers::Module::pinned(directory, task.risk_artifact());
+  if (backtest::result_json(result) !=
+      backtest::result_json(backtest::run(task.input(), {}, {}, &risk_module)))
     throw std::invalid_argument("backtest result does not match input and session policy");
 }
 bool active(wire::TaskState state) {
@@ -214,8 +200,11 @@ struct Store::Impl {
     mutable std::string verified_digest;
   };
   fs::path root;
+  std::unique_ptr<history_files::Archive> archive;
   std::unique_ptr<FileLock> owner;
   std::map<std::string, Entry> entries;
+  // Retired tasks preserved on disk; see the loader.
+  std::set<std::string> retired;
   bool failed = false;
   std::shared_ptr<const Clock> clock;
   std::uint32_t last_sequence = 0;
@@ -234,9 +223,12 @@ struct Store::Impl {
       throw std::invalid_argument("task store requires an existing absolute directory");
     safe(root);
     owner = std::make_unique<FileLock>(root, "manager.lock");
+    archive = std::make_unique<history_files::Archive>(root / "history");
     for (const auto& item : fs::directory_iterator(root)) {
       safe(item.path());
       const auto id = item.path().filename().string();
+      if (id == "history" && item.is_directory())
+        continue;
       if (id == "manager.lock" && item.is_regular_file())
         continue;
       validate_id(id);
@@ -250,9 +242,11 @@ struct Store::Impl {
       const auto records = entry.journal->read();
       if (records.empty())
         throw std::invalid_argument("task submission is incomplete; preserve it for inspection");
-      require_fields(records.front(),
-                     {"version", "type", "input", "id", "submission_sequence", "submitted_at_ms"});
-      if (records.front().at("version") != 2 || records.front().at("id") != id)
+      if (!records.front().is_object() || records.front().value("version", 0) != 3)
+        throw std::invalid_argument("unsupported task manifest");
+      require_fields(records.front(), {"version", "type", "input", "id", "submission_sequence",
+                                       "submitted_at_ms", "provider_artifact", "risk_artifact"});
+      if (records.front().at("version") != 3 || records.front().at("id") != id)
         throw std::invalid_argument("unsupported task manifest");
       const auto& manifest = records.front();
       if (!manifest.at("submission_sequence").is_number_unsigned() ||
@@ -267,24 +261,47 @@ struct Store::Impl {
         throw std::invalid_argument("duplicate task submission sequence");
       last_sequence = std::max(last_sequence, entry.task.submission_sequence());
       entry.task.set_id(id);
+      // Tasks of retired kinds or input versions stay on disk untouched. They
+      // are not loaded, and their identity and sequence cannot be reused.
+      const auto& type = records.front().at("type");
+      const auto& input = records.front().at("input");
+      if (type == "data.task" || type == "calendar.task" ||
+          (type == "backtest.task" && input.value("version", 0) != 6) ||
+          (type == "factor.task" && input.value("version", 0) != 5)) {
+        retired.insert(id);
+        continue;
+      }
       if (records.front().at("type") == "daily-factor.task")
         *entry.task.mutable_daily_factor() =
             message<wire::DailyFactorInput>(records.front().at("input"));
       else if (records.front().at("type") == "daily.task")
-        *entry.task.mutable_daily() = data_pipeline::daily_request(records.front().at("input"));
+        *entry.task.mutable_daily() = history_files::daily_request(records.front().at("input"));
       else if (records.front().at("type") == "minutes.task")
-        *entry.task.mutable_minutes() = data_pipeline::minute_request(records.front().at("input"));
+        *entry.task.mutable_minutes() = history_files::minute_request(records.front().at("input"));
       else if (records.front().at("type") == "backtest.task")
         *entry.task.mutable_input() = protocol::encode_backtest(records.front().at("input"));
       else if (records.front().at("type") == "factor.task")
         *entry.task.mutable_factor() = protocol::encode_factor(records.front().at("input"));
-      else if (records.front().at("type") == "calendar.task")
-        *entry.task.mutable_calendar() =
-            protocol::encode_calendar_snapshot(records.front().at("input"));
-      else if (records.front().at("type") == "data.task")
-        *entry.task.mutable_data() = protocol::encode_csv_snapshot(records.front().at("input"));
       else
         throw std::invalid_argument("unsupported task manifest type");
+      entry.task.set_provider_artifact(manifest.at("provider_artifact").get<std::string>());
+      if (entry.task.has_minutes() || entry.task.has_daily()) {
+        const auto& hash = entry.task.provider_artifact();
+        if (hash.size() != 64 || !std::ranges::all_of(hash, [](char c) {
+              return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+            }))
+          throw std::invalid_argument("invalid task provider artifact");
+      } else if (!entry.task.provider_artifact().empty())
+        throw std::invalid_argument("unexpected task provider artifact");
+      entry.task.set_risk_artifact(manifest.at("risk_artifact").get<std::string>());
+      if (entry.task.has_input()) {
+        const auto& hash = entry.task.risk_artifact();
+        if (hash.size() != 64 || !std::ranges::all_of(hash, [](char c) {
+              return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+            }))
+          throw std::invalid_argument("invalid risk plugin artifact");
+      } else if (!entry.task.risk_artifact().empty())
+        throw std::invalid_argument("unexpected task risk artifact");
       prepare(entry.task);
       for (std::size_t i = 1; i < records.size(); ++i) {
         const auto& event = records[i];
@@ -316,7 +333,7 @@ struct Store::Impl {
       }
       entries.emplace(id, std::move(entry));
     }
-    if (last_sequence != entries.size())
+    if (last_sequence != entries.size() + retired.size())
       throw std::invalid_argument("task submission sequence has missing records");
     for (auto& [id, entry] : entries) {
       (void)id;
@@ -409,30 +426,24 @@ struct Store::Impl {
       *result.mutable_daily() =
           message<data::v1::DailyDownloadResult>(records.front().at("result"));
       if (verify)
-        data_pipeline::verify_daily_result(entry.task.daily(), result.daily());
+        history_files::verify_daily_result(entry.task.daily(), result.daily());
     } else if (entry.task.kind() == wire::MINUTE_DOWNLOAD) {
       *result.mutable_minutes() =
           message<data::v1::MinuteDownloadResult>(records.front().at("result"));
       if (verify)
-        data_pipeline::verify_minute_result(entry.task.minutes(), result.minutes());
-    } else if (entry.task.kind() == wire::CALENDAR_IMPORT) {
-      *result.mutable_calendar_publication() =
-          message<data::v1::CalendarPublication>(records.front().at("result"));
-      if (verify)
-        data_pipeline::verify_calendar_result(entry.task.calendar(), result.calendar_publication());
-    } else if (entry.task.kind() == wire::DATA_IMPORT) {
-      *result.mutable_publication() =
-          message<data::v1::DatasetPublication>(records.front().at("result"));
-      if (verify)
-        data_pipeline::verify_result(entry.task.data(), result.publication());
+        history_files::verify_minute_result(entry.task.minutes(), result.minutes());
     } else if (entry.task.kind() == wire::FACTOR) {
       *result.mutable_factor() = message<wire::FactorResult>(records.front().at("result"));
       if (verify)
         factor::verify_result(entry.task.factor(), result.factor());
     } else {
+      // Cached computation never bypasses verification of the owned algorithm bytes.
+      if (!verify)
+        static_cast<void>(
+            risk_providers::Module::pinned(root / entry.task.id(), entry.task.risk_artifact()));
       *result.mutable_backtest() = message<wire::BacktestResult>(records.front().at("result"));
       if (verify)
-        verify_result(entry.task, result.backtest());
+        verify_result(entry.task, result.backtest(), root / entry.task.id());
     }
     if (verify)
       entry.verified_digest = entry.task.result_digest();
@@ -440,7 +451,24 @@ struct Store::Impl {
   }
 };
 Store::Store(fs::path directory, std::shared_ptr<const Clock> clock)
-    : impl_(std::make_unique<Impl>(std::move(directory), std::move(clock))) {}
+    : impl_(std::make_unique<Impl>(std::move(directory), std::move(clock))) {
+  for (const auto& [id, entry] : impl_->entries) {
+    if (entry.task.state() != wire::SUCCEEDED ||
+        (!entry.task.has_daily() && !entry.task.has_minutes()))
+      continue;
+    const auto result = impl_->read_result(entry);
+    data::v1::HistoryRecord record;
+    record.set_version(1);
+    if (entry.task.has_daily()) {
+      *record.mutable_daily() = entry.task.daily();
+      *record.mutable_daily_result() = result.daily();
+    } else {
+      *record.mutable_minutes() = entry.task.minutes();
+      *record.mutable_minute_result() = result.minutes();
+    }
+    impl_->archive->publish(record);
+  }
+}
 Store::~Store() = default;
 Store::DailyFactorSubmission::DailyFactorSubmission(std::string id,
                                                     wire::DailyFactorRequest request,
@@ -493,24 +521,13 @@ wire::Task Store::submit(const std::string& id, const wire::BacktestInput& input
   wire::Task task;
   task.set_id(id);
   *task.mutable_input() = input;
+  task.set_risk_artifact(risk_providers::Module::selected().artifact());
   return submit_task(std::move(task));
 }
 wire::Task Store::submit(const std::string& id, const wire::FactorInput& input) {
   wire::Task task;
   task.set_id(id);
   *task.mutable_factor() = input;
-  return submit_task(std::move(task));
-}
-wire::Task Store::submit(const std::string& id, const data::v1::CsvSnapshot& input) {
-  wire::Task task;
-  task.set_id(id);
-  *task.mutable_data() = input;
-  return submit_task(std::move(task));
-}
-wire::Task Store::submit(const std::string& id, const data::v1::CalendarCsvSnapshot& input) {
-  wire::Task task;
-  task.set_id(id);
-  *task.mutable_calendar() = input;
   return submit_task(std::move(task));
 }
 wire::Task Store::submit_task(wire::Task task) {
@@ -521,17 +538,21 @@ wire::Task Store::submit_task(wire::Task task) {
     throw std::invalid_argument("invalid task id");
   prepare(task);
   impl_->writable();
+  if (impl_->retired.contains(id))
+    throw std::invalid_argument("task id belongs to a retired task kept on disk");
   if (impl_->entries.contains(id)) {
     const auto current = get(id);
     if (current.kind() != task.kind() || definition(current) != definition(task))
       throw std::invalid_argument("task id already belongs to different input");
     return current;
   }
-  if (impl_->entries.size() >= 1000)
+  if (impl_->entries.size() + impl_->retired.size() >= 1000)
     throw std::invalid_argument("task store capacity reached");
   task.set_submission_sequence(impl_->last_sequence + 1);
   task.set_submitted_at_ms(impl_->now_ms());
   task.set_updated_at_ms(task.submitted_at_ms());
+  if (id == "history")
+    throw std::invalid_argument("reserved task identifier");
   const auto directory = impl_->root / id;
   safe(directory);
   if (!fs::create_directory(directory))
@@ -539,17 +560,23 @@ wire::Task Store::submit_task(wire::Task task) {
   try {
     fs::create_directory(directory / "journal");
     fs::create_directory(directory / "results");
+    if (task.has_input()) {
+      const auto module = risk_providers::Module::selected();
+      if (module.artifact() != task.risk_artifact())
+        throw std::invalid_argument("risk plugin artifact changed before capture");
+      module.capture(directory);
+    }
     Impl::Entry entry;
     entry.journal = std::make_unique<FileJournal>(directory / "journal");
     entry.journal->start();
-    entry.journal->append({{"version", 2},
+    entry.journal->append({{"version", 3},
+                           {"provider_artifact", task.provider_artifact()},
+                           {"risk_artifact", task.risk_artifact()},
                            {"submission_sequence", task.submission_sequence()},
                            {"submitted_at_ms", task.submitted_at_ms()},
                            {"type", task.kind() == wire::DAILY_FACTOR      ? "daily-factor.task"
                                     : task.kind() == wire::DAILY_DOWNLOAD  ? "daily.task"
                                     : task.kind() == wire::MINUTE_DOWNLOAD ? "minutes.task"
-                                    : task.kind() == wire::CALENDAR_IMPORT ? "calendar.task"
-                                    : task.kind() == wire::DATA_IMPORT     ? "data.task"
                                     : task.kind() == wire::FACTOR          ? "factor.task"
                                                                            : "backtest.task"},
                            {"input", definition(task)},
@@ -567,13 +594,18 @@ wire::Task Store::submit_task(wire::Task task) {
 wire::Task Store::submit(const std::string& id, const data::v1::MinuteDownload& input,
                          const std::string& token) {
   // Validate before creating durable state. Credentials live outside task journals.
-  tushare::Minutes check(token);
-  (void)data_pipeline::minute_range(input);
+  auto check = history_providers::minutes(input.source(), token);
+  history_providers::validate_request(input.source(), history_files::minute_range(input).instrument,
+                                      input.interval_minutes(), input.requests_per_minute());
   wire::Task task;
   task.set_id(id);
   *task.mutable_minutes() = input;
+  task.set_provider_artifact(history_providers::artifact(input.source()));
+  const bool already_submitted = impl_->entries.contains(id);
   auto result = submit_task(std::move(task));
-  const auto secret = impl_->root / id / "tushare.token";
+  if (already_submitted)
+    return result; // The first submission owns the immutable credential snapshot.
+  const auto secret = impl_->root / id / "provider.credential";
   safe(secret);
   replace_file_durably(secret, token, true);
   return result;
@@ -581,13 +613,18 @@ wire::Task Store::submit(const std::string& id, const data::v1::MinuteDownload& 
 wire::Task Store::submit(const std::string& id, const data::v1::DailyDownload& input,
                          const std::string& token) {
   // Validate before creating durable state. Credentials live outside task journals.
-  tushare::Daily check(token);
-  (void)data_pipeline::daily_range(input);
+  auto check = history_providers::daily(input.source(), token);
+  history_providers::validate_request(input.source(), history_files::daily_range(input).instrument,
+                                      0, input.requests_per_minute());
   wire::Task task;
   task.set_id(id);
   *task.mutable_daily() = input;
+  task.set_provider_artifact(history_providers::artifact(input.source()));
+  const bool already_submitted = impl_->entries.contains(id);
   auto result = submit_task(std::move(task));
-  const auto secret = impl_->root / id / "tushare.token";
+  if (already_submitted)
+    return result; // The first submission owns the immutable credential snapshot.
+  const auto secret = impl_->root / id / "provider.credential";
   safe(secret);
   replace_file_durably(secret, token, true);
   return result;
@@ -600,7 +637,7 @@ void Store::download_attempt(wire::TaskAttempt& attempt) const {
   if (entry.task.state() != wire::RUNNING || attempt.token() != entry.token ||
       attempt.task().kind() != entry.task.kind())
     throw std::invalid_argument("inactive download attempt");
-  const auto secret = impl_->root / entry.task.id() / "tushare.token";
+  const auto secret = impl_->root / entry.task.id() / "provider.credential";
   safe(secret);
   if (!fs::is_regular_file(secret) || fs::file_size(secret) > 256)
     throw std::invalid_argument("download credential unavailable");
@@ -610,14 +647,16 @@ void Store::download_attempt(wire::TaskAttempt& attempt) const {
   token.resize(file.gcount());
   if (!file.eof() || token.size() > 256)
     throw std::invalid_argument("download credential unavailable");
-  if (entry.task.kind() == wire::DAILY_DOWNLOAD) {
-    tushare::Daily check(token);
-  } else {
-    tushare::Minutes check(token);
-  }
+  // The worker validates credentials using the task-pinned provider, which may no longer
+  // be enabled in the Task Service catalog. Never substitute the current provider here.
   attempt.set_provider_token(token);
-  const auto directory = impl_->root / entry.task.id() /
-                         (entry.task.kind() == wire::DAILY_DOWNLOAD ? "daily" : "minutes");
+  const auto directory =
+      entry.task.has_daily()
+          ? impl_->archive->directory(history_files::daily_range(entry.task.daily()).instrument,
+                                      entry.task.daily().source(), 0, entry.task.id())
+          : impl_->archive->directory(history_files::minute_range(entry.task.minutes()).instrument,
+                                      entry.task.minutes().source(),
+                                      entry.task.minutes().interval_minutes(), entry.task.id());
   safe(directory);
   fs::create_directory(directory);
   const auto path = directory.u8string();
@@ -646,6 +685,10 @@ wire::TaskList Store::list() const {
     *task = e.task;
     if (task->has_minutes())
       task->set_minute_interval_minutes(task->minutes().interval_minutes());
+    if (task->has_daily())
+      task->set_data_source(task->daily().source());
+    if (task->has_minutes())
+      task->set_data_source(task->minutes().source());
     task->clear_definition();
   }
   std::sort(result.mutable_tasks()->begin(), result.mutable_tasks()->end(),
@@ -678,6 +721,7 @@ wire::TaskLaunches Store::dispatch(const wire::TaskDispatch& processes) const {
     switch (task.kind()) {
     case wire::BACKTEST:
       launch->set_program(wire::BACKTEST_PROGRAM);
+      launch->set_risk_artifact(task.risk_artifact());
       break;
     case wire::DAILY_FACTOR:
       launch->set_daily_factor(true);
@@ -688,10 +732,8 @@ wire::TaskLaunches Store::dispatch(const wire::TaskDispatch& processes) const {
       break;
     case wire::DAILY_DOWNLOAD:
     case wire::MINUTE_DOWNLOAD:
-    case wire::DATA_IMPORT:
-    case wire::CALENDAR_IMPORT:
       launch->set_program(wire::DATA_PIPELINE_PROGRAM);
-      launch->set_settlement_calendar(task.kind() == wire::CALENDAR_IMPORT);
+      launch->set_provider_artifact(task.provider_artifact());
       launch->set_minute_download(task.kind() == wire::MINUTE_DOWNLOAD);
       launch->set_daily_download(task.kind() == wire::DAILY_DOWNLOAD);
       break;
@@ -751,26 +793,21 @@ wire::Task Store::retry(const std::string& id) {
   impl_->commit(entry, next, "");
   return entry.task;
 }
-Store::Completion::Completion(wire::Task task, wire::TaskFinish result)
-    : task_(std::move(task)), result_(std::move(result)) {}
+Store::Completion::Completion(wire::Task task, wire::TaskFinish result, fs::path directory)
+    : task_(std::move(task)), directory_(std::move(directory)), result_(std::move(result)) {}
 void Store::Completion::verify() {
   if (task_.state() != wire::CANCEL_REQUESTED) {
     if (result_.has_daily_factor() && task_.kind() == wire::DAILY_FACTOR &&
         task_.has_daily_factor())
       factor::verify_daily_result(task_.daily_factor(), result_.daily_factor());
     else if (result_.has_daily() && task_.kind() == wire::DAILY_DOWNLOAD && task_.has_daily())
-      data_pipeline::verify_daily_result(task_.daily(), result_.daily());
+      history_files::verify_daily_result(task_.daily(), result_.daily());
     else if (result_.has_minutes() && task_.kind() == wire::MINUTE_DOWNLOAD && task_.has_minutes())
-      data_pipeline::verify_minute_result(task_.minutes(), result_.minutes());
+      history_files::verify_minute_result(task_.minutes(), result_.minutes());
     else if (result_.has_result())
-      verify_result(task_, result_.result());
+      verify_result(task_, result_.result(), directory_);
     else if (result_.has_factor() && task_.kind() == wire::FACTOR && task_.has_factor())
       factor::verify_result(task_.factor(), result_.factor());
-    else if (result_.has_publication() && task_.kind() == wire::DATA_IMPORT && task_.has_data())
-      data_pipeline::verify_result(task_.data(), result_.publication());
-    else if (result_.has_calendar_publication() && task_.kind() == wire::CALENDAR_IMPORT &&
-             task_.has_calendar())
-      data_pipeline::verify_calendar_result(task_.calendar(), result_.calendar_publication());
     else
       throw std::invalid_argument("task result kind does not match its input");
   }
@@ -781,16 +818,24 @@ Store::Completion Store::prepare_finish(const wire::TaskFinish& result) {
   if (result.output_case() == wire::TaskFinish::OUTPUT_NOT_SET)
     throw std::invalid_argument("missing task result");
   if (result.has_daily()) {
-    const auto expected = (impl_->root / entry.task.id() / "daily").u8string();
+    const auto expected = impl_->archive
+                              ->directory(history_files::daily_range(entry.task.daily()).instrument,
+                                          entry.task.daily().source(), 0, entry.task.id())
+                              .u8string();
     if (result.daily().directory() != std::string(expected.begin(), expected.end()))
       throw std::invalid_argument("daily result directory mismatch");
   }
   if (result.has_minutes()) {
-    const auto expected = (impl_->root / entry.task.id() / "minutes").u8string();
+    const auto expected =
+        impl_->archive
+            ->directory(history_files::minute_range(entry.task.minutes()).instrument,
+                        entry.task.minutes().source(), entry.task.minutes().interval_minutes(),
+                        entry.task.id())
+            .u8string();
     if (result.minutes().directory() != std::string(expected.begin(), expected.end()))
       throw std::invalid_argument("minute result directory mismatch");
   }
-  return Completion(entry.task, result);
+  return Completion(entry.task, result, impl_->root / entry.task.id());
 }
 void Store::finish(Completion completion) {
   if (!completion.verified_)
@@ -811,12 +856,20 @@ void Store::finish(Completion completion) {
     impl_->publish(entry, result.minutes());
   else if (result.has_result())
     impl_->publish(entry, result.result());
-  else if (result.has_factor())
-    impl_->publish(entry, result.factor());
-  else if (result.has_publication())
-    impl_->publish(entry, result.publication());
   else
-    impl_->publish(entry, result.calendar_publication());
+    impl_->publish(entry, result.factor());
+  if (result.has_minutes() || result.has_daily()) {
+    data::v1::HistoryRecord record;
+    record.set_version(1);
+    if (result.has_minutes()) {
+      *record.mutable_minutes() = entry.task.minutes();
+      *record.mutable_minute_result() = result.minutes();
+    } else {
+      *record.mutable_daily() = entry.task.daily();
+      *record.mutable_daily_result() = result.daily();
+    }
+    impl_->archive->publish(record);
+  }
 }
 void Store::finish(const std::string& id, const std::string& token,
                    const wire::BacktestResult& result) {
@@ -837,32 +890,6 @@ void Store::finish(const std::string& id, const std::string& token,
   auto completion = prepare_finish(request);
   completion.verify();
   finish(std::move(completion));
-}
-void Store::finish(const std::string& id, const std::string& token,
-                   const data::v1::DatasetPublication& result) {
-  wire::TaskFinish request;
-  request.set_id(id);
-  request.set_token(token);
-  *request.mutable_publication() = result;
-  auto completion = prepare_finish(request);
-  completion.verify();
-  finish(std::move(completion));
-}
-void Store::finish(const std::string& id, const std::string& token,
-                   const data::v1::CalendarPublication& result) {
-  wire::TaskFinish request;
-  request.set_id(id);
-  request.set_token(token);
-  *request.mutable_calendar_publication() = result;
-  auto completion = prepare_finish(request);
-  completion.verify();
-  finish(std::move(completion));
-}
-data::v1::CalendarPublication Store::calendar_publication(const std::string& id) const {
-  const auto& entry = impl_->find(id);
-  if (entry.task.state() != wire::SUCCEEDED || entry.task.kind() != wire::CALENDAR_IMPORT)
-    throw std::invalid_argument("calendar publication is not complete");
-  return impl_->read_result(entry).calendar_publication();
 }
 void Store::fail(const std::string& id, const std::string& token, const std::string& error) {
   auto& entry = impl_->fenced(id, token);
@@ -904,10 +931,25 @@ wire::FactorResult Store::factor_result(const std::string& id) const {
     throw std::invalid_argument("factor result is not confirmed");
   return impl_->read_result(entry).factor();
 }
-data::v1::DatasetPublication Store::publication(const std::string& id) const {
-  const auto& entry = impl_->find(id);
-  if (entry.task.state() != wire::SUCCEEDED || entry.task.kind() != wire::DATA_IMPORT)
-    throw std::invalid_argument("data publication is not complete");
-  return impl_->read_result(entry).publication();
+BarDatasetSources Store::prepare_dataset(const data::v1::BarDatasetRequest& request) const {
+  protocol::decode_bar_dataset_request(request);
+  BarDatasetSources sources;
+  sources.request = request;
+  sources.source = get(request.source_task_id());
+  if (sources.source.kind() == wire::MINUTE_DOWNLOAD)
+    sources.minutes = minute_result(request.source_task_id());
+  else if (sources.source.kind() == wire::DAILY_DOWNLOAD)
+    sources.daily = daily_result(request.source_task_id());
+  else
+    throw std::invalid_argument("bar source must be a minute or daily download task");
+  sources.settlement = get(request.settlement_task_id());
+  sources.settlement_result = daily_result(request.settlement_task_id());
+  return sources;
+}
+void Store::confirm_sources(const BarDatasetSources& sources) const {
+  // Recheck durable identity after reading files outside the lock.
+  if (get(sources.source.id()).SerializeAsString() != sources.source.SerializeAsString() ||
+      get(sources.settlement.id()).SerializeAsString() != sources.settlement.SerializeAsString())
+    throw std::invalid_argument("dataset source task changed during resolution");
 }
 } // namespace asterion::tasks

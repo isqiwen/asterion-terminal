@@ -21,7 +21,13 @@ std::string name(std::size_t index) {
   return out.str();
 }
 } // namespace
-FileJournal::FileJournal(std::filesystem::path directory) : directory_(std::move(directory)) {
+FileJournal::FileJournal(std::filesystem::path directory, std::set<std::string> sidecars)
+    : directory_(std::move(directory)), sidecar_directories_(std::move(sidecars)) {
+  for (const auto& name : sidecar_directories_)
+    if (name.empty() || name == "." || name == ".." ||
+        std::filesystem::path(name).filename() != std::filesystem::path(name) ||
+        name == "writer.lock" || name == "pending.tmp")
+      throw std::invalid_argument("invalid journal sidecar directory");
   if (!directory_.is_absolute())
     throw std::invalid_argument("trading record directory must be an absolute path");
 }
@@ -82,6 +88,11 @@ std::vector<Json> FileJournal::read() const {
   std::vector<std::filesystem::path> paths;
   for (const auto& entry : std::filesystem::directory_iterator(directory_)) {
     const auto file = entry.path().filename().string();
+    if (sidecar_directories_.contains(file)) {
+      if (!entry.is_directory() || entry.is_symlink())
+        throw std::invalid_argument("invalid journal sidecar directory");
+      continue;
+    }
     if (file == "writer.lock" || file == "pending.tmp") {
       if (!entry.is_regular_file() || entry.is_symlink())
         throw std::invalid_argument("invalid internal file in trading directory");

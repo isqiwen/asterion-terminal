@@ -58,3 +58,5 @@ scripts/build_linux_services.sh
 ## 本机服务
 
 开发时 Terminal 使用 `~/Library/Application Support/Asterion/node` 下的本机 Agent。修改服务程序后，已部署的服务不会自动替换：在“设置 → 连接与部署”中停止服务后更新，或调用 `node.update`。Agent 自身程序变化时，启动流程会自动协调升级；行情登录状态不会保留，需要重新登录。
+
+原生插件的 ABI、独立编译、安装目录和契约测试见 [原生插件 SDK](native-plugins.md)。修改插件后需要重新构建动态库；首次启动时选择研究服务的插件集合；之后在「设置 → 插件」停止服务、保存启用清单，再启动生效。服务程序升级保留原插件集合，不能仅替换桌面文件后让运行中的服务自动切换。

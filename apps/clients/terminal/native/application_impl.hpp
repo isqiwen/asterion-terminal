@@ -2,11 +2,11 @@
 // Internal to the Terminal application: shared state of Application and the
 // per-domain command registrations (commands_*.cpp). Not a public API.
 #include "terminal_application.hpp"
-#include "csv_market_data.hpp"
-#include "tushare.hpp"
+#include <asterion/domain/history_identity.hpp>
 #include "market_client.hpp"
 #include "moving_average.hpp"
 #include "node_client.hpp"
+#include "data_connections.hpp"
 #include "node_enrollment.hpp"
 #include "remote_bundle.hpp"
 #include "research_client.hpp"
@@ -40,22 +40,34 @@ json risk_parameters(const json& p);
 json cost_parameters(const json& p);
 // fields() for a request that also carries every cost field.
 void fields_with_costs(const json& object, std::initializer_list<std::string_view> names);
-std::string text(const json& object, const char* name);
+std::string text(const json& object, const char* name, bool allow_empty = false);
 unsigned short port_number(const json& p, const char* name);
 std::string next_runtime_scope();
 data::v1::DailyPageQuery daily_page_query(const json& params);
 data::v1::MinutePageQuery minute_page_query(const json& params);
-struct PreviewState {
-  json dataset = nullptr;
-  json replay = json::array();
-  std::optional<data::v1::CsvSnapshot> source;
+// Bars selected for paper trading, backtests, factors and strategy runs:
+// completed downloads resolved by the research service, never local files.
+struct DatasetSelection {
+  data::v1::BarDatasetRequest request;
+  data::v1::BarDataset dataset;
+  json summary;
 };
 struct Application::Impl {
   std::shared_ptr<ResearchClient> research;
   std::atomic<std::uint64_t> research_generation{0};
   std::unique_ptr<StrategyClient> strategy;
+  json native_plugins = nullptr;
+  DataConnections data_connections{local_node_directory() / "data-connections"};
+  json connection_verification = nullptr;
+  DataConnection resolve_data_connection(const std::string& id, const std::string& revision,
+                                         const std::string& source);
   json research_result = nullptr;
-  std::vector<tushare::FuturesListing> history_contracts;
+  std::optional<DatasetSelection> selection;
+  // The selected dataset or an actionable error; never an empty stand-in.
+  const DatasetSelection& selected() const;
+  std::vector<HistoryListing> history_contracts;
+  std::string history_source;
+  std::string history_connection, history_connection_revision;
   std::string history_exchange, history_product;
   std::int64_t history_cutoff = 0;
   std::shared_ptr<MarketClient> market;
@@ -97,12 +109,12 @@ struct Application::Impl {
   json read_published(const json& params);
   void refresh_loop(std::stop_token stop);
   json dispatch(const json& request);
-  json inspect(const json& params);
   // One registration per product area; each grants its capability and adds
   // commands before the runtime seals at start.
   void register_paper_commands();
   void register_node_commands();
   void register_research_commands();
+  void register_connection_commands();
   void register_strategy_commands();
   void register_market_commands();
   void trim_market(json& result, const json& params);

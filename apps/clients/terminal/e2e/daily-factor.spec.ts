@@ -59,9 +59,10 @@ test("download research entry binds the selected source to its service", async (
         {
           id: "same-id",
           kind: "daily_download",
+          data_source: "tushare.fut_daily",
           state: "succeeded",
           attempt: 1,
-          instrument: "SHFE/CU2403",
+          instrument: "SHFE/cu/2024-03",
           source_name: "Explicit daily fixture",
           result_digest: "a".repeat(64),
           total: 1,

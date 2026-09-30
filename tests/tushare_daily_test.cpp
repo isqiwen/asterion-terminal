@@ -4,7 +4,11 @@ using namespace asterion;
 namespace {
 HistoricalDailyRange daily_range() {
   using namespace std::chrono;
-  return {{"SHFE", "CU2403"}, year(2024) / February / 28, year(2024) / February / 29};
+  return {{"SHFE", "cu", "2024-03"},
+          year(2024) / February / 28,
+          year(2024) / February / 29,
+          "tushare.fut_daily",
+          "CU2403.SHF"};
 }
 std::string daily_response() {
   return R"({"code":0,"data":{"fields":["ts_code","trade_date","pre_close","pre_settle","open","high","low","close","settle","vol","amount","oi"],"items":[["CU2403.SHF","20240229",100,99.5,100.00000001,102,99,101,100.5,20,123.456789012345,2000],["CU2403.SHF","20240228",null,null,100,102,99,100,null,10,1.25e-4,1900]]}})";
@@ -119,4 +123,16 @@ TEST(TushareDaily, BoundsQueriesResponsesAndLifecycleWithoutLeakingProviderText)
   });
   interrupted.start();
   EXPECT_THROW(interrupted.read(daily_range(), after.get_token()), std::runtime_error);
+}
+
+TEST(TerminalDailyQueries, CatalogLifetimeUsesShanghaiDateAndStopsAtDelisting) {
+  const tushare::FuturesListing item{
+      "CU2403.SHF", "copper", "SHFE", "CU", "20230101", "20240315", {"SHFE", "cu", "2024-03"}};
+  auto range = tushare::daily_contract_range(item, tushare::parse_time("2023-06-01 00:00:00"));
+  EXPECT_EQ(format_trading_date(range.begin), "2023-01-01");
+  EXPECT_EQ(format_trading_date(range.end), "2023-06-01");
+  range = tushare::daily_contract_range(item, tushare::parse_time("2024-04-01 08:00:00"));
+  EXPECT_EQ(format_trading_date(range.end), "2024-03-15");
+  EXPECT_THROW(tushare::daily_contract_range(item, tushare::parse_time("2022-12-31 23:59:59")),
+               std::invalid_argument);
 }

@@ -15,7 +15,8 @@ void Application::Impl::register_market_commands() {
   core.command("market.attach", "node.manage", [this](const json& p) {
     fields(p, {"id", "service"});
     auto next = std::make_unique<MarketClient>(
-        nodes.at(text(p, "id"))->service_endpoint(text(p, "service"), "market"));
+        nodes.at(text(p, "id"))
+            ->service_endpoint(text(p, "service"), asterion::node::v1::MARKET_DATA));
     market = std::move(next);
     return snapshot();
   });

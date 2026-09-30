@@ -129,6 +129,15 @@ export type FirewallPlan = {
 export type TerminalCommand =
   | "node.agent.upgrade"
   | "node.agent.inspect"
+  | "research.connections.save"
+  | "research.connections.remove"
+  | "research.connections.verify"
+  | "research.local.create"
+  | "native.plugins.inspect"
+  | "native.plugins.preview"
+  | "native.plugins.install"
+  | "native.plugins.uninstall"
+  | "node.plugins.configure"
   | "node.update"
   | "strategy.run"
   | "strategy.attach"
@@ -145,6 +154,7 @@ export type TerminalCommand =
   | "research.minutes.page"
   | "research.minutes.submit"
   | "research.contracts.load"
+  | "research.datasets"
   | "research.data.use"
   | "research.action"
   | "research.result"
@@ -193,6 +203,7 @@ export type NodeStatus = {
       revision: string;
       kind: "paper" | "market" | "research" | "strategy";
       active_workers: number;
+      plugin_artifacts: string[];
       id: string;
       artifact: string;
       port: number;
@@ -225,6 +236,7 @@ export type LiveMarket = {
       symbol: string;
       product: string;
       expiry: string;
+      contract_id?: string;
       multiplier: number;
       price_tick: string;
       name: string;
@@ -366,7 +378,42 @@ export type DatasetPublication = {
     >;
   };
 };
+export type HistoryConnectionSchema = {
+  credential_label_en: string;
+  credential_label_zh: string;
+  credential_required: boolean;
+  credential_max_length: number;
+  remember_allowed: boolean;
+  requests_per_minute_default: number;
+  requests_per_minute_max: number;
+};
+export type DataConnection = {
+  id: string;
+  name: string;
+  source: string;
+  plugin_id: string;
+  revision: string;
+  requests_per_minute: number;
+  remember: boolean;
+  credential_ready: boolean;
+};
+export type NativeHistorySource = {
+  id: string;
+  name: string;
+  plugin_id: string;
+  normalization: string;
+  timezone: string;
+  timestamp_semantics: string;
+  venues: string[];
+  intervals: number[];
+  max_requests_per_minute: number;
+  credential_required: boolean;
+  connection?: HistoryConnectionSchema | null;
+};
 export type ResearchTask = {
+  provider_artifact?: string;
+  risk_artifact?: string;
+  data_source?: string;
   kind:
     | "backtest"
     | "factor"
@@ -472,7 +519,7 @@ export type DailyFactorExperiment = {
   data: {
     source_task_id: string;
     source: string;
-    ts_code: string;
+    contract_id: string;
     manifest_sha256: string;
     count: number;
     first_day: string;
@@ -529,18 +576,35 @@ export type ResearchResult =
       id: string;
       kind: "minute_download";
       task: ResearchTask;
-      experiment: { ts_code: string; interval_minutes: number; begin_ns: string; end_ns: string };
+      experiment: {
+        contract_id: string;
+        interval_minutes: number;
+        begin_ns: string;
+        end_ns: string;
+      };
       result: { directory: string; manifest_sha256: string; rows: number; pages: number };
     }
   | {
       id: string;
       kind: "daily_download";
       task: ResearchTask;
-      experiment: { ts_code: string; begin_day: string; end_day: string };
+      experiment: { contract_id: string; begin_day: string; end_day: string };
       result: { directory: string; manifest_sha256: string; rows: number; pages: number };
     };
+export type HistoryDatasetRecord = {
+  id: string;
+  contract_id: string;
+  source: string;
+  revision: string;
+  begin: string;
+  end: string;
+  interval_minutes: number;
+  rows: number;
+};
 export type HistoryContractCatalog = {
   source: string;
+  connection: string;
+  connection_revision: string;
   exchange: string;
   product: string;
   cutoff_ns: string;
@@ -569,7 +633,7 @@ export type HistoryBar = {
 export type HistoryPage = {
   id: string;
   source: string;
-  ts_code: string;
+  contract_id: string;
   interval_minutes: number;
   manifest_sha256: string;
   total_rows: number;
@@ -599,10 +663,28 @@ export type DailyPage = Omit<
   end_day: string;
   bars: DailyBar[];
 };
+export type NativePluginInfo = {
+  managed?: boolean;
+  file: string;
+  id: string;
+  version: string;
+  sha256: string;
+  capabilities: { id: string; kind: string; version: number }[];
+  state: "available" | "invalid";
+  error: string;
+};
 export type Snapshot = {
+  plugin_candidate?: NativePluginInfo;
+  data_connections?: DataConnection[];
+  connection_verification?: null | {
+    id: string;
+    revision: string;
+    checks: { scope: string; state: number }[];
+  };
   daily_page: DailyPage | null;
   history_page: HistoryPage | null;
   history_contracts: HistoryContractCatalog;
+  history_datasets?: HistoryDatasetRecord[];
   // Present when the core answered from its last snapshot because another operation was running.
   stale?: true;
   // Revision of the core's published state and when the core last refreshed it.
@@ -631,6 +713,7 @@ export type Snapshot = {
     online: boolean;
     error: string;
     tasks: ResearchTask[];
+    sources: NativeHistorySource[];
   };
   research_result: null | ResearchResult;
   market: LiveMarket | null;
@@ -675,6 +758,11 @@ export type Snapshot = {
     };
   } | null;
   dataset: Dataset | null;
+  native_plugins: null | {
+    directory: string;
+    managed_directory?: string;
+    items: NativePluginInfo[];
+  };
   plugins: {
     id: string;
     kind: string;

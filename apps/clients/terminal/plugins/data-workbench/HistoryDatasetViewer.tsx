@@ -49,6 +49,7 @@ function BarChart({
 }
 export function HistoryDatasetViewer({
   id,
+  archive = false,
   source,
   sourceLabel,
   timeAxis,
@@ -58,6 +59,7 @@ export function HistoryDatasetViewer({
   onClose,
 }: Pick<TerminalContext, "snapshot" | "busy" | "query"> & {
   id: string;
+  archive?: boolean;
   source: string;
   sourceLabel: string;
   timeAxis: "instant" | "trading-day";
@@ -88,6 +90,7 @@ export function HistoryDatasetViewer({
           {
             ...(daily ? { period: "day" } : {}),
             include_macd: false,
+            archive,
             id,
             offset,
             limit,
@@ -113,7 +116,7 @@ export function HistoryDatasetViewer({
         if (current === sequence.current) setLoading(false);
       }
     },
-    [id, source, daily],
+    [id, source, daily, archive],
   );
   const cancelPending = useCallback(() => {
     sequence.current++;
@@ -134,7 +137,7 @@ export function HistoryDatasetViewer({
     <section className="history-viewer" aria-label={t("历史数据查看")} aria-busy={loading}>
       <div className="history-viewer-heading">
         <button onClick={onClose}>{t("返回数据集")}</button>
-        <strong>{page?.ts_code ?? id}</strong>
+        <strong>{page?.contract_id ?? id}</strong>
         <span>
           {daily
             ? t("日K")

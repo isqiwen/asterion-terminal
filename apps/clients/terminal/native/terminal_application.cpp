@@ -42,12 +42,12 @@ void fields_with_costs(const json& object, std::initializer_list<std::string_vie
     if (!object.contains(key))
       throw std::invalid_argument("request is missing a required field");
 }
-std::string text(const json& object, const char* name) {
+std::string text(const json& object, const char* name, bool allow_empty) {
   const auto& value = object.at(name);
   if (!value.is_string())
     throw std::invalid_argument("text field has the wrong type");
   auto result = value.get<std::string>();
-  if (result.empty() || result.find('\0') != std::string::npos)
+  if ((!allow_empty && result.empty()) || result.find('\0') != std::string::npos)
     throw std::invalid_argument("text field is empty or contains an invalid character");
   return result;
 }
@@ -65,21 +65,13 @@ std::string next_runtime_scope() {
   return scopes.next();
 }
 Application::Impl::Impl() {
-  scope.publish("preview", std::make_shared<PreviewState>());
-  auto positive_limit = [](const json& value) {
-    return value.is_number_integer() && value > 0 && value <= 32 * 1024 * 1024;
-  };
-  core.configuration().declare("preview.max_bytes", 32 * 1024 * 1024, positive_limit);
-  core.configuration().declare("preview.max_rows", 250000, positive_limit);
   core.access().grant("terminal.local", "runtime.read");
-  core.access().grant("terminal.local", "data.inspect");
   // Only reached before the first publication; later reads never lock.
   core.command("runtime.snapshot", "runtime.read", [this](const json&) { return snapshot(); });
-  core.command("futures.inspect_csv", "data.inspect",
-               [this](const json& params) { return inspect(params); });
   register_paper_commands();
   register_node_commands();
   register_research_commands();
+  register_connection_commands();
   register_strategy_commands();
   register_market_commands();
   core.start();
@@ -119,12 +111,11 @@ Application::Impl::Parts Application::Impl::gather_parts(bool hold_between_calls
   return parts;
 }
 json Application::Impl::compose(const Parts& parts) {
-  const auto preview = core.resources().resolve<PreviewState>("terminal", "preview").lock();
   const auto metrics = core.observations().metrics();
   json catalog = json::array();
   for (const auto& item : history_contracts)
     catalog.push_back(
-        {{"code", item.ts_code},
+        {{"code", item.identity.key()},
          {"name", item.name},
          {"list_date", item.list_date},
          {"delist_date", item.delist_date},
@@ -133,12 +124,16 @@ json Application::Impl::compose(const Parts& parts) {
          {"trade_unit", item.trade_unit ? json(*item.trade_unit) : json(nullptr)},
          {"quote_unit", item.quote_unit ? json(*item.quote_unit) : json(nullptr)}});
   return {{"history_contracts",
-           {{"source", "tushare.ft_mins"},
+           {{"source", history_source},
+            {"connection", history_connection},
+            {"connection_revision", history_connection_revision},
             {"exchange", history_exchange},
             {"product", history_product},
             {"cutoff_ns", std::to_string(history_cutoff)},
             {"items", catalog}}},
           {"research", parts.research},
+          {"data_connections", data_connections.snapshot()},
+          {"connection_verification", connection_verification},
           {"research_result", research_result},
           {"history_page", nullptr},
           {"daily_page", nullptr},
@@ -155,14 +150,15 @@ json Application::Impl::compose(const Parts& parts) {
           {"phase", "ready"},
           {"asset", "futures"},
           {"paper", parts.paper},
-          {"dataset", preview->dataset},
+          {"dataset", selection ? selection->summary : json(nullptr)},
           {"diagnostics",
            {{"succeeded", metrics.succeeded},
             {"failed", metrics.failed},
             {"trading_process_id", parts.process}}},
+          {"native_plugins", native_plugins},
           {"plugins",
            json::array(
-               {{{"id", "asterion.data.csv"}, {"kind", "data"}, {"state", "available"}},
+               {{{"id", "asterion.data.ctp"}, {"kind", "data"}, {"state", "available"}},
                 {{"id", "asterion.execution.paper"}, {"kind", "execution"}, {"state", "available"}},
                 {{"id", "asterion.storage.filesystem-journal"},
                  {"kind", "storage"},
@@ -258,8 +254,8 @@ json Application::Impl::dispatch(const json& request) {
     throw std::invalid_argument("unsupported API version");
   const auto method = text(request, "method");
   const bool market_query = method == "market.minutes";
-  const bool history_query =
-      market_query || method == "research.minutes.page" || method == "research.daily.page";
+  const bool history_query = market_query || method == "research.minutes.page" ||
+                             method == "research.daily.page" || method == "research.datasets";
   const bool research_io = method == "research.daily-factor.submit" || method == "research.result";
   const auto& params = request.at("params");
   // Polls pass `since` and always read the published snapshot. A plain read is
@@ -268,12 +264,46 @@ json Application::Impl::dispatch(const json& request) {
   // refresher step (a single client call) but never behind a command.
   // Provider I/O happens before taking the client-operation lock. Other windows
   // can continue fresh status reads and service actions during catalog lookup.
-  std::optional<std::vector<tushare::FuturesListing>> catalog;
+  std::optional<std::vector<HistoryListing>> catalog;
+  std::shared_ptr<ResearchClient> catalog_client;
   if (method == "research.contracts.load") {
-    fields(params, {"exchange", "product", "token"});
+    fields(params, {"source", "exchange", "product", "token", "connection", "connection_revision"});
     core.access().require("terminal.local", "node.manage");
-    catalog = tushare::contracts(text(params, "token"), text(params, "exchange"),
-                                 text(params, "product"));
+    if (text(params, "connection", true).empty() &&
+        !text(params, "connection_revision", true).empty())
+      throw std::invalid_argument("invalid data connection identity");
+    auto& client = catalog_client;
+    auto credential = text(params, "token", true);
+    {
+      std::lock_guard lock(operations);
+      client = research;
+      if (params.contains("connection") && !text(params, "connection", true).empty()) {
+        if (!credential.empty())
+          throw std::invalid_argument("choose a saved connection or a temporary credential");
+        credential =
+            resolve_data_connection(text(params, "connection"), text(params, "connection_revision"),
+                                    text(params, "source"))
+                .credential;
+      }
+    }
+    if (!client)
+      throw std::invalid_argument("connect research service first");
+    catalog = client->catalog(text(params, "source"), credential, text(params, "exchange"),
+                              text(params, "product"));
+  }
+  std::optional<data::v1::HistoryConnectionVerification> verification;
+  std::shared_ptr<ResearchClient> verifying_client;
+  if (method == "research.connections.verify") {
+    fields(params, {"id", "revision", "source"});
+    core.access().require("terminal.local", "node.manage");
+    DataConnection connection;
+    {
+      std::lock_guard lock(operations);
+      connection = resolve_data_connection(text(params, "id"), text(params, "revision"),
+                                           text(params, "source"));
+      verifying_client = research;
+    }
+    verification = verifying_client->verify_connection(connection.source, connection.credential);
   }
   std::unique_lock operation(operations, std::defer_lock);
   if (method == "runtime.snapshot") {
@@ -323,7 +353,26 @@ json Application::Impl::dispatch(const json& request) {
         flag = false;
     }
   } clear{command_running, method != "runtime.snapshot" && !history_query};
+  if (verification) {
+    if (research != verifying_client)
+      throw Error(ErrorCode::conflict, "research connection changed; retry verification");
+    (void)resolve_data_connection(text(params, "id"), text(params, "revision"),
+                                  text(params, "source"));
+    json checks = json::array();
+    for (const auto& check : verification->checks())
+      checks.push_back({{"scope", check.scope()}, {"state", check.state()}});
+    connection_verification = {
+        {"id", text(params, "id")}, {"revision", text(params, "revision")}, {"checks", checks}};
+  }
   if (catalog) {
+    if (research != catalog_client)
+      throw Error(ErrorCode::conflict, "research connection changed; reload catalog");
+    if (!text(params, "connection", true).empty())
+      (void)resolve_data_connection(text(params, "connection"), text(params, "connection_revision"),
+                                    text(params, "source"));
+    history_connection = text(params, "connection", true);
+    history_connection_revision = text(params, "connection_revision", true);
+    history_source = text(params, "source");
     history_contracts = std::move(*catalog);
     history_exchange = text(params, "exchange");
     history_product = text(params, "product");
@@ -367,7 +416,22 @@ json Application::Impl::dispatch(const json& request) {
     result["revision"] = revision;
     result["refreshed_at_ms"] = refreshed_at_ms;
   }
-  if (market_query) {
+  if (method == "research.datasets") {
+    auto reader = research;
+    const auto generation = research_generation.load();
+    data::v1::HistoryFilter filter;
+    filter.set_venue(params.value("venue", ""));
+    filter.set_product(params.value("product", ""));
+    filter.set_contract_id(params.value("contract_id", ""));
+    filter.set_source(params.value("source", ""));
+    clear.active = false;
+    command_running = false;
+    operation.unlock();
+    auto datasets = reader->datasets(filter);
+    if (generation != research_generation.load())
+      throw Error(ErrorCode::conflict, "research service changed during archive query");
+    result["history_datasets"] = std::move(datasets);
+  } else if (market_query) {
     auto reader = market;
     clear.active = false;
     command_running = false;
@@ -392,98 +456,10 @@ json Application::Impl::dispatch(const json& request) {
   }
   return result;
 }
-json Application::Impl::inspect(const json& params) {
-  fields(params, {"path", "venue", "symbol", "product", "delivery_month", "currency",
-                  "price_increment", "quantity_increment", "multiplier"});
-  FuturesContract contract{{{text(params, "venue"), text(params, "symbol")},
-                            AssetClass::futures,
-                            text(params, "currency"),
-                            Decimal::parse(text(params, "price_increment")),
-                            Decimal::parse(text(params, "quantity_increment")),
-                            Decimal::parse(text(params, "multiplier"))},
-                           text(params, "product"),
-                           text(params, "delivery_month")};
-  contract.validate();
-  const auto utf8_path = text(params, "path");
-  const auto path = std::filesystem::path(std::u8string(utf8_path.begin(), utf8_path.end()));
-  if (!path.is_absolute() || !std::filesystem::is_regular_file(path))
-    throw std::invalid_argument("choose an existing local CSV file");
-  if (std::filesystem::file_size(path) >
-      core.configuration().at("preview.max_bytes").get<std::uintmax_t>())
-    throw std::invalid_argument("preview file must not exceed 32 MiB");
-  const auto limit = core.configuration().at("preview.max_bytes").get<std::size_t>();
-  std::ifstream file(path, std::ios::binary);
-  std::string bytes(limit + 1, '\0');
-  file.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-  const auto size = static_cast<std::size_t>(file.gcount());
-  if (file.bad() || !file.eof() || size > limit)
-    throw std::invalid_argument("CSV snapshot cannot be read within the preview limit");
-  bytes.resize(size);
-  PluginManager host;
-  auto source = std::make_unique<CsvMarketData>(contract.instrument, bytes);
-  auto* input = source.get();
-  host.add(std::move(source));
-  host.start();
-  std::deque<json> preview;
-  json replay = json::array();
-  std::size_t count = 0;
-  std::string first;
-  Decimal quantity;
-  while (auto tick = input->next()) {
-    if (++count > core.configuration().at("preview.max_rows").get<std::size_t>())
-      throw std::invalid_argument("preview reads at most 250000 trades");
-    if (count == 1)
-      first = std::to_string(tick->timestamp_ns);
-    quantity = quantity + tick->quantity;
-    preview.push_back({{"timestamp_ns", std::to_string(tick->timestamp_ns)},
-                       {"price", tick->price.str()},
-                       {"quantity", tick->quantity.str()}});
-    if (count <= 10000)
-      replay.push_back(preview.back());
-    if (preview.size() > 240)
-      preview.pop_front();
-  }
-  // Only publish the new preview after the complete file passes validation.
-  const auto filename = path.filename().u8string();
-  json next = {
-      {"filename", std::string(filename.begin(), filename.end())},
-      {"venue", contract.instrument.id.venue},
-      {"symbol", contract.instrument.id.symbol},
-      {"product", contract.product},
-      {"delivery_month", contract.delivery_month},
-      {"currency", contract.instrument.quote_currency},
-      {"multiplier", contract.instrument.multiplier.str()},
-      {"price_increment", contract.instrument.price_increment.str()},
-      {"quantity_increment", contract.instrument.quantity_increment.str()},
-      {"count", count},
-      {"quantity", quantity.str()},
-      {"first_timestamp_ns", count ? json(first) : json(nullptr)},
-      {"last_timestamp_ns", count ? preview.back().at("timestamp_ns") : json(nullptr)},
-      {"last_price", count ? preview.back().at("price") : json(nullptr)},
-      {"ticks", preview},
-      {"source", "local_csv"},
-      {"specification_source", "user_supplied"},
-      {"persistent", false},
-      {"publication_ready", count > 0 && count <= 10000 && bytes.size() <= 4 * 1024 * 1024}};
-  auto state = core.resources().resolve<PreviewState>("terminal", "preview").lock();
-  if (count > 10000)
-    replay = json::array();
-  std::optional<data::v1::CsvSnapshot> captured;
-  if (next.at("publication_ready").get<bool>()) {
-    json spec = json::object();
-    for (auto key : {"venue", "symbol", "currency", "price_increment", "quantity_increment",
-                     "multiplier", "product", "delivery_month"})
-      spec[key] = next.at(key);
-    captured = protocol::encode_csv_snapshot({{"version", 1},
-                                              {"source_name", next.at("filename")},
-                                              {"source_sha256", sha256_bytes(bytes)},
-                                              {"contract", spec},
-                                              {"contents", bytes}});
-  }
-  state->dataset = std::move(next);
-  state->replay = std::move(replay);
-  state->source = std::move(captured);
-  return snapshot();
+const DatasetSelection& Application::Impl::selected() const {
+  if (!selection)
+    throw std::invalid_argument("select downloaded data and a contract specification first");
+  return *selection;
 }
 Application::Application() : impl_(std::make_unique<Impl>()) {}
 Application::~Application() = default;

@@ -1,5 +1,6 @@
 #pragma once
 #include <asterion/foundation/time.hpp>
+#include "bar_dataset_source.hpp"
 #include <asterion/protocol/research.hpp>
 #include <filesystem>
 #include <memory>
@@ -19,8 +20,10 @@ public:
 
   private:
     friend class Store;
-    Completion(research::v1::Task task, research::v1::TaskFinish result);
+    Completion(research::v1::Task task, research::v1::TaskFinish result,
+               std::filesystem::path directory);
     research::v1::Task task_;
+    std::filesystem::path directory_;
     research::v1::TaskFinish result_;
     bool verified_ = false;
   };
@@ -48,13 +51,10 @@ public:
   void finish(Completion completion);
   research::v1::Task submit(const std::string& id, const research::v1::BacktestInput& input);
   research::v1::Task submit(const std::string& id, const research::v1::FactorInput& input);
-  research::v1::Task submit(const std::string& id, const data::v1::CsvSnapshot& input);
-  void finish(const std::string& id, const std::string& token,
-              const data::v1::DatasetPublication& result);
-  data::v1::DatasetPublication publication(const std::string& id) const;
-  research::v1::Task submit(const std::string&, const data::v1::CalendarCsvSnapshot&);
-  void finish(const std::string&, const std::string&, const data::v1::CalendarPublication&);
-  data::v1::CalendarPublication calendar_publication(const std::string&) const;
+  // Captures completed download sources under the host lock; resolve their
+  // files outside it with resolve_bar_dataset, then confirm_sources under it.
+  BarDatasetSources prepare_dataset(const data::v1::BarDatasetRequest&) const;
+  void confirm_sources(const BarDatasetSources&) const;
   research::v1::Task submit(const std::string&, const data::v1::MinuteDownload&,
                             const std::string& provider_token);
   research::v1::Task submit(const std::string&, const data::v1::DailyDownload&,

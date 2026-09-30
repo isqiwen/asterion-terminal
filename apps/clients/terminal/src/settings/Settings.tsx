@@ -7,6 +7,8 @@ const t = (key: string, values?: MessageValues) => translate("host", key, values
 import type { TerminalPlugin } from "../../plugins/contract";
 import { useState, useEffect } from "react";
 import { savePreferences, usePreferences } from "../ui/preferences";
+import { DataConnections } from "./DataConnections";
+import { NativePlugins } from "./NativePlugins";
 import { Connections } from "./Connections";
 import type { TerminalCommand, Snapshot } from "@asterion/desktop-bridge/client";
 export function Settings({
@@ -148,10 +150,16 @@ export function Settings({
             </label>
           </>
         )}
-        {page === "connections" && <Connections snapshot={snapshot} busy={busy} trade={trade} />}
+        {page === "connections" && (
+          <>
+            <DataConnections snapshot={snapshot} busy={busy} trade={trade} />
+            <Connections snapshot={snapshot} busy={busy} trade={trade} />
+          </>
+        )}
         {page === "plugins" && (
           <>
-            <p>{t("当前发行版内置能力")}</p>
+            <NativePlugins snapshot={snapshot} busy={busy} trade={trade} />
+            <h2>{t("当前发行版内置能力")}</h2>
             <table className="data-table">
               <thead>
                 <tr>
@@ -184,7 +192,6 @@ export function Settings({
                 ))}
               </tbody>
             </table>
-            <p>{t("当前为内置插件，动态安装、卸载与语言 SDK 尚未开放。")}</p>
           </>
         )}
         {page === "about" && (

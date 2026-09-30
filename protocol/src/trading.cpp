@@ -2,6 +2,7 @@
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <google/protobuf/unknown_field_set.h>
+#include <charconv>
 #include <stdexcept>
 namespace asterion::protocol {
 namespace {
@@ -159,24 +160,6 @@ v1::Contract encode_contract(const Json& value) {
 Json decode_contract(const v1::Contract& value) {
   return contract(value);
 }
-v1::Tick encode_tick(const Json& row) {
-  require_fields(row, {"timestamp_ns", "price", "quantity"});
-  v1::Tick tick;
-  const auto time = row.at("timestamp_ns").get<std::string>();
-  std::int64_t ns = 0;
-  auto [end, error] = std::from_chars(time.data(), time.data() + time.size(), ns);
-  if (error != std::errc{} || end != time.data() + time.size() || std::to_string(ns) != time)
-    throw std::invalid_argument("invalid timestamp");
-  tick.set_timestamp_ns(ns);
-  set(tick.mutable_price(), row.at("price"));
-  set(tick.mutable_quantity(), row.at("quantity"));
-  return tick;
-}
-Json decode_tick(const v1::Tick& tick) {
-  return {{"timestamp_ns", std::to_string(tick.timestamp_ns())},
-          {"price", get(tick.price())},
-          {"quantity", get(tick.quantity())}};
-}
 v1::RiskLimits encode_risk(const Json& value) {
   require_fields(value, {"max_order_quantity", "max_gross_quantity", "max_working_orders"});
   if (!value.at("max_working_orders").is_number_unsigned() || value.at("max_working_orders") == 0)
@@ -201,48 +184,39 @@ Json decode_risk(const v1::RiskLimits& value) {
           {"max_gross_quantity", get(value.max_gross_quantity())},
           {"max_working_orders", value.max_working_orders()}};
 }
+// Manifest version 2: bar replay; the contract is the dataset's contract.
 v1::PaperInput encode_input(const Json& m) {
-  require_fields(m, {"version", "type", "contract", "costs", "deposit", "ticks", "risk"});
-  if (m.at("version") != 1 || m.at("type") != "historical_paper")
+  require_fields(m, {"version", "type", "costs", "deposit", "dataset", "risk"});
+  if (m.at("version") != 2 || m.at("type") != "historical_paper")
     throw std::invalid_argument("invalid paper input");
   v1::PaperInput result;
   *result.mutable_risk() = encode_risk(m.at("risk"));
-  *result.mutable_contract() = contract(m.at("contract"));
   *result.mutable_costs() = encode_costs(m.at("costs"));
   set(result.mutable_deposit(), m.at("deposit"));
-  if (!m.at("ticks").is_array() || m.at("ticks").size() > 10000)
-    throw std::invalid_argument("invalid tick count");
-  for (const auto& row : m.at("ticks"))
-    *result.add_ticks() = encode_tick(row);
+  *result.mutable_dataset() = encode_bar_dataset(m.at("dataset"));
   return result;
 }
 Json decode_input(const v1::PaperInput& input) {
-  if (!input.has_costs())
-    throw std::invalid_argument("missing explicit paper costs");
-  Json rows = Json::array();
-  for (const auto& t : input.ticks())
-    rows.push_back({{"timestamp_ns", std::to_string(t.timestamp_ns())},
-                    {"price", get(t.price())},
-                    {"quantity", get(t.quantity())}});
+  if (!input.has_costs() || !input.has_dataset())
+    throw std::invalid_argument("missing explicit paper costs or dataset");
   // Evaluated before the braced initializer: GCC < 13 leaks already-built
   // initializer_list elements when a later element throws (PR66139).
   auto risk = decode_risk(input.risk());
-  return {{"version", 1},
+  auto dataset = decode_bar_dataset(input.dataset());
+  return {{"version", 2},
           {"type", "historical_paper"},
-          {"contract", contract(input.contract())},
           {"costs", decode_costs(input.costs())},
           {"deposit", get(input.deposit())},
-          {"ticks", std::move(rows)},
+          {"dataset", std::move(dataset)},
           {"risk", std::move(risk)}};
 }
 v1::Command encode_command(const Json& c) {
   v1::Command result;
   result.set_request_id(c.at("request_id").get<std::string>());
   const auto action = c.at("action").get<std::string>();
-  if (action == "replay_calendar") {
-    require_fields(c, {"request_id", "action", "publication"});
-    *result.mutable_replay_calendar()->mutable_publication() =
-        encode_calendar_publication(c.at("publication"));
+  if (action == "replay_days") {
+    require_fields(c, {"request_id", "action"});
+    result.mutable_replay_days();
   } else if (action == "replay_settle") {
     require_fields(c, {"request_id", "action", "day_index"});
     if (!c.at("day_index").is_number_integer() || c.at("day_index") < 0 || c.at("day_index") >= 64)
@@ -280,7 +254,7 @@ v1::Command encode_command(const Json& c) {
   } else if (action == "strategy_target") {
     require_fields(c, {"request_id", "action", "grant_id", "strategy_id", "stream_id",
                        "dataset_revision", "sequence", "timestamp_ns", "target_quantity"});
-    if (!c.at("sequence").is_number_integer() || c.at("sequence") < 1 || c.at("sequence") > 10000)
+    if (!c.at("sequence").is_number_integer() || c.at("sequence") < 1 || c.at("sequence") > 20000)
       throw std::invalid_argument("invalid strategy sequence");
     auto* t = result.mutable_strategy_target();
     t->set_grant_id(c.at("grant_id").get<std::string>());
@@ -288,9 +262,12 @@ v1::Command encode_command(const Json& c) {
     t->set_stream_id(c.at("stream_id").get<std::string>());
     t->set_dataset_revision(c.at("dataset_revision").get<std::string>());
     t->set_sequence(c.at("sequence").get<std::uint64_t>());
-    const auto tick =
-        encode_tick({{"timestamp_ns", c.at("timestamp_ns")}, {"price", "0"}, {"quantity", "1"}});
-    t->set_timestamp_ns(tick.timestamp_ns());
+    const auto time = c.at("timestamp_ns").get<std::string>();
+    std::int64_t ns = 0;
+    const auto [end, error] = std::from_chars(time.data(), time.data() + time.size(), ns);
+    if (error != std::errc{} || end != time.data() + time.size() || std::to_string(ns) != time)
+      throw std::invalid_argument("invalid timestamp");
+    t->set_timestamp_ns(ns);
     set(t->mutable_target_quantity(), c.at("target_quantity"));
   } else
     throw std::invalid_argument("unsupported trading operation");
@@ -299,12 +276,9 @@ v1::Command encode_command(const Json& c) {
 Json decode_command(const v1::Command& c) {
   Json result{{"request_id", c.request_id()}};
   switch (c.operation_case()) {
-  case v1::Command::kReplayCalendar: {
-    // Decoded before the braced initializer (GCC < 13 PR66139 leak).
-    auto publication = decode_calendar_publication(c.replay_calendar().publication());
-    result.update({{"action", "replay_calendar"}, {"publication", std::move(publication)}});
+  case v1::Command::kReplayDays:
+    result["action"] = "replay_days";
     break;
-  }
   case v1::Command::kReplaySettle:
     if (c.replay_settle().day_index() >= 64)
       throw std::invalid_argument("invalid settlement day index");
@@ -367,11 +341,9 @@ v1::Snapshot encode_snapshot(const Json& s) {
   v1::Snapshot result;
   if (s.contains("replay")) {
     const auto& r = s.at("replay");
-    *result.mutable_replay()->mutable_publication() =
-        encode_calendar_publication(r.at("publication"));
     result.mutable_replay()->set_settled_days(r.at("settled_days").get<unsigned>());
     result.mutable_replay()->set_settlement_due(r.at("settlement_due").get<bool>());
-    result.mutable_replay()->set_session_end(r.at("session_end").get<bool>());
+    result.mutable_replay()->set_day_end(r.at("day_end").get<bool>());
   }
   if (s.contains("strategy")) {
     const auto& g = s.at("strategy");
@@ -449,13 +421,11 @@ Json decode_snapshot(const v1::Snapshot& s) {
               {"timestamp_ns",
                s.has_timestamp_ns() ? Json(std::to_string(s.timestamp_ns())) : Json(nullptr)}};
   if (s.has_replay()) {
-    auto publication = decode_calendar_publication(s.replay().publication());
-    if (s.replay().settled_days() > publication.at("calendar").at("days").size())
+    if (s.replay().settled_days() > s.total())
       throw std::invalid_argument("invalid settled day count");
-    result["replay"] = {{"publication", publication},
-                        {"settled_days", s.replay().settled_days()},
+    result["replay"] = {{"settled_days", s.replay().settled_days()},
                         {"settlement_due", s.replay().settlement_due()},
-                        {"session_end", s.replay().session_end()}};
+                        {"day_end", s.replay().day_end()}};
   }
   if (s.has_strategy()) {
     if (!s.strategy().has_grant() || s.strategy().last_sequence() > s.cursor())

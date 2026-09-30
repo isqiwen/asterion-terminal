@@ -8,7 +8,7 @@
 #include <thread>
 #include <stdexcept>
 int main(int argc, char** argv) {
-  CLI::App app{"Asterion event-momentum factor evaluation and development-only "
+  CLI::App app{"Asterion bar-momentum factor evaluation and development-only "
                "window comparison"};
   app.set_version_flag("--version", "asterion-factor " ASTERION_PRODUCT_VERSION);
   std::string input_path, output_path, endpoint, host, service, task;

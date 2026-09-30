@@ -27,12 +27,20 @@ struct Instrument {
   void validate() const;
 };
 
-struct TradeTick {
-  InstrumentId instrument;
-  std::int64_t timestamp_ns;
-  Decimal price;
-  Decimal quantity;
+// One OHLCV period of a single contract from a historical data source.
+// trading_day (YYYY-MM-DD) is the provider's or the dataset's derived trading
+// date; timestamp_ns is the source bar label. Neither implies an intrabar path.
+struct MarketBar {
+  std::string trading_day;
+  std::int64_t timestamp_ns = 0;
+  Decimal open, high, low, close, volume;
   void validate(const Instrument& spec) const;
+};
+
+// Provider settlement price of one trading day.
+struct DaySettlement {
+  std::string trading_day;
+  Decimal settlement_price;
 };
 
 } // namespace asterion

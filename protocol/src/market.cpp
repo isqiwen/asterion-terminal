@@ -162,6 +162,7 @@ Json decode_market(const market::v1::Snapshot& state) {
                             {"name", row.name()},
                             {"product", row.product()},
                             {"expiry", row.expiry()},
+                            {"contract_id", row.contract_id()},
                             {"multiplier", row.multiplier()},
                             {"price_tick", row.price_tick()}});
   }

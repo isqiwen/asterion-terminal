@@ -232,8 +232,8 @@ void upgrade_node_service(const fs::path& source, const fs::path& installed, con
     const auto services = control.status().at("health").at("services");
     for (const auto& service : services) {
       if (service.at("kind") == "market" && service.at("state") == "running")
-        markets.push_back(std::make_unique<MarketClient>(
-            control.service_endpoint(service.at("id").get<std::string>(), "market")));
+        markets.push_back(std::make_unique<MarketClient>(control.service_endpoint(
+            service.at("id").get<std::string>(), asterion::node::v1::MARKET_DATA)));
     }
     control.coordinate_upgrade(operation, "prepare");
     save("draining");

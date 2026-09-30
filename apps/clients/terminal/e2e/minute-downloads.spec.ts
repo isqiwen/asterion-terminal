@@ -5,10 +5,12 @@ const catalogFixture = {
   source: "tushare.ft_mins",
   exchange: "SHFE",
   product: "CU",
+  connection: "",
+  connection_revision: "",
   cutoff_ns: "1790582400000000000",
   items: [
     {
-      code: "CU2310.SHF",
+      code: "SHFE/cu/2023-10",
       name: "Copper 2310",
       list_date: "20221017",
       delist_date: "20231016",
@@ -21,6 +23,7 @@ const catalogFixture = {
 };
 async function mockCatalog(page: Page, identity?: { connection?: string }) {
   let loaded = false;
+  let source = "tushare.ft_mins";
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
     if (!["research.contracts.load", "runtime.snapshot"].includes(request.method))
@@ -29,12 +32,13 @@ async function mockCatalog(page: Page, identity?: { connection?: string }) {
       expect(request.params.exchange).toBe("SHFE");
       expect(request.params.product).toBe("CU");
       loaded = true;
+      source = request.params.source;
     }
     const response = await route.fetch({
       postData: { version: 1, method: "runtime.snapshot", params: {} },
     });
     const data = (await response.json()) as { result: Snapshot };
-    if (loaded) data.result.history_contracts = catalogFixture;
+    if (loaded) data.result.history_contracts = { ...catalogFixture, source };
     if (identity?.connection && data.result.research)
       data.result.research.connection_id = identity.connection;
     await route.fulfill({ response, json: data });
@@ -52,7 +56,7 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
   await section.getByLabel("品种代码", { exact: true }).fill("CU");
   await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");
   await section.getByRole("button", { name: "查询月份合约", exact: true }).click();
-  await section.getByLabel("月份合约", { exact: true }).selectOption("CU2310.SHF");
+  await section.getByLabel("月份合约", { exact: true }).selectOption("SHFE/cu/2023-10");
   await expect(section.locator('input[type="datetime-local"]')).toHaveCount(0);
   await expect(section.getByText(/20221017/)).toBeVisible();
   await section.getByText("合约计量信息", { exact: true }).click();
@@ -74,14 +78,14 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
   await page.getByRole("button", { name: "研究", exact: true }).click();
   await expect(page.getByRole("region", { name: "期货研究", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "数据", exact: true }).click();
-  await expect(section.getByLabel("月份合约", { exact: true })).toHaveValue("CU2310.SHF");
+  await expect(section.getByLabel("月份合约", { exact: true })).toHaveValue("SHFE/cu/2023-10");
   await expect(section.getByLabel("分钟周期", { exact: true })).toHaveValue("5");
   await expect(section.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
   const submissions: string[] = [];
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
     if (request.method !== "research.minutes.submit") return route.fallback();
-    expect(request.params.ts_code).toBe("CU2310.SHF");
+    expect(request.params.contract_id).toBe("SHFE/cu/2023-10");
     expect(request.params.interval_minutes).toBe(5);
     expect(request.params).not.toHaveProperty("start");
     expect(request.params).not.toHaveProperty("end");
@@ -98,6 +102,7 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
     if (identity.connection) data.result.research!.connection_id = identity.connection;
     data.result.research!.tasks.push({
       kind: "minute_download",
+      data_source: "tushare.ft_mins",
       id: request.params.id,
       state: "queued",
       attempt: 0,
@@ -106,8 +111,8 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
       error: "",
       result_digest: "",
       trading_day: "",
-      instrument: "SHFE/CU2310",
-      source_name: "Tushare CU2310.SHF",
+      instrument: "SHFE/cu/2023-10",
+      source_name: "Tushare SHFE/cu/2023-10",
       submission_sequence: 100,
       submitted_at_ms: Date.now(),
       updated_at_ms: Date.now(),
@@ -122,7 +127,7 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
   await page.getByRole("button", { name: "数据", exact: true }).click();
   await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");
   await section.getByRole("button", { name: "确认下载提交", exact: true }).click();
-  await expect(section.getByText("Tushare CU2310.SHF", { exact: true })).toBeVisible();
+  await expect(section.getByText("Tushare SHFE/cu/2023-10", { exact: true })).toBeVisible();
   await expect(section.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
   expect(submissions).toHaveLength(2);
   expect(submissions[1]).toBe(submissions[0]);
@@ -131,7 +136,7 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
   await expect(section.getByRole("button", { name: "确认下载提交", exact: true })).toBeVisible();
   identity.connection = "new-connection-same-host-and-service";
   await expect(section.getByRole("button", { name: "下载整个合约", exact: true })).toBeVisible();
-  await expect(section.getByLabel("月份合约", { exact: true })).toHaveValue("CU2310.SHF");
+  await expect(section.getByLabel("月份合约", { exact: true })).toHaveValue("SHFE/cu/2023-10");
   await expect(section.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
   await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");
   await section.getByRole("button", { name: "下载整个合约", exact: true }).click();
@@ -166,7 +171,7 @@ test("history is a dedicated source-aware page and clears credentials on subpage
   ]);
   await history.getByLabel("品种代码", { exact: true }).fill("CU");
   await history.getByLabel("Tushare Token", { exact: true }).fill("subpage-fixture-secret");
-  await page.getByRole("button", { name: "数据存档与结算表", exact: true }).click();
+  await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
   await expect(history).toHaveCount(0);
   await expect(page.getByLabel("CSV 文件路径")).toHaveCount(0);
   await page.getByRole("button", { name: "历史数据", exact: true }).click();
@@ -177,7 +182,7 @@ test("history is a dedicated source-aware page and clears credentials on subpage
   await expect(history.locator(".history-layout")).toHaveCSS("grid-template-columns", /px$/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: "build/history-page-compact.png", fullPage: true });
-  await page.getByRole("button", { name: "数据存档与结算表", exact: true }).click();
+  await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
   await expect(page.getByLabel("CSV 文件路径")).toHaveCount(0);
 });
 
@@ -186,6 +191,7 @@ test("completed dataset exposes provenance and honest coverage separately from a
 }) => {
   const task = {
     kind: "minute_download" as const,
+    data_source: "tushare.ft_mins",
     id: "history-dataset-fixture",
     state: "succeeded" as const,
     attempt: 1,
@@ -194,8 +200,8 @@ test("completed dataset exposes provenance and honest coverage separately from a
     error: "",
     result_digest: "a".repeat(64),
     trading_day: "",
-    instrument: "SHFE/CU2310",
-    source_name: "Tushare CU2310.SHF",
+    instrument: "SHFE/cu/2023-10",
+    source_name: "Tushare SHFE/cu/2023-10",
     submission_sequence: 100,
     submitted_at_ms: Date.now(),
     updated_at_ms: Date.now(),
@@ -216,7 +222,7 @@ test("completed dataset exposes provenance and honest coverage separately from a
         kind: "minute_download",
         task,
         experiment: {
-          ts_code: "CU2310.SHF",
+          contract_id: "SHFE/cu/2023-10",
           interval_minutes: 5,
           begin_ns: "1692925200000000000",
           end_ns: "1692946800000000000",
@@ -260,12 +266,12 @@ test("daily adapter submits catalog scope without minute fields and clears crede
   await section.getByLabel("品种代码", { exact: true }).fill("CU");
   await section.getByLabel("Tushare Token", { exact: true }).fill("daily-test-secret");
   await section.getByRole("button", { name: "查询月份合约", exact: true }).click();
-  await section.getByLabel("月份合约", { exact: true }).selectOption("CU2310.SHF");
+  await section.getByLabel("月份合约", { exact: true }).selectOption("SHFE/cu/2023-10");
   let submitted = false;
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
     if (request.method !== "research.daily.submit") return route.fallback();
-    expect(request.params.ts_code).toBe("CU2310.SHF");
+    expect(request.params.contract_id).toBe("SHFE/cu/2023-10");
     expect(request.params.catalog_cutoff_ns).toBe(catalogFixture.cutoff_ns);
     expect(request.params.token).toBe("daily-test-secret");
     expect(request.params).not.toHaveProperty("interval_minutes");

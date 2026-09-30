@@ -26,15 +26,15 @@ void MovingAverage::start() {
 void MovingAverage::stop() noexcept {
   running_ = false;
 }
-std::optional<Decimal> MovingAverage::on_tick(const TradeTick& tick) {
+std::optional<Decimal> MovingAverage::on_bar(const MarketBar& bar) {
   if (!running_)
     throw std::logic_error("strategy is stopped");
-  tick.validate(instrument_);
-  if (tick.timestamp_ns < last_time_)
+  bar.validate(instrument_);
+  if (bar.timestamp_ns <= last_time_)
     throw std::invalid_argument("strategy events are out of order");
   // Calculate checked sums before changing state; an overflow rejects the event.
-  auto fast_sum = fast_sum_ + tick.price;
-  auto slow_sum = slow_sum_ + tick.price;
+  auto fast_sum = fast_sum_ + bar.close;
+  auto slow_sum = slow_sum_ + bar.close;
   if (fast_values_.size() == fast_)
     fast_sum = fast_sum - fast_values_.front();
   if (slow_values_.size() == slow_)
@@ -44,15 +44,15 @@ std::optional<Decimal> MovingAverage::on_tick(const TradeTick& tick) {
   const bool ready = slow_values_.size() + 1 >= slow_;
   // Cross multiplication avoids rounding a mean before comparing signals.
   const bool bullish = ready && fast_sum * slow_count > slow_sum * fast_count;
-  fast_values_.push_back(tick.price);
-  slow_values_.push_back(tick.price);
+  fast_values_.push_back(bar.close);
+  slow_values_.push_back(bar.close);
   if (fast_values_.size() > fast_)
     fast_values_.pop_front();
   if (slow_values_.size() > slow_)
     slow_values_.pop_front();
   fast_sum_ = fast_sum;
   slow_sum_ = slow_sum;
-  last_time_ = tick.timestamp_ns;
+  last_time_ = bar.timestamp_ns;
   return ready ? std::optional<Decimal>(bullish ? quantity_ : Decimal{}) : std::nullopt;
 }
 } // namespace asterion

@@ -166,7 +166,7 @@ export function DailyFactorResults({
     <section className="research-result" aria-label={t("日线因子结果")}>
       <h3>{t("日线因子结果")}</h3>
       <p>
-        {experiment.data.ts_code} · {experiment.data.first_day} — {experiment.data.last_day}
+        {experiment.data.contract_id} · {experiment.data.first_day} — {experiment.data.last_day}
       </p>
       <p className="subtle">
         {t(experiment.evaluation.mode === "holdout" ? "时间留出评价" : "样本内评价")} ·{" "}

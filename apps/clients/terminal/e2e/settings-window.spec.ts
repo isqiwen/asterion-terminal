@@ -69,8 +69,8 @@ test("settings shows a busy command without automatically retrying or losing dra
 }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "数据", exact: true }).click();
-  await page.getByRole("button", { name: "数据存档与结算表", exact: true }).click();
-  await page.getByLabel("结算表 CSV 路径").fill("retained-during-operation.csv");
+  await page.getByRole("button", { name: "历史数据", exact: true }).click();
+  await page.getByLabel("品种代码").fill("CU");
   const settings = await openSettingsWindow(page);
   await settings.getByRole("button", { name: "连接与部署", exact: true }).click();
   await settings.getByText("Agent 程序", { exact: true }).click();
@@ -94,7 +94,7 @@ test("settings shows a busy command without automatically retrying or losing dra
   await expect(settings.getByRole("alert")).toContainText("已有操作正在进行，请完成后重试");
   await expect(inspect).toBeEnabled();
   expect(inspections).toBe(1);
-  await expect(page.getByLabel("结算表 CSV 路径")).toHaveValue("retained-during-operation.csv");
+  await expect(page.getByLabel("品种代码")).toHaveValue("CU");
   await inspect.click();
   await expect(settings.getByRole("alert")).toHaveCount(0);
   expect(inspections).toBe(2);
@@ -104,12 +104,12 @@ test("settings shows a busy command without automatically retrying or losing dra
 test("settings reuses its window and preserves workbench drafts", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "数据", exact: true }).click();
-  await page.getByRole("button", { name: "数据存档与结算表", exact: true }).click();
-  await page.getByLabel("结算表 CSV 路径").fill("unsaved-draft.csv");
+  await page.getByRole("button", { name: "历史数据", exact: true }).click();
+  await page.getByLabel("品种代码").fill("CU");
   const settings = await openSettingsWindow(page);
   await settings.setViewportSize({ width: 760, height: 540 });
   await expect(settings.getByRole("heading", { name: "偏好设置", exact: true })).toBeVisible();
-  await expect(page.getByLabel("结算表 CSV 路径")).toHaveValue("unsaved-draft.csv");
+  await expect(page.getByLabel("品种代码")).toHaveValue("CU");
   await settings.getByLabel("语言", { exact: true }).selectOption("en-US");
   await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
   await settings.getByLabel("Display Density").selectOption("comfortable");
@@ -119,7 +119,7 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
   await expect(settings.getByRole("heading", { name: "About", exact: true })).toBeVisible();
   await settings.keyboard.press("Control+,");
   await expect(settings.getByRole("heading", { name: "About", exact: true })).toBeVisible();
-  await page.getByLabel("Settlement CSV Path").fill("edited-while-settings-open.csv");
+  await page.getByLabel("Product Code").fill("RB");
   await settings.getByRole("button", { name: "Preferences", exact: true }).click();
   expect(page.context().pages()).toHaveLength(2);
   await settings.getByLabel("Language").selectOption("zh-CN");
@@ -134,7 +134,7 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
     true,
   );
   await closeSettingsWindow(settings);
-  await expect(page.getByLabel("结算表 CSV 路径")).toHaveValue("edited-while-settings-open.csv");
+  await expect(page.getByLabel("品种代码")).toHaveValue("RB");
   const reopened = await openSettingsWindow(page);
   await expect(reopened.getByRole("heading", { name: "连接与部署", exact: true })).toBeVisible();
   await reopened.setViewportSize({ width: 640, height: 440 });

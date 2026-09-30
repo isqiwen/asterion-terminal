@@ -46,19 +46,26 @@ fs::path checked_bundle(const std::string& arch) {
   if (info.size() != 6 || info.at("version") != 2 ||
       info.at("product_version") != ASTERION_PRODUCT_VERSION ||
       info.at("source_sha256") != ASTERION_SERVICE_SOURCE_SHA256 || info.at("os") != "linux" ||
-      info.at("arch") != arch || info.at("files").size() != 11)
+      info.at("arch") != arch || info.at("files").size() != 13)
     throw std::invalid_argument("bundled Linux service version mismatch");
-  std::vector<std::string> names{
-      "asterion-node-agent",    "asterion-trading",  "asterion-market-data",
-      "asterion-task-service",  "asterion-backtest", "asterion-factor",
-      "asterion-data-pipeline", "asterion-strategy", "initialize-linux.py"};
+  std::vector<std::string> names{"asterion-node-agent",
+                                 "asterion-trading",
+                                 "asterion-market-data",
+                                 "asterion-task-service",
+                                 "asterion-backtest",
+                                 "asterion-factor",
+                                 "asterion-data-pipeline",
+                                 "asterion-strategy",
+                                 "initialize-linux.py",
+                                 "plugins/asterion-tushare.so",
+                                 "plugins/asterion-order-limits.so"};
   if (arch == "x86_64") {
     names.push_back("ctp-md.so");
     names.push_back("ctp-trader.so");
   }
   for (const auto& name : names) {
     const auto file = folder / name;
-    if (fs::is_symlink(file) || !fs::is_regular_file(file) ||
+    if (fs::is_symlink(file.parent_path()) || fs::is_symlink(file) || !fs::is_regular_file(file) ||
         fs::file_size(file) > 256 * 1024 * 1024 ||
         sha256_file(file) != info.at("files").at(name).get<std::string>())
       throw std::invalid_argument("bundled Linux resource verification failed");

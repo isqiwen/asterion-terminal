@@ -15,20 +15,13 @@ void Application::Impl::register_paper_commands() {
                             "max_working_orders"});
     if (paper && !remote)
       throw std::invalid_argument("close the current paper session first");
-    auto preview = core.resources().resolve<PreviewState>("terminal", "preview").lock();
-    if (preview->dataset.is_null())
-      throw std::invalid_argument("import historical futures trades first");
-    json contract = json::object();
-    for (auto key : {"venue", "symbol", "currency", "price_increment", "quantity_increment",
-                     "multiplier", "product", "delivery_month"})
-      contract[key] = preview->dataset.at(key);
     const auto costs = cost_parameters(p);
     // Validated before the braced initializer (GCC < 13 PR66139 leak).
     const auto risk = risk_parameters(p);
     const auto deposit = text(p, "deposit");
-    json manifest{
-        {"version", 1}, {"type", "historical_paper"}, {"contract", contract},    {"costs", costs},
-        {"risk", risk}, {"deposit", deposit},         {"ticks", preview->replay}};
+    auto dataset = protocol::decode_bar_dataset(selected().dataset);
+    json manifest{{"version", 2}, {"type", "historical_paper"}, {"costs", costs},
+                  {"risk", risk}, {"deposit", deposit},         {"dataset", std::move(dataset)}};
     if (remote)
       paper->create(manifest);
     else {

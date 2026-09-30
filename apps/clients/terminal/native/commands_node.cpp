@@ -1,11 +1,57 @@
 #include "application_impl.hpp"
-#include <asterion/kernel/environment.hpp>
+#include <asterion/kernel/native_plugin.hpp>
 #include <stdexcept>
 
 namespace asterion::terminal {
 // Node lifecycle: SSH enrollment, firewall, Agent upgrade, service deployment.
 void Application::Impl::register_node_commands() {
   core.access().grant("terminal.local", "node.manage");
+  core.command("native.plugins.inspect", "node.manage", [this](const json& p) {
+    fields(p, {});
+    native_plugins = plugin_catalog_json(local_plugin_catalog());
+    return snapshot();
+  });
+  core.command("native.plugins.preview", "node.manage", [this](const json& p) {
+    fields(p, {"path"});
+    auto result = snapshot();
+    PluginCatalog preview{.directory = {}, .entries = {preview_plugin(text(p, "path"))}};
+    result["plugin_candidate"] = plugin_catalog_json(preview).at("items").at(0);
+    return result;
+  });
+  core.command("native.plugins.install", "node.manage", [this](const json& p) {
+    fields(p, {"path", "sha256"});
+    install_plugin(native_plugin_directory(), local_node_directory() / "plugins", text(p, "path"),
+                   text(p, "sha256"));
+    native_plugins = plugin_catalog_json(local_plugin_catalog());
+    return snapshot();
+  });
+  core.command("native.plugins.uninstall", "node.manage", [this](const json& p) {
+    fields(p, {"file", "sha256"});
+    uninstall_plugin(local_node_directory() / "plugins", text(p, "file"), text(p, "sha256"));
+    native_plugins = plugin_catalog_json(local_plugin_catalog());
+    return snapshot();
+  });
+  core.command("research.local.create", "node.manage", [this](const json& p) {
+    fields(p, {"plugins"});
+    if (!p.at("plugins").is_array())
+      throw std::invalid_argument("invalid native plugin selection");
+    if (!nodes.contains("local"))
+      nodes.emplace("local", std::make_unique<NodeClient>(local_node()));
+    const auto endpoint =
+        nodes.at("local")->local_research(p.at("plugins").get<std::vector<std::string>>());
+    research = std::make_shared<ResearchClient>(endpoint);
+    ++research_generation;
+    return snapshot();
+  });
+  core.command("node.plugins.configure", "node.manage", [this](const json& p) {
+    fields(p, {"id", "service", "revision", "plugins"});
+    if (!p.at("plugins").is_array())
+      throw std::invalid_argument("invalid native plugin selection");
+    nodes.at(text(p, "id"))
+        ->configure_plugins(text(p, "service"), text(p, "revision"),
+                            p.at("plugins").get<std::vector<std::string>>());
+    return snapshot();
+  });
   core.command("node.initializer.export", "node.manage", [this](const json& p) {
     fields(p, {"path"});
     const auto destination = p.at("path").get<std::string>();
@@ -128,88 +174,46 @@ void Application::Impl::register_node_commands() {
   core.command("node.deploy", "node.manage", [this](const json& p) {
     fields(p, {"id", "service", "port", "kind"});
     auto& node = *nodes.at(text(p, "id"));
-    const auto status = node.status();
-    if (status.at("state") != "online" || status.at("health").at("os") != "linux" ||
-        status.at("health").at("version") != ASTERION_PRODUCT_VERSION)
+    const auto status = node.inspect_status();
+    if (!status.online || !status.health || status.health->os() != "linux" ||
+        status.health->version() != ASTERION_PRODUCT_VERSION)
       throw std::invalid_argument(
           "remote services require an online Linux Agent of the same version");
-    const auto arch = status.at("health").at("arch").get<std::string>();
-    const auto kind = text(p, "kind");
-    if (kind != "paper" && kind != "market" && kind != "research")
+    const auto& arch = status.health->arch();
+    const auto kind = parse_service_kind(text(p, "kind"));
+    if (kind == node::v1::STRATEGY)
       throw std::invalid_argument("invalid service kind");
-    node.deploy(bundled_linux_program(arch, kind == "market"     ? "asterion-market-data"
-                                            : kind == "research" ? "asterion-task-service"
-                                                                 : "asterion-trading"),
-                "linux", arch, text(p, "service"), port_number(p, "port"), {}, kind,
-                kind == "market" && arch == "x86_64" ? bundled_linux_program(arch, "ctp-md.so")
-                                                     : std::filesystem::path{},
-                kind == "research" ? bundled_linux_program(arch, "asterion-backtest")
-                                   : std::filesystem::path{},
-                kind == "research" ? bundled_linux_program(arch, "asterion-factor")
-                                   : std::filesystem::path{},
-                kind == "research" ? bundled_linux_program(arch, "asterion-data-pipeline")
-                                   : std::filesystem::path{},
-                kind == "market" ? bundled_linux_program(arch, "ctp-trader.so")
-                                 : std::filesystem::path{});
+    const auto programs = bundled_service_programs(arch, kind);
+    node.deploy({.service = text(p, "service"),
+                 .kind = kind,
+                 .platform = {.os = "linux", .arch = arch},
+                 .programs = programs,
+                 .port = port_number(p, "port")});
     return snapshot();
   });
   core.command("node.update", "node.manage", [this](const json& p) {
     fields(p, {"id", "service", "revision"});
     const auto id = text(p, "id"), service = text(p, "service");
     auto& node = *nodes.at(id);
-    const auto state = node.status();
-    if (state.at("state") != "online")
+    const auto state = node.inspect_status();
+    if (!state.online || !state.health)
       throw std::invalid_argument("connect the node before updating");
-    const auto& health = state.at("health");
-    const auto os = text(health, "os"), arch = text(health, "arch");
-    std::string kind;
-    for (const auto& s : health.at("services"))
-      if (s.at("id") == service)
-        kind = text(s, "kind");
-    if (kind != "paper" && kind != "market" && kind != "research" && kind != "strategy")
+    const auto& health = *state.health;
+    const auto& os = health.os();
+    const auto& arch = health.arch();
+    auto kind = node::v1::UNSPECIFIED_SERVICE;
+    for (const auto& service_status : health.services())
+      if (service_status.id() == service)
+        kind = service_status.kind();
+    if (kind != node::v1::PAPER_TRADING && kind != node::v1::MARKET_DATA &&
+        kind != node::v1::TASK_SERVICE && kind != node::v1::STRATEGY)
       throw std::invalid_argument("unknown service kind");
-    auto program = [&](const char* variable, const char* name) {
-      if (id != "local")
-        return bundled_linux_program(arch, name);
-      const auto configured = environment_path(variable);
-      return configured ? *configured
-                        : current_executable().parent_path() /
-                              (std::string(name) + (os == "windows" ? ".exe" : ""));
-    };
-    const auto executable =
-        kind == "paper"      ? program("ASTERION_TRADING_EXECUTABLE", "asterion-trading")
-        : kind == "market"   ? program("ASTERION_MARKET_EXECUTABLE", "asterion-market-data")
-        : kind == "research" ? program("ASTERION_TASK_EXECUTABLE", "asterion-task-service")
-                             : program("ASTERION_STRATEGY_EXECUTABLE", "asterion-strategy");
-    std::filesystem::path provider, catalog;
-    if (kind == "market") {
-      if (id != "local") {
-        provider = bundled_linux_program(arch, "ctp-md.so");
-        catalog = bundled_linux_program(arch, "ctp-trader.so");
-      } else {
-        const auto catalog_override = environment_path("ASTERION_CTP_CATALOG_LIBRARY");
-        catalog = catalog_override ? *catalog_override
-                                   : current_executable().parent_path() /
-                                         ("ctp-trader" + std::string(os == "macos"     ? ".dylib"
-                                                                     : os == "windows" ? ".dll"
-                                                                                       : ".so"));
-        const auto configured = environment_path("ASTERION_CTP_LIBRARY");
-        provider = configured ? *configured
-                              : current_executable().parent_path() /
-                                    ("ctp-md" + std::string(os == "windows" ? ".dll"
-                                                            : os == "macos" ? ".dylib"
-                                                                            : ".so"));
-      }
-    }
-    node.update(executable, os, arch, service, text(p, "revision"), provider,
-                kind == "research" ? program("ASTERION_BACKTEST_EXECUTABLE", "asterion-backtest")
-                                   : std::filesystem::path{},
-                kind == "research" ? program("ASTERION_FACTOR_EXECUTABLE", "asterion-factor")
-                                   : std::filesystem::path{},
-                kind == "research"
-                    ? program("ASTERION_DATA_PIPELINE_EXECUTABLE", "asterion-data-pipeline")
-                    : std::filesystem::path{},
-                catalog);
+    const auto programs =
+        id == "local" ? local_service_programs(kind) : bundled_service_programs(arch, kind);
+    node.update({.service = service,
+                 .expected_revision = text(p, "revision"),
+                 .platform = {.os = os, .arch = arch},
+                 .programs = programs});
     return snapshot();
   });
   core.command("node.action", "node.manage", [this](const json& p) {

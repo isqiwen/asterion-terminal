@@ -72,7 +72,7 @@ test("dense market board links real dataset commands, sorting, pagination and co
       historyPage = {
         id: request.params.id,
         source: "tushare.ft_mins",
-        ts_code: "RB2601.SHF",
+        contract_id: "SHFE/rb/2026-01",
         interval_minutes: request.params.id === "history-15min" ? 15 : 5,
         manifest_sha256: "b".repeat(64),
         total_rows: 120,
@@ -117,10 +117,12 @@ test("dense market board links real dataset commands, sorting, pagination and co
         source: "tushare.ft_mins",
         exchange: "SHFE",
         product: "RB",
+        connection: "",
+        connection_revision: "",
         cutoff_ns: "0",
         items: [
           {
-            code: "RB2601.SHF",
+            code: "SHFE/rb/2026-01",
             name: catalogLabel,
             list_date: "20250101",
             delist_date: "20260115",
@@ -148,6 +150,7 @@ test("dense market board links real dataset commands, sorting, pagination and co
         contracts: subscriptions.map(row => ({
           venue: row.venue,
           symbol: row.symbol,
+          contract_id: `${row.venue}/${row.symbol.replace(/[0-9]+$/, "").toLowerCase()}/20${row.symbol.slice(-4, -2)}-${row.symbol.slice(-2)}`,
           product: row.symbol.replace(/[0-9]+$/, ""),
           expiry: "20260930",
           multiplier: 10,
@@ -187,7 +190,7 @@ test("dense market board links real dataset commands, sorting, pagination and co
           error: "",
           result_digest: "b".repeat(64),
           trading_day: "",
-          instrument: "SHFE/RB2601",
+          instrument: "SHFE/rb/2026-01",
           source_name: "Tushare RB2601.SHF 5min",
           minute_interval_minutes: 5,
           submission_sequence: 2,
@@ -745,7 +748,7 @@ test("dense market board links real dataset commands, sorting, pagination and co
     .click();
   historicalOnly = true;
   await page.getByRole("tab", { name: "历史行情", exact: true }).click();
-  await expect(page.getByRole("button", { name: "SHFE · RB2601", exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "SHFE · rb/2026-01", exact: false })).toBeVisible();
   await expect(history.getByRole("img")).toBeVisible();
   await history.getByRole("button", { name: "15 min", exact: true }).click();
   await expect.poll(() => historyPage?.id).toBe("history-15min");

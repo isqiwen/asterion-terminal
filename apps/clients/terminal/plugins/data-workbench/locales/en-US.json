@@ -209,5 +209,16 @@
   "交易计量单位": "Trading unit",
   "报价单位": "Quotation unit",
   "保留数据源原始字段；合约乘数与每手交易单位不自动互换，缺失值不推算。": "Original provider fields: contract multiplier and units per lot are not interchangeable. Missing values are not inferred.",
-  "日线因子分析": "Analyze daily factor"
+  "日线因子分析": "Analyze daily factor",
+  "历史数据仓库": "Historical data archive",
+  "品种": "Product",
+  "合约身份": "Contract identity",
+  "查询": "Search",
+  "历史仓库说明": "Published revisions are immutable and isolated by contract, source and interval. An empty download does not prove complete market coverage.",
+  "暂无历史数据版本": "No historical revisions available",
+  "日线": "Daily",
+  "数据源凭据": "Data source credential",
+  "使用连接": "Use Connection",
+  "临时凭据": "Temporary Credential",
+  "请在设置中重新输入连接凭据。": "Re-enter the connection credential in Settings."
 }

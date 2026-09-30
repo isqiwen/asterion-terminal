@@ -430,6 +430,8 @@ public:
         put(item.InstrumentID, "rb2610");
         put(item.ProductID, "rb");
         put(item.ExpireDate, "20261015");
+        item.DeliveryYear = 2026;
+        item.DeliveryMonth = 10;
         item.ProductClass = THOST_FTDC_PC_Futures;
         item.IsTrading = 1;
         item.VolumeMultiple = 10;

@@ -50,7 +50,8 @@ export type TerminalContext = {
   openTasks: () => void;
   refresh: () => void;
   query: (
-    method: "research.minutes.page" | "research.daily.page" | "market.minutes",
+    method:
+      "research.minutes.page" | "research.daily.page" | "research.datasets" | "market.minutes",
     params: Record<string, unknown>,
   ) => Promise<Snapshot>;
   trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;

@@ -1,3 +1,4 @@
+#include <asterion/domain/daily_bars.hpp>
 #include <asterion/domain/market.hpp>
 
 #include <algorithm>
@@ -36,12 +37,15 @@ void Instrument::validate() const {
     throw std::invalid_argument("invalid instrument units");
   }
 }
-void TradeTick::validate(const Instrument& spec) const {
+void MarketBar::validate(const Instrument& spec) const {
   spec.validate();
-  if (instrument != spec.id || timestamp_ns < 0 || quantity <= Decimal{} ||
-      !price.multiple_of(spec.price_increment) || !quantity.multiple_of(spec.quantity_increment)) {
-    throw std::invalid_argument("trade does not match instrument contract");
-  }
+  (void)parse_trading_date(trading_day);
+  if (timestamp_ns < 0 || low > high || open < low || open > high || close < low || close > high ||
+      volume < Decimal{} || !volume.multiple_of(spec.quantity_increment))
+    throw std::invalid_argument("invalid market bar");
+  for (const auto price : {open, high, low, close})
+    if (!price.multiple_of(spec.price_increment))
+      throw std::invalid_argument("bar price does not match instrument price increment");
   // Zero or negative prices can be valid in some derivative markets.
 }
 } // namespace asterion

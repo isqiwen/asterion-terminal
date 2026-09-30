@@ -84,8 +84,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-strategy-tls-", ignore_cleanup
 
     def event(sequence, price):
         return request(f'''event {{ stream_id: "tls.market" sequence: {sequence}
-            tick {{ timestamp_ns: {sequence} price {{ units: {price * 100000000} }}
-                quantity {{ units: 100000000 }} }} }}''')
+            bar {{ trading_day: "2026-09-25" timestamp_ns: {sequence} open {{ units: {price * 100000000} }} high {{ units: {price * 100000000} }} low {{ units: {price * 100000000} }} close {{ units: {price * 100000000} }} volume {{ units: 1000000000 }} }} }}''')
 
     process = start()
     try:

@@ -42,8 +42,10 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
   }
   const auto instance = client->status().at("health").at("instance_id").get<std::string>();
   const auto platform = current_platform();
-  client->deploy(ASTERION_TRADE_PATH, platform.os, platform.arch, "paper", 0,
-                 (root / "ledger").string());
+  client->deploy({.service = "paper",
+                  .platform = platform,
+                  .programs = {.executable = ASTERION_TRADE_PATH},
+                  .directory = (root / "ledger").string()});
   EXPECT_THROW(client->coordinate_upgrade("upgrade.active-trading", "prepare"), std::exception);
   EXPECT_EQ(client->status().at("state"), "online");
   EXPECT_TRUE(client->status().at("error").get<std::string>().empty());
@@ -64,7 +66,7 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
   EXPECT_EQ(second.status().at("state"), "online");
   EXPECT_TRUE(second.status().at("error").get<std::string>().empty());
   // Verify every mutation family is rejected before payload handling.
-  for (int operation = 0; operation < 7; ++operation) {
+  for (int operation = 0; operation < 8; ++operation) {
     node::v1::Request request;
     request.set_version(1);
     request.set_correlation_id("blocked");
@@ -86,6 +88,9 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
       break;
     case 5:
       request.mutable_firewall();
+      break;
+    case 6:
+      request.mutable_configure_plugins();
       break;
     default:
       request.mutable_action();
@@ -279,8 +284,11 @@ TEST(NodeMaintenance, UpgradePreservesDesiredStateAcrossAgentRestartAndCompletio
   start();
   const auto platform = current_platform();
   for (const auto* name : {"running", "stopped"})
-    client->deploy(ASTERION_MARKET_PATH, platform.os, platform.arch, name, 0, {}, "market",
-                   ASTERION_FAKE_CTP);
+    client->deploy(
+        {.service = name,
+         .kind = node::v1::MARKET_DATA,
+         .platform = platform,
+         .programs = {.executable = ASTERION_MARKET_PATH, .provider = ASTERION_FAKE_CTP}});
   client->action("stopped", "stop");
   EXPECT_EQ(client->coordinate_upgrade("upgrade.test", "prepare").at("phase"), "draining");
   // Lose the coordinator while draining: persisted process identities fence restart.

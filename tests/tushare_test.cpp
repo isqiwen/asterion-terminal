@@ -1,6 +1,6 @@
 #include <asterion/kernel/process/file_lock.hpp>
 #include "tushare.hpp"
-#include "minutes.hpp"
+#include "history_minutes.hpp"
 #include "task_store.hpp"
 #include <asterion/protocol/data.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
@@ -18,7 +18,8 @@ using namespace asterion;
 namespace {
 const auto begin = tushare::parse_time("2023-08-25 09:00:00");
 HistoricalBarRange range() {
-  return {{"SHFE", "CU2310"}, 1, begin, begin + 600000000000LL};
+  return {{"SHFE", "cu", "2023-10"}, 1,           begin, begin + 600000000000LL,
+          "tushare.ft_mins",         "CU2310.SHF"};
 }
 std::string response(const std::string& time = "2023-08-25 09:01:00") {
   return "{\"code\":0,\"data\":{\"fields\":[\"ts_code\",\"trade_time\",\"open\",\"high\",\"low\","
@@ -122,26 +123,26 @@ TEST(Tushare, ResumeSkipsDurablePagesAndRejectsChangedInputOrDamagedPage) {
     return response(calls == 1 ? "2023-08-25 09:01:00" : "2023-08-26 09:01:00");
   });
   p.start();
-  EXPECT_THROW(data_pipeline::download_minutes(p, input, folder.path, 500), std::runtime_error);
-  auto manifest = data_pipeline::inspect_minutes(folder.path);
+  EXPECT_THROW(history_files::download_minutes(p, input, folder.path, 500), std::runtime_error);
+  auto manifest = history_files::inspect_minutes(folder.path);
   EXPECT_FALSE(manifest.at("complete"));
   EXPECT_EQ(manifest.at("rows"), 1);
-  EXPECT_THROW(data_pipeline::read_minutes(folder.path, [](const auto&) {}), std::invalid_argument);
+  EXPECT_THROW(history_files::read_minutes(folder.path, [](const auto&) {}), std::invalid_argument);
   fail = false;
-  manifest = data_pipeline::download_minutes(p, input, folder.path, 500);
+  manifest = history_files::download_minutes(p, input, folder.path, 500);
   EXPECT_TRUE(manifest.at("complete"));
   EXPECT_EQ(calls, 3);
   EXPECT_EQ(manifest.at("rows"), 2);
   EXPECT_EQ(manifest.dump().find("fixture"), std::string::npos);
   std::vector<HistoricalBar> bars;
-  data_pipeline::read_minutes(folder.path, [&](const auto& bar) { bars.push_back(bar); });
+  history_files::read_minutes(folder.path, [&](const auto& bar) { bars.push_back(bar); });
   ASSERT_EQ(bars.size(), 2);
-  (void)data_pipeline::download_minutes(p, input, folder.path, 500);
+  (void)history_files::download_minutes(p, input, folder.path, 500);
   EXPECT_EQ(calls, 3);
   input.interval_minutes = 5;
-  EXPECT_THROW(data_pipeline::download_minutes(p, input, folder.path, 500), std::invalid_argument);
+  EXPECT_THROW(history_files::download_minutes(p, input, folder.path, 500), std::invalid_argument);
   write_file_durably(folder.path / "minutes-0.json", "{}");
-  EXPECT_THROW(data_pipeline::inspect_minutes(folder.path), std::exception);
+  EXPECT_THROW(history_files::inspect_minutes(folder.path), std::exception);
 }
 TEST(Tushare, CancellationDoesNotAdvanceManifestOrCallProvider) {
   Folder folder;
@@ -153,17 +154,19 @@ TEST(Tushare, CancellationDoesNotAdvanceManifestOrCallProvider) {
     return response();
   });
   p.start();
-  EXPECT_THROW(data_pipeline::download_minutes(p, range(), folder.path, 60, stop.get_token()),
+  EXPECT_THROW(history_files::download_minutes(p, range(), folder.path, 60, stop.get_token()),
                std::runtime_error);
   EXPECT_EQ(calls, 0);
-  EXPECT_FALSE(data_pipeline::inspect_minutes(folder.path).at("complete"));
+  EXPECT_FALSE(history_files::inspect_minutes(folder.path).at("complete"));
 }
 
 TEST(Tushare, ManagedTaskPersistsDefinitionWithoutCredentialAndRestoresResult) {
   Folder root;
   const auto definition =
-      data_pipeline::minute_request({{"version", 1},
-                                     {"ts_code", "CU2310.SHF"},
+      history_files::minute_request({{"version", 2},
+                                     {"contract_id", "SHFE/cu/2023-10"},
+                                     {"source", "tushare.ft_mins"},
+                                     {"source_instrument", "CU2310.SHF"},
                                      {"interval_minutes", 1},
                                      {"begin_ns", std::to_string(range().begin_ns)},
                                      {"end_ns", std::to_string(range().end_ns)},
@@ -172,11 +175,15 @@ TEST(Tushare, ManagedTaskPersistsDefinitionWithoutCredentialAndRestoresResult) {
     tasks::Store store(root.path);
     auto task = store.submit("minutes-fixture", definition, "fixture-secret");
     EXPECT_EQ(task.kind(), research::v1::MINUTE_DOWNLOAD);
-    EXPECT_EQ(store.submit("minutes-fixture", definition, "fixture-secret").submission_sequence(),
+    EXPECT_EQ(store.submit("minutes-fixture", definition, "replacement-must-not-overwrite")
+                  .submission_sequence(),
               task.submission_sequence());
     EXPECT_EQ(task.SerializeAsString().find("fixture-secret"), std::string::npos);
     auto dispatch = store.dispatch({});
     ASSERT_EQ(dispatch.launches_size(), 1);
+    EXPECT_EQ(dispatch.launches(0).provider_artifact(),
+              store.get("minutes-fixture").provider_artifact());
+    EXPECT_EQ(dispatch.launches(0).provider_artifact().size(), 64);
     EXPECT_TRUE(dispatch.launches(0).minute_download());
     research::v1::TaskAttempt attempt;
     attempt.set_token(store.claim(task.id()));
@@ -187,11 +194,11 @@ TEST(Tushare, ManagedTaskPersistsDefinitionWithoutCredentialAndRestoresResult) {
                               [](const auto&, auto) { return response(); });
     provider.start();
     const auto dir = std::filesystem::path(attempt.output_directory());
-    (void)data_pipeline::download_minutes(provider, range(), dir, 60);
+    (void)history_files::download_minutes(provider, range(), dir, 60);
     research::v1::TaskFinish finish;
     finish.set_id(task.id());
     finish.set_token(attempt.token());
-    *finish.mutable_minutes() = data_pipeline::minute_result(dir);
+    *finish.mutable_minutes() = history_files::minute_result(dir);
     auto completion = store.prepare_finish(finish);
     completion.verify();
     store.finish(std::move(completion));
@@ -199,7 +206,7 @@ TEST(Tushare, ManagedTaskPersistsDefinitionWithoutCredentialAndRestoresResult) {
     EXPECT_EQ(store.minute_result(task.id()).rows(), 1);
     for (const auto& file :
          std::filesystem::recursive_directory_iterator(root.path / "minutes-fixture")) {
-      if (file.is_regular_file() && file.path().filename() != "tushare.token") {
+      if (file.is_regular_file() && file.path().filename() != "provider.credential") {
         std::ifstream in(file.path(), std::ios::binary);
         std::string raw((std::istreambuf_iterator<char>(in)), {});
         EXPECT_EQ(raw.find("fixture-secret"), std::string::npos);
@@ -218,18 +225,18 @@ TEST(Tushare, RecoversDurablePageAfterManifestInterruptionAndProtectsExistingFil
     return response();
   });
   provider.start();
-  auto manifest = data_pipeline::download_minutes(provider, range(), folder.path, 60);
+  auto manifest = history_files::download_minutes(provider, range(), folder.path, 60);
   manifest["pages"] = Json::array();
   manifest["rows"] = 0;
   manifest["complete"] = false;
   replace_file_durably(folder.path / "minutes.json", manifest.dump());
-  auto recovered = data_pipeline::download_minutes(provider, range(), folder.path, 60);
+  auto recovered = history_files::download_minutes(provider, range(), folder.path, 60);
   EXPECT_TRUE(recovered.at("complete"));
   EXPECT_EQ(recovered.at("rows"), 1);
   EXPECT_EQ(calls, 1);
   Folder occupied;
   write_file_durably(occupied.path / "user-data.txt", "preserve");
-  EXPECT_THROW(data_pipeline::download_minutes(provider, range(), occupied.path, 60),
+  EXPECT_THROW(history_files::download_minutes(provider, range(), occupied.path, 60),
                std::invalid_argument);
   std::ifstream existing(occupied.path / "user-data.txt");
   std::string text;
@@ -245,9 +252,9 @@ TEST(Tushare, CancellingAnInflightReadDoesNotPublishItsPage) {
   });
   provider.start();
   EXPECT_THROW(
-      data_pipeline::download_minutes(provider, range(), folder.path, 60, cancel.get_token()),
+      history_files::download_minutes(provider, range(), folder.path, 60, cancel.get_token()),
       std::runtime_error);
-  EXPECT_EQ(data_pipeline::inspect_minutes(folder.path).at("pages").size(), 0);
+  EXPECT_EQ(history_files::inspect_minutes(folder.path).at("pages").size(), 0);
   EXPECT_FALSE(std::filesystem::exists(folder.path / "minutes-0.json"));
 }
 
@@ -257,7 +264,7 @@ TEST(Tushare, ContractCatalogAndWholeLifetime) {
     EXPECT_EQ(request.at("api_name"), "fut_basic");
     EXPECT_EQ(request.at("params").at("fut_type"), "1");
     EXPECT_EQ(request.at("params").at("fut_code"), "CU");
-    return R"({"code":0,"data":{"fields":["ts_code","name","exchange","fut_code","list_date","delist_date","multiplier","per_unit","trade_unit","quote_unit"],"items":[["CU2310.SHF","Copper 2310","SHFE","CU","20221017","20231016",null,5.00000001,"吨","元/吨"]]}})";
+    return R"({"code":0,"data":{"fields":["ts_code","name","exchange","fut_code","list_date","delist_date","multiplier","per_unit","trade_unit","quote_unit","d_month"],"items":[["CU2310.SHF","Copper 2310","SHFE","CU","20221017","20231016",null,5.00000001,"吨","元/吨","202310"]]}})";
   });
   ASSERT_EQ(rows.size(), 1);
   EXPECT_FALSE(rows[0].multiplier);
@@ -281,13 +288,13 @@ TEST(Tushare, RejectsIncompleteOrAmbiguousContractCatalog) {
                   {"data",
                    {{"fields",
                      {"ts_code", "name", "exchange", "fut_code", "list_date", "delist_date",
-                      "multiplier", "per_unit", "trade_unit", "quote_unit"}},
+                      "multiplier", "per_unit", "trade_unit", "quote_unit", "d_month"}},
                     {"items", rows}}}}
           .dump();
     });
   };
-  Json row = {"CU2310.SHF", "Copper", "SHFE", "CU", "20221017",
-              "20231016",   nullptr,  "5",    "吨", "元/吨"};
+  Json row = {"CU2310.SHF", "Copper", "SHFE", "CU",    "20221017", "20231016",
+              nullptr,      "5",      "吨",   "元/吨", "202310"};
   EXPECT_THROW(load(Json::array({row, row})), std::invalid_argument);
   row[0] = "CU.SHF";
   EXPECT_THROW(load(Json::array({row})), std::invalid_argument);
@@ -329,19 +336,21 @@ TEST(Tushare, DatasetViewPagesExactValuesFiltersAndRejectsCorruption) {
   });
   provider.start();
   const auto spec = range();
-  data_pipeline::download_minutes(provider, spec, folder.path, 500);
+  history_files::download_minutes(provider, spec, folder.path, 500);
   data::v1::MinuteDownload input;
-  input.set_version(1);
-  input.set_ts_code("CU2310.SHF");
+  input.set_version(2);
+  input.set_source("tushare.ft_mins");
+  input.set_source_instrument("CU2310.SHF");
+  input.set_contract_id("SHFE/cu/2023-10");
   input.set_interval_minutes(1);
   input.set_begin_ns(spec.begin_ns);
   input.set_end_ns(spec.end_ns);
   input.set_requests_per_minute(500);
-  const auto result = data_pipeline::minute_result(folder.path);
+  const auto result = history_files::minute_result(folder.path);
   data::v1::MinutePageQuery query;
   query.set_task_id("fixture");
   query.set_limit(2);
-  auto first = data_pipeline::read_minute_page(input, result, query);
+  auto first = history_files::read_minute_page(input, result, query);
   EXPECT_EQ(first.total_rows(), 3);
   EXPECT_EQ(first.first_ns(), begin);
   EXPECT_EQ(first.last_ns(), begin + 120000000000LL);
@@ -349,23 +358,23 @@ TEST(Tushare, DatasetViewPagesExactValuesFiltersAndRejectsCorruption) {
   EXPECT_EQ(first.bars(0).open().units(), Decimal::parse("100.00000001").raw());
   EXPECT_EQ(protocol::decode_minute_page(first).at("bars").at(0).at("amount"), "12345678.12345678");
   query.set_offset(2);
-  EXPECT_EQ(data_pipeline::read_minute_page(input, result, query).bars_size(), 1);
+  EXPECT_EQ(history_files::read_minute_page(input, result, query).bars_size(), 1);
   query.set_offset(3);
-  EXPECT_THROW(data_pipeline::read_minute_page(input, result, query), std::invalid_argument);
+  EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
   query.set_offset(0);
   query.set_begin_ns(begin + 60000000000LL);
   query.set_end_ns(begin + 60000000000LL);
-  auto filtered = data_pipeline::read_minute_page(input, result, query);
+  auto filtered = history_files::read_minute_page(input, result, query);
   EXPECT_EQ(filtered.matched_rows(), 1);
   EXPECT_EQ(filtered.bars(0).timestamp_ns(), begin + 60000000000LL);
   query.set_begin_ns(begin + 180000000000LL);
   query.set_end_ns(begin + 240000000000LL);
-  EXPECT_EQ(data_pipeline::read_minute_page(input, result, query).matched_rows(), 0);
+  EXPECT_EQ(history_files::read_minute_page(input, result, query).matched_rows(), 0);
   query.set_limit(201);
-  EXPECT_THROW(data_pipeline::read_minute_page(input, result, query), std::invalid_argument);
+  EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
   query.set_limit(2);
   replace_file_durably(folder.path / "minutes-0.json", "{}");
-  EXPECT_THROW(data_pipeline::read_minute_page(input, result, query), std::invalid_argument);
+  EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
 }
 
 TEST(Tushare, DatasetViewSkipsUnrequestedChunksAndStillVerifiesRequestedData) {
@@ -377,27 +386,29 @@ TEST(Tushare, DatasetViewSkipsUnrequestedChunksAndStillVerifiesRequestedData) {
     return response(start);
   });
   provider.start();
-  data_pipeline::download_minutes(provider, spec, folder.path, 500);
+  history_files::download_minutes(provider, spec, folder.path, 500);
   data::v1::MinuteDownload input;
-  input.set_version(1);
-  input.set_ts_code("CU2310.SHF");
+  input.set_version(2);
+  input.set_source("tushare.ft_mins");
+  input.set_source_instrument("CU2310.SHF");
+  input.set_contract_id("SHFE/cu/2023-10");
   input.set_interval_minutes(1);
   input.set_begin_ns(spec.begin_ns);
   input.set_end_ns(spec.end_ns);
   input.set_requests_per_minute(500);
-  const auto result = data_pipeline::minute_result(folder.path);
+  const auto result = history_files::minute_result(folder.path);
   data::v1::MinutePageQuery query;
   query.set_task_id("fixture");
   query.set_limit(1);
   // First and last chunks always establish actual coverage. Interior chunks are lazy.
   replace_file_durably(folder.path / "minutes-1.json", "{}");
-  EXPECT_EQ(data_pipeline::read_minute_page(input, result, query).bars_size(), 1);
+  EXPECT_EQ(history_files::read_minute_page(input, result, query).bars_size(), 1);
   query.set_offset(1);
-  EXPECT_THROW(data_pipeline::read_minute_page(input, result, query), std::invalid_argument);
+  EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
   query.set_offset(2);
-  EXPECT_EQ(data_pipeline::read_minute_page(input, result, query).bars_size(), 1);
+  EXPECT_EQ(history_files::read_minute_page(input, result, query).bars_size(), 1);
   query.set_include_macd(true);
-  EXPECT_THROW(data_pipeline::read_minute_page(input, result, query), std::invalid_argument);
+  EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
 }
 
 TEST(Tushare, CompletedDatasetPagesThroughRealTaskService) {
@@ -409,8 +420,10 @@ TEST(Tushare, CompletedDatasetPagesThroughRealTaskService) {
   {
     tasks::Store store(root.path);
     data::v1::MinuteDownload input;
-    input.set_version(1);
-    input.set_ts_code("CU2310.SHF");
+    input.set_version(2);
+    input.set_source("tushare.ft_mins");
+    input.set_source_instrument("CU2310.SHF");
+    input.set_contract_id("SHFE/cu/2023-10");
     input.set_interval_minutes(1);
     input.set_begin_ns(spec.begin_ns);
     input.set_end_ns(spec.end_ns);
@@ -433,11 +446,11 @@ TEST(Tushare, CompletedDatasetPagesThroughRealTaskService) {
     provider.start();
     const std::filesystem::path dir(attempt.output_directory());
     dataset_directory = dir;
-    data_pipeline::download_minutes(provider, spec, dir, 60);
+    history_files::download_minutes(provider, spec, dir, 60);
     research::v1::TaskFinish finish;
     finish.set_id("viewer");
     finish.set_token(attempt.token());
-    *finish.mutable_minutes() = data_pipeline::minute_result(dir);
+    *finish.mutable_minutes() = history_files::minute_result(dir);
     auto completion = store.prepare_finish(finish);
     completion.verify();
     store.finish(std::move(completion));
@@ -541,20 +554,22 @@ TEST(Tushare, ChartMacdUsesDatasetOriginAcrossPagesAndTimeFilters) {
   provider.start();
   auto spec = range();
   spec.end_ns = begin + 119 * 60000000000LL;
-  data_pipeline::download_minutes(provider, spec, folder.path, 500);
+  history_files::download_minutes(provider, spec, folder.path, 500);
   data::v1::MinuteDownload input;
-  input.set_version(1);
-  input.set_ts_code("CU2310.SHF");
+  input.set_version(2);
+  input.set_source("tushare.ft_mins");
+  input.set_source_instrument("CU2310.SHF");
+  input.set_contract_id("SHFE/cu/2023-10");
   input.set_interval_minutes(1);
   input.set_begin_ns(spec.begin_ns);
   input.set_end_ns(spec.end_ns);
   input.set_requests_per_minute(500);
-  const auto result = data_pipeline::minute_result(folder.path);
+  const auto result = history_files::minute_result(folder.path);
   data::v1::MinutePageQuery query;
   query.set_task_id("macd");
   query.set_limit(120);
   query.set_include_macd(true);
-  const auto whole = data_pipeline::read_minute_page(input, result, query);
+  const auto whole = history_files::read_minute_page(input, result, query);
   ASSERT_EQ(whole.bars_size(), 120);
   for (int i = 0; i < 33; ++i)
     EXPECT_FALSE(whole.bars(i).has_macd());
@@ -571,15 +586,15 @@ TEST(Tushare, ChartMacdUsesDatasetOriginAcrossPagesAndTimeFilters) {
   EXPECT_NEAR(whole.bars(77).macd().histogram(), 2 * (diff(77) - expected_signal), 1e-11);
   query.set_offset(77);
   query.set_limit(20);
-  const auto page = data_pipeline::read_minute_page(input, result, query);
+  const auto page = history_files::read_minute_page(input, result, query);
   EXPECT_EQ(page.bars(0).macd().SerializeAsString(), whole.bars(77).macd().SerializeAsString());
   query.set_offset(0);
   query.set_begin_ns(begin + 77 * 60000000000LL);
-  const auto filtered = data_pipeline::read_minute_page(input, result, query);
+  const auto filtered = history_files::read_minute_page(input, result, query);
   EXPECT_EQ(filtered.bars(0).macd().SerializeAsString(), whole.bars(77).macd().SerializeAsString());
   EXPECT_TRUE(protocol::decode_minute_page(filtered).at("bars").at(0).contains("macd"));
   query.set_include_macd(false);
-  EXPECT_FALSE(data_pipeline::read_minute_page(input, result, query).bars(0).has_macd());
+  EXPECT_FALSE(history_files::read_minute_page(input, result, query).bars(0).has_macd());
   auto invalid = filtered;
   invalid.mutable_bars(0)->mutable_macd()->set_diff(std::numeric_limits<double>::infinity());
   EXPECT_THROW(protocol::decode_minute_page(invalid), std::invalid_argument);
@@ -590,35 +605,37 @@ TEST(Tushare, DatasetReadersCoexistAndExcludeDownloadWrites) {
   tushare::Minutes provider("fixture", [](const auto&, auto) { return response(); });
   provider.start();
   const auto spec = range();
-  data_pipeline::download_minutes(provider, spec, folder.path, 500);
+  history_files::download_minutes(provider, spec, folder.path, 500);
   data::v1::MinuteDownload input;
-  input.set_version(1);
-  input.set_ts_code("CU2310.SHF");
+  input.set_version(2);
+  input.set_source("tushare.ft_mins");
+  input.set_source_instrument("CU2310.SHF");
+  input.set_contract_id("SHFE/cu/2023-10");
   input.set_interval_minutes(1);
   input.set_begin_ns(spec.begin_ns);
   input.set_end_ns(spec.end_ns);
   input.set_requests_per_minute(500);
-  const auto result = data_pipeline::minute_result(folder.path);
+  const auto result = history_files::minute_result(folder.path);
   data::v1::MinutePageQuery query;
   query.set_task_id("concurrent-read");
   query.set_limit(10);
   query.set_include_macd(true);
   unsigned consumed = 0;
-  data_pipeline::read_minutes(folder.path, [&](const HistoricalBar&) {
+  history_files::read_minutes(folder.path, [&](const HistoricalBar&) {
     ++consumed;
     // Keep one reader alive while the chart and metadata readers enter.
-    EXPECT_NO_THROW(data_pipeline::inspect_minutes(folder.path));
+    EXPECT_NO_THROW(history_files::inspect_minutes(folder.path));
     EXPECT_NO_THROW({
-      const auto page = data_pipeline::read_minute_page(input, result, query);
+      const auto page = history_files::read_minute_page(input, result, query);
       EXPECT_EQ(page.bars_size(), 1);
       EXPECT_EQ(page.bars(0).close().units(), Decimal::parse("101.2").raw());
     });
-    EXPECT_THROW(data_pipeline::download_minutes(provider, spec, folder.path, 500),
+    EXPECT_THROW(history_files::download_minutes(provider, spec, folder.path, 500),
                  std::runtime_error);
   });
   EXPECT_EQ(consumed, 1u);
   // Reader destruction releases the lock; resuming the same immutable download is allowed.
-  EXPECT_NO_THROW(data_pipeline::download_minutes(provider, spec, folder.path, 500));
+  EXPECT_NO_THROW(history_files::download_minutes(provider, spec, folder.path, 500));
 }
 
 TEST(Tushare, MacdPrefixRemainsExactAcrossMultipleSegments) {
@@ -646,21 +663,23 @@ TEST(Tushare, MacdPrefixRemainsExactAcrossMultipleSegments) {
   provider.start();
   auto spec = range();
   spec.end_ns = begin + 7 * day + 19 * 60000000000LL;
-  data_pipeline::download_minutes(provider, spec, folder.path, 500);
+  history_files::download_minutes(provider, spec, folder.path, 500);
   data::v1::MinuteDownload input;
-  input.set_version(1);
-  input.set_ts_code("CU2310.SHF");
+  input.set_version(2);
+  input.set_source("tushare.ft_mins");
+  input.set_source_instrument("CU2310.SHF");
+  input.set_contract_id("SHFE/cu/2023-10");
   input.set_interval_minutes(1);
   input.set_begin_ns(spec.begin_ns);
   input.set_end_ns(spec.end_ns);
   input.set_requests_per_minute(500);
-  const auto result = data_pipeline::minute_result(folder.path);
+  const auto result = history_files::minute_result(folder.path);
   data::v1::MinutePageQuery query;
   query.set_task_id("cache-eviction");
   query.set_offset(135);
   query.set_limit(25);
   query.set_include_macd(true);
-  const auto page = data_pipeline::read_minute_page(input, result, query);
+  const auto page = history_files::read_minute_page(input, result, query);
   ASSERT_EQ(page.bars_size(), 25);
   EXPECT_EQ(page.matched_rows(), 160);
   EXPECT_EQ(page.first_ns(), begin);
@@ -680,26 +699,55 @@ TEST(Tushare, MacdPrefixRemainsExactAcrossMultipleSegments) {
   }
   query.set_offset(0);
   query.set_begin_ns(begin + 6 * day + 15 * 60000000000LL);
-  const auto filtered = data_pipeline::read_minute_page(input, result, query);
+  const auto filtered = history_files::read_minute_page(input, result, query);
   ASSERT_EQ(filtered.bars_size(), 25);
   for (int i = 0; i < 25; ++i)
     EXPECT_EQ(filtered.bars(i).SerializeAsString(), page.bars(i).SerializeAsString());
   // The streaming prefix still verifies every consumed chunk, even when the
   // corrupted chunk is outside the requested output page.
   replace_file_durably(folder.path / "minutes-3.json", "{}");
-  EXPECT_THROW(data_pipeline::read_minute_page(input, result, query), std::invalid_argument);
+  EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
   query.set_include_macd(false);
-  EXPECT_EQ(data_pipeline::read_minute_page(input, result, query).bars_size(), 25);
+  EXPECT_EQ(history_files::read_minute_page(input, result, query).bars_size(), 25);
   query.set_begin_ns(begin + 6 * day + 20 * 60000000000LL);
   query.set_end_ns(begin + 6 * day + 21 * 60000000000LL);
   query.set_include_macd(true);
   // No returned bars means no MACD prefix is needed. Coverage and the queried
   // boundary chunk are still checked, but unrelated corrupted chunks are not.
-  const auto empty = data_pipeline::read_minute_page(input, result, query);
+  const auto empty = history_files::read_minute_page(input, result, query);
   EXPECT_EQ(empty.matched_rows(), 0);
   EXPECT_EQ(empty.bars_size(), 0);
   EXPECT_EQ(empty.first_ns(), begin);
   EXPECT_EQ(empty.last_ns(), spec.end_ns);
   replace_file_durably(folder.path / "minutes-6.json", "{}");
-  EXPECT_THROW(data_pipeline::read_minute_page(input, result, query), std::invalid_argument);
+  EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
+}
+
+TEST(Tushare, CatalogUsesExplicitDeliveryMonthAcrossRepeatedShortCodes) {
+  const auto listings = tushare::contracts("fixture-token", "CZCE", "SR", {}, [](const auto&, auto) {
+    return R"({"code":0,"data":{"fields":["ts_code","name","exchange","fut_code","list_date","delist_date","multiplier","per_unit","trade_unit","quote_unit","d_month"],"items":[["SR401.ZCE","Sugar","CZCE","SR","20230101","20240115",null,10,"ton","CNY/ton","202401"],["SR401.ZCE","Sugar","CZCE","SR","20330101","20340115",null,10,"ton","CNY/ton","203401"]]}})";
+  });
+  ASSERT_EQ(listings.size(), 2);
+  EXPECT_EQ(listings[0].identity.key(), "CZCE/sr/2024-01");
+  EXPECT_EQ(listings[1].identity.key(), "CZCE/sr/2034-01");
+  EXPECT_EQ(listings[0].ts_code, listings[1].ts_code);
+}
+TEST(Tushare, AccessFailuresStayStructuredWithoutEchoingProviderText) {
+  const std::vector<std::pair<std::string, tushare::AccessFailure>> cases{
+      {"token无效 fixture-secret", tushare::AccessFailure::invalid_credential},
+      {"每分钟请求超限 fixture-secret", tushare::AccessFailure::rate_limit},
+      {"接口权限不足 fixture-secret", tushare::AccessFailure::permission}};
+  for (const auto& [message, expected] : cases) {
+    tushare::Minutes plugin("fixture-token", [&](const auto&, auto) {
+      return Json{{"code", 2002}, {"msg", message}}.dump();
+    });
+    plugin.start();
+    try {
+      (void)plugin.read(range(), {});
+      FAIL() << "provider rejection was accepted";
+    } catch (const tushare::RequestError& error) {
+      EXPECT_EQ(error.reason, expected);
+      EXPECT_EQ(std::string(error.what()).find("fixture-secret"), std::string::npos);
+    }
+  }
 }

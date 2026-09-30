@@ -5,7 +5,7 @@ namespace asterion::terminal {
 // Strategy runs: authorization handoff between the paper account and the strategy host.
 void Application::Impl::register_strategy_commands() {
   core.command("strategy.run", "paper.manage", [this](const json& p) {
-    fields(p, {"id", "fast", "slow", "quantity", "calendar_task"});
+    fields(p, {"id", "fast", "slow", "quantity"});
     if (!paper || paper->endpoint().endpoint.empty())
       throw std::invalid_argument("automatic strategy setup currently "
                                   "requires a connected local paper account");
@@ -22,13 +22,7 @@ void Application::Impl::register_strategy_commands() {
         throw std::invalid_argument("invalid strategy window");
       return value;
     };
-    auto preview = core.resources().resolve<PreviewState>("terminal", "preview").lock();
-    if (preview->dataset.is_null() || preview->replay.empty())
-      throw std::invalid_argument("select a bounded futures dataset first");
-    json contract = json::object();
-    for (const auto* key : {"venue", "symbol", "currency", "price_increment", "quantity_increment",
-                            "multiplier", "product", "delivery_month"})
-      contract[key] = preview->dataset.at(key);
+    const auto& data = selected();
     strategy::v1::Config config;
     config.set_version(1);
     config.set_session_id("strategy-" + id);
@@ -38,61 +32,32 @@ void Application::Impl::register_strategy_commands() {
     config.set_slow(integer("slow"));
     const auto quantity = Decimal::parse(text(p, "quantity"));
     config.mutable_quantity()->set_units(quantity.raw());
-    *config.mutable_contract() = protocol::encode_contract(contract);
-    Instrument instrument{{text(contract, "venue"), text(contract, "symbol")},
-                          AssetClass::futures,
-                          text(contract, "currency"),
-                          Decimal::parse(text(contract, "price_increment")),
-                          Decimal::parse(text(contract, "quantity_increment")),
-                          Decimal::parse(text(contract, "multiplier"))};
-    MovingAverage validation(instrument, config.fast(), config.slow(), quantity);
+    *config.mutable_contract() = data.dataset.contract();
+    MovingAverage validation(protocol::instrument(data.dataset.contract()), config.fast(),
+                             config.slow(), quantity);
     (void)validation;
-    google::protobuf::RepeatedPtrField<protocol::v1::Tick> ticks;
-    for (const auto& row : preview->replay)
-      *ticks.Add() = protocol::encode_tick(row);
     const auto local = local_node();
     auto* plan = config.mutable_replay();
-    plan->set_version(2);
-    *plan->mutable_dataset() = protocol::make_trade_dataset(config.contract(), ticks);
+    plan->set_version(3);
+    *plan->mutable_dataset() = data.dataset;
     plan->set_trading_session(paper->endpoint().session);
     plan->set_grant_id("grant." + config.session_id());
     plan->set_agent_endpoint(local.endpoint);
-    const auto calendar_task = p.at("calendar_task").get<std::string>();
-    if (!calendar_task.empty()) {
-      if (!research)
-        throw std::invalid_argument("research service is not connected");
-      const auto evidence = research->result(calendar_task);
-      if (evidence.at("kind") != "calendar_import")
-        throw std::invalid_argument("selected task is not a calendar publication");
-      *plan->mutable_calendar_publication() =
-          protocol::encode_calendar_publication(evidence.at("result"));
-    }
-    if (paper->snapshot().contains("replay") && !plan->has_calendar_publication())
-      throw std::invalid_argument("account already has a bound calendar");
     static_cast<void>(protocol::decode_replay_plan(*plan));
     if (!nodes.contains("local"))
       nodes.emplace("local", std::make_unique<NodeClient>(local));
     auto next =
         std::make_unique<StrategyClient>(nodes.at("local")->local_strategy(config.session_id()));
-    // Three cross-process steps: bind calendar, grant the account, create the
-    // strategy. There is no distributed transaction; instead every step is
-    // idempotent under a request identity derived from the run id
-    // ("calendar.<session>", the grant id, the strategy session). The trading
+    // Three cross-process steps: bind day-end settlement, grant the account,
+    // create the strategy. There is no distributed transaction; instead every
+    // step is idempotent under a request identity derived from the run id
+    // ("days.<session>", the grant id, the strategy session). The trading
     // journal acknowledges an identical repeated command without re-applying
     // it, so after a partial failure the user retries the same run id and the
     // chain resumes. A grant left without a running strategy only fences manual
     // orders until the retry succeeds or strategy.revoke is called.
-    if (plan->has_calendar_publication()) {
-      const auto publication = protocol::decode_calendar_publication(plan->calendar_publication());
-      const auto state = paper->snapshot();
-      if (state.contains("replay")) {
-        if (state.at("replay").at("publication") != publication)
-          throw std::invalid_argument("selected calendar differs from account binding");
-      } else
-        paper->execute({{"request_id", "calendar." + config.session_id()},
-                        {"action", "replay_calendar"},
-                        {"publication", publication}});
-    }
+    if (!paper->snapshot().contains("replay"))
+      paper->execute({{"request_id", "days." + config.session_id()}, {"action", "replay_days"}});
     paper->execute({{"request_id", plan->grant_id()},
                     {"action", "strategy_grant"},
                     {"grant_id", plan->grant_id()},
@@ -111,7 +76,8 @@ void Application::Impl::register_strategy_commands() {
     if (text(p, "id") == "local" && !nodes.contains("local"))
       nodes.emplace("local", std::make_unique<NodeClient>(local_node()));
     strategy = std::make_unique<StrategyClient>(
-        nodes.at(text(p, "id"))->service_endpoint(text(p, "service"), "strategy"));
+        nodes.at(text(p, "id"))
+            ->service_endpoint(text(p, "service"), asterion::node::v1::STRATEGY));
     return snapshot();
   });
   core.command("strategy.revoke", "paper.manage", [this](const json& p) {
@@ -134,8 +100,8 @@ void Application::Impl::register_strategy_commands() {
                                     "before revoking this strategy");
       if (!nodes.contains("local"))
         nodes.emplace("local", std::make_unique<NodeClient>(local));
-      observer = std::make_unique<TradingClient>(
-          nodes.at("local")->service_endpoint(plan.trading_session(), "paper"));
+      observer = std::make_unique<TradingClient>(nodes.at("local")->service_endpoint(
+          plan.trading_session(), asterion::node::v1::PAPER_TRADING));
       account = observer.get();
     }
     const auto state = account->snapshot();

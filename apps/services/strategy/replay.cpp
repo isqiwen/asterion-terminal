@@ -76,30 +76,10 @@ Replay::Replay(Session& session, TradingCall transport)
     throw std::invalid_argument("missing strategy replay plan");
   identity_ =
       sha256_bytes(protocol::decode_replay_plan(config_.replay()).dump() + config_.session_id());
-  if (config_.replay().has_calendar_publication()) {
-    const auto& plan = config_.replay();
-    const auto& c = plan.dataset().contract();
-    const Instrument instrument{{c.venue(), c.symbol()},
-                                AssetClass::futures,
-                                c.currency(),
-                                Decimal::from_raw(c.price_increment().units()),
-                                Decimal::from_raw(c.quantity_increment().units()),
-                                Decimal::from_raw(c.multiplier().units())};
-    std::vector<TradeTick> ticks;
-    for (const auto& t : plan.dataset().ticks())
-      ticks.push_back({instrument.id, t.timestamp_ns(), Decimal::from_raw(t.price().units()),
-                       Decimal::from_raw(t.quantity().units())});
-    std::vector<SettlementDay> days;
-    for (const auto& day : plan.calendar_publication().calendar().days()) {
-      std::vector<TradingSession> sessions;
-      for (const auto& s : day.sessions())
-        sessions.push_back({s.begin_ns(), s.end_ns()});
-      days.push_back({TradingDaySchedule(day.trading_day(), std::move(sessions)),
-                      Decimal::from_raw(day.settlement_price().units()), day.schedule_source(),
-                      day.settlement_source()});
-    }
-    schedule_ = std::make_shared<PaperReplaySchedule>(instrument, ticks, std::move(days));
-  }
+  const auto& plan = config_.replay();
+  schedule_ = std::make_shared<PaperReplaySchedule>(protocol::instrument(plan.dataset().contract()),
+                                                    protocol::dataset_bars(plan.dataset()),
+                                                    protocol::dataset_days(plan.dataset()));
   if (!call_)
     call_ = [plan = config_.replay()](protocol::v1::Request r) {
       return exchange(plan, std::move(r));
@@ -115,12 +95,9 @@ protocol::v1::Snapshot Replay::request(protocol::v1::Request value) {
   if (snapshot.recovery_required())
     throw std::runtime_error("strategy trading account requires recovery");
   const auto& plan = config_.replay();
-  if (snapshot.has_replay() != plan.has_calendar_publication())
-    throw std::invalid_argument("strategy calendar binding mismatch");
-  if (snapshot.has_replay()) {
-    if (protocol::decode_calendar_publication(snapshot.replay().publication()) !=
-        protocol::decode_calendar_publication(plan.calendar_publication()))
-      throw std::invalid_argument("strategy calendar publication mismatch");
+  if (!snapshot.has_replay())
+    throw std::invalid_argument("strategy account has no day-end settlement binding");
+  {
     const auto cursor = snapshot.cursor();
     if (cursor > schedule_->size())
       throw std::invalid_argument("invalid scheduled replay cursor");
@@ -133,7 +110,7 @@ protocol::v1::Snapshot Replay::request(protocol::v1::Request value) {
   }
   if (protocol::decode_contract(snapshot.contract()) !=
           protocol::decode_contract(plan.dataset().contract()) ||
-      snapshot.total() != static_cast<std::uint32_t>(plan.dataset().ticks_size()) ||
+      snapshot.total() != static_cast<std::uint32_t>(plan.dataset().bars_size()) ||
       !snapshot.has_strategy())
     throw std::invalid_argument("strategy account dataset or authorization mismatch");
   const auto& g = snapshot.strategy().grant();
@@ -143,7 +120,7 @@ protocol::v1::Snapshot Replay::request(protocol::v1::Request value) {
     throw std::invalid_argument("strategy replay is outside its authorization");
   if (snapshot.cursor() &&
       snapshot.timestamp_ns() !=
-          plan.dataset().ticks(static_cast<int>(snapshot.cursor() - 1)).timestamp_ns())
+          plan.dataset().bars(static_cast<int>(snapshot.cursor() - 1)).timestamp_ns())
     throw std::invalid_argument("strategy account source event mismatch");
   return snapshot;
 }
@@ -159,11 +136,11 @@ bool Replay::step() {
   query.mutable_snapshot();
   auto account = request(query);
   auto processed = session_.processed();
-  const auto total = static_cast<std::uint64_t>(config_.replay().dataset().ticks_size());
+  const auto total = static_cast<std::uint64_t>(config_.replay().dataset().bars_size());
   if (account.cursor() < processed || account.cursor() > processed + 1)
     throw std::invalid_argument("account and strategy cursors diverged");
   auto settle_completed = [&] {
-    if (!schedule_ || !account.cursor())
+    if (!account.cursor())
       return;
     const auto& event = schedule_->event(account.cursor() - 1);
     if (!event.day_end || account.replay().settled_days() == event.day + 1)
@@ -197,7 +174,7 @@ bool Replay::step() {
     v1::Event event;
     event.set_stream_id(config_.stream_id());
     event.set_sequence(sequence);
-    *event.mutable_tick() = config_.replay().dataset().ticks(static_cast<int>(sequence - 1));
+    *event.mutable_bar() = config_.replay().dataset().bars(static_cast<int>(sequence - 1));
     const auto receipt = session_.apply(event);
     if (!receipt.has_intent() || sequence == total)
       return;

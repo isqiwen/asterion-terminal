@@ -27,10 +27,13 @@ Post https_transport() {
     if (stop.stop_requested())
       throw std::runtime_error("Tushare download cancelled");
     if (!response)
-      throw std::runtime_error(
+      throw RequestError(
+          AccessFailure::network,
           "Tushare HTTPS request failed (network, certificate, timeout or response limit)");
     if (response->status != 200)
-      throw std::runtime_error("Tushare HTTP status " + std::to_string(response->status));
+      throw RequestError(response->status == 429 ? AccessFailure::rate_limit
+                                                 : AccessFailure::network,
+                         "Tushare HTTP status " + std::to_string(response->status));
     return contents;
   };
 }

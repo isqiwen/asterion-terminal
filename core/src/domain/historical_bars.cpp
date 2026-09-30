@@ -6,6 +6,8 @@
 #include <sstream>
 namespace asterion {
 void HistoricalBar::validate() const {
+  if (!trading_day.empty())
+    (void)parse_trading_date(trading_day);
   if (timestamp_ns < 0 || low > high || open < low || open > high || close < low || close > high ||
       volume < Decimal{} || amount < Decimal{} || open_interest < Decimal{})
     throw std::invalid_argument("invalid historical OHLCV bar");

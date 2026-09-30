@@ -120,39 +120,26 @@ Decimal decimal(const Json& value, int shift = 0) {
 }
 } // namespace
 std::int64_t parse_time(std::string_view text) {
-  using namespace std::chrono;
-  if (text.size() != 19 || text[4] != '-' || text[7] != '-' || text[10] != ' ' || text[13] != ':' ||
-      text[16] != ':')
-    throw std::invalid_argument("Tushare time must be YYYY-MM-DD HH:MM:SS in Asia/Shanghai");
-  const auto number = [&](std::size_t begin, std::size_t size) {
-    int value = 0;
-    const auto [end, ec] = std::from_chars(text.data() + begin, text.data() + begin + size, value);
-    if (ec != std::errc{} || end != text.data() + begin + size || value < 0)
-      throw std::invalid_argument("invalid Tushare timestamp");
-    return value;
-  };
-  const auto y = number(0, 4), m = number(5, 2), d = number(8, 2), h = number(11, 2),
-             min = number(14, 2), sec = number(17, 2);
-  year_month_day date{year{y}, month{static_cast<unsigned>(m)}, day{static_cast<unsigned>(d)}};
-  if (!date.ok() || y < 1990 || y > 2100 || h > 23 || min > 59 || sec > 59)
-    throw std::invalid_argument("invalid Tushare timestamp");
-  return duration_cast<nanoseconds>(sys_days{date}.time_since_epoch() + hours{h - 8} +
-                                    minutes{min} + seconds{sec})
-      .count();
+  return parse_shanghai_time(text);
 }
 std::string format_time(std::int64_t ns) {
-  using namespace std::chrono;
-  auto time = sys_time<nanoseconds>{nanoseconds{ns}} + hours{8};
-  auto date = floor<days>(time);
-  auto ymd = year_month_day{date};
-  auto clock = hh_mm_ss{time - date};
-  std::ostringstream out;
-  out << std::setfill('0') << std::setw(4) << int(ymd.year()) << '-' << std::setw(2)
-      << unsigned(ymd.month()) << '-' << std::setw(2) << unsigned(ymd.day()) << ' ' << std::setw(2)
-      << clock.hours().count() << ':' << std::setw(2) << clock.minutes().count() << ':'
-      << std::setw(2) << clock.seconds().count();
-  return out.str();
+  return format_shanghai_time(ns);
 }
+namespace {
+AccessFailure rejection(const Json& response) {
+  const auto message = response.value("msg", std::string{});
+  if (message.find("token") != std::string::npos &&
+      (message.find("不正确") != std::string::npos || message.find("无效") != std::string::npos))
+    return AccessFailure::invalid_credential;
+  if (message.find("每分钟") != std::string::npos || message.find("频率") != std::string::npos ||
+      message.find("每小时") != std::string::npos || message.find("每天最多") != std::string::npos)
+    return AccessFailure::rate_limit;
+  // Tushare documents 2002 as an access-permission error.
+  if (text(response.at("code")) == "2002")
+    return AccessFailure::permission;
+  return AccessFailure::failed;
+}
+} // namespace
 InstrumentId instrument(std::string_view ts_code) {
   const std::string value(ts_code);
   static const std::regex pattern("^([A-Z]{1,3}[0-9]{3,4})\\.(SHF|DCE|ZCE|CFX|INE|GFE)$");
@@ -169,7 +156,10 @@ InstrumentId instrument(std::string_view ts_code) {
         "Tushare requires a dated futures contract, not a continuous alias");
   return {venues.at(match[2].str()), match[1].str()};
 }
-std::string code(const InstrumentId& id) {
+std::string code(const HistoryIdentity& identity) {
+  auto id = identity.exchange_id();
+  std::ranges::transform(id.symbol, id.symbol.begin(),
+                         [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
   for (const auto& [suffix, venue] : venues)
     if (venue == id.venue) {
       auto value = id.symbol + "." + suffix;
@@ -178,8 +168,22 @@ std::string code(const InstrumentId& id) {
     }
   throw std::invalid_argument("unsupported Tushare futures venue");
 }
+void mapping(const HistoryIdentity& identity, const std::string& provider_code) {
+  identity.validate();
+  const auto provider = instrument(provider_code);
+  const auto symbol = provider.symbol;
+  const auto digits = symbol.substr(symbol.find_first_of("0123456789"));
+  auto product = symbol.substr(0, symbol.find_first_of("0123456789"));
+  std::ranges::transform(product, product.begin(),
+                         [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  const auto expected =
+      digits.size() == 3 ? identity.delivery_month.substr(3, 1) + identity.delivery_month.substr(5)
+                         : identity.delivery_month.substr(2, 2) + identity.delivery_month.substr(5);
+  if (provider.venue != identity.venue || product != identity.product || digits != expected)
+    throw std::invalid_argument("Tushare contract mapping mismatch");
+}
 void validate(const HistoricalBarRange& range) {
-  (void)code(range.instrument);
+  mapping(range.instrument, range.source_instrument);
   if (range.interval_minutes != 1 && range.interval_minutes != 5 && range.interval_minutes != 15 &&
       range.interval_minutes != 30 && range.interval_minutes != 60)
     throw std::invalid_argument("unsupported Tushare minute frequency");
@@ -194,6 +198,9 @@ Minutes::Minutes(std::string token, Post post) : token_(std::move(token)), post_
 }
 PluginDescriptor Minutes::descriptor() const {
   return {"asterion.data.tushare", PluginKind::data, plugin_contract_version, {}};
+}
+HistorySemantics Minutes::semantics() const {
+  return {"tushare.ft_mins", "tushare.minutes.v2", "Asia/Shanghai", "provider_label"};
 }
 void Minutes::start() {
   started_ = true;
@@ -212,7 +219,7 @@ std::vector<HistoricalBar> Minutes::read(const HistoricalBarRange& range, std::s
   const Json request{{"api_name", "ft_mins"},
                      {"token", token_},
                      {"params",
-                      {{"ts_code", code(range.instrument)},
+                      {{"ts_code", range.source_instrument},
                        {"freq", std::to_string(range.interval_minutes) + "min"},
                        {"start_date", format_time(range.begin_ns)},
                        {"end_date", format_time(range.end_ns)}}},
@@ -229,7 +236,8 @@ std::vector<HistoricalBar> Minutes::read(const HistoricalBarRange& range, std::s
     const auto& root = parser.result;
     if (text(root.at("code")) != "0") {
       // Provider text can echo a token. Never pass it to logs or the UI.
-      throw std::runtime_error(
+      throw RequestError(
+          rejection(root),
           "Tushare rejected request; verify token, minute-data entitlement and rate limit");
     }
     const auto& fields = root.at("data").at("fields");
@@ -252,7 +260,7 @@ std::vector<HistoricalBar> Minutes::read(const HistoricalBarRange& range, std::s
       if (!row.is_array() || row.size() != fields.size())
         throw std::invalid_argument("invalid Tushare row");
       const auto get = [&](const char* key) -> const Json& { return row.at(columns.at(key)); };
-      if (text(get("ts_code")) != code(range.instrument))
+      if (text(get("ts_code")) != range.source_instrument)
         throw std::invalid_argument("Tushare returned another contract");
       HistoricalBar bar{parse_time(text(get("trade_time"))),
                         decimal(get("open")),
@@ -292,8 +300,12 @@ HistoricalBarRange contract_range(const FuturesListing& item, unsigned interval,
   const auto last = listing_date(item.delist_date);
   if (last < begin || cutoff_ns < begin)
     throw std::invalid_argument("invalid Tushare contract lifetime");
-  HistoricalBarRange range{instrument(item.ts_code), interval, begin,
-                           std::min(last + 86400 * second - second, cutoff_ns / second * second)};
+  HistoricalBarRange range{item.identity,
+                           interval,
+                           begin,
+                           std::min(last + 86400 * second - second, cutoff_ns / second * second),
+                           "tushare.ft_mins",
+                           item.ts_code};
   validate(range);
   return range;
 }
@@ -302,8 +314,9 @@ HistoricalDailyRange daily_contract_range(const FuturesListing& item, std::int64
   const auto last = listing_date(item.delist_date);
   if (last < begin || cutoff_ns < begin)
     throw std::invalid_argument("invalid Tushare contract lifetime");
-  return {instrument(item.ts_code), parse_trading_date(format_time(begin).substr(0, 10)),
-          parse_trading_date(format_time(std::min(last, cutoff_ns)).substr(0, 10))};
+  return {item.identity, parse_trading_date(format_time(begin).substr(0, 10)),
+          parse_trading_date(format_time(std::min(last, cutoff_ns)).substr(0, 10)),
+          "tushare.fut_daily", item.ts_code};
 }
 std::vector<FuturesListing> contracts(const std::string& token, const std::string& exchange,
                                       const std::string& product, std::stop_token stop, Post post) {
@@ -316,7 +329,7 @@ std::vector<FuturesListing> contracts(const std::string& token, const std::strin
                      {"token", token},
                      {"params", {{"exchange", exchange}, {"fut_code", product}, {"fut_type", "1"}}},
                      {"fields", "ts_code,name,exchange,fut_code,list_date,delist_date,multiplier,"
-                                "per_unit,trade_unit,quote_unit"}};
+                                "per_unit,trade_unit,quote_unit,d_month"}};
   if (stop.stop_requested())
     throw std::runtime_error("Tushare download cancelled");
   const auto raw = post(request.dump(), stop);
@@ -330,18 +343,19 @@ std::vector<FuturesListing> contracts(const std::string& token, const std::strin
   try {
     const auto& root = parser.result;
     if (text(root.at("code")) != "0")
-      throw std::runtime_error(
+      throw RequestError(
+          rejection(root),
           "Tushare rejected contract query; verify token and contract-data entitlement");
     const auto& fields = root.at("data").at("fields");
     const auto& rows = root.at("data").at("items");
-    if (!fields.is_array() || fields.size() != 10 || !rows.is_array() || rows.size() >= 10000)
+    if (!fields.is_array() || fields.size() != 11 || !rows.is_array() || rows.size() >= 10000)
       throw std::invalid_argument("invalid or truncated Tushare contract catalog");
     std::map<std::string, std::size_t> columns;
     for (std::size_t i = 0; i < fields.size(); ++i)
       if (!columns.emplace(text(fields[i]), i).second)
         throw std::invalid_argument("duplicate Tushare field");
     for (auto key : {"ts_code", "name", "exchange", "fut_code", "list_date", "delist_date",
-                     "multiplier", "per_unit", "trade_unit", "quote_unit"})
+                     "multiplier", "per_unit", "trade_unit", "quote_unit", "d_month"})
       if (!columns.contains(key))
         throw std::invalid_argument("missing Tushare field");
     std::vector<FuturesListing> result;
@@ -370,6 +384,15 @@ std::vector<FuturesListing> contracts(const std::string& token, const std::strin
           throw std::invalid_argument("invalid Tushare contract unit label");
         return parsed;
       };
+      const auto month = get("d_month");
+      if (month.size() != 6 || month.find_first_not_of("0123456789") != std::string::npos)
+        throw std::invalid_argument("invalid Tushare delivery month");
+      auto canonical_product = item.product;
+      std::ranges::transform(canonical_product, canonical_product.begin(),
+                             [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+      item.identity = {item.exchange, canonical_product,
+                       month.substr(0, 4) + "-" + month.substr(4)};
+      mapping(item.identity, item.ts_code);
       item.multiplier = positive("multiplier");
       item.per_unit = positive("per_unit");
       item.trade_unit = unit("trade_unit");
@@ -381,9 +404,9 @@ std::vector<FuturesListing> contracts(const std::string& token, const std::strin
       contract_range(item, 1, listing_date(item.delist_date));
       result.push_back(std::move(item));
     }
-    std::ranges::sort(result, {}, &FuturesListing::ts_code);
+    std::ranges::sort(result, {}, [](const auto& item) { return item.identity.key(); });
     for (std::size_t i = 1; i < result.size(); ++i)
-      if (result[i - 1].ts_code == result[i].ts_code)
+      if (result[i - 1].identity.key() == result[i].identity.key())
         throw std::invalid_argument("duplicate Tushare contract");
     return result;
   } catch (const nlohmann::json::exception&) {
@@ -415,6 +438,9 @@ Daily::Daily(std::string token, Post post) : token_(std::move(token)), post_(std
 PluginDescriptor Daily::descriptor() const {
   return {"asterion.data.tushare.daily", PluginKind::data, plugin_contract_version, {}};
 }
+HistorySemantics Daily::semantics() const {
+  return {"tushare.fut_daily", "tushare.daily.v2", "Asia/Shanghai", "trading_day"};
+}
 void Daily::start() {
   started_ = true;
 }
@@ -424,7 +450,8 @@ void Daily::stop() noexcept {
 std::vector<HistoricalDailyBar> Daily::read(const HistoricalDailyRange& range,
                                             std::stop_token stop) {
   const auto first = daily_date(range.begin), last = daily_date(range.end);
-  const auto ts_code = code(range.instrument);
+  mapping(range.instrument, range.source_instrument);
+  const auto ts_code = range.source_instrument;
   if (range.begin > range.end ||
       (std::chrono::sys_days(range.end) - std::chrono::sys_days(range.begin)).count() >= 366)
     throw std::invalid_argument("Tushare daily requests must span 1..366 dates");
@@ -449,7 +476,8 @@ std::vector<HistoricalDailyBar> Daily::read(const HistoricalDailyRange& range,
   try {
     const auto& root = parser.result;
     if (text(root.at("code")) != "0")
-      throw std::runtime_error(
+      throw RequestError(
+          rejection(root),
           "Tushare rejected daily query; verify token, daily-data entitlement and rate limit");
     const auto& fields = root.at("data").at("fields");
     const auto& items = root.at("data").at("items");

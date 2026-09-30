@@ -5,8 +5,6 @@
 namespace asterion::protocol {
 v1::Contract encode_contract(const Json& input);
 Json decode_contract(const v1::Contract& input);
-v1::Tick encode_tick(const Json& input);
-Json decode_tick(const v1::Tick& input);
 v1::RiskLimits encode_risk(const Json& value);
 Json decode_risk(const v1::RiskLimits& value);
 v1::Costs encode_costs(const Json& costs);

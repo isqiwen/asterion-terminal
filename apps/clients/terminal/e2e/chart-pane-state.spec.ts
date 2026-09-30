@@ -4,6 +4,7 @@ import type { HistoryPage, Snapshot } from "../src/bridge/client";
 test("chart panes retain intervals and indicators across contracts without substituting missing data", async ({
   page,
 }) => {
+  const identity = (symbol: string) => `SHFE/rb/20${symbol.slice(-4, -2)}-${symbol.slice(-2)}`;
   const requests: string[] = [];
   const pageRequests: { id: string; offset: number }[] = [];
   let online = true;
@@ -30,10 +31,12 @@ test("chart panes retain intervals and indicators across contracts without subst
         source: "tushare.ft_mins",
         exchange: "SHFE",
         product: "RB",
+        connection: "",
+        connection_revision: "",
         cutoff_ns: "0",
         items: [
           {
-            code: "RB2705.SHF",
+            code: "SHFE/rb/2027-05",
             name: catalogName,
             list_date: "20260101",
             delist_date: "20270515",
@@ -46,6 +49,22 @@ test("chart panes retain intervals and indicators across contracts without subst
       };
     data.result.market = {
       ...data.result.market!,
+      catalog: {
+        phase: "ready",
+        error_code: "",
+        diagnostic: "",
+        trading_day: "2026-09-25",
+        contracts: ["rb2610", "rb2701", "rb2705"].map(symbol => ({
+          venue: "SHFE",
+          symbol,
+          product: "rb",
+          expiry: "20270515",
+          contract_id: identity(symbol),
+          multiplier: 10,
+          price_tick: "1",
+          name: "",
+        })),
+      },
       transport_online: true,
       phase: "connected",
       watchlist: ["rb2610", "rb2701", "rb2705"].map(symbol => ({ venue: "SHFE", symbol })),
@@ -65,9 +84,10 @@ test("chart panes retain intervals and indicators across contracts without subst
       tasks: datasets.map(({ symbol, period, version }, index) => ({
         id: `${symbol}-${period}${version ? `-v${version}` : ""}`,
         kind: "minute_download",
+        data_source: "tushare.ft_mins",
         state: "succeeded",
         attempt: 1,
-        instrument: `SHFE/${symbol}`,
+        instrument: identity(symbol),
         minute_interval_minutes: period,
         submission_sequence: 10 - index,
         source_name: "Explicit UI fixture",
@@ -109,7 +129,7 @@ test("chart panes retain intervals and indicators across contracts without subst
       data.result.history_page = {
         id: request.params.id,
         source: "tushare.ft_mins",
-        ts_code: `${dataset.symbol.toUpperCase()}.SHF`,
+        contract_id: identity(dataset.symbol),
         interval_minutes: dataset.period,
         manifest_sha256: "b".repeat(64),
         total_rows: count,
@@ -284,7 +304,10 @@ test("chart panes retain intervals and indicators across contracts without subst
   const historyBoard = page.locator(".history-market-board");
   const historySearch = page.getByRole("searchbox", { name: "搜索历史合约" });
   await historySearch.fill("rb27");
-  const selectedHistory = historyBoard.getByRole("button", { name: "SHFE · rb2705", exact: false });
+  const selectedHistory = historyBoard.getByRole("button", {
+    name: "SHFE · rb/2027-05",
+    exact: false,
+  });
   await selectedHistory.click();
   await expect(selectedHistory).toHaveAttribute("aria-pressed", "true");
   await nav.getByRole("button", { name: "自选", exact: true }).click();
@@ -292,13 +315,16 @@ test("chart panes retain intervals and indicators across contracts without subst
   await page.getByRole("tab", { name: "历史行情", exact: true }).click();
   await expect(historySearch).toHaveValue("rb27");
   await expect(selectedHistory).toHaveAttribute("aria-pressed", "true");
-  await expect(historyBoard.locator(".market-chart-title strong")).toHaveText("rb2705");
+  await expect(historyBoard.locator(".market-chart-title strong")).toHaveText("SHFE/rb/2027-05");
   await selectedHistory.focus();
   await page.keyboard.press("Home");
-  const firstHistory = historyBoard.getByRole("button", { name: "SHFE · rb2701", exact: false });
+  const firstHistory = historyBoard.getByRole("button", {
+    name: "SHFE · rb/2027-01",
+    exact: false,
+  });
   await expect(firstHistory).toBeFocused();
   await expect(firstHistory).toHaveAttribute("aria-pressed", "true");
-  await expect(historyBoard.locator(".market-chart-title strong")).toHaveText("rb2701");
+  await expect(historyBoard.locator(".market-chart-title strong")).toHaveText("SHFE/rb/2027-01");
   await page.keyboard.press("ArrowUp");
   await expect(firstHistory).toBeFocused();
   await page.keyboard.press("ArrowDown");
@@ -310,7 +336,7 @@ test("chart panes retain intervals and indicators across contracts without subst
   await expect(selectedHistory).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(selectedHistory).toBeFocused();
-  await expect(historyBoard.locator(".market-chart-title strong")).toHaveText("rb2705");
+  await expect(historyBoard.locator(".market-chart-title strong")).toHaveText("SHFE/rb/2027-05");
   await expect(historyBoard.getByRole("img", { name: "合约历史 K 线", exact: true })).toBeVisible();
   await page.screenshot({ path: "build/history-market-retained-selection.png" });
   catalogName = "螺纹钢2705";
@@ -320,8 +346,8 @@ test("chart panes retain intervals and indicators across contracts without subst
     historyBoard.getByRole("group", { name: "历史合约" }).getByRole("button"),
   ).toHaveCount(1);
   await expect(selectedHistory).toHaveAttribute("aria-pressed", "true");
-  await expect(selectedHistory).toContainText("SHFE · rb2705");
-  await expect(historyBoard.locator(".market-chart-title strong")).toHaveText("rb2705");
+  await expect(selectedHistory).toContainText("SHFE · rb/2027-05");
+  await expect(historyBoard.locator(".market-chart-title strong")).toHaveText("SHFE/rb/2027-05");
   await page.screenshot({ path: "build/history-market-contract-name.png" });
   await historySearch.fill("no-such-contract");
   await expect(historyBoard.getByRole("img")).toHaveCount(0);

@@ -76,12 +76,19 @@ v1::Config parse_config(const Json& j) {
 }
 Json event_json(const v1::Event& event) {
   protocol::validate_message(event);
-  if (!event.has_tick() || !event.tick().has_price() || !event.tick().has_quantity() ||
-      !event.sequence() || event.sequence() > 10000)
-    throw std::invalid_argument("strategy event requires a tick and sequence in 1..10000");
+  if (!event.has_bar() || !event.sequence() || event.sequence() > protocol::max_dataset_bars)
+    throw std::invalid_argument("strategy event requires a bar and sequence in 1..20000");
+  const auto bar = protocol::market_bar(event.bar());
   return {{"stream_id", event.stream_id()},
           {"sequence", event.sequence()},
-          {"tick", protocol::decode_tick(event.tick())}};
+          {"bar",
+           {{"trading_day", bar.trading_day},
+            {"timestamp_ns", std::to_string(bar.timestamp_ns)},
+            {"open", bar.open.str()},
+            {"high", bar.high.str()},
+            {"low", bar.low.str()},
+            {"close", bar.close.str()},
+            {"volume", bar.volume.str()}}}};
 }
 Json receipt_json(const v1::Receipt& receipt) {
   Json result{{"sequence", receipt.sequence()}, {"intent", nullptr}};
@@ -106,16 +113,14 @@ struct Session::Impl {
   explicit Impl(const std::filesystem::path& directory) : journal(directory) {}
   std::pair<std::unique_ptr<MovingAverage>, v1::Receipt> prepare(const v1::Event& event) {
     auto candidate = std::make_unique<MovingAverage>(*plugin);
-    const auto& tick = event.tick();
-    const auto target = candidate->on_tick({instrument(config.contract()).id, tick.timestamp_ns(),
-                                            Decimal::from_raw(tick.price().units()),
-                                            Decimal::from_raw(tick.quantity().units())});
+    const auto bar = protocol::market_bar(event.bar());
+    const auto target = candidate->on_bar(bar);
     v1::Receipt receipt;
     receipt.set_sequence(event.sequence());
     if (target) {
       auto* intent = receipt.mutable_intent();
       intent->set_sequence(event.sequence());
-      intent->set_timestamp_ns(tick.timestamp_ns());
+      intent->set_timestamp_ns(bar.timestamp_ns);
       intent->mutable_target_quantity()->set_units(target->raw());
       // Bind identity to the immutable config, full source event and output.
       intent->set_id(sha256_bytes(Json{{"config", intent_scope},
@@ -171,18 +176,28 @@ Session::Session(const std::filesystem::path& directory, const std::string& sess
   for (std::size_t index = 1; index < records.size(); ++index) {
     const auto& r = records[index];
     require_fields(r, {"version", "type", "event", "receipt"});
-    if (!r.at("version").is_number_integer() || r.at("version") != 1 ||
+    // Version 2: bar events. Earlier tick journals are refused, not converted.
+    if (!r.at("version").is_number_integer() || r.at("version") != 2 ||
         r.at("type") != "strategy.event")
       throw std::invalid_argument("unsupported strategy event record");
     const auto& j = r.at("event");
-    require_fields(j, {"stream_id", "sequence", "tick"});
+    require_fields(j, {"stream_id", "sequence", "bar"});
     if (!j.at("sequence").is_number_integer() || j.at("sequence") != index ||
         j.at("stream_id") != impl_->config.stream_id())
       throw std::invalid_argument("strategy journal stream or sequence mismatch");
     v1::Event event;
     event.set_stream_id(impl_->config.stream_id());
     event.set_sequence(index);
-    *event.mutable_tick() = protocol::encode_tick(j.at("tick"));
+    const auto& b = j.at("bar");
+    require_fields(b, {"trading_day", "timestamp_ns", "open", "high", "low", "close", "volume"});
+    const auto time = b.at("timestamp_ns").get<std::string>();
+    *event.mutable_bar() =
+        protocol::encode_bar({b.at("trading_day").get<std::string>(), std::stoll(time),
+                              Decimal::parse(b.at("open").get<std::string>()),
+                              Decimal::parse(b.at("high").get<std::string>()),
+                              Decimal::parse(b.at("low").get<std::string>()),
+                              Decimal::parse(b.at("close").get<std::string>()),
+                              Decimal::parse(b.at("volume").get<std::string>())});
     if (event_json(event) != j)
       throw std::invalid_argument("noncanonical strategy event");
     auto [candidate, receipt] = impl_->prepare(event);
@@ -222,7 +237,7 @@ v1::Receipt Session::apply(const v1::Event& event) {
   if (event.sequence() != impl_->events.size() + 1)
     throw std::invalid_argument("strategy event sequence gap");
   auto [candidate, receipt] = impl_->prepare(event);
-  const Json record{{"version", 1},
+  const Json record{{"version", 2},
                     {"type", "strategy.event"},
                     {"event", payload},
                     {"receipt", receipt_json(receipt)}};

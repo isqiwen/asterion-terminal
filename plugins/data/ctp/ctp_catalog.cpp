@@ -1,4 +1,5 @@
 #include "ctp_catalog.hpp"
+#include <asterion/domain/history_identity.hpp>
 #include "ctp_feed.hpp"
 #include "ctp_support.hpp"
 #include <ThostFtdcTraderApi.h>
@@ -104,6 +105,18 @@ struct Reader final : CThostFtdcTraderSpi {
         validate_instruments({entry.instrument});
         entry.product = field(item->ProductID);
         entry.expiry = field(item->ExpireDate);
+        if (item->DeliveryYear >= 1990 && item->DeliveryYear <= 2100 && item->DeliveryMonth >= 1 &&
+            item->DeliveryMonth <= 12) {
+          auto product = entry.product;
+          std::ranges::transform(product, product.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+          });
+          const HistoryIdentity identity{entry.instrument.venue, product,
+                                         std::to_string(item->DeliveryYear) + "-" +
+                                             (item->DeliveryMonth < 10 ? "0" : "") +
+                                             std::to_string(item->DeliveryMonth)};
+          entry.contract_id = identity.key();
+        }
         entry.multiplier = item->VolumeMultiple;
         const auto tick = price(item->PriceTick);
         if (!tick || *tick <= Decimal{} || entry.multiplier <= 0 || entry.product.empty() ||

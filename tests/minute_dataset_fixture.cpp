@@ -1,6 +1,6 @@
 // Seed only an isolated, stopped test Task Service through its real persistence API.
-#include "minutes.hpp"
-#include "daily.hpp"
+#include "history_minutes.hpp"
+#include "history_daily.hpp"
 #include "task_store.hpp"
 #include "tushare.hpp"
 #include <asterion/kernel/environment.hpp>
@@ -22,10 +22,14 @@ int main(int argc, char** argv) {
     if (store.list().tasks_size())
       throw std::invalid_argument("minute fixture requires an empty task store");
     const auto begin = tushare::parse_time("2023-08-25 09:00:00");
-    const HistoricalBarRange range{{"SHFE", "CU2310"}, 1, begin, begin + 119 * 60000000000LL};
+    const HistoricalBarRange range{
+        {"SHFE", "cu", "2023-10"}, 1,           begin, begin + 119 * 60000000000LL,
+        "tushare.ft_mins",         "CU2310.SHF"};
     data::v1::MinuteDownload input;
-    input.set_version(1);
-    input.set_ts_code("CU2310.SHF");
+    input.set_version(2);
+    input.set_source("tushare.ft_mins");
+    input.set_source_instrument("CU2310.SHF");
+    input.set_contract_id("SHFE/cu/2023-10");
     input.set_interval_minutes(1);
     input.set_begin_ns(range.begin_ns);
     input.set_end_ns(range.end_ns);
@@ -49,17 +53,19 @@ int main(int argc, char** argv) {
       return response + "]}}";
     });
     provider.start();
-    data_pipeline::download_minutes(provider, range, attempt.output_directory(), 60);
+    history_files::download_minutes(provider, range, attempt.output_directory(), 60);
     research::v1::TaskFinish finish;
     finish.set_id(id);
     finish.set_token(attempt.token());
-    *finish.mutable_minutes() = data_pipeline::minute_result(attempt.output_directory());
+    *finish.mutable_minutes() = history_files::minute_result(attempt.output_directory());
     auto completion = store.prepare_finish(finish);
     completion.verify();
     store.finish(std::move(completion));
 
-    const auto daily = data_pipeline::daily_request({{"version", 1},
-                                                     {"ts_code", "CU2310.SHF"},
+    const auto daily = history_files::daily_request({{"version", 2},
+                                                     {"contract_id", "SHFE/cu/2023-10"},
+                                                     {"source", "tushare.fut_daily"},
+                                                     {"source_instrument", "CU2310.SHF"},
                                                      {"begin_day", "2023-01-01"},
                                                      {"end_day", "2023-04-30"},
                                                      {"requests_per_minute", 500}});
@@ -67,8 +73,9 @@ int main(int argc, char** argv) {
     store.submit(daily_id, daily, "explicit-test-fixture");
     // Leave the task QUEUED. Only the real Agent-dispatched worker may claim
     // and finish it after Electron starts the isolated research service.
-    const auto daily_directory = std::filesystem::path(directory) / daily_id / "daily";
-    std::filesystem::create_directory(daily_directory);
+    const auto daily_directory = std::filesystem::path(directory) / "history" / "SHFE" / "cu" /
+                                 "2023-10" / "tushare.fut_daily" / "daily" / daily_id;
+    std::filesystem::create_directories(daily_directory);
     tushare::Daily daily_provider("explicit-test-fixture", [](const auto&, auto) {
       std::string response =
           R"({"code":0,"data":{"fields":["ts_code","trade_date","pre_close","pre_settle","open","high","low","close","settle","vol","amount","oi"],"items":[)";
@@ -86,7 +93,7 @@ int main(int argc, char** argv) {
       return response + "]}}";
     });
     daily_provider.start();
-    data_pipeline::download_daily(daily_provider, data_pipeline::daily_range(daily),
+    history_files::download_daily(daily_provider, history_files::daily_range(daily),
                                   daily_directory, 500);
     if (store.get(daily_id).state() != research::v1::QUEUED || store.get(daily_id).attempt() != 0)
       throw std::runtime_error("daily fixture must remain queued for Agent dispatch");

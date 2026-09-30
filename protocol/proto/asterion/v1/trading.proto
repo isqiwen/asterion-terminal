@@ -7,7 +7,8 @@ import "asterion/v1/data.proto";
 // Per-lot amounts plus notional rates (price x quantity x multiplier x rate).
 message Costs { Decimal margin_per_lot = 1; Decimal open_fee = 2; Decimal close_today_fee = 3; Decimal close_yesterday_fee = 4; Decimal margin_rate = 5; Decimal open_fee_rate = 6; Decimal close_today_fee_rate = 7; Decimal close_yesterday_fee_rate = 8; }
 message RiskLimits { Decimal max_order_quantity = 1; Decimal max_gross_quantity = 2; uint64 max_working_orders = 3; }
-message PaperInput { Contract contract = 1; Costs costs = 2; Decimal deposit = 3; repeated Tick ticks = 4; RiskLimits risk = 5; }
+// The contract is the dataset's contract.
+message PaperInput { reserved 1, 4; Costs costs = 2; Decimal deposit = 3; RiskLimits risk = 5; asterion.data.v1.BarDataset dataset = 6; }
 enum Mode { MODE_UNSPECIFIED = 0; PAPER = 1; LIVE = 2; }
 enum Side { SIDE_UNSPECIFIED = 0; BUY = 1; SELL = 2; }
 // CLOSE leaves bucket assignment to the exchange rule (see ClosePolicy).
@@ -32,12 +33,13 @@ message StrategyTarget {
 message StrategyAuthorization {
   StrategyGrant grant = 1; bool active = 2; uint64 last_sequence = 3;
 }
-message ReplayCalendar { asterion.data.v1.CalendarPublication publication = 1; }
+// Binds day-end settlement to the dataset's trading days on a fresh account.
+message ReplayDays {}
 message ReplaySettle { uint32 day_index = 1; }
-message ReplayState { asterion.data.v1.CalendarPublication publication = 1; uint32 settled_days = 2; bool settlement_due = 3; bool session_end = 4; }
+message ReplayState { reserved 1, 4; uint32 settled_days = 2; bool settlement_due = 3; bool day_end = 5; }
 message Command {
   string request_id = 1;
-  oneof operation { Empty advance = 2; Submit submit = 3; Cancel cancel = 4; Settle settle = 5; StrategyGrant strategy_grant = 6; StrategyRevoke strategy_revoke = 7; StrategyTarget strategy_target = 8; ReplayCalendar replay_calendar = 9; ReplaySettle replay_settle = 10; }
+  oneof operation { Empty advance = 2; Submit submit = 3; Cancel cancel = 4; Settle settle = 5; StrategyGrant strategy_grant = 6; StrategyRevoke strategy_revoke = 7; StrategyTarget strategy_target = 8; ReplayDays replay_days = 9; ReplaySettle replay_settle = 10; }
 }
 // A connection is bound to one immutable process session and mode.
 message Request {

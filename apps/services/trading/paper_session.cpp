@@ -2,7 +2,6 @@
 #include "order_limits.hpp"
 #include <asterion/domain/futures.hpp>
 #include <asterion/protocol/data.hpp>
-#include <charconv>
 #include <type_traits>
 #include <stdexcept>
 namespace asterion::trading {
@@ -21,9 +20,10 @@ Decimal decimal(const Json& value, const char* key) {
 // semantics could make replaying an existing journal produce a different
 // ledger. Recovery refuses a journal written under a different identity rather
 // than silently recomputing history with new rules.
-// v2: notional cost rates, exchange close policies, queue-position matching.
-const std::string journal_engine = "asterion.paper-futures.v2";
-constexpr int journal_format = 2;
+// v3: data-source bar replay, next-bar conservative fills, day-end settlement
+// from the dataset's trading days.
+const std::string journal_engine = "asterion.paper-futures.v4";
+constexpr int journal_format = 4;
 // Cheap fingerprint of post-command state. Replay must reproduce it exactly.
 Json outcome(const PaperExecution& engine, const Json& authorization, const Json& replay) {
   const auto& account = engine.account();
@@ -46,41 +46,16 @@ bool fresh(const PaperExecution& engine) {
 }
 } // namespace
 std::unique_ptr<PaperExecution> PaperSession::build(const Json& manifest) {
-  require_fields(manifest, {"version", "type", "contract", "costs", "deposit", "ticks", "risk"});
-  if (!manifest.at("version").is_number_integer() || manifest.at("version") != 1 ||
-      manifest.at("type") != "historical_paper")
-    throw std::invalid_argument("unsupported paper session version");
-  const auto& c = manifest.at("contract");
-  require_fields(c, {"venue", "symbol", "currency", "price_increment", "quantity_increment",
-                     "multiplier", "product", "delivery_month"});
-  FuturesContract contract{{{string(c, "venue"), string(c, "symbol")},
-                            AssetClass::futures,
-                            string(c, "currency"),
-                            decimal(c, "price_increment"),
-                            decimal(c, "quantity_increment"),
-                            decimal(c, "multiplier")},
-                           string(c, "product"),
-                           string(c, "delivery_month")};
+  const auto input = protocol::encode_input(manifest);
+  const auto& c = input.dataset().contract();
+  FuturesContract contract{protocol::instrument(c), c.product(), c.delivery_month()};
   contract.validate();
-  const auto& costs = manifest.at("costs");
-  const auto& rows = manifest.at("ticks");
-  if (!rows.is_array() || rows.empty() || rows.size() > 10000)
-    throw std::invalid_argument("paper replay requires 1 to 10000 historical trades");
-  std::vector<TradeTick> ticks;
-  for (const auto& row : rows) {
-    require_fields(row, {"timestamp_ns", "price", "quantity"});
-    const auto value = string(row, "timestamp_ns");
-    std::int64_t ns = 0;
-    auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), ns);
-    if (error != std::errc{} || end != value.data() + value.size() || std::to_string(ns) != value)
-      throw std::invalid_argument("invalid historical trade time");
-    ticks.push_back({contract.instrument.id, ns, decimal(row, "price"), decimal(row, "quantity")});
-  }
-  auto risk = std::make_shared<OrderLimits>(decode_order_limits(manifest.at("risk")));
+  auto risk = risk_module_->create(decode_order_limits(manifest.at("risk")));
   risk->start();
-  return std::make_unique<PaperExecution>(contract.instrument, decimal(manifest, "deposit"),
-                                          protocol::futures_costs(protocol::encode_costs(costs)),
-                                          std::move(ticks), std::move(risk));
+  return std::make_unique<PaperExecution>(contract.instrument,
+                                          Decimal::from_raw(input.deposit().units()),
+                                          protocol::futures_costs(input.costs()),
+                                          protocol::dataset_bars(input.dataset()), std::move(risk));
 }
 void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& replay,
                          std::shared_ptr<const PaperReplaySchedule>& schedule,
@@ -88,37 +63,15 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
   const auto action = string(command, "action");
   validate_id(string(command, "request_id"));
   const bool controlled = !authorization.is_null() && authorization.at("active") == true;
-  if (action == "replay_calendar") {
-    require_fields(command, {"request_id", "action", "publication"});
+  if (action == "replay_days") {
+    require_fields(command, {"request_id", "action"});
     if (controlled || schedule || !fresh(engine))
-      throw std::invalid_argument("calendar binding requires a fresh unowned account");
-    const auto publication = protocol::encode_calendar_publication(command.at("publication"));
-    if (protocol::decode_contract(publication.calendar().contract()) != manifest_.at("contract"))
-      throw std::invalid_argument("calendar contract does not match trading account");
-    const auto& c = publication.calendar().contract();
-    const Instrument instrument{{c.venue(), c.symbol()},
-                                AssetClass::futures,
-                                c.currency(),
-                                Decimal::from_raw(c.price_increment().units()),
-                                Decimal::from_raw(c.quantity_increment().units()),
-                                Decimal::from_raw(c.multiplier().units())};
-    std::vector<TradeTick> ticks;
+      throw std::invalid_argument("day-end settlement requires a fresh unowned account");
     const auto input = protocol::encode_input(manifest_);
-    for (const auto& tick : input.ticks())
-      ticks.push_back({instrument.id, tick.timestamp_ns(), Decimal::from_raw(tick.price().units()),
-                       Decimal::from_raw(tick.quantity().units())});
-    std::vector<SettlementDay> days;
-    for (const auto& day : publication.calendar().days()) {
-      std::vector<TradingSession> sessions;
-      for (const auto& session : day.sessions())
-        sessions.push_back({session.begin_ns(), session.end_ns()});
-      days.push_back({TradingDaySchedule(day.trading_day(), std::move(sessions)),
-                      Decimal::from_raw(day.settlement_price().units()), day.schedule_source(),
-                      day.settlement_source()});
-    }
-    schedule = std::make_shared<PaperReplaySchedule>(instrument, ticks, std::move(days));
-    auto decoded = protocol::decode_calendar_publication(publication);
-    replay = {{"publication", std::move(decoded)}, {"settled_days", 0}};
+    schedule = std::make_shared<PaperReplaySchedule>(
+        protocol::instrument(input.dataset().contract()), protocol::dataset_bars(input.dataset()),
+        protocol::dataset_days(input.dataset()));
+    replay = {{"settled_days", 0}};
     return;
   }
   if (action == "replay_settle") {
@@ -135,7 +88,7 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
     if (cursor == schedule->size())
       engine.settle(day.settlement_price);
     else
-      engine.settle_before_next(day.schedule.sessions().back().end_ns, day.settlement_price);
+      engine.settle_day_end(day.settlement_price);
     replay["settled_days"] = command.at("day_index").get<std::size_t>() + 1;
     return;
   }
@@ -148,7 +101,7 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
       throw std::invalid_argument("strategy grant requires an unowned fresh account");
     const auto maximum = decimal(command, "max_quantity");
     if (command.at("dataset_revision") != dataset_revision_ || maximum <= Decimal{} ||
-        !maximum.multiple_of(decimal(manifest_.at("contract"), "quantity_increment")))
+        !maximum.multiple_of(decimal(manifest_.at("dataset").at("contract"), "quantity_increment")))
       throw std::invalid_argument("invalid strategy dataset or position limit");
     authorization = {{"grant_id", command.at("grant_id")},
                      {"strategy_id", command.at("strategy_id")},
@@ -186,7 +139,7 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
     const auto target = decimal(command, "target_quantity");
     if (target < Decimal{} || target > decimal(authorization, "max_quantity"))
       throw std::invalid_argument("strategy target exceeds authorized position limit");
-    if (!schedule || !schedule->event(cursor - 1).session_end)
+    if (!schedule || !schedule->event(cursor - 1).day_end)
       engine.reconcile_long_target(string(command, "request_id"), target,
                                    engine.account().last_mark());
     authorization["last_sequence"] = command.at("sequence");
@@ -201,7 +154,7 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
         schedule->event(cursor).day != replay.at("settled_days").get<std::size_t>())
       throw std::invalid_argument("settle the completed replay day before advancing");
     engine.advance();
-    if (schedule && schedule->event(cursor).session_end)
+    if (schedule && schedule->event(cursor).day_end)
       engine.cancel_open_orders();
   } else if (action == "cancel") {
     require_fields(command, {"request_id", "action", "order_id"});
@@ -215,8 +168,8 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
     require_fields(command,
                    {"request_id", "action", "order_id", "side", "offset", "quantity", "price"});
     const auto cursor = engine.cursor();
-    if (schedule && (!cursor || schedule->event(cursor - 1).session_end))
-      throw std::invalid_argument("cannot submit after the last replay event of a session");
+    if (schedule && (!cursor || schedule->event(cursor - 1).day_end))
+      throw std::invalid_argument("cannot submit after the last bar of a trading day");
     const auto side = string(command, "side"), offset = string(command, "offset");
     if (side != "buy" && side != "sell")
       throw std::invalid_argument("invalid order side");
@@ -234,7 +187,7 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
     throw std::invalid_argument("unsupported paper trading operation");
 }
 PaperSession::PaperSession(std::filesystem::path directory, const Json& create_manifest)
-    : journal_(directory) {
+    : journal_(directory, {"plugins"}) {
   if (std::filesystem::exists(directory / "pending.tmp") ||
       std::filesystem::is_symlink(directory / "pending.tmp"))
     throw std::invalid_argument("incomplete trading journal write; preserve it "
@@ -244,32 +197,39 @@ PaperSession::PaperSession(std::filesystem::path directory, const Json& create_m
   if (!create_manifest.is_null()) {
     if (!records.empty())
       throw std::invalid_argument("directory already holds a session; recover it instead");
+    risk_module_ = risk_providers::Module::selected();
     manifest_ = create_manifest;
     engine_ = build(manifest_);
     engine_->start();
-    journal_.append(
-        {{"format", journal_format}, {"engine", journal_engine}, {"manifest", manifest_}});
+    if (!std::filesystem::create_directory(directory / "plugins"))
+      throw std::invalid_argument("risk plugin snapshot already exists or directory is invalid");
+    risk_module_->capture(directory / "plugins");
+    journal_.append({{"format", journal_format},
+                     {"engine", journal_engine},
+                     {"risk_artifact", risk_module_->artifact()},
+                     {"manifest", manifest_}});
   } else {
     if (records.empty())
       throw std::invalid_argument("directory holds no recoverable paper session");
     const auto& header = records.front();
     if (!header.is_object() || !header.contains("format") || header.at("format") != journal_format)
-      throw std::invalid_argument("unsupported trading journal format; this build reads format 2 "
+      throw std::invalid_argument("unsupported trading journal format; this build reads format 4 "
                                   "only and leaves the directory unchanged");
-    require_fields(header, {"format", "engine", "manifest"});
+    require_fields(header, {"format", "engine", "risk_artifact", "manifest"});
     if (header.at("engine") != journal_engine)
       throw std::invalid_argument(
           "trading journal was written by engine " + header.at("engine").dump() +
           " but this build implements " + journal_engine +
           "; recovery refused instead of recomputing history under different rules");
+    risk_module_ = risk_providers::Module::pinned(directory / "plugins",
+                                                  header.at("risk_artifact").get<std::string>());
     manifest_ = header.at("manifest");
     engine_ = build(manifest_);
     engine_->start();
   }
-  const auto input = protocol::encode_input(manifest_);
-  dataset_revision_ = protocol::make_trade_dataset(input.contract(), input.ticks()).revision();
-  instrument_ = {string(manifest_.at("contract"), "venue"),
-                 string(manifest_.at("contract"), "symbol")};
+  const auto& contract = manifest_.at("dataset").at("contract");
+  dataset_revision_ = string(manifest_.at("dataset"), "revision");
+  instrument_ = {string(contract, "venue"), string(contract, "symbol")};
   for (std::size_t i = 1; i < records.size(); ++i) {
     require_fields(records[i], {"command", "outcome"});
     const auto& command = records[i].at("command");
@@ -365,7 +325,7 @@ void PaperSession::execute(const Json& command) {
 }
 Json PaperSession::snapshot() const {
   auto result = engine_->snapshot();
-  result["contract"] = manifest_.at("contract");
+  result["contract"] = manifest_.at("dataset").at("contract");
   result["costs"] = manifest_.at("costs");
   result["risk"] = manifest_.at("risk");
   result["persistent"] = true;
@@ -373,7 +333,7 @@ Json PaperSession::snapshot() const {
   if (!replay_.is_null()) {
     result["replay"] = replay_;
     const auto cursor = result.at("cursor").get<std::size_t>();
-    result["replay"]["session_end"] = cursor && schedule_->event(cursor - 1).session_end;
+    result["replay"]["day_end"] = cursor && schedule_->event(cursor - 1).day_end;
     result["replay"]["settlement_due"] =
         cursor && schedule_->event(cursor - 1).day_end &&
         replay_.at("settled_days") == schedule_->event(cursor - 1).day;

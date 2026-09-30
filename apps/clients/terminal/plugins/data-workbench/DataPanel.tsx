@@ -20,7 +20,7 @@ export function DataPanel(context: TerminalContext) {
           aria-current={page === "records" ? "page" : undefined}
           onClick={() => setPage("records")}
         >
-          {t("数据存档与结算表")}
+          {t("历史数据仓库")}
         </button>
       </nav>
       {page === "history" ? (

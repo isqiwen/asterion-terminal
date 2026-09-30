@@ -257,6 +257,10 @@ def main():
     programs.append(ROOT / "build" / configuration / "asterion_terminal.node")
     for source in programs:
         stage_native(source, native / source.name)
+    plugin_root = ROOT / "build" / configuration / "plugins"
+    (native / "plugins").mkdir(parents=True, exist_ok=True)
+    for plugin in plugin_root.glob("*.dylib"):
+        stage_native(plugin, native / "plugins" / plugin.name)
     library_name = "ctp-md" + {"darwin":".dylib", "win32":".dll", "linux":".so"}[sys.platform]
     library = ROOT / "build" / configuration / library_name
     stage_native(library, native / library_name)

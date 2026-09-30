@@ -46,9 +46,9 @@ flowchart TB
 
 | 类别 | 实现 |
 | --- | --- |
-| 数据 | `data/ctp`（行情与合约目录）、`data/tushare`（分钟线、日线）、`data/csv`（成交数据集与结算表解析）、`data/sessions`（交易时段） |
+| 数据 | `data/ctp`（行情与合约目录）、`data/tushare`（分钟线、日线）、`data/registry`（历史数据源组合与目录入口） |
 | 执行 | `execution/paper`（历史撮合）、`execution/ctp`（交易接口，未开放） |
-| 存储 | `storage/filesystem`（有序文件日志） |
+| 存储 | `storage/filesystem`（有序日志、历史分块与不可变版本索引） |
 | 策略 | `strategy/cta`（SMA） |
 | 风控 | `risk/order-limits`（交易前限额） |
 | 工具 | `tools/chart_indicators`（均线、MACD）、`tools/factor_analysis`、`tools/runtime_info` |
@@ -71,3 +71,7 @@ flowchart TB
 C++ 后台每 0.5–2 秒汇总各服务状态并发布带修订号的快照。界面按修订号轮询：修订号未变则不返回内容；行情部分只返回自持有版本以来变化的报价行，合约目录未变则不重复发送。界面把增量合并回完整快照，插件看到的数据形状不变。
 
 命令通过同一个操作锁串行执行；只读查询（历史分页、分钟线）在锁外执行服务调用。
+
+## 历史数据边界
+
+统一身份与来源语义位于 Domain；Tushare 通过原生插件注册入口动态加载。Terminal 通过研究服务查询合约目录和历史仓库。下载请求使用完整合约身份、明确来源与供应商映射；文件插件负责 v2 数据块、摘要、恢复、锁和版本索引。详见 [行情与数据](market-data.md) 和 [原生插件 SDK](native-plugins.md)。

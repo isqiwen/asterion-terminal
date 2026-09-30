@@ -1,3 +1,4 @@
+#include <asterion/kernel/native_plugin.hpp>
 #include "paper_session.hpp"
 #include <CLI/CLI.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -30,9 +31,14 @@ int main(int argc, char** argv) {
   app.add_option("--directory", directory, "Existing dedicated account journal directory")
       ->required()
       ->check(CLI::ExistingDirectory);
+  std::string plugin_directory;
+  app.add_option("--plugin-directory", plugin_directory)->check(CLI::ExistingDirectory);
   argv = app.ensure_utf8(argv);
   CLI11_PARSE(app, argc, argv);
   try {
+    if (!plugin_directory.empty())
+      asterion::configure_native_plugins(
+          std::filesystem::path(std::u8string(plugin_directory.begin(), plugin_directory.end())));
     asterion::validate_id(session_id);
     if (mode == "live") {
       std::cerr << "Live execution unavailable: broker, account authorization "

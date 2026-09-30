@@ -4,6 +4,7 @@
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/protocol/data.hpp>
+#include "bar_fixture.hpp"
 #include <asterion/v1/node.pb.h>
 #include <fstream>
 #include <gtest/gtest.h>
@@ -53,9 +54,8 @@ wire::Event event(std::uint64_t sequence, const std::string& price = "100") {
   wire::Event e;
   e.set_stream_id("market.test");
   e.set_sequence(sequence);
-  e.mutable_tick()->set_timestamp_ns(static_cast<std::int64_t>(sequence));
-  e.mutable_tick()->mutable_price()->set_units(Decimal::parse(price).raw());
-  e.mutable_tick()->mutable_quantity()->set_units(Decimal::parse("1").raw());
+  *e.mutable_bar() = protocol::encode_bar(
+      test::flat("2026-09-28", static_cast<std::int64_t>(sequence), price.c_str()));
   return e;
 }
 std::size_t records(const fs::path& p) {
@@ -135,14 +135,14 @@ TEST(Strategy, RejectedEventsAndConflictingCreateDoNotChangeState) {
   wrong.set_stream_id("other");
   EXPECT_THROW(session.apply(wrong), std::invalid_argument);
   wrong = event(2);
-  wrong.mutable_tick()->clear_price();
+  wrong.mutable_bar()->clear_close();
   EXPECT_THROW(session.apply(wrong), std::invalid_argument);
   wrong = event(2, "100.5");
   EXPECT_THROW(session.apply(wrong), std::invalid_argument);
   wrong = event(2);
-  wrong.mutable_tick()->set_timestamp_ns(0);
+  wrong.mutable_bar()->set_timestamp_ns(0);
   EXPECT_THROW(session.apply(wrong), std::invalid_argument);
-  wrong = event(10001);
+  wrong = event(20001);
   EXPECT_THROW(session.apply(wrong), std::invalid_argument);
   wrong = event(2);
   wrong.GetReflection()->MutableUnknownFields(&wrong)->AddVarint(99, 1);
@@ -153,13 +153,12 @@ TEST(Strategy, RejectedEventsAndConflictingCreateDoNotChangeState) {
   EXPECT_EQ(session.snapshot().SerializeAsString(), before);
   EXPECT_EQ(records(dir.path), 2U);
   EXPECT_FALSE(session.recovery_required());
-  // Equal timestamps and identical ticks with distinct sequence numbers
-  // survive.
+  // A bar with the previous bar's timestamp is not a later period.
   auto same = event(1);
   same.set_sequence(2);
-  EXPECT_FALSE(session.apply(same).has_intent());
-  same.set_sequence(3);
-  EXPECT_EQ(session.apply(same).intent().target_quantity().units(), 0);
+  EXPECT_THROW(session.apply(same), std::invalid_argument);
+  EXPECT_FALSE(session.apply(event(2)).has_intent());
+  EXPECT_EQ(session.apply(event(3)).intent().target_quantity().units(), 0);
 }
 TEST(Strategy, CorruptIntentAndInterruptedWritesArePreservedAndRejected) {
   Directory dir;
@@ -535,7 +534,6 @@ TEST(StrategyExecution, TwoProcessesRecoverAuthorizedTargetsWithoutDuplicateOrde
   c.set_slow(2);
   c.mutable_quantity()->set_units(Decimal::parse("1").raw());
   protocol::v1::PaperInput input;
-  *input.mutable_contract() = c.contract();
   input.mutable_deposit()->set_units(Decimal::parse("1000").raw());
   input.mutable_costs()->mutable_margin_per_lot()->set_units(Decimal::parse("100").raw());
   input.mutable_costs()->mutable_open_fee()->set_units(Decimal::parse("2").raw());
@@ -549,9 +547,11 @@ TEST(StrategyExecution, TwoProcessesRecoverAuthorizedTargetsWithoutDuplicateOrde
   input.mutable_costs()->mutable_close_today_fee_rate()->set_units(0);
   input.mutable_costs()->mutable_close_yesterday_fee_rate()->set_units(0);
   const std::vector<int> prices{100, 101, 100, 102, 99, 103};
+  std::vector<MarketBar> bars;
   for (std::size_t i = 0; i < prices.size(); ++i)
-    *input.add_ticks() = event(i + 1, std::to_string(prices[i])).tick();
-  const auto revision = protocol::make_trade_dataset(input.contract(), input.ticks()).revision();
+    bars.push_back(protocol::market_bar(event(i + 1, std::to_string(prices[i])).bar()));
+  *input.mutable_dataset() = test::dataset(bars, {}, c.contract());
+  const auto revision = input.dataset().revision();
   std::unique_ptr<ChildProcess> strategy, trading;
   auto launch = [&] {
     strategy = std::make_unique<ChildProcess>(

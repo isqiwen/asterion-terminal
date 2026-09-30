@@ -7,6 +7,7 @@
 #include "file_journal.hpp"
 #include "paper_session.hpp"
 #include <asterion/protocol/data.hpp>
+#include "bar_fixture.hpp"
 #include <chrono>
 #include <fstream>
 using namespace asterion;
@@ -38,23 +39,20 @@ struct Directory {
     std::filesystem::remove_all(path, ignored);
   }
 };
+// Three one-price bars with volume 10: one lot fills per bar at the 10%
+// participation rate. Two trading days settle at 105 and 120.
+std::vector<MarketBar> bars() {
+  return {test::flat("2026-09-25", 100, "100"), test::flat("2026-09-25", 200, "99"),
+          test::flat("2026-09-28", 300, "110")};
+}
 Json manifest() {
-  return {{"version", 1},
+  return {{"version", 2},
           {"type", "historical_paper"},
           {"risk",
            {{"max_order_quantity", "100"},
             {"max_gross_quantity", "100"},
             {"max_working_orders", std::uint64_t{100}}}},
           {"deposit", "1000"},
-          {"contract",
-           {{"venue", "SHFE"},
-            {"symbol", "rb2610"},
-            {"currency", "CNY"},
-            {"price_increment", "1"},
-            {"quantity_increment", "1"},
-            {"multiplier", "10"},
-            {"product", "rb"},
-            {"delivery_month", "2026-10"}}},
           {"costs",
            {{"margin_per_lot", "100"},
             {"open_fee", "2"},
@@ -64,9 +62,8 @@ Json manifest() {
             {"open_fee_rate", "0"},
             {"close_today_fee_rate", "0"},
             {"close_yesterday_fee_rate", "0"}}},
-          {"ticks", Json::array({{{"timestamp_ns", "100"}, {"price", "100"}, {"quantity", "1"}},
-                                 {{"timestamp_ns", "200"}, {"price", "99"}, {"quantity", "1"}},
-                                 {{"timestamp_ns", "300"}, {"price", "110"}, {"quantity", "1"}}})}};
+          {"dataset",
+           test::dataset_json(bars(), {{"2026-09-25", d("105")}, {"2026-09-28", d("120")}})}};
 }
 Json advance(std::string id) {
   return {{"request_id", id}, {"action", "advance"}};
@@ -135,12 +132,12 @@ TEST(FuturesAccount, RejectsWithoutMutationAndSettlesShortPositions) {
   EXPECT_EQ(account.snapshot()["balance"], "1208");
   EXPECT_EQ(account.snapshot()["fees"], "12");
 }
-TEST(PaperExecution, UsesOnlyFollowingTicksAndSharesLiquidityInArrivalOrder) {
+TEST(PaperExecution, UsesOnlyFollowingBarsAndSharesParticipationInArrivalOrder) {
   auto spec = instrument();
   PaperExecution engine(spec, d("1000"), costs(),
-                        {{spec.id, 100, d("100"), d("2")},
-                         {spec.id, 200, d("99"), d("1")},
-                         {spec.id, 300, d("101"), d("3")}},
+                        {test::flat("2026-09-28", 100, "100", "20"),
+                         test::flat("2026-09-28", 200, "99", "10"),
+                         test::flat("2026-09-28", 300, "101", "30")},
                         risk());
   EXPECT_THROW(engine.advance(), std::logic_error);
   engine.start();
@@ -233,7 +230,7 @@ TEST(PaperSession, FailedCommitDoesNotPublishAndRequiresRecovery) {
 TEST(PaperSession, RejectsUnsupportedOrTamperedInputWithoutWrites) {
   Directory directory;
   auto bad = manifest();
-  bad["version"] = 2;
+  bad["version"] = 3;
   EXPECT_THROW(PaperSession(directory.path, bad), std::invalid_argument);
   EXPECT_FALSE(std::filesystem::exists(directory.path / "00000000.json"));
   PaperSession session(directory.path, manifest());
@@ -260,9 +257,9 @@ TEST(FuturesAccount, LossesBlockNewExposureButDoNotBlockClosing) {
 }
 TEST(PaperExecution, UnmatchedOrdersCancelAndReleaseAllReserves) {
   auto spec = instrument();
-  PaperExecution engine(spec, d("1000"), costs(),
-                        {{spec.id, 100, d("100"), d("1")}, {spec.id, 200, d("101"), d("1")}},
-                        risk());
+  PaperExecution engine(
+      spec, d("1000"), costs(),
+      {test::flat("2026-09-28", 100, "100"), test::flat("2026-09-28", 200, "101")}, risk());
   engine.start();
   engine.advance();
   engine.submit(order("a", Side::buy, "1", "99"), Offset::open);
@@ -275,13 +272,12 @@ TEST(PaperExecution, UnmatchedOrdersCancelAndReleaseAllReserves) {
 
 namespace {
 Json grant(const Json& input) {
-  const auto p = protocol::encode_input(input);
   return {{"request_id", "grant.request"},
           {"action", "strategy_grant"},
           {"grant_id", "grant.one"},
           {"strategy_id", "sma.one"},
           {"stream_id", "history.one"},
-          {"dataset_revision", protocol::make_trade_dataset(p.contract(), p.ticks()).revision()},
+          {"dataset_revision", input.at("dataset").at("revision")},
           {"max_quantity", "2"}};
 }
 Json target(const Json& g, std::string id, int sequence, std::string quantity) {
@@ -455,9 +451,9 @@ TEST(StrategyTrading, FailedCommitRestoresAllAuthorizationHistoryAndCommittedLed
 }
 
 TEST(PaperExecution, FailedTargetReplacementKeepsExistingOrdersAndReserves) {
-  PaperExecution engine(
-      instrument(), d("200"), costs(),
-      {{instrument().id, 100, d("100"), d("1")}, {instrument().id, 200, d("99"), d("1")}}, risk());
+  PaperExecution engine(instrument(), d("200"), costs(),
+                        {test::flat("2026-09-28", 100, "100"), test::flat("2026-09-28", 200, "99")},
+                        risk());
   engine.start();
   engine.advance();
   engine.reconcile_long_target("one", d("1"), d("100"));
@@ -540,9 +536,9 @@ TEST(PreTradeRisk, MissingRiskIsRejectedInsteadOfDefaulted) {
 TEST(PreTradeRisk, UnavailablePluginAndRejectedTargetCannotMutateExecution) {
   const auto spec = instrument();
   auto policy = std::make_shared<OrderLimits>(OrderLimitsConfig{d("1"), d("1"), 1});
-  PaperExecution engine(spec, d("1000"), costs(),
-                        {{spec.id, 100, d("100"), d("1")}, {spec.id, 200, d("100"), d("1")}},
-                        policy);
+  PaperExecution engine(
+      spec, d("1000"), costs(),
+      {test::flat("2026-09-28", 100, "100"), test::flat("2026-09-28", 200, "100")}, policy);
   engine.start();
   engine.advance();
   const auto before = engine.snapshot();
@@ -560,25 +556,26 @@ TEST(PreTradeRisk, UnavailablePluginAndRejectedTargetCannotMutateExecution) {
 }
 
 namespace {
-std::vector<TradeTick> settlement_ticks() {
-  const auto id = instrument().id;
-  return {{id, 100, d("100"), d("3")}, {id, 200, d("99"), d("2")},  {id, 300, d("106"), d("3")},
-          {id, 400, d("105"), d("1")}, {id, 500, d("107"), d("2")}, {id, 600, d("108"), d("1")},
-          {id, 700, d("109"), d("1")}};
+// Participation: volume 10 per available lot.
+std::vector<MarketBar> settlement_bars() {
+  return {test::flat("2026-09-25", 100, "100", "30"), test::flat("2026-09-25", 200, "99", "20"),
+          test::flat("2026-09-28", 300, "106", "30"), test::flat("2026-09-28", 400, "105", "10"),
+          test::flat("2026-09-28", 500, "107", "20"), test::flat("2026-09-28", 600, "108", "10"),
+          test::flat("2026-09-28", 700, "109", "10")};
 }
 void mixed_longs(PaperExecution& engine) {
   engine.start();
   engine.advance();
   engine.submit(order("old.open", Side::buy, "2", "100"), Offset::open);
   engine.advance();
-  engine.settle_before_next(250, d("105"));
+  engine.settle_day_end(d("105"));
   engine.advance();
   engine.submit(order("new.open", Side::buy, "1", "106"), Offset::open);
   engine.advance();
 }
 } // namespace
 TEST(PaperExecution, ScheduledSettlementCarriesBasisAndClosesBucketsWithDistinctFees) {
-  PaperExecution engine(instrument(), d("1000"), costs(), settlement_ticks(), risk());
+  PaperExecution engine(instrument(), d("1000"), costs(), settlement_bars(), risk());
   mixed_longs(engine);
   const auto positions = engine.snapshot().at("positions");
   ASSERT_EQ(positions.size(), 2U);
@@ -605,7 +602,7 @@ TEST(PaperExecution, ScheduledSettlementCarriesBasisAndClosesBucketsWithDistinct
 TEST(PaperExecution, SecondBucketRiskRejectionPreservesOriginalOrdersAndAccount) {
   auto policy = std::make_shared<OrderLimits>(OrderLimitsConfig{d("100"), d("100"), 1});
   policy->start();
-  PaperExecution engine(instrument(), d("1000"), costs(), settlement_ticks(), policy);
+  PaperExecution engine(instrument(), d("1000"), costs(), settlement_bars(), policy);
   mixed_longs(engine);
   engine.submit(order("existing", Side::sell, "1", "200"), Offset::close_today);
   const auto before = engine.snapshot();
@@ -618,39 +615,37 @@ TEST(PaperExecution, SecondBucketRiskRejectionPreservesOriginalOrdersAndAccount)
   ASSERT_EQ(engine.snapshot().at("positions").size(), 1U);
   EXPECT_EQ(engine.snapshot().at("positions")[0].at("bucket"), "today");
 }
-TEST(PaperExecution, ScheduledSettlementRejectsInvalidBoundariesAndPendingOrdersAtomically) {
-  PaperExecution engine(instrument(), d("1000"), costs(), settlement_ticks(), risk());
+TEST(PaperExecution, DayEndSettlementRejectsWrongPositionAndPendingOrdersAtomically) {
+  PaperExecution engine(instrument(), d("1000"), costs(), settlement_bars(), risk());
   engine.start();
   const auto empty = engine.snapshot();
-  EXPECT_THROW(engine.settle_before_next(50, d("105")), std::invalid_argument);
+  EXPECT_THROW(engine.settle_day_end(d("105")), std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), empty);
   engine.advance();
   engine.submit(order("open", Side::buy, "1", "100"), Offset::open);
   const auto pending = engine.snapshot();
-  EXPECT_THROW(engine.settle_before_next(150, d("105")), std::invalid_argument);
+  // The first bar is not the last of its day.
+  EXPECT_THROW(engine.settle_day_end(d("105")), std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), pending);
   engine.advance();
   const auto filled = engine.snapshot();
-  for (const auto boundary : {200, 301, -1})
-    EXPECT_THROW(engine.settle_before_next(boundary, d("105")), std::invalid_argument);
-  EXPECT_THROW(engine.settle_before_next(250, d("105.5")), std::invalid_argument);
+  EXPECT_THROW(engine.settle_day_end(d("105.5")), std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), filled);
-  engine.settle_before_next(250, d("105"));
+  engine.settle_day_end(d("105"));
   const auto settled = engine.snapshot();
-  EXPECT_THROW(engine.settle_before_next(250, d("106")), std::invalid_argument);
-  EXPECT_THROW(engine.settle_before_next(249, d("106")), std::invalid_argument);
+  EXPECT_THROW(engine.settle_day_end(d("106")), std::invalid_argument) << "settled once per day";
   EXPECT_EQ(engine.snapshot(), settled);
   engine.advance();
   EXPECT_EQ(engine.snapshot().at("unrealized"), "10");
   for (int i = 0; i < 4; ++i)
     engine.advance();
   const auto finished = engine.snapshot();
-  EXPECT_THROW(engine.settle_before_next(800, d("105")), std::invalid_argument);
+  EXPECT_THROW(engine.settle_day_end(d("105")), std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), finished);
 }
 
 TEST(PaperExecution, ChildIdentityConflictCannotPartiallyReplaceMixedBucketOrders) {
-  PaperExecution engine(instrument(), d("1000"), costs(), settlement_ticks(), risk());
+  PaperExecution engine(instrument(), d("1000"), costs(), settlement_bars(), risk());
   mixed_longs(engine);
   engine.submit(order("split.today", Side::sell, "1", "200"), Offset::close_today);
   const auto before = engine.snapshot();
@@ -662,31 +657,7 @@ TEST(PaperExecution, ChildIdentityConflictCannotPartiallyReplaceMixedBucketOrder
 
 namespace {
 Json replay_calendar_command() {
-  const auto input = protocol::encode_input(manifest());
-  google::protobuf::RepeatedPtrField<data::v1::SettlementDay> days;
-  protocol::encode_settlement_days(
-      Json::array({{{"trading_day", "2026-09-25"},
-                    {"sessions", Json::array({{{"begin_ns", "100"}, {"end_ns", "250"}}})},
-                    {"schedule_source", "fixture"},
-                    {"settlement_price", "105"},
-                    {"settlement_source", "fixture"}},
-                   {{"trading_day", "2026-09-28"},
-                    {"sessions", Json::array({{{"begin_ns", "300"}, {"end_ns", "400"}}})},
-                    {"schedule_source", "fixture"},
-                    {"settlement_price", "120"},
-                    {"settlement_source", "fixture"}}}),
-      days);
-  data::v1::CalendarPublication publication;
-  publication.set_version(1);
-  *publication.mutable_calendar() = protocol::make_settlement_calendar(input.contract(), days);
-  publication.set_source_name("fixture.csv");
-  publication.set_source_sha256(std::string(64, 'a'));
-  publication.set_source_bytes(1);
-  publication.set_importer("asterion.csv.settlement.v1");
-  publication.set_id(protocol::calendar_publication_id(publication));
-  return {{"request_id", "calendar"},
-          {"action", "replay_calendar"},
-          {"publication", protocol::decode_calendar_publication(publication)}};
+  return {{"request_id", "days"}, {"action", "replay_days"}};
 }
 Json replay_settle_command(std::string id, int day) {
   return {{"request_id", id}, {"action", "replay_settle"}, {"day_index", day}};
@@ -751,8 +722,7 @@ TEST(PaperSession, ScheduledStrategyCannotPlaceOrdersAcrossSessionOrSkipSettleme
   Directory dir;
   PaperSession session(dir.path, manifest());
   session.execute(replay_calendar_command());
-  const auto input = protocol::encode_input(manifest());
-  const auto revision = protocol::make_trade_dataset(input.contract(), input.ticks()).revision();
+  const auto revision = manifest().at("dataset").at("revision");
   session.execute({{"request_id", "grant"},
                    {"action", "strategy_grant"},
                    {"grant_id", "g"},
@@ -808,9 +778,9 @@ TEST(PaperExecution, RestingOrdersDoNotMakeReplayQuadratic) {
 #else
   constexpr std::size_t events = 10000, resting = 2000;
 #endif
-  std::vector<TradeTick> ticks;
+  std::vector<MarketBar> ticks;
   for (std::size_t i = 0; i < events; ++i)
-    ticks.push_back({instrument().id, static_cast<std::int64_t>(i + 1), d("100"), d("1")});
+    ticks.push_back(test::flat("2026-09-28", static_cast<std::int64_t>(i + 1), "100"));
   auto limits = std::make_shared<OrderLimits>(OrderLimitsConfig{d("10"), d("100000"), resting});
   limits->start();
   PaperExecution execution(instrument(), d("100000000"), costs(), std::move(ticks), limits);
@@ -847,7 +817,7 @@ TEST(PaperSession, JournalHeaderPinsFormatAndEngineSemantics) {
   recorded_session(directory.path);
   const auto header_file = directory.path / "00000000.json";
   const auto header = read_record(header_file);
-  EXPECT_EQ(header.at("format"), 2);
+  EXPECT_EQ(header.at("format"), 4);
   EXPECT_EQ(header.at("manifest"), manifest());
   auto foreign = header;
   foreign["engine"] = "asterion.paper-futures.v0";
@@ -981,24 +951,107 @@ TEST(FuturesAccount, ExchangeClosePoliciesAssignBucketsAndFees) {
       std::invalid_argument)
       << "SHFE requires an explicit bucket";
 }
-TEST(PaperExecution, OrdersJoiningATradedLevelWaitBehindItsQueue) {
-  // Tick 1 trades 3 lots at 100. A buy at 100 joins behind those 3 lots; a
-  // later buy at 101 has an empty queue at its level.
-  std::vector<TradeTick> ticks{{instrument().id, 1, d("100"), d("3")},
-                               {instrument().id, 2, d("100"), d("2")},
-                               {instrument().id, 3, d("100"), d("2")},
-                               {instrument().id, 4, d("99"), d("5")}};
-  PaperExecution execution(instrument(), d("100000"), costs(), ticks, risk());
+TEST(PaperExecution, NextBarFillsAreConservativeAndCappedByParticipation) {
+  // Buy limit 101: a gap down fills at the open; later at the limit itself.
+  // Sell limit 105 fills only when the high reaches it. 10% of bar volume.
+  PaperExecution execution(instrument(), d("100000"), costs(),
+                           {test::flat("2026-09-28", 1, "100", "100"),
+                            test::bar("2026-09-28", 2, "99", "102", "98", "101", "30"),
+                            test::bar("2026-09-28", 3, "103", "104", "100", "103", "50"),
+                            test::bar("2026-09-28", 4, "103", "104", "102", "104", "50"),
+                            test::bar("2026-09-28", 5, "104", "106", "103", "105", "50")},
+                           risk());
   execution.start();
   execution.advance();
-  execution.submit(order("queued", Side::buy, "1", "100"), Offset::open);
-  execution.advance(); // 2 lots at 100: 1 of the 3 ahead remains
-  EXPECT_TRUE(execution.account().fills().empty());
-  execution.advance(); // 2 more at 100: 1 clears the queue, 1 fills the order
+  execution.submit(order("buy", Side::buy, "5", "101"), Offset::open);
+  EXPECT_TRUE(execution.account().fills().empty()) << "never on the bar it was placed after";
+  execution.advance(); // participation 3 lots at min(open 99, limit 101)
   ASSERT_EQ(execution.account().fills().size(), 1U);
-  EXPECT_EQ(execution.account().fills()[0].order_id, "queued");
-  // Through the limit, a fresh order fills without waiting.
-  execution.submit(order("through", Side::buy, "1", "100"), Offset::open);
-  execution.advance(); // trades at 99 < 100
+  EXPECT_EQ(execution.account().fills()[0].quantity.str(), "3");
+  EXPECT_EQ(execution.account().fills()[0].price.str(), "99");
+  execution.advance(); // low 100 reaches 101: the rest at the limit, not the better open
+  ASSERT_EQ(execution.account().fills().size(), 2U);
+  EXPECT_EQ(execution.account().fills()[1].quantity.str(), "2");
+  EXPECT_EQ(execution.account().fills()[1].price.str(), "101");
+  execution.submit(order("sell", Side::sell, "5", "105"), Offset::close_today);
+  execution.advance(); // high 104 never reaches 105
   EXPECT_EQ(execution.account().fills().size(), 2U);
+  execution.advance(); // high 106 reaches it: max(open 104, limit 105)
+  ASSERT_EQ(execution.account().fills().size(), 3U);
+  EXPECT_EQ(execution.account().fills()[2].price.str(), "105");
+  EXPECT_TRUE(execution.account().positions().empty());
+}
+
+TEST(FileJournal, OnlyDeclaredRealSidecarDirectoriesAreAccepted) {
+  Directory directory;
+  std::filesystem::create_directory(directory.path / "plugins");
+  {
+    FileJournal plain(directory.path);
+    EXPECT_THROW(plain.start(), std::invalid_argument);
+  }
+  {
+    FileJournal allowed(directory.path, {"plugins"});
+    allowed.start();
+    allowed.append({{"test", 1}});
+  }
+  std::filesystem::rename(directory.path / "plugins", directory.path / "elsewhere");
+  std::filesystem::create_directory_symlink(directory.path / "elsewhere",
+                                            directory.path / "plugins");
+  {
+    FileJournal links(directory.path, {"plugins", "elsewhere"});
+    EXPECT_THROW(links.start(), std::invalid_argument);
+  }
+  std::filesystem::remove(directory.path / "plugins");
+  std::ofstream(directory.path / "plugins") << "not a directory";
+  {
+    FileJournal files(directory.path, {"plugins", "elsewhere"});
+    EXPECT_THROW(files.start(), std::invalid_argument);
+  }
+  EXPECT_THROW((FileJournal(directory.path, {"../outside"})), std::invalid_argument);
+  EXPECT_THROW((FileJournal(directory.path, {"writer.lock"})), std::invalid_argument);
+}
+TEST(PaperSession, RecoveryRequiresOriginalRiskArtifactAndPreservesLedgerOnFailure) {
+  Directory directory;
+  recorded_session(directory.path);
+  const auto header_file = directory.path / "00000000.json";
+  const auto header = read_record(header_file);
+  const auto plugin = risk_providers::Module::filename(directory.path / "plugins");
+  ASSERT_TRUE(std::filesystem::is_regular_file(plugin));
+  ASSERT_EQ(header.at("risk_artifact").get<std::string>().size(), 64U);
+  // Never modify an inode which may still be mapped by the dynamic loader.
+  const auto saved = plugin.parent_path() / "original";
+  std::filesystem::rename(plugin, saved);
+  EXPECT_THROW(PaperSession{directory.path}, std::exception);
+  EXPECT_EQ(read_record(header_file), header);
+  std::ofstream(plugin) << "corrupt plugin fixture";
+  EXPECT_THROW(PaperSession{directory.path}, std::exception);
+  EXPECT_EQ(read_record(header_file), header);
+  EXPECT_EQ(std::filesystem::file_size(plugin), 22U);
+  std::filesystem::remove(plugin);
+  std::filesystem::create_symlink(saved, plugin);
+  EXPECT_THROW(PaperSession{directory.path}, std::exception);
+  std::filesystem::remove(plugin);
+  std::filesystem::rename(saved, plugin);
+  auto wrong = header;
+  wrong["risk_artifact"] = std::string(64, '0');
+  write_record(header_file, wrong);
+  EXPECT_THROW(PaperSession{directory.path}, std::exception);
+  EXPECT_EQ(read_record(header_file), wrong);
+  write_record(header_file, header);
+  PaperSession recovered(directory.path);
+  EXPECT_EQ(recovered.snapshot().at("fills").size(), 1U);
+}
+
+TEST(PaperSession, RecoveryUsesOwnedRiskEvenWhenDefaultPluginIsUnavailable) {
+  Directory ledger, empty_plugins, new_ledger;
+  recorded_session(ledger.path);
+  struct RestorePlugins {
+    std::filesystem::path original = native_plugin_directory();
+    ~RestorePlugins() { configure_native_plugins(original); }
+  } restore;
+  configure_native_plugins(empty_plugins.path);
+  EXPECT_THROW((PaperSession(new_ledger.path, manifest())), std::exception);
+  EXPECT_FALSE(std::filesystem::exists(new_ledger.path / "00000000.json"));
+  PaperSession recovered(ledger.path);
+  EXPECT_EQ(recovered.snapshot().at("fills").size(), 1U);
 }

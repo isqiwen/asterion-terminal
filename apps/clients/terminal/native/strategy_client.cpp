@@ -60,7 +60,7 @@ void StrategyClient::observe(const strategy::v1::Response& response) {
     static_cast<void>(protocol::decode_replay_plan(snapshot.config().replay()));
     const auto& phase = snapshot.replay().phase();
     if (snapshot.processed() >
-            static_cast<std::uint64_t>(snapshot.config().replay().dataset().ticks_size()) ||
+            static_cast<std::uint64_t>(snapshot.config().replay().dataset().bars_size()) ||
         (phase != "waiting" && phase != "running" && phase != "completed" && phase != "blocked"))
       throw std::runtime_error("invalid strategy replay status");
   }
@@ -69,7 +69,7 @@ void StrategyClient::observe(const strategy::v1::Response& response) {
            {"state", "connected"},
            {"phase", config_.has_replay() ? snapshot.replay().phase() : "manual"},
            {"processed", snapshot.processed()},
-           {"total", config_.has_replay() ? config_.replay().dataset().ticks_size() : 0},
+           {"total", config_.has_replay() ? config_.replay().dataset().bars_size() : 0},
            {"fast", config_.fast()},
            {"slow", config_.slow()},
            {"quantity", Decimal::from_raw(config_.quantity().units()).str()},

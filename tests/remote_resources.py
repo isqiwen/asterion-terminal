@@ -33,7 +33,8 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
  root=Path(folder); fixture=make_bundle(root/'fixture'); archives=root/'archives'; archives.mkdir()
  for arch in resources.ARCHES:
   with zipfile.ZipFile(archives/f'asterion-services-linux-{arch}.zip','w') as archive:
-   for file in (fixture/arch).iterdir(): archive.write(file,file.name)
+   for file in (fixture/arch).rglob('*'):
+    if file.is_file(): archive.write(file,file.relative_to(fixture/arch).as_posix())
  try: resources.files_for('arm64')
  except ValueError: pass
  else: raise AssertionError('unsupported Linux ARM64 accepted')
@@ -77,7 +78,7 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
   else: raise AssertionError('checksum mismatch accepted')
   binary.write_bytes(data)
   # Research and strategy executables are mandatory and independently integrity checked.
-  for name in ('asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'asterion-strategy'):
+  for name in ('asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'asterion-strategy', 'plugins/asterion-tushare.so', 'plugins/asterion-order-limits.so'):
    payload=target/'x86_64'/name; original_payload=payload.read_bytes()
    payload.unlink()
    assert 'error' in call(''), name

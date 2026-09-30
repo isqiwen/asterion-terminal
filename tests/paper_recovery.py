@@ -1,3 +1,4 @@
+from history_fixture import seed
 """Process-kill recovery through the same C ABI transport as the desktop."""
 import json
 import os
@@ -39,11 +40,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-crash-中文-", ignore_cleanup
     source.write_text("timestamp_ns,price,quantity\n100,100,1\n200,99,1\n300,110,1\n", encoding="utf-8")
     process = launch()
     try:
-        call(process, "futures.inspect_csv", {
-            "path": str(source), "venue": "SHFE", "symbol": "rb2610", "product": "rb",
-            "delivery_month": "2026-10", "currency": "CNY", "price_increment": "1",
-            "quantity_increment": "1", "multiplier": "10",
-        })
+        seed(lambda method, params=None: call(process, method, params), [100,99,110], "fixture0")
         call(process, "paper.create", {
             "directory": str(directory), "deposit": "1000", "margin_per_lot": "100",
             "open_fee": "2", "close_today_fee": "3", "close_yesterday_fee": "4", "margin_rate": "0", "open_fee_rate": "0", "close_today_fee_rate": "0", "close_yesterday_fee_rate": "0", "max_order_quantity":"1", "max_gross_quantity":"1", "max_working_orders":"1",

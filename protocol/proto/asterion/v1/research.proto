@@ -7,18 +7,22 @@ import "asterion/v1/factor.proto";
 import "asterion/v1/data.proto";
 
 message SmaStrategy { uint32 fast = 1; uint32 slow = 2; asterion.protocol.v1.Decimal quantity = 3; }
-// Revision binds the exact normalized contract, timestamps, prices and quantities.
-// Embedded input is an immutable snapshot; no mutable client-local file paths.
+// Immutable input resolved by the task service; paper.dataset holds the bars
+// and the trading days settled at each day end.
 message BacktestInput {
-  // Version 5: ordered days with optional complete immutable calendar publication evidence.
-  uint32 version = 1;
+  uint32 version = 1; // 6
   string dataset_revision = 2;
   asterion.protocol.v1.PaperInput paper = 3;
   SmaStrategy sma = 4;
-  reserved 5, 6, 7;
-  reserved "trading_day", "sessions", "schedule_source";
-  repeated asterion.data.v1.SettlementDay days = 8;
-  asterion.data.v1.CalendarPublication calendar_publication = 9;
+  reserved 5, 6, 7, 8, 9;
+}
+// Client submission: the task service resolves the dataset itself.
+message BacktestRequest {
+  asterion.data.v1.BarDatasetRequest data = 1;
+  asterion.protocol.v1.Costs costs = 2;
+  asterion.protocol.v1.Decimal deposit = 3;
+  asterion.protocol.v1.RiskLimits risk = 4;
+  SmaStrategy sma = 5;
 }
 enum EquityEvent { EQUITY_EVENT_UNSPECIFIED = 0; TRADE_MARK = 1; DAILY_SETTLEMENT = 2; }
 message EquityPoint {
@@ -56,10 +60,11 @@ enum TaskState {
   CANCELLED = 6;
   INTERRUPTED = 7;
 }
-enum TaskKind { TASK_KIND_UNSPECIFIED = 0; BACKTEST = 1; FACTOR = 2; DATA_IMPORT = 3; CALENDAR_IMPORT = 4; MINUTE_DOWNLOAD = 5; DAILY_DOWNLOAD = 6; DAILY_FACTOR = 7; }
+enum TaskKind { TASK_KIND_UNSPECIFIED = 0; BACKTEST = 1; FACTOR = 2; reserved 3, 4; MINUTE_DOWNLOAD = 5; DAILY_DOWNLOAD = 6; DAILY_FACTOR = 7; }
 message Task {
   string id = 1;
-  oneof definition { BacktestInput input = 2; FactorInput factor = 11; asterion.data.v1.CsvSnapshot data = 13; asterion.data.v1.CalendarCsvSnapshot calendar = 18; asterion.data.v1.MinuteDownload minutes = 19; asterion.data.v1.DailyDownload daily = 21; DailyFactorInput daily_factor = 22; }
+  reserved 13, 18;
+  oneof definition { BacktestInput input = 2; FactorInput factor = 11; asterion.data.v1.MinuteDownload minutes = 19; asterion.data.v1.DailyDownload daily = 21; DailyFactorInput daily_factor = 22; }
   TaskKind kind = 12;
   TaskState state = 3;
   uint32 attempt = 4;
@@ -70,6 +75,9 @@ message Task {
   string trading_day = 9;
   string instrument = 10;
   string source_name = 14;
+  string data_source = 23;
+  string risk_artifact = 25; // Immutable native risk SHA-256 for backtests.
+  string provider_artifact = 24; // Immutable native provider SHA-256 for downloads.
   uint32 minute_interval_minutes = 20; // summary projection; zero for other task kinds
   // Service-owned durable order, independent of task ID and wall-clock changes.
   uint32 submission_sequence = 15;
@@ -77,13 +85,13 @@ message Task {
   int64 submitted_at_ms = 16;
   int64 updated_at_ms = 17;
 }
-message TaskList { repeated Task tasks = 1; }
+message TaskList { repeated Task tasks = 1; repeated asterion.data.v1.HistorySource sources = 2; }
 message TaskClaim { string id = 1; TaskKind kind = 2; }
 message TaskId { string id = 1; }
-message TaskSubmit { string id = 1; oneof definition { BacktestInput input = 2; FactorInput factor = 3; asterion.data.v1.CsvSnapshot data = 4; asterion.data.v1.CalendarCsvSnapshot calendar = 5; asterion.data.v1.MinuteDownload minutes = 6; asterion.data.v1.DailyDownload daily = 8; DailyFactorRequest daily_factor = 9; } string provider_token = 7; }
+message TaskSubmit { reserved 2, 3, 4, 5; string id = 1; oneof definition { BacktestRequest backtest = 10; FactorRequest factor_request = 11; asterion.data.v1.MinuteDownload minutes = 6; asterion.data.v1.DailyDownload daily = 8; DailyFactorRequest daily_factor = 9; } string provider_token = 7; }
 message TaskAttempt { Task task = 1; string token = 2; string provider_token = 3; string output_directory = 4; }
 message TaskProgress { string id = 1; string token = 2; uint32 completed = 3; }
-message TaskFinish { string id = 1; string token = 2; oneof output { BacktestResult result = 3; FactorResult factor = 4; asterion.data.v1.DatasetPublication publication = 5; asterion.data.v1.CalendarPublication calendar_publication = 6; asterion.data.v1.MinuteDownloadResult minutes = 7; asterion.data.v1.DailyDownloadResult daily = 8; DailyFactorResult daily_factor = 9; } }
+message TaskFinish { reserved 5, 6; string id = 1; string token = 2; oneof output { BacktestResult result = 3; FactorResult factor = 4; asterion.data.v1.MinuteDownloadResult minutes = 7; asterion.data.v1.DailyDownloadResult daily = 8; DailyFactorResult daily_factor = 9; } }
 message TaskFailure { string id = 1; string token = 2; string error = 3; string error_code = 4; }
 message TaskCancelAck { string id = 1; string token = 2; }
 // Private Task Service -> Agent dispatch contract. The Agent reports processes;
@@ -93,10 +101,12 @@ message TaskDispatch { repeated string running = 1; }
 message TaskLaunch {
   string task_id = 1;
   WorkerProgram program = 2;
-  bool settlement_calendar = 3;
+  reserved 3;
   bool minute_download = 4;
   bool daily_download = 5;
   bool daily_factor = 6;
+  string provider_artifact = 7;
+  string risk_artifact = 8;
 }
 message TaskLaunches { repeated TaskLaunch launches = 1; }
 message TaskRequest {
@@ -118,11 +128,16 @@ message TaskRequest {
     TaskCancelAck cancel_ack = 21;
     asterion.data.v1.MinutePageQuery minute_page = 23;
     asterion.data.v1.DailyPageQuery daily_page = 24;
+    asterion.data.v1.BarDatasetRequest bar_dataset = 25;
+    asterion.data.v1.HistoryCatalogQuery history_catalog = 26;
+    asterion.data.v1.HistoryFilter history_datasets = 27;
+    asterion.data.v1.HistoryConnectionVerify verify_connection = 28;
     TaskDispatch dispatch = 22; asterion.node.v1.Quiesce quiesce = 30;
   }
 }
 message TaskHealth { string instance_id = 1; string version = 2; uint64 uptime_ms = 3; bool recovery_required = 4; }
 message TaskResponse {
+  reserved 17, 19;
   // Present only with a completed result, captured under the same store lock.
   Task result_task = 18;
   uint32 version = 1;
@@ -136,13 +151,15 @@ message TaskResponse {
     asterion.protocol.v1.Error error = 14;
     TaskAttempt attempt = 15;
     FactorResult factor = 16;
-    asterion.data.v1.DatasetPublication publication = 17;
-    asterion.data.v1.CalendarPublication calendar_publication = 19;
     TaskLaunches launches = 20;
     asterion.data.v1.MinuteDownloadResult minutes = 21;
     asterion.data.v1.MinutePage minute_page = 22;
     asterion.data.v1.DailyDownloadResult daily = 23;
     asterion.data.v1.DailyPage daily_page = 24;
     DailyFactorResult daily_factor = 25;
+    asterion.data.v1.BarDataset bar_dataset = 26;
+    asterion.data.v1.HistoryCatalog history_catalog = 27;
+    asterion.data.v1.HistoryDatasets history_datasets = 28;
+    asterion.data.v1.HistoryConnectionVerification connection_verification = 29;
   }
 }
