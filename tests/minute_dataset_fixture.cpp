@@ -49,7 +49,8 @@ int main(int argc, char** argv) {
     tasks::Store store(directory); // Exclusive ownership refuses a running service.
     if (store.list().tasks_size())
       throw std::invalid_argument("minute fixture requires an empty task store");
-    const auto begin = tushare::parse_time("2023-08-25 09:00:00");
+    // A continuous afternoon session: no 10:15-10:30 pause inside the range.
+    const auto begin = tushare::parse_time("2023-08-25 13:00:00");
     const HistoricalBarRange range{
         {"SHFE", "cu", "2023-10"}, 1,           begin, begin + 119 * 60000000000LL,
         "tushare.ft_mins",         "CU2310.SHF"};
