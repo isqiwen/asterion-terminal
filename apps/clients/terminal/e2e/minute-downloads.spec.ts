@@ -299,3 +299,50 @@ test("daily adapter submits catalog scope without minute fields and clears crede
     "daily-test-secret",
   );
 });
+
+test("all contract months download as one task each within the request limit", async ({ page }) => {
+  const months = {
+    ...catalogFixture,
+    items: [
+      catalogFixture.items[0],
+      { ...catalogFixture.items[0], code: "SHFE/cu/2023-11", name: "Copper 2311" },
+    ],
+  };
+  let loaded = false;
+  const submissions: Record<string, unknown>[] = [];
+  await page.route("**/__asterion/api", async route => {
+    const request = route.request().postDataJSON();
+    if (request.method === "research.contracts.load") loaded = true;
+    if (request.method === "research.minutes.submit") submissions.push(request.params);
+    if (
+      !["research.contracts.load", "research.minutes.submit", "runtime.snapshot"].includes(
+        request.method,
+      )
+    )
+      return route.continue();
+    const response = await route.fetch({
+      postData: { version: 1, method: "runtime.snapshot", params: {} },
+    });
+    const data = (await response.json()) as { result: Snapshot };
+    if (loaded) data.result.history_contracts = months;
+    await route.fulfill({ response, json: data });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "数据", exact: true }).click();
+  const section = page.getByRole("region", { name: "历史数据", exact: true });
+  await section.getByLabel("品种代码", { exact: true }).fill("CU");
+  await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");
+  await section.getByRole("button", { name: "查询月份合约", exact: true }).click();
+  await section.getByLabel("月份合约", { exact: true }).selectOption("*");
+  await section.getByLabel("每分钟请求上限", { exact: true }).fill("60");
+  await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");
+  await section.getByRole("button", { name: "下载全部 2 个合约", exact: true }).click();
+  await expect(section.getByText("已提交 2 / 2 个下载任务", { exact: true })).toBeVisible();
+  expect(submissions.map(item => item.contract_id).sort()).toEqual([
+    "SHFE/cu/2023-10",
+    "SHFE/cu/2023-11",
+  ]);
+  expect(submissions.every(item => item.requests_per_minute === 30)).toBe(true);
+  expect(new Set(submissions.map(item => item.id)).size).toBe(2);
+  await expect(section.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
+});

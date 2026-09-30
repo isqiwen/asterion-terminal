@@ -8,11 +8,13 @@ import {
   useWorkspaceDraft,
   useWorkspaceRequestId,
   translate,
+  type MessageValues,
   ErrorNotice,
   asDisplayError,
   type DisplayError,
 } from "../contract";
-const t = (key: string) => translate("asterion.terminal.data-workbench", key);
+const t = (key: string, values?: MessageValues) =>
+  translate("asterion.terminal.data-workbench", key, values);
 const states = {
   queued: "排队中",
   running: "下载中",
@@ -59,6 +61,11 @@ function SourceDownloads({
       : null;
   const contracts = matchingCatalog?.items ?? [];
   const selected = contracts.find(item => item.code === form.code);
+  // "*" downloads every listed month; at most two downloads run at once, so
+  // each gets half the rate and together they stay within it.
+  const all = form.code === "*" && contracts.length > 0;
+  const targets = all ? contracts : selected ? [selected] : [];
+  const [submitted, setSubmitted] = useState<number | null>(null);
   const cutoff = matchingCatalog?.cutoff_ns ?? "0";
   const [pending, setPending] = useWorkspaceRequestId(
     `historySubmission:${source.id}`,
@@ -105,23 +112,35 @@ function SourceDownloads({
         <form
           onSubmit={event => {
             event.preventDefault();
-            if (!selected || !matchingCatalog) return;
+            if (!targets.length || !matchingCatalog) return;
             const id = pending ?? `history-${crypto.randomUUID()}`;
             setPending(id);
-            void run(source.command, {
-              id,
-              ...source.parameters(
-                { ...form, rate: connection ? String(connection.requests_per_minute) : form.rate },
-                connection ? "" : token,
-                matchingCatalog,
-              ),
-              connection: connection?.id ?? "",
-              connection_revision: connection?.revision ?? "",
-            })
-              .then(ok => {
-                if (ok) setPending(null);
-              })
-              .finally(() => setToken(""));
+            setSubmitted(null);
+            const rate = Number(connection ? connection.requests_per_minute : form.rate);
+            void (async () => {
+              let count = 0;
+              for (const [index, item] of targets.entries()) {
+                const ok = await run(source.command, {
+                  // Stable per contract, so resubmitting the batch is idempotent.
+                  id: all ? `${id}-${index}` : id,
+                  ...source.parameters(
+                    {
+                      ...form,
+                      code: item.code,
+                      rate: String(all ? Math.max(1, Math.floor(rate / 2)) : rate),
+                    },
+                    connection ? "" : token,
+                    matchingCatalog,
+                  ),
+                  connection: connection?.id ?? "",
+                  connection_revision: connection?.revision ?? "",
+                });
+                if (!ok) break;
+                count += 1;
+              }
+              if (all) setSubmitted(count);
+              if (count === targets.length) setPending(null);
+            })().finally(() => setToken(""));
           }}
         >
           <fieldset disabled={busy || !research?.online || research.remote}>
@@ -213,10 +232,15 @@ function SourceDownloads({
                 <select
                   aria-label={t("月份合约")}
                   required
-                  value={selected ? form.code : ""}
+                  value={selected || all ? form.code : ""}
                   onChange={event => update("code", event.target.value)}
                 >
                   <option value="">{t("选择具体月份合约")}</option>
+                  {contracts.length > 1 && (
+                    <option value="*">
+                      {t("全部月份合约（{n} 个）", { n: contracts.length })}
+                    </option>
+                  )}
                   {[...contracts].reverse().map(item => (
                     <option key={item.code} value={item.code}>
                       {item.code} · {item.name}
@@ -285,8 +309,26 @@ function SourceDownloads({
               <p role="status">{t("没有找到月份合约，请检查交易所和品种代码。")}</p>
             )}
             <p className="subtle">{t(source.credential.help)}</p>
-            <button className="primary" type="submit" disabled={!selected}>
-              {t(pending ? "确认下载提交" : "下载整个合约")}
+            {all && (
+              <p className="subtle">
+                {t(
+                  "为每个月份合约各建一个下载任务，每个合约下载完整存续期。最多同时运行 2 个任务，每个任务使用一半的请求上限。",
+                )}
+              </p>
+            )}
+            {submitted !== null && (
+              <p role="status">
+                {t("已提交 {done} / {total} 个下载任务", {
+                  done: submitted,
+                  total: targets.length,
+                })}
+              </p>
+            )}
+            <button className="primary" type="submit" disabled={!targets.length}>
+              {t(
+                pending ? "确认下载提交" : all ? "下载全部 {n} 个合约" : "下载整个合约",
+                all ? { n: targets.length } : undefined,
+              )}
             </button>
           </fieldset>
         </form>
@@ -296,7 +338,7 @@ function SourceDownloads({
             {t(
               source.timeAxis === "trading-day"
                 ? "日线保存供应商交易日期与结算价，可作为研究和模拟交易的 K 线或结算价来源；不补造缺失的交易日。"
-                : "分钟数据保留供应商时间标签；只有提供交易日与 K 线结束时间的数据源可用于研究和模拟交易。不补造交易日或主力连续合约。",
+                : "分钟数据按 K 线结束时间保存，交易日来自交易所交易日历，可用于研究和模拟交易。不补造缺失的 K 线或主力连续合约。",
             )}
           </p>
         </details>
