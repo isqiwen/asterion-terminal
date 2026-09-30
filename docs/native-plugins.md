@@ -56,7 +56,7 @@ ABI v1 精确匹配结构大小和版本，不兼容未知布局。新增能力�
 
 直接启动服务时使用绝对路径 `--plugin-directory /absolute/path/plugins`。默认目录是可执行程序旁的 `plugins/`，也可通过 `ASTERION_PLUGIN_DIRECTORY` 显式设置；不从工作目录或 PATH 搜索。目录中的所有 `.dylib` / `.so` 都按原生插件检查，不能在里面放供应商辅助共享库。重复 ID、符号缺失、ABI/平台不匹配、损坏模块和符号链接都会拒绝加载，不会悄悄跳过。
 
-Terminal 开发构建将插件放在 `build/Debug/plugins/`，桌面构建复制到 `build/electron-resources/native/plugins/`。通过设置页创建研究服务时，NodeClient 只上传勾选的插件。Node Agent 将 SHA-256 集合写入服务配置，校验 ABI、平台和重复标识后安装到服务自己的版本目录。程序更新保留当前插件集合；插件变更通过独立命令保存。研究服务使用保存的集合，新下载及回测任务固定各自需要的动态库摘要。替换插件不会自动改写已有历史数据或正在运行的服务。发行包的 Linux 清单包含 Tushare 和订单限额风控动态库，打包校验覆盖其 SHA-256 和目标架构。
+Terminal 开发构建将插件放在 `build/Debug/plugins/`，桌面构建复制到 `build/electron-resources/native/plugins/`。通过设置页创建研究服务时，NodeClient 只上传勾选的插件。Node Agent 将 SHA-256 集合写入服务配置，在子进程（`asterion-node-agent --inspect-plugin`）中读取插件描述，校验 ABI、平台和重复标识后安装到服务自己的版本目录；Agent 进程本身不加载插件。程序更新保留当前插件集合；插件变更通过独立命令保存。研究服务使用保存的集合，新下载及回测任务固定各自需要的动态库摘要。替换插件不会自动改写已有历史数据或正在运行的服务。发行包的 Linux 清单包含 Tushare 和订单限额风控动态库，打包校验覆盖其 SHA-256 和目标架构。
 
 纯 C 契约夹具位于 `tests/native-plugin/`，仅用于测试，不能安装到生产目录。它独立编译，不链接 Core，可用于确认第三方编译流程和回调生命周期：
 
