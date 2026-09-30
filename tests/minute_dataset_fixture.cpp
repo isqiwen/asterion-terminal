@@ -1,3 +1,5 @@
+#include <chrono>
+#include <cstdio>
 // Seed only an isolated, stopped test Task Service through its real persistence API.
 #include "history_minutes.hpp"
 #include "history_daily.hpp"
@@ -7,6 +9,32 @@
 #include <CLI/CLI.hpp>
 #include <iostream>
 using namespace asterion;
+namespace {
+// Answers Tushare trading-calendar requests with every day open, so fixtures
+// keep their own dates; every other request goes to the wrapped transport.
+template <class Transport> tushare::Post calendar(Transport transport) {
+  return [transport](const std::string& body, std::stop_token stop) -> std::string {
+    const auto request = Json::parse(body);
+    if (request.at("api_name") != "trade_cal")
+      return transport(body, stop);
+    const auto& params = request.at("params");
+    const auto year = std::stoi(params.at("start_date").get<std::string>().substr(0, 4));
+    Json items = Json::array();
+    for (std::chrono::sys_days day = std::chrono::year(year) / 1 / 1;
+         day <= std::chrono::sys_days(std::chrono::year(year) / 12 / 31);
+         day += std::chrono::days(1)) {
+      const std::chrono::year_month_day date(day);
+      char text[9];
+      std::snprintf(text, sizeof text, "%04d%02u%02u", static_cast<int>(date.year()),
+                    static_cast<unsigned>(date.month()), static_cast<unsigned>(date.day()));
+      items.push_back({params.at("exchange"), text, 1});
+    }
+    return Json{{"code", 0},
+                {"data", {{"fields", {"exchange", "cal_date", "is_open"}}, {"items", items}}}}
+        .dump();
+  };
+}
+} // namespace
 int main(int argc, char** argv) {
   CLI::App app{"Create an isolated native desktop minute-data fixture"};
   std::string directory;
@@ -40,18 +68,19 @@ int main(int argc, char** argv) {
     attempt.set_token(store.claim(id));
     *attempt.mutable_task() = store.get(id);
     store.download_attempt(attempt);
-    tushare::Minutes provider("explicit-test-fixture", [begin](const auto&, auto) {
-      std::string response =
-          R"({"code":0,"data":{"fields":["ts_code","trade_time","open","high","low","close","vol","amount","oi"],"items":[)";
-      for (int i = 0; i < 120; ++i) {
-        if (i)
-          response += ',';
-        response += "[\"CU2310.SHF\",\"" + tushare::format_time(begin + i * 60000000000LL) +
-                    "\",100.00000001," + std::to_string(102 + i % 7) + ",99," +
-                    std::to_string(101 + i % 7) + ".5,20,12345678.12345678,1000]";
-      }
-      return response + "]}}";
-    });
+    tushare::Minutes provider(
+        "explicit-test-fixture", calendar([begin](const auto&, auto) {
+          std::string response =
+              R"({"code":0,"data":{"fields":["ts_code","trade_time","open","high","low","close","vol","amount","oi"],"items":[)";
+          for (int i = 0; i < 120; ++i) {
+            if (i)
+              response += ',';
+            response += "[\"CU2310.SHF\",\"" + tushare::format_time(begin + i * 60000000000LL) +
+                        "\",100.00000001," + std::to_string(102 + i % 7) + ",99," +
+                        std::to_string(101 + i % 7) + ".5,20,12345678.12345678,1000]";
+          }
+          return response + "]}}";
+        }));
     provider.start();
     history_files::download_minutes(provider, range, attempt.output_directory(), 60);
     research::v1::TaskFinish finish;

@@ -200,7 +200,89 @@ PluginDescriptor Minutes::descriptor() const {
   return {"asterion.data.tushare", PluginKind::data, plugin_contract_version, {}};
 }
 HistorySemantics Minutes::semantics() const {
-  return {"tushare.ft_mins", "tushare.minutes.v2", "Asia/Shanghai", "provider_label"};
+  return {"tushare.ft_mins", "tushare.minutes.v3", "Asia/Shanghai", "bar_end"};
+}
+std::string minute_trading_day(std::int64_t bar_end_ns, const CalendarLookup& open) {
+  using namespace std::chrono;
+  const auto wall = format_time(bar_end_ns); // YYYY-MM-DD HH:MM:SS
+  const auto date = sys_days(parse_trading_date(wall.substr(0, 10)));
+  const auto hour = std::stoi(wall.substr(11, 2));
+  const auto is_open = [&](sys_days day) {
+    const auto value = open(year_month_day(day));
+    if (!value)
+      throw std::invalid_argument("exchange trading calendar does not cover the minute bar");
+    return *value;
+  };
+  if (hour >= 6 && hour < 18) {
+    if (!is_open(date))
+      throw std::invalid_argument("minute bar falls on a closed exchange day");
+    return format_trading_date(year_month_day(date));
+  }
+  // Night session: it starts on an open evening and trades for the next open day.
+  const auto evening = hour >= 18 ? date : date - days(1);
+  if (!is_open(evening))
+    throw std::invalid_argument("night minute bar follows a closed exchange day");
+  for (auto day = evening + days(1); day <= evening + days(31); day += days(1))
+    if (is_open(day))
+      return format_trading_date(year_month_day(day));
+  throw std::invalid_argument("no open exchange day follows the night session");
+}
+std::optional<bool> Minutes::open(const std::string& venue, std::chrono::year_month_day day,
+                                  std::stop_token stop) {
+  using namespace std::chrono;
+  const auto year = static_cast<int>(day.year());
+  if (calendar_years_.insert({venue, year}).second) {
+    const Json request{{"api_name", "trade_cal"},
+                       {"token", token_},
+                       {"params",
+                        {{"exchange", venue},
+                         {"start_date", std::to_string(year) + "0101"},
+                         {"end_date", std::to_string(year) + "1231"}}},
+                       {"fields", "exchange,cal_date,is_open"}};
+    const auto raw = post_(request.dump(), stop);
+    if (stop.stop_requested())
+      throw std::runtime_error("Tushare download cancelled");
+    if (raw.size() > 1024 * 1024)
+      throw std::runtime_error("Tushare response exceeds size limit");
+    try {
+      ExactJson parser;
+      if (!Json::sax_parse(raw, &parser))
+        throw std::runtime_error("invalid Tushare response JSON");
+      const auto& root = parser.result;
+      if (text(root.at("code")) != "0")
+        throw RequestError(rejection(root), "Tushare rejected the trading calendar request");
+      const auto& fields = root.at("data").at("fields");
+      const auto& items = root.at("data").at("items");
+      std::map<std::string, std::size_t> columns;
+      for (std::size_t i = 0; i < fields.size(); ++i)
+        columns.emplace(text(fields[i]), i);
+      if (!items.is_array() || items.size() > 366 || !columns.contains("exchange") ||
+          !columns.contains("cal_date") || !columns.contains("is_open"))
+        throw std::invalid_argument("invalid Tushare trading calendar");
+      auto& days = calendar_[venue];
+      for (const auto& row : items) {
+        const auto value = text(row.at(columns.at("cal_date")));
+        const auto flag = text(row.at(columns.at("is_open")));
+        if (text(row.at(columns.at("exchange"))) != venue || value.size() != 8 ||
+            (flag != "0" && flag != "1"))
+          throw std::invalid_argument("invalid Tushare trading calendar");
+        const auto date = parse_trading_date(value.substr(0, 4) + "-" + value.substr(4, 2) + "-" +
+                                             value.substr(6, 2));
+        if (static_cast<int>(date.year()) != year)
+          throw std::invalid_argument("invalid Tushare trading calendar");
+        days[sys_days(date)] = flag == "1";
+      }
+    } catch (const nlohmann::json::exception&) {
+      calendar_years_.erase({venue, year});
+      throw std::runtime_error("invalid Tushare response schema");
+    } catch (...) {
+      calendar_years_.erase({venue, year});
+      throw;
+    }
+  }
+  const auto& days = calendar_[venue];
+  const auto found = days.find(sys_days(day));
+  return found == days.end() ? std::nullopt : std::optional(found->second);
 }
 void Minutes::start() {
   started_ = true;
@@ -280,6 +362,17 @@ std::vector<HistoricalBar> Minutes::read(const HistoricalBarRange& range, std::s
     for (std::size_t i = 1; i < bars.size(); ++i)
       if (bars[i].timestamp_ns == bars[i - 1].timestamp_ns)
         throw std::invalid_argument("duplicate Tushare bar timestamp");
+    const auto venue = range.instrument.venue;
+    for (auto& bar : bars) {
+      // Commodity exchanges pause 10:15-10:30. A 1 or 5 minute bar labeled
+      // 10:30 would have started in that pause, so the labels are not bar ends.
+      if (venue != "CFFEX" && range.interval_minutes <= 5 &&
+          format_time(bar.timestamp_ns).substr(11) == "10:30:00")
+        throw std::invalid_argument("Tushare minute labels are not bar end times");
+      bar.trading_day = minute_trading_day(bar.timestamp_ns, [&](std::chrono::year_month_day day) {
+        return open(venue, day, stop);
+      });
+    }
     return bars;
   } catch (const nlohmann::json::exception&) {
     throw std::runtime_error("invalid Tushare response schema");

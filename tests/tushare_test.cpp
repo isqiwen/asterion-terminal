@@ -16,6 +16,30 @@
 #include <limits>
 using namespace asterion;
 namespace {
+// Answers Tushare trading-calendar requests with every day open, so fixtures
+// keep their own dates; every other request goes to the wrapped transport.
+template <class Transport> tushare::Post calendar(Transport transport) {
+  return [transport](const std::string& body, std::stop_token stop) -> std::string {
+    const auto request = Json::parse(body);
+    if (request.at("api_name") != "trade_cal")
+      return transport(body, stop);
+    const auto& params = request.at("params");
+    const auto year = std::stoi(params.at("start_date").get<std::string>().substr(0, 4));
+    Json items = Json::array();
+    for (std::chrono::sys_days day = std::chrono::year(year) / 1 / 1;
+         day <= std::chrono::sys_days(std::chrono::year(year) / 12 / 31);
+         day += std::chrono::days(1)) {
+      const std::chrono::year_month_day date(day);
+      char text[9];
+      std::snprintf(text, sizeof text, "%04d%02u%02u", static_cast<int>(date.year()),
+                    static_cast<unsigned>(date.month()), static_cast<unsigned>(date.day()));
+      items.push_back({params.at("exchange"), text, 1});
+    }
+    return Json{{"code", 0},
+                {"data", {{"fields", {"exchange", "cal_date", "is_open"}}, {"items", items}}}}
+        .dump();
+  };
+}
 const auto begin = tushare::parse_time("2023-08-25 09:00:00");
 HistoricalBarRange range() {
   return {{"SHFE", "cu", "2023-10"}, 1,           begin, begin + 600000000000LL,
@@ -41,13 +65,13 @@ public:
 };
 } // namespace
 TEST(Tushare, ParsesExactPricesAndAmountAndRequest) {
-  tushare::Minutes plugin("fixture-token", [](const auto& body, auto) {
-    auto request = Json::parse(body);
-    EXPECT_EQ(request.at("api_name"), "ft_mins");
-    EXPECT_EQ(request.at("params").at("freq"), "1min");
-    EXPECT_EQ(request.at("params").at("start_date"), "2023-08-25 09:00:00");
-    return response();
-  });
+  tushare::Minutes plugin("fixture-token", calendar([](const auto& body, auto) {
+                            auto request = Json::parse(body);
+                            EXPECT_EQ(request.at("api_name"), "ft_mins");
+                            EXPECT_EQ(request.at("params").at("freq"), "1min");
+                            EXPECT_EQ(request.at("params").at("start_date"), "2023-08-25 09:00:00");
+                            return response();
+                          }));
   plugin.start();
   auto rows = plugin.read(range(), {});
   ASSERT_EQ(rows.size(), 1);
@@ -89,7 +113,7 @@ TEST(Tushare, RejectsInvalidRowsAndTruncationWithoutEchoingProviderSecrets) {
   cases.push_back("{\"code\":0,\"code\":0}");
   cases.push_back("{\"code\":-2002,\"msg\":\"fixture-secret\"}");
   for (const auto& raw : cases) {
-    tushare::Minutes p("fixture-secret", [&](const auto&, auto) { return raw; });
+    tushare::Minutes p("fixture-secret", calendar([&](const auto&, auto) { return raw; }));
     p.start();
     try {
       (void)p.read(range(), {});
@@ -104,7 +128,7 @@ TEST(Tushare, SortsSourceRowsAndPreservesScientificDecimal) {
   raw["data"]["items"].push_back(raw["data"]["items"][0]);
   raw["data"]["items"][0][1] = "2023-08-25 09:02:00";
   raw["data"]["items"][0][7] = "1.234567812345678e7";
-  tushare::Minutes p("fixture", [&](const auto&, auto) { return raw.dump(); });
+  tushare::Minutes p("fixture", calendar([&](const auto&, auto) { return raw.dump(); }));
   p.start();
   auto rows = p.read(range(), {});
   EXPECT_LT(rows[0].timestamp_ns, rows[1].timestamp_ns);
@@ -116,12 +140,12 @@ TEST(Tushare, ResumeSkipsDurablePagesAndRejectsChangedInputOrDamagedPage) {
   input.end_ns = input.begin_ns + 86400000000000LL + 600000000000LL;
   unsigned calls = 0;
   bool fail = true;
-  tushare::Minutes p("fixture", [&](const auto&, auto) {
-    ++calls;
-    if (calls == 2 && fail)
-      throw std::runtime_error("fixture interrupted");
-    return response(calls == 1 ? "2023-08-25 09:01:00" : "2023-08-26 09:01:00");
-  });
+  tushare::Minutes p("fixture", calendar([&](const auto&, auto) {
+                       ++calls;
+                       if (calls == 2 && fail)
+                         throw std::runtime_error("fixture interrupted");
+                       return response(calls == 1 ? "2023-08-25 09:01:00" : "2023-08-26 09:01:00");
+                     }));
   p.start();
   EXPECT_THROW(history_files::download_minutes(p, input, folder.path, 500), std::runtime_error);
   auto manifest = history_files::inspect_minutes(folder.path);
@@ -149,10 +173,10 @@ TEST(Tushare, CancellationDoesNotAdvanceManifestOrCallProvider) {
   std::stop_source stop;
   stop.request_stop();
   unsigned calls = 0;
-  tushare::Minutes p("fixture", [&](const auto&, auto) {
-    ++calls;
-    return response();
-  });
+  tushare::Minutes p("fixture", calendar([&](const auto&, auto) {
+                       ++calls;
+                       return response();
+                     }));
   p.start();
   EXPECT_THROW(history_files::download_minutes(p, range(), folder.path, 60, stop.get_token()),
                std::runtime_error);
@@ -191,7 +215,7 @@ TEST(Tushare, ManagedTaskPersistsDefinitionWithoutCredentialAndRestoresResult) {
     store.download_attempt(attempt);
     EXPECT_EQ(attempt.provider_token(), "fixture-secret");
     tushare::Minutes provider(attempt.provider_token(),
-                              [](const auto&, auto) { return response(); });
+                              calendar([](const auto&, auto) { return response(); }));
     provider.start();
     const auto dir = std::filesystem::path(attempt.output_directory());
     (void)history_files::download_minutes(provider, range(), dir, 60);
@@ -220,10 +244,10 @@ TEST(Tushare, ManagedTaskPersistsDefinitionWithoutCredentialAndRestoresResult) {
 TEST(Tushare, RefetchesUncommittedSegmentAfterManifestInterruptionAndProtectsExistingFiles) {
   Folder folder;
   unsigned calls = 0;
-  tushare::Minutes provider("fixture", [&](const auto&, auto) {
-    ++calls;
-    return response();
-  });
+  tushare::Minutes provider("fixture", calendar([&](const auto&, auto) {
+                              ++calls;
+                              return response();
+                            }));
   provider.start();
   auto manifest = history_files::download_minutes(provider, range(), folder.path, 60);
   manifest["pages"] = Json::array();
@@ -249,10 +273,10 @@ TEST(Tushare, RefetchesUncommittedSegmentAfterManifestInterruptionAndProtectsExi
 TEST(Tushare, CancellingAnInflightReadDoesNotPublishItsPage) {
   Folder folder;
   std::stop_source cancel;
-  tushare::Minutes provider("fixture", [&](const auto&, auto) {
-    cancel.request_stop();
-    return response();
-  });
+  tushare::Minutes provider("fixture", calendar([&](const auto&, auto) {
+                              cancel.request_stop();
+                              return response();
+                            }));
   provider.start();
   EXPECT_THROW(
       history_files::download_minutes(provider, range(), folder.path, 60, cancel.get_token()),
@@ -334,9 +358,10 @@ TEST(Tushare, RejectsIncompleteOrAmbiguousContractCatalog) {
 
 TEST(Tushare, DatasetViewPagesExactValuesFiltersAndRejectsCorruption) {
   Folder folder;
-  tushare::Minutes provider("fixture", [](const auto&, auto) {
-    return R"({"code":0,"data":{"fields":["ts_code","trade_time","open","high","low","close","vol","amount","oi"],"items":[["CU2310.SHF","2023-08-25 09:00:00","100.00000001","102","99","101","1","12345678.12345678","10"],["CU2310.SHF","2023-08-25 09:01:00","101","103","100","102","2","200","11"],["CU2310.SHF","2023-08-25 09:02:00","102","104","101","103","3","300","12"]]}})";
-  });
+  tushare::Minutes provider(
+      "fixture", calendar([](const auto&, auto) {
+        return R"({"code":0,"data":{"fields":["ts_code","trade_time","open","high","low","close","vol","amount","oi"],"items":[["CU2310.SHF","2023-08-25 09:00:00","100.00000001","102","99","101","1","12345678.12345678","10"],["CU2310.SHF","2023-08-25 09:01:00","101","103","100","102","2","200","11"],["CU2310.SHF","2023-08-25 09:02:00","102","104","101","103","3","300","12"]]}})";
+      }));
   provider.start();
   const auto spec = range();
   history_files::download_minutes(provider, spec, folder.path, 500);
@@ -385,10 +410,12 @@ TEST(Tushare, DatasetViewSkipsUnrequestedSegmentsAndStillVerifiesRequestedData) 
   auto spec = range();
   // 63 day pages: segments start at pages 0, 31 and 62.
   spec.end_ns = spec.begin_ns + 62 * 86400000000000LL;
-  tushare::Minutes provider("fixture", [](const auto& body, auto) {
-    const auto start = Json::parse(body).at("params").at("start_date").template get<std::string>();
-    return response(start);
-  });
+  tushare::Minutes provider(
+      "fixture", calendar([](const auto& body, auto) {
+        const auto start =
+            Json::parse(body).at("params").at("start_date").template get<std::string>();
+        return response(start);
+      }));
   provider.start();
   history_files::download_minutes(provider, spec, folder.path, 500);
   data::v1::MinuteDownload input;
@@ -438,16 +465,16 @@ TEST(Tushare, CompletedDatasetPagesThroughRealTaskService) {
     attempt.set_token(store.claim("viewer"));
     *attempt.mutable_task() = store.get("viewer");
     store.download_attempt(attempt);
-    tushare::Minutes provider("fixture", [](const auto&, auto) {
-      auto result = Json::parse(response());
-      auto row = result["data"]["items"][0];
-      result["data"]["items"] = Json::array();
-      for (int i = 0; i < 40; ++i) {
-        row[1] = tushare::format_time(begin + i * 60000000000LL);
-        result["data"]["items"].push_back(row);
-      }
-      return result.dump();
-    });
+    tushare::Minutes provider("fixture", calendar([](const auto&, auto) {
+                                auto result = Json::parse(response());
+                                auto row = result["data"]["items"][0];
+                                result["data"]["items"] = Json::array();
+                                for (int i = 0; i < 40; ++i) {
+                                  row[1] = tushare::format_time(begin + i * 60000000000LL);
+                                  result["data"]["items"].push_back(row);
+                                }
+                                return result.dump();
+                              }));
     provider.start();
     const std::filesystem::path dir(attempt.output_directory());
     dataset_directory = dir;
@@ -543,22 +570,26 @@ TEST(Tushare, CompletedDatasetPagesThroughRealTaskService) {
 
 TEST(Tushare, ChartMacdUsesDatasetOriginAcrossPagesAndTimeFilters) {
   Folder folder;
-  tushare::Minutes provider("fixture", [](const auto&, auto) {
-    Json items = Json::array();
-    for (int i = 0; i < 120; ++i)
-      items.push_back({"CU2310.SHF", tushare::format_time(begin + i * 60000000000LL), 100 + i,
-                       102 + i, 99 + i, 100 + i, 1, 100, 10});
-    return Json{
-        {"code", 0},
-        {"data",
-         {{"fields",
-           {"ts_code", "trade_time", "open", "high", "low", "close", "vol", "amount", "oi"}},
-          {"items", items}}}}
-        .dump();
-  });
+  // A continuous afternoon: 120 minute bars without the 10:15-10:30 pause.
+  static const auto start = tushare::parse_time("2023-08-25 13:00:00");
+  tushare::Minutes provider(
+      "fixture", calendar([](const auto&, auto) {
+        Json items = Json::array();
+        for (int i = 0; i < 120; ++i)
+          items.push_back({"CU2310.SHF", tushare::format_time(start + i * 60000000000LL), 100 + i,
+                           102 + i, 99 + i, 100 + i, 1, 100, 10});
+        return Json{
+            {"code", 0},
+            {"data",
+             {{"fields",
+               {"ts_code", "trade_time", "open", "high", "low", "close", "vol", "amount", "oi"}},
+              {"items", items}}}}
+            .dump();
+      }));
   provider.start();
   auto spec = range();
-  spec.end_ns = begin + 119 * 60000000000LL;
+  spec.begin_ns = start;
+  spec.end_ns = start + 119 * 60000000000LL;
   history_files::download_minutes(provider, spec, folder.path, 500);
   data::v1::MinuteDownload input;
   input.set_version(2);
@@ -594,7 +625,7 @@ TEST(Tushare, ChartMacdUsesDatasetOriginAcrossPagesAndTimeFilters) {
   const auto page = history_files::read_minute_page(input, result, query);
   EXPECT_EQ(page.bars(0).macd().SerializeAsString(), whole.bars(77).macd().SerializeAsString());
   query.set_offset(0);
-  query.set_begin_ns(begin + 77 * 60000000000LL);
+  query.set_begin_ns(start + 77 * 60000000000LL);
   const auto filtered = history_files::read_minute_page(input, result, query);
   EXPECT_EQ(filtered.bars(0).macd().SerializeAsString(), whole.bars(77).macd().SerializeAsString());
   EXPECT_TRUE(protocol::decode_minute_page(filtered).at("bars").at(0).contains("macd"));
@@ -607,7 +638,7 @@ TEST(Tushare, ChartMacdUsesDatasetOriginAcrossPagesAndTimeFilters) {
 
 TEST(Tushare, DatasetReadersCoexistAndExcludeDownloadWrites) {
   Folder folder;
-  tushare::Minutes provider("fixture", [](const auto&, auto) { return response(); });
+  tushare::Minutes provider("fixture", calendar([](const auto&, auto) { return response(); }));
   provider.start();
   const auto spec = range();
   history_files::download_minutes(provider, spec, folder.path, 500);
@@ -646,25 +677,26 @@ TEST(Tushare, DatasetReadersCoexistAndExcludeDownloadWrites) {
 TEST(Tushare, MacdPrefixRemainsExactAcrossMultipleSegments) {
   Folder folder;
   constexpr std::int64_t day = 86400000000000LL;
-  tushare::Minutes provider("fixture", [](const auto& body, auto) {
-    const auto request = Json::parse(body);
-    const auto first =
-        tushare::parse_time(request.at("params").at("start_date").template get<std::string>());
-    const auto day_index = static_cast<int>((first - begin) / day);
-    Json items = Json::array();
-    for (int i = 0; i < 20; ++i) {
-      const int price = 100 + day_index * 20 + i;
-      items.push_back({"CU2310.SHF", tushare::format_time(first + i * 60000000000LL), price,
-                       price + 2, price - 1, price, 1, 100, 10});
-    }
-    return Json{
-        {"code", 0},
-        {"data",
-         {{"fields",
-           {"ts_code", "trade_time", "open", "high", "low", "close", "vol", "amount", "oi"}},
-          {"items", items}}}}
-        .dump();
-  });
+  tushare::Minutes provider(
+      "fixture", calendar([](const auto& body, auto) {
+        const auto request = Json::parse(body);
+        const auto first =
+            tushare::parse_time(request.at("params").at("start_date").template get<std::string>());
+        const auto day_index = static_cast<int>((first - begin) / day);
+        Json items = Json::array();
+        for (int i = 0; i < 20; ++i) {
+          const int price = 100 + day_index * 20 + i;
+          items.push_back({"CU2310.SHF", tushare::format_time(first + i * 60000000000LL), price,
+                           price + 2, price - 1, price, 1, 100, 10});
+        }
+        return Json{
+            {"code", 0},
+            {"data",
+             {{"fields",
+               {"ts_code", "trade_time", "open", "high", "low", "close", "vol", "amount", "oi"}},
+              {"items", items}}}}
+            .dump();
+      }));
   provider.start();
   auto spec = range();
   spec.end_ns = begin + 7 * day + 19 * 60000000000LL;
@@ -738,9 +770,9 @@ TEST(Tushare, AccessFailuresStayStructuredWithoutEchoingProviderText) {
       {"每分钟请求超限 fixture-secret", tushare::AccessFailure::rate_limit},
       {"接口权限不足 fixture-secret", tushare::AccessFailure::permission}};
   for (const auto& [message, expected] : cases) {
-    tushare::Minutes plugin("fixture-token", [&](const auto&, auto) {
-      return Json{{"code", 2002}, {"msg", message}}.dump();
-    });
+    tushare::Minutes plugin("fixture-token", calendar([&](const auto&, auto) {
+                              return Json{{"code", 2002}, {"msg", message}}.dump();
+                            }));
     plugin.start();
     try {
       (void)plugin.read(range(), {});
@@ -750,4 +782,80 @@ TEST(Tushare, AccessFailuresStayStructuredWithoutEchoingProviderText) {
       EXPECT_EQ(std::string(error.what()).find("fixture-secret"), std::string::npos);
     }
   }
+}
+
+namespace {
+// 2023 exchange calendar around the National Day holiday: weekends and
+// 2023-09-29..2023-10-06 closed (exchanges also stayed closed 10-07 and 10-08).
+std::optional<bool> national_day(std::chrono::year_month_day day) {
+  using namespace std::chrono;
+  if (day.year() != year(2023))
+    return std::nullopt;
+  const auto date = sys_days(day);
+  if (date >= sys_days(year(2023) / 9 / 29) && date <= sys_days(year(2023) / 10 / 8))
+    return false;
+  const weekday week(date);
+  return week != Saturday && week != Sunday;
+}
+} // namespace
+TEST(Tushare, MinuteTradingDayFollowsTheExchangeCalendar) {
+  const auto day = [](const char* wall) {
+    return tushare::minute_trading_day(tushare::parse_time(wall), national_day);
+  };
+  EXPECT_EQ(day("2023-08-25 09:01:00"), "2023-08-25");
+  EXPECT_EQ(day("2023-08-25 15:00:00"), "2023-08-25");
+  // Friday night and its after-midnight continuation trade for Monday.
+  EXPECT_EQ(day("2023-08-25 21:01:00"), "2023-08-28");
+  EXPECT_EQ(day("2023-08-26 00:00:00"), "2023-08-28");
+  EXPECT_EQ(day("2023-08-26 02:30:00"), "2023-08-28");
+  // A night session before a long holiday trades for the first day after it.
+  EXPECT_EQ(day("2023-09-28 21:01:00"), "2023-10-09");
+  // No session on closed days, and none on the night after one.
+  EXPECT_THROW(day("2023-08-26 09:01:00"), std::invalid_argument);
+  EXPECT_THROW(day("2023-08-26 21:01:00"), std::invalid_argument);
+  EXPECT_THROW(day("2023-08-27 01:00:00"), std::invalid_argument);
+  // An unpublished calendar is never guessed.
+  EXPECT_THROW(day("2024-01-02 09:01:00"), std::invalid_argument);
+}
+TEST(Tushare, MinuteReadsAssignTradingDaysAndRejectStartLabels) {
+  unsigned calendars = 0;
+  std::string trade_time = "2023-08-25 21:01:00";
+  tushare::Minutes provider("fixture", [&](const std::string& body, auto) -> std::string {
+    const auto request = Json::parse(body);
+    if (request.at("api_name") == "trade_cal") {
+      ++calendars;
+      EXPECT_EQ(request.at("params").at("exchange"), "SHFE");
+      Json items = Json::array();
+      for (auto date = std::chrono::sys_days(std::chrono::year(2023) / 1 / 1);
+           date <= std::chrono::sys_days(std::chrono::year(2023) / 12 / 31);
+           date += std::chrono::days(1)) {
+        const std::chrono::year_month_day ymd(date);
+        char text[9];
+        std::snprintf(text, sizeof text, "%04d%02u%02u", static_cast<int>(ymd.year()),
+                      static_cast<unsigned>(ymd.month()), static_cast<unsigned>(ymd.day()));
+        items.push_back({"SHFE", text, *national_day(ymd) ? 1 : 0});
+      }
+      return Json{{"code", 0},
+                  {"data", {{"fields", {"exchange", "cal_date", "is_open"}}, {"items", items}}}}
+          .dump();
+    }
+    return response(trade_time);
+  });
+  provider.start();
+  auto night = range();
+  night.begin_ns = tushare::parse_time("2023-08-25 21:00:00");
+  night.end_ns = tushare::parse_time("2023-08-25 23:59:00");
+  const auto bars = provider.read(night, {});
+  ASSERT_EQ(bars.size(), 1U);
+  EXPECT_EQ(bars[0].trading_day, "2023-08-28");
+  EXPECT_EQ(provider.semantics().timestamp_semantics, "bar_end");
+  trade_time = "2023-08-25 21:02:00";
+  EXPECT_EQ(provider.read(night, {}).at(0).trading_day, "2023-08-28");
+  EXPECT_EQ(calendars, 1U) << "one calendar request per exchange and year";
+  // A 10:30 one-minute label would start inside the 10:15-10:30 pause.
+  auto morning = range();
+  morning.begin_ns = tushare::parse_time("2023-08-25 10:00:00");
+  morning.end_ns = tushare::parse_time("2023-08-25 11:00:00");
+  trade_time = "2023-08-25 10:30:00";
+  EXPECT_THROW(provider.read(morning, {}), std::invalid_argument);
 }
