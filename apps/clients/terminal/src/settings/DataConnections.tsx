@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { readableConnection } from "../bridge/client";
 import type { DataConnection, Snapshot, TerminalCommand } from "../bridge/client";
 import { translate, useLocale } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
@@ -23,7 +24,9 @@ export function DataConnections({
 }) {
   const { locale } = useLocale();
   const sources = snapshot?.research?.sources.filter(source => source.connection) ?? [];
-  const connections = snapshot?.data_connections ?? [];
+  const entries = snapshot?.data_connections ?? [];
+  const connections = entries.filter(readableConnection);
+  const unreadable = entries.filter(entry => !readableConnection(entry));
   const [editing, setEditing] = useState<DataConnection | null>(null);
   const [sourceId, setSourceId] = useState("");
   const [name, setName] = useState("");
@@ -63,6 +66,12 @@ export function DataConnections({
           {t("连接本机研究服务")}
         </button>
       )}
+      {unreadable.map(entry => (
+        <section key={entry.id} aria-label={entry.name}>
+          <h3>{entry.name}</h3>
+          <p role="alert">{t("连接文件无法读取，已保留原文件供检查")}</p>
+        </section>
+      ))}
       {connections.map(connection => {
         const provider = sources.find(
           item => item.id === connection.source && item.plugin_id === connection.plugin_id,

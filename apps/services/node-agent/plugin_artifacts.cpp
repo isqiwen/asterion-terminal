@@ -34,21 +34,30 @@ fs::path PluginArtifacts::materialize(const std::string& name,
   require_managed_path(folder);
   fs::create_directory(folder);
   verify(artifacts);
+  std::set<fs::path> expected;
   for (const auto& hash : artifacts) {
     const auto target = folder / (hash + (current_platform().os == "macos" ? ".dylib" : ".so"));
     require_managed_path(target);
-    if (!fs::exists(target)) {
+    expected.insert(target);
+    // A copy interrupted mid-write is replaced from the verified artifact; a
+    // rename publishes it, so a reader never sees a partial library.
+    if (!fs::exists(target) || sha256_file(target) != hash) {
       std::ifstream input(binary(hash), std::ios::binary);
       std::string bytes((std::istreambuf_iterator<char>(input)), {});
-      write_file_durably(target, bytes);
+      replace_file_durably(target, bytes);
     }
     if (sha256_file(target) != hash)
       throw std::invalid_argument("native plugin artifact is missing or corrupted");
   }
-  // Never accidentally load an unlisted library left in an installation directory.
-  if (static_cast<std::size_t>(std::distance(fs::directory_iterator(folder),
-                                             fs::directory_iterator{})) != artifacts.size())
-    throw std::invalid_argument("native plugin installation contains unlisted files");
+  // Only listed libraries may be loadable from this folder. Everything else
+  // here is a derived copy or an interrupted temporary, never user data.
+  for (const auto& entry : fs::directory_iterator(folder)) {
+    if (expected.contains(entry.path()))
+      continue;
+    if (entry.is_symlink() || !entry.is_regular_file())
+      throw std::invalid_argument("native plugin installation contains unexpected entries");
+    fs::remove(entry.path());
+  }
   return folder;
 }
 } // namespace asterion::agent

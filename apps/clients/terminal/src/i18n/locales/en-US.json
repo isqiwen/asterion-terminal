@@ -385,5 +385,6 @@
   "当前管理本机研究服务的原生插件；可复用凭据在连接页面配置。": "Manage native plugins for the local research service. Configure reusable credentials on the Connections page.",
   "macOS Terminal 使用当前系统账户自动管理 Agent，无需 SSH、密钥或机器初始化脚本。在期货工作台创建模拟会话时，交易服务由本机 Agent 按需启动。": "macOS Terminal manages the Agent under your system account, without SSH keys or a machine initializer. Creating a paper session starts its trading service through the local Agent.",
   "取消": "Cancel",
-  "启用的研究插件": "Enabled Research Plugins"
+  "启用的研究插件": "Enabled Research Plugins",
+  "连接文件无法读取，已保留原文件供检查": "This connection file cannot be read; it is kept for inspection"
 }

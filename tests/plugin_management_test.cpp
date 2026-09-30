@@ -55,7 +55,7 @@ TEST_F(PluginManagement, DuplicateIdentityCannotBeSelectedByFilenameOrder) {
   const std::vector<std::string> hashes{sha256_file(good)};
   EXPECT_THROW(catalog.select_research(hashes), std::invalid_argument);
 }
-TEST_F(PluginManagement, ArtifactInstallationRejectsUnlistedFilesAndTampering) {
+TEST_F(PluginManagement, ArtifactInstallationRepairsInterruptedCopiesFromVerifiedArtifacts) {
   fs::create_directory(root / "artifacts");
   fs::create_directories(root / "services/research");
   const auto hash = sha256_file(PLUGIN_GOOD);
@@ -65,10 +65,15 @@ TEST_F(PluginManagement, ArtifactInstallationRejectsUnlistedFilesAndTampering) {
   const auto installed = artifacts.materialize("research", {hash});
   const auto library = installed / (hash + (current_platform().os == "macos" ? ".dylib" : ".so"));
   EXPECT_EQ(sha256_file(library), hash);
-  write_file_durably(installed / "unlisted", "unexpected");
-  EXPECT_THROW(artifacts.materialize("research", {hash}), std::invalid_argument);
-  fs::remove(installed / "unlisted");
-  write_file_durably(library, "corrupted");
+  // An interrupted temporary and a truncated copy are derived files: the
+  // next installation removes and rewrites them instead of failing forever.
+  write_file_durably(installed / (library.filename().string() + ".tmp"), "partial");
+  write_file_durably(library, "truncated");
+  EXPECT_EQ(artifacts.materialize("research", {hash}), installed);
+  EXPECT_EQ(sha256_file(library), hash);
+  EXPECT_EQ(std::distance(fs::directory_iterator(installed), fs::directory_iterator{}), 1);
+  // A tampered source artifact is never copied.
+  write_file_durably(root / "artifacts" / (hash + suffix), "tampered");
   EXPECT_THROW(artifacts.materialize("research", {hash}), std::invalid_argument);
 }
 TEST_F(PluginManagement, ConfigurationKeepsVersionRevisionAndStoppedState) {

@@ -54,8 +54,15 @@ test("revisioned polls accept unchanged replies from an idle core", async ({ pag
     // Served by the Vite dev server; typed from the same source file.
     const path = "/src/bridge/client.ts";
     const client = (await import(/* @vite-ignore */ path)) as typeof import("../src/bridge/client");
-    const first = await client.request("runtime.snapshot");
-    const poll = await client.pollSnapshot(first.revision);
+    // A background refresh may publish once between the two calls while
+    // services settle; an idle core then answers with the same revision.
+    let first = await client.request("runtime.snapshot");
+    let poll = await client.pollSnapshot(first.revision);
+    for (let attempt = 0; attempt < 5 && !("unchanged" in poll); ++attempt) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      first = await client.request("runtime.snapshot");
+      poll = await client.pollSnapshot(first.revision);
+    }
     return { revision: first.revision, poll };
   });
   expect(result.poll).toMatchObject({ unchanged: true, revision: result.revision });

@@ -1,7 +1,7 @@
 import { HistoryDatasetViewer } from "./HistoryDatasetViewer";
 import { useState } from "react";
 import { historySources, type HistorySource } from "./history-sources";
-import { timestamp } from "../../src/bridge/client";
+import { readableConnection, timestamp } from "../../src/bridge/client";
 import { BackendError } from "../../src/i18n/errors";
 import {
   type TerminalContext,
@@ -42,7 +42,9 @@ function SourceDownloads({
   const [viewId, setViewId] = useState<string | null>(null);
   const [connectionId, setConnectionId] = useState("");
   const savedConnections =
-    snapshot?.data_connections?.filter(item => item.source === source.id) ?? [];
+    snapshot?.data_connections
+      ?.filter(readableConnection)
+      .filter(item => item.source === source.id) ?? [];
   const connection = savedConnections.find(item => item.id === connectionId);
   const [token, setToken] = useState(""); // Never retain credentials in workspace drafts/storage.
   const [error, setError] = useState<DisplayError>("");

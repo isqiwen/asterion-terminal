@@ -1,3 +1,5 @@
+// Editors such as VS Code export this; Electron would then start as plain Node.
+delete process.env.ELECTRON_RUN_AS_NODE;
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { spawn } = require("node:child_process");

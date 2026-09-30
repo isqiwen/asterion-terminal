@@ -1,3 +1,5 @@
+// Editors such as VS Code export this; Electron would then start as plain Node.
+delete process.env.ELECTRON_RUN_AS_NODE;
 // Exercise the unchanged production host with an isolated resource tree and explicit SDK fixture.
 const { _electron: electron, expect } = require("@playwright/test");
 const assert = require("node:assert/strict");

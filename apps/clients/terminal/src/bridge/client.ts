@@ -397,6 +397,11 @@ export type DataConnection = {
   remember: boolean;
   credential_ready: boolean;
 };
+// A stored connection file the core could not read; kept for inspection.
+export type UnreadableDataConnection = { id: string; name: string; error: "unreadable" };
+export type DataConnectionEntry = DataConnection | UnreadableDataConnection;
+export const readableConnection = (entry: DataConnectionEntry): entry is DataConnection =>
+  !("error" in entry);
 export type NativeHistorySource = {
   id: string;
   name: string;
@@ -675,7 +680,7 @@ export type NativePluginInfo = {
 };
 export type Snapshot = {
   plugin_candidate?: NativePluginInfo;
-  data_connections?: DataConnection[];
+  data_connections?: DataConnectionEntry[];
   connection_verification?: null | {
     id: string;
     revision: string;

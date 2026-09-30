@@ -1,4 +1,6 @@
 const { spawn } = require("node:child_process");
+// Editors such as VS Code export this; Electron would then start as plain Node.
+delete process.env.ELECTRON_RUN_AS_NODE;
 const net = require("node:net");
 const path = require("node:path");
 const root = path.resolve(__dirname, "..");

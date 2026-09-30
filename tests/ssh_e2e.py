@@ -13,6 +13,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-ssh-ui-", ignore_cleanup_error
     root = Path(folder); tools = root / "tools"; tools.mkdir(); remote = root / "remote"; remote.mkdir()
     resources=make_bundle(root / "resources", BUILD)
     env = dict(os.environ, ASTERION_REMOTE_RESOURCES=str(resources))
+    # Editors such as VS Code export this; Electron would then start as plain Node.
+    env.pop("ELECTRON_RUN_AS_NODE", None)
     sdk = "asterion_test_ctp.dll" if sys.platform == "win32" else "libasterion_test_ctp.dylib" if sys.platform == "darwin" else "libasterion_test_ctp.so"
     env["ASTERION_CTP_LIBRARY"] = str(BUILD / sdk)
     env["ASTERION_CTP_CATALOG_LIBRARY"] = str(BUILD / sdk.replace("asterion_test_ctp", "asterion_test_ctp_trader"))

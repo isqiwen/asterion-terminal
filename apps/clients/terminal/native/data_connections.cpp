@@ -64,23 +64,39 @@ DataConnection DataConnections::get(const std::string& id) const {
 }
 Json DataConnections::snapshot() const {
   safe(directory_);
+  std::error_code missing;
+  const auto time = fs::last_write_time(directory_, missing);
+  if (missing)
+    return Json::array();
+  // Saves and removals replace files by rename, which updates the directory time.
+  if (!cached_ || time != cached_time_) {
+    cached_ = read_all();
+    cached_time_ = time;
+  }
+  return *cached_;
+}
+Json DataConnections::read_all() const {
   Json result = Json::array();
-  if (!fs::exists(directory_))
-    return result;
   for (const auto& entry : fs::directory_iterator(directory_)) {
     if (entry.path().extension() != ".json")
       continue;
     if (result.size() >= 128)
-      throw std::invalid_argument("too many data connections");
-    const auto connection = get(entry.path().stem().string());
-    result.push_back({{"id", connection.id},
-                      {"name", connection.name},
-                      {"source", connection.source},
-                      {"plugin_id", connection.plugin_id},
-                      {"revision", connection.revision},
-                      {"requests_per_minute", connection.requests_per_minute},
-                      {"remember", connection.remember},
-                      {"credential_ready", !connection.credential.empty()}});
+      break;
+    const auto id = entry.path().stem().string();
+    try {
+      const auto connection = get(id);
+      result.push_back({{"id", connection.id},
+                        {"name", connection.name},
+                        {"source", connection.source},
+                        {"plugin_id", connection.plugin_id},
+                        {"revision", connection.revision},
+                        {"requests_per_minute", connection.requests_per_minute},
+                        {"remember", connection.remember},
+                        {"credential_ready", !connection.credential.empty()}});
+    } catch (const std::exception&) {
+      // Keep the file for inspection; the rest of the Terminal stays usable.
+      result.push_back({{"id", id}, {"name", id}, {"error", "unreadable"}});
+    }
   }
   std::sort(result.begin(), result.end(),
             [](const auto& left, const auto& right) { return left.at("name") < right.at("name"); });
@@ -119,10 +135,11 @@ void DataConnections::save(DataConnection connection, const std::string& expecte
       connection.credential.size() > schema.credential_max_length() ||
       (schema.credential_required() && connection.credential.empty()))
     throw std::invalid_argument("invalid native plugin credential");
-  if (!current && snapshot().size() >= 128)
+  if (!current && read_all().size() >= 128)
     throw std::invalid_argument("too many data connections");
   connection.revision = unique_process_id();
   replace_file_durably(file, encode(connection).dump(), true);
+  cached_.reset();
   if (connection.remember)
     session_credentials_.erase(connection.id);
   else
@@ -135,6 +152,7 @@ void DataConnections::remove(const std::string& id, const std::string& expected)
     throw Error(ErrorCode::conflict, "data connection changed; inspect again");
   fs::remove(file);
   sync_directory(directory_);
+  cached_.reset();
   session_credentials_.erase(id);
 }
 } // namespace asterion::terminal
