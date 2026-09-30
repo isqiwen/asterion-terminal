@@ -1,3 +1,4 @@
+#include <set>
 #include "bar_dataset_source.hpp"
 #include "history_daily.hpp"
 #include "history_minutes.hpp"
@@ -91,6 +92,16 @@ data::v1::BarDataset resolve_bar_dataset(const BarDatasetSources& in) {
   }
   if (bars.empty())
     throw std::invalid_argument("no bars fall inside the requested trading days");
+  if (in.source.kind() == wire::MINUTE_DOWNLOAD) {
+    // Exchange trading days from the daily download that have no minute bars.
+    std::set<std::string> covered;
+    for (const auto& bar : bars)
+      covered.insert(bar.trading_day);
+    for (const auto& [day, price] : settlements)
+      if (day > bars.front().trading_day && day < bars.back().trading_day && inside(day) &&
+          !covered.contains(day))
+        result.add_uncovered_days(day);
+  }
   *result.mutable_contract() = in.request.contract();
   for (const auto& bar : bars)
     *result.add_bars() = protocol::encode_bar(bar);

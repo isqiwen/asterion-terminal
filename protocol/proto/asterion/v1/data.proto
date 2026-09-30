@@ -17,6 +17,9 @@ message BarDataset {
   string settlement_task_id = 9;
   string manifest_sha256 = 10;
   string settlement_manifest_sha256 = 11;
+  // Trading days of the settlement download, inside the dataset's first and
+  // last bar days, that have no bars. Informational; not part of the revision.
+  repeated string uncovered_days = 12;
 }
 // Clients select completed downloads and a contract specification; they
 // cannot upload bars. Days are inclusive; empty means the dataset bounds.

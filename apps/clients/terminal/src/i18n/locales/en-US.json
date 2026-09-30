@@ -379,5 +379,6 @@
   "费率来源": "Fee source",
   "例如：期货公司费率表": "e.g. broker fee schedule",
   "生效日期": "Effective date",
-  "确认保存": "Save"
+  "确认保存": "Save",
+  "日线中有 {n} 个交易日没有分钟数据：{days}": "{n} trading days in the daily data have no minute bars: {days}"
 }

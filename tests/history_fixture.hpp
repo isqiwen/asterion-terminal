@@ -5,11 +5,18 @@
 #include "history_daily.hpp"
 #include "task_store.hpp"
 namespace asterion::test {
+// Minute bars spread evenly over `minute_days` (09:00 onwards, bar end, each
+// with its trading day); daily rows with settlement 110 on `daily_days`.
 inline Json seed_history(const std::filesystem::path& root, const std::vector<int>& prices,
-                         const std::string& id) {
+                         const std::string& id,
+                         std::vector<std::string> minute_days = {"2026-09-25"},
+                         std::vector<std::string> daily_days = {}) {
+  if (daily_days.empty())
+    daily_days = minute_days;
   class Minutes final : public HistoricalBarPort {
   public:
     std::vector<int> prices;
+    std::vector<std::string> days;
     PluginDescriptor descriptor() const override {
       return {"test.minutes", PluginKind::data, plugin_contract_version, {}};
     }
@@ -20,10 +27,15 @@ inline Json seed_history(const std::filesystem::path& root, const std::vector<in
     void stop() noexcept override {}
     std::vector<HistoricalBar> read(const HistoricalBarRange& r, std::stop_token) override {
       std::vector<HistoricalBar> rows;
+      const auto per_day = (prices.size() + days.size() - 1) / days.size();
       for (std::size_t i = 0; i < prices.size(); ++i) {
+        const auto& day = days[i / per_day];
+        const auto at = parse_shanghai_time(day + " 09:00:00") +
+                        static_cast<std::int64_t>(i % per_day) * 60000000000LL;
+        if (at < r.begin_ns || at > r.end_ns)
+          continue;
         const auto price = Decimal::parse(std::to_string(prices[i]));
-        rows.push_back({r.begin_ns + static_cast<std::int64_t>(i) * 60000000000LL, price, price,
-                        price, price, dec("10"), dec("1000"), dec("100"), "2026-09-25"});
+        rows.push_back({at, price, price, price, price, dec("10"), dec("1000"), dec("100"), day});
       }
       return rows;
     }
@@ -38,41 +50,52 @@ inline Json seed_history(const std::filesystem::path& root, const std::vector<in
     }
     void start() override {}
     void stop() noexcept override {}
+    std::vector<std::string> days;
     std::vector<HistoricalDailyBar> read(const HistoricalDailyRange& r, std::stop_token) override {
-      return {{r.begin,
-               dec("100"),
-               dec("200"),
-               dec("90"),
-               dec("110"),
-               dec("10000"),
-               dec("1000000"),
-               dec("100"),
-               {},
-               {},
-               dec("110")}};
+      std::vector<HistoricalDailyBar> rows;
+      for (const auto& text : days) {
+        const auto day = parse_trading_date(text);
+        if (day >= r.begin && day <= r.end)
+          rows.push_back({day,
+                          dec("100"),
+                          dec("200"),
+                          dec("90"),
+                          dec("110"),
+                          dec("10000"),
+                          dec("1000000"),
+                          dec("100"),
+                          {},
+                          {},
+                          dec("110")});
+      }
+      return rows;
     }
   } daily;
   if (prices.empty() || prices.size() > 20000)
     throw std::invalid_argument("invalid test prices");
   minutes.prices = prices;
+  minutes.days = minute_days;
+  daily.days = daily_days;
   tasks::Store store(root);
-  const auto begin = parse_shanghai_time("2026-09-25 09:00:00");
-  const auto minute = history_files::minute_request(
-      {{"version", 2},
-       {"contract_id", "SHFE/rb/2026-10"},
-       {"source", "tushare.ft_mins"},
-       {"source_instrument", "RB2610.SHF"},
-       {"interval_minutes", 1},
-       {"begin_ns", std::to_string(begin)},
-       {"end_ns",
-        std::to_string(begin + static_cast<std::int64_t>(prices.size() - 1) * 60000000000LL)},
-       {"requests_per_minute", 500}});
+  const auto per_day =
+      static_cast<std::int64_t>((prices.size() + minute_days.size() - 1) / minute_days.size());
+  const auto begin = parse_shanghai_time(minute_days.front() + " 09:00:00");
+  const auto end =
+      parse_shanghai_time(minute_days.back() + " 09:00:00") + (per_day - 1) * 60000000000LL;
+  const auto minute = history_files::minute_request({{"version", 2},
+                                                     {"contract_id", "SHFE/rb/2026-10"},
+                                                     {"source", "tushare.ft_mins"},
+                                                     {"source_instrument", "RB2610.SHF"},
+                                                     {"interval_minutes", 1},
+                                                     {"begin_ns", std::to_string(begin)},
+                                                     {"end_ns", std::to_string(end)},
+                                                     {"requests_per_minute", 500}});
   const auto day = history_files::daily_request({{"version", 2},
                                                  {"contract_id", "SHFE/rb/2026-10"},
                                                  {"source", "tushare.fut_daily"},
                                                  {"source_instrument", "RB2610.SHF"},
-                                                 {"begin_day", "2026-09-25"},
-                                                 {"end_day", "2026-09-25"},
+                                                 {"begin_day", daily_days.front()},
+                                                 {"end_day", daily_days.back()},
                                                  {"requests_per_minute", 500}});
   auto finish = [&](const std::string& task, auto input, auto& provider) {
     store.submit(task, input, "explicit-test-fixture");

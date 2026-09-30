@@ -32,6 +32,8 @@ export type DatasetSelection = {
   first_timestamp_ns: string;
   last_timestamp_ns: string;
   last_close: string;
+  // Exchange trading days (from the daily download) without minute bars.
+  uncovered_days: string[];
 };
 // A dataset recorded in experiment evidence; bars and days are omitted.
 export type DatasetEvidence = {

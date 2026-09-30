@@ -91,6 +91,16 @@ export function DatasetPicker({
         <p className="subtle">
           {t("数据版本")} <code>{selected.revision.slice(0, 16)}</code>
         </p>
+        {selected.uncovered_days.length > 0 && (
+          <p role="alert" className="alert">
+            {t("日线中有 {n} 个交易日没有分钟数据：{days}", {
+              n: selected.uncovered_days.length,
+              days:
+                selected.uncovered_days.slice(0, 5).join("、") +
+                (selected.uncovered_days.length > 5 ? " …" : ""),
+            })}
+          </p>
+        )}
         {!locked && (
           <div className="source-actions">
             <button

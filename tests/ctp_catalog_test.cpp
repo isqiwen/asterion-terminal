@@ -170,6 +170,7 @@ TEST(CtpCatalogService, EmptyWatchlistLoadsMarketAndQueriesRemainResponsive) {
   EXPECT_EQ(snapshot().catalog().phase(), "loading");
   wire::Request disconnect;
   disconnect.mutable_disconnect();
-  EXPECT_EQ(call(disconnect).snapshot().catalog().phase(), "unconfigured");
+  // The catalog loaded earlier in this test remains available offline.
+  EXPECT_EQ(call(disconnect).snapshot().catalog().phase(), "cached");
   EXPECT_LT(std::chrono::steady_clock::now() - begin, 1s);
 }

@@ -14,9 +14,9 @@ struct BarDatasetSources {
   research::v1::Task settlement;
   data::v1::DailyDownloadResult settlement_result;
 };
-// Minute bars take the first settlement trading day on or after their local
-// (Asia/Shanghai) date; bars at or after 18:00 belong to the next one. Daily
-// bars are labelled 15:00 local on their trading day. Fails rather than drops
-// bars without a settlement, and when the range exceeds max_dataset_bars.
+// Minute bars carry their exchange trading day from the data source and need
+// bar-end labels. Daily bars are labelled 15:00 local on their trading day.
+// Fails rather than drops bars without a settlement, and when the range exceeds
+// max_dataset_bars. Settlement days without minute bars are listed as uncovered.
 data::v1::BarDataset resolve_bar_dataset(const BarDatasetSources&);
 } // namespace asterion::tasks

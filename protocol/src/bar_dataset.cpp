@@ -89,6 +89,13 @@ void validate_bar_dataset(const data::v1::BarDataset& dataset) {
   const auto interval = dataset.interval_minutes();
   if (interval > 1440)
     throw std::invalid_argument("unsupported bar interval");
+  if (dataset.uncovered_days_size() > 10000)
+    throw std::invalid_argument("invalid uncovered trading days");
+  for (int i = 0; i < dataset.uncovered_days_size(); ++i) {
+    (void)parse_trading_date(dataset.uncovered_days(i));
+    if (i && dataset.uncovered_days(i) <= dataset.uncovered_days(i - 1))
+      throw std::invalid_argument("invalid uncovered trading days");
+  }
   if (dataset.source().empty() || dataset.source().size() > 64 ||
       !digest(dataset.manifest_sha256()) || !digest(dataset.settlement_manifest_sha256()))
     throw std::invalid_argument("invalid bar dataset provenance");

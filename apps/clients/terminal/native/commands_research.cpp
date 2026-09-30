@@ -246,6 +246,9 @@ void Application::Impl::register_research_commands() {
     const auto& bars = dataset.bars();
     const auto& first = bars.Get(0);
     const auto& last = bars.Get(bars.size() - 1);
+    json uncovered = json::array();
+    for (const auto& day : dataset.uncovered_days())
+      uncovered.push_back(day);
     json summary = protocol::decode_bar_dataset_request(request);
     summary.update({{"venue", dataset.contract().venue()},
                     {"symbol", dataset.contract().symbol()},
@@ -258,7 +261,8 @@ void Application::Impl::register_research_commands() {
                     {"last_day", last.trading_day()},
                     {"first_timestamp_ns", std::to_string(first.timestamp_ns())},
                     {"last_timestamp_ns", std::to_string(last.timestamp_ns())},
-                    {"last_close", Decimal::from_raw(last.close().units()).str()}});
+                    {"last_close", Decimal::from_raw(last.close().units()).str()},
+                    {"uncovered_days", uncovered}});
     selection = DatasetSelection{request, std::move(dataset), std::move(summary)};
     return snapshot();
   });

@@ -897,3 +897,27 @@ TEST(ResearchTasks, PinnedRiskArtifactSurvivesRestartAndCachedResultsRejectMissi
   EXPECT_EQ(recovered.get("done").risk_artifact(), artifact);
   EXPECT_EQ(recovered.result("done").SerializeAsString(), expected.SerializeAsString());
 }
+
+#include "bar_dataset_source.hpp"
+#include "history_fixture.hpp"
+TEST(ResearchDatasets, SettlementDaysWithoutMinuteBarsAreListedAsUncovered) {
+  TaskDirectory directory;
+  const auto selection =
+      test::seed_history(directory.path, {100, 101, 102, 103}, "gap", {"2026-09-23", "2026-09-25"},
+                         {"2026-09-23", "2026-09-24", "2026-09-25"});
+  tasks::Store store(directory.path);
+  Json request = selection;
+  request.erase("price_increment");
+  request.erase("multiplier");
+  request["contract"] = {{"venue", "SHFE"},           {"symbol", "rb2610"},
+                         {"product", "rb"},           {"delivery_month", "2026-10"},
+                         {"currency", "CNY"},         {"price_increment", "1"},
+                         {"quantity_increment", "1"}, {"multiplier", "10"}};
+  const auto sources = store.prepare_dataset(protocol::encode_bar_dataset_request(request));
+  const auto dataset = tasks::resolve_bar_dataset(sources);
+  ASSERT_EQ(dataset.bars_size(), 4);
+  EXPECT_EQ(dataset.days_size(), 2);
+  ASSERT_EQ(dataset.uncovered_days_size(), 1);
+  EXPECT_EQ(dataset.uncovered_days(0), "2026-09-24");
+  EXPECT_EQ(dataset.revision(), protocol::bar_dataset_revision(dataset));
+}
