@@ -1,6 +1,7 @@
 #include "history_minutes.hpp"
 #include "macd.hpp"
 #include "history_metadata.hpp"
+#include "bar_parquet.hpp"
 #include <asterion/domain/daily_bars.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>
@@ -73,26 +74,6 @@ HistoricalBarRange range_of(const Json& spec) {
     throw std::invalid_argument("invalid minute dataset specification");
   return range;
 }
-Json encode(const HistoricalBar& b) {
-  return Json::array({std::to_string(b.timestamp_ns), b.open.str(), b.high.str(), b.low.str(),
-                      b.close.str(), b.volume.str(), b.amount.str(), b.open_interest.str(),
-                      b.trading_day});
-}
-HistoricalBar decode(const Json& row) {
-  if (!row.is_array() || row.size() != 9)
-    throw std::invalid_argument("invalid minute dataset bar");
-  const auto text = row.at(0).get<std::string>();
-  std::int64_t ns = 0;
-  auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), ns);
-  if (ec != std::errc{} || end != text.data() + text.size())
-    throw std::invalid_argument("invalid minute dataset timestamp");
-  const auto d = [&](unsigned i) { return Decimal::parse(row.at(i).get<std::string>()); };
-  HistoricalBar bar{ns, d(1), d(2), d(3), d(4), d(5), d(6), d(7), row.at(8).get<std::string>()};
-  bar.validate();
-  if (!bar.trading_day.empty())
-    (void)parse_trading_date(bar.trading_day);
-  return bar;
-}
 unsigned total_pages(const HistoricalBarRange& range) {
   if (range.end_ns - range.begin_ns > 20LL * 366 * day)
     throw std::invalid_argument("minute download exceeds 20 years");
@@ -103,34 +84,65 @@ HistoricalBarRange page_range(HistoricalBarRange range, unsigned index) {
   range.end_ns = std::min(range.end_ns, range.begin_ns + day - second);
   return range;
 }
-std::string filename(unsigned i) {
-  return "minutes-" + std::to_string(i) + ".json";
+// One Parquet segment holds up to this many consecutive day pages.
+constexpr unsigned segment_pages = 31;
+std::string segment_name(unsigned first_page) {
+  return "minutes-" + std::to_string(first_page) + ".parquet";
 }
-void validate_page(const Json& page, const HistoricalBarRange& range,
-                   const std::function<void(const HistoricalBar&)>& consume = {}) {
-  if (page.at("version") != 2 || page.at("source") != range.source ||
-      page.at("request") != specification(range) || !page.at("bars").is_array() ||
-      page.at("bars").size() >= 8000)
+void validate_page(const std::vector<HistoricalBar>& bars, const HistoricalBarRange& range) {
+  if (bars.size() >= 8000)
     throw std::invalid_argument("minute dataset page identity mismatch");
   std::int64_t previous = -1;
-  for (const auto& row : page.at("bars")) {
-    const auto bar = decode(row);
+  for (const auto& bar : bars) {
+    if (!bar.trading_day.empty())
+      (void)parse_trading_date(bar.trading_day);
     if (bar.timestamp_ns <= previous || bar.timestamp_ns < range.begin_ns ||
         bar.timestamp_ns > range.end_ns || bar.timestamp_ns % (60 * second) ||
         bar.volume.raw() % 100000000)
       throw std::invalid_argument("invalid minute dataset order, interval or volume");
     previous = bar.timestamp_ns;
-    if (consume)
-      consume(bar);
   }
+}
+std::uint64_t page_rows(const Json& manifest, unsigned page) {
+  const auto& rows = manifest.at("pages").at(page);
+  if (!rows.is_number_unsigned() || rows.get<std::uint64_t>() >= 8000)
+    throw std::invalid_argument("minute dataset row count mismatch");
+  return rows.get<std::uint64_t>();
+}
+// Verifies one segment's digest and splits its bars back into day pages.
+std::vector<std::vector<HistoricalBar>> load_segment(const std::filesystem::path& dir,
+                                                     const Json& manifest, unsigned index,
+                                                     const HistoricalBarRange& range) {
+  const auto& segment = manifest.at("segments").at(index);
+  const auto first = segment.at("first_page").get<unsigned>();
+  const auto count = segment.at("pages").get<unsigned>();
+  const auto path = dir / segment_name(first);
+  if (segment.at("file") != segment_name(first) || std::filesystem::is_symlink(path) ||
+      !std::filesystem::is_regular_file(path) ||
+      sha256_file(path) != segment.at("sha256").get<std::string>())
+    throw std::invalid_argument("minute dataset digest mismatch");
+  const auto bars = parquet::read_minute_bars(path);
+  if (bars.size() != segment.at("rows").get<std::uint64_t>())
+    throw std::invalid_argument("minute dataset row count mismatch");
+  std::vector<std::vector<HistoricalBar>> pages;
+  std::size_t offset = 0;
+  for (unsigned page = first; page < first + count; ++page) {
+    const auto rows = page_rows(manifest, page);
+    std::vector<HistoricalBar> part(bars.begin() + static_cast<std::ptrdiff_t>(offset),
+                                    bars.begin() + static_cast<std::ptrdiff_t>(offset + rows));
+    validate_page(part, page_range(range, page));
+    offset += rows;
+    pages.push_back(std::move(part));
+  }
+  return pages;
 }
 Json verify(const std::filesystem::path& dir,
             const std::function<void(const HistoricalBar&)>& consume = {}) {
   const auto manifest = read_json(dir / manifest_name);
-  if (manifest.at("version") != 2 || manifest.at("source") != manifest.at("request").at("source") ||
+  if (manifest.at("version") != 3 || manifest.at("source") != manifest.at("request").at("source") ||
       manifest.at("timezone") != "Asia/Shanghai" || !valid_semantics(manifest.at("semantics")) ||
       manifest.at("semantics").at("source") != manifest.at("source") ||
-      !manifest.at("pages").is_array())
+      !manifest.at("pages").is_array() || !manifest.at("segments").is_array())
     throw std::invalid_argument("unsupported minute dataset format");
   const auto range = range_of(manifest.at("request"));
   const auto total = total_pages(range);
@@ -140,16 +152,22 @@ Json verify(const std::filesystem::path& dir,
   if (consume && !manifest.at("complete").get<bool>())
     throw std::invalid_argument("minute dataset is incomplete");
   std::uint64_t rows = 0;
-  for (unsigned i = 0; i < manifest.at("pages").size(); ++i) {
-    const auto page = read_json(dir / filename(i));
-    const auto& entry = manifest.at("pages").at(i);
-    if (entry.at("sha256") != sha256_bytes(page.dump()) ||
-        entry.at("rows") != page.at("bars").size())
-      throw std::invalid_argument("minute dataset digest mismatch");
-    validate_page(page, page_range(range, i), consume);
-    rows += page.at("bars").size();
+  unsigned covered = 0;
+  for (unsigned i = 0; i < manifest.at("segments").size(); ++i) {
+    const auto& segment = manifest.at("segments").at(i);
+    require_fields(segment, {"file", "first_page", "pages", "rows", "sha256"});
+    if (segment.at("first_page") != covered || !segment.at("pages").is_number_unsigned() ||
+        segment.at("pages") < 1 || segment.at("pages") > segment_pages)
+      throw std::invalid_argument("invalid minute dataset coverage");
+    for (const auto& page : load_segment(dir, manifest, i, range))
+      for (const auto& bar : page) {
+        ++rows;
+        if (consume)
+          consume(bar);
+      }
+    covered += segment.at("pages").get<unsigned>();
   }
-  if (manifest.at("rows") != rows)
+  if (covered != manifest.at("pages").size() || manifest.at("rows") != rows)
     throw std::invalid_argument("minute dataset row count mismatch");
   return manifest;
 }
@@ -239,32 +257,52 @@ Json download_minutes(HistoricalBarPort& provider, const HistoricalBarRange& ran
     for (const auto& file : std::filesystem::directory_iterator(directory))
       if (file.path().filename() != "minutes.lock")
         throw std::invalid_argument("minute dataset directory is not empty");
-    manifest = {{"version", 2},
+    manifest = {{"version", 3},
                 {"source", range.source},
                 {"timezone", "Asia/Shanghai"},
                 {"semantics", semantics},
                 {"request", specification(range)},
                 {"pages", Json::array()},
+                {"segments", Json::array()},
                 {"rows", 0},
                 {"complete", false}};
     replace_file_durably(directory / manifest_name, manifest.dump());
   }
   std::uint64_t rows = manifest.at("rows").get<std::uint64_t>();
   auto next_request = std::chrono::steady_clock::now();
+  const auto committed = static_cast<unsigned>(manifest.at("pages").size());
   if (progress)
-    progress(static_cast<unsigned>(manifest.at("pages").size()), total, rows);
-  for (unsigned i = static_cast<unsigned>(manifest.at("pages").size()); i < total; ++i) {
-    if (stop.stop_requested())
-      throw std::runtime_error("Historical download cancelled");
-    auto request = page_range(range, i);
-    const auto path = directory / filename(i);
-    Json page;
-    if (std::filesystem::exists(path)) {
-      // Recovery of the page durably written immediately before a crash that
-      // prevented advancing the manifest. A different page is never replaced.
-      page = read_json(path);
-      validate_page(page, request);
-    } else {
+    progress(committed, total, rows);
+  // Fetched pages wait in memory until a segment is written; cancellation and
+  // provider failures still publish what was fetched before stopping.
+  std::vector<std::vector<HistoricalBar>> pending;
+  const auto flush = [&] {
+    if (pending.empty())
+      return;
+    const auto first = static_cast<unsigned>(manifest.at("pages").size());
+    std::vector<HistoricalBar> bars;
+    for (auto& page : pending) {
+      manifest["pages"].push_back(page.size());
+      bars.insert(bars.end(), page.begin(), page.end());
+    }
+    const auto path = directory / segment_name(first);
+    parquet::write_minute_bars(path, bars);
+    rows += bars.size();
+    manifest["segments"].push_back({{"file", segment_name(first)},
+                                    {"first_page", first},
+                                    {"pages", pending.size()},
+                                    {"rows", bars.size()},
+                                    {"sha256", sha256_file(path)}});
+    manifest["rows"] = rows;
+    manifest["complete"] = manifest.at("pages").size() == total;
+    replace_file_durably(directory / manifest_name, manifest.dump());
+    pending.clear();
+  };
+  try {
+    for (unsigned i = committed; i < total; ++i) {
+      if (stop.stop_requested())
+        throw std::runtime_error("Historical download cancelled");
+      const auto request = page_range(range, i);
       std::mutex mutex;
       std::condition_variable_any changed;
       std::unique_lock guard(mutex);
@@ -273,25 +311,26 @@ Json download_minutes(HistoricalBarPort& provider, const HistoricalBarRange& ran
         throw std::runtime_error("Historical download cancelled");
       next_request =
           std::chrono::steady_clock::now() + std::chrono::milliseconds((60000 + rpm - 1) / rpm);
-      const auto bars = provider.read(request, stop);
-      Json encoded = Json::array();
+      auto bars = provider.read(request, stop);
+      // A page read while cancellation arrived is discarded, not published.
+      if (stop.stop_requested())
+        throw std::runtime_error("Historical download cancelled");
       for (const auto& bar : bars)
-        encoded.push_back(encode(bar));
-      page = {{"version", 2},
-              {"source", range.source},
-              {"request", specification(request)},
-              {"bars", std::move(encoded)}};
-      validate_page(page, request);
-      replace_file_durably(path, page.dump());
+        bar.validate();
+      validate_page(bars, request);
+      pending.push_back(std::move(bars));
+      if (pending.size() == segment_pages || i + 1 == total)
+        flush();
+      if (progress) {
+        std::uint64_t fetched = rows;
+        for (const auto& page : pending)
+          fetched += page.size();
+        progress(i + 1, total, fetched);
+      }
     }
-    rows += page.at("bars").size();
-    manifest["pages"].push_back(
-        {{"rows", page.at("bars").size()}, {"sha256", sha256_bytes(page.dump())}});
-    manifest["rows"] = rows;
-    manifest["complete"] = i + 1 == total;
-    replace_file_durably(directory / manifest_name, manifest.dump());
-    if (progress)
-      progress(i + 1, total, rows);
+  } catch (...) {
+    flush();
+    throw;
   }
   return manifest;
 }
@@ -331,21 +370,28 @@ data::v1::MinutePage read_minute_page(const data::v1::MinuteDownload& input,
   FileLock lock(dir, "minutes.lock", FileLock::Access::shared);
   const auto manifest = read_json(dir / manifest_name);
   if (result.version() != 2 || sha256_bytes(manifest.dump()) != result.manifest_sha256() ||
-      manifest.at("request") != specification(range) || !manifest.at("complete").get<bool>() ||
-      manifest.at("pages").size() != total_pages(range) || manifest.at("rows") != result.rows())
+      manifest.at("version") != 3 || manifest.at("request") != specification(range) ||
+      !manifest.at("complete").get<bool>() || manifest.at("pages").size() != total_pages(range) ||
+      manifest.at("rows") != result.rows())
     throw std::invalid_argument("minute dataset result does not match request");
-  std::map<unsigned, std::vector<HistoricalBar>> loaded;
+  // Page index -> segment, from the committed manifest.
+  std::vector<unsigned> owner;
+  for (unsigned s = 0; s < manifest.at("segments").size(); ++s) {
+    const auto& segment = manifest.at("segments").at(s);
+    if (segment.at("first_page") != owner.size() || segment.at("pages") < 1 ||
+        segment.at("pages") > segment_pages)
+      throw std::invalid_argument("invalid minute dataset coverage");
+    owner.insert(owner.end(), segment.at("pages").get<unsigned>(), s);
+  }
+  if (owner.size() != total_pages(range))
+    throw std::invalid_argument("invalid minute dataset coverage");
+  std::map<unsigned, std::vector<std::vector<HistoricalBar>>> loaded;
   const auto load = [&](unsigned index) -> const std::vector<HistoricalBar>& {
-    if (loaded.contains(index))
-      return loaded.at(index);
-    const auto page = read_json(dir / filename(index));
-    const auto& entry = manifest.at("pages").at(index);
-    if (entry.at("sha256") != sha256_bytes(page.dump()) ||
-        entry.at("rows") != page.at("bars").size())
-      throw std::invalid_argument("minute dataset digest mismatch");
-    std::vector<HistoricalBar> rows;
-    validate_page(page, page_range(range, index), [&](const auto& bar) { rows.push_back(bar); });
-    return loaded.emplace(index, std::move(rows)).first->second;
+    const auto segment = owner.at(index);
+    if (!loaded.contains(segment))
+      loaded.emplace(segment, load_segment(dir, manifest, segment, range));
+    const auto first = manifest.at("segments").at(segment).at("first_page").get<unsigned>();
+    return loaded.at(segment).at(index - first);
   };
   data::v1::MinutePage output;
   output.set_version(2);
@@ -363,7 +409,7 @@ data::v1::MinutePage read_minute_page(const data::v1::MinuteDownload& input,
   std::uint64_t total = 0, matched = 0;
   std::optional<unsigned> first, last;
   for (unsigned i = 0; i < total_pages(range); ++i) {
-    const auto size = manifest.at("pages").at(i).at("rows").get<std::uint64_t>();
+    const auto size = page_rows(manifest, i);
     if (size >= 8000)
       throw std::invalid_argument("minute dataset row count mismatch");
     total += size;
@@ -435,7 +481,9 @@ data::v1::MinutePage read_minute_page(const data::v1::MinuteDownload& input,
         row->mutable_macd()->set_histogram(indicator->histogram);
       }
     }
-    loaded.erase(i); // Prefix scans retain only one validated source segment.
+    // Prefix scans retain only one validated source segment.
+    if (i + 1 < owner.size() && owner[i + 1] != owner[i])
+      loaded.erase(owner[i]);
   }
   return output;
 }

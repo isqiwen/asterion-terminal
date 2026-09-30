@@ -125,7 +125,7 @@ TEST(HistoryArchive, RejectsObsoleteFormatAndCorruptChunksWithoutOverwriting) {
   auto old = record.daily();
   old.set_version(1);
   EXPECT_THROW(history_files::daily_range(old), std::invalid_argument);
-  const auto chunk = std::filesystem::path(record.daily_result().directory()) / "daily-0.json";
+  const auto chunk = std::filesystem::path(record.daily_result().directory()) / "daily-0.parquet";
   replace_file_durably(chunk, "corrupted");
   data::v1::DailyPageQuery query;
   query.set_dataset_id(record.daily_result().manifest_sha256());

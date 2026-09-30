@@ -1,6 +1,6 @@
 add_library(asterion_history_files STATIC ../../../plugins/storage/filesystem/history_archive.cpp ../../../plugins/storage/filesystem/history_minutes.cpp ../../../plugins/storage/filesystem/history_daily.cpp)
 target_include_directories(asterion_history_files PUBLIC ../../../plugins/storage/filesystem)
-target_link_libraries(asterion_history_files PUBLIC asterion_protocol PRIVATE asterion_chart_indicators)
+target_link_libraries(asterion_history_files PUBLIC asterion_protocol PRIVATE asterion_chart_indicators asterion_bar_parquet)
 add_executable(asterion-data-pipeline main.cpp)
 target_compile_features(asterion-data-pipeline PRIVATE cxx_std_20)
 target_compile_definitions(asterion-data-pipeline PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")

@@ -1,6 +1,7 @@
 #include <asterion/protocol/data.hpp>
 #include "history_daily.hpp"
 #include "history_metadata.hpp"
+#include "bar_parquet.hpp"
 #include "macd.hpp"
 #include "calendar_bars.hpp"
 #include <asterion/kernel/durable_file.hpp>
@@ -54,7 +55,7 @@ HistoricalDailyRange range_of(const Json& value) {
   return range;
 }
 std::string filename(unsigned index) {
-  return "daily-" + std::to_string(index) + ".json";
+  return "daily-" + std::to_string(index) + ".parquet";
 }
 Json read_json(const std::filesystem::path& path) {
   if (std::filesystem::is_symlink(path) || !std::filesystem::is_regular_file(path) ||
@@ -65,63 +66,28 @@ Json read_json(const std::filesystem::path& path) {
     throw std::runtime_error("cannot read daily dataset file");
   return parse_json(std::string(std::istreambuf_iterator<char>(file), {}), 8 * 1024 * 1024);
 }
-Json optional_price(const std::optional<Decimal>& value) {
-  return value ? Json(value->str()) : Json(nullptr);
-}
-Json encode(const HistoricalDailyBar& bar) {
-  return Json::array({format_trading_date(bar.trading_day), bar.open.str(), bar.high.str(),
-                      bar.low.str(), bar.close.str(), bar.volume.str(), bar.amount.str(),
-                      bar.open_interest.str(), optional_price(bar.previous_close),
-                      optional_price(bar.previous_settlement), optional_price(bar.settlement)});
-}
-HistoricalDailyBar decode(const Json& row) {
-  if (!row.is_array() || row.size() != 11)
-    throw std::invalid_argument("invalid daily dataset bar");
-  const auto number = [&](unsigned index) {
-    return Decimal::parse(row.at(index).get<std::string>());
-  };
-  const auto optional = [&](unsigned index) -> std::optional<Decimal> {
-    return row.at(index).is_null() ? std::nullopt : std::optional(number(index));
-  };
-  HistoricalDailyBar bar{parse_trading_date(row.at(0).get<std::string>()),
-                         number(1),
-                         number(2),
-                         number(3),
-                         number(4),
-                         number(5),
-                         number(6),
-                         number(7),
-                         optional(8),
-                         optional(9),
-                         optional(10)};
-  bar.validate();
-  if (bar.volume.raw() % 100000000 || bar.open_interest.raw() % 100000000)
-    throw std::invalid_argument("invalid daily dataset quantity");
-  return bar;
-}
-void validate_page(const Json& page, const HistoricalDailyRange& range,
+void validate_page(const std::vector<HistoricalDailyBar>& bars, const HistoricalDailyRange& range,
                    std::vector<HistoricalDailyBar>* output = nullptr) {
-  require_fields(page, {"version", "source", "request", "bars"});
-  if (!page.at("version").is_number_integer() || page.at("version") != 2 ||
-      page.at("source") != range.source || page.at("request") != specification(range) ||
-      !page.at("bars").is_array() || page.at("bars").size() > 366)
+  if (bars.size() > 366)
     throw std::invalid_argument("invalid daily dataset page");
   std::optional<year_month_day> previous;
-  for (const auto& row : page.at("bars")) {
-    auto bar = decode(row);
+  for (const auto& bar : bars) {
+    bar.validate();
+    if (bar.volume.raw() % 100000000 || bar.open_interest.raw() % 100000000)
+      throw std::invalid_argument("invalid daily dataset quantity");
     if (bar.trading_day < range.begin || bar.trading_day > range.end ||
         (previous && bar.trading_day <= *previous))
       throw std::invalid_argument("invalid daily dataset order or coverage");
     previous = bar.trading_day;
     if (output)
-      output->push_back(std::move(bar));
+      output->push_back(bar);
   }
 }
 Json verify(const std::filesystem::path& dir, std::vector<HistoricalDailyBar>* output = nullptr) {
   const auto manifest = read_json(dir / manifest_name);
   require_fields(manifest, {"version", "source", "semantics", "amount_unit", "request", "pages",
                             "rows", "complete"});
-  if (!manifest.at("version").is_number_integer() || manifest.at("version") != 2 ||
+  if (!manifest.at("version").is_number_integer() || manifest.at("version") != 3 ||
       manifest.at("source") != manifest.at("request").at("source") ||
       !valid_semantics(manifest.at("semantics")) ||
       manifest.at("semantics").at("source") != manifest.at("source") ||
@@ -137,14 +103,18 @@ Json verify(const std::filesystem::path& dir, std::vector<HistoricalDailyBar>* o
     throw std::invalid_argument("daily dataset is incomplete");
   std::uint64_t rows = 0;
   for (unsigned i = 0; i < manifest.at("pages").size(); ++i) {
-    const auto page = read_json(dir / filename(i));
+    const auto path = dir / filename(i);
     const auto& entry = manifest.at("pages").at(i);
     require_fields(entry, {"rows", "sha256"});
-    if (!entry.at("rows").is_number_unsigned() || entry.at("sha256") != sha256_bytes(page.dump()) ||
-        entry.at("rows") != page.at("bars").size())
+    if (!entry.at("rows").is_number_unsigned() || std::filesystem::is_symlink(path) ||
+        !std::filesystem::is_regular_file(path) ||
+        entry.at("sha256").get<std::string>() != sha256_file(path))
+      throw std::invalid_argument("daily dataset digest mismatch");
+    const auto page = parquet::read_daily_bars(path);
+    if (entry.at("rows") != page.size())
       throw std::invalid_argument("daily dataset digest mismatch");
     validate_page(page, page_range(range, i), output);
-    rows += page.at("bars").size();
+    rows += page.size();
   }
   if (manifest.at("rows") != rows)
     throw std::invalid_argument("daily dataset row count mismatch");
@@ -235,7 +205,7 @@ DailyDatasetInfo download_daily(HistoricalDailyPort& provider, const HistoricalD
     for (const auto& file : std::filesystem::directory_iterator(dir))
       if (file.path().filename() != "daily.lock")
         throw std::invalid_argument("daily dataset directory is not empty");
-    manifest = {{"version", 2},
+    manifest = {{"version", 3},
                 {"source", range.source},
                 {"semantics", semantics},
                 {"amount_unit", "quote_currency"},
@@ -254,9 +224,10 @@ DailyDatasetInfo download_daily(HistoricalDailyPort& provider, const HistoricalD
       throw std::runtime_error("Historical download cancelled");
     const auto request = page_range(range, i);
     const auto path = dir / filename(i);
-    Json page;
+    std::vector<HistoricalDailyBar> page;
     if (std::filesystem::exists(path)) {
-      page = read_json(path);
+      // A page published just before a crash stopped the manifest update.
+      page = parquet::read_daily_bars(path);
       validate_page(page, request);
     } else {
       std::mutex mutex;
@@ -266,19 +237,12 @@ DailyDatasetInfo download_daily(HistoricalDailyPort& provider, const HistoricalD
       if (stop.stop_requested())
         throw std::runtime_error("Historical download cancelled");
       next_request = steady_clock::now() + milliseconds((60000 + rpm - 1) / rpm);
-      Json bars = Json::array();
-      for (const auto& bar : provider.read(request, stop))
-        bars.push_back(encode(bar));
-      page = {{"version", 2},
-              {"source", range.source},
-              {"request", specification(request)},
-              {"bars", std::move(bars)}};
+      page = provider.read(request, stop);
       validate_page(page, request);
-      replace_file_durably(path, page.dump());
+      parquet::write_daily_bars(path, page);
     }
-    rows += page.at("bars").size();
-    manifest["pages"].push_back(
-        {{"rows", page.at("bars").size()}, {"sha256", sha256_bytes(page.dump())}});
+    rows += page.size();
+    manifest["pages"].push_back({{"rows", page.size()}, {"sha256", sha256_file(path)}});
     manifest["rows"] = rows;
     manifest["complete"] = i + 1 == total;
     replace_file_durably(dir / manifest_name, manifest.dump());

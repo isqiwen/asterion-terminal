@@ -46,26 +46,27 @@ CTP 的 `AveragePrice` 在郑商所是单位均价，其他交易所是成交额
 
 ## 独立历史仓库
 
-文件实现位于 `plugins/storage/filesystem/history_*`，通过 `HistoryStorePort` 提供统一版本目录。当前采用精确十进制字符串的 v2 JSON 数据块和 manifest，以及 Protobuf 仓库索引；它们是数据源下载后的内部持久格式，不提供本地 JSON/CSV 行情导入。
+仓库实现位于 `plugins/storage/filesystem/history_*`，通过 `HistoryStorePort` 提供统一版本目录。行情数据存为 Parquet（`plugins/storage/parquet`，由内嵌 DuckDB 读写，zstd 压缩）：价格列为 `DECIMAL(18,8)`，成交量、成交额、持仓量为 `DECIMAL(38,8)`，与内部 `Decimal` 精确对应，可直接用 DuckDB、pandas 等工具只读分析。manifest 为 JSON，仓库索引为 Protobuf。这些是数据源下载后的内部格式，不提供本地 JSON/CSV/Parquet 行情导入。
 
 ```text
 <research-ledger>/history/
   SHFE/cu/2024-03/tushare.fut_daily/daily/<acquisition-id>/
-    daily.json
-    daily-0.json
+    daily.json            manifest v3
+    daily-0.parquet       每个约 366 天的请求页一个文件
   SHFE/cu/2024-03/tushare.ft_mins/1m/<acquisition-id>/
-    minutes.json
-    minutes-0.json
+    minutes.json          manifest v3：逐日行数与分段清单
+    minutes-0.parquet     每 31 个日请求页合成一个分段
+    minutes-31.parquet
   index/<manifest-sha256>.pb
 ```
 
 数据位于仓库内，独立于任务日志和执行结果目录。来源、合约、周期隔离；manifest 包含请求范围、来源映射、规范化语义、各块摘要、行数与下载完成标记。数据版本为完整 manifest 的 SHA-256，规范化规则变化会产生新版本。不同来源不自动拼接，不静默覆盖历史修订；相同内容可以复用索引。
 
-写入先持久化数据块再推进 manifest。只有校验通过且任务确认成功后才发布索引，取消的数据不发布。任务恢复会补齐成功任务的索引；发布可重复执行。读取验证版本及所需块，研究读取验证完整数据。文件锁排除写入与读取竞争。
+分钟线按天请求数据源，抓取的页暂存在内存，满 31 页、下载结束、取消或数据源出错时写成一个 Parquet 分段（先同步临时文件再改名），然后推进 manifest；取消时正在读取的那一页丢弃。中断后从 manifest 已记录的页继续，未写入 manifest 的分段重新抓取。只有校验通过且任务确认成功后才发布索引。任务恢复会补齐成功任务的索引；发布可重复执行。分页读取只校验并加载涉及的分段（SHA-256），研究读取验证完整数据。文件锁排除写入与读取竞争。
 
 仓库支持按交易所、品种、完整合约和来源检索；分钟与日线分页可直接指定数据版本，无须依赖任务条目。Terminal 的“历史数据仓库”可筛选、查看来源、覆盖请求范围和固定版本。`complete` 只说明请求分段处理完毕，不证明交易所没有缺失数据。
 
-不兼容旧历史格式：读取明确拒绝，保留原文件，不自动迁移、删除或覆盖。旧任务格式不自动升级。
+不兼容旧历史格式（包括早期的 JSON 数据块）：读取明确拒绝，保留原文件，不自动迁移、删除或覆盖；需要重新从数据源下载。旧任务格式不自动升级。
 
 ## 当前 Tushare 适配
 

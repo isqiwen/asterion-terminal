@@ -141,7 +141,7 @@ TEST(Tushare, ResumeSkipsDurablePagesAndRejectsChangedInputOrDamagedPage) {
   EXPECT_EQ(calls, 3);
   input.interval_minutes = 5;
   EXPECT_THROW(history_files::download_minutes(p, input, folder.path, 500), std::invalid_argument);
-  write_file_durably(folder.path / "minutes-0.json", "{}");
+  write_file_durably(folder.path / "minutes-0.parquet", "{}");
   EXPECT_THROW(history_files::inspect_minutes(folder.path), std::exception);
 }
 TEST(Tushare, CancellationDoesNotAdvanceManifestOrCallProvider) {
@@ -217,7 +217,7 @@ TEST(Tushare, ManagedTaskPersistsDefinitionWithoutCredentialAndRestoresResult) {
   EXPECT_EQ(restored.minute_result("minutes-fixture").rows(), 1);
   EXPECT_EQ(restored.list().tasks_size(), 1);
 }
-TEST(Tushare, RecoversDurablePageAfterManifestInterruptionAndProtectsExistingFiles) {
+TEST(Tushare, RefetchesUncommittedSegmentAfterManifestInterruptionAndProtectsExistingFiles) {
   Folder folder;
   unsigned calls = 0;
   tushare::Minutes provider("fixture", [&](const auto&, auto) {
@@ -227,13 +227,16 @@ TEST(Tushare, RecoversDurablePageAfterManifestInterruptionAndProtectsExistingFil
   provider.start();
   auto manifest = history_files::download_minutes(provider, range(), folder.path, 60);
   manifest["pages"] = Json::array();
+  manifest["segments"] = Json::array();
   manifest["rows"] = 0;
   manifest["complete"] = false;
   replace_file_durably(folder.path / "minutes.json", manifest.dump());
+  // A segment published before the manifest advanced is not trusted: the pages
+  // are fetched again and the derived file is rewritten.
   auto recovered = history_files::download_minutes(provider, range(), folder.path, 60);
   EXPECT_TRUE(recovered.at("complete"));
   EXPECT_EQ(recovered.at("rows"), 1);
-  EXPECT_EQ(calls, 1);
+  EXPECT_EQ(calls, 2);
   Folder occupied;
   write_file_durably(occupied.path / "user-data.txt", "preserve");
   EXPECT_THROW(history_files::download_minutes(provider, range(), occupied.path, 60),
@@ -255,7 +258,7 @@ TEST(Tushare, CancellingAnInflightReadDoesNotPublishItsPage) {
       history_files::download_minutes(provider, range(), folder.path, 60, cancel.get_token()),
       std::runtime_error);
   EXPECT_EQ(history_files::inspect_minutes(folder.path).at("pages").size(), 0);
-  EXPECT_FALSE(std::filesystem::exists(folder.path / "minutes-0.json"));
+  EXPECT_FALSE(std::filesystem::exists(folder.path / "minutes-0.parquet"));
 }
 
 TEST(Tushare, ContractCatalogAndWholeLifetime) {
@@ -373,14 +376,15 @@ TEST(Tushare, DatasetViewPagesExactValuesFiltersAndRejectsCorruption) {
   query.set_limit(201);
   EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
   query.set_limit(2);
-  replace_file_durably(folder.path / "minutes-0.json", "{}");
+  replace_file_durably(folder.path / "minutes-0.parquet", "{}");
   EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
 }
 
-TEST(Tushare, DatasetViewSkipsUnrequestedChunksAndStillVerifiesRequestedData) {
+TEST(Tushare, DatasetViewSkipsUnrequestedSegmentsAndStillVerifiesRequestedData) {
   Folder folder;
   auto spec = range();
-  spec.end_ns = spec.begin_ns + 2 * 86400000000000LL;
+  // 63 day pages: segments start at pages 0, 31 and 62.
+  spec.end_ns = spec.begin_ns + 62 * 86400000000000LL;
   tushare::Minutes provider("fixture", [](const auto& body, auto) {
     const auto start = Json::parse(body).at("params").at("start_date").template get<std::string>();
     return response(start);
@@ -400,12 +404,13 @@ TEST(Tushare, DatasetViewSkipsUnrequestedChunksAndStillVerifiesRequestedData) {
   data::v1::MinutePageQuery query;
   query.set_task_id("fixture");
   query.set_limit(1);
-  // First and last chunks always establish actual coverage. Interior chunks are lazy.
-  replace_file_durably(folder.path / "minutes-1.json", "{}");
+  ASSERT_EQ(history_files::inspect_minutes(folder.path).at("segments").size(), 3);
+  // First and last segments always establish actual coverage. Interior ones are lazy.
+  replace_file_durably(folder.path / "minutes-31.parquet", "{}");
   EXPECT_EQ(history_files::read_minute_page(input, result, query).bars_size(), 1);
-  query.set_offset(1);
+  query.set_offset(31);
   EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
-  query.set_offset(2);
+  query.set_offset(62);
   EXPECT_EQ(history_files::read_minute_page(input, result, query).bars_size(), 1);
   query.set_include_macd(true);
   EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
@@ -703,23 +708,18 @@ TEST(Tushare, MacdPrefixRemainsExactAcrossMultipleSegments) {
   ASSERT_EQ(filtered.bars_size(), 25);
   for (int i = 0; i < 25; ++i)
     EXPECT_EQ(filtered.bars(i).SerializeAsString(), page.bars(i).SerializeAsString());
-  // The streaming prefix still verifies every consumed chunk, even when the
-  // corrupted chunk is outside the requested output page.
-  replace_file_durably(folder.path / "minutes-3.json", "{}");
-  EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
-  query.set_include_macd(false);
-  EXPECT_EQ(history_files::read_minute_page(input, result, query).bars_size(), 25);
   query.set_begin_ns(begin + 6 * day + 20 * 60000000000LL);
   query.set_end_ns(begin + 6 * day + 21 * 60000000000LL);
-  query.set_include_macd(true);
-  // No returned bars means no MACD prefix is needed. Coverage and the queried
-  // boundary chunk are still checked, but unrelated corrupted chunks are not.
+  // No returned bars means no MACD prefix is needed; coverage is still reported.
   const auto empty = history_files::read_minute_page(input, result, query);
   EXPECT_EQ(empty.matched_rows(), 0);
   EXPECT_EQ(empty.bars_size(), 0);
   EXPECT_EQ(empty.first_ns(), begin);
   EXPECT_EQ(empty.last_ns(), spec.end_ns);
-  replace_file_durably(folder.path / "minutes-6.json", "{}");
+  // Every consumed segment is verified, including the MACD prefix.
+  replace_file_durably(folder.path / "minutes-0.parquet", "{}");
+  EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
+  query.set_include_macd(false);
   EXPECT_THROW(history_files::read_minute_page(input, result, query), std::invalid_argument);
 }
 

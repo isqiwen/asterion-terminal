@@ -17,4 +17,8 @@ void sync_directory(const std::filesystem::path& directory);
 // `path` and sync the directory. A crash leaves the old or the new content.
 void replace_file_durably(const std::filesystem::path& path, std::string_view contents,
                           bool owner_only = true);
+// Publishes a file another writer produced: forces `temporary` to stable
+// storage, renames it to `path` and syncs the directory.
+void publish_file_durably(const std::filesystem::path& temporary,
+                          const std::filesystem::path& path);
 } // namespace asterion

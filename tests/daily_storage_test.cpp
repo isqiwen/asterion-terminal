@@ -66,12 +66,12 @@ TEST(DailyStorage, PersistsTypedValuesAndResumesAfterCancellationWithoutRedownlo
   EXPECT_FALSE(partial.complete);
   EXPECT_EQ(partial.pages, 1);
   EXPECT_THROW(history_files::read_daily(folder.path), std::invalid_argument);
-  const auto first = contents(folder.path / "daily-0.json");
+  const auto first = contents(folder.path / "daily-0.parquet");
   const auto result = history_files::download_daily(provider, range(), folder.path, 500);
   EXPECT_TRUE(result.complete);
   EXPECT_EQ(result.rows, 2);
   EXPECT_EQ(starts, (std::vector<std::string>{"20230101", "20240102"}));
-  EXPECT_EQ(first, contents(folder.path / "daily-0.json"));
+  EXPECT_EQ(first, contents(folder.path / "daily-0.parquet"));
   const auto data = history_files::read_daily(folder.path);
   ASSERT_EQ(data.bars.size(), 2);
   EXPECT_EQ(data.info.manifest_sha256, result.manifest_sha256);
@@ -105,7 +105,7 @@ TEST(DailyStorage, RecoversDurableUnindexedPageAndRejectsChangedOrCorruptedInput
   changed.end = std::chrono::year(2024) / std::chrono::January / 4;
   EXPECT_THROW(history_files::download_daily(provider, changed, folder.path, 500),
                std::invalid_argument);
-  replace_file_durably(folder.path / "daily-1.json", "{}");
+  replace_file_durably(folder.path / "daily-1.parquet", "{}");
   EXPECT_THROW(history_files::read_daily(folder.path), std::invalid_argument);
   EXPECT_THROW(history_files::download_daily(provider, range(), folder.path, 500),
                std::invalid_argument);
@@ -483,7 +483,7 @@ TEST(DailyPages, DatePagingKeepsExactPricesMissingSettlementAndDatasetOriginMacd
     FileLock writer(folder.path, "daily.lock");
     EXPECT_THROW(history_files::read_daily_page(input, result, query), std::runtime_error);
   }
-  replace_file_durably(folder.path / "daily-0.json", "{}");
+  replace_file_durably(folder.path / "daily-0.parquet", "{}");
   EXPECT_THROW(history_files::read_daily_page(input, result, query), std::invalid_argument);
 }
 TEST(DailyPages, EmptyDatasetRetainsRequestedDatesWithoutInventedCoverage) {
@@ -802,7 +802,7 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   replace_file_durably(std::filesystem::path(attempt.output_directory()) / "daily.json",
                        manifest.dump());
   EXPECT_THROW(tasks::daily_factor_dataset(source, result), std::invalid_argument);
-  replace_file_durably(std::filesystem::path(attempt.output_directory()) / "daily-0.json", "{}");
+  replace_file_durably(std::filesystem::path(attempt.output_directory()) / "daily-0.parquet", "{}");
   EXPECT_THROW(tasks::daily_factor_dataset(source, result), std::invalid_argument);
   // The accepted snapshot remains usable after its source is damaged; no lazy file references.
   EXPECT_EQ(factor::run_daily(input).SerializeAsString(), analysis.SerializeAsString());
