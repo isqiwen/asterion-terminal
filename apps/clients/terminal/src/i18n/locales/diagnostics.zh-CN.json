@@ -408,5 +408,7 @@
   "strategy directory must be absolute": "策略目录必须是绝对路径。",
   "bar dataset requires version 1, 1..200000 bars and trading days": "数据集需要 1 到 200000 根 K 线和对应交易日。",
   "paper sessions use at most 20000 bars; narrow the trading days": "模拟交易和策略最多使用 20000 根 K 线，请缩小交易日区间。",
-  "dataset exceeds 200000 bars; narrow the date range": "数据集超过 200000 根 K 线，请缩小交易日区间。"
+  "dataset exceeds 200000 bars; narrow the date range": "数据集超过 200000 根 K 线，请缩小交易日区间。",
+  "another node operation is in progress; retry after it completes": "另一个节点操作正在进行，请在完成后重试。",
+  "another window opened a paper session meanwhile; recover this directory after closing it": "另一个窗口刚刚打开了模拟会话；请先关闭它，再从本目录恢复。"
 }

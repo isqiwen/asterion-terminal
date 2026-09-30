@@ -101,6 +101,15 @@ struct Application::Impl {
   // Serializes long node operations (SSH, uploads, upgrades) among themselves;
   // they run without `operations`, so other commands proceed meanwhile.
   std::mutex node_operations;
+  // Starting local services waits for the Agent; this runs inside
+  // without_operations and returns the existing or a new local node client.
+  static std::shared_ptr<NodeClient> local_node_client(std::shared_ptr<NodeClient> existing) {
+    return existing ? existing : std::make_shared<NodeClient>(local_node());
+  }
+  std::shared_ptr<NodeClient> existing_local_node() const {
+    const auto found = nodes.find("local");
+    return found == nodes.end() ? nullptr : found->second;
+  }
   // Runs `io` without the client-operation lock and relocks before returning.
   // Captured clients must be shared pointers; state is read again afterwards.
   template <class F> decltype(auto) without_operations(F&& io) {

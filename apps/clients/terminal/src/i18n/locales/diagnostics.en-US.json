@@ -408,5 +408,7 @@
   "strategy directory must be absolute": "strategy directory must be absolute",
   "bar dataset requires version 1, 1..200000 bars and trading days": "bar dataset requires version 1, 1..200000 bars and trading days",
   "paper sessions use at most 20000 bars; narrow the trading days": "paper sessions use at most 20000 bars; narrow the trading days",
-  "dataset exceeds 200000 bars; narrow the date range": "dataset exceeds 200000 bars; narrow the date range"
+  "dataset exceeds 200000 bars; narrow the date range": "dataset exceeds 200000 bars; narrow the date range",
+  "another node operation is in progress; retry after it completes": "another node operation is in progress; retry after it completes",
+  "another window opened a paper session meanwhile; recover this directory after closing it": "another window opened a paper session meanwhile; recover this directory after closing it"
 }

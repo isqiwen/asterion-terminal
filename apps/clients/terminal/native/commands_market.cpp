@@ -6,10 +6,16 @@ namespace asterion::terminal {
 void Application::Impl::register_market_commands() {
   core.command("market.local", "node.manage", [this](const json& p) {
     fields(p, {});
-    if (!nodes.contains("local"))
-      nodes.emplace("local", std::make_shared<NodeClient>(local_node()));
+    if (market && nodes.contains("local"))
+      return snapshot();
+    auto [node, next] = without_operations([existing = existing_local_node()] {
+      auto node = local_node_client(existing);
+      auto client = std::make_shared<MarketClient>(node->local_market());
+      return std::pair{std::move(node), std::move(client)};
+    });
+    nodes.try_emplace("local", std::move(node));
     if (!market)
-      market = std::make_unique<MarketClient>(nodes.at("local")->local_market());
+      market = std::move(next);
     return snapshot();
   });
   core.command("market.attach", "node.manage", [this](const json& p) {

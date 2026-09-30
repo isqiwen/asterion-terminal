@@ -74,11 +74,14 @@ void Application::Impl::register_node_commands() {
     fields(p, {"plugins"});
     if (!p.at("plugins").is_array())
       throw std::invalid_argument("invalid native plugin selection");
-    if (!nodes.contains("local"))
-      nodes.emplace("local", std::make_shared<NodeClient>(local_node()));
-    const auto endpoint =
-        nodes.at("local")->local_research(p.at("plugins").get<std::vector<std::string>>());
-    research = std::make_shared<ResearchClient>(endpoint);
+    const auto plugins = p.at("plugins").get<std::vector<std::string>>();
+    auto [node, next] = without_operations([&, existing = existing_local_node()] {
+      auto node = local_node_client(existing);
+      auto client = std::make_shared<ResearchClient>(node->local_research(plugins));
+      return std::pair{std::move(node), std::move(client)};
+    });
+    nodes.try_emplace("local", std::move(node));
+    research = std::move(next);
     ++research_generation;
     return snapshot();
   });

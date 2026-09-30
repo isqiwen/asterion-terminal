@@ -24,18 +24,28 @@ void Application::Impl::register_paper_commands() {
     auto dataset = protocol::decode_bar_dataset(selected().dataset);
     json manifest{{"version", 2}, {"type", "historical_paper"}, {"costs", costs},
                   {"risk", risk}, {"deposit", deposit},         {"dataset", std::move(dataset)}};
-    if (remote)
-      paper->create(manifest);
-    else {
-      if (!nodes.contains("local"))
-        nodes.emplace("local", std::make_shared<NodeClient>(local_node()));
-      const auto directory = text(p, "directory");
-      paper = std::make_unique<TradingClient>(
-          std::filesystem::path(std::u8string(directory.begin(), directory.end())), manifest);
-    }
     // Every dataset carries data-source settlement prices, so each trading
     // day ends with its bound settlement instead of a typed price.
-    paper->execute({{"request_id", "replay-days"}, {"action", "replay_days"}});
+    const json schedule{{"request_id", "replay-days"}, {"action", "replay_days"}};
+    if (remote) {
+      paper->create(manifest);
+      paper->execute(schedule);
+      return snapshot();
+    }
+    // Starting the session service waits for the Agent; other commands proceed.
+    const auto directory = text(p, "directory");
+    auto [node, next] = without_operations([&, existing = existing_local_node()] {
+      auto node = local_node_client(existing);
+      auto client = std::make_unique<TradingClient>(
+          std::filesystem::path(std::u8string(directory.begin(), directory.end())), manifest);
+      client->execute(schedule);
+      return std::pair{std::move(node), std::move(client)};
+    });
+    nodes.try_emplace("local", std::move(node));
+    if (paper)
+      throw Error(ErrorCode::conflict, "another window opened a paper session meanwhile; "
+                                       "recover this directory after closing it");
+    paper = std::move(next);
     return snapshot();
   });
   core.command("paper.connect", "paper.manage", [this](const json& p) {
@@ -70,11 +80,18 @@ void Application::Impl::register_paper_commands() {
     fields(p, {"directory"});
     if (paper)
       throw std::invalid_argument("close the current paper session first");
-    if (!nodes.contains("local"))
-      nodes.emplace("local", std::make_shared<NodeClient>(local_node()));
     const auto directory = text(p, "directory");
-    paper = std::make_unique<TradingClient>(
-        std::filesystem::path(std::u8string(directory.begin(), directory.end())));
+    auto [node, next] = without_operations([&, existing = existing_local_node()] {
+      auto node = local_node_client(existing);
+      auto client = std::make_unique<TradingClient>(
+          std::filesystem::path(std::u8string(directory.begin(), directory.end())));
+      return std::pair{std::move(node), std::move(client)};
+    });
+    nodes.try_emplace("local", std::move(node));
+    if (paper)
+      throw Error(ErrorCode::conflict, "another window opened a paper session meanwhile; "
+                                       "recover this directory after closing it");
+    paper = std::move(next);
     return snapshot();
   });
   core.command("paper.close", "paper.manage", [this](const json& p) {
