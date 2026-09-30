@@ -361,7 +361,6 @@
   "数据版本": "Dataset revision",
   "日线": "Daily",
   "{n} 分钟": "{n} min",
-  "{instrument} · {period} · {source}": "{instrument} · {period} · {source}",
   "{count} 根 · {days} 个交易日": "{count} bars · {days} trading days",
   "最小变动价位 {tick} · 合约乘数 {multiplier}": "Price tick {tick} · Multiplier {multiplier}",
   "研究服务未连接，无法读取已下载的历史数据。": "The research service is not connected, so downloaded history is unavailable.",
@@ -369,5 +368,6 @@
   "选择已完成的下载": "Choose a completed download",
   "选择日线下载": "Choose a daily download",
   "需要同一合约的日线下载": "Requires a daily download of the same contract",
-  "交易日区间留空表示全部；合约单位以交易所公布为准。": "Leave the day range empty to use everything; contract units follow the exchange specification."
+  "交易日区间留空表示全部；合约单位以交易所公布为准。": "Leave the day range empty to use everything; contract units follow the exchange specification.",
+  "{instrument} · {period} · {source} · {time}": "{instrument} · {period} · {source} · {time}"
 }

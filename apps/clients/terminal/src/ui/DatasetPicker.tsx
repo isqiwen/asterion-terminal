@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { translate, type MessageValues } from "../i18n";
+import { getLocale, translate, type MessageValues } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import type { ResearchTask, Snapshot, TerminalCommand } from "../bridge/client";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
@@ -7,8 +7,9 @@ const t = (key: string, values?: MessageValues) => translate("host", key, values
 const download = (task: ResearchTask) =>
   task.state === "succeeded" && (task.kind === "minute_download" || task.kind === "daily_download");
 const label = (task: ResearchTask) =>
-  t("{instrument} · {period} · {source}", {
+  t("{instrument} · {period} · {source} · {time}", {
     instrument: task.instrument,
+    time: new Date(task.updated_at_ms).toLocaleString(getLocale(), { hour12: false }),
     period:
       task.kind === "daily_download"
         ? t("日线")
@@ -31,7 +32,10 @@ export function DatasetPicker({
   locked?: boolean;
 }) {
   const selected = snapshot?.dataset ?? null;
-  const tasks = (snapshot?.research?.tasks ?? []).filter(download);
+  // Newest first, so the default settlement is the latest completed download.
+  const tasks = (snapshot?.research?.tasks ?? [])
+    .filter(download)
+    .sort((left, right) => right.updated_at_ms - left.updated_at_ms);
   const [source, setSource] = useState("");
   const [settlement, setSettlement] = useState("");
   const [range, setRange] = useState({ begin_day: "", end_day: "" });

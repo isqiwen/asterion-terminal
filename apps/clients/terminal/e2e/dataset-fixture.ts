@@ -26,6 +26,8 @@ type Snapshot = { nodes: { id: string; health: { services: Service[] } }[] };
 // Returns the research.dataset.select parameters for the seeded downloads.
 export async function seedHistory(request: APIRequestContext, prices: number[], id: string) {
   expect(process.env.ASTERION_TEST_NODE_ISOLATED).toBe("1");
+  // The selection lives in the shared core process; earlier specs may leave one.
+  await rpc(request, "research.dataset.clear");
   await rpc(request, "research.local");
   const snapshot: Snapshot = await rpc(request, "node.action", {
     id: "local",
