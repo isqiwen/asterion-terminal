@@ -1,3 +1,4 @@
+#include "sqlite_database.hpp"
 #include "engine.hpp"
 #include "risk_module.hpp"
 #include "bar_fixture.hpp"
@@ -240,7 +241,7 @@ TEST(ResearchTasks, ModifiedResultNeverLoadsAsSuccess) {
     store.finish("done", store.claim("done"), backtest::run(input()));
   }
   {
-    std::ofstream file(directory.path / "done" / "results" / "1" / "00000000.json", std::ios::app);
+    std::ofstream file(directory.path / "done" / "results" / "1.json", std::ios::app);
     file << " ";
   }
   EXPECT_THROW(tasks::Store corrupted(directory.path), std::invalid_argument);
@@ -274,7 +275,7 @@ TEST(ResearchTasks, VerificationSnapshotCannotBypassCancellationOrANewerAttempt)
       store.finish(std::move(pending));
       EXPECT_EQ(store.get("job").state(), research::v1::CANCELLED);
     }
-    EXPECT_FALSE(std::filesystem::exists(directory.path / "job" / "results" / "1"));
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "job" / "results" / "1.json"));
   }
 }
 TEST(ResearchTasks, VerificationSnapshotIsOwnedAndExpiredAttemptCannotCommit) {
@@ -291,7 +292,7 @@ TEST(ResearchTasks, VerificationSnapshotIsOwnedAndExpiredAttemptCannotCommit) {
   store.interrupt("job", request.token(), "test lease expired");
   EXPECT_THROW(store.finish(std::move(pending)), std::invalid_argument);
   EXPECT_EQ(store.get("job").state(), research::v1::INTERRUPTED);
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "job" / "results" / "1"));
+  EXPECT_FALSE(std::filesystem::exists(directory.path / "job" / "results" / "1.json"));
 }
 TEST(ResearchTasks, RepeatedVerifiedReadsStillDetectChangedResultBytes) {
   TaskDirectory directory;
@@ -302,7 +303,7 @@ TEST(ResearchTasks, RepeatedVerifiedReadsStillDetectChangedResultBytes) {
   for (int i = 0; i < 3; ++i)
     EXPECT_EQ(store.result("done").SerializeAsString(), expected.SerializeAsString());
   {
-    std::ofstream file(directory.path / "done" / "results" / "1" / "00000000.json", std::ios::app);
+    std::ofstream file(directory.path / "done" / "results" / "1.json", std::ios::app);
     file << " ";
   }
   EXPECT_THROW(store.result("done"), std::invalid_argument);
@@ -494,7 +495,7 @@ TEST(ResearchTasks, RejectsMismatchedResultContractAndMetrics) {
   result.mutable_max_drawdown()->set_units(0);
   EXPECT_THROW(store.finish("job", token, result), std::invalid_argument);
   EXPECT_EQ(store.get("job").state(), research::v1::RUNNING);
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "job" / "results" / "1"));
+  EXPECT_FALSE(std::filesystem::exists(directory.path / "job" / "results" / "1.json"));
   store.finish("job", token, backtest::run(input()));
 }
 
@@ -589,8 +590,13 @@ TEST(ResearchTasks, RejectsMissingOrDuplicateChronologyWithoutRewritingEvidence)
       store.submit("first", input());
       store.submit("second", input());
     }
-    auto file = directory.path / "second" / "journal" / "00000000.json";
-    auto record = Json::parse(std::ifstream(file));
+    const auto manifest = [&] {
+      sqlite::Database database(directory.path / "tasks.sqlite");
+      sqlite::Database::Statement read(database, "SELECT manifest FROM tasks WHERE id='second'");
+      EXPECT_TRUE(read.step());
+      return Json::parse(read.text(0));
+    };
+    auto record = manifest();
     const std::string kind = mode;
     if (kind == "old")
       record["version"] = 1;
@@ -605,11 +611,12 @@ TEST(ResearchTasks, RejectsMissingOrDuplicateChronologyWithoutRewritingEvidence)
     else
       record["submitted_at_ms"] = std::numeric_limits<std::uint64_t>::max();
     {
-      std::ofstream output(file);
-      output << record.dump();
+      sqlite::Database database(directory.path / "tasks.sqlite");
+      sqlite::Database::Statement write(database, "UPDATE tasks SET manifest=? WHERE id='second'");
+      write.bind(1, record.dump()).step();
     }
     EXPECT_THROW(tasks::Store rejected(directory.path), std::exception);
-    EXPECT_EQ(Json::parse(std::ifstream(file)), record);
+    EXPECT_EQ(manifest(), record);
   }
 }
 

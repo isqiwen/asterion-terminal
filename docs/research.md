@@ -2,7 +2,7 @@
 
 ## 任务服务
 
-`asterion-task-service` 持久化研究任务和执行尝试；Node Agent 按任务类型启动工作程序（每个研究服务最多同时 2 个）。
+`asterion-task-service` 持久化研究任务和执行尝试：任务清单与每次状态变化写入研究服务目录的 `tasks.sqlite`（任务表带当前状态、尝试次数和更新时间索引），结果以带 SHA-256 的单个文件保存在各任务目录。Node Agent 按任务类型启动工作程序（每个研究服务最多同时 2 个）。早期版本的任务目录不在索引中，不加载也不删除，只保留其 ID 不被复用。
 
 - 状态：`queued → running → succeeded / failed`；取消运行中任务先进入 `cancel_requested`，工作程序确认后为 `cancelled`。
 - `failed`、`cancelled`、`interrupted` 可显式重试，每次重试是新的执行尝试，带独立令牌。

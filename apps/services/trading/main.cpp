@@ -52,7 +52,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<asterion::trading::PaperSession> session;
     // A remote service recovers its server-owned ledger before accepting
     // clients.
-    if (std::filesystem::exists(journal / "00000000.json"))
+    if (std::filesystem::exists(journal / "journal.sqlite"))
       session = std::make_unique<asterion::trading::PaperSession>(journal);
     const auto started = std::chrono::steady_clock::now();
     const auto instance = asterion::unique_process_id();

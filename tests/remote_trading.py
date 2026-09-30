@@ -97,7 +97,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-tcp-中文-", ignore_cleanup_e
             assert request(observer, "runtime.snapshot")["paper"] == expected
         finally:
             stop(observer)
-        assert expected["cursor"] == 1 and (account / "00000001.json").exists()
+        assert expected["cursor"] == 1 and (account / "journal.sqlite").exists()
         request(terminal, "paper.close")
         assert daemon.poll() is None
         assert request(terminal, "paper.connect", params)["paper"] == expected

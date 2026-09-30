@@ -1,3 +1,4 @@
+#include "sqlite_journal.hpp"
 #include <asterion/kernel/native_plugin.hpp>
 #include "node_client.hpp"
 #include <asterion/kernel/ipc/local_channel.hpp>
@@ -363,10 +364,8 @@ ServiceEndpoint NodeClient::local_session(const std::filesystem::path& directory
   if (!directory.is_absolute() || !std::filesystem::is_directory(directory) ||
       std::filesystem::is_symlink(directory))
     throw std::invalid_argument("choose an existing absolute trading record directory");
-  if (std::filesystem::exists(directory / "pending.tmp") ||
-      std::filesystem::is_symlink(directory / "pending.tmp"))
-    throw std::invalid_argument("incomplete trading journal write; preserve it "
-                                "for inspection before recovery");
+  // Reported here: a service that refuses the directory only shows as unreachable.
+  check_journal_directory(directory, {"plugins"});
   const auto path = std::filesystem::canonical(directory).u8string();
   const std::string value(path.begin(), path.end());
   std::string service;

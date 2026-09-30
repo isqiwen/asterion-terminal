@@ -1,3 +1,4 @@
+#include "sqlite_database.hpp"
 #include "daily_factor_source.hpp"
 #include "factor_engine.hpp"
 #include "history_daily.hpp"
@@ -827,13 +828,21 @@ TEST(DailyTasks, ProviderArtifactIsImmutableAcrossRetryAndStoreRestart) {
     EXPECT_EQ(store.retry("pinned").provider_artifact(), artifact);
     EXPECT_EQ(store.dispatch({}).launches(0).provider_artifact(), artifact);
   }
-  const auto path = folder.path / "pinned/journal/00000000.json";
-  auto manifest = Json::parse(std::ifstream(path));
-  manifest["version"] = 2;
-  manifest.erase("provider_artifact");
-  const auto evidence = manifest.dump();
-  replace_file_durably(path, evidence);
+  std::string evidence;
+  {
+    sqlite::Database database(folder.path / "tasks.sqlite");
+    sqlite::Database::Statement read(database, "SELECT manifest FROM tasks WHERE id='pinned'");
+    ASSERT_TRUE(read.step());
+    auto manifest = Json::parse(read.text(0));
+    manifest["version"] = 2;
+    manifest.erase("provider_artifact");
+    evidence = manifest.dump();
+    sqlite::Database::Statement write(database, "UPDATE tasks SET manifest=? WHERE id='pinned'");
+    write.bind(1, evidence).step();
+  }
   EXPECT_THROW(tasks::Store{folder.path}, std::invalid_argument);
-  std::ifstream stream(path);
-  EXPECT_EQ(std::string(std::istreambuf_iterator<char>(stream), {}), evidence);
+  sqlite::Database database(folder.path / "tasks.sqlite");
+  sqlite::Database::Statement read(database, "SELECT manifest FROM tasks WHERE id='pinned'");
+  ASSERT_TRUE(read.step());
+  EXPECT_EQ(read.text(0), evidence) << "unsupported task evidence is kept, not rewritten";
 }

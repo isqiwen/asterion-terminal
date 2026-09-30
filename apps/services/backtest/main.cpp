@@ -1,6 +1,6 @@
 #include <asterion/kernel/native_plugin.hpp>
 #include "engine.hpp"
-#include "file_journal.hpp"
+#include "sqlite_journal.hpp"
 #include "task_worker.hpp"
 #include <CLI/CLI.hpp>
 #include <asterion/kernel/process/owner.hpp>
@@ -74,7 +74,7 @@ int main(int argc, char** argv) {
     if (std::filesystem::is_symlink(
             std::filesystem::path(std::u8string(output_path.begin(), output_path.end()))))
       throw std::invalid_argument("result directory must not be a symbolic link");
-    asterion::FileJournal output(std::filesystem::absolute(
+    asterion::SqliteJournal output(std::filesystem::absolute(
         std::filesystem::path(std::u8string(output_path.begin(), output_path.end()))));
     output.start();
     if (!output.read().empty())

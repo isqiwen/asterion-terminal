@@ -1,10 +1,11 @@
+#include "journal_fixture.hpp"
 #include "timing.hpp"
 #include <gtest/gtest.h>
 #include <asterion/domain/account.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include "paper_execution.hpp"
 #include "order_limits.hpp"
-#include "file_journal.hpp"
+#include "sqlite_journal.hpp"
 #include "paper_session.hpp"
 #include <asterion/protocol/data.hpp>
 #include "bar_fixture.hpp"
@@ -156,33 +157,53 @@ TEST(PaperExecution, UsesOnlyFollowingBarsAndSharesParticipationInArrivalOrder) 
   EXPECT_THROW(engine.advance(), std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), state);
 }
-TEST(FileJournal, ExclusiveWriterRecoveryAndCorruptionRejection) {
+TEST(SqliteJournal, ExclusiveWriterRecoveryAndCorruptionRejection) {
   Directory directory;
   {
-    FileJournal journal(directory.path);
+    SqliteJournal journal(directory.path);
     journal.start();
     journal.append({{"test", 1}});
-    FileJournal other(directory.path);
+    SqliteJournal other(directory.path);
     EXPECT_THROW(other.start(), std::runtime_error);
     journal.append({{"test", 2}});
     EXPECT_EQ(journal.read().size(), 2);
   }
   {
-    std::ofstream abandoned(directory.path / "pending.tmp");
-    abandoned << "partial";
-  }
-  {
-    FileJournal recovered(directory.path);
+    SqliteJournal recovered(directory.path);
     recovered.start();
     EXPECT_EQ(recovered.read().size(), 2);
+    EXPECT_EQ(recovered.read().back(), (Json{{"test", 2}}));
   }
+  // Unknown files are never adopted or removed.
+  std::ofstream(directory.path / "notes.txt") << "user file";
   {
-    std::ofstream corrupt(directory.path / "00000001.json");
-    corrupt << "{";
+    SqliteJournal stray(directory.path);
+    EXPECT_THROW(stray.start(), std::invalid_argument);
   }
-  FileJournal corrupt(directory.path);
+  std::filesystem::remove(directory.path / "notes.txt");
+  const auto file = directory.path / "journal.sqlite";
+  const auto size = std::filesystem::file_size(file);
+  {
+    std::fstream corrupt(file, std::ios::in | std::ios::out | std::ios::binary);
+    corrupt.seekp(0);
+    corrupt << "not a database file";
+  }
+  SqliteJournal corrupt(directory.path);
   EXPECT_ANY_THROW(corrupt.start());
-  EXPECT_EQ(std::filesystem::file_size(directory.path / "00000001.json"), 1);
+  EXPECT_EQ(std::filesystem::file_size(file), size) << "corrupt journal kept for inspection";
+}
+TEST(SqliteJournal, RetiredFileJournalIsRejectedAndLeftUntouched) {
+  Directory directory;
+  std::ofstream(directory.path / "00000000.json") << "{}";
+  SqliteJournal journal(directory.path);
+  try {
+    journal.start();
+    FAIL() << "retired format accepted";
+  } catch (const std::invalid_argument& error) {
+    EXPECT_NE(std::string(error.what()).find("retired journal format"), std::string::npos);
+  }
+  EXPECT_FALSE(std::filesystem::exists(directory.path / "journal.sqlite"));
+  EXPECT_EQ(std::filesystem::file_size(directory.path / "00000000.json"), 2);
 }
 TEST(PaperSession, RecoversExactLedgerAndIdempotencyAcrossRestart) {
   Directory directory;
@@ -215,12 +236,12 @@ TEST(PaperSession, FailedCommitDoesNotPublishAndRequiresRecovery) {
   Directory directory;
   {
     PaperSession session(directory.path, manifest());
-    std::filesystem::create_directory(directory.path / "pending.tmp");
+    asterion::sqlite::fail_next_commits_for_testing(1);
     EXPECT_THROW(session.execute(advance("tick1")), std::runtime_error);
     EXPECT_EQ(session.snapshot()["cursor"], 0);
     EXPECT_EQ(session.snapshot()["storage_state"], "recovery_required");
     EXPECT_THROW(session.execute(advance("tick2")), std::runtime_error);
-    std::filesystem::remove(directory.path / "pending.tmp");
+    asterion::sqlite::fail_next_commits_for_testing(0);
   }
   PaperSession recovered(directory.path);
   EXPECT_EQ(recovered.snapshot()["cursor"], 0);
@@ -232,13 +253,13 @@ TEST(PaperSession, RejectsUnsupportedOrTamperedInputWithoutWrites) {
   auto bad = manifest();
   bad["version"] = 3;
   EXPECT_THROW(PaperSession(directory.path, bad), std::invalid_argument);
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "00000000.json"));
+  EXPECT_EQ(test::journal_size(directory.path), 0U);
   PaperSession session(directory.path, manifest());
   auto bad_command = advance("one");
   bad_command["extra"] = true;
   EXPECT_ANY_THROW(session.execute(bad_command));
   EXPECT_EQ(session.snapshot()["cursor"], 0);
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "00000001.json"));
+  EXPECT_EQ(session.snapshot()["storage_state"], "ready");
 }
 
 TEST(FuturesAccount, LossesBlockNewExposureButDoNotBlockClosing) {
@@ -430,14 +451,14 @@ TEST(StrategyTrading, FailedCommitRestoresAllAuthorizationHistoryAndCommittedLed
       else if (std::string_view(action) == "strategy_revoke")
         command = {
             {"request_id", "failed.command"}, {"action", action}, {"grant_id", g.at("grant_id")}};
-      std::filesystem::create_directory(dir.path / "pending.tmp");
+      asterion::sqlite::fail_next_commits_for_testing(1);
       EXPECT_THROW(session.execute(command), std::runtime_error);
       auto shown = session.snapshot();
       EXPECT_EQ(shown.at("storage_state"), "recovery_required");
       shown["storage_state"] = "ready";
       EXPECT_EQ(shown, committed);
       EXPECT_THROW(session.execute(command), std::runtime_error);
-      std::filesystem::remove(dir.path / "pending.tmp");
+      asterion::sqlite::fail_next_commits_for_testing(0);
     }
     PaperSession recovered(dir.path);
     EXPECT_EQ(recovered.snapshot(), committed);
@@ -471,12 +492,12 @@ TEST(StrategyTrading, InterruptedAuthorizationJournalIsNeverSilentlyOverwritten)
     session.execute(grant(manifest()));
   }
   {
-    std::ofstream pending(dir.path / "pending.tmp");
-    pending << "partial authorization change";
+    std::ofstream foreign(dir.path / "notes.txt");
+    foreign << "partial authorization change";
   }
   EXPECT_THROW((PaperSession(dir.path)), std::invalid_argument);
-  std::ifstream pending(dir.path / "pending.tmp");
-  std::string bytes{std::istreambuf_iterator<char>(pending), {}};
+  std::ifstream foreign(dir.path / "notes.txt");
+  std::string bytes{std::istreambuf_iterator<char>(foreign), {}};
   EXPECT_EQ(bytes, "partial authorization change");
 }
 
@@ -798,13 +819,6 @@ TEST(PaperExecution, RestingOrdersDoNotMakeReplayQuadratic) {
   EXPECT_EQ(execution.account().orders().size(), resting);
 }
 namespace {
-Json read_record(const std::filesystem::path& file) {
-  std::ifstream input(file, std::ios::binary);
-  return Json::parse(std::string{std::istreambuf_iterator<char>(input), {}});
-}
-void write_record(const std::filesystem::path& file, const Json& value) {
-  std::ofstream(file, std::ios::binary | std::ios::trunc) << value.dump();
-}
 void recorded_session(const std::filesystem::path& path) {
   PaperSession session(path, manifest());
   session.execute(advance("tick1"));
@@ -815,7 +829,7 @@ void recorded_session(const std::filesystem::path& path) {
 TEST(PaperSession, JournalHeaderPinsFormatAndEngineSemantics) {
   Directory directory;
   recorded_session(directory.path);
-  const auto header_file = directory.path / "00000000.json";
+  const auto header_file = test::journal_record(directory.path, 0);
   const auto header = read_record(header_file);
   EXPECT_EQ(header.at("format"), 4);
   EXPECT_EQ(header.at("manifest"), manifest());
@@ -833,7 +847,7 @@ TEST(PaperSession, JournalHeaderPinsFormatAndEngineSemantics) {
 TEST(PaperSession, ReplayDivergingFromRecordedOutcomeIsRefused) {
   Directory directory;
   recorded_session(directory.path);
-  const auto file = directory.path / "00000003.json";
+  const auto file = test::journal_record(directory.path, 3);
   auto record = read_record(file);
   ASSERT_EQ(record.at("outcome").at("fills"), 1);
   auto tampered = record;
@@ -854,14 +868,14 @@ TEST(PaperSession, FailedCommitAfterInPlaceMutationRestoresCommittedState) {
     ASSERT_EQ(committed.at("orders").at(0).at("state"), "accepted");
     // The cancel is applied in place, then the commit fails: the published
     // state must be the committed one, not the unjournaled cancel.
-    std::filesystem::create_directory(directory.path / "pending.tmp");
+    asterion::sqlite::fail_next_commits_for_testing(1);
     const Json cancel{{"request_id", "cancel"}, {"action", "cancel"}, {"order_id", "order.rest"}};
     EXPECT_THROW(session.execute(cancel), std::runtime_error);
     auto shown = session.snapshot();
     EXPECT_EQ(shown.at("storage_state"), "recovery_required");
     shown["storage_state"] = committed.at("storage_state");
     EXPECT_EQ(shown, committed);
-    std::filesystem::remove(directory.path / "pending.tmp");
+    asterion::sqlite::fail_next_commits_for_testing(0);
   }
   PaperSession recovered(directory.path);
   EXPECT_EQ(recovered.snapshot().at("orders").at(0).at("state"), "accepted");
@@ -982,15 +996,15 @@ TEST(PaperExecution, NextBarFillsAreConservativeAndCappedByParticipation) {
   EXPECT_TRUE(execution.account().positions().empty());
 }
 
-TEST(FileJournal, OnlyDeclaredRealSidecarDirectoriesAreAccepted) {
+TEST(SqliteJournal, OnlyDeclaredRealSidecarDirectoriesAreAccepted) {
   Directory directory;
   std::filesystem::create_directory(directory.path / "plugins");
   {
-    FileJournal plain(directory.path);
+    SqliteJournal plain(directory.path);
     EXPECT_THROW(plain.start(), std::invalid_argument);
   }
   {
-    FileJournal allowed(directory.path, {"plugins"});
+    SqliteJournal allowed(directory.path, {"plugins"});
     allowed.start();
     allowed.append({{"test", 1}});
   }
@@ -998,22 +1012,22 @@ TEST(FileJournal, OnlyDeclaredRealSidecarDirectoriesAreAccepted) {
   std::filesystem::create_directory_symlink(directory.path / "elsewhere",
                                             directory.path / "plugins");
   {
-    FileJournal links(directory.path, {"plugins", "elsewhere"});
+    SqliteJournal links(directory.path, {"plugins", "elsewhere"});
     EXPECT_THROW(links.start(), std::invalid_argument);
   }
   std::filesystem::remove(directory.path / "plugins");
   std::ofstream(directory.path / "plugins") << "not a directory";
   {
-    FileJournal files(directory.path, {"plugins", "elsewhere"});
+    SqliteJournal files(directory.path, {"plugins", "elsewhere"});
     EXPECT_THROW(files.start(), std::invalid_argument);
   }
-  EXPECT_THROW((FileJournal(directory.path, {"../outside"})), std::invalid_argument);
-  EXPECT_THROW((FileJournal(directory.path, {"writer.lock"})), std::invalid_argument);
+  EXPECT_THROW((SqliteJournal(directory.path, {"../outside"})), std::invalid_argument);
+  EXPECT_THROW((SqliteJournal(directory.path, {"journal.sqlite"})), std::invalid_argument);
 }
 TEST(PaperSession, RecoveryRequiresOriginalRiskArtifactAndPreservesLedgerOnFailure) {
   Directory directory;
   recorded_session(directory.path);
-  const auto header_file = directory.path / "00000000.json";
+  const auto header_file = test::journal_record(directory.path, 0);
   const auto header = read_record(header_file);
   const auto plugin = risk_providers::Module::filename(directory.path / "plugins");
   ASSERT_TRUE(std::filesystem::is_regular_file(plugin));
@@ -1051,7 +1065,7 @@ TEST(PaperSession, RecoveryUsesOwnedRiskEvenWhenDefaultPluginIsUnavailable) {
   } restore;
   configure_native_plugins(empty_plugins.path);
   EXPECT_THROW((PaperSession(new_ledger.path, manifest())), std::exception);
-  EXPECT_FALSE(std::filesystem::exists(new_ledger.path / "00000000.json"));
+  EXPECT_EQ(test::journal_size(new_ledger.path), 0U);
   PaperSession recovered(ledger.path);
   EXPECT_EQ(recovered.snapshot().at("fills").size(), 1U);
 }

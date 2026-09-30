@@ -397,5 +397,14 @@
   "风控插件副本已存在或目录无效": "risk plugin snapshot already exists or directory is invalid",
   "保存副本前风控插件已改变": "risk plugin artifact changed before capture",
   "该任务不应携带风控插件摘要": "unexpected task risk artifact",
-  "日志附属目录无效": "invalid journal sidecar directory"
+  "日志附属目录无效": "invalid journal sidecar directory",
+  "this directory uses a retired journal format; choose a new empty directory": "this directory uses a retired journal format; choose a new empty directory",
+  "trading directory contains unknown files; use a dedicated directory": "trading directory contains unknown files; use a dedicated directory",
+  "database is in use by another writer": "database is in use by another writer",
+  "database file is corrupted": "database file is corrupted",
+  "unsupported journal format": "unsupported journal format",
+  "task state history has a gap": "task state history has a gap",
+  "indexed task directory is missing": "indexed task directory is missing",
+  "strategy directory must be absolute and existing": "strategy directory must be absolute and existing",
+  "strategy directory must be absolute": "strategy directory must be absolute"
 }

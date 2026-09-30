@@ -7,9 +7,9 @@ class Asterion(ConanFile):
     version = "0.1.0"
     settings = "os", "compiler", "build_type", "arch"
     generators = "CMakeDeps"
-    requires = "ctp/6.7.7", "nlohmann_json/3.12.0", "spdlog/1.17.0", "cli11/2.6.0", "protobuf/5.29.3", "openssl/3.6.2", "asio/1.30.2", "cpp-httplib/0.47.0"
+    requires = "ctp/6.7.7", "nlohmann_json/3.12.0", "spdlog/1.17.0", "cli11/2.6.0", "protobuf/5.29.3", "openssl/3.6.2", "asio/1.30.2", "cpp-httplib/0.47.0", "sqlite3/3.53.4", "duckdb/1.4.3"
     options = {"with_tests": [True, False]}
-    default_options = {"with_tests": True, "cpp-httplib/*:with_openssl": True, "spdlog/*:header_only": True, "fmt/*:header_only": True, "gtest/*:with_gmock": False, "protobuf/*:with_zlib": False}
+    default_options = {"with_tests": True, "cpp-httplib/*:with_openssl": True, "spdlog/*:header_only": True, "fmt/*:header_only": True, "gtest/*:with_gmock": False, "protobuf/*:with_zlib": False, "sqlite3/*:threadsafe": 2, "duckdb/*:with_threads": True}
 
     def validate(self):
         if str(self.settings.os) == "Linux" and str(self.settings.arch) != "x86_64":

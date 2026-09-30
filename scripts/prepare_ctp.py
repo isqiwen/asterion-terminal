@@ -25,3 +25,5 @@ for name, item in manifest.items():
             raise SystemExit("CTP SDK checksum mismatch: " + name)
         target.write_bytes(data)
 subprocess.run(["conan", "export-pkg", str(ROOT / "conan/ctp"), "--output-folder", str(stage / "conan"), "-s", "os=" + {"macos":"Macos","linux":"Linux","windows":"Windows"}[args.os], "-s", "arch=" + args.arch, "-c", "user.ctp:sdk_root=" + str(stage)], check=True)
+# Local recipes that patch an upstream dependency; conan.lock pins their revisions.
+subprocess.run(["conan", "export", str(ROOT / "conan/duckdb"), "--version", "1.4.3"], check=True)

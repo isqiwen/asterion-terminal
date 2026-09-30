@@ -188,10 +188,6 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
 }
 PaperSession::PaperSession(std::filesystem::path directory, const Json& create_manifest)
     : journal_(directory, {"plugins"}) {
-  if (std::filesystem::exists(directory / "pending.tmp") ||
-      std::filesystem::is_symlink(directory / "pending.tmp"))
-    throw std::invalid_argument("incomplete trading journal write; preserve it "
-                                "for inspection before recovery");
   journal_.start();
   auto records = journal_.read();
   if (!create_manifest.is_null()) {

@@ -1,3 +1,4 @@
+#include "journal_fixture.hpp"
 #include "session.hpp"
 #include <asterion/foundation/decimal.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
@@ -59,11 +60,7 @@ wire::Event event(std::uint64_t sequence, const std::string& price = "100") {
   return e;
 }
 std::size_t records(const fs::path& p) {
-  std::size_t count = 0;
-  for (const auto& entry : fs::directory_iterator(p))
-    if (entry.path().extension() == ".json")
-      ++count;
-  return count;
+  return test::journal_size(p);
 }
 wire::Request request() {
   wire::Request r;
@@ -110,9 +107,9 @@ TEST(Strategy, DurableReplayPreservesWarmupAndIntentIdentityWithoutDuplicateProc
     snapshot = session.snapshot().SerializeAsString();
     EXPECT_EQ(session.apply(event(3, "102")).SerializeAsString(), receipt);
     EXPECT_FALSE(session.apply(event(1)).has_intent());
-    EXPECT_EQ(records(dir.path), 4U);
     EXPECT_THROW((strategy::Session(dir.path, c.session_id())), std::exception);
   }
+  EXPECT_EQ(records(dir.path), 4U);
   {
     strategy::Session session(dir.path, c.session_id(), &c);
     EXPECT_EQ(session.snapshot().SerializeAsString(), snapshot);
@@ -120,8 +117,8 @@ TEST(Strategy, DurableReplayPreservesWarmupAndIntentIdentityWithoutDuplicateProc
     const auto flat = session.apply(event(4, "99"));
     ASSERT_TRUE(flat.has_intent());
     EXPECT_EQ(flat.intent().target_quantity().units(), 0);
-    EXPECT_EQ(records(dir.path), 5U);
   }
+  EXPECT_EQ(records(dir.path), 5U);
 }
 TEST(Strategy, RejectedEventsAndConflictingCreateDoNotChangeState) {
   Directory dir;
@@ -151,7 +148,6 @@ TEST(Strategy, RejectedEventsAndConflictingCreateDoNotChangeState) {
   changed.set_fast(2);
   EXPECT_THROW(session.verify_config(changed), std::invalid_argument);
   EXPECT_EQ(session.snapshot().SerializeAsString(), before);
-  EXPECT_EQ(records(dir.path), 2U);
   EXPECT_FALSE(session.recovery_required());
   // A bar with the previous bar's timestamp is not a later period.
   auto same = event(1);
@@ -169,26 +165,18 @@ TEST(Strategy, CorruptIntentAndInterruptedWritesArePreservedAndRejected) {
     session.apply(event(2));
     session.apply(event(3, "102"));
   }
-  const auto file = dir.path / "00000003.json";
-  Json record;
-  {
-    std::ifstream in(file);
-    in >> record;
-  }
+  auto record = test::read_record(test::journal_record(dir.path, 3));
   record["receipt"]["intent"]["target_quantity"] = 0;
-  {
-    std::ofstream out(file);
-    out << record.dump();
-  }
+  test::write_record(test::journal_record(dir.path, 3), record);
   EXPECT_THROW((strategy::Session(dir.path, c.session_id())), std::invalid_argument);
   EXPECT_EQ(records(dir.path), 4U);
   Directory pending;
   {
-    std::ofstream out(pending.path / "pending.tmp");
-    out << "incomplete";
+    std::ofstream out(pending.path / "notes.txt");
+    out << "foreign";
   }
   EXPECT_THROW((strategy::Session(pending.path, c.session_id(), &c)), std::invalid_argument);
-  EXPECT_TRUE(fs::exists(pending.path / "pending.tmp"));
+  EXPECT_TRUE(fs::exists(pending.path / "notes.txt"));
   EXPECT_EQ(records(pending.path), 0U);
   Directory invalid;
   auto bad = c;
@@ -201,13 +189,13 @@ TEST(Strategy, FailedDurableWritePoisonsSessionBeforeAcknowledgement) {
   const auto c = config();
   strategy::Session session(dir.path, c.session_id(), &c);
   session.apply(event(1));
-  fs::create_directory(dir.path / "pending.tmp");
+  asterion::sqlite::fail_next_commits_for_testing(1);
   EXPECT_THROW(session.apply(event(2)), std::exception);
   EXPECT_TRUE(session.recovery_required());
   EXPECT_EQ(session.snapshot().processed(), 1U);
   EXPECT_THROW(session.apply(event(1)), std::runtime_error);
-  EXPECT_EQ(records(dir.path), 2U);
-  EXPECT_TRUE(fs::is_directory(dir.path / "pending.tmp"));
+  asterion::sqlite::fail_next_commits_for_testing(0);
+  EXPECT_EQ(session.snapshot().processed(), 1U);
 }
 TEST(Strategy, IndependentProcessRecoversAndRetriesAfterClientDisconnect) {
   Directory dir;

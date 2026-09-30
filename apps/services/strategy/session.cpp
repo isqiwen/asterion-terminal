@@ -1,5 +1,5 @@
 #include "session.hpp"
-#include "file_journal.hpp"
+#include "sqlite_journal.hpp"
 #include "moving_average.hpp"
 #include <asterion/domain/futures.hpp>
 #include <asterion/kernel/process/artifact.hpp>
@@ -103,7 +103,7 @@ Json receipt_json(const v1::Receipt& receipt) {
 }
 } // namespace
 struct Session::Impl {
-  FileJournal journal;
+  SqliteJournal journal;
   v1::Config config;
   Json intent_scope;
   std::unique_ptr<MovingAverage> plugin;
@@ -136,11 +136,8 @@ Session::Session(const std::filesystem::path& directory, const std::string& sess
     : impl_(std::make_unique<Impl>(directory)) {
   validate_id(session_id);
   if (!directory.is_absolute() || !std::filesystem::is_directory(directory) ||
-      std::filesystem::is_symlink(directory) ||
-      std::filesystem::exists(directory / "pending.tmp") ||
-      std::filesystem::is_symlink(directory / "pending.tmp"))
-    throw std::invalid_argument("strategy directory must be absolute, existing "
-                                "and have no incomplete journal write");
+      std::filesystem::is_symlink(directory))
+    throw std::invalid_argument("strategy directory must be absolute and existing");
   if (create) {
     static_cast<void>(config_json(*create));
     if (create->session_id() != session_id)

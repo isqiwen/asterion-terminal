@@ -38,14 +38,12 @@ int main(int argc, char** argv) {
     if (!health_endpoint.empty() && health_endpoint == transport.endpoint)
       throw std::invalid_argument("health and event endpoints must be distinct");
     const std::filesystem::path path(std::u8string(directory.begin(), directory.end()));
-    if (!path.is_absolute() || std::filesystem::is_symlink(path) ||
-        std::filesystem::exists(path / "pending.tmp") ||
-        std::filesystem::is_symlink(path / "pending.tmp"))
-      throw std::invalid_argument("strategy directory requires inspection or is not absolute");
+    if (!path.is_absolute() || std::filesystem::is_symlink(path))
+      throw std::invalid_argument("strategy directory must be absolute");
     service::install_stop_signals();
     service::OwnerWatch owner(owner_pid);
     std::unique_ptr<strategy::Session> session;
-    if (std::filesystem::exists(path / "00000000.json"))
+    if (std::filesystem::exists(path / "journal.sqlite"))
       session = std::make_unique<strategy::Session>(path, session_id);
     const auto instance = unique_process_id();
     const auto started = std::chrono::steady_clock::now();

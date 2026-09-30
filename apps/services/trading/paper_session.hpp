@@ -1,5 +1,5 @@
 #pragma once
-#include "file_journal.hpp"
+#include "sqlite_journal.hpp"
 #include "risk_module.hpp"
 #include <optional>
 #include "paper_execution.hpp"
@@ -26,7 +26,7 @@ private:
   void validate_history(const Json& command) const;
   void apply(PaperExecution& engine, Json& authorization, Json& replay,
              std::shared_ptr<const PaperReplaySchedule>& schedule, const Json& command) const;
-  FileJournal journal_;
+  SqliteJournal journal_;
   std::optional<risk_providers::Module> risk_module_;
   std::unique_ptr<PaperExecution> engine_;
   Json manifest_;

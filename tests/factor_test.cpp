@@ -2,7 +2,7 @@
 #include "bar_fixture.hpp"
 #include "task_store.hpp"
 #include "daily_momentum.hpp"
-#include "file_journal.hpp"
+#include "sqlite_journal.hpp"
 #include "momentum.hpp"
 #include <asterion/kernel/process/child.hpp>
 #include <cmath>
@@ -184,7 +184,7 @@ TEST(Factor, StandaloneProcessPersistsTypedResultAndRefusesOverwrite) {
   EXPECT_EQ(execute(source), 0);
   Json record;
   {
-    FileJournal journal(destination);
+    SqliteJournal journal(destination);
     journal.start();
     const auto values = journal.read();
     ASSERT_EQ(values.size(), 1U);
@@ -193,7 +193,7 @@ TEST(Factor, StandaloneProcessPersistsTypedResultAndRefusesOverwrite) {
   }
   EXPECT_NE(execute(source), 0);
   {
-    FileJournal journal(destination);
+    SqliteJournal journal(destination);
     journal.start();
     ASSERT_EQ(journal.read().size(), 1U);
     EXPECT_EQ(journal.read().front(), record);

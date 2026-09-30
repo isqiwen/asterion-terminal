@@ -65,15 +65,14 @@ with tempfile.TemporaryDirectory(prefix="asterion-crash-中文-", ignore_cleanup
     finally:
         kill(process)  # Kill the desktop host too; the ledger process was already force-terminated.
     source.unlink()
-    (directory / "pending.tmp").write_text('{"incomplete":', encoding="utf-8")
+    (directory / "notes.txt").write_text("user file", encoding="utf-8")
     process = launch()
     try:
         rejected = call(process, "paper.open", {"directory": str(directory)}, error=True)
-        assert "incomplete trading journal" in rejected["message"], rejected
-        assert (directory / "pending.tmp").read_text(encoding="utf-8") == '{"incomplete":'
-        # Explicit fixture inspection: this is a known test-injected partial file,
-        # not a product migration or an automatic deletion of uncertain commands.
-        (directory / "pending.tmp").unlink()
+        assert "unknown files" in rejected["message"], rejected
+        assert (directory / "notes.txt").read_text(encoding="utf-8") == "user file"
+        # Explicit fixture cleanup: the ledger never adopts or removes foreign files.
+        (directory / "notes.txt").unlink()
         recovered = call(process, "paper.open", {"directory": str(directory)})["paper"]
         assert recovered == expected, (recovered, expected)
         assert recovered["risk"] == {"max_order_quantity":"1", "max_gross_quantity":"1", "max_working_orders":1}

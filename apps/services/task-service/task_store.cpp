@@ -10,7 +10,7 @@
 #include "task_store.hpp"
 #include "engine.hpp"
 #include "factor_engine.hpp"
-#include "file_journal.hpp"
+#include "sqlite_database.hpp"
 #include <algorithm>
 #include <asterion/foundation/decimal.hpp>
 #include <asterion/kernel/process/artifact.hpp>
@@ -194,7 +194,6 @@ struct Store::Impl {
   struct Entry {
     wire::Task task;
     std::string token;
-    std::unique_ptr<FileJournal> journal;
     // Repeated reads still verify the file digest. Deterministic recomputation
     // is needed only once per confirmed digest in this process.
     mutable std::string verified_digest;
@@ -202,8 +201,11 @@ struct Store::Impl {
   fs::path root;
   std::unique_ptr<history_files::Archive> archive;
   std::unique_ptr<FileLock> owner;
+  // Task index and state history: one row per task, one per state change.
+  std::unique_ptr<sqlite::Database> database;
   std::map<std::string, Entry> entries;
-  // Retired tasks preserved on disk; see the loader.
+  // Directories without an indexed task (earlier formats, or a submission
+  // interrupted before its commit) stay untouched and reserve their IDs.
   std::set<std::string> retired;
   bool failed = false;
   std::shared_ptr<const Clock> clock;
@@ -224,29 +226,63 @@ struct Store::Impl {
     safe(root);
     owner = std::make_unique<FileLock>(root, "manager.lock");
     archive = std::make_unique<history_files::Archive>(root / "history");
+    database = std::make_unique<sqlite::Database>(root / "tasks.sqlite");
+    {
+      sqlite::Database::Transaction schema(*database);
+      database->execute("CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,"
+                        " sequence INTEGER NOT NULL UNIQUE, kind TEXT NOT NULL,"
+                        " manifest TEXT NOT NULL, state INTEGER NOT NULL,"
+                        " attempt INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL) STRICT");
+      database->execute("CREATE TABLE IF NOT EXISTS task_events(task_id TEXT NOT NULL"
+                        " REFERENCES tasks(id), sequence INTEGER NOT NULL, body TEXT NOT NULL,"
+                        " PRIMARY KEY(task_id, sequence)) STRICT");
+      schema.commit();
+    }
+    std::set<std::string> indexed;
+    {
+      sqlite::Database::Statement ids(*database, "SELECT id FROM tasks");
+      while (ids.step())
+        indexed.insert(ids.text(0));
+    }
     for (const auto& item : fs::directory_iterator(root)) {
       safe(item.path());
-      const auto id = item.path().filename().string();
-      if (id == "history" && item.is_directory())
+      const auto name = item.path().filename().string();
+      if ((name == "history" && item.is_directory()) ||
+          (item.is_regular_file() &&
+           (name == "manager.lock" || name == "tasks.sqlite" || name == "tasks.sqlite-wal" ||
+            name == "tasks.sqlite-shm" || name == "tasks.sqlite-journal")))
         continue;
-      if (id == "manager.lock" && item.is_regular_file())
-        continue;
-      validate_id(id);
+      validate_id(name);
       if (!item.is_directory())
         throw std::invalid_argument("unknown task store entry");
-      safe(item.path() / "journal");
-      safe(item.path() / "results");
+      if (!indexed.contains(name))
+        retired.insert(name);
+    }
+    sqlite::Database::Statement tasks(*database,
+                                      "SELECT id, manifest FROM tasks ORDER BY sequence");
+    while (tasks.step()) {
+      const auto id = tasks.text(0);
+      validate_id(id);
+      if (!fs::is_directory(root / id))
+        throw std::invalid_argument("indexed task directory is missing");
+      safe(root / id / "results");
+      std::vector<Json> records{parse_json(tasks.text(1), 16 * 1024 * 1024)};
+      {
+        sqlite::Database::Statement events(
+            *database, "SELECT sequence, body FROM task_events WHERE task_id=? ORDER BY sequence");
+        events.bind(1, id);
+        while (events.step()) {
+          if (events.integer(0) != static_cast<std::int64_t>(records.size()))
+            throw std::invalid_argument("task state history has a gap");
+          records.push_back(parse_json(events.text(1), 65536));
+        }
+      }
       Entry entry;
-      entry.journal = std::make_unique<FileJournal>(item.path() / "journal");
-      entry.journal->start();
-      const auto records = entry.journal->read();
-      if (records.empty())
-        throw std::invalid_argument("task submission is incomplete; preserve it for inspection");
-      if (!records.front().is_object() || records.front().value("version", 0) != 3)
+      if (!records.front().is_object() || records.front().value("version", 0) != 4)
         throw std::invalid_argument("unsupported task manifest");
       require_fields(records.front(), {"version", "type", "input", "id", "submission_sequence",
                                        "submitted_at_ms", "provider_artifact", "risk_artifact"});
-      if (records.front().at("version") != 3 || records.front().at("id") != id)
+      if (records.front().at("id") != id)
         throw std::invalid_argument("unsupported task manifest");
       const auto& manifest = records.front();
       if (!manifest.at("submission_sequence").is_number_unsigned() ||
@@ -261,16 +297,6 @@ struct Store::Impl {
         throw std::invalid_argument("duplicate task submission sequence");
       last_sequence = std::max(last_sequence, entry.task.submission_sequence());
       entry.task.set_id(id);
-      // Tasks of retired kinds or input versions stay on disk untouched. They
-      // are not loaded, and their identity and sequence cannot be reused.
-      const auto& type = records.front().at("type");
-      const auto& input = records.front().at("input");
-      if (type == "data.task" || type == "calendar.task" ||
-          (type == "backtest.task" && input.value("version", 0) != 6) ||
-          (type == "factor.task" && input.value("version", 0) != 5)) {
-        retired.insert(id);
-        continue;
-      }
       if (records.front().at("type") == "daily-factor.task")
         *entry.task.mutable_daily_factor() =
             message<wire::DailyFactorInput>(records.front().at("input"));
@@ -333,7 +359,7 @@ struct Store::Impl {
       }
       entries.emplace(id, std::move(entry));
     }
-    if (last_sequence != entries.size() + retired.size())
+    if (last_sequence != entries.size())
       throw std::invalid_argument("task submission sequence has missing records");
     for (auto& [id, entry] : entries) {
       (void)id;
@@ -361,14 +387,27 @@ struct Store::Impl {
     next.set_updated_at_ms(now_ms());
     transition(entry.task, entry.token, next, token);
     try {
-      entry.journal->append({{"version", 2},
-                             {"updated_at_ms", next.updated_at_ms()},
-                             {"state", static_cast<int>(next.state())},
-                             {"attempt", next.attempt()},
-                             {"token", token},
-                             {"completed", next.completed()},
-                             {"error", next.error()},
-                             {"digest", next.result_digest()}});
+      const Json event{{"version", 2},
+                       {"updated_at_ms", next.updated_at_ms()},
+                       {"state", static_cast<int>(next.state())},
+                       {"attempt", next.attempt()},
+                       {"token", token},
+                       {"completed", next.completed()},
+                       {"error", next.error()},
+                       {"digest", next.result_digest()}};
+      sqlite::Database::Transaction transaction(*database);
+      sqlite::Database::Statement insert(
+          *database, "INSERT INTO task_events VALUES(?, (SELECT COUNT(*) + 1 FROM task_events"
+                     " WHERE task_id=?1), ?2)");
+      insert.bind(1, next.id()).bind(2, event.dump()).step();
+      sqlite::Database::Statement update(
+          *database, "UPDATE tasks SET state=?, attempt=?, updated_at_ms=? WHERE id=?");
+      update.bind(1, static_cast<std::int64_t>(next.state()))
+          .bind(2, static_cast<std::int64_t>(next.attempt()))
+          .bind(3, next.updated_at_ms())
+          .bind(4, next.id())
+          .step();
+      transaction.commit();
     } catch (...) {
       failed = true;
       throw;
@@ -384,21 +423,19 @@ struct Store::Impl {
     return entry;
   }
   fs::path result_path(const Entry& entry) const {
-    return root / entry.task.id() / "results" / std::to_string(entry.task.attempt());
+    return root / entry.task.id() / "results" / (std::to_string(entry.task.attempt()) + ".json");
   }
   void publish(Entry& entry, const google::protobuf::Message& result) {
     const auto path = result_path(entry);
     safe(path);
     safe(path.parent_path());
-    if (!fs::create_directory(path))
+    if (fs::exists(path))
       throw std::invalid_argument("attempt result already exists without confirmed completion");
-    FileJournal journal(path);
-    journal.start();
-    journal.append({{"version", 1}, {"result", bytes(result)}});
+    write_file_durably(path, Json{{"version", 1}, {"result", bytes(result)}}.dump());
     auto next = entry.task;
     next.set_state(wire::SUCCEEDED);
     next.set_completed(next.total());
-    next.set_result_digest(sha256_file(path / "00000000.json"));
+    next.set_result_digest(sha256_file(path));
     auto verified = next.result_digest();
     commit(entry, next, entry.token);
     entry.verified_digest.swap(verified);
@@ -407,11 +444,12 @@ struct Store::Impl {
     const auto path = result_path(entry);
     safe(path);
     safe(path.parent_path());
-    FileJournal journal(path);
-    journal.start();
-    const auto records = journal.read();
-    if (records.size() != 1 || sha256_file(path / "00000000.json") != entry.task.result_digest())
+    if (!fs::is_regular_file(path) || fs::file_size(path) > 64 * 1024 * 1024 ||
+        sha256_file(path) != entry.task.result_digest())
       throw std::invalid_argument("task result digest mismatch");
+    std::ifstream input(path, std::ios::binary);
+    const std::vector<Json> records{
+        parse_json(std::string(std::istreambuf_iterator<char>(input), {}), 64 * 1024 * 1024)};
     require_fields(records.front(), {"version", "result"});
     if (records.front().at("version") != 1)
       throw std::invalid_argument("unsupported result storage version");
@@ -558,7 +596,6 @@ wire::Task Store::submit_task(wire::Task task) {
   if (!fs::create_directory(directory))
     throw std::invalid_argument("task directory exists without committed submission");
   try {
-    fs::create_directory(directory / "journal");
     fs::create_directory(directory / "results");
     if (task.has_input()) {
       const auto module = risk_providers::Module::selected();
@@ -567,20 +604,29 @@ wire::Task Store::submit_task(wire::Task task) {
       module.capture(directory);
     }
     Impl::Entry entry;
-    entry.journal = std::make_unique<FileJournal>(directory / "journal");
-    entry.journal->start();
-    entry.journal->append({{"version", 3},
-                           {"provider_artifact", task.provider_artifact()},
-                           {"risk_artifact", task.risk_artifact()},
-                           {"submission_sequence", task.submission_sequence()},
-                           {"submitted_at_ms", task.submitted_at_ms()},
-                           {"type", task.kind() == wire::DAILY_FACTOR      ? "daily-factor.task"
-                                    : task.kind() == wire::DAILY_DOWNLOAD  ? "daily.task"
-                                    : task.kind() == wire::MINUTE_DOWNLOAD ? "minutes.task"
-                                    : task.kind() == wire::FACTOR          ? "factor.task"
-                                                                           : "backtest.task"},
-                           {"input", definition(task)},
-                           {"id", id}});
+    const Json manifest{{"version", 4},
+                        {"provider_artifact", task.provider_artifact()},
+                        {"risk_artifact", task.risk_artifact()},
+                        {"submission_sequence", task.submission_sequence()},
+                        {"submitted_at_ms", task.submitted_at_ms()},
+                        {"type", task.kind() == wire::DAILY_FACTOR      ? "daily-factor.task"
+                                 : task.kind() == wire::DAILY_DOWNLOAD  ? "daily.task"
+                                 : task.kind() == wire::MINUTE_DOWNLOAD ? "minutes.task"
+                                 : task.kind() == wire::FACTOR          ? "factor.task"
+                                                                        : "backtest.task"},
+                        {"input", definition(task)},
+                        {"id", id}};
+    sqlite::Database::Transaction transaction(*impl_->database);
+    sqlite::Database::Statement insert(*impl_->database,
+                                       "INSERT INTO tasks VALUES(?, ?, ?, ?, ?, 0, ?)");
+    insert.bind(1, id)
+        .bind(2, static_cast<std::int64_t>(task.submission_sequence()))
+        .bind(3, manifest.at("type").get<std::string>())
+        .bind(4, manifest.dump())
+        .bind(5, static_cast<std::int64_t>(task.state()))
+        .bind(6, task.submitted_at_ms())
+        .step();
+    transaction.commit();
     entry.task = std::move(task);
     const auto result = entry.task;
     impl_->entries.emplace(id, std::move(entry));

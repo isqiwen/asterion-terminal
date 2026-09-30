@@ -7,6 +7,16 @@ import subprocess
 import sys
 import tempfile
 import time
+import sqlite3
+
+
+def records(directory):
+    """Committed journal records; read only while the owning service is stopped."""
+    db = sqlite3.connect(f"file:{directory / 'journal.sqlite'}?mode=ro", uri=True)
+    try:
+        return db.execute("SELECT COUNT(*) FROM records").fetchone()[0]
+    finally:
+        db.close()
 
 binary, certificates, protoc, proto_root = sys.argv[1:]
 
@@ -94,7 +104,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-strategy-tls-", ignore_cleanup
             raise AssertionError("client without identity was accepted")
         except OSError:
             pass
-        assert not list(journal.glob("*.json"))
+        assert not (journal / "journal.sqlite").exists()
         assert b"snapshot {" in protobuf("Response", call(create), decode=True)
         call(event(1, 100))
         result = call(event(2, 101))
@@ -102,16 +112,16 @@ with tempfile.TemporaryDirectory(prefix="asterion-strategy-tls-", ignore_cleanup
         assert b"intent {" in decoded and b"units: 100000000" in decoded, decoded
         assert result == call(event(2, 101))
         assert b"error {" in protobuf("Response", call(event(2, 999)), decode=True)
-        assert len(list(journal.glob("*.json"))) == 3
     finally:
         stop(process)
+    assert records(journal) == 3
     process = start()
     try:
         assert result == call(event(2, 101))
         decoded = protobuf("Response", call(event(3, 99)), decode=True)
         assert b"intent {" in decoded and b"target_quantity {" in decoded, decoded
         assert b"units:" not in decoded, decoded  # flat target uses protobuf's zero default
-        assert len(list(journal.glob("*.json"))) == 4
     finally:
         stop(process)
+    assert records(journal) == 4
 print("Strategy TCP/mTLS identity, durable replay and duplicate/conflict handling verified")

@@ -4,4 +4,4 @@ target_link_libraries(asterion_backtest_engine PUBLIC asterion_protocol PRIVATE 
 add_executable(asterion-backtest main.cpp task_worker.cpp)
 target_compile_features(asterion-backtest PRIVATE cxx_std_20)
 target_compile_definitions(asterion-backtest PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
-target_link_libraries(asterion-backtest PRIVATE asterion_backtest_engine asterion_risk_providers asterion_file_journal asterion_task_client CLI11::CLI11 $<$<PLATFORM_ID:Windows>:shell32>)
+target_link_libraries(asterion-backtest PRIVATE asterion_backtest_engine asterion_risk_providers asterion_sqlite asterion_task_client CLI11::CLI11 $<$<PLATFORM_ID:Windows>:shell32>)

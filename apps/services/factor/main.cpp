@@ -1,5 +1,5 @@
 #include "factor_engine.hpp"
-#include "file_journal.hpp"
+#include "sqlite_journal.hpp"
 #include <CLI/CLI.hpp>
 #include <asterion/kernel/process/owner.hpp>
 #include <asterion/protocol/task_client.hpp>
@@ -84,7 +84,7 @@ int main(int argc, char** argv) {
     if (stream.bad() || !input.ParseFromString(raw))
       throw std::invalid_argument("invalid factor Protobuf");
     asterion::factor::validate(input);
-    asterion::FileJournal output(std::filesystem::absolute(destination));
+    asterion::SqliteJournal output(std::filesystem::absolute(destination));
     output.start();
     if (!output.read().empty())
       throw std::invalid_argument("result directory is not empty; existing "

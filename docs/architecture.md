@@ -48,7 +48,7 @@ flowchart TB
 | --- | --- |
 | 数据 | `data/ctp`（行情与合约目录）、`data/tushare`（分钟线、日线）、`data/registry`（历史数据源组合与目录入口） |
 | 执行 | `execution/paper`（历史撮合）、`execution/ctp`（交易接口，未开放） |
-| 存储 | `storage/filesystem`（有序日志、历史分块与不可变版本索引） |
+| 存储 | `storage/sqlite`（账本、策略与任务的有序日志和索引）、`storage/filesystem`（历史数据版本目录） |
 | 策略 | `strategy/cta`（SMA） |
 | 风控 | `risk/order-limits`（交易前限额） |
 | 工具 | `tools/chart_indicators`（均线、MACD）、`tools/factor_analysis`、`tools/runtime_info` |

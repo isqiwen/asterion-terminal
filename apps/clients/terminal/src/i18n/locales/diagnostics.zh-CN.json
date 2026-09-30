@@ -397,5 +397,14 @@
   "风控插件副本已存在或目录无效": "风控插件副本已存在或目录无效",
   "保存副本前风控插件已改变": "保存副本前风控插件已改变",
   "该任务不应携带风控插件摘要": "该任务不应携带风控插件摘要",
-  "日志附属目录无效": "日志附属目录无效"
+  "日志附属目录无效": "日志附属目录无效",
+  "this directory uses a retired journal format; choose a new empty directory": "该目录是旧版本的账本格式，本版本不再读取；请选择新的空目录。原文件不会被修改。",
+  "trading directory contains unknown files; use a dedicated directory": "交易记录目录中有无法识别的文件，请使用专用目录。",
+  "database is in use by another writer": "数据文件正被另一个进程写入。",
+  "database file is corrupted": "数据文件已损坏，原文件已保留供检查。",
+  "unsupported journal format": "不支持的账本格式。",
+  "task state history has a gap": "任务状态记录不连续，已保留原数据供检查。",
+  "indexed task directory is missing": "任务索引中的任务目录缺失。",
+  "strategy directory must be absolute and existing": "策略目录必须是已存在的绝对路径。",
+  "strategy directory must be absolute": "策略目录必须是绝对路径。"
 }
