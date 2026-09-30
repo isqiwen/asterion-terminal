@@ -1,8 +1,8 @@
-import { seedTickFixture } from "./dataset-fixture";
+import { seedDataset } from "./dataset-fixture";
 import { removeFolder } from "./cleanup";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 import { test, expect } from "@playwright/test";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
@@ -85,11 +85,8 @@ test("saved remote profile connects through mTLS and reconnects without stopping
     await expect(page.getByRole("status").filter({ hasText: "已连接 · localhost" })).toBeVisible();
     await page.screenshot({ path: join(__dirname, "../test-results/remote-connection.png") });
     page = await closeSettingsWindow(page);
-    await page.getByRole("button", { name: "数据", exact: true }).click();
-    await page.getByRole("button", { name: "数据存档与结算表", exact: true }).click();
-    const csv = join(folder, "ticks.csv");
-    await writeFile(csv, "timestamp_ns,price,quantity\n100,100,1\n200,99,1\n");
-    await seedTickFixture(page, csv);
+    await seedDataset(page.request, [100, 99], "remote");
+    await page.reload();
     await page.getByRole("button", { name: "交易", exact: true }).click();
     await expect(page.getByLabel("交易记录目录", { exact: true })).toHaveCount(0);
     for (const [label, value] of [
@@ -105,8 +102,8 @@ test("saved remote profile connects through mTLS and reconnects without stopping
       await page.getByLabel(label, { exact: true }).fill(value);
     await page.getByRole("button", { name: "创建模拟会话", exact: true }).click();
     await expect(page.getByTestId("paper-balance")).toHaveText("2000 CNY");
-    await page.getByRole("button", { name: "回放下一笔", exact: true }).click();
-    await expect(page.getByText("1 / 2 笔", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "回放下一根", exact: true }).click();
+    await expect(page.getByText("1 / 2 根", { exact: true })).toBeVisible();
     page = await openSettingsWindow(page);
     await page.getByRole("button", { name: "连接与部署", exact: true }).click();
     await page.getByText("直接连接已部署交易服务", { exact: true }).click();
@@ -114,7 +111,7 @@ test("saved remote profile connects through mTLS and reconnects without stopping
     await expect(page.getByRole("status").filter({ hasText: "已连接 · localhost" })).toBeVisible();
     expect(server.exitCode).toBeNull();
     page = await closeSettingsWindow(page);
-    await expect(page.getByText("1 / 2 笔", { exact: true })).toBeVisible();
+    await expect(page.getByText("1 / 2 根", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "断开连接", exact: true }).click();
     await expect(page.getByLabel("交易记录目录", { exact: true })).toBeVisible();
     expect(server.exitCode).toBeNull();

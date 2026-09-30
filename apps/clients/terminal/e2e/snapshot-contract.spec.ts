@@ -1,8 +1,9 @@
 import { removeFolder } from "./cleanup";
+import { seedDataset } from "./dataset-fixture";
 import { test, expect, type APIRequestContext } from "@playwright/test";
 import { createGenerator } from "ts-json-schema-generator";
 import Ajv from "ajv";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -46,23 +47,7 @@ test("C++ snapshots conform to the Terminal API types in every state", async ({ 
     const started = await call(page.request, "runtime.snapshot");
     check("after startup", started);
 
-    const csv = join(folder, "ticks.csv");
-    await writeFile(
-      csv,
-      "timestamp_ns,price,quantity\n1790384400000000000,100,1\n1790384401000000000,99,1\n",
-    );
-    const imported = await call(page.request, "futures.inspect_csv", {
-      path: csv,
-      venue: "SHFE",
-      symbol: "rb2610",
-      product: "rb",
-      delivery_month: "2026-10",
-      currency: "CNY",
-      price_increment: "1",
-      quantity_increment: "1",
-      multiplier: "10",
-    });
-    check("after CSV import", imported);
+    check("after dataset selection", await seedDataset(page.request, [100, 99], "contract"));
 
     const directory = join(folder, "account");
     await mkdir(directory);
@@ -102,16 +87,6 @@ test("C++ snapshots conform to the Terminal API types in every state", async ({ 
     // Research: a queued, running and finished backtest, then its result.
     await call(page.request, "research.submit", {
       id: "contract-backtest",
-      calendar_task: "",
-      days: [
-        {
-          trading_day: "2026-09-27",
-          schedule_source: "contract fixture",
-          settlement_price: "100",
-          settlement_source: "contract fixture",
-          sessions: [{ begin_ns: "1790384400000000000", end_ns: "1790384410000000000" }],
-        },
-      ],
       fast: 1,
       slow: 2,
       quantity: "1",

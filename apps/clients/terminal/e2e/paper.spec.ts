@@ -1,26 +1,31 @@
-import { seedTickFixture } from "./dataset-fixture";
+import { seedHistory } from "./dataset-fixture";
 import { removeFolder } from "./cleanup";
 import { test, expect } from "@playwright/test";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 test("paper trading uses C++ ledger and restores persisted account", async ({ page }) => {
   const folder = await mkdtemp(join(tmpdir(), "asterion-paper-e2e-"));
-  const csv = join(folder, "ticks.csv"),
-    directory = join(folder, "account");
+  const directory = join(folder, "account");
   await mkdir(directory);
-  await writeFile(
-    csv,
-    "timestamp_ns,price,quantity\n1790384400000000000,100,1\n1790384401000000000,99,1\n1790384402000000000,110,1\n",
-  );
   try {
     await page.goto("/");
     await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "数据", exact: true }).click();
-    await page.getByRole("button", { name: "数据存档与结算表", exact: true }).click();
-    await seedTickFixture(page, csv);
+    await seedHistory(page.request, [100, 99, 110], "paper");
+    await page.reload();
     await page.getByRole("button", { name: "交易", exact: true }).click();
+    // Bars and settlement come from completed downloads; the contract units
+    // are the only specification typed here.
+    const picker = page.getByRole("form", { name: "历史数据集" });
+    await picker.getByLabel("K 线来源", { exact: true }).selectOption("paper-bars");
+    await expect(picker.getByLabel("结算价来源", { exact: true })).toHaveValue("paper-settlement");
+    await picker.getByLabel("最小变动价位", { exact: true }).fill("1");
+    await picker.getByLabel("合约乘数", { exact: true }).fill("10");
+    await picker.getByRole("button", { name: "使用此数据集", exact: true }).click();
+    const selected = page.getByRole("region", { name: "历史数据集" });
+    await expect(selected).toContainText("SHFE · rb2610");
+    await expect(selected).toContainText("3 根 · 1 个交易日");
     for (const [label, value] of [
       ["交易记录目录", directory],
       ["初始模拟资金", "1000"],
@@ -33,7 +38,6 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
       ["在途委托数上限", "1"],
     ])
       await page.getByLabel(label, { exact: true }).fill(value);
-    await page.getByRole("button", { name: "选择历史数据", exact: true }).click();
     await page.getByRole("button", { name: "研究", exact: true }).click();
     await page.getByRole("button", { name: "均线回测", exact: true }).click();
     await expect(page.getByLabel("初始资金", { exact: true })).toHaveValue("");
@@ -44,7 +48,7 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
     await expect(page.getByLabel("单笔数量上限", { exact: true })).toHaveValue("1");
     await page.getByRole("button", { name: "创建模拟会话", exact: true }).click();
     await expect(page.getByTestId("paper-balance")).toHaveText("1000 CNY");
-    await page.getByRole("button", { name: "回放下一笔", exact: true }).click();
+    await page.getByRole("button", { name: "回放下一根", exact: true }).click();
     await page.getByLabel("限价", { exact: true }).fill("100");
     await page.getByLabel("委托手数", { exact: true }).fill("2");
     await page.getByRole("button", { name: "提交模拟委托", exact: true }).click();
@@ -56,7 +60,7 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
     await page.getByRole("button", { name: "提交模拟委托", exact: true }).click();
     await expect(page.getByTestId("paper-frozen")).toHaveText("102 CNY");
     await expect(page.getByRole("table", { name: "模拟成交" }).locator("tbody tr")).toHaveCount(0);
-    await page.getByRole("button", { name: "回放下一笔", exact: true }).click();
+    await page.getByRole("button", { name: "回放下一根", exact: true }).click();
     await expect(page.getByTestId("paper-balance")).toHaveText("998 CNY");
     await expect(page.getByRole("table", { name: "模拟持仓" })).toContainText("多头");
     await page.getByRole("button", { name: "总览", exact: true }).click();
@@ -72,7 +76,7 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
     await page.getByLabel("限价", { exact: true }).fill("110");
     await page.getByRole("button", { name: "提交模拟委托", exact: true }).click();
     await expect(page.getByTestId("paper-frozen")).toHaveText("3 CNY");
-    await page.getByRole("button", { name: "回放下一笔", exact: true }).click();
+    await page.getByRole("button", { name: "回放下一根", exact: true }).click();
     await expect(page.getByTestId("paper-balance")).toHaveText("1105 CNY");
     await expect(page.getByTestId("paper-fees")).toHaveText("5 CNY");
     await expect(page.getByRole("table", { name: "模拟持仓" }).locator("tbody tr")).toHaveCount(0);

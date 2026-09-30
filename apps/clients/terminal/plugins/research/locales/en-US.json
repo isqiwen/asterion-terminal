@@ -56,7 +56,6 @@
   "未定义": "Undefined",
   "因子结果": "Factor Results",
   "有效样本": "Labelled Samples",
-  "输入成交": "Input Events",
   "因子或收益没有变化，相关性未定义。": "The factor or return is constant; correlation is undefined.",
   "样本明细（前 100 条）": "Sample Details (first 100)",
   "因子时间": "Factor Time",

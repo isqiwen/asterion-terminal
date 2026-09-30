@@ -187,7 +187,7 @@ export function FactorResults({
           {t("共同预热 K 线数")}: {result.evaluation_warmup}
         </p>
         <p>
-          {t("输入成交")}: {result.input_count} · {t("剔除跨界标签")}: {result.purged_count}
+          {t("输入 K 线")}: {result.input_count} · {t("剔除跨界标签")}: {result.purged_count}
         </p>
         {result.partitions.map(p => (
           <p key={p.name}>
