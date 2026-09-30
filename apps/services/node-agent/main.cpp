@@ -58,7 +58,7 @@ class Agent {
   Json firewall_plan_ = nullptr;
   std::chrono::steady_clock::time_point firewall_expiry_{};
   fs::path root_;
-  PluginArtifacts plugins_{root_};
+  PluginArtifacts plugins_{root_, current_executable()};
   ipc::TlsIdentity tls_;
   std::string bind_;
   fs::path sockets_;
@@ -1038,9 +1038,11 @@ int main(int argc, char** argv) {
 #ifdef _WIN32
   app.add_option("--windows-service", system_service);
 #endif
-  std::string directory, transport_log;
+  std::string directory, transport_log, inspect;
   service::Transport transport;
-  app.add_option("--directory", directory)->required()->check(CLI::ExistingDirectory);
+  auto* inspect_option =
+      app.add_option("--inspect-plugin", inspect, "Print a native plugin's identity and exit");
+  app.add_option("--directory", directory)->check(CLI::ExistingDirectory)->excludes(inspect_option);
   app.add_option("--endpoint", transport.endpoint);
   app.add_option("--transport-log", transport_log,
                  "Optional absolute path for bounded transport diagnostics");
@@ -1051,6 +1053,12 @@ int main(int argc, char** argv) {
   app.add_option("--tls-key", transport.tls.private_key_file);
   argv = app.ensure_utf8(argv);
   CLI11_PARSE(app, argc, argv);
+  if (!inspect.empty())
+    return asterion::agent::inspect_plugin(inspect);
+  if (directory.empty()) {
+    std::cerr << "--directory is required\n";
+    return 2;
+  }
   auto run = [&]() -> int {
     try {
       service::install_stop_signals();

@@ -396,8 +396,8 @@ if(BUILD_TESTING)
   asterion_unit_tests(asterion_plugin_management_tests tests/plugin_management_test.cpp asterion_terminal_api)
   target_link_libraries(asterion_plugin_management_tests PRIVATE asterion_node_storage)
   target_include_directories(asterion_plugin_management_tests PRIVATE apps/clients/terminal/native)
-  target_compile_definitions(asterion_plugin_management_tests PRIVATE PLUGIN_NEWER="$<TARGET_FILE:plugin_fixture_newer>" PLUGIN_GOOD="$<TARGET_FILE:plugin_fixture_good>" PLUGIN_BAD_ABI="$<TARGET_FILE:plugin_fixture_bad_abi>")
-  add_dependencies(asterion_plugin_management_tests plugin_fixture_good plugin_fixture_newer plugin_fixture_bad_abi)
+  target_compile_definitions(asterion_plugin_management_tests PRIVATE NODE_AGENT="$<TARGET_FILE:asterion-node-agent>" PLUGIN_NEWER="$<TARGET_FILE:plugin_fixture_newer>" PLUGIN_GOOD="$<TARGET_FILE:plugin_fixture_good>" PLUGIN_BAD_ABI="$<TARGET_FILE:plugin_fixture_bad_abi>")
+  add_dependencies(asterion_plugin_management_tests asterion-node-agent plugin_fixture_good plugin_fixture_newer plugin_fixture_bad_abi)
   asterion_unit_tests(asterion_native_plugin_tests tests/native_plugin_test.cpp Asterion::Kernel)
   target_compile_definitions(asterion_native_plugin_tests PRIVATE
     PLUGIN_GOOD="$<TARGET_FILE:plugin_fixture_good>" PLUGIN_BAD_ABI="$<TARGET_FILE:plugin_fixture_bad_abi>"

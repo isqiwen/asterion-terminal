@@ -3,8 +3,11 @@
 #include <asterion/kernel/native_plugin.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>
+#include <asterion/kernel/process/child.hpp>
 #include <asterion/foundation/serialization.hpp>
+#include <chrono>
 #include <fstream>
+#include <iostream>
 #include <set>
 namespace asterion::agent {
 namespace fs = std::filesystem;
@@ -20,9 +23,35 @@ void PluginArtifacts::verify(const std::vector<std::string>& artifacts) const {
     require_managed_path(binary(hash));
     if (!unique.insert(hash).second || sha256_file(binary(hash)) != hash)
       throw std::invalid_argument("native plugin artifact is missing or corrupted");
-    NativeLibrary library(binary(hash));
-    if (!identities.insert(library.descriptor().id).second)
+    if (!identities.insert(identity(binary(hash))).second)
       throw std::invalid_argument("duplicate native plugin identity");
+  }
+}
+std::string PluginArtifacts::identity(const fs::path& library) const {
+  const auto output = root_ / ("plugin-inspect-" + unique_process_id() + ".out");
+  require_managed_path(output);
+  std::string id;
+  {
+    ChildProcess child(inspector_, {"--inspect-plugin", library.string()}, false, output);
+    const bool done = child.wait(std::chrono::seconds(10));
+    if (done && child.exit_code() == 0) {
+      std::ifstream input(output);
+      std::getline(input, id);
+    }
+  }
+  std::error_code ignored;
+  fs::remove(output, ignored);
+  if (id.empty() || id.size() > 256)
+    throw std::invalid_argument("native plugin artifact is missing or corrupted");
+  return id;
+}
+int inspect_plugin(const std::string& path) {
+  try {
+    NativeLibrary library(fs::path(std::u8string(path.begin(), path.end())));
+    std::cout << library.descriptor().id << '\n';
+    return 0;
+  } catch (...) {
+    return 1;
   }
 }
 fs::path PluginArtifacts::materialize(const std::string& name,
