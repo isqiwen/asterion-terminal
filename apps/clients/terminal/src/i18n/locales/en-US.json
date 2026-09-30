@@ -369,5 +369,15 @@
   "选择日线下载": "Choose a daily download",
   "需要同一合约的日线下载": "Requires a daily download of the same contract",
   "交易日区间留空表示全部；合约单位以交易所公布为准。": "Leave the day range empty to use everything; contract units follow the exchange specification.",
-  "{instrument} · {period} · {source} · {time}": "{instrument} · {period} · {source} · {time}"
+  "{instrument} · {period} · {source} · {time}": "{instrument} · {period} · {source} · {time}",
+  "费率模板": "Fee template",
+  "来源 {source} · {date} 起生效": "Source {source} · effective {date}",
+  "尚未保存": "Not saved",
+  "填入模板": "Fill from template",
+  "保存为模板": "Save as template",
+  "先填写全部保证金与手续费": "Fill in all margin and fee fields first",
+  "费率来源": "Fee source",
+  "例如：期货公司费率表": "e.g. broker fee schedule",
+  "生效日期": "Effective date",
+  "确认保存": "Save"
 }

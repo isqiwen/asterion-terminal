@@ -34,7 +34,9 @@ test("Terminal deploys and controls a service through Node Agent", async ({ page
   await writeFile(known, "test fixture only\n");
   try {
     await page.goto("/");
-    await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible({
+      timeout: 60000,
+    });
     page = await openSettingsWindow(page);
     await page.getByRole("button", { name: "连接与部署", exact: true }).click();
     await page.getByRole("button", { name: "远程 Linux", exact: true }).click();

@@ -5,6 +5,7 @@ import {
   translate,
   getLocale,
   DatasetPicker,
+  CostTemplate,
   ErrorNotice,
   asDisplayError,
   type DisplayError,
@@ -226,6 +227,13 @@ export function Panel({
                           </label>
                         ))}
                       </div>
+                      {data && (
+                        <CostTemplate
+                          product={`${data.contract.venue}/${data.contract.product}`}
+                          values={parameters}
+                          onApply={values => setParameters({ ...parameters, ...values })}
+                        />
+                      )}
                       <div className="research-fields">
                         {(
                           [

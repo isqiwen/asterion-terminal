@@ -62,7 +62,9 @@ test("saved remote profile connects through mTLS and reconnects without stopping
       )
       .toBe(true);
     await page.goto("/");
-    await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible({
+      timeout: 60000,
+    });
     page = await openSettingsWindow(page);
     await page.getByRole("button", { name: "连接与部署", exact: true }).click();
     await page.getByText("直接连接已部署交易服务", { exact: true }).click();

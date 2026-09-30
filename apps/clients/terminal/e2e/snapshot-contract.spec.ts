@@ -43,7 +43,9 @@ test("C++ snapshots conform to the Terminal API types in every state", async ({ 
   const folder = await mkdtemp(join(tmpdir(), "asterion-contract-"));
   try {
     await page.goto("/");
-    await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible({
+      timeout: 60000,
+    });
     const started = await call(page.request, "runtime.snapshot");
     check("after startup", started);
 

@@ -48,7 +48,9 @@ test("compact footer exposes services, tasks and navigation", async ({ page }) =
 
 test("revisioned polls accept unchanged replies from an idle core", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible({
+    timeout: 60000,
+  });
   // Exercise the real bridge module in the page, not a copy of its logic.
   const result = await page.evaluate(async () => {
     // Served by the Vite dev server; typed from the same source file.

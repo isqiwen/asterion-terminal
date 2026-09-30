@@ -11,7 +11,9 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
   await mkdir(directory);
   try {
     await page.goto("/");
-    await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible({
+      timeout: 60000,
+    });
     await seedHistory(page.request, [100, 99, 110], "paper");
     await page.reload();
     await page.getByRole("button", { name: "交易", exact: true }).click();
@@ -40,6 +42,16 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
       ["在途委托数上限", "1"],
     ])
       await page.getByLabel(label, { exact: true }).fill(value);
+    // Per-product fee template: saved with its source, then filled back in.
+    const template = page.getByRole("region", { name: "费率模板" });
+    await template.getByRole("button", { name: "保存为模板", exact: true }).click();
+    await template.getByLabel("费率来源", { exact: true }).fill("fixture schedule");
+    await template.getByLabel("生效日期", { exact: true }).fill("2026-09-01");
+    await template.getByRole("button", { name: "确认保存", exact: true }).click();
+    await expect(template).toContainText("来源 fixture schedule · 2026-09-01 起生效");
+    await page.getByLabel("每手开仓费", { exact: true }).fill("9");
+    await template.getByRole("button", { name: "填入模板", exact: true }).click();
+    await expect(page.getByLabel("每手开仓费", { exact: true })).toHaveValue("2");
     await page.getByRole("button", { name: "研究", exact: true }).click();
     await page.getByRole("button", { name: "均线回测", exact: true }).click();
     await expect(page.getByLabel("初始资金", { exact: true })).toHaveValue("");

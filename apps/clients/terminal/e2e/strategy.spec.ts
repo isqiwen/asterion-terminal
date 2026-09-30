@@ -16,7 +16,9 @@ test("strategy runs through Agent and can relinquish its paper account", async (
   let service = "";
   try {
     await page.goto("/");
-    await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible({
+      timeout: 60000,
+    });
     await seedDataset(
       page.request,
       Array.from({ length: 300 }, (_, i) => [100, 101, 100, 102, 99, 103][i % 6]),

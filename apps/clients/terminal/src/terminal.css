@@ -560,3 +560,12 @@
   margin: 0;
   padding: 0;
 }
+
+.cost-template {
+  display: grid;
+  gap: 8px;
+  margin-block: 8px 16px;
+}
+.cost-template p {
+  margin: 0;
+}

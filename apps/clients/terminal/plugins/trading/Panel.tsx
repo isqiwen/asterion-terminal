@@ -1,4 +1,10 @@
-import { DatasetPicker, ErrorNotice, asDisplayError, type DisplayError } from "../contract";
+import {
+  CostTemplate,
+  DatasetPicker,
+  ErrorNotice,
+  asDisplayError,
+  type DisplayError,
+} from "../contract";
 import { useWorkspaceDraft, translate, type MessageValues } from "../contract";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.trading", key, values);
@@ -135,6 +141,13 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
                   {t("远程会话：")} {snapshot?.connection?.session} · {snapshot?.connection?.host}
                   {t("。记录目录由服务端管理。")}
                 </p>
+              )}
+              {snapshot?.dataset && (
+                <CostTemplate
+                  product={`${snapshot.dataset.contract.venue}/${snapshot.dataset.contract.product}`}
+                  values={costs}
+                  onApply={values => setCosts({ ...costs, ...values })}
+                />
               )}
               {[
                 {

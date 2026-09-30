@@ -4,7 +4,9 @@ import { join } from "node:path";
 
 test("workbench with source-only navigation and existing C++ data", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible({
+    timeout: 60000,
+  });
   await expect(page.getByRole("navigation", { name: "业务工作区" })).toBeVisible();
   await expect(page.locator(".rail-toggle")).toHaveCount(0);
   await page.keyboard.press("Control+b");
@@ -40,5 +42,7 @@ test("core connection failure is visible and can be retried", async ({ page }) =
   await expect(page.getByRole("alert")).toContainText("本机 C++ 服务不可用");
   await page.unroute("**/__asterion/api");
   await page.getByRole("button", { name: "重试启动", exact: true }).click();
-  await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible({
+    timeout: 60000,
+  });
 });

@@ -1,6 +1,7 @@
 export { useWorkspaceDraft, useWorkspaceRequestId } from "../src/host/workspace/drafts";
 export { Icon } from "../src/ui/Icon";
 export { DatasetPicker } from "../src/ui/DatasetPicker";
+export { CostTemplate } from "../src/ui/CostTemplate";
 import type { DisplayError } from "../src/i18n/errors";
 export { ErrorNotice, asDisplayError } from "../src/i18n/errors";
 export type { DisplayError } from "../src/i18n/errors";
