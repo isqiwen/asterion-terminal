@@ -1,3 +1,4 @@
+#include <asterion/kernel/logger.hpp>
 #include "factor_engine.hpp"
 #include "sqlite_journal.hpp"
 #include <CLI/CLI.hpp>
@@ -99,6 +100,8 @@ int main(int argc, char** argv) {
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Factor analysis failed: " << error.what() << '\n';
+    asterion::log_process_event("factor", asterion::LogLevel::error, "service.failed",
+                                {{"message", error.what()}});
     return 1;
   }
 }

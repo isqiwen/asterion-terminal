@@ -225,7 +225,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
     finally:
         failed = sys.exc_info()[0] is not None
         stop(terminal); stop(agent)
-        if failed and transport_log.exists():
+        transport_logs = sorted(transport_log.parent.glob(f"{transport_log.stem}_*{transport_log.suffix}"))
+        if failed and transport_logs:
             print("Agent transport diagnostics (bounded tail):", file=sys.stderr)
-            print("\n".join(transport_log.read_text().splitlines()[-100:]), file=sys.stderr)
+            print("\n".join(transport_logs[-1].read_text().splitlines()[-100:]), file=sys.stderr)
 print("Agent deployment, checksum transfer, supervision, native heartbeat, independent lifecycle and restart verified")

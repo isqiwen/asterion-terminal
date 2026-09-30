@@ -232,6 +232,8 @@ app
         responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [csp] },
       });
     });
+    // Terminal core logs: one file per day, kept 30 days.
+    process.env.ASTERION_LOG_DIRECTORY ??= app.getPath("logs");
     native = require(path.join(resources, "native/asterion_terminal.node"));
     let pending = 0;
     ipcMain.handle("asterion:request", async (event, body) => {

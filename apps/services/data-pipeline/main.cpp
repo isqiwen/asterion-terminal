@@ -1,3 +1,4 @@
+#include <asterion/kernel/logger.hpp>
 #include <asterion/kernel/native_plugin.hpp>
 #include "history_minutes.hpp"
 #include "history_daily.hpp"
@@ -119,6 +120,8 @@ int main(int argc, char** argv) {
     }
   } catch (const std::exception& error) {
     std::cerr << "Data download failed: " << error.what() << '\n';
+    asterion::log_process_event("data-pipeline", asterion::LogLevel::error, "service.failed",
+                                {{"message", error.what()}});
     return 1;
   }
 }

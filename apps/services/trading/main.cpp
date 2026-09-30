@@ -1,3 +1,4 @@
+#include <asterion/kernel/logger.hpp>
 #include <asterion/kernel/native_plugin.hpp>
 #include "paper_session.hpp"
 #include <CLI/CLI.hpp>
@@ -172,6 +173,8 @@ int main(int argc, char** argv) {
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Trading process failed: " << error.what() << '\n';
+    asterion::log_process_event("trading", asterion::LogLevel::error, "service.failed",
+                                {{"message", error.what()}});
     return 1;
   }
 }

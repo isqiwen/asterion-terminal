@@ -42,3 +42,15 @@ Terminal 每 5 秒发送专用心跳；超过 15 秒未确认显示失联。界�
 - 本机：Unix Socket，服务目录由 Agent 管理。
 - 远程：TCP + 双向 TLS，校验服务身份；Terminal 在设置中保存具名连接（地址、端口、会话、证书文件）。
 - 断线后显式重新附着并读取服务端权威状态，交易命令不自动重发。
+
+## 运行日志
+
+运行日志与账本、任务、行情数据分开，是按天轮转的 JSON Lines 文件，保留 30 天，更早的文件在日志打开或跨天时删除。
+
+| 进程 | 位置 |
+| --- | --- |
+| Terminal 核心 | `~/Library/Logs/<应用名>/terminal_YYYY-MM-DD.log` |
+| Node Agent | `<Agent 目录>/logs/agent_YYYY-MM-DD.log`：启动、服务启动与退出、致命错误 |
+| 托管服务与工作程序 | `<Agent 目录>/logs/<服务>_YYYY-MM-DD.log`：致命错误 |
+
+Agent 的 `--transport-log <路径>` 诊断文件同样按天命名。日志字段中的密码、令牌、凭据等键值会被替换为 `[REDACTED]`。

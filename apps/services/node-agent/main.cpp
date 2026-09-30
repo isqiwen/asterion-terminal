@@ -197,6 +197,8 @@ class Agent {
                                  "--tls-ca", tls_.ca_file, "--tls-cert", tls_.certificate_file,
                                  "--tls-key", tls_.private_key_file});
       s.process = std::make_unique<ChildProcess>(executable, args);
+      log_process_event("agent", LogLevel::info, "service.started",
+                        {{"service", name}, {"pid", s.process->id()}});
       s.health = "starting";
       s.last_heartbeat = 0;
       s.failures = 0;
@@ -501,6 +503,8 @@ public:
         }
         for (auto& [name, s] : services_) {
           if (s.process && s.process->exited()) {
+            log_process_event("agent", LogLevel::warning, "service.exited",
+                              {{"service", name}, {"exit_code", s.process->exit_code()}});
             s.workers.clear();
             s.process.reset();
             s.error = "process exited; awaiting bounded restart";
@@ -1068,6 +1072,14 @@ int main(int argc, char** argv) {
         throw std::invalid_argument("agent requires an existing absolute directory");
       require_managed_path(root);
       asterion::FileLock ownership(root, "agent.lock");
+      // Agent and managed services each keep daily log files under logs/.
+      const auto logs = root / "logs";
+      require_managed_path(logs);
+      fs::create_directory(logs);
+#ifndef _WIN32
+      ::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1);
+#endif
+      log_process_event("agent", LogLevel::info, "agent.started", {{"pid", current_process_id()}});
 #ifndef _WIN32
       if (!transport.remote()) {
         // Only the Agent holding agent.lock owns this path; a stale socket
@@ -1147,6 +1159,7 @@ int main(int argc, char** argv) {
         std::_Exit(0);
     } catch (const std::exception& error) {
       std::cerr << "Node failed: " << error.what() << '\n';
+      log_process_event("agent", LogLevel::error, "agent.failed", {{"message", error.what()}});
       return 1;
     }
     return 0;

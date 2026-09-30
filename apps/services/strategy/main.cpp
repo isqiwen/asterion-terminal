@@ -1,3 +1,4 @@
+#include <asterion/kernel/logger.hpp>
 #include "replay.hpp"
 #include "session.hpp"
 #include <CLI/CLI.hpp>
@@ -176,6 +177,8 @@ int main(int argc, char** argv) {
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Strategy process failed: " << error.what() << '\n';
+    asterion::log_process_event("strategy", asterion::LogLevel::error, "service.failed",
+                                {{"message", error.what()}});
     return 1;
   }
 }

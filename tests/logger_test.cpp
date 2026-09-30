@@ -1,3 +1,5 @@
+#include <chrono>
+#include <cstdio>
 #include <gtest/gtest.h>
 #include <asterion/kernel/logger.hpp>
 #include <asterion/kernel/runtime.hpp>
@@ -55,28 +57,38 @@ TEST(Logger, FilteringRedactionAndConcurrentWrites) {
   EXPECT_FALSE(logger.write(LogLevel::info, "oversized", {{"value", std::string(17000, 'x')}}));
   EXPECT_EQ(logger.failures(), 2);
 }
-TEST_F(LogFixture, RotatingFilesRemainBounded) {
+TEST_F(LogFixture, DailyFilesKeepThirtyDaysAndLeaveOtherFiles) {
+  // Dated files from earlier days: one inside the window, one outside it.
+  const auto dated = [&](int days_ago) {
+    const std::chrono::year_month_day day{
+        std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now()) -
+        std::chrono::days(days_ago)};
+    char name[32];
+    std::snprintf(name, sizeof name, "service_%04d-%02u-%02u.log", static_cast<int>(day.year()),
+                  static_cast<unsigned>(day.month()), static_cast<unsigned>(day.day()));
+    return directory / name;
+  };
+  std::ofstream(dated(29)) << "recent\n";
+  std::ofstream(dated(45)) << "expired\n";
+  std::ofstream(directory / "notes.log") << "other\n";
   LoggerOptions options;
   options.stderr_sink = false;
-  options.file = directory / std::filesystem::path(std::u8string(u8"运行.log"));
-  options.max_file_bytes = 512;
-  options.retained_files = 2;
+  options.file = directory / "service.log";
   {
     Logger logger(options);
-    for (int i = 0; i < 100; ++i)
-      ASSERT_TRUE(logger.write(LogLevel::info, "rotation.record", {{"sequence", i}}));
+    ASSERT_TRUE(logger.write(LogLevel::info, "daily.record", {{"sequence", 1}}));
     logger.flush();
   }
-  std::size_t count = 0;
-  for (const auto& entry : std::filesystem::directory_iterator(directory)) {
-    ++count;
-    EXPECT_LE(entry.file_size(), 512);
-    std::ifstream input(entry.path());
-    std::string line;
-    while (std::getline(input, line))
-      EXPECT_NO_THROW(static_cast<void>(Json::parse(line)));
-  }
-  EXPECT_EQ(count, 3);
+  EXPECT_TRUE(std::filesystem::exists(dated(0)));
+  EXPECT_TRUE(std::filesystem::exists(dated(29)));
+  EXPECT_FALSE(std::filesystem::exists(dated(45)));
+  EXPECT_TRUE(std::filesystem::exists(directory / "notes.log"));
+  std::ifstream input(dated(0));
+  std::string line;
+  std::getline(input, line);
+  EXPECT_EQ(Json::parse(line).at("event"), "daily.record");
+  options.file = "relative.log";
+  EXPECT_THROW(Logger{options}, Error);
 }
 namespace {
 class FailingSink final : public spdlog::sinks::base_sink<std::mutex> {

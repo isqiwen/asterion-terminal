@@ -1,3 +1,4 @@
+#include <asterion/kernel/logger.hpp>
 #include "ctp_feed.hpp"
 #include "catalog_job.hpp"
 #include <CLI/CLI.hpp>
@@ -306,6 +307,8 @@ int main(int argc, char** argv) {
       std::_Exit(0);
   } catch (const std::exception& e) {
     std::cerr << e.what() << '\n';
+    asterion::log_process_event("market-data", asterion::LogLevel::error, "service.failed",
+                                {{"message", e.what()}});
     return 1;
   }
   return 0;

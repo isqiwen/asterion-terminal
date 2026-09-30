@@ -1,3 +1,4 @@
+#include <asterion/kernel/logger.hpp>
 #include <asterion/kernel/native_plugin.hpp>
 #include "task_store.hpp"
 #include "history_minutes.hpp"
@@ -446,6 +447,8 @@ int main(int argc, char** argv) {
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Task service failed: " << error.what() << '\n';
+    asterion::log_process_event("task-service", asterion::LogLevel::error, "service.failed",
+                                {{"message", error.what()}});
     return 1;
   }
 }

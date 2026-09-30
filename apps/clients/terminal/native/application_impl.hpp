@@ -76,7 +76,11 @@ struct Application::Impl {
   json firewall_plan = nullptr, firewall_parameters = nullptr, ssh_key = nullptr,
        agent_program = nullptr;
   std::chrono::steady_clock::time_point firewall_expiry{};
-  Runtime core{next_runtime_scope()};
+  // The desktop app provides a log directory; other hosts log to stderr only.
+  Runtime core{next_runtime_scope(), std::make_shared<SystemClock>(), [] {
+                 auto file = process_logger("terminal");
+                 return file ? file : std::make_shared<Logger>();
+               }()};
   ResourceRegistry::Scope scope = core.resources().create_scope("terminal");
   // Serializes mutable client selection and Runtime dispatch. Minute-page I/O
   // uses a captured shared client outside this lock; see Application.
