@@ -139,7 +139,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-tcp-中文-", ignore_cleanup_e
         # Reject an oversized frame, retain the service and committed state.
         ctx.load_cert_chain(params["certificate_file"], params["private_key_file"])
         with socket.create_connection(("127.0.0.1", port), timeout=2) as sock, ctx.wrap_socket(sock, server_hostname="localhost") as tls:
-            tls.sendall(struct.pack("!I", 16 * 1024 * 1024 + 1))
+            tls.sendall(struct.pack("!I", 64 * 1024 * 1024 + 1))
             assert tls.recv(1) == b""
         assert request(terminal, "paper.connect", params)["paper"] == expected
     finally:

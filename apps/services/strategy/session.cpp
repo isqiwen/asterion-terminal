@@ -76,7 +76,7 @@ v1::Config parse_config(const Json& j) {
 }
 Json event_json(const v1::Event& event) {
   protocol::validate_message(event);
-  if (!event.has_bar() || !event.sequence() || event.sequence() > protocol::max_dataset_bars)
+  if (!event.has_bar() || !event.sequence() || event.sequence() > protocol::max_session_bars)
     throw std::invalid_argument("strategy event requires a bar and sequence in 1..20000");
   const auto bar = protocol::market_bar(event.bar());
   return {{"stream_id", event.stream_id()},

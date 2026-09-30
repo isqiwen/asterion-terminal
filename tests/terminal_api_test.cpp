@@ -392,3 +392,39 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+TEST(TerminalApi, LargeResearchDatasetsBacktestButPaperSessionsStaySmall) {
+  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
+                                                                      asterion_terminal_destroy);
+  auto invoke = [&](std::string method, json params = json::object()) {
+    return call(runtime.get(), request(method, std::move(params)));
+  };
+  // Above the paper-session limit, within the research limit.
+  std::vector<int> prices(30000);
+  for (std::size_t i = 0; i < prices.size(); ++i)
+    prices[i] = 3000 + static_cast<int>(i % 200);
+  const auto selected = invoke("research.dataset.select", history(runtime.get(), prices, "large"));
+  ASSERT_TRUE(selected.contains("result")) << selected.dump().substr(0, 400);
+  EXPECT_EQ(selected["result"]["dataset"]["count"], 30000);
+  const json costs{{"deposit", "1000000"},
+                   {"margin_per_lot", "100"},
+                   {"open_fee", "2"},
+                   {"close_today_fee", "3"},
+                   {"close_yesterday_fee", "4"},
+                   {"margin_rate", "0"},
+                   {"open_fee_rate", "0"},
+                   {"close_today_fee_rate", "0"},
+                   {"close_yesterday_fee_rate", "0"},
+                   {"max_order_quantity", "10"},
+                   {"max_gross_quantity", "10"},
+                   {"max_working_orders", "10"}};
+  auto backtest = costs;
+  backtest.update({{"id", "large-backtest"}, {"fast", 5}, {"slow", 20}, {"quantity", "1"}});
+  const auto submitted = invoke("research.submit", backtest);
+  ASSERT_TRUE(submitted.contains("result")) << submitted.dump().substr(0, 400);
+  auto paper = costs;
+  paper["directory"] = std::filesystem::temp_directory_path().string();
+  const auto refused = invoke("paper.create", paper);
+  ASSERT_TRUE(refused.contains("error"));
+  EXPECT_NE(refused["error"]["message"].get<std::string>().find("at most 20000 bars"),
+            std::string::npos);
+}

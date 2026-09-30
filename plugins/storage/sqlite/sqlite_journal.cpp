@@ -6,8 +6,9 @@ namespace {
 constexpr auto file_name = "journal.sqlite";
 constexpr auto format = "asterion.journal.v1";
 constexpr std::size_t max_records = 20001;
-constexpr std::uintmax_t max_first = 16ULL * 1024 * 1024, max_record = 65536,
-                         max_total = 64ULL * 1024 * 1024;
+// The first record may carry a whole input dataset (up to 200000 bars).
+constexpr std::uintmax_t max_first = 128ULL * 1024 * 1024, max_record = 65536,
+                         max_total = 256ULL * 1024 * 1024;
 std::uintmax_t limit(std::size_t index) {
   return index == 0 ? max_first : max_record;
 }

@@ -2,6 +2,7 @@
 #include <asterion/foundation/time.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <duckdb.hpp>
+#include <array>
 #include <stdexcept>
 namespace asterion::parquet {
 namespace {
@@ -78,6 +79,16 @@ Decimal decimal(const duckdb::Value& value) {
   return Decimal::from_raw(value.GetValue<std::int64_t>());
 }
 } // namespace
+// DECIMAL(18,8) is stored as an int64 and DECIMAL(38,8) as a 128-bit integer,
+// both scaled by 10^8 exactly like Decimal::raw(): columns move without arithmetic.
+const duckdb::LogicalType price_type = duckdb::LogicalType::DECIMAL(18, 8);
+const duckdb::LogicalType quantity_type = duckdb::LogicalType::DECIMAL(38, 8);
+std::int64_t narrow(const duckdb::hugeint_t& value) {
+  std::int64_t result = 0;
+  if (!duckdb::Hugeint::TryCast(value, result))
+    throw std::invalid_argument("Parquet bar value exceeds the Decimal range");
+  return result;
+}
 void write_minute_bars(const fs::path& path, const std::vector<HistoricalBar>& bars) {
   Engine engine;
   engine.run("CREATE TABLE bars(timestamp_ns BIGINT NOT NULL, open DECIMAL(18,8) NOT NULL,"
@@ -87,16 +98,43 @@ void write_minute_bars(const fs::path& path, const std::vector<HistoricalBar>& b
              " trading_day VARCHAR NOT NULL)");
   {
     duckdb::Appender appender(*engine.connection, "bars");
-    for (const auto& bar : bars) {
-      bar.validate();
-      appender.BeginRow();
-      appender.Append<std::int64_t>(bar.timestamp_ns);
-      for (const auto* value : {&bar.open, &bar.high, &bar.low, &bar.close})
-        appender.Append(price(*value));
-      for (const auto* value : {&bar.volume, &bar.amount, &bar.open_interest})
-        appender.Append(quantity(*value));
-      appender.Append(duckdb::Value(bar.trading_day));
-      appender.EndRow();
+    const duckdb::vector<duckdb::LogicalType> types{duckdb::LogicalType::BIGINT,
+                                                    price_type,
+                                                    price_type,
+                                                    price_type,
+                                                    price_type,
+                                                    quantity_type,
+                                                    quantity_type,
+                                                    quantity_type,
+                                                    duckdb::LogicalType::VARCHAR};
+    duckdb::DataChunk chunk;
+    chunk.Initialize(duckdb::Allocator::DefaultAllocator(), types);
+    for (std::size_t offset = 0; offset < bars.size(); offset += STANDARD_VECTOR_SIZE) {
+      const auto count = std::min<std::size_t>(STANDARD_VECTOR_SIZE, bars.size() - offset);
+      chunk.Reset();
+      auto* times = duckdb::FlatVector::GetData<std::int64_t>(chunk.data[0]);
+      std::array<std::int64_t*, 4> prices{};
+      std::array<duckdb::hugeint_t*, 3> quantities{};
+      for (std::size_t column = 0; column < 4; ++column)
+        prices[column] = duckdb::FlatVector::GetData<std::int64_t>(chunk.data[column + 1]);
+      for (std::size_t column = 0; column < 3; ++column)
+        quantities[column] = duckdb::FlatVector::GetData<duckdb::hugeint_t>(chunk.data[column + 5]);
+      auto* days = duckdb::FlatVector::GetData<duckdb::string_t>(chunk.data[8]);
+      for (std::size_t row = 0; row < count; ++row) {
+        const auto& bar = bars[offset + row];
+        bar.validate();
+        times[row] = bar.timestamp_ns;
+        prices[0][row] = bar.open.raw();
+        prices[1][row] = bar.high.raw();
+        prices[2][row] = bar.low.raw();
+        prices[3][row] = bar.close.raw();
+        quantities[0][row] = duckdb::hugeint_t(bar.volume.raw());
+        quantities[1][row] = duckdb::hugeint_t(bar.amount.raw());
+        quantities[2][row] = duckdb::hugeint_t(bar.open_interest.raw());
+        days[row] = duckdb::StringVector::AddString(chunk.data[8], bar.trading_day);
+      }
+      chunk.SetCardinality(count);
+      appender.AppendDataChunk(chunk);
     }
     appender.Close();
   }
@@ -108,27 +146,32 @@ std::vector<HistoricalBar> read_minute_bars(const fs::path& path) {
                  "timestamp_ns BIGINT, open DECIMAL(18,8), high DECIMAL(18,8), low DECIMAL(18,8),"
                  " close DECIMAL(18,8), volume DECIMAL(38,8), amount DECIMAL(38,8),"
                  " open_interest DECIMAL(38,8), trading_day VARCHAR");
-  const auto result = engine.run(
-      "SELECT timestamp_ns, " + raw("open") + ", " + raw("high") + ", " + raw("low") + ", " +
-      raw("close") + ", " + raw("volume") + ", " + raw("amount") + ", " + raw("open_interest") +
-      ", trading_day FROM read_parquet(" + literal(path) + ") ORDER BY timestamp_ns");
+  const auto result =
+      engine.run("SELECT * FROM read_parquet(" + literal(path) + ") ORDER BY timestamp_ns");
   std::vector<HistoricalBar> bars;
   bars.reserve(result->RowCount());
-  for (duckdb::idx_t row = 0; row < result->RowCount(); ++row) {
-    for (duckdb::idx_t column = 0; column < 9; ++column)
-      if (result->GetValue(column, row).IsNull())
+  while (auto chunk = result->Fetch()) {
+    chunk->Flatten();
+    const auto rows = chunk->size();
+    for (std::size_t column = 0; column < 9; ++column)
+      if (!duckdb::FlatVector::Validity(chunk->data[column]).CheckAllValid(rows))
         throw std::invalid_argument("Parquet bar has a missing value");
-    HistoricalBar bar{result->GetValue(0, row).GetValue<std::int64_t>(),
-                      decimal(result->GetValue(1, row)),
-                      decimal(result->GetValue(2, row)),
-                      decimal(result->GetValue(3, row)),
-                      decimal(result->GetValue(4, row)),
-                      decimal(result->GetValue(5, row)),
-                      decimal(result->GetValue(6, row)),
-                      decimal(result->GetValue(7, row)),
-                      result->GetValue(8, row).GetValue<std::string>()};
-    bar.validate();
-    bars.push_back(std::move(bar));
+    const auto* times = duckdb::FlatVector::GetData<std::int64_t>(chunk->data[0]);
+    const auto price = [&](std::size_t column, duckdb::idx_t row) {
+      return Decimal::from_raw(duckdb::FlatVector::GetData<std::int64_t>(chunk->data[column])[row]);
+    };
+    const auto quantity = [&](std::size_t column, duckdb::idx_t row) {
+      return Decimal::from_raw(
+          narrow(duckdb::FlatVector::GetData<duckdb::hugeint_t>(chunk->data[column])[row]));
+    };
+    const auto* days = duckdb::FlatVector::GetData<duckdb::string_t>(chunk->data[8]);
+    for (duckdb::idx_t row = 0; row < rows; ++row) {
+      HistoricalBar bar{times[row],       price(1, row),    price(2, row),
+                        price(3, row),    price(4, row),    quantity(5, row),
+                        quantity(6, row), quantity(7, row), days[row].GetString()};
+      bar.validate();
+      bars.push_back(std::move(bar));
+    }
   }
   return bars;
 }

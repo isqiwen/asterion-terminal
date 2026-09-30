@@ -85,7 +85,7 @@ void validate_bar_dataset(const data::v1::BarDataset& dataset) {
   if (dataset.version() != 1 || !dataset.has_contract() || dataset.bars_size() < 1 ||
       static_cast<std::size_t>(dataset.bars_size()) > max_dataset_bars || dataset.days_size() < 1 ||
       dataset.days_size() > dataset.bars_size())
-    throw std::invalid_argument("bar dataset requires version 1, 1..20000 bars and trading days");
+    throw std::invalid_argument("bar dataset requires version 1, 1..200000 bars and trading days");
   const auto interval = dataset.interval_minutes();
   if (interval > 1440)
     throw std::invalid_argument("unsupported bar interval");

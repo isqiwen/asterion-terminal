@@ -48,7 +48,7 @@ data::v1::BarDataset resolve_bar_dataset(const BarDatasetSources& in) {
     if (!inside(bar.trading_day))
       return;
     if (bars.size() == protocol::max_dataset_bars)
-      throw std::invalid_argument("dataset exceeds 20000 bars; narrow the date range");
+      throw std::invalid_argument("dataset exceeds 200000 bars; narrow the date range");
     bars.push_back(std::move(bar));
   };
   data::v1::BarDataset result;

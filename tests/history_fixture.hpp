@@ -71,7 +71,7 @@ inline Json seed_history(const std::filesystem::path& root, const std::vector<in
       return rows;
     }
   } daily;
-  if (prices.empty() || prices.size() > 20000)
+  if (prices.empty() || prices.size() > 200000)
     throw std::invalid_argument("invalid test prices");
   minutes.prices = prices;
   minutes.days = minute_days;

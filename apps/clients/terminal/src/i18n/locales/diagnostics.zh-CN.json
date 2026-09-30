@@ -405,5 +405,8 @@
   "task state history has a gap": "任务状态记录不连续，已保留原数据供检查。",
   "indexed task directory is missing": "任务索引中的任务目录缺失。",
   "strategy directory must be absolute and existing": "策略目录必须是已存在的绝对路径。",
-  "strategy directory must be absolute": "策略目录必须是绝对路径。"
+  "strategy directory must be absolute": "策略目录必须是绝对路径。",
+  "bar dataset requires version 1, 1..200000 bars and trading days": "数据集需要 1 到 200000 根 K 线和对应交易日。",
+  "paper sessions use at most 20000 bars; narrow the trading days": "模拟交易和策略最多使用 20000 根 K 线，请缩小交易日区间。",
+  "dataset exceeds 200000 bars; narrow the date range": "数据集超过 200000 根 K 线，请缩小交易日区间。"
 }

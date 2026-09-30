@@ -1056,3 +1056,29 @@ TEST(PaperSession, RecoveryUsesOwnedRiskEvenWhenDefaultPluginIsUnavailable) {
   PaperSession recovered(ledger.path);
   EXPECT_EQ(recovered.snapshot().at("fills").size(), 1U);
 }
+TEST(PaperSession, ResearchSizedDatasetsAreRefusedBeforeWriting) {
+  std::vector<MarketBar> bars;
+  for (std::int64_t i = 0; i < 20001; ++i)
+    bars.push_back(test::flat("2026-09-25", 1790384400000000000LL + i * 60000000000LL, "100"));
+  auto large = manifest();
+  large["dataset"] = test::dataset_json(bars);
+  Directory directory;
+  try {
+    PaperSession session(directory.path, large);
+    FAIL() << "a dataset above the session limit was accepted";
+  } catch (const std::invalid_argument& error) {
+    EXPECT_NE(std::string(error.what()).find("at most 20000 bars"), std::string::npos);
+  }
+  EXPECT_EQ(test::journal_size(directory.path), 0U);
+}
+TEST(BarDataset, ResearchLimitIsTwoHundredThousandBars) {
+  std::vector<MarketBar> bars;
+  for (std::int64_t i = 0; i < 200000; ++i)
+    bars.push_back(test::flat("2026-09-25", 1790384400000000000LL + i * 60000000000LL, "100"));
+  auto dataset = test::dataset(bars);
+  EXPECT_EQ(dataset.bars_size(), 200000);
+  *dataset.add_bars() = protocol::encode_bar(
+      test::flat("2026-09-25", 1790384400000000000LL + 200000 * 60000000000LL, "100"));
+  dataset.set_revision(protocol::bar_dataset_revision(dataset));
+  EXPECT_THROW(protocol::validate_bar_dataset(dataset), std::invalid_argument);
+}

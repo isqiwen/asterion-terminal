@@ -61,9 +61,16 @@ struct ResearchClient::Impl {
     request.set_service_id(endpoint.session);
     request.set_correlation_id(unique_process_id());
     auto exchange = [&](auto channel) {
-      channel.send(request.SerializeAsString(), 5s);
-      return channel.receive(
-          (request.has_history_catalog() || request.has_verify_connection()) ? 90s : 5s);
+      // Dataset resolution reads and verifies every stored segment; large
+      // research datasets (and submissions that resolve one) take longer.
+      const bool dataset = request.has_bar_dataset() ||
+                           (request.has_submit() && (request.submit().has_backtest() ||
+                                                     request.submit().has_factor_request()));
+      channel.send(request.SerializeAsString(), dataset ? 30s : 5s);
+      return channel.receive((request.has_history_catalog() || request.has_verify_connection())
+                                 ? 90s
+                             : dataset ? 60s
+                                       : 5s);
     };
     const auto raw =
         endpoint.endpoint.empty()

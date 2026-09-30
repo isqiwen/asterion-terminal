@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
     const auto destination =
         std::filesystem::path(std::u8string(output_path.begin(), output_path.end()));
     if (std::filesystem::is_symlink(path) || !std::filesystem::is_regular_file(path) ||
-        std::filesystem::file_size(path) > 16 * 1024 * 1024)
+        std::filesystem::file_size(path) > 128 * 1024 * 1024)
       throw std::invalid_argument("invalid factor input file");
     if (std::filesystem::is_symlink(destination))
       throw std::invalid_argument("result directory must not be a symbolic link");

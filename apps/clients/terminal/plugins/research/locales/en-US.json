@@ -135,7 +135,6 @@
   "样本内评价": "In-sample evaluation",
   "实验详情": "Experiment details",
   "研究连接已改变，请重新选择当前服务中的日线。": "The research connection changed. Select a daily dataset on the current service again.",
-  "单合约 · 最多 20000 根 K 线；委托在下一根 K 线撮合，交易日结束按数据源结算价结算": "Single contract · up to 20000 bars; orders match on the next bar and each trading day settles at the data source's settlement price",
   "按 K 线收盘价计算": "Computed from bar closes",
   "K 线周期（分钟）": "Bar interval (minutes)",
   "输入 K 线": "Input bars",
@@ -152,5 +151,6 @@
   "手续费为累计值，权益曲线包含每根 K 线的估值和日终结算。": "Fees are cumulative; the equity curve includes per-bar marks and day-end settlements.",
   "按 K 线计算 · 样本内评价": "Computed per bar · In-sample evaluation",
   "选中回看 K 线数": "Selected lookback bars",
-  "共同预热 K 线数": "Shared warm-up bars"
+  "共同预热 K 线数": "Shared warm-up bars",
+  "单合约 · 最多 200000 根 K 线；委托在下一根 K 线撮合，交易日结束按数据源结算价结算": "Single contract · up to 200000 bars; orders match on the next bar and each trading day settles at the data source's settlement price"
 }

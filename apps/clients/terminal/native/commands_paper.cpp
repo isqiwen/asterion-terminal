@@ -19,6 +19,8 @@ void Application::Impl::register_paper_commands() {
     // Validated before the braced initializer (GCC < 13 PR66139 leak).
     const auto risk = risk_parameters(p);
     const auto deposit = text(p, "deposit");
+    if (static_cast<std::size_t>(selected().dataset.bars_size()) > protocol::max_session_bars)
+      throw std::invalid_argument("paper sessions use at most 20000 bars; narrow the trading days");
     auto dataset = protocol::decode_bar_dataset(selected().dataset);
     json manifest{{"version", 2}, {"type", "historical_paper"}, {"costs", costs},
                   {"risk", risk}, {"deposit", deposit},         {"dataset", std::move(dataset)}};

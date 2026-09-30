@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
     if (input_path.empty() || output_path.empty())
       throw std::invalid_argument("both --input and --directory are required");
     const auto path = std::filesystem::path(std::u8string(input_path.begin(), input_path.end()));
-    if (std::filesystem::is_symlink(path) || std::filesystem::file_size(path) > 16 * 1024 * 1024)
+    if (std::filesystem::is_symlink(path) || std::filesystem::file_size(path) > 128 * 1024 * 1024)
       throw std::invalid_argument("invalid backtest input file");
     std::ifstream stream(path, std::ios::binary);
     const std::string raw{std::istreambuf_iterator<char>(stream), {}};

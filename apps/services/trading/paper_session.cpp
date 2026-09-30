@@ -47,6 +47,8 @@ bool fresh(const PaperExecution& engine) {
 } // namespace
 std::unique_ptr<PaperExecution> PaperSession::build(const Json& manifest) {
   const auto input = protocol::encode_input(manifest);
+  if (static_cast<std::size_t>(input.dataset().bars_size()) > protocol::max_session_bars)
+    throw std::invalid_argument("paper sessions use at most 20000 bars; narrow the trading days");
   const auto& c = input.dataset().contract();
   FuturesContract contract{protocol::instrument(c), c.product(), c.delivery_month()};
   contract.validate();

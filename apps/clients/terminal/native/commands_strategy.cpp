@@ -23,6 +23,8 @@ void Application::Impl::register_strategy_commands() {
       return value;
     };
     const auto& data = selected();
+    if (static_cast<std::size_t>(data.dataset.bars_size()) > protocol::max_session_bars)
+      throw std::invalid_argument("paper sessions use at most 20000 bars; narrow the trading days");
     strategy::v1::Config config;
     config.set_version(1);
     config.set_session_id("strategy-" + id);

@@ -35,7 +35,7 @@ Json bytes(const google::protobuf::Message& value) {
   return Json(std::vector<unsigned char>(raw.begin(), raw.end()));
 }
 template <class T> T message(const Json& json) {
-  if (!json.is_array() || json.size() > 16 * 1024 * 1024)
+  if (!json.is_array() || json.size() > 128 * 1024 * 1024)
     throw std::invalid_argument("invalid stored message");
   std::string raw;
   raw.reserve(json.size());
@@ -266,7 +266,7 @@ struct Store::Impl {
       if (!fs::is_directory(root / id))
         throw std::invalid_argument("indexed task directory is missing");
       safe(root / id / "results");
-      std::vector<Json> records{parse_json(tasks.text(1), 16 * 1024 * 1024)};
+      std::vector<Json> records{parse_json(tasks.text(1), 128 * 1024 * 1024)};
       {
         sqlite::Database::Statement events(
             *database, "SELECT sequence, body FROM task_events WHERE task_id=? ORDER BY sequence");
