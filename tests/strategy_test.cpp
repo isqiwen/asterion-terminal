@@ -524,17 +524,20 @@ TEST(StrategyExecution, TwoProcessesRecoverAuthorizedTargetsWithoutDuplicateOrde
   protocol::v1::PaperInput input;
   auto* contract = input.add_contracts();
   input.mutable_deposit()->set_units(Decimal::parse("1000").raw());
-  contract->mutable_costs()->mutable_margin_per_lot()->set_units(Decimal::parse("100").raw());
-  contract->mutable_costs()->mutable_open_fee()->set_units(Decimal::parse("2").raw());
-  contract->mutable_costs()->mutable_close_today_fee()->set_units(Decimal::parse("3").raw());
+  auto* version = contract->mutable_cost_schedule()->add_versions();
+  version->set_effective_from("1970-01-01");
+  version->set_source("test fixture");
+  version->mutable_values()->mutable_margin_per_lot()->set_units(Decimal::parse("100").raw());
+  version->mutable_values()->mutable_open_fee()->set_units(Decimal::parse("2").raw());
+  version->mutable_values()->mutable_close_today_fee()->set_units(Decimal::parse("3").raw());
   input.mutable_risk()->mutable_max_order_quantity()->set_units(10000000000LL);
   input.mutable_risk()->mutable_max_gross_quantity()->set_units(10000000000LL);
   input.mutable_risk()->set_max_working_orders(100);
-  contract->mutable_costs()->mutable_close_yesterday_fee()->set_units(Decimal::parse("4").raw());
-  contract->mutable_costs()->mutable_margin_rate()->set_units(0);
-  contract->mutable_costs()->mutable_open_fee_rate()->set_units(0);
-  contract->mutable_costs()->mutable_close_today_fee_rate()->set_units(0);
-  contract->mutable_costs()->mutable_close_yesterday_fee_rate()->set_units(0);
+  version->mutable_values()->mutable_close_yesterday_fee()->set_units(Decimal::parse("4").raw());
+  version->mutable_values()->mutable_margin_rate()->set_units(0);
+  version->mutable_values()->mutable_open_fee_rate()->set_units(0);
+  version->mutable_values()->mutable_close_today_fee_rate()->set_units(0);
+  version->mutable_values()->mutable_close_yesterday_fee_rate()->set_units(0);
   const std::vector<int> prices{100, 101, 100, 102, 99, 103};
   std::vector<MarketBar> bars;
   for (std::size_t i = 0; i < prices.size(); ++i)

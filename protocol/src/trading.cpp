@@ -143,6 +143,53 @@ FuturesCosts futures_costs(const v1::Costs& c) {
           value(c.margin_rate()),          value(c.open_fee_rate()),
           value(c.close_today_fee_rate()), value(c.close_yesterday_fee_rate())};
 }
+v1::Costs encode_costs(const FuturesCosts& costs) {
+  costs.validate();
+  v1::Costs result;
+#define COST(name) result.mutable_##name()->set_units(costs.name.raw())
+  COST(margin_per_lot);
+  COST(open_fee);
+  COST(close_today_fee);
+  COST(close_yesterday_fee);
+  COST(margin_rate);
+  COST(open_fee_rate);
+  COST(close_today_fee_rate);
+  COST(close_yesterday_fee_rate);
+#undef COST
+  return result;
+}
+std::vector<FuturesCostVersion> cost_schedule(const v1::CostSchedule& input) {
+  std::vector<FuturesCostVersion> result;
+  for (const auto& version : input.versions()) {
+    (void)decode_costs(version.values());
+    result.push_back({version.effective_from(), version.source(), futures_costs(version.values())});
+  }
+  validate_cost_schedule(result);
+  return result;
+}
+v1::CostSchedule encode_cost_schedule(const Json& input) {
+  if (!input.is_array() || input.empty() || input.size() > 512)
+    throw std::invalid_argument("cost schedule requires 1 to 512 versions");
+  v1::CostSchedule result;
+  for (const auto& version : input) {
+    require_fields(version, {"effective_from", "source", "values"});
+    auto* row = result.add_versions();
+    row->set_effective_from(version.at("effective_from").get<std::string>());
+    row->set_source(version.at("source").get<std::string>());
+    *row->mutable_values() = encode_costs(version.at("values"));
+  }
+  (void)cost_schedule(result);
+  return result;
+}
+Json decode_cost_schedule(const v1::CostSchedule& input) {
+  (void)cost_schedule(input);
+  Json result = Json::array();
+  for (const auto& version : input.versions())
+    result.push_back({{"effective_from", version.effective_from()},
+                      {"source", version.source()},
+                      {"values", decode_costs(version.values())}});
+  return result;
+}
 void validate_message(const google::protobuf::Message& message) {
   const auto* reflection = message.GetReflection();
   if (reflection->GetUnknownFields(message).field_count())
@@ -208,22 +255,26 @@ std::string dataset_revision(const v1::PaperInput& input) {
                                      : sha256_bytes(revisions.dump());
 }
 ContractTerms contract_terms(const v1::PaperContract& contract) {
-  return {instrument(contract.dataset().contract()), futures_costs(contract.costs())};
+  validate_bar_dataset(contract.dataset());
+  return {
+      instrument(contract.dataset().contract()),
+      costs_on(cost_schedule(contract.cost_schedule()), contract.dataset().bars(0).trading_day())
+          .values};
 }
-// Manifest version 3: a portfolio of contracts, each with its dataset and costs.
+// Manifest version 4: each contract pins a complete dated cost schedule.
 v1::PaperInput encode_input(const Json& m) {
   require_fields(m, {"version", "type", "deposit", "risk", "contracts"});
-  if (m.at("version") != 3 || m.at("type") != "historical_paper" || !m.at("contracts").is_array() ||
+  if (m.at("version") != 4 || m.at("type") != "historical_paper" || !m.at("contracts").is_array() ||
       m.at("contracts").empty() || m.at("contracts").size() > max_portfolio_contracts)
     throw std::invalid_argument("invalid paper input");
   v1::PaperInput result;
   set(result.mutable_deposit(), m.at("deposit"));
   *result.mutable_risk() = encode_risk(m.at("risk"));
   for (const auto& c : m.at("contracts")) {
-    require_fields(c, {"dataset", "costs"});
+    require_fields(c, {"dataset", "cost_schedule"});
     auto* contract = result.add_contracts();
     *contract->mutable_dataset() = encode_bar_dataset(c.at("dataset"));
-    *contract->mutable_costs() = encode_costs(c.at("costs"));
+    *contract->mutable_cost_schedule() = encode_cost_schedule(c.at("cost_schedule"));
   }
   static_cast<void>(decode_input(result));
   return result;
@@ -238,15 +289,15 @@ Json decode_input(const v1::PaperInput& input) {
   Json contracts = Json::array();
   std::vector<ContractTerms> terms;
   for (const auto& c : input.contracts()) {
-    if (!c.has_dataset() || !c.has_costs())
+    if (!c.has_dataset() || !c.has_cost_schedule())
       throw std::invalid_argument("missing explicit paper costs or dataset");
-    contracts.push_back(
-        {{"dataset", decode_bar_dataset(c.dataset())}, {"costs", decode_costs(c.costs())}});
+    contracts.push_back({{"dataset", decode_bar_dataset(c.dataset())},
+                         {"cost_schedule", decode_cost_schedule(c.cost_schedule())}});
     terms.push_back(contract_terms(c));
   }
   // The account validates currency, uniqueness and each contract's terms.
   static_cast<void>(FuturesAccount(Decimal::from_raw(input.deposit().units()), terms));
-  return {{"version", 3},
+  return {{"version", 4},
           {"type", "historical_paper"},
           {"deposit", get(input.deposit())},
           {"risk", std::move(risk)},
@@ -419,6 +470,7 @@ v1::Snapshot encode_snapshot(const Json& s) {
     auto* item = result.add_contracts();
     *item->mutable_contract() = contract(c.at("contract"));
     *item->mutable_costs() = encode_costs(c.at("costs"));
+    *item->mutable_cost_schedule() = encode_cost_schedule(c.at("cost_schedule"));
     set(item->mutable_mark(), c.at("mark"));
   }
 #define VALUE(name) set(result.mutable_##name(), s.at(#name))
@@ -484,6 +536,7 @@ Json decode_snapshot(const v1::Snapshot& s) {
       throw std::invalid_argument("incomplete trading snapshot");
     contracts.push_back({{"contract", contract(c.contract())},
                          {"costs", decode_costs(c.costs())},
+                         {"cost_schedule", decode_cost_schedule(c.cost_schedule())},
                          {"mark", get(c.mark())}});
   }
   Json result{{"risk", std::move(risk)},

@@ -166,7 +166,16 @@ void verify_result(const wire::Task& task, const wire::BacktestResult& result,
     contracts = result.account().contracts(c).contract().SerializeAsString() ==
                     paper.contracts(c).dataset().contract().SerializeAsString() &&
                 result.account().contracts(c).costs().SerializeAsString() ==
-                    paper.contracts(c).costs().SerializeAsString();
+                    protocol::encode_costs(
+                        costs_on(protocol::cost_schedule(paper.contracts(c).cost_schedule()),
+                                 paper.contracts(c)
+                                     .dataset()
+                                     .bars(paper.contracts(c).dataset().bars_size() - 1)
+                                     .trading_day())
+                            .values)
+                        .SerializeAsString() &&
+                result.account().contracts(c).cost_schedule().SerializeAsString() ==
+                    paper.contracts(c).cost_schedule().SerializeAsString();
   if (result.version() != 5 || result.dataset_revision() != task.input().dataset_revision() ||
       result.engine_version() != protocol::backtest_engine_version ||
       result.account().cursor() != task.total() || result.account().total() != task.total() ||

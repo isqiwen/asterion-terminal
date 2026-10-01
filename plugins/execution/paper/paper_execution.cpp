@@ -11,8 +11,15 @@ const MarketBar& bar_of(const Data& data, const PaperExecution::Event& event) {
 }
 std::vector<ContractTerms> terms_of(const std::vector<ContractBars>& contracts) {
   std::vector<ContractTerms> result;
-  for (const auto& contract : contracts)
-    result.push_back(contract.terms);
+  for (const auto& contract : contracts) {
+    auto terms = contract.terms;
+    if (!contract.cost_schedule.empty()) {
+      validate_cost_schedule(contract.cost_schedule);
+      if (!contract.bars.empty())
+        terms.costs = costs_on(contract.cost_schedule, contract.bars.front().trading_day).values;
+    }
+    result.push_back(std::move(terms));
+  }
   return result;
 }
 } // namespace
@@ -26,6 +33,11 @@ PaperExecution::PaperExecution(Decimal deposit, std::vector<ContractBars> contra
   std::size_t total = 0;
   for (std::size_t c = 0; c < data->contracts.size(); ++c) {
     const auto& contract = data->contracts[c];
+    if (!contract.cost_schedule.empty()) {
+      validate_cost_schedule(contract.cost_schedule);
+      if (!contract.bars.empty())
+        (void)costs_on(contract.cost_schedule, contract.bars.front().trading_day);
+    }
     const MarketBar* previous = nullptr;
     for (std::size_t b = 0; b < contract.bars.size(); ++b) {
       const auto& bar = contract.bars[b];
@@ -107,7 +119,11 @@ void PaperExecution::advance() {
   const auto fills = [&](const AccountOrder& item) {
     return item.order.request().instrument == instrument && fill_price(item, bar).has_value();
   };
-  if (std::ranges::none_of(account_.orders(), fills)) {
+  const bool changes_day = cursor_ && bar.trading_day != this->bar(event(cursor_ - 1)).trading_day;
+  const bool changes_costs =
+      changes_day &&
+      std::ranges::any_of(data_->contracts, [](const auto& c) { return !c.cost_schedule.empty(); });
+  if (!changes_costs && std::ranges::none_of(account_.orders(), fills)) {
     // Nothing can fill: marking alone has a strong guarantee, no ledger copy.
     account_.mark(instrument, bar.close);
     ++cursor_;
@@ -115,6 +131,14 @@ void PaperExecution::advance() {
     return;
   }
   auto next = account_;
+  if (changes_costs) {
+    std::vector<FuturesCosts> costs;
+    for (const auto& contract : data_->contracts)
+      costs.push_back(contract.cost_schedule.empty()
+                          ? contract.terms.costs
+                          : costs_on(contract.cost_schedule, bar.trading_day).values);
+    next.update_costs(costs);
+  }
   auto sequence = execution_sequence_;
   auto liquidity = quantize(multiply(bar.volume, paper_bar_participation, Rounding::floor),
                             terms.instrument.quantity_increment, Rounding::floor);

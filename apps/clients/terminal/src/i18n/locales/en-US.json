@@ -393,5 +393,15 @@
   "移除": "Remove",
   "组合最多 {n} 个合约。": "A portfolio holds at most {n} contracts.",
   "加入组合": "Add to Portfolio",
-  "交易日区间留空表示全部；组合内合约须覆盖相同交易日；合约单位以交易所公布为准。": "Leave the trading-day range empty for all days; portfolio contracts must cover the same trading days; contract units follow the exchange."
+  "交易日区间留空表示全部；组合内合约须覆盖相同交易日；合约单位以交易所公布为准。": "Leave the trading-day range empty for all days; portfolio contracts must cover the same trading days; contract units follow the exchange.",
+  "费率模板格式无效，原数据未改动。": "Invalid fee template format. Stored data was not changed.",
+  "请填写有效的费率、来源和生效日期。": "Enter valid rates, a source and an effective date.",
+  "同一生效日期已存在费率版本，不会覆盖。": "A version already exists for this effective date. It will not be overwritten.",
+  "费率版本最多 512 个。": "At most 512 cost versions are allowed.",
+  "已固定 {n} 个费率版本": "{n} pinned cost versions",
+  "费率版本未覆盖首个交易日 {day}": "Cost versions do not cover the first trading day {day}",
+  "旧版费率模板保留在本机，请核实后重新保存为日期版本。": "Earlier fee templates remain on this machine. Verify and save them as dated versions.",
+  "按交易日使用固定的费率版本；更改模板不影响本次配置。": "Pinned cost versions apply by trading day. Template edits do not change this configuration.",
+  "改为固定费率": "Use fixed costs",
+  "固定费率假设：以下数值适用于全部所选交易日。": "Fixed-cost assumption: these values apply to every selected trading day."
 }

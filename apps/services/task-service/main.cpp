@@ -268,14 +268,14 @@ int main(int argc, char** argv) {
             for (const auto& source : sources)
               store.confirm_sources(source);
             wire::BacktestInput input;
-            input.set_version(7);
+            input.set_version(8);
             auto* paper = input.mutable_paper();
             *paper->mutable_deposit() = b.deposit();
             *paper->mutable_risk() = b.risk();
             for (int c = 0; c < b.contracts_size(); ++c) {
               auto* contract = paper->add_contracts();
               *contract->mutable_dataset() = std::move(datasets[static_cast<std::size_t>(c)]);
-              *contract->mutable_costs() = b.contracts(c).costs();
+              *contract->mutable_cost_schedule() = b.contracts(c).cost_schedule();
             }
             input.set_dataset_revision(asterion::protocol::dataset_revision(*paper));
             *input.mutable_sma() = b.sma();

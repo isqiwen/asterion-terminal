@@ -58,10 +58,12 @@ export type ContractCosts = {
   close_today_fee_rate: string;
   close_yesterday_fee_rate: string;
 };
+export type CostVersion = { effective_from: string; source: string; values: ContractCosts };
 // One portfolio contract: its terms, costs and latest mark.
 export type AccountContract = {
   contract: FuturesContract;
   costs: ContractCosts;
+  cost_schedule: CostVersion[];
   mark: string;
 };
 export type PaperAccount = {
@@ -559,7 +561,7 @@ export type BacktestExperiment = {
     type: "historical_paper";
     deposit: string;
     risk: PaperAccount["risk"];
-    contracts: { dataset: DatasetEvidence; costs: ContractCosts }[];
+    contracts: { dataset: DatasetEvidence; cost_schedule: CostVersion[] }[];
   };
   // One range per contract, in contract order.
   data: ExperimentData[];

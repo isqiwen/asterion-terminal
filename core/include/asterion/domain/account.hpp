@@ -2,7 +2,7 @@
 #include <asterion/domain/order.hpp>
 #include <asterion/foundation/serialization.hpp>
 #include <optional>
-#include <vector>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -28,7 +28,15 @@ struct FuturesCosts {
   Decimal fee(Offset bucket, Decimal quantity, Decimal price, Decimal multiplier) const;
   Decimal margin(Decimal quantity, Decimal price, Decimal multiplier) const;
 };
-// One contract of a portfolio: its specification and its cost schedule.
+struct FuturesCostVersion {
+  std::string effective_from, source;
+  FuturesCosts values;
+};
+// Ascending immutable versions; the first must cover the first trading day.
+void validate_cost_schedule(const std::vector<FuturesCostVersion>& schedule);
+const FuturesCostVersion& costs_on(const std::vector<FuturesCostVersion>& schedule,
+                                   const std::string& trading_day);
+// One contract of a portfolio: its specification and currently active costs.
 struct ContractTerms {
   Instrument instrument;
   FuturesCosts costs;
@@ -59,6 +67,9 @@ public:
   // Settles every contract at its price, ordered as contracts(). Only with no
   // outstanding orders; the caller owns the calendar.
   void settle(const std::vector<Decimal>& prices);
+  // At a trading-day boundary, after cancelling orders. Revalues margin on
+  // existing positions without changing balances or past fees.
+  void update_costs(const std::vector<FuturesCosts>& costs);
   Json snapshot() const;
   const std::vector<ContractTerms>& contracts() const noexcept { return contracts_; }
   // Index of a contract in contracts(); throws for a contract outside the account.

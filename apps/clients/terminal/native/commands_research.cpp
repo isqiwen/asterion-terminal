@@ -309,7 +309,7 @@ void Application::Impl::register_research_commands() {
     json contracts = json::array();
     for (std::size_t i = 0; i < selected().size(); ++i)
       contracts.push_back({{"data", protocol::decode_bar_dataset_request(selected()[i].request)},
-                           {"costs", costs[i]}});
+                           {"cost_schedule", costs[i]}});
     auto request = protocol::encode_backtest_request(
         {{"contracts", std::move(contracts)},
          {"deposit", text(p, "deposit")},

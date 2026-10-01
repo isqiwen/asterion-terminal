@@ -34,14 +34,17 @@ struct Fixture {
 json fixture_contracts() {
   return json::array({{{"venue", "SHFE"},
                        {"symbol", "rb2610"},
-                       {"margin_per_lot", "100"},
-                       {"open_fee", "2"},
-                       {"close_today_fee", "3"},
-                       {"close_yesterday_fee", "4"},
-                       {"margin_rate", "0"},
-                       {"open_fee_rate", "0"},
-                       {"close_today_fee_rate", "0"},
-                       {"close_yesterday_fee_rate", "0"}}});
+                       {"cost_schedule", json::array({{{"effective_from", "1970-01-01"},
+                                                       {"source", "test fixture"},
+                                                       {"values",
+                                                        {{"margin_per_lot", "100"},
+                                                         {"open_fee", "2"},
+                                                         {"close_today_fee", "3"},
+                                                         {"close_yesterday_fee", "4"},
+                                                         {"margin_rate", "0"},
+                                                         {"open_fee_rate", "0"},
+                                                         {"close_today_fee_rate", "0"},
+                                                         {"close_yesterday_fee_rate", "0"}}}}})}}});
 }
 json call(void* runtime, const json& request) {
   std::unique_ptr<char, decltype(&asterion_terminal_free)> result(

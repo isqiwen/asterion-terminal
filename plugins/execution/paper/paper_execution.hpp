@@ -10,6 +10,9 @@ inline const Decimal paper_bar_participation = Decimal::parse("0.1");
 struct ContractBars {
   ContractTerms terms;
   std::vector<MarketBar> bars;
+  // Empty only for explicitly fixed-cost in-memory callers. Persisted inputs
+  // always carry a validated, nonempty schedule through the protocol.
+  std::vector<FuturesCostVersion> cost_schedule;
 };
 // Historical bar replay of a futures portfolio. The contracts' bars form one
 // event stream ordered by bar time (then contract order); each advance

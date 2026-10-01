@@ -6,10 +6,12 @@ import "asterion/v1/data.proto";
 
 // Per-lot amounts plus notional rates (price x quantity x multiplier x rate).
 message Costs { Decimal margin_per_lot = 1; Decimal open_fee = 2; Decimal close_today_fee = 3; Decimal close_yesterday_fee = 4; Decimal margin_rate = 5; Decimal open_fee_rate = 6; Decimal close_today_fee_rate = 7; Decimal close_yesterday_fee_rate = 8; }
+message CostVersion { string effective_from = 1; string source = 2; Costs values = 3; }
+message CostSchedule { repeated CostVersion versions = 1; }
 message RiskLimits { Decimal max_order_quantity = 1; Decimal max_gross_quantity = 2; uint64 max_working_orders = 3; }
 // One contract of a paper portfolio: its bars, trading days and costs. The
 // contract is the dataset's contract.
-message PaperContract { asterion.data.v1.BarDataset dataset = 1; Costs costs = 2; }
+message PaperContract { asterion.data.v1.BarDataset dataset = 1; reserved 2; CostSchedule cost_schedule = 3; }
 // Every contract shares the same trading days; each day ends with the
 // dataset settlement prices.
 message PaperInput { Decimal deposit = 1; RiskLimits risk = 2; repeated PaperContract contracts = 3; }
@@ -68,7 +70,7 @@ message Request {
     LiveInput live_create = 17; LiveCredentials live_connect = 18; Empty live_disconnect = 19;
     Empty live_costs = 20; }
 }
-message ContractState { Contract contract = 1; Costs costs = 2; Decimal mark = 3; }
+message ContractState { Contract contract = 1; Costs costs = 2; Decimal mark = 3; CostSchedule cost_schedule = 4; }
 message Position { string venue = 1; string symbol = 2; Side side = 3; bool today = 4; Decimal quantity = 5; Decimal basis = 6; }
 message Order { string id = 1; string venue = 2; string symbol = 3; Side side = 4; Offset offset = 5; Decimal quantity = 6; Decimal limit_price = 7; Decimal filled = 8; OrderState state = 9; }
 message Fill { string id = 1; string order_id = 2; string venue = 3; string symbol = 4; Decimal quantity = 5; Decimal price = 6; }

@@ -665,6 +665,7 @@ function LiveAccount({
 // row can become the product's fee template for paper trading and backtests.
 function AccountRates({ live, busy, run }: { live: LiveSession; busy: boolean; run: Run }) {
   const [saved, setSaved] = useState<string[]>([]);
+  const [error, setError] = useState<DisplayError | null>(null);
   const day = live.trading_day.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
   const states: Record<LiveSession["costs"][number]["state"], string> = {
     querying: "查询中",
@@ -674,6 +675,11 @@ function AccountRates({ live, busy, run }: { live: LiveSession; busy: boolean; r
   return (
     <section className="account-field-group live-authorization" aria-label={t("账户费率")}>
       <h3>{t("账户费率")}</h3>
+      {error && (
+        <p role="alert">
+          <ErrorNotice error={error} />
+        </p>
+      )}
       <div className="source-actions">
         <button disabled={busy} onClick={() => void run("live.costs")}>
           {t("查询账户费率")}
@@ -701,6 +707,7 @@ function AccountRates({ live, busy, run }: { live: LiveSession; busy: boolean; r
                 const contract = live.contracts.find(item => key(item) === key(row));
                 const product = contract ? `${contract.venue}/${contract.product}` : "";
                 const c = row.costs;
+                const versionKey = `${product}@${day}`;
                 return (
                   <tr key={key(row)}>
                     <td>{row.symbol}</td>
@@ -715,21 +722,26 @@ function AccountRates({ live, busy, run }: { live: LiveSession; busy: boolean; r
                     <td>
                       {c && product && (
                         <button
-                          disabled={saved.includes(product)}
+                          disabled={saved.includes(versionKey)}
                           onClick={() => {
-                            saveCostTemplate(
-                              product,
-                              c,
-                              t("CTP 账户 {broker}/{user}", {
-                                broker: live.broker.broker_id,
-                                user: live.broker.user_id,
-                              }),
-                              day,
-                            );
-                            setSaved([...saved, product]);
+                            try {
+                              saveCostTemplate(
+                                product,
+                                c,
+                                t("CTP 账户 {broker}/{user}", {
+                                  broker: live.broker.broker_id,
+                                  user: live.broker.user_id,
+                                }),
+                                day,
+                              );
+                              setSaved([...saved, versionKey]);
+                              setError(null);
+                            } catch (reason) {
+                              setError(asDisplayError(reason));
+                            }
                           }}
                         >
-                          {saved.includes(product)
+                          {saved.includes(versionKey)
                             ? t("已存为 {product} 模板", { product })
                             : t("存为 {product} 费率模板", { product })}
                         </button>

@@ -53,7 +53,7 @@ Json cost_json() {
           {"close_today_fee_rate", "0"}, {"close_yesterday_fee_rate", "0"}};
 }
 Json manifest() {
-  return {{"version", 3},
+  return {{"version", 4},
           {"type", "historical_paper"},
           {"risk",
            {{"max_order_quantity", "100"},
@@ -63,7 +63,7 @@ Json manifest() {
           {"contracts",
            {{{"dataset",
               test::dataset_json(bars(), {{"2026-09-25", d("105")}, {"2026-09-28", d("120")}})},
-             {"costs", cost_json()}}}}};
+             {"cost_schedule", test::cost_schedule(cost_json())}}}}};
 }
 Json advance(std::string id) {
   return {{"request_id", id}, {"action", "advance"}};
@@ -1103,7 +1103,7 @@ Json portfolio_manifest(std::vector<MarketBar> second_bars) {
   value["contracts"].push_back(
       {{"dataset", protocol::decode_bar_dataset(test::dataset(
                        second_bars, {{"2026-09-25", d("205")}, {"2026-09-28", d("215")}}, hc))},
-       {"costs", cost_json()}});
+       {"cost_schedule", test::cost_schedule(cost_json())}});
   return value;
 }
 std::vector<MarketBar> hc_bars() {
@@ -1202,4 +1202,89 @@ TEST(PaperSession, FullSessionBudgetIncludesStrategyCommandsSettlementAndRecover
   EXPECT_EQ(restored.snapshot(), completed);
   EXPECT_NO_THROW(restored.execute(settle_day("finish", 0)));
   EXPECT_NO_THROW(restored.execute(revoke));
+}
+
+TEST(FuturesCosts, DatedSchedulesRejectAmbiguityAndMissingCoverage) {
+  std::vector<FuturesCostVersion> schedule{{"2026-09-25", "published A", costs()},
+                                           {"2026-09-28", "published B", costs()}};
+  EXPECT_NO_THROW(validate_cost_schedule(schedule));
+  EXPECT_EQ(costs_on(schedule, "2026-09-27").source, "published A");
+  EXPECT_EQ(costs_on(schedule, "2026-09-28").source, "published B");
+  EXPECT_THROW(costs_on(schedule, "2026-09-24"), std::invalid_argument);
+  EXPECT_THROW(validate_cost_schedule({}), std::invalid_argument);
+  for (const auto day : {"2026-09-25", "2026-09-24", "2026-02-30"}) {
+    auto bad = schedule;
+    bad[1].effective_from = day;
+    EXPECT_THROW(validate_cost_schedule(bad), std::invalid_argument);
+  }
+  schedule[1].source = " \n";
+  EXPECT_THROW(validate_cost_schedule(schedule), std::invalid_argument);
+}
+TEST(FuturesAccount, CostChangePreservesLedgerAndRejectsWorkingOrdersAtomically) {
+  FuturesAccount account(d("1000"), {{instrument(), costs()}});
+  account.mark(instrument().id, d("100"));
+  account.submit(order("open", Side::buy, "2", "100"), Offset::open);
+  account.fill({"fill", "open", d("1"), d("100")});
+  auto changed = costs();
+  changed.margin_per_lot = d("2000");
+  auto before = account.snapshot();
+  EXPECT_THROW(account.update_costs({changed}), std::invalid_argument);
+  EXPECT_EQ(account.snapshot(), before);
+  account.cancel("open");
+  account.update_costs({changed});
+  EXPECT_EQ(account.balance(), d("998"));
+  EXPECT_EQ(account.fees(), d("2"));
+  EXPECT_EQ(account.available(), d("-1002"));
+  EXPECT_EQ(account.positions().size(), 1U);
+  before = account.snapshot();
+  auto invalid = changed;
+  invalid.open_fee = d("-1");
+  EXPECT_THROW(account.update_costs({invalid}), std::invalid_argument);
+  EXPECT_EQ(account.snapshot(), before);
+  EXPECT_EQ(account.contracts()[0].costs.margin_per_lot, d("2000"));
+}
+TEST(PaperSession, DatedFeesSwitchAllContractsBeforeNewDayAndRecoverExactly) {
+  Directory directory;
+  auto spec = portfolio_manifest(hc_bars());
+  for (auto& contract : spec["contracts"]) {
+    auto next = cost_json();
+    next["margin_per_lot"] = "700";
+    next["open_fee"] = "9";
+    contract["cost_schedule"].push_back(
+        {{"effective_from", "2026-09-28"}, {"source", "dated fixture"}, {"values", next}});
+  }
+  Json saved;
+  {
+    PaperSession session(directory.path, spec);
+    session.execute(advance("rb.100"));
+    session.execute(submit("rb", "buy", "open", "100"));
+    session.execute(advance("hc.150"));
+    session.execute(submit_hc("hc", "201"));
+    session.execute(advance("rb.200"));
+    session.execute(advance("hc.250"));
+    session.execute(settle_day("settle", 0));
+    session.execute(advance("rb.300"));
+    saved = session.snapshot();
+    EXPECT_EQ(saved["fees"], "4");
+    EXPECT_EQ(saved["balance"], "1096");
+    EXPECT_EQ(saved["margin"], "1400");
+    EXPECT_EQ(saved["available"], "-304");
+    EXPECT_EQ(saved["contracts"][0]["costs"]["open_fee"], "9");
+    EXPECT_EQ(saved["contracts"][1]["costs"]["open_fee"], "9");
+    EXPECT_EQ(saved["contracts"][1]["cost_schedule"], spec["contracts"][1]["cost_schedule"]);
+  }
+  PaperSession restored(directory.path);
+  EXPECT_EQ(restored.snapshot(), saved);
+}
+TEST(PaperSession, MissingCostCoverageAndLegacyCostsAreRefusedBeforeWriting) {
+  Directory directory;
+  auto spec = manifest();
+  spec["contracts"][0]["cost_schedule"][0]["effective_from"] = "2026-09-28";
+  EXPECT_THROW(PaperSession(directory.path, spec), std::invalid_argument);
+  EXPECT_EQ(test::journal_size(directory.path), 0U);
+  spec = manifest();
+  spec["contracts"][0].erase("cost_schedule");
+  spec["contracts"][0]["costs"] = cost_json();
+  EXPECT_ANY_THROW(PaperSession(directory.path, spec));
+  EXPECT_EQ(test::journal_size(directory.path), 0U);
 }

@@ -10,6 +10,10 @@ Json decode_risk(const v1::RiskLimits& value);
 v1::Costs encode_costs(const Json& costs);
 Json decode_costs(const v1::Costs& costs);
 FuturesCosts futures_costs(const v1::Costs& costs);
+v1::CostSchedule encode_cost_schedule(const Json& schedule);
+Json decode_cost_schedule(const v1::CostSchedule& schedule);
+std::vector<FuturesCostVersion> cost_schedule(const v1::CostSchedule& schedule);
+v1::Costs encode_costs(const FuturesCosts& costs);
 ContractTerms contract_terms(const v1::PaperContract& contract);
 // Identity of a portfolio's data; a single dataset's own revision.
 std::string dataset_revision(const v1::PaperInput& input);

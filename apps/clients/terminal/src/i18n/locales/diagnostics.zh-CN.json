@@ -451,5 +451,10 @@
   "limit price deviates from the latest price beyond the session limit": "限价偏离最新价超过本会话的上限，委托未发送。",
   "price deviation limit must be above 0 and below 1": "价格偏离上限必须大于 0 且小于 1。",
   "CTP trading session changed; the order was not sent": "CTP 交易会话状态已变化，委托未发送。",
-  "paper replay requires 1 to 200000 historical bars": "历史撮合需要 1 至 200000 根 K 线"
+  "paper replay requires 1 to 200000 historical bars": "历史撮合需要 1 至 200000 根 K 线",
+  "cost schedule requires 1 to 512 versions": "费率表必须包含 1 至 512 个日期版本。",
+  "cost versions must have unique ascending effective dates": "费率版本的生效日期必须唯一且严格递增。",
+  "cost version requires a source of at most 256 bytes": "费率版本必须注明来源，且来源长度不超过 256 字节。",
+  "cost schedule does not cover the first trading day": "费率表未覆盖首个交易日，请补充更早的费率版本。",
+  "cost changes require every contract and no working orders": "切换费率需要提供全部合约的费率，并先撤销未完成委托。"
 }

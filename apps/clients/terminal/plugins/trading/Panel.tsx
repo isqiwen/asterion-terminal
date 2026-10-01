@@ -1,5 +1,6 @@
 import {
   ContractCosts,
+  CostScheduleDetails,
   contractCostRequest,
   type ContractCostDrafts,
   DatasetPicker,
@@ -477,16 +478,19 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
               )}
             </p>
             {paper.contracts.map(item => (
-              <p key={`${item.contract.venue}.${item.contract.symbol}`}>
-                {item.contract.venue} · {item.contract.symbol}
-                {t("：每手保证金")} {item.costs.margin_per_lot}
-                {t("；开仓 / 平今 / 平昨手续费")} {item.costs.open_fee} /{" "}
-                {item.costs.close_today_fee} / {item.costs.close_yesterday_fee}
-                {t("；保证金率")} {item.costs.margin_rate}
-                {t("；开仓 / 平今 / 平昨费率")} {item.costs.open_fee_rate} /{" "}
-                {item.costs.close_today_fee_rate} / {item.costs.close_yesterday_fee_rate}
-                {t("。单位：")} {item.contract.currency}。
-              </p>
+              <section key={`${item.contract.venue}.${item.contract.symbol}`}>
+                <p>
+                  {item.contract.venue} · {item.contract.symbol}
+                  {t("：每手保证金")} {item.costs.margin_per_lot}
+                  {t("；开仓 / 平今 / 平昨手续费")} {item.costs.open_fee} /{" "}
+                  {item.costs.close_today_fee} / {item.costs.close_yesterday_fee}
+                  {t("；保证金率")} {item.costs.margin_rate}
+                  {t("；开仓 / 平今 / 平昨费率")} {item.costs.open_fee_rate} /{" "}
+                  {item.costs.close_today_fee_rate} / {item.costs.close_yesterday_fee_rate}
+                  {t("。单位：")} {item.contract.currency}。
+                </p>
+                <CostScheduleDetails versions={item.cost_schedule} />
+              </section>
             ))}
             <p>
               {t(

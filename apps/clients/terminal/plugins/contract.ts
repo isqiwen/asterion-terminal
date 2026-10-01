@@ -3,6 +3,7 @@ export { Icon } from "../src/ui/Icon";
 export { DatasetPicker } from "../src/ui/DatasetPicker";
 export {
   CostTemplate,
+  CostScheduleDetails,
   ContractCosts,
   contractCostRequest,
   saveCostTemplate,

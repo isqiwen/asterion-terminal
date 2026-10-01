@@ -10,7 +10,7 @@ message SmaStrategy { uint32 fast = 1; uint32 slow = 2; asterion.protocol.v1.Dec
 // Immutable input resolved by the task service. paper.contracts hold the bars
 // and trading days of each contract; the SMA strategy runs on every contract.
 message BacktestInput {
-  uint32 version = 1; // 7
+  uint32 version = 1; // 8
   string dataset_revision = 2;
   asterion.protocol.v1.PaperInput paper = 3;
   SmaStrategy sma = 4;
@@ -18,7 +18,8 @@ message BacktestInput {
 // One contract of a backtest submission: the task service resolves its bars.
 message BacktestContract {
   asterion.data.v1.BarDatasetRequest data = 1;
-  asterion.protocol.v1.Costs costs = 2;
+  reserved 2;
+  asterion.protocol.v1.CostSchedule cost_schedule = 3;
 }
 message BacktestRequest {
   repeated BacktestContract contracts = 1;

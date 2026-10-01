@@ -19,8 +19,9 @@ replay_order(const std::vector<const std::vector<MarketBar>*>& contracts) {
 PaperPortfolio paper_portfolio(const protocol::v1::PaperInput& input) {
   PaperPortfolio result;
   for (const auto& contract : input.contracts()) {
-    result.contracts.push_back(
-        {protocol::contract_terms(contract), protocol::dataset_bars(contract.dataset())});
+    result.contracts.push_back({protocol::contract_terms(contract),
+                                protocol::dataset_bars(contract.dataset()),
+                                protocol::cost_schedule(contract.cost_schedule())});
     result.days.push_back(protocol::dataset_days(contract.dataset()));
   }
   return result;

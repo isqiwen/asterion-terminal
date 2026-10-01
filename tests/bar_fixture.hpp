@@ -5,6 +5,11 @@
 #include <string>
 #include <vector>
 namespace asterion::test {
+inline Json cost_schedule(Json values, std::string day = "1970-01-01") {
+  return Json::array({{{"effective_from", std::move(day)},
+                       {"source", "test fixture"},
+                       {"values", std::move(values)}}});
+}
 inline Decimal dec(const char* value) {
   return Decimal::parse(value);
 }

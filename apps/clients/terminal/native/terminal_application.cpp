@@ -21,11 +21,6 @@ json risk_parameters(const json& p) {
           {"max_gross_quantity", p.at("max_gross_quantity")},
           {"max_working_orders", parsed}};
 }
-namespace {
-constexpr std::array<const char*, 8> cost_keys{
-    "margin_per_lot", "open_fee",      "close_today_fee",      "close_yesterday_fee",
-    "margin_rate",    "open_fee_rate", "close_today_fee_rate", "close_yesterday_fee_rate"};
-} // namespace
 void fields_with_risk(const json& object, std::initializer_list<std::string_view> names) {
   if (!object.is_object() || object.size() != names.size() + 3)
     throw std::invalid_argument("request fields do not match the current contract");
@@ -487,12 +482,10 @@ std::vector<json> Application::Impl::selection_costs(const json& contracts) cons
     });
     if (found == contracts.end())
       throw std::invalid_argument("give costs for every selected contract");
-    if (found->size() != cost_keys.size() + 2)
-      throw std::invalid_argument("request fields do not match the current contract");
-    json costs = json::object();
-    for (const auto* key : cost_keys)
-      costs[key] = text(*found, key);
-    result.push_back(std::move(costs));
+    require_fields(*found, {"venue", "symbol", "cost_schedule"});
+    const auto schedule = protocol::encode_cost_schedule(found->at("cost_schedule"));
+    (void)costs_on(protocol::cost_schedule(schedule), item.dataset.bars(0).trading_day());
+    result.push_back(protocol::decode_cost_schedule(schedule));
   }
   return result;
 }

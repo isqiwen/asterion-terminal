@@ -23,10 +23,10 @@ research::v1::SmaStrategy sma(const Json& value) {
 } // namespace
 research::v1::BacktestInput encode_backtest(const Json& input) {
   require_fields(input, {"version", "dataset_revision", "paper", "sma"});
-  if (!input.at("version").is_number_integer() || input.at("version") != 7)
+  if (!input.at("version").is_number_integer() || input.at("version") != 8)
     throw std::invalid_argument("unsupported backtest input version");
   research::v1::BacktestInput result;
-  result.set_version(7);
+  result.set_version(8);
   result.set_dataset_revision(input.at("dataset_revision").get<std::string>());
   *result.mutable_paper() = encode_input(input.at("paper"));
   *result.mutable_sma() = sma(input.at("sma"));
@@ -40,10 +40,10 @@ research::v1::BacktestRequest encode_backtest_request(const Json& input) {
     throw std::invalid_argument("backtest requires 1 to 20 contracts");
   research::v1::BacktestRequest result;
   for (const auto& contract : input.at("contracts")) {
-    require_fields(contract, {"data", "costs"});
+    require_fields(contract, {"data", "cost_schedule"});
     auto* item = result.add_contracts();
     *item->mutable_data() = encode_bar_dataset_request(contract.at("data"));
-    *item->mutable_costs() = encode_costs(contract.at("costs"));
+    *item->mutable_cost_schedule() = encode_cost_schedule(contract.at("cost_schedule"));
   }
   result.mutable_deposit()->set_units(Decimal::parse(input.at("deposit").get<std::string>()).raw());
   *result.mutable_risk() = encode_risk(input.at("risk"));
@@ -52,14 +52,14 @@ research::v1::BacktestRequest encode_backtest_request(const Json& input) {
 }
 Json decode_backtest(const research::v1::BacktestInput& input) {
   validate_message(input);
-  if (input.version() != 7 || !input.has_paper() || !input.has_sma() || !input.sma().has_quantity())
+  if (input.version() != 8 || !input.has_paper() || !input.has_sma() || !input.sma().has_quantity())
     throw std::invalid_argument("incomplete backtest input");
   if (input.dataset_revision() != dataset_revision(input.paper()))
     throw std::invalid_argument("dataset revision does not match input snapshot");
   // Evaluated before the braced initializer: GCC < 13 leaks already-built
   // initializer_list elements when a later element throws (PR66139).
   auto paper = decode_input(input.paper());
-  return {{"version", 7},
+  return {{"version", 8},
           {"dataset_revision", input.dataset_revision()},
           {"paper", std::move(paper)},
           {"sma",

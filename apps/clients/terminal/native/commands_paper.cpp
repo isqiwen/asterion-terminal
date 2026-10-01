@@ -21,12 +21,12 @@ void Application::Impl::register_paper_commands() {
     json contracts = json::array();
     for (std::size_t i = 0; i < selected().size(); ++i) {
       bars += static_cast<std::size_t>(selected()[i].dataset.bars_size());
-      contracts.push_back(
-          {{"dataset", protocol::decode_bar_dataset(selected()[i].dataset)}, {"costs", costs[i]}});
+      contracts.push_back({{"dataset", protocol::decode_bar_dataset(selected()[i].dataset)},
+                           {"cost_schedule", costs[i]}});
     }
     if (bars > protocol::max_session_bars)
       throw std::invalid_argument("paper sessions use at most 20000 bars; narrow the trading days");
-    json manifest{{"version", 3},
+    json manifest{{"version", 4},
                   {"type", "historical_paper"},
                   {"deposit", deposit},
                   {"risk", risk},

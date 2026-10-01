@@ -4,7 +4,7 @@
 namespace asterion::protocol {
 // Identity of the backtest semantics (matching, costs, close rules). Stored
 // results from another identity are refused, never recomputed or migrated.
-inline constexpr const char* backtest_engine_version = "asterion.backtest.sma-long-flat.v7";
+inline constexpr const char* backtest_engine_version = "asterion.backtest.sma-long-flat.v8";
 // File/UI adapters. Cross-process transport remains typed Protobuf.
 research::v1::BacktestInput encode_backtest(const Json& input);
 research::v1::BacktestRequest encode_backtest_request(const Json& input);

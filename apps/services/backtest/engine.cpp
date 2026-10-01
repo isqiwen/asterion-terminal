@@ -21,7 +21,7 @@ void validate(const research::v1::BacktestInput& input) {
     const auto& c = item.dataset().contract();
     FuturesContract contract{protocol::instrument(c), c.product(), c.delivery_month()};
     contract.validate();
-    protocol::futures_costs(item.costs()).validate();
+    (void)protocol::cost_schedule(item.cost_schedule());
     const MovingAverage strategy(contract.instrument, input.sma().fast(), input.sma().slow(),
                                  decimal(input.sma().quantity()));
     (void)strategy;
@@ -123,7 +123,9 @@ research::v1::BacktestResult run(const research::v1::BacktestInput& input, std::
   for (std::size_t c = 0; c < manifest.at("contracts").size(); ++c) {
     const auto& item = manifest.at("contracts").at(c);
     contracts.push_back({{"contract", item.at("dataset").at("contract")},
-                         {"costs", item.at("costs")},
+                         {"costs", protocol::decode_costs(protocol::encode_costs(
+                                       execution.account().contracts()[c].costs))},
+                         {"cost_schedule", item.at("cost_schedule")},
                          {"mark", account.at("marks").at(c).at("mark")}});
   }
   account.erase("marks");

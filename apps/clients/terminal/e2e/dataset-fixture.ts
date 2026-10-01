@@ -30,7 +30,11 @@ export async function seedHistory(
   request: APIRequestContext,
   prices: number[],
   id: string,
-  { product = "rb", keep = false }: { product?: string; keep?: boolean } = {},
+  {
+    product = "rb",
+    keep = false,
+    day = "2026-09-25",
+  }: { product?: string; keep?: boolean; day?: string } = {},
 ) {
   expect(process.env.ASTERION_TEST_NODE_ISOLATED).toBe("1");
   // The selection lives in the shared core process; earlier specs may leave one.
@@ -56,6 +60,8 @@ export async function seedHistory(
       id,
       "--product",
       product,
+      "--day",
+      day,
       "--price",
       ...prices.map(String),
     ],
@@ -69,7 +75,7 @@ export async function seedDataset(
   request: APIRequestContext,
   prices: number[],
   id: string,
-  options: { product?: string; keep?: boolean } = {},
+  options: { product?: string; keep?: boolean; day?: string } = {},
 ) {
   const selection = await seedHistory(request, prices, id, options);
   return rpc(request, "research.dataset.select", selection);

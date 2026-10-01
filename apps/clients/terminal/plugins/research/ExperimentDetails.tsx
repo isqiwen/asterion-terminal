@@ -1,7 +1,7 @@
-import { getLocale, translate } from "../contract";
+import { CostScheduleDetails, getLocale, translate } from "../contract";
 import {
   timestamp,
-  type ContractCosts,
+  type CostVersion,
   type DatasetEvidence,
   type ExperimentData,
   type ResearchResult,
@@ -10,7 +10,7 @@ const t = (key: string) => translate("asterion.terminal.research", key);
 type Evidence = Extract<ResearchResult, { kind: "backtest" | "factor" }>;
 type Rows = [string, string | number][];
 // One contract of the experiment: its terms, input range and, for backtests, costs.
-function contractRows(dataset: DatasetEvidence, data: ExperimentData, costs?: ContractCosts) {
+function contractRows(dataset: DatasetEvidence, data: ExperimentData, schedule?: CostVersion[]) {
   const contract = dataset.contract;
   const rows: Rows = [
     ["品种代码", contract.product],
@@ -26,6 +26,7 @@ function contractRows(dataset: DatasetEvidence, data: ExperimentData, costs?: Co
     ["K 线下载任务", dataset.source_task_id],
     ["结算价下载任务", dataset.settlement_task_id],
   ];
+  const costs = schedule?.filter(row => row.effective_from <= data.first_day).at(-1)?.values;
   if (costs)
     rows.push(
       ["每手保证金", costs.margin_per_lot],
@@ -37,7 +38,7 @@ function contractRows(dataset: DatasetEvidence, data: ExperimentData, costs?: Co
       ["平今费率", costs.close_today_fee_rate],
       ["平昨费率", costs.close_yesterday_fee_rate],
     );
-  return { name: `${contract.venue} · ${contract.symbol}`, rows, data };
+  return { name: `${contract.venue} · ${contract.symbol}`, rows, data, schedule };
 }
 function Fields({ rows }: { rows: Rows }) {
   return (
@@ -58,7 +59,7 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
   if (evidence.kind === "backtest") {
     const { paper, sma, data } = evidence.experiment;
     contracts = paper.contracts.map((item, index) =>
-      contractRows(item.dataset, data[index], item.costs),
+      contractRows(item.dataset, data[index], item.cost_schedule),
     );
     rows.push(
       ["快均线", sma.fast],
@@ -102,6 +103,7 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
         <section key={contract.name} aria-label={contract.name}>
           <h4>{contract.name}</h4>
           <Fields rows={contract.rows} />
+          {contract.schedule && <CostScheduleDetails versions={contract.schedule} />}
           <p>
             {t("输入时间范围（北京时间）")}: {timestamp(contract.data.first_timestamp_ns)} –{" "}
             {timestamp(contract.data.last_timestamp_ns)}

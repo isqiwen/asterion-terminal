@@ -451,5 +451,10 @@
   "limit price deviates from the latest price beyond the session limit": "limit price deviates from the latest price beyond the session limit",
   "price deviation limit must be above 0 and below 1": "price deviation limit must be above 0 and below 1",
   "CTP trading session changed; the order was not sent": "CTP trading session changed; the order was not sent",
-  "paper replay requires 1 to 200000 historical bars": "paper replay requires 1 to 200000 historical bars"
+  "paper replay requires 1 to 200000 historical bars": "paper replay requires 1 to 200000 historical bars",
+  "cost schedule requires 1 to 512 versions": "cost schedule requires 1 to 512 versions",
+  "cost versions must have unique ascending effective dates": "cost versions must have unique ascending effective dates",
+  "cost version requires a source of at most 256 bytes": "cost version requires a source of at most 256 bytes",
+  "cost schedule does not cover the first trading day": "cost schedule does not cover the first trading day",
+  "cost changes require every contract and no working orders": "cost changes require every contract and no working orders"
 }

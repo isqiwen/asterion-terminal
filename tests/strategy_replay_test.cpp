@@ -29,7 +29,7 @@ struct Fixture {
     }
     const auto dataset =
         test::dataset(bars, {{"2026-09-25", test::dec("105")}, {"2026-09-28", test::dec("110")}});
-    manifest = {{"version", 3},
+    manifest = {{"version", 4},
                 {"type", "historical_paper"},
                 {"risk",
                  {{"max_order_quantity", "100"},
@@ -38,15 +38,14 @@ struct Fixture {
                 {"deposit", "1000"},
                 {"contracts",
                  {{{"dataset", protocol::decode_bar_dataset(dataset)},
-                   {"costs",
-                    {{"margin_per_lot", "100"},
-                     {"open_fee", "2"},
-                     {"close_today_fee", "3"},
-                     {"close_yesterday_fee", "4"},
-                     {"margin_rate", "0"},
-                     {"open_fee_rate", "0"},
-                     {"close_today_fee_rate", "0"},
-                     {"close_yesterday_fee_rate", "0"}}}}}}};
+                   {"cost_schedule", test::cost_schedule({{"margin_per_lot", "100"},
+                                                          {"open_fee", "2"},
+                                                          {"close_today_fee", "3"},
+                                                          {"close_yesterday_fee", "4"},
+                                                          {"margin_rate", "0"},
+                                                          {"open_fee_rate", "0"},
+                                                          {"close_today_fee_rate", "0"},
+                                                          {"close_yesterday_fee_rate", "0"}})}}}}};
     config.set_version(2);
     config.set_session_id("replay");
     config.set_stream_id("dataset");
@@ -250,7 +249,7 @@ TEST(StrategyReplay, ScheduledExecutionMatchesBacktestLedgerAndFillEconomics) {
   Fixture f;
   f.finish();
   research::v1::BacktestInput input;
-  input.set_version(7);
+  input.set_version(8);
   *input.mutable_paper() = protocol::encode_input(f.manifest);
   input.set_dataset_revision(f.config.replay().datasets(0).revision());
   input.mutable_sma()->set_fast(f.config.fast());

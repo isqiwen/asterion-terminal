@@ -103,11 +103,14 @@ test("live CTP session connects, authorizes and trades through the execution cha
     await panel.getByRole("button", { name: "断开账户", exact: true }).click();
     await expect(panel.getByTestId("live-phase")).toHaveText("未连接");
 
-    // The saved broker rates fill a paper session's costs for the same product.
+    // Current broker rates must not silently apply to earlier history.
     await seedDataset(page.request, [3500, 3501], "live-rates");
     await page.getByRole("button", { name: "模拟", exact: true }).click();
     const costs = page.getByRole("region", { name: "SHFE · rb2610 保证金与手续费" });
     await expect(costs).toContainText("来源 CTP 账户 9999/000001 · 2026-09-28 起生效");
+    await expect(costs.getByRole("button", { name: "填入模板", exact: true })).toBeDisabled();
+    await expect(costs.getByRole("alert")).toContainText("费率版本未覆盖首个交易日 2026-09-25");
+    await seedDataset(page.request, [3500, 3501], "live-rates-covered", { day: "2026-09-28" });
     await costs.getByRole("button", { name: "填入模板", exact: true }).click();
     await expect(costs.getByLabel("保证金率", { exact: true })).toHaveValue("0.12");
     await expect(costs.getByLabel("平今费率", { exact: true })).toHaveValue("0.0003");

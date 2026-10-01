@@ -50,7 +50,30 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
     await template.getByRole("button", { name: "确认保存", exact: true }).click();
     await expect(template).toContainText("来源 fixture schedule · 2026-09-01 起生效");
     await page.getByLabel("每手开仓费", { exact: true }).fill("9");
+    await template.getByRole("button", { name: "保存为模板", exact: true }).click();
+    await template.getByLabel("费率来源", { exact: true }).fill("future schedule");
+    await template.getByLabel("生效日期", { exact: true }).fill("2026-12-01");
+    await template.getByRole("button", { name: "确认保存", exact: true }).click();
+    await expect(template).toContainText("已固定 2 个费率版本");
+    // A duplicate date must not overwrite the original version.
+    await template.getByRole("button", { name: "保存为模板", exact: true }).click();
+    await template.getByRole("button", { name: "确认保存", exact: true }).click();
+    await expect(template.getByRole("alert")).toContainText("同一生效日期已存在费率版本");
     await template.getByRole("button", { name: "填入模板", exact: true }).click();
+    await expect(page.getByLabel("每手开仓费", { exact: true })).toHaveValue("2");
+    await expect(page.getByLabel("每手开仓费", { exact: true })).toBeDisabled();
+    // Another window edits the shared template after this draft has been pinned.
+    await page.evaluate(() => {
+      const key = "asterion.cost-templates.v2";
+      const templates = JSON.parse(localStorage.getItem(key)!);
+      const earlier = structuredClone(templates["SHFE/rb"][0]);
+      earlier.effective_from = "2026-09-20";
+      earlier.values.open_fee = "7";
+      templates["SHFE/rb"].splice(1, 0, earlier);
+      localStorage.setItem(key, JSON.stringify(templates));
+      window.dispatchEvent(new Event("storage"));
+    });
+    await expect(template).toContainText("已固定 3 个费率版本");
     await expect(page.getByLabel("每手开仓费", { exact: true })).toHaveValue("2");
     await page.getByRole("button", { name: "研究", exact: true }).click();
     await page.getByRole("button", { name: "均线回测", exact: true }).click();
@@ -105,6 +128,8 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
       data: { version: 1, method: "runtime.snapshot", params: {} },
     });
     const state = await response.json();
+    expect(state.result.paper.contracts[0].cost_schedule).toHaveLength(2);
+    expect(state.result.paper.contracts[0].cost_schedule[1].values.open_fee).toBe("9");
     const tradingPid = state.result.diagnostics.trading_process_id as number;
     expect(tradingPid).toBeGreaterThan(0);
     process.kill(tradingPid, "SIGKILL");

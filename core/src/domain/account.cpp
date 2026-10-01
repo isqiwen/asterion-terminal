@@ -1,9 +1,45 @@
 #include <asterion/domain/account.hpp>
+#include <asterion/domain/daily_bars.hpp>
 #include <algorithm>
 #include <stdexcept>
 #include <type_traits>
 
 namespace asterion {
+void validate_cost_schedule(const std::vector<FuturesCostVersion>& schedule) {
+  if (schedule.empty() || schedule.size() > 512)
+    throw std::invalid_argument("cost schedule requires 1 to 512 versions");
+  std::string previous;
+  for (const auto& version : schedule) {
+    (void)parse_trading_date(version.effective_from);
+    if (version.effective_from <= previous)
+      throw std::invalid_argument("cost versions must have unique ascending effective dates");
+    if (version.source.empty() || version.source.size() > 256 ||
+        version.source.find_first_not_of(" \t\r\n") == std::string::npos)
+      throw std::invalid_argument("cost version requires a source of at most 256 bytes");
+    version.values.validate();
+    previous = version.effective_from;
+  }
+}
+const FuturesCostVersion& costs_on(const std::vector<FuturesCostVersion>& schedule,
+                                   const std::string& trading_day) {
+  const auto next = std::upper_bound(
+      schedule.begin(), schedule.end(), trading_day,
+      [](const std::string& day, const auto& version) { return day < version.effective_from; });
+  if (next == schedule.begin())
+    throw std::invalid_argument("cost schedule does not cover the first trading day");
+  return *std::prev(next);
+}
+void FuturesAccount::update_costs(const std::vector<FuturesCosts>& costs) {
+  if (costs.size() != contracts_.size() || has_working_orders())
+    throw std::invalid_argument("cost changes require every contract and no working orders");
+  auto next = *this;
+  for (std::size_t i = 0; i < costs.size(); ++i) {
+    costs[i].validate();
+    next.contracts_[i].costs = costs[i];
+  }
+  (void)next.available(); // Check arithmetic before publishing any new rate.
+  *this = std::move(next);
+}
 namespace {
 const auto zero = Decimal{};
 const auto one = Decimal::parse("1");

@@ -21,26 +21,26 @@ research::v1::BacktestInput input() {
     time += 1000000000;
   }
   const auto dataset = test::dataset(bars, {{"2026-09-25", d("103")}});
-  const auto manifest = Json{{"version", 3},
-                             {"type", "historical_paper"},
-                             {"risk",
-                              {{"max_order_quantity", "100"},
-                               {"max_gross_quantity", "100"},
-                               {"max_working_orders", std::uint64_t{100}}}},
-                             {"deposit", "10000"},
-                             {"contracts",
-                              {{{"dataset", protocol::decode_bar_dataset(dataset)},
-                                {"costs",
-                                 {{"margin_per_lot", "100"},
-                                  {"open_fee", "2"},
-                                  {"close_today_fee", "3"},
-                                  {"close_yesterday_fee", "4"},
-                                  {"margin_rate", "0"},
-                                  {"open_fee_rate", "0"},
-                                  {"close_today_fee_rate", "0"},
-                                  {"close_yesterday_fee_rate", "0"}}}}}}};
+  const auto manifest =
+      Json{{"version", 4},
+           {"type", "historical_paper"},
+           {"risk",
+            {{"max_order_quantity", "100"},
+             {"max_gross_quantity", "100"},
+             {"max_working_orders", std::uint64_t{100}}}},
+           {"deposit", "10000"},
+           {"contracts",
+            {{{"dataset", protocol::decode_bar_dataset(dataset)},
+              {"cost_schedule", test::cost_schedule({{"margin_per_lot", "100"},
+                                                     {"open_fee", "2"},
+                                                     {"close_today_fee", "3"},
+                                                     {"close_yesterday_fee", "4"},
+                                                     {"margin_rate", "0"},
+                                                     {"open_fee_rate", "0"},
+                                                     {"close_today_fee_rate", "0"},
+                                                     {"close_yesterday_fee_rate", "0"}})}}}}};
   research::v1::BacktestInput result;
-  result.set_version(7);
+  result.set_version(8);
   *result.mutable_paper() = protocol::encode_input(manifest);
   result.mutable_sma()->set_fast(1);
   result.mutable_sma()->set_slow(3);
@@ -678,9 +678,15 @@ TEST(ResearchTasks, CompletedResultCarriesPersistedExperimentAndRejectsMismatche
   const auto value = protocol::decode_task_result(response, "evidence");
   EXPECT_EQ(value.at("experiment").at("sma"), Json({{"fast", 1}, {"slow", 3}, {"quantity", "1"}}));
   EXPECT_EQ(value.at("experiment").at("paper").at("deposit"), "10000");
-  EXPECT_EQ(
-      value.at("experiment").at("paper").at("contracts").at(0).at("costs").at("close_today_fee"),
-      "3");
+  EXPECT_EQ(value.at("experiment")
+                .at("paper")
+                .at("contracts")
+                .at(0)
+                .at("cost_schedule")
+                .at(0)
+                .at("values")
+                .at("close_today_fee"),
+            "3");
   EXPECT_EQ(value.at("experiment").at("paper").at("risk").at("max_order_quantity"), "100");
   EXPECT_FALSE(
       value.at("experiment").at("paper").at("contracts").at(0).at("dataset").contains("bars"));
@@ -1033,4 +1039,46 @@ TEST(Research, FullResearchBarBudgetRunsThroughFinalSettlement) {
   ASSERT_EQ(result.settlements_size(), 1);
   EXPECT_EQ(result.settlements(0).balance().units(), d("10000").raw());
   EXPECT_EQ(result.account().cursor(), protocol::max_dataset_bars);
+}
+
+TEST(ResearchTasks, DatedCostsArePinnedSwitchAtSettlementAndRejectForgedResults) {
+  TaskDirectory directory;
+  auto spec = multiday_input();
+  auto* schedule = spec.mutable_paper()->mutable_contracts(0)->mutable_cost_schedule();
+  auto next = schedule->versions(0);
+  next.set_effective_from("2026-09-28");
+  next.set_source("new published schedule");
+  next.mutable_values()->mutable_close_yesterday_fee()->set_units(d("9").raw());
+  next.mutable_values()->mutable_margin_per_lot()->set_units(d("700").raw());
+  *schedule->add_versions() = next;
+  const auto expected = backtest::run(spec);
+  EXPECT_EQ(expected.settlements(0).fees().units(), d("2").raw());
+  EXPECT_EQ(expected.account().fees().units(), d("11").raw());
+  EXPECT_EQ(expected.account().balance().units(), d("10009").raw());
+  EXPECT_EQ(expected.account().contracts(0).costs().margin_per_lot().units(), d("700").raw());
+  EXPECT_EQ(expected.account().contracts(0).cost_schedule().SerializeAsString(),
+            schedule->SerializeAsString());
+  {
+    tasks::Store store(directory.path);
+    store.submit("dated", spec);
+    const auto token = store.claim("dated");
+    auto forged = expected;
+    forged.mutable_account()
+        ->mutable_contracts(0)
+        ->mutable_cost_schedule()
+        ->mutable_versions(1)
+        ->set_source("unrecorded replacement");
+    EXPECT_THROW(store.finish("dated", token, forged), std::invalid_argument);
+    forged = expected;
+    forged.mutable_account()
+        ->mutable_contracts(0)
+        ->mutable_costs()
+        ->mutable_margin_per_lot()
+        ->set_units(d("100").raw());
+    EXPECT_THROW(store.finish("dated", token, forged), std::invalid_argument);
+    store.finish("dated", token, expected);
+  }
+  tasks::Store restored(directory.path);
+  EXPECT_EQ(restored.result("dated").SerializeAsString(), expected.SerializeAsString());
+  EXPECT_EQ(restored.get("dated").input().SerializeAsString(), spec.SerializeAsString());
 }
