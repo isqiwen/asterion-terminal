@@ -1,4 +1,4 @@
-"""Build the shared C++ runtime and Electron desktop on the native platform."""
+"""Build the C++ runtime and macOS Electron desktop."""
 import os
 import json
 import platform
@@ -42,40 +42,6 @@ def verify_macos_target(program, minimum):
         return numbers + (0,) * (3 - len(numbers))
     if not versions or any(version(item) > version(minimum) for item in versions):
         raise SystemExit(f"{program.name} requires macOS {versions or 'unknown'}, above the declared minimum {minimum}")
-
-
-def linux_deb_dependencies(programs, provider):
-    """Derive package/version requirements from the actual local ELF files."""
-    if shutil.which("dpkg-shlibdeps", path=env["PATH"]) is None:
-        raise SystemExit("Linux packaging requires dpkg-dev (dpkg-shlibdeps)")
-    with tempfile.TemporaryDirectory(prefix="asterion-shlibdeps-") as temporary:
-        root = Path(temporary)
-        package = root / "debian/asterion-terminal"
-        (package / "DEBIAN").mkdir(parents=True)
-        (package / "usr/bin").mkdir(parents=True)
-        (package / "usr/lib/asterion-terminal").mkdir(parents=True)
-        (root / "debian/control").write_text(
-            "Source: asterion-terminal\nSection: utils\nPriority: optional\n"
-            "Maintainer: Asterion <build@example.invalid>\n\n"
-            "Package: asterion-terminal\nArchitecture: any\nDescription: Asterion Terminal\n"
-        )
-        staged = []
-        for program in programs:
-            target = package / "usr/bin" / program.name
-            shutil.copy2(program, target)
-            staged.append(target.relative_to(root))
-        target = package / "usr/lib/asterion-terminal" / provider.name
-        shutil.copy2(provider, target)
-        staged.append(target.relative_to(root))
-        output = subprocess.check_output(
-            ["dpkg-shlibdeps", "-O", *["-e" + str(path) for path in staged]],
-            cwd=root, env=env, text=True,
-        )
-        records = [line.removeprefix("shlibs:Depends=") for line in output.splitlines()
-                   if line.startswith("shlibs:Depends=")]
-        if len(records) != 1 or not records[0]:
-            raise SystemExit("Cannot determine Linux package runtime dependencies")
-        return records[0].split(", ")
 
 
 def verify_macos_bundle():
@@ -169,8 +135,8 @@ def main():
     if mode == "verify":
         verify_macos_bundle()
         return
-    if sys.platform not in {"darwin", "win32", "linux"}:
-        raise SystemExit("Supported desktop platforms: macOS, Windows, Linux")
+    if sys.platform != "darwin":
+        raise SystemExit("Terminal desktop development and packaging require macOS")
     resources = ROOT / "build/electron-resources/remote-linux"
     archives = Path(env.get("ASTERION_LINUX_BUNDLES", str(ROOT / "build/linux-bundles")))
     if mode == "build" and not (archives / "asterion-services-linux-x86_64.zip").is_file():
@@ -197,63 +163,54 @@ def main():
         resources.mkdir(parents=True, exist_ok=True)
     env["ASTERION_REMOTE_RESOURCES"] = str(resources)
     profile = ROOT / "build/local-profile"
-    # Electron and the native addon use the release dynamic CRT on Windows.
-    configuration = "Release" if mode == "build" or sys.platform == "win32" else "Debug"
+    configuration = "Release" if mode == "build" else "Debug"
     preset = "conan-" + configuration.lower()
     install = ["conan", "install", ".", "-s", "build_type=" + configuration, "-s", "compiler.cppstd=20", "-c", "tools.cmake.cmaketoolchain:generator=Ninja", "--build=missing"]
     if profile.exists():
         install += ["-pr:h", str(profile), "-pr:b", str(profile)]
-    if sys.platform == "darwin":
-        # Desktop dependencies and flags come from Conan, not shell-wide LLVM
-        # overrides that can link a distributable app to Homebrew libraries.
-        for variable in ("CFLAGS", "CXXFLAGS", "CPPFLAGS", "LDFLAGS"):
-            env.pop(variable, None)
-        compiler = subprocess.check_output(["/usr/bin/clang++", "--version"], env=env, text=True)
-        if not compiler.startswith("Apple clang version "):
-            raise SystemExit("macOS desktop builds require the system Apple Clang toolchain")
-        compiler_version = compiler.split()[3].split(".")[0]
-        executables = json.dumps({"c": "/usr/bin/clang", "cpp": "/usr/bin/clang++"})
-        for context in ("h", "b"):
-            install += ["-s:" + context, "compiler=apple-clang",
-                        "-s:" + context, "compiler.version=" + compiler_version,
-                        "-s:" + context, "compiler.libcxx=libc++",
-                        "-c:" + context, "tools.build:compiler_executables=" + executables]
-        minimum = "13.0"
-        env["MACOSX_DEPLOYMENT_TARGET"] = minimum
-        install += ["-s:h", "os.version=" + minimum, "-s:b", "os.version=" + minimum]
-        sdk_arch = "armv8" if platform.machine() == "arm64" else "x86_64"
-        sdk_root = ROOT / "build/ctp-sdk" / ("macos-" + sdk_arch)
-        install += ["-c", "user.ctp:sdk_root=" + str(sdk_root)]
-    if sys.platform == "win32":
-        # The Electron SDK uses the release dynamic CRT.
-        install += ["-s:h", "compiler.runtime=dynamic", "-s:h", "compiler.runtime_type=Release"]
+    # Desktop dependencies and flags come from Conan, not shell-wide LLVM
+    # overrides that can link a distributable app to Homebrew libraries.
+    for variable in ("CFLAGS", "CXXFLAGS", "CPPFLAGS", "LDFLAGS"):
+        env.pop(variable, None)
+    compiler = subprocess.check_output(["/usr/bin/clang++", "--version"], env=env, text=True)
+    if not compiler.startswith("Apple clang version "):
+        raise SystemExit("macOS desktop builds require the system Apple Clang toolchain")
+    compiler_version = compiler.split()[3].split(".")[0]
+    executables = json.dumps({"c": "/usr/bin/clang", "cpp": "/usr/bin/clang++"})
+    for context in ("h", "b"):
+        install += ["-s:" + context, "compiler=apple-clang",
+                    "-s:" + context, "compiler.version=" + compiler_version,
+                    "-s:" + context, "compiler.libcxx=libc++",
+                    "-c:" + context, "tools.build:compiler_executables=" + executables]
+    minimum = "13.0"
+    env["MACOSX_DEPLOYMENT_TARGET"] = minimum
+    install += ["-s:h", "os.version=" + minimum, "-s:b", "os.version=" + minimum]
+    sdk_arch = "armv8" if platform.machine() == "arm64" else "x86_64"
+    sdk_root = ROOT / "build/ctp-sdk" / ("macos-" + sdk_arch)
+    install += ["-c", "user.ctp:sdk_root=" + str(sdk_root)]
     run(install)
     configure = ["cmake", "--preset", preset]
-    if sys.platform == "darwin":
-        # CMake's compiler detection survives toolchain changes. Reset only
-        # when an earlier configure used a different compiler.
-        compiler_records = (ROOT / "build" / configuration / "CMakeFiles").glob("*/CMakeCXXCompiler.cmake")
-        if any('set(CMAKE_CXX_COMPILER "/usr/bin/clang++")' not in file.read_text()
-               for file in compiler_records):
-            configure.append("--fresh")
-        # Reinitialize managed flags without deleting compiled object files.
-        # Conan's cache default does not replace a previous deployment target.
-        configure += ["-UCMAKE_*_FLAGS*", "-DCMAKE_OSX_DEPLOYMENT_TARGET=" + minimum]
+    # CMake's compiler detection survives toolchain changes. Reset only
+    # when an earlier configure used a different compiler.
+    compiler_records = (ROOT / "build" / configuration / "CMakeFiles").glob("*/CMakeCXXCompiler.cmake")
+    if any('set(CMAKE_CXX_COMPILER "/usr/bin/clang++")' not in file.read_text()
+           for file in compiler_records):
+        configure.append("--fresh")
+    # Reinitialize managed flags without deleting compiled object files.
+    # Conan's cache default does not replace a previous deployment target.
+    configure += ["-UCMAKE_*_FLAGS*", "-DCMAKE_OSX_DEPLOYMENT_TARGET=" + minimum]
     electron_version = json.loads((ROOT / "node_modules/electron/package.json").read_text())["version"]
     sdk = ROOT / "build/electron-sdk"
     run(["pnpm", "exec", "node-gyp", "install", "--ensure", "--target=" + electron_version,
          "--dist-url=https://electronjs.org/headers", "--devdir=" + str(sdk)])
     configure += ["-DASTERION_NODE_HEADERS=" + str(sdk / electron_version / "include/node")]
-    if sys.platform == "win32":
-        configure += ["-DASTERION_NODE_LIBRARY=" + str(sdk / electron_version / "x64/node.lib")]
     run(configure)
     run(["cmake", "--build", "--preset", preset])
     env["ASTERION_CPP_BUILD"] = str(ROOT / "build" / configuration)
-    suffix = ".exe" if sys.platform == "win32" else ""
     native = ROOT / "build/electron-resources/native"
     native.mkdir(parents=True, exist_ok=True)
-    names = ("asterion-trading", "asterion-node-agent", "asterion-market-data", "asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline", "asterion-strategy") + (("asterion-keychain",) if sys.platform == "darwin" else ())
-    programs = [ROOT / "build" / configuration / (name + suffix) for name in names]
+    names = ("asterion-trading", "asterion-node-agent", "asterion-market-data", "asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline", "asterion-strategy", "asterion-keychain")
+    programs = [ROOT / "build" / configuration / name for name in names]
     programs.append(ROOT / "build" / configuration / "asterion_terminal.node")
     for source in programs:
         stage_native(source, native / source.name)
@@ -261,7 +218,7 @@ def main():
     (native / "plugins").mkdir(parents=True, exist_ok=True)
     for plugin in plugin_root.glob("*.dylib"):
         stage_native(plugin, native / "plugins" / plugin.name)
-    library_name = "ctp-md" + {"darwin":".dylib", "win32":".dll", "linux":".so"}[sys.platform]
+    library_name = "ctp-md.dylib"
     library = ROOT / "build" / configuration / library_name
     stage_native(library, native / library_name)
     catalog_name = library_name.replace("ctp-md", "ctp-trader")
@@ -276,28 +233,10 @@ def main():
     if mode == "dev":
         run(["node", str(ROOT / "scripts/electron-dev.cjs")])
         return
-    builder = ["pnpm", "exec", "electron-builder", "--config", "apps/clients/terminal/electron/builder.cjs"]
-    dependencies = None
-    if sys.platform == "linux":
-        # Native dependencies complement electron-builder's Chromium dependencies.
-        dependencies = linux_deb_dependencies(programs, library)
-        config = ROOT / "build/electron-linux-builder.cjs"
-        base = ROOT / "apps/clients/terminal/electron/builder.cjs"
-        config.write_text("const config = require(" + json.dumps(str(base)) + ");\n"
-                          "config.deb = {depends:" + json.dumps(sorted(set(dependencies + [
-                              "libgtk-3-0", "libnss3", "libxss1", "libxtst6", "libatspi2.0-0", "libuuid1", "libsecret-1-0", "libgbm1", "libasound2"]))) + "};\nmodule.exports = config;\n")
-        builder = ["pnpm", "exec", "electron-builder", "--config", str(config)]
+    builder = ["pnpm", "exec", "electron-builder", "--mac", "--config", "apps/clients/terminal/electron/builder.cjs"]
     run(builder)
-    extension = {"darwin":"dmg", "win32":"exe", "linux":"deb"}[sys.platform]
-    installers = list((ROOT / "build/desktop").glob("*." + extension))
-    if len(installers) != 1:
-        raise SystemExit("Expected exactly one current installer; inspect build/desktop")
-    if sys.platform == "darwin":
-        verify_macos_bundle()
-    elif sys.platform == "linux":
-        actual = subprocess.check_output(["dpkg-deb", "--field", str(installers[0]), "Depends"], text=True).strip().split(", ")
-        if not set(dependencies).issubset(actual):
-            raise SystemExit("DEB runtime dependencies differ from analyzed ELF requirements")
+    verify_macos_bundle()
+    installers = list((ROOT / "build/desktop").glob("*.dmg"))
     print(f"Desktop installer: {installers[0]}")
 
 

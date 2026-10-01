@@ -24,12 +24,4 @@ module.exports = {
     entitlementsInherit: path.join(__dirname, "entitlements.mac.plist"),
   },
   dmg: { sign: false },
-  win: { target: ["nsis"] },
-  nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true },
-  linux: {
-    syncDesktopName: true,
-    target: ["deb"],
-    category: "Finance",
-    maintainer: "Asterion <build@example.invalid>",
-  },
 };

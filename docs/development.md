@@ -27,6 +27,7 @@ pnpm install --frozen-lockfile
 | `cmake --build build/Debug` | 只重建 C++ |
 
 三个 `desktop` 命令由 `scripts/desktop.mjs` → `scripts/desktop.py` 统一编排。
+桌面入口只接受 macOS，安装包只生成 DMG；远程 Linux 服务包由下面的独立构建流程提供。
 
 ## 测试
 

@@ -15,7 +15,6 @@ export const costFields = [
   "close_yesterday_fee_rate",
 ] as const;
 export type CostValues = Record<(typeof costFields)[number], string>;
-// New storage contract; earlier templates are left untouched, never migrated.
 const key = "asterion.cost-templates.v2";
 function readAll(): Record<string, CostVersion[]> {
   const value: unknown = JSON.parse(localStorage.getItem(key) ?? "{}");
@@ -139,9 +138,6 @@ export function CostTemplate({
       {versions.length > 0 && <CostScheduleDetails versions={versions} />}
       {versions.length > 0 && !selected && (
         <p role="alert">{t("费率版本未覆盖首个交易日 {day}", { day: firstDay })}</p>
-      )}
-      {!versions.length && localStorage.getItem("asterion.cost-templates") && (
-        <p className="subtle">{t("旧版费率模板保留在本机，请核实后重新保存为日期版本。")}</p>
       )}
       <div className="source-actions">
         {versions.length > 0 && (

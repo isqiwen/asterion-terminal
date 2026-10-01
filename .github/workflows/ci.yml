@@ -1,4 +1,4 @@
-name: Cross-platform Core and Terminal
+name: Core services and macOS Terminal
 on: [push, pull_request]
 jobs:
   style:
@@ -126,11 +126,6 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: "10.32.1"
-      - name: Install Linux desktop dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential dpkg-dev libgtk-3-dev libnss3 libasound2 libgbm1 libxss1 libsecret-1-0 xvfb
       - run: python -m pip install conan==2.32.0 ninja
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
@@ -145,32 +140,14 @@ jobs:
       - run: ctest --preset conan-debug --output-on-failure
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
-      - name: Exercise native Electron host (Linux)
-        if: runner.os == 'Linux'
-        run: xvfb-run -a pnpm test:desktop
       - name: Exercise native Electron host
-        if: runner.os != 'Linux'
         run: pnpm test:desktop
-      - name: Build platform installer
+      - name: Build macOS DMG
         run: python scripts/desktop.py build
       - run: ctest --preset conan-release --output-on-failure
       - name: Exercise installed macOS desktop
-        if: runner.os == 'macOS'
         timeout-minutes: 8
         run: python tests/electron_installer.py build/desktop/*.dmg
-      - name: Exercise installed Linux desktop
-        if: runner.os == 'Linux'
-        timeout-minutes: 8
-        run: python tests/electron_installer.py build/desktop/*.deb --allow-system-install
-      - name: Exercise installed Windows desktop
-        if: runner.os == 'Windows'
-        timeout-minutes: 8
-        shell: pwsh
-        run: |
-          $installers = @(Get-ChildItem build/desktop/*.exe)
-          if ($installers.Count -ne 1) { throw "Expected exactly one NSIS installer" }
-          python tests/electron_installer.py $installers[0].FullName --allow-system-install
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload installed desktop evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -178,17 +155,11 @@ jobs:
           name: installed-desktop-${{ matrix.os }}
           if-no-files-found: warn
           path: build/installed-desktop/
-      - name: Inspect Linux package
-        if: runner.os == 'Linux'
-        run: dpkg-deb --info build/desktop/*.deb
       - uses: actions/upload-artifact@v4
         with:
           name: terminal-${{ matrix.os }}
           if-no-files-found: error
-          path: |
-            build/desktop/*.dmg
-            build/desktop/*.deb
-            build/desktop/*.exe
+          path: build/desktop/*.dmg
 
   core-sanitizers:
     strategy:

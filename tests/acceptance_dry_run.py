@@ -3,13 +3,16 @@
 The password must never reach the report; the run must pass end to end.
 """
 import json
+import io
 import os
 from pathlib import Path
+import runpy
 import subprocess
 import signal
 import sys
 import tempfile
 import time
+from unittest.mock import patch
 
 
 def alive(pid):
@@ -82,4 +85,65 @@ def exercise(secret, expected_success):
 
 exercise("dry-run-secret-value", True)
 exercise("reject-test-only", False)
-print("CTP success and rejection runs preserve password secrecy and stop their own Agent")
+
+
+def failed_completion(disconnect, cleanup_error=False, local_market=True):
+    """Quotes alone must not pass acceptance when another required step fails."""
+    with tempfile.TemporaryDirectory(prefix="ast-acceptance-failure-") as folder:
+        report = Path(folder) / "report.json"
+        responses = [
+            {"result": {"market": {"phase": "disconnected"} if local_market else None}},
+            {"result": {}},
+            {"result": {"market": {"phase": "connected", "subscriptions": [
+                {"venue": "SHFE", "symbol": "rb2610", "quote": {"last": "100", "volume": "1"}}
+            ]}}},
+            disconnect,
+        ]
+
+        class Bridge:
+            stdin = io.StringIO()
+            stdout = io.StringIO("".join(json.dumps(row) + "\n" for row in responses))
+
+            def terminate(self):
+                if cleanup_error:
+                    raise RuntimeError("test bridge cleanup failed")
+
+            def wait(self, timeout):
+                return 0
+
+        argv = [str(script), "--build", build, "--sdk", sdk, "--front", "tcp://127.0.0.1:1",
+                "--broker", "test", "--user", "fixture", "--instrument", "SHFE:rb2610",
+                "--password-stdin", "--report", str(report)]
+        output = io.StringIO()
+        with patch.object(sys, "argv", argv), patch.object(sys, "stdin", io.StringIO("fixture-secret\n")), \
+                patch.object(sys, "stdout", output), patch("subprocess.Popen", return_value=Bridge()):
+            try:
+                runpy.run_path(str(script), run_name="__main__")
+            except SystemExit as error:
+                assert error.code == 1, output.getvalue()
+            else:
+                raise AssertionError("Acceptance did not return a failure status")
+        result = json.loads(report.read_text())
+        assert result["passed"] is False, result
+        assert any(not row["ok"] for row in result["steps"]), result
+        assert "fixture-secret" not in report.read_text() + output.getvalue()
+
+
+failed_completion({"result": {"market": {"phase": "connected"}}})
+failed_completion({"error": {"code": "operation_failed", "message": "disconnect failed"}})
+failed_completion({"result": {"market": {"phase": "disconnected"}}}, cleanup_error=True)
+failed_completion({"result": {"market": {"phase": "disconnected"}}}, local_market=False)
+
+with tempfile.TemporaryDirectory(prefix="ast-acceptance-startup-") as folder:
+    report = Path(folder) / "report.json"
+    report.write_text(json.dumps({"passed": True, "steps": [{"step": "previous run", "ok": True}]}))
+    failed = subprocess.run(
+        [sys.executable, str(script), "--build", folder, "--sdk", sdk,
+         "--front", "tcp://127.0.0.1:1", "--broker", "test", "--user", "fixture",
+         "--instrument", "SHFE:rb2610", "--password-stdin", "--report", str(report)],
+        input="fixture-secret\n", capture_output=True, text=True, timeout=10)
+    assert failed.returncode != 0, failed.stdout + failed.stderr
+    assert json.loads(report.read_text())["passed"] is False
+    assert "fixture-secret" not in report.read_text() + failed.stdout + failed.stderr
+
+print("CTP success, rejection and failed completion preserve secrecy, cleanup and accurate verdicts")

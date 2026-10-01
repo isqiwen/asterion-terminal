@@ -85,6 +85,12 @@ suffix = ".exe" if os.name == "nt" else ""
 bridge = build / ("asterion_terminal_dev_bridge" + suffix)
 sdk = Path(args.sdk).resolve() if args.sdk else build / (
     "ctp-md.dll" if os.name == "nt" else "ctp-md.dylib" if sys.platform == "darwin" else "ctp-md.so")
+report = {"front": args.front, "broker": args.broker, "instruments": args.instrument,
+          "sdk": sdk.name, "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+          "passed": False, "steps": []}
+if args.report:
+    # A startup or cleanup failure must never leave a previous passing report.
+    Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 for required in (bridge, sdk):
     if not required.exists():
         sys.exit(f"missing {required}; build the project first")
@@ -97,10 +103,9 @@ for item in args.instrument:
 password = (sys.stdin.readline().rstrip("\n") if args.password_stdin
             else getpass.getpass("Market password (not echoed, not stored): "))
 
-report = {"front": args.front, "broker": args.broker, "instruments": args.instrument,
-          "sdk": sdk.name, "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "steps": []}
 with tempfile.TemporaryDirectory(prefix="asterion-ctp-", ignore_cleanup_errors=True) as folder:
-    env = dict(os.environ, ASTERION_NODE_DIRECTORY=folder, ASTERION_CTP_LIBRARY=str(sdk))
+    env = dict(os.environ, ASTERION_NODE_DIRECTORY=folder, ASTERION_TEST_NODE_ISOLATED="1",
+               ASTERION_CTP_LIBRARY=str(sdk))
     core = subprocess.Popen([str(bridge)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, text=True, env=env)
 
@@ -154,11 +159,15 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", ignore_cleanup_errors=T
     finally:
         password = ""
         try:
-            core.stdin.close()
-            core.terminate()
-            core.wait(timeout=15)
-        finally:
-            stop_test_agent(folder)
+            try:
+                core.stdin.close()
+                core.terminate()
+                core.wait(timeout=15)
+            finally:
+                stop_test_agent(folder)
+        except Exception as error:
+            step("cleanup", False, str(error))
+    passed = passed and all(item["ok"] for item in report["steps"])
     report["passed"] = passed
     if args.report:
         Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
