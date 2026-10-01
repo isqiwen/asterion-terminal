@@ -1,7 +1,0 @@
-add_library(asterion_task_store STATIC task_store.cpp)
-target_include_directories(asterion_task_store PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(asterion_task_store PUBLIC asterion_data_pipeline asterion_backtest_engine asterion_factor_engine PRIVATE asterion_file_journal)
-add_executable(asterion-task-service main.cpp)
-target_compile_features(asterion-task-service PRIVATE cxx_std_20)
-target_compile_definitions(asterion-task-service PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
-target_link_libraries(asterion-task-service PRIVATE asterion_task_store CLI11::CLI11 $<$<PLATFORM_ID:Windows>:shell32>)

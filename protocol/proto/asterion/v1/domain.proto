@@ -13,4 +13,15 @@ message Contract {
   string product = 7;
   string delivery_month = 8;
 }
-message Tick { int64 timestamp_ns = 1; Decimal price = 2; Decimal quantity = 3; }
+// One OHLCV period of a single contract. trading_day is YYYY-MM-DD.
+message Bar {
+  string trading_day = 1;
+  int64 timestamp_ns = 2;
+  Decimal open = 3;
+  Decimal high = 4;
+  Decimal low = 5;
+  Decimal close = 6;
+  Decimal volume = 7;
+}
+// Provider settlement price of one trading day.
+message TradingDay { string trading_day = 1; Decimal settlement_price = 2; }

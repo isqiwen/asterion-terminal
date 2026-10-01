@@ -1,5 +1,8 @@
 #include "factor_engine.hpp"
-#include "file_journal.hpp"
+#include "bar_fixture.hpp"
+#include "task_store.hpp"
+#include "daily_momentum.hpp"
+#include "sqlite_journal.hpp"
 #include "momentum.hpp"
 #include <asterion/kernel/process/child.hpp>
 #include <cmath>
@@ -16,46 +19,46 @@ Decimal d(const char* value) {
 Instrument spec() {
   return {{"SHFE", "rb2610"}, AssetClass::futures, "CNY", d("1"), d("1"), d("10")};
 }
+void revision(research::v1::FactorInput&);
 research::v1::FactorInput input() {
   research::v1::FactorInput result;
-  result.set_version(4);
+  result.set_version(5);
   result.set_full_sample(true);
   result.add_lookbacks(2);
   result.set_horizon(1);
-  *result.mutable_contract() = protocol::encode_contract({{"venue", "SHFE"},
-                                                          {"symbol", "rb2610"},
-                                                          {"product", "rb"},
-                                                          {"delivery_month", "2026-10"},
-                                                          {"currency", "CNY"},
-                                                          {"price_increment", "1"},
-                                                          {"quantity_increment", "1"},
-                                                          {"multiplier", "10"}});
   for (int i = 0; i < 40; ++i) {
-    auto* t = result.add_ticks();
+    auto* t = result.mutable_dataset()->add_bars();
     t->set_timestamp_ns(1790298000000000000LL + static_cast<std::int64_t>(i) * 1000000000);
-    t->mutable_price()->set_units(Decimal::parse(std::to_string(100 + i + i % 3)).raw());
-    t->mutable_quantity()->set_units(d("1").raw());
+    t->mutable_close()->set_units(Decimal::parse(std::to_string(100 + i + i % 3)).raw());
+    t->mutable_volume()->set_units(d("1").raw());
   }
-  result.set_dataset_revision(protocol::factor_dataset_revision(result));
+  revision(result);
   return result;
 }
 void revision(research::v1::FactorInput& value) {
-  value.set_dataset_revision(protocol::factor_dataset_revision(value));
+  std::vector<MarketBar> bars;
+  for (const auto& row : value.dataset().bars()) {
+    const auto price = Decimal::from_raw(row.close().units());
+    bars.push_back({"2026-09-25", row.timestamp_ns(), price, price, price, price,
+                    Decimal::from_raw(row.volume().units())});
+  }
+  *value.mutable_dataset() = test::dataset(bars);
+  value.set_dataset_revision(value.dataset().revision());
 }
 } // namespace
 TEST(Factor, StreamingWarmupLifecycleAndRejectedEventPreservesHistory) {
   MomentumFactor factor(spec(), 2);
-  TradeTick first{spec().id, 1, d("100"), d("1")};
-  EXPECT_THROW(factor.on_tick(first), std::logic_error);
+  auto first = test::flat("2026-09-25", 1, "100", "1");
+  EXPECT_THROW(factor.on_bar(first), std::logic_error);
   factor.start();
-  EXPECT_FALSE(factor.on_tick(first));
-  EXPECT_FALSE(factor.on_tick({spec().id, 2, d("105"), d("1")}));
-  EXPECT_THROW(factor.on_tick({spec().id, 1, d("110"), d("1")}), std::invalid_argument);
-  EXPECT_THROW(factor.on_tick({spec().id, 3, d("0"), d("1")}), std::invalid_argument);
-  EXPECT_NEAR(*factor.on_tick({spec().id, 3, d("110"), d("1")}), .1, 1e-15);
+  EXPECT_FALSE(factor.on_bar(first));
+  EXPECT_FALSE(factor.on_bar(test::flat("2026-09-25", 2, "105", "1")));
+  EXPECT_THROW(factor.on_bar(test::flat("2026-09-25", 1, "110", "1")), std::invalid_argument);
+  EXPECT_THROW(factor.on_bar(test::flat("2026-09-25", 3, "0", "1")), std::invalid_argument);
+  EXPECT_NEAR(*factor.on_bar(test::flat("2026-09-25", 3, "110", "1")), .1, 1e-15);
   factor.stop();
   factor.start();
-  EXPECT_FALSE(factor.on_tick(first));
+  EXPECT_FALSE(factor.on_bar(first));
   EXPECT_EQ(factor.descriptor().kind, PluginKind::tool);
   EXPECT_THROW(MomentumFactor(spec(), 0), std::invalid_argument);
 }
@@ -83,14 +86,14 @@ TEST(Factor, ExactDatasetDigestExcludesWindowsAndRejectsTampering) {
   EXPECT_EQ(protocol::factor_dataset_revision(value), hash);
   EXPECT_EQ(protocol::decode_factor(protocol::encode_factor(protocol::decode_factor(value))),
             protocol::decode_factor(value));
-  value.mutable_ticks(0)->mutable_quantity()->set_units(d("2").raw());
-  EXPECT_NE(protocol::factor_dataset_revision(value), hash);
+  value.mutable_dataset()->mutable_bars(0)->mutable_volume()->set_units(d("2").raw());
+  EXPECT_THROW(protocol::factor_dataset_revision(value), std::invalid_argument);
   EXPECT_THROW(factor::validate(value), std::invalid_argument);
   value = input();
   value.set_version(1);
   EXPECT_THROW(factor::validate(value), std::invalid_argument);
   value = input();
-  value.mutable_ticks(0)->clear_price();
+  value.mutable_dataset()->mutable_bars(0)->clear_close();
   EXPECT_THROW(factor::validate(value), std::invalid_argument);
 }
 TEST(Factor, AlignmentTailExclusionAndNoFutureInputs) {
@@ -98,12 +101,12 @@ TEST(Factor, AlignmentTailExclusionAndNoFutureInputs) {
   const auto result = factor::run(value);
   ASSERT_EQ(result.samples_size(), 37);
   EXPECT_EQ(result.samples(0).event_index(), 2U);
-  EXPECT_EQ(result.samples(0).timestamp_ns(), value.ticks(2).timestamp_ns());
-  EXPECT_EQ(result.samples(0).label_timestamp_ns(), value.ticks(3).timestamp_ns());
+  EXPECT_EQ(result.samples(0).timestamp_ns(), value.dataset().bars(2).timestamp_ns());
+  EXPECT_EQ(result.samples(0).label_timestamp_ns(), value.dataset().bars(3).timestamp_ns());
   EXPECT_NEAR(result.samples(0).value(), .04, 1e-15);
   EXPECT_NEAR(result.samples(0).forward_return(), -1.0 / 104, 1e-15);
   EXPECT_EQ(result.samples(result.samples_size() - 1).event_index(), 38U);
-  value.mutable_ticks(30)->mutable_price()->set_units(d("500").raw());
+  value.mutable_dataset()->mutable_bars(30)->mutable_close()->set_units(d("500").raw());
   revision(value);
   const auto modified = factor::run(value);
   for (int i = 0; i < result.samples_size(); ++i) {
@@ -120,11 +123,12 @@ TEST(Factor, InvalidOrderingInsufficientSamplesAndCancellation) {
   value.set_lookbacks(0, 10);
   EXPECT_THROW(factor::run(value), std::invalid_argument);
   value = input();
-  value.mutable_ticks(4)->set_timestamp_ns(value.ticks(0).timestamp_ns());
+  value.mutable_dataset()->mutable_bars(4)->set_timestamp_ns(
+      value.dataset().bars(0).timestamp_ns());
   EXPECT_THROW(revision(value), std::invalid_argument);
   EXPECT_THROW(factor::run(value), std::invalid_argument);
   value = input();
-  value.mutable_ticks(4)->mutable_price()->set_units(0);
+  value.mutable_dataset()->mutable_bars(4)->mutable_close()->set_units(0);
   revision(value);
   EXPECT_THROW(factor::run(value), std::invalid_argument);
   std::stop_source stop;
@@ -141,8 +145,8 @@ TEST(Factor, InvalidOrderingInsufficientSamplesAndCancellation) {
 }
 TEST(Factor, ConstantPricesProduceMissingStatisticsNotZero) {
   auto value = input();
-  for (auto& t : *value.mutable_ticks())
-    t.mutable_price()->set_units(d("100").raw());
+  for (auto& t : *value.mutable_dataset()->mutable_bars())
+    t.mutable_close()->set_units(d("100").raw());
   revision(value);
   const auto result = factor::run(value);
   EXPECT_FALSE(result.partitions(0).has_pearson());
@@ -180,7 +184,7 @@ TEST(Factor, StandaloneProcessPersistsTypedResultAndRefusesOverwrite) {
   EXPECT_EQ(execute(source), 0);
   Json record;
   {
-    FileJournal journal(destination);
+    SqliteJournal journal(destination);
     journal.start();
     const auto values = journal.read();
     ASSERT_EQ(values.size(), 1U);
@@ -189,7 +193,7 @@ TEST(Factor, StandaloneProcessPersistsTypedResultAndRefusesOverwrite) {
   }
   EXPECT_NE(execute(source), 0);
   {
-    FileJournal journal(destination);
+    SqliteJournal journal(destination);
     journal.start();
     ASSERT_EQ(journal.read().size(), 1U);
     EXPECT_EQ(journal.read().front(), record);
@@ -221,6 +225,10 @@ TEST_F(FactorTasks, DurableTypeIdentityCancellationAndTamperedResult) {
   {
     tasks::Store store(root);
     auto task = store.submit("factor", input());
+    const auto launches = store.dispatch({});
+    ASSERT_EQ(launches.launches_size(), 1);
+    EXPECT_EQ(launches.launches(0).program(), wire::FACTOR_PROGRAM);
+
     EXPECT_EQ(task.kind(), wire::FACTOR);
     EXPECT_EQ(store.submit("factor", input()).id(), task.id());
     EXPECT_FALSE(store.list().tasks(0).has_factor());
@@ -266,6 +274,10 @@ TEST_F(FactorTasks, TypedWorkerRunsAndWrongExecutableCannotClaim) {
   const auto endpoint = (socket_root / "task.sock").string();
 #endif
   const auto utf8 = root.u8string();
+  {
+    tasks::Store store(root);
+    store.submit("run", search_input());
+  }
   ChildProcess service(ASTERION_TASK_SERVICE_PATH,
                        {"--directory", std::string(utf8.begin(), utf8.end()), "--endpoint",
                         endpoint, "--session", "factor-tests"});
@@ -295,10 +307,7 @@ TEST_F(FactorTasks, TypedWorkerRunsAndWrongExecutableCannotClaim) {
       std::this_thread::sleep_for(20ms);
     }
   }
-  wire::TaskRequest submit;
-  submit.mutable_submit()->set_id("run");
-  *submit.mutable_submit()->mutable_factor() = search_input();
-  call(submit);
+
   {
     ChildProcess wrong(ASTERION_BACKTEST_PATH,
                        {"--endpoint", endpoint, "--session", "factor-tests", "--task", "run"});
@@ -324,12 +333,12 @@ TEST_F(FactorTasks, TypedWorkerRunsAndWrongExecutableCannotClaim) {
 namespace {
 research::v1::FactorInput holdout_input() {
   auto result = input();
-  result.clear_ticks();
+  result.mutable_dataset()->clear_bars();
   for (int i = 0; i < 100; ++i) {
-    auto* t = result.add_ticks();
+    auto* t = result.mutable_dataset()->add_bars();
     t->set_timestamp_ns(1790298000000000000LL + static_cast<std::int64_t>(i) * 1000000000);
-    t->mutable_price()->set_units(Decimal::parse(std::to_string(100 + i + i % 7)).raw());
-    t->mutable_quantity()->set_units(d("1").raw());
+    t->mutable_close()->set_units(Decimal::parse(std::to_string(100 + i + i % 7)).raw());
+    t->mutable_volume()->set_units(d("1").raw());
   }
   result.set_horizon(3);
   result.set_holdout_start(50);
@@ -356,7 +365,7 @@ TEST(Factor, HoldoutPurgesBoundaryLabelsAndReportsIndependentStatistics) {
   std::vector<double> features, labels;
   for (const auto& s : result.samples()) {
     if (s.event_index() < 50) {
-      EXPECT_LT(s.label_timestamp_ns(), value.ticks(50).timestamp_ns());
+      EXPECT_LT(s.label_timestamp_ns(), value.dataset().bars(50).timestamp_ns());
     } else {
       features.push_back(s.value());
       labels.push_back(s.forward_return());
@@ -366,7 +375,7 @@ TEST(Factor, HoldoutPurgesBoundaryLabelsAndReportsIndependentStatistics) {
   EXPECT_DOUBLE_EQ(holdout.spearman(), *rank_correlation(features, labels));
   auto modified = value;
   for (int i = 50; i < 100; ++i)
-    modified.mutable_ticks(i)->mutable_price()->set_units(d("500").raw());
+    modified.mutable_dataset()->mutable_bars(i)->mutable_close()->set_units(d("500").raw());
   revision(modified);
   const auto changed = factor::run(modified);
   EXPECT_EQ(development.SerializeAsString(), changed.partitions(0).SerializeAsString());
@@ -392,8 +401,9 @@ TEST(Factor, ExplicitEvaluationAndSplitValidationRejectMissingOrLeakingInputs) {
     EXPECT_THROW(factor::run(value), std::invalid_argument);
   }
   value = holdout_input();
-  value.mutable_ticks(50)->set_timestamp_ns(value.ticks(49).timestamp_ns());
-  revision(value);
+  value.mutable_dataset()->mutable_bars(50)->set_timestamp_ns(
+      value.dataset().bars(49).timestamp_ns());
+  EXPECT_THROW(revision(value), std::invalid_argument);
   EXPECT_THROW(factor::run(value), std::invalid_argument);
   auto json = protocol::decode_factor(holdout_input());
   json["evaluation"]["split_index"] = 50.5;
@@ -461,7 +471,9 @@ TEST(Factor, SearchUsesCommonSamplesAndNeverSelectsAgainstHoldout) {
     EXPECT_EQ(candidate.sample_count(), 37U);
     std::vector<double> factors, labels;
     for (int i = 10; i < 47; ++i) {
-      auto price = [&](int index) { return Decimal::from_raw(value.ticks(index).price().units()); };
+      auto price = [&](int index) {
+        return Decimal::from_raw(value.dataset().bars(index).close().units());
+      };
       factors.push_back(price_return(price(i - static_cast<int>(candidate.lookback())), price(i)));
       labels.push_back(price_return(price(i), price(i + 3)));
     }
@@ -470,7 +482,7 @@ TEST(Factor, SearchUsesCommonSamplesAndNeverSelectsAgainstHoldout) {
       EXPECT_DOUBLE_EQ(candidate.development_spearman(), result.partitions(0).spearman());
   }
   for (int i = 50; i < 100; ++i)
-    value.mutable_ticks(i)->mutable_price()->set_units(
+    value.mutable_dataset()->mutable_bars(i)->mutable_close()->set_units(
         Decimal::parse(std::to_string(1000 - i * 3)).raw());
   revision(value);
   const auto changed = factor::run(value);
@@ -492,8 +504,8 @@ TEST(Factor, SearchRejectsInvalidCandidateSetsAndCancelsDuringSelection) {
     value.add_lookbacks(i);
   EXPECT_THROW(factor::run(value), std::invalid_argument);
   value = search_input();
-  for (auto& t : *value.mutable_ticks())
-    t.mutable_price()->set_units(d("100").raw());
+  for (auto& t : *value.mutable_dataset()->mutable_bars())
+    t.mutable_close()->set_units(d("100").raw());
   revision(value);
   EXPECT_THROW(factor::run(value), std::invalid_argument);
   value.clear_lookbacks();
@@ -544,7 +556,7 @@ TEST_F(FactorTasks, ResultEvidencePreservesAllCandidatesAndHoldoutConfiguration)
     EXPECT_EQ(evidence.at("experiment").at("lookbacks").at(i), spec.lookbacks(i));
   EXPECT_EQ(evidence.at("experiment").at("evaluation").at("mode"), "holdout");
   EXPECT_EQ(evidence.at("experiment").at("evaluation").at("split_index"), spec.holdout_start());
-  EXPECT_EQ(evidence.at("experiment").at("data").at("count"), spec.ticks_size());
+  EXPECT_EQ(evidence.at("experiment").at("data").at("count"), spec.dataset().bars_size());
   EXPECT_FALSE(evidence.at("experiment").contains("ticks"));
   EXPECT_EQ(evidence.at("experiment").at("dataset_revision"), response.factor().dataset_revision());
 }
@@ -552,12 +564,12 @@ TEST_F(FactorTasks, ResultEvidencePreservesAllCandidatesAndHoldoutConfiguration)
 namespace {
 research::v1::FactorInput rolling_input() {
   auto value = search_input();
-  value.clear_ticks();
+  value.mutable_dataset()->clear_bars();
   for (int i = 0; i < 160; ++i) {
-    auto* row = value.add_ticks();
+    auto* row = value.mutable_dataset()->add_bars();
     row->set_timestamp_ns(1790298000000000000LL + std::int64_t{i} * 1000000000);
-    row->mutable_price()->set_units(d(std::to_string(100 + i + (i * i % 17)).c_str()).raw());
-    row->mutable_quantity()->set_units(d("1").raw());
+    row->mutable_close()->set_units(d(std::to_string(100 + i + (i * i % 17)).c_str()).raw());
+    row->mutable_volume()->set_units(d("1").raw());
   }
   value.mutable_walk_forward()->set_training_events(80);
   value.mutable_walk_forward()->set_validation_events(40);
@@ -592,7 +604,7 @@ TEST(Factor, RollingValidationCoversWindowsAndPurgesLabelsWithMonotoneProgress) 
         continue;
       EXPECT_LT(sample.event_index() + value.horizon(), fold.validation_end());
       EXPECT_LT(sample.label_timestamp_ns(),
-                value.ticks(fold.validation_end() - 1).timestamp_ns() + 1);
+                value.dataset().bars(fold.validation_end() - 1).timestamp_ns() + 1);
     }
   }
   const auto decoded = protocol::decode_factor_result(result);
@@ -605,8 +617,8 @@ TEST(Factor, RollingSelectionNeverReadsValidationOrLaterFolds) {
   auto original = rolling_input();
   const auto baseline = factor::run(original);
   auto changed = original;
-  for (int i = 80; i < changed.ticks_size(); ++i)
-    changed.mutable_ticks(i)->mutable_price()->set_units(
+  for (int i = 80; i < changed.dataset().bars_size(); ++i)
+    changed.mutable_dataset()->mutable_bars(i)->mutable_close()->set_units(
         d(std::to_string(900 + i * i % 31).c_str()).raw());
   revision(changed);
   const auto second = factor::run(changed);
@@ -617,8 +629,8 @@ TEST(Factor, RollingSelectionNeverReadsValidationOrLaterFolds) {
     EXPECT_EQ(second.folds(0).candidates(i).SerializeAsString(),
               baseline.folds(0).candidates(i).SerializeAsString());
   changed = original;
-  for (int i = 120; i < changed.ticks_size(); ++i)
-    changed.mutable_ticks(i)->mutable_price()->set_units(
+  for (int i = 120; i < changed.dataset().bars_size(); ++i)
+    changed.mutable_dataset()->mutable_bars(i)->mutable_close()->set_units(
         d(std::to_string(800 + i % 13).c_str()).raw());
   revision(changed);
   const auto third = factor::run(changed);
@@ -635,12 +647,14 @@ TEST(Factor, RollingRejectsPartialWindowsTimestampSplitsAndHonoursCancellation) 
   value.mutable_walk_forward()->set_training_events(120);
   EXPECT_THROW(factor::run(value), std::invalid_argument);
   value = rolling_input();
-  value.mutable_ticks(80)->set_timestamp_ns(value.ticks(79).timestamp_ns());
-  revision(value);
+  value.mutable_dataset()->mutable_bars(80)->set_timestamp_ns(
+      value.dataset().bars(79).timestamp_ns());
+  EXPECT_THROW(revision(value), std::invalid_argument);
   EXPECT_THROW(factor::run(value), std::invalid_argument);
   value = rolling_input();
-  value.mutable_ticks(40)->set_timestamp_ns(value.ticks(39).timestamp_ns());
-  revision(value);
+  value.mutable_dataset()->mutable_bars(40)->set_timestamp_ns(
+      value.dataset().bars(39).timestamp_ns());
+  EXPECT_THROW(revision(value), std::invalid_argument);
   EXPECT_THROW(factor::run(value), std::invalid_argument);
   value = rolling_input();
   value.set_version(3);
@@ -676,4 +690,176 @@ TEST_F(FactorTasks, RollingEvidencePersistsAndRejectsChangedWindowsOrScores) {
   const auto evidence = protocol::decode_task_result(response, "rolling");
   EXPECT_EQ(evidence.at("experiment").at("evaluation").at("training_events"), 80);
   EXPECT_EQ(evidence.at("result").at("folds").size(), 2U);
+}
+
+TEST(Factor, PriceObservationsShareMomentumWithoutInventingTradeFields) {
+  PriceMomentum window(2);
+  EXPECT_FALSE(window.push(d("100.00000001")));
+  EXPECT_FALSE(window.push(d("105.00000001")));
+  EXPECT_THROW(window.push(d("0")), std::invalid_argument);
+  EXPECT_THROW(window.push(d("-1")), std::invalid_argument);
+  EXPECT_DOUBLE_EQ(*window.push(d("110.00000001")),
+                   price_return(d("100.00000001"), d("110.00000001")));
+  EXPECT_DOUBLE_EQ(*window.push(d("120.00000001")),
+                   price_return(d("105.00000001"), d("120.00000001")));
+  window.reset();
+  EXPECT_FALSE(window.push(d("1")));
+  EXPECT_THROW(PriceMomentum(0), std::invalid_argument);
+  EXPECT_THROW(PriceMomentum(10001), std::invalid_argument);
+  MomentumFactor trades(spec(), 2);
+  PriceMomentum prices(2);
+  trades.start();
+  for (int i = 0; i < 100; ++i) {
+    const auto price = Decimal::parse(std::to_string(100 + i + i % 3));
+    EXPECT_EQ(prices.push(price),
+              trades.on_bar({"2026-09-25", i, price, price, price, price, d("1")}));
+  }
+}
+
+TEST(Factor, DailyMomentumPreservesDatesAndNeverFeedsFutureClosesIntoFeatures) {
+  using namespace std::chrono;
+  std::vector<HistoricalDailyBar> bars;
+  for (int i = 0; i < 8; ++i) {
+    const auto price = Decimal::parse(std::to_string(100 + 10 * i));
+    bars.push_back({year_month_day{sys_days{year{2024} / January / 1} + days{2 * i}},
+                    price,
+                    price,
+                    price,
+                    price,
+                    d("1"),
+                    d("1"),
+                    d("1"),
+                    {},
+                    {},
+                    {}});
+  }
+  std::size_t completed = 0;
+  const auto all = daily_momentum_samples(bars, 2, 2, {}, [&](auto done, auto total) {
+    EXPECT_EQ(done, ++completed);
+    EXPECT_EQ(total, bars.size());
+  });
+  ASSERT_EQ(all.size(), 4);
+  EXPECT_EQ(all.front().observation_index, 2);
+  EXPECT_EQ(format_trading_date(all.front().trading_day), "2024-01-05");
+  EXPECT_EQ(format_trading_date(all.front().label_day), "2024-01-09");
+  EXPECT_DOUBLE_EQ(all.front().value, price_return(d("100"), d("120")));
+  EXPECT_DOUBLE_EQ(all.front().forward_return, price_return(d("120"), d("140")));
+  bars[4].open = bars[4].high = bars[4].low = bars[4].close = d("200");
+  const auto changed = daily_momentum_samples(bars, 2, 2);
+  EXPECT_DOUBLE_EQ(changed.front().value, all.front().value);
+  EXPECT_NE(changed.front().forward_return, all.front().forward_return);
+  EXPECT_THROW(daily_momentum_samples(bars, 0, 2), std::invalid_argument);
+  EXPECT_THROW(daily_momentum_samples(bars, 2, 0), std::invalid_argument);
+  EXPECT_THROW(daily_momentum_samples(bars, 7, 2), std::invalid_argument);
+  auto bad = bars;
+  bad[3].trading_day = bad[2].trading_day;
+  EXPECT_THROW(daily_momentum_samples(bad, 2, 2), std::invalid_argument);
+  bad[3].trading_day = bad[1].trading_day;
+  EXPECT_THROW(daily_momentum_samples(bad, 2, 2), std::invalid_argument);
+  std::stop_source stop;
+  EXPECT_THROW(daily_momentum_samples(bars, 2, 2, stop.get_token(),
+                                      [&](auto done, auto) {
+                                        if (done == 3)
+                                          stop.request_stop();
+                                      }),
+               std::runtime_error);
+  EXPECT_THROW(daily_momentum_samples(bars, 2, 2, stop.get_token()), std::runtime_error);
+}
+
+TEST(Factor, DailyInputBindsSourceAndExactBarsAndPurgesHoldoutLabels) {
+  using namespace std::chrono;
+  research::v1::DailyFactorInput input;
+  input.set_version(1);
+  input.set_lookback(2);
+  input.set_horizon(2);
+  input.set_holdout_start(40);
+  auto& dataset = *input.mutable_dataset();
+  dataset.set_version(1);
+  dataset.set_source_task_id("daily-source");
+  dataset.set_source("tushare.fut_daily");
+  dataset.set_contract_id("SHFE/cu/2024-03");
+  dataset.set_manifest_sha256(std::string(64, 'a'));
+  for (int i = 0; i < 80; ++i) {
+    auto* bar = dataset.add_bars();
+    bar->set_trading_day(
+        format_trading_date(year_month_day{sys_days{year{2023} / January / 1} + days{i}}));
+    const auto price = Decimal::parse(std::to_string(100 + i + i % 3));
+    for (auto* value :
+         {bar->mutable_open(), bar->mutable_high(), bar->mutable_low(), bar->mutable_close()})
+      value->set_units(price.raw());
+    bar->mutable_volume()->set_units(d("1").raw());
+    bar->mutable_amount()->set_units(d("100.00000001").raw());
+    bar->mutable_open_interest()->set_units(d("3").raw());
+  }
+  input.set_dataset_revision(protocol::daily_factor_revision(dataset));
+  const auto result = factor::run_daily(input);
+  EXPECT_EQ(result.input_count(), 80);
+  EXPECT_EQ(result.purged_count(), 2);
+  ASSERT_EQ(result.partitions_size(), 2);
+  EXPECT_EQ(result.partitions(0).sample_count(), 36);
+  EXPECT_EQ(result.partitions(1).sample_count(), 38);
+  EXPECT_EQ(result.samples(0).trading_day(), "2023-01-03");
+  EXPECT_EQ(result.samples(0).label_day(), "2023-01-05");
+  for (const auto& row : result.samples())
+    EXPECT_TRUE(row.observation_index() >= 40 || row.observation_index() + 2 < 40);
+  const auto decoded = protocol::decode_daily_factor(input, result);
+  EXPECT_EQ(decoded.at("experiment").at("data").at("count"), 80);
+  EXPECT_EQ(decoded.at("experiment").at("data").at("first_day"), "2023-01-01");
+  EXPECT_EQ(decoded.at("result").at("samples").size(), 74);
+  auto invalid_evidence = result;
+  invalid_evidence.mutable_samples(0)->set_label_day("2023-01-04");
+  EXPECT_THROW(protocol::decode_daily_factor(input, invalid_evidence), std::invalid_argument);
+  invalid_evidence = result;
+  invalid_evidence.mutable_samples(0)->set_value(std::numeric_limits<double>::infinity());
+  EXPECT_THROW(protocol::decode_daily_factor(input, invalid_evidence), std::invalid_argument);
+  invalid_evidence = result;
+  invalid_evidence.mutable_partitions(0)->set_sample_count(99);
+  EXPECT_THROW(protocol::decode_daily_factor(input, invalid_evidence), std::invalid_argument);
+  invalid_evidence = result;
+  invalid_evidence.set_purged_count(0);
+  EXPECT_THROW(protocol::decode_daily_factor(input, invalid_evidence), std::invalid_argument);
+  Json parameters = {{"source_task_id", "daily-source"},
+                     {"lookback", 2},
+                     {"horizon", 2},
+                     {"evaluation", {{"mode", "holdout"}, {"split_index", 40}}}};
+  EXPECT_EQ(protocol::encode_daily_factor_request(parameters).holdout_start(), 40);
+  for (const Json mutation :
+       {Json{{"lookback", 2.5}}, Json{{"horizon", 0}}, Json{{"lookback", -1}},
+        Json{{"evaluation", {{"mode", "walk_forward"}}}}, Json{{"bars", Json::array()}}}) {
+    auto invalid = parameters;
+    invalid.update(mutation);
+    EXPECT_THROW(protocol::encode_daily_factor_request(invalid), std::exception);
+  }
+  EXPECT_NO_THROW(factor::verify_daily_result(input, result));
+  auto wrong = result;
+  wrong.mutable_samples(0)->set_label_day("2023-01-04");
+  EXPECT_THROW(factor::verify_daily_result(input, wrong), std::invalid_argument);
+  auto changed = input;
+  changed.set_lookback(3);
+  EXPECT_EQ(protocol::daily_factor_revision(changed.dataset()), input.dataset_revision());
+  changed.mutable_dataset()->mutable_bars(0)->mutable_amount()->set_units(d("100.00000002").raw());
+  EXPECT_NE(protocol::daily_factor_revision(changed.dataset()), input.dataset_revision());
+  EXPECT_THROW(factor::run_daily(changed), std::invalid_argument);
+  changed = input;
+  changed.mutable_dataset()->set_source_task_id("another-source");
+  EXPECT_THROW(factor::run_daily(changed), std::invalid_argument);
+  changed = input;
+  changed.mutable_dataset()->mutable_bars(0)->clear_volume();
+  EXPECT_THROW(factor::run_daily(changed), std::invalid_argument);
+  input.set_full_sample(true);
+  EXPECT_EQ(factor::run_daily(input).samples_size(), 76);
+  for (auto& bar : *input.mutable_dataset()->mutable_bars())
+    for (auto* value :
+         {bar.mutable_open(), bar.mutable_high(), bar.mutable_low(), bar.mutable_close()})
+      value->set_units(d("100").raw());
+  input.set_dataset_revision(protocol::daily_factor_revision(input.dataset()));
+  const auto constant = factor::run_daily(input);
+  EXPECT_FALSE(constant.partitions(0).has_pearson());
+  EXPECT_FALSE(constant.partitions(0).has_spearman());
+  EXPECT_TRUE(protocol::decode_daily_factor(input, constant)
+                  .at("result")
+                  .at("partitions")
+                  .at(0)
+                  .at("pearson")
+                  .is_null());
 }

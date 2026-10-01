@@ -1,3 +1,4 @@
+from history_fixture import contracts, seed
 """Real TCP/mTLS, native Terminal client, daemon and durable server ledger."""
 import json
 from concurrent.futures import ThreadPoolExecutor
@@ -78,10 +79,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-tcp-中文-", ignore_cleanup_e
             assert "CERTIFICATE_VERIFY_FAILED" not in str(error), error
         connected = request(terminal, "paper.connect", params)
         assert connected["paper"] is None and connected["connection"]["state"] == "connected"
-        source = root / "ticks.csv"
-        source.write_text("timestamp_ns,price,quantity\n100,100,1\n200,99,1\n300,110,1\n", encoding="utf-8")
-        request(terminal, "futures.inspect_csv", {"path": str(source), "venue": "SHFE", "symbol": "rb2610", "product": "rb", "delivery_month": "2026-10", "currency": "CNY", "price_increment": "1", "quantity_increment": "1", "multiplier": "10"})
-        request(terminal, "paper.create", {"deposit": "1000", "margin_per_lot": "100", "open_fee": "2", "close_today_fee": "3", "close_yesterday_fee": "4", "margin_rate": "0", "open_fee_rate": "0", "close_today_fee_rate": "0", "close_yesterday_fee_rate": "0", "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
+        seed(lambda method, params=None: request(terminal, method, params), [100,99,110], "fixture0")
+        request(terminal, "paper.create", {"deposit": "1000", "contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
         action = {"request_id": "remote.tick1", "action": "advance"}
         observer = launch()
         try:
@@ -96,7 +95,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-tcp-中文-", ignore_cleanup_e
             assert request(observer, "runtime.snapshot")["paper"] == expected
         finally:
             stop(observer)
-        assert expected["cursor"] == 1 and (account / "00000001.json").exists()
+        assert expected["cursor"] == 1 and (account / "journal.sqlite").exists()
         request(terminal, "paper.close")
         assert daemon.poll() is None
         assert request(terminal, "paper.connect", params)["paper"] == expected
@@ -138,7 +137,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-tcp-中文-", ignore_cleanup_e
         # Reject an oversized frame, retain the service and committed state.
         ctx.load_cert_chain(params["certificate_file"], params["private_key_file"])
         with socket.create_connection(("127.0.0.1", port), timeout=2) as sock, ctx.wrap_socket(sock, server_hostname="localhost") as tls:
-            tls.sendall(struct.pack("!I", 16 * 1024 * 1024 + 1))
+            tls.sendall(struct.pack("!I", 64 * 1024 * 1024 + 1))
             assert tls.recv(1) == b""
         assert request(terminal, "paper.connect", params)["paper"] == expected
     finally:

@@ -1,3 +1,7 @@
+#include <asterion/kernel/process/file_lock.hpp>
+#ifndef _WIN32
+#include <sys/wait.h>
+#endif
 #include <asterion/kernel/environment.hpp>
 #ifdef _WIN32
 #include <windows.h>
@@ -10,6 +14,7 @@
 #include <asterion/kernel/durable_file.hpp>
 #include <gtest/gtest.h>
 #include <asterion/kernel/runtime.hpp>
+#include <asterion/kernel/thread_pool.hpp>
 #include <condition_variable>
 #include <future>
 #include <iostream>
@@ -65,60 +70,6 @@ TEST(Kernel, resource_destructor_reentry) {
   scope.publish("cleanup", std::move(cleanup));
   resources.clear();
   EXPECT_TRUE((cleaned)) << "resource destructors may reenter registry without deadlock";
-}
-TEST(Kernel, scheduling_and_messages) {
-  ManualClock clock;
-  Scheduler scheduler(clock, 4);
-  std::vector<int> order;
-  Scheduler::TaskId cancelled = 0;
-  scheduler.after(10, [&] {
-    order.push_back(1);
-    scheduler.cancel(cancelled);
-    scheduler.after(0, [&] { order.push_back(4); });
-  });
-  cancelled = scheduler.after(10, [&] { order.push_back(99); });
-  scheduler.after(10, [&] {
-    order.push_back(2);
-    throw std::runtime_error("task failed");
-  });
-  scheduler.after(10, [&] { order.push_back(3); });
-  EXPECT_THROW(([&] { scheduler.after(0, [] {}); })(), Error);
-  EXPECT_TRUE((scheduler.run_due() == 0)) << "future tasks not run early";
-  clock.advance(10);
-  EXPECT_THROW(([&] { scheduler.run_due(); })(), std::runtime_error);
-  EXPECT_TRUE((order == std::vector<int>({1, 2, 3})))
-      << "stable order, cancellation, exception isolation";
-  EXPECT_TRUE((scheduler.run_due() == 1 && order.back() == 4))
-      << "reentrant scheduling deferred to next pump";
-  scheduler.after(0, [&] { scheduler.run_due(); });
-  EXPECT_THROW(([&] { scheduler.run_due(); })(), Error);
-  scheduler.close();
-  EXPECT_THROW(([&] { scheduler.after(0, [] {}); })(), Error);
-  MessageBus<int> bus(2);
-  int received = 0;
-  auto first = bus.subscribe([&](int value) {
-    if (value == 1) {
-      EXPECT_TRUE((bus.post(3))) << "callback post";
-      throw std::runtime_error("subscriber failure");
-    }
-  });
-  bus.subscribe([&](int value) { received += value; });
-  EXPECT_TRUE((bus.post(1) && bus.post(2) && !bus.post(99))) << "bus backpressure explicit";
-  EXPECT_THROW(([&] { bus.dispatch(); })(), std::runtime_error);
-  EXPECT_TRUE((received == 3)) << "all subscribers and accepted batch delivered despite failure";
-  bus.unsubscribe(first);
-  EXPECT_TRUE((bus.dispatch() == 1 && received == 6))
-      << "callback post delivered next dispatch without replay";
-  bus.close();
-  EXPECT_TRUE((!bus.post(4))) << "closed message bus rejects producers";
-  MessageBus<int> closing(2);
-  int finished = 0;
-  closing.subscribe([&](int) { closing.close(); });
-  closing.subscribe([&](int) { ++finished; });
-  closing.post(1);
-  closing.post(2);
-  EXPECT_TRUE((closing.dispatch() == 1 && finished == 1))
-      << "close completes current subscription snapshot but drops remaining batch";
 }
 TEST(Kernel, worker_shutdown) {
   ThreadPool worker(1, 1);
@@ -192,18 +143,6 @@ TEST(Kernel, runtime_integration) {
       << "runtime traces successes and denied/failed commands";
   EXPECT_TRUE((runtime.observations().recent().front().duration_ns == 5))
       << "monotonic trace timing";
-  bool delivered = false;
-  runtime.messages().subscribe([&](const EventEnvelope&) { delivered = true; });
-  runtime.scheduler().after(0, [&] { throw std::runtime_error("scheduled failure"); });
-  runtime.thread_pool()
-      .submit([&](std::stop_token) {
-        EXPECT_TRUE(
-            (runtime.messages().post({"worker:1", "worker", "completed", 123, Json::object()})))
-            << "worker sends event";
-      })
-      .get();
-  EXPECT_THROW(([&] { runtime.poll(); })(), std::runtime_error);
-  EXPECT_TRUE((delivered)) << "runtime pump delivers worker events despite timer failure";
   runtime.access().revoke("test.user");
   EXPECT_THROW(([&] { runtime.dispatch("test.user", "service.read", {}); })(), Error);
   EXPECT_THROW(([&] { runtime.access().grant("intruder", "service.read"); })(), Error);
@@ -322,4 +261,86 @@ TEST(Kernel, EnvironmentLookupsAreUnicodeAndTreatEmptyAsUnset) {
 #endif
   EXPECT_FALSE(environment_variable(name).has_value());
   EXPECT_FALSE(environment_path("ASTERION_TEST_ENVIRONMENT_UNSET").has_value());
+}
+#ifndef _WIN32
+#include <asterion/kernel/process/child.hpp>
+#include <fcntl.h>
+#include <unistd.h>
+TEST(Kernel, child_does_not_inherit_host_pipes) {
+  for (bool independent : {false, true}) {
+    int pipe_fds[2];
+    ASSERT_EQ(::pipe(pipe_fds), 0);
+    struct Descriptors {
+      int read, write;
+      ~Descriptors() {
+        ::close(read);
+        if (write >= 0)
+          ::close(write);
+      }
+    } descriptors{pipe_fds[0], pipe_fds[1]};
+    ASSERT_EQ(::fcntl(descriptors.read, F_SETFL, O_NONBLOCK), 0);
+    // Deliberately inheritable: this models Electron's extra protocol pipes.
+    ASSERT_EQ(::fcntl(descriptors.write, F_SETFD, 0), 0);
+    ChildProcess child("/bin/sleep", {"2"}, independent);
+    ::close(descriptors.write);
+    descriptors.write = -1;
+    ASSERT_FALSE(child.exited());
+    char byte;
+    EXPECT_EQ(::read(descriptors.read, &byte, 1), 0)
+        << "A running child kept the host's pipe writer alive";
+  }
+}
+#endif
+
+TEST(Kernel, FileLockReadersShareWhileWritersRemainExclusive) {
+  const auto root = std::filesystem::temp_directory_path() /
+                    ("asterion-shared-lock-" +
+                     std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directory(root);
+  struct Cleanup {
+    std::filesystem::path path;
+    ~Cleanup() {
+      std::error_code error;
+      std::filesystem::remove_all(path, error);
+    }
+  } cleanup{root};
+  using Access = FileLock::Access;
+#ifndef _WIN32
+  const auto peer = [&](Access access, bool expected) {
+    const auto pid = fork();
+    ASSERT_GE(pid, 0);
+    if (pid == 0) {
+      bool acquired = false;
+      try {
+        FileLock lock(root, "dataset.lock", access);
+        acquired = true;
+      } catch (...) {
+      }
+      _exit(acquired == expected ? 0 : 1);
+    }
+    int status = 0;
+    ASSERT_EQ(waitpid(pid, &status, 0), pid);
+    ASSERT_TRUE(WIFEXITED(status));
+    EXPECT_EQ(WEXITSTATUS(status), 0);
+  };
+#endif
+  {
+    FileLock reader(root, "dataset.lock", Access::shared);
+    EXPECT_NO_THROW(FileLock(root, "dataset.lock", Access::shared));
+    EXPECT_THROW(FileLock(root, "dataset.lock"), std::runtime_error);
+#ifndef _WIN32
+    peer(Access::shared, true);
+    peer(Access::exclusive, false);
+#endif
+  }
+  {
+    FileLock writer(root, "dataset.lock");
+    EXPECT_THROW(FileLock(root, "dataset.lock", Access::shared), std::runtime_error);
+    EXPECT_THROW(FileLock(root, "dataset.lock"), std::runtime_error);
+#ifndef _WIN32
+    peer(Access::shared, false);
+    peer(Access::exclusive, false);
+#endif
+  }
+  EXPECT_NO_THROW(FileLock(root, "dataset.lock"));
 }

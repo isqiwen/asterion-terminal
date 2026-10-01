@@ -1,0 +1,35 @@
+const path = require("node:path");
+module.exports = {
+  appId: "me.asterion.terminal",
+  productName: "Asterion Terminal",
+  executableName: "asterion-terminal",
+  directories: {
+    app: "apps/clients/terminal/electron",
+    output: "build/desktop",
+    buildResources: "apps/clients/terminal/electron/assets",
+  },
+  files: ["main.cjs", "preload.cjs", "package.json", { from: "../dist", to: "dist" }],
+  extraResources: [{ from: "build/electron-resources", to: ".", filter: ["**/*"] }],
+  asar: true,
+  npmRebuild: false,
+  nodeGypRebuild: false,
+  artifactName: "Asterion-Terminal-${version}-${os}-${arch}.${ext}",
+  mac: {
+    target: ["dmg"],
+    category: "public.app-category.finance",
+    minimumSystemVersion: "13.0",
+    identity: "-",
+    hardenedRuntime: true,
+    entitlements: path.join(__dirname, "entitlements.mac.plist"),
+    entitlementsInherit: path.join(__dirname, "entitlements.mac.plist"),
+  },
+  dmg: { sign: false },
+  win: { target: ["nsis"] },
+  nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true },
+  linux: {
+    syncDesktopName: true,
+    target: ["deb"],
+    category: "Finance",
+    maintainer: "Asterion <build@example.invalid>",
+  },
+};

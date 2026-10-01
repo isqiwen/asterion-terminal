@@ -10,6 +10,11 @@ import sys
 import tempfile
 import time
 
+
+def daily(path):
+    """The Agent writes the transport log as <stem>_YYYY-MM-DD<suffix>."""
+    return next(path.parent.glob(f"{path.stem}_????-??-??{path.suffix}"))
+
 agent_path, certificates, mode = sys.argv[1:]
 assert mode in ("handshake", "frame", "overload")
 def varint(value):
@@ -138,7 +143,7 @@ with tempfile.TemporaryDirectory(prefix="ast-agent-concurrency-", ignore_cleanup
             assert malformed.recv(1) == b""
         until = time.monotonic() + 5
         while True:
-            records = [json.loads(line) for line in log.read_text().splitlines()]
+            records = [json.loads(line) for line in daily(log).read_text().splitlines()]
             values = [record["fields"] for record in records]
             if (any(v["stage"] == "receive" and v["outcome"] == "failed" for v in values)
                     and any(v["stage"] == "parse" and v["outcome"] == "rejected" for v in values)):
@@ -148,7 +153,7 @@ with tempfile.TemporaryDirectory(prefix="ast-agent-concurrency-", ignore_cleanup
             time.sleep(.05)
         assert any(v["operation"] == "status" and v["outcome"] == "completed" for v in values)
         assert all(set(v) == {"connection", "operation", "stage", "outcome"} for v in values)
-        assert secret.decode() not in log.read_text()
+        assert secret.decode() not in daily(log).read_text()
     finally:
         if stalled is not None: stalled.close()
         for channel in overloaded: channel.close()

@@ -1,0 +1,7 @@
+add_library(asterion_backtest_engine STATIC engine.cpp)
+target_include_directories(asterion_backtest_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(asterion_backtest_engine PUBLIC asterion_protocol PRIVATE asterion_risk_providers asterion_sma asterion_paper)
+add_executable(asterion-backtest main.cpp task_worker.cpp)
+target_compile_features(asterion-backtest PRIVATE cxx_std_20)
+target_compile_definitions(asterion-backtest PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
+target_link_libraries(asterion-backtest PRIVATE asterion_backtest_engine asterion_risk_providers asterion_sqlite asterion_task_client CLI11::CLI11 $<$<PLATFORM_ID:Windows>:shell32>)

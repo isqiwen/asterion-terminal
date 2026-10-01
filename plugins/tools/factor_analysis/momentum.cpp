@@ -92,11 +92,27 @@ std::vector<double> ranks(std::span<const double> values) {
 std::optional<double> rank_correlation(std::span<const double> x, std::span<const double> y) {
   return correlation(ranks(x), ranks(y));
 }
-MomentumFactor::MomentumFactor(Instrument instrument, std::size_t lookback)
-    : instrument_(std::move(instrument)), lookback_(lookback) {
-  instrument_.validate();
+PriceMomentum::PriceMomentum(std::size_t lookback) : lookback_(lookback) {
   if (!lookback || lookback > 10000)
-    throw std::invalid_argument("lookback must be 1..10000 events");
+    throw std::invalid_argument("momentum lookback must be 1..10000 observations");
+}
+void PriceMomentum::reset() noexcept {
+  history_.clear();
+}
+std::optional<double> PriceMomentum::push(Decimal price) {
+  if (price <= Decimal{})
+    throw std::invalid_argument("return requires positive prices");
+  const auto result = history_.size() == lookback_
+                          ? std::optional<double>(price_return(history_.front(), price))
+                          : std::nullopt;
+  history_.push_back(price);
+  if (history_.size() > lookback_)
+    history_.pop_front();
+  return result;
+}
+MomentumFactor::MomentumFactor(Instrument instrument, std::size_t lookback)
+    : instrument_(std::move(instrument)), prices_(lookback) {
+  instrument_.validate();
 }
 PluginDescriptor MomentumFactor::descriptor() const {
   return {"asterion.tool.factor.momentum", PluginKind::tool, plugin_contract_version, {}};
@@ -104,26 +120,21 @@ PluginDescriptor MomentumFactor::descriptor() const {
 void MomentumFactor::start() {
   if (running_)
     throw std::logic_error("factor already started");
-  history_.clear();
+  prices_.reset();
   last_time_ = -1;
   running_ = true;
 }
 void MomentumFactor::stop() noexcept {
   running_ = false;
 }
-std::optional<double> MomentumFactor::on_tick(const TradeTick& tick) {
+std::optional<double> MomentumFactor::on_bar(const MarketBar& bar) {
   if (!running_)
     throw std::logic_error("factor is stopped");
-  tick.validate(instrument_);
-  if (tick.price <= Decimal{} || tick.timestamp_ns < last_time_)
+  bar.validate(instrument_);
+  if (bar.close <= Decimal{} || bar.timestamp_ns <= last_time_)
     throw std::invalid_argument("invalid factor price or event order");
-  const auto result = history_.size() == lookback_
-                          ? std::optional<double>(price_return(history_.front(), tick.price))
-                          : std::nullopt;
-  history_.push_back(tick.price);
-  if (history_.size() > lookback_)
-    history_.pop_front();
-  last_time_ = tick.timestamp_ns;
+  const auto result = prices_.push(bar.close);
+  last_time_ = bar.timestamp_ns;
   return result;
 }
 } // namespace asterion

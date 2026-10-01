@@ -1,17 +1,16 @@
 #pragma once
 #include <asterion/kernel/plugin.hpp>
 #include <asterion/kernel/configuration.hpp>
-#include <asterion/kernel/thread_pool.hpp>
-#include <asterion/kernel/message_bus.hpp>
+#include <asterion/foundation/id.hpp>
+#include <asterion/foundation/time.hpp>
 #include <asterion/kernel/observability.hpp>
 #include <asterion/kernel/logger.hpp>
 #include <asterion/kernel/resource_registry.hpp>
-#include <asterion/kernel/scheduler.hpp>
 #include <asterion/kernel/security.hpp>
 namespace asterion {
 enum class RuntimeState { created, starting, running, stopping, stopped, failed };
-// Host serializes lifecycle, commands, configuration, scheduler and bus dispatch.
-// Worker tasks may use only thread-safe resources and MessageBus::post.
+// Command host: lifecycle, capability-checked dispatch, configuration,
+// owned resources and traces. The host serializes all calls.
 class Runtime final {
 public:
   explicit Runtime(std::string scope,
@@ -25,15 +24,11 @@ public:
   void start();
   void stop();
   Json dispatch(const std::string& principal, const std::string& method, const Json& params);
-  void poll(std::size_t budget = 64);
   RuntimeState state() const noexcept { return state_; }
   Configuration& configuration() noexcept { return config_; }
   AccessPolicy& access() noexcept { return access_; }
   ResourceRegistry& resources() noexcept { return resources_; }
-  Scheduler& scheduler() noexcept { return scheduler_; }
-  MessageBus<EventEnvelope>& messages() noexcept { return messages_; }
   const Observability& observations() const noexcept { return observations_; }
-  ThreadPool& thread_pool();
 
 private:
   struct Command {
@@ -47,12 +42,8 @@ private:
   AccessPolicy access_;
   ResourceRegistry resources_;
   Observability observations_;
-  Scheduler scheduler_;
-  MessageBus<EventEnvelope> messages_;
   PluginManager plugins_;
   std::map<std::string, Command> commands_;
-  std::unique_ptr<ThreadPool> thread_pool_;
   RuntimeState state_ = RuntimeState::created;
-  bool dispatching_ = false;
 };
 } // namespace asterion

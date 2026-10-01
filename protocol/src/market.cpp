@@ -26,6 +26,18 @@ market::v1::Snapshot encode_market(const LiveMarketSnapshot& state, const std::s
       quote->set_ask(q.ask->str());
     if (q.previous_settlement)
       quote->set_previous_settlement(q.previous_settlement->str());
+    if (q.previous_close)
+      quote->set_previous_close(q.previous_close->str());
+    if (q.open_interest_change)
+      quote->set_open_interest_change(q.open_interest_change->str());
+    if (q.average_price)
+      quote->set_average_price(q.average_price->str());
+    if (q.open)
+      quote->set_open(q.open->str());
+    if (q.upper_limit)
+      quote->set_upper_limit(q.upper_limit->str());
+    if (q.lower_limit)
+      quote->set_lower_limit(q.lower_limit->str());
     if (q.high)
       quote->set_high(q.high->str());
     if (q.low)
@@ -35,6 +47,19 @@ market::v1::Snapshot encode_market(const LiveMarketSnapshot& state, const std::s
     quote->set_bid_quantity(q.bid_quantity);
     quote->set_ask_quantity(q.ask_quantity);
     quote->set_volume(q.volume);
+    const auto depth = [](const auto& levels, auto* output) {
+      for (const auto& level : levels) {
+        if (level.quantity && (!level.price || *level.quantity < 0))
+          throw std::invalid_argument("invalid market depth level");
+        auto* row = output->Add();
+        if (level.price)
+          row->set_price(level.price->str());
+        if (level.quantity)
+          row->set_quantity(*level.quantity);
+      }
+    };
+    depth(q.bid_levels, quote->mutable_bid_levels());
+    depth(q.ask_levels, quote->mutable_ask_levels());
     quote->set_action_day(q.action_day);
     quote->set_trading_day(q.trading_day);
     quote->set_update_time(q.update_time);
@@ -73,7 +98,37 @@ Json decode_market(const market::v1::Snapshot& state) {
     Json quote = nullptr;
     if (s.has_quote()) {
       const auto& q = s.quote();
-      quote = {{"last", q.has_last() ? Json(q.last()) : Json(nullptr)},
+      const auto depth = [](const auto& levels) {
+        if (levels.size() != 4)
+          throw std::invalid_argument("invalid market depth level count");
+        Json rows = Json::array();
+        for (const auto& level : levels) {
+          if (level.has_quantity() && (!level.has_price() || level.quantity() < 0))
+            throw std::invalid_argument("invalid market depth level");
+          if (level.has_price())
+            (void)Decimal::parse(level.price());
+          rows.push_back(
+              {{"price", level.has_price() ? Json(level.price()) : Json(nullptr)},
+               {"quantity", level.has_quantity() ? Json(level.quantity()) : Json(nullptr)}});
+        }
+        return rows;
+      };
+      const auto optional_price = [](bool present, const std::string& value) -> Json {
+        if (!present)
+          return nullptr;
+        (void)Decimal::parse(value);
+        return value;
+      };
+      quote = {{"previous_close", optional_price(q.has_previous_close(), q.previous_close())},
+               {"open_interest_change",
+                optional_price(q.has_open_interest_change(), q.open_interest_change())},
+               {"open", optional_price(q.has_open(), q.open())},
+               {"average_price", optional_price(q.has_average_price(), q.average_price())},
+               {"upper_limit", optional_price(q.has_upper_limit(), q.upper_limit())},
+               {"lower_limit", optional_price(q.has_lower_limit(), q.lower_limit())},
+               {"bid_levels", depth(q.bid_levels())},
+               {"ask_levels", depth(q.ask_levels())},
+               {"last", q.has_last() ? Json(q.last()) : Json(nullptr)},
                {"bid", q.has_bid() ? Json(q.bid()) : Json(nullptr)},
                {"ask", q.has_ask() ? Json(q.ask()) : Json(nullptr)},
                {"previous_settlement",
@@ -94,10 +149,93 @@ Json decode_market(const market::v1::Snapshot& state) {
                     {"symbol", s.instrument().symbol()},
                     {"state", s.state()},
                     {"error_code", s.error_code()},
+                    {"change_1m_percent", s.has_change_1m_percent()
+                                              ? Json(Decimal::parse(s.change_1m_percent()).str())
+                                              : Json(nullptr)},
                     {"quote", quote}});
   }
-  return {{"instance_id", state.instance_id()},   {"phase", state.phase()},
-          {"error_code", state.error_code()},     {"sequence", state.sequence()},
-          {"out_of_order", state.out_of_order()}, {"subscriptions", rows}};
+  Json catalog_rows = Json::array(), watchlist = Json::array();
+  for (const auto& row : state.catalog().contracts()) {
+    (void)Decimal::parse(row.price_tick());
+    catalog_rows.push_back({{"venue", row.instrument().venue()},
+                            {"symbol", row.instrument().symbol()},
+                            {"name", row.name()},
+                            {"product", row.product()},
+                            {"expiry", row.expiry()},
+                            {"contract_id", row.contract_id()},
+                            {"multiplier", row.multiplier()},
+                            {"price_tick", row.price_tick()}});
+  }
+  for (const auto& row : state.watchlist())
+    watchlist.push_back({{"venue", row.venue()}, {"symbol", row.symbol()}});
+  return {{"catalog",
+           {{"phase", state.catalog().phase().empty() ? "unconfigured" : state.catalog().phase()},
+            {"error_code", state.catalog().error_code()},
+            {"diagnostic", state.catalog().diagnostic()},
+            {"trading_day", state.catalog().trading_day()},
+            {"contracts", catalog_rows}}},
+          {"watchlist", watchlist},
+          {"instance_id", state.instance_id()},
+          {"phase", state.phase()},
+          {"error_code", state.error_code()},
+          {"sequence", state.sequence()},
+          {"out_of_order", state.out_of_order()},
+          {"subscriptions", rows}};
+}
+market::v1::MinuteSeries encode_minutes(const IntradaySeries& series) {
+  market::v1::MinuteSeries out;
+  out.mutable_instrument()->set_venue(series.instrument.venue);
+  out.mutable_instrument()->set_symbol(series.instrument.symbol);
+  out.set_trading_day(series.trading_day);
+  out.set_first_observation_ms(series.first_observation_ms);
+  out.set_interrupted(series.interrupted);
+  if (series.previous_settlement)
+    out.set_previous_settlement(series.previous_settlement->str());
+  for (const auto& bar : series.bars) {
+    auto* row = out.add_bars();
+    row->set_start_ms(bar.start_ms);
+    row->set_open(bar.open.str());
+    row->set_high(bar.high.str());
+    row->set_low(bar.low.str());
+    row->set_close(bar.close.str());
+    row->set_volume(bar.volume);
+    if (bar.average_price)
+      row->set_average_price(bar.average_price->str());
+    if (bar.open_interest)
+      row->set_open_interest(bar.open_interest->str());
+  }
+  return out;
+}
+Json decode_minutes(const market::v1::MinuteSeries& series) {
+  Json bars = Json::array();
+  std::int64_t previous = 0;
+  for (const auto& bar : series.bars()) {
+    const auto open = Decimal::parse(bar.open()), high = Decimal::parse(bar.high()),
+               low = Decimal::parse(bar.low()), close = Decimal::parse(bar.close());
+    if (bar.start_ms() <= previous || bar.start_ms() % 60000 != 0 || bar.volume() < 0 ||
+        low > high || open < low || open > high || close < low || close > high)
+      throw std::invalid_argument("invalid market minute bar");
+    previous = bar.start_ms();
+    bars.push_back(
+        {{"start_ms", bar.start_ms()},
+         {"open", bar.open()},
+         {"high", bar.high()},
+         {"low", bar.low()},
+         {"close", bar.close()},
+         {"volume", bar.volume()},
+         {"average_price", bar.has_average_price() ? Json(Decimal::parse(bar.average_price()).str())
+                                                   : Json(nullptr)},
+         {"open_interest", bar.has_open_interest() ? Json(Decimal::parse(bar.open_interest()).str())
+                                                   : Json(nullptr)}});
+  }
+  return {{"venue", series.instrument().venue()},
+          {"symbol", series.instrument().symbol()},
+          {"trading_day", series.trading_day()},
+          {"first_observation_ms", series.first_observation_ms()},
+          {"interrupted", series.interrupted()},
+          {"previous_settlement", series.has_previous_settlement()
+                                      ? Json(Decimal::parse(series.previous_settlement()).str())
+                                      : Json(nullptr)},
+          {"bars", std::move(bars)}};
 }
 } // namespace asterion::protocol

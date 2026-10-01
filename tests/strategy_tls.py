@@ -7,6 +7,16 @@ import subprocess
 import sys
 import tempfile
 import time
+import sqlite3
+
+
+def records(directory):
+    """Committed journal records; read only while the owning service is stopped."""
+    db = sqlite3.connect(f"file:{directory / 'journal.sqlite'}?mode=ro", uri=True)
+    try:
+        return db.execute("SELECT COUNT(*) FROM records").fetchone()[0]
+    finally:
+        db.close()
 
 binary, certificates, protoc, proto_root = sys.argv[1:]
 
@@ -74,18 +84,17 @@ with tempfile.TemporaryDirectory(prefix="asterion-strategy-tls-", ignore_cleanup
         process.communicate(timeout=10)
 
     create = request('''create {
-        version: 1 session_id: "tls.strategy" stream_id: "tls.market"
+        version: 2 session_id: "tls.strategy" stream_id: "tls.market"
         plugin_id: "asterion.strategy.cta.sma-long-flat" fast: 1 slow: 2
         quantity { units: 100000000 }
-        contract { venue: "SHFE" symbol: "rb2610" currency: "CNY"
+        contracts { venue: "SHFE" symbol: "rb2610" currency: "CNY"
             price_increment { units: 100000000 } quantity_increment { units: 100000000 }
             multiplier { units: 1000000000 } product: "rb" delivery_month: "2026-10" }
     }''')
 
     def event(sequence, price):
         return request(f'''event {{ stream_id: "tls.market" sequence: {sequence}
-            tick {{ timestamp_ns: {sequence} price {{ units: {price * 100000000} }}
-                quantity {{ units: 100000000 }} }} }}''')
+            bar {{ trading_day: "2026-09-25" timestamp_ns: {sequence} open {{ units: {price * 100000000} }} high {{ units: {price * 100000000} }} low {{ units: {price * 100000000} }} close {{ units: {price * 100000000} }} volume {{ units: 1000000000 }} }} }}''')
 
     process = start()
     try:
@@ -95,7 +104,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-strategy-tls-", ignore_cleanup
             raise AssertionError("client without identity was accepted")
         except OSError:
             pass
-        assert not list(journal.glob("*.json"))
+        assert not (journal / "journal.sqlite").exists()
         assert b"snapshot {" in protobuf("Response", call(create), decode=True)
         call(event(1, 100))
         result = call(event(2, 101))
@@ -103,16 +112,16 @@ with tempfile.TemporaryDirectory(prefix="asterion-strategy-tls-", ignore_cleanup
         assert b"intent {" in decoded and b"units: 100000000" in decoded, decoded
         assert result == call(event(2, 101))
         assert b"error {" in protobuf("Response", call(event(2, 999)), decode=True)
-        assert len(list(journal.glob("*.json"))) == 3
     finally:
         stop(process)
+    assert records(journal) == 3
     process = start()
     try:
         assert result == call(event(2, 101))
         decoded = protobuf("Response", call(event(3, 99)), decode=True)
         assert b"intent {" in decoded and b"target_quantity {" in decoded, decoded
         assert b"units:" not in decoded, decoded  # flat target uses protobuf's zero default
-        assert len(list(journal.glob("*.json"))) == 4
     finally:
         stop(process)
+    assert records(journal) == 4
 print("Strategy TCP/mTLS identity, durable replay and duplicate/conflict handling verified")

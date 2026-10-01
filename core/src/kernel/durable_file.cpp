@@ -82,6 +82,26 @@ void sync_directory(const std::filesystem::path& directory) {
     failed(directory, "sync directory");
 #endif
 }
+void publish_file_durably(const std::filesystem::path& temporary,
+                          const std::filesystem::path& path) {
+  if (std::filesystem::is_symlink(temporary) || std::filesystem::is_symlink(path))
+    throw std::runtime_error("durable publication refuses symbolic links");
+#ifdef _WIN32
+  if (!MoveFileExW(temporary.c_str(), path.c_str(),
+                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    failed(path, "publish");
+#else
+  const int file = ::open(temporary.c_str(), O_RDONLY | O_CLOEXEC);
+  if (file < 0)
+    failed(temporary, "open");
+  const bool ok = flush(file);
+  ::close(file);
+  if (!ok)
+    failed(temporary, "sync");
+  std::filesystem::rename(temporary, path);
+  sync_directory(path.parent_path());
+#endif
+}
 void replace_file_durably(const std::filesystem::path& path, std::string_view contents,
                           bool owner_only) {
   auto temporary = path;

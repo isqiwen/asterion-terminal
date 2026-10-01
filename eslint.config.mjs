@@ -9,13 +9,12 @@ export default tseslint.config(
     ignores: [
       "**/node_modules/**",
       "build/**",
-      "apps/terminal/src-tauri/**",
-      "apps/terminal/test-results/**",
+      "apps/clients/terminal/test-results/**",
       "**/dist/**",
     ],
   },
   {
-    files: ["apps/terminal/**/*.{ts,tsx}"],
+    files: ["apps/clients/**/*.{ts,tsx}", "packages/client-ui/**/*.{ts,tsx}"],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
     plugins: { "react-hooks": reactHooks },

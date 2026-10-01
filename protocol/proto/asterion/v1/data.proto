@@ -2,67 +2,166 @@ syntax = "proto3";
 package asterion.data.v1;
 import "asterion/v1/domain.proto";
 
-// Content identity excludes experiment parameters, source paths and CSV spelling.
-message TradeDataset {
+// Bars resolved by the task service from completed data-source downloads.
+// revision is the SHA-256 of contract, interval, bars and days; provenance
+// fields identify the source downloads and are not part of content identity.
+message BarDataset {
   uint32 version = 1;
   string revision = 2;
   asterion.protocol.v1.Contract contract = 3;
-  repeated asterion.protocol.v1.Tick ticks = 4;
+  uint32 interval_minutes = 4; // 0 for daily bars
+  repeated asterion.protocol.v1.Bar bars = 5;
+  repeated asterion.protocol.v1.TradingDay days = 6;
+  string source = 7;
+  string source_task_id = 8;
+  string settlement_task_id = 9;
+  string manifest_sha256 = 10;
+  string settlement_manifest_sha256 = 11;
+  // Trading days of the settlement download, inside the dataset's first and
+  // last bar days, that have no bars. Informational; not part of the revision.
+  repeated string uncovered_days = 12;
 }
-// Local file import. A remote caller must not forward a client-local path.
-message CsvImport {
-  uint32 version = 1;
-  string source_path = 2;
-  string source_sha256 = 3;
-  asterion.protocol.v1.Contract contract = 4;
-}
-message DatasetPublication {
-  uint32 version = 1;
-  string id = 2;
-  TradeDataset dataset = 3;
-  string source_name = 4;
-  string source_sha256 = 5;
-  uint64 source_bytes = 6;
-  string importer = 7;
-}
-// Immutable uploaded contents, never a client-local path. The numeric CSV format
-// is ASCII; line endings and decimal spelling are preserved for provenance.
-message CsvSnapshot {
-  uint32 version = 1;
-  string source_name = 2;
-  string source_sha256 = 3;
-  asterion.protocol.v1.Contract contract = 4;
-  string contents = 5;
+// Clients select completed downloads and a contract specification; they
+// cannot upload bars. Days are inclusive; empty means the dataset bounds.
+message BarDatasetRequest {
+  string source_task_id = 1;     // minute or daily download
+  string settlement_task_id = 2; // daily download of the same contract
+  string begin_day = 3;
+  string end_day = 4;
+  asterion.protocol.v1.Contract contract = 5;
 }
 
-message TradingSession { int64 begin_ns = 1; int64 end_ns = 2; }
-message SettlementDay {
+// Credentials are not part of this durable task definition.
+message MinuteDownload {
+  uint32 version = 1;
+  reserved 2; string contract_id = 20; string source = 21; string source_instrument = 22;
+  uint32 interval_minutes = 3;
+  int64 begin_ns = 4;
+  int64 end_ns = 5;
+  uint32 requests_per_minute = 6;
+}
+message MinuteDownloadResult {
+  uint32 version = 1;
+  string directory = 2;
+  string manifest_sha256 = 3;
+  uint64 rows = 4;
+  uint32 pages = 5;
+}
+
+// Bounded read of a completed service-owned dataset. No filesystem paths accepted.
+message MinutePageQuery {
+  string dataset_id = 20; // Alternative to task_id; never both.
+  string task_id = 1;
+  uint64 offset = 2;
+  uint32 limit = 3;
+  int64 begin_ns = 4; // zero means the dataset's requested boundary
+  int64 end_ns = 5;
+  bool include_macd = 6; // dataset-origin display indicator, not a research/ledger value
+}
+message ChartMacd {
+  double diff = 1;
+  double signal = 2;
+  double histogram = 3;
+}
+message MinuteBar {
+  int64 timestamp_ns = 1;
+  asterion.protocol.v1.Decimal open = 2;
+  asterion.protocol.v1.Decimal high = 3;
+  asterion.protocol.v1.Decimal low = 4;
+  asterion.protocol.v1.Decimal close = 5;
+  asterion.protocol.v1.Decimal volume = 6;
+  asterion.protocol.v1.Decimal amount = 7;
+  asterion.protocol.v1.Decimal open_interest = 8;
+  ChartMacd macd = 9; // absent during the first 33 records or when not requested
+}
+message MinutePage {
+  uint32 version = 1;
+  string task_id = 2;
+  string source = 3;
+  reserved 4; string contract_id = 20;
+  uint32 interval_minutes = 5;
+  string manifest_sha256 = 6;
+  uint64 total_rows = 7;
+  uint64 matched_rows = 8;
+  uint64 offset = 9;
+  uint32 limit = 10;
+  int64 first_ns = 11;
+  int64 last_ns = 12;
+  int64 begin_ns = 13;
+  int64 end_ns = 14;
+  repeated MinuteBar bars = 15;
+}
+
+// Daily bars retain provider trading dates; no synthetic intraday timestamps.
+message DailyDownload { uint32 version = 1; reserved 2; string contract_id = 20; string source = 21; string source_instrument = 22; string begin_day = 3; string end_day = 4; uint32 requests_per_minute = 5; }
+message DailyDownloadResult { uint32 version = 1; string directory = 2; string manifest_sha256 = 3; uint64 rows = 4; uint32 pages = 5; }
+
+enum DailyPeriod { DAY = 0; WEEK = 1; MONTH = 2; QUARTER = 3; YEAR = 4; }
+message DailyPageQuery { string dataset_id = 20; string task_id = 1; uint64 offset = 2; uint32 limit = 3; string begin_day = 4; string end_day = 5; bool include_macd = 6; DailyPeriod period = 7; }
+message DailyBar {
   string trading_day = 1;
-  repeated TradingSession sessions = 2;
-  string schedule_source = 3;
-  asterion.protocol.v1.Decimal settlement_price = 4;
-  string settlement_source = 5;
+  asterion.protocol.v1.Decimal open = 2;
+  asterion.protocol.v1.Decimal high = 3;
+  asterion.protocol.v1.Decimal low = 4;
+  asterion.protocol.v1.Decimal close = 5;
+  asterion.protocol.v1.Decimal volume = 6;
+  asterion.protocol.v1.Decimal amount = 7;
+  asterion.protocol.v1.Decimal open_interest = 8;
+  asterion.protocol.v1.Decimal previous_close = 9;
+  asterion.protocol.v1.Decimal previous_settlement = 10;
+  asterion.protocol.v1.Decimal settlement = 11;
+  ChartMacd macd = 12;
+}
+message DailyPage {
+  uint32 version = 1;
+  string task_id = 2;
+  string source = 3;
+  reserved 4; string contract_id = 20;
+  string manifest_sha256 = 5;
+  uint64 total_rows = 6;
+  uint64 matched_rows = 7;
+  uint64 offset = 8;
+  uint32 limit = 9;
+  string first_day = 10;
+  string last_day = 11;
+  string begin_day = 12;
+  string end_day = 13;
+  repeated DailyBar bars = 14;
+  DailyPeriod period = 15;
 }
 
-message SettlementCalendar {
-  uint32 version = 1;
-  string revision = 2;
-  asterion.protocol.v1.Contract contract = 3;
-  repeated SettlementDay days = 4;
+message HistoryCatalogQuery { string source = 1; string venue = 2; string product = 3; string credential = 4; }
+message HistoryListing { string source_instrument = 9; string contract_id = 1; string name = 2; string list_date = 3; string delist_date = 4; asterion.protocol.v1.Decimal multiplier = 5; asterion.protocol.v1.Decimal per_unit = 6; optional string trade_unit = 7; optional string quote_unit = 8; }
+message HistoryCatalog { string source = 1; repeated HistoryListing items = 2; }
+
+// Service-owned archive record. Definitions and verified immutable results contain no credentials.
+message HistoryRecord { uint32 version = 1; oneof definition { MinuteDownload minutes = 2; DailyDownload daily = 3; } oneof result { MinuteDownloadResult minute_result = 4; DailyDownloadResult daily_result = 5; } }
+message HistoryFilter { string venue = 1; string product = 2; string contract_id = 3; string source = 4; }
+message HistoryDataset { string id = 1; string contract_id = 2; string source = 3; string revision = 4; string begin = 5; string end = 6; uint32 interval_minutes = 7; uint64 rows = 8; }
+message HistoryDatasets { repeated HistoryDataset items = 1; }
+// Trading days per contract across the archive's minute and daily versions.
+// Uncovered days are daily trading days, between the first and last minute
+// days, that no minute version contains; only the first 50 are listed.
+message HistoryCoverage {
+  string contract_id = 1;
+  uint32 minute_days = 2; string minute_first = 3; string minute_last = 4;
+  uint32 daily_days = 5; string daily_first = 6; string daily_last = 7;
+  uint32 uncovered = 8; repeated string uncovered_days = 9;
 }
-message CalendarCsvSnapshot {
-  uint32 version = 1;
-  string source_name = 2;
-  string source_sha256 = 3;
-  asterion.protocol.v1.Contract contract = 4;
-  string contents = 5;
+message HistoryCoverages { repeated HistoryCoverage items = 1; }
+
+// Installed native capabilities; account permissions are checked by the provider.
+message HistorySource {
+  string id = 1; string name = 2; string plugin_id = 3; string normalization = 4;
+  string timezone = 5; string timestamp_semantics = 6; repeated string venues = 7;
+  repeated uint32 intervals = 8; uint32 max_requests_per_minute = 9; bool credential_required = 10; HistoryConnectionSchema connection = 11;
 }
-message CalendarPublication {
-  uint32 version = 1;
-  string id = 2;
-  SettlementCalendar calendar = 3;
-  string source_name = 4;
-  string source_sha256 = 5;
-  uint64 source_bytes = 6;
-  string importer = 7;
+
+message HistoryConnectionSchema {
+ string credential_label_en = 1; string credential_label_zh = 2;
+ bool credential_required = 3; uint32 credential_max_length = 4; bool remember_allowed = 5;
+ uint32 requests_per_minute_default = 6; uint32 requests_per_minute_max = 7;
 }
+message HistoryConnectionVerify { string source = 1; string credential = 2; }
+message HistoryConnectionCheck { string scope = 1; uint32 state = 2; }
+message HistoryConnectionVerification { repeated HistoryConnectionCheck checks = 1; }

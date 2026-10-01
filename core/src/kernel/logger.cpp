@@ -1,8 +1,12 @@
 #include <asterion/kernel/logger.hpp>
 #include <spdlog/spdlog.h>
-#include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/sinks/stdout_sinks.h>
 #include <algorithm>
+#include <asterion/kernel/environment.hpp>
+#include <chrono>
+#include <ctime>
+#include <regex>
 namespace asterion {
 namespace {
 spdlog::level::level_enum native_level(LogLevel level) {
@@ -45,23 +49,72 @@ void redact(Json& value, std::size_t depth = 0) {
       redact(item, depth + 1);
   }
 }
+// Deletes only this logger's own dated files, "<stem>_YYYY-MM-DD<extension>",
+// whose date is older than the retention window.
+void remove_expired(const std::filesystem::path& file, unsigned retention_days) {
+  const auto directory = file.parent_path();
+  const auto stem = file.stem().string(), extension = file.extension().string();
+  const std::regex dated(R"((\d{4})-(\d{2})-(\d{2}))");
+  // File names use the local date, as the daily sink does.
+  const auto now = std::time(nullptr);
+  std::tm local{};
+  localtime_r(&now, &local);
+  const auto today = std::chrono::sys_days(std::chrono::year_month_day{
+      std::chrono::year(local.tm_year + 1900), std::chrono::month(local.tm_mon + 1),
+      std::chrono::day(local.tm_mday)});
+  std::error_code ignored;
+  for (const auto& entry : std::filesystem::directory_iterator(directory, ignored)) {
+    const auto name = entry.path().filename().string();
+    if (!entry.is_regular_file() || entry.is_symlink() ||
+        name.size() != stem.size() + 11 + extension.size() || !name.starts_with(stem + "_") ||
+        !name.ends_with(extension))
+      continue;
+    std::smatch date;
+    const auto text = name.substr(stem.size() + 1, 10);
+    if (!std::regex_match(text, date, dated))
+      continue;
+    const std::chrono::year_month_day day{std::chrono::year(std::stoi(date[1])),
+                                          std::chrono::month(std::stoul(date[2])),
+                                          std::chrono::day(std::stoul(date[3]))};
+    if (day.ok() && std::chrono::sys_days(day) < today - std::chrono::days(retention_days))
+      std::filesystem::remove(entry.path(), ignored);
+  }
+}
 } // namespace
+std::shared_ptr<Logger> process_logger(const std::string& name) {
+  const auto directory = environment_path("ASTERION_LOG_DIRECTORY");
+  if (!directory)
+    return nullptr;
+  LoggerOptions options;
+  options.name = name;
+  options.stderr_sink = false;
+  options.file = *directory / (name + ".log");
+  return std::make_shared<Logger>(options);
+}
+void log_process_event(const std::string& name, LogLevel level, std::string_view event,
+                       Json fields) noexcept {
+  try {
+    if (const auto logger = process_logger(name)) {
+      logger->write(level, event, std::move(fields));
+      logger->flush();
+    }
+  } catch (...) {
+  }
+}
 Logger::Logger(const LoggerOptions& options) {
   validate_id(options.name);
   std::vector<spdlog::sink_ptr> sinks;
   if (options.stderr_sink)
     sinks.push_back(std::make_shared<spdlog::sinks::stderr_sink_mt>());
   if (!options.file.empty()) {
-    if (!options.max_file_bytes || !options.retained_files || options.retained_files > 100)
-      throw Error(ErrorCode::invalid_request, "invalid log rotation limits");
-#ifdef _WIN32
-    sinks.push_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-        options.file.wstring(), options.max_file_bytes, options.retained_files));
-#else
+    if (!options.file.is_absolute() || !options.retention_days || options.retention_days > 366)
+      throw Error(ErrorCode::invalid_request, "invalid log file or retention");
+    std::filesystem::create_directories(options.file.parent_path());
+    remove_expired(options.file, options.retention_days);
     const auto utf8 = options.file.u8string();
-    sinks.push_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-        std::string(utf8.begin(), utf8.end()), options.max_file_bytes, options.retained_files));
-#endif
+    sinks.push_back(std::make_shared<spdlog::sinks::daily_file_sink_mt>(
+        std::string(utf8.begin(), utf8.end()), 0, 0, false,
+        static_cast<std::uint16_t>(options.retention_days)));
   }
   if (sinks.empty())
     throw Error(ErrorCode::invalid_request, "logger requires a sink");

@@ -1,9 +1,11 @@
+#include "journal_fixture.hpp"
 #include "session.hpp"
 #include <asterion/foundation/decimal.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/protocol/data.hpp>
+#include "bar_fixture.hpp"
 #include <asterion/v1/node.pb.h>
 #include <fstream>
 #include <gtest/gtest.h>
@@ -32,38 +34,33 @@ struct Directory {
 };
 wire::Config config() {
   wire::Config c;
-  c.set_version(1);
+  c.set_version(2);
   c.set_session_id("strategy.test");
   c.set_stream_id("market.test");
   c.set_plugin_id("asterion.strategy.cta.sma-long-flat");
   c.set_fast(1);
   c.set_slow(3);
   c.mutable_quantity()->set_units(Decimal::parse("2").raw());
-  *c.mutable_contract() = protocol::encode_contract({{"venue", "SHFE"},
-                                                     {"symbol", "rb2610"},
-                                                     {"currency", "CNY"},
-                                                     {"price_increment", "1"},
-                                                     {"quantity_increment", "1"},
-                                                     {"multiplier", "10"},
-                                                     {"product", "rb"},
-                                                     {"delivery_month", "2026-10"}});
+  *c.add_contracts() = protocol::encode_contract({{"venue", "SHFE"},
+                                                  {"symbol", "rb2610"},
+                                                  {"currency", "CNY"},
+                                                  {"price_increment", "1"},
+                                                  {"quantity_increment", "1"},
+                                                  {"multiplier", "10"},
+                                                  {"product", "rb"},
+                                                  {"delivery_month", "2026-10"}});
   return c;
 }
 wire::Event event(std::uint64_t sequence, const std::string& price = "100") {
   wire::Event e;
   e.set_stream_id("market.test");
   e.set_sequence(sequence);
-  e.mutable_tick()->set_timestamp_ns(static_cast<std::int64_t>(sequence));
-  e.mutable_tick()->mutable_price()->set_units(Decimal::parse(price).raw());
-  e.mutable_tick()->mutable_quantity()->set_units(Decimal::parse("1").raw());
+  *e.mutable_bar() = protocol::encode_bar(
+      test::flat("2026-09-28", static_cast<std::int64_t>(sequence), price.c_str()));
   return e;
 }
 std::size_t records(const fs::path& p) {
-  std::size_t count = 0;
-  for (const auto& entry : fs::directory_iterator(p))
-    if (entry.path().extension() == ".json")
-      ++count;
-  return count;
+  return test::journal_size(p);
 }
 wire::Request request() {
   wire::Request r;
@@ -110,9 +107,9 @@ TEST(Strategy, DurableReplayPreservesWarmupAndIntentIdentityWithoutDuplicateProc
     snapshot = session.snapshot().SerializeAsString();
     EXPECT_EQ(session.apply(event(3, "102")).SerializeAsString(), receipt);
     EXPECT_FALSE(session.apply(event(1)).has_intent());
-    EXPECT_EQ(records(dir.path), 4U);
     EXPECT_THROW((strategy::Session(dir.path, c.session_id())), std::exception);
   }
+  EXPECT_EQ(records(dir.path), 4U);
   {
     strategy::Session session(dir.path, c.session_id(), &c);
     EXPECT_EQ(session.snapshot().SerializeAsString(), snapshot);
@@ -120,8 +117,8 @@ TEST(Strategy, DurableReplayPreservesWarmupAndIntentIdentityWithoutDuplicateProc
     const auto flat = session.apply(event(4, "99"));
     ASSERT_TRUE(flat.has_intent());
     EXPECT_EQ(flat.intent().target_quantity().units(), 0);
-    EXPECT_EQ(records(dir.path), 5U);
   }
+  EXPECT_EQ(records(dir.path), 5U);
 }
 TEST(Strategy, RejectedEventsAndConflictingCreateDoNotChangeState) {
   Directory dir;
@@ -135,14 +132,14 @@ TEST(Strategy, RejectedEventsAndConflictingCreateDoNotChangeState) {
   wrong.set_stream_id("other");
   EXPECT_THROW(session.apply(wrong), std::invalid_argument);
   wrong = event(2);
-  wrong.mutable_tick()->clear_price();
+  wrong.mutable_bar()->clear_close();
   EXPECT_THROW(session.apply(wrong), std::invalid_argument);
   wrong = event(2, "100.5");
   EXPECT_THROW(session.apply(wrong), std::invalid_argument);
   wrong = event(2);
-  wrong.mutable_tick()->set_timestamp_ns(0);
+  wrong.mutable_bar()->set_timestamp_ns(0);
   EXPECT_THROW(session.apply(wrong), std::invalid_argument);
-  wrong = event(10001);
+  wrong = event(20001);
   EXPECT_THROW(session.apply(wrong), std::invalid_argument);
   wrong = event(2);
   wrong.GetReflection()->MutableUnknownFields(&wrong)->AddVarint(99, 1);
@@ -151,15 +148,13 @@ TEST(Strategy, RejectedEventsAndConflictingCreateDoNotChangeState) {
   changed.set_fast(2);
   EXPECT_THROW(session.verify_config(changed), std::invalid_argument);
   EXPECT_EQ(session.snapshot().SerializeAsString(), before);
-  EXPECT_EQ(records(dir.path), 2U);
   EXPECT_FALSE(session.recovery_required());
-  // Equal timestamps and identical ticks with distinct sequence numbers
-  // survive.
+  // A bar with the previous bar's timestamp is not a later period.
   auto same = event(1);
   same.set_sequence(2);
-  EXPECT_FALSE(session.apply(same).has_intent());
-  same.set_sequence(3);
-  EXPECT_EQ(session.apply(same).intent().target_quantity().units(), 0);
+  EXPECT_THROW(session.apply(same), std::invalid_argument);
+  EXPECT_FALSE(session.apply(event(2)).has_intent());
+  EXPECT_EQ(session.apply(event(3)).intent().target_quantity().units(), 0);
 }
 TEST(Strategy, CorruptIntentAndInterruptedWritesArePreservedAndRejected) {
   Directory dir;
@@ -170,26 +165,18 @@ TEST(Strategy, CorruptIntentAndInterruptedWritesArePreservedAndRejected) {
     session.apply(event(2));
     session.apply(event(3, "102"));
   }
-  const auto file = dir.path / "00000003.json";
-  Json record;
-  {
-    std::ifstream in(file);
-    in >> record;
-  }
+  auto record = test::read_record(test::journal_record(dir.path, 3));
   record["receipt"]["intent"]["target_quantity"] = 0;
-  {
-    std::ofstream out(file);
-    out << record.dump();
-  }
+  test::write_record(test::journal_record(dir.path, 3), record);
   EXPECT_THROW((strategy::Session(dir.path, c.session_id())), std::invalid_argument);
   EXPECT_EQ(records(dir.path), 4U);
   Directory pending;
   {
-    std::ofstream out(pending.path / "pending.tmp");
-    out << "incomplete";
+    std::ofstream out(pending.path / "notes.txt");
+    out << "foreign";
   }
   EXPECT_THROW((strategy::Session(pending.path, c.session_id(), &c)), std::invalid_argument);
-  EXPECT_TRUE(fs::exists(pending.path / "pending.tmp"));
+  EXPECT_TRUE(fs::exists(pending.path / "notes.txt"));
   EXPECT_EQ(records(pending.path), 0U);
   Directory invalid;
   auto bad = c;
@@ -202,13 +189,13 @@ TEST(Strategy, FailedDurableWritePoisonsSessionBeforeAcknowledgement) {
   const auto c = config();
   strategy::Session session(dir.path, c.session_id(), &c);
   session.apply(event(1));
-  fs::create_directory(dir.path / "pending.tmp");
+  asterion::sqlite::fail_next_commits_for_testing(1);
   EXPECT_THROW(session.apply(event(2)), std::exception);
   EXPECT_TRUE(session.recovery_required());
   EXPECT_EQ(session.snapshot().processed(), 1U);
   EXPECT_THROW(session.apply(event(1)), std::runtime_error);
-  EXPECT_EQ(records(dir.path), 2U);
-  EXPECT_TRUE(fs::is_directory(dir.path / "pending.tmp"));
+  asterion::sqlite::fail_next_commits_for_testing(0);
+  EXPECT_EQ(session.snapshot().processed(), 1U);
 }
 TEST(Strategy, IndependentProcessRecoversAndRetriesAfterClientDisconnect) {
   Directory dir;
@@ -535,23 +522,25 @@ TEST(StrategyExecution, TwoProcessesRecoverAuthorizedTargetsWithoutDuplicateOrde
   c.set_slow(2);
   c.mutable_quantity()->set_units(Decimal::parse("1").raw());
   protocol::v1::PaperInput input;
-  *input.mutable_contract() = c.contract();
+  auto* contract = input.add_contracts();
   input.mutable_deposit()->set_units(Decimal::parse("1000").raw());
-  input.mutable_costs()->mutable_margin_per_lot()->set_units(Decimal::parse("100").raw());
-  input.mutable_costs()->mutable_open_fee()->set_units(Decimal::parse("2").raw());
-  input.mutable_costs()->mutable_close_today_fee()->set_units(Decimal::parse("3").raw());
+  contract->mutable_costs()->mutable_margin_per_lot()->set_units(Decimal::parse("100").raw());
+  contract->mutable_costs()->mutable_open_fee()->set_units(Decimal::parse("2").raw());
+  contract->mutable_costs()->mutable_close_today_fee()->set_units(Decimal::parse("3").raw());
   input.mutable_risk()->mutable_max_order_quantity()->set_units(10000000000LL);
   input.mutable_risk()->mutable_max_gross_quantity()->set_units(10000000000LL);
   input.mutable_risk()->set_max_working_orders(100);
-  input.mutable_costs()->mutable_close_yesterday_fee()->set_units(Decimal::parse("4").raw());
-  input.mutable_costs()->mutable_margin_rate()->set_units(0);
-  input.mutable_costs()->mutable_open_fee_rate()->set_units(0);
-  input.mutable_costs()->mutable_close_today_fee_rate()->set_units(0);
-  input.mutable_costs()->mutable_close_yesterday_fee_rate()->set_units(0);
+  contract->mutable_costs()->mutable_close_yesterday_fee()->set_units(Decimal::parse("4").raw());
+  contract->mutable_costs()->mutable_margin_rate()->set_units(0);
+  contract->mutable_costs()->mutable_open_fee_rate()->set_units(0);
+  contract->mutable_costs()->mutable_close_today_fee_rate()->set_units(0);
+  contract->mutable_costs()->mutable_close_yesterday_fee_rate()->set_units(0);
   const std::vector<int> prices{100, 101, 100, 102, 99, 103};
+  std::vector<MarketBar> bars;
   for (std::size_t i = 0; i < prices.size(); ++i)
-    *input.add_ticks() = event(i + 1, std::to_string(prices[i])).tick();
-  const auto revision = protocol::make_trade_dataset(input.contract(), input.ticks()).revision();
+    bars.push_back(protocol::market_bar(event(i + 1, std::to_string(prices[i])).bar()));
+  *contract->mutable_dataset() = test::dataset(bars, {}, c.contracts(0));
+  const auto revision = input.contracts(0).dataset().revision();
   std::unique_ptr<ChildProcess> strategy, trading;
   auto launch = [&] {
     strategy = std::make_unique<ChildProcess>(
@@ -626,6 +615,8 @@ TEST(StrategyExecution, TwoProcessesRecoverAuthorizedTargetsWithoutDuplicateOrde
     t->set_dataset_revision(revision);
     t->set_sequence(seq);
     t->set_timestamp_ns(intent.timestamp_ns());
+    t->set_venue(intent.venue());
+    t->set_symbol(intent.symbol());
     *t->mutable_target_quantity() = intent.target_quantity();
     const auto fills_before = account.fills_size();
     account = trade(tr);

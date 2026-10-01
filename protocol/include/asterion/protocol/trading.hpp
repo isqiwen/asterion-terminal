@@ -5,18 +5,24 @@
 namespace asterion::protocol {
 v1::Contract encode_contract(const Json& input);
 Json decode_contract(const v1::Contract& input);
-v1::Tick encode_tick(const Json& input);
-Json decode_tick(const v1::Tick& input);
 v1::RiskLimits encode_risk(const Json& value);
 Json decode_risk(const v1::RiskLimits& value);
 v1::Costs encode_costs(const Json& costs);
 Json decode_costs(const v1::Costs& costs);
 FuturesCosts futures_costs(const v1::Costs& costs);
+ContractTerms contract_terms(const v1::PaperContract& contract);
+// Identity of a portfolio's data; a single dataset's own revision.
+std::string dataset_revision(const v1::PaperInput& input);
 v1::PaperInput encode_input(const Json& manifest);
 Json decode_input(const v1::PaperInput& input);
 v1::Command encode_command(const Json& command);
 Json decode_command(const v1::Command& command);
 v1::Snapshot encode_snapshot(const Json& snapshot);
 Json decode_snapshot(const v1::Snapshot& snapshot);
+// Live manifest version 1 ("live_ctp") and the broker-reported session state.
+v1::LiveInput encode_live_input(const Json& manifest);
+Json decode_live_input(const v1::LiveInput& input);
+v1::LiveSnapshot encode_live_snapshot(const Json& snapshot);
+Json decode_live_snapshot(const v1::LiveSnapshot& snapshot);
 void validate_message(const google::protobuf::Message& message);
 } // namespace asterion::protocol

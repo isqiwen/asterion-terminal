@@ -1,4 +1,5 @@
 #include "ctp_feed.hpp"
+#include "ctp_support.hpp"
 #include <ThostFtdcMdApi.h>
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -8,43 +9,19 @@
 #include <cstring>
 #include <deque>
 #include <limits>
+#include <locale>
 #include <map>
 #include <mutex>
 #include <regex>
 #include <set>
+#include <sstream>
 #include <thread>
 #include <utility>
 #include <stdexcept>
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <dlfcn.h>
-#endif
 namespace asterion::ctp {
-namespace {
-std::int64_t now() {
-  return std::chrono::duration_cast<std::chrono::milliseconds>(
-             std::chrono::system_clock::now().time_since_epoch())
-      .count();
-}
-template <std::size_t N> std::string field(const char (&value)[N]) {
-  return {value, std::find(value, value + N, '\0')};
-}
-template <std::size_t N> void copy(char (&dest)[N], const std::string& value) {
-  if (value.empty() || value.size() >= N || value.find('\0') != std::string::npos)
-    throw std::invalid_argument("invalid CTP credential length");
-  std::memcpy(dest, value.data(), value.size());
-}
-void erase(std::string& value) {
-  volatile char* p = value.data();
-  for (std::size_t i = 0; i < value.size(); ++i)
-    p[i] = 0;
-  value.clear();
-}
-} // namespace
 void validate_instruments(const std::vector<InstrumentId>& ids) {
-  if (ids.size() > 50)
-    throw std::invalid_argument("at most 50 market subscriptions");
+  if (ids.size() > 20050)
+    throw std::invalid_argument("market subscriptions exceed catalog capacity");
   std::set<std::string> symbols;
   for (const auto& id : ids) {
     id.validate();
@@ -57,15 +34,45 @@ void validate_instruments(const std::vector<InstrumentId>& ids) {
 std::optional<Decimal> price(double value) {
   if (!std::isfinite(value) || std::abs(value) > 1e10)
     return {};
-  char text[96];
-  const auto result = std::to_chars(text, text + sizeof(text), value, std::chars_format::fixed, 8);
-  if (result.ec != std::errc{})
-    return {};
   try {
-    return Decimal::parse(std::string(text, result.ptr));
+    // Floating-point to_chars requires macOS 13.3; the desktop supports 13.0.
+    // Keep the vendor boundary's eight decimal places independent of UI locale.
+    std::ostringstream text;
+    text.imbue(std::locale::classic());
+    text.setf(std::ios::fixed, std::ios::floatfield);
+    text.precision(8);
+    text << value;
+    if (!text)
+      return {};
+    return Decimal::parse(text.str());
   } catch (...) {
     return {};
   }
+}
+std::optional<Decimal> open_interest_change(double current, double previous) {
+  const auto now = price(current), before = price(previous);
+  if (!now || !before || current < 0 || previous < 0)
+    return {};
+  return *now - *before;
+}
+std::optional<Decimal> average_price(double value, const std::string& venue,
+                                     std::optional<int> multiplier) {
+  const auto raw = price(value);
+  // Zero means no trade yet in this trading day.
+  if (!raw || *raw <= Decimal{})
+    return {};
+  if (venue == "CZCE")
+    return raw;
+  if (!multiplier || *multiplier <= 0)
+    return {};
+  return divide(*raw, Decimal::parse(std::to_string(*multiplier)), Rounding::half_even);
+}
+MarketDepthLevel depth_level(double value, int quantity) {
+  const auto converted = price(value);
+  // SDK zero-initialized unused levels have neither a price nor a quantity.
+  if (!converted || (converted->raw() == 0 && quantity <= 0))
+    return {};
+  return {converted, quantity >= 0 ? std::optional<std::int64_t>(quantity) : std::nullopt};
 }
 std::int64_t source_time(const std::string& day, const std::string& time, int millisecond) {
   if (day.size() != 8 || time.size() != 8 || time[2] != ':' || time[5] != ':' || millisecond < 0 ||
@@ -93,17 +100,18 @@ struct Feed::Impl final : CThostFtdcMdSpi {
   std::filesystem::path flow;
   Configuration config;
   CThostFtdcMdApi* api = nullptr;
-#ifdef _WIN32
-  HMODULE library = nullptr;
-#else
-  void* library = nullptr;
-#endif
+  std::unique_ptr<SharedLibrary> library;
   using Factory = CThostFtdcMdApi* (*)(const char*, bool, bool);
   Factory factory = nullptr;
   LiveMarketSnapshot state;
   const std::string stream_id = unique_process_id();
   const std::size_t event_capacity;
   std::deque<MarketEvent> events;
+  std::size_t retained_rows = 0;
+  static std::size_t event_rows(const MarketEvent& event) {
+    const auto* status = std::get_if<LiveMarketSnapshot>(&event.value);
+    return 1 + (status ? status->subscriptions.size() : 0);
+  }
   std::uint64_t event_sequence = 0;
   bool event_failed = false;
   void record(MarketEvent event) noexcept {
@@ -113,10 +121,16 @@ struct Feed::Impl final : CThostFtdcMdSpi {
       if (event_sequence == std::numeric_limits<std::uint64_t>::max())
         throw std::overflow_error("market event sequence exhausted");
       event.sequence = event_sequence + 1;
+      const auto rows = event_rows(event);
       events.push_back(std::move(event));
+      retained_rows += rows;
       ++event_sequence;
-      if (events.size() > event_capacity)
+      // Full-market status snapshots are larger than individual quotes.
+      // Bound retained rows as well as event count; normal gap reporting applies.
+      while (events.size() > event_capacity || retained_rows > 65536) {
+        retained_rows -= event_rows(events.front());
         events.pop_front();
+      }
     } catch (...) {
       event_failed = true;
     }
@@ -126,12 +140,13 @@ struct Feed::Impl final : CThostFtdcMdSpi {
       auto status = state;
       for (auto& subscription : status.subscriptions)
         subscription.quote.reset();
-      record({0, now(), std::move(status)});
+      record({0, now_ms(), std::move(status)});
     } catch (...) {
       event_failed = true;
     }
   }
   std::vector<InstrumentId> wanted;
+  std::map<InstrumentId, int> multipliers;
   bool closing = false, logged_in = false;
   bool login_pending = false, subscription_pending = false;
   std::jthread commands;
@@ -142,33 +157,16 @@ struct Feed::Impl final : CThostFtdcMdSpi {
       : flow(directory), event_capacity(capacity) {
     if (!capacity || capacity > 65536)
       throw std::invalid_argument("market event capacity must be 1..65536");
-#ifdef _WIN32
-    library = LoadLibraryExW(path.c_str(), nullptr,
-                             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-    if (library)
-      factory = reinterpret_cast<Factory>(
-          GetProcAddress(library, "?CreateFtdcMdApi@CThostFtdcMdApi@@SAPEAV1@PEBD_N1@Z"));
-#else
-    library = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
-    if (library)
-      factory =
-          reinterpret_cast<Factory>(dlsym(library, "_ZN15CThostFtdcMdApi15CreateFtdcMdApiEPKcbb"));
-#endif
+    library =
+        std::make_unique<SharedLibrary>(path, "?CreateFtdcMdApi@CThostFtdcMdApi@@SAPEAV1@PEBD_N1@Z",
+                                        "_ZN15CThostFtdcMdApi15CreateFtdcMdApiEPKcbb");
+    factory = library->symbol<Factory>();
     if (!factory) {
-      unload();
+      library.reset();
       throw Error(ErrorCode::unavailable, "CTP 6.7.7 market SDK unavailable or incompatible");
     }
   }
-  void unload() {
-#ifdef _WIN32
-    if (library)
-      FreeLibrary(library);
-#else
-    if (library)
-      dlclose(library);
-#endif
-    library = nullptr;
-  }
+  void unload() { library.reset(); }
   ~Impl() {
     close();
     // The SDK must be fully released before its library is unloaded.
@@ -281,14 +279,24 @@ struct Feed::Impl final : CThostFtdcMdSpi {
         std::vector<char*> names;
         for (auto& name : removed)
           names.push_back(name.data());
-        int code = names.empty()
-                       ? 0
-                       : api->UnSubscribeMarketData(names.data(), static_cast<int>(names.size()));
+        int code = 0;
+        for (std::size_t offset = 0; !code && offset < names.size(); offset += 50) {
+          if (stop.stop_requested())
+            return;
+          code = api->UnSubscribeMarketData(
+              names.data() + offset,
+              static_cast<int>(std::min<std::size_t>(50, names.size() - offset)));
+        }
         names.clear();
         for (auto& id : desired)
           names.push_back(id.symbol.data());
-        if (!code && !names.empty())
-          code = api->SubscribeMarketData(names.data(), static_cast<int>(names.size()));
+        for (std::size_t offset = 0; !code && offset < names.size(); offset += 50) {
+          if (stop.stop_requested())
+            return;
+          code = api->SubscribeMarketData(
+              names.data() + offset,
+              static_cast<int>(std::min<std::size_t>(50, names.size() - offset)));
+        }
         if (code)
           callback([&] {
             for (auto& sub : state.subscriptions) {
@@ -394,17 +402,36 @@ struct Feed::Impl final : CThostFtdcMdSpi {
               q.trading_day = field(tick->TradingDay);
               q.update_time = field(tick->UpdateTime);
               q.source_ms = source_time(q.action_day, q.update_time, tick->UpdateMillisec);
-              q.received_ms = now();
+              q.received_ms = now_ms();
               q.last = price(tick->LastPrice);
               q.bid = price(tick->BidPrice1);
               q.ask = price(tick->AskPrice1);
               q.previous_settlement = price(tick->PreSettlementPrice);
+              q.open = price(tick->OpenPrice);
+              q.upper_limit = price(tick->UpperLimitPrice);
+              q.lower_limit = price(tick->LowerLimitPrice);
               q.high = price(tick->HighestPrice);
               q.low = price(tick->LowestPrice);
-              q.open_interest = price(tick->OpenInterest);
+              q.open_interest = tick->OpenInterest >= 0 ? price(tick->OpenInterest) : std::nullopt;
+              q.open_interest_change =
+                  open_interest_change(tick->OpenInterest, tick->PreOpenInterest);
+              q.previous_close = price(tick->PreClosePrice);
+              const auto multiplier = multipliers.find(s.instrument);
+              q.average_price = average_price(tick->AveragePrice, s.instrument.venue,
+                                              multiplier == multipliers.end()
+                                                  ? std::nullopt
+                                                  : std::optional<int>(multiplier->second));
               q.bid_quantity = std::max(0, tick->BidVolume1);
               q.ask_quantity = std::max(0, tick->AskVolume1);
               q.volume = std::max(0, tick->Volume);
+              q.bid_levels = {depth_level(tick->BidPrice2, tick->BidVolume2),
+                              depth_level(tick->BidPrice3, tick->BidVolume3),
+                              depth_level(tick->BidPrice4, tick->BidVolume4),
+                              depth_level(tick->BidPrice5, tick->BidVolume5)};
+              q.ask_levels = {depth_level(tick->AskPrice2, tick->AskVolume2),
+                              depth_level(tick->AskPrice3, tick->AskVolume3),
+                              depth_level(tick->AskPrice4, tick->AskVolume4),
+                              depth_level(tick->AskPrice5, tick->AskVolume5)};
               const bool out_of_order = s.quote && q.source_ms && s.quote->source_ms > q.source_ms;
               record({0, q.received_ms, MarketQuoteObservation{q, out_of_order}});
               if (out_of_order) {
@@ -504,6 +531,10 @@ void Feed::subscribe(const std::vector<InstrumentId>& ids) {
   impl_->subscription_pending = true;
   ++impl_->state.sequence;
   impl_->record_status();
+}
+void Feed::set_multipliers(std::map<InstrumentId, int> values) {
+  std::lock_guard lock(impl_->mutex);
+  impl_->multipliers = std::move(values);
 }
 LiveMarketSnapshot Feed::snapshot() const {
   std::lock_guard lock(impl_->mutex);

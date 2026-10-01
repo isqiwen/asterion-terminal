@@ -1,3 +1,4 @@
+from history_fixture import contracts, seed
 """Local default supervision runs without any UI timer or command replay."""
 import json
 import os
@@ -8,15 +9,16 @@ import sys
 import tempfile
 import time
 with tempfile.TemporaryDirectory(prefix="asterion-local-health-", ignore_cleanup_errors=True) as folder:
-    root = Path(folder); (root / "ledger").mkdir(); source = root / "ticks.csv"
-    source.write_text("timestamp_ns,price,quantity\n100,100,1\n200,101,1\n")
+    root = Path(folder); (root / "ledger").mkdir()
     host = subprocess.Popen([sys.argv[1]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
     def call(method, params=None):
         host.stdin.write(json.dumps({"version": 1, "method": method, "params": params or {}}) + "\n"); host.stdin.flush()
         response = json.loads(host.stdout.readline()); assert "result" in response, response; return response["result"]
+    def paper_service(snapshot):
+        return next(s for n in snapshot["nodes"] if n["id"] == "local" for s in n["health"]["services"] if s["kind"] == "paper")
     try:
-        call("futures.inspect_csv", {"path": str(source), "venue": "SHFE", "symbol": "rb2610", "product": "rb", "delivery_month": "2026-10", "currency": "CNY", "price_increment": "1", "quantity_increment": "1", "multiplier": "10"})
-        call("paper.create", {"directory": str(root / "ledger"), "deposit": "1000", "margin_per_lot": "100", "open_fee": "2", "close_today_fee": "3", "close_yesterday_fee": "4", "margin_rate": "0", "open_fee_rate": "0", "close_today_fee_rate": "0", "close_yesterday_fee_rate": "0", "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
+        seed(call, [100,101], "fixture0")
+        call("paper.create", {"directory": str(root / "ledger"), "deposit": "1000", "contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
         command = {"request_id": "tick-one", "action": "advance"}
         state = call("paper.act", command)
         time.sleep(6)
@@ -36,13 +38,22 @@ with tempfile.TemporaryDirectory(prefix="asterion-local-health-", ignore_cleanup
         assert recovered["connection"]["health"]["instance_id"] != alive["connection"]["health"]["instance_id"]
         assert recovered["paper"] == state["paper"]
         assert call("paper.act", command)["paper"] == state["paper"]
-        service = next(s for n in recovered["nodes"] if n["id"] == "local" for s in n["health"]["services"])
+        # Trading and Agent monitors refresh independently. Wait for the Agent's
+        # report of the recovered PID before using it as the no-client baseline.
+        end = time.monotonic() + 20
+        while time.monotonic() < end:
+            service = paper_service(call("runtime.snapshot"))
+            if service["pid"] == recovered["diagnostics"]["trading_process_id"] and service["health"] == "ready":
+                break
+            time.sleep(0.2)
+        else:
+            raise AssertionError("Agent status did not observe the recovered trading process")
         call("paper.close")
         host.kill(); host.communicate(timeout=15)
         time.sleep(6)  # No Terminal client is alive; Agent must keep probing the service.
         host = subprocess.Popen([sys.argv[1]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         status = call("node.local")
-        observed = status["nodes"][0]["health"]["services"][0]
+        observed = paper_service(status)
         assert observed["pid"] == service["pid"] and observed["health"] == "ready", observed
         assert observed["last_heartbeat_ms"] > service["last_heartbeat_ms"], observed
         if os.name != "nt":
@@ -50,7 +61,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-local-health-", ignore_cleanup
             end = time.monotonic() + 35
             while time.monotonic() < end:
                 time.sleep(1)
-                observed = call("runtime.snapshot")["nodes"][0]["health"]["services"][0]
+                observed = paper_service(call("runtime.snapshot"))
                 if observed["pid"] and observed["pid"] != service["pid"] and observed["health"] == "ready":
                     break
             else:
@@ -59,10 +70,10 @@ with tempfile.TemporaryDirectory(prefix="asterion-local-health-", ignore_cleanup
         assert restored["paper"] == state["paper"]
         call("paper.close")
         before = call("node.action", {"id": "local", "service": service["id"], "action": "restart"})
-        assert before["nodes"][0]["health"]["services"][0]["pid"] != observed["pid"]
+        assert paper_service(before)["pid"] != observed["pid"]
         call("node.action", {"id": "local", "service": service["id"], "action": "stop"})
         time.sleep(6)
-        assert call("runtime.snapshot")["nodes"][0]["health"]["services"][0]["state"] == "stopped"
+        assert paper_service(call("runtime.snapshot"))["state"] == "stopped"
     finally:
         host.kill(); host.communicate(timeout=15)
 print("Native local heartbeat, crash restart, durable state and explicit close verified")

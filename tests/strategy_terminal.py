@@ -1,3 +1,4 @@
+from history_fixture import contracts, seed
 """Terminal orchestration uses an Agent-owned autonomous strategy, not a UI loop."""
 import json
 from pathlib import Path
@@ -25,17 +26,15 @@ def close(process):
 
 
 with tempfile.TemporaryDirectory(prefix="asterion-strategy-terminal-", ignore_cleanup_errors=True) as folder:
-    root=Path(folder);source=root/"ticks.csv";account=root/"account";account.mkdir()
+    root=Path(folder);account=root/"account";account.mkdir()
     prices=[100,101,100,102,99,103]*10
-    contents="timestamp_ns,price,quantity\n"+"".join(f"{i+1},{price},1\n" for i,price in enumerate(prices))
-    source.write_text(contents)
     process=launch()
     try:
-        call(process,"futures.inspect_csv",{"path":str(source),"venue":"SHFE","symbol":"rb2610","product":"rb","delivery_month":"2026-10","currency":"CNY","price_increment":"1","quantity_increment":"1","multiplier":"10"})
-        before=call(process,"paper.create",{"directory":str(account),"deposit":"10000","margin_per_lot":"100","open_fee":"2","close_today_fee":"3","close_yesterday_fee":"4","margin_rate":"0","open_fee_rate":"0","close_today_fee_rate":"0","close_yesterday_fee_rate":"0", "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})["paper"]
-        call(process,"strategy.run",{"calendar_task":"","id":"invalid","fast":"4","slow":"2","quantity":"1"},error=True)
+        seed(lambda method, params=None: call(process, method, params), prices, "fixture0")
+        before=call(process,"paper.create",{"directory":str(account),"deposit":"10000","contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})["paper"]
+        call(process,"strategy.run",{"id":"invalid","fast":"4","slow":"2","quantity":"1"},error=True)
         assert call(process,"runtime.snapshot")["paper"]==before
-        running=call(process,"strategy.run",{"calendar_task":"","id":"autonomous","fast":"1","slow":"2","quantity":"1"})
+        running=call(process,"strategy.run",{"id":"autonomous","fast":"1","slow":"2","quantity":"1"})
         assert running["strategy"]["state"]=="connected",running
         assert running["strategy"]["processed"]<60,running
         deadline=time.monotonic()+10
@@ -49,8 +48,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-strategy-terminal-", ignore_cl
             assert private_field not in public,public
     finally:
         close(process)
-    source.unlink()
-    # Actual autonomous progress while there is no Terminal process or source CSV.
+    # Actual autonomous progress while there is no Terminal process.
     time.sleep(5)
     process=launch()
     try:
@@ -73,10 +71,11 @@ with tempfile.TemporaryDirectory(prefix="asterion-strategy-terminal-", ignore_cl
         assert call(process,"runtime.snapshot")["paper"]==completed
         call(process,"node.action",{"id":"local","service":"strategy-autonomous","action":"stop"})
         call(process,"paper.close")
-        source.write_text(contents);second=root/"second";second.mkdir()
-        call(process,"futures.inspect_csv",{"path":str(source),"venue":"SHFE","symbol":"rb2610","product":"rb","delivery_month":"2026-10","currency":"CNY","price_increment":"1","quantity_increment":"1","multiplier":"10"})
-        call(process,"paper.create",{"directory":str(second),"deposit":"10000","margin_per_lot":"100","open_fee":"2","close_today_fee":"3","close_yesterday_fee":"4","margin_rate":"0","open_fee_rate":"0","close_today_fee_rate":"0","close_yesterday_fee_rate":"0", "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
-        call(process,"strategy.run",{"calendar_task":"","id":"cancelled","fast":"1","slow":"2","quantity":"1"})
+        second=root/"second";second.mkdir()
+        call(process,"research.local")
+        call(process,"research.dataset.select",{"source_task_id":"fixture0-bars","settlement_task_id":"fixture0-settlement","begin_day":"","end_day":"","price_increment":"1","multiplier":"10"})
+        call(process,"paper.create",{"directory":str(second),"deposit":"10000","contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
+        call(process,"strategy.run",{"id":"cancelled","fast":"1","slow":"2","quantity":"1"})
         revoked=call(process,"strategy.revoke",{"grant_id":"grant.strategy-cancelled"})["paper"]
         assert not revoked["strategy"]["active"]
         deadline=time.monotonic()+25
@@ -92,8 +91,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-strategy-terminal-", ignore_cl
         # Revocation belongs to the account even if the strategy process is gone.
         call(process,"paper.close")
         third=root/"third";third.mkdir()
-        call(process,"paper.create",{"directory":str(third),"deposit":"10000","margin_per_lot":"100","open_fee":"2","close_today_fee":"3","close_yesterday_fee":"4","margin_rate":"0","open_fee_rate":"0","close_today_fee_rate":"0","close_yesterday_fee_rate":"0", "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
-        call(process,"strategy.run",{"calendar_task":"","id":"offline","fast":"1","slow":"2","quantity":"1"})
+        call(process,"paper.create",{"directory":str(third),"deposit":"10000","contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
+        call(process,"strategy.run",{"id":"offline","fast":"1","slow":"2","quantity":"1"})
         call(process,"node.action",{"id":"local","service":"strategy-offline","action":"stop"})
         call(process,"strategy.revoke",{"grant_id":"unrelated"},error=True)
         offline=call(process,"strategy.revoke",{"grant_id":"grant.strategy-offline"})

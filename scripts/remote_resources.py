@@ -5,19 +5,22 @@ import json
 from pathlib import Path
 import stat
 import zipfile
+from service_fingerprint import fingerprint
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHES = ('x86_64',)
 def files_for(arch):
     if arch not in ARCHES:
         raise ValueError('Linux currently supports x86_64 only')
-    return ('asterion-node-agent', 'asterion-trading', 'asterion-market-data', 'asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'asterion-strategy', 'initialize-linux.py') + (('ctp-md.so',) if arch == 'x86_64' else ())
+    return ('asterion-node-agent', 'asterion-trading', 'asterion-market-data', 'asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'asterion-strategy', 'initialize-linux.py', 'plugins/asterion-tushare.so', 'plugins/asterion-order-limits.so') + (('ctp-md.so', 'ctp-trader.so') if arch == 'x86_64' else ())
 
 
 def validate(manifest, files, arch):
-    version = json.loads((ROOT/'apps/terminal/src-tauri/tauri.conf.json').read_text())['version']
-    if set(manifest) != {'version','product_version','os','arch','files'} or manifest['version'] != 1 or manifest['product_version'] != version or manifest['os'] != 'linux' or manifest['arch'] != arch or set(manifest['files']) != set(files_for(arch)):
+    version = json.loads((ROOT/'apps/clients/terminal/electron/package.json').read_text())['version']
+    if set(manifest) != {'version','product_version','source_sha256','os','arch','files'} or manifest['version'] != 2 or manifest['product_version'] != version or manifest['os'] != 'linux' or manifest['arch'] != arch or set(manifest['files']) != set(files_for(arch)):
         raise ValueError('Linux service manifest/version/architecture mismatch')
+    if manifest['source_sha256'] != fingerprint():
+        raise ValueError('Linux service source differs from this desktop source; rebuild the remote bundle')
     for name in files_for(arch):
         data = files[name]
         if hashlib.sha256(data).hexdigest() != manifest['files'][name]:
@@ -49,7 +52,7 @@ def verify(directory):
     for arch in ARCHES:
         folder=directory/arch
         paths=[folder/name for name in (*files_for(arch),'manifest.json')]
-        if folder.is_symlink() or any(path.is_symlink() or not path.is_file() for path in paths):
+        if folder.is_symlink() or (folder/'plugins').is_symlink() or any(path.is_symlink() or not path.is_file() for path in paths):
             raise ValueError(f'Missing or unsafe bundled Linux resources: {arch}')
         validate(json.loads((folder/'manifest.json').read_text()),{name:(folder/name).read_bytes() for name in files_for(arch)},arch)
 
@@ -64,6 +67,9 @@ def stage(archives, destination):
         folder.mkdir(parents=True,exist_ok=True)
         for name,data in files.items():
             target=folder/name
+            if target.parent.is_symlink():
+                raise ValueError('Generated resource directory cannot be a symlink')
+            target.parent.mkdir(parents=True,exist_ok=True)
             if target.is_symlink():
                 raise ValueError('Generated resource file cannot be a symlink')
             target.write_bytes(data)
@@ -75,7 +81,7 @@ if __name__ == '__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action',choices=['stage','verify'])
     parser.add_argument('--archives',type=Path,default=ROOT/'build/linux-bundles')
-    parser.add_argument('--directory',type=Path,default=ROOT/'apps/terminal/src-tauri/resources/remote-linux')
+    parser.add_argument('--directory',type=Path,default=ROOT/'build/electron-resources/remote-linux')
     args=parser.parse_args()
     if args.action=='stage': stage(args.archives,args.directory)
     else: verify(args.directory)

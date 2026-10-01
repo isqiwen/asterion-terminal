@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "bar_fixture.hpp"
 #include <asterion/protocol/trading.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -67,34 +68,25 @@ struct Host {
   }
   wire::Request create(std::string deposit) {
     auto r = request();
-    Json input{
-        {"version", 1},
-        {"type", "historical_paper"},
-        {"risk",
-         {{"max_order_quantity", "100"},
-          {"max_gross_quantity", "100"},
-          {"max_working_orders", std::uint64_t{100}}}},
-        {"deposit", deposit},
-        {"contract",
-         {{"venue", "SHFE"},
-          {"symbol", "rb2610"},
-          {"currency", "CNY"},
-          {"price_increment", "1"},
-          {"quantity_increment", "1"},
-          {"multiplier", "10"},
-          {"product", "rb"},
-          {"delivery_month", "2026-10"}}},
-        {"costs",
-         {{"margin_per_lot", "100"},
-          {"open_fee", "2"},
-          {"close_today_fee", "3"},
-          {"close_yesterday_fee", "4"},
-          {"margin_rate", "0"},
-          {"open_fee_rate", "0"},
-          {"close_today_fee_rate", "0"},
-          {"close_yesterday_fee_rate", "0"}}},
-        {"ticks", Json::array({{{"timestamp_ns", "100"}, {"price", "100"}, {"quantity", "1"}},
-                               {{"timestamp_ns", "200"}, {"price", "101"}, {"quantity", "1"}}})}};
+    Json input{{"version", 3},
+               {"type", "historical_paper"},
+               {"risk",
+                {{"max_order_quantity", "100"},
+                 {"max_gross_quantity", "100"},
+                 {"max_working_orders", std::uint64_t{100}}}},
+               {"deposit", deposit},
+               {"contracts",
+                {{{"dataset", test::dataset_json({test::flat("2026-09-25", 100, "100"),
+                                                  test::flat("2026-09-25", 200, "101")})},
+                  {"costs",
+                   {{"margin_per_lot", "100"},
+                    {"open_fee", "2"},
+                    {"close_today_fee", "3"},
+                    {"close_yesterday_fee", "4"},
+                    {"margin_rate", "0"},
+                    {"open_fee_rate", "0"},
+                    {"close_today_fee_rate", "0"},
+                    {"close_yesterday_fee_rate", "0"}}}}}}};
     *r.mutable_create() = protocol::encode_input(input);
     return r;
   }

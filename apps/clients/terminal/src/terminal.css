@@ -1,0 +1,615 @@
+/* Business layouts share the Terminal design tokens and controls. */
+.terminal-business {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+}
+.terminal-business > .dashboard {
+  flex: 1;
+}
+.futures-data,
+.futures-market {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.futures-data {
+  overflow: auto;
+}
+.futures-data form,
+.futures-help {
+  padding: 20px var(--space-page);
+}
+.futures-data fieldset {
+  margin: 0;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.futures-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.futures-data label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+}
+.futures-file {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.futures-file label {
+  flex: 1;
+}
+.futures-help {
+  color: var(--muted);
+  line-height: 1.8;
+}
+.futures-table {
+  overflow: auto;
+  flex: 1;
+  min-height: 100px;
+}
+.terminal-setting {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 520px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.terminal-tasks {
+  height: 110px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--line);
+}
+.status-bar {
+  gap: 12px;
+}
+.status-bar > button {
+  height: 21px;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  font-size: 10px;
+}
+.status-bar .good {
+  color: var(--success);
+}
+.status-bar .bad {
+  color: var(--danger);
+}
+@media (max-width: 950px) {
+  .futures-fields {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+}
+.paper-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.paper-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 24px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.paper-metrics dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+.paper-metrics dd {
+  margin: 6px 0 0;
+  font-size: 24px;
+  color: var(--text-strong);
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.paper-metrics small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.paper-heading {
+  padding: 8px 16px;
+  margin: 0;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+.paper-trading table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.paper-trading th,
+.paper-trading td {
+  text-align: left;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.paper-trading th {
+  color: var(--muted);
+  font-weight: normal;
+}
+@media (max-width: 950px) {
+  .paper-metrics {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+}
+
+.service-connections {
+  max-width: 960px;
+}
+.service-connections p {
+  margin: 10px 0;
+  line-height: 1.6;
+}
+.service-connections fieldset {
+  min-width: 0;
+  border: 1px solid var(--line);
+  margin: 16px 0;
+  padding: 16px;
+}
+.service-connections .futures-fields label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.service-connections input {
+  width: 100%;
+  min-width: 0;
+}
+.service-connections details {
+  margin-top: 18px;
+}
+.service-connections details .futures-fields {
+  grid-template-columns: 1fr;
+}
+.service-connections .source-actions {
+  margin-top: 16px;
+}
+
+.error-diagnostic {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.market-workspace,
+.live-market {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.market-modes {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.market-modes [aria-selected="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.market-config {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.market-config summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.market-config fieldset {
+  border: 0;
+  margin: 12px 0;
+  padding: 0;
+}
+.market-config label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.market-config fieldset button {
+  margin-top: 12px;
+}
+.market-watchlist {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  margin: 12px 0;
+}
+.market-symbols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* Compact host status and anchored service details, shared by all workspaces. */
+.status-bar {
+  position: relative;
+  min-height: 26px;
+}
+.status-bar > button,
+.service-status > button {
+  border: 0;
+  padding: 2px 5px;
+  background: transparent;
+  font-size: inherit;
+}
+.service-status-panel {
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 8px;
+  width: min(370px, calc(100vw - 115px));
+  max-height: min(460px, 65vh);
+  overflow: auto;
+  z-index: 50;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 30px var(--overlay);
+  padding: 12px;
+  color: var(--text);
+  font-size: 12px;
+}
+.service-status-panel header,
+.service-status-panel footer,
+.service-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.service-status-panel header {
+  margin-bottom: 10px;
+}
+.service-status-panel footer {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+.service-status-row {
+  padding: 7px 0;
+}
+.service-status-row small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 3px;
+}
+.service-status-node {
+  border-top: 1px solid var(--line);
+  margin-top: 5px;
+}
+@media (max-width: 850px) {
+  .status-updated {
+    display: none;
+  }
+}
+.service-connection-details {
+  margin-top: 8px;
+  color: var(--muted);
+}
+.service-connection-details summary {
+  cursor: pointer;
+  font-size: 11px;
+}
+.service-connection-details code {
+  overflow-wrap: anywhere;
+  max-width: 60%;
+  font-size: 10px;
+}
+.settings-window {
+  min-height: 0;
+}
+.settings-sidebar {
+  width: 138px;
+  padding: 18px 10px;
+}
+.settings-content {
+  padding: 18px 22px;
+}
+.settings-content h1 {
+  background: transparent;
+  font-size: 16px;
+  letter-spacing: 0;
+  padding: 0 0 16px;
+  margin: 0 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+.settings-content .terminal-setting {
+  max-width: 580px;
+  min-height: 64px;
+}
+.settings-content details {
+  margin-top: 24px;
+  color: var(--muted);
+}
+
+.settings-sidebar nav button {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.settings-content details {
+  margin-bottom: 16px;
+}
+
+.terminal-business > section > .panel-heading,
+.research-workspace > .panel-heading {
+  min-height: 64px;
+  background: transparent;
+  padding: 16px var(--space-page);
+}
+.terminal-business > section > .panel-heading h2,
+.research-workspace > .panel-heading h2 {
+  font-size: 19px;
+  font-weight: 500;
+  color: var(--text-strong);
+}
+.futures-data > form,
+.futures-data > .data-import {
+  width: 100%;
+  max-width: 1160px;
+}
+.futures-data > *,
+.live-market > * {
+  flex-shrink: 0;
+}
+.futures-fields {
+  gap: 18px 20px;
+  margin-block: 16px;
+}
+.futures-fields > label {
+  min-width: 0;
+}
+.futures-fields input,
+.futures-fields select {
+  width: 100%;
+}
+.futures-file {
+  flex-wrap: wrap;
+}
+.futures-file label {
+  min-width: 240px;
+}
+.futures-help {
+  padding: 16px 24px;
+}
+.paper-toolbar {
+  padding: 14px 24px;
+  background: var(--panel);
+}
+.paper-toolbar strong {
+  font-family: var(--font-terminal);
+  color: var(--text-strong);
+}
+.paper-heading {
+  font-size: 13px;
+  padding: 16px 24px 8px;
+  border: 0;
+  color: var(--text-strong);
+}
+.paper-trading th,
+.paper-trading td {
+  padding: 10px 24px;
+}
+.paper-trading td {
+  font-variant-numeric: tabular-nums;
+}
+.paper-trading > details {
+  margin: 8px 24px;
+}
+.paper-trading > details.futures-help {
+  padding-inline: 0;
+}
+.paper-trading > form {
+  padding-block: 24px;
+}
+.paper-trading > section.live-authorization {
+  margin-top: 0;
+  border-top: 0;
+  padding-inline: var(--space-page);
+}
+.futures-data label.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+.live-authorization label.checkbox {
+  margin-block: 12px;
+}
+.paper-trading .account-field-group {
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+  margin-top: 24px;
+}
+.account-field-group h3 {
+  color: var(--text-strong);
+  font-size: 13px;
+}
+.strategy-panel {
+  margin: 20px 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+.strategy-panel .panel-heading {
+  min-height: 48px;
+  background: transparent;
+}
+.strategy-panel .panel-heading h3 {
+  font-size: 13px;
+}
+.strategy-panel .panel-heading button {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+.strategy-panel form {
+  max-width: 1080px;
+}
+.market-modes,
+.research-modes {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.market-modes button {
+  border-color: transparent;
+  background: transparent;
+  padding-inline: 16px;
+}
+.market-modes [aria-selected="true"] {
+  border-color: transparent;
+  background: var(--accent-surface);
+}
+.market-config {
+  margin: 16px 24px;
+  padding: 12px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+}
+.market-watchlist {
+  flex-wrap: wrap;
+}
+.market-watchlist > label {
+  min-width: 140px;
+  flex: 1;
+}
+.market-config .futures-fields {
+  max-width: 1080px;
+}
+.futures-chart {
+  flex: none;
+  padding: 0 12px 12px;
+  margin: 0 24px;
+  background: var(--panel);
+  border: 1px solid var(--grid);
+  border-radius: var(--panel-radius);
+}
+.quote-strip {
+  padding: 18px 24px;
+  gap: 16px;
+}
+.quote-strip > b {
+  font-size: 20px;
+  color: var(--text-strong);
+  font-family: var(--font-terminal);
+}
+@media (max-width: 800px) {
+  :root {
+    --space-page: 18px;
+  }
+  .futures-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .panel-heading {
+    flex-wrap: wrap;
+  }
+}
+
+.account-field-group .futures-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.paper-table {
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+.paper-table table {
+  min-width: 560px;
+}
+.paper-table:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.paper-metrics > :nth-child(-n + 2) dd {
+  font-size: 28px;
+}
+@media (max-width: 900px) {
+  .account-field-group .futures-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.dataset-picker {
+  display: grid;
+  gap: 8px;
+  padding: 16px 18px;
+  margin-block: 12px 18px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.dataset-picker h3 {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.dataset-picker p {
+  margin: 0;
+}
+.dataset-picker fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.trading-modes {
+  display: flex;
+  gap: 8px;
+  padding: 12px 24px 0;
+}
+.trading-modes button {
+  border-color: transparent;
+  background: transparent;
+}
+.trading-modes button[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-surface);
+}
+.dataset-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dataset-list:empty {
+  display: none;
+}
+.dataset-list li {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.cost-template {
+  display: grid;
+  gap: 8px;
+  margin-block: 8px 16px;
+}
+.cost-template p {
+  margin: 0;
+}

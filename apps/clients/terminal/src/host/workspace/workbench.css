@@ -1,0 +1,217 @@
+/* Host-owned chrome. Business views use the same surfaces without owning navigation. */
+.terminal {
+  background: var(--canvas);
+}
+.activity-rail {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 36px;
+  background: var(--canvas);
+  border-right: 1px solid var(--line);
+  padding: 0 4px;
+}
+.activity-rail.expanded,
+html[lang="en-US"] .activity-rail.expanded {
+  width: 48px;
+}
+.rail-brand {
+  color: var(--accent);
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.activity-rail .workspace-tabs {
+  gap: 4px;
+}
+.activity-rail .workspace-tabs button {
+  position: relative;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  height: 44px;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+}
+.activity-rail .workspace-tabs button > span:first-child {
+  display: flex;
+}
+.activity-rail .workspace-tabs button .nav-label {
+  font-size: 10px;
+  line-height: 16px;
+}
+.activity-rail .workspace-tabs button.active {
+  background: var(--accent-surface);
+  color: var(--accent);
+}
+.activity-rail .workspace-tabs button.active::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 13px;
+  height: 18px;
+  width: 2px;
+  background: var(--accent);
+}
+.activity-rail.collapsed .workspace-tabs button {
+  height: 42px;
+  padding: 0;
+}
+.activity-rail.collapsed .workspace-tabs button.active::before {
+  top: 12px;
+}
+.rail-actions {
+  display: flex;
+  flex-direction: column;
+  margin-top: auto;
+  padding: 12px 0;
+  gap: 4px;
+}
+.rail-actions button {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  min-height: 38px;
+}
+.workbench-header {
+  display: flex;
+  align-items: stretch;
+  min-height: 24px;
+  flex-shrink: 0;
+  padding: 0 10px;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.workbench-context {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.environment {
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--panel);
+  border-color: var(--line);
+  padding: 2px 8px;
+}
+.terminal-business {
+  background: var(--canvas);
+}
+.status-bar {
+  height: 24px;
+  padding: 0 16px;
+  background: var(--canvas);
+  font-size: 10px;
+  gap: 4px;
+}
+.status-bar button {
+  min-height: 24px;
+}
+.service-status-panel {
+  background: var(--raised);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 16px 48px #0006;
+}
+.terminal-tasks {
+  height: 170px;
+  background: var(--panel);
+}
+.task-dock .panel-heading {
+  background: transparent;
+}
+.terminal-task-list button {
+  background: var(--raised);
+  border-color: transparent;
+  padding: 10px 12px;
+}
+@media (max-width: 1000px) {
+  .workbench-header {
+    padding-inline: 12px;
+    gap: 4px;
+  }
+}
+@media (max-width: 700px) {
+  .workbench-context .environment {
+    display: none;
+  }
+  .status-bar {
+    padding-inline: 8px;
+    gap: 4px;
+  }
+}
+
+.activity-rail.collapsed .nav-label {
+  display: none;
+}
+.rail-actions button[aria-pressed="true"] {
+  background: var(--accent-surface);
+  color: var(--accent);
+}
+
+.rail-brand svg {
+  width: 20px;
+  height: 20px;
+}
+.activity-rail .workspace-tabs svg {
+  width: 16px;
+  height: 16px;
+}
+
+.workbench-header .environment {
+  border: 0;
+  background: var(--raised);
+  padding: 2px 8px;
+  color: var(--text-strong);
+}
+
+.workbench-header[hidden] {
+  display: none;
+}
+.rail-brand {
+  display: none;
+}
+.activity-rail.expanded,
+html[lang="en-US"] .activity-rail.expanded {
+  width: 40px;
+}
+
+html[lang="en-US"] .activity-rail.expanded {
+  width: 64px;
+}
+
+/* Rail: icon column with a luminous active marker. */
+.activity-rail .workspace-tabs button {
+  color: var(--subtle);
+}
+.activity-rail .workspace-tabs button.active {
+  background: transparent;
+  color: var(--accent);
+}
+.activity-rail .workspace-tabs button.active::before {
+  box-shadow: 0 0 8px var(--accent);
+}
+.activity-rail .workspace-tabs button:enabled:not(.active):hover {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-strong);
+}
+.rail-actions button:enabled:hover {
+  background: transparent;
+  border-color: transparent;
+}
+.status-bar {
+  border-top: 1px solid var(--line);
+  color: var(--subtle);
+}
+.status-bar button {
+  border: 0;
+  color: var(--muted);
+}
+.status-bar button:enabled:not([aria-disabled="true"]):hover {
+  background: transparent;
+  color: var(--accent);
+}

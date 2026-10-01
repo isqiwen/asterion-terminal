@@ -21,6 +21,30 @@ TEST(Ctp, MissingNumbersAndSourceClockRemainExplicit) {
   EXPECT_EQ(asterion::ctp::source_time("", "09:00:00", 0), 0);
   EXPECT_EQ(asterion::ctp::source_time("20260926", "24:00:00", 0), 0);
 }
+TEST(Ctp, VendorPricesPreserveDecimalPrecisionAndBounds) {
+  for (const auto& [input, expected] :
+       std::vector<std::pair<double, std::string>>{{-0.0, "0"},
+                                                   {-12.125, "-12.125"},
+                                                   {0.00000001, "0.00000001"},
+                                                   {1.234567894, "1.23456789"},
+                                                   {1.234567896, "1.2345679"},
+                                                   {1e10, "10000000000"}}) {
+    const auto converted = asterion::ctp::price(input);
+    ASSERT_TRUE(converted) << input;
+    EXPECT_EQ(converted->str(), expected);
+  }
+  EXPECT_FALSE(asterion::ctp::price(1e10 + 1));
+  EXPECT_FALSE(asterion::ctp::price(-1e10 - 1));
+  EXPECT_FALSE(asterion::ctp::price(std::numeric_limits<double>::infinity()));
+}
+TEST(Ctp, AveragePriceIsNormalizedPerUnit) {
+  using asterion::ctp::average_price;
+  EXPECT_EQ(average_price(161550, "SHFE", 10)->str(), asterion::Decimal::parse("16155").str());
+  EXPECT_EQ(average_price(10234.5, "CZCE", std::nullopt)->str(),
+            asterion::Decimal::parse("10234.5").str());
+  EXPECT_FALSE(average_price(161550, "SHFE", std::nullopt));
+  EXPECT_FALSE(average_price(0, "DCE", 10));
+}
 TEST(Ctp, ProtocolPreservesMissingPricesAndSourceDates) {
   asterion::LiveMarketSnapshot state;
   asterion::MarketQuote q;
@@ -92,6 +116,18 @@ TEST(CtpEvents, PreservesPreCoalescingQuotesAndReconnectBoundaries) {
   }
   ASSERT_EQ(quotes.size(), 4U);
   EXPECT_EQ(quotes[0].quote.last->str(), "3510");
+  EXPECT_EQ(quotes[0].quote.bid_levels[0].price->str(), "3508.25");
+  EXPECT_EQ(quotes[0].quote.bid_levels[0].quantity, 4);
+  EXPECT_FALSE(quotes[0].quote.bid_levels[1].price);
+  EXPECT_FALSE(quotes[0].quote.bid_levels[1].quantity);
+  EXPECT_EQ(quotes[0].quote.ask_levels[1].quantity, 0);
+  EXPECT_EQ(quotes[0].quote.bid_levels[2].price->str(), "3506");
+  EXPECT_FALSE(quotes[0].quote.bid_levels[2].quantity);
+  EXPECT_FALSE(quotes[0].quote.ask_levels[2].price);
+  EXPECT_EQ(quotes[0].quote.ask_levels[3].price->str(), "3515");
+  const auto decoded_depth = asterion::protocol::decode_market(
+      asterion::protocol::encode_market(feed.snapshot(), "depth"));
+  EXPECT_EQ(decoded_depth["subscriptions"][0]["quote"]["bid_levels"][0]["price"], "3508.25");
   EXPECT_EQ(quotes[1].quote.last->str(), "1");
   EXPECT_FALSE(quotes[0].out_of_order);
   EXPECT_TRUE(quotes[1].out_of_order);
@@ -220,6 +256,11 @@ TEST(CtpEvents, ProcessExposesBoundedProtobufReadsAndRejectsStaleIdentity) {
       ++quotes;
       reordered += event.quote().out_of_order();
       EXPECT_FALSE(event.quote().quote().has_previous_settlement());
+      EXPECT_EQ(event.quote().quote().open(), "3490.25");
+      EXPECT_EQ(event.quote().quote().previous_close(), "3480.125");
+      EXPECT_EQ(event.quote().quote().open_interest_change(), "-25.25");
+      EXPECT_EQ(event.quote().quote().upper_limit(), "3800.5");
+      EXPECT_FALSE(event.quote().quote().has_lower_limit());
       EXPECT_EQ(event.quote().quote().instrument().symbol(), "rb2610");
     } else {
       ASSERT_TRUE(event.has_status());
@@ -236,4 +277,119 @@ TEST(CtpEvents, ProcessExposesBoundedProtobufReadsAndRejectsStaleIdentity) {
   process = std::make_unique<ChildProcess>(ASTERION_MARKET_PATH, args);
   ASSERT_TRUE(call(connect).has_snapshot());
   EXPECT_EQ(call(read).error().code(), "invalid_request");
+}
+
+TEST(Ctp, DepthPreservesMissingLevelsZeroSizeAndExactPrices) {
+  using namespace asterion;
+  EXPECT_FALSE(ctp::depth_level(0, 0).price);
+  EXPECT_FALSE(ctp::depth_level(std::numeric_limits<double>::max(), 4).quantity);
+  EXPECT_FALSE(ctp::depth_level(std::numeric_limits<double>::quiet_NaN(), 4).price);
+  EXPECT_EQ(ctp::depth_level(100.00000001, 0).price->str(), "100.00000001");
+  EXPECT_EQ(ctp::depth_level(100.00000001, 0).quantity, 0);
+  EXPECT_EQ(ctp::depth_level(0, 2).price->str(), "0");
+  EXPECT_FALSE(ctp::depth_level(100, -1).quantity);
+  MarketQuote quote;
+  quote.instrument = {"SHFE", "rb2610"};
+  quote.bid_levels[0] = ctp::depth_level(100.00000001, 0);
+  quote.ask_levels[3] = ctp::depth_level(105, 9);
+  LiveMarketSnapshot state;
+  state.subscriptions.push_back({quote.instrument, "subscribed", 0, quote});
+  const auto encoded = protocol::encode_market(state, "depth");
+  const auto decoded = protocol::decode_market(encoded)["subscriptions"][0]["quote"];
+  ASSERT_EQ(decoded["bid_levels"].size(), 4);
+  EXPECT_EQ(decoded["bid_levels"][0]["price"], "100.00000001");
+  EXPECT_EQ(decoded["bid_levels"][0]["quantity"], 0);
+  EXPECT_TRUE(decoded["bid_levels"][1]["price"].is_null());
+  EXPECT_TRUE(decoded["bid_levels"][1]["quantity"].is_null());
+  auto bad = encoded;
+  bad.mutable_subscriptions(0)->mutable_quote()->mutable_bid_levels()->RemoveLast();
+  EXPECT_THROW(protocol::decode_market(bad), std::invalid_argument);
+  bad = encoded;
+  bad.mutable_subscriptions(0)->mutable_quote()->mutable_bid_levels(0)->set_quantity(-1);
+  EXPECT_THROW(protocol::decode_market(bad), std::invalid_argument);
+  bad = encoded;
+  bad.mutable_subscriptions(0)->mutable_quote()->mutable_bid_levels(0)->clear_price();
+  EXPECT_THROW(protocol::decode_market(bad), std::invalid_argument);
+  bad = encoded;
+  bad.mutable_subscriptions(0)->mutable_quote()->mutable_bid_levels(0)->set_price("NaN");
+  EXPECT_THROW(protocol::decode_market(bad), std::exception);
+}
+
+TEST(Ctp, SessionPricesPreserveExactValuesAbsenceAndZero) {
+  using namespace asterion;
+  MarketQuote quote;
+  quote.instrument = {"SHFE", "rb2610"};
+  quote.open = Decimal::parse("3490.25000001");
+  quote.upper_limit = Decimal::parse("0");
+  LiveMarketSnapshot state;
+  state.subscriptions.push_back({quote.instrument, "subscribed", 0, quote});
+  auto encoded = protocol::encode_market(state, "session-prices");
+  const auto decoded = protocol::decode_market(encoded)["subscriptions"][0]["quote"];
+  EXPECT_EQ(decoded["open"], "3490.25000001");
+  EXPECT_EQ(decoded["upper_limit"], "0");
+  EXPECT_TRUE(decoded["lower_limit"].is_null());
+  encoded.mutable_subscriptions(0)->mutable_quote()->set_lower_limit("NaN");
+  EXPECT_THROW(protocol::decode_market(encoded), std::exception);
+}
+
+TEST(Ctp, OpenInterestChangeUsesProviderReferenceAndPreservesMissing) {
+  using namespace asterion;
+  EXPECT_EQ(ctp::open_interest_change(100, 125.25)->str(), "-25.25");
+  EXPECT_EQ(ctp::open_interest_change(125.25, 100)->str(), "25.25");
+  EXPECT_EQ(ctp::open_interest_change(100, 100)->str(), "0");
+  EXPECT_EQ(ctp::open_interest_change(100, 0)->str(), "100");
+  EXPECT_EQ(ctp::open_interest_change(100.00000001, 100)->str(), "0.00000001");
+  EXPECT_FALSE(ctp::open_interest_change(-1, 100));
+  EXPECT_FALSE(ctp::open_interest_change(100, -1));
+  EXPECT_FALSE(ctp::open_interest_change(100, std::numeric_limits<double>::max()));
+  EXPECT_FALSE(ctp::open_interest_change(std::numeric_limits<double>::quiet_NaN(), 100));
+  MarketQuote quote;
+  quote.instrument = {"SHFE", "rb2610"};
+  quote.open_interest_change = ctp::open_interest_change(100, 125.25);
+  quote.previous_close = Decimal::parse("3480.12500001");
+  LiveMarketSnapshot state;
+  state.subscriptions.push_back({quote.instrument, "subscribed", 0, quote});
+  const auto decoded = protocol::decode_market(
+      protocol::encode_market(state, "reference"))["subscriptions"][0]["quote"];
+  EXPECT_EQ(decoded["open_interest_change"], "-25.25");
+  EXPECT_EQ(decoded["previous_close"], "3480.12500001");
+  state.subscriptions[0].quote->previous_close.reset();
+  state.subscriptions[0].quote->open_interest_change.reset();
+  const auto absent = protocol::decode_market(
+      protocol::encode_market(state, "reference"))["subscriptions"][0]["quote"];
+  EXPECT_TRUE(absent["open_interest_change"].is_null());
+  EXPECT_TRUE(absent["previous_close"].is_null());
+}
+
+TEST(CtpEvents, FullMarketSubscriptionsAreBatchedAndRetentionRemainsBounded) {
+  CtpDirectory directory;
+  asterion::ctp::Feed feed(ASTERION_TEST_CTP, directory.path, 65536);
+  std::vector<asterion::InstrumentId> instruments;
+  for (int i = 1000; i < 1300; ++i)
+    instruments.push_back({"SHFE", "rb" + std::to_string(i)});
+  feed.connect({"tcp://localhost:12345", "test", "test", "test-only"}, instruments);
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  bool complete = false;
+  while (std::chrono::steady_clock::now() < deadline) {
+    const auto state = feed.snapshot();
+    complete =
+        state.subscriptions.size() == instruments.size() &&
+        std::all_of(state.subscriptions.begin(), state.subscriptions.end(), [](const auto& row) {
+          return row.quote.has_value() && row.state == "subscribed";
+        });
+    if (complete)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  ASSERT_TRUE(complete);
+  const auto events = feed.events_after("", 0, 1024);
+  EXPECT_FALSE(events.failed);
+  EXPECT_TRUE(events.gap);
+  EXPECT_GT(events.oldest_sequence, 1U);
+  std::size_t retained_rows = 0;
+  for (const auto& event : events.events) {
+    const auto* status = std::get_if<asterion::LiveMarketSnapshot>(&event.value);
+    retained_rows += 1 + (status ? status->subscriptions.size() : 0);
+  }
+  EXPECT_LE(retained_rows, 65536U);
 }

@@ -2,13 +2,25 @@
 #include <asterion/domain/market.hpp>
 #include <asterion/kernel/plugin.hpp>
 #include <optional>
+#include <array>
 #include <variant>
 #include <vector>
 namespace asterion {
+struct MarketDepthLevel {
+  std::optional<Decimal> price;
+  std::optional<std::int64_t> quantity;
+};
 // Market observations are not authoritative account ledger entries.
 struct MarketQuote {
   InstrumentId instrument;
+  // Additional levels 2..5; best bid/ask remain the quote summary above the book.
+  std::array<MarketDepthLevel, 4> bid_levels, ask_levels;
   std::optional<Decimal> last, bid, ask, previous_settlement, high, low, open_interest;
+  std::optional<Decimal> open, upper_limit, lower_limit, previous_close;
+  // Current open interest minus the provider previous-trading-day reference.
+  std::optional<Decimal> open_interest_change;
+  // Per-unit session average price; absent when the provider cannot normalize it.
+  std::optional<Decimal> average_price;
   std::int64_t bid_quantity = 0, ask_quantity = 0, volume = 0;
   std::string action_day, trading_day, update_time;
   std::int64_t source_ms = 0, received_ms = 0;

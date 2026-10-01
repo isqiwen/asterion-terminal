@@ -129,28 +129,20 @@ with tempfile.TemporaryDirectory(prefix="asterion-auto-replay-", ignore_cleanup_
         thread=threading.Thread(target=forward,daemon=True);thread.start()
     try:
         contract={"venue":"SHFE","symbol":"rb2610","currency":"CNY","price_increment":"1","quantity_increment":"1","multiplier":"10","product":"rb","delivery_month":"2026-10"}
-        ticks=[{"timestamp_ns":str(i+1),"price":str(price),"quantity":"1"} for i,price in enumerate([100,101,100,102,99,103])]
-        dataset={"version":1,"type":"futures.trade-events","contract":contract,"ticks":ticks}
+        bars=[{"trading_day":"2026-09-25" if i<3 or not scheduled else "2026-09-28","timestamp_ns":str(i+1),**{key:str(price) for key in ("open","high","low","close")},"volume":"10"} for i,price in enumerate([100,101,100,102,99,103])]
+        days=[{"trading_day":"2026-09-25","settlement_price":"105"},{"trading_day":"2026-09-28","settlement_price":"110"}] if scheduled else [{"trading_day":"2026-09-25","settlement_price":"110"}]
+        dataset={"version":1,"contract":contract,"interval_minutes":1,"bars":bars,"days":days}
         revision=hashlib.sha256(json.dumps(dataset,sort_keys=True,separators=(",",":")).encode()).hexdigest()
         spec='''contract { venue: "SHFE" symbol: "rb2610" currency: "CNY" price_increment { units: 100000000 } quantity_increment { units: 100000000 } multiplier { units: 1000000000 } product: "rb" delivery_month: "2026-10" }'''
-        events=" ".join(f'ticks {{ timestamp_ns: {t["timestamp_ns"]} price {{ units: {int(t["price"])*100000000} }} quantity {{ units: 100000000 }} }}' for t in ticks)
-        call("trading",f'''create {{ {spec} {events} risk {{ max_order_quantity {{ units: 10000000000 }} max_gross_quantity {{ units: 10000000000 }} max_working_orders: 100 }} deposit {{ units: 100000000000 }} costs {{ margin_per_lot {{ units: 10000000000 }} open_fee {{ units: 200000000 }} close_today_fee {{ units: 300000000 }} close_yesterday_fee {{ units: 400000000 }} margin_rate {{ units: 0 }} open_fee_rate {{ units: 0 }} close_today_fee_rate {{ units: 0 }} close_yesterday_fee_rate {{ units: 0 }} }} }}''')
-        calendar_wire=""
-        if scheduled:
-            days=[{"trading_day":date,"sessions":[{"begin_ns":str(begin),"end_ns":str(end)}],"schedule_source":"fixture","settlement_price":str(price),"settlement_source":"fixture"} for date,begin,end,price in [("2026-09-25",1,4,105),("2026-09-28",4,7,110)]]
-            digest=lambda value:hashlib.sha256(json.dumps(value,sort_keys=True,separators=(",",":")).encode()).hexdigest()
-            calendar={"version":1,"type":"futures.settlement-calendar","contract":contract,"days":days}
-            calendar["revision"]=digest(calendar)
-            publication={"version":1,"calendar":calendar,"source_name":"fixture.csv","source_sha256":"a"*64,"source_bytes":1,"importer":"asterion.csv.settlement.v1"}
-            publication["id"]=digest(publication)
-            day_wire=" ".join(f'days {{ trading_day: "{d["trading_day"]}" sessions {{ begin_ns: {d["sessions"][0]["begin_ns"]} end_ns: {d["sessions"][0]["end_ns"]} }} schedule_source: "fixture" settlement_price {{ units: {int(d["settlement_price"])*100000000} }} settlement_source: "fixture" }}' for d in days)
-            calendar_wire=f'version: 1 id: "{publication["id"]}" calendar {{ version: 1 revision: "{calendar["revision"]}" {spec} {day_wire} }} source_name: "fixture.csv" source_sha256: "{"a"*64}" source_bytes: 1 importer: "asterion.csv.settlement.v1"'
-            call("trading",f'command {{ request_id: "calendar" replay_calendar {{ publication {{ {calendar_wire} }} }} }}')
+        events=" ".join('bars { trading_day: "'+b["trading_day"]+'" timestamp_ns: '+b["timestamp_ns"]+' '+" ".join(f'{key} {{ units: {int(b[key])*100000000} }}' for key in ("open","high","low","close","volume"))+' }' for b in bars)
+        day_wire=" ".join(f'days {{ trading_day: "{d["trading_day"]}" settlement_price {{ units: {int(d["settlement_price"])*100000000} }} }}' for d in days)
+        dataset_wire=f'dataset {{ version: 1 revision: "{revision}" {spec} interval_minutes: 1 {events} {day_wire} source: "test.fixture" source_task_id: "test-bars" settlement_task_id: "test-settlement" manifest_sha256: "{"a"*64}" settlement_manifest_sha256: "{"b"*64}" }}'
+        call("trading",f'''create {{ risk {{ max_order_quantity {{ units: 10000000000 }} max_gross_quantity {{ units: 10000000000 }} max_working_orders: 100 }} deposit {{ units: 100000000000 }} contracts {{ {dataset_wire} costs {{ margin_per_lot {{ units: 10000000000 }} open_fee {{ units: 200000000 }} close_today_fee {{ units: 300000000 }} close_yesterday_fee {{ units: 400000000 }} margin_rate {{ units: 0 }} open_fee_rate {{ units: 0 }} close_today_fee_rate {{ units: 0 }} close_yesterday_fee_rate {{ units: 0 }} }} }} }}''')
         call("trading",f'''command {{ request_id: "grant.request" strategy_grant {{ grant_id: "grant" strategy_id: "automatic" stream_id: "history" dataset_revision: "{revision}" max_quantity {{ units: 100000000 }} }} }}''')
         host=start(strategy,"automatic",root/"strategy",strategy_port)
-        plan=f'''replay {{ version: 2 dataset {{ version: 1 revision: "{revision}" {spec} {events} }} trading_session: "account" grant_id: "grant" host: "localhost" port: {replay_port} tls_ca: {json.dumps(str(root/"ca.crt"))} tls_cert: {json.dumps(str(root/"client.crt"))} tls_key: {json.dumps(str(root/"client.key"))} }}'''
-        if scheduled: plan=plan[:-1]+f'calendar_publication {{ {calendar_wire} }} }}'
-        call("strategy",f'''create {{ version: 1 session_id: "automatic" stream_id: "history" {spec} plugin_id: "asterion.strategy.cta.sma-long-flat" fast: 1 slow: 2 quantity {{ units: 100000000 }} {plan} }}''')
+        plan_dataset=dataset_wire.replace("dataset {","datasets {",1)
+        plan=f'''replay {{ version: 4 {plan_dataset} trading_session: "account" grant_id: "grant" host: "localhost" port: {replay_port} tls_ca: {json.dumps(str(root/"ca.crt"))} tls_cert: {json.dumps(str(root/"client.crt"))} tls_key: {json.dumps(str(root/"client.key"))} }}'''
+        call("strategy",f'''create {{ version: 2 session_id: "automatic" stream_id: "history" {spec.replace("contract {","contracts {",1)} plugin_id: "asterion.strategy.cta.sma-long-flat" fast: 1 slow: 2 quantity {{ units: 100000000 }} {plan} }}''')
         def complete():
             deadline=time.monotonic()+20
             while time.monotonic()<deadline:

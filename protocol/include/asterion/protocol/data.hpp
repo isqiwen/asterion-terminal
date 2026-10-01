@@ -1,31 +1,29 @@
 #pragma once
+#include <asterion/domain/daily_bars.hpp>
+#include <asterion/domain/market.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/v1/data.pb.h>
 namespace asterion::protocol {
-Json decode_csv_snapshot(const data::v1::CsvSnapshot& input);
-data::v1::CsvSnapshot encode_csv_snapshot(const Json& input);
-// Ordered, exact Decimal trade events; duplicates are retained, never cleaned
-// silently.
-data::v1::TradeDataset
-make_trade_dataset(const v1::Contract& contract,
-                   const google::protobuf::RepeatedPtrField<v1::Tick>& ticks);
-Json decode_dataset(const data::v1::TradeDataset& dataset);
-data::v1::TradeDataset encode_dataset(const Json& dataset);
-std::string publication_id(const data::v1::DatasetPublication& publication);
-Json decode_publication(const data::v1::DatasetPublication& publication);
-data::v1::DatasetPublication encode_publication(const Json& publication);
-void encode_settlement_days(const Json& days,
-                            google::protobuf::RepeatedPtrField<data::v1::SettlementDay>& result);
-Json decode_settlement_days(
-    const google::protobuf::RepeatedPtrField<data::v1::SettlementDay>& days);
-data::v1::SettlementCalendar
-make_settlement_calendar(const v1::Contract&,
-                         const google::protobuf::RepeatedPtrField<data::v1::SettlementDay>&);
-Json decode_calendar(const data::v1::SettlementCalendar&);
-data::v1::SettlementCalendar encode_calendar(const Json&);
-data::v1::CalendarCsvSnapshot encode_calendar_snapshot(const Json&);
-Json decode_calendar_snapshot(const data::v1::CalendarCsvSnapshot&);
-std::string calendar_publication_id(const data::v1::CalendarPublication&);
-Json decode_calendar_publication(const data::v1::CalendarPublication&);
-data::v1::CalendarPublication encode_calendar_publication(const Json&);
+data::v1::DailyBar encode_daily_bar(const HistoricalDailyBar&);
+HistoricalDailyBar daily_bar(const data::v1::DailyBar&);
+Json decode_daily_page(const data::v1::DailyPage&);
+Json decode_minute_page(const data::v1::MinutePage&);
+
+// Research datasets run in memory inside one task; paper sessions and strategy
+// runs journal one command per bar, so they take a smaller range.
+inline constexpr std::size_t max_dataset_bars = 200000;
+inline constexpr std::size_t max_session_bars = 20000;
+Instrument instrument(const v1::Contract&);
+v1::Bar encode_bar(const MarketBar&);
+MarketBar market_bar(const v1::Bar&);
+// Content identity: SHA-256 of contract, interval, bars and days.
+std::string bar_dataset_revision(const data::v1::BarDataset&);
+// Validates structure, order, contract units, day coverage and revision.
+void validate_bar_dataset(const data::v1::BarDataset&);
+std::vector<MarketBar> dataset_bars(const data::v1::BarDataset&);
+std::vector<DaySettlement> dataset_days(const data::v1::BarDataset&);
+Json decode_bar_dataset(const data::v1::BarDataset&);
+data::v1::BarDataset encode_bar_dataset(const Json&);
+data::v1::BarDatasetRequest encode_bar_dataset_request(const Json&);
+Json decode_bar_dataset_request(const data::v1::BarDatasetRequest&);
 } // namespace asterion::protocol

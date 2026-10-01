@@ -86,15 +86,36 @@ Decimal FuturesCosts::fee(Offset bucket, Decimal quantity, Decimal price,
 Decimal FuturesCosts::margin(Decimal quantity, Decimal price, Decimal multiplier) const {
   return quantity * margin_per_lot + notional_part(quantity, price, multiplier, margin_rate);
 }
-FuturesAccount::FuturesAccount(Instrument instrument, Decimal deposit, FuturesCosts costs)
-    : instrument_(std::move(instrument)), costs_(costs),
-      policy_(asterion::close_policy(instrument_.id.venue)), balance_(deposit) {
-  instrument_.validate();
-  costs_.validate();
-  if (instrument_.asset_class != AssetClass::futures || deposit <= zero ||
-      !instrument_.quantity_increment.multiple_of(one))
+FuturesAccount::FuturesAccount(Decimal deposit, std::vector<ContractTerms> contracts)
+    : contracts_(std::move(contracts)), marks_(contracts_.size()), balance_(deposit) {
+  if (contracts_.empty() || contracts_.size() > max_portfolio_contracts || deposit <= zero)
     throw std::invalid_argument(
-        "futures account requires a positive deposit and whole-lot quantity increment");
+        "futures account requires a positive deposit and 1 to 20 contracts");
+  for (std::size_t i = 0; i < contracts_.size(); ++i) {
+    const auto& terms = contracts_[i];
+    terms.instrument.validate();
+    terms.costs.validate();
+    if (terms.instrument.asset_class != AssetClass::futures ||
+        !terms.instrument.quantity_increment.multiple_of(one) ||
+        terms.instrument.quote_currency != contracts_.front().instrument.quote_currency)
+      throw std::invalid_argument(
+          "portfolio contracts must be futures in one currency with whole-lot quantities");
+    for (std::size_t j = 0; j < i; ++j)
+      if (contracts_[j].instrument.id == terms.instrument.id)
+        throw std::invalid_argument("duplicate portfolio contract");
+  }
+}
+std::size_t FuturesAccount::contract_index(const InstrumentId& instrument) const {
+  for (std::size_t i = 0; i < contracts_.size(); ++i)
+    if (contracts_[i].instrument.id == instrument)
+      return i;
+  throw std::invalid_argument("contract is not part of this account");
+}
+Decimal FuturesAccount::last_mark(const InstrumentId& instrument) const {
+  return marks_[contract_index(instrument)];
+}
+ClosePolicy FuturesAccount::close_policy(const InstrumentId& instrument) const {
+  return asterion::close_policy(contracts_[contract_index(instrument)].instrument.id.venue);
 }
 std::size_t FuturesAccount::index_of(const std::string& id) const {
   const auto found = order_index_.find(id);
@@ -105,38 +126,46 @@ std::size_t FuturesAccount::index_of(const std::string& id) const {
 bool FuturesAccount::has_working_orders() const noexcept {
   return std::ranges::any_of(orders_, active);
 }
-// Positions are margined at the latest mark (their basis before any mark).
+// Positions are margined at their contract's latest mark (their basis before any mark).
 Decimal FuturesAccount::margin() const {
   Decimal result;
-  for (const auto& lot : lots_)
-    result = result +
-             costs_.margin(lot.quantity, mark_ == zero ? lot.price : mark_, instrument_.multiplier);
+  for (const auto& lot : lots_) {
+    const auto index = contract_index(lot.instrument);
+    const auto& terms = contracts_[index];
+    result =
+        result + terms.costs.margin(lot.quantity, marks_[index] == zero ? lot.price : marks_[index],
+                                    terms.instrument.multiplier);
+  }
   return result;
 }
 Decimal FuturesAccount::unrealized() const {
   Decimal result;
-  if (mark_ == zero)
-    return result;
-  for (const auto& lot : lots_)
-    result = result + (lot.side == Side::buy ? mark_ - lot.price : lot.price - mark_) *
-                          lot.quantity * instrument_.multiplier;
+  for (const auto& lot : lots_) {
+    const auto index = contract_index(lot.instrument);
+    const auto mark = marks_[index];
+    if (mark == zero)
+      continue;
+    result = result + (lot.side == Side::buy ? mark - lot.price : lot.price - mark) * lot.quantity *
+                          contracts_[index].instrument.multiplier;
+  }
   return result;
 }
 Decimal FuturesAccount::reserved(const AccountOrder& item) const {
+  const auto& terms = contracts_[contract_index(item.order.request().instrument)];
   const auto quantity = item.order.remaining_quantity();
   const auto price = item.order.request().limit_price;
-  const auto multiplier = instrument_.multiplier;
+  const auto multiplier = terms.instrument.multiplier;
   switch (item.offset) {
   case Offset::open:
-    return costs_.margin(quantity, price, multiplier) +
-           costs_.fee(Offset::open, quantity, price, multiplier);
+    return terms.costs.margin(quantity, price, multiplier) +
+           terms.costs.fee(Offset::open, quantity, price, multiplier);
   case Offset::close_today:
   case Offset::close_yesterday:
-    return costs_.fee(item.offset, quantity, price, multiplier);
+    return terms.costs.fee(item.offset, quantity, price, multiplier);
   case Offset::close:
     // The exchange picks the buckets at fill time: reserve the dearer fee.
-    return std::max(costs_.fee(Offset::close_today, quantity, price, multiplier),
-                    costs_.fee(Offset::close_yesterday, quantity, price, multiplier));
+    return std::max(terms.costs.fee(Offset::close_today, quantity, price, multiplier),
+                    terms.costs.fee(Offset::close_yesterday, quantity, price, multiplier));
   }
   throw std::invalid_argument("invalid open/close offset");
 }
@@ -150,13 +179,15 @@ Decimal FuturesAccount::frozen() const {
 Decimal FuturesAccount::available() const {
   return std::min(balance_, balance_ + unrealized()) - margin() - frozen();
 }
-Decimal FuturesAccount::closable(Side side, std::optional<bool> today) const {
+Decimal FuturesAccount::closable(const InstrumentId& instrument, Side side,
+                                 std::optional<bool> today) const {
   Decimal result;
   for (const auto& lot : lots_)
-    if (lot.side == side && (!today || lot.today == *today))
+    if (lot.instrument == instrument && lot.side == side && (!today || lot.today == *today))
       result = result + lot.quantity;
   for (const auto& item : orders_)
-    if (active(item) && item.offset != Offset::open && item.order.request().side != side &&
+    if (active(item) && item.order.request().instrument == instrument &&
+        item.offset != Offset::open && item.order.request().side != side &&
         (!today || item.offset == Offset::close || (item.offset == Offset::close_today) == *today))
       result = result - item.order.remaining_quantity();
   return result;
@@ -173,17 +204,20 @@ void FuturesAccount::submit(LimitOrder request, Offset offset) {
     throw std::invalid_argument("duplicate order identity");
   if (request.limit_price <= zero)
     throw std::invalid_argument("futures paper model requires a positive limit price");
-  Order order(std::move(request), instrument_);
+  const auto index = contract_index(request.instrument);
+  const auto instrument = contracts_[index].instrument.id;
+  Order order(std::move(request), contracts_[index].instrument);
   const auto& accepted = order.request();
-  if (mark_ == zero)
-    throw std::invalid_argument("replay at least one market event first");
+  if (marks_[index] == zero)
+    throw std::invalid_argument("replay at least one market event of this contract first");
+  const auto policy = asterion::close_policy(instrument.venue);
   const bool explicit_close = offset == Offset::close_today || offset == Offset::close_yesterday;
-  if (offset != Offset::open && explicit_close != (policy_ == ClosePolicy::explicit_buckets))
-    throw std::invalid_argument(policy_ == ClosePolicy::explicit_buckets
+  if (offset != Offset::open && explicit_close != (policy == ClosePolicy::explicit_buckets))
+    throw std::invalid_argument(policy == ClosePolicy::explicit_buckets
                                     ? "this venue requires close_today or close_yesterday"
                                     : "this venue assigns buckets itself; use close");
   if (offset != Offset::open &&
-      closable(accepted.side == Side::buy ? Side::sell : Side::buy,
+      closable(instrument, accepted.side == Side::buy ? Side::sell : Side::buy,
                explicit_close ? std::optional<bool>(offset == Offset::close_today) : std::nullopt) <
           accepted.quantity)
     throw std::invalid_argument(
@@ -222,27 +256,30 @@ bool FuturesAccount::fill(const Fill& report) {
   auto order = item.order;
   order.apply(report);
   const auto side = order.request().side;
-  const auto multiplier = instrument_.multiplier;
+  const auto instrument = order.request().instrument;
+  const auto& terms = contracts_[contract_index(instrument)];
+  const auto multiplier = terms.instrument.multiplier;
   auto fees = fees_;
   auto balance = balance_;
   auto realized = realized_;
   auto lots = lots_;
   const auto charge = [&](Offset bucket, Decimal quantity) {
-    const auto fee = costs_.fee(bucket, quantity, report.price, multiplier);
+    const auto fee = terms.costs.fee(bucket, quantity, report.price, multiplier);
     fees = fees + fee;
     balance = balance - fee;
   };
   if (item.offset == Offset::open) {
     charge(Offset::open, report.quantity);
-    lots.push_back({side, true, report.quantity, report.price});
+    lots.push_back({instrument, side, true, report.quantity, report.price});
   } else {
     // Buckets in the order this fill consumes them.
+    const auto policy = asterion::close_policy(instrument.venue);
     std::vector<bool> buckets;
     if (item.offset == Offset::close_today)
       buckets = {true};
     else if (item.offset == Offset::close_yesterday)
       buckets = {false};
-    else if (policy_ == ClosePolicy::today_first)
+    else if (policy == ClosePolicy::today_first)
       buckets = {true, false};
     else
       buckets = {false, true};
@@ -252,7 +289,7 @@ bool FuturesAccount::fill(const Fill& report) {
       for (auto& lot : lots) {
         if (remaining == zero)
           break;
-        if (lot.side == side || lot.today != today)
+        if (lot.instrument != instrument || lot.side == side || lot.today != today)
           continue;
         const auto amount = std::min(remaining, lot.quantity);
         const auto pnl =
@@ -283,23 +320,29 @@ bool FuturesAccount::fill(const Fill& report) {
   fills_.push_back(std::move(recorded));
   return true;
 }
-void FuturesAccount::mark(Decimal price) {
-  if (price <= zero || !price.multiple_of(instrument_.price_increment))
+void FuturesAccount::mark(const InstrumentId& instrument, Decimal price) {
+  const auto index = contract_index(instrument);
+  if (price <= zero || !price.multiple_of(contracts_[index].instrument.price_increment))
     throw std::invalid_argument("invalid mark price");
-  const auto previous = mark_;
-  mark_ = price;
+  const auto previous = marks_[index];
+  marks_[index] = price;
   try {
     (void)available();
   } catch (...) {
-    mark_ = previous;
+    marks_[index] = previous;
     throw;
   }
 }
-void FuturesAccount::settle(Decimal price) {
+void FuturesAccount::settle(const std::vector<Decimal>& prices) {
   if (has_working_orders())
     throw std::invalid_argument("cancel all working orders before settlement");
-  const auto previous = mark_;
-  mark(price);
+  if (prices.size() != contracts_.size())
+    throw std::invalid_argument("settlement requires one price per contract");
+  for (std::size_t i = 0; i < prices.size(); ++i)
+    if (prices[i] <= zero || !prices[i].multiple_of(contracts_[i].instrument.price_increment))
+      throw std::invalid_argument("invalid settlement price");
+  auto previous = marks_;
+  marks_ = prices;
   try {
     const auto pnl = unrealized();
     const auto balance = balance_ + pnl;
@@ -307,26 +350,36 @@ void FuturesAccount::settle(Decimal price) {
     auto lots = lots_;
     for (auto& lot : lots) {
       lot.today = false;
-      lot.price = price;
+      lot.price = prices[contract_index(lot.instrument)];
     }
+    (void)available();
     lots_ = std::move(lots);
     balance_ = balance;
     realized_ = realized;
   } catch (...) {
-    mark_ = previous;
+    marks_ = std::move(previous);
     throw;
   }
 }
 Json FuturesAccount::snapshot() const {
-  Json positions = Json::array(), orders = Json::array(), fills = Json::array();
+  Json positions = Json::array(), orders = Json::array(), fills = Json::array(),
+       marks = Json::array();
+  for (std::size_t i = 0; i < contracts_.size(); ++i)
+    marks.push_back({{"venue", contracts_[i].instrument.id.venue},
+                     {"symbol", contracts_[i].instrument.id.symbol},
+                     {"mark", marks_[i].str()}});
   for (const auto& lot : lots_)
-    positions.push_back({{"side", lot.side == Side::buy ? "buy" : "sell"},
+    positions.push_back({{"venue", lot.instrument.venue},
+                         {"symbol", lot.instrument.symbol},
+                         {"side", lot.side == Side::buy ? "buy" : "sell"},
                          {"bucket", lot.today ? "today" : "yesterday"},
                          {"quantity", lot.quantity.str()},
                          {"basis", lot.price.str()}});
   for (const auto& item : orders_) {
     const auto& r = item.order.request();
     orders.push_back({{"id", r.id},
+                      {"venue", r.instrument.venue},
+                      {"symbol", r.instrument.symbol},
                       {"side", r.side == Side::buy ? "buy" : "sell"},
                       {"offset", offset_name(item.offset)},
                       {"quantity", r.quantity.str()},
@@ -334,11 +387,15 @@ Json FuturesAccount::snapshot() const {
                       {"filled", item.order.filled_quantity().str()},
                       {"state", state_name(item.order.state())}});
   }
-  for (const auto& f : fills_)
+  for (const auto& f : fills_) {
+    const auto& r = orders_[index_of(f.order_id)].order.request();
     fills.push_back({{"id", f.execution_id},
                      {"order_id", f.order_id},
+                     {"venue", r.instrument.venue},
+                     {"symbol", r.instrument.symbol},
                      {"quantity", f.quantity.str()},
                      {"price", f.price.str()}});
+  }
   return {{"balance", balance_.str()},
           {"equity", (balance_ + unrealized()).str()},
           {"available", available().str()},
@@ -347,7 +404,7 @@ Json FuturesAccount::snapshot() const {
           {"fees", fees_.str()},
           {"realized", realized_.str()},
           {"unrealized", unrealized().str()},
-          {"mark", mark_.str()},
+          {"marks", marks},
           {"positions", positions},
           {"orders", orders},
           {"fills", fills}};

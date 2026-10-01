@@ -14,7 +14,7 @@ p.add_argument("--arch", choices=["armv8", "x86_64"], default="armv8" if platfor
 args = p.parse_args()
 if args.os in ('linux', 'windows') and args.arch != 'x86_64':
     p.error(f'{args.os} CTP SDK currently supports x86_64 only')
-manifest = json.loads((ROOT / "conan/ctp-md/sources.json").read_text())[args.os]
+manifest = json.loads((ROOT / "conan/ctp/sources.json").read_text())[args.os]
 stage = ROOT / "build/ctp-sdk" / (args.os + "-" + args.arch)
 stage.mkdir(parents=True, exist_ok=True)
 for name, item in manifest.items():
@@ -24,4 +24,6 @@ for name, item in manifest.items():
         if hashlib.sha256(data).hexdigest() != item["sha256"]:
             raise SystemExit("CTP SDK checksum mismatch: " + name)
         target.write_bytes(data)
-subprocess.run(["conan", "export-pkg", str(ROOT / "conan/ctp-md"), "--output-folder", str(stage / "conan"), "-s", "os=" + {"macos":"Macos","linux":"Linux","windows":"Windows"}[args.os], "-s", "arch=" + args.arch, "-c", "user.ctp:sdk_root=" + str(stage)], check=True)
+subprocess.run(["conan", "export-pkg", str(ROOT / "conan/ctp"), "--output-folder", str(stage / "conan"), "-s", "os=" + {"macos":"Macos","linux":"Linux","windows":"Windows"}[args.os], "-s", "arch=" + args.arch, "-c", "user.ctp:sdk_root=" + str(stage)], check=True)
+# Local recipes that patch an upstream dependency; conan.lock pins their revisions.
+subprocess.run(["conan", "export", str(ROOT / "conan/duckdb"), "--version", "1.4.3"], check=True)

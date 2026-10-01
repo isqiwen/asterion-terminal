@@ -1,15 +1,20 @@
 syntax = "proto3";
+import "asterion/v1/node.proto";
 package asterion.market.v1;
 message Empty {}
 message Instrument { string venue = 1; string symbol = 2; }
 // Password exists only in an authenticated request and service memory, never a snapshot.
 message Connect { string front = 1; string broker = 2; string user = 3; string password = 4; repeated Instrument instruments = 5; }
+message CatalogRequest { string front = 1; string broker = 2; string user = 3; string password = 4; string app_id = 5; string auth_code = 6; }
+message CatalogContract { Instrument instrument = 1; string product = 2; string expiry = 3; int32 multiplier = 4; string price_tick = 5; string name = 6; string contract_id = 7; }
+message CatalogState { string phase = 1; string error_code = 2; string diagnostic = 3; string trading_day = 4; repeated CatalogContract contracts = 5; }
 message Subscribe { repeated Instrument instruments = 1; }
 message Watch {}
 // Initial read: empty stream_id and after_sequence=0. Subsequent reads must
 // retain stream identity; this bounded volatile stream is not a durable archive.
 message ReadEvents { string stream_id = 1; uint64 after_sequence = 2; uint32 limit = 3; }
-message Request { uint32 version = 1; string service_id = 2; string correlation_id = 3; oneof operation { Connect connect = 10; Subscribe subscribe = 11; Empty disconnect = 12; Empty snapshot = 13; Watch watch = 14; Empty heartbeat = 15; ReadEvents events = 16; } }
+message Request { uint32 version = 1; string service_id = 2; string correlation_id = 3; oneof operation { Connect connect = 10; Subscribe subscribe = 11; Empty disconnect = 12; Empty snapshot = 13; Watch watch = 14; Empty heartbeat = 15; ReadEvents events = 16; CatalogRequest catalog = 17; MinuteRequest minutes = 18; asterion.node.v1.Quiesce quiesce = 30; } }
+message DepthLevel { optional string price = 1; optional int64 quantity = 2; }
 message Quote {
   Instrument instrument = 1;
   optional string last = 2; optional string bid = 3; optional string ask = 4;
@@ -17,12 +22,26 @@ message Quote {
   optional string previous_settlement = 8; optional string high = 9; optional string low = 10; optional string open_interest = 11;
   string action_day = 12; string trading_day = 13; string update_time = 14;
   int64 source_ms = 15; int64 received_ms = 16;
+  // Exactly four entries on each side for levels 2..5. Missing values stay absent.
+  repeated DepthLevel bid_levels = 17; repeated DepthLevel ask_levels = 18;
+  optional string open = 19; optional string upper_limit = 20; optional string lower_limit = 21;
+  optional string previous_close = 22; optional string open_interest_change = 23;
+  // Per-unit session average price (provider turnover / volume / multiplier).
+  optional string average_price = 24;
 }
-message Subscription { Instrument instrument = 1; string state = 2; int32 error_code = 3; Quote quote = 4; }
-message Snapshot { string instance_id = 1; string phase = 2; int32 error_code = 3; uint64 sequence = 4; uint64 out_of_order = 5; repeated Subscription subscriptions = 6; }
+// change_1m_percent: last price versus the latest observation at least 60 s
+// earlier in the same trading day; absent until such an observation exists.
+message Subscription { Instrument instrument = 1; string state = 2; int32 error_code = 3; Quote quote = 4; optional string change_1m_percent = 5; }
+message MinuteRequest { Instrument instrument = 1; }
+// Minute bars built by the market service from the observations it received.
+// first_observation_ms marks where this service began observing the trading
+// day; interrupted means observations were lost after that point.
+message MinuteBar { int64 start_ms = 1; string open = 2; string high = 3; string low = 4; string close = 5; int64 volume = 6; optional string average_price = 7; optional string open_interest = 8; }
+message MinuteSeries { Instrument instrument = 1; string trading_day = 2; int64 first_observation_ms = 3; bool interrupted = 4; repeated MinuteBar bars = 5; optional string previous_settlement = 6; }
+message Snapshot { string instance_id = 1; string phase = 2; int32 error_code = 3; uint64 sequence = 4; uint64 out_of_order = 5; repeated Subscription subscriptions = 6; CatalogState catalog = 7; repeated Instrument watchlist = 8; }
 message Health { string instance_id = 1; string phase = 2; }
 message Error { string code = 1; string message = 2; }
-message Response { uint32 version = 1; string service_id = 2; string correlation_id = 3; oneof result { Snapshot snapshot = 10; Health health = 11; Error error = 12; EventBatch events = 13; } }
+message Response { uint32 version = 1; string service_id = 2; string correlation_id = 3; oneof result { Snapshot snapshot = 10; Health health = 11; Error error = 12; EventBatch events = 13; MinuteSeries minutes = 14; } }
 
 message QuoteObservation { Quote quote = 1; bool out_of_order = 2; }
 message Event {

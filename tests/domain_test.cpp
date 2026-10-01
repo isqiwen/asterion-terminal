@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 
 #include <asterion/domain/order.hpp>
-#include <asterion/kernel/event_bus.hpp>
 
 #include <iostream>
 #include <limits>
@@ -64,15 +63,18 @@ TEST(Domain, decimal_contract) {
 TEST(Domain, market_contract) {
   auto spec = instrument();
   spec.validate();
-  TradeTick{spec.id, 0, d("-0.2"), d("1")}.validate(spec);
-  EXPECT_THROW(([&] { TradeTick{spec.id, -1, d("1"), d("1")}.validate(spec); })(),
-               std::invalid_argument);
-  EXPECT_THROW(([&] { TradeTick{spec.id, 1, d("1.1"), d("1")}.validate(spec); })(),
-               std::invalid_argument);
-  EXPECT_THROW(([&] { TradeTick{{"OTHER", spec.id.symbol}, 1, d("1"), d("1")}.validate(spec); })(),
-               std::invalid_argument);
-  EXPECT_THROW(([&] { TradeTick{spec.id, 1, d("1"), d("0.5")}.validate(spec); })(),
-               std::invalid_argument);
+  const auto ok = [&](MarketBar bar) { bar.validate(spec); };
+  const auto bad = [&](MarketBar bar) {
+    EXPECT_THROW(([&] { bar.validate(spec); })(), std::invalid_argument);
+  };
+  // Negative prices can be valid in some derivative markets.
+  ok({"2026-09-28", 0, d("-0.2"), d("0"), d("-0.4"), d("-0.2"), d("1")});
+  bad({"2026-09-28", -1, d("1"), d("1"), d("1"), d("1"), d("1")});
+  bad({"2026-09-28", 1, d("1.1"), d("2"), d("1"), d("1"), d("1")});
+  bad({"2026-09-28", 1, d("1"), d("1"), d("1"), d("1"), d("0.5")});
+  bad({"2026-09-28", 1, d("1"), d("1"), d("2"), d("1"), d("1")}); // low above high
+  bad({"2026-09-28", 1, d("3"), d("2"), d("1"), d("1"), d("1")}); // open above high
+  bad({"2026-02-30", 1, d("1"), d("1"), d("1"), d("1"), d("1")}); // invalid trading day
   spec.price_increment = Decimal{};
   EXPECT_THROW(([&] { spec.validate(); })(), std::invalid_argument);
 }
@@ -117,53 +119,4 @@ TEST(Domain, order_contract) {
   sell_order.accept();
   EXPECT_THROW(([&] { sell_order.apply(first); })(), std::invalid_argument);
 }
-TEST(Domain, event_contract) {
-  EventBus<int> bus;
-  std::vector<int> seen;
-  const auto first = bus.subscribe([&](int event) { seen.push_back(event); });
-  bus.subscribe([&, count = 0](int) mutable { seen.push_back(++count); });
-  bus.publish(10);
-  bus.unsubscribe(first);
-  bus.publish(20);
-  EXPECT_TRUE((seen == std::vector<int>{10, 1, 2})) << "ordered handlers retain mutable state";
-  EventBus<int> errors;
-  bool delivered = false;
-  const auto bad = errors.subscribe([](int) { throw std::runtime_error("subscriber error"); });
-  errors.subscribe([&](int) { delivered = true; });
-  EXPECT_THROW(([&] { errors.publish(0); })(), std::runtime_error);
-  EXPECT_TRUE((delivered)) << "other subscribers still receive event";
-  errors.unsubscribe(bad);
-  errors.publish(1);
-  EventBus<int> nested;
-  nested.subscribe([&](int value) { nested.publish(value + 1); });
-  EXPECT_THROW(([&] { nested.publish(0); })(), std::logic_error);
-  EventBus<int> snapshot;
-  int calls = 0;
-  EventBus<int>::Subscription second = 0;
-  snapshot.subscribe([&](int) { snapshot.unsubscribe(second); });
-  second = snapshot.subscribe([&](int) { ++calls; });
-  snapshot.publish(0);
-  snapshot.publish(0);
-  EXPECT_TRUE((calls == 1)) << "unsubscribe during publish takes effect next event";
-}
 } // namespace
-
-#include <asterion/domain/trading_schedule.hpp>
-TEST(TradingSchedule, ExplicitLabelsAndHalfOpenOrderedSessions) {
-  asterion::TradingDaySchedule schedule("2026-09-28", {{10, 20}, {30, 40}, {40, 50}});
-  EXPECT_EQ(schedule.trading_day(), "2026-09-28");
-  EXPECT_FALSE(schedule.session_index(9));
-  EXPECT_EQ(schedule.session_index(10), 0U);
-  EXPECT_EQ(schedule.session_index(19), 0U);
-  EXPECT_FALSE(schedule.session_index(20));
-  EXPECT_FALSE(schedule.session_index(29));
-  EXPECT_EQ(schedule.session_index(40), 2U);
-  EXPECT_FALSE(schedule.session_index(50));
-  EXPECT_THROW((asterion::TradingDaySchedule("2026-02-29", {{10, 20}})), std::invalid_argument);
-  EXPECT_THROW((asterion::TradingDaySchedule("2026-09-28", {{10, 20}, {19, 30}})),
-               std::invalid_argument);
-  EXPECT_THROW((asterion::TradingDaySchedule("2026-09-28", {{20, 30}, {10, 20}})),
-               std::invalid_argument);
-  EXPECT_THROW((asterion::TradingDaySchedule("2026-09-28", {{10, 10}})), std::invalid_argument);
-  EXPECT_THROW((asterion::TradingDaySchedule("2026-09-28", {})), std::invalid_argument);
-}

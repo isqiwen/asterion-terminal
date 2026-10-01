@@ -5,26 +5,8 @@
 #include <stdexcept>
 namespace asterion::protocol {
 namespace {
-Json dataset(const research::v1::FactorInput& input) {
-  validate_message(input);
-  if (input.version() != 4 || !input.has_contract())
-    throw std::invalid_argument("incomplete factor dataset or unsupported version");
-  auto result = decode_dataset(make_trade_dataset(input.contract(), input.ticks()));
-  result.erase("revision");
-  return result;
-}
-} // namespace
-std::string factor_dataset_revision(const research::v1::FactorInput& input) {
-  return sha256_bytes(dataset(input).dump());
-}
-research::v1::FactorInput encode_factor(const Json& input) {
-  require_fields(input, {"version", "dataset_revision", "contract", "ticks", "lookbacks", "horizon",
-                         "evaluation"});
-  if (!input.at("version").is_number_integer() || input.at("version") != 4)
-    throw std::invalid_argument("unsupported factor input version");
-  research::v1::FactorInput result;
-  result.set_version(4);
-  result.set_dataset_revision(input.at("dataset_revision").get<std::string>());
+// Windows and evaluation shared by stored inputs and client requests.
+template <class Target> void parameters(const Json& input, Target& result) {
   const auto& windows = input.at("lookbacks");
   if (!windows.is_array() || windows.empty() || windows.size() > 32)
     throw std::invalid_argument("factor requires 1..32 explicit lookback windows");
@@ -37,7 +19,7 @@ research::v1::FactorInput encode_factor(const Json& input) {
   }
   if (!input.at("horizon").is_number_integer() || input.at("horizon") < 1 ||
       input.at("horizon") > 10000)
-    throw std::invalid_argument("factor horizon must be 1..10000 events");
+    throw std::invalid_argument("factor horizon must be 1..10000 bars");
   result.set_horizon(input.at("horizon").get<unsigned>());
   const auto& evaluation = input.at("evaluation");
   if (evaluation.at("mode") == "full_sample") {
@@ -46,14 +28,14 @@ research::v1::FactorInput encode_factor(const Json& input) {
   } else if (evaluation.at("mode") == "holdout") {
     require_fields(evaluation, {"mode", "split_index"});
     const auto& split = evaluation.at("split_index");
-    if (!split.is_number_integer() || split < 1 || split > 9999)
+    if (!split.is_number_integer() || split < 1 || split > 19999)
       throw std::invalid_argument("invalid factor holdout boundary");
     result.set_holdout_start(split.get<unsigned>());
   } else if (evaluation.at("mode") == "walk_forward") {
     require_fields(evaluation, {"mode", "training_events", "validation_events"});
     for (const auto* key : {"training_events", "validation_events"})
       if (!evaluation.at(key).is_number_integer() || evaluation.at(key) < 1 ||
-          evaluation.at(key) > 10000)
+          evaluation.at(key) > 20000)
         throw std::invalid_argument("invalid walk-forward window");
     auto* rolling = result.mutable_walk_forward();
     rolling->set_training_events(evaluation.at("training_events").get<unsigned>());
@@ -61,17 +43,38 @@ research::v1::FactorInput encode_factor(const Json& input) {
   } else {
     throw std::invalid_argument("unsupported factor evaluation mode");
   }
-  *result.mutable_contract() = encode_contract(input.at("contract"));
-  if (!input.at("ticks").is_array() || input.at("ticks").size() > 10000)
-    throw std::invalid_argument("invalid factor tick count");
-  for (const auto& row : input.at("ticks"))
-    *result.add_ticks() = encode_tick(row);
+}
+} // namespace
+std::string factor_dataset_revision(const research::v1::FactorInput& input) {
+  validate_bar_dataset(input.dataset());
+  return input.dataset().revision();
+}
+research::v1::FactorInput encode_factor(const Json& input) {
+  require_fields(input,
+                 {"version", "dataset_revision", "dataset", "lookbacks", "horizon", "evaluation"});
+  if (!input.at("version").is_number_integer() || input.at("version") != 5)
+    throw std::invalid_argument("unsupported factor input version");
+  research::v1::FactorInput result;
+  result.set_version(5);
+  result.set_dataset_revision(input.at("dataset_revision").get<std::string>());
+  parameters(input, result);
+  *result.mutable_dataset() = encode_bar_dataset(input.at("dataset"));
+  return result;
+}
+research::v1::FactorRequest encode_factor_request(const Json& input) {
+  require_fields(input, {"data", "lookbacks", "horizon", "evaluation"});
+  research::v1::FactorRequest result;
+  *result.mutable_data() = encode_bar_dataset_request(input.at("data"));
+  parameters(input, result);
   return result;
 }
 Json decode_factor(const research::v1::FactorInput& input) {
-  auto result = dataset(input);
-  result.erase("type");
-  if (input.dataset_revision() != sha256_bytes(dataset(input).dump()))
+  validate_message(input);
+  if (input.version() != 5 || !input.has_dataset())
+    throw std::invalid_argument("incomplete factor dataset or unsupported version");
+  Json result;
+  result["dataset"] = decode_bar_dataset(input.dataset());
+  if (input.dataset_revision() != input.dataset().revision())
     throw std::invalid_argument("factor dataset revision mismatch");
   if (!input.horizon() || input.horizon() > 10000 || input.lookbacks_size() < 1 ||
       input.lookbacks_size() > 32)
@@ -89,16 +92,16 @@ Json decode_factor(const research::v1::FactorInput& input) {
   result["dataset_revision"] = input.dataset_revision();
   result["lookbacks"] = windows;
   result["horizon"] = input.horizon();
-  result["version"] = 4;
+  result["version"] = 5;
   if (input.has_full_sample() && input.full_sample())
     result["evaluation"] = {{"mode", "full_sample"}};
   else if (input.has_holdout_start() && input.holdout_start() > 0 &&
-           input.holdout_start() < static_cast<unsigned>(input.ticks_size()))
+           input.holdout_start() < static_cast<unsigned>(input.dataset().bars_size()))
     result["evaluation"] = {{"mode", "holdout"}, {"split_index", input.holdout_start()}};
   else if (input.has_walk_forward() && input.walk_forward().training_events() > 0 &&
-           input.walk_forward().training_events() <= 10000 &&
+           input.walk_forward().training_events() <= 20000 &&
            input.walk_forward().validation_events() > 0 &&
-           input.walk_forward().validation_events() <= 10000)
+           input.walk_forward().validation_events() <= 20000)
     result["evaluation"] = {{"mode", "walk_forward"},
                             {"training_events", input.walk_forward().training_events()},
                             {"validation_events", input.walk_forward().validation_events()}};
@@ -108,7 +111,7 @@ Json decode_factor(const research::v1::FactorInput& input) {
 }
 Json decode_factor_result(const research::v1::FactorResult& result) {
   validate_message(result);
-  if (result.version() != 4)
+  if (result.version() != 5)
     throw std::invalid_argument("unsupported factor result version");
   Json rows = Json::array();
   for (const auto& row : result.samples()) {
@@ -174,7 +177,7 @@ Json decode_factor_result(const research::v1::FactorResult& result) {
           !fold.lookback())
         throw std::invalid_argument("invalid walk-forward fold");
       research::v1::FactorResult metadata;
-      metadata.set_version(4);
+      metadata.set_version(5);
       metadata.set_input_count(result.input_count());
       metadata.set_selection_rule("fixed");
       *metadata.add_partitions() = fold.development();

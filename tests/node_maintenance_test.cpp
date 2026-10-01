@@ -42,8 +42,14 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
   }
   const auto instance = client->status().at("health").at("instance_id").get<std::string>();
   const auto platform = current_platform();
-  client->deploy(ASTERION_TRADE_PATH, platform.os, platform.arch, "paper", 0,
-                 (root / "ledger").string());
+  client->deploy({.service = "paper",
+                  .platform = platform,
+                  .programs = {.executable = ASTERION_TRADE_PATH},
+                  .directory = (root / "ledger").string()});
+  EXPECT_THROW(client->coordinate_upgrade("upgrade.active-trading", "prepare"), std::exception);
+  EXPECT_EQ(client->status().at("state"), "online");
+  EXPECT_TRUE(client->status().at("error").get<std::string>().empty());
+  EXPECT_FALSE(client->status().at("health").at("maintenance").get<bool>());
   EXPECT_THROW(client->maintenance(true, "upgrade.test", instance), std::exception);
   client->action("paper", "stop");
   EXPECT_THROW(client->maintenance(true, "upgrade.test", "different"), std::exception);
@@ -57,8 +63,10 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
   EXPECT_THROW(second.action("paper", "start"), std::exception);
   EXPECT_THROW(second.action("paper", "stop"), std::exception);
   EXPECT_THROW(second.maintenance(false, "wrong", instance), std::exception);
+  EXPECT_EQ(second.status().at("state"), "online");
+  EXPECT_TRUE(second.status().at("error").get<std::string>().empty());
   // Verify every mutation family is rejected before payload handling.
-  for (int operation = 0; operation < 7; ++operation) {
+  for (int operation = 0; operation < 8; ++operation) {
     node::v1::Request request;
     request.set_version(1);
     request.set_correlation_id("blocked");
@@ -80,6 +88,9 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
       break;
     case 5:
       request.mutable_firewall();
+      break;
+    case 6:
+      request.mutable_configure_plugins();
       break;
     default:
       request.mutable_action();
@@ -215,4 +226,98 @@ TEST(NodeMaintenance, SilentLocalPeerDoesNotBlockHealthyStatus) {
   ASSERT_NO_THROW(healthy = std::make_unique<NodeClient>(config));
   EXPECT_EQ(healthy->status().at("state"), "online");
   EXPECT_EQ(healthy->status().at("health").at("pid").get<std::uint64_t>(), agent.id());
+}
+
+TEST(NodeMaintenance, UpgradePreservesDesiredStateAcrossAgentRestartAndCompletionRetry) {
+  const auto root = fs::temp_directory_path() / ("ast-upgrade-" + unique_process_id().substr(0, 8));
+  fs::create_directories(root / "agent");
+  fs::create_directories(root / "running");
+  fs::create_directories(root / "stopped");
+  struct Cleanup {
+    fs::path root;
+    ~Cleanup() {
+      std::error_code e;
+      fs::remove_all(root, e);
+    }
+  } cleanup{root};
+#ifdef _WIN32
+  const auto endpoint = "asterion.upgrade." + unique_process_id();
+#else
+  const auto endpoint = (root / "node.sock").string();
+#endif
+  const NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
+  std::unique_ptr<ChildProcess> agent;
+  std::unique_ptr<NodeClient> client;
+  auto start = [&] {
+#ifndef _WIN32
+    fs::remove(endpoint);
+#endif
+    agent = std::make_unique<ChildProcess>(
+        ASTERION_AGENT_PATH,
+        std::vector<std::string>{"--directory", (root / "agent").string(), "--endpoint", endpoint});
+    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    for (;;) {
+      try {
+        client = std::make_unique<NodeClient>(config);
+        break;
+      } catch (const std::exception&) {
+        if (agent->exited() || std::chrono::steady_clock::now() > deadline)
+          throw;
+        std::this_thread::sleep_for(20ms);
+      }
+    }
+  };
+  auto wait_phase = [&](const std::string& action, const std::string& phase) {
+    const auto deadline = std::chrono::steady_clock::now() + 15s;
+    for (;;) {
+      try {
+        if (client->coordinate_upgrade("upgrade.test", action).at("phase") == phase)
+          break;
+      } catch (const std::exception&) {
+        if (std::chrono::steady_clock::now() > deadline)
+          throw;
+      }
+      ASSERT_LT(std::chrono::steady_clock::now(), deadline);
+      std::this_thread::sleep_for(100ms);
+    }
+  };
+  start();
+  const auto platform = current_platform();
+  for (const auto* name : {"running", "stopped"})
+    client->deploy(
+        {.service = name,
+         .kind = node::v1::MARKET_DATA,
+         .platform = platform,
+         .programs = {.executable = ASTERION_MARKET_PATH, .provider = ASTERION_FAKE_CTP}});
+  client->action("stopped", "stop");
+  EXPECT_EQ(client->coordinate_upgrade("upgrade.test", "prepare").at("phase"), "draining");
+  // Lose the coordinator while draining: persisted process identities fence restart.
+  client.reset();
+  agent.reset();
+  start();
+  wait_phase("prepare", "ready");
+  EXPECT_THROW(client->action("stopped", "start"), std::exception);
+  EXPECT_THROW(client->coordinate_upgrade("upgrade.other", "prepare"), std::exception);
+  client.reset();
+  agent.reset();
+  start();
+  const auto frozen = client->status();
+  for (const auto& service : frozen.at("health").at("services"))
+    EXPECT_EQ(service.at("pid"), 0);
+  wait_phase("resume", "restoring");
+  wait_phase("complete", "complete");
+  EXPECT_EQ(client->coordinate_upgrade("upgrade.test", "resume").at("phase"), "complete");
+  EXPECT_EQ(client->coordinate_upgrade("upgrade.test", "complete").at("phase"), "complete");
+  EXPECT_THROW(client->coordinate_upgrade("upgrade.test", "unknown"), std::exception);
+  client.reset();
+  agent.reset();
+  start();
+  const auto status = client->status();
+  for (const auto& service : status.at("health").at("services")) {
+    const bool running = service.at("id") == "running";
+    EXPECT_EQ(service.at("desired_running"), running);
+    EXPECT_EQ(service.at("pid").get<std::uint64_t>() != 0, running);
+  }
+  client.reset();
+  agent.reset();
 }

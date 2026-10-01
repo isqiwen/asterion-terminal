@@ -6,14 +6,9 @@ node_modules/
 dist/
 .DS_Store
 /.state/
-/apps/terminal/src-tauri/target/
-/apps/terminal/test-results/
-/apps/terminal/playwright-report/
-/apps/terminal/src-tauri/gen/
+/apps/clients/terminal/test-results/
+/apps/clients/terminal/playwright-report/
 /test-results/
 
-/apps/terminal/src-tauri/binaries/
-
-/apps/terminal/src-tauri/resources/remote-linux/
-
-/apps/terminal/src-tauri/resources/native/
+# Independent Cloud checkout used only by CI acceptance.
+.cloud-source/

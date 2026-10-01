@@ -10,16 +10,16 @@ for binary in sys.argv[1:]:
         assert result.returncode == 0 and result.stdout, (binary, option, result)
     result = subprocess.run([binary, "--not-an-option"], capture_output=True, text=True, timeout=10)
     assert result.returncode != 0 and result.stderr, binary
-with tempfile.TemporaryDirectory(prefix="asterion-live-denied-", ignore_cleanup_errors=True) as folder:
-    result = subprocess.run([sys.argv[3], "--mode", "live", "--session", "live.test",
+with tempfile.TemporaryDirectory(prefix="asterion-live-sdk-", ignore_cleanup_errors=True) as folder:
+    result = subprocess.run([sys.argv[2], "--mode", "live", "--session", "live.test",
                              "--endpoint", "asterion.test", "--directory", folder],
                             capture_output=True, text=True, timeout=10)
-    assert result.returncode == 3 and "Live execution unavailable" in result.stderr, result
+    assert result.returncode != 0 and "live sessions require --ctp-library" in result.stderr, result
     assert list(Path(folder).iterdir()) == []
-print("CLI11 help, version, invalid arguments and fail-closed live mode verified")
+print("CLI11 help, version, invalid arguments and live mode without a trader SDK verified")
 
 # Every independent application requires an explicit operation/configuration.
-for binary in sys.argv[5:]:
+for binary in sys.argv[4:]:
     with tempfile.TemporaryDirectory(prefix="asterion-cli-empty-", ignore_cleanup_errors=True) as folder:
         result = subprocess.run([str(Path(binary).resolve())], cwd=folder,
                                 capture_output=True, text=True, timeout=10)

@@ -8,7 +8,8 @@ namespace asterion::ipc {
 // independent.
 class Channel {
 public:
-  static constexpr std::size_t max_frame = 16 * 1024 * 1024;
+  // Research datasets of up to 200000 bars travel as one message.
+  static constexpr std::size_t max_frame = 64 * 1024 * 1024;
   Channel();
   ~Channel();
   Channel(Channel&&) noexcept;

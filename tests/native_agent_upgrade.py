@@ -6,6 +6,8 @@ Task Scheduler access for the current account. Missing prerequisites fail.
 """
 import argparse
 import ctypes
+from concurrent.futures import ThreadPoolExecutor
+import threading
 import hashlib
 import json
 import os
@@ -117,10 +119,47 @@ with tempfile.TemporaryDirectory(prefix="ast-native-", ignore_cleanup_errors=Tru
         assert invoke("stop", os.getpid()).returncode != 0
         assert alive(first)
         before = digest(binary)
-        upgraded = invoke("upgrade", source=revision, expected=before)
-        assert upgraded.returncode == 0, upgraded.stderr
+        deployed = invoke("deploy-market", source=build / ("asterion-market-data" + suffix),
+                          provider=build / ("asterion_test_ctp.dll" if windows else "libasterion_test_ctp.dylib" if mac else "libasterion_test_ctp.so"))
+        assert deployed.returncode == 0, deployed.stderr
+        wait(lambda: json.loads(invoke("market-status").stdout)["phase"] == "connected")
+        initial_status = json.loads(invoke("status").stdout)["health"]
+        unchanged = invoke("upgrade", source=source, expected=before)
+        assert unchanged.returncode == 0, unchanged.stderr
+        assert pid() == first, "A current program must not restart the Agent"
+        assert json.loads(invoke("market-status").stdout)["phase"] == "connected"
+        same_status = json.loads(invoke("status").stdout)["health"]
+        assert [(s["id"], s["pid"]) for s in same_status["services"]] == [(s["id"], s["pid"]) for s in initial_status["services"]]
+        assert not (state / "agent-service-upgrade.json").exists()
+        assert not (state / "maintenance-plan.json").exists()
+        pending = state / "agent-upgrade.pending"
+        pending.write_bytes(b"test-owned incomplete publication")
+        blocked = invoke("upgrade", source=source, expected=before)
+        assert blocked.returncode != 0
+        assert pending.read_bytes() == b"test-owned incomplete publication" and pid() == first
+        pending.unlink()
+        barrier = threading.Barrier(2)
+        def competing_upgrade():
+            barrier.wait()
+            return invoke("upgrade", source=revision, expected=before)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _: competing_upgrade(), range(2)))
+        assert any(result.returncode == 0 for result in results), [result.stderr for result in results]
+        assert all(result.returncode == 0 or "agent directory is already owned" in result.stderr for result in results), [result.stderr for result in results]
+        # A caller that lost the bootstrap lock can safely retry its original request.
+        upgraded_pid = pid()
+        retry = invoke("upgrade", source=revision, expected=before)
+        assert retry.returncode == 0, retry.stderr
+        assert pid() == upgraded_pid, "Completed update retries must not restart the Agent"
+
         wait(lambda: pid() != first and alive(pid()))
         assert digest(binary) == digest(revision)
+        status = invoke("status")
+        assert status.returncode == 0, status.stderr
+        services = {s["id"]: s for s in json.loads(status.stdout)["health"]["services"]}
+        assert services["market-running"]["desired_running"] and services["market-running"]["pid"] > 0
+        assert not services["market-stopped"]["desired_running"] and services["market-stopped"]["pid"] == 0
+        assert json.loads(invoke("market-status").stdout)["phase"] == "disconnected"
         assert marker.read_bytes() == b"Test-owned data must survive an upgrade."
         assert definition.read_bytes() == original
         result = invoke("stop", pid())
@@ -131,6 +170,10 @@ with tempfile.TemporaryDirectory(prefix="ast-native-", ignore_cleanup_errors=Tru
         record = dict(version=1, installed=str(binary), endpoint=endpoint, name=name,
                       before=digest(revision), after=digest(source), phase="quiesced")
         record_path.write_text(json.dumps(record))
+        plan_path = state / "maintenance-plan.json"
+        plan = json.loads(plan_path.read_text())
+        plan.update(operation="upgrade." + digest(source)[:32], phase="ready", processes=[])
+        plan_path.write_text(json.dumps(plan))
         definition.write_bytes(original + b"\n")
         assert invoke("upgrade", source=source, expected=record["before"]).returncode != 0
         assert record_path.exists() and digest(binary) == record["before"]
@@ -152,4 +195,4 @@ with tempfile.TemporaryDirectory(prefix="ast-native-", ignore_cleanup_errors=Tru
             if definition.exists():
                 definition.unlink()
             command(["/usr/bin/systemctl", "--user", "daemon-reload"])
-print("PASS:", sys.platform, "native Agent upgrade, stopped-state proof, checkpoint recovery and data preservation")
+print("PASS:", sys.platform, "native Agent no-op and concurrent upgrade, retained publication rejection, checkpoint recovery and data preservation")
