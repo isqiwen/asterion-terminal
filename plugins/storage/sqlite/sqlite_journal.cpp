@@ -5,7 +5,10 @@ namespace asterion {
 namespace {
 constexpr auto file_name = "journal.sqlite";
 constexpr auto format = "asterion.journal.v1";
-constexpr std::size_t max_records = 20001;
+// A replay bar can produce an advance, a strategy target and a settlement.
+// Leave room for 20000 of each, 10000 orders and their cancellations, and
+// control commands. This is a record budget, independent of the bar budget.
+constexpr std::size_t max_records = 100001;
 // The first record may carry a whole input dataset (up to 200000 bars).
 constexpr std::uintmax_t max_first = 128ULL * 1024 * 1024, max_record = 65536,
                          max_total = 256ULL * 1024 * 1024;

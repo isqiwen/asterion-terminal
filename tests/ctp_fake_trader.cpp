@@ -25,6 +25,7 @@
 #define FAKE_EXPORT extern "C" __attribute__((visibility("default")))
 #endif
 namespace {
+std::atomic<int> quote_rejection_code{0}, quote_rejection_count{0};
 std::atomic<int> catalog_side_effects = 0;
 template <std::size_t N> void put(char (&dest)[N], const std::string& value) {
   std::memset(dest, 0, N);
@@ -488,6 +489,12 @@ public:
   }
   // rb2610 trades at 3500 within 3300..3700; "zz..." has no market.
   int ReqQryDepthMarketData(CThostFtdcQryDepthMarketDataField* request, int id) override {
+    if (quote_rejection_count.load() > 0 && quote_rejection_count.fetch_sub(1) > 0) {
+      auto& x = exchange();
+      std::lock_guard lock(x.mutex);
+      ++x.query_rejections;
+      return quote_rejection_code.load();
+    }
     if (throttled())
       return -3;
     const std::string venue = request->ExchangeID, instrument = request->InstrumentID;
@@ -646,6 +653,8 @@ const char* CThostFtdcTraderApi::GetApiVersion() {
   return "fake-trader";
 }
 FAKE_EXPORT void asterion_fake_trader_reset() {
+  quote_rejection_code = 0;
+  quote_rejection_count = 0;
   auto& x = exchange();
   std::lock_guard lock(x.mutex);
   x.orders.clear();
@@ -666,4 +675,9 @@ FAKE_EXPORT int asterion_fake_trader_query_rejections() {
 
 FAKE_EXPORT int asterion_fake_catalog_side_effects() {
   return catalog_side_effects.load();
+}
+
+FAKE_EXPORT void asterion_fake_trader_reject_quotes(int code, int count) {
+  quote_rejection_code = code;
+  quote_rejection_count = count;
 }

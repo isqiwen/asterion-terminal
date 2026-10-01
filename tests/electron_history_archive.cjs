@@ -53,7 +53,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
       path.join("services", "research", "ledger"),
     );
     await execFile(
-      path.resolve("build/Debug/asterion_test_minutes"),
+      path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug", "asterion_test_minutes"),
       ["--directory", service.directory],
       {
         env: { ...process.env, ASTERION_NODE_DIRECTORY: root, ASTERION_TEST_NODE_ISOLATED: "1" },
@@ -120,7 +120,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     // Native risk deployment uses explicit test history, never a production import.
     await call("node.action", { id: "local", service: "research", action: "stop" });
     const seeded = await execFile(
-      path.resolve("build/Debug/asterion_test_history"),
+      path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug", "asterion_test_history"),
       [
         "--directory",
         service.directory,

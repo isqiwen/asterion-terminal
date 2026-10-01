@@ -450,5 +450,6 @@
   "limit price is outside the exchange price limits": "限价超出交易所涨跌停范围。",
   "limit price deviates from the latest price beyond the session limit": "限价偏离最新价超过本会话的上限，委托未发送。",
   "price deviation limit must be above 0 and below 1": "价格偏离上限必须大于 0 且小于 1。",
-  "CTP trading session changed; the order was not sent": "CTP 交易会话状态已变化，委托未发送。"
+  "CTP trading session changed; the order was not sent": "CTP 交易会话状态已变化，委托未发送。",
+  "paper replay requires 1 to 200000 historical bars": "历史撮合需要 1 至 200000 根 K 线"
 }

@@ -83,6 +83,32 @@ test("Agent runs a bar backtest and restores its evidence", async ({ page }) => 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
+  // Renderer-only capacity fixture; the C++ suite separately runs 200000 bars.
+  // Do not pass the full curve as function arguments (V8 throws RangeError).
+  await page.route("**/__asterion/api", async route => {
+    if (route.request().postDataJSON()?.method !== "research.result") return route.continue();
+    const response = await route.fetch();
+    const body = await response.json();
+    const backtest = body.result?.research_result;
+    if (backtest?.kind === "backtest") {
+      const sample = backtest.result.equity[0];
+      backtest.result.equity = Array.from({ length: 200001 }, (_, i) => ({
+        ...sample,
+        timestamp_ns: String(1790298000000000000n + BigInt(i) * 1000000n),
+        equity: String(10000 + (i % 101)),
+      }));
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await row.getByRole("button", { name: "查看结果", exact: true }).click();
+  await expect(result.getByRole("img", { name: "权益曲线" })).toBeVisible();
+  await expect
+    .poll(async () =>
+      result
+        .locator("polyline")
+        .evaluate(element => element.getAttribute("points")?.trim().split(/\s+/).length),
+    )
+    .toBe(200001);
   page = await openSettingsWindow(page);
   await page.getByLabel("语言", { exact: true }).selectOption("en-US");
   page = await closeSettingsWindow(page);

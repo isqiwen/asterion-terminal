@@ -1,5 +1,6 @@
 #include "paper_execution.hpp"
 #include "portfolio.hpp"
+#include <asterion/protocol/data.hpp>
 #include <algorithm>
 #include <stdexcept>
 namespace asterion {
@@ -38,8 +39,10 @@ PaperExecution::PaperExecution(Decimal deposit, std::vector<ContractBars> contra
     }
     total += contract.bars.size();
   }
-  if (!total || total > paper_max_bars)
-    throw std::invalid_argument("paper replay requires 1 to 20000 historical bars");
+  // In-memory replay shares the research protocol budget. Durable sessions
+  // enforce their smaller bar budget before constructing the engine.
+  if (!total || total > protocol::max_dataset_bars)
+    throw std::invalid_argument("paper replay requires 1 to 200000 historical bars");
   for (const auto& contract : data->contracts)
     if (contract.bars.empty())
       throw std::invalid_argument("every portfolio contract requires historical bars");

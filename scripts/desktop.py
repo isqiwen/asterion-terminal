@@ -104,7 +104,7 @@ def verify_macos_bundle():
                 raise SystemExit("DMG does not contain the trading sidecar")
             run(["codesign", "--verify", "--strict", str(trading)])
             run([str(trading), "--version"])
-            run([sys.executable, str(ROOT / "tests/remote_trading.py"), str(ROOT / "build/Release/asterion_terminal_dev_bridge"), str(trading), str(ROOT / "build/Release/asterion_test_certificates")])
+            run([sys.executable, str(ROOT / "tests/isolated_node.py"), sys.executable, str(ROOT / "tests/remote_trading.py"), str(ROOT / "build/Release/asterion_terminal_dev_bridge"), str(trading), str(ROOT / "build/Release/asterion_test_certificates")])
             node = app / "Contents/Resources/native/asterion-node-agent"
             run(["codesign", "--verify", "--strict", str(node)])
             run([str(node), "--version"])
@@ -130,7 +130,7 @@ def verify_macos_bundle():
                         env[name] = str(app / "Contents/Resources/native" / program)
                     run([sys.executable, str(ROOT / "tests/isolated_node.py"), sys.executable, str(ROOT / "tests/research_agent.py"), str(ROOT / "build/Release/asterion_terminal_dev_bridge")])
                     run([sys.executable, str(ROOT / "tests/isolated_node.py"), sys.executable, str(ROOT / "tests/strategy_terminal.py"), str(ROOT / "build/Release/asterion_terminal_dev_bridge")])
-                    run(["ctest", "--test-dir", str(ROOT / "build/Release"), "-R", "^strategy_calendar_process$", "--output-on-failure", "--no-tests=error"])
+                    run(["ctest", "--test-dir", str(ROOT / "build/Release"), "-R", "^strategy_(replay|calendar)_process$", "--output-on-failure", "--no-tests=error"])
                 finally:
                     for name, value in research_saved.items():
                         if value is None:

@@ -136,8 +136,13 @@ export function Panel({
   const factorResult =
     snapshot?.research_result?.kind === "factor" ? snapshot.research_result : null;
   const values = result?.result.equity.map(p => Number(p.equity)) ?? [];
-  const low = values.length ? Math.min(...values) : 0,
-    high = values.length ? Math.max(...values) : 0;
+  // Full research results can exceed the JavaScript argument-count limit.
+  let low = values[0] ?? 0;
+  let high = low;
+  for (const value of values) {
+    low = Math.min(low, value);
+    high = Math.max(high, value);
+  }
   const points = values
     .map(
       (value, index) =>

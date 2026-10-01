@@ -10,9 +10,10 @@ namespace asterion::trading {
 namespace {
 // Record 0 carries this identity. Bump it whenever authorization, allowlist,
 // risk or order-recording semantics change; recovery refuses other identities.
+// v3: authorization and order submission are fenced by connection generation.
 // v2: limit prices are checked against the broker's latest market (exchange
 // limits and a session deviation bound) before risk.
-const std::string journal_engine = "asterion.live-futures.v2";
+const std::string journal_engine = "asterion.live-futures.v3";
 constexpr int journal_format = 1;
 std::string text(const Json& value, const char* key) {
   auto result = value.at(key).get<std::string>();
@@ -228,6 +229,7 @@ void LiveSession::execute(const Json& command) {
     append({{"command", command}, {"authorization", authorization}});
     commands_.emplace(id, command);
     authorization_ = std::move(authorization);
+    authorization_generation_ = state.connection_generation;
   } else if (action == "live_revoke") {
     require_fields(command, {"request_id", "action"});
     if (authorization_.is_null())
@@ -275,7 +277,7 @@ void LiveSession::submit(const Json& command) {
   if (intents_.contains(order_id))
     throw Error(ErrorCode::conflict, "order ID was already used");
   const auto before = trader_->snapshot();
-  if (authorization_.is_null())
+  if (!authorized(before))
     throw std::invalid_argument("authorize live trading for this account first");
   if (before.phase != "ready")
     throw Error(ErrorCode::unavailable, "CTP trading session is not ready");
@@ -297,7 +299,7 @@ void LiveSession::submit(const Json& command) {
   check_price(order, trader_->quote(id));
   // The quote waits for the CTP query limit; risk reads the account after it.
   const auto state = trader_->snapshot();
-  if (state.phase != "ready" || state.trading_day != before.trading_day)
+  if (!authorized(state))
     throw Error(ErrorCode::unavailable, "CTP trading session changed; the order was not sent");
   // Exposure from broker reports, plus recorded orders the broker has not
   // confirmed: they may still reach the exchange.
@@ -324,13 +326,18 @@ void LiveSession::submit(const Json& command) {
     throw std::invalid_argument("pre-trade risk rejected: " +
                                 std::string(risk_reason_name(decision.reason)));
   // The order is recorded durably before the trader sends anything.
-  trader_->submit(order, offset, [&](const BrokerOrder& pending_order) {
+  trader_->submit(order, offset, authorization_generation_, [&](const BrokerOrder& pending_order) {
     append({{"command", command},
             {"broker_key", pending_order.broker_key},
             {"trading_day", state.trading_day}});
     commands_.emplace(text(command, "request_id"), command);
     intents_[order_id] = {pending_order.broker_key, state.trading_day, id, offset, order.quantity};
   });
+}
+bool LiveSession::authorized(const BrokerSnapshot& state) const {
+  return !authorization_.is_null() && state.phase == "ready" &&
+         authorization_generation_ == state.connection_generation &&
+         authorization_.at("trading_day") == state.trading_day;
 }
 Json LiveSession::snapshot() const {
   const auto state = trader_->snapshot();
@@ -346,7 +353,7 @@ Json LiveSession::snapshot() const {
               {"positions", Json::array()},
               {"orders", Json::array()},
               {"trades", Json::array()},
-              {"authorization", authorization_},
+              {"authorization", authorized(state) ? authorization_ : Json(nullptr)},
               {"unconfirmed", Json::array()},
               {"costs", Json::array()},
               {"storage_state", failed_ ? "recovery_required" : "ready"}};

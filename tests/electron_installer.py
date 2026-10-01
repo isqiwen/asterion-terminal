@@ -25,6 +25,13 @@ def exercise(program, screenshots):
         raise RuntimeError(f"Installed desktop executable is missing: {program}")
     env = dict(os.environ, ASTERION_TEST_ELECTRON=str(program),
                ASTERION_UI_SCREENSHOTS=str(screenshots))
+    if sys.platform == "darwin":
+        # Fixtures persist provider digests. Use the installed, re-signed
+        # plugins, whose bytes differ from the build-tree libraries.
+        plugins = program.parent.parent / "Resources/native/plugins"
+        if not plugins.is_dir():
+            raise RuntimeError(f"Installed plugin directory is missing: {plugins}")
+        env["ASTERION_PLUGIN_DIRECTORY"] = str(plugins)
     node = shutil.which("node")
     if not node:
         raise RuntimeError("Node.js is required for installed desktop acceptance")

@@ -249,7 +249,7 @@ TEST_F(Live, CredentialsAreNeverWrittenAndHeadersPinTheEngine) {
   }
   const auto header_file = test::journal_record(directory.path, 0);
   auto header = test::read_record(header_file);
-  EXPECT_EQ(header.at("engine"), "asterion.live-futures.v2");
+  EXPECT_EQ(header.at("engine"), "asterion.live-futures.v3");
   EXPECT_EQ(header.at("manifest"), manifest());
   header["engine"] = "asterion.live-futures.v1";
   test::write_record(header_file, header);
@@ -343,4 +343,22 @@ TEST(LiveProtocol, SnapshotAndCommandsRoundTrip) {
   auto spaced = manifest();
   spaced["broker"]["user_id"] = "000 001";
   EXPECT_THROW(protocol::encode_live_input(spaced), std::invalid_argument);
+}
+
+TEST_F(Live, AutomaticReconnectRequiresNewAuthorizationEvenOnTheSameTradingDay) {
+  LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, manifest());
+  ASSERT_EQ(ready(session).at("phase"), "ready");
+  session.execute(authorize());
+  ctp::SharedLibrary reconnect(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reconnect",
+                               "asterion_fake_trader_reconnect");
+  reconnect.symbol<void (*)()>()();
+  ASSERT_TRUE(wait_for(session, [](const Json& s) { return s.at("authorization").is_null(); })
+                  .at("authorization")
+                  .is_null());
+  ASSERT_EQ(wait_for(session, [](const Json& s) { return s.at("phase") == "ready"; }).at("phase"),
+            "ready");
+  EXPECT_THROW(session.execute(submit("old.authorization", "1")), std::invalid_argument);
+  EXPECT_TRUE(session.snapshot().at("orders").empty());
+  session.execute(authorize("new.connection"));
+  EXPECT_NO_THROW(session.execute(submit("new.authorization", "1")));
 }

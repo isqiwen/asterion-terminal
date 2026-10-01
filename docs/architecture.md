@@ -35,7 +35,7 @@ flowchart TB
 | --- | --- |
 | `asterion-node-agent` | 部署、启停、健康探测、有限重启、程序升级 |
 | `asterion-market-data` | CTP 实时行情、合约目录、事件流、当日分钟线与 1 分钟涨速 |
-| `asterion-trading` | 模拟交易会话（账本、撮合、风控、持久日志） |
+| `asterion-trading` | 模拟与实盘会话（授权、风控、执行链与持久日志；模拟另含账本与撮合） |
 | `asterion-task-service` | 研究任务与执行尝试的持久化队列 |
 | `asterion-backtest` / `asterion-factor` / `asterion-data-pipeline` | 按任务启动的工作程序 |
 | `asterion-strategy` | 可信策略宿主，输出目标持仓意图 |
@@ -47,13 +47,13 @@ flowchart TB
 | 类别 | 实现 |
 | --- | --- |
 | 数据 | `data/ctp`（行情与合约目录）、`data/tushare`（分钟线、日线）、`data/registry`（历史数据源组合与目录入口） |
-| 执行 | `execution/paper`（历史撮合）、`execution/ctp`（交易接口，未开放） |
+| 执行 | `execution/paper`（历史撮合）、`execution/ctp`（实盘交易接口） |
 | 存储 | `storage/sqlite`（账本、策略与任务的有序日志和索引）、`storage/filesystem`（历史数据版本目录） |
 | 策略 | `strategy/cta`（SMA） |
 | 风控 | `risk/order-limits`（交易前限额） |
 | 工具 | `tools/chart_indicators`（均线、MACD）、`tools/factor_analysis`、`tools/runtime_info` |
 
-插件在编译期注册，运行在宿主进程内，是可信代码。
+历史数据与交易前风控通过原生 ABI 动态装载，其余业务插件仍使用仓库内 C++ 接口和静态目标。UI 插件在构建时注册。所有插件均为宿主进程内的可信代码；能力范围见 [原生插件 SDK](native-plugins.md)。
 
 ## Terminal
 

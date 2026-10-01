@@ -27,15 +27,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-latest, windows-latest]
+        os: [ubuntu-22.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: ilammy/msvc-dev-cmd@v1
-        if: runner.os == 'Windows'
       - run: python -m pip install conan==2.32.0 ninja
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
@@ -116,9 +114,7 @@ jobs:
         os: [macos-latest]
     runs-on: ${{ matrix.os }}
     env:
-      # Windows desktop builds link Release C++ (see scripts/desktop.py).
-      # The runner context is unavailable at job level; derive from the matrix.
-      ASTERION_CPP_BUILD: ${{ github.workspace }}/build/${{ matrix.os == 'windows-latest' && 'Release' || 'Debug' }}
+      ASTERION_CPP_BUILD: ${{ github.workspace }}/build/Debug
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -130,8 +126,6 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: "10.32.1"
-      - uses: ilammy/msvc-dev-cmd@v1
-        if: runner.os == 'Windows'
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
         run: |
@@ -148,7 +142,7 @@ jobs:
           path: build/linux-bundles
       - name: Build and link native desktop
         run: python scripts/desktop.py check
-      - run: ctest --preset conan-${{ runner.os == 'Windows' && 'release' || 'debug' }} --output-on-failure
+      - run: ctest --preset conan-debug --output-on-failure
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
       - name: Exercise native Electron host (Linux)

@@ -1019,3 +1019,18 @@ TEST(Research, PortfolioOfIdenticalContractsDoublesEveryLedgerEffect) {
   shifted.set_dataset_revision(protocol::dataset_revision(shifted.paper()));
   EXPECT_THROW(backtest::run(shifted), std::invalid_argument);
 }
+
+TEST(Research, FullResearchBarBudgetRunsThroughFinalSettlement) {
+  auto spec = input();
+  std::vector<MarketBar> bars;
+  for (std::size_t i = 0; i < protocol::max_dataset_bars; ++i)
+    bars.push_back(test::flat("2026-09-25", 1790298000000000000LL + i * 1000000LL, "100", "10"));
+  *spec.mutable_paper()->mutable_contracts(0)->mutable_dataset() =
+      test::dataset(bars, {{"2026-09-25", d("100")}});
+  spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
+  const auto result = backtest::run(spec);
+  EXPECT_EQ(result.equity_size(), protocol::max_dataset_bars + 1);
+  ASSERT_EQ(result.settlements_size(), 1);
+  EXPECT_EQ(result.settlements(0).balance().units(), d("10000").raw());
+  EXPECT_EQ(result.account().cursor(), protocol::max_dataset_bars);
+}

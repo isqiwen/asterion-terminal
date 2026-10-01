@@ -81,6 +81,7 @@ test("quote columns apply atomically, preserve values and navigation, and reset 
   await dialog.getByRole("checkbox", { name: "持仓量", exact: true }).uncheck();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
+  await expect(menu.getByRole("button", { name: "行情表头设置", exact: true })).toBeFocused();
   await expect(heads).toHaveText(original);
   await openColumns();
   await dialog.getByRole("checkbox", { name: "持仓量", exact: true }).uncheck();

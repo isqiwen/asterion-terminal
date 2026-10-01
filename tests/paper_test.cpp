@@ -1170,3 +1170,36 @@ TEST(PaperPortfolio, ContractsOnDifferentTradingDaysAreRefusedBeforeWriting) {
   EXPECT_THROW(PaperSession(dir.path, duplicate), std::invalid_argument);
   EXPECT_EQ(test::journal_size(dir.path), 0U);
 }
+
+TEST(PaperSession, FullSessionBudgetIncludesStrategyCommandsSettlementAndRecovery) {
+  Directory directory;
+  auto spec = manifest();
+  std::vector<MarketBar> values;
+  for (std::size_t i = 0; i < protocol::max_session_bars; ++i)
+    values.push_back(test::flat("2026-09-25", (i + 1) * 100LL, "100", "10"));
+  spec["contracts"][0]["dataset"] = test::dataset_json(values, {{"2026-09-25", d("100")}});
+  auto authorization = grant(spec);
+  authorization["dataset_revision"] = protocol::dataset_revision(protocol::encode_input(spec));
+  Json completed;
+  const Json revoke{
+      {"request_id", "stop"}, {"action", "strategy_revoke"}, {"grant_id", "grant.one"}};
+  {
+    PaperSession session(directory.path, spec);
+    session.execute(authorization);
+    for (std::size_t i = 0; i < protocol::max_session_bars; ++i) {
+      session.execute(advance("step." + std::to_string(i)));
+      if (i + 1 < protocol::max_session_bars)
+        session.execute(target(authorization, "target." + std::to_string(i), i + 1, "0"));
+    }
+    session.execute(settle_day("finish", 0));
+    session.execute(revoke);
+    completed = session.snapshot();
+    EXPECT_EQ(completed.at("replay").at("settled_days"), 1);
+    EXPECT_EQ(completed.at("cursor"), protocol::max_session_bars);
+  }
+  EXPECT_GT(test::journal_size(directory.path), 2 * protocol::max_session_bars);
+  PaperSession restored(directory.path);
+  EXPECT_EQ(restored.snapshot(), completed);
+  EXPECT_NO_THROW(restored.execute(settle_day("finish", 0)));
+  EXPECT_NO_THROW(restored.execute(revoke));
+}

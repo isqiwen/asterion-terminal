@@ -25,7 +25,8 @@ Decimal decimal(const Json& value, const char* key) {
 // v5: futures portfolio over contracts sharing trading days; one bar event
 // stream; each order fills on its own contract's next bar; day-end settlement
 // at every contract's dataset price.
-const std::string journal_engine = "asterion.paper-futures.v5";
+// v6: the durable command budget covers a complete 20000-bar strategy replay.
+const std::string journal_engine = "asterion.paper-futures.v6";
 constexpr int journal_format = 5;
 // Cheap fingerprint of post-command state. Replay must reproduce it exactly.
 Json outcome(const PaperExecution& engine, const Json& authorization, const Json& replay) {

@@ -67,6 +67,8 @@ struct BrokerSnapshot {
   std::string trading_day;
   // Increments on every change; lets callers skip unchanged snapshots.
   std::uint64_t sequence = 0;
+  // Changes whenever a connection ends; authorization is scoped to this value.
+  std::uint64_t connection_generation = 0;
   // Wall-clock ms of the last completed funds/positions/orders/trades query.
   std::int64_t synchronized_ms = 0;
   std::optional<BrokerFunds> funds;
@@ -80,6 +82,8 @@ struct BrokerSnapshot {
 // duty; the provider only routes and reports.
 class BrokerExecutionPort : public Plugin {
 public:
+  // Rejects a connection_generation different from the caller's authorized
+  // snapshot before allocating or journaling; queued requests retain this fence.
   // Allocates the broker key and calls `journal` with the pending order before
   // anything is sent; the caller makes that record durable. If `journal`
   // throws, nothing is sent. Throws Error(unavailable) unless ready. After a
@@ -88,6 +92,7 @@ public:
   // reports arrive later. Provider error codes are negative for local
   // failures (-1003: session ended before sending).
   virtual BrokerOrder submit(const LimitOrder& order, Offset offset,
+                             std::uint64_t connection_generation,
                              const std::function<void(const BrokerOrder&)>& journal) = 0;
   // Requests cancellation of a working order; the outcome arrives as a report.
   virtual void cancel(const std::string& order_id) = 0;

@@ -6,8 +6,6 @@
 namespace asterion {
 // Fraction of each bar's volume available to all simulated orders together.
 inline const Decimal paper_bar_participation = Decimal::parse("0.1");
-// Bars of all contracts together.
-inline constexpr std::size_t paper_max_bars = 20000;
 // One contract of a replayed portfolio: its terms and its ascending bars.
 struct ContractBars {
   ContractTerms terms;

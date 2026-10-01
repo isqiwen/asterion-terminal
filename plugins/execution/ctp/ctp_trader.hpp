@@ -24,7 +24,7 @@ public:
   // `known` maps broker keys to caller order IDs from the caller's journal, so
   // orders from earlier sessions stay attributed after a reconnect.
   void connect(TraderConfiguration config, std::map<std::string, std::string> known = {});
-  BrokerOrder submit(const LimitOrder& order, Offset offset,
+  BrokerOrder submit(const LimitOrder& order, Offset offset, std::uint64_t connection_generation,
                      const std::function<void(const BrokerOrder&)>& journal) override;
   void cancel(const std::string& order_id) override;
   BrokerSnapshot snapshot() const override;

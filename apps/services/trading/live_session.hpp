@@ -50,6 +50,8 @@ private:
   std::map<std::string, Intent> intents_;
   // Valid for this connection and its trading day; never restored.
   Json authorization_ = nullptr;
+  std::uint64_t authorization_generation_ = 0;
+  bool authorized(const BrokerSnapshot& state) const;
   bool failed_ = false;
 };
 } // namespace asterion::trading

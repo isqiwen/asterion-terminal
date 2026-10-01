@@ -168,7 +168,7 @@ json Application::Impl::compose(const Parts& parts) {
            json::array(
                {{{"id", "asterion.data.ctp"}, {"kind", "data"}, {"state", "available"}},
                 {{"id", "asterion.execution.paper"}, {"kind", "execution"}, {"state", "available"}},
-                {{"id", "asterion.storage.filesystem-journal"},
+                {{"id", "asterion.storage.sqlite-journal"},
                  {"kind", "storage"},
                  {"state", "available"}}})}};
 }

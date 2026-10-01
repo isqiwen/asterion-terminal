@@ -32,20 +32,17 @@ module.exports = async function checkNativeHistory(page, temp, capture) {
     path.join("services", "research", "ledger"),
   );
   assert.equal(service.state, "stopped");
-  await execFile(
-    process.env.ASTERION_TEST_MINUTE_FIXTURE || path.resolve("build/Debug/asterion_test_minutes"),
+  const seeded = await execFile(
+    process.env.ASTERION_TEST_MINUTE_FIXTURE ||
+      path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug", "asterion_test_minutes"),
     ["--directory", service.directory],
     {
       env: { ...process.env, ASTERION_NODE_DIRECTORY: root, ASTERION_TEST_NODE_ISOLATED: "1" },
       timeout: 10000,
     },
   );
-  const dailyJournal = path.join(service.directory, "native-daily-fixture", "journal");
-  assert.equal(
-    (await fs.readdir(dailyJournal)).filter(name => name.endsWith(".json")).length,
-    1,
-    "daily fixture must contain only submission, not a fabricated completed attempt",
-  );
+  assert.match(seeded.stdout, /queued daily fixture/);
+  assert.ok((await fs.stat(path.join(service.directory, "tasks.sqlite"))).isFile());
   await call("research.local");
   await expect
     .poll(
@@ -65,10 +62,15 @@ module.exports = async function checkNativeHistory(page, temp, capture) {
   assert.equal(dailyTask.attempt, 1);
   assert.equal(dailyTask.completed, dailyTask.total);
   assert.match(dailyTask.result_digest, /^[0-9a-f]{64}$/);
-  assert.ok(
-    (await fs.readdir(dailyJournal)).filter(name => name.endsWith(".json")).length >= 3,
-    "Agent-dispatched worker must durably claim and complete the task",
+  // Read through the owning service: SQLite uses an exclusive writer lock.
+  await call("node.action", { id: "local", service: "research", action: "stop" });
+  await call("research.local");
+  const recoveredDaily = (await call("runtime.snapshot")).research.tasks.find(
+    t => t.id === dailyTask.id,
   );
+  assert.equal(recoveredDaily.state, "succeeded");
+  assert.equal(recoveredDaily.attempt, 1);
+  assert.equal(recoveredDaily.result_digest, dailyTask.result_digest);
   const read = offset =>
     call("research.minutes.page", {
       id: "native-minute-fixture",
@@ -115,11 +117,11 @@ module.exports = async function checkNativeHistory(page, temp, capture) {
   await expect(viewer).toHaveCount(0, { timeout: 15000 });
   await page.getByRole("button", { name: "查看数据", exact: true }).click();
   await expect(viewer.locator("tbody tr")).toHaveCount(100);
-  await viewer.getByLabel("开始时间（北京时间）").fill("2023-08-25T09:30");
-  await viewer.getByLabel("结束时间（北京时间）").fill("2023-08-25T09:39");
+  await viewer.getByLabel("开始时间（北京时间）").fill("2023-08-25T13:00");
+  await viewer.getByLabel("结束时间（北京时间）").fill("2023-08-25T13:09");
   await viewer.getByRole("button", { name: "查看区间", exact: true }).click();
   await expect(viewer.locator("tbody tr")).toHaveCount(10);
-  await expect(viewer.locator("tbody tr").first()).toContainText("09:30:00");
+  await expect(viewer.locator("tbody tr").first()).toContainText("13:00:00");
   await viewer.getByRole("button", { name: "全部时间", exact: true }).click();
   await expect(viewer.locator("tbody tr")).toHaveCount(100);
   await expect(viewer.getByLabel("开始时间（北京时间）")).toHaveValue("");
@@ -129,7 +131,7 @@ module.exports = async function checkNativeHistory(page, temp, capture) {
   await page.getByRole("tab", { name: "历史行情", exact: true }).click();
   const board = page.locator(".history-market-board");
   await expect(board.getByRole("img", { name: "合约历史 K 线", exact: true })).toBeVisible();
-  await expect(board.locator(".market-chart-title strong")).toHaveText("CU2310");
+  await expect(board.locator(".market-chart-title strong")).toHaveText("SHFE/cu/2023-10");
   await board.getByRole("button", { name: "1 min", exact: true }).click();
   await expect(board.locator("[data-oscillator]")).toHaveCount(1);
   await expect(board.locator(".market-history-pages")).toContainText("1–100 / 120");

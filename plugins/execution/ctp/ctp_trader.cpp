@@ -53,6 +53,7 @@ struct Command {
   InstrumentId instrument;
   std::string product;
   std::uint64_t serial = 0; // quote queries
+  std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::time_point::max();
   std::shared_ptr<std::promise<int>> result;
 };
 Decimal rate(double value) {
@@ -526,7 +527,13 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
                                int, bool last) override {
     callback([&] {
       const int code = info ? info->ErrorID : 0;
-      auto& answer = quotes[quote_outstanding];
+      const auto found = quotes.find(quote_outstanding);
+      if (found == quotes.end()) {
+        if (last || code)
+          query_done();
+        return; // A timed-out caller has retired this quote.
+      }
+      auto& answer = found->second;
       if (!code && row && !answer) {
         BrokerQuote quote;
         quote.instrument = {field(row->ExchangeID), field(row->InstrumentID)};
@@ -719,7 +726,8 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
           continue;
         command = std::move(*next);
         queue.erase(next);
-        if (command.generation != generation) {
+        if (command.generation != generation || now >= command.deadline ||
+            (command.kind == Kind::query_quote && !quotes.contains(command.serial))) {
           // Prepared for a session that has since disconnected.
           if (command.result)
             command.result->set_value(-1003);
@@ -744,17 +752,27 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
         code = api->ReqOrderAction(&command.action, ++request_id);
       else
         code = send(command);
+      if (is_query(command.kind) && (code == -2 || code == -3)) {
+        std::lock_guard lock(mutex);
+        if (closing || command.generation != generation) {
+          if (command.result)
+            command.result->set_value(-1003);
+          continue;
+        }
+        // Flow control: retry the same query later.
+        query_outstanding = false;
+        next_query_at = std::chrono::steady_clock::now() + query_spacing;
+        queue.push_front(std::move(command));
+        continue; // Only complete the promise once, after retries finish.
+      }
       if (command.result)
         command.result->set_value(code);
       if (!code)
         continue;
       std::lock_guard lock(mutex);
-      if (is_query(command.kind) && (code == -2 || code == -3)) {
-        // Flow control: retry the same query later.
+      if (is_query(command.kind))
         query_outstanding = false;
-        next_query_at = std::chrono::steady_clock::now() + query_spacing;
-        queue.push_front(std::move(command));
-      } else if (is_rate_query(command.kind)) {
+      if (is_rate_query(command.kind)) {
         // A rate the broker cannot provide does not end the trading session.
         query_outstanding = false;
         rate_answered(command.kind, code);
@@ -891,6 +909,7 @@ void Trader::connect(TraderConfiguration config, std::map<std::string, std::stri
   api->Init();
 }
 BrokerOrder Trader::submit(const LimitOrder& order, Offset offset,
+                           std::uint64_t connection_generation,
                            const std::function<void(const BrokerOrder&)>& journal) {
   order.instrument.validate();
   if (order.id.empty())
@@ -908,6 +927,8 @@ BrokerOrder Trader::submit(const LimitOrder& order, Offset offset,
     std::lock_guard lock(impl_->mutex);
     if (impl_->closing || impl_->state.phase != "ready")
       throw Error(ErrorCode::unavailable, "CTP trading session is not ready");
+    if (connection_generation != impl_->generation)
+      throw Error(ErrorCode::unavailable, "CTP trading session changed; the order was not sent");
     if (impl_->keys.contains(order.id))
       throw Error(ErrorCode::conflict, "duplicate order ID");
     const auto ref = std::to_string(++impl_->next_ref);
@@ -1044,7 +1065,8 @@ void Trader::query_costs(const std::vector<std::pair<InstrumentId, std::string>>
 std::optional<BrokerQuote> Trader::quote(const InstrumentId& instrument) {
   instrument.validate();
   std::future<int> sent;
-  std::uint64_t serial = 0;
+  std::uint64_t serial = 0, generation = 0;
+  const auto deadline = std::chrono::steady_clock::now() + query_timeout;
   {
     std::lock_guard lock(impl_->mutex);
     if (impl_->closing || impl_->state.phase != "ready")
@@ -1054,22 +1076,33 @@ std::optional<BrokerQuote> Trader::quote(const InstrumentId& instrument) {
     command.generation = impl_->generation;
     command.instrument = instrument;
     command.serial = serial = ++impl_->quote_serial;
+    command.deadline = deadline;
+    generation = command.generation;
+    impl_->quotes.emplace(serial, std::nullopt);
     sent = impl_->enqueue(std::move(command));
   }
   impl_->wake.notify_all();
   // Flow control spaces queries; allow for those already queued.
-  if (sent.wait_for(query_timeout) != std::future_status::ready || sent.get() != 0)
-    return std::nullopt;
+  const bool accepted = sent.wait_until(deadline) == std::future_status::ready && sent.get() == 0;
   std::unique_lock lock(impl_->mutex);
+  if (!accepted) {
+    impl_->quotes.erase(serial);
+    std::erase_if(impl_->queue, [&](const Command& c) {
+      return c.kind == Kind::query_quote && c.serial == serial;
+    });
+    return std::nullopt;
+  }
   // Answered once a response for this serial arrived and its query completed.
   const auto answered = [&] {
-    return impl_->closing || (impl_->quotes.contains(serial) &&
-                              !(impl_->quote_outstanding == serial && impl_->query_outstanding));
+    return impl_->closing || impl_->generation != generation || impl_->state.phase != "ready" ||
+           (impl_->quotes.contains(serial) &&
+            !(impl_->quote_outstanding == serial && impl_->query_outstanding));
   };
-  impl_->wake.wait_for(lock, query_timeout, answered);
+  impl_->wake.wait_until(lock, deadline, answered);
   std::optional<BrokerQuote> result;
   if (const auto found = impl_->quotes.find(serial); found != impl_->quotes.end()) {
-    if (found->second && found->second->instrument == instrument)
+    if (impl_->generation == generation && impl_->state.phase == "ready" && found->second &&
+        found->second->instrument == instrument)
       result = std::move(found->second);
     impl_->quotes.erase(found);
   }
@@ -1077,7 +1110,9 @@ std::optional<BrokerQuote> Trader::quote(const InstrumentId& instrument) {
 }
 BrokerSnapshot Trader::snapshot() const {
   std::lock_guard lock(impl_->mutex);
-  return impl_->state;
+  auto result = impl_->state;
+  result.connection_generation = impl_->generation;
+  return result;
 }
 void Trader::disconnect() {
   impl_->close();

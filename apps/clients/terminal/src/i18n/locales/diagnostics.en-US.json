@@ -450,5 +450,6 @@
   "limit price is outside the exchange price limits": "limit price is outside the exchange price limits",
   "limit price deviates from the latest price beyond the session limit": "limit price deviates from the latest price beyond the session limit",
   "price deviation limit must be above 0 and below 1": "price deviation limit must be above 0 and below 1",
-  "CTP trading session changed; the order was not sent": "CTP trading session changed; the order was not sent"
+  "CTP trading session changed; the order was not sent": "CTP trading session changed; the order was not sent",
+  "paper replay requires 1 to 200000 historical bars": "paper replay requires 1 to 200000 historical bars"
 }

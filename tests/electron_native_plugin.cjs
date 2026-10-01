@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
+const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
 (async () => {
   assert.equal(process.platform, "darwin");
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "asterion-plugin-native-"));
@@ -13,15 +14,15 @@ const os = require("node:os");
     const plugins = path.join(temp, "plugins");
     await fs.mkdir(plugins);
     await fs.copyFile(
-      path.resolve("build/Debug/tests/native-plugin/good/plugin_fixture_good.dylib"),
+      path.join(build, "tests/native-plugin/good/plugin_fixture_good.dylib"),
       path.join(plugins, "fixture.dylib"),
     );
     await fs.copyFile(
-      path.resolve("build/Debug/plugins/asterion-tushare.dylib"),
+      path.join(build, "plugins/asterion-tushare.dylib"),
       path.join(plugins, "tushare.dylib"),
     );
     await fs.copyFile(
-      path.resolve("build/Debug/tests/native-plugin/bad_abi/plugin_fixture_bad_abi.dylib"),
+      path.join(build, "tests/native-plugin/bad_abi/plugin_fixture_bad_abi.dylib"),
       path.join(plugins, "broken.dylib"),
     );
     const launch = () =>
@@ -353,9 +354,7 @@ const os = require("node:os");
     await expect(
       editor.getByRole("checkbox", { name: "test.independent.c · 1.0.0", exact: true }),
     ).toBeEnabled();
-    const newerPath = path.resolve(
-      "build/Debug/tests/native-plugin/newer/plugin_fixture_newer.dylib",
-    );
+    const newerPath = path.join(build, "tests/native-plugin/newer/plugin_fixture_newer.dylib");
     await application.evaluate(({ dialog }, file) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
     }, newerPath);

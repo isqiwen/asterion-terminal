@@ -46,6 +46,7 @@
 
 ## 工作流程
 
+- 日常开发直接在 `main` 分支进行；未经明确要求不创建其它开发分支。
 - 端到端测试只能用 `pnpm run test:e2e`（隔离的 Agent 与测试 CTP SDK），不要直接运行 `playwright test`，否则会操作真实的本机服务。
 - 修改 `core/`、`protocol/`、`plugins/`、`apps/services/`、`bindings/` 后，远程 Linux 服务包的源码指纹会变化；发布前按 [开发指南](docs/development.md) 重建。`pnpm desktop` 开发模式只警告。
 - 不经要求不推送代码，不修改备份分支。

@@ -32,6 +32,9 @@ export function MarketNavigation({ context }: { context: TerminalContext }) {
   useEffect(() => {
     if (!menuOpen) return;
     const close = (event: PointerEvent | KeyboardEvent) => {
+      // A modal opened from this menu owns outside clicks and Escape. Keep
+      // its trigger mounted so closing the modal can restore keyboard focus.
+      if (document.querySelector("dialog[open]")) return;
       if (
         event instanceof KeyboardEvent
           ? event.key === "Escape"
