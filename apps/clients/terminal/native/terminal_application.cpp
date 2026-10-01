@@ -63,6 +63,7 @@ Application::Impl::Impl() {
   // Only reached before the first publication; later reads never lock.
   core.command("runtime.snapshot", "runtime.read", [this](const json&) { return snapshot(); });
   register_paper_commands();
+  register_live_commands();
   register_node_commands();
   register_research_commands();
   register_connection_commands();
@@ -92,6 +93,10 @@ Application::Impl::Parts Application::Impl::gather_parts(bool hold_between_calls
     parts.paper = paper ? paper->snapshot() : json(nullptr);
     parts.connection = paper ? paper->connection() : json(nullptr);
     parts.process = paper ? json(paper->process_id()) : json(nullptr);
+  });
+  step([&] {
+    parts.live = live ? live->snapshot() : json(nullptr);
+    parts.live_connection = live ? live->connection() : json(nullptr);
   });
   step([&] { parts.research = research ? research->status() : json(nullptr); });
   step([&] { parts.strategy = strategy ? strategy->status() : json(nullptr); });
@@ -144,6 +149,9 @@ json Application::Impl::compose(const Parts& parts) {
           {"phase", "ready"},
           {"asset", "futures"},
           {"paper", parts.paper},
+          {"live", parts.live.is_null()
+                       ? json(nullptr)
+                       : json{{"session", parts.live}, {"connection", parts.live_connection}}},
           {"datasets",
            [&] {
              json summaries = json::array();
@@ -162,9 +170,7 @@ json Application::Impl::compose(const Parts& parts) {
                 {{"id", "asterion.execution.paper"}, {"kind", "execution"}, {"state", "available"}},
                 {{"id", "asterion.storage.filesystem-journal"},
                  {"kind", "storage"},
-                 {"state", "available"}}})},
-          {"live_market", "not_connected"},
-          {"execution", "paper_only"}};
+                 {"state", "available"}}})}};
 }
 json Application::Impl::snapshot() {
   return compose(gather_parts(true));

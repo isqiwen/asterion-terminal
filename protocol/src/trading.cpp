@@ -4,6 +4,9 @@
 #include <asterion/protocol/trading.hpp>
 #include <google/protobuf/unknown_field_set.h>
 #include <charconv>
+#include <algorithm>
+#include <cctype>
+#include <set>
 #include <stdexcept>
 namespace asterion::protocol {
 namespace {
@@ -286,6 +289,12 @@ v1::Command encode_command(const Json& c) {
     g->set_stream_id(c.at("stream_id").get<std::string>());
     g->set_dataset_revision(c.at("dataset_revision").get<std::string>());
     set(g->mutable_max_quantity(), c.at("max_quantity"));
+  } else if (action == "live_authorize") {
+    require_fields(c, {"request_id", "action", "user_id"});
+    result.mutable_live_authorize()->set_user_id(c.at("user_id").get<std::string>());
+  } else if (action == "live_revoke") {
+    require_fields(c, {"request_id", "action"});
+    result.mutable_live_revoke();
   } else if (action == "strategy_revoke") {
     require_fields(c, {"request_id", "action", "grant_id"});
     result.mutable_strategy_revoke()->set_grant_id(c.at("grant_id").get<std::string>());
@@ -355,6 +364,12 @@ Json decode_command(const v1::Command& c) {
                    {"max_quantity", get(g.max_quantity())}});
     break;
   }
+  case v1::Command::kLiveAuthorize:
+    result.update({{"action", "live_authorize"}, {"user_id", c.live_authorize().user_id()}});
+    break;
+  case v1::Command::kLiveRevoke:
+    result["action"] = "live_revoke";
+    break;
   case v1::Command::kStrategyRevoke:
     result.update({{"action", "strategy_revoke"}, {"grant_id", c.strategy_revoke().grant_id()}});
     break;
@@ -542,6 +557,235 @@ Json decode_snapshot(const v1::Snapshot& s) {
                  {"price", get(f.price())}});
     result["fills"].push_back(std::move(item));
   }
+  return result;
+}
+namespace {
+// CTP identities: short printable text without spaces.
+std::string broker_text(const Json& value, const char* name, std::size_t limit) {
+  const auto text = value.at(name).get<std::string>();
+  if (text.empty() || text.size() > limit ||
+      std::ranges::any_of(text, [](unsigned char c) { return c <= ' ' || c > '~'; }))
+    throw std::invalid_argument(std::string("invalid live broker ") + name);
+  return text;
+}
+Json live_broker(const Json& b) {
+  require_fields(b, {"front", "broker_id", "user_id", "app_id"});
+  const auto front = broker_text(b, "front", 64);
+  const auto colon = front.rfind(':');
+  const auto host = front.substr(0, colon);
+  const auto port = colon == std::string::npos ? std::string{} : front.substr(colon + 1);
+  int number = 0;
+  const auto [end, error] = std::from_chars(port.data(), port.data() + port.size(), number);
+  if (!front.starts_with("tcp://") || host.size() <= 6 || error != std::errc{} ||
+      end != port.data() + port.size() || number < 1 || number > 65535 ||
+      std::ranges::any_of(host.substr(6),
+                          [](unsigned char c) { return !std::isalnum(c) && c != '.' && c != '-'; }))
+    throw std::invalid_argument("live broker front must look like tcp://host:port");
+  return {{"front", front},
+          {"broker_id", broker_text(b, "broker_id", 10)},
+          {"user_id", broker_text(b, "user_id", 15)},
+          {"app_id", broker_text(b, "app_id", 32)}};
+}
+std::string live_status(const std::string& value) {
+  static const std::set<std::string> known{"submitted", "accepted",  "partially_filled",
+                                           "filled",    "cancelled", "rejected"};
+  if (!known.contains(value))
+    throw std::invalid_argument("invalid live order status");
+  return value;
+}
+} // namespace
+// Live manifest version 1: a CTP account, its risk limits and the contracts
+// it may trade.
+v1::LiveInput encode_live_input(const Json& m) {
+  require_fields(m, {"version", "type", "broker", "risk", "contracts"});
+  if (m.at("version") != 1 || m.at("type") != "live_ctp" || !m.at("contracts").is_array())
+    throw std::invalid_argument("invalid live input");
+  v1::LiveInput result;
+  const auto broker = live_broker(m.at("broker"));
+  result.mutable_broker()->set_front(broker.at("front"));
+  result.mutable_broker()->set_broker_id(broker.at("broker_id"));
+  result.mutable_broker()->set_user_id(broker.at("user_id"));
+  result.mutable_broker()->set_app_id(broker.at("app_id"));
+  *result.mutable_risk() = encode_risk(m.at("risk"));
+  for (const auto& c : m.at("contracts"))
+    *result.add_contracts() = contract(c);
+  static_cast<void>(decode_live_input(result));
+  return result;
+}
+Json decode_live_input(const v1::LiveInput& input) {
+  if (!input.has_broker() || !input.has_risk() || input.contracts().empty() ||
+      static_cast<std::size_t>(input.contracts_size()) > max_portfolio_contracts)
+    throw std::invalid_argument("live input requires a broker, risk and 1 to 20 contracts");
+  auto broker = live_broker({{"front", input.broker().front()},
+                             {"broker_id", input.broker().broker_id()},
+                             {"user_id", input.broker().user_id()},
+                             {"app_id", input.broker().app_id()}});
+  auto risk = decode_risk(input.risk());
+  Json contracts = Json::array();
+  std::set<InstrumentId> seen;
+  for (const auto& c : input.contracts()) {
+    const auto terms = instrument(c);
+    terms.validate();
+    if (!seen.insert(terms.id).second)
+      throw std::invalid_argument("duplicate live contract");
+    contracts.push_back(contract(c));
+  }
+  return {{"version", 1},
+          {"type", "live_ctp"},
+          {"broker", std::move(broker)},
+          {"risk", std::move(risk)},
+          {"contracts", std::move(contracts)}};
+}
+v1::LiveSnapshot encode_live_snapshot(const Json& s) {
+  v1::LiveSnapshot result;
+  const auto input = encode_live_input({{"version", 1},
+                                        {"type", "live_ctp"},
+                                        {"broker", s.at("broker")},
+                                        {"risk", s.at("risk")},
+                                        {"contracts", s.at("contracts")}});
+  *result.mutable_broker() = input.broker();
+  *result.mutable_risk() = input.risk();
+  *result.mutable_contracts() = input.contracts();
+  result.set_phase(s.at("phase").get<std::string>());
+  result.set_error_code(s.at("error_code").get<int>());
+  result.set_trading_day(s.at("trading_day").get<std::string>());
+  result.set_synchronized_ms(s.at("synchronized_ms").get<std::int64_t>());
+  if (!s.at("funds").is_null()) {
+    const auto& f = s.at("funds");
+    auto* funds = result.mutable_funds();
+    set(funds->mutable_balance(), f.at("balance"));
+    set(funds->mutable_available(), f.at("available"));
+    set(funds->mutable_margin(), f.at("margin"));
+    set(funds->mutable_commission(), f.at("commission"));
+    set(funds->mutable_close_profit(), f.at("close_profit"));
+    set(funds->mutable_position_profit(), f.at("position_profit"));
+  }
+  for (const auto& p : s.at("positions")) {
+    auto* item = result.add_positions();
+    item->set_venue(p.at("venue"));
+    item->set_symbol(p.at("symbol"));
+    item->set_side(side(p.at("side").get<std::string>()));
+    set(item->mutable_today(), p.at("today"));
+    set(item->mutable_yesterday(), p.at("yesterday"));
+  }
+  for (const auto& o : s.at("orders")) {
+    auto* item = result.add_orders();
+    item->set_id(o.at("id"));
+    item->set_broker_key(o.at("broker_key"));
+    item->set_exchange_order_id(o.at("exchange_order_id"));
+    item->set_venue(o.at("venue"));
+    item->set_symbol(o.at("symbol"));
+    item->set_side(side(o.at("side").get<std::string>()));
+    item->set_offset(offset(o.at("offset").get<std::string>()));
+    set(item->mutable_quantity(), o.at("quantity"));
+    set(item->mutable_filled(), o.at("filled"));
+    set(item->mutable_limit_price(), o.at("limit_price"));
+    item->set_status(live_status(o.at("status")));
+    item->set_error_code(o.at("error_code").get<int>());
+  }
+  for (const auto& t : s.at("trades")) {
+    auto* item = result.add_trades();
+    item->set_id(t.at("id"));
+    item->set_order_id(t.at("order_id"));
+    item->set_venue(t.at("venue"));
+    item->set_symbol(t.at("symbol"));
+    item->set_side(side(t.at("side").get<std::string>()));
+    item->set_offset(offset(t.at("offset").get<std::string>()));
+    set(item->mutable_quantity(), t.at("quantity"));
+    set(item->mutable_price(), t.at("price"));
+    item->set_trading_day(t.at("trading_day"));
+    item->set_trade_time(t.at("trade_time"));
+  }
+  if (!s.at("authorization").is_null()) {
+    const auto& a = s.at("authorization");
+    result.mutable_authorization()->set_trading_day(a.at("trading_day"));
+    result.mutable_authorization()->set_authorized_at_ms(
+        a.at("authorized_at_ms").get<std::int64_t>());
+  }
+  for (const auto& u : s.at("unconfirmed")) {
+    auto* item = result.add_unconfirmed();
+    item->set_id(u.at("id"));
+    item->set_broker_key(u.at("broker_key"));
+    item->set_trading_day(u.at("trading_day"));
+  }
+  result.set_recovery_required(s.at("storage_state") == "recovery_required");
+  return result;
+}
+Json decode_live_snapshot(const v1::LiveSnapshot& s) {
+  auto input = decode_live_input([&] {
+    v1::LiveInput value;
+    *value.mutable_broker() = s.broker();
+    *value.mutable_risk() = s.risk();
+    *value.mutable_contracts() = s.contracts();
+    return value;
+  }());
+  static const std::set<std::string> phases{"disconnected", "connecting", "authenticating",
+                                            "logging_in",   "confirming", "synchronizing",
+                                            "ready",        "error"};
+  if (!phases.contains(s.phase()))
+    throw std::invalid_argument("invalid live phase");
+  Json result{{"mode", "live"},
+              {"broker", input.at("broker")},
+              {"risk", input.at("risk")},
+              {"contracts", input.at("contracts")},
+              {"phase", s.phase()},
+              {"error_code", s.error_code()},
+              {"trading_day", s.trading_day()},
+              {"synchronized_ms", s.synchronized_ms()},
+              {"funds", nullptr},
+              {"positions", Json::array()},
+              {"orders", Json::array()},
+              {"trades", Json::array()},
+              {"authorization", nullptr},
+              {"unconfirmed", Json::array()},
+              {"storage_state", s.recovery_required() ? "recovery_required" : "ready"}};
+  if (s.has_funds()) {
+    const auto& f = s.funds();
+    result["funds"] = {{"balance", get(f.balance())},
+                       {"available", get(f.available())},
+                       {"margin", get(f.margin())},
+                       {"commission", get(f.commission())},
+                       {"close_profit", get(f.close_profit())},
+                       {"position_profit", get(f.position_profit())}};
+  }
+  for (const auto& p : s.positions()) {
+    auto item = instrument_fields(p.venue(), p.symbol());
+    item.update(
+        {{"side", side(p.side())}, {"today", get(p.today())}, {"yesterday", get(p.yesterday())}});
+    result["positions"].push_back(std::move(item));
+  }
+  for (const auto& o : s.orders()) {
+    auto item = instrument_fields(o.venue(), o.symbol());
+    item.update({{"id", o.id()},
+                 {"broker_key", o.broker_key()},
+                 {"exchange_order_id", o.exchange_order_id()},
+                 {"side", side(o.side())},
+                 {"offset", offset(o.offset())},
+                 {"quantity", get(o.quantity())},
+                 {"filled", get(o.filled())},
+                 {"limit_price", get(o.limit_price())},
+                 {"status", live_status(o.status())},
+                 {"error_code", o.error_code()}});
+    result["orders"].push_back(std::move(item));
+  }
+  for (const auto& t : s.trades()) {
+    auto item = instrument_fields(t.venue(), t.symbol());
+    item.update({{"id", t.id()},
+                 {"order_id", t.order_id()},
+                 {"side", side(t.side())},
+                 {"offset", offset(t.offset())},
+                 {"quantity", get(t.quantity())},
+                 {"price", get(t.price())},
+                 {"trading_day", t.trading_day()},
+                 {"trade_time", t.trade_time()}});
+    result["trades"].push_back(std::move(item));
+  }
+  if (s.has_authorization())
+    result["authorization"] = {{"trading_day", s.authorization().trading_day()},
+                               {"authorized_at_ms", s.authorization().authorized_at_ms()}};
+  for (const auto& u : s.unconfirmed())
+    result["unconfirmed"].push_back(
+        {{"id", u.id()}, {"broker_key", u.broker_key()}, {"trading_day", u.trading_day()}});
   return result;
 }
 } // namespace asterion::protocol

@@ -14,6 +14,10 @@ ServicePrograms resolve_programs(node::v1::ServiceKind kind, Resolve resolve) {
   case node::v1::PAPER_TRADING:
     programs.executable = resolve("ASTERION_TRADING_EXECUTABLE", "asterion-trading", false);
     break;
+  case node::v1::LIVE_TRADING:
+    programs.executable = resolve("ASTERION_TRADING_EXECUTABLE", "asterion-trading", false);
+    programs.catalog = resolve("ASTERION_CTP_CATALOG_LIBRARY", "ctp-trader", true);
+    break;
   case node::v1::MARKET_DATA:
     programs.executable = resolve("ASTERION_MARKET_EXECUTABLE", "asterion-market-data", false);
     programs.provider = resolve("ASTERION_CTP_LIBRARY", "ctp-md", true);

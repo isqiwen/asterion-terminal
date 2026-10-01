@@ -74,13 +74,14 @@ ServiceConfiguration load_service_configuration(const fs::path& folder, bool loc
   configuration.provider_artifact = document.at("provider_artifact").get<std::string>();
   configuration.plugin_artifacts = document.at("plugin_artifacts").get<std::vector<std::string>>();
   if (document.contains("catalog_artifact")) {
-    if (configuration.kind != wire::MARKET_DATA)
-      throw std::invalid_argument("catalog library only belongs to market data");
+    if (configuration.kind != wire::MARKET_DATA && configuration.kind != wire::LIVE_TRADING)
+      throw std::invalid_argument("CTP trader library only belongs to market data or live trading");
     configuration.catalog_artifact = document.at("catalog_artifact").get<std::string>();
     validate_artifact_digest(configuration.catalog_artifact);
   }
   if (configuration.kind != wire::PAPER_TRADING && configuration.kind != wire::MARKET_DATA &&
-      configuration.kind != wire::TASK_SERVICE && configuration.kind != wire::STRATEGY)
+      configuration.kind != wire::TASK_SERVICE && configuration.kind != wire::STRATEGY &&
+      configuration.kind != wire::LIVE_TRADING)
     throw std::invalid_argument("unsupported service kind");
   if (!configuration.provider_artifact.empty()) {
     if (configuration.kind != wire::MARKET_DATA)
@@ -97,6 +98,8 @@ ServiceConfiguration load_service_configuration(const fs::path& folder, bool loc
     if (!configuration.provider_artifact.empty())
       throw std::invalid_argument("task service does not load a market provider");
   }
+  if (configuration.kind == wire::LIVE_TRADING && configuration.catalog_artifact.empty())
+    throw std::invalid_argument("live trading requires the CTP trader library");
   configuration.artifact = document.at("artifact").get<std::string>();
   validate_artifact_digest(configuration.artifact);
   const auto port = document.at("port").get<unsigned int>();

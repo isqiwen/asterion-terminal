@@ -50,7 +50,8 @@ public:
                                    node::v1::ServiceKind kind = node::v1::PAPER_TRADING);
   void deploy(const ServiceDeployment& deployment);
   void update(const ServiceUpdate& update);
-  ServiceEndpoint local_session(const std::filesystem::path& directory);
+  ServiceEndpoint local_session(const std::filesystem::path& directory,
+                                node::v1::ServiceKind kind = node::v1::PAPER_TRADING);
   ServiceEndpoint local_market();
   ServiceEndpoint
   local_research(const std::optional<std::vector<std::string>>& selected_plugins = std::nullopt);

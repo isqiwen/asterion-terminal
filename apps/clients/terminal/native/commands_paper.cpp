@@ -40,7 +40,8 @@ void Application::Impl::register_paper_commands() {
     auto [node, next] = without_operations([&, existing = existing_local_node()] {
       auto node = local_node_client(existing);
       auto client = std::make_unique<TradingClient>(
-          std::filesystem::path(std::u8string(directory.begin(), directory.end())), manifest);
+          std::filesystem::path(std::u8string(directory.begin(), directory.end())),
+          TradingMode::paper, manifest);
       return std::pair{std::move(node), std::move(client)};
     });
     nodes.try_emplace("local", std::move(node));
@@ -53,10 +54,12 @@ void Application::Impl::register_paper_commands() {
   core.command("paper.connect", "paper.manage", [this](const json& p) {
     fields(p,
            {"host", "port", "session", "mode", "ca_file", "certificate_file", "private_key_file"});
-    if (paper)
+    const auto mode = text(p, "mode");
+    if (mode != "paper" && mode != "live")
+      throw std::invalid_argument("connection mode must be paper or live");
+    auto& client = mode == "live" ? live : paper;
+    if (client)
       throw std::invalid_argument("disconnect the current trading connection first");
-    if (text(p, "mode") != "paper")
-      throw std::invalid_argument("live trading is not available");
     const auto port_text = text(p, "port");
     unsigned int port = 0;
     const auto [end, ec] =
@@ -68,7 +71,8 @@ void Application::Impl::register_paper_commands() {
         text(p, "session"),
         static_cast<std::uint16_t>(port),
         {text(p, "ca_file"), text(p, "certificate_file"), text(p, "private_key_file")}};
-    paper = std::make_unique<TradingClient>(config);
+    client = std::make_unique<TradingClient>(config, mode == "live" ? TradingMode::live
+                                                                    : TradingMode::paper);
     return snapshot();
   });
   core.command("paper.reconnect", "paper.manage", [this](const json& p) {
@@ -86,7 +90,8 @@ void Application::Impl::register_paper_commands() {
     auto [node, next] = without_operations([&, existing = existing_local_node()] {
       auto node = local_node_client(existing);
       auto client = std::make_unique<TradingClient>(
-          std::filesystem::path(std::u8string(directory.begin(), directory.end())));
+          std::filesystem::path(std::u8string(directory.begin(), directory.end())),
+          TradingMode::paper);
       return std::pair{std::move(node), std::move(client)};
     });
     nodes.try_emplace("local", std::move(node));

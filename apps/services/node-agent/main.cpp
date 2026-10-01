@@ -143,7 +143,8 @@ class Agent {
                                     "--session",         name,
                                     "--directory",       s.configuration.directory,
                                     "--health-endpoint", s.health_endpoint};
-      if (s.configuration.kind == wire::TASK_SERVICE || s.configuration.kind == wire::PAPER_TRADING)
+      if (s.configuration.kind == wire::TASK_SERVICE ||
+          s.configuration.kind == wire::PAPER_TRADING || s.configuration.kind == wire::LIVE_TRADING)
         args.insert(args.end(),
                     {"--plugin-directory",
                      utf8(plugins_.materialize(name, s.configuration.plugin_artifacts))});
@@ -158,6 +159,8 @@ class Agent {
       }
       if (s.configuration.kind == wire::PAPER_TRADING)
         args.insert(args.end(), {"--mode", "paper"});
+      if (s.configuration.kind == wire::LIVE_TRADING)
+        args.insert(args.end(), {"--mode", "live"});
       if (s.configuration.kind == wire::MARKET_DATA && !s.configuration.provider_artifact.empty()) {
         const auto source = binary(s.configuration.provider_artifact);
         if (sha256_file(source) != s.configuration.provider_artifact)
@@ -174,7 +177,9 @@ class Agent {
           throw std::runtime_error("provider library changed");
         args.insert(args.end(), {"--ctp-library", utf8(library)});
       }
-      if (s.configuration.kind == wire::MARKET_DATA && !s.configuration.catalog_artifact.empty()) {
+      if ((s.configuration.kind == wire::MARKET_DATA ||
+           s.configuration.kind == wire::LIVE_TRADING) &&
+          !s.configuration.catalog_artifact.empty()) {
         const auto source = binary(s.configuration.catalog_artifact);
         if (sha256_file(source) != s.configuration.catalog_artifact)
           throw std::runtime_error("catalog artifact integrity check failed");
@@ -188,7 +193,10 @@ class Agent {
           fs::copy_file(source, library);
         else if (sha256_file(library) != s.configuration.catalog_artifact)
           throw std::runtime_error("catalog library changed");
-        args.insert(args.end(), {"--ctp-catalog-library", utf8(library)});
+        args.insert(
+            args.end(),
+            {s.configuration.kind == wire::LIVE_TRADING ? "--ctp-library" : "--ctp-catalog-library",
+             utf8(library)});
       }
       if (local_)
         args.insert(args.end(), {"--endpoint", s.endpoint});
@@ -570,7 +578,9 @@ public:
                 protocol::v1::Request ping;
                 ping.set_version(1);
                 ping.set_session_id(name);
-                ping.set_mode(protocol::v1::PAPER);
+                const auto mode = s.configuration.kind == wire::LIVE_TRADING ? protocol::v1::LIVE
+                                                                             : protocol::v1::PAPER;
+                ping.set_mode(mode);
                 ping.set_correlation_id("health." + unique_process_id());
                 ping.mutable_heartbeat();
                 channel.send(ping.SerializeAsString(), 1s);
@@ -578,8 +588,7 @@ public:
                 if (!reply.ParseFromString(channel.receive(1s)))
                   throw std::runtime_error("invalid health response");
                 protocol::validate_message(reply);
-                if (reply.version() != 1 || reply.session_id() != name ||
-                    reply.mode() != protocol::v1::PAPER ||
+                if (reply.version() != 1 || reply.session_id() != name || reply.mode() != mode ||
                     reply.correlation_id() != ping.correlation_id() || !reply.has_health())
                   throw std::runtime_error("health identity mismatch");
                 s.health = reply.health().recovery_required() ? "degraded"
@@ -861,7 +870,8 @@ public:
         validate_service_id(d.service_id());
         validate_artifact_digest(d.sha256());
         if (d.kind() != wire::PAPER_TRADING && d.kind() != wire::MARKET_DATA &&
-            d.kind() != wire::TASK_SERVICE && d.kind() != wire::STRATEGY)
+            d.kind() != wire::TASK_SERVICE && d.kind() != wire::STRATEGY &&
+            d.kind() != wire::LIVE_TRADING)
           throw std::invalid_argument("explicit service kind required");
         if (!d.provider_artifact().empty()) {
           if (d.kind() != wire::MARKET_DATA)
@@ -870,9 +880,12 @@ public:
           if (sha256_file(binary(d.provider_artifact())) != d.provider_artifact())
             throw std::invalid_argument("provider artifact not installed");
         }
+        if (d.kind() == wire::LIVE_TRADING && d.catalog_artifact().empty())
+          throw std::invalid_argument("live trading requires the CTP trader library");
         if (!d.catalog_artifact().empty()) {
-          if (d.kind() != wire::MARKET_DATA)
-            throw std::invalid_argument("catalog library only belongs to market data");
+          if (d.kind() != wire::MARKET_DATA && d.kind() != wire::LIVE_TRADING)
+            throw std::invalid_argument(
+                "CTP trader library only belongs to market data or live trading");
           validate_artifact_digest(d.catalog_artifact());
           if (sha256_file(binary(d.catalog_artifact())) != d.catalog_artifact())
             throw std::invalid_argument("catalog artifact not installed");
@@ -915,7 +928,9 @@ public:
         s.configuration.data_artifact = d.data_artifact();
         s.configuration.artifact = d.sha256();
         s.configuration.port = static_cast<unsigned short>(d.port());
-        if (local_ && s.configuration.kind == wire::PAPER_TRADING) {
+        const bool ledger = s.configuration.kind == wire::PAPER_TRADING ||
+                            s.configuration.kind == wire::LIVE_TRADING;
+        if (local_ && ledger) {
           const fs::path ledger(std::u8string(d.directory().begin(), d.directory().end()));
           if (!ledger.is_absolute() || !fs::is_directory(ledger))
             throw std::invalid_argument("local ledger must be an existing absolute directory");
@@ -933,7 +948,7 @@ public:
         }
         if (!fs::create_directory(folder))
           throw std::invalid_argument("service directory already exists");
-        if (!local_ || s.configuration.kind != wire::PAPER_TRADING)
+        if (!local_ || !ledger)
           fs::create_directory(folder / "ledger");
         save(d.service_id(), s.configuration);
         auto [it, added] = services_.emplace(d.service_id(), std::move(s));
@@ -962,9 +977,13 @@ public:
             throw std::invalid_argument("update artifact platform mismatch");
         };
         verified(u.artifact());
+        if (current.configuration.kind == wire::LIVE_TRADING && u.catalog_artifact().empty())
+          throw std::invalid_argument("live trading requires the CTP trader library");
         if (!u.catalog_artifact().empty()) {
-          if (current.configuration.kind != wire::MARKET_DATA)
-            throw std::invalid_argument("catalog library only belongs to market data");
+          if (current.configuration.kind != wire::MARKET_DATA &&
+              current.configuration.kind != wire::LIVE_TRADING)
+            throw std::invalid_argument(
+                "CTP trader library only belongs to market data or live trading");
           verified(u.catalog_artifact());
         }
         if (current.configuration.kind == wire::MARKET_DATA) {

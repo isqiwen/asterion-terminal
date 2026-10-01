@@ -33,7 +33,8 @@ void update_service(NodeClient& node, bool local, const json& p) {
     if (service_status.id() == service)
       kind = service_status.kind();
   if (kind != node::v1::PAPER_TRADING && kind != node::v1::MARKET_DATA &&
-      kind != node::v1::TASK_SERVICE && kind != node::v1::STRATEGY)
+      kind != node::v1::TASK_SERVICE && kind != node::v1::STRATEGY &&
+      kind != node::v1::LIVE_TRADING)
     throw std::invalid_argument("unknown service kind");
   node.update({.service = service,
                .expected_revision = text(p, "revision"),
@@ -219,10 +220,21 @@ void Application::Impl::register_node_commands() {
   });
   core.command("node.attach", "node.manage", [this](const json& p) {
     fields(p, {"id", "service"});
-    if (paper)
+    const auto node = nodes.at(text(p, "id"));
+    const auto service = text(p, "service");
+    auto kind = node::v1::UNSPECIFIED_SERVICE;
+    if (const auto state = node->inspect_status(); state.health)
+      for (const auto& item : state.health->services())
+        if (item.id() == service)
+          kind = item.kind();
+    if (kind != node::v1::PAPER_TRADING && kind != node::v1::LIVE_TRADING)
+      throw std::invalid_argument("attach a paper or live trading service");
+    auto& client = kind == node::v1::LIVE_TRADING ? live : paper;
+    if (client)
       throw std::invalid_argument("disconnect the current trading session first");
-    paper = std::make_unique<TradingClient>(
-        nodes.at(text(p, "id"))->service_endpoint(text(p, "service")));
+    client = std::make_unique<TradingClient>(node->service_endpoint(service, kind),
+                                             kind == node::v1::LIVE_TRADING ? TradingMode::live
+                                                                            : TradingMode::paper);
     return snapshot();
   });
   core.command("node.deploy", "node.manage", [this](const json& p) {

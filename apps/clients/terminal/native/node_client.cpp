@@ -11,6 +11,7 @@
 #include <cstring>
 #include <fstream>
 #include <mutex>
+#include <set>
 #include <thread>
 #include <stdexcept>
 namespace asterion::terminal {
@@ -242,7 +243,7 @@ void NodeClient::deploy(const ServiceDeployment& deployment) {
     return impl_->upload_artifact(path, os, arch);
   };
   if (kind != wire::PAPER_TRADING && kind != wire::MARKET_DATA && kind != wire::TASK_SERVICE &&
-      kind != wire::STRATEGY)
+      kind != wire::STRATEGY && kind != wire::LIVE_TRADING)
     throw std::invalid_argument("invalid service kind");
   const auto hash = upload_artifact(path);
   const auto library =
@@ -265,14 +266,15 @@ void NodeClient::deploy(const ServiceDeployment& deployment) {
   d->set_data_artifact(data_hash);
   d->set_catalog_artifact(programs.catalog.empty() ? std::string{}
                                                    : upload_artifact(programs.catalog));
-  if ((kind == wire::TASK_SERVICE || kind == wire::PAPER_TRADING) && deployment.plugins) {
+  const bool risk = kind == wire::PAPER_TRADING || kind == wire::LIVE_TRADING;
+  if ((kind == wire::TASK_SERVICE || risk) && deployment.plugins) {
     for (const auto& artifact : *deployment.plugins) {
       const auto uploaded = upload_artifact(artifact.path);
       if (uploaded != artifact.sha256)
         throw std::invalid_argument("native plugin catalog changed; inspect again");
       d->add_plugin_artifacts(uploaded);
     }
-  } else if (kind == wire::TASK_SERVICE || kind == wire::PAPER_TRADING) {
+  } else if (kind == wire::TASK_SERVICE || risk) {
     auto folder = path.parent_path() / "plugins";
     if (os == current_platform().os && arch == current_platform().arch)
       folder = native_plugin_directory();
@@ -282,7 +284,7 @@ void NodeClient::deploy(const ServiceDeployment& deployment) {
       if (entry.path().extension() == (os == "macos" ? ".dylib" : ".so") &&
           (kind == wire::TASK_SERVICE || entry.path().stem() == "asterion-order-limits"))
         d->add_plugin_artifacts(upload_artifact(entry.path()));
-    if (kind == wire::PAPER_TRADING && d->plugin_artifacts_size() != 1)
+    if (risk && d->plugin_artifacts_size() != 1)
       throw std::invalid_argument("pre-trade risk plugin is unavailable");
     std::sort(d->mutable_plugin_artifacts()->begin(), d->mutable_plugin_artifacts()->end());
   }
@@ -358,14 +360,19 @@ void NodeClient::configure_plugins(const std::string& service, const std::string
   impl_->call(request);
   impl_->refresh_after_acknowledgement();
 }
-ServiceEndpoint NodeClient::local_session(const std::filesystem::path& directory) {
+ServiceEndpoint NodeClient::local_session(const std::filesystem::path& directory,
+                                          wire::ServiceKind kind) {
+  if (kind != wire::PAPER_TRADING && kind != wire::LIVE_TRADING)
+    throw std::invalid_argument("invalid trading session kind");
   if (impl_->endpoint.endpoint.empty())
     throw std::invalid_argument("local Agent required");
   if (!directory.is_absolute() || !std::filesystem::is_directory(directory) ||
       std::filesystem::is_symlink(directory))
     throw std::invalid_argument("choose an existing absolute trading record directory");
   // Reported here: a service that refuses the directory only shows as unreachable.
-  check_journal_directory(directory, {"plugins"});
+  check_journal_directory(directory, kind == wire::LIVE_TRADING
+                                         ? std::set<std::string>{"plugins", "ctp-flow"}
+                                         : std::set<std::string>{"plugins"});
   const auto path = std::filesystem::canonical(directory).u8string();
   const std::string value(path.begin(), path.end());
   std::string service;
@@ -374,19 +381,24 @@ ServiceEndpoint NodeClient::local_session(const std::filesystem::path& directory
     impl_->refresh();
     for (const auto& s : impl_->cached->services())
       if (s.directory() == value) {
+        if (s.kind() != kind)
+          throw std::invalid_argument(kind == wire::LIVE_TRADING
+                                          ? "this directory holds a paper session"
+                                          : "this directory holds a live session");
         service = s.id();
         break;
       }
   }
   if (service.empty()) {
-    service = "paper-" + unique_process_id();
+    service = (kind == wire::LIVE_TRADING ? "live-" : "paper-") + unique_process_id();
     deploy({.service = service,
+            .kind = kind,
             .platform = current_platform(),
-            .programs = local_service_programs(wire::PAPER_TRADING),
+            .programs = local_service_programs(kind),
             .directory = value});
   } else
     action(service, "start");
-  return service_endpoint(service);
+  return service_endpoint(service, kind);
 }
 ServiceEndpoint NodeClient::local_market() {
   if (impl_->endpoint.endpoint.empty())

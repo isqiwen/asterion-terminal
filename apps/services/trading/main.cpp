@@ -1,10 +1,12 @@
 #include <asterion/kernel/logger.hpp>
 #include <asterion/kernel/native_plugin.hpp>
+#include "live_session.hpp"
 #include "paper_session.hpp"
 #include <CLI/CLI.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/service_host.hpp>
 #include <asterion/protocol/trading.hpp>
+#include <algorithm>
 #include <atomic>
 #include <iostream>
 #include <cstdlib>
@@ -32,8 +34,10 @@ int main(int argc, char** argv) {
   app.add_option("--directory", directory, "Existing dedicated account journal directory")
       ->required()
       ->check(CLI::ExistingDirectory);
-  std::string plugin_directory;
+  std::string plugin_directory, ctp_library;
   app.add_option("--plugin-directory", plugin_directory)->check(CLI::ExistingDirectory);
+  app.add_option("--ctp-library", ctp_library, "CTP trader SDK for live sessions")
+      ->check(CLI::ExistingFile);
   argv = app.ensure_utf8(argv);
   CLI11_PARSE(app, argc, argv);
   try {
@@ -41,23 +45,35 @@ int main(int argc, char** argv) {
       asterion::configure_native_plugins(
           std::filesystem::path(std::u8string(plugin_directory.begin(), plugin_directory.end())));
     asterion::validate_id(session_id);
-    if (mode == "live") {
-      std::cerr << "Live execution unavailable: broker, account authorization "
-                   "and risk capabilities are not configured.\n";
-      return 3;
-    }
+    namespace wire = asterion::protocol::v1;
+    const bool live = mode == "live";
+    const auto wire_mode = live ? wire::LIVE : wire::PAPER;
+    if (live == ctp_library.empty())
+      throw std::invalid_argument(live ? "live sessions require --ctp-library"
+                                       : "--ctp-library only belongs to live sessions");
+    const std::filesystem::path sdk(std::u8string(ctp_library.begin(), ctp_library.end()));
     transport.validate();
     asterion::service::install_stop_signals();
     asterion::service::OwnerWatch owner(owner_pid);
     const std::filesystem::path journal(std::u8string(directory.begin(), directory.end()));
     std::unique_ptr<asterion::trading::PaperSession> session;
+    std::unique_ptr<asterion::trading::LiveSession> live_session;
     // A remote service recovers its server-owned ledger before accepting
-    // clients.
-    if (std::filesystem::exists(journal / "journal.sqlite"))
-      session = std::make_unique<asterion::trading::PaperSession>(journal);
+    // clients. A live session then waits for credentials; nothing is sent.
+    if (std::filesystem::exists(journal / "journal.sqlite")) {
+      if (live)
+        live_session = std::make_unique<asterion::trading::LiveSession>(journal, sdk);
+      else
+        session = std::make_unique<asterion::trading::PaperSession>(journal);
+    }
+    const auto ready = [&] { return bool(session) || bool(live_session); };
+    const auto needs_recovery = [&] {
+      return (session && session->recovery_required()) ||
+             (live_session && live_session->recovery_required());
+    };
     const auto started = std::chrono::steady_clock::now();
     const auto instance = asterion::unique_process_id();
-    std::atomic<bool> initialized{bool(session)}, degraded{false};
+    std::atomic<bool> initialized{ready()}, degraded{false};
     std::atomic<std::int64_t> busy_since{0};
     auto now = [] {
       return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -70,12 +86,12 @@ int main(int argc, char** argv) {
         return std::string();
       asterion::protocol::validate_message(request);
       if (request.version() != 1 || request.session_id() != session_id ||
-          request.mode() != asterion::protocol::v1::PAPER || !request.has_heartbeat())
+          request.mode() != wire_mode || !request.has_heartbeat())
         return std::string();
       asterion::protocol::v1::Response response;
       response.set_version(1);
       response.set_session_id(session_id);
-      response.set_mode(asterion::protocol::v1::PAPER);
+      response.set_mode(wire_mode);
       response.set_correlation_id(request.correlation_id());
       auto* h = response.mutable_health();
       h->set_instance_id(instance);
@@ -100,12 +116,11 @@ int main(int argc, char** argv) {
         } catch (const asterion::Error&) {
           break;
         }
-        namespace wire = asterion::protocol::v1;
         wire::Request request;
         wire::Response response;
         response.set_version(1);
         response.set_session_id(session_id);
-        response.set_mode(wire::PAPER);
+        response.set_mode(wire_mode);
         {
           std::lock_guard lock(ledger_mutex);
           busy_since = now();
@@ -116,7 +131,7 @@ int main(int argc, char** argv) {
             response.set_correlation_id(request.correlation_id());
             asterion::validate_id(request.correlation_id());
             if (request.version() != 1 || request.session_id() != session_id ||
-                request.mode() != wire::PAPER)
+                request.mode() != wire_mode)
               throw std::invalid_argument("protocol version, session or mode mismatch");
             if (request.has_heartbeat()) {
               auto* health = response.mutable_health();
@@ -126,13 +141,41 @@ int main(int argc, char** argv) {
                   static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
                                                  std::chrono::steady_clock::now() - started)
                                                  .count()));
-              health->set_initialized(bool(session));
-              health->set_recovery_required(session && session->recovery_required());
+              health->set_initialized(ready());
+              health->set_recovery_required(needs_recovery());
             } else if (request.has_shutdown()) {
               throw std::invalid_argument("service stop is a Node Agent operation");
-            } else if (request.has_attach() && !session)
+            } else if (request.has_attach() && !ready())
               response.mutable_uninitialized();
-            else {
+            else if (live) {
+              if (request.has_live_create() || request.has_recover()) {
+                if (live_session)
+                  throw std::invalid_argument("session already initialized");
+                const auto manifest =
+                    request.has_live_create()
+                        ? asterion::protocol::decode_live_input(request.live_create())
+                        : asterion::Json(nullptr);
+                live_session =
+                    std::make_unique<asterion::trading::LiveSession>(journal, sdk, manifest);
+              } else if (!live_session) {
+                throw std::invalid_argument("session is not initialized");
+              } else if (request.has_live_connect()) {
+                // Moved into the trader; never logged or stored.
+                auto* credentials = request.mutable_live_connect();
+                live_session->connect(std::move(*credentials->mutable_password()),
+                                      std::move(*credentials->mutable_auth_code()));
+              } else if (request.has_live_disconnect()) {
+                live_session->disconnect();
+              } else if (request.has_command()) {
+                live_session->execute(asterion::protocol::decode_command(request.command()));
+              } else if (!request.has_snapshot() && !request.has_attach())
+                throw std::invalid_argument("missing live session operation");
+              *response.mutable_live() =
+                  asterion::protocol::encode_live_snapshot(live_session->snapshot());
+            } else {
+              if (request.has_live_create() || request.has_live_connect() ||
+                  request.has_live_disconnect())
+                throw std::invalid_argument("live operations require a live session service");
               if (request.has_create() || request.has_recover()) {
                 if (session)
                   throw std::invalid_argument("session already initialized");
@@ -158,8 +201,11 @@ int main(int argc, char** argv) {
                 std::string(asterion::error_name(asterion::classify(error))));
             response.mutable_error()->set_message(error.what());
           }
-          initialized = bool(session);
-          degraded = session && session->recovery_required();
+          // Drop any credentials before the next frame.
+          request.Clear();
+          std::fill(frame.begin(), frame.end(), '\0');
+          initialized = ready();
+          degraded = needs_recovery();
           busy_since = 0;
         }
         channel.send(response.SerializeAsString(), 10s);

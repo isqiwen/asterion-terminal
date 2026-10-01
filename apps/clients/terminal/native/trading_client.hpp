@@ -9,12 +9,17 @@
 namespace asterion::terminal {
 // Terminal owns the process connection, never the authoritative trading ledger.
 class NodeClient;
+enum class TradingMode { paper, live };
 class TradingClient {
 public:
-  TradingClient(const std::filesystem::path& directory, const Json& manifest = nullptr);
-  explicit TradingClient(const ServiceEndpoint& remote);
+  TradingClient(const std::filesystem::path& directory, TradingMode mode,
+                const Json& manifest = nullptr);
+  TradingClient(const ServiceEndpoint& remote, TradingMode mode);
   ~TradingClient();
   void create(const Json& manifest);
+  // Live sessions only. Credentials pass through to the service and are not kept.
+  void connect_broker(std::string password, std::string auth_code);
+  void disconnect_broker();
   void reconnect();
   Json connection() const;
   ServiceEndpoint endpoint() const;

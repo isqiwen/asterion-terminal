@@ -6,6 +6,8 @@ const char* service_kind_name(wire::ServiceKind kind) {
   switch (kind) {
   case wire::PAPER_TRADING:
     return "paper";
+  case wire::LIVE_TRADING:
+    return "live";
   case wire::MARKET_DATA:
     return "market";
   case wire::TASK_SERVICE:
@@ -19,6 +21,8 @@ const char* service_kind_name(wire::ServiceKind kind) {
 wire::ServiceKind parse_service_kind(const std::string& name) {
   if (name == "paper")
     return wire::PAPER_TRADING;
+  if (name == "live")
+    return wire::LIVE_TRADING;
   if (name == "market")
     return wire::MARKET_DATA;
   if (name == "research")

@@ -77,6 +77,8 @@ struct Application::Impl {
   std::int64_t history_cutoff = 0;
   std::shared_ptr<MarketClient> market;
   std::unique_ptr<TradingClient> paper;
+  // A live CTP session; independent of the paper session.
+  std::unique_ptr<TradingClient> live;
   // Shared so long node I/O can keep its client while the map changes.
   std::map<std::string, std::shared_ptr<NodeClient>> nodes;
   json firewall_plan = nullptr, firewall_parameters = nullptr, ssh_key = nullptr,
@@ -147,8 +149,9 @@ struct Application::Impl {
   json snapshot();
   // Service-dependent parts, gathered one client call at a time.
   struct Parts {
-    json paper = nullptr, connection = nullptr, process = nullptr, research = nullptr,
-         strategy = nullptr, market = nullptr, nodes = json::array();
+    json paper = nullptr, connection = nullptr, process = nullptr, live = nullptr,
+         live_connection = nullptr, research = nullptr, strategy = nullptr, market = nullptr,
+         nodes = json::array();
   };
   Parts gather_parts(bool hold_between_calls);
   json compose(const Parts& parts);
@@ -159,6 +162,7 @@ struct Application::Impl {
   // One registration per product area; each grants its capability and adds
   // commands before the runtime seals at start.
   void register_paper_commands();
+  void register_live_commands();
   void register_node_commands();
   void register_research_commands();
   void register_connection_commands();

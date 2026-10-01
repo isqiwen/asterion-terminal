@@ -423,6 +423,18 @@
 .paper-trading > form {
   padding-block: 24px;
 }
+.paper-trading > section.live-authorization {
+  margin-top: 0;
+  border-top: 0;
+  padding-inline: var(--space-page);
+}
+.live-authorization label.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-block: 12px;
+  color: var(--text);
+}
 .paper-trading .account-field-group {
   border-top: 1px solid var(--line);
   padding-top: 20px;
@@ -559,6 +571,19 @@
   border: 0;
   margin: 0;
   padding: 0;
+}
+.trading-modes {
+  display: flex;
+  gap: 8px;
+  padding: 12px 24px 0;
+}
+.trading-modes button {
+  border-color: transparent;
+  background: transparent;
+}
+.trading-modes button[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-surface);
 }
 .dataset-list {
   display: grid;

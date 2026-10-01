@@ -19,5 +19,10 @@ v1::Command encode_command(const Json& command);
 Json decode_command(const v1::Command& command);
 v1::Snapshot encode_snapshot(const Json& snapshot);
 Json decode_snapshot(const v1::Snapshot& snapshot);
+// Live manifest version 1 ("live_ctp") and the broker-reported session state.
+v1::LiveInput encode_live_input(const Json& manifest);
+Json decode_live_input(const v1::LiveInput& input);
+v1::LiveSnapshot encode_live_snapshot(const Json& snapshot);
+Json decode_live_snapshot(const v1::LiveSnapshot& snapshot);
 void validate_message(const google::protobuf::Message& message);
 } // namespace asterion::protocol

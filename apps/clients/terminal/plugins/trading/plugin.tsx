@@ -7,7 +7,7 @@ import zh from "./locales/zh-CN.json";
 import en from "./locales/en-US.json";
 import { lazy } from "react";
 import type { TerminalPlugin } from "../contract";
-const Panel = lazy(() => import("./Panel").then(module => ({ default: module.Panel })));
+const Workspace = lazy(() => import("./Workspace").then(module => ({ default: module.Workspace })));
 export const plugin: TerminalPlugin = {
   id: "asterion.terminal.trading",
   apiVersion: 1,
@@ -16,6 +16,12 @@ export const plugin: TerminalPlugin = {
     "paper.open",
     "paper.close",
     "paper.act",
+    "live.create",
+    "live.open",
+    "live.connect",
+    "live.disconnect",
+    "live.act",
+    "live.close",
     "research.dataset.select",
     "research.dataset.remove",
     "strategy.run",
@@ -28,7 +34,7 @@ export const plugin: TerminalPlugin = {
       return t("交易");
     },
     icon: <Icon name="trading" />,
-    component: context => <Panel {...context} />,
+    component: context => <Workspace {...context} />,
   },
   widgets: context => {
     const paper = context.snapshot?.paper;
@@ -65,7 +71,7 @@ export const plugin: TerminalPlugin = {
             <p>
               {paper
                 ? t("保证金 {p0} · 委托冻结 {p1}", { p0: paper.margin, p1: paper.frozen })
-                : t("实盘交易未开放。")}
+                : t("在交易工作区创建模拟或实盘会话。")}
             </p>
           </div>
         ),

@@ -125,6 +125,74 @@ export type PaperAccount = {
     price: string;
   }[];
 };
+// A live CTP session; the broker reports the account, the session owns the
+// execution chain (authorization, allowed contracts, risk, order records).
+export type LiveSession = {
+  mode: "live";
+  broker: { front: string; broker_id: string; user_id: string; app_id: string };
+  risk: PaperAccount["risk"];
+  contracts: FuturesContract[];
+  phase:
+    | "disconnected"
+    | "connecting"
+    | "authenticating"
+    | "logging_in"
+    | "confirming"
+    | "synchronizing"
+    | "ready"
+    | "error";
+  error_code: number;
+  trading_day: string;
+  synchronized_ms: number;
+  funds: null | {
+    balance: string;
+    available: string;
+    margin: string;
+    commission: string;
+    close_profit: string;
+    position_profit: string;
+  };
+  positions: {
+    venue: string;
+    symbol: string;
+    side: "buy" | "sell";
+    today: string;
+    yesterday: string;
+  }[];
+  orders: {
+    // Empty for orders this session did not place.
+    id: string;
+    broker_key: string;
+    exchange_order_id: string;
+    venue: string;
+    symbol: string;
+    side: "buy" | "sell";
+    offset: string;
+    quantity: string;
+    filled: string;
+    limit_price: string;
+    status: "submitted" | "accepted" | "partially_filled" | "filled" | "cancelled" | "rejected";
+    error_code: number;
+  }[];
+  trades: {
+    id: string;
+    order_id: string;
+    venue: string;
+    symbol: string;
+    side: "buy" | "sell";
+    offset: string;
+    quantity: string;
+    price: string;
+    trading_day: string;
+    trade_time: string;
+  }[];
+  // Valid for the current connection and trading day.
+  authorization: null | { trading_day: string; authorized_at_ms: number };
+  // Recorded orders the broker does not report; never resent.
+  unconfirmed: { id: string; broker_key: string; trading_day: string }[];
+  storage_state: "ready" | "recovery_required";
+  connection_state?: "disconnected";
+};
 export type FirewallPlan = {
   id: string;
   host: string;
@@ -195,6 +263,12 @@ export type TerminalCommand =
   | "paper.act"
   | "paper.connect"
   | "paper.reconnect"
+  | "live.create"
+  | "live.open"
+  | "live.connect"
+  | "live.disconnect"
+  | "live.act"
+  | "live.close"
   | "node.bootstrap"
   | "node.connect"
   | "node.local"
@@ -220,7 +294,7 @@ export type NodeStatus = {
     uptime_ms: number;
     services: {
       revision: string;
-      kind: "paper" | "market" | "research" | "strategy";
+      kind: "paper" | "live" | "market" | "research" | "strategy";
       active_workers: number;
       plugin_artifacts: string[];
       id: string;
@@ -761,9 +835,16 @@ export type Snapshot = {
     state: string;
   }[];
   diagnostics: { succeeded: number; failed: number; trading_process_id: number | null };
-  live_market: "not_connected";
-  execution: "paper_only";
   paper: PaperAccount | null;
+  live: null | {
+    session: LiveSession | null;
+    connection: {
+      transport: "local" | "tcp_tls";
+      state: "connected" | "disconnected";
+      session: string;
+      host?: string;
+    };
+  };
 };
 async function call(
   method: "runtime.snapshot" | TerminalCommand,

@@ -108,8 +108,10 @@ void Application::Impl::register_strategy_commands() {
                                     "before revoking this strategy");
       if (!nodes.contains("local"))
         nodes.emplace("local", std::make_shared<NodeClient>(local));
-      observer = std::make_unique<TradingClient>(nodes.at("local")->service_endpoint(
-          plan.trading_session(), asterion::node::v1::PAPER_TRADING));
+      observer = std::make_unique<TradingClient>(
+          nodes.at("local")->service_endpoint(plan.trading_session(),
+                                              asterion::node::v1::PAPER_TRADING),
+          TradingMode::paper);
       account = observer.get();
     }
     const auto state = account->snapshot();

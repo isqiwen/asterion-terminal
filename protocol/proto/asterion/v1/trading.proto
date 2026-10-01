@@ -14,6 +14,16 @@ message PaperContract { asterion.data.v1.BarDataset dataset = 1; Costs costs = 2
 // dataset settlement prices.
 message PaperInput { Decimal deposit = 1; RiskLimits risk = 2; repeated PaperContract contracts = 3; }
 enum Mode { MODE_UNSPECIFIED = 0; PAPER = 1; LIVE = 2; }
+// A CTP futures account. Non-secret identities only: the password and the
+// authentication code are entered at every connection and never stored.
+message LiveBroker { string front = 1; string broker_id = 2; string user_id = 3; string app_id = 4; }
+// A live session: the account, its pre-trade risk limits and the contracts
+// the owner allows it to trade, with their exchange terms.
+message LiveInput { LiveBroker broker = 1; RiskLimits risk = 2; repeated Contract contracts = 3; }
+message LiveCredentials { string password = 1; string auth_code = 2; }
+// The owner confirms the account by its user ID; valid for the current
+// connection and trading day only.
+message LiveAuthorize { string user_id = 1; }
 enum Side { SIDE_UNSPECIFIED = 0; BUY = 1; SELL = 2; }
 // CLOSE leaves bucket assignment to the exchange rule (see ClosePolicy).
 enum Offset { OFFSET_UNSPECIFIED = 0; OPEN = 1; CLOSE_TODAY = 2; CLOSE_YESTERDAY = 3; CLOSE = 4; }
@@ -41,7 +51,7 @@ message ReplaySettle { uint32 day_index = 1; }
 message ReplayState { uint32 settled_days = 1; bool settlement_due = 2; bool day_end = 3; uint32 days = 4; }
 message Command {
   string request_id = 1;
-  oneof operation { Empty advance = 2; Submit submit = 3; Cancel cancel = 4; StrategyGrant strategy_grant = 5; StrategyRevoke strategy_revoke = 6; StrategyTarget strategy_target = 7; ReplaySettle replay_settle = 8; }
+  oneof operation { Empty advance = 2; Submit submit = 3; Cancel cancel = 4; StrategyGrant strategy_grant = 5; StrategyRevoke strategy_revoke = 6; StrategyTarget strategy_target = 7; ReplaySettle replay_settle = 8; LiveAuthorize live_authorize = 9; Empty live_revoke = 10; }
 }
 // A connection is bound to one immutable process session and mode.
 message Request {
@@ -49,7 +59,8 @@ message Request {
   string session_id = 2;
   Mode mode = 3;
   string correlation_id = 4;
-  oneof operation { Empty snapshot = 10; PaperInput create = 11; Empty recover = 12; Command command = 13; Empty shutdown = 14; Empty attach = 15; Empty heartbeat = 16; }
+  oneof operation { Empty snapshot = 10; PaperInput create = 11; Empty recover = 12; Command command = 13; Empty shutdown = 14; Empty attach = 15; Empty heartbeat = 16;
+    LiveInput live_create = 17; LiveCredentials live_connect = 18; Empty live_disconnect = 19; }
 }
 message ContractState { Contract contract = 1; Costs costs = 2; Decimal mark = 3; }
 message Position { string venue = 1; string symbol = 2; Side side = 3; bool today = 4; Decimal quantity = 5; Decimal basis = 6; }
@@ -67,9 +78,40 @@ message Snapshot {
   RiskLimits risk = 18;
   ReplayState replay = 19;
 }
+// Broker-reported account state; the broker owns the live ledger.
+message LiveFunds {
+  Decimal balance = 1; Decimal available = 2; Decimal margin = 3; Decimal commission = 4;
+  Decimal close_profit = 5; Decimal position_profit = 6;
+}
+message LivePosition { string venue = 1; string symbol = 2; Side side = 3; Decimal today = 4; Decimal yesterday = 5; }
+// status: submitted, accepted, partially_filled, filled, cancelled, rejected.
+message LiveOrder {
+  string id = 1; string broker_key = 2; string exchange_order_id = 3; string venue = 4; string symbol = 5;
+  Side side = 6; Offset offset = 7; Decimal quantity = 8; Decimal filled = 9; Decimal limit_price = 10;
+  string status = 11; int32 error_code = 12;
+}
+message LiveTrade {
+  string id = 1; string order_id = 2; string venue = 3; string symbol = 4; Side side = 5; Offset offset = 6;
+  Decimal quantity = 7; Decimal price = 8; string trading_day = 9; string trade_time = 10;
+}
+// An order this session recorded for sending that the synchronized broker
+// does not report. It is never resent.
+message UnconfirmedOrder { string id = 1; string broker_key = 2; string trading_day = 3; }
+message LiveAuthorization { string trading_day = 1; int64 authorized_at_ms = 2; }
+message LiveSnapshot {
+  LiveBroker broker = 1; RiskLimits risk = 2; repeated Contract contracts = 3;
+  // disconnected, connecting, authenticating, logging_in, confirming,
+  // synchronizing, ready or error.
+  string phase = 4; int32 error_code = 5; string trading_day = 6; int64 synchronized_ms = 7;
+  LiveFunds funds = 8;
+  repeated LivePosition positions = 9; repeated LiveOrder orders = 10; repeated LiveTrade trades = 11;
+  LiveAuthorization authorization = 12;
+  repeated UnconfirmedOrder unconfirmed = 13;
+  bool recovery_required = 14;
+}
 message Error { string code = 1; string message = 2; }
 message Health { string instance_id = 1; string version = 2; uint64 uptime_ms = 3; bool initialized = 4; bool recovery_required = 5; }
 message Response {
   uint32 version = 1; string session_id = 2; Mode mode = 3; string correlation_id = 4;
-  oneof result { Snapshot snapshot = 10; Error error = 11; Empty closed = 12; Empty uninitialized = 13; Health health = 14; }
+  oneof result { Snapshot snapshot = 10; Error error = 11; Empty closed = 12; Empty uninitialized = 13; Health health = 14; LiveSnapshot live = 15; }
 }
