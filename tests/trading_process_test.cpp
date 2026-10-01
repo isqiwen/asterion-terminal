@@ -68,24 +68,25 @@ struct Host {
   }
   wire::Request create(std::string deposit) {
     auto r = request();
-    Json input{{"version", 2},
+    Json input{{"version", 3},
                {"type", "historical_paper"},
                {"risk",
                 {{"max_order_quantity", "100"},
                  {"max_gross_quantity", "100"},
                  {"max_working_orders", std::uint64_t{100}}}},
                {"deposit", deposit},
-               {"costs",
-                {{"margin_per_lot", "100"},
-                 {"open_fee", "2"},
-                 {"close_today_fee", "3"},
-                 {"close_yesterday_fee", "4"},
-                 {"margin_rate", "0"},
-                 {"open_fee_rate", "0"},
-                 {"close_today_fee_rate", "0"},
-                 {"close_yesterday_fee_rate", "0"}}},
-               {"dataset", test::dataset_json({test::flat("2026-09-25", 100, "100"),
-                                               test::flat("2026-09-25", 200, "101")})}};
+               {"contracts",
+                {{{"dataset", test::dataset_json({test::flat("2026-09-25", 100, "100"),
+                                                  test::flat("2026-09-25", 200, "101")})},
+                  {"costs",
+                   {{"margin_per_lot", "100"},
+                    {"open_fee", "2"},
+                    {"close_today_fee", "3"},
+                    {"close_yesterday_fee", "4"},
+                    {"margin_rate", "0"},
+                    {"open_fee_rate", "0"},
+                    {"close_today_fee_rate", "0"},
+                    {"close_yesterday_fee_rate", "0"}}}}}}};
     *r.mutable_create() = protocol::encode_input(input);
     return r;
   }

@@ -135,7 +135,6 @@
   "样本内评价": "In-sample evaluation",
   "实验详情": "Experiment details",
   "研究连接已改变，请重新选择当前服务中的日线。": "The research connection changed. Select a daily dataset on the current service again.",
-  "按 K 线收盘价计算": "Computed from bar closes",
   "K 线周期（分钟）": "Bar interval (minutes)",
   "输入 K 线": "Input bars",
   "交易日范围": "Trading days",
@@ -152,5 +151,7 @@
   "按 K 线计算 · 样本内评价": "Computed per bar · In-sample evaluation",
   "选中回看 K 线数": "Selected lookback bars",
   "共同预热 K 线数": "Shared warm-up bars",
-  "单合约 · 最多 200000 根 K 线；委托在下一根 K 线撮合，交易日结束按数据源结算价结算": "Single contract · up to 200000 bars; orders match on the next bar and each trading day settles at the data source's settlement price"
+  "因子分析只研究一个合约，请只保留一个数据集。": "Factor analysis studies one contract; keep a single dataset.",
+  "单合约 · 按 K 线收盘价计算": "Single contract · computed from bar closes",
+  "单合约或组合 · 合计最多 200000 根 K 线；委托在本合约的下一根 K 线撮合，交易日结束按数据源结算价结算": "Single contract or portfolio · up to 200000 bars in total; orders match on their contract's next bar and each trading day settles at the data-source settlement price"
 }

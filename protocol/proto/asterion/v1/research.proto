@@ -7,22 +7,24 @@ import "asterion/v1/factor.proto";
 import "asterion/v1/data.proto";
 
 message SmaStrategy { uint32 fast = 1; uint32 slow = 2; asterion.protocol.v1.Decimal quantity = 3; }
-// Immutable input resolved by the task service; paper.dataset holds the bars
-// and the trading days settled at each day end.
+// Immutable input resolved by the task service. paper.contracts hold the bars
+// and trading days of each contract; the SMA strategy runs on every contract.
 message BacktestInput {
-  uint32 version = 1; // 6
+  uint32 version = 1; // 7
   string dataset_revision = 2;
   asterion.protocol.v1.PaperInput paper = 3;
   SmaStrategy sma = 4;
-  reserved 5, 6, 7, 8, 9;
 }
-// Client submission: the task service resolves the dataset itself.
-message BacktestRequest {
+// One contract of a backtest submission: the task service resolves its bars.
+message BacktestContract {
   asterion.data.v1.BarDatasetRequest data = 1;
   asterion.protocol.v1.Costs costs = 2;
-  asterion.protocol.v1.Decimal deposit = 3;
-  asterion.protocol.v1.RiskLimits risk = 4;
-  SmaStrategy sma = 5;
+}
+message BacktestRequest {
+  repeated BacktestContract contracts = 1;
+  asterion.protocol.v1.Decimal deposit = 2;
+  asterion.protocol.v1.RiskLimits risk = 3;
+  SmaStrategy sma = 4;
 }
 enum EquityEvent { EQUITY_EVENT_UNSPECIFIED = 0; TRADE_MARK = 1; DAILY_SETTLEMENT = 2; }
 message EquityPoint {
@@ -30,15 +32,20 @@ message EquityPoint {
   asterion.protocol.v1.Decimal equity = 2;
   EquityEvent event = 3;
 }
+message ContractSettlement {
+  string venue = 1;
+  string symbol = 2;
+  asterion.protocol.v1.Decimal price = 3;
+  asterion.protocol.v1.Decimal position_quantity = 4;
+}
 message DaySettlement {
   string trading_day = 1;
   int64 timestamp_ns = 2;
-  asterion.protocol.v1.Decimal price = 3;
-  asterion.protocol.v1.Decimal balance = 4;
-  asterion.protocol.v1.Decimal equity = 5;
-  asterion.protocol.v1.Decimal realized = 6;
-  asterion.protocol.v1.Decimal fees = 7;
-  asterion.protocol.v1.Decimal position_quantity = 8;
+  asterion.protocol.v1.Decimal balance = 3;
+  asterion.protocol.v1.Decimal equity = 4;
+  asterion.protocol.v1.Decimal realized = 5;
+  asterion.protocol.v1.Decimal fees = 6;
+  repeated ContractSettlement contracts = 7;
 }
 message BacktestResult {
   uint32 version = 1;

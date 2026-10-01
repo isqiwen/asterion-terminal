@@ -410,5 +410,15 @@
   "paper sessions use at most 20000 bars; narrow the trading days": "模拟交易和策略最多使用 20000 根 K 线，请缩小交易日区间。",
   "dataset exceeds 200000 bars; narrow the date range": "数据集超过 200000 根 K 线，请缩小交易日区间。",
   "another node operation is in progress; retry after it completes": "另一个节点操作正在进行，请在完成后重试。",
-  "another window opened a paper session meanwhile; recover this directory after closing it": "另一个窗口刚刚打开了模拟会话；请先关闭它，再从本目录恢复。"
+  "another window opened a paper session meanwhile; recover this directory after closing it": "另一个窗口刚刚打开了模拟会话；请先关闭它，再从本目录恢复。",
+  "portfolio contracts must share the same trading days; narrow the trading days to their common range": "组合内合约的交易日必须相同，请把交易日区间缩小到它们的共同范围。",
+  "a portfolio holds at most 20 contracts": "组合最多 20 个合约。",
+  "give costs for every selected contract": "请为每个已选合约填写保证金与手续费。",
+  "factor analysis studies one contract; keep one dataset": "因子分析只研究一个合约，请只保留一个数据集。",
+  "this contract is not selected": "该合约不在已选数据集中。",
+  "contract is not part of this account": "该合约不属于此账户。",
+  "duplicate portfolio contract": "组合中有重复的合约。",
+  "replay at least one market event of this contract first": "请先回放该合约至少一根 K 线。",
+  "backtest requires at least slow bars for every contract": "每个合约的 K 线数都不能少于慢均线周期。",
+  "unsupported trading journal format; this build reads format 5 only and leaves the directory unchanged": "不支持的交易账本格式；当前版本只读取格式 5，目录保持不变。"
 }

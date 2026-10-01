@@ -26,19 +26,13 @@ constexpr std::array<const char*, 8> cost_keys{
     "margin_per_lot", "open_fee",      "close_today_fee",      "close_yesterday_fee",
     "margin_rate",    "open_fee_rate", "close_today_fee_rate", "close_yesterday_fee_rate"};
 } // namespace
-json cost_parameters(const json& p) {
-  json costs = json::object();
-  for (const auto* key : cost_keys)
-    costs[key] = text(p, key);
-  return costs;
-}
-void fields_with_costs(const json& object, std::initializer_list<std::string_view> names) {
-  if (!object.is_object() || object.size() != names.size() + cost_keys.size())
+void fields_with_risk(const json& object, std::initializer_list<std::string_view> names) {
+  if (!object.is_object() || object.size() != names.size() + 3)
     throw std::invalid_argument("request fields do not match the current contract");
   for (const auto name : names)
     if (!object.contains(name))
       throw std::invalid_argument("request is missing a required field");
-  for (const auto* key : cost_keys)
+  for (const auto* key : {"max_order_quantity", "max_gross_quantity", "max_working_orders"})
     if (!object.contains(key))
       throw std::invalid_argument("request is missing a required field");
 }
@@ -150,7 +144,13 @@ json Application::Impl::compose(const Parts& parts) {
           {"phase", "ready"},
           {"asset", "futures"},
           {"paper", parts.paper},
-          {"dataset", selection ? selection->summary : json(nullptr)},
+          {"datasets",
+           [&] {
+             json summaries = json::array();
+             for (const auto& item : selections)
+               summaries.push_back(item.summary);
+             return summaries;
+           }()},
           {"diagnostics",
            {{"succeeded", metrics.succeeded},
             {"failed", metrics.failed},
@@ -463,10 +463,32 @@ json Application::Impl::dispatch(const json& request) {
   }
   return result;
 }
-const DatasetSelection& Application::Impl::selected() const {
-  if (!selection)
+const std::vector<DatasetSelection>& Application::Impl::selected() const {
+  if (selections.empty())
     throw std::invalid_argument("select downloaded data and a contract specification first");
-  return *selection;
+  return selections;
+}
+std::vector<json> Application::Impl::selection_costs(const json& contracts) const {
+  const auto& chosen = selected();
+  if (!contracts.is_array() || contracts.size() != chosen.size())
+    throw std::invalid_argument("give costs for every selected contract");
+  std::vector<json> result;
+  for (const auto& item : chosen) {
+    const auto& spec = item.dataset.contract();
+    const auto found = std::ranges::find_if(contracts, [&](const json& entry) {
+      return entry.is_object() && entry.value("venue", "") == spec.venue() &&
+             entry.value("symbol", "") == spec.symbol();
+    });
+    if (found == contracts.end())
+      throw std::invalid_argument("give costs for every selected contract");
+    if (found->size() != cost_keys.size() + 2)
+      throw std::invalid_argument("request fields do not match the current contract");
+    json costs = json::object();
+    for (const auto* key : cost_keys)
+      costs[key] = text(*found, key);
+    result.push_back(std::move(costs));
+  }
+  return result;
 }
 Application::Application() : impl_(std::make_unique<Impl>()) {}
 Application::~Application() = default;

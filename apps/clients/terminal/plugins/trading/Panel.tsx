@@ -1,5 +1,7 @@
 import {
-  CostTemplate,
+  ContractCosts,
+  contractCostRequest,
+  type ContractCostDrafts,
   DatasetPicker,
   ErrorNotice,
   asDisplayError,
@@ -30,24 +32,30 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
   const paper = snapshot?.paper;
   const remote = snapshot?.connection?.transport === "tcp_tls";
   const [directory, setDirectory] = useWorkspaceDraft("directory", "");
-  const [costs, setCosts] = useWorkspaceDraft("costs", {
+  const [account, setAccount] = useWorkspaceDraft("account", {
     deposit: "",
-    margin_per_lot: "",
-    open_fee: "",
-    close_today_fee: "",
-    close_yesterday_fee: "",
-    margin_rate: "0",
-    open_fee_rate: "0",
-    close_today_fee_rate: "0",
-    close_yesterday_fee_rate: "0",
     max_order_quantity: "",
     max_gross_quantity: "",
     max_working_orders: "",
   });
-  const [order, setOrder] = useState({ side: "buy", offset: "open", quantity: "1", price: "" });
+  const [costs, setCosts] = useWorkspaceDraft<ContractCostDrafts>("contract-costs", {});
+  const datasets = snapshot?.datasets ?? [];
+  const [order, setOrder] = useState({
+    contract: "",
+    side: "buy",
+    offset: "open",
+    quantity: "1",
+    price: "",
+  });
+  // The order's contract: the chosen one, else the first of the portfolio.
+  const traded =
+    paper?.contracts.find(
+      item => `${item.contract.venue}.${item.contract.symbol}` === order.contract,
+    ) ?? paper?.contracts[0];
+  const currency = paper?.contracts[0]?.contract.currency ?? "";
   // Mirrors the core's ClosePolicy: only SHFE/INE (and unverified venues)
   // take explicit today/yesterday closes; the rest assign buckets themselves.
-  const venue = paper?.contract.venue ?? snapshot?.dataset?.venue ?? "";
+  const venue = traded?.contract.venue ?? "";
   const explicitBuckets = !["CFFEX", "DCE", "CZCE", "GFEX"].includes(venue);
   const offsetValue =
     order.offset === "open"
@@ -57,7 +65,6 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
           ? "close_today"
           : order.offset
         : "close";
-  const [settlement, setSettlement] = useState("");
   const [error, setError] = useState<DisplayError>("");
   async function run(method: TerminalCommand, params: Record<string, unknown> = {}) {
     setError("");
@@ -99,14 +106,15 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
         <>
           <p className="dashboard-caption">
             {t(
-              "选择从数据源下载的单合约 K 线创建模拟账户。会话写入交易服务所在机器的专用目录，重启后可恢复。",
+              "选择从数据源下载的一个或多个合约的 K 线创建模拟账户，组合共用一个资金账户。会话写入交易服务所在机器的专用目录，重启后可恢复。",
             )}
           </p>
           <DatasetPicker snapshot={snapshot} busy={busy} trade={trade} />
           <form
             onSubmit={e => {
               e.preventDefault();
-              void run("paper.create", remote ? costs : { directory, ...costs });
+              const request = { ...account, contracts: contractCostRequest(datasets, costs) };
+              void run("paper.create", remote ? request : { directory, ...request });
             }}
           >
             <fieldset disabled={busy || snapshot?.connection?.state === "disconnected"}>
@@ -142,32 +150,10 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
                   {t("。记录目录由服务端管理。")}
                 </p>
               )}
-              {snapshot?.dataset && (
-                <CostTemplate
-                  product={`${snapshot.dataset.contract.venue}/${snapshot.dataset.contract.product}`}
-                  values={costs}
-                  onApply={values => setCosts({ ...costs, ...values })}
-                />
-              )}
               {[
                 {
-                  title: t("账户与保证金"),
-                  fields: [
-                    ["deposit", t("初始模拟资金")],
-                    ["margin_per_lot", t("每手保证金")],
-                    ["margin_rate", t("保证金率")],
-                  ],
-                },
-                {
-                  title: t("交易费用"),
-                  fields: [
-                    ["open_fee", t("每手开仓费")],
-                    ["close_today_fee", t("每手平今费")],
-                    ["close_yesterday_fee", t("每手平昨费")],
-                    ["open_fee_rate", t("开仓费率")],
-                    ["close_today_fee_rate", t("平今费率")],
-                    ["close_yesterday_fee_rate", t("平昨费率")],
-                  ],
+                  title: t("账户"),
+                  fields: [["deposit", t("初始模拟资金")]],
                 },
                 {
                   title: t("委托与持仓限制"),
@@ -187,8 +173,8 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
                         <input
                           aria-label={label}
                           inputMode="decimal"
-                          value={costs[key as keyof typeof costs]}
-                          onChange={e => setCosts({ ...costs, [key]: e.target.value })}
+                          value={account[key as keyof typeof account]}
+                          onChange={e => setAccount({ ...account, [key]: e.target.value })}
                           required
                         />
                       </label>
@@ -196,8 +182,9 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
                   </div>
                 </section>
               ))}
+              <ContractCosts datasets={datasets} drafts={costs} onChange={setCosts} />
               <div className="source-actions">
-                <button className="primary" type="submit" disabled={!snapshot?.dataset}>
+                <button className="primary" type="submit" disabled={!datasets.length}>
                   {t("创建模拟会话")}
                 </button>
               </div>
@@ -213,7 +200,9 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
         <>
           <div className="paper-toolbar">
             <strong>
-              {paper.contract.venue} · {paper.contract.symbol}
+              {paper.contracts
+                .map(item => `${item.contract.venue} · ${item.contract.symbol}`)
+                .join(" + ")}
             </strong>
             <span>{t("{cursor} / {total} 根", { cursor: paper.cursor, total: paper.total })}</span>
             <span>{timestamp(paper.timestamp_ns)}</span>
@@ -253,7 +242,7 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
               <div key={key}>
                 <dt>{label}</dt>
                 <dd data-testid={`paper-${key}`}>
-                  {paper[key]} <small>{paper.contract.currency}</small>
+                  {paper[key]} <small>{currency}</small>
                 </dd>
               </div>
             ))}
@@ -261,10 +250,13 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
           <form
             onSubmit={e => {
               e.preventDefault();
+              const { contract: _chosen, ...fields } = order;
               void act({
                 action: "submit",
                 order_id: crypto.randomUUID(),
-                ...order,
+                venue: traded?.contract.venue ?? "",
+                symbol: traded?.contract.symbol ?? "",
+                ...fields,
                 offset: offsetValue,
               });
             }}
@@ -275,6 +267,23 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
               }
             >
               <div className="futures-fields">
+                <label>
+                  {t("合约")}
+                  <select
+                    aria-label={t("委托合约")}
+                    value={traded ? `${traded.contract.venue}.${traded.contract.symbol}` : ""}
+                    onChange={e => setOrder({ ...order, contract: e.target.value })}
+                  >
+                    {paper.contracts.map(item => (
+                      <option
+                        key={`${item.contract.venue}.${item.contract.symbol}`}
+                        value={`${item.contract.venue}.${item.contract.symbol}`}
+                      >
+                        {item.contract.venue} · {item.contract.symbol}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <label>
                   {t("买卖方向")}
                   <select
@@ -319,7 +328,7 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
                     aria-label={t("限价")}
                     value={order.price}
                     onChange={e => setOrder({ ...order, price: e.target.value })}
-                    placeholder={paper.mark}
+                    placeholder={traded?.mark}
                     required
                   />
                 </label>
@@ -337,6 +346,7 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
             <table aria-label={t("模拟持仓")}>
               <thead>
                 <tr>
+                  <th>{t("合约")}</th>
                   <th>{t("方向")}</th>
                   <th>{t("今昨仓")}</th>
                   <th>{t("手数")}</th>
@@ -346,6 +356,7 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
               <tbody>
                 {paper.positions.map((p, i) => (
                   <tr key={i}>
+                    <td>{p.symbol}</td>
                     <td>{p.side === "buy" ? t("多头") : t("空头")}</td>
                     <td>{p.bucket === "today" ? t("今仓") : t("昨仓")}</td>
                     <td>{p.quantity}</td>
@@ -361,6 +372,7 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
             <table aria-label={t("模拟委托")}>
               <thead>
                 <tr>
+                  <th>{t("合约")}</th>
                   <th>{t("方向 / 开平")}</th>
                   <th>{t("限价")}</th>
                   <th>{t("手数")}</th>
@@ -375,6 +387,7 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
                   .reverse()
                   .map(o => (
                     <tr key={o.id}>
+                      <td>{o.symbol}</td>
                       <td>
                         {o.side === "buy" ? t("买入") : t("卖出")} / {offsets[o.offset]}
                       </td>
@@ -402,6 +415,7 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
             <table aria-label={t("模拟成交")}>
               <thead>
                 <tr>
+                  <th>{t("合约")}</th>
                   <th>{t("成交编号")}</th>
                   <th>{t("价格")}</th>
                   <th>{t("手数")}</th>
@@ -413,6 +427,7 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
                   .reverse()
                   .map(f => (
                     <tr key={f.id}>
+                      <td>{f.symbol}</td>
                       <td>{f.id}</td>
                       <td>{f.price}</td>
                       <td>{f.quantity}</td>
@@ -430,55 +445,36 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
             </p>
           </details>
           <details className="futures-help">
-            <summary>{t("模拟规则与手动结算")}</summary>
+            <summary>{t("模拟规则与日终结算")}</summary>
             <p>
               {t(
-                "委托在下一根 K 线撮合：买单在最低价不高于限价时按开盘价与限价中较低者成交，卖单对称；每根最多成交该 K 线成交量的 10%，按委托先后分配。无盘口、滑点或强平模型。浮亏会减少可用资金，浮盈不增加可开仓资金。存储保留数据集与操作日志。",
+                "委托在本合约的下一根 K 线撮合：买单在最低价不高于限价时按开盘价与限价中较低者成交，卖单对称；每根最多成交该 K 线成交量的 10%，按委托先后分配。无盘口、滑点或强平模型。浮亏会减少可用资金，浮盈不增加可开仓资金。存储保留数据集与操作日志。",
               )}
             </p>
+            {paper.contracts.map(item => (
+              <p key={`${item.contract.venue}.${item.contract.symbol}`}>
+                {item.contract.venue} · {item.contract.symbol}
+                {t("：每手保证金")} {item.costs.margin_per_lot}
+                {t("；开仓 / 平今 / 平昨手续费")} {item.costs.open_fee} /{" "}
+                {item.costs.close_today_fee} / {item.costs.close_yesterday_fee}
+                {t("；保证金率")} {item.costs.margin_rate}
+                {t("；开仓 / 平今 / 平昨费率")} {item.costs.open_fee_rate} /{" "}
+                {item.costs.close_today_fee_rate} / {item.costs.close_yesterday_fee_rate}
+                {t("。单位：")} {item.contract.currency}。
+              </p>
+            ))}
             <p>
-              {t("每手保证金")} {paper.costs.margin_per_lot}
-              {t("；开仓 / 平今 / 平昨手续费")} {paper.costs.open_fee} /{" "}
-              {paper.costs.close_today_fee} / {paper.costs.close_yesterday_fee}
-              {t("；保证金率")} {paper.costs.margin_rate}
-              {t("；开仓 / 平今 / 平昨费率")} {paper.costs.open_fee_rate} /{" "}
-              {paper.costs.close_today_fee_rate} / {paper.costs.close_yesterday_fee_rate}
-              {t("。单位：")} {paper.contract.currency}。
+              {t("结算价来自数据源日线；每个交易日所有合约回放完成后一起结算，再进入下一交易日。")}
             </p>
-            {paper.replay ? (
-              <>
-                <p>{t("结算价来自数据源日线；每个交易日回放完成后结算，再进入下一交易日。")}</p>
-                <button
-                  disabled={blocked || !paper.replay.settlement_due}
-                  onClick={() =>
-                    void act({ action: "replay_settle", day_index: paper.replay!.settled_days })
-                  }
-                >
-                  {t("日终结算")}
-                </button>
-              </>
-            ) : (
-              <>
-                <p>
-                  {t(
-                    "此会话未绑定结算日程。回放结束并撤销剩余委托后，可输入结算价将浮盈亏计入资金、今仓转为昨仓。",
-                  )}
-                </p>
-                <label>
-                  {t("结算价")}
-                  <input
-                    aria-label={t("结算价")}
-                    value={settlement}
-                    onChange={e => setSettlement(e.target.value)}
-                  />
-                </label>
-                <button
-                  disabled={blocked || paper.cursor !== paper.total || !settlement}
-                  onClick={() => void act({ action: "settle", price: settlement })}
-                >
-                  {t("手动结算")}
-                </button>
-              </>
+            {paper.replay && (
+              <button
+                disabled={blocked || !paper.replay.settlement_due}
+                onClick={() =>
+                  void act({ action: "replay_settle", day_index: paper.replay!.settled_days })
+                }
+              >
+                {t("日终结算")}
+              </button>
             )}
           </details>
         </>

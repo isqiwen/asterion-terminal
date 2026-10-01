@@ -247,10 +247,41 @@ int main(int argc, char** argv) {
               throw asterion::Error(asterion::ErrorCode::unavailable,
                                     "task service is preparing for upgrade");
             *response.mutable_task() = store.submit(std::move(submission));
-          } else if (p.has_backtest() || p.has_factor_request()) {
-            // Clients select downloads; the service resolves and freezes the bars.
-            const auto sources = store.prepare_dataset(
-                p.has_backtest() ? p.backtest().data() : p.factor_request().data());
+          } else if (p.has_backtest()) {
+            // Clients select downloads; the service resolves and freezes each
+            // contract's bars.
+            const auto& b = p.backtest();
+            if (b.contracts().empty() || b.contracts_size() > 20)
+              throw std::invalid_argument("backtest requires 1 to 20 contracts");
+            std::vector<asterion::tasks::BarDatasetSources> sources;
+            for (const auto& contract : b.contracts())
+              sources.push_back(store.prepare_dataset(contract.data()));
+            lock.unlock();
+            std::vector<asterion::data::v1::BarDataset> datasets;
+            for (const auto& source : sources)
+              datasets.push_back(asterion::tasks::resolve_bar_dataset(source));
+            lock.lock();
+            admitted();
+            if (quiescing)
+              throw asterion::Error(asterion::ErrorCode::unavailable,
+                                    "task service is preparing for upgrade");
+            for (const auto& source : sources)
+              store.confirm_sources(source);
+            wire::BacktestInput input;
+            input.set_version(7);
+            auto* paper = input.mutable_paper();
+            *paper->mutable_deposit() = b.deposit();
+            *paper->mutable_risk() = b.risk();
+            for (int c = 0; c < b.contracts_size(); ++c) {
+              auto* contract = paper->add_contracts();
+              *contract->mutable_dataset() = std::move(datasets[static_cast<std::size_t>(c)]);
+              *contract->mutable_costs() = b.contracts(c).costs();
+            }
+            input.set_dataset_revision(asterion::protocol::dataset_revision(*paper));
+            *input.mutable_sma() = b.sma();
+            *response.mutable_task() = store.submit(p.id(), input);
+          } else if (p.has_factor_request()) {
+            const auto sources = store.prepare_dataset(p.factor_request().data());
             lock.unlock();
             auto dataset = asterion::tasks::resolve_bar_dataset(sources);
             lock.lock();
@@ -259,34 +290,20 @@ int main(int argc, char** argv) {
               throw asterion::Error(asterion::ErrorCode::unavailable,
                                     "task service is preparing for upgrade");
             store.confirm_sources(sources);
-            if (p.has_backtest()) {
-              const auto& b = p.backtest();
-              wire::BacktestInput input;
-              input.set_version(6);
-              input.set_dataset_revision(dataset.revision());
-              auto* paper = input.mutable_paper();
-              *paper->mutable_costs() = b.costs();
-              *paper->mutable_deposit() = b.deposit();
-              *paper->mutable_risk() = b.risk();
-              *paper->mutable_dataset() = std::move(dataset);
-              *input.mutable_sma() = b.sma();
-              *response.mutable_task() = store.submit(p.id(), input);
-            } else {
-              const auto& f = p.factor_request();
-              wire::FactorInput input;
-              input.set_version(5);
-              input.set_dataset_revision(dataset.revision());
-              *input.mutable_dataset() = std::move(dataset);
-              *input.mutable_lookbacks() = f.lookbacks();
-              input.set_horizon(f.horizon());
-              if (f.has_full_sample())
-                input.set_full_sample(f.full_sample());
-              else if (f.has_walk_forward())
-                *input.mutable_walk_forward() = f.walk_forward();
-              else if (f.has_holdout_start())
-                input.set_holdout_start(f.holdout_start());
-              *response.mutable_task() = store.submit(p.id(), input);
-            }
+            const auto& f = p.factor_request();
+            wire::FactorInput input;
+            input.set_version(5);
+            input.set_dataset_revision(dataset.revision());
+            *input.mutable_dataset() = std::move(dataset);
+            *input.mutable_lookbacks() = f.lookbacks();
+            input.set_horizon(f.horizon());
+            if (f.has_full_sample())
+              input.set_full_sample(f.full_sample());
+            else if (f.has_walk_forward())
+              *input.mutable_walk_forward() = f.walk_forward();
+            else if (f.has_holdout_start())
+              input.set_holdout_start(f.holdout_start());
+            *response.mutable_task() = store.submit(p.id(), input);
           } else if (p.has_daily())
             *response.mutable_task() = store.submit(p.id(), p.daily(), p.provider_token());
           else if (p.has_minutes())

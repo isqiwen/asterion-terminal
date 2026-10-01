@@ -7,10 +7,6 @@
 #include <charconv>
 #include <stdexcept>
 namespace asterion::protocol {
-std::string dataset_revision(const v1::PaperInput& input) {
-  validate_bar_dataset(input.dataset());
-  return input.dataset().revision();
-}
 namespace {
 research::v1::SmaStrategy sma(const Json& value) {
   require_fields(value, {"fast", "slow", "quantity"});
@@ -27,10 +23,10 @@ research::v1::SmaStrategy sma(const Json& value) {
 } // namespace
 research::v1::BacktestInput encode_backtest(const Json& input) {
   require_fields(input, {"version", "dataset_revision", "paper", "sma"});
-  if (!input.at("version").is_number_integer() || input.at("version") != 6)
+  if (!input.at("version").is_number_integer() || input.at("version") != 7)
     throw std::invalid_argument("unsupported backtest input version");
   research::v1::BacktestInput result;
-  result.set_version(6);
+  result.set_version(7);
   result.set_dataset_revision(input.at("dataset_revision").get<std::string>());
   *result.mutable_paper() = encode_input(input.at("paper"));
   *result.mutable_sma() = sma(input.at("sma"));
@@ -38,10 +34,17 @@ research::v1::BacktestInput encode_backtest(const Json& input) {
   return result;
 }
 research::v1::BacktestRequest encode_backtest_request(const Json& input) {
-  require_fields(input, {"data", "costs", "deposit", "risk", "sma"});
+  require_fields(input, {"contracts", "deposit", "risk", "sma"});
+  if (!input.at("contracts").is_array() || input.at("contracts").empty() ||
+      input.at("contracts").size() > max_portfolio_contracts)
+    throw std::invalid_argument("backtest requires 1 to 20 contracts");
   research::v1::BacktestRequest result;
-  *result.mutable_data() = encode_bar_dataset_request(input.at("data"));
-  *result.mutable_costs() = encode_costs(input.at("costs"));
+  for (const auto& contract : input.at("contracts")) {
+    require_fields(contract, {"data", "costs"});
+    auto* item = result.add_contracts();
+    *item->mutable_data() = encode_bar_dataset_request(contract.at("data"));
+    *item->mutable_costs() = encode_costs(contract.at("costs"));
+  }
   result.mutable_deposit()->set_units(Decimal::parse(input.at("deposit").get<std::string>()).raw());
   *result.mutable_risk() = encode_risk(input.at("risk"));
   *result.mutable_sma() = sma(input.at("sma"));
@@ -49,14 +52,14 @@ research::v1::BacktestRequest encode_backtest_request(const Json& input) {
 }
 Json decode_backtest(const research::v1::BacktestInput& input) {
   validate_message(input);
-  if (input.version() != 6 || !input.has_paper() || !input.has_sma() || !input.sma().has_quantity())
+  if (input.version() != 7 || !input.has_paper() || !input.has_sma() || !input.sma().has_quantity())
     throw std::invalid_argument("incomplete backtest input");
   if (input.dataset_revision() != dataset_revision(input.paper()))
     throw std::invalid_argument("dataset revision does not match input snapshot");
   // Evaluated before the braced initializer: GCC < 13 leaks already-built
   // initializer_list elements when a later element throws (PR66139).
   auto paper = decode_input(input.paper());
-  return {{"version", 6},
+  return {{"version", 7},
           {"dataset_revision", input.dataset_revision()},
           {"paper", std::move(paper)},
           {"sma",
@@ -66,7 +69,7 @@ Json decode_backtest(const research::v1::BacktestInput& input) {
 }
 Json decode_backtest_result(const research::v1::BacktestResult& result) {
   validate_message(result);
-  if (result.version() != 4 || !result.has_account() || !result.has_max_drawdown() ||
+  if (result.version() != 5 || !result.has_account() || !result.has_max_drawdown() ||
       result.equity().empty() || result.settlements().empty() ||
       static_cast<std::size_t>(result.settlements_size()) > max_dataset_bars)
     throw std::invalid_argument("incomplete backtest result");
@@ -82,18 +85,27 @@ Json decode_backtest_result(const research::v1::BacktestResult& result) {
          {"event", point.event() == research::v1::TRADE_MARK ? "trade" : "settlement"}});
   }
   for (const auto& day : result.settlements()) {
-    if (!day.has_price() || !day.has_balance() || !day.has_equity() || !day.has_realized() ||
-        !day.has_fees() || !day.has_position_quantity())
+    if (!day.has_balance() || !day.has_equity() || !day.has_realized() || !day.has_fees() ||
+        day.contracts().empty())
       throw std::invalid_argument("incomplete settlement result");
-    settlements.push_back(
-        {{"trading_day", day.trading_day()},
-         {"timestamp_ns", std::to_string(day.timestamp_ns())},
-         {"price", Decimal::from_raw(day.price().units()).str()},
-         {"balance", Decimal::from_raw(day.balance().units()).str()},
-         {"equity", Decimal::from_raw(day.equity().units()).str()},
-         {"realized", Decimal::from_raw(day.realized().units()).str()},
-         {"fees", Decimal::from_raw(day.fees().units()).str()},
-         {"position_quantity", Decimal::from_raw(day.position_quantity().units()).str()}});
+    Json contracts = Json::array();
+    for (const auto& c : day.contracts()) {
+      if (!c.has_price() || !c.has_position_quantity())
+        throw std::invalid_argument("incomplete settlement result");
+      InstrumentId{c.venue(), c.symbol()}.validate();
+      contracts.push_back(
+          {{"venue", c.venue()},
+           {"symbol", c.symbol()},
+           {"price", Decimal::from_raw(c.price().units()).str()},
+           {"position_quantity", Decimal::from_raw(c.position_quantity().units()).str()}});
+    }
+    settlements.push_back({{"trading_day", day.trading_day()},
+                           {"timestamp_ns", std::to_string(day.timestamp_ns())},
+                           {"balance", Decimal::from_raw(day.balance().units()).str()},
+                           {"equity", Decimal::from_raw(day.equity().units()).str()},
+                           {"realized", Decimal::from_raw(day.realized().units()).str()},
+                           {"fees", Decimal::from_raw(day.fees().units()).str()},
+                           {"contracts", std::move(contracts)}});
   }
   auto account = protocol::decode_snapshot(result.account());
   account["mode"] = "backtest";
@@ -250,7 +262,10 @@ Json decode_task_result(const research::v1::TaskResponse& response, const std::s
     auto experiment = decode_backtest(task.input());
     if (response.backtest().dataset_revision() != task.input().dataset_revision())
       throw std::invalid_argument("backtest result does not belong to input data");
-    experiment["data"] = range(experiment.at("paper").at("dataset"));
+    Json data = Json::array();
+    for (auto& contract : experiment.at("paper").at("contracts"))
+      data.push_back(range(contract.at("dataset")));
+    experiment["data"] = std::move(data);
     envelope["experiment"] = std::move(experiment);
     envelope["result"] = decode_backtest_result(response.backtest());
   } else if (task.kind() == research::v1::FACTOR && task.has_factor() && response.has_factor()) {

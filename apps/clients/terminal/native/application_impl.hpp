@@ -36,10 +36,8 @@ using nlohmann::json;
 using namespace asterion;
 void fields(const json& object, std::initializer_list<std::string_view> names);
 json risk_parameters(const json& p);
-// The eight cost fields of a paper account request (per-lot and notional rates).
-json cost_parameters(const json& p);
-// fields() for a request that also carries every cost field.
-void fields_with_costs(const json& object, std::initializer_list<std::string_view> names);
+// fields() for a request that also carries the three risk limits.
+void fields_with_risk(const json& object, std::initializer_list<std::string_view> names);
 std::string text(const json& object, const char* name, bool allow_empty = false);
 unsigned short port_number(const json& p, const char* name);
 std::string next_runtime_scope();
@@ -65,9 +63,13 @@ struct Application::Impl {
   DataConnection resolve_data_connection(const std::string& id, const std::string& revision,
                                          const std::string& source);
   json research_result = nullptr;
-  std::optional<DatasetSelection> selection;
-  // The selected dataset or an actionable error; never an empty stand-in.
-  const DatasetSelection& selected() const;
+  // One dataset per portfolio contract, in selection order.
+  std::vector<DatasetSelection> selections;
+  // The selected datasets or an actionable error; never an empty stand-in.
+  const std::vector<DatasetSelection>& selected() const;
+  // Costs of every selected contract, in selection order, from a request's
+  // "contracts" entries ({venue, symbol, and the eight cost fields}).
+  std::vector<json> selection_costs(const json& contracts) const;
   std::vector<HistoryListing> history_contracts;
   std::string history_source;
   std::string history_connection, history_connection_revision;

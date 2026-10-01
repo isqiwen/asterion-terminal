@@ -4,13 +4,17 @@
 #include "history_minutes.hpp"
 #include "history_daily.hpp"
 #include "task_store.hpp"
+#include <algorithm>
+#include <cctype>
 namespace asterion::test {
 // Minute bars spread evenly over `minute_days` (09:00 onwards, bar end, each
 // with its trading day); daily rows with settlement 110 on `daily_days`.
+// The contract is SHFE `product` 2026-10, e.g. rb2610.
 inline Json seed_history(const std::filesystem::path& root, const std::vector<int>& prices,
                          const std::string& id,
                          std::vector<std::string> minute_days = {"2026-09-25"},
-                         std::vector<std::string> daily_days = {}) {
+                         std::vector<std::string> daily_days = {},
+                         const std::string& product = "rb") {
   if (daily_days.empty())
     daily_days = minute_days;
   class Minutes final : public HistoricalBarPort {
@@ -77,23 +81,27 @@ inline Json seed_history(const std::filesystem::path& root, const std::vector<in
   minutes.days = minute_days;
   daily.days = daily_days;
   tasks::Store store(root);
+  const auto contract_id = "SHFE/" + product + "/2026-10";
+  auto upper = product;
+  std::ranges::transform(upper, upper.begin(), [](unsigned char c) { return std::toupper(c); });
+  const auto source_instrument = upper + "2610.SHF";
   const auto per_day =
       static_cast<std::int64_t>((prices.size() + minute_days.size() - 1) / minute_days.size());
   const auto begin = parse_shanghai_time(minute_days.front() + " 09:00:00");
   const auto end =
       parse_shanghai_time(minute_days.back() + " 09:00:00") + (per_day - 1) * 60000000000LL;
   const auto minute = history_files::minute_request({{"version", 2},
-                                                     {"contract_id", "SHFE/rb/2026-10"},
+                                                     {"contract_id", contract_id},
                                                      {"source", "tushare.ft_mins"},
-                                                     {"source_instrument", "RB2610.SHF"},
+                                                     {"source_instrument", source_instrument},
                                                      {"interval_minutes", 1},
                                                      {"begin_ns", std::to_string(begin)},
                                                      {"end_ns", std::to_string(end)},
                                                      {"requests_per_minute", 500}});
   const auto day = history_files::daily_request({{"version", 2},
-                                                 {"contract_id", "SHFE/rb/2026-10"},
+                                                 {"contract_id", contract_id},
                                                  {"source", "tushare.fut_daily"},
-                                                 {"source_instrument", "RB2610.SHF"},
+                                                 {"source_instrument", source_instrument},
                                                  {"begin_day", daily_days.front()},
                                                  {"end_day", daily_days.back()},
                                                  {"requests_per_minute", 500}});

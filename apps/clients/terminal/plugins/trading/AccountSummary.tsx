@@ -18,7 +18,7 @@ export function AccountSummary({ context }: { context: TerminalContext }) {
     <>
       <div className="overview-card-bar">
         <span>
-          {t("历史模拟")} · {paper.contract.currency}
+          {t("历史模拟")} · {paper.contracts[0]?.contract.currency}
         </span>
         <button onClick={open}>{t("查看账户")}</button>
       </div>
@@ -54,7 +54,7 @@ export function AccountSummary({ context }: { context: TerminalContext }) {
             <tbody>
               {paper.positions.map((position, index) => (
                 <tr key={index}>
-                  <td>{paper.contract.symbol}</td>
+                  <td>{position.symbol}</td>
                   <td>
                     {t(position.side === "buy" ? "多头" : "空头")} ·{" "}
                     {t(position.bucket === "today" ? "今仓" : "昨仓")}

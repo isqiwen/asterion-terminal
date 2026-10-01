@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { translate, type MessageValues } from "../i18n";
+import type { DatasetSelection } from "../bridge/client";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 
 // Margin and fee inputs shared by paper sessions and backtests.
@@ -139,5 +140,91 @@ export function CostTemplate({
         </div>
       )}
     </section>
+  );
+}
+
+// Cost drafts per portfolio contract, keyed by "VENUE.SYMBOL".
+export type ContractCostDrafts = Record<string, CostValues>;
+const blank: CostValues = {
+  margin_per_lot: "",
+  margin_rate: "0",
+  open_fee: "",
+  close_today_fee: "",
+  close_yesterday_fee: "",
+  open_fee_rate: "0",
+  close_today_fee_rate: "0",
+  close_yesterday_fee_rate: "0",
+};
+const labels: [(typeof costFields)[number], string][] = [
+  ["margin_per_lot", "每手保证金"],
+  ["margin_rate", "保证金率"],
+  ["open_fee", "每手开仓费"],
+  ["close_today_fee", "每手平今费"],
+  ["close_yesterday_fee", "每手平昨费"],
+  ["open_fee_rate", "开仓费率"],
+  ["close_today_fee_rate", "平今费率"],
+  ["close_yesterday_fee_rate", "平昨费率"],
+];
+const contractKey = (contract: { venue: string; symbol: string }) =>
+  `${contract.venue}.${contract.symbol}`;
+// The "contracts" entries of paper.create and research.submit, in selection order.
+export function contractCostRequest(datasets: DatasetSelection[], drafts: ContractCostDrafts) {
+  return datasets.map(dataset => ({
+    venue: dataset.venue,
+    symbol: dataset.symbol,
+    ...(drafts[contractKey(dataset)] ?? blank),
+  }));
+}
+
+// Margin and fee fields for every selected contract, each with its product's template.
+export function ContractCosts({
+  datasets,
+  drafts,
+  onChange,
+  disabled = false,
+}: {
+  datasets: DatasetSelection[];
+  drafts: ContractCostDrafts;
+  onChange: (drafts: ContractCostDrafts) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <>
+      {datasets.map(dataset => {
+        const key = contractKey(dataset);
+        const values = drafts[key] ?? blank;
+        const update = (next: CostValues) => onChange({ ...drafts, [key]: next });
+        const name = `${dataset.venue} · ${dataset.symbol}`;
+        return (
+          <section
+            className="account-field-group contract-costs"
+            key={key}
+            aria-label={t("{contract} 保证金与手续费", { contract: name })}
+          >
+            <h3>{t("{contract} 保证金与手续费", { contract: name })}</h3>
+            <CostTemplate
+              product={`${dataset.contract.venue}/${dataset.contract.product}`}
+              values={values}
+              onApply={applied => update({ ...values, ...applied })}
+              disabled={disabled}
+            />
+            <div className="futures-fields">
+              {labels.map(([field, label]) => (
+                <label key={field}>
+                  {t(label)}
+                  <input
+                    aria-label={t(label)}
+                    inputMode="decimal"
+                    value={values[field]}
+                    onChange={event => update({ ...values, [field]: event.target.value })}
+                    required
+                  />
+                </label>
+              ))}
+            </div>
+          </section>
+        );
+      })}
+    </>
   );
 }

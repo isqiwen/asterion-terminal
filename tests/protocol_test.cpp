@@ -29,13 +29,9 @@ struct Endpoint {
 };
 } // namespace
 TEST(Protobuf, TypedDecimalAndCommandRoundTrip) {
-  Json command{{"request_id", "r1"},
-               {"action", "submit"},
-               {"order_id", "o1"},
-               {"side", "sell"},
-               {"offset", "close_today"},
-               {"quantity", "2"},
-               {"price", "92233720368.54775807"}};
+  Json command{{"request_id", "r1"},      {"action", "submit"}, {"order_id", "o1"},
+               {"venue", "SHFE"},         {"symbol", "rb2610"}, {"side", "sell"},
+               {"offset", "close_today"}, {"quantity", "2"},    {"price", "92233720368.54775807"}};
   auto message = protocol::encode_command(command);
   EXPECT_EQ(message.submit().price().units(), INT64_MAX);
   wire::Command parsed;

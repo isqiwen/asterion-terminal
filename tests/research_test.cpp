@@ -21,25 +21,26 @@ research::v1::BacktestInput input() {
     time += 1000000000;
   }
   const auto dataset = test::dataset(bars, {{"2026-09-25", d("103")}});
-  const auto manifest = Json{{"version", 2},
+  const auto manifest = Json{{"version", 3},
                              {"type", "historical_paper"},
-                             {"dataset", protocol::decode_bar_dataset(dataset)},
                              {"risk",
                               {{"max_order_quantity", "100"},
                                {"max_gross_quantity", "100"},
                                {"max_working_orders", std::uint64_t{100}}}},
                              {"deposit", "10000"},
-                             {"costs",
-                              {{"margin_per_lot", "100"},
-                               {"open_fee", "2"},
-                               {"close_today_fee", "3"},
-                               {"close_yesterday_fee", "4"},
-                               {"margin_rate", "0"},
-                               {"open_fee_rate", "0"},
-                               {"close_today_fee_rate", "0"},
-                               {"close_yesterday_fee_rate", "0"}}}};
+                             {"contracts",
+                              {{{"dataset", protocol::decode_bar_dataset(dataset)},
+                                {"costs",
+                                 {{"margin_per_lot", "100"},
+                                  {"open_fee", "2"},
+                                  {"close_today_fee", "3"},
+                                  {"close_yesterday_fee", "4"},
+                                  {"margin_rate", "0"},
+                                  {"open_fee_rate", "0"},
+                                  {"close_today_fee_rate", "0"},
+                                  {"close_yesterday_fee_rate", "0"}}}}}}};
   research::v1::BacktestInput result;
-  result.set_version(6);
+  result.set_version(7);
   *result.mutable_paper() = protocol::encode_input(manifest);
   result.mutable_sma()->set_fast(1);
   result.mutable_sma()->set_slow(3);
@@ -55,8 +56,12 @@ TEST(Research, HashUsesExactSnapshotAndExcludesExperimentCosts) {
   const auto revision = spec.dataset_revision();
   spec.mutable_paper()->mutable_deposit()->set_units(d("20000").raw());
   EXPECT_EQ(protocol::dataset_revision(spec.paper()), revision);
-  spec.mutable_paper()->mutable_dataset()->mutable_bars(0)->mutable_close()->set_units(
-      d("99").raw());
+  spec.mutable_paper()
+      ->mutable_contracts(0)
+      ->mutable_dataset()
+      ->mutable_bars(0)
+      ->mutable_close()
+      ->set_units(d("99").raw());
   EXPECT_THROW(protocol::dataset_revision(spec.paper()), std::invalid_argument);
   EXPECT_THROW(backtest::validate(spec), std::invalid_argument);
 }
@@ -80,12 +85,13 @@ TEST(Research, DeterministicNextTickExecutionFeesAndDrawdown) {
 }
 TEST(Research, RejectsUnsupportedDaysAndStopsCooperatively) {
   auto spec = input();
-  spec.mutable_paper()->mutable_dataset()->mutable_bars(6)->set_trading_day("2026-09-26");
-  spec.mutable_paper()->mutable_dataset()->mutable_bars(6)->set_timestamp_ns(
-      spec.paper().dataset().bars(6).timestamp_ns() + 86400LL * 1000000000);
-  spec.mutable_paper()->mutable_dataset()->set_revision(
-      protocol::bar_dataset_revision(spec.paper().dataset()));
-  spec.set_dataset_revision(spec.paper().dataset().revision());
+  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_bars(6)->set_trading_day(
+      "2026-09-26");
+  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_bars(6)->set_timestamp_ns(
+      spec.paper().contracts(0).dataset().bars(6).timestamp_ns() + 86400LL * 1000000000);
+  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
+      protocol::bar_dataset_revision(spec.paper().contracts(0).dataset()));
+  spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
   spec = input();
   spec.mutable_sma()->set_fast(3);
@@ -489,7 +495,7 @@ TEST(ResearchTasks, RejectsMismatchedResultContractAndMetrics) {
   store.submit("job", input());
   const auto token = store.claim("job");
   auto result = backtest::run(input());
-  result.mutable_account()->mutable_contract()->set_symbol("rb2611");
+  result.mutable_account()->mutable_contracts(0)->mutable_contract()->set_symbol("rb2611");
   EXPECT_THROW(store.finish("job", token, result), std::invalid_argument);
   result = backtest::run(input());
   result.mutable_max_drawdown()->set_units(0);
@@ -672,10 +678,13 @@ TEST(ResearchTasks, CompletedResultCarriesPersistedExperimentAndRejectsMismatche
   const auto value = protocol::decode_task_result(response, "evidence");
   EXPECT_EQ(value.at("experiment").at("sma"), Json({{"fast", 1}, {"slow", 3}, {"quantity", "1"}}));
   EXPECT_EQ(value.at("experiment").at("paper").at("deposit"), "10000");
-  EXPECT_EQ(value.at("experiment").at("paper").at("costs").at("close_today_fee"), "3");
+  EXPECT_EQ(
+      value.at("experiment").at("paper").at("contracts").at(0).at("costs").at("close_today_fee"),
+      "3");
   EXPECT_EQ(value.at("experiment").at("paper").at("risk").at("max_order_quantity"), "100");
-  EXPECT_FALSE(value.at("experiment").at("paper").contains("ticks"));
-  EXPECT_EQ(value.at("experiment").at("data").at("count"), 7);
+  EXPECT_FALSE(
+      value.at("experiment").at("paper").at("contracts").at(0).at("dataset").contains("bars"));
+  EXPECT_EQ(value.at("experiment").at("data").at(0).at("count"), 7);
   EXPECT_EQ(value.at("task").at("result_digest"), restored.get("evidence").result_digest());
   EXPECT_THROW(protocol::decode_task_result(response, "other"), std::invalid_argument);
   auto bad = response;
@@ -697,7 +706,7 @@ TEST(ResearchTasks, CompletedResultCarriesPersistedExperimentAndRejectsMismatche
 
 TEST(Research, ExplicitTradingDaysDoNotInferFromWallClock) {
   auto spec = input();
-  auto* data = spec.mutable_paper()->mutable_dataset();
+  auto* data = spec.mutable_paper()->mutable_contracts(0)->mutable_dataset();
   data->mutable_bars(0)->set_timestamp_ns(1790254800000000000LL);
   data->set_revision(protocol::bar_dataset_revision(*data));
   spec.set_dataset_revision(data->revision());
@@ -709,12 +718,12 @@ TEST(Research, ExplicitTradingDaysDoNotInferFromWallClock) {
 namespace {
 research::v1::BacktestInput multiday_input() {
   auto spec = input();
-  spec.mutable_paper()->mutable_dataset()->clear_bars();
+  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->clear_bars();
   const std::int64_t first = 1790298000000000000LL;
   const std::int64_t next = first + 3LL * 86400 * 1000000000;
   int index = 0;
   for (const auto price : {100, 101, 102, 101, 104, 103, 102, 103}) {
-    auto* tick = spec.mutable_paper()->mutable_dataset()->add_bars();
+    auto* tick = spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->add_bars();
     tick->set_trading_day(index < 4 ? "2026-09-25" : "2026-09-28");
     tick->set_timestamp_ns((index < 4 ? first : next) + (index % 4) * 1000000000LL);
     for (auto* p :
@@ -723,15 +732,19 @@ research::v1::BacktestInput multiday_input() {
     tick->mutable_volume()->set_units(d("10").raw());
     ++index;
   }
-  spec.mutable_paper()->mutable_dataset()->mutable_days(0)->mutable_settlement_price()->set_units(
-      d("105").raw());
-  auto* day = spec.mutable_paper()->mutable_dataset()->add_days();
-  *day = spec.paper().dataset().days(0);
+  spec.mutable_paper()
+      ->mutable_contracts(0)
+      ->mutable_dataset()
+      ->mutable_days(0)
+      ->mutable_settlement_price()
+      ->set_units(d("105").raw());
+  auto* day = spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->add_days();
+  *day = spec.paper().contracts(0).dataset().days(0);
   day->set_trading_day("2026-09-28");
   day->mutable_settlement_price()->set_units(d("110").raw());
-  spec.mutable_paper()->mutable_dataset()->set_revision(
-      protocol::bar_dataset_revision(spec.paper().dataset()));
-  spec.set_dataset_revision(spec.paper().dataset().revision());
+  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
+      protocol::bar_dataset_revision(spec.paper().contracts(0).dataset()));
+  spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
   return spec;
 }
 } // namespace
@@ -739,10 +752,10 @@ TEST(Research, MultidaySettlementCarriesSmaAndChargesYesterdayClose) {
   const auto spec = multiday_input();
   const auto result = backtest::run(spec);
   ASSERT_EQ(result.settlements_size(), 2);
-  EXPECT_EQ(result.settlements(0).price().units(), d("105").raw());
+  EXPECT_EQ(result.settlements(0).contracts(0).price().units(), d("105").raw());
   EXPECT_EQ(result.settlements(0).equity().units(), d("10038").raw());
-  EXPECT_EQ(result.settlements(0).position_quantity().units(), d("1").raw());
-  EXPECT_EQ(result.settlements(1).position_quantity().units(), 0);
+  EXPECT_EQ(result.settlements(0).contracts(0).position_quantity().units(), d("1").raw());
+  EXPECT_EQ(result.settlements(1).contracts(0).position_quantity().units(), 0);
   EXPECT_EQ(result.account().balance().units(), d("10014").raw());
   EXPECT_EQ(result.account().fees().units(), d("6").raw());
   EXPECT_EQ(result.account().realized().units(), d("20").raw());
@@ -751,20 +764,27 @@ TEST(Research, MultidaySettlementCarriesSmaAndChargesYesterdayClose) {
   EXPECT_EQ(result.account().orders(1).offset(), protocol::v1::CLOSE_YESTERDAY);
   ASSERT_EQ(result.equity_size(), 10);
   EXPECT_EQ(result.equity(4).event(), research::v1::DAILY_SETTLEMENT);
-  EXPECT_EQ(result.equity(4).timestamp_ns(), spec.paper().dataset().bars(3).timestamp_ns());
+  EXPECT_EQ(result.equity(4).timestamp_ns(),
+            spec.paper().contracts(0).dataset().bars(3).timestamp_ns());
   EXPECT_EQ(result.equity(5).event(), research::v1::TRADE_MARK);
   EXPECT_EQ(result.equity(9).equity().units(), result.account().equity().units());
   EXPECT_EQ(result.SerializeAsString(), backtest::run(spec).SerializeAsString());
 }
 TEST(Research, FinalSettlementRevaluesOpenPositionAndParticipatesInDrawdown) {
   auto spec = multiday_input();
-  spec.mutable_paper()->mutable_dataset()->mutable_days()->DeleteSubrange(1, 1);
-  spec.mutable_paper()->mutable_dataset()->mutable_bars()->DeleteSubrange(4, 4);
-  spec.mutable_paper()->mutable_dataset()->mutable_days(0)->mutable_settlement_price()->set_units(
-      d("90").raw());
-  spec.mutable_paper()->mutable_dataset()->set_revision(
-      protocol::bar_dataset_revision(spec.paper().dataset()));
-  spec.set_dataset_revision(spec.paper().dataset().revision());
+  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_days()->DeleteSubrange(1,
+                                                                                                1);
+  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_bars()->DeleteSubrange(4,
+                                                                                                4);
+  spec.mutable_paper()
+      ->mutable_contracts(0)
+      ->mutable_dataset()
+      ->mutable_days(0)
+      ->mutable_settlement_price()
+      ->set_units(d("90").raw());
+  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
+      protocol::bar_dataset_revision(spec.paper().contracts(0).dataset()));
+  spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
   const auto result = backtest::run(spec);
   EXPECT_EQ(result.account().equity().units(), d("9888").raw());
   EXPECT_EQ(result.account().realized().units(), d("-110").raw());
@@ -780,33 +800,46 @@ TEST(Research, MultidayRequiresExplicitValidCompleteEvidence) {
   EXPECT_EQ(protocol::encode_backtest(protocol::decode_backtest(original)).SerializeAsString(),
             original.SerializeAsString());
   auto spec = original;
-  spec.mutable_paper()->mutable_dataset()->mutable_days(1)->clear_settlement_price();
+  spec.mutable_paper()
+      ->mutable_contracts(0)
+      ->mutable_dataset()
+      ->mutable_days(1)
+      ->clear_settlement_price();
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
   spec = original;
-  spec.mutable_paper()->mutable_dataset()->mutable_days(1)->mutable_settlement_price()->set_units(
-      d("-1").raw());
+  spec.mutable_paper()
+      ->mutable_contracts(0)
+      ->mutable_dataset()
+      ->mutable_days(1)
+      ->mutable_settlement_price()
+      ->set_units(d("-1").raw());
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
 
   spec = original;
-  spec.mutable_paper()->mutable_dataset()->mutable_days(1)->mutable_settlement_price()->set_units(
-      d("110.5").raw());
+  spec.mutable_paper()
+      ->mutable_contracts(0)
+      ->mutable_dataset()
+      ->mutable_days(1)
+      ->mutable_settlement_price()
+      ->set_units(d("110.5").raw());
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
   spec = original;
-  spec.mutable_paper()->mutable_dataset()->mutable_days(1)->set_trading_day(
-      spec.paper().dataset().days(0).trading_day());
+  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_days(1)->set_trading_day(
+      spec.paper().contracts(0).dataset().days(0).trading_day());
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
 
   spec = original;
-  spec.mutable_paper()->mutable_dataset()->mutable_bars()->DeleteSubrange(4, 4);
-  spec.mutable_paper()->mutable_dataset()->set_revision(
-      protocol::bar_dataset_revision(spec.paper().dataset()));
-  spec.set_dataset_revision(spec.paper().dataset().revision());
+  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_bars()->DeleteSubrange(4,
+                                                                                                4);
+  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
+      protocol::bar_dataset_revision(spec.paper().contracts(0).dataset()));
+  spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
   spec = original;
   spec.set_version(3);
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
   auto json = protocol::decode_backtest(original);
-  json["paper"]["dataset"]["days"][0]["settlement_price"] = "106";
+  json["paper"]["contracts"][0]["dataset"]["days"][0]["settlement_price"] = "106";
   EXPECT_THROW(protocol::encode_backtest(json), std::invalid_argument);
 }
 TEST(ResearchTasks, MultidayEvidenceRestoresAndForgedSettlementCannotCommit) {
@@ -815,13 +848,14 @@ TEST(ResearchTasks, MultidayEvidenceRestoresAndForgedSettlementCannotCommit) {
   const auto expected = backtest::run(spec);
   auto altered = spec;
   altered.mutable_paper()
+      ->mutable_contracts(0)
       ->mutable_dataset()
       ->mutable_days(0)
       ->mutable_settlement_price()
       ->set_units(d("107").raw());
-  altered.mutable_paper()->mutable_dataset()->set_revision(
-      protocol::bar_dataset_revision(altered.paper().dataset()));
-  altered.set_dataset_revision(altered.paper().dataset().revision());
+  altered.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
+      protocol::bar_dataset_revision(altered.paper().contracts(0).dataset()));
+  altered.set_dataset_revision(altered.paper().contracts(0).dataset().revision());
   const auto wrong = backtest::run(altered);
   EXPECT_EQ(wrong.account().equity().units(), expected.account().equity().units());
   {
@@ -830,7 +864,7 @@ TEST(ResearchTasks, MultidayEvidenceRestoresAndForgedSettlementCannotCommit) {
     const auto token = store.claim("multiday");
     EXPECT_THROW(store.finish("multiday", token, wrong), std::invalid_argument);
     auto forged = expected;
-    forged.mutable_settlements(0)->mutable_price()->set_units(d("106").raw());
+    forged.mutable_settlements(0)->mutable_contracts(0)->mutable_price()->set_units(d("106").raw());
     EXPECT_THROW(store.finish("multiday", token, forged), std::invalid_argument);
     store.finish("multiday", token, expected);
   }
@@ -945,4 +979,43 @@ TEST(ResearchDatasets, CoverageCountsTradingDaysPerContractAcrossTheArchive) {
   EXPECT_EQ(row.uncovered_days(0), "2026-09-24");
   filter.set_product("cu");
   EXPECT_EQ(tasks::history_coverage(archive, filter).items_size(), 0);
+}
+TEST(Research, PortfolioOfIdenticalContractsDoublesEveryLedgerEffect) {
+  const auto single = multiday_input();
+  auto pair = single;
+  auto* second = pair.mutable_paper()->add_contracts();
+  *second = single.paper().contracts(0);
+  auto* data = second->mutable_dataset();
+  *data->mutable_contract() = test::contract("SHFE", "hc2610", "hc", "2026-10");
+  data->set_revision(protocol::bar_dataset_revision(*data));
+  pair.set_dataset_revision(protocol::dataset_revision(pair.paper()));
+  EXPECT_NE(pair.dataset_revision(), single.dataset_revision());
+  const auto one = backtest::run(single);
+  const auto two = backtest::run(pair);
+  EXPECT_EQ(two.SerializeAsString(), backtest::run(pair).SerializeAsString());
+  const auto doubled = [](const protocol::v1::Decimal& value) { return value.units() * 2; };
+  EXPECT_EQ(two.account().fees().units(), doubled(one.account().fees()));
+  EXPECT_EQ(two.account().realized().units(), doubled(one.account().realized()));
+  EXPECT_EQ(two.account().fills_size(), one.account().fills_size() * 2);
+  ASSERT_EQ(two.settlements_size(), one.settlements_size());
+  for (int day = 0; day < two.settlements_size(); ++day) {
+    const auto& settled = two.settlements(day);
+    ASSERT_EQ(settled.contracts_size(), 2);
+    EXPECT_EQ(settled.contracts(0).symbol(), "rb2610");
+    EXPECT_EQ(settled.contracts(1).symbol(), "hc2610");
+    EXPECT_EQ(settled.contracts(1).position_quantity().units(),
+              one.settlements(day).contracts(0).position_quantity().units());
+    // Equity moves twice as far from the shared deposit.
+    EXPECT_EQ(settled.equity().units() - d("10000").raw(),
+              (one.settlements(day).equity().units() - d("10000").raw()) * 2);
+  }
+  auto shifted = pair;
+  shifted.mutable_paper()->mutable_contracts(1)->mutable_dataset()->mutable_days()->DeleteSubrange(
+      1, 1);
+  shifted.mutable_paper()->mutable_contracts(1)->mutable_dataset()->mutable_bars()->DeleteSubrange(
+      4, 4);
+  auto* shifted_data = shifted.mutable_paper()->mutable_contracts(1)->mutable_dataset();
+  shifted_data->set_revision(protocol::bar_dataset_revision(*shifted_data));
+  shifted.set_dataset_revision(protocol::dataset_revision(shifted.paper()));
+  EXPECT_THROW(backtest::run(shifted), std::invalid_argument);
 }

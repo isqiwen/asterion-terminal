@@ -27,7 +27,7 @@ test("overview keeps empty summaries compact and preserves saved layouts", async
       return;
     }
     const value = await response.json();
-    Object.assign(value.result, { market: null, paper: null, dataset: null });
+    Object.assign(value.result, { market: null, paper: null, datasets: [] });
     await route.fulfill({ response, json: value });
   });
   await page.goto("/");

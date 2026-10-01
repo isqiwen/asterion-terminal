@@ -54,31 +54,43 @@ void StrategyClient::observe(const strategy::v1::Response& response) {
     return;
   }
   const auto& snapshot = response.snapshot();
-  if (snapshot.config().session_id() != endpoint_.session || snapshot.config().version() != 1)
+  if (snapshot.config().session_id() != endpoint_.session || snapshot.config().version() != 2)
     throw std::runtime_error("invalid strategy configuration identity");
+  // Events across every contract of the replayed portfolio.
+  const auto events = [](const strategy::v1::Config& config) {
+    std::uint64_t total = 0;
+    for (const auto& dataset : config.replay().datasets())
+      total += static_cast<std::uint64_t>(dataset.bars_size());
+    return total;
+  };
   if (snapshot.config().has_replay()) {
     static_cast<void>(protocol::decode_replay_plan(snapshot.config().replay()));
     const auto& phase = snapshot.replay().phase();
-    if (snapshot.processed() >
-            static_cast<std::uint64_t>(snapshot.config().replay().dataset().bars_size()) ||
+    if (snapshot.processed() > events(snapshot.config()) ||
         (phase != "waiting" && phase != "running" && phase != "completed" && phase != "blocked"))
       throw std::runtime_error("invalid strategy replay status");
   }
   config_ = snapshot.config();
+  std::string symbols;
+  for (const auto& contract : config_.contracts())
+    symbols += (symbols.empty() ? "" : " + ") + contract.symbol();
   last_ = {{"id", endpoint_.session},
            {"state", "connected"},
            {"phase", config_.has_replay() ? snapshot.replay().phase() : "manual"},
            {"processed", snapshot.processed()},
-           {"total", config_.has_replay() ? config_.replay().dataset().bars_size() : 0},
+           {"total", config_.has_replay() ? events(config_) : 0},
            {"fast", config_.fast()},
            {"slow", config_.slow()},
            {"quantity", Decimal::from_raw(config_.quantity().units()).str()},
-           {"symbol", config_.contract().symbol()},
+           {"symbol", symbols},
            {"error", snapshot.replay().error()}};
   if (config_.has_replay()) {
     last_["account"] = config_.replay().trading_session();
     last_["grant_id"] = config_.replay().grant_id();
-    last_["revision"] = config_.replay().dataset().revision();
+    protocol::v1::PaperInput revisions;
+    for (const auto& dataset : config_.replay().datasets())
+      *revisions.add_contracts()->mutable_dataset() = dataset;
+    last_["revision"] = protocol::dataset_revision(revisions);
   }
   if (snapshot.recovery_required())
     last_["phase"] = "blocked";

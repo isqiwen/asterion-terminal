@@ -17,9 +17,14 @@ const label = (task: ResearchTask) =>
     source: task.data_source || task.source_name,
   });
 
+// Mirrors the core's portfolio limit.
+const maxContracts = 20;
+
 // Chooses bars from completed data-source downloads for paper trading,
-// backtests, factors and strategies. The contract identity comes from the
-// download; only units a data source does not provide are entered here.
+// backtests, factors and strategies; a portfolio holds one dataset per
+// contract and all of them share the same trading days. The contract identity
+// comes from the download; only units a data source does not provide are
+// entered here.
 export function DatasetPicker({
   snapshot,
   busy,
@@ -31,7 +36,7 @@ export function DatasetPicker({
   trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
   locked?: boolean;
 }) {
-  const selected = snapshot?.dataset ?? null;
+  const selected = snapshot?.datasets ?? [];
   // Newest first, so the default settlement is the latest completed download.
   const tasks = (snapshot?.research?.tasks ?? [])
     .filter(download)
@@ -67,51 +72,64 @@ export function DatasetPicker({
       setError(asDisplayError(reason));
     }
   }
-  if (selected)
+  const list = (
+    <ul className="dataset-list" aria-label={t("已选合约")}>
+      {selected.map(item => (
+        <li key={`${item.venue}.${item.symbol}`}>
+          <p>
+            <strong>
+              {item.venue} · {item.symbol}
+            </strong>{" "}
+            ·{" "}
+            {item.interval_minutes === 1440
+              ? t("日线")
+              : t("{n} 分钟", { n: item.interval_minutes })}{" "}
+            · {t("{count} 根 · {days} 个交易日", { count: item.count, days: item.days })}
+          </p>
+          <p className="subtle">
+            {item.first_day} → {item.last_day} · {item.source} ·{" "}
+            {t("最小变动价位 {tick} · 合约乘数 {multiplier}", {
+              tick: item.contract.price_increment,
+              multiplier: item.contract.multiplier,
+            })}
+          </p>
+          <p className="subtle">
+            {t("数据版本")} <code>{item.revision.slice(0, 16)}</code>
+          </p>
+          {item.uncovered_days.length > 0 && (
+            <p role="alert" className="alert">
+              {t("日线中有 {n} 个交易日没有分钟数据：{days}", {
+                n: item.uncovered_days.length,
+                days:
+                  item.uncovered_days.slice(0, 5).join("、") +
+                  (item.uncovered_days.length > 5 ? " …" : ""),
+              })}
+            </p>
+          )}
+          {!locked && (
+            <div className="source-actions">
+              <button
+                type="button"
+                disabled={busy}
+                aria-label={t("移除 {contract}", { contract: `${item.venue} · ${item.symbol}` })}
+                onClick={() =>
+                  void run("research.dataset.remove", { venue: item.venue, symbol: item.symbol })
+                }
+              >
+                {t("移除")}
+              </button>
+            </div>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+  if (locked || selected.length >= maxContracts)
     return (
       <section className="dataset-picker" aria-label={t("历史数据集")}>
         <h3>{t("历史数据集")}</h3>
-        <p>
-          <strong>
-            {selected.venue} · {selected.symbol}
-          </strong>{" "}
-          ·{" "}
-          {selected.interval_minutes === 1440
-            ? t("日线")
-            : t("{n} 分钟", { n: selected.interval_minutes })}{" "}
-          · {t("{count} 根 · {days} 个交易日", { count: selected.count, days: selected.days })}
-        </p>
-        <p className="subtle">
-          {selected.first_day} → {selected.last_day} · {selected.source} ·{" "}
-          {t("最小变动价位 {tick} · 合约乘数 {multiplier}", {
-            tick: selected.contract.price_increment,
-            multiplier: selected.contract.multiplier,
-          })}
-        </p>
-        <p className="subtle">
-          {t("数据版本")} <code>{selected.revision.slice(0, 16)}</code>
-        </p>
-        {selected.uncovered_days.length > 0 && (
-          <p role="alert" className="alert">
-            {t("日线中有 {n} 个交易日没有分钟数据：{days}", {
-              n: selected.uncovered_days.length,
-              days:
-                selected.uncovered_days.slice(0, 5).join("、") +
-                (selected.uncovered_days.length > 5 ? " …" : ""),
-            })}
-          </p>
-        )}
-        {!locked && (
-          <div className="source-actions">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void run("research.dataset.clear")}
-            >
-              {t("更换数据集")}
-            </button>
-          </div>
-        )}
+        {list}
+        {!locked && <p className="subtle">{t("组合最多 {n} 个合约。", { n: maxContracts })}</p>}
         {error && (
           <p role="alert" className="alert">
             <ErrorNotice error={error} />
@@ -134,6 +152,7 @@ export function DatasetPicker({
       }}
     >
       <h3>{t("历史数据集")}</h3>
+      {list}
       {!snapshot?.research ? (
         <p className="subtle">{t("研究服务未连接，无法读取已下载的历史数据。")}</p>
       ) : !tasks.length ? (
@@ -141,7 +160,7 @@ export function DatasetPicker({
           {t("还没有已完成的历史下载。请先在数据页从数据源下载分钟线或日线。")}
         </p>
       ) : (
-        <fieldset disabled={busy || locked}>
+        <fieldset disabled={busy}>
           <div className="futures-fields">
             <label>
               {t("K 线来源")}
@@ -218,10 +237,10 @@ export function DatasetPicker({
           </div>
           <div className="source-actions">
             <button type="submit" className="primary">
-              {t("使用此数据集")}
+              {selected.length ? t("加入组合") : t("使用此数据集")}
             </button>
             <span className="subtle">
-              {t("交易日区间留空表示全部；合约单位以交易所公布为准。")}
+              {t("交易日区间留空表示全部；组合内合约须覆盖相同交易日；合约单位以交易所公布为准。")}
             </span>
           </div>
         </fieldset>

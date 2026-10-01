@@ -5,7 +5,9 @@ import {
   translate,
   getLocale,
   DatasetPicker,
-  CostTemplate,
+  ContractCosts,
+  contractCostRequest,
+  type ContractCostDrafts,
   ErrorNotice,
   asDisplayError,
   type DisplayError,
@@ -37,7 +39,9 @@ export function Panel({
   workspaceParams,
 }: TerminalContext) {
   const research = snapshot?.research;
-  const data = snapshot?.dataset;
+  const datasets = snapshot?.datasets ?? [];
+  // Factor analysis studies exactly one contract.
+  const data = datasets.length === 1 ? datasets[0] : undefined;
   const [mode, setMode] = useWorkspaceDraft<"backtest" | "factor" | "daily_factor">("mode", () =>
     snapshot?.research_result?.kind === "daily_factor"
       ? "daily_factor"
@@ -63,23 +67,23 @@ export function Panel({
     slow: "20",
     quantity: "1",
     deposit: "",
-    margin_per_lot: "",
-    open_fee: "",
-    close_today_fee: "",
-    close_yesterday_fee: "",
-    margin_rate: "0",
-    open_fee_rate: "0",
-    close_today_fee_rate: "0",
-    close_yesterday_fee_rate: "0",
     max_order_quantity: "",
     max_gross_quantity: "",
     max_working_orders: "",
   });
+  const [costs, setCosts] = useWorkspaceDraft<ContractCostDrafts>("contract-costs", {});
   const [error, setError] = useState<DisplayError>("");
   const [submitted, setSubmitted] = useWorkspaceDraft(`submitted:${destination}:${mode}`, "");
   const [pendingId, setPendingId] = useWorkspaceRequestId(
     "submission",
-    JSON.stringify([destination, mode, factorParameters, parameters, data?.revision]),
+    JSON.stringify([
+      destination,
+      mode,
+      factorParameters,
+      parameters,
+      costs,
+      datasets.map(item => item.revision),
+    ]),
   );
   async function run(method: TerminalCommand, params: Record<string, unknown> = {}) {
     setError("");
@@ -101,6 +105,7 @@ export function Panel({
           ? {
               id,
               ...parameters,
+              contracts: contractCostRequest(datasets, costs),
               fast: Number(parameters.fast),
               slow: Number(parameters.slow),
             }
@@ -194,12 +199,17 @@ export function Panel({
               <p className="subtle">
                 {t(
                   mode === "backtest"
-                    ? "单合约 · 最多 200000 根 K 线；委托在下一根 K 线撮合，交易日结束按数据源结算价结算"
-                    : "按 K 线收盘价计算",
+                    ? "单合约或组合 · 合计最多 200000 根 K 线；委托在本合约的下一根 K 线撮合，交易日结束按数据源结算价结算"
+                    : "单合约 · 按 K 线收盘价计算",
                 )}
               </p>
+              {mode !== "backtest" && datasets.length > 1 && (
+                <p role="alert" className="alert">
+                  {t("因子分析只研究一个合约，请只保留一个数据集。")}
+                </p>
+              )}
               <form onSubmit={event => void submit(event)}>
-                <fieldset disabled={busy || !data}>
+                <fieldset disabled={busy || (mode === "backtest" ? !datasets.length : !data)}>
                   {mode === "backtest" ? (
                     <>
                       <div className="research-fields">
@@ -227,25 +237,10 @@ export function Panel({
                           </label>
                         ))}
                       </div>
-                      {data && (
-                        <CostTemplate
-                          product={`${data.contract.venue}/${data.contract.product}`}
-                          values={parameters}
-                          onApply={values => setParameters({ ...parameters, ...values })}
-                        />
-                      )}
                       <div className="research-fields">
                         {(
                           [
                             ["deposit", "初始资金"],
-                            ["margin_per_lot", "每手保证金"],
-                            ["open_fee", "开仓手续费"],
-                            ["close_today_fee", "平今手续费"],
-                            ["close_yesterday_fee", "平昨手续费"],
-                            ["margin_rate", "保证金率"],
-                            ["open_fee_rate", "开仓费率"],
-                            ["close_today_fee_rate", "平今费率"],
-                            ["close_yesterday_fee_rate", "平昨费率"],
                             ["max_order_quantity", "单笔数量上限"],
                             ["max_gross_quantity", "总持仓量上限"],
                             ["max_working_orders", "在途委托数上限"],
@@ -265,6 +260,7 @@ export function Panel({
                           </label>
                         ))}
                       </div>
+                      <ContractCosts datasets={datasets} drafts={costs} onChange={setCosts} />
                     </>
                   ) : (
                     <>
@@ -371,7 +367,11 @@ export function Panel({
                       </p>
                     </>
                   )}
-                  <button className="primary" type="submit" disabled={!research?.online || !data}>
+                  <button
+                    className="primary"
+                    type="submit"
+                    disabled={!research?.online || (mode === "backtest" ? !datasets.length : !data)}
+                  >
                     {pendingId
                       ? t("确认提交状态")
                       : t(mode === "backtest" ? "开始回测" : "开始分析")}
@@ -563,21 +563,26 @@ export function Panel({
                   <table>
                     <thead>
                       <tr>
-                        {["交易日", "结算价", "期末权益", "手续费", "结算后持仓"].map(label => (
-                          <th key={label}>{t(label)}</th>
-                        ))}
+                        {["交易日", "合约", "结算价", "结算后持仓", "期末权益", "手续费"].map(
+                          label => (
+                            <th key={label}>{t(label)}</th>
+                          ),
+                        )}
                       </tr>
                     </thead>
                     <tbody>
-                      {result.result.settlements.map(day => (
-                        <tr key={day.trading_day}>
-                          <td>{day.trading_day}</td>
-                          <td>{day.price}</td>
-                          <td>{day.equity}</td>
-                          <td>{day.fees}</td>
-                          <td>{day.position_quantity}</td>
-                        </tr>
-                      ))}
+                      {result.result.settlements.flatMap(day =>
+                        day.contracts.map((contract, index) => (
+                          <tr key={`${day.trading_day}.${contract.venue}.${contract.symbol}`}>
+                            <td>{index === 0 ? day.trading_day : ""}</td>
+                            <td>{contract.symbol}</td>
+                            <td>{contract.price}</td>
+                            <td>{contract.position_quantity}</td>
+                            <td>{index === 0 ? day.equity : ""}</td>
+                            <td>{index === 0 ? day.fees : ""}</td>
+                          </tr>
+                        )),
+                      )}
                     </tbody>
                   </table>
                 </div>

@@ -84,10 +84,10 @@ with tempfile.TemporaryDirectory(prefix="asterion-strategy-tls-", ignore_cleanup
         process.communicate(timeout=10)
 
     create = request('''create {
-        version: 1 session_id: "tls.strategy" stream_id: "tls.market"
+        version: 2 session_id: "tls.strategy" stream_id: "tls.market"
         plugin_id: "asterion.strategy.cta.sma-long-flat" fast: 1 slow: 2
         quantity { units: 100000000 }
-        contract { venue: "SHFE" symbol: "rb2610" currency: "CNY"
+        contracts { venue: "SHFE" symbol: "rb2610" currency: "CNY"
             price_increment { units: 100000000 } quantity_increment { units: 100000000 }
             multiplier { units: 1000000000 } product: "rb" delivery_month: "2026-10" }
     }''')

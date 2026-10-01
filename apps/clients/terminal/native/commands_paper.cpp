@@ -8,28 +8,31 @@ void Application::Impl::register_paper_commands() {
   core.command("paper.create", "paper.manage", [this](const json& p) {
     const bool remote = paper && paper->connection().at("transport") == "tcp_tls";
     if (remote)
-      fields_with_costs(
-          p, {"deposit", "max_order_quantity", "max_gross_quantity", "max_working_orders"});
+      fields_with_risk(p, {"deposit", "contracts"});
     else
-      fields_with_costs(p, {"directory", "deposit", "max_order_quantity", "max_gross_quantity",
-                            "max_working_orders"});
+      fields_with_risk(p, {"directory", "deposit", "contracts"});
     if (paper && !remote)
       throw std::invalid_argument("close the current paper session first");
-    const auto costs = cost_parameters(p);
+    const auto costs = selection_costs(p.at("contracts"));
     // Validated before the braced initializer (GCC < 13 PR66139 leak).
     const auto risk = risk_parameters(p);
     const auto deposit = text(p, "deposit");
-    if (static_cast<std::size_t>(selected().dataset.bars_size()) > protocol::max_session_bars)
+    std::size_t bars = 0;
+    json contracts = json::array();
+    for (std::size_t i = 0; i < selected().size(); ++i) {
+      bars += static_cast<std::size_t>(selected()[i].dataset.bars_size());
+      contracts.push_back(
+          {{"dataset", protocol::decode_bar_dataset(selected()[i].dataset)}, {"costs", costs[i]}});
+    }
+    if (bars > protocol::max_session_bars)
       throw std::invalid_argument("paper sessions use at most 20000 bars; narrow the trading days");
-    auto dataset = protocol::decode_bar_dataset(selected().dataset);
-    json manifest{{"version", 2}, {"type", "historical_paper"}, {"costs", costs},
-                  {"risk", risk}, {"deposit", deposit},         {"dataset", std::move(dataset)}};
-    // Every dataset carries data-source settlement prices, so each trading
-    // day ends with its bound settlement instead of a typed price.
-    const json schedule{{"request_id", "replay-days"}, {"action", "replay_days"}};
+    json manifest{{"version", 3},
+                  {"type", "historical_paper"},
+                  {"deposit", deposit},
+                  {"risk", risk},
+                  {"contracts", std::move(contracts)}};
     if (remote) {
       paper->create(manifest);
-      paper->execute(schedule);
       return snapshot();
     }
     // Starting the session service waits for the Agent; other commands proceed.
@@ -38,7 +41,6 @@ void Application::Impl::register_paper_commands() {
       auto node = local_node_client(existing);
       auto client = std::make_unique<TradingClient>(
           std::filesystem::path(std::u8string(directory.begin(), directory.end())), manifest);
-      client->execute(schedule);
       return std::pair{std::move(node), std::move(client)};
     });
     nodes.try_emplace("local", std::move(node));

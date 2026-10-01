@@ -8,7 +8,8 @@ import "asterion/v1/data.proto";
 // Remote deployments use a stable TCP/mTLS address. No credential contents.
 message ReplayPlan {
   uint32 version = 1;
-  asterion.data.v1.BarDataset dataset = 2;
+  // One dataset per portfolio contract, in account contract order.
+  repeated asterion.data.v1.BarDataset datasets = 2;
   string trading_session = 3;
   string grant_id = 4;
   string agent_endpoint = 5;
@@ -17,7 +18,6 @@ message ReplayPlan {
   string tls_ca = 8;
   string tls_cert = 9;
   string tls_key = 10;
-  reserved 11;
 }
 message ReplayStatus { string phase = 1; string error = 2; }
 // Immutable configuration for one trusted native strategy instance.
@@ -25,19 +25,20 @@ message Config {
   uint32 version = 1;
   string session_id = 2;
   string stream_id = 3;
-  asterion.protocol.v1.Contract contract = 4;
+  repeated asterion.protocol.v1.Contract contracts = 4;
   string plugin_id = 5;
   uint32 fast = 6;
   uint32 slow = 7;
   asterion.protocol.v1.Decimal quantity = 8;
   ReplayPlan replay = 9;
 }
-// Sequence starts at one and increases by one per completed bar. A source
-// must retain its stream identity.
+// Sequence starts at one and increases by one per completed bar of any
+// contract, in the portfolio replay order. A source must retain its stream
+// identity. contract indexes Config.contracts.
 message Event {
   string stream_id = 1;
   uint64 sequence = 2;
-  reserved 3;
+  uint32 contract = 3;
   asterion.protocol.v1.Bar bar = 4;
 }
 // An observation, never an authorized order or an acknowledgement of execution.
@@ -46,6 +47,8 @@ message Intent {
   uint64 sequence = 2;
   int64 timestamp_ns = 3;
   asterion.protocol.v1.Decimal target_quantity = 4;
+  string venue = 5;
+  string symbol = 6;
 }
 message Receipt {
   uint64 sequence = 1;

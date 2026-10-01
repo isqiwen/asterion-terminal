@@ -19,3 +19,14 @@ def seed(call, prices, identity="fixture"):
     selection = json.loads(result.stdout)
     call("research.local")
     return call("research.dataset.select", selection)
+
+
+# The seeded contract with the costs the process tests trade it under.
+CONTRACT = {"venue": "SHFE", "symbol": "rb2610"}
+COSTS = {"margin_per_lot": "100", "open_fee": "2", "close_today_fee": "3", "close_yesterday_fee": "4",
+         "margin_rate": "0", "open_fee_rate": "0", "close_today_fee_rate": "0",
+         "close_yesterday_fee_rate": "0"}
+
+
+def contracts():
+    return [dict(CONTRACT, **COSTS)]

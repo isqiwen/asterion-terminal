@@ -23,11 +23,18 @@ export async function rpc(
 type Service = { id: string; directory: string };
 type Snapshot = { nodes: { id: string; health: { services: Service[] } }[] };
 
-// Returns the research.dataset.select parameters for the seeded downloads.
-export async function seedHistory(request: APIRequestContext, prices: number[], id: string) {
+// Returns the research.dataset.select parameters for the seeded downloads of
+// the SHFE `product` 2026-10 contract. `keep` adds to the current selection
+// instead of starting a new one.
+export async function seedHistory(
+  request: APIRequestContext,
+  prices: number[],
+  id: string,
+  { product = "rb", keep = false }: { product?: string; keep?: boolean } = {},
+) {
   expect(process.env.ASTERION_TEST_NODE_ISOLATED).toBe("1");
   // The selection lives in the shared core process; earlier specs may leave one.
-  await rpc(request, "research.dataset.clear");
+  if (!keep) await rpc(request, "research.dataset.clear");
   await rpc(request, "research.local");
   const snapshot: Snapshot = await rpc(request, "node.action", {
     id: "local",
@@ -42,14 +49,28 @@ export async function seedHistory(request: APIRequestContext, prices: number[], 
   );
   const output = execFileSync(
     resolve(build, "asterion_test_history"),
-    ["--directory", service.directory, "--id", id, "--price", ...prices.map(String)],
+    [
+      "--directory",
+      service.directory,
+      "--id",
+      id,
+      "--product",
+      product,
+      "--price",
+      ...prices.map(String),
+    ],
     { encoding: "utf8" },
   );
   await rpc(request, "research.local");
   return JSON.parse(output) as Record<string, string>;
 }
 
-export async function seedDataset(request: APIRequestContext, prices: number[], id: string) {
-  const selection = await seedHistory(request, prices, id);
+export async function seedDataset(
+  request: APIRequestContext,
+  prices: number[],
+  id: string,
+  options: { product?: string; keep?: boolean } = {},
+) {
+  const selection = await seedHistory(request, prices, id, options);
   return rpc(request, "research.dataset.select", selection);
 }

@@ -23,43 +23,51 @@ Json config_json(const v1::Config& config) {
   protocol::validate_message(config);
   validate_id(config.session_id());
   validate_id(config.stream_id());
-  if (config.version() != 1 || !config.has_contract() || !config.has_quantity() ||
-      config.plugin_id() != "asterion.strategy.cta.sma-long-flat")
+  if (config.version() != 2 || config.contracts().empty() ||
+      static_cast<std::size_t>(config.contracts_size()) > max_portfolio_contracts ||
+      !config.has_quantity() || config.plugin_id() != "asterion.strategy.cta.sma-long-flat")
     throw std::invalid_argument("unsupported strategy configuration");
-  // Plugin owns the algorithm's parameter and lot-size constraints.
-  MovingAverage validation(instrument(config.contract()), config.fast(), config.slow(),
-                           Decimal::from_raw(config.quantity().units()));
-  Json result = {{"version", 1},
+  Json contracts = Json::array();
+  for (const auto& contract : config.contracts()) {
+    // Plugin owns the algorithm's parameter and lot-size constraints.
+    MovingAverage validation(instrument(contract), config.fast(), config.slow(),
+                             Decimal::from_raw(config.quantity().units()));
+    contracts.push_back(protocol::decode_contract(contract));
+  }
+  Json result = {{"version", 2},
                  {"session_id", config.session_id()},
                  {"stream_id", config.stream_id()},
-                 {"contract", protocol::decode_contract(config.contract())},
+                 {"contracts", contracts},
                  {"plugin_id", config.plugin_id()},
                  {"fast", config.fast()},
                  {"slow", config.slow()},
                  {"quantity", config.quantity().units()}};
   if (config.has_replay()) {
     result["replay"] = protocol::decode_replay_plan(config.replay());
-    if (protocol::decode_contract(config.contract()) !=
-        protocol::decode_contract(config.replay().dataset().contract()))
+    if (config.replay().datasets_size() != config.contracts_size())
       throw std::invalid_argument("strategy replay contract mismatch");
+    for (int c = 0; c < config.contracts_size(); ++c)
+      if (protocol::decode_contract(config.contracts(c)) !=
+          protocol::decode_contract(config.replay().datasets(c).contract()))
+        throw std::invalid_argument("strategy replay contract mismatch");
   }
   return result;
 }
 v1::Config parse_config(const Json& j) {
   if (j.contains("replay"))
-    require_fields(j, {"version", "session_id", "stream_id", "contract", "plugin_id", "fast",
+    require_fields(j, {"version", "session_id", "stream_id", "contracts", "plugin_id", "fast",
                        "slow", "quantity", "replay"});
   else
-    require_fields(j, {"version", "session_id", "stream_id", "contract", "plugin_id", "fast",
+    require_fields(j, {"version", "session_id", "stream_id", "contracts", "plugin_id", "fast",
                        "slow", "quantity"});
   for (const auto* field : {"version", "fast", "slow", "quantity"})
     if (!j.at(field).is_number_integer())
       throw std::invalid_argument("invalid strategy configuration number");
-  if (j.at("version") != 1 || j.at("fast") < 1 || j.at("fast") > 10000 || j.at("slow") < 2 ||
-      j.at("slow") > 10000)
+  if (j.at("version") != 2 || !j.at("contracts").is_array() || j.at("fast") < 1 ||
+      j.at("fast") > 10000 || j.at("slow") < 2 || j.at("slow") > 10000)
     throw std::invalid_argument("invalid strategy configuration range");
   v1::Config c;
-  c.set_version(1);
+  c.set_version(2);
   c.set_session_id(j.at("session_id").get<std::string>());
   c.set_stream_id(j.at("stream_id").get<std::string>());
   c.set_plugin_id(j.at("plugin_id").get<std::string>());
@@ -67,7 +75,8 @@ v1::Config parse_config(const Json& j) {
   c.set_slow(j.at("slow").get<std::uint32_t>());
   // Canonical round-trip below also rejects integer conversion wraparound.
   c.mutable_quantity()->set_units(j.at("quantity").get<std::int64_t>());
-  *c.mutable_contract() = protocol::encode_contract(j.at("contract"));
+  for (const auto& contract : j.at("contracts"))
+    *c.add_contracts() = protocol::encode_contract(contract);
   if (j.contains("replay"))
     *c.mutable_replay() = protocol::encode_replay_plan(j.at("replay"));
   if (config_json(c) != j)
@@ -81,6 +90,7 @@ Json event_json(const v1::Event& event) {
   const auto bar = protocol::market_bar(event.bar());
   return {{"stream_id", event.stream_id()},
           {"sequence", event.sequence()},
+          {"contract", event.contract()},
           {"bar",
            {{"trading_day", bar.trading_day},
             {"timestamp_ns", std::to_string(bar.timestamp_ns)},
@@ -97,6 +107,8 @@ Json receipt_json(const v1::Receipt& receipt) {
     result["intent"] = {{"id", i.id()},
                         {"sequence", i.sequence()},
                         {"timestamp_ns", i.timestamp_ns()},
+                        {"venue", i.venue()},
+                        {"symbol", i.symbol()},
                         {"target_quantity", i.target_quantity().units()}};
   }
   return result;
@@ -106,13 +118,17 @@ struct Session::Impl {
   SqliteJournal journal;
   v1::Config config;
   Json intent_scope;
-  std::unique_ptr<MovingAverage> plugin;
+  // One strategy instance per contract, in configuration order.
+  std::vector<std::unique_ptr<MovingAverage>> plugins;
   std::vector<Json> events;
   std::vector<v1::Receipt> receipts;
   bool poisoned = false;
   explicit Impl(const std::filesystem::path& directory) : journal(directory) {}
   std::pair<std::unique_ptr<MovingAverage>, v1::Receipt> prepare(const v1::Event& event) {
-    auto candidate = std::make_unique<MovingAverage>(*plugin);
+    if (event.contract() >= plugins.size())
+      throw std::invalid_argument("strategy event contract is outside the configuration");
+    const auto& contract = config.contracts(static_cast<int>(event.contract()));
+    auto candidate = std::make_unique<MovingAverage>(*plugins[event.contract()]);
     const auto bar = protocol::market_bar(event.bar());
     const auto target = candidate->on_bar(bar);
     v1::Receipt receipt;
@@ -121,6 +137,8 @@ struct Session::Impl {
       auto* intent = receipt.mutable_intent();
       intent->set_sequence(event.sequence());
       intent->set_timestamp_ns(bar.timestamp_ns);
+      intent->set_venue(contract.venue());
+      intent->set_symbol(contract.symbol());
       intent->mutable_target_quantity()->set_units(target->raw());
       // Bind identity to the immutable config, full source event and output.
       intent->set_id(sha256_bytes(Json{{"config", intent_scope},
@@ -149,12 +167,13 @@ Session::Session(const std::filesystem::path& directory, const std::string& sess
     if (!create)
       throw std::invalid_argument("strategy session is not initialized");
     impl_->journal.append(
-        {{"version", 1}, {"type", "strategy.config"}, {"config", config_json(*create)}});
+        {{"version", 2}, {"type", "strategy.config"}, {"config", config_json(*create)}});
     records = impl_->journal.read();
   }
   require_fields(records.front(), {"version", "type", "config"});
-  if (!records.front().at("version").is_number_integer() || records.front().at("version") != 1 ||
-      records.front().at("type") != "strategy.config" || records.size() > 10001)
+  if (!records.front().at("version").is_number_integer() || records.front().at("version") != 2 ||
+      records.front().at("type") != "strategy.config" ||
+      records.size() > protocol::max_session_bars + 1)
     throw std::invalid_argument("unsupported strategy journal");
   impl_->config = parse_config(records.front().at("config"));
   if (impl_->config.session_id() != session_id)
@@ -164,27 +183,27 @@ Session::Session(const std::filesystem::path& directory, const std::string& sess
   impl_->intent_scope = config_json(impl_->config);
   if (impl_->config.has_replay())
     impl_->intent_scope = {{"configuration_sha256", sha256_bytes(impl_->intent_scope.dump())}};
-  impl_->plugin = std::make_unique<MovingAverage>(
-      instrument(impl_->config.contract()), impl_->config.fast(), impl_->config.slow(),
-      Decimal::from_raw(impl_->config.quantity().units()));
-  impl_->plugin->start();
-  impl_->events.reserve(10000);
-  impl_->receipts.reserve(10000);
+  for (const auto& contract : impl_->config.contracts()) {
+    impl_->plugins.push_back(std::make_unique<MovingAverage>(
+        instrument(contract), impl_->config.fast(), impl_->config.slow(),
+        Decimal::from_raw(impl_->config.quantity().units())));
+    impl_->plugins.back()->start();
+  }
   for (std::size_t index = 1; index < records.size(); ++index) {
     const auto& r = records[index];
     require_fields(r, {"version", "type", "event", "receipt"});
-    // Version 2: bar events. Earlier tick journals are refused, not converted.
-    if (!r.at("version").is_number_integer() || r.at("version") != 2 ||
+    if (!r.at("version").is_number_integer() || r.at("version") != 3 ||
         r.at("type") != "strategy.event")
       throw std::invalid_argument("unsupported strategy event record");
     const auto& j = r.at("event");
-    require_fields(j, {"stream_id", "sequence", "bar"});
+    require_fields(j, {"stream_id", "sequence", "contract", "bar"});
     if (!j.at("sequence").is_number_integer() || j.at("sequence") != index ||
-        j.at("stream_id") != impl_->config.stream_id())
+        !j.at("contract").is_number_unsigned() || j.at("stream_id") != impl_->config.stream_id())
       throw std::invalid_argument("strategy journal stream or sequence mismatch");
     v1::Event event;
     event.set_stream_id(impl_->config.stream_id());
     event.set_sequence(index);
+    event.set_contract(j.at("contract").get<std::uint32_t>());
     const auto& b = j.at("bar");
     require_fields(b, {"trading_day", "timestamp_ns", "open", "high", "low", "close", "volume"});
     const auto time = b.at("timestamp_ns").get<std::string>();
@@ -200,7 +219,7 @@ Session::Session(const std::filesystem::path& directory, const std::string& sess
     auto [candidate, receipt] = impl_->prepare(event);
     if (receipt_json(receipt) != r.at("receipt"))
       throw std::invalid_argument("strategy intent replay mismatch");
-    impl_->plugin = std::move(candidate);
+    impl_->plugins[event.contract()] = std::move(candidate);
     impl_->events.push_back(j);
     impl_->receipts.push_back(std::move(receipt));
   }
@@ -234,7 +253,7 @@ v1::Receipt Session::apply(const v1::Event& event) {
   if (event.sequence() != impl_->events.size() + 1)
     throw std::invalid_argument("strategy event sequence gap");
   auto [candidate, receipt] = impl_->prepare(event);
-  const Json record{{"version", 2},
+  const Json record{{"version", 3},
                     {"type", "strategy.event"},
                     {"event", payload},
                     {"receipt", receipt_json(receipt)}};
@@ -242,7 +261,7 @@ v1::Receipt Session::apply(const v1::Event& event) {
     impl_->journal.append(record);
     impl_->events.push_back(payload);
     impl_->receipts.push_back(receipt);
-    impl_->plugin = std::move(candidate);
+    impl_->plugins[event.contract()] = std::move(candidate);
   } catch (...) {
     impl_->poisoned = true;
     throw;

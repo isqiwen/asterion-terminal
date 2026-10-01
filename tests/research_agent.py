@@ -1,4 +1,4 @@
-from history_fixture import seed
+from history_fixture import contracts, seed
 """Research survives a killed Terminal and an Agent-managed service restart."""
 import json
 from pathlib import Path
@@ -53,7 +53,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-research-agent-", ignore_clean
         seed(invoke,[100,101,102,101,104,103,102,103],"short")
         seed(invoke,[100+i+i%3 for i in range(160)],"long")
         select(process,"short")
-        call(process,"research.submit",{"id":"agent-recovery","fast":1,"slow":3,"quantity":"1","deposit":"10000","margin_per_lot":"100","open_fee":"2","close_today_fee":"3","close_yesterday_fee":"4","margin_rate":"0","open_fee_rate":"0","close_today_fee_rate":"0","close_yesterday_fee_rate":"0","max_order_quantity":"100","max_gross_quantity":"100","max_working_orders":"100"})
+        call(process,"research.submit",{"id":"agent-recovery","fast":1,"slow":3,"quantity":"1","deposit":"10000","contracts": contracts(),"max_order_quantity":"100","max_gross_quantity":"100","max_working_orders":"100"})
         select(process,"long")
         call(process,"research.factor.submit",{"id":"factor-recovery","lookbacks":[2],"horizon":1,"evaluation":{"mode":"full_sample"}})
         call(process,"research.factor.submit",{"id":"rolling-recovery","lookbacks":[2,5,10],"horizon":1,"evaluation":{"mode":"walk_forward","training_events":80,"validation_events":40}})
@@ -68,7 +68,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-research-agent-", ignore_clean
             assert task["attempt"]==1,task
             result=call(process,"research.result",{"id":identity})["research_result"]
             assert result["task"]==task,result
-            assert result["experiment"]["data"]["count"]==count,result
+            data=result["experiment"]["data"]  # backtests list one range per contract
+            assert (data[0] if isinstance(data,list) else data)["count"]==count,result
             saved[identity]=(task,result)
         factor=saved["factor-recovery"][1]
         assert len(factor["result"]["samples"])==157,factor
@@ -83,7 +84,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-research-agent-", ignore_clean
         for identity,(task,result) in saved.items():
             assert completed(process,identity)==task
             assert call(process,"research.result",{"id":identity})["research_result"]==result
-        selected=select(process,"long")["dataset"]
+        selected,=select(process,"long")["datasets"]
         assert selected["count"]==160 and selected["revision"]==factor["experiment"]["dataset_revision"]
         call(process,"research.factor.submit",{"id":"repeated-factor","lookbacks":[2],"horizon":1,"evaluation":{"mode":"full_sample"}})
         completed(process,"repeated-factor")

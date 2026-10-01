@@ -47,11 +47,30 @@ export type DatasetEvidence = {
   interval_minutes: number;
   contract: FuturesContract;
 };
+export type ContractCosts = {
+  margin_per_lot: string;
+  open_fee: string;
+  close_today_fee: string;
+  close_yesterday_fee: string;
+  // Notional rates: price x quantity x multiplier x rate.
+  margin_rate: string;
+  open_fee_rate: string;
+  close_today_fee_rate: string;
+  close_yesterday_fee_rate: string;
+};
+// One portfolio contract: its terms, costs and latest mark.
+export type AccountContract = {
+  contract: FuturesContract;
+  costs: ContractCosts;
+  mark: string;
+};
 export type PaperAccount = {
+  // Historical sessions settle every contract together at each day end.
   replay?: {
     settled_days: number;
     day_end: boolean;
     settlement_due: boolean;
+    days: number;
   };
   mode: "historical_paper";
   persistent: true;
@@ -73,24 +92,14 @@ export type PaperAccount = {
   fees: string;
   realized: string;
   unrealized: string;
-  mark: string;
   cursor: number;
   total: number;
   timestamp_ns: string | null;
-  contract: FuturesContract;
+  contracts: AccountContract[];
   risk: { max_order_quantity: string; max_gross_quantity: string; max_working_orders: number };
-  costs: {
-    margin_per_lot: string;
-    open_fee: string;
-    close_today_fee: string;
-    close_yesterday_fee: string;
-    // Notional rates: price x quantity x multiplier x rate.
-    margin_rate: string;
-    open_fee_rate: string;
-    close_today_fee_rate: string;
-    close_yesterday_fee_rate: string;
-  };
   positions: {
+    venue: string;
+    symbol: string;
     side: "buy" | "sell";
     bucket: "today" | "yesterday";
     quantity: string;
@@ -98,6 +107,8 @@ export type PaperAccount = {
   }[];
   orders: {
     id: string;
+    venue: string;
+    symbol: string;
     side: "buy" | "sell";
     offset: string;
     quantity: string;
@@ -108,6 +119,8 @@ export type PaperAccount = {
   fills: {
     id: string;
     order_id: string;
+    venue: string;
+    symbol: string;
     quantity: string;
     price: string;
   }[];
@@ -161,7 +174,7 @@ export type TerminalCommand =
   | "research.datasets"
   | "research.coverage"
   | "research.dataset.select"
-  | "research.dataset.clear"
+  | "research.dataset.remove"
   | "research.action"
   | "research.result"
   | "market.local"
@@ -434,12 +447,11 @@ export type BacktestResult = {
   settlements: {
     trading_day: string;
     timestamp_ns: string;
-    price: string;
     balance: string;
     equity: string;
     realized: string;
     fees: string;
-    position_quantity: string;
+    contracts: { venue: string; symbol: string; price: string; position_quantity: string }[];
   }[];
 };
 export type ExperimentData = {
@@ -459,12 +471,12 @@ export type BacktestExperiment = {
   paper: {
     version: number;
     type: "historical_paper";
-    dataset: DatasetEvidence;
     deposit: string;
-    costs: PaperAccount["costs"];
     risk: PaperAccount["risk"];
+    contracts: { dataset: DatasetEvidence; costs: ContractCosts }[];
   };
-  data: ExperimentData;
+  // One range per contract, in contract order.
+  data: ExperimentData[];
 };
 export type FactorExperiment = {
   version: number;
@@ -736,7 +748,8 @@ export type Snapshot = {
       phase: string;
     };
   } | null;
-  dataset: DatasetSelection | null;
+  // Portfolio contracts selected for research and paper trading, in order.
+  datasets: DatasetSelection[];
   native_plugins: null | {
     directory: string;
     managed_directory?: string;

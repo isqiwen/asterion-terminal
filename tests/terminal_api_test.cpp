@@ -29,15 +29,20 @@ struct Fixture {
     std::error_code error;
     std::filesystem::remove_all(directory, error);
   }
-  auto write(std::string_view contents) {
-    const auto file = directory / "trades.csv";
-    std::ofstream out(file);
-    out << contents;
-    out.close();
-    EXPECT_TRUE((static_cast<bool>(out))) << "write fixture";
-    return file;
-  }
 };
+// The seeded history contract with the costs these tests trade it under.
+json fixture_contracts() {
+  return json::array({{{"venue", "SHFE"},
+                       {"symbol", "rb2610"},
+                       {"margin_per_lot", "100"},
+                       {"open_fee", "2"},
+                       {"close_today_fee", "3"},
+                       {"close_yesterday_fee", "4"},
+                       {"margin_rate", "0"},
+                       {"open_fee_rate", "0"},
+                       {"close_today_fee_rate", "0"},
+                       {"close_yesterday_fee_rate", "0"}}});
+}
 json call(void* runtime, const json& request) {
   std::unique_ptr<char, decltype(&asterion_terminal_free)> result(
       asterion_terminal_call(runtime, request.dump().c_str()), asterion_terminal_free);
@@ -92,13 +97,13 @@ TEST(TerminalApi, Contracts) {
   std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
                                                                       asterion_terminal_destroy);
   EXPECT_TRUE((runtime != nullptr)) << "runtime allocated";
-  EXPECT_TRUE((call(runtime.get(), request("runtime.snapshot"))["result"]["dataset"].is_null()))
+  EXPECT_TRUE((call(runtime.get(), request("runtime.snapshot"))["result"]["datasets"].empty()))
       << "no invented dataset";
   {
     std::unique_ptr<char, decltype(&asterion_terminal_free)> response(
         asterion_terminal_call(
             runtime.get(),
-            R"({"version":1,"method":"runtime.snapshot","method":"futures.inspect_csv","params":{}})"),
+            R"({"version":1,"method":"runtime.snapshot","method":"paper.close","params":{}})"),
         asterion_terminal_free);
     EXPECT_TRUE((response && json::parse(response.get())["error"]["code"] == "invalid_request"))
         << "duplicate method cannot bypass dispatch";
@@ -106,16 +111,16 @@ TEST(TerminalApi, Contracts) {
   const auto params = history(runtime.get(), {100, 101}, "contracts");
   auto imported = call(runtime.get(), request("research.dataset.select", params));
   ASSERT_TRUE(imported.contains("result")) << imported.dump();
-  const auto dataset = imported["result"]["dataset"];
+  ASSERT_EQ(imported["result"]["datasets"].size(), 1U);
+  const auto dataset = imported["result"]["datasets"][0];
   EXPECT_EQ(dataset["count"], 2);
   EXPECT_EQ(dataset["last_close"], "101");
   EXPECT_TRUE(dataset["last_timestamp_ns"].is_string());
   auto invalid = params;
   invalid["price_increment"] = "0";
   EXPECT_TRUE(call(runtime.get(), request("research.dataset.select", invalid)).contains("error"));
-  EXPECT_EQ(call(runtime.get(), request("runtime.snapshot"))["result"]["dataset"], dataset);
-  EXPECT_TRUE(call(runtime.get(), request("futures.inspect_csv", {{"path", "removed.csv"}}))
-                  .contains("error"));
+  EXPECT_EQ(call(runtime.get(), request("runtime.snapshot"))["result"]["datasets"],
+            json::array({dataset}));
   auto wrong = request("runtime.snapshot");
   wrong["version"] = 2;
   EXPECT_TRUE((call(runtime.get(), wrong).contains("error"))) << "unsupported version rejected";
@@ -127,6 +132,17 @@ TEST(TerminalApi, Contracts) {
   extra["extra"] = true;
   EXPECT_TRUE((call(runtime.get(), request("research.dataset.select", extra)).contains("error")))
       << "unknown fields rejected";
+  // Selecting the same contract again replaces it; removal names the contract.
+  EXPECT_EQ(
+      call(runtime.get(), request("research.dataset.select", params))["result"]["datasets"].size(),
+      1U);
+  EXPECT_TRUE(call(runtime.get(),
+                   request("research.dataset.remove", {{"venue", "SHFE"}, {"symbol", "rb2611"}}))
+                  .contains("error"));
+  EXPECT_TRUE(
+      call(runtime.get(), request("research.dataset.remove",
+                                  {{"venue", "SHFE"}, {"symbol", "rb2610"}}))["result"]["datasets"]
+          .empty());
   using namespace asterion;
   FuturesContract czce{{{"CZCE", "SR609"},
                         AssetClass::futures,
@@ -143,7 +159,6 @@ TEST(TerminalApi, Contracts) {
 
 TEST(TerminalApi, PersistentPaperRoundTripThroughCAbi) {
   Fixture fixture;
-  const auto file = fixture.write("timestamp_ns,price,quantity\n100,100,1\n200,99,1\n300,110,1\n");
   const auto directory = fixture.directory / "account";
   std::filesystem::create_directory(directory);
   auto make = [] {
@@ -158,14 +173,7 @@ TEST(TerminalApi, PersistentPaperRoundTripThroughCAbi) {
   ASSERT_TRUE(invoke("research.dataset.select", params).contains("result"));
   auto created = invoke("paper.create", {{"directory", directory.string()},
                                          {"deposit", "1000"},
-                                         {"margin_per_lot", "100"},
-                                         {"open_fee", "2"},
-                                         {"close_today_fee", "3"},
-                                         {"close_yesterday_fee", "4"},
-                                         {"margin_rate", "0"},
-                                         {"open_fee_rate", "0"},
-                                         {"close_today_fee_rate", "0"},
-                                         {"close_yesterday_fee_rate", "0"},
+                                         {"contracts", fixture_contracts()},
                                          {"max_order_quantity", "100"},
                                          {"max_gross_quantity", "100"},
                                          {"max_working_orders", "100"}});
@@ -175,6 +183,8 @@ TEST(TerminalApi, PersistentPaperRoundTripThroughCAbi) {
   ASSERT_TRUE(invoke("paper.act", {{"request_id", "buy"},
                                    {"action", "submit"},
                                    {"order_id", "o1"},
+                                   {"venue", "SHFE"},
+                                   {"symbol", "rb2610"},
                                    {"side", "buy"},
                                    {"offset", "open"},
                                    {"quantity", "1"},
@@ -184,7 +194,6 @@ TEST(TerminalApi, PersistentPaperRoundTripThroughCAbi) {
       invoke("paper.act", {{"request_id", "tick2"}, {"action", "advance"}}).contains("result"));
   const auto previous = invoke("runtime.snapshot")["result"]["paper"];
   runtime.reset();
-  std::filesystem::remove(file);
   runtime = make();
   EXPECT_TRUE(invoke("runtime.snapshot")["result"]["paper"].is_null());
   auto recovered = invoke("paper.open", {{"directory", directory.string()}});
@@ -217,7 +226,7 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
   }
   EXPECT_EQ(same["result"]["unchanged"], true);
   EXPECT_EQ(same["result"]["revision"], revision);
-  EXPECT_FALSE(same["result"].contains("dataset"));
+  EXPECT_FALSE(same["result"].contains("datasets"));
   EXPECT_TRUE(call(runtime.get(), request("runtime.snapshot", {{"since", "x"}})).contains("error"));
   const auto params = history(runtime.get(), std::vector<int>(500, 100), "concurrent");
   ASSERT_TRUE(call(runtime.get(), request("research.dataset.clear")).contains("result"));
@@ -239,11 +248,11 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
               asterion::testing_support::bound(std::chrono::milliseconds(500)));
     // The import may publish between this read and the done flag; either way
     // a reader sees no dataset or the complete one, never a partial state.
-    const auto& dataset = status["result"]["dataset"];
-    if (dataset.is_null())
+    const auto& datasets = status["result"]["datasets"];
+    if (datasets.empty())
       ++concurrent_reads;
     else
-      EXPECT_EQ(dataset["count"], 500);
+      EXPECT_EQ(datasets[0]["count"], 500);
     if (status["result"].value("stale", false)) {
       const auto command_started = std::chrono::steady_clock::now();
       const auto inspect = call(runtime.get(), request("node.agent.inspect"));
@@ -263,7 +272,7 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
   const auto fresh = call(runtime.get(), request("runtime.snapshot", {{"since", revision}}));
   EXPECT_FALSE(fresh["result"].contains("unchanged"));
   EXPECT_GT(fresh["result"]["revision"].get<std::uint64_t>(), revision);
-  EXPECT_EQ(fresh["result"]["dataset"]["count"], 500);
+  EXPECT_EQ(fresh["result"]["datasets"][0]["count"], 500);
 }
 
 TEST(MarketHistory, BoundsEventsAndBreaksOnGapsFailuresAndDisconnects) {
@@ -405,16 +414,9 @@ TEST(TerminalApi, LargeResearchDatasetsBacktestButPaperSessionsStaySmall) {
     prices[i] = 3000 + static_cast<int>(i % 200);
   const auto selected = invoke("research.dataset.select", history(runtime.get(), prices, "large"));
   ASSERT_TRUE(selected.contains("result")) << selected.dump().substr(0, 400);
-  EXPECT_EQ(selected["result"]["dataset"]["count"], 30000);
+  EXPECT_EQ(selected["result"]["datasets"][0]["count"], 30000);
   const json costs{{"deposit", "1000000"},
-                   {"margin_per_lot", "100"},
-                   {"open_fee", "2"},
-                   {"close_today_fee", "3"},
-                   {"close_yesterday_fee", "4"},
-                   {"margin_rate", "0"},
-                   {"open_fee_rate", "0"},
-                   {"close_today_fee_rate", "0"},
-                   {"close_yesterday_fee_rate", "0"},
+                   {"contracts", fixture_contracts()},
                    {"max_order_quantity", "10"},
                    {"max_gross_quantity", "10"},
                    {"max_working_orders", "10"}};

@@ -137,12 +137,12 @@ with tempfile.TemporaryDirectory(prefix="asterion-auto-replay-", ignore_cleanup_
         events=" ".join('bars { trading_day: "'+b["trading_day"]+'" timestamp_ns: '+b["timestamp_ns"]+' '+" ".join(f'{key} {{ units: {int(b[key])*100000000} }}' for key in ("open","high","low","close","volume"))+' }' for b in bars)
         day_wire=" ".join(f'days {{ trading_day: "{d["trading_day"]}" settlement_price {{ units: {int(d["settlement_price"])*100000000} }} }}' for d in days)
         dataset_wire=f'dataset {{ version: 1 revision: "{revision}" {spec} interval_minutes: 1 {events} {day_wire} source: "test.fixture" source_task_id: "test-bars" settlement_task_id: "test-settlement" manifest_sha256: "{"a"*64}" settlement_manifest_sha256: "{"b"*64}" }}'
-        call("trading",f'''create {{ {dataset_wire} risk {{ max_order_quantity {{ units: 10000000000 }} max_gross_quantity {{ units: 10000000000 }} max_working_orders: 100 }} deposit {{ units: 100000000000 }} costs {{ margin_per_lot {{ units: 10000000000 }} open_fee {{ units: 200000000 }} close_today_fee {{ units: 300000000 }} close_yesterday_fee {{ units: 400000000 }} margin_rate {{ units: 0 }} open_fee_rate {{ units: 0 }} close_today_fee_rate {{ units: 0 }} close_yesterday_fee_rate {{ units: 0 }} }} }}''')
-        call("trading",'command { request_id: "days" replay_days {} }')
+        call("trading",f'''create {{ risk {{ max_order_quantity {{ units: 10000000000 }} max_gross_quantity {{ units: 10000000000 }} max_working_orders: 100 }} deposit {{ units: 100000000000 }} contracts {{ {dataset_wire} costs {{ margin_per_lot {{ units: 10000000000 }} open_fee {{ units: 200000000 }} close_today_fee {{ units: 300000000 }} close_yesterday_fee {{ units: 400000000 }} margin_rate {{ units: 0 }} open_fee_rate {{ units: 0 }} close_today_fee_rate {{ units: 0 }} close_yesterday_fee_rate {{ units: 0 }} }} }} }}''')
         call("trading",f'''command {{ request_id: "grant.request" strategy_grant {{ grant_id: "grant" strategy_id: "automatic" stream_id: "history" dataset_revision: "{revision}" max_quantity {{ units: 100000000 }} }} }}''')
         host=start(strategy,"automatic",root/"strategy",strategy_port)
-        plan=f'''replay {{ version: 3 {dataset_wire} trading_session: "account" grant_id: "grant" host: "localhost" port: {replay_port} tls_ca: {json.dumps(str(root/"ca.crt"))} tls_cert: {json.dumps(str(root/"client.crt"))} tls_key: {json.dumps(str(root/"client.key"))} }}'''
-        call("strategy",f'''create {{ version: 1 session_id: "automatic" stream_id: "history" {spec} plugin_id: "asterion.strategy.cta.sma-long-flat" fast: 1 slow: 2 quantity {{ units: 100000000 }} {plan} }}''')
+        plan_dataset=dataset_wire.replace("dataset {","datasets {",1)
+        plan=f'''replay {{ version: 4 {plan_dataset} trading_session: "account" grant_id: "grant" host: "localhost" port: {replay_port} tls_ca: {json.dumps(str(root/"ca.crt"))} tls_cert: {json.dumps(str(root/"client.crt"))} tls_key: {json.dumps(str(root/"client.key"))} }}'''
+        call("strategy",f'''create {{ version: 2 session_id: "automatic" stream_id: "history" {spec.replace("contract {","contracts {",1)} plugin_id: "asterion.strategy.cta.sma-long-flat" fast: 1 slow: 2 quantity {{ units: 100000000 }} {plan} }}''')
         def complete():
             deadline=time.monotonic()+20
             while time.monotonic()<deadline:

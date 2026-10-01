@@ -131,7 +131,7 @@ export function StrategyPanel({
               ))}
             </div>
             <div className="source-actions">
-              <button type="submit" className="primary" disabled={!snapshot?.dataset}>
+              <button type="submit" className="primary" disabled={!snapshot?.datasets.length}>
                 {t(retry ? "重试同一配置" : "授权并运行")}
               </button>
               <span className="subtle">{t("关闭窗口后继续运行")}</span>
@@ -144,11 +144,11 @@ export function StrategyPanel({
           {t("选择历史数据并创建新的本机模拟账户后，可运行策略。")}
         </p>
       )}
-      {paper?.replay && snapshot?.dataset && (
+      {paper?.replay && (
         <p className="dashboard-caption">
           {t("已结算 {settled} / {days} 个交易日", {
             settled: paper.replay.settled_days,
-            days: snapshot.dataset.days,
+            days: paper.replay.days,
           })}
         </p>
       )}
@@ -161,7 +161,7 @@ export function StrategyPanel({
         <summary>{t("策略详情")}</summary>
         <p>
           {t(
-            "按 K 线收盘价计算均线，仅做多或空仓；信号在下一根 K 线撮合，每个交易日结束按数据源结算价结算。结束时撤销未成交委托，不自动平仓。",
+            "每个合约按自己的 K 线收盘价计算均线，仅做多或空仓；信号在该合约的下一根 K 线撮合，每个交易日结束按数据源结算价结算。结束时撤销未成交委托，不自动平仓。",
           )}
         </p>
         {strategy && (

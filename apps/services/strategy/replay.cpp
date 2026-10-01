@@ -1,5 +1,5 @@
 #include "replay.hpp"
-#include "replay_schedule.hpp"
+#include "portfolio.hpp"
 #include <asterion/foundation/decimal.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/ipc/tls_channel.hpp>
@@ -77,13 +77,32 @@ Replay::Replay(Session& session, TradingCall transport)
   identity_ =
       sha256_bytes(protocol::decode_replay_plan(config_.replay()).dump() + config_.session_id());
   const auto& plan = config_.replay();
-  schedule_ = std::make_shared<PaperReplaySchedule>(protocol::instrument(plan.dataset().contract()),
-                                                    protocol::dataset_bars(plan.dataset()),
-                                                    protocol::dataset_days(plan.dataset()));
+  std::vector<Instrument> contracts;
+  std::vector<std::vector<MarketBar>> bars;
+  std::vector<std::vector<DaySettlement>> days;
+  protocol::v1::PaperInput revisions;
+  for (const auto& dataset : plan.datasets()) {
+    contracts.push_back(protocol::instrument(dataset.contract()));
+    bars.push_back(protocol::dataset_bars(dataset));
+    days.push_back(protocol::dataset_days(dataset));
+    *revisions.add_contracts()->mutable_dataset() = dataset;
+  }
+  schedule_ = std::make_shared<PaperReplaySchedule>(replay_schedule(contracts, bars, days));
+  std::vector<const std::vector<MarketBar>*> series;
+  for (const auto& item : bars)
+    series.push_back(&item);
+  order_ = replay_order(series);
+  dataset_revision_ = protocol::dataset_revision(revisions);
   if (!call_)
     call_ = [plan = config_.replay()](protocol::v1::Request r) {
       return exchange(plan, std::move(r));
     };
+}
+const protocol::v1::Bar& Replay::bar(std::size_t index) const {
+  const auto& event = order_.at(index);
+  return config_.replay()
+      .datasets(static_cast<int>(event.contract))
+      .bars(static_cast<int>(event.bar));
 }
 protocol::v1::Snapshot Replay::request(protocol::v1::Request value) {
   value.set_version(1);
@@ -108,19 +127,18 @@ protocol::v1::Snapshot Replay::request(protocol::v1::Request value) {
                                  (schedule_->event(cursor - 1).day_end ? 1 : 0)))
       throw std::invalid_argument("strategy settlement cursor mismatch");
   }
-  if (protocol::decode_contract(snapshot.contract()) !=
-          protocol::decode_contract(plan.dataset().contract()) ||
-      snapshot.total() != static_cast<std::uint32_t>(plan.dataset().bars_size()) ||
-      !snapshot.has_strategy())
+  bool contracts = snapshot.contracts_size() == plan.datasets_size();
+  for (int c = 0; contracts && c < plan.datasets_size(); ++c)
+    contracts = protocol::decode_contract(snapshot.contracts(c).contract()) ==
+                protocol::decode_contract(plan.datasets(c).contract());
+  if (!contracts || snapshot.total() != order_.size() || !snapshot.has_strategy())
     throw std::invalid_argument("strategy account dataset or authorization mismatch");
   const auto& g = snapshot.strategy().grant();
   if (g.grant_id() != plan.grant_id() || g.strategy_id() != config_.session_id() ||
-      g.stream_id() != config_.stream_id() || g.dataset_revision() != plan.dataset().revision() ||
+      g.stream_id() != config_.stream_id() || g.dataset_revision() != dataset_revision_ ||
       g.max_quantity().units() < config_.quantity().units())
     throw std::invalid_argument("strategy replay is outside its authorization");
-  if (snapshot.cursor() &&
-      snapshot.timestamp_ns() !=
-          plan.dataset().bars(static_cast<int>(snapshot.cursor() - 1)).timestamp_ns())
+  if (snapshot.cursor() && snapshot.timestamp_ns() != bar(snapshot.cursor() - 1).timestamp_ns())
     throw std::invalid_argument("strategy account source event mismatch");
   return snapshot;
 }
@@ -136,7 +154,7 @@ bool Replay::step() {
   query.mutable_snapshot();
   auto account = request(query);
   auto processed = session_.processed();
-  const auto total = static_cast<std::uint64_t>(config_.replay().dataset().bars_size());
+  const auto total = static_cast<std::uint64_t>(order_.size());
   if (account.cursor() < processed || account.cursor() > processed + 1)
     throw std::invalid_argument("account and strategy cursors diverged");
   auto settle_completed = [&] {
@@ -174,7 +192,8 @@ bool Replay::step() {
     v1::Event event;
     event.set_stream_id(config_.stream_id());
     event.set_sequence(sequence);
-    *event.mutable_bar() = config_.replay().dataset().bars(static_cast<int>(sequence - 1));
+    event.set_contract(static_cast<std::uint32_t>(order_[sequence - 1].contract));
+    *event.mutable_bar() = bar(sequence - 1);
     const auto receipt = session_.apply(event);
     if (!receipt.has_intent() || sequence == total)
       return;
@@ -185,9 +204,11 @@ bool Replay::step() {
     t->set_grant_id(config_.replay().grant_id());
     t->set_strategy_id(config_.session_id());
     t->set_stream_id(config_.stream_id());
-    t->set_dataset_revision(config_.replay().dataset().revision());
+    t->set_dataset_revision(dataset_revision_);
     t->set_sequence(sequence);
     t->set_timestamp_ns(receipt.intent().timestamp_ns());
+    t->set_venue(receipt.intent().venue());
+    t->set_symbol(receipt.intent().symbol());
     *t->mutable_target_quantity() = receipt.intent().target_quantity();
     account = request(std::move(r));
     if (account.cursor() != sequence || account.strategy().last_sequence() != sequence)

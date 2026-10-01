@@ -560,6 +560,23 @@
   margin: 0;
   padding: 0;
 }
+.dataset-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dataset-list:empty {
+  display: none;
+}
+.dataset-list li {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
 
 .cost-template {
   display: grid;

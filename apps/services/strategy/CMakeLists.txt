@@ -1,6 +1,6 @@
 add_library(asterion_strategy_session STATIC session.cpp replay.cpp)
 target_include_directories(asterion_strategy_session PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(asterion_strategy_session PUBLIC asterion_protocol PRIVATE asterion_paper asterion_sma asterion_sqlite)
+target_link_libraries(asterion_strategy_session PUBLIC asterion_protocol asterion_paper PRIVATE asterion_sma asterion_sqlite)
 add_executable(asterion-strategy main.cpp)
 target_compile_features(asterion-strategy PRIVATE cxx_std_20)
 target_compile_definitions(asterion-strategy PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")

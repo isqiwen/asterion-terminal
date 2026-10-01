@@ -1,5 +1,6 @@
 #pragma once
 #include "session.hpp"
+#include "paper_execution.hpp"
 #include <functional>
 namespace asterion {
 class PaperReplaySchedule;
@@ -22,6 +23,11 @@ private:
   std::string identity_;
   TradingCall call_;
   std::shared_ptr<const PaperReplaySchedule> schedule_;
+  // Portfolio replay order shared with the paper engine.
+  std::vector<PaperExecution::Event> order_;
+  std::string dataset_revision_;
   protocol::v1::Snapshot request(protocol::v1::Request value);
+  // The replay event's source bar, in portfolio order.
+  const protocol::v1::Bar& bar(std::size_t index) const;
 };
 } // namespace asterion::strategy

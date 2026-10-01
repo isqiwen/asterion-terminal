@@ -78,8 +78,8 @@ TEST(OrderLimits, exposure_check_does_not_overflow_before_rejecting) {
 
 TEST(OrderLimits, derives_exposure_from_real_ledger_through_partial_fill_and_cancel) {
   auto spec = instrument();
-  FuturesAccount account(spec, d("10000"), {d("100"), d("0"), d("0"), d("0")});
-  account.mark(d("100"));
+  FuturesAccount account(d("10000"), {{spec, {d("100"), d("0"), d("0"), d("0")}}});
+  account.mark(spec.id, d("100"));
   OrderLimits risk({d("5"), d("5"), 3});
   risk.start();
   LimitOrder first{"first", spec.id, Side::buy, d("4"), d("100")};

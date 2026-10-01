@@ -1,48 +1,77 @@
 import { getLocale, translate } from "../contract";
-import { timestamp, type ResearchResult } from "../../src/bridge/client";
+import {
+  timestamp,
+  type ContractCosts,
+  type DatasetEvidence,
+  type ExperimentData,
+  type ResearchResult,
+} from "../../src/bridge/client";
 const t = (key: string) => translate("asterion.terminal.research", key);
 type Evidence = Extract<ResearchResult, { kind: "backtest" | "factor" }>;
-export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
-  const experiment = evidence.experiment;
-  const dataset =
-    evidence.kind === "backtest" ? evidence.experiment.paper.dataset : evidence.experiment.dataset;
+type Rows = [string, string | number][];
+// One contract of the experiment: its terms, input range and, for backtests, costs.
+function contractRows(dataset: DatasetEvidence, data: ExperimentData, costs?: ContractCosts) {
   const contract = dataset.contract;
-  const rows: [string, string | number][] = [
-    ["合约", `${contract.venue} · ${contract.symbol}`],
+  const rows: Rows = [
     ["品种代码", contract.product],
     ["交割月份", contract.delivery_month],
     ["合约乘数", contract.multiplier],
     ["价格步长", contract.price_increment],
     ["数量步长", contract.quantity_increment],
     ["币种", contract.currency],
-    ["K 线周期（分钟）", experiment.data.interval_minutes],
-    ["输入 K 线", experiment.data.count],
-    ["交易日范围", `${experiment.data.first_day} – ${experiment.data.last_day}`],
-    ["数据源", experiment.data.source],
+    ["K 线周期（分钟）", data.interval_minutes],
+    ["输入 K 线", data.count],
+    ["交易日范围", `${data.first_day} – ${data.last_day}`],
+    ["数据源", data.source],
     ["K 线下载任务", dataset.source_task_id],
     ["结算价下载任务", dataset.settlement_task_id],
   ];
+  if (costs)
+    rows.push(
+      ["每手保证金", costs.margin_per_lot],
+      ["开仓手续费", costs.open_fee],
+      ["平今手续费", costs.close_today_fee],
+      ["平昨手续费", costs.close_yesterday_fee],
+      ["保证金率", costs.margin_rate],
+      ["开仓费率", costs.open_fee_rate],
+      ["平今费率", costs.close_today_fee_rate],
+      ["平昨费率", costs.close_yesterday_fee_rate],
+    );
+  return { name: `${contract.venue} · ${contract.symbol}`, rows, data };
+}
+function Fields({ rows }: { rows: Rows }) {
+  return (
+    <dl className="experiment-fields">
+      {rows.map(([label, value]) => (
+        <div key={label}>
+          <dt>{t(label)}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
+  const experiment = evidence.experiment;
+  const rows: Rows = [];
+  let contracts;
   if (evidence.kind === "backtest") {
-    const { paper, sma } = evidence.experiment;
+    const { paper, sma, data } = evidence.experiment;
+    contracts = paper.contracts.map((item, index) =>
+      contractRows(item.dataset, data[index], item.costs),
+    );
     rows.push(
       ["快均线", sma.fast],
       ["慢均线", sma.slow],
       ["目标手数", sma.quantity],
       ["初始资金", paper.deposit],
-      ["每手保证金", paper.costs.margin_per_lot],
-      ["开仓手续费", paper.costs.open_fee],
-      ["平今手续费", paper.costs.close_today_fee],
-      ["平昨手续费", paper.costs.close_yesterday_fee],
-      ["保证金率", paper.costs.margin_rate],
-      ["开仓费率", paper.costs.open_fee_rate],
-      ["平今费率", paper.costs.close_today_fee_rate],
-      ["平昨费率", paper.costs.close_yesterday_fee_rate],
       ["单笔数量上限", paper.risk.max_order_quantity],
       ["总持仓量上限", paper.risk.max_gross_quantity],
       ["在途委托数上限", paper.risk.max_working_orders],
     );
   } else {
-    const { lookbacks, horizon, evaluation } = evidence.experiment;
+    const { dataset, data, lookbacks, horizon, evaluation } = evidence.experiment;
+    contracts = [contractRows(dataset, data)];
     rows.push(
       ["候选回看 K 线数", lookbacks.join(", ")],
       ["未来收益 K 线数", horizon],
@@ -68,18 +97,17 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
     <details className="research-experiment">
       <summary>{t("实验参数")}</summary>
       <p className="subtle">{t("任务提交时的配置")}</p>
-      <dl className="experiment-fields">
-        {rows.map(([label, value]) => (
-          <div key={label}>
-            <dt>{t(label)}</dt>
-            <dd>{value}</dd>
-          </div>
-        ))}
-      </dl>
-      <p>
-        {t("输入时间范围（北京时间）")}: {timestamp(experiment.data.first_timestamp_ns)} –{" "}
-        {timestamp(experiment.data.last_timestamp_ns)}
-      </p>
+      <Fields rows={rows} />
+      {contracts.map(contract => (
+        <section key={contract.name} aria-label={contract.name}>
+          <h4>{contract.name}</h4>
+          <Fields rows={contract.rows} />
+          <p>
+            {t("输入时间范围（北京时间）")}: {timestamp(contract.data.first_timestamp_ns)} –{" "}
+            {timestamp(contract.data.last_timestamp_ns)}
+          </p>
+        </section>
+      ))}
       <p>
         {t("提交时间")}: {new Date(evidence.task.submitted_at_ms).toLocaleString(getLocale())} ·{" "}
         {t("输入版本")}: {experiment.version}

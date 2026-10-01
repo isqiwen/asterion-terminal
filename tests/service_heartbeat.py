@@ -1,4 +1,4 @@
-from history_fixture import seed
+from history_fixture import contracts, seed
 """Local default supervision runs without any UI timer or command replay."""
 import json
 import os
@@ -9,8 +9,7 @@ import sys
 import tempfile
 import time
 with tempfile.TemporaryDirectory(prefix="asterion-local-health-", ignore_cleanup_errors=True) as folder:
-    root = Path(folder); (root / "ledger").mkdir(); source = root / "ticks.csv"
-    source.write_text("timestamp_ns,price,quantity\n100,100,1\n200,101,1\n")
+    root = Path(folder); (root / "ledger").mkdir()
     host = subprocess.Popen([sys.argv[1]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
     def call(method, params=None):
         host.stdin.write(json.dumps({"version": 1, "method": method, "params": params or {}}) + "\n"); host.stdin.flush()
@@ -19,7 +18,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-local-health-", ignore_cleanup
         return next(s for n in snapshot["nodes"] if n["id"] == "local" for s in n["health"]["services"] if s["kind"] == "paper")
     try:
         seed(call, [100,101], "fixture0")
-        call("paper.create", {"directory": str(root / "ledger"), "deposit": "1000", "margin_per_lot": "100", "open_fee": "2", "close_today_fee": "3", "close_yesterday_fee": "4", "margin_rate": "0", "open_fee_rate": "0", "close_today_fee_rate": "0", "close_yesterday_fee_rate": "0", "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
+        call("paper.create", {"directory": str(root / "ledger"), "deposit": "1000", "contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
         command = {"request_id": "tick-one", "action": "advance"}
         state = call("paper.act", command)
         time.sleep(6)

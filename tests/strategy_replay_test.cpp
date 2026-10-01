@@ -29,34 +29,35 @@ struct Fixture {
     }
     const auto dataset =
         test::dataset(bars, {{"2026-09-25", test::dec("105")}, {"2026-09-28", test::dec("110")}});
-    manifest = {{"version", 2},
+    manifest = {{"version", 3},
                 {"type", "historical_paper"},
                 {"risk",
                  {{"max_order_quantity", "100"},
                   {"max_gross_quantity", "100"},
                   {"max_working_orders", std::uint64_t{100}}}},
                 {"deposit", "1000"},
-                {"costs",
-                 {{"margin_per_lot", "100"},
-                  {"open_fee", "2"},
-                  {"close_today_fee", "3"},
-                  {"close_yesterday_fee", "4"},
-                  {"margin_rate", "0"},
-                  {"open_fee_rate", "0"},
-                  {"close_today_fee_rate", "0"},
-                  {"close_yesterday_fee_rate", "0"}}},
-                {"dataset", protocol::decode_bar_dataset(dataset)}};
-    config.set_version(1);
+                {"contracts",
+                 {{{"dataset", protocol::decode_bar_dataset(dataset)},
+                   {"costs",
+                    {{"margin_per_lot", "100"},
+                     {"open_fee", "2"},
+                     {"close_today_fee", "3"},
+                     {"close_yesterday_fee", "4"},
+                     {"margin_rate", "0"},
+                     {"open_fee_rate", "0"},
+                     {"close_today_fee_rate", "0"},
+                     {"close_yesterday_fee_rate", "0"}}}}}}};
+    config.set_version(2);
     config.set_session_id("replay");
     config.set_stream_id("dataset");
     config.set_plugin_id("asterion.strategy.cta.sma-long-flat");
     config.set_fast(1);
     config.set_slow(2);
     config.mutable_quantity()->set_units(100000000);
-    *config.mutable_contract() = dataset.contract();
+    *config.add_contracts() = dataset.contract();
     auto* plan = config.mutable_replay();
-    plan->set_version(3);
-    *plan->mutable_dataset() = dataset;
+    plan->set_version(4);
+    *plan->add_datasets() = dataset;
     plan->set_trading_session("account");
     plan->set_grant_id("grant");
     plan->set_host("localhost");
@@ -65,13 +66,12 @@ struct Fixture {
     plan->set_tls_cert("test-cert");
     plan->set_tls_key("test-key");
     account = std::make_unique<trading::PaperSession>(root / "account", manifest);
-    account->execute({{"request_id", "days"}, {"action", "replay_days"}});
     account->execute({{"request_id", "grant.request"},
                       {"action", "strategy_grant"},
                       {"grant_id", "grant"},
                       {"strategy_id", "replay"},
                       {"stream_id", "dataset"},
-                      {"dataset_revision", plan->dataset().revision()},
+                      {"dataset_revision", plan->datasets(0).revision()},
                       {"max_quantity", "1"}});
     session = std::make_unique<strategy::Session>(root / "strategy", "replay", &config);
   }
@@ -183,10 +183,10 @@ TEST(StrategyReplay, PlanRejectsMixedConnectionsAndCorruptDatasetBeforeWriting) 
   mixed.set_agent_endpoint("local-agent");
   EXPECT_THROW(protocol::decode_replay_plan(mixed), std::invalid_argument);
   auto corrupt = f.config.replay();
-  corrupt.mutable_dataset()->mutable_bars(0)->mutable_close()->set_units(1);
+  corrupt.mutable_datasets(0)->mutable_bars(0)->mutable_close()->set_units(1);
   EXPECT_THROW(protocol::decode_replay_plan(corrupt), std::invalid_argument);
   auto wrong = f.config;
-  wrong.mutable_contract()->set_symbol("rb2611");
+  wrong.mutable_contracts(0)->set_symbol("rb2611");
   fs::create_directory(f.root / "wrong");
   EXPECT_THROW((strategy::Session(f.root / "wrong", "replay", &wrong)), std::invalid_argument);
   EXPECT_TRUE(fs::is_empty(f.root / "wrong"));
@@ -242,7 +242,7 @@ TEST(StrategyReplay, AccountWithoutDayEndBindingIsRefused) {
   strategy::Replay missing(*scheduled.session, call);
   EXPECT_THROW(missing.probe(), std::invalid_argument);
   auto old = scheduled.config.replay();
-  old.set_version(2);
+  old.set_version(3);
   EXPECT_THROW(protocol::decode_replay_plan(old), std::invalid_argument);
 }
 
@@ -250,9 +250,9 @@ TEST(StrategyReplay, ScheduledExecutionMatchesBacktestLedgerAndFillEconomics) {
   Fixture f;
   f.finish();
   research::v1::BacktestInput input;
-  input.set_version(6);
+  input.set_version(7);
   *input.mutable_paper() = protocol::encode_input(f.manifest);
-  input.set_dataset_revision(f.config.replay().dataset().revision());
+  input.set_dataset_revision(f.config.replay().datasets(0).revision());
   input.mutable_sma()->set_fast(f.config.fast());
   input.mutable_sma()->set_slow(f.config.slow());
   *input.mutable_sma()->mutable_quantity() = f.config.quantity();
@@ -260,7 +260,7 @@ TEST(StrategyReplay, ScheduledExecutionMatchesBacktestLedgerAndFillEconomics) {
   const auto expected = protocol::decode_snapshot(result.account());
   const auto actual = f.account->snapshot();
   for (const auto* key : {"balance", "equity", "available", "margin", "frozen", "fees", "realized",
-                          "unrealized", "mark", "positions", "cursor", "total"})
+                          "unrealized", "contracts", "positions", "cursor", "total"})
     EXPECT_EQ(actual.at(key), expected.at(key)) << key;
   const auto fills = [](const Json& account) {
     Json values = Json::array();

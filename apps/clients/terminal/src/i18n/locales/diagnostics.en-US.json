@@ -410,5 +410,15 @@
   "paper sessions use at most 20000 bars; narrow the trading days": "paper sessions use at most 20000 bars; narrow the trading days",
   "dataset exceeds 200000 bars; narrow the date range": "dataset exceeds 200000 bars; narrow the date range",
   "another node operation is in progress; retry after it completes": "another node operation is in progress; retry after it completes",
-  "another window opened a paper session meanwhile; recover this directory after closing it": "another window opened a paper session meanwhile; recover this directory after closing it"
+  "another window opened a paper session meanwhile; recover this directory after closing it": "another window opened a paper session meanwhile; recover this directory after closing it",
+  "portfolio contracts must share the same trading days; narrow the trading days to their common range": "portfolio contracts must share the same trading days; narrow the trading days to their common range",
+  "a portfolio holds at most 20 contracts": "a portfolio holds at most 20 contracts",
+  "give costs for every selected contract": "give costs for every selected contract",
+  "factor analysis studies one contract; keep one dataset": "factor analysis studies one contract; keep one dataset",
+  "this contract is not selected": "this contract is not selected",
+  "contract is not part of this account": "contract is not part of this account",
+  "duplicate portfolio contract": "duplicate portfolio contract",
+  "replay at least one market event of this contract first": "replay at least one market event of this contract first",
+  "backtest requires at least slow bars for every contract": "backtest requires at least slow bars for every contract",
+  "unsupported trading journal format; this build reads format 5 only and leaves the directory unchanged": "unsupported trading journal format; this build reads format 5 only and leaves the directory unchanged"
 }

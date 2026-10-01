@@ -272,23 +272,46 @@ void Application::Impl::register_research_commands() {
                     {"last_timestamp_ns", std::to_string(last.timestamp_ns())},
                     {"last_close", Decimal::from_raw(last.close().units()).str()},
                     {"uncovered_days", uncovered}});
-    selection = DatasetSelection{request, std::move(dataset), std::move(summary)};
+    // One dataset per contract: selecting a contract again replaces it.
+    DatasetSelection next{request, std::move(dataset), std::move(summary)};
+    const auto same = std::ranges::find_if(selections, [&](const DatasetSelection& item) {
+      return item.dataset.contract().venue() == next.dataset.contract().venue() &&
+             item.dataset.contract().symbol() == next.dataset.contract().symbol();
+    });
+    if (same != selections.end())
+      *same = std::move(next);
+    else if (selections.size() == max_portfolio_contracts)
+      throw std::invalid_argument("a portfolio holds at most 20 contracts");
+    else
+      selections.push_back(std::move(next));
+    return snapshot();
+  });
+  core.command("research.dataset.remove", "node.manage", [this](const json& p) {
+    fields(p, {"venue", "symbol"});
+    const auto count = std::erase_if(selections, [&](const DatasetSelection& item) {
+      return item.dataset.contract().venue() == text(p, "venue") &&
+             item.dataset.contract().symbol() == text(p, "symbol");
+    });
+    if (!count)
+      throw std::invalid_argument("this contract is not selected");
     return snapshot();
   });
   core.command("research.dataset.clear", "node.manage", [this](const json& p) {
     fields(p, {});
-    selection.reset();
+    selections.clear();
     return snapshot();
   });
   core.command("research.submit", "node.manage", [this](const json& p) {
-    fields_with_costs(p, {"id", "fast", "slow", "quantity", "deposit", "max_order_quantity",
-                          "max_gross_quantity", "max_working_orders"});
+    fields_with_risk(p, {"id", "fast", "slow", "quantity", "deposit", "contracts"});
     if (!research)
       throw std::invalid_argument("research service is not connected");
-    const auto& data = selected();
+    const auto costs = selection_costs(p.at("contracts"));
+    json contracts = json::array();
+    for (std::size_t i = 0; i < selected().size(); ++i)
+      contracts.push_back({{"data", protocol::decode_bar_dataset_request(selected()[i].request)},
+                           {"costs", costs[i]}});
     auto request = protocol::encode_backtest_request(
-        {{"data", protocol::decode_bar_dataset_request(data.request)},
-         {"costs", cost_parameters(p)},
+        {{"contracts", std::move(contracts)},
          {"deposit", text(p, "deposit")},
          {"risk", risk_parameters(p)},
          {"sma",
@@ -311,8 +334,10 @@ void Application::Impl::register_research_commands() {
     fields(p, {"id", "lookbacks", "horizon", "evaluation"});
     if (!research)
       throw std::invalid_argument("research service is not connected");
+    if (selected().size() != 1)
+      throw std::invalid_argument("factor analysis studies one contract; keep one dataset");
     const auto request = protocol::encode_factor_request(
-        {{"data", protocol::decode_bar_dataset_request(selected().request)},
+        {{"data", protocol::decode_bar_dataset_request(selected().front().request)},
          {"lookbacks", p.at("lookbacks")},
          {"horizon", p.at("horizon")},
          {"evaluation", p.at("evaluation")}});

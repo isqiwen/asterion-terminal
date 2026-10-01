@@ -1,4 +1,6 @@
 #include "paper_session.hpp"
+#include "portfolio.hpp"
+#include <algorithm>
 #include "order_limits.hpp"
 #include <asterion/domain/futures.hpp>
 #include <asterion/protocol/data.hpp>
@@ -20,24 +22,31 @@ Decimal decimal(const Json& value, const char* key) {
 // semantics could make replaying an existing journal produce a different
 // ledger. Recovery refuses a journal written under a different identity rather
 // than silently recomputing history with new rules.
-// v3: data-source bar replay, next-bar conservative fills, day-end settlement
-// from the dataset's trading days.
-const std::string journal_engine = "asterion.paper-futures.v4";
-constexpr int journal_format = 4;
+// v5: futures portfolio over contracts sharing trading days; one bar event
+// stream; each order fills on its own contract's next bar; day-end settlement
+// at every contract's dataset price.
+const std::string journal_engine = "asterion.paper-futures.v5";
+constexpr int journal_format = 5;
 // Cheap fingerprint of post-command state. Replay must reproduce it exactly.
 Json outcome(const PaperExecution& engine, const Json& authorization, const Json& replay) {
   const auto& account = engine.account();
-  Decimal long_quantity, short_quantity;
-  for (const auto& lot : account.positions()) {
-    auto& total = lot.side == Side::buy ? long_quantity : short_quantity;
-    total = total + lot.quantity;
+  Json contracts = Json::array();
+  for (const auto& terms : account.contracts()) {
+    Decimal long_quantity, short_quantity;
+    for (const auto& lot : account.positions())
+      if (lot.instrument == terms.instrument.id) {
+        auto& total = lot.side == Side::buy ? long_quantity : short_quantity;
+        total = total + lot.quantity;
+      }
+    contracts.push_back({{"mark", account.last_mark(terms.instrument.id).str()},
+                         {"long", long_quantity.str()},
+                         {"short", short_quantity.str()}});
   }
-  return {{"cursor", engine.cursor()},         {"balance", account.balance().str()},
-          {"fees", account.fees().str()},      {"realized", account.realized().str()},
-          {"frozen", account.frozen().str()},  {"mark", account.last_mark().str()},
-          {"orders", account.orders().size()}, {"fills", account.fills().size()},
-          {"long", long_quantity.str()},       {"short", short_quantity.str()},
-          {"authorization", authorization},    {"replay", replay}};
+  return {{"cursor", engine.cursor()},        {"balance", account.balance().str()},
+          {"fees", account.fees().str()},     {"realized", account.realized().str()},
+          {"frozen", account.frozen().str()}, {"orders", account.orders().size()},
+          {"fills", account.fills().size()},  {"contracts", std::move(contracts)},
+          {"authorization", authorization},   {"replay", replay}};
 }
 // No consumed events, orders or positions.
 bool fresh(const PaperExecution& engine) {
@@ -47,38 +56,30 @@ bool fresh(const PaperExecution& engine) {
 } // namespace
 std::unique_ptr<PaperExecution> PaperSession::build(const Json& manifest) {
   const auto input = protocol::encode_input(manifest);
-  if (static_cast<std::size_t>(input.dataset().bars_size()) > protocol::max_session_bars)
+  std::size_t bars = 0;
+  for (const auto& contract : input.contracts()) {
+    const auto& c = contract.dataset().contract();
+    FuturesContract{protocol::instrument(c), c.product(), c.delivery_month()}.validate();
+    bars += static_cast<std::size_t>(contract.dataset().bars_size());
+  }
+  if (bars > protocol::max_session_bars)
     throw std::invalid_argument("paper sessions use at most 20000 bars; narrow the trading days");
-  const auto& c = input.dataset().contract();
-  FuturesContract contract{protocol::instrument(c), c.product(), c.delivery_month()};
-  contract.validate();
   auto risk = risk_module_->create(decode_order_limits(manifest.at("risk")));
   risk->start();
-  return std::make_unique<PaperExecution>(contract.instrument,
-                                          Decimal::from_raw(input.deposit().units()),
-                                          protocol::futures_costs(input.costs()),
-                                          protocol::dataset_bars(input.dataset()), std::move(risk));
+  auto portfolio = paper_portfolio(input);
+  schedule_ = std::make_shared<const PaperReplaySchedule>(replay_schedule(portfolio));
+  return std::make_unique<PaperExecution>(Decimal::from_raw(input.deposit().units()),
+                                          std::move(portfolio.contracts), std::move(risk));
 }
 void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& replay,
-                         std::shared_ptr<const PaperReplaySchedule>& schedule,
                          const Json& command) const {
+  const auto& schedule = schedule_;
   const auto action = string(command, "action");
   validate_id(string(command, "request_id"));
   const bool controlled = !authorization.is_null() && authorization.at("active") == true;
-  if (action == "replay_days") {
-    require_fields(command, {"request_id", "action"});
-    if (controlled || schedule || !fresh(engine))
-      throw std::invalid_argument("day-end settlement requires a fresh unowned account");
-    const auto input = protocol::encode_input(manifest_);
-    schedule = std::make_shared<PaperReplaySchedule>(
-        protocol::instrument(input.dataset().contract()), protocol::dataset_bars(input.dataset()),
-        protocol::dataset_days(input.dataset()));
-    replay = {{"settled_days", 0}};
-    return;
-  }
   if (action == "replay_settle") {
     require_fields(command, {"request_id", "action", "day_index"});
-    if (!schedule || !command.at("day_index").is_number_integer() ||
+    if (!command.at("day_index").is_number_integer() ||
         command.at("day_index") != replay.at("settled_days"))
       throw std::invalid_argument("unexpected replay settlement day");
     const auto cursor = engine.cursor();
@@ -88,9 +89,9 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
     const auto& day = schedule->day(schedule->event(cursor - 1).day);
     engine.cancel_open_orders();
     if (cursor == schedule->size())
-      engine.settle(day.settlement_price);
+      engine.settle(day.prices);
     else
-      engine.settle_day_end(day.settlement_price);
+      engine.settle_day_end(day.prices);
     replay["settled_days"] = command.at("day_index").get<std::size_t>() + 1;
     return;
   }
@@ -103,7 +104,9 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
       throw std::invalid_argument("strategy grant requires an unowned fresh account");
     const auto maximum = decimal(command, "max_quantity");
     if (command.at("dataset_revision") != dataset_revision_ || maximum <= Decimal{} ||
-        !maximum.multiple_of(decimal(manifest_.at("dataset").at("contract"), "quantity_increment")))
+        std::ranges::any_of(engine.account().contracts(), [&](const ContractTerms& terms) {
+          return !maximum.multiple_of(terms.instrument.quantity_increment);
+        }))
       throw std::invalid_argument("invalid strategy dataset or position limit");
     authorization = {{"grant_id", command.at("grant_id")},
                      {"strategy_id", command.at("strategy_id")},
@@ -124,7 +127,8 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
   }
   if (action == "strategy_target") {
     require_fields(command, {"request_id", "action", "grant_id", "strategy_id", "stream_id",
-                             "dataset_revision", "sequence", "timestamp_ns", "target_quantity"});
+                             "dataset_revision", "sequence", "timestamp_ns", "venue", "symbol",
+                             "target_quantity"});
     if (!controlled)
       throw std::invalid_argument("strategy authorization is not active");
     for (const auto* field : {"grant_id", "strategy_id", "stream_id", "dataset_revision"})
@@ -141,9 +145,14 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
     const auto target = decimal(command, "target_quantity");
     if (target < Decimal{} || target > decimal(authorization, "max_quantity"))
       throw std::invalid_argument("strategy target exceeds authorized position limit");
-    if (!schedule || !schedule->event(cursor - 1).day_end)
-      engine.reconcile_long_target(string(command, "request_id"), target,
-                                   engine.account().last_mark());
+    // The intent belongs to the contract of the event it observed.
+    const InstrumentId instrument{string(command, "venue"), string(command, "symbol")};
+    const auto& observed = engine.contract(engine.event(cursor - 1).contract).terms.instrument.id;
+    if (instrument != observed)
+      throw std::invalid_argument("strategy intent is not for the current event's contract");
+    if (!schedule->event(cursor - 1).day_end)
+      engine.reconcile_long_target(string(command, "request_id"), instrument, target,
+                                   engine.account().last_mark(instrument));
     authorization["last_sequence"] = command.at("sequence");
     return;
   }
@@ -152,25 +161,20 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
   if (action == "advance") {
     require_fields(command, {"request_id", "action"});
     const auto cursor = engine.cursor();
-    if (schedule && cursor < schedule->size() &&
+    if (cursor < schedule->size() &&
         schedule->event(cursor).day != replay.at("settled_days").get<std::size_t>())
       throw std::invalid_argument("settle the completed replay day before advancing");
     engine.advance();
-    if (schedule && schedule->event(cursor).day_end)
+    if (schedule->event(cursor).day_end)
       engine.cancel_open_orders();
   } else if (action == "cancel") {
     require_fields(command, {"request_id", "action", "order_id"});
     engine.cancel(string(command, "order_id"));
-  } else if (action == "settle") {
-    require_fields(command, {"request_id", "action", "price"});
-    if (schedule)
-      throw std::invalid_argument("scheduled replay requires its bound settlement price");
-    engine.settle(decimal(command, "price"));
   } else if (action == "submit") {
-    require_fields(command,
-                   {"request_id", "action", "order_id", "side", "offset", "quantity", "price"});
+    require_fields(command, {"request_id", "action", "order_id", "venue", "symbol", "side",
+                             "offset", "quantity", "price"});
     const auto cursor = engine.cursor();
-    if (schedule && (!cursor || schedule->event(cursor - 1).day_end))
+    if (!cursor || schedule->event(cursor - 1).day_end)
       throw std::invalid_argument("cannot submit after the last bar of a trading day");
     const auto side = string(command, "side"), offset = string(command, "offset");
     if (side != "buy" && side != "sell")
@@ -179,8 +183,11 @@ void PaperSession::apply(PaperExecution& engine, Json& authorization, Json& repl
         offset != "close")
       throw std::invalid_argument("invalid open/close offset");
     validate_id(string(command, "order_id"));
-    engine.submit({string(command, "order_id"), instrument_, side == "buy" ? Side::buy : Side::sell,
-                   decimal(command, "quantity"), decimal(command, "price")},
+    engine.submit({string(command, "order_id"),
+                   {string(command, "venue"), string(command, "symbol")},
+                   side == "buy" ? Side::buy : Side::sell,
+                   decimal(command, "quantity"),
+                   decimal(command, "price")},
                   offset == "open"          ? Offset::open
                   : offset == "close_today" ? Offset::close_today
                   : offset == "close"       ? Offset::close
@@ -211,7 +218,7 @@ PaperSession::PaperSession(std::filesystem::path directory, const Json& create_m
       throw std::invalid_argument("directory holds no recoverable paper session");
     const auto& header = records.front();
     if (!header.is_object() || !header.contains("format") || header.at("format") != journal_format)
-      throw std::invalid_argument("unsupported trading journal format; this build reads format 4 "
+      throw std::invalid_argument("unsupported trading journal format; this build reads format 5 "
                                   "only and leaves the directory unchanged");
     require_fields(header, {"format", "engine", "risk_artifact", "manifest"});
     if (header.at("engine") != journal_engine)
@@ -225,9 +232,8 @@ PaperSession::PaperSession(std::filesystem::path directory, const Json& create_m
     engine_ = build(manifest_);
     engine_->start();
   }
-  const auto& contract = manifest_.at("dataset").at("contract");
-  dataset_revision_ = string(manifest_.at("dataset"), "revision");
-  instrument_ = {string(contract, "venue"), string(contract, "symbol")};
+  dataset_revision_ = protocol::dataset_revision(protocol::encode_input(manifest_));
+  replay_ = {{"settled_days", 0}};
   for (std::size_t i = 1; i < records.size(); ++i) {
     require_fields(records[i], {"command", "outcome"});
     const auto& command = records[i].at("command");
@@ -235,7 +241,7 @@ PaperSession::PaperSession(std::filesystem::path directory, const Json& create_m
     if (commands_.contains(id))
       throw std::invalid_argument("trading journal contains a duplicate request; recovery refused");
     validate_history(command);
-    apply(*engine_, authorization_, replay_, schedule_, command);
+    apply(*engine_, authorization_, replay_, command);
     if (outcome(*engine_, authorization_, replay_) != records[i].at("outcome"))
       throw std::invalid_argument("trading journal replay diverged from the recorded outcome at "
                                   "record " +
@@ -254,14 +260,12 @@ void PaperSession::validate_history(const Json& command) const {
 void PaperSession::restore() {
   auto engine = build(manifest_);
   engine->start();
-  Json authorization = nullptr, replay = nullptr;
-  std::shared_ptr<const PaperReplaySchedule> schedule;
+  Json authorization = nullptr, replay = {{"settled_days", 0}};
   for (const auto* command : sequence_)
-    apply(*engine, authorization, replay, schedule, *command);
+    apply(*engine, authorization, replay, *command);
   engine_ = std::move(engine);
   authorization_ = std::move(authorization);
   replay_ = std::move(replay);
-  schedule_ = std::move(schedule);
 }
 PaperSession::~PaperSession() {
   if (engine_)
@@ -290,10 +294,9 @@ void PaperSession::execute(const Json& command) {
   // before every command.
   auto authorization = authorization_;
   auto replay = replay_;
-  auto schedule = schedule_;
   const auto before = engine_->revision();
   try {
-    apply(*engine_, authorization, replay, schedule, command);
+    apply(*engine_, authorization, replay, command);
   } catch (...) {
     if (engine_->revision() != before) {
       try {
@@ -318,24 +321,30 @@ void PaperSession::execute(const Json& command) {
   }
   authorization_.swap(authorization);
   replay_.swap(replay);
-  schedule_.swap(schedule);
   sequence_.push_back(&commands_.insert(std::move(entry)).position->second);
 }
 Json PaperSession::snapshot() const {
   auto result = engine_->snapshot();
-  result["contract"] = manifest_.at("dataset").at("contract");
-  result["costs"] = manifest_.at("costs");
+  const auto& marks = result.at("marks");
+  Json contracts = Json::array();
+  for (std::size_t i = 0; i < manifest_.at("contracts").size(); ++i) {
+    const auto& item = manifest_.at("contracts").at(i);
+    contracts.push_back({{"contract", item.at("dataset").at("contract")},
+                         {"costs", item.at("costs")},
+                         {"mark", marks.at(i).at("mark")}});
+  }
+  result.erase("marks");
+  result["contracts"] = std::move(contracts);
   result["risk"] = manifest_.at("risk");
   result["persistent"] = true;
   result["storage_state"] = failed_ ? "recovery_required" : "ready";
-  if (!replay_.is_null()) {
-    result["replay"] = replay_;
-    const auto cursor = result.at("cursor").get<std::size_t>();
-    result["replay"]["day_end"] = cursor && schedule_->event(cursor - 1).day_end;
-    result["replay"]["settlement_due"] =
-        cursor && schedule_->event(cursor - 1).day_end &&
-        replay_.at("settled_days") == schedule_->event(cursor - 1).day;
-  }
+  result["replay"] = replay_;
+  const auto cursor = result.at("cursor").get<std::size_t>();
+  result["replay"]["days"] = schedule_->days();
+  result["replay"]["day_end"] = cursor && schedule_->event(cursor - 1).day_end;
+  result["replay"]["settlement_due"] =
+      cursor && schedule_->event(cursor - 1).day_end &&
+      replay_.at("settled_days") == schedule_->event(cursor - 1).day;
   if (!authorization_.is_null())
     result["strategy"] = authorization_;
   return result;

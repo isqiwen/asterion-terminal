@@ -80,13 +80,23 @@ void prepare(wire::Task& task) {
   } else if (task.has_input()) {
     backtest::validate(task.input());
     task.set_kind(wire::BACKTEST);
-    const auto& dataset = task.input().paper().dataset();
-    task.set_instrument(dataset.contract().venue() + "/" + dataset.contract().symbol());
-    task.set_source_name(dataset.source_task_id());
+    // Contracts share trading days; the first dataset describes them.
+    const auto& paper = task.input().paper();
+    const auto& dataset = paper.contracts(0).dataset();
+    std::string instruments, sources;
+    unsigned total = 0;
+    for (const auto& contract : paper.contracts()) {
+      const auto& c = contract.dataset().contract();
+      instruments += (instruments.empty() ? "" : " + ") + c.venue() + "/" + c.symbol();
+      sources += (sources.empty() ? "" : " + ") + contract.dataset().source_task_id();
+      total += static_cast<unsigned>(contract.dataset().bars_size());
+    }
+    task.set_instrument(instruments);
+    task.set_source_name(sources);
     task.set_trading_day(dataset.days(0).trading_day());
     if (dataset.days_size() > 1)
       task.set_trading_day(task.trading_day() + " / " + dataset.days().rbegin()->trading_day());
-    task.set_total(static_cast<unsigned>(dataset.bars_size()));
+    task.set_total(total);
   } else
     throw std::invalid_argument("task requires an explicit input type");
   task.set_state(wire::QUEUED);
@@ -149,18 +159,20 @@ void verify_result(const wire::Task& task, const wire::BacktestResult& result,
   protocol::validate_message(result);
   if (task.kind() != wire::BACKTEST || !task.has_input())
     throw std::invalid_argument("not a backtest task");
-  if (result.version() != 4 || result.dataset_revision() != task.input().dataset_revision() ||
+  const auto& paper = task.input().paper();
+  const auto days = paper.contracts(0).dataset().days_size();
+  bool contracts = result.account().contracts_size() == paper.contracts_size();
+  for (int c = 0; contracts && c < paper.contracts_size(); ++c)
+    contracts = result.account().contracts(c).contract().SerializeAsString() ==
+                    paper.contracts(c).dataset().contract().SerializeAsString() &&
+                result.account().contracts(c).costs().SerializeAsString() ==
+                    paper.contracts(c).costs().SerializeAsString();
+  if (result.version() != 5 || result.dataset_revision() != task.input().dataset_revision() ||
       result.engine_version() != protocol::backtest_engine_version ||
       result.account().cursor() != task.total() || result.account().total() != task.total() ||
-      result.equity_size() !=
-          static_cast<int>(task.total()) + task.input().paper().dataset().days_size() ||
-      result.settlements_size() != task.input().paper().dataset().days_size() ||
-      result.account().contract().SerializeAsString() !=
-          task.input().paper().dataset().contract().SerializeAsString() ||
-      result.account().costs().SerializeAsString() !=
-          task.input().paper().costs().SerializeAsString() ||
-      result.account().risk().SerializeAsString() !=
-          task.input().paper().risk().SerializeAsString() ||
+      result.equity_size() != static_cast<int>(task.total()) + days ||
+      result.settlements_size() != days || !contracts ||
+      result.account().risk().SerializeAsString() != paper.risk().SerializeAsString() ||
       !result.has_max_drawdown() || result.account().recovery_required())
     throw std::invalid_argument("incomplete or mismatched task result");
   static_cast<void>(backtest::result_json(result));

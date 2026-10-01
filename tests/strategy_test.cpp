@@ -34,21 +34,21 @@ struct Directory {
 };
 wire::Config config() {
   wire::Config c;
-  c.set_version(1);
+  c.set_version(2);
   c.set_session_id("strategy.test");
   c.set_stream_id("market.test");
   c.set_plugin_id("asterion.strategy.cta.sma-long-flat");
   c.set_fast(1);
   c.set_slow(3);
   c.mutable_quantity()->set_units(Decimal::parse("2").raw());
-  *c.mutable_contract() = protocol::encode_contract({{"venue", "SHFE"},
-                                                     {"symbol", "rb2610"},
-                                                     {"currency", "CNY"},
-                                                     {"price_increment", "1"},
-                                                     {"quantity_increment", "1"},
-                                                     {"multiplier", "10"},
-                                                     {"product", "rb"},
-                                                     {"delivery_month", "2026-10"}});
+  *c.add_contracts() = protocol::encode_contract({{"venue", "SHFE"},
+                                                  {"symbol", "rb2610"},
+                                                  {"currency", "CNY"},
+                                                  {"price_increment", "1"},
+                                                  {"quantity_increment", "1"},
+                                                  {"multiplier", "10"},
+                                                  {"product", "rb"},
+                                                  {"delivery_month", "2026-10"}});
   return c;
 }
 wire::Event event(std::uint64_t sequence, const std::string& price = "100") {
@@ -522,24 +522,25 @@ TEST(StrategyExecution, TwoProcessesRecoverAuthorizedTargetsWithoutDuplicateOrde
   c.set_slow(2);
   c.mutable_quantity()->set_units(Decimal::parse("1").raw());
   protocol::v1::PaperInput input;
+  auto* contract = input.add_contracts();
   input.mutable_deposit()->set_units(Decimal::parse("1000").raw());
-  input.mutable_costs()->mutable_margin_per_lot()->set_units(Decimal::parse("100").raw());
-  input.mutable_costs()->mutable_open_fee()->set_units(Decimal::parse("2").raw());
-  input.mutable_costs()->mutable_close_today_fee()->set_units(Decimal::parse("3").raw());
+  contract->mutable_costs()->mutable_margin_per_lot()->set_units(Decimal::parse("100").raw());
+  contract->mutable_costs()->mutable_open_fee()->set_units(Decimal::parse("2").raw());
+  contract->mutable_costs()->mutable_close_today_fee()->set_units(Decimal::parse("3").raw());
   input.mutable_risk()->mutable_max_order_quantity()->set_units(10000000000LL);
   input.mutable_risk()->mutable_max_gross_quantity()->set_units(10000000000LL);
   input.mutable_risk()->set_max_working_orders(100);
-  input.mutable_costs()->mutable_close_yesterday_fee()->set_units(Decimal::parse("4").raw());
-  input.mutable_costs()->mutable_margin_rate()->set_units(0);
-  input.mutable_costs()->mutable_open_fee_rate()->set_units(0);
-  input.mutable_costs()->mutable_close_today_fee_rate()->set_units(0);
-  input.mutable_costs()->mutable_close_yesterday_fee_rate()->set_units(0);
+  contract->mutable_costs()->mutable_close_yesterday_fee()->set_units(Decimal::parse("4").raw());
+  contract->mutable_costs()->mutable_margin_rate()->set_units(0);
+  contract->mutable_costs()->mutable_open_fee_rate()->set_units(0);
+  contract->mutable_costs()->mutable_close_today_fee_rate()->set_units(0);
+  contract->mutable_costs()->mutable_close_yesterday_fee_rate()->set_units(0);
   const std::vector<int> prices{100, 101, 100, 102, 99, 103};
   std::vector<MarketBar> bars;
   for (std::size_t i = 0; i < prices.size(); ++i)
     bars.push_back(protocol::market_bar(event(i + 1, std::to_string(prices[i])).bar()));
-  *input.mutable_dataset() = test::dataset(bars, {}, c.contract());
-  const auto revision = input.dataset().revision();
+  *contract->mutable_dataset() = test::dataset(bars, {}, c.contracts(0));
+  const auto revision = input.contracts(0).dataset().revision();
   std::unique_ptr<ChildProcess> strategy, trading;
   auto launch = [&] {
     strategy = std::make_unique<ChildProcess>(
@@ -614,6 +615,8 @@ TEST(StrategyExecution, TwoProcessesRecoverAuthorizedTargetsWithoutDuplicateOrde
     t->set_dataset_revision(revision);
     t->set_sequence(seq);
     t->set_timestamp_ns(intent.timestamp_ns());
+    t->set_venue(intent.venue());
+    t->set_symbol(intent.symbol());
     *t->mutable_target_quantity() = intent.target_quantity();
     const auto fills_before = account.fills_size();
     account = trade(tr);

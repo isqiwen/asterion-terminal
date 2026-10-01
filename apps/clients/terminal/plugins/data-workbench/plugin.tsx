@@ -53,7 +53,7 @@ export const plugin: TerminalPlugin = {
     component: context => <Panel {...context} busy={context.busy || !context.snapshot} />,
   },
   widgets: context => {
-    const data = context.snapshot?.dataset;
+    const datasets = context.snapshot?.datasets ?? [];
     const openData = () => context.navigate("workspace.data", { page: "history" });
     return [
       {
@@ -64,16 +64,20 @@ export const plugin: TerminalPlugin = {
         width: 2,
         column: "primary",
         defaultVisible: true,
-        hasContent: !!data,
+        hasContent: datasets.length > 0,
         render: () => (
           <div className="overview-data">
-            <strong>{data ? `${data.venue} · ${data.symbol}` : t("尚未选择历史数据")}</strong>
+            <strong>
+              {datasets.length
+                ? datasets.map(item => `${item.venue} · ${item.symbol}`).join(" + ")
+                : t("尚未选择历史数据")}
+            </strong>
             <p>
-              {data
+              {datasets.length
                 ? t("{count} 根 K 线 · {first} – {last}", {
-                    count: data.count,
-                    first: data.first_day,
-                    last: data.last_day,
+                    count: datasets.reduce((sum, item) => sum + item.count, 0),
+                    first: datasets[0].first_day,
+                    last: datasets[0].last_day,
                   })
                 : t("选择数据源和具体月份合约，下载完整历史数据。")}
             </p>

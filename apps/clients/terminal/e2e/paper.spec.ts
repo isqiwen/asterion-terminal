@@ -26,7 +26,7 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
     await picker.getByLabel("合约乘数", { exact: true }).fill("10");
     await picker.screenshot({ path: join(__dirname, "../test-results/dataset-picker.png") });
     await picker.getByRole("button", { name: "使用此数据集", exact: true }).click();
-    const selected = page.getByRole("region", { name: "历史数据集" });
+    const selected = picker.getByRole("list", { name: "已选合约" });
     await expect(selected).toContainText("SHFE · rb2610");
     await expect(selected).toContainText("3 根 · 1 个交易日");
     await selected.screenshot({ path: join(__dirname, "../test-results/dataset-selected.png") });

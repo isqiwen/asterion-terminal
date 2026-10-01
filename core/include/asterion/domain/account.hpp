@@ -2,6 +2,7 @@
 #include <asterion/domain/order.hpp>
 #include <asterion/foundation/serialization.hpp>
 #include <optional>
+#include <vector>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -27,7 +28,14 @@ struct FuturesCosts {
   Decimal fee(Offset bucket, Decimal quantity, Decimal price, Decimal multiplier) const;
   Decimal margin(Decimal quantity, Decimal price, Decimal multiplier) const;
 };
+// One contract of a portfolio: its specification and its cost schedule.
+struct ContractTerms {
+  Instrument instrument;
+  FuturesCosts costs;
+};
+inline constexpr std::size_t max_portfolio_contracts = 20;
 struct PositionLot {
+  InstrumentId instrument;
   Side side;
   bool today;
   Decimal quantity, price;
@@ -36,47 +44,51 @@ struct AccountOrder {
   Order order;
   Offset offset;
 };
-// Single-currency, single-contract ledger. Host serializes access. Mutations have
-// a strong exception guarantee; report IDs remain unique for the ledger lifetime.
-// Typed queries are the internal API; snapshot() is a presentation of the same state.
+// Single-currency futures portfolio ledger over a fixed set of contracts.
+// Funds, margin, frozen amounts and fees are account-wide; positions, marks
+// and close rules belong to each contract. Host serializes access. Mutations
+// have a strong exception guarantee; report IDs stay unique for the ledger.
+// Typed queries are the internal API; snapshot() presents the same state.
 class FuturesAccount {
 public:
-  FuturesAccount(Instrument instrument, Decimal deposit, FuturesCosts costs);
+  FuturesAccount(Decimal deposit, std::vector<ContractTerms> contracts);
   void submit(LimitOrder request, Offset offset);
   void cancel(const std::string& id);
   bool fill(const Fill& report);
-  void mark(Decimal price);
-  // Explicit settlement, only with no outstanding orders. Caller owns calendar.
-  void settle(Decimal price);
+  void mark(const InstrumentId& instrument, Decimal price);
+  // Settles every contract at its price, ordered as contracts(). Only with no
+  // outstanding orders; the caller owns the calendar.
+  void settle(const std::vector<Decimal>& prices);
   Json snapshot() const;
+  const std::vector<ContractTerms>& contracts() const noexcept { return contracts_; }
+  // Index of a contract in contracts(); throws for a contract outside the account.
+  std::size_t contract_index(const InstrumentId& instrument) const;
   const std::vector<AccountOrder>& orders() const noexcept { return orders_; }
   const std::vector<PositionLot>& positions() const noexcept { return lots_; }
   const std::vector<Fill>& fills() const noexcept { return fills_; }
-  const Instrument& instrument() const noexcept { return instrument_; }
-  const FuturesCosts& costs() const noexcept { return costs_; }
   Decimal balance() const noexcept { return balance_; }
   Decimal fees() const noexcept { return fees_; }
   Decimal realized() const noexcept { return realized_; }
-  // Zero until the first mark; the ledger rejects orders before that.
-  Decimal last_mark() const noexcept { return mark_; }
+  // Zero until the contract's first mark; its orders are rejected before that.
+  Decimal last_mark(const InstrumentId& instrument) const;
   Decimal available() const;
   Decimal unrealized() const;
   Decimal margin() const;
   Decimal frozen() const;
   bool has_working_orders() const noexcept;
-  ClosePolicy close_policy() const noexcept { return policy_; }
+  ClosePolicy close_policy(const InstrumentId& instrument) const;
 
 private:
-  // Quantity of position_side still free to close; `today` limits it to one
-  // bucket, nullopt counts both (generic close).
-  Decimal closable(Side position_side, std::optional<bool> today) const;
+  // Quantity of position_side still free to close in one contract; `today`
+  // limits it to one bucket, nullopt counts both (generic close).
+  Decimal closable(const InstrumentId& instrument, Side position_side,
+                   std::optional<bool> today) const;
   // Reservation for the rest of a working order at its limit price.
   Decimal reserved(const AccountOrder& item) const;
   std::size_t index_of(const std::string& id) const;
-  Instrument instrument_;
-  FuturesCosts costs_;
-  ClosePolicy policy_;
-  Decimal balance_, fees_, realized_, mark_;
+  std::vector<ContractTerms> contracts_;
+  std::vector<Decimal> marks_;
+  Decimal balance_, fees_, realized_;
   std::vector<PositionLot> lots_;
   std::vector<AccountOrder> orders_;
   std::vector<Fill> fills_;

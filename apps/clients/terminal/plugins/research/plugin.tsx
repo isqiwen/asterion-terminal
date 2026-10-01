@@ -13,7 +13,7 @@ export const plugin: TerminalPlugin = {
   commands: [
     "research.local",
     "research.dataset.select",
-    "research.dataset.clear",
+    "research.dataset.remove",
     "research.submit",
     "research.factor.submit",
     "research.daily-factor.submit",

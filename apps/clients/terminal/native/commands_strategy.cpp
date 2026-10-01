@@ -22,11 +22,15 @@ void Application::Impl::register_strategy_commands() {
         throw std::invalid_argument("invalid strategy window");
       return value;
     };
+    // The selected portfolio; the account accepts the grant only for its own data.
     const auto& data = selected();
-    if (static_cast<std::size_t>(data.dataset.bars_size()) > protocol::max_session_bars)
+    std::size_t bars = 0;
+    for (const auto& item : data)
+      bars += static_cast<std::size_t>(item.dataset.bars_size());
+    if (bars > protocol::max_session_bars)
       throw std::invalid_argument("paper sessions use at most 20000 bars; narrow the trading days");
     strategy::v1::Config config;
-    config.set_version(1);
+    config.set_version(2);
     config.set_session_id("strategy-" + id);
     config.set_stream_id("history-" + id);
     config.set_plugin_id("asterion.strategy.cta.sma-long-flat");
@@ -34,14 +38,18 @@ void Application::Impl::register_strategy_commands() {
     config.set_slow(integer("slow"));
     const auto quantity = Decimal::parse(text(p, "quantity"));
     config.mutable_quantity()->set_units(quantity.raw());
-    *config.mutable_contract() = data.dataset.contract();
-    MovingAverage validation(protocol::instrument(data.dataset.contract()), config.fast(),
-                             config.slow(), quantity);
-    (void)validation;
     const auto local = local_node();
     auto* plan = config.mutable_replay();
-    plan->set_version(3);
-    *plan->mutable_dataset() = data.dataset;
+    plan->set_version(4);
+    protocol::v1::PaperInput revisions;
+    for (const auto& item : data) {
+      *config.add_contracts() = item.dataset.contract();
+      MovingAverage validation(protocol::instrument(item.dataset.contract()), config.fast(),
+                               config.slow(), quantity);
+      (void)validation;
+      *plan->add_datasets() = item.dataset;
+      *revisions.add_contracts()->mutable_dataset() = item.dataset;
+    }
     plan->set_trading_session(paper->endpoint().session);
     plan->set_grant_id("grant." + config.session_id());
     plan->set_agent_endpoint(local.endpoint);
@@ -50,22 +58,20 @@ void Application::Impl::register_strategy_commands() {
       nodes.emplace("local", std::make_shared<NodeClient>(local));
     auto next =
         std::make_unique<StrategyClient>(nodes.at("local")->local_strategy(config.session_id()));
-    // Three cross-process steps: bind day-end settlement, grant the account,
-    // create the strategy. There is no distributed transaction; instead every
-    // step is idempotent under a request identity derived from the run id
-    // ("days.<session>", the grant id, the strategy session). The trading
-    // journal acknowledges an identical repeated command without re-applying
-    // it, so after a partial failure the user retries the same run id and the
-    // chain resumes. A grant left without a running strategy only fences manual
-    // orders until the retry succeeds or strategy.revoke is called.
-    if (!paper->snapshot().contains("replay"))
-      paper->execute({{"request_id", "days." + config.session_id()}, {"action", "replay_days"}});
+    // Two cross-process steps: grant the account, create the strategy. There
+    // is no distributed transaction; instead each step is idempotent under a
+    // request identity derived from the run id (the grant id, the strategy
+    // session). The trading journal acknowledges an identical repeated command
+    // without re-applying it, so after a partial failure the user retries the
+    // same run id and the chain resumes. A grant left without a running
+    // strategy only fences manual orders until the retry succeeds or
+    // strategy.revoke is called.
     paper->execute({{"request_id", plan->grant_id()},
                     {"action", "strategy_grant"},
                     {"grant_id", plan->grant_id()},
                     {"strategy_id", config.session_id()},
                     {"stream_id", config.stream_id()},
-                    {"dataset_revision", plan->dataset().revision()},
+                    {"dataset_revision", protocol::dataset_revision(revisions)},
                     {"max_quantity", quantity.str()}});
     // Keep the observation handle even if delivery acknowledgement is lost.
     // The caller retains the same run id and may explicitly retry this plan.

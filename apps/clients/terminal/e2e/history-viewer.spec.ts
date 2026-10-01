@@ -227,4 +227,7 @@ test("dataset viewer charts exact bars, pages, filters and retains the last page
   ).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: "build/history-viewer-english.png" });
+  // Polls keep arriving while the test finishes; ignore handlers whose
+  // responses were disposed with the page.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
 });

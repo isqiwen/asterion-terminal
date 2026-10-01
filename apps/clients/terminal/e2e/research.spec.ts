@@ -10,7 +10,7 @@ test("Agent runs a bar backtest and restores its evidence", async ({ page }) => 
   await page.getByRole("button", { name: "研究", exact: true }).click();
   const research = page.getByRole("region", { name: "期货研究", exact: true });
   await expect(research.getByText("研究服务已连接", { exact: true })).toBeVisible();
-  const selected = research.getByRole("region", { name: "历史数据集" });
+  const selected = research.getByRole("list", { name: "已选合约" });
   await expect(selected).toContainText("SHFE · rb2610");
   await expect(selected).toContainText("8 根 · 1 个交易日");
   for (const [label, value] of [
@@ -19,9 +19,9 @@ test("Agent runs a bar backtest and restores its evidence", async ({ page }) => 
     ["目标手数", "1"],
     ["初始资金", "10000"],
     ["每手保证金", "100"],
-    ["开仓手续费", "2"],
-    ["平今手续费", "3"],
-    ["平昨手续费", "4"],
+    ["每手开仓费", "2"],
+    ["每手平今费", "3"],
+    ["每手平昨费", "4"],
     ["单笔数量上限", "100"],
     ["总持仓量上限", "100"],
     ["在途委托数上限", "100"],
@@ -94,4 +94,61 @@ test("Agent runs a bar backtest and restores its evidence", async ({ page }) => 
     await english.getByText("Experiment Parameters", { exact: true }).click();
   await expect(english).not.toContainText(/\p{Script=Han}/u);
   await expect(english.getByText("Input bars", { exact: true })).toBeVisible();
+});
+
+test("a portfolio backtest settles every contract on one account", async ({ page }) => {
+  await page.goto("/");
+  const prices = [100, 101, 102, 101, 104, 103, 102, 103];
+  await seedDataset(page.request, prices, "portfolio-rb");
+  await seedDataset(page.request, prices, "portfolio-hc", { product: "hc", keep: true });
+  await page.reload();
+  await page.getByRole("button", { name: "研究", exact: true }).click();
+  const research = page.getByRole("region", { name: "期货研究", exact: true });
+  await research.getByRole("button", { name: "均线回测", exact: true }).click();
+  const selected = research.getByRole("list", { name: "已选合约" });
+  await expect(selected.getByRole("listitem")).toHaveCount(2);
+  await expect(selected).toContainText("SHFE · hc2610");
+  for (const [label, value] of [
+    ["快均线", "1"],
+    ["慢均线", "3"],
+    ["目标手数", "1"],
+    ["初始资金", "10000"],
+    ["单笔数量上限", "100"],
+    ["总持仓量上限", "100"],
+    ["在途委托数上限", "100"],
+  ])
+    await research.getByLabel(label, { exact: true }).fill(value);
+  for (const symbol of ["rb2610", "hc2610"]) {
+    const costs = research.getByRole("region", { name: `SHFE · ${symbol} 保证金与手续费` });
+    for (const [label, value] of [
+      ["每手保证金", "100"],
+      ["每手开仓费", "2"],
+      ["每手平今费", "3"],
+      ["每手平昨费", "4"],
+    ])
+      await costs.getByLabel(label, { exact: true }).fill(value);
+  }
+  await research.getByRole("button", { name: "开始回测", exact: true }).click();
+  await expect(research.getByText("任务已提交，可关闭窗口。", { exact: true })).toBeVisible();
+  const row = research
+    .getByRole("region", { name: "研究任务", exact: true })
+    .getByRole("row")
+    .filter({ hasText: "SHFE/rb2610 + SHFE/hc2610" });
+  await expect(row.getByText("已完成", { exact: true })).toBeVisible({ timeout: 20000 });
+  await row.getByRole("button", { name: "查看结果", exact: true }).first().click();
+  const result = research.getByRole("region", { name: "回测结果", exact: true });
+  await result.getByText("逐日结算", { exact: true }).click();
+  const settlements = result.locator(".research-settlements tbody tr");
+  await expect(settlements).toHaveCount(2);
+  await expect(settlements.nth(0)).toContainText("rb2610");
+  await expect(settlements.nth(1)).toContainText("hc2610");
+  await result.getByText("实验参数", { exact: true }).click();
+  await expect(result.getByRole("region", { name: "SHFE · hc2610" })).toContainText("100");
+  // Factor analysis studies one contract and says so instead of submitting.
+  await research.getByRole("button", { name: "因子分析", exact: true }).click();
+  await expect(
+    research.getByText("因子分析只研究一个合约，请只保留一个数据集。", { exact: true }),
+  ).toBeVisible();
+  await research.getByRole("button", { name: "移除 SHFE · hc2610", exact: true }).click();
+  await expect(selected.getByRole("listitem")).toHaveCount(1);
 });

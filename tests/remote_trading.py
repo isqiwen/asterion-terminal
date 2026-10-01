@@ -1,4 +1,4 @@
-from history_fixture import seed
+from history_fixture import contracts, seed
 """Real TCP/mTLS, native Terminal client, daemon and durable server ledger."""
 import json
 from concurrent.futures import ThreadPoolExecutor
@@ -79,10 +79,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-tcp-中文-", ignore_cleanup_e
             assert "CERTIFICATE_VERIFY_FAILED" not in str(error), error
         connected = request(terminal, "paper.connect", params)
         assert connected["paper"] is None and connected["connection"]["state"] == "connected"
-        source = root / "ticks.csv"
-        source.write_text("timestamp_ns,price,quantity\n100,100,1\n200,99,1\n300,110,1\n", encoding="utf-8")
         seed(lambda method, params=None: request(terminal, method, params), [100,99,110], "fixture0")
-        request(terminal, "paper.create", {"deposit": "1000", "margin_per_lot": "100", "open_fee": "2", "close_today_fee": "3", "close_yesterday_fee": "4", "margin_rate": "0", "open_fee_rate": "0", "close_today_fee_rate": "0", "close_yesterday_fee_rate": "0", "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
+        request(terminal, "paper.create", {"deposit": "1000", "contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
         action = {"request_id": "remote.tick1", "action": "advance"}
         observer = launch()
         try:
