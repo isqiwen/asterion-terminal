@@ -445,5 +445,10 @@
   "the trading day changed; authorize live trading again": "the trading day changed; authorize live trading again",
   "live trading requires the CTP trader library": "live trading requires the CTP trader library",
   "another window opened a live session meanwhile; recover this directory after closing it": "another window opened a live session meanwhile; recover this directory after closing it",
-  "unsupported live trading record format; this build reads format 1 only and leaves the directory unchanged": "unsupported live trading record format; this build reads format 1 only and leaves the directory unchanged"
+  "unsupported live trading record format; this build reads format 1 only and leaves the directory unchanged": "unsupported live trading record format; this build reads format 1 only and leaves the directory unchanged",
+  "no current market price for this contract; the order was not sent": "no current market price for this contract; the order was not sent",
+  "limit price is outside the exchange price limits": "limit price is outside the exchange price limits",
+  "limit price deviates from the latest price beyond the session limit": "limit price deviates from the latest price beyond the session limit",
+  "price deviation limit must be above 0 and below 1": "price deviation limit must be above 0 and below 1",
+  "CTP trading session changed; the order was not sent": "CTP trading session changed; the order was not sent"
 }

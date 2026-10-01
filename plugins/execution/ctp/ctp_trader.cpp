@@ -32,13 +32,14 @@ enum class Kind {
   query_funds,
   query_margin,
   query_commission,
+  query_quote,
   insert,
   cancel
 };
 bool is_query(Kind kind) {
   return kind == Kind::query_orders || kind == Kind::query_trades ||
          kind == Kind::query_positions || kind == Kind::query_funds || kind == Kind::query_margin ||
-         kind == Kind::query_commission;
+         kind == Kind::query_commission || kind == Kind::query_quote;
 }
 bool is_rate_query(Kind kind) {
   return kind == Kind::query_margin || kind == Kind::query_commission;
@@ -51,6 +52,7 @@ struct Command {
   // Rate queries: the contract and its product code.
   InstrumentId instrument;
   std::string product;
+  std::uint64_t serial = 0; // quote queries
   std::shared_ptr<std::promise<int>> result;
 };
 Decimal rate(double value) {
@@ -165,6 +167,9 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
   };
   std::map<InstrumentId, Rates> rates;
   InstrumentId rate_instrument; // the outstanding rate query
+  // Quote answers by request serial; the waiting caller takes its own.
+  std::uint64_t quote_serial = 0, quote_outstanding = 0;
+  std::map<std::uint64_t, std::optional<BrokerQuote>> quotes;
   std::deque<Command> queue;
   // Session identity from the latest login; generation changes on every
   // disconnect so requests prepared for an older session are never sent.
@@ -517,6 +522,26 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       }
     });
   }
+  void OnRspQryDepthMarketData(CThostFtdcDepthMarketDataField* row, CThostFtdcRspInfoField* info,
+                               int, bool last) override {
+    callback([&] {
+      const int code = info ? info->ErrorID : 0;
+      auto& answer = quotes[quote_outstanding];
+      if (!code && row && !answer) {
+        BrokerQuote quote;
+        quote.instrument = {field(row->ExchangeID), field(row->InstrumentID)};
+        quote.last = price(row->LastPrice);
+        quote.pre_settlement = price(row->PreSettlementPrice);
+        quote.upper_limit = price(row->UpperLimitPrice);
+        quote.lower_limit = price(row->LowerLimitPrice);
+        quote.trading_day = field(row->TradingDay);
+        quote.update_time = field(row->UpdateTime);
+        answer = std::move(quote);
+      }
+      if (last || code)
+        query_done();
+    });
+  }
   void OnRtnOrder(CThostFtdcOrderField* order) override {
     callback([&] {
       if (order)
@@ -621,6 +646,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
   }
   int send_query(const Command& command) {
     const auto kind = command.kind;
+    CThostFtdcQryDepthMarketDataField market{};
     CThostFtdcQryInstrumentMarginRateField margin{};
     CThostFtdcQryInstrumentCommissionRateField commission{};
     CThostFtdcQryOrderField orders{};
@@ -642,6 +668,10 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       copy(commission.BrokerID, config.broker);
       copy(commission.InvestorID, config.user);
     }
+    if (kind == Kind::query_quote) {
+      copy(market.ExchangeID, command.instrument.venue);
+      copy(market.InstrumentID, command.instrument.symbol);
+    }
     if (is_rate_query(kind)) {
       copy(margin.ExchangeID, command.instrument.venue);
       copy(margin.InstrumentID, command.instrument.symbol);
@@ -651,6 +681,8 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     }
     const int id = ++request_id;
     switch (kind) {
+    case Kind::query_quote:
+      return api->ReqQryDepthMarketData(&market, id);
     case Kind::query_margin:
       return api->ReqQryInstrumentMarginRate(&margin, id);
     case Kind::query_commission:
@@ -700,6 +732,8 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
         }
         if (is_rate_query(command.kind))
           rate_instrument = command.instrument;
+        if (command.kind == Kind::query_quote)
+          quote_outstanding = command.serial;
       }
       int code = 0;
       if (is_query(command.kind))
@@ -1006,6 +1040,40 @@ void Trader::query_costs(const std::vector<std::pair<InstrumentId, std::string>>
     impl_->changed();
   }
   impl_->wake.notify_all();
+}
+std::optional<BrokerQuote> Trader::quote(const InstrumentId& instrument) {
+  instrument.validate();
+  std::future<int> sent;
+  std::uint64_t serial = 0;
+  {
+    std::lock_guard lock(impl_->mutex);
+    if (impl_->closing || impl_->state.phase != "ready")
+      throw Error(ErrorCode::unavailable, "CTP trading session is not ready");
+    Command command;
+    command.kind = Kind::query_quote;
+    command.generation = impl_->generation;
+    command.instrument = instrument;
+    command.serial = serial = ++impl_->quote_serial;
+    sent = impl_->enqueue(std::move(command));
+  }
+  impl_->wake.notify_all();
+  // Flow control spaces queries; allow for those already queued.
+  if (sent.wait_for(query_timeout) != std::future_status::ready || sent.get() != 0)
+    return std::nullopt;
+  std::unique_lock lock(impl_->mutex);
+  // Answered once a response for this serial arrived and its query completed.
+  const auto answered = [&] {
+    return impl_->closing || (impl_->quotes.contains(serial) &&
+                              !(impl_->quote_outstanding == serial && impl_->query_outstanding));
+  };
+  impl_->wake.wait_for(lock, query_timeout, answered);
+  std::optional<BrokerQuote> result;
+  if (const auto found = impl_->quotes.find(serial); found != impl_->quotes.end()) {
+    if (found->second && found->second->instrument == instrument)
+      result = std::move(found->second);
+    impl_->quotes.erase(found);
+  }
+  return result;
 }
 BrokerSnapshot Trader::snapshot() const {
   std::lock_guard lock(impl_->mutex);

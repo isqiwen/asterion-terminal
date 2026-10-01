@@ -44,6 +44,7 @@ test("live CTP session connects, authorizes and trades through the execution cha
       ["单笔数量上限", "5"],
       ["总持仓量上限", "10"],
       ["在途委托数上限", "2"],
+      ["价格偏离上限", "0.02"],
     ])
       await panel.getByLabel(label, { exact: true }).fill(value);
     await panel.getByLabel("添加合约", { exact: true }).fill("SHFE.rb2610");
@@ -79,6 +80,11 @@ test("live CTP session connects, authorizes and trades through the execution cha
     await expect(
       panel.getByRole("table", { name: "实盘委托记录" }).locator("tbody tr"),
     ).toHaveCount(0);
+    await order.getByLabel("限价", { exact: true }).fill("3600");
+    await order.getByRole("button", { name: "提交实盘委托" }).click();
+    await expect(panel.getByRole("alert")).toContainText(
+      "限价偏离最新价超过本会话的上限，委托未发送。",
+    );
     await order.getByLabel("限价", { exact: true }).fill("3500.5");
     await order.getByRole("button", { name: "提交实盘委托" }).click();
     await expect(panel.getByRole("table", { name: "实盘成交" }).locator("tbody tr")).toHaveCount(

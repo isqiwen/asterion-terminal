@@ -599,11 +599,11 @@ std::string live_status(const std::string& value) {
   return value;
 }
 } // namespace
-// Live manifest version 1: a CTP account, its risk limits and the contracts
-// it may trade.
+// Live manifest version 2: a CTP account, its risk limits, its price
+// deviation bound and the contracts it may trade.
 v1::LiveInput encode_live_input(const Json& m) {
-  require_fields(m, {"version", "type", "broker", "risk", "contracts"});
-  if (m.at("version") != 1 || m.at("type") != "live_ctp" || !m.at("contracts").is_array())
+  require_fields(m, {"version", "type", "broker", "risk", "max_price_deviation", "contracts"});
+  if (m.at("version") != 2 || m.at("type") != "live_ctp" || !m.at("contracts").is_array())
     throw std::invalid_argument("invalid live input");
   v1::LiveInput result;
   const auto broker = live_broker(m.at("broker"));
@@ -612,6 +612,9 @@ v1::LiveInput encode_live_input(const Json& m) {
   result.mutable_broker()->set_user_id(broker.at("user_id"));
   result.mutable_broker()->set_app_id(broker.at("app_id"));
   *result.mutable_risk() = encode_risk(m.at("risk"));
+  set(result.mutable_max_price_deviation(), m.at("max_price_deviation"));
+  if (get(result.max_price_deviation()) != m.at("max_price_deviation").get<std::string>())
+    throw std::invalid_argument("price deviation requires canonical decimal text");
   for (const auto& c : m.at("contracts"))
     *result.add_contracts() = contract(c);
   static_cast<void>(decode_live_input(result));
@@ -626,6 +629,10 @@ Json decode_live_input(const v1::LiveInput& input) {
                              {"user_id", input.broker().user_id()},
                              {"app_id", input.broker().app_id()}});
   auto risk = decode_risk(input.risk());
+  const auto deviation = Decimal::from_raw(input.max_price_deviation().units());
+  if (!input.has_max_price_deviation() || deviation <= Decimal{} ||
+      deviation >= Decimal::parse("1"))
+    throw std::invalid_argument("price deviation limit must be above 0 and below 1");
   Json contracts = Json::array();
   std::set<InstrumentId> seen;
   for (const auto& c : input.contracts()) {
@@ -635,21 +642,24 @@ Json decode_live_input(const v1::LiveInput& input) {
       throw std::invalid_argument("duplicate live contract");
     contracts.push_back(contract(c));
   }
-  return {{"version", 1},
+  return {{"version", 2},
           {"type", "live_ctp"},
           {"broker", std::move(broker)},
           {"risk", std::move(risk)},
+          {"max_price_deviation", deviation.str()},
           {"contracts", std::move(contracts)}};
 }
 v1::LiveSnapshot encode_live_snapshot(const Json& s) {
   v1::LiveSnapshot result;
-  const auto input = encode_live_input({{"version", 1},
+  const auto input = encode_live_input({{"version", 2},
                                         {"type", "live_ctp"},
                                         {"broker", s.at("broker")},
                                         {"risk", s.at("risk")},
+                                        {"max_price_deviation", s.at("max_price_deviation")},
                                         {"contracts", s.at("contracts")}});
   *result.mutable_broker() = input.broker();
   *result.mutable_risk() = input.risk();
+  *result.mutable_max_price_deviation() = input.max_price_deviation();
   *result.mutable_contracts() = input.contracts();
   result.set_phase(s.at("phase").get<std::string>());
   result.set_error_code(s.at("error_code").get<int>());
@@ -731,6 +741,7 @@ Json decode_live_snapshot(const v1::LiveSnapshot& s) {
     v1::LiveInput value;
     *value.mutable_broker() = s.broker();
     *value.mutable_risk() = s.risk();
+    *value.mutable_max_price_deviation() = s.max_price_deviation();
     *value.mutable_contracts() = s.contracts();
     return value;
   }());
@@ -742,6 +753,7 @@ Json decode_live_snapshot(const v1::LiveSnapshot& s) {
   Json result{{"mode", "live"},
               {"broker", input.at("broker")},
               {"risk", input.at("risk")},
+              {"max_price_deviation", input.at("max_price_deviation")},
               {"contracts", input.at("contracts")},
               {"phase", s.phase()},
               {"error_code", s.error_code()},

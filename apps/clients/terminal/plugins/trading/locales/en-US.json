@@ -198,5 +198,7 @@
   "CTP 账户 {broker}/{user}": "CTP account {broker}/{user}",
   "查询中": "Querying",
   "已返回": "Returned",
-  "券商未提供": "Not provided by broker"
+  "券商未提供": "Not provided by broker",
+  "价格偏离上限": "Max Price Deviation",
+  "限价须在涨跌停范围内，且与券商最新价（当日无成交时为昨结算价）的偏离不超过该比例，例如 0.02 表示 2%。每笔委托发出前查询一次行情，约需 1 秒。": "Limit prices must stay within the exchange's price limits and within this fraction of the broker's latest price (the pre-settlement price before the first trade), e.g. 0.02 for 2%. Each order queries the market once before it is sent, taking about a second."
 }

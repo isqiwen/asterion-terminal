@@ -19,7 +19,12 @@ enum Mode { MODE_UNSPECIFIED = 0; PAPER = 1; LIVE = 2; }
 message LiveBroker { string front = 1; string broker_id = 2; string user_id = 3; string app_id = 4; }
 // A live session: the account, its pre-trade risk limits and the contracts
 // the owner allows it to trade, with their exchange terms.
-message LiveInput { LiveBroker broker = 1; RiskLimits risk = 2; repeated Contract contracts = 3; }
+// max_price_deviation bounds a limit price's distance from the broker's
+// latest price (pre-settlement before the first trade) as a fraction, e.g. 0.02.
+message LiveInput {
+  LiveBroker broker = 1; RiskLimits risk = 2; repeated Contract contracts = 3;
+  Decimal max_price_deviation = 4;
+}
 message LiveCredentials { string password = 1; string auth_code = 2; }
 // The owner confirms the account by its user ID; valid for the current
 // connection and trading day only.
@@ -116,6 +121,7 @@ message LiveSnapshot {
   repeated UnconfirmedOrder unconfirmed = 13;
   bool recovery_required = 14;
   repeated LiveCosts costs = 15;
+  Decimal max_price_deviation = 16;
 }
 message Error { string code = 1; string message = 2; }
 message Health { string instance_id = 1; string version = 2; uint64 uptime_ms = 3; bool initialized = 4; bool recovery_required = 5; }

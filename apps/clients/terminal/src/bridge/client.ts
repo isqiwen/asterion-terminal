@@ -131,6 +131,8 @@ export type LiveSession = {
   mode: "live";
   broker: { front: string; broker_id: string; user_id: string; app_id: string };
   risk: PaperAccount["risk"];
+  // Bound on a limit price's distance from the broker's latest price.
+  max_price_deviation: string;
   contracts: FuturesContract[];
   phase:
     | "disconnected"

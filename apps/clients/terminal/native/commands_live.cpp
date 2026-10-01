@@ -39,13 +39,14 @@ json catalog_terms(const json& market, const json& requested) {
 void Application::Impl::register_live_commands() {
   core.access().grant("terminal.local", "live.manage");
   core.command("live.create", "live.manage", [this](const json& p) {
-    fields_with_risk(p, {"directory", "front", "broker_id", "user_id", "app_id", "contracts"});
+    fields_with_risk(p, {"directory", "front", "broker_id", "user_id", "app_id",
+                         "max_price_deviation", "contracts"});
     if (live)
       throw std::invalid_argument("close the current live session first");
     // Validated before the braced initializer (GCC < 13 PR66139 leak).
     const auto risk = risk_parameters(p);
     auto contracts = catalog_terms(market ? market->snapshot() : json(nullptr), p.at("contracts"));
-    json manifest{{"version", 1},
+    json manifest{{"version", 2},
                   {"type", "live_ctp"},
                   {"broker",
                    {{"front", text(p, "front")},
@@ -53,6 +54,7 @@ void Application::Impl::register_live_commands() {
                     {"user_id", text(p, "user_id")},
                     {"app_id", text(p, "app_id")}}},
                   {"risk", risk},
+                  {"max_price_deviation", text(p, "max_price_deviation")},
                   {"contracts", std::move(contracts)}};
     (void)protocol::encode_live_input(manifest);
     const auto directory = text(p, "directory");

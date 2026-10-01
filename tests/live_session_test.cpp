@@ -28,14 +28,15 @@ struct Directory {
     fs::remove_all(path, ignored);
   }
 };
-Json contract(const char* symbol) {
-  return {{"venue", "SHFE"},        {"symbol", symbol},           {"currency", "CNY"},
-          {"price_increment", "1"}, {"multiplier", "10"},         {"quantity_increment", "1"},
-          {"product", "rb"},        {"delivery_month", "2026-10"}};
+Json contract(const char* symbol, const char* product = "rb", const char* month = "2026-10") {
+  return {{"venue", "SHFE"},        {"symbol", symbol},       {"currency", "CNY"},
+          {"price_increment", "1"}, {"multiplier", "10"},     {"quantity_increment", "1"},
+          {"product", product},     {"delivery_month", month}};
 }
-// The fake fills orders of at most 2 lots at once; larger orders rest.
-Json manifest(std::uint64_t working_orders = 1) {
-  return {{"version", 1},
+// The fake fills orders of at most 2 lots at once; larger orders rest. Its
+// market for rb2610 is 3500 within 3300..3700.
+Json manifest(std::uint64_t working_orders = 1, const char* deviation = "0.02") {
+  return {{"version", 2},
           {"type", "live_ctp"},
           {"broker",
            {{"front", "tcp://127.0.0.1:41205"},
@@ -46,6 +47,7 @@ Json manifest(std::uint64_t working_orders = 1) {
            {{"max_order_quantity", "5"},
             {"max_gross_quantity", "10"},
             {"max_working_orders", working_orders}}},
+          {"max_price_deviation", deviation},
           {"contracts", Json::array({contract("rb2610")})}};
 }
 Json submit(std::string id, const char* quantity, const char* price = "3500",
@@ -103,6 +105,12 @@ TEST_F(Live, OrdersPassAuthorizationAllowlistUnitsAndRiskBeforeReachingTheBroker
   EXPECT_THROW(session.execute(submit("tick", "1", "3500.5")), std::invalid_argument);
   EXPECT_THROW(session.execute(submit("lot", "0.5")), std::invalid_argument);
   try {
+    session.execute(submit("far", "1", "3600"));
+    ADD_FAILURE() << "2.9% from the latest price exceeds the 2% bound";
+  } catch (const std::invalid_argument& error) {
+    EXPECT_NE(std::string(error.what()).find("deviates"), std::string::npos);
+  }
+  try {
     session.execute(submit("large", "6"));
     ADD_FAILURE() << "risk must reject an oversized order";
   } catch (const std::invalid_argument& error) {
@@ -156,6 +164,30 @@ TEST_F(Live, OrdersPassAuthorizationAllowlistUnitsAndRiskBeforeReachingTheBroker
   session.execute(authorize("authorize.again"));
   session.disconnect();
   EXPECT_TRUE(session.snapshot().at("authorization").is_null());
+}
+TEST_F(Live, LimitPricesStayWithinExchangeLimitsAndTheMarketReference) {
+  auto wide = manifest(2, "0.1");
+  wide["contracts"] = Json::array(
+      {contract("rb2610"), contract("rb2611", "rb", "2026-11"), contract("zz2610", "zz")});
+  LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, wide);
+  ASSERT_EQ(ready(session).at("phase"), "ready");
+  session.execute(authorize());
+  const auto refused = [&](Json command, const char* reason) {
+    try {
+      session.execute(command);
+      ADD_FAILURE() << command.dump();
+    } catch (const std::invalid_argument& error) {
+      EXPECT_NE(std::string(error.what()).find(reason), std::string::npos) << error.what();
+    }
+  };
+  // Within 10% of 3500, but above the exchange's upper limit of 3700.
+  refused(submit("limit", "1", "3750"), "price limits");
+  refused(submit("quiet", "1", "3500", "zz2610"), "no current market price");
+  // rb2611 has not traded: the pre-settlement price 3490 is the reference.
+  session.execute(submit("settled", "1", "3500", "rb2611"));
+  session.execute(submit("near", "1", "3690"));
+  EXPECT_EQ(session.snapshot().at("orders").size(), 2U);
+  EXPECT_EQ(session.snapshot().at("max_price_deviation"), "0.1");
 }
 TEST_F(Live, RecoveryAttributesRecordedOrdersAndNeverResendsThem) {
   {
@@ -217,9 +249,9 @@ TEST_F(Live, CredentialsAreNeverWrittenAndHeadersPinTheEngine) {
   }
   const auto header_file = test::journal_record(directory.path, 0);
   auto header = test::read_record(header_file);
-  EXPECT_EQ(header.at("engine"), "asterion.live-futures.v1");
+  EXPECT_EQ(header.at("engine"), "asterion.live-futures.v2");
   EXPECT_EQ(header.at("manifest"), manifest());
-  header["engine"] = "asterion.live-futures.v0";
+  header["engine"] = "asterion.live-futures.v1";
   test::write_record(header_file, header);
   EXPECT_THROW((LiveSession{directory.path, ASTERION_TEST_CTP_TRADER}), std::invalid_argument);
 }
@@ -238,6 +270,7 @@ TEST(LiveProtocol, SnapshotAndCommandsRoundTrip) {
   Json snapshot{
       {"broker", manifest().at("broker")},
       {"risk", manifest().at("risk")},
+      {"max_price_deviation", "0.02"},
       {"contracts", manifest().at("contracts")},
       {"phase", "ready"},
       {"error_code", 0},

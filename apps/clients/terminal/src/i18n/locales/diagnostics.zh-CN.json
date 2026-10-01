@@ -445,5 +445,10 @@
   "the trading day changed; authorize live trading again": "交易日已变化，请重新授权实盘交易。",
   "live trading requires the CTP trader library": "实盘交易需要 CTP 交易接口库。",
   "another window opened a live session meanwhile; recover this directory after closing it": "另一个窗口刚刚打开了实盘会话；请先关闭它，再从本目录恢复。",
-  "unsupported live trading record format; this build reads format 1 only and leaves the directory unchanged": "不支持的实盘交易记录格式；当前版本只读取格式 1，目录保持不变。"
+  "unsupported live trading record format; this build reads format 1 only and leaves the directory unchanged": "不支持的实盘交易记录格式；当前版本只读取格式 1，目录保持不变。",
+  "no current market price for this contract; the order was not sent": "该合约当前没有行情，委托未发送。",
+  "limit price is outside the exchange price limits": "限价超出交易所涨跌停范围。",
+  "limit price deviates from the latest price beyond the session limit": "限价偏离最新价超过本会话的上限，委托未发送。",
+  "price deviation limit must be above 0 and below 1": "价格偏离上限必须大于 0 且小于 1。",
+  "CTP trading session changed; the order was not sent": "CTP 交易会话状态已变化，委托未发送。"
 }

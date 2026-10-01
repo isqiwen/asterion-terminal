@@ -36,6 +36,7 @@ private:
   void append(const Json& record);
   const Instrument& allowed(const InstrumentId& id) const;
   void submit(const Json& command);
+  void check_price(const LimitOrder& order, const std::optional<BrokerQuote>& quote) const;
   std::vector<std::pair<std::string, const Intent*>> unconfirmed(const BrokerSnapshot& state) const;
   SqliteJournal journal_;
   std::optional<risk_providers::Module> risk_module_;

@@ -10,7 +10,9 @@ namespace asterion::trading {
 namespace {
 // Record 0 carries this identity. Bump it whenever authorization, allowlist,
 // risk or order-recording semantics change; recovery refuses other identities.
-const std::string journal_engine = "asterion.live-futures.v1";
+// v2: limit prices are checked against the broker's latest market (exchange
+// limits and a session deviation bound) before risk.
+const std::string journal_engine = "asterion.live-futures.v2";
 constexpr int journal_format = 1;
 std::string text(const Json& value, const char* key) {
   auto result = value.at(key).get<std::string>();
@@ -246,6 +248,25 @@ void LiveSession::execute(const Json& command) {
   } else
     throw std::invalid_argument("unsupported live trading operation");
 }
+// The broker's current market bounds the limit price: within the exchange's
+// limits and within the session's deviation from the latest price (the
+// pre-settlement price before the first trade). No market, no order.
+void LiveSession::check_price(const LimitOrder& order,
+                              const std::optional<BrokerQuote>& quote) const {
+  const auto reference = !quote ? std::nullopt : quote->last ? quote->last : quote->pre_settlement;
+  if (!reference || *reference <= Decimal{})
+    throw std::invalid_argument(
+        "no current market price for this contract; the order was not sent");
+  if ((quote->upper_limit && order.limit_price > *quote->upper_limit) ||
+      (quote->lower_limit && order.limit_price < *quote->lower_limit))
+    throw std::invalid_argument("limit price is outside the exchange price limits");
+  const auto distance = order.limit_price > *reference ? order.limit_price - *reference
+                                                       : *reference - order.limit_price;
+  if (distance >
+      *reference * Decimal::parse(manifest_.at("max_price_deviation").get<std::string>()))
+    throw std::invalid_argument(
+        "limit price deviates from the latest price beyond the session limit");
+}
 void LiveSession::submit(const Json& command) {
   require_fields(command, {"request_id", "action", "order_id", "venue", "symbol", "side", "offset",
                            "quantity", "price"});
@@ -253,12 +274,12 @@ void LiveSession::submit(const Json& command) {
   validate_id(order_id);
   if (intents_.contains(order_id))
     throw Error(ErrorCode::conflict, "order ID was already used");
-  const auto state = trader_->snapshot();
+  const auto before = trader_->snapshot();
   if (authorization_.is_null())
     throw std::invalid_argument("authorize live trading for this account first");
-  if (state.phase != "ready")
+  if (before.phase != "ready")
     throw Error(ErrorCode::unavailable, "CTP trading session is not ready");
-  if (authorization_.at("trading_day") != state.trading_day)
+  if (authorization_.at("trading_day") != before.trading_day)
     throw std::invalid_argument("the trading day changed; authorize live trading again");
   const InstrumentId id{text(command, "venue"), text(command, "symbol")};
   const auto& terms = allowed(id);
@@ -273,6 +294,11 @@ void LiveSession::submit(const Json& command) {
     throw std::invalid_argument("order quantity must be a positive multiple of the lot size");
   if (order.limit_price <= Decimal{} || !order.limit_price.multiple_of(terms.price_increment))
     throw std::invalid_argument("limit price must be a positive multiple of the price tick");
+  check_price(order, trader_->quote(id));
+  // The quote waits for the CTP query limit; risk reads the account after it.
+  const auto state = trader_->snapshot();
+  if (state.phase != "ready" || state.trading_day != before.trading_day)
+    throw Error(ErrorCode::unavailable, "CTP trading session changed; the order was not sent");
   // Exposure from broker reports, plus recorded orders the broker has not
   // confirmed: they may still reach the exchange.
   Decimal gross, pending;
@@ -310,6 +336,7 @@ Json LiveSession::snapshot() const {
   const auto state = trader_->snapshot();
   Json result{{"broker", manifest_.at("broker")},
               {"risk", manifest_.at("risk")},
+              {"max_price_deviation", manifest_.at("max_price_deviation")},
               {"contracts", manifest_.at("contracts")},
               {"phase", state.phase},
               {"error_code", state.error_code},

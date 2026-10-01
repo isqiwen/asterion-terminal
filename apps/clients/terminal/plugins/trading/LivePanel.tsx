@@ -103,6 +103,7 @@ function CreateLive({
     max_order_quantity: "",
     max_gross_quantity: "",
     max_working_orders: "",
+    max_price_deviation: "",
   });
   const [contracts, setContracts] = useWorkspaceDraft<string[]>("live-contracts", []);
   const [choice, setChoice] = useState("");
@@ -251,6 +252,7 @@ function CreateLive({
                 ["max_order_quantity", "单笔数量上限"],
                 ["max_gross_quantity", "总持仓量上限"],
                 ["max_working_orders", "在途委托数上限"],
+                ["max_price_deviation", "价格偏离上限"],
               ] as const
             ).map(([field, label]) => (
               <label key={field}>
@@ -258,6 +260,7 @@ function CreateLive({
                 <input
                   aria-label={t(label)}
                   inputMode="decimal"
+                  placeholder={field === "max_price_deviation" ? "0.02" : undefined}
                   value={limits[field]}
                   onChange={event => setLimits({ ...limits, [field]: event.target.value })}
                   required
@@ -265,6 +268,11 @@ function CreateLive({
               </label>
             ))}
           </div>
+          <p className="subtle">
+            {t(
+              "限价须在涨跌停范围内，且与券商最新价（当日无成交时为昨结算价）的偏离不超过该比例，例如 0.02 表示 2%。每笔委托发出前查询一次行情，约需 1 秒。",
+            )}
+          </p>
         </section>
         <div className="source-actions">
           <button className="primary" type="submit" disabled={!contracts.length}>
@@ -642,7 +650,8 @@ function LiveAccount({
         <summary>{t("风险限制")}</summary>
         <p>
           {t("单笔数量上限")}: {live.risk.max_order_quantity} · {t("总持仓量上限")}:{" "}
-          {live.risk.max_gross_quantity} · {t("在途委托数上限")}: {live.risk.max_working_orders}
+          {live.risk.max_gross_quantity} · {t("在途委托数上限")}: {live.risk.max_working_orders} ·{" "}
+          {t("价格偏离上限")}: {live.max_price_deviation}
         </p>
         <p>
           {t("可交易合约")}: {live.contracts.map(item => key(item)).join("、")}

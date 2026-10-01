@@ -486,7 +486,27 @@ public:
     });
     return 0;
   }
-  int ReqQryDepthMarketData(CThostFtdcQryDepthMarketDataField*, int) override { return -1; }
+  // rb2610 trades at 3500 within 3300..3700; "zz..." has no market.
+  int ReqQryDepthMarketData(CThostFtdcQryDepthMarketDataField* request, int id) override {
+    if (throttled())
+      return -3;
+    const std::string venue = request->ExchangeID, instrument = request->InstrumentID;
+    emit([venue, instrument, id](CThostFtdcTraderSpi* s) {
+      if (instrument.starts_with("zz"))
+        return s->OnRspQryDepthMarketData(nullptr, nullptr, id, true);
+      CThostFtdcDepthMarketDataField row{};
+      put(row.ExchangeID, venue);
+      put(row.InstrumentID, instrument);
+      put(row.TradingDay, "20260928");
+      put(row.UpdateTime, "10:15:00");
+      row.LastPrice = instrument == "rb2611" ? 1.7976931348623157e308 : 3500;
+      row.PreSettlementPrice = 3490;
+      row.UpperLimitPrice = 3700;
+      row.LowerLimitPrice = 3300;
+      s->OnRspQryDepthMarketData(&row, nullptr, id, true);
+    });
+    return 0;
+  }
   int ReqQryTraderOffer(CThostFtdcQryTraderOfferField*, int) override { return -1; }
   int ReqQrySettlementInfo(CThostFtdcQrySettlementInfoField*, int) override { return -1; }
   int ReqQryTransferBank(CThostFtdcQryTransferBankField*, int) override { return -1; }

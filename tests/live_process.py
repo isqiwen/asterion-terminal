@@ -83,7 +83,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         wait(process, lambda s: s["market"]["catalog"]["phase"] == "ready")
         create = dict(directory=str(directory), front="tcp://127.0.0.1:41205",
                       broker_id="9999", user_id="000001", app_id="client_app",
-                      max_order_quantity="5", max_gross_quantity="10", max_working_orders="1")
+                      max_order_quantity="5", max_gross_quantity="10", max_working_orders="1",
+                      max_price_deviation="0.02")
         refused = call(process, "live.create",
                        dict(create, contracts=[dict(venue="SHFE", symbol="rb2611")]), error=True)
         assert "catalog" in refused["message"], refused
@@ -103,6 +104,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         call(process, "live.act", dict(request_id="authorize", action="live_authorize",
                                        user_id="000001"))
         call(process, "live.act", submit("tick", "1", "3500.25"), error=True)
+        far = call(process, "live.act", submit("far", "1", "3600"), error=True)
+        assert "deviates" in far["message"], far
         risk = call(process, "live.act", submit("large", "6"), error=True)
         assert "order_quantity" in risk["message"], risk
         call(process, "live.act", submit("filled", "2"))

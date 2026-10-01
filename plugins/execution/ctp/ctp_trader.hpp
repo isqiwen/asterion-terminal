@@ -31,6 +31,9 @@ public:
   // Queries the account's margin and commission rates for each contract with
   // its product code; results arrive in snapshot().costs. Requires ready.
   void query_costs(const std::vector<std::pair<InstrumentId, std::string>>& contracts);
+  // Queries the contract's current market and waits for the answer; nothing
+  // when the broker has none, the query fails or times out. Requires ready.
+  std::optional<BrokerQuote> quote(const InstrumentId& instrument);
   void disconnect() override;
 
 private:

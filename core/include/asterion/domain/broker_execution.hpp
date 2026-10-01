@@ -52,6 +52,13 @@ struct BrokerCosts {
   std::int64_t queried_ms = 0;
   std::optional<FuturesCosts> costs;
 };
+// The broker's current market for one contract; prices the exchange has not
+// set (no trade yet, no limit) are absent.
+struct BrokerQuote {
+  InstrumentId instrument;
+  std::optional<Decimal> last, pre_settlement, upper_limit, lower_limit;
+  std::string trading_day, update_time;
+};
 struct BrokerSnapshot {
   // disconnected, connecting, authenticating, logging_in, confirming,
   // synchronizing, ready, error. Orders are accepted only when ready.
