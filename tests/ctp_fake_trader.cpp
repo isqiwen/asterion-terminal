@@ -26,7 +26,7 @@
 #endif
 namespace {
 std::atomic<int> quote_rejection_code{0}, quote_rejection_count{0};
-std::atomic<int> catalog_side_effects = 0;
+std::atomic<int> catalog_side_effects = 0, stale_batches = 0;
 template <std::size_t N> void put(char (&dest)[N], const std::string& value) {
   std::memset(dest, 0, N);
   std::memcpy(dest, value.data(), std::min(value.size(), N - 1));
@@ -39,6 +39,7 @@ struct Exchange {
   std::vector<CThostFtdcOrderField> orders;
   std::vector<CThostFtdcTradeField> trades;
   std::map<std::pair<std::string, char>, Position> positions;
+  std::string trading_day = "20260928";
   int sessions = 0, sys_ids = 0, trade_ids = 0, query_rejections = 0;
   std::chrono::steady_clock::time_point last_query{};
 };
@@ -57,6 +58,7 @@ class Fake final : public CThostFtdcTraderApi {
   std::deque<std::function<void(CThostFtdcTraderSpi*)>> events;
   std::jthread worker;
   int front = 1, session = 0;
+  std::atomic<int> first_funds_request{0};
   void emit(std::function<void(CThostFtdcTraderSpi*)> event) {
     {
       std::lock_guard lock(mutex);
@@ -96,8 +98,8 @@ class Fake final : public CThostFtdcTraderApi {
     t.OffsetFlag = order.CombOffsetFlag[0];
     t.Price = order.LimitPrice;
     t.Volume = volume;
-    put(t.TradingDay, "20260928");
-    put(t.TradeDate, "20260928");
+    put(t.TradingDay, x.trading_day);
+    put(t.TradeDate, x.trading_day);
     put(t.TradeTime, "09:30:00");
     x.trades.push_back(t);
     order.VolumeTraded += volume;
@@ -163,8 +165,31 @@ public:
     emit([](CThostFtdcTraderSpi* s) { s->OnFrontDisconnected(0x1001); });
     emit([](CThostFtdcTraderSpi* s) { s->OnFrontConnected(); });
   }
+  void stale_queries() {
+    const int id = first_funds_request.load();
+    emit([id](CThostFtdcTraderSpi* s) {
+      CThostFtdcTradingAccountField funds{};
+      funds.Balance = funds.Available = 42;
+      s->OnRspQryTradingAccount(&funds, nullptr, id, true);
+      CThostFtdcInvestorPositionField position{};
+      put(position.ExchangeID, "SHFE");
+      put(position.InstrumentID, "rb2610");
+      position.PosiDirection = THOST_FTDC_PD_Long;
+      position.Position = position.TodayPosition = 999;
+      s->OnRspQryInvestorPosition(&position, nullptr, id, true);
+      s->OnRspQryInstrumentMarginRate(nullptr, nullptr, id, true);
+      s->OnRspQryInstrumentCommissionRate(nullptr, nullptr, id, true);
+      ++stale_batches;
+    });
+  }
   int Join() override { return 0; }
-  const char* GetTradingDay() override { return "20260928"; }
+  const char* GetTradingDay() override {
+    thread_local std::string day;
+    auto& x = exchange();
+    std::lock_guard lock(x.mutex);
+    day = x.trading_day;
+    return day.c_str();
+  }
   void RegisterFront(char*) override {}
   void RegisterSpi(CThostFtdcTraderSpi* value) override {
     std::lock_guard lock(mutex);
@@ -189,13 +214,13 @@ public:
                    ) override {
     catalog_mode = request->UserID;
     const int code = std::string(request->Password) == "bad" ? 3 : 0;
+    CThostFtdcRspUserLoginField login{};
     {
       auto& x = exchange();
       std::lock_guard lock(x.mutex);
       session = ++x.sessions;
+      put(login.TradingDay, x.trading_day);
     }
-    CThostFtdcRspUserLoginField login{};
-    put(login.TradingDay, "20260928");
     login.FrontID = front;
     login.SessionID = session;
     put(login.MaxOrderRef, "        0");
@@ -285,6 +310,8 @@ public:
     return 0;
   }
   int ReqQryTradingAccount(CThostFtdcQryTradingAccountField*, int id) override {
+    int empty = 0;
+    first_funds_request.compare_exchange_strong(empty, id);
     if (throttled())
       return -3;
     emit([id](CThostFtdcTraderSpi* s) {
@@ -498,13 +525,14 @@ public:
     if (throttled())
       return -3;
     const std::string venue = request->ExchangeID, instrument = request->InstrumentID;
-    emit([venue, instrument, id](CThostFtdcTraderSpi* s) {
+    const std::string day = GetTradingDay();
+    emit([venue, instrument, id, day](CThostFtdcTraderSpi* s) {
       if (instrument.starts_with("zz"))
         return s->OnRspQryDepthMarketData(nullptr, nullptr, id, true);
       CThostFtdcDepthMarketDataField row{};
       put(row.ExchangeID, venue);
       put(row.InstrumentID, instrument);
-      put(row.TradingDay, "20260928");
+      put(row.TradingDay, day);
       put(row.UpdateTime, "10:15:00");
       row.LastPrice = instrument == "rb2611" ? 1.7976931348623157e308 : 3500;
       row.PreSettlementPrice = 3490;
@@ -660,6 +688,7 @@ FAKE_EXPORT void asterion_fake_trader_reset() {
   x.orders.clear();
   x.trades.clear();
   x.positions.clear();
+  x.trading_day = "20260928";
   x.query_rejections = 0;
 }
 FAKE_EXPORT void asterion_fake_trader_reconnect() {
@@ -680,4 +709,31 @@ FAKE_EXPORT int asterion_fake_catalog_side_effects() {
 FAKE_EXPORT void asterion_fake_trader_reject_quotes(int code, int count) {
   quote_rejection_code = code;
   quote_rejection_count = count;
+}
+
+// Test-only day transition: daily reports expire, holdings carry, exchange IDs
+// may repeat. No production service exposes this control.
+FAKE_EXPORT void asterion_fake_trader_next_day(const char* day) {
+  {
+    auto& x = exchange();
+    std::lock_guard lock(x.mutex);
+    x.trading_day = day;
+    x.orders.clear();
+    x.trades.clear();
+    x.sys_ids = x.trade_ids = 0;
+    for (auto& [_, position] : x.positions) {
+      position.yesterday += position.today;
+      position.today = 0;
+    }
+  }
+  asterion_fake_trader_reconnect();
+}
+
+FAKE_EXPORT void asterion_fake_trader_stale_queries() {
+  std::lock_guard lock(live_mutex);
+  for (auto* fake : live)
+    fake->stale_queries();
+}
+FAKE_EXPORT int asterion_fake_trader_stale_batches() {
+  return stale_batches.load();
 }

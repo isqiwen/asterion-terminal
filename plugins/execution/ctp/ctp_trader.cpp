@@ -46,7 +46,9 @@ bool is_rate_query(Kind kind) {
 }
 struct Command {
   Kind kind;
-  std::uint64_t generation = 0;
+  std::uint64_t generation = 0, query_generation = 0;
+  int query_request_id = 0;
+  Kind query_kind = Kind::query_orders;
   CThostFtdcInputOrderField order{};
   CThostFtdcInputOrderActionField action{};
   // Rate queries: the contract and its product code.
@@ -175,7 +177,9 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
   // Session identity from the latest login; generation changes on every
   // disconnect so requests prepared for an older session are never sent.
   int front_id = 0, session_id = 0, next_ref = 0, request_id = 0;
-  std::uint64_t generation = 0;
+  std::uint64_t generation = 0, query_generation = 0;
+  int query_request_id = 0;
+  Kind query_kind = Kind::query_orders;
   bool closing = true, query_outstanding = false, refresh_queued = false;
   std::chrono::steady_clock::time_point query_started, next_query_at;
   std::jthread commands, retiring;
@@ -309,6 +313,10 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     changed();
   }
   void query_done() { query_outstanding = false; }
+  bool accepts_query(int id, Kind kind) const {
+    return query_outstanding && id == query_request_id && kind == query_kind &&
+           query_generation == generation;
+  }
   // Rate queries dropped with their session report as unavailable.
   void abandon_rates() {
     for (const auto& [instrument, _] : rates) {
@@ -376,6 +384,8 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       query_outstanding = refresh_queued = false;
       std::erase_if(queue, [](const Command& c) { return !c.result; });
       abandon_rates();
+      positions_in_progress.clear();
+      state.costs.clear();
       state.phase = "connecting";
       state.error_code = reason;
       changed();
@@ -410,6 +420,23 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       const auto ref = trimmed(login->MaxOrderRef);
       std::from_chars(ref.data(), ref.data() + ref.size(), max_ref);
       next_ref = max_ref;
+      // Login starts a new broker reconciliation, including automatic SDK
+      // reconnects. Historical journal identities survive in known, but cached
+      // reports cannot prove that the broker still confirms an order. Daily
+      // exchange IDs may be reused and yesterday's rates are not today's rates.
+      keys.clear();
+      order_at.clear();
+      exchange.clear();
+      raw_order_ids.clear();
+      trade_ids.clear();
+      positions_in_progress.clear();
+      rates.clear();
+      state.orders.clear();
+      state.trades.clear();
+      state.positions.clear();
+      state.funds.reset();
+      state.costs.clear();
+      state.synchronized_ms = 0;
       state.trading_day = field(login->TradingDay);
       state.phase = "confirming";
       changed();
@@ -424,9 +451,11 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       synchronize();
     });
   }
-  void OnRspQryOrder(CThostFtdcOrderField* order, CThostFtdcRspInfoField* info, int,
+  void OnRspQryOrder(CThostFtdcOrderField* order, CThostFtdcRspInfoField* info, int request,
                      bool last) override {
     callback([&] {
+      if (!accepts_query(request, Kind::query_orders))
+        return;
       if (info && info->ErrorID)
         return fail(info->ErrorID);
       if (order)
@@ -435,9 +464,11 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
         query_done();
     });
   }
-  void OnRspQryTrade(CThostFtdcTradeField* trade, CThostFtdcRspInfoField* info, int,
+  void OnRspQryTrade(CThostFtdcTradeField* trade, CThostFtdcRspInfoField* info, int request,
                      bool last) override {
     callback([&] {
+      if (!accepts_query(request, Kind::query_trades))
+        return;
       if (info && info->ErrorID)
         return fail(info->ErrorID);
       if (trade)
@@ -447,8 +478,10 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     });
   }
   void OnRspQryInvestorPosition(CThostFtdcInvestorPositionField* row, CThostFtdcRspInfoField* info,
-                                int, bool last) override {
+                                int request, bool last) override {
     callback([&] {
+      if (!accepts_query(request, Kind::query_positions))
+        return;
       if (info && info->ErrorID)
         return fail(info->ErrorID);
       if (row &&
@@ -475,8 +508,10 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     });
   }
   void OnRspQryTradingAccount(CThostFtdcTradingAccountField* account, CThostFtdcRspInfoField* info,
-                              int, bool last) override {
+                              int request, bool last) override {
     callback([&] {
+      if (!accepts_query(request, Kind::query_funds))
+        return;
       if (info && info->ErrorID)
         return fail(info->ErrorID);
       if (account)
@@ -494,8 +529,10 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     });
   }
   void OnRspQryInstrumentMarginRate(CThostFtdcInstrumentMarginRateField* row,
-                                    CThostFtdcRspInfoField* info, int, bool last) override {
+                                    CThostFtdcRspInfoField* info, int request, bool last) override {
     callback([&] {
+      if (!accepts_query(request, Kind::query_margin))
+        return;
       const int code = info ? info->ErrorID : 0;
       if (!code && row && rate_row_matches(row->InstrumentID))
         rates[rate_instrument].margin = std::pair{
@@ -508,8 +545,11 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     });
   }
   void OnRspQryInstrumentCommissionRate(CThostFtdcInstrumentCommissionRateField* row,
-                                        CThostFtdcRspInfoField* info, int, bool last) override {
+                                        CThostFtdcRspInfoField* info, int request,
+                                        bool last) override {
     callback([&] {
+      if (!accepts_query(request, Kind::query_commission))
+        return;
       const int code = info ? info->ErrorID : 0;
       // Fixed order: open, close (yesterday), close today; each per lot, by money.
       if (!code && row && rate_row_matches(row->InstrumentID))
@@ -524,8 +564,10 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     });
   }
   void OnRspQryDepthMarketData(CThostFtdcDepthMarketDataField* row, CThostFtdcRspInfoField* info,
-                               int, bool last) override {
+                               int request, bool last) override {
     callback([&] {
+      if (!accepts_query(request, Kind::query_quote))
+        return;
       const int code = info ? info->ErrorID : 0;
       const auto found = quotes.find(quote_outstanding);
       if (found == quotes.end()) {
@@ -660,8 +702,15 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     CThostFtdcQryTradeField trades{};
     CThostFtdcQryInvestorPositionField positions{};
     CThostFtdcQryTradingAccountField funds{};
+    int id;
     {
       std::lock_guard lock(mutex);
+      if (closing || command.generation != generation)
+        return -1003;
+      id = ++request_id;
+      query_request_id = id;
+      query_kind = kind;
+      query_generation = command.generation;
       copy(orders.BrokerID, config.broker);
       copy(orders.InvestorID, config.user);
       copy(trades.BrokerID, config.broker);
@@ -686,7 +735,6 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       copy(commission.ExchangeID, command.instrument.venue);
       copy(commission.InstrumentID, command.instrument.symbol);
     }
-    const int id = ++request_id;
     switch (kind) {
     case Kind::query_quote:
       return api->ReqQryDepthMarketData(&market, id);
@@ -877,6 +925,7 @@ void Trader::connect(TraderConfiguration config, std::map<std::string, std::stri
     impl_->exchange.clear();
     impl_->raw_order_ids.clear();
     impl_->trade_ids.clear();
+    impl_->positions_in_progress.clear();
     impl_->rates.clear();
     impl_->state = {};
     impl_->state.phase = "connecting";
@@ -965,16 +1014,15 @@ BrokerOrder Trader::submit(const LimitOrder& order, Offset offset,
   {
     std::lock_guard lock(impl_->mutex);
     impl_->known[pending.broker_key] = order.id;
-    impl_->keys[order.id] = pending.broker_key;
-    impl_->order_at[pending.broker_key] = impl_->state.orders.size();
     if (impl_->closing || command.generation != impl_->generation) {
-      // Journaled but never sent: the session ended in between.
+      // Journaled but never sent: do not insert a local rejection into the
+      // newly synchronized broker snapshot as if the broker had confirmed it.
       pending.status = BrokerOrderStatus::rejected;
       pending.error_code = -1003;
-      impl_->state.orders.push_back(pending);
-      impl_->changed();
       return pending;
     }
+    impl_->keys[order.id] = pending.broker_key;
+    impl_->order_at[pending.broker_key] = impl_->state.orders.size();
     impl_->state.orders.push_back(pending);
     impl_->changed();
     result = impl_->enqueue(std::move(command));
@@ -982,7 +1030,19 @@ BrokerOrder Trader::submit(const LimitOrder& order, Offset offset,
   impl_->wake.notify_all();
   const bool answered = result.wait_for(request_timeout) == std::future_status::ready;
   std::lock_guard lock(impl_->mutex);
-  auto& stored = impl_->state.orders[impl_->order_at.at(pending.broker_key)];
+  const auto found = impl_->order_at.find(pending.broker_key);
+  if (found == impl_->order_at.end()) {
+    // Reconciliation can replace the cache while this caller waits. Return
+    // the request outcome without republishing an unconfirmed cached order.
+    if (answered) {
+      if (const int code = result.get()) {
+        pending.status = BrokerOrderStatus::rejected;
+        pending.error_code = code;
+      }
+    }
+    return pending;
+  }
+  auto& stored = impl_->state.orders[found->second];
   if (answered) {
     if (const int code = result.get()) {
       // Not sent (or refused by the SDK before reaching the broker).

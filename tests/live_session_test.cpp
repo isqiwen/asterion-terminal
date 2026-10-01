@@ -249,7 +249,7 @@ TEST_F(Live, CredentialsAreNeverWrittenAndHeadersPinTheEngine) {
   }
   const auto header_file = test::journal_record(directory.path, 0);
   auto header = test::read_record(header_file);
-  EXPECT_EQ(header.at("engine"), "asterion.live-futures.v3");
+  EXPECT_EQ(header.at("engine"), "asterion.live-futures.v4");
   EXPECT_EQ(header.at("manifest"), manifest());
   header["engine"] = "asterion.live-futures.v1";
   test::write_record(header_file, header);
@@ -361,4 +361,76 @@ TEST_F(Live, AutomaticReconnectRequiresNewAuthorizationEvenOnTheSameTradingDay) 
   EXPECT_TRUE(session.snapshot().at("orders").empty());
   session.execute(authorize("new.connection"));
   EXPECT_NO_THROW(session.execute(submit("new.authorization", "1")));
+}
+
+TEST_F(Live, TradingDayRolloverRebuildsReportsAndRatesWithoutResending) {
+  LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, manifest());
+  ASSERT_EQ(ready(session).at("phase"), "ready");
+  session.execute(authorize());
+  session.execute(submit("day0.filled", "1"));
+  ASSERT_FALSE(wait_for(session, [](const Json& s) { return !s.at("positions").empty(); })
+                   .at("positions")
+                   .empty());
+  session.execute(submit("day0.resting", "3"));
+  session.query_costs();
+  ASSERT_EQ(wait_for(session,
+                     [](const Json& s) {
+                       return !s.at("costs").empty() && s.at("costs")[0].at("state") == "ready";
+                     })
+                .at("costs")[0]
+                .at("state"),
+            "ready");
+  ctp::SharedLibrary rollover(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_next_day",
+                              "asterion_fake_trader_next_day");
+  int index = 0;
+  for (const auto* day : {"20260929", "20260930"}) {
+    SCOPED_TRACE(day);
+    rollover.symbol<void (*)(const char*)>()(day);
+    const auto state = wait_for(session, [&](const Json& s) {
+      return s.at("phase") == "ready" && s.at("trading_day") == day;
+    });
+    ASSERT_EQ(state.at("trading_day"), day);
+    ASSERT_EQ(state.at("phase"), "ready");
+    EXPECT_TRUE(state.at("authorization").is_null());
+    EXPECT_TRUE(state.at("orders").empty());
+    EXPECT_TRUE(state.at("trades").empty());
+    EXPECT_TRUE(state.at("costs").empty());
+    EXPECT_TRUE(state.at("unconfirmed").empty());
+    ASSERT_EQ(state.at("positions").size(), 1U);
+    EXPECT_EQ(state.at("positions")[0].at("today"), "0");
+    EXPECT_EQ(state.at("positions")[0].at("yesterday"), std::to_string(index + 1));
+    EXPECT_THROW(session.execute(submit("not.authorized", "1")), std::invalid_argument);
+    session.execute(submit("day0.filled", "1")); // historical request: acknowledge only
+    EXPECT_TRUE(session.snapshot().at("orders").empty());
+    session.execute(authorize("authorize." + std::to_string(++index)));
+    const auto id = "day" + std::to_string(index) + ".filled";
+    session.execute(submit(id, "1"));
+    const auto filled = wait_for(session, [&](const Json& s) {
+      return !s.at("trades").empty() && s.at("trades").back().at("order_id") == id;
+    });
+    ASSERT_EQ(filled.at("trades").size(), 1U);
+    EXPECT_EQ(filled.at("trades")[0].at("order_id"), id);
+    EXPECT_EQ(filled.at("trades")[0].at("trading_day"), day);
+  }
+}
+TEST_F(Live, SameDayReconnectDoesNotMistakeCachedOrdersForBrokerConfirmation) {
+  LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, manifest());
+  ASSERT_EQ(ready(session).at("phase"), "ready");
+  session.execute(authorize());
+  session.execute(submit("missing", "3"));
+  ASSERT_TRUE(
+      wait_for(session, [](const Json& s) { return !s.at("orders").empty(); }).at("orders").size());
+  exchange.reset(); // broker no longer reports the order
+  ctp::SharedLibrary reconnect(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reconnect",
+                               "asterion_fake_trader_reconnect");
+  reconnect.symbol<void (*)()>()();
+  const auto state = wait_for(session, [](const Json& s) {
+    return s.at("phase") == "ready" && s.at("authorization").is_null();
+  });
+  ASSERT_EQ(state.at("phase"), "ready");
+  EXPECT_TRUE(state.at("orders").empty());
+  ASSERT_EQ(state.at("unconfirmed").size(), 1U);
+  EXPECT_EQ(state.at("unconfirmed")[0].at("id"), "missing");
+  session.execute(authorize("again"));
+  EXPECT_THROW(session.execute(submit("next", "1")), std::invalid_argument);
 }

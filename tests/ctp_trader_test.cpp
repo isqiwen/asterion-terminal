@@ -360,3 +360,36 @@ TEST_F(CtpTrader, TimedOutQuoteRetiresRetriesAndLeavesTheWorkerAvailable) {
   EXPECT_TRUE(trader.quote({"SHFE", "rb2610"}));
   EXPECT_EQ(trader.snapshot().phase, "ready");
 }
+
+TEST_F(CtpTrader, LateQueryRepliesCannotReplaceReconnectedAccountState) {
+  ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow);
+  trader.start();
+  trader.connect(configuration());
+  const auto initial = wait_for(trader, ready, 15s);
+  ASSERT_EQ(initial.phase, "ready");
+  fake.reconnect();
+  const auto synced = wait_for(
+      trader,
+      [&](const BrokerSnapshot& s) {
+        return ready(s) && s.connection_generation != initial.connection_generation;
+      },
+      15s);
+  ASSERT_EQ(synced.phase, "ready");
+  ctp::SharedLibrary inject(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_stale_queries",
+                            "asterion_fake_trader_stale_queries");
+  ctp::SharedLibrary batches(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_stale_batches",
+                             "asterion_fake_trader_stale_batches");
+  const auto before = batches.symbol<int (*)()>()();
+  inject.symbol<void (*)()>()();
+  const auto deadline = std::chrono::steady_clock::now() + 5s;
+  while (batches.symbol<int (*)()>()() == before && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(10ms);
+  ASSERT_GT(batches.symbol<int (*)()>()(), before);
+  const auto after = trader.snapshot();
+  EXPECT_EQ(after.sequence, synced.sequence);
+  EXPECT_EQ(after.synchronized_ms, synced.synchronized_ms);
+  ASSERT_TRUE(after.funds);
+  EXPECT_EQ(after.funds->balance, synced.funds->balance);
+  EXPECT_TRUE(after.positions.empty());
+  EXPECT_TRUE(after.costs.empty());
+}

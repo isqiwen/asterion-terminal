@@ -30,3 +30,15 @@
 ## 记录
 
 每项记录 `通过 / 失败 / 未执行`、操作时间、预期与实际结果、脱敏截图或日志位置。报告同时标记仍未验证的柜台行为；任何失败都保留原始数据，修复后重新运行相应步骤。当前仓库不含账户凭据，也没有真实柜台验收结果。
+
+## 隔离环境恢复回归
+
+真实柜台验收前，先在已构建的 macOS 工作区重复运行以下检查。所有进程测试经 CTest 注册的隔离包装器运行；CTP 使用测试 SDK，临时账本不接触正常 Agent。该测试覆盖三日柜台模型、重连丢失委托、迟到查询回报、服务崩溃与无客户端监督，不代表真实交易时间跨度或真实柜台规则。
+
+```sh
+ctest --test-dir build/Release -j 3 --repeat until-fail:3 --no-tests=error \
+  -R '^(Live\.(TradingDayRolloverRebuildsReportsAndRatesWithoutResending|SameDayReconnectDoesNotMistakeCachedOrdersForBrokerConfirmation|AutomaticReconnectRequiresNewAuthorizationEvenOnTheSameTradingDay)|CtpTrader\.LateQueryRepliesCannotReplaceReconnectedAccountState|PaperSession\.DatedFeesSwitchAllContractsBeforeNewDayAndRecoverExactly|live_process|service_heartbeat|paper_process_recovery)$' \
+  --output-on-failure --output-junit "$PWD/build/recovery-repeat.xml"
+```
+
+八项检查各重复三次；任何失败都停止该项重复并使命令失败。保存完整控制台输出和 JUnit 报告；JUnit 汇总不能单独代替三轮执行记录。长时柜台运行还需按上表完成实际时段、重连和跨交易日对账。

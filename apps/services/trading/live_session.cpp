@@ -10,10 +10,11 @@ namespace asterion::trading {
 namespace {
 // Record 0 carries this identity. Bump it whenever authorization, allowlist,
 // risk or order-recording semantics change; recovery refuses other identities.
+// v4: reconnect rebuilds broker reports; unreported intents stay unconfirmed.
 // v3: authorization and order submission are fenced by connection generation.
 // v2: limit prices are checked against the broker's latest market (exchange
 // limits and a session deviation bound) before risk.
-const std::string journal_engine = "asterion.live-futures.v3";
+const std::string journal_engine = "asterion.live-futures.v4";
 constexpr int journal_format = 1;
 std::string text(const Json& value, const char* key) {
   auto result = value.at(key).get<std::string>();
