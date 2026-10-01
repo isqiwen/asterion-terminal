@@ -90,7 +90,12 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
     await page.getByLabel("限价", { exact: true }).fill("110");
     await page.getByRole("button", { name: "提交模拟委托", exact: true }).click();
     await expect(page.getByTestId("paper-frozen")).toHaveText("3 CNY");
+    // The last bar ends the trading day; automatic settlement sends the
+    // same command as the day-end button.
+    await page.getByLabel("自动日终结算", { exact: true }).check();
     await page.getByRole("button", { name: "回放下一根", exact: true }).click();
+    await expect(page.getByText("已结算 1 / 1 个交易日", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "日终结算", exact: true })).toHaveCount(0);
     await expect(page.getByTestId("paper-balance")).toHaveText("1105 CNY");
     await expect(page.getByTestId("paper-fees")).toHaveText("5 CNY");
     await expect(page.getByRole("table", { name: "模拟持仓" }).locator("tbody tr")).toHaveCount(0);

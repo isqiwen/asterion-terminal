@@ -1,4 +1,4 @@
-import { rpc } from "./dataset-fixture";
+import { rpc, seedDataset } from "./dataset-fixture";
 import { removeFolder } from "./cleanup";
 import { test, expect } from "@playwright/test";
 import { mkdtemp, mkdir } from "node:fs/promises";
@@ -58,6 +58,13 @@ test("live CTP session connects, authorizes and trades through the execution cha
     await panel.getByRole("button", { name: "连接账户", exact: true }).click();
     await expect(panel.getByTestId("live-phase")).toHaveText("已就绪", { timeout: 20000 });
     await expect(order.getByRole("button", { name: "提交实盘委托" })).toBeDisabled();
+    // The account's own rates become the product's fee template.
+    await panel.getByRole("button", { name: "查询账户费率", exact: true }).click();
+    const rates = panel.getByRole("table", { name: "账户费率表" });
+    await expect(rates.locator("tbody tr")).toContainText("已返回", { timeout: 15000 });
+    await expect(rates.locator("tbody tr")).toContainText("0 / 0.12");
+    await rates.getByRole("button", { name: "存为 SHFE/rb 费率模板", exact: true }).click();
+    await expect(rates.getByText("已存为 SHFE/rb 模板", { exact: true })).toBeVisible();
     const authorize = panel.getByRole("button", { name: "授权实盘交易", exact: true });
     await expect(authorize).toBeDisabled();
     await panel.screenshot({ path: join(__dirname, "../test-results/live-authorize.png") });
@@ -89,6 +96,16 @@ test("live CTP session connects, authorizes and trades through the execution cha
     await expect(order.getByRole("button", { name: "提交实盘委托" })).toBeDisabled();
     await panel.getByRole("button", { name: "断开账户", exact: true }).click();
     await expect(panel.getByTestId("live-phase")).toHaveText("未连接");
+
+    // The saved broker rates fill a paper session's costs for the same product.
+    await seedDataset(page.request, [3500, 3501], "live-rates");
+    await page.getByRole("button", { name: "模拟", exact: true }).click();
+    const costs = page.getByRole("region", { name: "SHFE · rb2610 保证金与手续费" });
+    await expect(costs).toContainText("来源 CTP 账户 9999/000001 · 2026-09-28 起生效");
+    await costs.getByRole("button", { name: "填入模板", exact: true }).click();
+    await expect(costs.getByLabel("保证金率", { exact: true })).toHaveValue("0.12");
+    await expect(costs.getByLabel("平今费率", { exact: true })).toHaveValue("0.0003");
+    await expect(costs.getByLabel("每手平今费", { exact: true })).toHaveValue("1.5");
   } finally {
     await page.request.post("/__asterion/api", {
       data: { version: 1, method: "live.close", params: {} },

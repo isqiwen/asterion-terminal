@@ -30,20 +30,35 @@ enum class Kind {
   query_trades,
   query_positions,
   query_funds,
+  query_margin,
+  query_commission,
   insert,
   cancel
 };
 bool is_query(Kind kind) {
   return kind == Kind::query_orders || kind == Kind::query_trades ||
-         kind == Kind::query_positions || kind == Kind::query_funds;
+         kind == Kind::query_positions || kind == Kind::query_funds || kind == Kind::query_margin ||
+         kind == Kind::query_commission;
+}
+bool is_rate_query(Kind kind) {
+  return kind == Kind::query_margin || kind == Kind::query_commission;
 }
 struct Command {
   Kind kind;
   std::uint64_t generation = 0;
   CThostFtdcInputOrderField order{};
   CThostFtdcInputOrderActionField action{};
+  // Rate queries: the contract and its product code.
+  InstrumentId instrument;
+  std::string product;
   std::shared_ptr<std::promise<int>> result;
 };
+Decimal rate(double value) {
+  const auto parsed = price(value);
+  if (!parsed || *parsed < Decimal{})
+    throw std::runtime_error("invalid CTP rate");
+  return *parsed;
+}
 Decimal money(double value) {
   const auto parsed = price(value);
   if (!parsed)
@@ -141,6 +156,15 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
   std::map<std::string, std::array<char, sizeof(TThostFtdcOrderSysIDType)>> raw_order_ids;
   std::set<std::string> trade_ids;
   std::map<std::pair<InstrumentId, Side>, BrokerPosition> positions_in_progress;
+  // Rate answers per contract until both queries complete.
+  struct Rates {
+    std::string product;
+    bool margin_done = false, commission_done = false;
+    std::optional<std::pair<Decimal, Decimal>> margin; // per lot, by money
+    std::optional<std::array<Decimal, 6>> commission;
+  };
+  std::map<InstrumentId, Rates> rates;
+  InstrumentId rate_instrument; // the outstanding rate query
   std::deque<Command> queue;
   // Session identity from the latest login; generation changes on every
   // disconnect so requests prepared for an older session are never sent.
@@ -279,6 +303,57 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     changed();
   }
   void query_done() { query_outstanding = false; }
+  // Rate queries dropped with their session report as unavailable.
+  void abandon_rates() {
+    for (const auto& [instrument, _] : rates) {
+      auto& costs = costs_for(instrument);
+      costs.state = "unavailable";
+      costs.error_code = -1003;
+    }
+    rates.clear();
+  }
+  BrokerCosts& costs_for(const InstrumentId& id) {
+    for (auto& entry : state.costs)
+      if (entry.instrument == id)
+        return entry;
+    BrokerCosts entry;
+    entry.instrument = id;
+    state.costs.push_back(std::move(entry));
+    return state.costs.back();
+  }
+  // Records one rate answer; both answered completes the contract's costs.
+  void rate_answered(Kind kind, int error_code) {
+    auto& entry = rates[rate_instrument];
+    (kind == Kind::query_margin ? entry.margin_done : entry.commission_done) = true;
+    auto& costs = costs_for(rate_instrument);
+    if (error_code)
+      costs.error_code = error_code;
+    if (entry.margin_done && entry.commission_done) {
+      costs.queried_ms = now_ms();
+      if (entry.margin && entry.commission && !costs.error_code) {
+        const auto& c = *entry.commission;
+        costs.costs = FuturesCosts{entry.margin->first,  c[0], c[4], c[2],
+                                   entry.margin->second, c[1], c[5], c[3]};
+        costs.state = "ready";
+      } else
+        costs.state = "unavailable";
+      rates.erase(rate_instrument);
+    }
+    changed();
+  }
+  // Commission rows may name the product rather than the contract.
+  bool rate_row_matches(const char* instrument) const {
+    const auto found = rates.find(rate_instrument);
+    const auto name = trimmed_text(instrument);
+    return name == rate_instrument.symbol ||
+           (found != rates.end() && name == found->second.product);
+  }
+  static std::string trimmed_text(const char* value) {
+    std::string text(value);
+    while (!text.empty() && text.back() == ' ')
+      text.pop_back();
+    return text;
+  }
 
   // ---- SDK callbacks ----
   void OnFrontConnected() override {
@@ -294,6 +369,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       ++generation;
       query_outstanding = refresh_queued = false;
       std::erase_if(queue, [](const Command& c) { return !c.result; });
+      abandon_rates();
       state.phase = "connecting";
       state.error_code = reason;
       changed();
@@ -411,6 +487,36 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       }
     });
   }
+  void OnRspQryInstrumentMarginRate(CThostFtdcInstrumentMarginRateField* row,
+                                    CThostFtdcRspInfoField* info, int, bool last) override {
+    callback([&] {
+      const int code = info ? info->ErrorID : 0;
+      if (!code && row && rate_row_matches(row->InstrumentID))
+        rates[rate_instrument].margin = std::pair{
+            std::max(rate(row->LongMarginRatioByVolume), rate(row->ShortMarginRatioByVolume)),
+            std::max(rate(row->LongMarginRatioByMoney), rate(row->ShortMarginRatioByMoney))};
+      if (last || code) {
+        query_done();
+        rate_answered(Kind::query_margin, code);
+      }
+    });
+  }
+  void OnRspQryInstrumentCommissionRate(CThostFtdcInstrumentCommissionRateField* row,
+                                        CThostFtdcRspInfoField* info, int, bool last) override {
+    callback([&] {
+      const int code = info ? info->ErrorID : 0;
+      // Fixed order: open, close (yesterday), close today; each per lot, by money.
+      if (!code && row && rate_row_matches(row->InstrumentID))
+        rates[rate_instrument].commission =
+            std::array{rate(row->OpenRatioByVolume),       rate(row->OpenRatioByMoney),
+                       rate(row->CloseRatioByVolume),      rate(row->CloseRatioByMoney),
+                       rate(row->CloseTodayRatioByVolume), rate(row->CloseTodayRatioByMoney)};
+      if (last || code) {
+        query_done();
+        rate_answered(Kind::query_commission, code);
+      }
+    });
+  }
   void OnRtnOrder(CThostFtdcOrderField* order) override {
     callback([&] {
       if (order)
@@ -513,7 +619,10 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       throw std::logic_error("not a session request");
     }
   }
-  int send_query(Kind kind) {
+  int send_query(const Command& command) {
+    const auto kind = command.kind;
+    CThostFtdcQryInstrumentMarginRateField margin{};
+    CThostFtdcQryInstrumentCommissionRateField commission{};
     CThostFtdcQryOrderField orders{};
     CThostFtdcQryTradeField trades{};
     CThostFtdcQryInvestorPositionField positions{};
@@ -528,9 +637,24 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       copy(positions.InvestorID, config.user);
       copy(funds.BrokerID, config.broker);
       copy(funds.InvestorID, config.user);
+      copy(margin.BrokerID, config.broker);
+      copy(margin.InvestorID, config.user);
+      copy(commission.BrokerID, config.broker);
+      copy(commission.InvestorID, config.user);
+    }
+    if (is_rate_query(kind)) {
+      copy(margin.ExchangeID, command.instrument.venue);
+      copy(margin.InstrumentID, command.instrument.symbol);
+      margin.HedgeFlag = THOST_FTDC_HF_Speculation;
+      copy(commission.ExchangeID, command.instrument.venue);
+      copy(commission.InstrumentID, command.instrument.symbol);
     }
     const int id = ++request_id;
     switch (kind) {
+    case Kind::query_margin:
+      return api->ReqQryInstrumentMarginRate(&margin, id);
+    case Kind::query_commission:
+      return api->ReqQryInstrumentCommissionRate(&commission, id);
     case Kind::query_orders:
       return api->ReqQryOrder(&orders, id);
     case Kind::query_trades:
@@ -574,10 +698,12 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
           query_started = now;
           next_query_at = now + query_spacing;
         }
+        if (is_rate_query(command.kind))
+          rate_instrument = command.instrument;
       }
       int code = 0;
       if (is_query(command.kind))
-        code = send_query(command.kind);
+        code = send_query(command);
       else if (command.kind == Kind::insert)
         code = api->ReqOrderInsert(&command.order, ++request_id);
       else if (command.kind == Kind::cancel)
@@ -594,6 +720,10 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
         query_outstanding = false;
         next_query_at = std::chrono::steady_clock::now() + query_spacing;
         queue.push_front(std::move(command));
+      } else if (is_rate_query(command.kind)) {
+        // A rate the broker cannot provide does not end the trading session.
+        query_outstanding = false;
+        rate_answered(command.kind, code);
       } else if (!command.result) {
         if (is_query(command.kind))
           query_outstanding = false;
@@ -629,6 +759,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
           command.result->set_value(-1003);
       queue.clear();
       query_outstanding = refresh_queued = false;
+      abandon_rates();
       state.phase = "disconnected";
       changed();
     }
@@ -694,6 +825,7 @@ void Trader::connect(TraderConfiguration config, std::map<std::string, std::stri
     impl_->exchange.clear();
     impl_->raw_order_ids.clear();
     impl_->trade_ids.clear();
+    impl_->rates.clear();
     impl_->state = {};
     impl_->state.phase = "connecting";
     impl_->closing = false;
@@ -848,6 +980,32 @@ void Trader::cancel(const std::string& order_id) {
   if (const int code = result.get())
     throw Error(ErrorCode::operation_failed,
                 "CTP cancel request failed with code " + std::to_string(code));
+}
+void Trader::query_costs(const std::vector<std::pair<InstrumentId, std::string>>& contracts) {
+  {
+    std::lock_guard lock(impl_->mutex);
+    if (impl_->closing || impl_->state.phase != "ready")
+      throw Error(ErrorCode::unavailable, "CTP trading session is not ready");
+    for (const auto& [instrument, product] : contracts) {
+      instrument.validate();
+      if (impl_->rates.contains(instrument))
+        continue; // already being queried
+      impl_->rates[instrument].product = product;
+      auto& costs = impl_->costs_for(instrument);
+      costs = BrokerCosts{};
+      costs.instrument = instrument;
+      for (const auto kind : {Kind::query_margin, Kind::query_commission}) {
+        Command command;
+        command.kind = kind;
+        command.generation = impl_->generation;
+        command.instrument = instrument;
+        command.product = product;
+        impl_->queue.push_back(std::move(command));
+      }
+    }
+    impl_->changed();
+  }
+  impl_->wake.notify_all();
 }
 BrokerSnapshot Trader::snapshot() const {
   std::lock_guard lock(impl_->mutex);

@@ -168,6 +168,12 @@ void LiveSession::connect(std::string password, std::string auth_code) {
                     std::move(password), text(broker, "app_id"), std::move(auth_code)},
                    std::move(known));
 }
+void LiveSession::query_costs() {
+  std::vector<std::pair<InstrumentId, std::string>> contracts;
+  for (const auto& c : manifest_.at("contracts"))
+    contracts.emplace_back(InstrumentId{text(c, "venue"), text(c, "symbol")}, text(c, "product"));
+  trader_->query_costs(contracts);
+}
 void LiveSession::disconnect() {
   authorization_ = nullptr;
   trader_->disconnect();
@@ -315,7 +321,26 @@ Json LiveSession::snapshot() const {
               {"trades", Json::array()},
               {"authorization", authorization_},
               {"unconfirmed", Json::array()},
+              {"costs", Json::array()},
               {"storage_state", failed_ ? "recovery_required" : "ready"}};
+  for (const auto& c : state.costs) {
+    Json costs = nullptr;
+    if (c.costs)
+      costs = {{"margin_per_lot", c.costs->margin_per_lot.str()},
+               {"open_fee", c.costs->open_fee.str()},
+               {"close_today_fee", c.costs->close_today_fee.str()},
+               {"close_yesterday_fee", c.costs->close_yesterday_fee.str()},
+               {"margin_rate", c.costs->margin_rate.str()},
+               {"open_fee_rate", c.costs->open_fee_rate.str()},
+               {"close_today_fee_rate", c.costs->close_today_fee_rate.str()},
+               {"close_yesterday_fee_rate", c.costs->close_yesterday_fee_rate.str()}};
+    result["costs"].push_back({{"venue", c.instrument.venue},
+                               {"symbol", c.instrument.symbol},
+                               {"state", c.state},
+                               {"error_code", c.error_code},
+                               {"queried_ms", c.queried_ms},
+                               {"costs", std::move(costs)}});
+  }
   if (state.funds)
     result["funds"] = {{"balance", state.funds->balance.str()},
                        {"available", state.funds->available.str()},

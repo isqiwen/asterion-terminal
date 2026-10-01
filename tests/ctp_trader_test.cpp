@@ -231,3 +231,35 @@ TEST_F(CtpTrader, CredentialFailuresStopBeforeTrading) {
       Error);
   EXPECT_THROW((ctp::Trader(fs::path("missing-library"), flow)), Error);
 }
+TEST_F(CtpTrader, AccountRatesFillCostsWithoutAffectingTheSession) {
+  ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow);
+  trader.start();
+  EXPECT_THROW(trader.query_costs({{{"SHFE", "rb2610"}, "rb"}}), Error) << "not connected";
+  trader.connect(configuration());
+  ASSERT_EQ(wait_for(trader, ready, 15s).phase, "ready");
+  trader.query_costs({{{"SHFE", "rb2610"}, "rb"}, {{"SHFE", "zz2610"}, "zz"}});
+  const auto state = wait_for(
+      trader,
+      [](const BrokerSnapshot& s) {
+        return s.costs.size() == 2 && std::ranges::none_of(s.costs, [](const BrokerCosts& c) {
+                 return c.state == "querying";
+               });
+      },
+      15s);
+  ASSERT_EQ(state.costs.size(), 2U);
+  EXPECT_EQ(state.phase, "ready") << "a missing rate does not end the session";
+  const auto& rb = state.costs[0];
+  ASSERT_EQ(rb.state, "ready");
+  ASSERT_TRUE(rb.costs);
+  // Margin takes the higher short rate; commission comes from the product row.
+  EXPECT_EQ(rb.costs->margin_rate, d("0.12"));
+  EXPECT_EQ(rb.costs->margin_per_lot, d("0"));
+  EXPECT_EQ(rb.costs->open_fee_rate, d("0.0001"));
+  EXPECT_EQ(rb.costs->close_yesterday_fee_rate, d("0.0001"));
+  EXPECT_EQ(rb.costs->close_today_fee_rate, d("0.0003"));
+  EXPECT_EQ(rb.costs->close_today_fee, d("1.5"));
+  EXPECT_GT(rb.queried_ms, 0);
+  EXPECT_EQ(state.costs[1].state, "unavailable");
+  EXPECT_FALSE(state.costs[1].costs);
+  EXPECT_EQ(fake.query_rejections(), 0) << "rate queries respect the CTP flow limit";
+}

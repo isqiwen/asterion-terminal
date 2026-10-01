@@ -28,6 +28,9 @@ public:
                      const std::function<void(const BrokerOrder&)>& journal) override;
   void cancel(const std::string& order_id) override;
   BrokerSnapshot snapshot() const override;
+  // Queries the account's margin and commission rates for each contract with
+  // its product code; results arrive in snapshot().costs. Requires ready.
+  void query_costs(const std::vector<std::pair<InstrumentId, std::string>>& contracts);
   void disconnect() override;
 
 private:

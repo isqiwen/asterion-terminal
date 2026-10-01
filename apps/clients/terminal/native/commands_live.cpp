@@ -104,6 +104,15 @@ void Application::Impl::register_live_commands() {
     live->disconnect_broker();
     return snapshot();
   });
+  // The account's margin and commission rates from the broker; observations
+  // only, never recorded as trading commands.
+  core.command("live.costs", "live.manage", [this](const json& p) {
+    fields(p, {});
+    if (!live)
+      throw std::invalid_argument("create or recover a live session first");
+    live->query_costs();
+    return snapshot();
+  });
   core.command("live.act", "live.manage", [this](const json& p) {
     if (!live)
       throw std::invalid_argument("create or recover a live session first");

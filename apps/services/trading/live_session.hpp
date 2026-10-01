@@ -20,6 +20,8 @@ public:
   // Credentials live in the trader's memory for this connection only.
   void connect(std::string password, std::string auth_code);
   void disconnect();
+  // Asks the broker for the account's rates on every allowed contract.
+  void query_costs();
   void execute(const Json& command);
   Json snapshot() const;
   bool recovery_required() const noexcept { return failed_; }

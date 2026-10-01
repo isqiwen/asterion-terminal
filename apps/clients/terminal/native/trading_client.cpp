@@ -228,6 +228,14 @@ void TradingClient::connect_broker(std::string password, std::string auth_code) 
   request.mutable_live_connect()->set_auth_code(std::move(auth_code));
   impl_->call(std::move(request));
 }
+void TradingClient::query_costs() {
+  std::lock_guard lock(mutex_);
+  if (impl_->mode != TradingMode::live)
+    throw std::invalid_argument("broker rates belong to live sessions");
+  wire::Request request;
+  request.mutable_live_costs();
+  impl_->call(std::move(request));
+}
 void TradingClient::disconnect_broker() {
   std::lock_guard lock(mutex_);
   if (impl_->mode != TradingMode::live)

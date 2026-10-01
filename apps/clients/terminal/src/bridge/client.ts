@@ -190,6 +190,15 @@ export type LiveSession = {
   authorization: null | { trading_day: string; authorized_at_ms: number };
   // Recorded orders the broker does not report; never resent.
   unconfirmed: { id: string; broker_key: string; trading_day: string }[];
+  // The account's rates from the broker; costs only when ready.
+  costs: {
+    venue: string;
+    symbol: string;
+    state: "querying" | "ready" | "unavailable";
+    error_code: number;
+    queried_ms: number;
+    costs: ContractCosts | null;
+  }[];
   storage_state: "ready" | "recovery_required";
   connection_state?: "disconnected";
 };
@@ -267,6 +276,7 @@ export type TerminalCommand =
   | "live.open"
   | "live.connect"
   | "live.disconnect"
+  | "live.costs"
   | "live.act"
   | "live.close"
   | "node.bootstrap"

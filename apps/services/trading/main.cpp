@@ -166,6 +166,8 @@ int main(int argc, char** argv) {
                                       std::move(*credentials->mutable_auth_code()));
               } else if (request.has_live_disconnect()) {
                 live_session->disconnect();
+              } else if (request.has_live_costs()) {
+                live_session->query_costs();
               } else if (request.has_command()) {
                 live_session->execute(asterion::protocol::decode_command(request.command()));
               } else if (!request.has_snapshot() && !request.has_attach())
@@ -174,7 +176,7 @@ int main(int argc, char** argv) {
                   asterion::protocol::encode_live_snapshot(live_session->snapshot());
             } else {
               if (request.has_live_create() || request.has_live_connect() ||
-                  request.has_live_disconnect())
+                  request.has_live_disconnect() || request.has_live_costs())
                 throw std::invalid_argument("live operations require a live session service");
               if (request.has_create() || request.has_recover()) {
                 if (session)

@@ -11,7 +11,7 @@ import { useWorkspaceDraft, translate, type MessageValues } from "../contract";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.trading", key, values);
 import { StrategyPanel } from "./StrategyPanel";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { open } from "@asterion/desktop-bridge/desktop";
 import { nativeDesktop } from "../../src/bridge/desktop";
 import { timestamp, type TerminalCommand } from "../../src/bridge/client";
@@ -90,6 +90,18 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
     return run("paper.act", { request_id: crypto.randomUUID(), ...params });
   }
   const blocked = busy || paper?.storage_state === "recovery_required" || !!paper?.strategy?.active;
+  // Automatic settlement sends the same command as the button, once per day.
+  const [autoSettle, setAutoSettle] = useWorkspaceDraft("auto-settle", false);
+  const settledDay = useRef<number | null>(null);
+  const due = paper?.replay?.settlement_due ? paper.replay.settled_days : null;
+  function settle() {
+    if (due === null) return;
+    settledDay.current = due;
+    void act({ action: "replay_settle", day_index: due });
+  }
+  useEffect(() => {
+    if (autoSettle && due !== null && !blocked && settledDay.current !== due) settle();
+  });
   return (
     <section className="futures-data paper-trading" aria-label={t("期货模拟交易")}>
       <div className="panel-heading">
@@ -212,6 +224,19 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
             >
               {t("回放下一根")}
             </button>
+            {paper.replay?.settlement_due && (
+              <button className="primary" disabled={blocked} onClick={settle}>
+                {t("日终结算")}
+              </button>
+            )}
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={autoSettle}
+                onChange={event => setAutoSettle(event.target.checked)}
+              />
+              {t("自动日终结算")}
+            </label>
             <span className="panel-spacer" />
             <button disabled={busy} onClick={() => void run("paper.close")}>
               {t("断开连接")}
@@ -464,18 +489,10 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
               </p>
             ))}
             <p>
-              {t("结算价来自数据源日线；每个交易日所有合约回放完成后一起结算，再进入下一交易日。")}
+              {t(
+                "结算价来自数据源日线；每个交易日所有合约回放完成后一起结算，再进入下一交易日。勾选自动日终结算后，每个交易日结束时自动发出同样的结算命令。",
+              )}
             </p>
-            {paper.replay && (
-              <button
-                disabled={blocked || !paper.replay.settlement_due}
-                onClick={() =>
-                  void act({ action: "replay_settle", day_index: paper.replay!.settled_days })
-                }
-              >
-                {t("日终结算")}
-              </button>
-            )}
           </details>
         </>
       )}

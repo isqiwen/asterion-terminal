@@ -586,6 +586,11 @@ Json live_broker(const Json& b) {
           {"user_id", broker_text(b, "user_id", 15)},
           {"app_id", broker_text(b, "app_id", 32)}};
 }
+std::string live_costs_state(const std::string& value) {
+  if (value != "querying" && value != "ready" && value != "unavailable")
+    throw std::invalid_argument("invalid live costs state");
+  return value;
+}
 std::string live_status(const std::string& value) {
   static const std::set<std::string> known{"submitted", "accepted",  "partially_filled",
                                            "filled",    "cancelled", "rejected"};
@@ -709,6 +714,16 @@ v1::LiveSnapshot encode_live_snapshot(const Json& s) {
     item->set_trading_day(u.at("trading_day"));
   }
   result.set_recovery_required(s.at("storage_state") == "recovery_required");
+  for (const auto& c : s.at("costs")) {
+    auto* item = result.add_costs();
+    item->set_venue(c.at("venue"));
+    item->set_symbol(c.at("symbol"));
+    item->set_state(live_costs_state(c.at("state")));
+    item->set_error_code(c.at("error_code").get<int>());
+    item->set_queried_ms(c.at("queried_ms").get<std::int64_t>());
+    if (c.at("state") == "ready")
+      *item->mutable_costs() = encode_costs(c.at("costs"));
+  }
   return result;
 }
 Json decode_live_snapshot(const v1::LiveSnapshot& s) {
@@ -738,7 +753,19 @@ Json decode_live_snapshot(const v1::LiveSnapshot& s) {
               {"trades", Json::array()},
               {"authorization", nullptr},
               {"unconfirmed", Json::array()},
+              {"costs", Json::array()},
               {"storage_state", s.recovery_required() ? "recovery_required" : "ready"}};
+  for (const auto& c : s.costs()) {
+    auto item = instrument_fields(c.venue(), c.symbol());
+    const auto state = live_costs_state(c.state());
+    if ((state == "ready") != c.has_costs())
+      throw std::invalid_argument("live costs require rates exactly when ready");
+    item.update({{"state", state},
+                 {"error_code", c.error_code()},
+                 {"queried_ms", c.queried_ms()},
+                 {"costs", c.has_costs() ? decode_costs(c.costs()) : Json(nullptr)}});
+    result["costs"].push_back(std::move(item));
+  }
   if (s.has_funds()) {
     const auto& f = s.funds();
     result["funds"] = {{"balance", get(f.balance())},

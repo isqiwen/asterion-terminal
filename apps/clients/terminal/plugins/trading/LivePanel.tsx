@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   ErrorNotice,
   asDisplayError,
+  saveCostTemplate,
   translate,
   useWorkspaceDraft,
   type DisplayError,
@@ -430,6 +431,7 @@ function LiveAccount({
           )}
         </section>
       )}
+      {ready && <AccountRates live={live} busy={busy} run={run} />}
       {live.funds && (
         <dl className="paper-metrics">
           {(
@@ -647,5 +649,90 @@ function LiveAccount({
         </p>
       </details>
     </>
+  );
+}
+
+// The account's margin and commission rates as the broker reports them. A
+// row can become the product's fee template for paper trading and backtests.
+function AccountRates({ live, busy, run }: { live: LiveSession; busy: boolean; run: Run }) {
+  const [saved, setSaved] = useState<string[]>([]);
+  const day = live.trading_day.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
+  const states: Record<LiveSession["costs"][number]["state"], string> = {
+    querying: "查询中",
+    ready: "已返回",
+    unavailable: "券商未提供",
+  };
+  return (
+    <section className="account-field-group live-authorization" aria-label={t("账户费率")}>
+      <h3>{t("账户费率")}</h3>
+      <div className="source-actions">
+        <button disabled={busy} onClick={() => void run("live.costs")}>
+          {t("查询账户费率")}
+        </button>
+        <span className="subtle">
+          {t("券商对本账户实际收取的保证金率与手续费；多空保证金不同时取较高者。")}
+        </span>
+      </div>
+      {live.costs.length > 0 && (
+        <div className="paper-table" role="region" aria-label={t("账户费率表")} tabIndex={0}>
+          <table aria-label={t("账户费率表")}>
+            <thead>
+              <tr>
+                <th>{t("合约")}</th>
+                <th>{t("保证金 每手 / 比例")}</th>
+                <th>{t("开仓 每手 / 比例")}</th>
+                <th>{t("平今 每手 / 比例")}</th>
+                <th>{t("平昨 每手 / 比例")}</th>
+                <th>{t("状态")}</th>
+                <th>{t("操作")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {live.costs.map(row => {
+                const contract = live.contracts.find(item => key(item) === key(row));
+                const product = contract ? `${contract.venue}/${contract.product}` : "";
+                const c = row.costs;
+                return (
+                  <tr key={key(row)}>
+                    <td>{row.symbol}</td>
+                    <td>{c && `${c.margin_per_lot} / ${c.margin_rate}`}</td>
+                    <td>{c && `${c.open_fee} / ${c.open_fee_rate}`}</td>
+                    <td>{c && `${c.close_today_fee} / ${c.close_today_fee_rate}`}</td>
+                    <td>{c && `${c.close_yesterday_fee} / ${c.close_yesterday_fee_rate}`}</td>
+                    <td>
+                      {t(states[row.state])}
+                      {row.error_code ? ` (${row.error_code})` : ""}
+                    </td>
+                    <td>
+                      {c && product && (
+                        <button
+                          disabled={saved.includes(product)}
+                          onClick={() => {
+                            saveCostTemplate(
+                              product,
+                              c,
+                              t("CTP 账户 {broker}/{user}", {
+                                broker: live.broker.broker_id,
+                                user: live.broker.user_id,
+                              }),
+                              day,
+                            );
+                            setSaved([...saved, product]);
+                          }}
+                        >
+                          {saved.includes(product)
+                            ? t("已存为 {product} 模板", { product })
+                            : t("存为 {product} 费率模板", { product })}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }

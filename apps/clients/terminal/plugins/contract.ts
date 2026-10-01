@@ -5,6 +5,7 @@ export {
   CostTemplate,
   ContractCosts,
   contractCostRequest,
+  saveCostTemplate,
   type ContractCostDrafts,
 } from "../src/ui/CostTemplate";
 import type { DisplayError } from "../src/i18n/errors";

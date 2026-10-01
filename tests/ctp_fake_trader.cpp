@@ -7,6 +7,7 @@
 //   queries closer than 1s apart return -3 (flow control)
 #include <ThostFtdcTraderApi.h>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
@@ -409,11 +410,43 @@ public:
   int ReqCombActionInsert(CThostFtdcInputCombActionField*, int) override { return -1; }
   int ReqQryInvestor(CThostFtdcQryInvestorField*, int) override { return -1; }
   int ReqQryTradingCode(CThostFtdcQryTradingCodeField*, int) override { return -1; }
-  int ReqQryInstrumentMarginRate(CThostFtdcQryInstrumentMarginRateField*, int) override {
-    return -1;
+  // Margin per contract; commission per product, as many brokers report it.
+  int ReqQryInstrumentMarginRate(CThostFtdcQryInstrumentMarginRateField* request, int id) override {
+    if (throttled())
+      return -3;
+    const std::string instrument = request->InstrumentID;
+    emit([instrument, id](CThostFtdcTraderSpi* s) {
+      if (instrument.starts_with("zz"))
+        return s->OnRspQryInstrumentMarginRate(nullptr, nullptr, id, true);
+      CThostFtdcInstrumentMarginRateField row{};
+      put(row.InstrumentID, instrument);
+      row.LongMarginRatioByMoney = 0.1;
+      row.ShortMarginRatioByMoney = 0.12;
+      row.LongMarginRatioByVolume = 0;
+      row.ShortMarginRatioByVolume = 0;
+      s->OnRspQryInstrumentMarginRate(&row, nullptr, id, true);
+    });
+    return 0;
   }
-  int ReqQryInstrumentCommissionRate(CThostFtdcQryInstrumentCommissionRateField*, int) override {
-    return -1;
+  int ReqQryInstrumentCommissionRate(CThostFtdcQryInstrumentCommissionRateField* request,
+                                     int id) override {
+    if (throttled())
+      return -3;
+    std::string product = request->InstrumentID;
+    while (!product.empty() && std::isdigit(static_cast<unsigned char>(product.back())))
+      product.pop_back();
+    emit([product, id](CThostFtdcTraderSpi* s) {
+      CThostFtdcInstrumentCommissionRateField row{};
+      put(row.InstrumentID, product);
+      row.OpenRatioByMoney = 0.0001;
+      row.OpenRatioByVolume = 0;
+      row.CloseRatioByMoney = 0.0001;
+      row.CloseRatioByVolume = 0;
+      row.CloseTodayRatioByMoney = 0.0003;
+      row.CloseTodayRatioByVolume = 1.5;
+      s->OnRspQryInstrumentCommissionRate(&row, nullptr, id, true);
+    });
+    return 0;
   }
   int ReqQryExchange(CThostFtdcQryExchangeField*, int) override { return -1; }
   int ReqQryProduct(CThostFtdcQryProductField*, int) override { return -1; }

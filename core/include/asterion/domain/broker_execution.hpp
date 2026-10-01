@@ -41,6 +41,17 @@ struct BrokerPosition {
 struct BrokerFunds {
   Decimal balance, available, margin, commission, close_profit, position_profit;
 };
+// Margin and commission rates the broker applies to this account for one
+// contract. Margin takes the higher of the long and short rates. "ready"
+// once both queries answered with a row; "unavailable" if either returned
+// none or failed.
+struct BrokerCosts {
+  InstrumentId instrument;
+  std::string state = "querying";
+  int error_code = 0;
+  std::int64_t queried_ms = 0;
+  std::optional<FuturesCosts> costs;
+};
 struct BrokerSnapshot {
   // disconnected, connecting, authenticating, logging_in, confirming,
   // synchronizing, ready, error. Orders are accepted only when ready.
@@ -55,6 +66,7 @@ struct BrokerSnapshot {
   std::vector<BrokerPosition> positions;
   std::vector<BrokerOrder> orders;
   std::vector<BrokerTrade> trades;
+  std::vector<BrokerCosts> costs;
 };
 // Provider-neutral live execution. Credentials and configuration belong to
 // the provider. Pre-trade risk, authorization and journaling are the caller's

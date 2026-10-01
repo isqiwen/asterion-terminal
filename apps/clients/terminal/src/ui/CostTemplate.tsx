@@ -36,6 +36,15 @@ function write(all: Record<string, Template>) {
     // Storage may be unavailable; templates are optional.
   }
 }
+// Saves rates from a recorded source, e.g. the broker's answer for an account.
+export function saveCostTemplate(
+  product: string,
+  values: CostValues,
+  source: string,
+  effective_from: string,
+) {
+  write({ ...readAll(), [product]: { values, source, effective_from } });
+}
 function useTemplate(product: string) {
   const [template, setTemplate] = useState<Template | undefined>(() => readAll()[product]);
   useEffect(() => {

@@ -109,6 +109,12 @@ TEST_F(Live, OrdersPassAuthorizationAllowlistUnitsAndRiskBeforeReachingTheBroker
     EXPECT_NE(std::string(error.what()).find("order_quantity"), std::string::npos);
   }
   EXPECT_TRUE(session.snapshot().at("orders").empty()) << "nothing rejected reaches the broker";
+  session.query_costs();
+  const auto rates = wait_for(session, [](const Json& s) {
+    return s.at("costs").size() == 1 && s.at("costs")[0].at("state") == "ready";
+  });
+  ASSERT_EQ(rates.at("costs")[0].at("state"), "ready");
+  EXPECT_EQ(rates.at("costs")[0].at("costs").at("margin_rate"), "0.12");
 
   session.execute(submit("filled", "2"));
   auto state = wait_for(session, [](const Json& s) {
@@ -274,6 +280,20 @@ TEST(LiveProtocol, SnapshotAndCommandsRoundTrip) {
       {"authorization", {{"trading_day", "20260928"}, {"authorized_at_ms", 7}}},
       {"unconfirmed",
        Json::array({{{"id", "o2"}, {"broker_key", "1:2:4"}, {"trading_day", "20260928"}}})},
+      {"costs", Json::array({{{"venue", "SHFE"},
+                              {"symbol", "rb2610"},
+                              {"state", "ready"},
+                              {"error_code", 0},
+                              {"queried_ms", 9},
+                              {"costs",
+                               {{"margin_per_lot", "0"},
+                                {"open_fee", "0"},
+                                {"close_today_fee", "1.5"},
+                                {"close_yesterday_fee", "0"},
+                                {"margin_rate", "0.12"},
+                                {"open_fee_rate", "0.0001"},
+                                {"close_today_fee_rate", "0.0003"},
+                                {"close_yesterday_fee_rate", "0.0001"}}}}})},
       {"storage_state", "ready"}};
   auto expected = snapshot;
   expected["mode"] = "live";
@@ -283,6 +303,10 @@ TEST(LiveProtocol, SnapshotAndCommandsRoundTrip) {
   auto wrong = snapshot;
   wrong["orders"][0]["status"] = "lost";
   EXPECT_THROW(protocol::encode_live_snapshot(wrong), std::invalid_argument);
+  auto wire = protocol::encode_live_snapshot(snapshot);
+  wire.mutable_costs(0)->set_state("querying");
+  EXPECT_THROW(protocol::decode_live_snapshot(wire), std::invalid_argument)
+      << "rates only accompany a ready state";
   auto spaced = manifest();
   spaced["broker"]["user_id"] = "000 001";
   EXPECT_THROW(protocol::encode_live_input(spaced), std::invalid_argument);

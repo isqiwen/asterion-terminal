@@ -60,7 +60,8 @@ message Request {
   Mode mode = 3;
   string correlation_id = 4;
   oneof operation { Empty snapshot = 10; PaperInput create = 11; Empty recover = 12; Command command = 13; Empty shutdown = 14; Empty attach = 15; Empty heartbeat = 16;
-    LiveInput live_create = 17; LiveCredentials live_connect = 18; Empty live_disconnect = 19; }
+    LiveInput live_create = 17; LiveCredentials live_connect = 18; Empty live_disconnect = 19;
+    Empty live_costs = 20; }
 }
 message ContractState { Contract contract = 1; Costs costs = 2; Decimal mark = 3; }
 message Position { string venue = 1; string symbol = 2; Side side = 3; bool today = 4; Decimal quantity = 5; Decimal basis = 6; }
@@ -97,6 +98,12 @@ message LiveTrade {
 // An order this session recorded for sending that the synchronized broker
 // does not report. It is never resent.
 message UnconfirmedOrder { string id = 1; string broker_key = 2; string trading_day = 3; }
+// The account's margin and commission rates for one contract, as the broker
+// reports them. state: querying, ready or unavailable; costs only when ready.
+message LiveCosts {
+  string venue = 1; string symbol = 2; string state = 3; int32 error_code = 4;
+  int64 queried_ms = 5; Costs costs = 6;
+}
 message LiveAuthorization { string trading_day = 1; int64 authorized_at_ms = 2; }
 message LiveSnapshot {
   LiveBroker broker = 1; RiskLimits risk = 2; repeated Contract contracts = 3;
@@ -108,6 +115,7 @@ message LiveSnapshot {
   LiveAuthorization authorization = 12;
   repeated UnconfirmedOrder unconfirmed = 13;
   bool recovery_required = 14;
+  repeated LiveCosts costs = 15;
 }
 message Error { string code = 1; string message = 2; }
 message Health { string instance_id = 1; string version = 2; uint64 uptime_ms = 3; bool initialized = 4; bool recovery_required = 5; }

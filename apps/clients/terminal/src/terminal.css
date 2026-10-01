@@ -428,12 +428,14 @@
   border-top: 0;
   padding-inline: var(--space-page);
 }
-.live-authorization label.checkbox {
+.futures-data label.checkbox {
   flex-direction: row;
   align-items: center;
   gap: 8px;
-  margin-block: 12px;
   color: var(--text);
+}
+.live-authorization label.checkbox {
+  margin-block: 12px;
 }
 .paper-trading .account-field-group {
   border-top: 1px solid var(--line);

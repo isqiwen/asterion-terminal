@@ -20,6 +20,7 @@ public:
   // Live sessions only. Credentials pass through to the service and are not kept.
   void connect_broker(std::string password, std::string auth_code);
   void disconnect_broker();
+  void query_costs();
   void reconnect();
   Json connection() const;
   ServiceEndpoint endpoint() const;

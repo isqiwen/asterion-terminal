@@ -20,6 +20,7 @@ export const plugin: TerminalPlugin = {
     "live.open",
     "live.connect",
     "live.disconnect",
+    "live.costs",
     "live.act",
     "live.close",
     "research.dataset.select",
