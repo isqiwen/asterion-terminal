@@ -134,6 +134,9 @@ test("dense market board links real dataset commands, sorting, pagination and co
         ],
       };
     data.result.market = {
+      remote: false,
+      host: "localhost",
+      port: 0,
       service: "fixture-market",
       instance_id: "fixture",
       phase: "connected",

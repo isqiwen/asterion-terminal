@@ -80,13 +80,13 @@ test("strategy runs through Agent and can relinquish its paper account", async (
     await page.screenshot({ path: join(__dirname, "../test-results/strategy-revoked.png") });
     page = await openSettingsWindow(page);
     await page.getByRole("button", { name: "连接与部署", exact: true }).click();
-    const row = page
-      .getByRole("table", { name: "节点服务状态" })
-      .getByRole("row")
-      .filter({ hasText: service });
+    await page.getByRole("button", { name: "机器管理", exact: true }).click();
+    const row = page.getByRole("listitem", { name: service, exact: true });
+    await row.getByText("管理服务", { exact: true }).click();
     await row.getByText("程序更新", { exact: true }).click();
     await expect(row.getByRole("button", { name: "更新已停止的服务", exact: true })).toBeDisabled();
     await row.getByRole("button", { name: "停止", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "确认操作" }).click();
     await expect(row.getByRole("button", { name: "更新已停止的服务", exact: true })).toBeEnabled();
     const ledger = (await rpc("runtime.snapshot")).paper;
     const completed = page.waitForResponse(
@@ -95,6 +95,7 @@ test("strategy runs through Agent and can relinquish its paper account", async (
         response.request().postDataJSON()?.method === "node.update",
     );
     await row.getByRole("button", { name: "更新已停止的服务", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "确认操作" }).click();
     expect((await (await completed).json()).error).toBeUndefined();
     expect((await rpc("runtime.snapshot")).paper).toEqual(ledger);
     await expect(row.getByRole("button", { name: "启动", exact: true })).toBeEnabled();

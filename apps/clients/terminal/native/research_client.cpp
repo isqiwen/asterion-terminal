@@ -162,6 +162,7 @@ Json ResearchClient::status() const {
   std::lock_guard lock(impl_->mutex);
   return {{"connection_id", impl_->connection_id},
           {"service", impl_->endpoint.session},
+          {"port", impl_->endpoint.port},
           {"host", impl_->endpoint.endpoint.empty() ? impl_->endpoint.host : "localhost"},
           {"remote", impl_->endpoint.endpoint.empty()},
           {"online", impl_->online},

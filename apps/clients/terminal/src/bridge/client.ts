@@ -363,6 +363,9 @@ export type LiveMarket = {
     }[];
   };
   service: string;
+  remote: boolean;
+  host: string;
+  port: number;
   instance_id: string;
   phase: string;
   error_code: number;
@@ -770,6 +773,9 @@ export type Snapshot = {
   revision: number;
   refreshed_at_ms: number;
   strategy?: null | {
+    remote: boolean;
+    host: string;
+    port: number;
     id: string;
     state: "connected" | "disconnected";
     phase: string;
@@ -786,6 +792,7 @@ export type Snapshot = {
   };
   research: null | {
     connection_id: string;
+    port: number;
     service: string;
     host: string;
     remote: boolean;
@@ -856,6 +863,7 @@ export type Snapshot = {
       transport: "local" | "tcp_tls";
       state: "connected" | "disconnected";
       session: string;
+      port?: number;
       host?: string;
     };
   };

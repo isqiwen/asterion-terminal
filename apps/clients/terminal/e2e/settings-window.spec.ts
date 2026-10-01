@@ -9,6 +9,7 @@ for (const state of ["update_available", "recovery_required"] as const) {
     await page.goto("/");
     const settings = await openSettingsWindow(page);
     await settings.getByRole("button", { name: "连接与部署", exact: true }).click();
+    await settings.getByRole("button", { name: "机器管理", exact: true }).click();
     await settings.getByText("Agent 程序", { exact: true }).click();
     let inspected: Snapshot | undefined;
     const calls: string[] = [];
@@ -73,6 +74,7 @@ test("settings shows a busy command without automatically retrying or losing dra
   await page.getByLabel("品种代码").fill("CU");
   const settings = await openSettingsWindow(page);
   await settings.getByRole("button", { name: "连接与部署", exact: true }).click();
+  await settings.getByRole("button", { name: "机器管理", exact: true }).click();
   await settings.getByText("Agent 程序", { exact: true }).click();
   let inspections = 0;
   await settings.route("**/__asterion/api", route => {

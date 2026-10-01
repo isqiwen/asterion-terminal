@@ -89,7 +89,7 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
       initial.research.sources.map(x => x.id),
       ["fixture.minutes", "fixture.daily"],
     );
-    await settings.getByRole("button", { name: "连接与部署", exact: true }).click();
+    await settings.getByRole("button", { name: "数据源", exact: true }).click();
     const connections = settings.getByRole("region", { name: "数据源连接", exact: true });
     await expect(connections).toBeVisible();
     await settings.screenshot({ path: "build/data-connections-before.png", fullPage: true });

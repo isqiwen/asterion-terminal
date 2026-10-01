@@ -1,47 +1,30 @@
-import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
-import { translate, localizeText, type MessageValues, getLocale } from "../i18n";
-const t = (key: string, values?: MessageValues) => translate("host", key, values);
 import { useEffect, useState } from "react";
-import { exportLinuxInitializer, type TerminalCommand, type Snapshot } from "../bridge/client";
-const storageKey = "asterion.ssh-node-profiles.v1";
-type Profile = {
-  id: string;
-  host: string;
-  ssh_port: string;
-  username: string;
-  known_hosts: string;
-  agent_port: string;
+import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
+import type { NodeStatus, Snapshot, TerminalCommand } from "../bridge/client";
+import {
+  binding,
+  kindLabels,
+  location,
+  matches,
+  serviceStatus,
+  runtimeStatus,
+  t,
+  type Service,
+  type ServiceKind,
+} from "./service-state";
+import { RemoteMachine, loadMachineProfiles, type MachineProfile } from "./RemoteMachine";
+import { ServiceActionDialog } from "./ServiceActionDialog";
+import { FirewallPreview } from "./FirewallPreview";
+import { AgentProgram } from "./AgentProgram";
+type Action = "stop" | "restart" | "use" | "update";
+type Pending = { node: string; service: string; revision: string; action: Action };
+const actionLabels: Record<Action, string> = {
+  stop: "停止服务",
+  restart: "重启服务",
+  use: "切换运行位置",
+  update: "更新服务程序",
 };
-const empty: Profile = {
-  id: "",
-  host: "",
-  ssh_port: "22",
-  username: "asterion",
-  known_hosts: "",
-  agent_port: "7442",
-};
-function load() {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
-    if (
-      !Array.isArray(value) ||
-      !value.every(
-        p =>
-          p &&
-          Object.keys(p).length === Object.keys(empty).length &&
-          Object.keys(empty).every(k => typeof p[k] === "string"),
-      ) ||
-      new Set(value.map(p => p.id)).size !== value.length
-    )
-      throw new Error("invalid configuration");
-    return { profiles: value as Profile[], error: "" };
-  } catch {
-    return {
-      profiles: [],
-      error: t("节点配置无法读取，原始内容未改写。请修复配置后重新打开设置。"),
-    };
-  }
-}
+const kinds: ServiceKind[] = ["market", "research", "paper", "live", "strategy"];
 export function NodeServices({
   snapshot,
   busy,
@@ -51,762 +34,599 @@ export function NodeServices({
   busy: boolean;
   trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
 }) {
-  const [scope, setScope] = useState<"local" | "remote">("local");
-  const [initial] = useState(load);
-  const [profiles, setProfiles] = useState(initial.profiles);
-  const [profile, setProfile] = useState<Profile>({ ...empty });
-  const [privateKey, setPrivateKey] = useState("");
-  const [keySource, setKeySource] = useState<"managed" | "provided">("managed");
-  const managedKey = snapshot?.ssh_key?.id === profile.id ? snapshot.ssh_key : null;
-  const keyReady = keySource === "managed" ? !!managedKey : !!privateKey.trim();
-  const [copiedKey, setCopiedKey] = useState("");
-  async function copyPublicKey() {
-    if (!managedKey) return;
-    try {
-      await navigator.clipboard.writeText(managedKey.public_key);
-      setCopiedKey(managedKey.id);
-      setError("");
-    } catch {
-      setError(t("无法访问剪贴板，请手动复制上方公钥"));
-    }
-  }
-  const [firewallPort, setFirewallPort] = useState("");
-  const plan = snapshot?.firewall_plan;
-  const agentProgram = snapshot?.agent_program;
-  const [initializerStatus, setInitializerStatus] = useState("");
-  async function exportInitializer() {
-    try {
-      if (await exportLinuxInitializer())
-        setInitializerStatus(t("初始化脚本已导出，请复制到目标 Linux 并由管理员执行"));
-    } catch (reason) {
-      setError(asDisplayError(reason));
-    }
-  }
-  const [error, setError] = useState<DisplayError>(initial.error);
-  const [deployment, setDeployment] = useState({ service: "", port: "", kind: "paper" });
-  const [target, setTarget] = useState("");
-  async function run(method: TerminalCommand, params: Record<string, string>) {
+  const [view, setView] = useState<"overview" | "machines">("overview");
+  const [selected, setSelected] = useState("local");
+  const [wizard, setWizard] = useState<MachineProfile | "new" | null>(null);
+  const [error, setError] = useState<DisplayError>("");
+  const [saved, setSaved] = useState<MachineProfile[]>([]);
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [deploying, setDeploying] = useState(false);
+  const [deployment, setDeployment] = useState({ kind: "research", service: "", port: "" });
+  const [deployed, setDeployed] = useState<{ node: string; service: string } | null>(null);
+  const nodes = snapshot?.nodes ?? [];
+  const node = nodes.find(n => n.id === selected);
+  const disabled = busy || !!snapshot?.stale;
+  async function run(method: TerminalCommand, params: Record<string, string> = {}) {
     setError("");
     try {
       await trade(method, params);
+      return true;
     } catch (reason) {
       setError(asDisplayError(reason));
+      return false;
     }
   }
   useEffect(() => {
-    void run("node.local", {});
-    // Attach the local node monitor once when the page opens.
+    void run("node.local");
+    try {
+      setSaved(loadMachineProfiles());
+    } catch (reason) {
+      setError(asDisplayError(reason));
+    }
+    // Attach only the local monitor; remote connections remain explicit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  function manage(id: string) {
+    setSelected(id);
+    setView("machines");
+    setWizard(null);
+    setDeploying(false);
+  }
+  function propose(action: Action, target: NodeStatus, service: Service) {
+    setError("");
+    setPending({ action, node: target.id, service: service.id, revision: service.revision });
+  }
+  const pendingNode = nodes.find(n => n.id === pending?.node);
+  const pendingService = pendingNode?.health?.services.find(s => s.id === pending?.service);
+  const changed =
+    !pendingNode ||
+    pendingNode.state !== "online" ||
+    !!pendingNode.health?.maintenance ||
+    !pendingService ||
+    pendingService.revision !== pending?.revision;
+  async function confirm() {
+    if (!pending || !pendingNode || !pendingService || changed || disabled) return;
+    const params = { id: pending.node, service: pending.service };
+    let success = false;
+    if (pending.action === "use") {
+      const kind = pendingService.kind;
+      if (kind === "paper" && snapshot?.connection && !(await run("paper.close"))) return;
+      if (kind === "live" && snapshot?.live && !(await run("live.close"))) return;
+      const method: TerminalCommand =
+        kind === "market"
+          ? "market.attach"
+          : kind === "research"
+            ? "research.attach"
+            : kind === "strategy"
+              ? "strategy.attach"
+              : "node.attach";
+      success = await run(method, params);
+    } else if (pending.action === "update")
+      success = await run("node.update", { ...params, revision: pending.revision });
+    else success = await run("node.action", { ...params, action: pending.action });
+    if (success) setPending(null);
+  }
+  async function deploy() {
+    if (!node || node.id === "local" || node.state !== "online" || node.health?.maintenance) return;
+    if (await run("node.deploy", { id: node.id, ...deployment })) {
+      setDeployed({ node: node.id, service: deployment.service });
+      setDeploying(false);
+    }
+  }
+  function startDeployment(targetId: string) {
+    const target = nodes.find(item => item.id === targetId);
+    const services = target?.health?.services ?? [];
+    let suffix = 1;
+    while (services.some(s => s.id === `research-${suffix}`)) suffix++;
+    let port = 7443;
+    while (port === target?.port || services.some(s => s.port === port)) port++;
+    setDeployment({ kind: "research", service: `research-${suffix}`, port: String(port) });
+    setDeploying(true);
+    setDeployed(null);
+  }
+  const pendingActive = pendingService ? binding(snapshot, pendingService.kind) : null;
+  const watched =
+    pendingNode && pendingService && matches(pendingActive, pendingNode, pendingService);
+  const tasks =
+    watched && pendingService?.kind === "research"
+      ? (snapshot?.research?.tasks.filter(task =>
+          ["queued", "running", "cancel_requested"].includes(task.state),
+        ) ?? [])
+      : [];
   return (
-    <section aria-label={t("部署与服务")}>
-      <h2>{t("部署与服务")}</h2>
-      <details>
-        <summary>{t("部署说明")}</summary>
-        <p>
-          {t(
-            "本机和远程服务统一由 Node Agent 管理，关闭 Terminal 后继续运行。其他机器通过 SSH 安装 Node Agent，完成后通过安全管理连接部署和维护交易服务。节点与服务心跳由 C++ 后台维持，界面关闭设置页后仍持续监控。",
-          )}
-        </p>
-      </details>
-      <div role="group" aria-label={t("部署位置")}>
-        <button aria-pressed={scope === "local"} onClick={() => setScope("local")}>
-          {t("本机部署")}
-        </button>
-        <button aria-pressed={scope === "remote"} onClick={() => setScope("remote")}>
-          {t("远程 Linux")}
-        </button>
-      </div>
-      {scope === "local" ? (
-        <section aria-label={t("本机部署说明")}>
-          <h3>{t("本机部署")}</h3>
-          <p>
-            {t(
-              "macOS Terminal 使用当前系统账户自动管理 Agent，无需 SSH、密钥或机器初始化脚本。在期货工作台创建模拟会话时，交易服务由本机 Agent 按需启动。",
-            )}
-          </p>
-          <button disabled={busy} onClick={() => void run("node.local", {})}>
-            {t("检查本机 Agent")}
-          </button>
-        </section>
-      ) : (
-        <p>
-          {t(
-            "远程仅支持 Linux。请管理员先执行机器初始化脚本，再通过 SSH 安装 Agent；后续通过安全管理连接部署和维护服务。",
-          )}
-        </p>
-      )}
-      {scope === "local" && (
-        <details>
-          <summary>{t("Agent 程序")}</summary>
-          <button disabled={busy} onClick={() => void run("node.agent.inspect", {})}>
-            {t("检查程序更新")}
-          </button>
-          {agentProgram && (
-            <>
-              <p role="status">
-                {
-                  {
-                    isolated: t("开发环境不管理系统安装"),
-                    not_installed: t("尚未安装本机 Agent"),
-                    current: t("已安装程序与安装包一致"),
-                    update_available: t("安装包中有不同版本"),
-                    recovery_required: t("存在未完成的更新，请先恢复"),
-                  }[agentProgram.state]
-                }
-              </p>
-              {(agentProgram.state === "update_available" ||
-                agentProgram.state === "recovery_required") && (
-                <>
-                  <p>
-                    {t(
-                      "更新会等待服务安全停止，并在完成后恢复原运行状态；无法安全停止的业务会阻止更新。",
-                    )}
-                  </p>
-                  <button
-                    disabled={busy || !agentProgram.expected_digest}
-                    onClick={() =>
-                      void run("node.agent.upgrade", {
-                        expected_digest: agentProgram.expected_digest,
-                      })
-                    }
-                  >
-                    {agentProgram.state === "recovery_required" ? t("继续恢复") : t("升级 Agent")}
-                  </button>
-                </>
-              )}
-              {agentProgram.bundled_digest && (
-                <details>
-                  <summary>{t("程序摘要")}</summary>
-                  <p>
-                    {t("已安装")}: <code>{agentProgram.installed_digest || "—"}</code>
-                  </p>
-                  <p>
-                    {t("安装包")}: <code>{agentProgram.bundled_digest}</code>
-                  </p>
-                </details>
-              )}
-            </>
-          )}
-        </details>
+    <section className="deployment-center" aria-label={t("运行与部署")}>
+      {!wizard && (
+        <>
+          <div className="deployment-heading">
+            <div>
+              <p className="subtle">{t("默认在本机运行。仅在需要时添加远程 Linux。")}</p>
+            </div>
+            <button
+              onClick={() => {
+                setWizard("new");
+                setView("machines");
+                setError("");
+              }}
+              disabled={disabled}
+            >
+              {t("添加远程机器")}
+            </button>
+          </div>
+          <div className="deployment-tabs" role="group" aria-label={t("部署视图")}>
+            <button
+              aria-pressed={view === "overview" && !wizard}
+              onClick={() => {
+                setView("overview");
+                setWizard(null);
+              }}
+            >
+              {t("当前运行位置")}
+            </button>
+            <button
+              aria-pressed={view === "machines" && !wizard}
+              onClick={() => {
+                setView("machines");
+                setWizard(null);
+              }}
+            >
+              {t("机器管理")}
+            </button>
+          </div>
+        </>
       )}
       {error && (
-        <p role="alert" className="alert">
+        <p role="alert">
           <ErrorNotice error={error} namespace="host" />
         </p>
       )}
-      <div className="settings-table" role="region" aria-label={t("节点服务状态")} tabIndex={0}>
-        <table className="data-table" aria-label={t("节点服务状态")}>
-          <thead>
-            <tr>
-              <th>{t("机器 / 服务")}</th>
-              <th>{t("状态")}</th>
-              <th>{t("最近心跳")}</th>
-              <th>{t("操作")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {snapshot?.nodes
-              ?.filter(node => (scope === "local" ? node.id === "local" : node.id !== "local"))
-              .flatMap(node => [
-                <tr key={node.id}>
-                  <td>
-                    {node.id === "local" ? t("本机") : `${node.id} · ${node.host}:${node.port}`}
-                  </td>
-                  <td>
-                    {node.state === "online"
-                      ? node.health?.maintenance
-                        ? t("维护中")
-                        : t("节点在线")
-                      : t("节点失联 · 服务状态未知")}
-                  </td>
-                  <td>
-                    {new Date(node.last_heartbeat_ms).toLocaleTimeString(getLocale(), {
-                      hour12: false,
-                    })}{" "}
-                    · {node.latency_ms} ms
-                  </td>
-                  <td>
-                    <button
-                      disabled={busy || node.id === "local"}
-                      onClick={() => void run("node.disconnect", { id: node.id })}
-                    >
-                      {t("移除监控")}
-                    </button>
-                    <details>
-                      <summary>{t("详情")}</summary>
-                      {node.health?.os} / {node.health?.arch} · {node.health?.version}
-                      <p>{node.error}</p>
-                    </details>
-                  </td>
-                </tr>,
-                ...(node.health?.services ?? []).map(service => (
-                  <tr key={`${node.id}/${service.id}`}>
-                    <td>
-                      ↳ {service.id}
-                      {service.port ? ` · :${service.port}` : ""}
-                    </td>
-                    <td>
-                      {node.state !== "online"
-                        ? t("未知（最后确认）")
-                        : ({
-                            running: t("进程运行"),
-                            stopped: t("已停止"),
-                            restarting: t("正在重启"),
-                            failed: t("启动失败"),
-                          }[service.state] ?? service.state)}
-                      <details>
-                        <summary>{t("详情")}</summary>PID {service.pid}
-                        {t("· 自动重启")}
-                        {service.restarts}/3<p>{service.error}</p>
-                      </details>
-                    </td>
-                    <td>
-                      {service.last_heartbeat_ms
-                        ? new Date(service.last_heartbeat_ms).toLocaleTimeString(getLocale(), {
-                            hour12: false,
-                          })
-                        : "—"}{" "}
-                      ·{" "}
-                      {{
-                        ready: t("业务就绪"),
-                        awaiting_input: t("等待初始化"),
-                        degraded: t("需要恢复"),
-                        unresponsive: t("业务无响应"),
-                        starting: t("启动中"),
-                        offline: t("离线"),
-                      }[service.health] ?? service.health}
-                    </td>
-                    <td>
-                      <button
-                        disabled={
-                          busy ||
-                          node.health?.maintenance ||
-                          node.state !== "online" ||
-                          service.state === "running"
-                        }
-                        onClick={() =>
-                          void run("node.action", {
-                            id: node.id,
-                            service: service.id,
-                            action: "start",
-                          })
-                        }
-                      >
-                        {t("启动")}
-                      </button>{" "}
-                      <button
-                        disabled={
-                          busy ||
-                          node.health?.maintenance ||
-                          node.state !== "online" ||
-                          !service.desired_running
-                        }
-                        onClick={() =>
-                          void run("node.action", {
-                            id: node.id,
-                            service: service.id,
-                            action: "stop",
-                          })
-                        }
-                      >
-                        {t("停止")}
-                      </button>{" "}
-                      <button
-                        disabled={
-                          busy ||
-                          node.health?.maintenance ||
-                          node.state !== "online" ||
-                          service.state !== "running"
-                        }
-                        onClick={() =>
-                          void run("node.action", {
-                            id: node.id,
-                            service: service.id,
-                            action: "restart",
-                          })
-                        }
-                      >
-                        {t("重启")}
-                      </button>{" "}
-                      {
-                        <button
-                          disabled={
-                            busy ||
-                            node.health?.maintenance ||
-                            node.state !== "online" ||
-                            service.state !== "running" ||
-                            (service.kind === "paper" && !!snapshot.connection)
-                          }
-                          onClick={() =>
-                            void run(
-                              service.kind === "strategy"
-                                ? "strategy.attach"
-                                : service.kind === "market"
-                                  ? "market.attach"
-                                  : service.kind === "research"
-                                    ? "research.attach"
-                                    : "node.attach",
-                              { id: node.id, service: service.id },
-                            )
-                          }
-                        >
-                          {service.kind === "strategy"
-                            ? t("查看策略")
-                            : service.kind === "market"
-                              ? t("连接行情")
-                              : service.kind === "research"
-                                ? t("连接研究")
-                                : t("连接交易")}
-                        </button>
-                      }
-                      <details>
-                        <summary>{t("程序更新")}</summary>
-                        <p>
-                          {t(
-                            "先停止服务（会中断连接与任务），再更新程序。保留配置与数据，更新后需手动启动。",
-                          )}
-                        </p>
-                        <button
-                          disabled={
-                            busy ||
-                            node.health?.maintenance ||
-                            node.state !== "online" ||
-                            service.state !== "stopped" ||
-                            service.desired_running ||
-                            !service.revision
-                          }
-                          onClick={() =>
-                            void run("node.update", {
-                              id: node.id,
-                              service: service.id,
-                              revision: service.revision,
-                            })
-                          }
-                        >
-                          {t("更新已停止的服务")}
-                        </button>
-                      </details>
-                      {node.id !== "local" && (
-                        <details>
-                          <summary>{t("端口访问")}</summary>
-                          <button
-                            disabled={
-                              busy ||
-                              node.health?.maintenance ||
-                              node.state !== "online" ||
-                              node.id === "local"
-                            }
-                            onClick={() =>
-                              void run("node.service_firewall", {
-                                id: node.id,
-                                service: service.id,
-                                action: "allow",
-                                token: "",
-                              })
-                            }
-                          >
-                            {t("检查端口放行")}
-                          </button>
-                          <button
-                            disabled={
-                              busy ||
-                              node.health?.maintenance ||
-                              node.state !== "online" ||
-                              node.id === "local"
-                            }
-                            onClick={() =>
-                              void run("node.service_firewall", {
-                                id: node.id,
-                                service: service.id,
-                                action: "remove",
-                                token: "",
-                              })
-                            }
-                          >
-                            {t("检查规则撤销")}
-                          </button>
-                        </details>
-                      )}
-                    </td>
-                  </tr>
-                )),
-              ])}
-          </tbody>
-        </table>
-      </div>
-      {scope === "remote" && (
+      {snapshot?.stale && <p role="status">{t("正在刷新状态，暂不能执行服务操作。")}</p>}
+      {wizard ? (
+        <RemoteMachine
+          key={wizard === "new" ? "new" : wizard.id}
+          snapshot={snapshot}
+          busy={disabled}
+          run={run}
+          initial={wizard === "new" ? undefined : wizard}
+          onCancel={() => setWizard(null)}
+          onSaved={profile =>
+            setSaved(previous => [...previous.filter(p => p.id !== profile.id), profile])
+          }
+          onInstalled={profile => {
+            setSaved(loadMachineProfiles());
+            manage(profile.id);
+            startDeployment(profile.id);
+          }}
+        />
+      ) : view === "overview" ? (
         <>
-          <section aria-label={t("准备远程 Linux")}>
-            <h3>{t("准备远程机器")}</h3>
-            <p>
-              {t("安装包已内置 Linux x86_64 服务程序和初始化脚本，无需另外下载或选择程序文件。")}
-            </p>
-            <button disabled={busy} onClick={() => void exportInitializer()}>
-              {t("导出 Linux 初始化脚本")}
-            </button>
-            {initializerStatus && (
-              <p role="status">{localizeText("host", initializerStatus) ?? initializerStatus}</p>
-            )}
-            <p>
-              {t("复制脚本到目标机器，管理员执行")}
-              <code>sudo python3 -I initialize-linux.py</code>
-              {t("，按提示粘贴下方生成的公钥。完成后返回 Terminal 安装 Agent。")}
-            </p>
-          </section>
+          <div className="runtime-list" role="list" aria-label={t("当前运行位置")}>
+            {kinds.map(kind => {
+              const active = binding(snapshot, kind);
+              const owner = nodes.find(n =>
+                n.health?.services.some(s => s.kind === kind && matches(active, n, s)),
+              );
+              return (
+                <div className="runtime-row" role="listitem" key={kind}>
+                  <div>
+                    <strong>{t(kindLabels[kind])}</strong>
+                    <p className="subtle">
+                      {active
+                        ? active.service
+                        : t(
+                            kind === "market" || kind === "research"
+                              ? "尚未连接"
+                              : kind === "strategy"
+                                ? "启动策略时自动准备"
+                                : "创建或恢复账户时自动准备",
+                          )}
+                    </p>
+                  </div>
+                  <div className="runtime-location">
+                    <span>{location(active, nodes)}</span>
+                    <small className={active && !active.online ? "deployment-warning" : "subtle"}>
+                      {active ? runtimeStatus(snapshot, kind) : t("尚未启用")}
+                    </small>
+                  </div>
+                  <button onClick={() => manage(owner?.id ?? (active?.remote ? "" : "local"))}>
+                    {t("管理")}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <p className="subtle">
+            {t("关闭 Terminal 不会停止服务。部署新服务不会自动切换当前连接。")}
+          </p>
           <details>
-            <summary>{t("通过 SSH 添加机器")}</summary>
+            <summary>{t("本机运行说明")}</summary>
             <p>
               {t(
-                "目标机器需启用 SSH。请选择经可信渠道核验的 known_hosts 文件；未知或变更的主机密钥会拒绝连接。请先由管理员在目标 Linux 执行独立初始化脚本，使用 asterion 账户。推荐在本机生成密钥，将公钥交给管理员初始化远程机器；私钥保留在本机，后续自动用于 SSH 登录。也可以临时使用已有未加密私钥。",
+                "macOS Terminal 使用当前系统账户自动管理 Agent，无需 SSH、密钥或机器初始化脚本。在期货工作台创建模拟会话时，交易服务由本机 Agent 按需启动。",
               )}
             </p>
-            <form
-              onSubmit={event => {
-                event.preventDefault();
-                try {
-                  const next = [...profiles.filter(p => p.id !== profile.id), profile];
-                  localStorage.setItem(storageKey, JSON.stringify(next));
-                  setProfiles(next);
-                  setError("");
-                } catch {
-                  setError(t("无法保存节点配置"));
-                }
-              }}
-            >
-              <fieldset disabled={busy || !!initial.error}>
-                <label className="terminal-setting">
-                  {t("机器配置")}
-                  <select
-                    aria-label={t("机器配置")}
-                    value={profiles.some(p => p.id === profile.id) ? profile.id : ""}
-                    onChange={e => {
-                      setPrivateKey("");
-                      setProfile({ ...(profiles.find(p => p.id === e.target.value) ?? empty) });
-                    }}
-                  >
-                    <option value="">{t("新建机器")}</option>
-                    {profiles.map(p => (
-                      <option key={p.id}>{p.id}</option>
-                    ))}
-                  </select>
-                </label>
-                <div className="futures-fields">
-                  {(
-                    [
-                      ["id", t("机器名称")],
-                      ["host", t("SSH 地址")],
-                      ["ssh_port", t("SSH 端口")],
-                      ["username", t("SSH 用户")],
-                      ["known_hosts", t("已核验 known_hosts 文件")],
-                      ["agent_port", t("Agent 管理端口")],
-                    ] as const
-                  ).map(([field, label]) => (
-                    <label key={field}>
-                      {label}
-                      <input
-                        aria-label={label}
-                        required
-                        value={profile[field]}
-                        onChange={e => setProfile({ ...profile, [field]: e.target.value })}
-                      />
-                    </label>
-                  ))}
-                  <label>
-                    {t("SSH 密钥来源")}
-                    <select
-                      aria-label={t("SSH 密钥来源")}
-                      value={keySource}
-                      onChange={e => {
-                        setPrivateKey("");
-                        setKeySource(e.target.value as "managed" | "provided");
-                      }}
-                    >
-                      <option value="managed">{t("本机生成（推荐）")}</option>
-                      <option value="provided">{t("使用已有私钥")}</option>
-                    </select>
-                  </label>
-                  {keySource === "managed" ? (
-                    <section aria-label={t("本机 SSH 密钥")}>
-                      <button
-                        type="button"
-                        disabled={!profile.id.trim()}
-                        onClick={() => void run("node.key.prepare", { id: profile.id })}
-                      >
-                        {t("生成或查看本机公钥")}
-                      </button>
-                      <p>
-                        {t(
-                          "先填写机器名称。私钥仅保存在本机受当前账户权限保护的密钥目录，不进入机器配置；相同机器名称复用已有密钥。",
-                        )}
-                      </p>
-                      {managedKey && (
-                        <>
-                          <label>
-                            {t("初始化公钥")}
-                            <textarea
-                              aria-label={t("初始化公钥")}
-                              readOnly
-                              rows={3}
-                              value={managedKey.public_key}
-                            />
-                          </label>
-                          <button type="button" onClick={() => void copyPublicKey()}>
-                            {t("复制公钥")}
-                          </button>
-                          {copiedKey === managedKey.id && <p role="status">{t("公钥已复制")}</p>}
-                          <p>
-                            {t(
-                              "管理员在目标 Linux 运行初始化脚本并粘贴此公钥；确认主机指纹后，返回这里安装并连接。",
-                            )}
-                          </p>
-                        </>
-                      )}
-                    </section>
-                  ) : (
-                    <label>
-                      {t("SSH 私钥")}
-                      <textarea
-                        aria-label={t("SSH 私钥")}
-                        autoComplete="off"
-                        spellCheck={false}
-                        rows={5}
-                        value={privateKey}
-                        onChange={e => setPrivateKey(e.target.value)}
-                        placeholder={t("粘贴 SSH 私钥内容")}
-                      />
-                    </label>
+            <button disabled={disabled} onClick={() => void run("node.local")}>
+              {t("检查本机 Agent")}
+            </button>
+          </details>
+        </>
+      ) : (
+        <>
+          <div className="machine-list" aria-label={t("机器列表")}>
+            {nodes.map(item => (
+              <button
+                key={item.id}
+                className="machine-choice"
+                aria-pressed={selected === item.id}
+                onClick={() => manage(item.id)}
+              >
+                <strong>{item.id === "local" ? t("本机") : item.id}</strong>
+                <span>
+                  {t(
+                    item.state !== "online" ? "失联" : item.health?.maintenance ? "维护中" : "在线",
                   )}
-                </div>
-                <details>
-                  <summary>{t("安装前检查防火墙")}</summary>
-                  <p>
-                    {t(
-                      "检查目标机器实际看到的 Terminal 来源 IP，并预览单个 TCP 端口的规则。首次安装检查 Agent 管理端口；已有交易服务也可在上方服务列表检查。",
-                    )}
-                  </p>
-                  <label>
-                    {t("需要检查的端口")}
-                    <input
-                      aria-label={t("需要检查的端口")}
-                      value={firewallPort}
-                      placeholder={profile.agent_port}
-                      onChange={e => setFirewallPort(e.target.value)}
-                    />
-                  </label>
+                </span>
+              </button>
+            ))}
+            {saved
+              .filter(p => !nodes.some(n => n.id === p.id))
+              .map(profile => (
+                <div className="saved-machine" key={profile.id}>
+                  <span>
+                    {profile.id} · {t("未连接")}
+                  </span>
                   <button
-                    type="button"
-                    disabled={!keyReady}
-                    onClick={() =>
-                      void run("node.firewall.inspect", {
-                        ...profile,
-                        key_source: keySource,
-                        private_key: privateKey,
-                        firewall_port: firewallPort || profile.agent_port,
-                        firewall_action: "allow",
-                      })
-                    }
-                  >
-                    {t("检查并预览放行规则")}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!keyReady}
-                    onClick={() =>
-                      void run("node.firewall.inspect", {
-                        ...profile,
-                        key_source: keySource,
-                        private_key: privateKey,
-                        firewall_port: firewallPort || profile.agent_port,
-                        firewall_action: "remove",
-                      })
-                    }
-                  >
-                    {t("检查已管理规则的撤销")}
-                  </button>
-                </details>
-                <div className="source-actions">
-                  <button type="submit">{t("保存机器配置")}</button>
-                  <button
-                    type="button"
-                    disabled={!keyReady || !profiles.some(p => p.id === profile.id)}
-                    onClick={() => {
-                      const key = privateKey;
-                      setPrivateKey("");
-                      void run("node.bootstrap", {
-                        ...profile,
-                        key_source: keySource,
-                        private_key: key,
-                      });
+                    disabled={disabled}
+                    onClick={async () => {
+                      if (await run("node.connect", { id: profile.id })) manage(profile.id);
                     }}
-                  >
-                    {t("通过 SSH 安装并连接")}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!profiles.some(p => p.id === profile.id)}
-                    onClick={() => void run("node.connect", { id: profile.id })}
                   >
                     {t("连接已安装节点")}
                   </button>
-                </div>
-                {busy && (
-                  <p role="status">{t("正在处理机器请求，请等待身份校验、安装与心跳验证完成…")}</p>
-                )}
-              </fieldset>
-            </form>
-          </details>
-          {plan && (plan.transport === "agent" || plan.id === profile.id) && (
-            <section aria-label={t("防火墙规则预览")}>
-              <h3>
-                {plan.action === "remove" ? t("撤销规则") : t("放行规则")} · {plan.id}
-              </h3>
-              <p>
-                {t("目标")}
-                {plan.host} · TCP {plan.port}
-                {t("· 允许来源")}
-                {plan.source}
-                {t("（单台主机）")}
-              </p>
-              <p>
-                {plan.backend} ·{" "}
-                {{
-                  active: t("防火墙已启用"),
-                  read_only: t("防火墙已启用，专用账户仅有查询权限，请管理员放行此来源和端口"),
-                  permission_required: t("需要管理员或免交互 sudo 权限"),
-                  disabled: t("防火墙未启用，保持现状，请管理员确认网络策略"),
-                  unsupported: t("当前防火墙尚不支持自动配置，请管理员手动放行此来源和端口"),
-                  manual: t("此平台需手动配置来源 IP 与端口规则"),
-                  unknown: t("无法确定防火墙状态"),
-                  applied: t("规则已执行"),
-                  removed: t("本系统记录的规则已撤销"),
-                }[plan.state] ?? plan.state}
-              </p>
-              {plan.verification === "tls_reachable" && (
-                <p role="status">{t("已从 Terminal 验证 TCP/mTLS 可达。")}</p>
-              )}
-              {plan.verification === "pending_install" && (
-                <p role="status">{t("规则已执行；请安装并连接 Agent 后确认心跳。")}</p>
-              )}
-              {plan.verification === "unreachable" && (
-                <p role="alert">
-                  {t(
-                    "规则已执行，但 TCP/mTLS 仍不可达。请检查服务监听、云安全组、路由器或其他网络策略。",
-                  )}
-                </p>
-              )}
-              {!plan.can_apply && plan.state === "active" && (
-                <p>{t("没有可执行的规则变更，请检查本系统是否拥有该规则。")}</p>
-              )}
-              <details>
-                <summary>{t("规则详情")}</summary>
-                <code>{plan.rule}</code>
-                <p>
-                  {t(
-                    "确认仅对上述来源和端口操作；五分钟后或目标状态变化后需要重新检查。只管理 Asterion 自己记录的规则。",
-                  )}
-                </p>
-              </details>
-              {plan.can_apply && (
-                <button
-                  disabled={busy || (plan.transport === "ssh" && !keyReady)}
-                  onClick={() => {
-                    if (plan.transport === "agent")
-                      void run("node.service_firewall", {
-                        id: plan.id,
-                        service: plan.service!,
-                        action: "apply",
-                        token: plan.token,
-                      });
-                    else {
-                      const key = privateKey;
-                      setPrivateKey("");
-                      void run("node.firewall.apply", { token: plan.token, private_key: key });
-                    }
-                  }}
-                >
-                  {plan.action === "remove" ? t("确认撤销上述规则") : t("确认放行上述来源和端口")}
-                </button>
-              )}
-            </section>
-          )}
-          <details>
-            <summary>{t("部署服务")}</summary>
-            <p>
-              {t("自动选择并校验内置 Linux 程序。每个服务使用独立数据目录，停止服务后保留数据。")}
-            </p>
-            <form
-              onSubmit={event => {
-                event.preventDefault();
-                void run("node.deploy", { id: target, ...deployment });
-              }}
-            >
-              <fieldset disabled={busy}>
-                <label className="terminal-setting">
-                  {t("服务类型")}
-                  <select
-                    aria-label={t("服务类型")}
-                    value={deployment.kind}
-                    onChange={e => setDeployment({ ...deployment, kind: e.target.value })}
-                  >
-                    <option value="paper">{t("历史模拟交易")}</option>
-                    <option value="market">{t("实时行情")}</option>
-                    <option value="research">{t("研究服务")}</option>
-                  </select>
-                </label>
-                <label className="terminal-setting">
-                  {t("部署目标")}
-                  <select
-                    aria-label={t("部署目标")}
-                    required
-                    value={target}
-                    onChange={e => setTarget(e.target.value)}
-                  >
-                    <option value="">{t("选择在线节点")}</option>
-                    {snapshot?.nodes
-                      ?.filter(
-                        n => n.state === "online" && !n.health?.maintenance && n.id !== "local",
-                      )
-                      .map(n => (
-                        <option key={n.id} value={n.id}>
-                          {n.id} · {n.health?.os}/{n.health?.arch}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <div className="futures-fields">
-                  {(
-                    [
-                      ["service", t("新服务名称")],
-                      ["port", t("服务端口")],
-                    ] as const
-                  ).map(([field, label]) => (
-                    <label key={field}>
-                      {label}
-                      <input
-                        aria-label={label}
-                        required
-                        value={deployment[field]}
-                        onChange={e => setDeployment({ ...deployment, [field]: e.target.value })}
-                      />
-                    </label>
-                  ))}
-                </div>
-                <div className="source-actions">
-                  <button type="submit" disabled={!target}>
-                    {t("上传并部署")}
+                  <button disabled={disabled} onClick={() => setWizard(profile)}>
+                    {t("继续配置")}
                   </button>
                 </div>
-              </fieldset>
-            </form>
-          </details>
+              ))}
+          </div>
+          {!node && <p>{t("选择一台机器查看服务，或添加远程机器。")}</p>}
+          {node && (
+            <>
+              <div className="deployment-heading">
+                <h3>
+                  {node.id === "local"
+                    ? t("本机服务")
+                    : t("{machine} 的服务", { machine: node.id })}
+                </h3>
+                {node.id !== "local" && (
+                  <button
+                    disabled={disabled || node.state !== "online" || node.health?.maintenance}
+                    onClick={() => startDeployment(node.id)}
+                  >
+                    {t("部署服务")}
+                  </button>
+                )}
+              </div>
+              {node.state !== "online" && (
+                <p role="alert">{t("节点失联，以下是最后确认的状态。不会自动切换或重发命令。")}</p>
+              )}
+              {node.id === "local" && (
+                <AgentProgram
+                  agentProgram={snapshot?.agent_program ?? null}
+                  busy={disabled}
+                  run={run}
+                />
+              )}
+              <details>
+                <summary>{t("机器详情")}</summary>
+                <p>
+                  {node.host}:{node.port} · {node.health?.os} / {node.health?.arch} ·{" "}
+                  {node.health?.version}
+                </p>
+                <p>{node.error}</p>
+                {node.id !== "local" && (
+                  <button
+                    disabled={disabled}
+                    onClick={() => void run("node.disconnect", { id: node.id })}
+                  >
+                    {t("移除监控")}
+                  </button>
+                )}
+              </details>
+              {deployed?.node === node.id && (
+                <p role="status">
+                  {t("{service} 已部署，当前运行位置未改变。请在服务就绪后选择使用。", {
+                    service: deployed.service,
+                  })}
+                </p>
+              )}
+              {deploying && (
+                <form
+                  className="deployment-form"
+                  aria-label={t("部署服务")}
+                  onSubmit={e => {
+                    e.preventDefault();
+                    void deploy();
+                  }}
+                >
+                  <fieldset disabled={disabled}>
+                    <legend>{t("部署到 {machine}", { machine: node.id })}</legend>
+                    <p className="subtle">
+                      {t("每个服务拥有独立数据目录；研究服务包含回测、因子与下载工作程序。")}
+                    </p>
+                    <label>
+                      {t("服务类型")}
+                      <select
+                        aria-label={t("服务类型")}
+                        value={deployment.kind}
+                        onChange={e => setDeployment({ ...deployment, kind: e.target.value })}
+                      >
+                        <option value="research">{t("研究与计算")}</option>
+                        <option value="market">{t("实时行情")}</option>
+                        <option value="paper">{t("历史模拟交易")}</option>
+                      </select>
+                    </label>
+                    <div className="futures-fields">
+                      <label>
+                        {t("新服务名称")}
+                        <input
+                          aria-label={t("新服务名称")}
+                          required
+                          value={deployment.service}
+                          onChange={e => setDeployment({ ...deployment, service: e.target.value })}
+                        />
+                      </label>
+                      <label>
+                        {t("服务端口")}
+                        <input
+                          aria-label={t("服务端口")}
+                          type="number"
+                          min={1}
+                          max={65535}
+                          required
+                          value={deployment.port}
+                          onChange={e => setDeployment({ ...deployment, port: e.target.value })}
+                        />
+                      </label>
+                    </div>
+                    <p className="subtle">
+                      {t("选择目标机器可用的 TCP 端口。部署前会校验名称、端口和内置程序。")}
+                    </p>
+                    <div className="source-actions">
+                      <button type="button" onClick={() => setDeploying(false)}>
+                        {t("取消")}
+                      </button>
+                      <button className="primary" type="submit">
+                        {t("上传并部署")}
+                      </button>
+                    </div>
+                  </fieldset>
+                </form>
+              )}
+              <div className="managed-services" role="list" aria-label={t("服务列表")}>
+                {(node.health?.services ?? []).map(service => {
+                  const active = matches(binding(snapshot, service.kind), node, service);
+                  const unavailable =
+                    disabled || node.state !== "online" || !!node.health?.maintenance;
+                  return (
+                    <section
+                      className="managed-service"
+                      role="listitem"
+                      aria-label={service.id}
+                      key={service.id}
+                    >
+                      <div className="deployment-heading">
+                        <div>
+                          <strong>{service.id}</strong>
+                          <p className="subtle">
+                            {t(kindLabels[service.kind])} · {serviceStatus(node, service)}
+                          </p>
+                        </div>
+                        {active ? (
+                          <span className="deployment-badge">{t("当前使用")}</span>
+                        ) : (
+                          <button
+                            disabled={unavailable || service.state !== "running"}
+                            onClick={() => propose("use", node, service)}
+                          >
+                            {t("使用此服务")}
+                          </button>
+                        )}
+                      </div>
+                      <details>
+                        <summary>{t("管理服务")}</summary>
+                        <p>{t("运行中的工作进程：{count}", { count: service.active_workers })}</p>
+                        <div className="source-actions">
+                          <button
+                            disabled={unavailable || service.state === "running"}
+                            onClick={() =>
+                              void run("node.action", {
+                                id: node.id,
+                                service: service.id,
+                                action: "start",
+                              })
+                            }
+                          >
+                            {t("启动")}
+                          </button>
+                          <button
+                            disabled={unavailable || !service.desired_running}
+                            onClick={() => propose("stop", node, service)}
+                          >
+                            {t("停止")}
+                          </button>
+                          <button
+                            disabled={unavailable || service.state !== "running"}
+                            onClick={() => propose("restart", node, service)}
+                          >
+                            {t("重启")}
+                          </button>
+                        </div>
+                        <details>
+                          <summary>{t("程序更新")}</summary>
+                          <p>
+                            {t(
+                              "先停止服务（会中断连接与任务），再更新程序。保留配置与数据，更新后需手动启动。",
+                            )}
+                          </p>
+                          <button
+                            disabled={
+                              unavailable ||
+                              service.state !== "stopped" ||
+                              service.desired_running ||
+                              !service.revision
+                            }
+                            onClick={() => propose("update", node, service)}
+                          >
+                            {t("更新已停止的服务")}
+                          </button>
+                        </details>
+                        {node.id !== "local" && (
+                          <details>
+                            <summary>{t("端口访问")}</summary>
+                            <div className="source-actions">
+                              <button
+                                disabled={unavailable}
+                                onClick={() =>
+                                  void run("node.service_firewall", {
+                                    id: node.id,
+                                    service: service.id,
+                                    action: "allow",
+                                    token: "",
+                                  })
+                                }
+                              >
+                                {t("检查端口放行")}
+                              </button>
+                              <button
+                                disabled={unavailable}
+                                onClick={() =>
+                                  void run("node.service_firewall", {
+                                    id: node.id,
+                                    service: service.id,
+                                    action: "remove",
+                                    token: "",
+                                  })
+                                }
+                              >
+                                {t("检查规则撤销")}
+                              </button>
+                            </div>
+                          </details>
+                        )}
+                        <details>
+                          <summary>{t("技术详情")}</summary>
+                          <p>
+                            PID {service.pid} · {service.port || service.endpoint}
+                          </p>
+                          <p>
+                            {t("自动重启")} {service.restarts}/3
+                          </p>
+                          <p>{service.directory}</p>
+                          <p>{service.error}</p>
+                        </details>
+                      </details>
+                    </section>
+                  );
+                })}
+                {!node.health?.services.length && (
+                  <p className="subtle">
+                    {t(
+                      node.id === "local"
+                        ? "暂无服务，请检查本机启动状态。"
+                        : "尚未部署服务。添加服务后，本机运行不受影响。",
+                    )}
+                  </p>
+                )}
+              </div>
+              {snapshot?.firewall_plan?.transport === "agent" &&
+                snapshot.firewall_plan.id === node.id && (
+                  <FirewallPreview plan={snapshot.firewall_plan} busy={disabled} run={run} />
+                )}
+            </>
+          )}
         </>
       )}
-      <p>
-        {t(
-          "Agent 独立检测进程与业务心跳；连续三次无响应会触发恢复。服务异常最多自动重启 3 次；网络失联不会触发重复部署或重复下单。",
-        )}
-      </p>
+      {pending && (
+        <ServiceActionDialog
+          title={t(actionLabels[pending.action])}
+          busy={busy}
+          disabled={
+            disabled ||
+            changed ||
+            (pending.action === "use" && pendingService?.state !== "running") ||
+            (pending.action === "update" &&
+              (pendingService?.state !== "stopped" || pendingService.desired_running))
+          }
+          onCancel={() => {
+            setPending(null);
+            setError("");
+          }}
+          onConfirm={() => void confirm()}
+        >
+          <p>
+            <strong>
+              {pending.node === "local" ? t("本机") : pending.node} / {pending.service}
+            </strong>
+          </p>
+          {changed ? (
+            <p role="alert">{t("目标状态已变化，请取消后重新检查。")}</p>
+          ) : (
+            <>
+              {pending.action === "use" ? (
+                <>
+                  <p>
+                    {t("当前：{location} → 目标：{target}", {
+                      location: pendingActive ? location(pendingActive, nodes) : t("尚未连接"),
+                      target: pending.node === "local" ? t("本机") : pending.node,
+                    })}
+                  </p>
+                  <p>{t("只切换此功能的连接。原服务继续运行，已有数据和任务不会搬到目标机器。")}</p>
+                  {(pendingService?.kind === "paper" || pendingService?.kind === "live") &&
+                    pendingActive && (
+                      <p>
+                        {t(
+                          "将先断开当前账户连接；若目标连接失败，需要手动重新连接。不会重发交易命令。",
+                        )}
+                      </p>
+                    )}
+                </>
+              ) : pending.action === "update" ? (
+                <p>{t("仅更新此服务的程序，保留配置和数据；完成后仍保持停止。")}</p>
+              ) : (
+                <>
+                  <p>{t("此服务的连接会中断，运行中的任务可能中断。其他机器不会被停止。")}</p>
+                  <p>
+                    {t("当前工作进程：{count}", { count: pendingService?.active_workers ?? 0 })}
+                  </p>
+                  {tasks.length > 0 && (
+                    <p>
+                      {t("当前可见的未完成任务：{tasks}", {
+                        tasks: tasks.map(task => task.id).join(", "),
+                      })}
+                    </p>
+                  )}
+                  {pendingService?.kind === "live" && (
+                    <p>{t("停止交易服务不会自动撤销柜台委托，请先在账户中核对委托与持仓。")}</p>
+                  )}
+                  {pendingService?.kind === "strategy" && (
+                    <p>{t("策略执行将中断；交易账户及已有委托不会因此自动关闭或撤销。")}</p>
+                  )}
+                </>
+              )}
+              {!watched && pending.action !== "use" && (
+                <p className="subtle">
+                  {t("当前未连接此服务，无法核实完整业务活动；请先查看账户或任务。")}
+                </p>
+              )}
+            </>
+          )}
+          {error && (
+            <p role="alert">
+              <ErrorNotice error={error} namespace="host" />
+            </p>
+          )}
+        </ServiceActionDialog>
+      )}
     </section>
   );
 }

@@ -67,6 +67,7 @@ test("saved remote profile connects through mTLS and reconnects without stopping
     });
     page = await openSettingsWindow(page);
     await page.getByRole("button", { name: "连接与部署", exact: true }).click();
+    await page.getByText("高级：直接连接交易服务", { exact: true }).click();
     await page.getByText("直接连接已部署交易服务", { exact: true }).click();
     for (const [label, value] of [
       ["配置名称", "研究服务器"],
@@ -81,6 +82,7 @@ test("saved remote profile connects through mTLS and reconnects without stopping
     await page.getByRole("button", { name: "保存配置", exact: true }).click();
     await page.reload();
     await page.getByRole("button", { name: "连接与部署", exact: true }).click();
+    await page.getByText("高级：直接连接交易服务", { exact: true }).click();
     await page.getByText("直接连接已部署交易服务", { exact: true }).click();
     await page.getByLabel("已保存配置").selectOption("研究服务器");
     await page.getByRole("button", { name: "连接已保存配置", exact: true }).click();
@@ -108,6 +110,7 @@ test("saved remote profile connects through mTLS and reconnects without stopping
     await expect(page.getByText("1 / 2 根", { exact: true })).toBeVisible();
     page = await openSettingsWindow(page);
     await page.getByRole("button", { name: "连接与部署", exact: true }).click();
+    await page.getByText("高级：直接连接交易服务", { exact: true }).click();
     await page.getByText("直接连接已部署交易服务", { exact: true }).click();
     await page.getByRole("button", { name: "重新连接", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: "已连接 · localhost" })).toBeVisible();

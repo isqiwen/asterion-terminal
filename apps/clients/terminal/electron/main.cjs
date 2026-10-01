@@ -130,7 +130,7 @@ function positionSettings(first) {
   );
 }
 async function openSettings(category) {
-  if (!["preferences", "connections", "plugins", "about"].includes(category))
+  if (!["preferences", "connections", "sources", "plugins", "about"].includes(category))
     throw new Error("Invalid settings category");
   if (settings && !settings.isDestroyed()) {
     if (settings.isMinimized()) settings.restore();

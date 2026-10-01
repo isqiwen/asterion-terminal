@@ -35,16 +35,22 @@ test("firewall changes require a concrete preview and explicit confirmation", as
     // Settings is its own window; every step below runs inside it.
     const page = await openSettingsWindow(workbench);
     await page.getByRole("button", { name: "连接与部署", exact: true }).click();
-    await page.getByRole("button", { name: "远程 Linux", exact: true }).click();
-    await page.getByText("通过 SSH 添加机器", { exact: true }).click();
+    await page.getByRole("button", { name: "添加远程机器", exact: true }).click();
+    await page.getByText("高级连接选项", { exact: true }).click();
     for (const [label, value] of [
       ["机器名称", "fw-ui"],
       ["SSH 地址", "localhost"],
       ["SSH 用户", "tester"],
-      ["已核验 known_hosts 文件", join(folder, "known_hosts")],
     ])
       await page.getByLabel(label, { exact: true }).fill(value);
     await page.getByLabel("SSH 密钥来源", { exact: true }).selectOption("provided");
+    await page.getByRole("button", { name: "下一步", exact: true }).click();
+    await page.getByLabel("管理员已完成初始化").check();
+    await page.getByRole("button", { name: "下一步", exact: true }).click();
+    await page
+      .getByLabel("已核验 known_hosts 文件", { exact: true })
+      .fill(join(folder, "known_hosts"));
+    await page.getByLabel("已通过可信渠道核对主机指纹").check();
     await page.getByLabel("SSH 私钥", { exact: true }).fill(key);
     await page.getByText("安装前检查防火墙", { exact: true }).click();
     await page.getByRole("button", { name: "检查并预览放行规则", exact: true }).click();
@@ -57,7 +63,6 @@ test("firewall changes require a concrete preview and explicit confirmation", as
     await expect(page.getByLabel("SSH 私钥", { exact: true })).toHaveValue("");
     expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain("PRIVATE KEY");
     expect(await readFile(changes, "utf8")).not.toBe(before);
-    await page.getByLabel("SSH 密钥来源", { exact: true }).selectOption("provided");
     await page.getByLabel("SSH 私钥", { exact: true }).fill(key);
     await page.getByRole("button", { name: "检查已管理规则的撤销" }).click();
     await preview.getByRole("button", { name: "确认撤销上述规则" }).click();

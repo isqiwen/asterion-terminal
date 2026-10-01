@@ -36,6 +36,7 @@ test("language switches every workspace, preserves preferences and survives relo
   await page.screenshot({ path: "apps/clients/terminal/test-results/english-settings.png" });
   await page.getByRole("button", { name: "Connections & deployment", exact: true }).click();
   await expect(page.locator(".settings-content")).not.toContainText(/\p{Script=Han}/u);
+  await page.getByRole("button", { name: "Machines", exact: true }).click();
   await page.getByText("Agent Program", { exact: true }).click();
   await page.getByRole("button", { name: "Check Program Updates", exact: true }).click();
   await expect(

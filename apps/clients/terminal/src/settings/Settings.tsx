@@ -59,6 +59,7 @@ export function Settings({
           {[
             ["preferences", t("偏好设置"), "settings"],
             ["connections", t("连接与部署"), "connections"],
+            ["sources", t("数据源"), "connections"],
             ["plugins", t("插件"), "plugins"],
             ["about", t("关于"), "info"],
           ].map(([item, label, icon]) => (
@@ -80,6 +81,7 @@ export function Settings({
             {
               preferences: t("偏好设置"),
               connections: t("连接与部署"),
+              sources: t("数据源"),
               plugins: t("插件"),
               about: t("关于"),
             }[page]
@@ -150,12 +152,8 @@ export function Settings({
             </label>
           </>
         )}
-        {page === "connections" && (
-          <>
-            <DataConnections snapshot={snapshot} busy={busy} trade={trade} />
-            <Connections snapshot={snapshot} busy={busy} trade={trade} />
-          </>
-        )}
+        {page === "sources" && <DataConnections snapshot={snapshot} busy={busy} trade={trade} />}
+        {page === "connections" && <Connections snapshot={snapshot} busy={busy} trade={trade} />}
         {page === "plugins" && (
           <>
             <NativePlugins snapshot={snapshot} busy={busy} trade={trade} />

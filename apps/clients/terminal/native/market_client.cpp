@@ -239,6 +239,9 @@ Json MarketClient::snapshot() const {
   auto out = impl_->cached;
   out["transport_online"] = impl_->online && std::chrono::steady_clock::now() - impl_->seen < 5s;
   out["service"] = impl_->endpoint.session;
+  out["remote"] = impl_->endpoint.endpoint.empty();
+  out["host"] = impl_->endpoint.endpoint.empty() ? impl_->endpoint.host : "localhost";
+  out["port"] = impl_->endpoint.port;
   out["history"] = impl_->history.snapshot();
   return out;
 }

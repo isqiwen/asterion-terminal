@@ -30,7 +30,15 @@ async function closeDesktop(application) {
     await fs.mkdir(process.env.ASTERION_UI_SCREENSHOTS, { recursive: true });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.mouse.move(20, 20);
-    await page.screenshot({ path: path.join(process.env.ASTERION_UI_SCREENSHOTS, name + ".png") });
+    const window = await application.browserWindow(page);
+    // Capture the physical window; CDP screenshots crop Electron pages at native zoom.
+    const pixels = await window.evaluate(async win =>
+      (await win.webContents.capturePage()).toPNG().toString("base64"),
+    );
+    await fs.writeFile(
+      path.join(process.env.ASTERION_UI_SCREENSHOTS, name + ".png"),
+      Buffer.from(pixels, "base64"),
+    );
   };
   const launch = () =>
     electron.launch({
@@ -266,6 +274,44 @@ async function closeDesktop(application) {
       await capture(window, window === settings ? "native-settings-125" : "native-workbench-125");
       await contents.evaluate(win => win.webContents.setZoomFactor(1));
     }
+    await settings.getByRole("button", { name: "连接与部署", exact: true }).click();
+    const locations = settings.getByRole("list", { name: "当前运行位置", exact: true });
+    await expect(locations).toBeVisible();
+    await expect(locations.getByRole("listitem").filter({ hasText: "研究与计算" })).toContainText(
+      "本机",
+    );
+    await capture(settings, "native-deployment-overview");
+    const deploymentWindow = await application.browserWindow(settings);
+    await deploymentWindow.evaluate(win => win.webContents.setZoomFactor(1.25));
+    await settings.getByRole("button", { name: "添加远程机器", exact: true }).click();
+    await expect(settings.getByRole("region", { name: "添加远程机器", exact: true })).toContainText(
+      "Linux x86_64",
+    );
+    assert.equal(
+      await settings.evaluate(
+        () =>
+          document.documentElement.scrollWidth <= innerWidth &&
+          document.querySelector(".settings-content").scrollWidth <=
+            document.querySelector(".settings-content").clientWidth + 1,
+      ),
+      true,
+    );
+    await capture(settings, "native-deployment-wizard-125");
+    await settings
+      .getByRole("region", { name: "添加远程机器", exact: true })
+      .getByRole("button", { name: "取消", exact: true })
+      .click();
+    await deploymentWindow.evaluate(win => win.webContents.setZoomFactor(1));
+    await page.evaluate(() => {
+      // The public settings helper selects reused windows through this storage event.
+      localStorage.setItem(
+        "asterion.settings.category",
+        JSON.stringify({ page: "sources", nonce: Date.now() }),
+      );
+      return window.asterionDesktop.openSettings("sources");
+    });
+    await expect(settings.getByRole("heading", { name: "数据源", exact: true })).toBeVisible();
+    await settings.getByRole("button", { name: "偏好设置", exact: true }).click();
     await capture(settings, "native-settings");
     await settings.getByLabel("语言", { exact: true }).selectOption("en-US");
     await expect(page.getByLabel("Product Code", { exact: true })).toHaveValue("CU");

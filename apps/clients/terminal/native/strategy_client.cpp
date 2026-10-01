@@ -101,20 +101,24 @@ void StrategyClient::create(const strategy::v1::Config& config) {
   observe(call(r, true));
 }
 Json StrategyClient::status() {
+  Json result;
   try {
     strategy::v1::Request r;
     r.mutable_snapshot();
     observe(call(r));
-    return last_;
+    result = last_;
   } catch (const std::exception& error) {
-    auto result =
+    result =
         last_.is_null()
             ? Json{{"id", endpoint_.session}, {"phase", "unknown"}, {"processed", 0}, {"total", 0}}
             : last_;
     result["state"] = "disconnected";
     result["error"] = error.what();
-    return result;
   }
+  result["remote"] = endpoint_.endpoint.empty();
+  result["host"] = endpoint_.endpoint.empty() ? endpoint_.host : "localhost";
+  result["port"] = endpoint_.port;
+  return result;
 }
 const strategy::v1::Config& StrategyClient::config() const {
   if (!config_.has_replay())

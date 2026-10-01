@@ -83,6 +83,7 @@ def main():
         "sha256": digest,
         "checks": ["startup", "125% native Chromium zoom", "renderer isolation", "shortcuts", "settings reuse and bounds",
                    "locale synchronization", "retained draft", "dialog IPC adapter",
+                   "deployment overview and wizard at 125% zoom", "separate data-source settings",
                    "minute and daily history paging and exact decimals",
                    "daily chart aggregation and MACD",
                    "daily download to factor analysis navigation",
