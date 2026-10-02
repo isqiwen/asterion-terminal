@@ -21,8 +21,8 @@ def wait(predicate):
     raise AssertionError(state)
 try:
     state=call('market.local');assert state['market']['phase']=='disconnected'
-    call('ctp.connections.save',dict(id='fixture',name='Fixture',revision='',broker_id='test',user_id='fixture',app_id='',trade_front='tcp://127.0.0.1:1',market_front='tcp://127.0.0.1:1'))
-    call('ctp.connections.save',dict(id='other',name='Other',revision='',broker_id='test',user_id='other',app_id='',trade_front='',market_front='tcp://127.0.0.1:1'))
+    call('ctp.connections.save',dict(id='fixture',name='Fixture',revision='',broker_id='test',user_id='fixture',app_id='app',trade_front='tcp://127.0.0.1:1',market_front='tcp://127.0.0.1:1'))
+    call('ctp.connections.save',dict(id='other',name='Other',revision='',broker_id='test',user_id='other',app_id='app',trade_front='tcp://127.0.0.1:1',market_front='tcp://127.0.0.1:1'))
     state=call('market.connect',dict(password='fixture-only-secret',instruments=[dict(venue='SHFE',symbol='rb2610'),dict(venue='SHFE',symbol='bad2601')]))
     state=wait(lambda s:s['market']['phase']=='connected' and s['market']['subscriptions'][0]['quote'])
     market=state['market'];quote=market['subscriptions'][0]['quote'];assert quote['last']=='3510' and quote['bid']=='3509' and quote['ask']=='3511'
@@ -39,7 +39,7 @@ try:
     refused=json.loads(process.stdout.readline());assert 'disconnect market data' in refused['error']['message'],refused
     call('market.subscribe',dict(instruments=[dict(venue='SHFE',symbol='rb2610')]))
     assert len(wait(lambda s:len(s['market']['subscriptions'])==1)['market']['subscriptions'])==1
-    call('market.catalog',dict(account='fixture',password='fixture-only-secret',auth_code=''))
+    call('market.catalog',dict(account='fixture',password='fixture-only-secret',auth_code='fixture-auth'))
     state=wait(lambda s:s['market']['catalog']['phase']=='ready')
     assert state['market']['catalog']['contracts'][0]['symbol']=='rb2610'
     call('market.subscribe',dict(instruments=[]))

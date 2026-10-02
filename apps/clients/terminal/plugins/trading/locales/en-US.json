@@ -138,7 +138,6 @@
   "已核实券商无此委托：{id}": "Verified absent at broker: {id}",
   "管理 CTP 账户": "Manage CTP Accounts",
   "交易服务尚未初始化，请关闭后重新打开此账户。": "The trading service is not initialized. Close this account and open it again.",
-  "交易需要交易前置与 AppID。": "Trading needs a trade front and an AppID.",
   "关闭账户": "Close Account",
   "向 {name} 提交委托": "Submit Order to {name}",
   "开通交易：{name}": "Set Up Trading: {name}",
@@ -146,5 +145,5 @@
   "打开只启动此账户的交易服务，不登录柜台。": "Opening only starts this account's trading service; it does not log in to the counter.",
   "未开通交易": "Trading not set up",
   "未打开": "Not open",
-  "还没有可交易的 CTP 账户。在设置中添加账户并填写交易前置与 AppID。": "No CTP account can trade yet. Add one in Settings with a trade front and an AppID."
+  "还没有 CTP 账户，请先在设置中添加。": "No CTP accounts yet. Add one in Settings first."
 }

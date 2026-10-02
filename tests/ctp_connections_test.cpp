@@ -50,17 +50,11 @@ TEST(CtpConnections, OneAccountSuppliesMarketDataUntilAnotherIsChosenOrItIsRemov
   Directory root;
   terminal::CtpConnections connections(root.path / "ctp-connections");
   EXPECT_FALSE(connections.market());
-  // An account without a market front cannot supply market data.
-  auto trading_only = simnow("t");
-  trading_only.market_front.clear();
-  connections.save(trading_only, "");
-  EXPECT_FALSE(connections.market());
-  EXPECT_THROW(connections.select_market("t"), std::invalid_argument);
   connections.save(simnow("a"), "");
   connections.save(simnow("b"), "");
   ASSERT_TRUE(connections.market());
   EXPECT_EQ(connections.market()->id, "a");
-  EXPECT_EQ(connections.snapshot().size(), 3) << "the choice is not listed as an account";
+  EXPECT_EQ(connections.snapshot().size(), 2) << "the choice is not listed as an account";
   EXPECT_THROW(connections.select_market("missing"), std::exception);
   connections.select_market("b");
   EXPECT_EQ(connections.market()->id, "b");
@@ -77,23 +71,14 @@ TEST(CtpConnections, RejectsMalformedSettingsBeforeWriting) {
            [](auto& c) { c.user_id = "000 001"; }, [](auto& c) { c.app_id = std::string(33, 'a'); },
            [](auto& c) { c.trade_front = "180.168.146.187:10201"; },
            [](auto& c) { c.market_front = "tcp://host:70000"; },
-           [](auto& c) { c.trade_front = "tcp://bad host:1"; },
-           [](auto& c) {
-             c.trade_front.clear();
-             c.market_front.clear();
-           }}) {
+           [](auto& c) { c.trade_front = "tcp://bad host:1"; }, [](auto& c) { c.app_id.clear(); },
+           [](auto& c) { c.trade_front.clear(); }, [](auto& c) { c.market_front.clear(); }}) {
     auto connection = simnow("bad");
     mutate(connection);
     EXPECT_THROW(connections.save(connection, ""), std::invalid_argument);
   }
   EXPECT_THROW(connections.save(simnow("../escape"), ""), std::invalid_argument);
   EXPECT_TRUE(connections.snapshot().empty());
-  // Market data only: no application identifier and no trade front.
-  auto market_only = simnow("market");
-  market_only.app_id.clear();
-  market_only.trade_front.clear();
-  connections.save(market_only, "");
-  EXPECT_TRUE(connections.get("market").trade_front.empty());
 }
 TEST(CtpConnections, UnreadableFileIsListedWithoutFailingTheSnapshot) {
   Directory root;

@@ -13,19 +13,22 @@ test("several CTP accounts trade side by side while one supplies market data", a
   // The form stays collapsed until an account is added.
   await expect(region).toContainText("还没有 CTP 账户");
   await region.getByRole("button", { name: "添加账户", exact: true }).click();
-  await fill({ 账户名称: "仿真柜台", 经纪商代码: "9999", 投资者账号: "000001" });
-  // Neither front is filled yet: nothing to connect to, so nothing to save.
-  await expect(region.getByRole("button", { name: "保存账户", exact: true })).toBeDisabled();
-  await fill({ 行情前置: "127.0.0.1:41213" });
+  await fill({
+    账户名称: "仿真柜台",
+    经纪商代码: "9999",
+    投资者账号: "000001",
+    AppID: "client_app",
+    交易前置: "tcp://127.0.0.1:41205",
+    行情前置: "127.0.0.1:41213",
+  });
   await region.getByRole("button", { name: "保存账户", exact: true }).click();
   await expect(region.getByRole("alert")).toContainText("行情前置格式应为 tcp://主机:端口");
   await fill({ 行情前置: "tcp://127.0.0.1:41213" });
   await region.getByRole("button", { name: "保存账户", exact: true }).click();
-  // The first account with a market front supplies market data without a further step.
+  // The first account supplies market data without a further step.
   const first = region.getByRole("region", { name: "仿真柜台", exact: true });
   const marketBadge = ".ctp-badge.market";
   await expect(first.locator(marketBadge)).toHaveText("用于行情");
-  await expect(first.locator("dd").nth(3)).toHaveText("未填写");
 
   await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await page.getByRole("tab", { name: "实时行情", exact: true }).click();
@@ -33,10 +36,8 @@ test("several CTP accounts trade side by side while one supplies market data", a
   await expect(market.getByRole("status", { name: "行情来源" })).toContainText(
     "仿真柜台（9999 · 000001）",
   );
-  // Market data only: it does not appear among the accounts that can trade.
   await page.locator(".workspace-tabs").getByRole("button", { name: "交易", exact: true }).click();
   const trading = page.getByRole("region", { name: "CTP 交易账户", exact: true });
-  await expect(trading).toContainText("还没有可交易的 CTP 账户");
 
   for (const [name, user] of [
     ["实盘柜台甲", "000002"],
@@ -54,10 +55,11 @@ test("several CTP accounts trade side by side while one supplies market data", a
     await region.getByRole("button", { name: "保存账户", exact: true }).click();
     await expect(region.getByRole("region", { name, exact: true })).toBeVisible();
   }
-  // Both can trade; saving them did not change where market data comes from.
+  // Every account can trade; saving more did not change where market data comes from.
   const list = trading.getByRole("navigation", { name: "CTP 账户" });
   await expect(list.getByRole("button", { name: /^实盘柜台/ })).toHaveCount(2);
-  await expect(list.getByRole("button", { name: /^仿真柜台/ })).toHaveCount(0);
+  await expect(list.getByRole("button", { name: /^仿真柜台/ })).toHaveCount(1);
+  await expect(first.locator(marketBadge)).toBeVisible();
   await list.getByRole("button", { name: /^实盘柜台乙/ }).click();
   await expect(trading.getByRole("status", { name: "CTP 账户" })).toContainText(
     "实盘柜台乙 · 8888 · 000003 · tcp://127.0.0.1:41205",

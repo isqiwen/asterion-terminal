@@ -445,7 +445,6 @@
   "正在准备": "PREPARING",
   "交易前置": "Trade Front",
   "投资者账号": "Investor ID",
-  "未填写": "Not set",
   "经纪商代码": "Broker ID",
   "行情前置": "Market Front",
   "CTP 账户": "CTP Account",
@@ -463,6 +462,5 @@
   "服务启动中": "Services starting",
   "还没有 CTP 账户。": "No CTP accounts yet.",
   "添加账户": "Add Account",
-  "选填": "Optional",
   "已开通交易，经纪商代码、投资者账号、AppID 和交易前置不能修改。": "Trading is set up; the broker ID, investor ID, AppID and trade front cannot be changed."
 }

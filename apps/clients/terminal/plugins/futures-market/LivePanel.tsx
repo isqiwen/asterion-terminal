@@ -166,7 +166,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
           <form
             onSubmit={event => {
               event.preventDefault();
-              if (!canConnect || !connection?.market_front) return;
+              if (!canConnect || !connection) return;
               const secret = password;
               setPassword("");
               void run(async () => {
@@ -175,7 +175,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
                   password: secret,
                   instruments: profile.instruments,
                 });
-                if (connection.trade_front) await loadCatalog(secret);
+                await loadCatalog(secret);
               });
             }}
           >
@@ -205,30 +205,30 @@ export function LivePanel({ context }: { context: TerminalContext }) {
                     onChange={e => setPassword(e.target.value)}
                   />
                 </label>
-                {connection?.trade_front && (
+                {connection && (
                   <label>
                     {t("授权码")}
                     <input
                       aria-label={t("授权码")}
+                      maxLength={16}
                       type="password"
                       autoComplete="off"
+                      required
                       value={authCode}
                       onChange={e => setAuthCode(e.target.value)}
                     />
                   </label>
                 )}
               </div>
-              <button type="submit" disabled={!canConnect || !connection?.market_front}>
+              <button type="submit" disabled={!canConnect || !connection}>
                 {t("连接行情")}
               </button>
             </fieldset>
             <p className="subtle">
-              {connection?.trade_front
-                ? t("连接行情后用行情账户的交易前置加载完整合约目录；仅查询合约，不开通交易。")
-                : t("行情账户在设置的 CTP 账户中选择；它填了交易前置才能加载完整合约目录。")}
+              {t("连接行情后用行情账户的交易前置加载完整合约目录；仅查询合约，不开通交易。")}
             </p>
           </form>
-          {!idle && connection?.trade_front && (
+          {!idle && connection && (
             <form
               onSubmit={event => {
                 event.preventDefault();
@@ -252,8 +252,10 @@ export function LivePanel({ context }: { context: TerminalContext }) {
                     {t("授权码")}
                     <input
                       aria-label={t("授权码")}
+                      maxLength={16}
                       type="password"
                       autoComplete="off"
+                      required
                       value={authCode}
                       onChange={e => setAuthCode(e.target.value)}
                     />

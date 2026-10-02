@@ -100,14 +100,14 @@ export function CtpConnections({
   const field = (
     key: keyof typeof blank,
     label: string,
-    options: { required?: boolean; maxLength: number; placeholder?: string },
+    options: { maxLength: number; placeholder?: string },
   ) => (
     <label>
       {label}
       <input
         aria-label={label}
         disabled={fixed && key !== "market_front"}
-        required={options.required}
+        required
         maxLength={options.maxLength}
         placeholder={options.placeholder}
         value={draft[key]}
@@ -140,14 +140,14 @@ export function CtpConnections({
             <dt>{t("投资者账号")}</dt>
             <dd>{connection.user_id}</dd>
             <dt>AppID</dt>
-            <dd>{connection.app_id || t("未填写")}</dd>
+            <dd>{connection.app_id}</dd>
             <dt>{t("交易前置")}</dt>
-            <dd>{connection.trade_front || t("未填写")}</dd>
+            <dd>{connection.trade_front}</dd>
             <dt>{t("行情前置")}</dt>
-            <dd>{connection.market_front || t("未填写")}</dd>
+            <dd>{connection.market_front}</dd>
           </dl>
           <footer>
-            {connection.id !== snapshot?.ctp_market && connection.market_front && (
+            {connection.id !== snapshot?.ctp_market && (
               <button
                 disabled={busy}
                 onClick={() => void run("ctp.connections.market", { id: connection.id })}
@@ -235,9 +235,9 @@ export function CtpConnections({
                 onChange={event => setDraft({ ...draft, name: event.target.value })}
               />
             </label>
-            {field("broker_id", t("经纪商代码"), { required: true, maxLength: 10 })}
-            {field("user_id", t("投资者账号"), { required: true, maxLength: 15 })}
-            {field("app_id", "AppID", { maxLength: 32, placeholder: t("选填") })}
+            {field("broker_id", t("经纪商代码"), { maxLength: 10 })}
+            {field("user_id", t("投资者账号"), { maxLength: 15 })}
+            {field("app_id", "AppID", { maxLength: 32 })}
             {field("trade_front", t("交易前置"), { maxLength: 64, placeholder: "tcp://host:port" })}
             {field("market_front", t("行情前置"), {
               maxLength: 64,
@@ -266,10 +266,7 @@ export function CtpConnections({
             >
               {t("取消")}
             </button>
-            <button
-              className="primary"
-              disabled={busy || (!draft.trade_front && !draft.market_front)}
-            >
+            <button className="primary" disabled={busy}>
               {t("保存账户")}
             </button>
           </div>

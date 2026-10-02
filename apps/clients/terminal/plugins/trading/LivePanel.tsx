@@ -48,10 +48,8 @@ const key = (item: { venue: string; symbol: string }) => `${item.venue}.${item.s
 // passes the allowed contracts, exchange units and pre-trade risk.
 export function LivePanel(context: TerminalContext) {
   const { snapshot, busy, trade } = context;
-  // Every CTP account with a trade front can trade; several may be open at once.
-  const accounts = (snapshot?.ctp_connections ?? [])
-    .filter(readableCtpConnection)
-    .filter(account => account.trade_front);
+  // Every CTP account can trade; several may be open at once.
+  const accounts = (snapshot?.ctp_connections ?? []).filter(readableCtpConnection);
   const [chosen, setChosen] = useWorkspaceDraft("live-account", "");
   const account = accounts.find(item => item.id === chosen) ?? accounts[0];
   const [error, setError] = useState<DisplayError>("");
@@ -90,7 +88,7 @@ export function LivePanel(context: TerminalContext) {
       )}
       {!accounts.length ? (
         <div className="workflow-empty">
-          <p>{t("还没有可交易的 CTP 账户。在设置中添加账户并填写交易前置与 AppID。")}</p>
+          <p>{t("还没有 CTP 账户，请先在设置中添加。")}</p>
           <button onClick={() => context.openSettings("ctp")}>{t("管理 CTP 账户")}</button>
         </div>
       ) : (
@@ -176,7 +174,6 @@ function CreateLive({
   const connection = account;
   const [step, setStep] = useWorkspaceDraft(`live-step:${account.id}`, 0);
   const [catalogCredentials, setCatalogCredentials] = useState({ password: "", auth_code: "" });
-  const tradable = !!connection.trade_front && !!connection.app_id;
   const [limits, setLimits] = useWorkspaceDraft(`live-risk:${account.id}`, {
     max_order_quantity: "",
     max_gross_quantity: "",
@@ -220,7 +217,6 @@ function CreateLive({
               <button type="button" onClick={() => openSettings("ctp")}>
                 {t("管理 CTP 账户")}
               </button>
-              {!tradable && <p role="alert">{t("交易需要交易前置与 AppID。")}</p>}
               <p className="subtle">{t("开通后柜台信息固定在此账户的交易记录中，不能再修改。")}</p>
               <p className="subtle">{t("密码与授权码在每次连接时输入，不保存。")}</p>
             </section>
@@ -252,6 +248,7 @@ function CreateLive({
                         type="password"
                         autoComplete="off"
                         aria-label={t("目录查询授权码")}
+                        maxLength={16}
                         value={catalogCredentials.auth_code}
                         onChange={e =>
                           setCatalogCredentials({
@@ -391,11 +388,7 @@ function CreateLive({
                 {t("上一步")}
               </button>
             )}
-            <button
-              className="primary"
-              type="submit"
-              disabled={!tradable || (step > 0 && !contracts.length)}
-            >
+            <button className="primary" type="submit" disabled={step > 0 && !contracts.length}>
               {t(step === 2 ? "创建 CTP 账户" : "下一步")}
             </button>
           </div>
@@ -597,6 +590,7 @@ function LiveAccount({
                 {t("授权码")}
                 <input
                   aria-label={t("授权码")}
+                  maxLength={16}
                   type="password"
                   autoComplete="off"
                   value={credentials.auth_code}

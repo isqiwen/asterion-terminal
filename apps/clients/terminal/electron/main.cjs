@@ -305,7 +305,12 @@ app
     native = require(path.join(resources, "native/asterion_terminal.node"));
     ipcMain.handle("asterion:request", async (event, body) => {
       authorized(event);
-      if (developmentStopping) throw new Error("Development environment is stopping");
+      // Status polls still arrive while the services stop. They get an
+      // ordinary error reply; throwing here only prints a stack per poll.
+      if (developmentStopping)
+        return JSON.stringify({
+          error: { code: "unavailable", message: "Development environment is stopping" },
+        });
       if (typeof body !== "string" || Buffer.byteLength(body) > 65536 || body.includes("\0"))
         throw new Error("Invalid native request");
       // Bound queued native work. The C++ facade rejects concurrent mutations.

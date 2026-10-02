@@ -83,12 +83,12 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         # The counter details are entered once; commands refer to them by id.
         call(process, "ctp.connections.save", dict(
             id="catalog", name="Catalog", revision="", broker_id="test", user_id="catalog",
-            app_id="", trade_front="tcp://127.0.0.1:1", market_front=""))
+            app_id="client_app", trade_front="tcp://127.0.0.1:1", market_front="tcp://127.0.0.1:1"))
         call(process, "ctp.connections.save", dict(
             id="account", name="Account", revision="", broker_id="9999", user_id="000001",
-            app_id="client_app", trade_front="tcp://127.0.0.1:41205", market_front=""))
+            app_id="client_app", trade_front="tcp://127.0.0.1:41205", market_front="tcp://127.0.0.1:1"))
         call(process, "market.catalog", dict(account="catalog", password="catalog-only",
-                                             auth_code=""))
+                                             auth_code=AUTH))
         wait(process, lambda s: s["market"]["catalog"]["phase"] == "ready")
         create = dict(
                       max_order_quantity="5", max_gross_quantity="10", max_working_orders="1",
@@ -125,7 +125,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         # and authorization: an order names its account and cannot use another's.
         call(process, "ctp.connections.save", dict(
             id="second", name="Second", revision="", broker_id="9999", user_id="000002",
-            app_id="client_app", trade_front="tcp://127.0.0.1:41205", market_front=""))
+            app_id="client_app", trade_front="tcp://127.0.0.1:41205", market_front="tcp://127.0.0.1:1"))
         trade(process, "live.create", dict(create, contracts=[dict(venue="SHFE", symbol="rb2610")]),
              account="second")
         state = call(process, "runtime.snapshot")
@@ -139,7 +139,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         fixed = call(process, "ctp.connections.save", dict(
             id="second", name="Second", revision=next(c["revision"] for c in state["ctp_connections"] if c["id"] == "second"),
             broker_id="9999", user_id="000003", app_id="client_app",
-            trade_front="tcp://127.0.0.1:41205", market_front=""), error=True)
+            trade_front="tcp://127.0.0.1:41205", market_front="tcp://127.0.0.1:1"), error=True)
         assert "fixed" in fixed["message"], fixed
         call(process, "ctp.connections.remove", dict(id="second", revision=next(
             c["revision"] for c in state["ctp_connections"] if c["id"] == "second")), error=True)

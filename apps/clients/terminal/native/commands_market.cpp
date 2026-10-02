@@ -31,8 +31,6 @@ void Application::Impl::register_market_commands() {
     if (!market)
       throw std::invalid_argument("start or select a market service first");
     const auto connection = market_ctp();
-    if (connection.market_front.empty())
-      throw std::invalid_argument("CTP connection has no market front");
     market->connect({{"front", connection.market_front},
                      {"broker", connection.broker_id},
                      {"user", connection.user_id},
@@ -53,8 +51,6 @@ void Application::Impl::register_market_commands() {
     if (!market)
       throw std::invalid_argument("select a market service first");
     const auto connection = ctp_connections.get(text(p, "account"));
-    if (connection.trade_front.empty())
-      throw std::invalid_argument("CTP connection has no trade front");
     market->catalog({{"front", connection.trade_front},
                      {"broker", connection.broker_id},
                      {"user", connection.user_id},

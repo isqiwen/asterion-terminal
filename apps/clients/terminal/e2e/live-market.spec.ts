@@ -1,13 +1,12 @@
 import { ctpConnection } from "./dataset-fixture";
 import { test, expect, type Page } from "./test";
 
-// The market data account: with a trade front the full catalog loads too.
-async function account(page: Page, catalog: boolean) {
-  await ctpConnection(page.request, catalog ? "full-market" : "market-only", {
+// The market data account of these specs.
+async function account(page: Page) {
+  await ctpConnection(page.request, "market-account", {
     broker_id: "test",
     user_id: "fixture",
-    market_front: "tcp://127.0.0.1:1",
-    ...(catalog ? { trade_front: "tcp://127.0.0.1:1" } : {}),
+    market: true,
   });
 }
 
@@ -21,13 +20,14 @@ async function marketMenu(page: Page) {
 test("full market loads automatically and watchlist membership stays independent", async ({
   page,
 }) => {
-  await account(page, true);
+  await account(page);
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await page.getByRole("tab", { name: "实时行情", exact: true }).click();
   const panel = page.getByRole("region", { name: "实时期货行情" });
-  await expect(panel.getByRole("status", { name: "行情来源" })).toContainText("full-market");
+  await expect(panel.getByRole("status", { name: "行情来源" })).toContainText("market-account");
   await panel.getByLabel("密码", { exact: true }).fill("ui-fixture-secret");
+  await panel.getByLabel("授权码", { exact: true }).fill("ui-fixture-auth");
   await panel.getByRole("button", { name: "连接行情", exact: true }).click();
   await expect(panel.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
   await expect((await marketMenu(page)).getByRole("button", { name: "全部月份" })).toBeVisible();
@@ -47,38 +47,19 @@ test("full market loads automatically and watchlist membership stays independent
   await (await marketMenu(page)).getByRole("button", { name: "断开行情", exact: true }).click();
 });
 
-test("login without subscriptions keeps the add-contract workflow visible", async ({ page }) => {
-  await account(page, false);
-  await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
-  await page.getByRole("tab", { name: "实时行情", exact: true }).click();
-  const panel = page.getByRole("region", { name: "实时期货行情" });
-  await expect(panel.getByRole("status", { name: "行情来源" })).toContainText("market-only");
-  await panel.getByLabel("密码", { exact: true }).fill("ui-fixture-secret");
-  await panel.getByRole("button", { name: "连接行情", exact: true }).click();
-  await expect(
-    panel.getByText("已登录，尚未订阅合约。选择交易所并添加实际月份合约后接收行情。", {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await panel.getByLabel("实际合约", { exact: true }).fill("rb2610");
-  await panel.getByRole("button", { name: "添加自选", exact: true }).click();
-  await expect(panel.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
-  await (await marketMenu(page)).getByRole("button", { name: "断开行情", exact: true }).click();
-});
-
 test("read-only market workspace receives C++ test SDK quotes without storing credentials", async ({
   page,
 }) => {
-  await account(page, false);
+  await account(page);
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await page.getByRole("tab", { name: "实时行情", exact: true }).click();
   const panel = page.getByRole("region", { name: "实时期货行情" });
   await panel.getByLabel("实际合约", { exact: true }).fill("rb2610");
   await panel.getByRole("button", { name: "添加自选" }).click();
-  await expect(panel.getByRole("status", { name: "行情来源" })).toContainText("market-only");
+  await expect(panel.getByRole("status", { name: "行情来源" })).toContainText("market-account");
   await panel.getByLabel("密码", { exact: true }).fill("ui-fixture-secret");
+  await panel.getByLabel("授权码", { exact: true }).fill("ui-fixture-auth");
   const connect = panel.getByRole("button", { name: "连接行情", exact: true });
   await expect(panel.locator(".market-session > .panel-heading").getByRole("status")).toHaveText(
     "未登录",

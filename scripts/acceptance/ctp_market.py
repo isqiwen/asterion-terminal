@@ -132,7 +132,9 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", ignore_cleanup_errors=T
         # only one there and therefore the current one.
         call("ctp.connections.save", {"id": "acceptance", "name": "acceptance", "revision": "",
                                       "broker_id": args.broker, "user_id": args.user,
-                                      "app_id": "", "trade_front": "",
+                                      # Required by the account, unused here:
+                                      # this script only logs in to market data.
+                                      "app_id": "acceptance", "trade_front": args.front,
                                       "market_front": args.front})
         state = call("market.connect", {"password": password, "instruments": instruments})
         password = ""

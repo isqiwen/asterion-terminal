@@ -52,8 +52,6 @@ void Application::Impl::register_live_commands() {
     // Validated before the braced initializer (GCC < 13 PR66139 leak).
     const auto risk = risk_parameters(p);
     const auto connection = ctp_connections.get(account);
-    if (connection.trade_front.empty())
-      throw std::invalid_argument("CTP connection has no trade front");
     if (std::filesystem::exists(ctp_record_directory(account) / "journal.sqlite"))
       throw Error(ErrorCode::conflict, "this CTP account already has a trading record; open it");
     auto contracts = catalog_terms(market ? market->snapshot() : json(nullptr), p.at("contracts"));

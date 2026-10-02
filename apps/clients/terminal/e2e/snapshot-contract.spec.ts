@@ -120,8 +120,8 @@ test("C++ snapshots conform to the Terminal API types in every state", async ({ 
       revision: "",
       broker_id: "test",
       user_id: "fixture",
-      app_id: "",
-      trade_front: "",
+      app_id: "app",
+      trade_front: "tcp://127.0.0.1:1",
       market_front: "tcp://127.0.0.1:1",
     });
     const connected = await call(page.request, "market.connect", {

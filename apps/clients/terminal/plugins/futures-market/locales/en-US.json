@@ -272,6 +272,5 @@
   "尚未选择行情账户": "No market data account selected",
   "更换": "Change",
   "行情来源：{name}（{broker} · {user}）": "Market data source: {name} ({broker} · {user})",
-  "行情账户在设置的 CTP 账户中选择；它填了交易前置才能加载完整合约目录。": "The market data account is chosen under CTP Accounts in Settings. The full contract catalog needs its trade front.",
   "连接行情后用行情账户的交易前置加载完整合约目录；仅查询合约，不开通交易。": "After the market login, the trade front of the market data account loads the full contract catalog. It only queries contracts and does not enable trading."
 }

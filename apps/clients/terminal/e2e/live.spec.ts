@@ -15,13 +15,11 @@ test("live CTP session connects, authorizes and trades through the execution cha
     await ctpConnection(page.request, "live-account", {
       broker_id: "9999",
       user_id: "000001",
-      app_id: "client_app",
       trade_front: "tcp://127.0.0.1:41205",
     });
     await ctpConnection(page.request, "other-account", {
       broker_id: "9999",
       user_id: "000002",
-      app_id: "client_app",
       trade_front: "tcp://127.0.0.1:41205",
     });
     await page.goto("/");

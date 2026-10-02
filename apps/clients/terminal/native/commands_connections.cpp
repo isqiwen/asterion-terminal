@@ -98,9 +98,8 @@ void Application::Impl::register_connection_commands() {
     if (std::filesystem::exists(ctp_record_directory(text(params, "id")) / "journal.sqlite")) {
       const auto current = ctp_connections.get(text(params, "id"));
       if (current.broker_id != text(params, "broker_id") ||
-          current.user_id != text(params, "user_id") ||
-          current.app_id != text(params, "app_id", true) ||
-          current.trade_front != text(params, "trade_front", true))
+          current.user_id != text(params, "user_id") || current.app_id != text(params, "app_id") ||
+          current.trade_front != text(params, "trade_front"))
         throw Error(ErrorCode::conflict,
                     "this account already trades; its counter details are fixed");
     }
@@ -108,9 +107,9 @@ void Application::Impl::register_connection_commands() {
                           text(params, "name"),
                           text(params, "broker_id"),
                           text(params, "user_id"),
-                          text(params, "app_id", true),
-                          text(params, "trade_front", true),
-                          text(params, "market_front", true),
+                          text(params, "app_id"),
+                          text(params, "trade_front"),
+                          text(params, "market_front"),
                           {}},
                          text(params, "revision", true));
     return snapshot();

@@ -40,16 +40,12 @@ void validate(const CtpConnection& c) {
     throw std::invalid_argument("CTP broker id must be 1 to 10 characters without spaces");
   if (!identity(c.user_id, 15, true))
     throw std::invalid_argument("CTP investor id must be 1 to 15 characters without spaces");
-  if (!identity(c.app_id, 32, false))
-    throw std::invalid_argument("CTP AppID must be at most 32 characters without spaces");
-  if (!c.trade_front.empty() && !front(c.trade_front))
+  if (!identity(c.app_id, 32, true))
+    throw std::invalid_argument("CTP AppID must be 1 to 32 characters without spaces");
+  if (!front(c.trade_front))
     throw std::invalid_argument("CTP trade front must look like tcp://host:port");
-  if (!c.market_front.empty() && !front(c.market_front))
+  if (!front(c.market_front))
     throw std::invalid_argument("CTP market front must look like tcp://host:port");
-  // A connection may be used for market data only: the application
-  // identifier and either front may be left out until they are needed.
-  if (c.trade_front.empty() && c.market_front.empty())
-    throw std::invalid_argument("enter a CTP trade front or market front");
 }
 Json encode(const CtpConnection& c) {
   return {{"version", 1},
@@ -137,8 +133,8 @@ void CtpConnections::save(CtpConnection connection, const std::string& expected)
   connection.revision = unique_process_id();
   replace_file_durably(file, encode(connection).dump(), true);
   cached_.reset();
-  // The first account with a market front supplies market data without a further step.
-  if (!market() && !connection.market_front.empty())
+  // The first account supplies market data without a further step.
+  if (!market())
     replace_file_durably(directory_ / "market", connection.id, true);
 }
 std::optional<CtpConnection> CtpConnections::market() const {
@@ -157,8 +153,7 @@ std::optional<CtpConnection> CtpConnections::market() const {
   }
 }
 void CtpConnections::select_market(const std::string& id) {
-  if (get(id).market_front.empty())
-    throw std::invalid_argument("CTP connection has no market front");
+  static_cast<void>(get(id));
   FileLock lock(directory_, "connections.lock");
   replace_file_durably(directory_ / "market", id, true);
 }

@@ -903,8 +903,6 @@
   "unsupported upload path characters": "unsupported upload path characters",
   "update target mismatch": "update target mismatch",
   "应用自带的插件必须保持启用": "Plugins shipped with the application must stay enabled.",
-  "CTP connection has no market front": "CTP connection has no market front",
-  "CTP connection has no trade front": "CTP connection has no trade front",
   "CTP connection changed; inspect again": "CTP connection changed; inspect again",
   "CTP connection is unavailable": "CTP connection is unavailable",
   "too many CTP connections": "too many CTP connections",
@@ -922,8 +920,7 @@
   "CTP account name must be 1 to 128 characters": "CTP account name must be 1 to 128 characters",
   "CTP broker id must be 1 to 10 characters without spaces": "CTP broker id must be 1 to 10 characters without spaces",
   "CTP investor id must be 1 to 15 characters without spaces": "CTP investor id must be 1 to 15 characters without spaces",
-  "CTP AppID must be at most 32 characters without spaces": "CTP AppID must be at most 32 characters without spaces",
   "CTP trade front must look like tcp://host:port": "CTP trade front must look like tcp://host:port",
   "CTP market front must look like tcp://host:port": "CTP market front must look like tcp://host:port",
-  "enter a CTP trade front or market front": "enter a CTP trade front or market front"
+  "CTP AppID must be 1 to 32 characters without spaces": "CTP AppID must be 1 to 32 characters without spaces"
 }

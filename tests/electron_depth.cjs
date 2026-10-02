@@ -111,7 +111,7 @@ const path = require("node:path");
       revision: "",
       broker_id: "test",
       user_id: "fixture",
-      app_id: "",
+      app_id: "app",
       trade_front: "tcp://127.0.0.1:1",
       market_front: "tcp://127.0.0.1:1",
     });
@@ -119,12 +119,18 @@ const path = require("node:path");
     await call("market.catalog", {
       account: "fixture",
       password: "explicit-catalog-fixture",
-      auth_code: "",
+      auth_code: "depth-auth",
     });
     await expect
       .poll(
-        async () =>
-          (await call("runtime.snapshot")).market?.subscriptions[0]?.quote?.bid_levels[0]?.price,
+        async () => {
+          const market = (await call("runtime.snapshot")).market;
+          // Shown when the wait fails: where the market service stopped.
+          return (
+            market?.subscriptions[0]?.quote?.bid_levels[0]?.price ??
+            `phase=${market?.phase} catalog=${market?.catalog?.phase} ${market?.catalog?.diagnostic ?? ""}`
+          );
+        },
         { timeout: 15000 },
       )
       .toBe("3508.25");

@@ -74,8 +74,10 @@ test("a service that has just started reads as starting, not as a fault", async 
   // Startup itself waits for healthy services; this is a restart afterwards.
   let health = "ready";
   await page.route("**/__asterion/api", async route => {
-    if (route.request().postDataJSON().method !== "runtime.snapshot") return route.continue();
-    const response = await route.fetch();
+    const request = route.request().postDataJSON();
+    if (request.method !== "runtime.snapshot") return route.continue();
+    // Ask for the whole snapshot: an "unchanged" reply has no services to alter.
+    const response = await route.fetch({ postData: JSON.stringify({ ...request, params: {} }) });
     const body = await response.json();
     for (const node of body.result?.nodes ?? [])
       for (const service of node.health?.services ?? [])
