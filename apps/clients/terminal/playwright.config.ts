@@ -6,15 +6,6 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   use: {
-    storageState: {
-      cookies: [],
-      origins: [
-        {
-          origin: origin,
-          localStorage: [{ name: "asterion.setup.completed.v1", value: "1" }],
-        },
-      ],
-    },
     baseURL: origin,
     viewport: { width: 1440, height: 900 },
     trace: "retain-on-failure",

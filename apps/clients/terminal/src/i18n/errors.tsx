@@ -23,7 +23,7 @@ const errors: Record<string, string> = {
 };
 // These messages carry operation-specific evidence after a stable prefix.
 // Keep that evidence in Details; do not expose service identifiers as UI copy.
-const upgradeDiagnostics = [
+const prefixedDiagnostics = [
   [
     "Agent upgrade is waiting for a recoverable service boundary: ",
     "更新正在等待后台工作安全结束，请稍后重试",
@@ -32,11 +32,12 @@ const upgradeDiagnostics = [
     "Agent upgrade validate: service lacks an automatic upgrade recovery boundary: ",
     "正在运行的服务尚不支持自动更新，请保留当前工作并稍后重试",
   ],
+  ["bundled plugin is required: ", "应用自带的插件必须保持启用"],
 ] as const;
 function diagnosticSummary(message: string) {
   const known = localizeText("diagnostics", message);
   if (known) return known;
-  const match = upgradeDiagnostics.find(([prefix]) => message.startsWith(prefix));
+  const match = prefixedDiagnostics.find(([prefix]) => message.startsWith(prefix));
   return match ? translate("diagnostics", match[1]) : undefined;
 }
 export function asDisplayError(value: unknown): DisplayError {

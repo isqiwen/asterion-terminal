@@ -176,7 +176,7 @@ export function RemoteMachine({
                     [
                       ["ssh_port", "SSH 端口"],
                       ["username", "SSH 用户"],
-                      ["agent_port", "Agent 管理端口"],
+                      ["agent_port", "服务管理器端口"],
                     ] as const
                   ).map(([field, label]) => (
                     <label key={field}>

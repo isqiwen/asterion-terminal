@@ -1,7 +1,40 @@
-import { test, expect } from "./test";
+import { test, expect, type Page } from "./test";
 
-test.use({ storageState: { cookies: [], origins: [] } });
-test("fresh setup requires consent, reports real failure, retries and persists completion", async ({
+test.use({ enterWorkbench: false });
+// The one step whose row reports a failure.
+const failedStep = (page: Page) => page.locator(".setup-step").filter({ hasText: "失败" });
+
+test("startup lists unloadable plugins and interrupted tasks without blocking entry", async ({
+  page,
+}) => {
+  await page.route("**/__asterion/api", async route => {
+    const body = route.request().postDataJSON();
+    if (!["native.plugins.inspect", "runtime.snapshot"].includes(body.method))
+      return route.continue();
+    const response = await route.fetch();
+    const value = await response.json();
+    if (body.method === "native.plugins.inspect")
+      value.result.native_plugins.items.push({
+        file: "broken.dylib",
+        id: "",
+        version: "",
+        sha256: "f".repeat(64),
+        capabilities: [],
+        state: "invalid",
+        error: "plugin entry point is missing",
+      });
+    else if (value.result.research?.tasks)
+      value.result.research.tasks.push({ id: "left-over", kind: "backtest", state: "interrupted" });
+    return route.fulfill({ response, json: value });
+  });
+  await page.goto("/");
+  const notices = page.getByRole("list", { name: "进入前请留意" });
+  await expect(notices).toContainText("插件 broken.dylib 无法加载");
+  await expect(notices).toContainText("1 项任务上次被中断");
+  await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
+});
+
+test("startup reports the failing step, retries and waits for the user on every launch", async ({
   page,
 }) => {
   let starts = 0;
@@ -42,20 +75,15 @@ test("fresh setup requires consent, reports real failure, retries and persists c
     return route.continue();
   });
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "开始设置", exact: true })).toBeEnabled();
-  expect(starts).toBe(0);
-  await expect(
-    page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
-  ).toHaveCount(0);
-  await page.getByRole("combobox", { name: "语言", exact: true }).selectOption("en");
-  await expect(page.getByRole("button", { name: "BEGIN SETUP", exact: true })).toBeVisible();
-  await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("zh");
-  await page.screenshot({ path: "apps/clients/terminal/test-results/first-setup.png" });
-  await page.getByRole("button", { name: "开始设置", exact: true }).click();
+  // Startup runs by itself and stays on this screen whatever the outcome.
   await expect(page.getByRole("alert")).toContainText("操作失败");
   await page.getByRole("alert").getByRole("button", { name: "详情" }).click();
   await expect(page.getByRole("alert")).toContainText("Agent start failed");
-  expect(await page.evaluate(() => localStorage.getItem("asterion.setup.completed.v1"))).toBeNull();
+  await expect(failedStep(page)).toHaveText(/^服务管理器/);
+  await page.getByRole("combobox", { name: "语言", exact: true }).selectOption("en");
+  await expect(page.getByRole("button", { name: "RETRY", exact: true })).toBeVisible();
+  await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("zh");
+  await page.screenshot({ path: "apps/clients/terminal/test-results/startup-failure.png" });
   await expect(
     page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
   ).toHaveCount(0);
@@ -63,19 +91,19 @@ test("fresh setup requires consent, reports real failure, retries and persists c
   await page.getByRole("button", { name: "重试启动", exact: true }).click();
   await expect(page.getByRole("button", { name: "重试启动", exact: true })).toBeEnabled();
   expect(marketStarts).toBe(1);
-  expect(await page.evaluate(() => localStorage.getItem("asterion.setup.completed.v1"))).toBeNull();
+  await expect(failedStep(page)).toHaveText(/^行情服务/);
   failMarket = false;
   await page.getByRole("button", { name: "重试启动", exact: true }).click();
   await expect(page.getByRole("button", { name: "重试启动", exact: true })).toBeEnabled();
   expect(researchStarts).toBe(1);
-  expect(await page.evaluate(() => localStorage.getItem("asterion.setup.completed.v1"))).toBeNull();
+  await expect(failedStep(page)).toHaveText(/^研究服务/);
   failResearch = false;
   await page.getByRole("button", { name: "重试启动", exact: true }).click();
   await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
   expect(starts).toBe(4);
   expect(marketStarts).toBe(3);
   expect(researchStarts).toBe(2);
-  await expect(page.getByRole("progressbar", { name: "验证服务连接" })).toHaveAttribute(
+  await expect(page.getByRole("progressbar", { name: "研究服务" })).toHaveAttribute(
     "aria-valuenow",
     "100",
   );
@@ -83,7 +111,13 @@ test("fresh setup requires consent, reports real failure, retries and persists c
   await expect(
     page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
   ).toBeVisible();
+  // A later launch checks the services by itself, then still waits for the user.
   await page.reload();
+  await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
+  await expect(
+    page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "进入工作台", exact: true }).click();
   await expect(
     page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
   ).toBeVisible();
@@ -138,11 +172,10 @@ for (const updateState of ["update_available", "recovery_required"])
       return route.continue();
     });
     await page.goto("/");
-    await page.getByRole("button", { name: "开始设置", exact: true }).click();
     await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
     expect(upgradeCalls).toBe(1);
     expect(serviceStarts).toBe(3);
-    await expect(page.getByRole("button", { name: "升级 Agent", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "升级服务管理器", exact: true })).toHaveCount(0);
   });
 
 for (const failure of ["market", "research", "stale"] as const)
@@ -165,12 +198,11 @@ for (const failure of ["market", "research", "stale"] as const)
       return route.continue();
     });
     await page.goto("/");
-    await page.getByRole("button", { name: "开始设置", exact: true }).click();
     await expect(page.getByRole("button", { name: "重试启动", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toHaveCount(0);
-    expect(
-      await page.evaluate(() => localStorage.getItem("asterion.setup.completed.v1")),
-    ).toBeNull();
+    await expect(failedStep(page)).toHaveText(
+      { market: /^行情服务/, research: /^研究服务/, stale: /^服务管理器/ }[failure],
+    );
     fail = false;
     await page.getByRole("button", { name: "重试启动", exact: true }).click();
     await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
@@ -217,7 +249,6 @@ for (const [diagnostic, summary, english] of [
       return route.continue();
     });
     await page.goto("/");
-    await page.getByRole("button", { name: "开始设置", exact: true }).click();
     const alert = page.getByRole("alert");
     await expect(alert).toContainText(summary);
     await expect(alert).not.toContainText(diagnostic);
@@ -227,8 +258,5 @@ for (const [diagnostic, summary, english] of [
     await expect(alert).toContainText(english);
     expect(upgradeCalls).toBe(1);
     expect(serviceStarts).toBe(0);
-    expect(
-      await page.evaluate(() => localStorage.getItem("asterion.setup.completed.v1")),
-    ).toBeNull();
     await expect(page.getByRole("button", { name: "RETRY", exact: true })).toBeEnabled();
   });

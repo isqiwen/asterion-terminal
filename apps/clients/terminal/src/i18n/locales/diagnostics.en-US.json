@@ -1,5 +1,4 @@
 {
-  "本机 Agent 版本不同，需要显式升级系统服务": "local Agent version differs; upgrade the system service explicitly",
   "服务已存在，不覆盖原程序或账本": "service already exists; its program and ledger are not replaced",
   "请选择已存在的绝对路径交易记录目录": "choose an existing absolute trading record directory",
   "请粘贴完整的 SSH 私钥内容": "paste the complete SSH private key",
@@ -8,12 +7,10 @@
   "SSH 上传失败；检查认证、主机身份及目标目录权限": "SSH upload failed; check authentication, host identity and target directory permission",
   "已有节点缺少本机 SSH 密钥；请由管理员显式重新授权，不自动生成替代密钥": "existing node has no local SSH key; an administrator must re-authorize explicitly, no replacement key is generated",
   "节点尚未完成 SSH 身份配置": "node SSH identity is not configured",
-  "Linux 节点使用初始化脚本创建的 asterion 账户，Agent 端口不得小于 1024": "Linux nodes use the asterion account created by the initializer; the Agent port must be at least 1024",
   "远程部署仅支持 Linux": "remote deployment supports Linux only",
   "SSH 校验失败：请检查主机身份、认证、Linux 平台与机器初始化状态": "SSH verification failed; check host identity, authentication, Linux platform and host initialization",
   "节点名称已用于另一安装配置，不覆盖原身份或服务": "node name is used by another installation; its identity and services are not replaced",
   "系统服务安装未完成；保留本机身份，未覆盖已有远端安装，请检查目标服务及权限": "system service installation incomplete; local identity kept and existing remote installation untouched, check the target service and permissions",
-  "Agent 已安装，但 TCP/mTLS 心跳不可达；检查管理端口防火墙后连接节点，不要重复安装": "Agent installed but its TCP/mTLS heartbeat is unreachable; check the management port firewall, then connect without reinstalling",
   "不支持的远程 Linux 架构": "unsupported remote Linux architecture",
   "桌面包缺少内置 Linux 服务资源": "desktop package lacks bundled Linux service resources",
   "桌面包缺少目标 Linux 架构资源，请重新安装完整安装包": "desktop package lacks resources for the target Linux architecture; reinstall the complete package",
@@ -33,7 +30,6 @@
   "请先创建或恢复模拟会话": "create or recover a paper session first",
   "本机节点监控不能移除": "the local node monitor cannot be removed",
   "请先断开当前交易会话": "disconnect the current trading session first",
-  "远程服务需要同版本的在线 Linux Agent": "remote services require an online Linux Agent of the same version",
   "不支持的 API 版本": "unsupported API version",
   "请选择存在的本机 CSV 文件": "choose an existing local CSV file",
   "预览文件不得超过 32 MiB": "preview file must not exceed 32 MiB",
@@ -145,7 +141,6 @@
   "已有操作正在进行，请完成后重试": "another Terminal operation is in progress; retry after it completes",
   "更新正在等待后台工作安全结束，请稍后重试": "The update is waiting for background work to finish safely. Retry later.",
   "正在运行的服务尚不支持自动更新，请保留当前工作并稍后重试": "A running service does not yet support automatic updates. Keep your current work running and retry later.",
-  "当前 Agent 不支持安全协调更新，无法继续自动启动": "installed Agent does not support coordinated upgrades",
   "另一更新正在管理此节点，请完成后重试": "Agent upgrade validate: another upgrade owns this node",
   "更新记录需要检查和恢复，当前工作已保留": "Agent upgrade validate: upgrade plan publication requires recovery",
   "无法隔离后台进程的通信通道，启动已取消": "cannot isolate child process descriptors",
@@ -463,8 +458,6 @@
   "Terminal 环境配置无效": "invalid Terminal environment",
   "开发环境已由另一个入口打开": "development environment is already open in another entry point",
   "自动停止仅适用于本机开发环境": "automatic shutdown requires the managed development environment",
-  "正在等待 Agent 维护完成后停止开发环境": "development shutdown is waiting for Agent maintenance to finish",
-  "停止过程中无法确认开发 Agent 状态": "development Agent status is unavailable during shutdown",
   "开发环境正在停止": "Development environment is stopping",
   "开发环境停止请求无效": "invalid development shutdown request",
   "dataset archive changed during resolution": "dataset archive changed during resolution",
@@ -908,5 +901,6 @@
   "unsupported research action": "unsupported research action",
   "unsupported service action": "unsupported service action",
   "unsupported upload path characters": "unsupported upload path characters",
-  "update target mismatch": "update target mismatch"
+  "update target mismatch": "update target mismatch",
+  "应用自带的插件必须保持启用": "Plugins shipped with the application must stay enabled."
 }

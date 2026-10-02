@@ -5,7 +5,25 @@ export * from "@playwright/test";
 // services and data left by one file never affect the next. Specs import
 // `test` from here instead of @playwright/test.
 let currentFile: string | undefined;
-export const test = base.extend<{ isolatedNode: void }>({
+export const test = base.extend<{
+  isolatedNode: void;
+  enterWorkbench: boolean;
+  startupEntry: void;
+}>({
+  // The startup screen waits for the user on every launch. Specs about the
+  // workbench pass through it; specs about startup itself set this to false.
+  enterWorkbench: [true, { option: true }],
+  startupEntry: [
+    async ({ context, enterWorkbench }, use) => {
+      if (enterWorkbench)
+        context.on("page", page => {
+          const enter = page.getByRole("button", { name: /^(进入工作台|ENTER WORKBENCH)$/ });
+          void page.addLocatorHandler(enter, () => enter.click());
+        });
+      await use();
+    },
+    { auto: true },
+  ],
   isolatedNode: [
     async ({ request }, use, testInfo) => {
       if (testInfo.file !== currentFile) {

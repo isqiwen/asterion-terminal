@@ -85,14 +85,9 @@ async function main() {
     );
     assert.equal(await application.evaluate(() => process.env.ASTERION_ENVIRONMENT), "development");
     await expect(page.locator(".environment-label")).toBeVisible();
-    const start = page.getByRole("button", { name: /^(开始设置|BEGIN SETUP)$/ });
-    await expect(start.or(page.locator(".workspace-tabs"))).toBeVisible({ timeout: 60000 });
-    if (await start.isVisible()) {
-      await start.click();
-      await page
-        .getByRole("button", { name: /^(进入工作台|ENTER WORKBENCH)$/ })
-        .click({ timeout: 60000 });
-    }
+    await page
+      .getByRole("button", { name: /^(进入工作台|ENTER WORKBENCH)$/ })
+      .click({ timeout: 60000 });
     await expect(page.locator(".workspace-tabs button")).toHaveCount(6, { timeout: 60000 });
     await expect(page.locator(".service-status > button")).toHaveClass("good", { timeout: 30000 });
     const plist = await fs.readFile(
@@ -147,6 +142,9 @@ async function main() {
     });
     application = await launch();
     page = await application.firstWindow();
+    await page
+      .getByRole("button", { name: /^(进入工作台|ENTER WORKBENCH)$/ })
+      .click({ timeout: 60000 });
     await expect(page.locator(".workspace-tabs button").last()).toHaveAttribute(
       "aria-current",
       "page",

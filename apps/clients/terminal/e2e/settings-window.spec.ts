@@ -10,7 +10,7 @@ for (const state of ["update_available", "recovery_required"] as const) {
     const settings = await openSettingsWindow(page);
     await settings.getByRole("button", { name: "连接与部署", exact: true }).click();
     await settings.getByRole("button", { name: "机器管理", exact: true }).click();
-    await settings.getByText("Agent 程序", { exact: true }).click();
+    await settings.getByText("服务管理器程序", { exact: true }).click();
     let inspected: Snapshot | undefined;
     const calls: string[] = [];
     await settings.route("**/__asterion/api", async route => {
@@ -53,7 +53,7 @@ for (const state of ["update_available", "recovery_required"] as const) {
     await settings.getByRole("button", { name: "检查程序更新", exact: true }).click();
     await expect(settings.getByText(/更新会等待服务安全停止/)).toBeVisible();
     const upgrade = settings.getByRole("button", {
-      name: state === "recovery_required" ? "继续恢复" : "升级 Agent",
+      name: state === "recovery_required" ? "继续恢复" : "升级服务管理器",
       exact: true,
     });
     await expect(upgrade).toBeEnabled();
@@ -75,7 +75,7 @@ test("settings shows a busy command without automatically retrying or losing dra
   const settings = await openSettingsWindow(page);
   await settings.getByRole("button", { name: "连接与部署", exact: true }).click();
   await settings.getByRole("button", { name: "机器管理", exact: true }).click();
-  await settings.getByText("Agent 程序", { exact: true }).click();
+  await settings.getByText("服务管理器程序", { exact: true }).click();
   let inspections = 0;
   await settings.route("**/__asterion/api", route => {
     if (route.request().postDataJSON().method === "node.agent.inspect" && ++inspections === 1) {

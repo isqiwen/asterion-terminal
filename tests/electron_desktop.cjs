@@ -97,9 +97,11 @@ async function closeDesktop(application) {
       ),
     );
     assert.equal(reply.result.protocol, 1);
-    await expect(page.getByRole("button", { name: "开始设置", exact: true })).toBeVisible();
+    // Startup runs by itself and waits for the user before entering.
+    await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeVisible({
+      timeout: 60000,
+    });
     await capture(page, "native-startup");
-    await page.getByRole("button", { name: "开始设置", exact: true }).click();
     await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
     for (const [name, selector] of [
       ["自选", ".watchlist-workspace"],
@@ -193,6 +195,7 @@ async function closeDesktop(application) {
     await call("research.dataset.clear");
     // Fixtures change the native core outside React; establish a fresh snapshot before UI work.
     await page.reload();
+    await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
     await page
       .locator(".workspace-tabs")
       .getByRole("button", { name: "数据", exact: true })
@@ -413,6 +416,7 @@ async function closeDesktop(application) {
     await settings.evaluate(() => window.asterionDesktop.close());
 
     await page.reload();
+    await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
     await page
       .locator(".workspace-tabs")
       .getByRole("button", { name: "研究", exact: true })
@@ -472,6 +476,9 @@ async function closeDesktop(application) {
     process.kill(ownedPid, 0); // Closing the desktop must not stop its managed Agent.
     application = await launch();
     const restored = await application.firstWindow();
+    await restored
+      .getByRole("button", { name: "进入工作台", exact: true })
+      .click({ timeout: 60000 });
     await expect(
       restored.getByRole("navigation", { name: "业务工作区" }).getByRole("button"),
     ).toHaveCount(6);

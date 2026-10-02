@@ -3,7 +3,12 @@ import { open } from "../bridge/desktop";
 import { useEffect, useState } from "react";
 import type { NativePluginInfo, Snapshot, TerminalCommand } from "../bridge/client";
 import { translate } from "../i18n";
-import { availableResearchPlugins, selectPlugin } from "../host/native-plugins";
+import {
+  availableResearchPlugins,
+  defaultResearchPlugins,
+  requiredPluginIds,
+  selectPlugin,
+} from "../host/native-plugins";
 import { ErrorNotice, BackendError, asDisplayError, type DisplayError } from "../i18n/errors";
 const t = (key: string) => translate("host", key);
 type Props = {
@@ -12,6 +17,33 @@ type Props = {
   trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
 };
 type Service = NonNullable<Snapshot["nodes"][number]["health"]>["services"][number];
+// A selected required plugin cannot be cleared; choosing another version replaces it.
+function PluginChoice({
+  item,
+  required,
+  checked,
+  onChange,
+}: {
+  item: NativePluginInfo;
+  required: boolean;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="native-plugin-choice">
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={required && checked}
+        onChange={event => onChange(event.target.checked)}
+      />
+      <span>
+        {item.id} · {item.version}
+        {required && ` · ${t("必需")}`}
+      </span>
+    </label>
+  );
+}
 function ServicePlugins({
   service,
   items,
@@ -36,6 +68,7 @@ function ServicePlugins({
     service.state === "stopped" && !service.desired_running && service.active_workers === 0;
   const editable = stopped && online && !maintenance && !busy && !stale;
   const options = availableResearchPlugins(items);
+  const required = requiredPluginIds(items);
   const pinned = service.plugin_artifacts.filter(
     hash => !options.some(item => item.sha256 === hash),
   );
@@ -84,16 +117,13 @@ function ServicePlugins({
       <fieldset disabled={!editable}>
         <legend>{t("启用的研究插件")}</legend>
         {options.map(item => (
-          <label className="native-plugin-choice" key={item.sha256}>
-            <input
-              type="checkbox"
-              checked={selected.includes(item.sha256)}
-              onChange={event => toggle(item.sha256, event.target.checked)}
-            />
-            <span>
-              {item.id} · {item.version}
-            </span>
-          </label>
+          <PluginChoice
+            key={item.sha256}
+            item={item}
+            required={required.has(item.id)}
+            checked={selected.includes(item.sha256)}
+            onChange={checked => toggle(item.sha256, checked)}
+          />
         ))}
         {pinned.map(hash => (
           <label className="native-plugin-choice" key={hash}>
@@ -107,7 +137,6 @@ function ServicePlugins({
             </span>
           </label>
         ))}
-        {selected.length === 0 && <p>{t("未启用数据源插件；已有历史数据仍保留。")}</p>}
       </fieldset>
       <button
         disabled={!editable || draft === null}
@@ -152,7 +181,8 @@ export function NativePlugins({ snapshot, busy, trade }: Props) {
   const [trusted, setTrusted] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [removing, setRemoving] = useState("");
-  const [initialPlugins, setInitialPlugins] = useState<string[]>([]);
+  // Until the user changes it, a new service starts with the bundled plugins.
+  const [chosenPlugins, setInitialPlugins] = useState<string[] | null>(null);
   const inspect = async () => {
     setError("");
     setInitialPlugins([]);
@@ -168,6 +198,7 @@ export function NativePlugins({ snapshot, busy, trade }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const inventory = snapshot?.native_plugins;
+  const initialPlugins = chosenPlugins ?? defaultResearchPlugins(inventory?.items ?? []);
   const node = snapshot?.nodes.find(item => item.id === "local");
   const services = node?.health?.services.filter(service => service.kind === "research") ?? [];
   return (
@@ -352,22 +383,24 @@ export function NativePlugins({ snapshot, busy, trade }: Props) {
           {services.length === 0 && (
             <fieldset disabled={busy || node?.state !== "online" || node?.health?.maintenance}>
               <legend>{t("创建本机研究服务")}</legend>
-              <p>{t("先选择插件，再创建服务。未选中的插件不会部署。")}</p>
+              <p>{t("应用自带的插件始终启用；自行安装的插件可以选择是否启用。")}</p>
               {availableResearchPlugins(inventory.items).map(item => (
-                <label className="native-plugin-choice" key={item.sha256}>
-                  <input
-                    type="checkbox"
-                    checked={initialPlugins.includes(item.sha256)}
-                    onChange={event =>
-                      setInitialPlugins(previous =>
-                        selectPlugin(previous, item.sha256, event.target.checked, inventory.items),
-                      )
-                    }
-                  />
-                  <span>
-                    {item.id} · {item.version}
-                  </span>
-                </label>
+                <PluginChoice
+                  key={item.sha256}
+                  item={item}
+                  required={requiredPluginIds(inventory.items).has(item.id)}
+                  checked={initialPlugins.includes(item.sha256)}
+                  onChange={checked =>
+                    setInitialPlugins(previous =>
+                      selectPlugin(
+                        previous ?? initialPlugins,
+                        item.sha256,
+                        checked,
+                        inventory.items,
+                      ),
+                    )
+                  }
+                />
               ))}
               <button
                 onClick={async () => {

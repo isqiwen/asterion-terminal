@@ -44,7 +44,6 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
       assert.equal(response.error, undefined, JSON.stringify(response.error));
       return response.result;
     };
-    await page.getByRole("button", { name: "开始设置", exact: true }).click();
     await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
     await call("research.local");
     const stopped = await call("node.action", { id: "local", service: "research", action: "stop" });
@@ -204,6 +203,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     const saved = (await call("research.dataset.saved")).saved_datasets[0];
     await call("research.dataset.clear");
     await page.reload();
+    await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
     await page
       .locator(".workspace-tabs")
       .getByRole("button", { name: "研究", exact: true })

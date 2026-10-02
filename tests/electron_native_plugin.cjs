@@ -11,15 +11,15 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "asterion-plugin-native-"));
   let application;
   try {
+    // The third-party plugin is a user-installed, optional one; plugins shipped
+    // with the application are required and cannot be switched off.
     const plugins = path.join(temp, "plugins");
+    const installedPlugins = path.join(temp, "node/plugins");
     await fs.mkdir(plugins);
+    await fs.mkdir(installedPlugins, { recursive: true });
     await fs.copyFile(
       path.join(build, "tests/native-plugin/good/plugin_fixture_good.dylib"),
-      path.join(plugins, "fixture.dylib"),
-    );
-    await fs.copyFile(
-      path.join(build, "plugins/asterion-tushare.dylib"),
-      path.join(plugins, "tushare.dylib"),
+      path.join(installedPlugins, "fixture.dylib"),
     );
     await fs.copyFile(
       path.join(build, "tests/native-plugin/bad_abi/plugin_fixture_bad_abi.dylib"),
@@ -53,13 +53,6 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
       assert.equal(response.error, undefined, JSON.stringify(response.error));
       return response.result;
     };
-    await page
-      .getByRole("checkbox", { name: "asterion.data.tushare · 1.0.0", exact: true })
-      .uncheck();
-    await expect(
-      page.getByRole("checkbox", { name: "test.independent.c · 1.0.0", exact: true }),
-    ).toBeChecked();
-    await page.getByRole("button", { name: "开始设置", exact: true }).click();
     await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
     const opened = application.waitForEvent("window");
     await page.getByRole("button", { name: "设置", exact: true }).click();
@@ -68,19 +61,33 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
     await settings.getByRole("button", { name: "插件", exact: true }).click();
     const manager = settings.getByRole("region", { name: "原生插件管理", exact: true });
     await expect(manager.getByRole("table", { name: "原生插件目录" }).getByRole("row")).toHaveCount(
-      4,
+      3,
     );
     await expect(manager.getByRole("button", { name: "刷新插件目录", exact: true })).toBeEnabled();
     const inventory = (await call("runtime.snapshot")).native_plugins.items;
-    assert.equal(inventory.filter(item => item.state === "available").length, 2);
+    assert.equal(inventory.filter(item => item.state === "available").length, 1);
     assert.equal(inventory.filter(item => item.state === "invalid").length, 1);
     let fixtureHash = inventory.find(item => item.id === "test.independent.c").sha256;
-    await expect(
-      manager.getByRole("checkbox", { name: "test.independent.c · 1.0.0", exact: true }),
-    ).toBeChecked();
-    await expect(
-      manager.getByRole("checkbox", { name: "asterion.data.tushare · 1.0.0", exact: true }),
-    ).not.toBeChecked();
+    // An installed plugin starts disabled: enable it on the stopped service.
+    const fixtureChoice = manager
+      .getByRole("region", { name: "服务插件 research", exact: true })
+      .getByRole("checkbox", { name: "test.independent.c · 1.0.0", exact: true });
+    await expect(fixtureChoice).not.toBeChecked();
+    await call("node.action", { id: "local", service: "research", action: "stop" });
+    await fixtureChoice.check();
+    await manager
+      .getByRole("region", { name: "服务插件 research", exact: true })
+      .getByRole("button", { name: "保存插件配置", exact: true })
+      .click();
+    await expect
+      .poll(
+        async () =>
+          (await call("runtime.snapshot")).nodes
+            .find(node => node.id === "local")
+            .health.services.find(service => service.id === "research").plugin_artifacts,
+      )
+      .toEqual([fixtureHash]);
+    await call("research.local");
     await expect
       .poll(async () => (await call("runtime.snapshot")).research?.sources.length)
       .toBe(2);
@@ -436,7 +443,11 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
     await expect
       .poll(async () => managed(await call("runtime.snapshot")).plugin_artifacts)
       .toEqual([fixtureHash]);
-    await manager.getByRole("button", { name: "卸载插件", exact: true }).click();
+    await manager
+      .getByRole("row")
+      .filter({ hasText: "2.0.0" })
+      .getByRole("button", { name: "卸载插件", exact: true })
+      .click();
     await manager.getByRole("button", { name: "确认卸载插件", exact: true }).click();
     await expect
       .poll(async () =>
@@ -446,7 +457,7 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
       )
       .toBe(false);
     // The installed service pins its plugin artifacts; the original upload folder is not needed.
-    await fs.unlink(path.join(plugins, "fixture.dylib"));
+    await fs.unlink(path.join(installedPlugins, "fixture.dylib"));
     await call("research.local");
     assert.equal(
       (await call("runtime.snapshot")).research.sources[0].plugin_id,
@@ -487,11 +498,10 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
     application = await launch();
     page = await application.firstWindow();
     page.on("pageerror", error => errors.push(String(error)));
+    await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
     await expect(
       page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
-    ).toBeVisible({
-      timeout: 60000,
-    });
+    ).toBeVisible();
     // The research service is stopped here, so its task index can be read.
     const index = new (require("node:sqlite").DatabaseSync)(
       path.join(temp, "node/services/research/ledger/tasks.sqlite"),

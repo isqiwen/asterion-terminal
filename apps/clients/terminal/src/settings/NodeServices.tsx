@@ -241,11 +241,11 @@ export function NodeServices({
             <summary>{t("本机运行说明")}</summary>
             <p>
               {t(
-                "macOS Terminal 使用当前系统账户自动管理 Agent，无需 SSH、密钥或机器初始化脚本。在期货工作台创建模拟会话时，交易服务由本机 Agent 按需启动。",
+                "macOS Terminal 使用当前系统账户自动运行服务管理器，无需 SSH、密钥或机器初始化脚本。在期货工作台创建模拟会话时，交易服务由本机服务管理器按需启动。",
               )}
             </p>
             <button disabled={disabled} onClick={() => void run("node.local")}>
-              {t("检查本机 Agent")}
+              {t("检查本机服务管理器")}
             </button>
           </details>
         </>

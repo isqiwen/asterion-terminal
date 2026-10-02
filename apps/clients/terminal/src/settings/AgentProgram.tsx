@@ -11,7 +11,7 @@ export function AgentProgram({
 }) {
   return (
     <details>
-      <summary>{t("Agent 程序")}</summary>
+      <summary>{t("服务管理器程序")}</summary>
       <button disabled={busy} onClick={() => void run("node.agent.inspect", {})}>
         {t("检查程序更新")}
       </button>
@@ -21,7 +21,7 @@ export function AgentProgram({
             {
               {
                 isolated: t("开发环境不管理系统安装"),
-                not_installed: t("尚未安装本机 Agent"),
+                not_installed: t("尚未安装本机服务管理器"),
                 current: t("已安装程序与安装包一致"),
                 update_available: t("安装包中有不同版本"),
                 recovery_required: t("存在未完成的更新，请先恢复"),
@@ -44,7 +44,7 @@ export function AgentProgram({
                   })
                 }
               >
-                {agentProgram.state === "recovery_required" ? t("继续恢复") : t("升级 Agent")}
+                {agentProgram.state === "recovery_required" ? t("继续恢复") : t("升级服务管理器")}
               </button>
             </>
           )}

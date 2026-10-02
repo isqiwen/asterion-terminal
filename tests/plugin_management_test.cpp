@@ -191,6 +191,10 @@ TEST_F(PluginManagement, InstallationKeepsVersionsSeparateAndUninstallPreservesB
   EXPECT_TRUE(catalog.entries[1].managed);
   const std::vector<std::string> both{before, newer.artifact.sha256};
   EXPECT_THROW(catalog.select_research(both), std::invalid_argument);
+  // The bundled plugin is required: another version may replace it, nothing may not.
+  EXPECT_THROW(catalog.select_research({}), std::invalid_argument);
+  const std::vector<std::string> replaced{newer.artifact.sha256};
+  EXPECT_EQ(catalog.select_research(replaced).hashes, replaced);
   EXPECT_THROW(terminal::install_plugin(bundled, managed, PLUGIN_NEWER, newer.artifact.sha256),
                std::invalid_argument);
   EXPECT_THROW(terminal::install_plugin(bundled, managed, PLUGIN_NEWER, std::string(64, '0')),

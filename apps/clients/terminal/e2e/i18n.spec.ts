@@ -38,7 +38,7 @@ test("language switches every workspace, preserves preferences and survives relo
   await page.getByRole("button", { name: "Connections & deployment", exact: true }).click();
   await expect(page.locator(".settings-content")).not.toContainText(/\p{Script=Han}/u);
   await page.getByRole("button", { name: "Machines", exact: true }).click();
-  await page.getByText("Agent Program", { exact: true }).click();
+  await page.getByText("Service Manager Program", { exact: true }).click();
   await page.getByRole("button", { name: "Check Program Updates", exact: true }).click();
   await expect(
     page.getByText("System installation is not managed in development", { exact: true }),
@@ -90,19 +90,18 @@ test("language switches every workspace, preserves preferences and survives relo
   expect(errors).toEqual([]);
 });
 
-test.describe("first launch language", () => {
-  test.use({ storageState: { cookies: [], origins: [] } });
+test.describe("startup language", () => {
+  test.use({ enterWorkbench: false });
   test("English setup persists into workbench and localizes backend failures", async ({ page }) => {
-    await page.goto("/");
-    await page.getByLabel("语言", { exact: true }).selectOption("en");
-    await page.screenshot({ path: "apps/clients/terminal/test-results/english-setup.png" });
     await page.route("**/__asterion/api", route =>
       route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({ error: { code: "permission_denied", message: "原始诊断信息" } }),
       }),
     );
-    await page.getByRole("button", { name: "BEGIN SETUP", exact: true }).click();
+    await page.goto("/");
+    await page.getByLabel("语言", { exact: true }).selectOption("en");
+    await page.screenshot({ path: "apps/clients/terminal/test-results/english-setup.png" });
     await expect(page.getByRole("alert")).toContainText("Permission denied");
     await expect(page.getByRole("alert")).not.toContainText("原始诊断信息");
     await page.getByRole("alert").getByRole("button", { name: "Details", exact: true }).click();
@@ -114,6 +113,7 @@ test.describe("first launch language", () => {
       page.locator(".workspace-tabs").getByRole("button", { name: "Watchlist", exact: true }),
     ).toBeVisible();
     await page.reload();
+    await page.getByRole("button", { name: "ENTER WORKBENCH", exact: true }).click();
     await expect(
       page.locator(".workspace-tabs").getByRole("button", { name: "Watchlist", exact: true }),
     ).toBeVisible();

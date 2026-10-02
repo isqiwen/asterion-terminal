@@ -5,23 +5,10 @@ const t = (key: string, values?: MessageValues) => translate("host", key, values
 import { useLocale } from "../i18n";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { WindowFrame } from "../host/components/WindowFrame";
-import { request, type NativePluginInfo } from "../bridge/client";
+import { request } from "../bridge/client";
 import "./setup.css";
-import {
-  availableResearchPlugins,
-  defaultResearchPlugins,
-  selectPlugin,
-} from "../host/native-plugins";
-const marker = "asterion.setup.completed.v1";
-function completed() {
-  try {
-    return localStorage.getItem(marker) === "1";
-  } catch {
-    return false;
-  }
-}
+import { defaultResearchPlugins } from "../host/native-plugins";
 export function SetupGate({ children }: { children: ReactNode }) {
-  const [returning] = useState(completed);
   const { locale, setLocale } = useLocale();
   const language = locale === "zh-CN" ? "zh" : "en";
   const setLanguage = (value: "zh" | "en") => {
@@ -31,34 +18,14 @@ export function SetupGate({ children }: { children: ReactNode }) {
       setError(t("保存失败，请检查本机存储权限。"));
     }
   };
-  const steps = [t("检查运行环境"), t("初始化本机服务"), t("验证服务连接")];
+  const steps = [t("服务管理器"), t("行情服务"), t("研究服务")];
+  // Things the user should know before entering; none of them blocks entry.
+  const [notices, setNotices] = useState<string[]>([]);
   const [step, setStep] = useState(0);
   const [running, setRunning] = useState(false);
   const [ready, setReady] = useState(false);
   const [entered, setEntered] = useState(false);
   const [error, setError] = useState<DisplayError>("");
-  const [availablePlugins, setAvailablePlugins] = useState<NativePluginInfo[] | null>(null);
-  const [selectedPlugins, setSelectedPlugins] = useState<string[]>([]);
-  useEffect(() => {
-    if (returning) return;
-    let active = true;
-    void request("native.plugins.inspect")
-      .then(snapshot => {
-        if (!active) return;
-        const items = availableResearchPlugins(snapshot.native_plugins?.items ?? []);
-        setAvailablePlugins(items);
-        setSelectedPlugins(defaultResearchPlugins(items));
-      })
-      .catch(reason => {
-        if (active) {
-          setError(asDisplayError(reason));
-          setAvailablePlugins([]);
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [returning]);
   const inFlight = useRef(false);
   async function start() {
     if (inFlight.current) return;
@@ -68,12 +35,12 @@ export function SetupGate({ children }: { children: ReactNode }) {
     setError("");
     setStep(0);
     try {
+      setNotices([]);
       const core = await request("runtime.snapshot");
       if (core.protocol !== 1 || core.phase !== "ready") throw new Error(t("本机核心尚未就绪"));
-      setStep(1);
       const inspected = await request("node.agent.inspect");
       const program = inspected.agent_program;
-      if (!program) throw new Error(t("无法检查本机 Agent 程序"));
+      if (!program) throw new Error(t("无法检查本机服务管理器 程序"));
       if (program.state === "update_available" || program.state === "recovery_required") {
         if (!program.expected_digest) throw new Error(t("后台组件更新状态异常，请查看详情"));
         await request("node.agent.upgrade", { expected_digest: program.expected_digest });
@@ -82,32 +49,47 @@ export function SetupGate({ children }: { children: ReactNode }) {
           throw new Error(t("后台组件更新尚未完成，请重试启动"));
       }
       const attached = await request("node.local");
+      setStep(1);
       await request("market.local");
+      setStep(2);
       const existingResearch = attached.nodes
         .find(n => n.id === "local")
         ?.health?.services.find(service => service.id === "research");
+      const plugins = (await request("native.plugins.inspect")).native_plugins?.items ?? [];
       if (existingResearch?.desired_running) await request("research.local");
-      else if (!existingResearch) {
-        const defaults = returning
-          ? defaultResearchPlugins(
-              (await request("native.plugins.inspect")).native_plugins?.items ?? [],
-            )
-          : selectedPlugins;
-        await request("research.local.create", { plugins: defaults });
-      }
-      setStep(2);
+      else if (!existingResearch)
+        await request("research.local.create", { plugins: defaultResearchPlugins(plugins) });
+      // The services answered their start requests; one final reading must
+      // agree, and a failure is reported on the step it belongs to.
       const status = await request("runtime.snapshot");
-      if (status.stale) throw new Error(t("本机核心尚未就绪"));
       const node = status.nodes.find(n => n.id === "local");
-      if (node?.state !== "online" || !node.health?.instance_id)
-        throw new Error(t("本机 Agent 尚未就绪，请重试启动"));
-      if (!status.market?.transport_online) throw new Error(t("本机行情服务尚未就绪，请重试启动"));
+      if (status.stale) {
+        setStep(0);
+        throw new Error(t("本机核心尚未就绪"));
+      }
+      if (node?.state !== "online" || !node.health?.instance_id) {
+        setStep(0);
+        throw new Error(t("本机服务管理器尚未就绪，请重试启动"));
+      }
+      if (!status.market?.transport_online) {
+        setStep(1);
+        throw new Error(t("本机行情服务尚未就绪，请重试启动"));
+      }
       const expectedResearch = node.health.services.find(service => service.id === "research");
       if (expectedResearch?.desired_running && !status.research?.online)
         throw new Error(t("本机研究服务尚未就绪，请重试启动"));
+      const invalid = plugins.filter(plugin => plugin.state === "invalid");
+      const interrupted = (status.research?.tasks ?? []).filter(
+        task => task.state === "interrupted",
+      ).length;
+      setNotices([
+        ...invalid.map(plugin =>
+          t("插件 {p0} 无法加载，可在设置的插件页查看原因", { p0: plugin.id || plugin.file }),
+        ),
+        ...(interrupted ? [t("{p0} 项任务上次被中断，可在任务中心重试", { p0: interrupted })] : []),
+      ]);
       setStep(3);
       setReady(true);
-      if (returning) setEntered(true);
     } catch (reason) {
       setError(asDisplayError(reason));
     } finally {
@@ -116,19 +98,10 @@ export function SetupGate({ children }: { children: ReactNode }) {
     }
   }
   useEffect(() => {
-    if (returning) void start();
-    // start() is guarded by inFlight and must run once per returning launch,
-    // not whenever its closure is recreated.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [returning]);
-  function enter() {
-    try {
-      localStorage.setItem(marker, "1");
-      setEntered(true);
-    } catch {
-      setError(t("无法保存首次设置状态，请检查本机存储权限"));
-    }
-  }
+    void start();
+    // start() is guarded by inFlight and must run once per launch, not
+    // whenever its closure is recreated.
+  }, []);
   if (entered) return children;
   return (
     <WindowFrame title={t("Asterion Terminal — 启动设置")}>
@@ -150,13 +123,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
               <Icon name="asterion" size={48} />
             </div>
             <h1>ASTERION TERMINAL</h1>
-            <p>
-              {ready
-                ? t("工作区已就绪")
-                : returning
-                  ? t("正在准备你的工作台")
-                  : t("准备你的工作区")}
-            </p>
+            <p>{ready ? t("工作区已就绪") : t("正在准备你的工作台")}</p>
           </header>
           <div className="setup-steps" aria-live="polite">
             {steps.map((title, index) => {
@@ -182,33 +149,12 @@ export function SetupGate({ children }: { children: ReactNode }) {
               );
             })}
           </div>
-          {!returning && !ready && availablePlugins && (
-            <fieldset disabled={running} className="setup-plugins">
-              <legend>{t("启用的研究插件")}</legend>
-              <p>{t("先选择插件，再创建服务。未选中的插件不会部署。")}</p>
-              {availablePlugins.map(plugin => (
-                <label key={plugin.sha256}>
-                  <input
-                    type="checkbox"
-                    checked={selectedPlugins.includes(plugin.sha256)}
-                    onChange={event =>
-                      setSelectedPlugins(previous =>
-                        selectPlugin(
-                          previous,
-                          plugin.sha256,
-                          event.target.checked,
-                          availablePlugins ?? [],
-                        ),
-                      )
-                    }
-                  />
-                  {plugin.id} · {plugin.version}
-                </label>
+          {ready && notices.length > 0 && (
+            <ul className="setup-notices" aria-label={t("进入前请留意")}>
+              {notices.map(notice => (
+                <li key={notice}>{notice}</li>
               ))}
-              {availablePlugins.length === 0 && (
-                <p>{t("未启用数据源插件；已有历史数据仍保留。")}</p>
-              )}
-            </fieldset>
+            </ul>
           )}
           {error && (
             <p className="setup-error" role="alert">
@@ -217,16 +163,10 @@ export function SetupGate({ children }: { children: ReactNode }) {
           )}
           <button
             className="setup-begin"
-            disabled={running || (!returning && availablePlugins === null)}
-            onClick={() => (ready ? enter() : void start())}
+            disabled={running}
+            onClick={() => (ready ? setEntered(true) : void start())}
           >
-            {running
-              ? t("正在设置")
-              : ready
-                ? t("进入工作台")
-                : error
-                  ? t("重试启动")
-                  : t("开始设置")}
+            {running ? t("正在准备") : ready ? t("进入工作台") : t("重试启动")}
           </button>
         </section>
       </main>

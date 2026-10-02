@@ -59,7 +59,7 @@ test("firewall changes require a concrete preview and explicit confirmation", as
     await expect(preview).toContainText("7442");
     expect(await readFile(changes, "utf8").catch(() => "")).toBe(before);
     await preview.getByRole("button", { name: "确认放行上述来源和端口" }).click();
-    await expect(preview).toContainText("请安装并连接 Agent");
+    await expect(preview).toContainText("请安装并连接服务管理器");
     await expect(page.getByLabel("SSH 私钥", { exact: true })).toHaveValue("");
     expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain("PRIVATE KEY");
     expect(await readFile(changes, "utf8")).not.toBe(before);

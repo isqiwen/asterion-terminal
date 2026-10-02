@@ -45,7 +45,7 @@ export function FirewallPreview({
         <p role="status">{t("已从 Terminal 验证 TCP/mTLS 可达。")}</p>
       )}
       {plan.verification === "pending_install" && (
-        <p role="status">{t("规则已执行；请安装并连接 Agent 后确认心跳。")}</p>
+        <p role="status">{t("规则已执行；请安装并连接服务管理器后确认心跳。")}</p>
       )}
       {plan.verification === "unreachable" && (
         <p role="alert">

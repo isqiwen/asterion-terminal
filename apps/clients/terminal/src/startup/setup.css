@@ -228,3 +228,15 @@
   font-size: 12px;
   color: var(--muted);
 }
+
+.setup-notices {
+  text-align: left;
+  list-style: none;
+  padding: 0;
+  margin: 18px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--warning);
+  max-height: 96px;
+  overflow-y: auto;
+}

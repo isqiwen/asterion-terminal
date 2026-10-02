@@ -55,7 +55,6 @@ const path = require("node:path");
     });
     const page = await application.firstWindow();
     await page.waitForFunction(() => !!window.asterionDesktop);
-    await page.getByRole("button", { name: "开始设置", exact: true }).click();
     try {
       await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 15000 });
     } catch (error) {

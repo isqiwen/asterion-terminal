@@ -53,6 +53,15 @@ PluginCatalog PluginCatalog::inspect(const std::filesystem::path& directory) {
     }
   return catalog;
 }
+namespace {
+bool research_capable(const PluginCatalogEntry& entry) {
+  return entry.supports_history() ||
+         std::ranges::any_of(entry.descriptor.capabilities, [](const auto& item) {
+           return item.id == "asterion.risk.pre-trade.v1" && item.version == 1 &&
+                  item.kind == "risk";
+         });
+}
+} // namespace
 PluginSelection PluginCatalog::select_research(std::span<const std::string> hashes,
                                                std::span<const std::string> installed) const {
   if (hashes.size() > 128 ||
@@ -73,14 +82,16 @@ PluginSelection PluginCatalog::select_research(std::span<const std::string> hash
     });
     if (found == entries.end())
       throw std::invalid_argument("native plugin catalog changed; inspect again");
-    if (!found->supports_history() &&
-        !std::ranges::any_of(found->descriptor.capabilities, [](const auto& item) {
-          return item.id == "asterion.risk.pre-trade.v1" && item.version == 1 &&
-                 item.kind == "risk";
-        }))
+    if (!research_capable(*found))
       throw std::invalid_argument("plugin does not provide a supported research capability");
     selection.uploads.push_back(found->artifact);
   }
+  // Plugins shipped with the application are part of the product: one version
+  // of each stays enabled. Only user-installed plugins are optional.
+  for (const auto& entry : entries)
+    if (!entry.managed && entry.availability == PluginAvailability::available &&
+        research_capable(entry) && !selected_ids.contains(entry.descriptor.id))
+      throw std::invalid_argument("bundled plugin is required: " + entry.descriptor.id);
   return selection;
 }
 namespace {
