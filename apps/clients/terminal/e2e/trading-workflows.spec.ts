@@ -20,13 +20,11 @@ for (const locale of ["zh-CN", "en-US"]) {
           .evaluate(el => el.scrollWidth <= el.clientWidth + 1),
       ).toBe(true);
     await button("交易", "Trading").click();
-    await button("添加 CTP 账户", "Add CTP account").click();
+    await expect(
+      page.getByRole("region", { name: en ? "CTP trading account" : "CTP 交易账户", exact: true }),
+    ).toBeVisible();
     await fits();
     await page.screenshot({ path: `apps/clients/terminal/test-results/ctp-setup-${locale}.png` });
-    await button("取消", "Cancel").click();
-    await expect(
-      page.getByRole("region", { name: en ? "Accounts" : "账户列表", exact: true }),
-    ).toBeVisible();
     await button("研究", "Research").click();
     await button("均线回测", "Moving Average Backtest").click();
     await button("新建回测", "New backtest").click();

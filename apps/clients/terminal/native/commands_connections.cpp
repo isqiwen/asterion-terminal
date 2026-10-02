@@ -20,15 +20,22 @@ DataConnection Application::Impl::resolve_data_connection(const std::string& id,
     throw std::invalid_argument("data connection requires configuration");
   return connection;
 }
-CtpConnection Application::Impl::current_ctp() const {
-  auto connection = ctp_connections.current();
+CtpConnection Application::Impl::market_ctp() const {
+  auto connection = ctp_connections.market();
   if (!connection)
-    throw std::invalid_argument("select a CTP account first");
+    throw std::invalid_argument("choose the CTP account for market data first");
   return std::move(*connection);
 }
-json Application::Impl::current_ctp_id() const {
-  const auto connection = ctp_connections.current();
-  return connection ? json(connection->id) : json(nullptr);
+std::filesystem::path Application::Impl::ctp_record_directory(const std::string& account) {
+  return ctp_account_directory(account, false);
+}
+json Application::Impl::ctp_accounts() const {
+  auto accounts = ctp_connections.snapshot();
+  for (auto& account : accounts)
+    if (!account.contains("error"))
+      account["trading_record"] = std::filesystem::exists(
+          ctp_record_directory(account.at("id").get<std::string>()) / "journal.sqlite");
+  return accounts;
 }
 void Application::Impl::register_connection_commands() {
   core.command("research.connections.save", [this](const json& params) {
@@ -86,6 +93,17 @@ void Application::Impl::register_connection_commands() {
   core.command("ctp.connections.save", [this](const json& params) {
     fields(params, {"id", "name", "revision", "broker_id", "user_id", "app_id", "trade_front",
                     "market_front"});
+    // A trading record holds its own copy of the counter details; the account
+    // it belongs to keeps them unchanged, so the two never disagree.
+    if (std::filesystem::exists(ctp_record_directory(text(params, "id")) / "journal.sqlite")) {
+      const auto current = ctp_connections.get(text(params, "id"));
+      if (current.broker_id != text(params, "broker_id") ||
+          current.user_id != text(params, "user_id") ||
+          current.app_id != text(params, "app_id", true) ||
+          current.trade_front != text(params, "trade_front", true))
+        throw Error(ErrorCode::conflict,
+                    "this account already trades; its counter details are fixed");
+    }
     ctp_connections.save({text(params, "id"),
                           text(params, "name"),
                           text(params, "broker_id"),
@@ -97,22 +115,22 @@ void Application::Impl::register_connection_commands() {
                          text(params, "revision", true));
     return snapshot();
   });
-  // Market data and trading follow the current account, so it only changes
-  // while neither is using the previous one.
-  core.command("ctp.connections.select", [this](const json& params) {
+  // Market data follows one account; it changes only while market data is
+  // disconnected. Trading accounts are not affected.
+  core.command("ctp.connections.market", [this](const json& params) {
     fields(params, {"id"});
-    if (live)
-      throw Error(ErrorCode::conflict, "close the trading account before changing the CTP account");
     if (market) {
       const auto phase = market->snapshot().at("phase").get<std::string>();
       if (phase != "disconnected" && phase != "error" && phase != "sdk_unavailable")
-        throw Error(ErrorCode::conflict, "disconnect market data before changing the CTP account");
+        throw Error(ErrorCode::conflict, "disconnect market data before changing its CTP account");
     }
-    ctp_connections.select(text(params, "id"));
+    ctp_connections.select_market(text(params, "id"));
     return snapshot();
   });
   core.command("ctp.connections.remove", [this](const json& params) {
     fields(params, {"id", "revision"});
+    if (live.contains(text(params, "id")))
+      throw Error(ErrorCode::conflict, "close the trading account before removing it");
     ctp_connections.remove(text(params, "id"), text(params, "revision"));
     return snapshot();
   });

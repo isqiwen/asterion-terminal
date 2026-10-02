@@ -911,7 +911,13 @@
   "too many CTP connections": "too many CTP connections",
   "invalid CTP connection identity": "invalid CTP connection identity",
   "invalid CTP connection storage": "invalid CTP connection storage",
-  "select a CTP account first": "select a CTP account first",
-  "close the trading account before changing the CTP account": "close the trading account before changing the CTP account",
-  "disconnect market data before changing the CTP account": "disconnect market data before changing the CTP account"
+  "choose the CTP account for market data first": "choose the CTP account for market data first",
+  "disconnect market data before changing its CTP account": "disconnect market data before changing its CTP account",
+  "close the trading account before removing it": "close the trading account before removing it",
+  "this account already trades; its counter details are fixed": "this account already trades; its counter details are fixed",
+  "open this CTP account first": "open this CTP account first",
+  "this CTP account is already open": "this CTP account is already open",
+  "this CTP account already has a trading record; open it": "this CTP account already has a trading record; open it",
+  "this CTP account has no trading record yet": "this CTP account has no trading record yet",
+  "another window opened this CTP account meanwhile": "another window opened this CTP account meanwhile"
 }

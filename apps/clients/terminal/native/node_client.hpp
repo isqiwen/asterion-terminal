@@ -21,7 +21,8 @@ NodeEndpoint local_node();
 void shutdown_development_node(bool recover = false);
 std::filesystem::path local_node_directory();
 std::filesystem::path node_enrollment_directory();
-std::filesystem::path new_account_directory(const std::string& name);
+// Record directory of one CTP account under the local node; created on request.
+std::filesystem::path ctp_account_directory(const std::string& account, bool create);
 std::filesystem::path keychain_helper();
 Json local_node_program_status();
 NodeEndpoint upgrade_local_node(const std::string& expected);

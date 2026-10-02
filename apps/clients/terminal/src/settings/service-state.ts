@@ -22,16 +22,8 @@ export function binding(snapshot: Snapshot | null, kind: ServiceKind): Binding |
     return value && { ...value, online: value.transport_online };
   }
   if (kind === "research") return snapshot.research;
-  const value = snapshot.live?.connection;
-  return value
-    ? {
-        service: value.session ?? "",
-        remote: value.transport === "tcp_tls",
-        host: value.host ?? "localhost",
-        port: value.port ?? 0,
-        online: value.state === "connected",
-      }
-    : null;
+  // Trading runs one service per CTP account; there is no single location.
+  return null;
 }
 export function matches(active: Binding | null, node: NodeStatus, service: Service) {
   return (
@@ -78,7 +70,5 @@ export function runtimeStatus(snapshot: Snapshot | null, kind: ServiceKind) {
           ? "行情连接失败"
           : "等待行情登录",
     );
-  if (kind === "live")
-    return t(snapshot?.live?.session?.phase === "ready" ? "账户已就绪" : "等待账户连接");
   return t("已连接");
 }

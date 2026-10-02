@@ -128,13 +128,13 @@ void CtpConnections::save(CtpConnection connection, const std::string& expected)
   connection.revision = unique_process_id();
   replace_file_durably(file, encode(connection).dump(), true);
   cached_.reset();
-  // The first account is the current one without a further step.
-  if (!current())
-    replace_file_durably(directory_ / "current", connection.id, true);
+  // The first account with a market front supplies market data without a further step.
+  if (!market() && !connection.market_front.empty())
+    replace_file_durably(directory_ / "market", connection.id, true);
 }
-std::optional<CtpConnection> CtpConnections::current() const {
+std::optional<CtpConnection> CtpConnections::market() const {
   safe(directory_);
-  const auto file = directory_ / "current";
+  const auto file = directory_ / "market";
   safe(file);
   if (!fs::is_regular_file(file) || fs::file_size(file) > 64)
     return std::nullopt;
@@ -144,13 +144,14 @@ std::optional<CtpConnection> CtpConnections::current() const {
   try {
     return get(id);
   } catch (const std::exception&) {
-    return std::nullopt; // Removed or unreadable: nothing is current.
+    return std::nullopt; // Removed or unreadable: no market data account.
   }
 }
-void CtpConnections::select(const std::string& id) {
-  static_cast<void>(get(id));
+void CtpConnections::select_market(const std::string& id) {
+  if (get(id).market_front.empty())
+    throw std::invalid_argument("CTP connection has no market front");
   FileLock lock(directory_, "connections.lock");
-  replace_file_durably(directory_ / "current", id, true);
+  replace_file_durably(directory_ / "market", id, true);
 }
 void CtpConnections::remove(const std::string& id, const std::string& expected) {
   const auto file = path(id);

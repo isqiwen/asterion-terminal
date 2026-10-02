@@ -1,4 +1,3 @@
-import { AccountLibrary } from "./AccountLibrary";
 import { ActivityTabs, type Activity } from "./ActivityTabs";
 import { FlowSteps } from "../../src/ui/FlowSteps";
 import { useState } from "react";
@@ -13,10 +12,8 @@ import {
   type MessageValues,
   type TerminalContext,
 } from "../contract";
-import { open } from "@asterion/desktop-bridge/desktop";
-import { nativeDesktop } from "../../src/bridge/desktop";
-import { currentCtpAccount } from "../../src/bridge/client";
-import type { LiveSession, TerminalCommand } from "../../src/bridge/client";
+import { readableCtpConnection } from "../../src/bridge/client";
+import type { CtpConnection, LiveSession, TerminalCommand } from "../../src/bridge/client";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.trading", key, values);
 
@@ -51,20 +48,33 @@ const key = (item: { venue: string; symbol: string }) => `${item.venue}.${item.s
 // passes the allowed contracts, exchange units and pre-trade risk.
 export function LivePanel(context: TerminalContext) {
   const { snapshot, busy, trade } = context;
-  const [creating, setCreating] = useWorkspaceDraft("live-creating", false);
-  const [directory, setDirectory] = useWorkspaceDraft("live-directory", "");
-  const live = snapshot?.live?.session ?? null;
+  // Every CTP account with a trade front can trade; several may be open at once.
+  const accounts = (snapshot?.ctp_connections ?? [])
+    .filter(readableCtpConnection)
+    .filter(account => account.trade_front);
+  const [chosen, setChosen] = useWorkspaceDraft("live-account", "");
+  const account = accounts.find(item => item.id === chosen) ?? accounts[0];
   const [error, setError] = useState<DisplayError>("");
-  async function run(method: TerminalCommand, params: Record<string, unknown> = {}) {
-    setError("");
-    try {
-      await trade(method, params);
-      return true;
-    } catch (reason) {
-      setError(asDisplayError(reason));
-      return false;
-    }
-  }
+  // Commands always carry the account they were issued for.
+  const runFor =
+    (id: string): Run =>
+    async (method, params = {}) => {
+      setError("");
+      try {
+        await trade(method, { account: id, ...params });
+        return true;
+      } catch (reason) {
+        setError(asDisplayError(reason));
+        return false;
+      }
+    };
+  const state = (item: CtpConnection) => {
+    const session = snapshot?.live[item.id]?.session;
+    if (!session) return item.trading_record ? "未打开" : "未开通交易";
+    if (session.phase !== "ready") return phases[session.phase];
+    return session.authorization?.trading_day === session.trading_day ? "已允许发送委托" : "已就绪";
+  };
+  const entry = account ? snapshot?.live[account.id] : undefined;
   return (
     <section className="futures-data paper-trading" aria-label={t("CTP 交易账户")}>
       <div className="panel-heading">
@@ -78,36 +88,73 @@ export function LivePanel(context: TerminalContext) {
           <ErrorNotice error={error} namespace="asterion.terminal.trading" />
         </p>
       )}
-      {snapshot?.live && !live ? (
-        <p className="alert">{t("实盘会话服务尚未初始化，请关闭后从原目录恢复。")}</p>
-      ) : live ? (
-        <LiveAccount live={live} snapshot={snapshot} busy={busy} run={run} />
-      ) : creating ? (
-        <div className="account-setup">
-          <div className="workflow-heading">
-            <h3>{t("添加 CTP 账户")}</h3>
-            <button disabled={busy} onClick={() => setCreating(false)}>
-              {t("取消")}
-            </button>
-          </div>
-          <CreateLive
-            snapshot={snapshot}
-            busy={busy}
-            run={run}
-            setError={setError}
-            onCreated={() => setCreating(false)}
-            openSettings={context.openSettings}
-          />
+      {!accounts.length ? (
+        <div className="workflow-empty">
+          <p>{t("还没有可交易的 CTP 账户。在设置中添加账户并填写交易前置与 AppID。")}</p>
+          <button onClick={() => context.openSettings("ctp")}>{t("管理 CTP 账户")}</button>
         </div>
       ) : (
-        <AccountLibrary
-          context={context}
-          directory={directory}
-          setDirectory={setDirectory}
-          onCreate={() => setCreating(true)}
-          onOpen={value => void run("live.open", { directory: value })}
-          onError={reason => setError(asDisplayError(reason))}
-        />
+        <div className="ctp-accounts">
+          <nav className="ctp-account-list" aria-label={t("CTP 账户")}>
+            {accounts.map(item => (
+              <button
+                key={item.id}
+                aria-current={item.id === account?.id ? "true" : undefined}
+                onClick={() => {
+                  setError("");
+                  setChosen(item.id);
+                }}
+              >
+                <strong>{item.name}</strong>
+                <span className="subtle">{t(state(item))}</span>
+              </button>
+            ))}
+            <button onClick={() => context.openSettings("ctp")}>{t("管理 CTP 账户")}</button>
+          </nav>
+          {account && (
+            <div className="ctp-account-panel" key={account.id}>
+              {entry?.session ? (
+                <LiveAccount
+                  account={account}
+                  live={entry.session}
+                  connection={entry.connection}
+                  snapshot={snapshot}
+                  busy={busy}
+                  run={runFor(account.id)}
+                />
+              ) : entry ? (
+                <p className="alert">{t("交易服务尚未初始化，请关闭后重新打开此账户。")}</p>
+              ) : account.trading_record ? (
+                <div className="workflow-empty">
+                  <p>
+                    {account.name} · {account.broker_id} · {account.user_id}
+                  </p>
+                  <button
+                    className="primary"
+                    disabled={busy}
+                    onClick={() => void runFor(account.id)("live.open")}
+                  >
+                    {t("打开账户")}
+                  </button>
+                  <p className="subtle">{t("打开只启动此账户的交易服务，不登录柜台。")}</p>
+                </div>
+              ) : (
+                <div className="account-setup">
+                  <div className="workflow-heading">
+                    <h3>{t("开通交易：{name}", { name: account.name })}</h3>
+                  </div>
+                  <CreateLive
+                    account={account}
+                    snapshot={snapshot}
+                    busy={busy}
+                    run={runFor(account.id)}
+                    openSettings={context.openSettings}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </section>
   );
@@ -116,47 +163,30 @@ export function LivePanel(context: TerminalContext) {
 type Run = (method: TerminalCommand, params?: Record<string, unknown>) => Promise<boolean>;
 
 function CreateLive({
+  account,
   snapshot,
   busy,
   run,
-  setError,
-  onCreated,
   openSettings,
 }: Pick<TerminalContext, "snapshot" | "busy" | "openSettings"> & {
+  account: CtpConnection;
   run: Run;
-  setError: (error: DisplayError) => void;
-  onCreated: () => void;
 }) {
-  const [step, setStep] = useWorkspaceDraft("live-step", 0);
-  const [name, setName] = useWorkspaceDraft("live-name", "");
+  // The record keeps its own copy of the account's counter details.
+  const connection = account;
+  const [step, setStep] = useWorkspaceDraft(`live-step:${account.id}`, 0);
   const [catalogCredentials, setCatalogCredentials] = useState({ password: "", auth_code: "" });
-  const [directory, setDirectory] = useWorkspaceDraft("live-directory", "");
-  // Trading uses the current CTP account from Settings. The created record
-  // keeps its own copy and does not follow later edits.
-  const connection = currentCtpAccount(snapshot);
-  const tradable = !!connection?.trade_front && !!connection.app_id;
-  const [limits, setLimits] = useWorkspaceDraft("live-risk", {
+  const tradable = !!connection.trade_front && !!connection.app_id;
+  const [limits, setLimits] = useWorkspaceDraft(`live-risk:${account.id}`, {
     max_order_quantity: "",
     max_gross_quantity: "",
     max_working_orders: "",
     max_price_deviation: "",
   });
-  const [contracts, setContracts] = useWorkspaceDraft<string[]>("live-contracts", []);
+  const [contracts, setContracts] = useWorkspaceDraft<string[]>(`live-contracts:${account.id}`, []);
   const [choice, setChoice] = useState("");
   const catalog = snapshot?.market?.catalog;
   const listed = catalog?.phase === "ready" ? catalog.contracts : [];
-  async function selectDirectory() {
-    try {
-      const value = await open({
-        directory: true,
-        multiple: false,
-        defaultPath: directory || undefined,
-      });
-      if (typeof value === "string") setDirectory(value);
-    } catch (reason) {
-      setError(asDisplayError(reason));
-    }
-  }
   return (
     <>
       <FlowSteps labels={[t("账户信息"), t("合约与风控"), t("确认创建")]} current={step} />
@@ -168,65 +198,30 @@ function CreateLive({
             return;
           }
           void run("live.create", {
-            ...(directory ? { directory } : { name }),
             ...limits,
             contracts: contracts.map(item => {
               const [venue, ...symbol] = item.split(".");
               return { venue, symbol: symbol.join(".") };
             }),
           }).then(created => {
-            if (created) {
-              setStep(0);
-              onCreated();
-            }
+            if (created) setStep(0);
           });
         }}
       >
         <fieldset disabled={busy}>
           <fieldset hidden={step !== 0} disabled={step !== 0}>
-            <label>
-              {t("账户名称")}
-              <input
-                aria-label={t("账户名称")}
-                value={name}
-                onChange={e => setName(e.target.value)}
-                required={!directory}
-                maxLength={40}
-              />
-            </label>
-            <details>
-              <summary>{t("自定义记录目录")}</summary>
-              <p className="subtle">{t("留空时自动创建专用目录，之后从账户列表打开。")}</p>
-              <div className="futures-file">
-                <label>
-                  {t("实盘记录目录")}
-                  <input
-                    aria-label={t("实盘记录目录")}
-                    value={directory}
-                    onChange={event => setDirectory(event.target.value)}
-                    placeholder={t("已存在的专用空目录；恢复时选择原目录")}
-                  />
-                </label>
-                {nativeDesktop && (
-                  <button type="button" onClick={() => void selectDirectory()}>
-                    {t("选择目录")}
-                  </button>
-                )}
-              </div>
-            </details>
             <section className="account-field-group" aria-label={t("CTP 账户")}>
               <h3>{t("CTP 账户")}</h3>
-              <p role="status" aria-label={t("当前 CTP 账户")}>
-                {connection
-                  ? `${connection.name} · ${connection.broker_id} · ${connection.user_id} · ${
-                      connection.trade_front || t("未填写交易前置")
-                    }`
-                  : t("尚未设置 CTP 账户")}
+              <p role="status" aria-label={t("CTP 账户")}>
+                {`${connection.name} · ${connection.broker_id} · ${connection.user_id} · ${
+                  connection.trade_front
+                }`}
               </p>
               <button type="button" onClick={() => openSettings("ctp")}>
                 {t("管理 CTP 账户")}
               </button>
-              <p className="subtle">{t("交易使用设置中的当前 CTP 账户，需要交易前置与 AppID。")}</p>
+              {!tradable && <p role="alert">{t("交易需要交易前置与 AppID。")}</p>}
+              <p className="subtle">{t("开通后柜台信息固定在此账户的交易记录中，不能再修改。")}</p>
               <p className="subtle">{t("密码与授权码在每次连接时输入，不保存。")}</p>
             </section>
           </fieldset>
@@ -377,11 +372,11 @@ function CreateLive({
           </fieldset>
           {step === 2 && (
             <section className="creation-review">
-              <h3>{name || connection?.user_id}</h3>
+              <h3>{connection.name}</h3>
               <p>
-                {connection?.broker_id} · {connection?.user_id}
+                {connection.broker_id} · {connection.user_id}
               </p>
-              <p>{connection?.trade_front}</p>
+              <p>{connection.trade_front}</p>
               <p>{contracts.join(" + ")}</p>
               <p>
                 {t("单笔数量上限")}：{limits.max_order_quantity} · {t("总持仓量上限")}：
@@ -411,17 +406,24 @@ function CreateLive({
 }
 
 function LiveAccount({
+  account,
   live,
+  connection,
   snapshot,
   busy,
   run,
-}: Pick<TerminalContext, "snapshot" | "busy"> & { live: LiveSession; run: Run }) {
+}: Pick<TerminalContext, "snapshot" | "busy"> & {
+  account: CtpConnection;
+  live: LiveSession;
+  connection: { session: string; host?: string; port?: number; state: string };
+  run: Run;
+}) {
   const [credentials, setCredentials] = useState({ password: "", auth_code: "" });
   const [activity, setActivity] = useState<Activity>("positions");
   const identity = JSON.stringify([
-    snapshot?.live?.connection.session,
-    snapshot?.live?.connection.host,
-    snapshot?.live?.connection.port,
+    connection.session,
+    connection.host,
+    connection.port,
     live.broker.front,
     live.broker.broker_id,
     live.broker.user_id,
@@ -448,7 +450,7 @@ function LiveAccount({
   const stale =
     !!snapshot?.stale ||
     live.storage_state === "recovery_required" ||
-    snapshot?.live?.connection.state === "disconnected";
+    connection.state === "disconnected";
   const authorized = !!live.authorization && live.authorization.trading_day === live.trading_day;
   const traded = live.contracts.find(item => key(item) === order.contract) ?? live.contracts[0];
   const explicitBuckets = explicitCloseBuckets(snapshot, traded?.venue ?? "");
@@ -466,7 +468,7 @@ function LiveAccount({
     <>
       <div className="paper-toolbar ctp-identity">
         <strong>
-          {live.broker.broker_id} · {live.broker.user_id}
+          {account.name} · {live.broker.broker_id} · {live.broker.user_id}
         </strong>
         <strong>
           {t(
@@ -487,7 +489,7 @@ function LiveAccount({
           </button>
         )}
         <button disabled={busy} onClick={() => void run("live.close")}>
-          {t("离开账户")}
+          {t("关闭账户")}
         </button>
       </div>
       {(!environmentReady || live.phase === "disconnected" || live.phase === "error") && (
@@ -759,7 +761,7 @@ function LiveAccount({
           </div>
           <div className="source-actions">
             <button className="primary" type="submit">
-              {t("提交柜台委托")}
+              {t("向 {name} 提交委托", { name: account.name })}
             </button>
             <span className="subtle">
               {t("委托先写入本机交易记录再发送；断线后不会自动重发。")}

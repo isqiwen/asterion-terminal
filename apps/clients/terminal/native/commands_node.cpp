@@ -221,22 +221,6 @@ void Application::Impl::register_node_commands() {
     nodes.erase(text(p, "id"));
     return snapshot();
   });
-  core.command("node.attach", [this](const json& p) {
-    fields(p, {"id", "service"});
-    const auto node = nodes.at(text(p, "id"));
-    const auto service = text(p, "service");
-    auto kind = node::v1::UNSPECIFIED_SERVICE;
-    if (const auto state = node->inspect_status(); state.health)
-      for (const auto& item : state.health->services())
-        if (item.id() == service)
-          kind = item.kind();
-    if (kind != node::v1::LIVE_TRADING)
-      throw std::invalid_argument("attach a CTP trading service");
-    if (live)
-      throw std::invalid_argument("disconnect the current trading session first");
-    live = std::make_unique<TradingClient>(node->service_endpoint(service, kind));
-    return snapshot();
-  });
   core.command("node.deploy", [this](const json& p) {
     fields(p, {"id", "service", "port", "kind"});
     const auto node = nodes.at(text(p, "id"));

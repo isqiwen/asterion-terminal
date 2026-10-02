@@ -46,22 +46,28 @@ TEST(CtpConnections, SavedConnectionRoundTripsAndRevisionGuardsEdits) {
   connections.remove("a", connections.get("a").revision);
   EXPECT_TRUE(connections.snapshot().empty());
 }
-TEST(CtpConnections, FirstSavedAccountIsCurrentUntilAnotherIsSelectedOrItIsRemoved) {
+TEST(CtpConnections, OneAccountSuppliesMarketDataUntilAnotherIsChosenOrItIsRemoved) {
   Directory root;
   terminal::CtpConnections connections(root.path / "ctp-connections");
-  EXPECT_FALSE(connections.current());
+  EXPECT_FALSE(connections.market());
+  // An account without a market front cannot supply market data.
+  auto trading_only = simnow("t");
+  trading_only.market_front.clear();
+  connections.save(trading_only, "");
+  EXPECT_FALSE(connections.market());
+  EXPECT_THROW(connections.select_market("t"), std::invalid_argument);
   connections.save(simnow("a"), "");
   connections.save(simnow("b"), "");
-  ASSERT_TRUE(connections.current());
-  EXPECT_EQ(connections.current()->id, "a");
-  EXPECT_EQ(connections.snapshot().size(), 2) << "the selection is not listed as a connection";
-  EXPECT_THROW(connections.select("missing"), std::exception);
-  connections.select("b");
-  EXPECT_EQ(connections.current()->id, "b");
+  ASSERT_TRUE(connections.market());
+  EXPECT_EQ(connections.market()->id, "a");
+  EXPECT_EQ(connections.snapshot().size(), 3) << "the choice is not listed as an account";
+  EXPECT_THROW(connections.select_market("missing"), std::exception);
+  connections.select_market("b");
+  EXPECT_EQ(connections.market()->id, "b");
   connections.remove("b", connections.get("b").revision);
-  EXPECT_FALSE(connections.current()) << "a removed account is never silently replaced";
-  connections.select("a");
-  EXPECT_EQ(connections.current()->id, "a");
+  EXPECT_FALSE(connections.market()) << "a removed account is never silently replaced";
+  connections.select_market("a");
+  EXPECT_EQ(connections.market()->id, "a");
 }
 TEST(CtpConnections, RejectsMalformedSettingsBeforeWriting) {
   Directory root;

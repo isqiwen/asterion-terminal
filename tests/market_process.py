@@ -34,12 +34,12 @@ try:
     assert all('volume' not in p for p in points)
     wait(lambda s:s['market']['phase']=='reconnecting')
     wait(lambda s:s['market']['phase']=='connected' and s['market']['out_of_order']>=2)
-    # The account in use cannot change under a live market login.
-    process.stdin.write(json.dumps(dict(version=1,method='ctp.connections.select',params=dict(id='other')))+'\n');process.stdin.flush()
+    # The market data account cannot change under a live market login.
+    process.stdin.write(json.dumps(dict(version=1,method='ctp.connections.market',params=dict(id='other')))+'\n');process.stdin.flush()
     refused=json.loads(process.stdout.readline());assert 'disconnect market data' in refused['error']['message'],refused
     call('market.subscribe',dict(instruments=[dict(venue='SHFE',symbol='rb2610')]))
     assert len(wait(lambda s:len(s['market']['subscriptions'])==1)['market']['subscriptions'])==1
-    call('market.catalog',dict(password='fixture-only-secret',auth_code=''))
+    call('market.catalog',dict(account='fixture',password='fixture-only-secret',auth_code=''))
     state=wait(lambda s:s['market']['catalog']['phase']=='ready')
     assert state['market']['catalog']['contracts'][0]['symbol']=='rb2610'
     call('market.subscribe',dict(instruments=[]))

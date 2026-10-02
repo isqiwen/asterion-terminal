@@ -30,7 +30,7 @@ void Application::Impl::register_market_commands() {
     fields(p, {"password", "instruments"});
     if (!market)
       throw std::invalid_argument("start or select a market service first");
-    const auto connection = current_ctp();
+    const auto connection = market_ctp();
     if (connection.market_front.empty())
       throw std::invalid_argument("CTP connection has no market front");
     market->connect({{"front", connection.market_front},
@@ -48,10 +48,11 @@ void Application::Impl::register_market_commands() {
     return snapshot();
   });
   core.command("market.catalog", [this](const json& p) {
-    fields(p, {"password", "auth_code"});
+    // The contract catalog is read through the trade front of the named account.
+    fields(p, {"account", "password", "auth_code"});
     if (!market)
       throw std::invalid_argument("select a market service first");
-    const auto connection = current_ctp();
+    const auto connection = ctp_connections.get(text(p, "account"));
     if (connection.trade_front.empty())
       throw std::invalid_argument("CTP connection has no trade front");
     market->catalog({{"front", connection.trade_front},

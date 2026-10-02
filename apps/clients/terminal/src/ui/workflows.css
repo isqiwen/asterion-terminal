@@ -52,36 +52,51 @@
   padding: 32px 0;
   color: var(--muted);
 }
-.account-library,
 .account-setup {
   padding: 24px;
   max-width: 1040px;
   margin: auto;
 }
-.account-cards {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  margin-bottom: 24px;
+.account-setup details {
+  margin-block: 16px;
 }
-.account-cards article {
+/* Trading: the accounts on the left, the chosen account's panel on the right. */
+.ctp-accounts {
   display: grid;
-  gap: 12px;
-  padding: 18px;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  padding: 16px;
+}
+.ctp-account-list {
+  display: grid;
+  gap: 6px;
+}
+.ctp-account-list button {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  text-align: left;
+  padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 6px;
   min-width: 0;
-}
-.account-cards strong,
-.account-cards p {
   overflow-wrap: anywhere;
 }
-.account-cards button {
-  justify-self: start;
+.ctp-account-list button[aria-current="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
 }
-.account-library details,
-.account-setup details {
-  margin-block: 16px;
+.ctp-account-panel {
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .ctp-accounts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ctp-account-list {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
 }
 .account-setup fieldset {
   min-width: 0;

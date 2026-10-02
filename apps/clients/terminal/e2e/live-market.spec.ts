@@ -1,7 +1,7 @@
 import { ctpConnection } from "./dataset-fixture";
 import { test, expect, type Page } from "./test";
 
-// The current CTP account: with a trade front the full catalog loads too.
+// The market data account: with a trade front the full catalog loads too.
 async function account(page: Page, catalog: boolean) {
   await ctpConnection(page.request, catalog ? "full-market" : "market-only", {
     broker_id: "test",
@@ -26,7 +26,7 @@ test("full market loads automatically and watchlist membership stays independent
   await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await page.getByRole("tab", { name: "实时行情", exact: true }).click();
   const panel = page.getByRole("region", { name: "实时期货行情" });
-  await expect(panel.getByRole("status", { name: "当前 CTP 账户" })).toContainText("full-market");
+  await expect(panel.getByRole("status", { name: "行情来源" })).toContainText("full-market");
   await panel.getByLabel("密码", { exact: true }).fill("ui-fixture-secret");
   await panel.getByRole("button", { name: "连接行情", exact: true }).click();
   await expect(panel.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
@@ -53,7 +53,7 @@ test("login without subscriptions keeps the add-contract workflow visible", asyn
   await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await page.getByRole("tab", { name: "实时行情", exact: true }).click();
   const panel = page.getByRole("region", { name: "实时期货行情" });
-  await expect(panel.getByRole("status", { name: "当前 CTP 账户" })).toContainText("market-only");
+  await expect(panel.getByRole("status", { name: "行情来源" })).toContainText("market-only");
   await panel.getByLabel("密码", { exact: true }).fill("ui-fixture-secret");
   await panel.getByRole("button", { name: "连接行情", exact: true }).click();
   await expect(
@@ -77,7 +77,7 @@ test("read-only market workspace receives C++ test SDK quotes without storing cr
   const panel = page.getByRole("region", { name: "实时期货行情" });
   await panel.getByLabel("实际合约", { exact: true }).fill("rb2610");
   await panel.getByRole("button", { name: "添加自选" }).click();
-  await expect(panel.getByRole("status", { name: "当前 CTP 账户" })).toContainText("market-only");
+  await expect(panel.getByRole("status", { name: "行情来源" })).toContainText("market-only");
   await panel.getByLabel("密码", { exact: true }).fill("ui-fixture-secret");
   const connect = panel.getByRole("button", { name: "连接行情", exact: true });
   await expect(panel.locator(".market-session > .panel-heading").getByRole("status")).toHaveText(

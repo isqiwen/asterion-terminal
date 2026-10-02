@@ -59,9 +59,12 @@ struct Application::Impl {
                                    keychain_store(keychain_helper())};
   json connection_verification = nullptr;
   CtpConnections ctp_connections{local_node_directory() / "ctp-connections"};
-  // The single CTP account in use: market data and trading both follow it.
-  CtpConnection current_ctp() const;
-  json current_ctp_id() const;
+  // The one CTP account that supplies market data.
+  CtpConnection market_ctp() const;
+  // Where a CTP account keeps its trading record; one record per account.
+  static std::filesystem::path ctp_record_directory(const std::string& account);
+  // Stored accounts, each with whether it has a trading record.
+  json ctp_accounts() const;
   DataConnection resolve_data_connection(const std::string& id, const std::string& revision,
                                          const std::string& source);
   json research_result = nullptr;
@@ -79,8 +82,9 @@ struct Application::Impl {
   std::string history_exchange, history_product;
   std::int64_t history_cutoff = 0;
   std::shared_ptr<MarketClient> market;
-  // The open CTP trading account.
-  std::unique_ptr<TradingClient> live;
+  // Open CTP trading accounts by account id; each has its own service.
+  std::map<std::string, std::unique_ptr<TradingClient>> live;
+  TradingClient& live_account(const json& params);
   // Shared so long node I/O can keep its client while the map changes.
   std::map<std::string, std::shared_ptr<NodeClient>> nodes;
   json firewall_plan = nullptr, firewall_parameters = nullptr, ssh_key = nullptr,
@@ -166,8 +170,7 @@ struct Application::Impl {
   json snapshot();
   // Service-dependent parts, gathered one client call at a time.
   struct Parts {
-    json live = nullptr, live_connection = nullptr, research = nullptr, market = nullptr,
-         nodes = json::array();
+    json live = json::object(), research = nullptr, market = nullptr, nodes = json::array();
   };
   Parts gather_parts(bool hold_between_calls);
   json compose(const Parts& parts);

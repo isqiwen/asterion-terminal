@@ -146,10 +146,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
             call(terminal, "node.action", {"id": "research", "service": "research", "action": "start"})
             call(terminal, "research.attach", {"id": "research", "service": "research"})
             return json.loads(output)
-        # A CTP account service waits for its account; attaching does not create one.
-        attached = call(terminal, "node.attach", {"id": "research", "service": "account-test"})
-        assert account_service(attached["nodes"][0])["health"] == "awaiting_input", attached["nodes"]
-        call(terminal, "live.close")
+        # A deployed CTP account service waits for its account.
+        wait(lambda: account_service(call(terminal, "runtime.snapshot")["nodes"][0])["health"] == "awaiting_input")
         old_pid = deployed["pid"]
         os.kill(old_pid, signal.SIGTERM if os.name == "nt" else signal.SIGKILL)
         def restarted():
@@ -173,8 +171,6 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         recovered = wait(lambda: (n if (n := call(terminal, "runtime.snapshot")["nodes"][0])["state"] == "online" and account_service(n)["state"] == "running" else None), 25)
         assert recovered["health"]["instance_id"] != first["health"]["instance_id"]
         wait(trading_listening)
-        call(terminal, "node.attach", {"id": "research", "service": "account-test"})
-        call(terminal, "live.close")
         call(terminal, "node.action", {"id": "research", "service": "account-test", "action": "stop"})
         # A port conflict reaches a bounded failure; no infinite restart storm.
         with socket.socket() as occupied:

@@ -4,8 +4,8 @@
 #include <optional>
 namespace asterion::terminal {
 // One counter account as the broker issues it; passwords and authorization
-// codes are never part of it. Several may be stored, one is current: the
-// market login, the contract catalog query and new trading accounts use it.
+// codes are never part of it. Several may be stored and traded at the same
+// time; exactly one of them is the source of market data.
 struct CtpConnection {
   std::string id, name, broker_id, user_id, app_id, trade_front, market_front, revision;
 };
@@ -18,9 +18,9 @@ public:
   CtpConnection get(const std::string& id) const;
   void save(CtpConnection connection, const std::string& expected_revision);
   void remove(const std::string& id, const std::string& expected_revision);
-  // The current account, or nothing when none is selected or it was removed.
-  std::optional<CtpConnection> current() const;
-  void select(const std::string& id);
+  // The market data account, or nothing when none is selected or it was removed.
+  std::optional<CtpConnection> market() const;
+  void select_market(const std::string& id);
 
 private:
   std::filesystem::path directory_;

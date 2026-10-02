@@ -8,7 +8,7 @@ import {
   type MessageValues,
   type TerminalContext,
 } from "../contract";
-import { currentCtpAccount } from "../../src/bridge/client";
+import { marketCtpAccount } from "../../src/bridge/client";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.futures-market", key, values);
 type Instrument = { venue: string; symbol: string };
@@ -46,7 +46,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
     [symbol, setSymbol] = useState("");
   const [error, setError] = useState<DisplayError>(initial.error);
   const market = context.snapshot?.market;
-  const connection = currentCtpAccount(context.snapshot);
+  const connection = marketCtpAccount(context.snapshot);
   const online = !!market?.transport_online;
   const phase = market ? (online ? market.phase : "unreachable") : "not_started";
   const idle = !market || ["disconnected", "error", "sdk_unavailable"].includes(market.phase);
@@ -68,7 +68,11 @@ export function LivePanel({ context }: { context: TerminalContext }) {
     const auth = authCode;
     setCatalogPassword("");
     setAuthCode("");
-    await context.trade("market.catalog", { password: secret, auth_code: auth });
+    await context.trade("market.catalog", {
+      account: connection?.id ?? "",
+      password: secret,
+      auth_code: auth,
+    });
   }
   async function run(action: () => Promise<void>) {
     setError("");
@@ -175,14 +179,17 @@ export function LivePanel({ context }: { context: TerminalContext }) {
               });
             }}
           >
-            <p role="status" aria-label={t("当前 CTP 账户")}>
+            <p role="status" aria-label={t("行情来源")}>
               {connection
-                ? t("当前 CTP 账户：{name}（{broker} · {user}）", {
+                ? t("行情来源：{name}（{broker} · {user}）", {
                     name: connection.name,
                     broker: connection.broker_id,
                     user: connection.user_id,
                   })
-                : t("尚未设置 CTP 账户")}
+                : t("尚未选择行情账户")}{" "}
+              <button type="button" onClick={() => context.openSettings("ctp")}>
+                {t("更换")}
+              </button>
             </p>
             <fieldset disabled={!canEdit}>
               <div className="futures-fields">
@@ -213,15 +220,12 @@ export function LivePanel({ context }: { context: TerminalContext }) {
               </div>
               <button type="submit" disabled={!canConnect || !connection?.market_front}>
                 {t("连接行情")}
-              </button>{" "}
-              <button type="button" onClick={() => context.openSettings("ctp")}>
-                {t("管理 CTP 账户")}
               </button>
             </fieldset>
             <p className="subtle">
               {connection?.trade_front
-                ? t("连接行情后用当前账户的交易前置加载完整合约目录；仅查询合约，不开通交易。")
-                : t("柜台信息在设置的 CTP 账户中填写一次；填了交易前置才能加载完整合约目录。")}
+                ? t("连接行情后用行情账户的交易前置加载完整合约目录；仅查询合约，不开通交易。")
+                : t("行情账户在设置的 CTP 账户中选择；它填了交易前置才能加载完整合约目录。")}
             </p>
           </form>
           {!idle && connection?.trade_front && (

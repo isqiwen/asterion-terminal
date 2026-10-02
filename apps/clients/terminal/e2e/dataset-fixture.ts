@@ -98,8 +98,9 @@ export async function seedDataset(
   return rpc(request, "research.dataset.select", selection);
 }
 
-// Counter details are entered once in Settings; specs create them through the
-// same command and make the account current, as the user would.
+// Counter details are entered once in Settings; specs create accounts through
+// the same command. An account with a market front becomes the market data
+// source, as the user would choose it.
 export async function ctpConnection(
   request: APIRequestContext,
   id: string,
@@ -112,16 +113,15 @@ export async function ctpConnection(
   },
 ) {
   const existing = (await rpc(request, "runtime.snapshot")).ctp_connections ?? [];
-  if (existing.some((item: { id: string }) => item.id === id))
-    return rpc(request, "ctp.connections.select", { id });
-  await rpc(request, "ctp.connections.save", {
-    id,
-    name: id,
-    revision: "",
-    app_id: "",
-    trade_front: "",
-    market_front: "",
-    ...fields,
-  });
-  await rpc(request, "ctp.connections.select", { id });
+  if (!existing.some((item: { id: string }) => item.id === id))
+    await rpc(request, "ctp.connections.save", {
+      id,
+      name: id,
+      revision: "",
+      app_id: "",
+      trade_front: "",
+      market_front: "",
+      ...fields,
+    });
+  if (fields.market_front) await rpc(request, "ctp.connections.market", { id });
 }

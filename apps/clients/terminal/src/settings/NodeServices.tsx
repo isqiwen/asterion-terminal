@@ -24,7 +24,8 @@ const actionLabels: Record<Action, string> = {
   use: "切换运行位置",
   update: "更新服务程序",
 };
-const kinds: ServiceKind[] = ["market", "research", "live"];
+// Trading runs one service per CTP account and is managed on the Trading page.
+const kinds: ServiceKind[] = ["market", "research"];
 export function NodeServices({
   snapshot,
   busy,
@@ -90,13 +91,8 @@ export function NodeServices({
     let success = false;
     if (pending.action === "use") {
       const kind = pendingService.kind;
-      if (kind === "live" && snapshot?.live && !(await run("live.close"))) return;
-      const method: TerminalCommand =
-        kind === "market"
-          ? "market.attach"
-          : kind === "research"
-            ? "research.attach"
-            : "node.attach";
+      if (kind === "live") return;
+      const method: TerminalCommand = kind === "market" ? "market.attach" : "research.attach";
       success = await run(method, params);
     } else if (pending.action === "update")
       success = await run("node.update", { ...params, revision: pending.revision });
@@ -206,15 +202,7 @@ export function NodeServices({
                 <div className="runtime-row" role="listitem" key={kind}>
                   <div>
                     <strong>{t(kindLabels[kind])}</strong>
-                    <p className="subtle">
-                      {active
-                        ? active.service
-                        : t(
-                            kind === "market" || kind === "research"
-                              ? "尚未连接"
-                              : "创建或恢复账户时自动准备",
-                          )}
-                    </p>
+                    <p className="subtle">{active ? active.service : t("尚未连接")}</p>
                   </div>
                   <div className="runtime-location">
                     <span>{location(active, nodes)}</span>
@@ -415,7 +403,7 @@ export function NodeServices({
                             {t(kindLabels[service.kind])} · {serviceStatus(node, service)}
                           </p>
                         </div>
-                        {active ? (
+                        {service.kind === "live" ? null : active ? (
                           <span className="deployment-badge">{t("当前使用")}</span>
                         ) : (
                           <button

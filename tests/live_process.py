@@ -51,8 +51,14 @@ def wait(process, predicate, seconds=20):
     raise AssertionError(json.dumps(state)[:2000])
 
 
-def session(state):
-    return state["live"]["session"] if state.get("live") else None
+def session(state, account="account"):
+    entry = state["live"].get(account)
+    return entry["session"] if entry else None
+
+
+def trade(process, method, params=None, error=False, account="account"):
+    """Every trading command names the CTP account it is for."""
+    return call(process, method, dict(params or {}, account=account), error=error)
 
 
 def order(state, order_id):
@@ -71,8 +77,6 @@ def stop(process):
 
 
 with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=True) as folder:
-    directory = Path(folder) / "account"
-    directory.mkdir()
     process = launch()
     try:
         call(process, "market.local")
@@ -83,71 +87,91 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         call(process, "ctp.connections.save", dict(
             id="account", name="Account", revision="", broker_id="9999", user_id="000001",
             app_id="client_app", trade_front="tcp://127.0.0.1:41205", market_front=""))
-        # The first saved account is current; trading needs the second one.
-        call(process, "market.catalog", dict(password="catalog-only", auth_code=""))
+        call(process, "market.catalog", dict(account="catalog", password="catalog-only",
+                                             auth_code=""))
         wait(process, lambda s: s["market"]["catalog"]["phase"] == "ready")
-        assert call(process, "ctp.connections.select", dict(id="account"))["ctp_current"] == "account"
-        create = dict(directory=str(directory),
+        create = dict(
                       max_order_quantity="5", max_gross_quantity="10", max_working_orders="1",
                       max_price_deviation="0.02")
-        refused = call(process, "live.create",
+        refused = trade(process, "live.create",
                        dict(create, contracts=[dict(venue="SHFE", symbol="rb2611")]), error=True)
         assert "catalog" in refused["message"], refused
-        state = call(process, "live.create",
+        state = trade(process, "live.create",
                      dict(create, contracts=[dict(venue="SHFE", symbol="rb2610")]))
         live = session(state)
         assert live["phase"] == "disconnected" and live["authorization"] is None
         assert live["contracts"][0]["price_increment"] == "0.5"
         assert live["contracts"][0]["multiplier"] == "10"
-        denied = call(process, "live.act", submit("early", "1"), error=True)
+        denied = trade(process, "live.act", submit("early", "1"), error=True)
         assert "authorize" in denied["message"], denied
 
-        call(process, "live.connect", dict(password="bad", auth_code=AUTH))
+        trade(process, "live.connect", dict(password="bad", auth_code=AUTH))
         wait(process, lambda s: session(s)["phase"] == "error")
-        call(process, "live.connect", dict(password=SECRET, auth_code=AUTH))
+        trade(process, "live.connect", dict(password=SECRET, auth_code=AUTH))
         wait(process, lambda s: session(s)["phase"] == "ready")
-        call(process, "live.act", dict(request_id="authorize", action="live_authorize",
+        trade(process, "live.act", dict(request_id="authorize", action="live_authorize",
                                        user_id="000001"))
-        call(process, "live.act", submit("tick", "1", "3500.25"), error=True)
-        far = call(process, "live.act", submit("far", "1", "3600"), error=True)
+        trade(process, "live.act", submit("tick", "1", "3500.25"), error=True)
+        far = trade(process, "live.act", submit("far", "1", "3600"), error=True)
         assert "deviates" in far["message"], far
-        risk = call(process, "live.act", submit("large", "6"), error=True)
+        risk = trade(process, "live.act", submit("large", "6"), error=True)
         assert "order_quantity" in risk["message"], risk
-        call(process, "live.act", submit("filled", "2"))
+        trade(process, "live.act", submit("filled", "2"))
         state = wait(process, lambda s: order(s, "filled") and order(s, "filled")["status"] ==
                      "filled" and session(s)["positions"])
         assert session(state)["positions"][0]["today"] == "2"
 
+        # A second account trades at the same time with its own record, service
+        # and authorization: an order names its account and cannot use another's.
+        call(process, "ctp.connections.save", dict(
+            id="second", name="Second", revision="", broker_id="9999", user_id="000002",
+            app_id="client_app", trade_front="tcp://127.0.0.1:41205", market_front=""))
+        trade(process, "live.create", dict(create, contracts=[dict(venue="SHFE", symbol="rb2610")]),
+             account="second")
+        state = call(process, "runtime.snapshot")
+        assert set(state["live"]) == {"account", "second"}, list(state["live"])
+        assert session(state)["authorization"] and session(state, "second")["phase"] == "disconnected"
+        denied = trade(process, "live.act", submit("other", "1"), error=True, account="second")
+        assert "authorize" in denied["message"], denied
+        assert order(call(process, "runtime.snapshot"), "other") is None
+        trade(process, "live.act", submit("stray", "1"), error=True, account="missing")
+        # An account that trades keeps its counter details.
+        fixed = call(process, "ctp.connections.save", dict(
+            id="second", name="Second", revision=next(c["revision"] for c in state["ctp_connections"] if c["id"] == "second"),
+            broker_id="9999", user_id="000003", app_id="client_app",
+            trade_front="tcp://127.0.0.1:41205", market_front=""), error=True)
+        assert "fixed" in fixed["message"], fixed
+        call(process, "ctp.connections.remove", dict(id="second", revision=next(
+            c["revision"] for c in state["ctp_connections"] if c["id"] == "second")), error=True)
+        trade(process, "live.close", account="second")
+
         # The session service is killed; the Agent restarts it without credentials.
         node = next(n for n in state["nodes"] if n["id"] == "local")
-        service = next(s for s in node["health"]["services"] if s["kind"] == "live")
+        service = next(s for s in node["health"]["services"]
+                       if s["id"] == state["live"]["account"]["connection"]["session"])
         os.kill(service["pid"], signal.SIGKILL)
         wait(process, lambda s: any(
-            v["kind"] == "live" and v["pid"] != service["pid"] and v["health"] == "ready"
+            v["id"] == service["id"] and v["pid"] != service["pid"] and v["health"] == "ready"
             for n in s["nodes"] if n["health"] for v in n["health"]["services"]), 40)
-        call(process, "live.close")
-        state = call(process, "live.open", dict(directory=str(directory)))
+        trade(process, "live.close")
+        state = trade(process, "live.open")
         live = session(state)
         assert live["phase"] == "disconnected" and live["authorization"] is None, live
-        call(process, "live.act", submit("after", "1"), error=True)
-        call(process, "live.connect", dict(password=SECRET, auth_code=AUTH))
+        trade(process, "live.act", submit("after", "1"), error=True)
+        trade(process, "live.connect", dict(password=SECRET, auth_code=AUTH))
         state = wait(process, lambda s: session(s)["phase"] == "ready")
         # The SDK double keeps exchange state in the killed process, so the
         # broker no longer reports the order: it is listed, never resent.
         live = session(state)
         assert [u["id"] for u in live["unconfirmed"]] == ["filled"], live
         assert live["orders"] == [], live
-        call(process, "live.act", submit("filled", "2"))
+        trade(process, "live.act", submit("filled", "2"))
         assert session(call(process, "runtime.snapshot"))["orders"] == []
-        call(process, "live.disconnect")
-        call(process, "live.close")
+        trade(process, "live.disconnect")
+        trade(process, "live.close")
     finally:
         stop(process)
     for path in Path(os.environ["ASTERION_NODE_DIRECTORY"]).rglob("*"):
-        if path.is_file():
-            data = path.read_bytes()
-            assert SECRET.encode() not in data and AUTH.encode() not in data, path
-    for path in directory.rglob("*"):
         if path.is_file():
             data = path.read_bytes()
             assert SECRET.encode() not in data and AUTH.encode() not in data, path

@@ -93,23 +93,23 @@ std::filesystem::path node_enrollment_directory() {
     throw std::runtime_error("local user data directory unavailable");
   return *home / ".asterion" / "nodes";
 }
-std::filesystem::path new_account_directory(const std::string& name) {
-  if (name.empty() || name.size() > 120 || name == "." || name == ".." || name.front() == '.' ||
-      name.find_first_of("/\\:\r\n") != std::string::npos || name.find('\0') != std::string::npos)
-    throw std::invalid_argument("invalid managed account name");
+std::filesystem::path ctp_account_directory(const std::string& account, bool create) {
+  // The account id is the directory name: one trading record per CTP account.
+  if (account.empty() || account.size() > 64 ||
+      account.find_first_not_of(
+          "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != std::string::npos)
+    throw std::invalid_argument("invalid CTP connection identity");
   const auto root = local_root() / "accounts";
   const auto group = root / "ctp";
-  for (const auto& directory : {root, group}) {
-    if (fs::is_symlink(directory))
+  const auto directory = group / account;
+  if (!create)
+    return directory;
+  for (const auto& path : {root, group, directory}) {
+    if (fs::is_symlink(path))
       throw std::invalid_argument("invalid managed account directory");
-    fs::create_directories(directory);
-    fs::permissions(directory, fs::perms::owner_all, fs::perm_options::replace);
+    fs::create_directories(path);
+    fs::permissions(path, fs::perms::owner_all, fs::perm_options::replace);
   }
-  const auto directory = group / fs::path(std::u8string(name.begin(), name.end()));
-  if (!fs::create_directory(directory))
-    throw Error(ErrorCode::conflict,
-                "managed account name already exists; open the existing account");
-  fs::permissions(directory, fs::perms::owner_all, fs::perm_options::replace);
   return directory;
 }
 Json local_node_program_status() {

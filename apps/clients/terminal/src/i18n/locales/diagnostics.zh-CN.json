@@ -911,7 +911,13 @@
   "too many CTP connections": "CTP 账户数量已达上限。",
   "invalid CTP connection identity": "CTP 账户标识无效。",
   "invalid CTP connection storage": "CTP 账户文件无效。",
-  "select a CTP account first": "请先在设置中设置当前 CTP 账户。",
-  "close the trading account before changing the CTP account": "切换 CTP 账户前请先关闭交易账户。",
-  "disconnect market data before changing the CTP account": "切换 CTP 账户前请先断开行情。"
+  "choose the CTP account for market data first": "请先在设置中选择行情使用的 CTP 账户。",
+  "disconnect market data before changing its CTP account": "更换行情账户前请先断开行情。",
+  "close the trading account before removing it": "删除前请先在交易页关闭此账户。",
+  "this account already trades; its counter details are fixed": "该账户已开通交易，柜台信息不能再修改。",
+  "open this CTP account first": "请先打开此 CTP 账户。",
+  "this CTP account is already open": "此 CTP 账户已打开。",
+  "this CTP account already has a trading record; open it": "此 CTP 账户已有交易记录，请直接打开。",
+  "this CTP account has no trading record yet": "此 CTP 账户尚未开通交易。",
+  "another window opened this CTP account meanwhile": "另一个窗口刚刚打开了此 CTP 账户。"
 }

@@ -83,8 +83,8 @@ Application::Impl::Parts Application::Impl::gather_parts(bool hold_between_calls
     read();
   };
   step([&] {
-    parts.live = live ? live->snapshot() : json(nullptr);
-    parts.live_connection = live ? live->connection() : json(nullptr);
+    for (const auto& [account, client] : live)
+      parts.live[account] = {{"session", client->snapshot()}, {"connection", client->connection()}};
   });
   step([&] { parts.research = research ? research->status() : json(nullptr); });
   step([&] { parts.market = market ? market->snapshot() : json(nullptr); });
@@ -119,8 +119,12 @@ json Application::Impl::compose(const Parts& parts) {
             {"items", catalog}}},
           {"research", parts.research},
           {"data_connections", data_connections.snapshot()},
-          {"ctp_connections", ctp_connections.snapshot()},
-          {"ctp_current", current_ctp_id()},
+          {"ctp_connections", ctp_accounts()},
+          {"ctp_market",
+           [&] {
+             const auto account = ctp_connections.market();
+             return account ? json(account->id) : json(nullptr);
+           }()},
           {"connection_verification", connection_verification},
           {"research_result", research_result},
           {"history_page", nullptr},
@@ -154,9 +158,7 @@ json Application::Impl::compose(const Parts& parts) {
                }
              return policies;
            }()},
-          {"live", parts.live.is_null()
-                       ? json(nullptr)
-                       : json{{"session", parts.live}, {"connection", parts.live_connection}}},
+          {"live", parts.live},
           {"datasets",
            [&] {
              json summaries = json::array();

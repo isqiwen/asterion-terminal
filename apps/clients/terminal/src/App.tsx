@@ -27,6 +27,25 @@ import "./terminal.css";
 import "./host/workspace/workbench.css";
 import "./settings/settings.css";
 import "./ui/workflows.css";
+// One line for every open CTP account: how many may send orders, how many
+// are connected read-only, and how many need attention.
+function liveSummary(snapshot: Snapshot | null) {
+  const entries = Object.values(snapshot?.live ?? {});
+  if (!entries.length) return t("尚未打开交易账户");
+  let authorized = 0,
+    ready = 0,
+    other = 0;
+  for (const { session, connection } of entries) {
+    if (snapshot?.stale || connection.state !== "connected" || session?.phase !== "ready") other++;
+    else if (session.authorization?.trading_day === session.trading_day) authorized++;
+    else ready++;
+  }
+  return t("CTP：{authorized} 个已授权 · {ready} 个只读 · {other} 个未就绪", {
+    authorized,
+    ready,
+    other,
+  });
+}
 export function Terminal() {
   return new URLSearchParams(location.search).get("screen") === "settings" ? (
     <TerminalWorkbench settingsWindow />
@@ -135,7 +154,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     document.addEventListener("visibilitychange", update);
     return () => document.removeEventListener("visibilitychange", update);
   }, []);
-  const polling = !!snapshot && (!!snapshot.live || !!snapshot.nodes?.length);
+  const polling = !!snapshot && (Object.keys(snapshot.live).length > 0 || !!snapshot.nodes?.length);
   const live = !!snapshot?.market;
   useEffect(() => {
     // Polls read the core's published snapshot by revision; an unchanged
@@ -363,18 +382,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
               </span>
               <span className="status-divider" />
               <button onClick={() => context.navigate("workspace.trading")}>
-                {snapshot?.live
-                  ? t(
-                      snapshot.stale || snapshot.live.connection.state !== "connected"
-                        ? "CTP 服务失联"
-                        : snapshot.live.session?.phase !== "ready"
-                          ? "CTP 账户未就绪"
-                          : snapshot.live.session.authorization?.trading_day ===
-                              snapshot.live.session.trading_day
-                            ? "CTP 已授权"
-                            : "CTP 只读连接",
-                    )
-                  : t("尚未打开交易账户")}
+                {liveSummary(snapshot)}
               </button>
             </>
           }

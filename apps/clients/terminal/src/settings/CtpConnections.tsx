@@ -12,8 +12,8 @@ const blank = {
   trade_front: "",
   market_front: "",
 };
-// One place for the counter accounts the broker issues. One of them is
-// current: the market login, the contract catalog query and trading use it.
+// One place for the counter accounts the broker issues. Each can trade on the
+// Trading page; exactly one of them supplies market data.
 export function CtpConnections({
   snapshot,
   busy,
@@ -57,6 +57,8 @@ export function CtpConnections({
         : blank,
     );
   };
+  // Counter details of an account that already trades are fixed.
+  const fixed = !!editing?.trading_record;
   const field = (
     key: keyof typeof blank,
     label: string,
@@ -66,6 +68,7 @@ export function CtpConnections({
       {label}
       <input
         aria-label={label}
+        disabled={fixed && key !== "market_front"}
         required={options.required}
         maxLength={options.maxLength}
         placeholder={options.placeholder}
@@ -79,7 +82,7 @@ export function CtpConnections({
       <h2>{t("CTP 账户")}</h2>
       <p>
         {t(
-          "在这里填写一次期货公司提供的柜台信息。行情和交易都使用当前账户；密码与授权码在每次连接时输入，不保存。",
+          "在这里填写一次期货公司提供的柜台信息。每个账户可以在交易页分别连接和交易；行情只使用其中一个账户。密码与授权码在每次连接时输入，不保存。",
         )}
       </p>
       {unreadable.map(entry => (
@@ -92,7 +95,8 @@ export function CtpConnections({
         <section key={connection.id} aria-label={connection.name}>
           <h3>
             {connection.name}
-            {connection.id === snapshot?.ctp_current && ` · ${t("当前账户")}`}
+            {connection.id === snapshot?.ctp_market && ` · ${t("用于行情")}`}
+            {connection.trading_record && ` · ${t("已开通交易")}`}
           </h3>
           <p>
             {t("经纪商代码")} {connection.broker_id} · {t("投资者账号")} {connection.user_id}
@@ -101,13 +105,13 @@ export function CtpConnections({
             {t("交易前置")} {connection.trade_front || t("未填写")} · {t("行情前置")}{" "}
             {connection.market_front || t("未填写")}
           </p>
-          {connection.id !== snapshot?.ctp_current && (
+          {connection.id !== snapshot?.ctp_market && connection.market_front && (
             <>
               <button
                 disabled={busy}
-                onClick={() => void run("ctp.connections.select", { id: connection.id })}
+                onClick={() => void run("ctp.connections.market", { id: connection.id })}
               >
-                {t("设为当前账户")}
+                {t("用于行情")}
               </button>{" "}
             </>
           )}
@@ -179,7 +183,7 @@ export function CtpConnections({
       </form>
       <p>
         {t(
-          "只看行情可以只填行情前置；交易和合约目录查询需要交易前置与 AppID。切换当前账户前先断开行情并关闭交易账户。修改或删除不影响已创建的交易记录，它保留创建时的柜台信息。",
+          "只看行情可以只填行情前置；交易和合约目录查询需要交易前置与 AppID。更换行情账户前先断开行情，不影响交易中的账户。账户开通交易后，经纪商代码、投资者账号、AppID 和交易前置不能再修改；需要更换请新建账户。",
         )}
       </p>
       {error && (

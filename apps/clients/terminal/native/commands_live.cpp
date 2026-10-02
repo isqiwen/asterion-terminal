@@ -34,21 +34,28 @@ json catalog_terms(const json& market, const json& requested) {
   return contracts;
 }
 } // namespace
-// Live CTP sessions: create, open, connect with credentials, authorize and
-// trade. Every order passes the service's authorization, allowlist and risk.
+TradingClient& Application::Impl::live_account(const json& params) {
+  const auto found = live.find(text(params, "account"));
+  if (found == live.end())
+    throw std::invalid_argument("open this CTP account first");
+  return *found->second;
+}
+// CTP trading accounts: each account has one record and one service. Several
+// may be open at once; every command names its account, and every order
+// passes that account's authorization, allowlist and risk.
 void Application::Impl::register_live_commands() {
   core.command("live.create", [this](const json& p) {
-    fields_with_risk(
-        p, {p.contains("name") ? "name" : "directory", "max_price_deviation", "contracts"});
-    if (live)
-      throw std::invalid_argument("close the current live session first");
+    fields_with_risk(p, {"account", "max_price_deviation", "contracts"});
+    const auto account = text(p, "account");
+    if (live.contains(account))
+      throw std::invalid_argument("this CTP account is already open");
     // Validated before the braced initializer (GCC < 13 PR66139 leak).
     const auto risk = risk_parameters(p);
-    // Trading uses the current CTP account. The record keeps its own copy:
-    // later edits apply to accounts created afterwards, never to this one.
-    const auto connection = current_ctp();
+    const auto connection = ctp_connections.get(account);
     if (connection.trade_front.empty())
       throw std::invalid_argument("CTP connection has no trade front");
+    if (std::filesystem::exists(ctp_record_directory(account) / "journal.sqlite"))
+      throw Error(ErrorCode::conflict, "this CTP account already has a trading record; open it");
     auto contracts = catalog_terms(market ? market->snapshot() : json(nullptr), p.at("contracts"));
     json manifest{{"version", 2},
                   {"type", "live_ctp"},
@@ -61,75 +68,64 @@ void Application::Impl::register_live_commands() {
                   {"max_price_deviation", text(p, "max_price_deviation")},
                   {"contracts", std::move(contracts)}};
     (void)protocol::encode_live_input(manifest);
-    const auto directory = p.contains("directory") ? text(p, "directory") : std::string{};
-    const auto name = p.contains("name") ? text(p, "name") : std::string{};
     auto [node, next] = without_operations([&, existing = existing_local_node()] {
       auto node = local_node_client(existing);
-      const auto path =
-          directory.empty()
-              ? new_account_directory(name)
-              : std::filesystem::path(std::u8string(directory.begin(), directory.end()));
-      auto client = std::make_unique<TradingClient>(path, manifest);
+      auto client = std::make_unique<TradingClient>(ctp_account_directory(account, true), manifest);
       return std::pair{std::move(node), std::move(client)};
     });
     nodes.try_emplace("local", std::move(node));
-    if (live)
-      throw Error(ErrorCode::conflict, "another window opened a live session meanwhile; "
-                                       "recover this directory after closing it");
-    live = std::move(next);
+    if (!live.try_emplace(account, std::move(next)).second)
+      throw Error(ErrorCode::conflict, "another window opened this CTP account meanwhile");
     return snapshot();
   });
   core.command("live.open", [this](const json& p) {
-    fields(p, {"directory"});
-    if (live)
-      throw std::invalid_argument("close the current live session first");
-    const auto directory = text(p, "directory");
+    fields(p, {"account"});
+    const auto account = text(p, "account");
+    if (live.contains(account))
+      return snapshot();
+    static_cast<void>(ctp_connections.get(account));
+    const auto directory = ctp_record_directory(account);
+    if (!std::filesystem::exists(directory / "journal.sqlite"))
+      throw std::invalid_argument("this CTP account has no trading record yet");
     auto [node, next] = without_operations([&, existing = existing_local_node()] {
       auto node = local_node_client(existing);
-      auto client = std::make_unique<TradingClient>(
-          std::filesystem::path(std::u8string(directory.begin(), directory.end())));
+      auto client = std::make_unique<TradingClient>(directory);
       return std::pair{std::move(node), std::move(client)};
     });
     nodes.try_emplace("local", std::move(node));
-    if (live)
-      throw Error(ErrorCode::conflict, "another window opened a live session meanwhile; "
-                                       "recover this directory after closing it");
-    live = std::move(next);
+    live.try_emplace(account, std::move(next));
     return snapshot();
   });
-  // Credentials go to the session service and are not kept by the Terminal.
+  // Credentials go to the account's service and are not kept by the Terminal.
   core.command("live.connect", [this](const json& p) {
-    fields(p, {"password", "auth_code"});
-    if (!live)
-      throw std::invalid_argument("create or recover a live session first");
-    live->connect_broker(text(p, "password"), text(p, "auth_code"));
+    fields(p, {"account", "password", "auth_code"});
+    live_account(p).connect_broker(text(p, "password"), text(p, "auth_code"));
     return snapshot();
   });
   core.command("live.disconnect", [this](const json& p) {
-    fields(p, {});
-    if (!live)
-      throw std::invalid_argument("create or recover a live session first");
-    live->disconnect_broker();
+    fields(p, {"account"});
+    live_account(p).disconnect_broker();
     return snapshot();
   });
   // The account's margin and commission rates from the broker; observations
   // only, never recorded as trading commands.
   core.command("live.costs", [this](const json& p) {
-    fields(p, {});
-    if (!live)
-      throw std::invalid_argument("create or recover a live session first");
-    live->query_costs();
+    fields(p, {"account"});
+    live_account(p).query_costs();
     return snapshot();
   });
+  // The account is part of the request, never implied: an order cannot reach
+  // another account because a different one happens to be selected.
   core.command("live.act", [this](const json& p) {
-    if (!live)
-      throw std::invalid_argument("create or recover a live session first");
-    live->execute(p);
+    auto& account = live_account(p);
+    auto command = p;
+    command.erase("account");
+    account.execute(command);
     return snapshot();
   });
   core.command("live.close", [this](const json& p) {
-    fields(p, {});
-    live.reset();
+    fields(p, {"account"});
+    live.erase(text(p, "account"));
     return snapshot();
   });
 }

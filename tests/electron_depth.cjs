@@ -84,7 +84,11 @@ const path = require("node:path");
       market_front: "tcp://127.0.0.1:1",
     });
     await call("market.connect", { password: "explicit-depth-fixture", instruments: [] });
-    await call("market.catalog", { password: "explicit-catalog-fixture", auth_code: "" });
+    await call("market.catalog", {
+      account: "fixture",
+      password: "explicit-catalog-fixture",
+      auth_code: "",
+    });
     await expect
       .poll(
         async () =>

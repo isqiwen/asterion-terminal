@@ -222,7 +222,7 @@ export type TerminalCommand =
   | "research.connections.verify"
   | "ctp.connections.save"
   | "ctp.connections.remove"
-  | "ctp.connections.select"
+  | "ctp.connections.market"
   | "research.local.create"
   | "native.plugins.inspect"
   | "native.plugins.preview"
@@ -276,8 +276,7 @@ export type TerminalCommand =
   | "node.local"
   | "node.disconnect"
   | "node.deploy"
-  | "node.action"
-  | "node.attach";
+  | "node.action";
 export type NodeStatus = {
   id: string;
   host: string;
@@ -486,14 +485,17 @@ export type CtpConnection = {
   trade_front: string;
   market_front: string;
   revision: string;
+  // Whether this account has its trading record; its counter details are then fixed.
+  trading_record: boolean;
 };
 export type CtpConnectionEntry = CtpConnection | UnreadableDataConnection;
 export const readableCtpConnection = (entry: CtpConnectionEntry): entry is CtpConnection =>
   !("error" in entry);
-export function currentCtpAccount(snapshot: Snapshot | null): CtpConnection | undefined {
+// The one account that supplies market data.
+export function marketCtpAccount(snapshot: Snapshot | null): CtpConnection | undefined {
   return (snapshot?.ctp_connections ?? [])
     .filter(readableCtpConnection)
-    .find(item => item.id === snapshot?.ctp_current);
+    .find(item => item.id === snapshot?.ctp_market);
 }
 export type NativeHistorySource = {
   id: string;
@@ -821,8 +823,8 @@ export type Snapshot = {
   plugin_candidate?: NativePluginInfo;
   data_connections?: DataConnectionEntry[];
   ctp_connections?: CtpConnectionEntry[];
-  // The single CTP account in use: market data and trading both follow it.
-  ctp_current?: string | null;
+  // The CTP account that supplies market data; trading accounts are independent.
+  ctp_market?: string | null;
   connection_verification?: null | {
     id: string;
     revision: string;
@@ -892,16 +894,20 @@ export type Snapshot = {
     state: string;
   }[];
   diagnostics: { succeeded: number; failed: number };
-  live: null | {
-    session: LiveSession | null;
-    connection: {
-      transport: "local" | "tcp_tls";
-      state: "connected" | "disconnected";
-      session: string;
-      port?: number;
-      host?: string;
-    };
-  };
+  // Open CTP trading accounts by account id; several may be open at once.
+  live: Record<
+    string,
+    {
+      session: LiveSession | null;
+      connection: {
+        transport: "local" | "tcp_tls";
+        state: "connected" | "disconnected";
+        session: string;
+        port?: number;
+        host?: string;
+      };
+    }
+  >;
 };
 async function call(
   method: "runtime.snapshot" | TerminalCommand,
