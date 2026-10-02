@@ -115,29 +115,45 @@ struct Application::Impl {
     const auto found = nodes.find("local");
     return found == nodes.end() ? nullptr : found->second;
   }
-  // Runs `io` without the client-operation lock and relocks before returning.
-  // Captured clients must be shared pointers; state is read again afterwards.
-  template <class F> decltype(auto) without_operations(F&& io) {
-    std::unique_lock node(node_operations, std::try_to_lock);
-    if (!node)
-      throw Error(ErrorCode::conflict,
-                  "another node operation is in progress; retry after it completes");
+  // Runs service I/O without the client-operation lock and relocks before
+  // returning. Captured clients must be shared pointers; a command reads its
+  // state again afterwards and checks that the service it used is unchanged.
+  template <class F> decltype(auto) outside_lock(F&& io) {
     auto* lock = operation_lock;
     if (!lock || !lock->owns_lock())
-      throw std::logic_error("node operation outside a Terminal command");
+      throw std::logic_error("service I/O outside a Terminal command");
+    const bool running = command_running;
     command_running = false;
     lock->unlock();
     struct Relock {
       Impl& self;
       std::unique_lock<std::mutex>& lock;
+      bool running;
       ~Relock() {
         lock.lock();
-        ++self.mutations;
-        self.command_running = true;
+        if (running) {
+          ++self.mutations;
+          self.command_running = true;
+        }
       }
-    } relock{*this, *lock};
+    } relock{*this, *lock, running};
     return io();
   }
+  // outside_lock for long node operations (SSH, uploads, upgrades), which are
+  // also serialized among themselves.
+  template <class F> decltype(auto) without_operations(F&& io) {
+    std::unique_lock node(node_operations, std::try_to_lock);
+    if (!node)
+      throw Error(ErrorCode::conflict,
+                  "another node operation is in progress; retry after it completes");
+    return outside_lock(std::forward<F>(io));
+  }
+  // Reads that return one-shot data (pages, listings, previews, usage) next
+  // to the snapshot: never published, never counted as running commands.
+  static bool read_only_method(std::string_view method);
+  // research.history.usage: references to one historical dataset version
+  // across services, replay ledgers and nodes (commands_history_usage.cpp).
+  json history_usage(const json& params);
   // Published snapshot, guarded by cache_mutex. runtime.snapshot only reads it.
   std::mutex cache_mutex;
   std::condition_variable_any refresh_wake;

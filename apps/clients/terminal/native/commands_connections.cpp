@@ -51,8 +51,26 @@ void Application::Impl::register_connection_commands() {
     connection_verification = nullptr;
     return snapshot();
   });
+  // Verifies a saved connection against its data source; the provider I/O
+  // runs outside the lock.
   core.command("research.connections.verify", "node.manage", [this](const json& params) {
     fields(params, {"id", "revision", "source"});
+    const auto connection = resolve_data_connection(text(params, "id"), text(params, "revision"),
+                                                    text(params, "source"));
+    const auto client = research;
+    if (!client)
+      throw std::invalid_argument("connect research service first");
+    const auto verification = outside_lock(
+        [&] { return client->verify_connection(connection.source, connection.credential); });
+    if (research != client)
+      throw Error(ErrorCode::conflict, "research connection changed; retry verification");
+    (void)resolve_data_connection(text(params, "id"), text(params, "revision"),
+                                  text(params, "source"));
+    json checks = json::array();
+    for (const auto& check : verification.checks())
+      checks.push_back({{"scope", check.scope()}, {"state", check.state()}});
+    connection_verification = {
+        {"id", text(params, "id")}, {"revision", text(params, "revision")}, {"checks", checks}};
     return snapshot();
   });
 }

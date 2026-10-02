@@ -1,36 +1,8 @@
 #include "application_impl.hpp"
-#include "task_store.hpp"
-#include "history_replays.hpp"
 #include <array>
 #include <stdexcept>
 
 namespace asterion::terminal {
-namespace {
-DatasetSelection resolved_selection(const data::v1::BarDatasetRequest& request,
-                                    data::v1::BarDataset dataset) {
-  const auto& bars = dataset.bars();
-  const auto& first = bars.Get(0);
-  const auto& last = bars.Get(bars.size() - 1);
-  json uncovered = json::array();
-  for (const auto& day : dataset.uncovered_days())
-    uncovered.push_back(day);
-  json summary = protocol::decode_bar_dataset_request(request);
-  summary.update({{"venue", dataset.contract().venue()},
-                  {"symbol", dataset.contract().symbol()},
-                  {"revision", dataset.revision()},
-                  {"source", dataset.source()},
-                  {"interval_minutes", dataset.interval_minutes()},
-                  {"count", bars.size()},
-                  {"days", dataset.days_size()},
-                  {"first_day", first.trading_day()},
-                  {"last_day", last.trading_day()},
-                  {"first_timestamp_ns", std::to_string(first.timestamp_ns())},
-                  {"last_timestamp_ns", std::to_string(last.timestamp_ns())},
-                  {"last_close", Decimal::from_raw(last.close().units()).str()},
-                  {"uncovered_days", uncovered}});
-  return DatasetSelection{request, std::move(dataset), std::move(summary)};
-}
-} // namespace
 
 void fields(const json& object, std::initializer_list<std::string_view> names) {
   if (!object.is_object() || object.size() != names.size())
@@ -278,69 +250,26 @@ void Application::Impl::refresh_loop(std::stop_token stop) {
                           [] { return false; });
   }
 }
+bool Application::Impl::read_only_method(std::string_view method) {
+  static constexpr std::array<std::string_view, 8> reads{
+      "market.minutes",        "research.minutes.page", "research.daily.page",
+      "research.datasets",     "research.coverage",     "research.dataset.saved",
+      "research.history.plan", "research.history.usage"};
+  return std::ranges::find(reads, method) != reads.end();
+}
 json Application::Impl::dispatch(const json& request) {
   fields(request, {"version", "method", "params"});
   if (request.at("version") != 1 || !request.at("version").is_number_integer())
     throw std::invalid_argument("unsupported API version");
   const auto method = text(request, "method");
-  const bool market_query = method == "market.minutes";
-  const bool history_query = market_query || method == "research.minutes.page" ||
-                             method == "research.daily.page" || method == "research.datasets" ||
-                             method == "research.coverage" || method == "research.dataset.saved" ||
-                             method == "research.history.plan" ||
-                             method == "research.history.usage";
-  const bool research_io = method == "research.history.submit" ||
-                           method == "research.daily-factor.submit" ||
-                           method == "research.result" || method == "research.dataset.select" ||
-                           method == "research.dataset.save" || method == "research.dataset.use";
+  const bool read_only = read_only_method(method);
   const auto& params = request.at("params");
   // Polls pass `since` and always read the published snapshot. A plain read is
   // an explicit probe: fresh, except while a command runs, when it returns the
   // published snapshot marked stale. A probe may wait for one background
   // refresher step (a single client call) but never behind a command.
-  // Provider I/O happens before taking the client-operation lock. Other windows
-  // can continue fresh status reads and service actions during catalog lookup.
-  std::optional<std::vector<HistoryListing>> catalog;
-  std::shared_ptr<ResearchClient> catalog_client;
-  if (method == "research.contracts.load") {
-    fields(params, {"source", "exchange", "product", "token", "connection", "connection_revision"});
-    core.access().require("terminal.local", "node.manage");
-    if (text(params, "connection", true).empty() &&
-        !text(params, "connection_revision", true).empty())
-      throw std::invalid_argument("invalid data connection identity");
-    auto& client = catalog_client;
-    auto credential = text(params, "token", true);
-    {
-      std::lock_guard lock(operations);
-      client = research;
-      if (params.contains("connection") && !text(params, "connection", true).empty()) {
-        if (!credential.empty())
-          throw std::invalid_argument("choose a saved connection or a temporary credential");
-        credential =
-            resolve_data_connection(text(params, "connection"), text(params, "connection_revision"),
-                                    text(params, "source"))
-                .credential;
-      }
-    }
-    if (!client)
-      throw std::invalid_argument("connect research service first");
-    catalog = client->catalog(text(params, "source"), credential, text(params, "exchange"),
-                              text(params, "product"));
-  }
-  std::optional<data::v1::HistoryConnectionVerification> verification;
-  std::shared_ptr<ResearchClient> verifying_client;
-  if (method == "research.connections.verify") {
-    fields(params, {"id", "revision", "source"});
-    core.access().require("terminal.local", "node.manage");
-    DataConnection connection;
-    {
-      std::lock_guard lock(operations);
-      connection = resolve_data_connection(text(params, "id"), text(params, "revision"),
-                                           text(params, "source"));
-      verifying_client = research;
-    }
-    verification = verifying_client->verify_connection(connection.source, connection.credential);
-  }
+  // Commands that call services release the lock around that I/O
+  // (outside_lock), so other windows can keep reading and acting meanwhile.
   std::unique_lock operation(operations, std::defer_lock);
   if (method == "runtime.snapshot") {
     // Validate before choosing a fresh or cached read. Invalid input must not
@@ -377,9 +306,9 @@ json Application::Impl::dispatch(const json& request) {
                     "another Terminal operation is in progress; retry after it completes");
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    if (!history_query)
+    if (!read_only)
       ++mutations;
-    command_running = !history_query;
+    command_running = !read_only;
   }
   struct Clear {
     std::atomic<bool>& flag;
@@ -388,34 +317,7 @@ json Application::Impl::dispatch(const json& request) {
       if (active)
         flag = false;
     }
-  } clear{command_running, method != "runtime.snapshot" && !history_query};
-  if (verification) {
-    if (research != verifying_client)
-      throw Error(ErrorCode::conflict, "research connection changed; retry verification");
-    (void)resolve_data_connection(text(params, "id"), text(params, "revision"),
-                                  text(params, "source"));
-    json checks = json::array();
-    for (const auto& check : verification->checks())
-      checks.push_back({{"scope", check.scope()}, {"state", check.state()}});
-    connection_verification = {
-        {"id", text(params, "id")}, {"revision", text(params, "revision")}, {"checks", checks}};
-  }
-  if (catalog) {
-    if (research != catalog_client)
-      throw Error(ErrorCode::conflict, "research connection changed; reload catalog");
-    if (!text(params, "connection", true).empty())
-      (void)resolve_data_connection(text(params, "connection"), text(params, "connection_revision"),
-                                    text(params, "source"));
-    history_connection = text(params, "connection", true);
-    history_connection_revision = text(params, "connection_revision", true);
-    history_source = text(params, "source");
-    history_contracts = std::move(*catalog);
-    history_exchange = text(params, "exchange");
-    history_product = text(params, "product");
-    history_cutoff = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                         std::chrono::system_clock::now().time_since_epoch())
-                         .count();
-  }
+  } clear{command_running, method != "runtime.snapshot" && !read_only};
   struct Active {
     std::unique_lock<std::mutex>*& slot;
     ~Active() { slot = nullptr; }
@@ -423,395 +325,13 @@ json Application::Impl::dispatch(const json& request) {
   operation_lock = &operation;
   auto result = core.dispatch("terminal.local", method,
                               method == "runtime.snapshot" ? json::object() : params);
-  if (!history_query && !research_io && result.is_object() && result.contains("protocol")) {
+  // A command's snapshot becomes the published state; a read's one-shot data
+  // (pages, listings, usage) never does.
+  if (!read_only && result.is_object() && result.contains("protocol")) {
     publish(result);
     std::lock_guard cached(cache_mutex);
     result["revision"] = revision;
     result["refreshed_at_ms"] = refreshed_at_ms;
-  }
-  if (method == "research.history.usage") {
-    const auto client = research;
-    const auto generation = research_generation.load();
-    const auto selection_generation = dataset_selection_generation;
-    const auto id = text(params, "id");
-    bool market_reference = false, settlement_reference = false;
-    for (const auto& selection : selections) {
-      const auto& data = selection.request;
-      market_reference |=
-          std::ranges::find(data.source_dataset_ids(), id) != data.source_dataset_ids().end();
-      settlement_reference |= std::ranges::find(data.settlement_dataset_ids(), id) !=
-                              data.settlement_dataset_ids().end();
-    }
-    const auto research_address = client->endpoint();
-    const auto inspected_nodes = nodes;
-    std::optional<ServiceEndpoint> direct;
-    if (paper) {
-      const auto address = paper->endpoint();
-      if (address.endpoint.empty())
-        direct = address;
-    }
-    clear.active = false;
-    command_running = false;
-    operation.unlock();
-    const auto registered = registered_node_inventory();
-    auto usage = client->history_usage(id);
-    usage["disconnected_nodes"] = registered;
-    auto& disconnected = usage["disconnected_nodes"]["names"];
-    std::erase_if(disconnected.get_ref<json::array_t&>(), [&](const auto& name) {
-      return inspected_nodes.contains(name.template get<std::string>());
-    });
-    std::vector<ReplayOwner> owners;
-    std::string local_inventory_error;
-    usage["remote_replays"] = json::array();
-    usage["other_research"] = json::array();
-    std::vector<ServiceEndpoint> inspected_research{research_address};
-    bool direct_in_inventory = false;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
-    for (const auto& [name, node] : inspected_nodes) {
-      const bool local = name == "local";
-      json checked{{"checked", 0}, {"references", json::array()}, {"unavailable", json::array()}};
-      try {
-        if (std::chrono::steady_clock::now() >= deadline)
-          throw std::runtime_error("historical service inspection timed out");
-        const auto inventory = node->history_inventory();
-        std::vector<RemoteReplayOwner> replays;
-        for (const auto& service : inventory) {
-          if (service.kind == node::v1::PAPER_TRADING) {
-            if (local) {
-              if (service.state == "running" && !service.address.endpoint.empty())
-                owners.push_back({std::filesystem::path(service.directory), service.address.session,
-                                  service.address.endpoint});
-            } else {
-              replays.push_back({service.directory, service.state, service.address});
-              if (direct && same_service_endpoint(*direct, service.address))
-                direct_in_inventory = true;
-            }
-            continue;
-          }
-          if (std::ranges::any_of(inspected_research, [&](const auto& address) {
-                return same_service_endpoint(address, service.address);
-              }))
-            continue;
-          inspected_research.push_back(service.address);
-          json group{{"node", name},
-                     {"service", service.address.session},
-                     {"checked", false},
-                     {"references", json::array()}};
-          try {
-            if (local && service.state == "stopped") {
-              const auto expected =
-                  local_node_directory() / "services" / service.address.session / "ledger";
-              // Only the current environment's managed layout is eligible for disk inspection.
-              for (const auto& path : {local_node_directory(), expected.parent_path().parent_path(),
-                                       expected.parent_path(), expected})
-                if (std::filesystem::is_symlink(path))
-                  throw std::invalid_argument("invalid local research ledger directory");
-              if (std::filesystem::path(service.directory).lexically_normal() !=
-                  expected.lexically_normal())
-                throw std::invalid_argument("invalid local research ledger directory");
-              const auto result = tasks::Store::inspect_history_usage(expected, id);
-              group["references"] = protocol::decode_history_usage(result).at("references");
-              group["checked"] = true;
-              group["stopped"] = true;
-              usage["other_research"].push_back(std::move(group));
-              continue;
-            }
-            if (service.state != "running")
-              throw std::runtime_error(
-                  "research service is not running; references were not inspected");
-            // A local inventory must never become a TCP connection through an empty socket.
-            if (local && service.address.endpoint.empty())
-              throw std::invalid_argument("invalid historical service address");
-            const auto result = ResearchClient::inspect_history_usage(
-                service.address, id,
-                std::min(deadline, std::chrono::steady_clock::now() + std::chrono::seconds(5)));
-            group["references"] = result.at("references");
-            group["checked"] = true;
-          } catch (const std::exception& e) {
-            group["error"] = e.what();
-          }
-          usage["other_research"].push_back(std::move(group));
-        }
-        if (!local)
-          checked = remote_replay_usage(replays, id);
-      } catch (const std::exception& e) {
-        checked["error"] = e.what();
-        if (local)
-          local_inventory_error = e.what();
-        usage["other_research"].push_back({{"node", name},
-                                           {"service", ""},
-                                           {"checked", false},
-                                           {"references", json::array()},
-                                           {"error", e.what()}});
-      }
-      if (!local) {
-        checked["node"] = name;
-        checked["direct"] = false;
-        usage["remote_replays"].push_back(std::move(checked));
-      }
-    }
-    usage["local_replays"] = local_replay_usage(local_node_directory(), id, owners);
-    if (!local_inventory_error.empty())
-      usage["local_replays"]["error"] = local_inventory_error;
-    if (direct && !direct_in_inventory) {
-      auto checked = remote_replay_usage({{{}, "running", *direct}}, id);
-      checked["node"] = "";
-      checked["direct"] = true;
-      usage["remote_replays"].push_back(std::move(checked));
-    }
-    if (registered_node_inventory() != registered)
-      throw Error(ErrorCode::conflict, "registered nodes changed during archive query");
-    operation.lock();
-    if (nodes != inspected_nodes)
-      throw Error(ErrorCode::conflict, "node connections changed during archive query");
-    std::optional<ServiceEndpoint> current_direct;
-    if (paper) {
-      const auto address = paper->endpoint();
-      if (address.endpoint.empty())
-        current_direct = address;
-    }
-    if (bool(direct) != bool(current_direct) ||
-        (direct && !same_service_endpoint(*direct, *current_direct)))
-      throw Error(ErrorCode::conflict, "replay connection changed during archive query");
-    if (generation != research_generation.load())
-      throw Error(ErrorCode::conflict, "research service changed during archive query");
-    if (selection_generation != dataset_selection_generation)
-      throw Error(ErrorCode::conflict, "dataset selection changed during resolution");
-    usage["selected_roles"] = json::array();
-    if (market_reference)
-      usage["selected_roles"].push_back("market");
-    if (settlement_reference)
-      usage["selected_roles"].push_back("settlement");
-    result = snapshot();
-    result["history_usage"] = std::move(usage);
-    return result;
-  }
-  if (method == "research.history.plan" || method == "research.history.submit") {
-    const bool submit = method == "research.history.submit";
-    const auto query = protocol::encode_history_update_query(submit ? params.at("query") : params);
-    const auto client = research;
-    const auto generation = research_generation.load();
-    clear.active = false;
-    command_running = false;
-    operation.unlock();
-    const auto plan = client->history_update_plan(query);
-    if (submit && plan.id() != text(params, "plan_id"))
-      throw std::invalid_argument("history update plan changed; preview again");
-    operation.lock();
-    if (generation != research_generation.load())
-      throw Error(ErrorCode::conflict, "research service changed during archive query");
-    if (!submit) {
-      result = snapshot();
-      result["history_update_plan"] = protocol::decode_history_update_plan(plan);
-      return result;
-    }
-    const auto source = plan.has_minutes() ? plan.minutes().source() : plan.daily().source();
-    auto credential = text(params, "token", true);
-    if (!text(params, "connection", true).empty()) {
-      if (!credential.empty())
-        throw std::invalid_argument("choose a saved connection or a temporary credential");
-      const auto connection = resolve_data_connection(text(params, "connection"),
-                                                      text(params, "connection_revision"), source);
-      if (query.requests_per_minute() != connection.requests_per_minute)
-        throw std::invalid_argument("data connection request budget changed; inspect again");
-      credential = connection.credential;
-    } else if (!text(params, "connection_revision", true).empty())
-      throw std::invalid_argument("invalid data connection identity");
-    data::v1::HistoryUpdateSubmit input;
-    *input.mutable_query() = query;
-    input.set_plan_id(plan.id());
-    operation.unlock();
-    client->submit_update(text(params, "id"), input, credential);
-    operation.lock();
-    if (generation != research_generation.load())
-      throw Error(ErrorCode::conflict, "research service changed during operation; inspect the "
-                                       "original service before retrying");
-    result = snapshot();
-    publish(result);
-    std::lock_guard cached(cache_mutex);
-    result["revision"] = revision;
-    result["refreshed_at_ms"] = refreshed_at_ms;
-    return result;
-  }
-  if (method == "research.dataset.saved" || method == "research.dataset.save" ||
-      method == "research.dataset.use") {
-    auto client = research;
-    const auto generation = research_generation.load();
-    const auto selection_generation = dataset_selection_generation;
-    data::v1::ResearchDataset saved;
-    if (method == "research.dataset.save") {
-      saved.set_version(1);
-      saved.set_name(text(params, "name"));
-      for (const auto& item : selected()) {
-        *saved.add_selections() = item.request;
-        saved.add_content_revisions(item.dataset.revision());
-      }
-      saved.set_id(protocol::research_dataset_revision(saved));
-      protocol::validate_research_dataset(saved);
-    }
-    clear.active = false;
-    command_running = false;
-    operation.unlock();
-    json library;
-    std::vector<DatasetSelection> restored;
-    if (method == "research.dataset.saved")
-      library = client->saved_datasets();
-    else if (method == "research.dataset.save")
-      client->save_dataset(saved);
-    else {
-      saved = client->saved_dataset(text(params, "id"));
-      for (int i = 0; i < saved.selections_size(); ++i) {
-        const auto& input = saved.selections(i);
-        auto data = client->bar_dataset(input);
-        if (data.revision() != saved.content_revisions(i))
-          throw std::invalid_argument("saved research dataset revision mismatch");
-        restored.push_back(resolved_selection(input, std::move(data)));
-      }
-    }
-    operation.lock();
-    if (generation != research_generation.load())
-      throw Error(ErrorCode::conflict, "research service changed during archive query");
-    if (method == "research.dataset.use") {
-      if (selection_generation != dataset_selection_generation)
-        throw Error(ErrorCode::conflict, "dataset selection changed during resolution");
-      selections = std::move(restored);
-      ++dataset_selection_generation;
-    }
-    result = snapshot();
-    if (method == "research.dataset.saved")
-      result["saved_datasets"] = std::move(library);
-    else {
-      publish(result);
-      std::lock_guard cached(cache_mutex);
-      result["revision"] = revision;
-      result["refreshed_at_ms"] = refreshed_at_ms;
-    }
-    return result;
-  }
-  if (method == "research.dataset.select") {
-    const auto selection_generation = dataset_selection_generation;
-    auto client = research;
-    const auto generation = research_generation.load();
-    clear.active = false;
-    command_running = false;
-    operation.unlock();
-    const auto& p = params;
-    // The contract comes from the download's unified identity; only the units
-    // a data source does not provide are entered by the user.
-    if (!p.at("source_dataset_ids").is_array() || p.at("source_dataset_ids").empty())
-      throw std::invalid_argument("dataset requires 1..32 versions per source role");
-    std::string key;
-    for (const auto& item : client->datasets({}))
-      if (item.at("id") == p.at("source_dataset_ids").at(0))
-        key = item.at("contract_id").get<std::string>();
-    if (key.empty())
-      throw std::invalid_argument("historical dataset is unavailable");
-    const auto id = HistoryIdentity::parse(key).exchange_id();
-    const auto identity = HistoryIdentity::parse(key);
-    auto product = id.symbol.substr(0, identity.product.size());
-    const auto request = protocol::encode_bar_dataset_request(
-        {{"source_dataset_ids", p.at("source_dataset_ids")},
-         {"settlement_dataset_ids", p.at("settlement_dataset_ids")},
-         {"begin_day", p.at("begin_day")},
-         {"end_day", p.at("end_day")},
-         {"contract",
-          {{"venue", id.venue},
-           {"symbol", id.symbol},
-           {"currency", "CNY"},
-           {"price_increment", text(p, "price_increment")},
-           {"quantity_increment", "1"},
-           {"multiplier", text(p, "multiplier")},
-           {"product", std::move(product)},
-           {"delivery_month", identity.delivery_month}}}});
-    auto dataset = client->bar_dataset(request);
-    DatasetSelection next = resolved_selection(request, std::move(dataset));
-    operation.lock();
-    if (generation != research_generation.load())
-      throw Error(ErrorCode::conflict, "research service changed during archive query");
-    if (selection_generation != dataset_selection_generation)
-      throw Error(ErrorCode::conflict, "dataset selection changed during resolution");
-    ++dataset_selection_generation;
-    const auto same = std::ranges::find_if(selections, [&](const DatasetSelection& item) {
-      return item.dataset.contract().venue() == next.dataset.contract().venue() &&
-             item.dataset.contract().symbol() == next.dataset.contract().symbol();
-    });
-    if (same != selections.end())
-      *same = std::move(next);
-    else if (selections.size() == max_portfolio_contracts)
-      throw std::invalid_argument("a portfolio holds at most 20 contracts");
-    else
-      selections.push_back(std::move(next));
-    result = snapshot();
-    publish(result);
-    std::lock_guard cached(cache_mutex);
-    result["revision"] = revision;
-    result["refreshed_at_ms"] = refreshed_at_ms;
-  } else if (research_io) {
-    auto client = research;
-    const auto generation = research_generation.load();
-    auto definition = params;
-    definition.erase("id");
-    const auto input = method == "research.daily-factor.submit"
-                           ? protocol::encode_daily_factor_request(definition)
-                           : research::v1::DailyFactorRequest{};
-    clear.active = false;
-    command_running = false;
-    operation.unlock();
-    json evidence;
-    if (method == "research.daily-factor.submit")
-      client->submit(text(params, "id"), input);
-    else
-      evidence = client->result(text(params, "id"));
-    operation.lock();
-    if (generation != research_generation.load())
-      throw Error(ErrorCode::conflict, "research service changed during operation; inspect the "
-                                       "original service before retrying");
-    if (method == "research.result")
-      research_result = std::move(evidence);
-    result = snapshot();
-    publish(result);
-    std::lock_guard cached(cache_mutex);
-    result["revision"] = revision;
-    result["refreshed_at_ms"] = refreshed_at_ms;
-  }
-  if (method == "research.datasets" || method == "research.coverage") {
-    auto reader = research;
-    const auto generation = research_generation.load();
-    data::v1::HistoryFilter filter;
-    filter.set_venue(params.value("venue", ""));
-    filter.set_product(params.value("product", ""));
-    filter.set_contract_id(params.value("contract_id", ""));
-    filter.set_source(params.value("source", ""));
-    clear.active = false;
-    command_running = false;
-    operation.unlock();
-    auto rows = method == "research.coverage" ? reader->coverage(filter) : reader->datasets(filter);
-    if (generation != research_generation.load())
-      throw Error(ErrorCode::conflict, "research service changed during archive query");
-    result[method == "research.coverage" ? "history_coverage" : "history_datasets"] =
-        std::move(rows);
-  } else if (market_query) {
-    auto reader = market;
-    clear.active = false;
-    command_running = false;
-    operation.unlock();
-    result["intraday"] = reader->minutes(text(params, "venue"), text(params, "symbol"));
-  } else if (history_query) {
-    // Keep the selected client alive, but let unrelated commands and chart readers proceed.
-    // Runtime dispatch itself stays serialized; only immutable service I/O runs outside it.
-    auto reader = research;
-    const auto generation = research_generation.load();
-    const bool daily = method == "research.daily.page";
-    const auto minute_query = daily ? data::v1::MinutePageQuery{} : minute_page_query(params);
-    const auto daily_query = daily ? daily_page_query(params) : data::v1::DailyPageQuery{};
-    clear.active = false;
-    command_running = false;
-    operation.unlock();
-    auto page = daily ? reader->daily_page(daily_query) : reader->minute_page(minute_query);
-    if (generation != research_generation.load())
-      throw Error(ErrorCode::conflict, daily ? "research service changed during daily query"
-                                             : "research service changed during minute query");
-    result[daily ? "daily_page" : "history_page"] = std::move(page);
   }
   return result;
 }

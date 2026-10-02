@@ -53,8 +53,14 @@ void Application::Impl::register_market_commands() {
     InstrumentId{text(p, "venue"), text(p, "symbol")}.validate();
     if (!market)
       throw std::invalid_argument("select a market service first");
-    auto published = read_published(json::object());
-    return published.is_null() ? snapshot() : published;
+    const auto reader = market;
+    auto intraday =
+        outside_lock([&] { return reader->minutes(text(p, "venue"), text(p, "symbol")); });
+    auto result = read_published(json::object());
+    if (result.is_null())
+      result = snapshot();
+    result["intraday"] = std::move(intraday);
+    return result;
   });
   core.command("market.disconnect", "node.manage", [this](const json& p) {
     fields(p, {});

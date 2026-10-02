@@ -5,6 +5,32 @@
 #include <algorithm>
 
 namespace asterion::terminal {
+namespace {
+DatasetSelection resolved_selection(const data::v1::BarDatasetRequest& request,
+                                    data::v1::BarDataset dataset) {
+  const auto& bars = dataset.bars();
+  const auto& first = bars.Get(0);
+  const auto& last = bars.Get(bars.size() - 1);
+  json uncovered = json::array();
+  for (const auto& day : dataset.uncovered_days())
+    uncovered.push_back(day);
+  json summary = protocol::decode_bar_dataset_request(request);
+  summary.update({{"venue", dataset.contract().venue()},
+                  {"symbol", dataset.contract().symbol()},
+                  {"revision", dataset.revision()},
+                  {"source", dataset.source()},
+                  {"interval_minutes", dataset.interval_minutes()},
+                  {"count", bars.size()},
+                  {"days", dataset.days_size()},
+                  {"first_day", first.trading_day()},
+                  {"last_day", last.trading_day()},
+                  {"first_timestamp_ns", std::to_string(first.timestamp_ns())},
+                  {"last_timestamp_ns", std::to_string(last.timestamp_ns())},
+                  {"last_close", Decimal::from_raw(last.close().units()).str()},
+                  {"uncovered_days", uncovered}});
+  return DatasetSelection{request, std::move(dataset), std::move(summary)};
+}
+} // namespace
 data::v1::MinutePageQuery minute_page_query(const json& p) {
   auto parameters = p;
   parameters.erase("archive");
@@ -86,58 +112,154 @@ void Application::Impl::register_research_commands() {
     (void)protocol::decode_history_usage(usage);
     if (!research)
       throw std::invalid_argument("connect research service first");
-    return json::object();
+    return history_usage(p);
   });
   core.command("research.history.plan", "node.manage", [this](const json& p) {
-    (void)protocol::encode_history_update_query(p);
+    const auto query = protocol::encode_history_update_query(p);
     if (!research)
       throw std::invalid_argument("connect research service first");
-    return json::object();
+    const auto client = research;
+    const auto generation = research_generation.load();
+    const auto plan = outside_lock([&] { return client->history_update_plan(query); });
+    if (generation != research_generation.load())
+      throw Error(ErrorCode::conflict, "research service changed during archive query");
+    auto result = snapshot();
+    result["history_update_plan"] = protocol::decode_history_update_plan(plan);
+    return result;
   });
   core.command("research.history.submit", "node.manage", [this](const json& p) {
     fields(p, {"id", "query", "plan_id", "token", "connection", "connection_revision"});
-    (void)protocol::encode_history_update_query(p.at("query"));
+    const auto query = protocol::encode_history_update_query(p.at("query"));
     if (!research)
       throw std::invalid_argument("connect research service first");
-    return json::object();
+    const auto client = research;
+    const auto generation = research_generation.load();
+    const auto plan = outside_lock([&] { return client->history_update_plan(query); });
+    if (plan.id() != text(p, "plan_id"))
+      throw std::invalid_argument("history update plan changed; preview again");
+    if (generation != research_generation.load())
+      throw Error(ErrorCode::conflict, "research service changed during archive query");
+    const auto source = plan.has_minutes() ? plan.minutes().source() : plan.daily().source();
+    auto credential = text(p, "token", true);
+    if (!text(p, "connection", true).empty()) {
+      if (!credential.empty())
+        throw std::invalid_argument("choose a saved connection or a temporary credential");
+      const auto connection =
+          resolve_data_connection(text(p, "connection"), text(p, "connection_revision"), source);
+      if (query.requests_per_minute() != connection.requests_per_minute)
+        throw std::invalid_argument("data connection request budget changed; inspect again");
+      credential = connection.credential;
+    } else if (!text(p, "connection_revision", true).empty())
+      throw std::invalid_argument("invalid data connection identity");
+    data::v1::HistoryUpdateSubmit input;
+    *input.mutable_query() = query;
+    input.set_plan_id(plan.id());
+    outside_lock([&] { client->submit_update(text(p, "id"), input, credential); });
+    if (generation != research_generation.load())
+      throw Error(ErrorCode::conflict, "research service changed during operation; inspect the "
+                                       "original service before retrying");
+    return snapshot();
   });
   core.command("research.dataset.saved", "node.manage", [this](const json& p) {
     fields(p, {});
     if (!research)
       throw std::invalid_argument("connect research service first");
-    return json::object();
+    const auto client = research;
+    const auto generation = research_generation.load();
+    auto library = outside_lock([&] { return client->saved_datasets(); });
+    if (generation != research_generation.load())
+      throw Error(ErrorCode::conflict, "research service changed during archive query");
+    auto result = snapshot();
+    result["saved_datasets"] = std::move(library);
+    return result;
   });
   core.command("research.dataset.save", "node.manage", [this](const json& p) {
     fields(p, {"name"});
     if (!research)
       throw std::invalid_argument("connect research service first");
-    (void)selected();
-    return json::object();
+    data::v1::ResearchDataset saved;
+    saved.set_version(1);
+    saved.set_name(text(p, "name"));
+    for (const auto& item : selected()) {
+      *saved.add_selections() = item.request;
+      saved.add_content_revisions(item.dataset.revision());
+    }
+    saved.set_id(protocol::research_dataset_revision(saved));
+    protocol::validate_research_dataset(saved);
+    const auto client = research;
+    const auto generation = research_generation.load();
+    outside_lock([&] { client->save_dataset(saved); });
+    if (generation != research_generation.load())
+      throw Error(ErrorCode::conflict, "research service changed during archive query");
+    return snapshot();
   });
+  // Restores a saved dataset as the whole selection, after every input still
+  // resolves to the recorded content.
   core.command("research.dataset.use", "node.manage", [this](const json& p) {
     fields(p, {"id"});
     if (!research)
       throw std::invalid_argument("connect research service first");
-    return json::object();
-  });
-  core.command("research.datasets", "node.manage", [this](const json& p) {
-    fields(p, {"venue", "product", "contract_id", "source"});
-    if (!research)
-      throw std::invalid_argument("connect research service first");
+    const auto client = research;
+    const auto generation = research_generation.load();
+    const auto selection_generation = dataset_selection_generation;
+    auto restored = outside_lock([&] {
+      const auto saved = client->saved_dataset(text(p, "id"));
+      std::vector<DatasetSelection> result;
+      for (int i = 0; i < saved.selections_size(); ++i) {
+        const auto& input = saved.selections(i);
+        auto data = client->bar_dataset(input);
+        if (data.revision() != saved.content_revisions(i))
+          throw std::invalid_argument("saved research dataset revision mismatch");
+        result.push_back(resolved_selection(input, std::move(data)));
+      }
+      return result;
+    });
+    if (generation != research_generation.load())
+      throw Error(ErrorCode::conflict, "research service changed during archive query");
+    if (selection_generation != dataset_selection_generation)
+      throw Error(ErrorCode::conflict, "dataset selection changed during resolution");
+    selections = std::move(restored);
+    ++dataset_selection_generation;
     return snapshot();
   });
-  core.command("research.coverage", "node.manage", [this](const json& p) {
-    fields(p, {"venue", "product", "contract_id", "source"});
-    if (!research)
-      throw std::invalid_argument("connect research service first");
-    return snapshot();
-  });
+  // Archive listing and per-version coverage; reads that never publish.
+  for (const auto* method : {"research.datasets", "research.coverage"})
+    core.command(method, "node.manage",
+                 [this, coverage = std::string_view(method) == "research.coverage"](const json& p) {
+                   fields(p, {"venue", "product", "contract_id", "source"});
+                   if (!research)
+                     throw std::invalid_argument("connect research service first");
+                   const auto reader = research;
+                   const auto generation = research_generation.load();
+                   data::v1::HistoryFilter filter;
+                   filter.set_venue(p.value("venue", ""));
+                   filter.set_product(p.value("product", ""));
+                   filter.set_contract_id(p.value("contract_id", ""));
+                   filter.set_source(p.value("source", ""));
+                   auto rows = outside_lock([&] {
+                     return coverage ? reader->coverage(filter) : reader->datasets(filter);
+                   });
+                   if (generation != research_generation.load())
+                     throw Error(ErrorCode::conflict,
+                                 "research service changed during archive query");
+                   auto result = snapshot();
+                   result[coverage ? "history_coverage" : "history_datasets"] = std::move(rows);
+                   return result;
+                 });
   core.command("research.daily.page", "node.manage", [this](const json& p) {
-    (void)daily_page_query(p);
+    const auto query = daily_page_query(p);
     if (!research)
       throw std::invalid_argument("connect research service first");
-    auto published = read_published(json::object());
-    return published.is_null() ? snapshot() : published;
+    const auto reader = research;
+    const auto generation = research_generation.load();
+    auto page = outside_lock([&] { return reader->daily_page(query); });
+    if (generation != research_generation.load())
+      throw Error(ErrorCode::conflict, "research service changed during daily query");
+    auto result = read_published(json::object());
+    if (result.is_null())
+      result = snapshot();
+    result["daily_page"] = std::move(page);
+    return result;
   });
   core.command("research.daily.submit", "node.manage", [this](const json& p) {
     fields(p, {"id", "source", "contract_id", "requests_per_minute", "token", "catalog_cutoff_ns",
@@ -181,14 +303,54 @@ void Application::Impl::register_research_commands() {
     return snapshot();
   });
   core.command("research.minutes.page", "node.manage", [this](const json& p) {
-    (void)minute_page_query(p);
+    const auto query = minute_page_query(p);
     if (!research)
       throw std::invalid_argument("connect research service first");
-    auto published = read_published(json::object());
-    return published.is_null() ? snapshot() : published;
+    const auto reader = research;
+    const auto generation = research_generation.load();
+    auto page = outside_lock([&] { return reader->minute_page(query); });
+    if (generation != research_generation.load())
+      throw Error(ErrorCode::conflict, "research service changed during minute query");
+    auto result = read_published(json::object());
+    if (result.is_null())
+      result = snapshot();
+    result["history_page"] = std::move(page);
+    return result;
   });
+  // Contract catalog from a data source; the provider I/O runs outside the lock.
   core.command("research.contracts.load", "node.manage", [this](const json& p) {
     fields(p, {"source", "exchange", "product", "token", "connection", "connection_revision"});
+    if (text(p, "connection", true).empty() && !text(p, "connection_revision", true).empty())
+      throw std::invalid_argument("invalid data connection identity");
+    auto credential = text(p, "token", true);
+    if (!text(p, "connection", true).empty()) {
+      if (!credential.empty())
+        throw std::invalid_argument("choose a saved connection or a temporary credential");
+      credential = resolve_data_connection(text(p, "connection"), text(p, "connection_revision"),
+                                           text(p, "source"))
+                       .credential;
+    }
+    const auto client = research;
+    if (!client)
+      throw std::invalid_argument("connect research service first");
+    auto catalog = outside_lock([&] {
+      return client->catalog(text(p, "source"), credential, text(p, "exchange"),
+                             text(p, "product"));
+    });
+    if (research != client)
+      throw Error(ErrorCode::conflict, "research connection changed; reload catalog");
+    if (!text(p, "connection", true).empty())
+      (void)resolve_data_connection(text(p, "connection"), text(p, "connection_revision"),
+                                    text(p, "source"));
+    history_connection = text(p, "connection", true);
+    history_connection_revision = text(p, "connection_revision", true);
+    history_source = text(p, "source");
+    history_contracts = std::move(catalog);
+    history_exchange = text(p, "exchange");
+    history_product = text(p, "product");
+    history_cutoff = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
     return snapshot();
   });
   core.command("research.minutes.submit", "node.manage", [this](const json& p) {
@@ -258,15 +420,61 @@ void Application::Impl::register_research_commands() {
     ++research_generation;
     return snapshot();
   });
-  // Selects downloaded bars and a contract specification; the research
-  // service resolves and verifies them. Required before paper trading,
-  // backtests, factors and strategy runs.
+  // Adds a contract's bars to the portfolio selection, or replaces the same
+  // contract. The contract comes from the archive's unified identity; only the
+  // units a data source does not provide are entered by the user.
   core.command("research.dataset.select", "node.manage", [this](const json& p) {
     fields(p, {"source_dataset_ids", "settlement_dataset_ids", "begin_day", "end_day",
                "price_increment", "multiplier"});
     if (!research)
       throw std::invalid_argument("research service is not connected");
-    return json::object();
+    const auto selection_generation = dataset_selection_generation;
+    const auto client = research;
+    const auto generation = research_generation.load();
+    auto next = outside_lock([&] {
+      if (!p.at("source_dataset_ids").is_array() || p.at("source_dataset_ids").empty())
+        throw std::invalid_argument("dataset requires 1..32 versions per source role");
+      std::string key;
+      for (const auto& item : client->datasets({}))
+        if (item.at("id") == p.at("source_dataset_ids").at(0))
+          key = item.at("contract_id").get<std::string>();
+      if (key.empty())
+        throw std::invalid_argument("historical dataset is unavailable");
+      const auto identity = HistoryIdentity::parse(key);
+      const auto id = identity.exchange_id();
+      auto product = id.symbol.substr(0, identity.product.size());
+      const auto request = protocol::encode_bar_dataset_request(
+          {{"source_dataset_ids", p.at("source_dataset_ids")},
+           {"settlement_dataset_ids", p.at("settlement_dataset_ids")},
+           {"begin_day", p.at("begin_day")},
+           {"end_day", p.at("end_day")},
+           {"contract",
+            {{"venue", id.venue},
+             {"symbol", id.symbol},
+             {"currency", "CNY"},
+             {"price_increment", text(p, "price_increment")},
+             {"quantity_increment", "1"},
+             {"multiplier", text(p, "multiplier")},
+             {"product", std::move(product)},
+             {"delivery_month", identity.delivery_month}}}});
+      return resolved_selection(request, client->bar_dataset(request));
+    });
+    if (generation != research_generation.load())
+      throw Error(ErrorCode::conflict, "research service changed during archive query");
+    if (selection_generation != dataset_selection_generation)
+      throw Error(ErrorCode::conflict, "dataset selection changed during resolution");
+    ++dataset_selection_generation;
+    const auto same = std::ranges::find_if(selections, [&](const DatasetSelection& item) {
+      return item.dataset.contract().venue() == next.dataset.contract().venue() &&
+             item.dataset.contract().symbol() == next.dataset.contract().symbol();
+    });
+    if (same != selections.end())
+      *same = std::move(next);
+    else if (selections.size() == max_portfolio_contracts)
+      throw std::invalid_argument("a portfolio holds at most 20 contracts");
+    else
+      selections.push_back(std::move(next));
+    return snapshot();
   });
   core.command("research.dataset.remove", "node.manage", [this](const json& p) {
     fields(p, {"venue", "symbol"});
@@ -308,11 +516,16 @@ void Application::Impl::register_research_commands() {
     validate_id(text(p, "id"));
     auto definition = p;
     definition.erase("id");
-    (void)protocol::encode_daily_factor_request(definition);
+    const auto input = protocol::encode_daily_factor_request(definition);
     if (!research)
       throw std::invalid_argument("research service is not connected");
-    auto published = read_published(json::object());
-    return published.is_null() ? snapshot() : published;
+    const auto client = research;
+    const auto generation = research_generation.load();
+    outside_lock([&] { client->submit(text(p, "id"), input); });
+    if (generation != research_generation.load())
+      throw Error(ErrorCode::conflict, "research service changed during operation; inspect the "
+                                       "original service before retrying");
+    return snapshot();
   });
   core.command("research.factor.submit", "node.manage", [this](const json& p) {
     fields(p, {"id", "lookbacks", "horizon", "evaluation"});
@@ -340,8 +553,14 @@ void Application::Impl::register_research_commands() {
     if (!research)
       throw std::invalid_argument("research service is not connected");
     validate_id(text(p, "id"));
-    auto published = read_published(json::object());
-    return published.is_null() ? snapshot() : published;
+    const auto client = research;
+    const auto generation = research_generation.load();
+    auto evidence = outside_lock([&] { return client->result(text(p, "id")); });
+    if (generation != research_generation.load())
+      throw Error(ErrorCode::conflict, "research service changed during operation; inspect the "
+                                       "original service before retrying");
+    research_result = std::move(evidence);
+    return snapshot();
   });
 }
 } // namespace asterion::terminal
