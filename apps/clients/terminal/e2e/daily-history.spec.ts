@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import type { Snapshot, DailyPage } from "../src/bridge/client";
 
 test("daily source viewer and market chart preserve dates, missing settlement and paging", async ({

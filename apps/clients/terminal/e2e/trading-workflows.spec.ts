@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { seedDataset } from "./dataset-fixture";
 
 for (const locale of ["zh-CN", "en-US"]) {

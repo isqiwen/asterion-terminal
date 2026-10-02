@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { openSettingsWindow } from "./settings-helper";
 import type { NodeStatus, Snapshot } from "../src/bridge/client";
 

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { seedHistory, rpc } from "./dataset-fixture";
 
 test("combine downloads, reject conflicts, save and run the restored input", async ({ page }) => {

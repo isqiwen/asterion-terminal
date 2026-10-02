@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 test("macOS native archive publishes and reads source-isolated versions", async () => {

@@ -15,12 +15,16 @@ with tempfile.TemporaryDirectory(prefix="ast-node-test-", ignore_cleanup_errors=
     try:
         result = subprocess.run([shutil.which(sys.argv[1]) or sys.argv[1], *sys.argv[2:]], env=env)
     finally:
-        pidfile = Path(folder) / "agent.pid"
-        if pidfile.exists():
+        # The test may have reset into nested node directories, each with its
+        # own Agent; stop them all, then let their services exit before cleanup.
+        stopped = False
+        for pidfile in Path(folder).rglob("agent.pid"):
             try:
                 os.kill(int(pidfile.read_text()), signal.SIGTERM)
-            except OSError:
+                stopped = True
+            except (OSError, ValueError):
                 # Already exited: ProcessLookupError on POSIX, WinError 87 on Windows.
                 pass
-            time.sleep(2)
+        if stopped:
+            time.sleep(3)
     sys.exit(result.returncode)

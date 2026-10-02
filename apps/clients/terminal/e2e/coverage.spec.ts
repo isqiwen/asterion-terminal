@@ -1,5 +1,5 @@
 import { seedHistory } from "./dataset-fixture";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 
 test("archive coverage check lists trading days per contract", async ({ page }) => {
   const seeded = await seedHistory(page.request, [100, 101, 102], "coverage");

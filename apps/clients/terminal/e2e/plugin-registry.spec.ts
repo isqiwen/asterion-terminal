@@ -1,5 +1,5 @@
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve, relative } from "node:path";
 import { registerTerminalPlugins, scopedContext } from "../src/host/plugin-registry";

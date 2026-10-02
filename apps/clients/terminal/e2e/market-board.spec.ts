@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import type { Snapshot, LiveMarket } from "../src/bridge/client";
 
 test("market board groups exchanges and links contract selection without inventing candles", async ({

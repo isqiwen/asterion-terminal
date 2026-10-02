@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { chartTime } from "../plugins/futures-market/chart-time";
 import { movingAverage, historyLookback } from "../plugins/futures-market/indicators";
 const bars = Array.from({ length: 200 }, (_, index) => ({

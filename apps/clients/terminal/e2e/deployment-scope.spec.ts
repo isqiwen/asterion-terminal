@@ -1,5 +1,5 @@
 import { openSettingsWindow } from "./settings-helper";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 
 test("default deployment shows active locations without SSH or certificate forms", async ({
   page,

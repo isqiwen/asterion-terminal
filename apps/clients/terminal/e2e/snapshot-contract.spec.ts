@@ -1,6 +1,6 @@
 import { removeFolder } from "./cleanup";
 import { seedDataset } from "./dataset-fixture";
-import { test, expect, type APIRequestContext } from "@playwright/test";
+import { test, expect, type APIRequestContext } from "./test";
 import { createGenerator } from "ts-json-schema-generator";
 import Ajv from "ajv";
 import { mkdtemp, mkdir } from "node:fs/promises";

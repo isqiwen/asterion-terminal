@@ -1,5 +1,5 @@
 import { removeFolder } from "./cleanup";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { openSettingsWindow } from "./settings-helper";
 import { mkdtemp, writeFile, readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";

@@ -1,6 +1,6 @@
 import { seedHistory } from "./dataset-fixture";
 import { removeFolder } from "./cleanup";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { mkdtemp, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -1,6 +1,6 @@
 import { rpc, seedDataset } from "./dataset-fixture";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { join } from "node:path";
 
 test("durable task order and dates survive reload independently of task IDs", async ({ page }) => {

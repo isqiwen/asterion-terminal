@@ -1,5 +1,5 @@
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { join } from "node:path";
 
 test("workbench with source-only navigation and existing C++ data", async ({ page }) => {

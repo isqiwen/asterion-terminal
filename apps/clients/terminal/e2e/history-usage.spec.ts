@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { seedHistory, rpc } from "./dataset-fixture";
 
 test("usage shows fixed source and saved references, refreshes draft and ignores obsolete replies", async ({

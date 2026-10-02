@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import type { HistoryPage, Snapshot } from "../src/bridge/client";
 
 test("chart panes retain intervals and indicators across contracts without substituting missing data", async ({

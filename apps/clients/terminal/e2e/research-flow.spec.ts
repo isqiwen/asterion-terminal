@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { seedHistory, rpc } from "./dataset-fixture";
 
 test("a downloaded dataset reaches a fixed backtest result without reselecting its source", async ({

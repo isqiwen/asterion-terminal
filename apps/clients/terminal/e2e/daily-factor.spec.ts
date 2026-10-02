@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 for (const locale of ["zh-CN", "en-US"]) {
   test(`daily research empty state and retained parameters fit ${locale}`, async ({ page }) => {
     const en = locale === "en-US";

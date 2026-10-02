@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 
 test.use({ storageState: { cookies: [], origins: [] } });
 test("fresh setup requires consent, reports real failure, retries and persists completion", async ({

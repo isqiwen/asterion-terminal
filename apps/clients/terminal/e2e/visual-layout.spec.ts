@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./test";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 
 async function fits(page: Page, selector: string) {

@@ -1,5 +1,5 @@
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { registerLanguageResources, translate } from "../src/i18n";
 
 test("language resources validate namespaces, keys and interpolation", () => {

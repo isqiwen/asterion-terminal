@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve, join, sep } from "node:path";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { seedHistory, rpc } from "./dataset-fixture";
 
 test("named portfolio survives service restart and restores exact inputs atomically", async ({

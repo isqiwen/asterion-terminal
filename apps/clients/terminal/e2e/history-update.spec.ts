@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { seedHistory, rpc } from "./dataset-fixture";
 
 test("fixed archive previews incremental ranges and whole-day repair without submitting", async ({

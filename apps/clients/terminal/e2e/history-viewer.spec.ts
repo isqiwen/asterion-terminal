@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import type { Snapshot, HistoryPage } from "../src/bridge/client";
 
 test("dataset viewer charts exact bars, pages, filters and retains the last page on failure", async ({

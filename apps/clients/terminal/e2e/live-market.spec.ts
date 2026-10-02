@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./test";
 
 // Board controls live in the market ⋯ menu once quotes are flowing.
 async function marketMenu(page: Page) {

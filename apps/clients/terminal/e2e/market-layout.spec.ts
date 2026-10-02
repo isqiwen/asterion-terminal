@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import type { Snapshot, HistoryPage, LiveMarket } from "../src/bridge/client";
 
 test("dense market board links real dataset commands, sorting, pagination and contract boundaries", async ({

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import type { Snapshot } from "../src/bridge/client";
 
 test("quote columns apply atomically, preserve values and navigation, and reset hidden sorting", async ({

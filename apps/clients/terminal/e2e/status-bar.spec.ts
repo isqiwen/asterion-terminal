@@ -1,5 +1,5 @@
 import { openSettingsWindow } from "./settings-helper";
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 test("compact footer exposes services, tasks and navigation", async ({ page }) => {
   await page.goto("/");
   const service = page

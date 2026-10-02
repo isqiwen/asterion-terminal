@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 test("all historical data entry points lead to a data source, never a file importer", async ({
   page,
 }) => {

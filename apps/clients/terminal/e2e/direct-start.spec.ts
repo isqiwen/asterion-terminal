@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 
 test("workbench starts without platform authentication while the local bridge keeps origin checks", async ({
   page,

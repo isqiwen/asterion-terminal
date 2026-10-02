@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 
 test("product navigation and header search replace duplicate workspace tabs without losing drafts", async ({
   page,
