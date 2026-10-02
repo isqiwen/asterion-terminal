@@ -56,9 +56,41 @@ const path = require("node:path");
     const page = await application.firstWindow();
     await page.waitForFunction(() => !!window.asterionDesktop);
     try {
-      await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 15000 });
+      // First launch in a fresh node: the research programs are verified and
+      // deployed, then each service must answer its first heartbeat.
+      await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
     } catch (error) {
       console.error("Isolated startup UI:", await page.locator("body").innerText());
+      const state = JSON.parse(
+        await page.evaluate(() =>
+          window.asterionDesktop.request(
+            JSON.stringify({ version: 1, method: "runtime.snapshot", params: {} }),
+          ),
+        ),
+      );
+      for (const dir of [
+        path.join(temp, "node/logs"),
+        path.join(temp, "node/services/research/logs"),
+      ])
+        for (const file of await fs.readdir(dir).catch(() => []))
+          console.error(
+            "LOG",
+            file,
+            (await fs.readFile(path.join(dir, file), "utf8")).split("\n").slice(-8).join("\n"),
+          );
+      console.error(
+        "Isolated services:",
+        JSON.stringify(
+          state.result?.nodes
+            ?.flatMap(node => node.health?.services ?? [])
+            .map(service => ({
+              id: service.id,
+              state: service.state,
+              health: service.health,
+              error: service.error,
+            })),
+        ),
+      );
       throw error;
     }
     const call = async (method, params = {}) => {
