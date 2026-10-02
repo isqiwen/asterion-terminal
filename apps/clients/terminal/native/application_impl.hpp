@@ -4,14 +4,12 @@
 #include "terminal_application.hpp"
 #include <asterion/domain/history_identity.hpp>
 #include "market_client.hpp"
-#include "moving_average.hpp"
 #include "node_client.hpp"
 #include "ctp_connections.hpp"
 #include "data_connections.hpp"
 #include "node_enrollment.hpp"
 #include "remote_bundle.hpp"
 #include "research_client.hpp"
-#include "strategy_client.hpp"
 #include "trading_client.hpp"
 #include <asterion/domain/futures.hpp>
 #include <asterion/kernel/process/artifact.hpp>
@@ -44,8 +42,8 @@ unsigned short port_number(const json& p, const char* name);
 std::string next_runtime_scope();
 data::v1::DailyPageQuery daily_page_query(const json& params);
 data::v1::MinutePageQuery minute_page_query(const json& params);
-// Bars selected for paper trading, backtests, factors and strategy runs:
-// completed downloads resolved by the research service, never local files.
+// Bars selected for backtests and factors: completed downloads resolved by
+// the research service, never local files.
 struct DatasetSelection {
   data::v1::BarDatasetRequest request;
   data::v1::BarDataset dataset;
@@ -54,7 +52,6 @@ struct DatasetSelection {
 struct Application::Impl {
   std::shared_ptr<ResearchClient> research;
   std::atomic<std::uint64_t> research_generation{0};
-  std::unique_ptr<StrategyClient> strategy;
   json native_plugins = nullptr;
   // Remembered credentials live in the keychain; the helper is found next to
   // the Terminal programs or through ASTERION_KEYCHAIN_EXECUTABLE.
@@ -82,8 +79,7 @@ struct Application::Impl {
   std::string history_exchange, history_product;
   std::int64_t history_cutoff = 0;
   std::shared_ptr<MarketClient> market;
-  std::unique_ptr<TradingClient> paper;
-  // A live CTP session; independent of the paper session.
+  // The open CTP trading account.
   std::unique_ptr<TradingClient> live;
   // Shared so long node I/O can keep its client while the map changes.
   std::map<std::string, std::shared_ptr<NodeClient>> nodes;
@@ -156,7 +152,7 @@ struct Application::Impl {
   // to the snapshot: never published, never counted as running commands.
   static bool read_only_method(std::string_view method);
   // research.history.usage: references to one historical dataset version
-  // across services, replay ledgers and nodes (commands_history_usage.cpp).
+  // across services and nodes (commands_history_usage.cpp).
   json history_usage(const json& params);
   // Published snapshot, guarded by cache_mutex. runtime.snapshot only reads it.
   std::mutex cache_mutex;
@@ -170,8 +166,7 @@ struct Application::Impl {
   json snapshot();
   // Service-dependent parts, gathered one client call at a time.
   struct Parts {
-    json paper = nullptr, connection = nullptr, process = nullptr, live = nullptr,
-         live_connection = nullptr, research = nullptr, strategy = nullptr, market = nullptr,
+    json live = nullptr, live_connection = nullptr, research = nullptr, market = nullptr,
          nodes = json::array();
   };
   Parts gather_parts(bool hold_between_calls);
@@ -182,12 +177,10 @@ struct Application::Impl {
   json dispatch(const json& request);
   // One registration per product area; each grants its capability and adds
   // commands before the runtime seals at start.
-  void register_paper_commands();
   void register_live_commands();
   void register_node_commands();
   void register_research_commands();
   void register_connection_commands();
-  void register_strategy_commands();
   void register_market_commands();
   void trim_market(json& result, const json& params);
   // Declared last: stopped and joined before any state it reads is destroyed.

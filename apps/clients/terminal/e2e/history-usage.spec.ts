@@ -28,7 +28,7 @@ test("usage shows fixed source and saved references, refreshes draft and ignores
   await usage.getByRole("button", { name: "刷新使用情况", exact: true }).click();
   await expect(usage).not.toContainText("本窗口研究草稿");
   await usage.getByText("检查范围与保留说明", { exact: true }).click();
-  await expect(usage).toContainText("未检查本机自选目录");
+  await expect(usage).toContainText("未检查停止的远程研究服务");
   await page.screenshot({ path: "build/history-usage-browser.png", fullPage: true });
   await usage.getByRole("button", { name: "关闭", exact: true }).click();
   let release!: () => void;
@@ -94,56 +94,8 @@ test("usage shows fixed source and saved references, refreshes draft and ignores
   await expect(usage).not.toContainText("未发现关联记录");
 });
 
-test("unreadable local replay account is explicit in English and creates no ledger", async ({
-  page,
-}) => {
-  const { mkdir, readdir, rmdir } = await import("node:fs/promises");
-  const { join } = await import("node:path");
-  expect(process.env.ASTERION_TEST_NODE_ISOLATED).toBe("1");
-  const directory = join(
-    process.env.ASTERION_NODE_DIRECTORY!,
-    "accounts",
-    "paper",
-    "unreadable-usage-test",
-  );
-  await mkdir(directory, { recursive: true });
-  try {
-    const seeded = await seedHistory(page.request, [100, 101, 102], "usage-en", { product: "cu" });
-    await page.addInitScript(() => localStorage.setItem("asterion.locale", "en-US"));
-    await page.goto("/");
-    await page
-      .locator(".workspace-tabs")
-      .getByRole("button", { name: "Data", exact: true })
-      .click();
-    await page.getByRole("button", { name: "Historical data archive", exact: true }).click();
-    const archive = page.getByRole("region", { name: "Historical data archive", exact: true });
-    await archive
-      .locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`)
-      .getByRole("button", { name: "Usage", exact: true })
-      .click();
-    const usage = archive.getByRole("region", { name: "Usage", exact: true });
-    const local = usage.getByRole("region", { name: "Local replay accounts", exact: true });
-    await expect(local.getByRole("alert")).toContainText("inspection is incomplete");
-    await local.getByText("Incomplete inspection details", { exact: true }).click();
-    await expect(local).toContainText("unreadable-usage-test");
-    await expect(
-      usage.getByRole("table", { name: "Linked records for this version" }),
-    ).toBeVisible();
-    expect(await readdir(directory)).toEqual([]);
-    await page.setViewportSize({ width: 1024, height: 768 });
-    await local.scrollIntoViewIfNeeded();
-    expect(
-      await page.locator(".terminal-business").evaluate(el => el.scrollWidth <= el.clientWidth + 1),
-    ).toBe(true);
-    expect(await usage.innerText()).not.toMatch(/\p{Script=Han}/u);
-    await page.screenshot({ path: "build/history-replay-usage-en.png", fullPage: true });
-  } finally {
-    await rmdir(directory);
-  }
-});
-
 // Explicit UI fixture: real mTLS inventory and failures are covered by native tests.
-test("remote node groups retain known references and disclose stopped or failed inspections", async ({
+test("other research services retain known references and disclose stopped or failed inspections", async ({
   page,
 }) => {
   const seeded = await seedHistory(page.request, [100, 101, 102], "remote-groups", {
@@ -156,28 +108,6 @@ test("remote node groups retain known references and disclose stopped or failed 
     }
     const response = await route.fetch();
     const body = await response.json();
-    body.result.history_usage.remote_replays = [
-      {
-        node: "测试节点 A",
-        direct: false,
-        checked: 1,
-        references: [{ name: "测试回放", roles: ["market", "settlement"] }],
-        unavailable: [
-          {
-            name: "停止的测试回放",
-            diagnostic: "remote replay service is not running; ledger was not inspected",
-          },
-        ],
-      },
-      {
-        node: "测试节点 B",
-        direct: false,
-        checked: 0,
-        references: [],
-        unavailable: [],
-        error: "replay inspection timed out",
-      },
-    ];
     body.result.history_usage.other_research = [
       {
         node: "测试节点 A",
@@ -217,17 +147,6 @@ test("remote node groups retain known references and disclose stopped or failed 
     .locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`)
     .getByRole("button", { name: "使用情况", exact: true })
     .click();
-  const remote = archive.getByRole("region", { name: "远程回放账户", exact: true });
-  const first = remote.getByRole("region", { name: "远程节点：测试节点 A", exact: true });
-  const second = remote.getByRole("region", { name: "远程节点：测试节点 B", exact: true });
-  await expect(first.getByRole("table")).toContainText("行情输入、结算输入");
-  await expect(first.getByRole("alert")).toContainText("不能视为无引用");
-  await expect(second.getByRole("alert")).toContainText("检查未完成");
-  await first.getByText("未完成检查的详情", { exact: true }).click();
-  await second.getByText("未完成检查的详情", { exact: true }).click();
-  await expect(first).toContainText("停止的测试回放");
-  await expect(remote).not.toContainText("remote replay service");
-  await expect(remote).not.toContainText("replay inspection timed out");
   const research = archive.getByRole("region", { name: "其他研究服务", exact: true });
   await expect(research.getByRole("table")).toContainText("跨服务输入");
   await expect(research.getByRole("table")).toContainText("行情输入、结算输入");
@@ -238,7 +157,6 @@ test("remote node groups retain known references and disclose stopped or failed 
   await page.setViewportSize({ width: 1024, height: 768 });
   await research.scrollIntoViewIfNeeded();
   await page.screenshot({ path: "build/history-cross-research-browser.png", fullPage: true });
-  await remote.scrollIntoViewIfNeeded();
   expect(
     await page.locator(".terminal-business").evaluate(el => el.scrollWidth <= el.clientWidth + 1),
   ).toBe(true);

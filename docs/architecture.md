@@ -35,10 +35,9 @@ flowchart TB
 | --- | --- |
 | `asterion-node-agent` | 部署、启停、健康探测、有限重启、程序升级 |
 | `asterion-market-data` | CTP 实时行情、合约目录、事件流、当日分钟线与 1 分钟涨速 |
-| `asterion-trading` | 模拟与实盘会话（授权、风控、执行链与持久日志；模拟另含账本与撮合） |
+| `asterion-trading` | CTP 交易账户会话（授权、风控、执行链与持久记录） |
 | `asterion-task-service` | 研究任务与执行尝试的持久化队列 |
 | `asterion-backtest` / `asterion-factor` / `asterion-data-pipeline` | 按任务启动的工作程序 |
-| `asterion-strategy` | 可信策略宿主，输出目标持仓意图 |
 
 本机通信使用 Unix Socket，远程使用 TCP + 双向 TLS，消息都是 `protocol/proto/asterion/v1/` 中的 Protobuf。
 
@@ -47,8 +46,8 @@ flowchart TB
 | 类别 | 实现 |
 | --- | --- |
 | 数据 | `data/ctp`（行情与合约目录）、`data/tushare`（分钟线、日线）、`data/registry`（历史数据源组合与目录入口） |
-| 执行 | `execution/paper`（历史撮合）、`execution/ctp`（实盘交易接口） |
-| 存储 | `storage/sqlite`（账本、策略与任务的有序日志和索引）、`storage/filesystem`（历史数据版本目录） |
+| 执行 | `execution/paper`（回测撮合）、`execution/ctp`（CTP 交易接口） |
+| 存储 | `storage/sqlite`（交易记录与任务的有序日志和索引）、`storage/filesystem`（历史数据版本目录） |
 | 策略 | `strategy/cta`（SMA） |
 | 风控 | `risk/order-limits`（交易前限额） |
 | 工具 | `tools/chart_indicators`（均线、MACD）、`tools/factor_analysis`、`tools/runtime_info` |

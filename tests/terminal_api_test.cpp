@@ -120,7 +120,7 @@ TEST(TerminalApi, Contracts) {
     std::unique_ptr<char, decltype(&asterion_terminal_free)> response(
         asterion_terminal_call(
             runtime.get(),
-            R"({"version":1,"method":"runtime.snapshot","method":"paper.close","params":{}})"),
+            R"({"version":1,"method":"runtime.snapshot","method":"live.close","params":{}})"),
         asterion_terminal_free);
     EXPECT_TRUE((response && json::parse(response.get())["error"]["code"] == "invalid_request"))
         << "duplicate method cannot bypass dispatch";
@@ -174,97 +174,6 @@ TEST(TerminalApi, Contracts) {
   EXPECT_THROW(([&] { czce.validate(); })(), std::invalid_argument);
 }
 
-TEST(TerminalApi, PersistentPaperRoundTripThroughCAbi) {
-  Fixture fixture;
-  const auto directory = fixture.directory / "account";
-  std::filesystem::create_directory(directory);
-  auto make = [] {
-    return std::unique_ptr<void, decltype(&asterion_terminal_destroy)>(asterion_terminal_create(),
-                                                                       asterion_terminal_destroy);
-  };
-  auto runtime = make();
-  auto invoke = [&](std::string method, json params = json::object()) {
-    return call(runtime.get(), request(method, params));
-  };
-  const auto params = history(runtime.get(), {100, 99, 110}, "paper-roundtrip");
-  ASSERT_TRUE(invoke("research.dataset.select", params).contains("result"));
-  auto created = invoke("paper.create", {{"directory", directory.string()},
-                                         {"deposit", "1000"},
-                                         {"contracts", fixture_contracts()},
-                                         {"max_order_quantity", "100"},
-                                         {"max_gross_quantity", "100"},
-                                         {"max_working_orders", "100"}});
-  ASSERT_TRUE(created.contains("result")) << created.dump();
-  ASSERT_TRUE(
-      invoke("paper.act", {{"request_id", "tick1"}, {"action", "advance"}}).contains("result"));
-  ASSERT_TRUE(invoke("paper.act", {{"request_id", "buy"},
-                                   {"action", "submit"},
-                                   {"order_id", "o1"},
-                                   {"venue", "SHFE"},
-                                   {"symbol", "rb2610"},
-                                   {"side", "buy"},
-                                   {"offset", "open"},
-                                   {"quantity", "1"},
-                                   {"price", "100"}})
-                  .contains("result"));
-  ASSERT_TRUE(
-      invoke("paper.act", {{"request_id", "tick2"}, {"action", "advance"}}).contains("result"));
-  const auto previous = invoke("runtime.snapshot")["result"]["paper"];
-  runtime.reset();
-  runtime = make();
-  EXPECT_TRUE(invoke("runtime.snapshot")["result"]["paper"].is_null());
-  auto recovered = invoke("paper.open", {{"directory", directory.string()}});
-  ASSERT_TRUE(recovered.contains("result")) << recovered.dump();
-  EXPECT_EQ(recovered["result"]["paper"], previous);
-  EXPECT_EQ(
-      invoke("paper.act", {{"request_id", "tick2"}, {"action", "advance"}})["result"]["paper"],
-      previous);
-  EXPECT_TRUE(
-      invoke("paper.act", {{"request_id", "x"}, {"action", "live_order"}}).contains("error"));
-  EXPECT_TRUE(invoke("paper.close")["result"]["paper"].is_null());
-}
-TEST(TerminalApi, ManagedAccountNameDoesNotOverwriteOrEscapeItsDirectory) {
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
-                                                                      asterion_terminal_destroy);
-  auto invoke = [&](const std::string& method, json params = json::object()) {
-    return call(runtime.get(), request(method, std::move(params)));
-  };
-  const auto selection = history(runtime.get(), {100, 101, 102}, "managed-account");
-  ASSERT_TRUE(invoke("research.dataset.select", selection).contains("result"));
-  json parameters{{"name", "../escaped"},
-                  {"deposit", "1000"},
-                  {"contracts", fixture_contracts()},
-                  {"max_order_quantity", "10"},
-                  {"max_gross_quantity", "10"},
-                  {"max_working_orders", "10"}};
-  EXPECT_TRUE(invoke("paper.create", parameters).contains("error"));
-  parameters["name"] = "managed-account";
-  auto created = invoke("paper.create", parameters);
-  ASSERT_TRUE(created.contains("result")) << created.dump();
-  const auto service = created["result"]["connection"]["session"];
-  std::string directory;
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-  do {
-    const auto state = invoke("runtime.snapshot");
-    for (const auto& node : state["result"]["nodes"])
-      if (node["id"] == "local")
-        for (const auto& item : node["health"]["services"])
-          if (item["id"] == service)
-            directory = item["directory"].get<std::string>();
-    if (!directory.empty())
-      break;
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  } while (std::chrono::steady_clock::now() < deadline);
-  ASSERT_FALSE(directory.empty());
-  EXPECT_EQ(std::filesystem::path(directory).filename(), "managed-account");
-  ASSERT_TRUE(invoke("paper.close").contains("result"));
-  const auto duplicate = invoke("paper.create", parameters);
-  ASSERT_TRUE(duplicate.contains("error"));
-  EXPECT_EQ(duplicate["error"]["code"], "conflict");
-  const auto recovered = invoke("paper.open", {{"directory", directory}});
-  ASSERT_TRUE(recovered.contains("result")) << recovered.dump();
-  EXPECT_EQ(recovered["result"]["paper"]["balance"], "1000");
-}
 TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
   std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
                                                                       asterion_terminal_destroy);
@@ -498,13 +407,12 @@ int main(int argc, char** argv) {
   }
   return RUN_ALL_TESTS();
 }
-TEST(TerminalApi, LargeResearchDatasetsBacktestButPaperSessionsStaySmall) {
+TEST(TerminalApi, LargeResearchDatasetsBacktest) {
   std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
                                                                       asterion_terminal_destroy);
   auto invoke = [&](std::string method, json params = json::object()) {
     return call(runtime.get(), request(method, std::move(params)));
   };
-  // Above the paper-session limit, within the research limit.
   std::vector<int> prices(30000);
   for (std::size_t i = 0; i < prices.size(); ++i)
     prices[i] = 3000 + static_cast<int>(i % 200);
@@ -520,12 +428,6 @@ TEST(TerminalApi, LargeResearchDatasetsBacktestButPaperSessionsStaySmall) {
   backtest.update({{"id", "large-backtest"}, {"fast", 5}, {"slow", 20}, {"quantity", "1"}});
   const auto submitted = invoke("research.submit", backtest);
   ASSERT_TRUE(submitted.contains("result")) << submitted.dump().substr(0, 400);
-  auto paper = costs;
-  paper["directory"] = std::filesystem::temp_directory_path().string();
-  const auto refused = invoke("paper.create", paper);
-  ASSERT_TRUE(refused.contains("error"));
-  EXPECT_NE(refused["error"]["message"].get<std::string>().find("at most 20000 bars"),
-            std::string::npos);
 }
 
 #include <arpa/inet.h>

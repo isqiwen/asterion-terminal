@@ -568,7 +568,7 @@ export function ContractWorkspace(context: TerminalContext) {
               </label>
               <div
                 className="contract-order-fields"
-                title={t("此处只展示行情；历史回放不向柜台发送委托。")}
+                title={t("此处只展示行情；委托在交易页的 CTP 账户中发送。")}
               >
                 {["价格", "手数", "指令", "账户"].map(label => (
                   <label key={label}>
@@ -577,13 +577,10 @@ export function ContractWorkspace(context: TerminalContext) {
                   </label>
                 ))}
               </div>
-              <button
-                className="primary"
-                onClick={() => context.navigate("workspace.research", { page: "replay" })}
-              >
-                {t("前往历史回放")}
+              <button className="primary" onClick={() => context.navigate("workspace.trading")}>
+                {t("前往 CTP 交易")}
               </button>
-              <p className="quote-empty">{t("此处只展示行情；历史回放不向柜台发送委托。")}</p>
+              <p className="quote-empty">{t("此处只展示行情；委托在交易页的 CTP 账户中发送。")}</p>
             </section>
           </>
         ) : (

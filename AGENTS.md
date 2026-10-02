@@ -31,7 +31,7 @@
 - 领域对象之间通过类型化接口交互；JSON 只用于协议边界和界面展示。
 - Core 与服务只输出英文诊断，跨进程错误携带 `ErrorCode`；面向用户的新诊断登记到 `apps/clients/terminal/src/i18n/locales/diagnostics.*.json`。
 - 持久状态与密钥通过 `kernel/durable_file.hpp` 写入。
-- 改变撮合、费用、保证金、风控或交易命令语义时，提升 `apps/services/trading/paper_record.hpp` 的日志引擎标识；恢复时拒绝不同标识。
+- 改变风控或交易命令语义时，提升 `apps/services/trading/live_session.cpp` 的日志引擎标识；改变撮合、费用或保证金时，提升回测引擎版本。恢复时拒绝不同标识。
 - 依赖由 Conan（C++）和 pnpm（前端）锁定，禁止隐式下载和全局 include/link 路径。日志用 spdlog，命令行用 CLI11，测试用 GoogleTest + CTest。
 - 格式：C++ 用 `.clang-format`，前端用 Prettier；提交前运行 `pnpm run format`。
 
@@ -39,7 +39,7 @@
 
 - 行情、历史数据只来自数据源；不导入本地 CSV/JSON 代替数据源，不生成冒充真实行情的数据。测试夹具仅用于测试。
 - 实盘必须经过授权、账户风控和统一执行链；缺少任何一环就拒绝执行。
-- 风险配置是模拟会话与回测的必填输入，缺失或插件不可用一律拒绝，不默认放行。
+- 风险配置是 CTP 交易账户与回测的必填输入，缺失或插件不可用一律拒绝，不默认放行。
 - 交易命令断线后不自动重发。
 - 凭据只在用户本机输入或生成，不写进源码、日志或聊天；密码不持久化。
 - 保护用户数据：不静默改写、迁移或删除账本、任务和数据集。

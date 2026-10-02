@@ -79,8 +79,7 @@ ServiceConfiguration load_service_configuration(const fs::path& folder, bool loc
     configuration.catalog_artifact = document.at("catalog_artifact").get<std::string>();
     validate_artifact_digest(configuration.catalog_artifact);
   }
-  if (configuration.kind != wire::PAPER_TRADING && configuration.kind != wire::MARKET_DATA &&
-      configuration.kind != wire::TASK_SERVICE && configuration.kind != wire::STRATEGY &&
+  if (configuration.kind != wire::MARKET_DATA && configuration.kind != wire::TASK_SERVICE &&
       configuration.kind != wire::LIVE_TRADING)
     throw std::invalid_argument("unsupported service kind");
   if (!configuration.provider_artifact.empty()) {

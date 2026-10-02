@@ -16,7 +16,7 @@ import os
 # Sanitizer builds run several times slower.
 SCALE = float(os.environ.get("ASTERION_TIMING_SCALE", "1"))
 
-executable, certificates = sys.argv[1:]
+executable, certificates, trader_sdk = sys.argv[1:]
 with tempfile.TemporaryDirectory(prefix="ast-trading-admission-", ignore_cleanup_errors=True) as folder:
     root = Path(folder)
     (root / "ledger").mkdir()
@@ -25,7 +25,8 @@ with tempfile.TemporaryDirectory(prefix="ast-trading-admission-", ignore_cleanup
         reserve.bind(("127.0.0.1", 0))
         port = reserve.getsockname()[1]
     process = subprocess.Popen([
-        executable, "--mode", "paper", "--session", "adm", "--directory", str(root / "ledger"),
+        executable, "--session", "adm", "--directory", str(root / "ledger"),
+        "--ctp-library", trader_sdk,
         "--bind", "127.0.0.1", "--port", str(port),
         "--tls-ca", str(root / "ca.crt"),
         "--tls-cert", str(root / "server.crt"),
@@ -50,8 +51,8 @@ with tempfile.TemporaryDirectory(prefix="ast-trading-admission-", ignore_cleanup
             started = time.monotonic()
             raw = socket.create_connection(("127.0.0.1", port), timeout=3)
             with context.wrap_socket(raw, server_hostname="localhost") as channel:
-                # Request(version=1, session_id=adm, mode=PAPER, correlation_id=hb1, heartbeat={}).
-                request = b"\x08\x01\x12\x03adm\x18\x01\x22\x03hb1\x82\x01\x00"
+                # Request(version=1, session_id=adm, correlation_id=hb1, heartbeat={}).
+                request = b"\x08\x01\x12\x03adm\x22\x03hb1\x82\x01\x00"
                 channel.sendall(struct.pack("!I", len(request)) + request)
 
                 def receive(size):
@@ -65,7 +66,7 @@ with tempfile.TemporaryDirectory(prefix="ast-trading-admission-", ignore_cleanup
                 size = struct.unpack("!I", receive(4))[0]
                 assert 0 < size <= 4096
                 response = receive(size)
-                assert response.startswith(b"\x08\x01\x12\x03adm\x18\x01\x22\x03hb1\x72"), response
+                assert response.startswith(b"\x08\x01\x12\x03adm\x22\x03hb1\x72"), response
             elapsed = time.monotonic() - started
             assert elapsed < 3 * SCALE, f"authenticated client waited {elapsed:.1f}s behind a silent peer"
     finally:

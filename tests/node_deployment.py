@@ -105,12 +105,12 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         # No UI/API polling for > one heartbeat period: native monitor must run.
         time.sleep(6)
         assert call(terminal, "runtime.snapshot")["nodes"][0]["last_heartbeat_ms"] > first["last_heartbeat_ms"]
-        spec = {"kind":"paper", "id": "research", "service": "paper-test", "port": str(trade_port)}
+        spec = {"kind":"live", "id": "research", "service": "account-test", "port": str(trade_port)}
         call(terminal, "node.deploy", {**spec, "os": "invalid"}, error=True)
         assert not list((state / "services").iterdir())
         deployed = call(terminal, "node.deploy", spec)["nodes"][0]["health"]["services"][0]
         assert deployed["state"] == "running"
-        firewall={"id":"research","service":"paper-test","action":"allow","token":""}
+        firewall={"id":"research","service":"account-test","action":"allow","token":""}
         plan=call(terminal,"node.service_firewall",firewall)["firewall_plan"]
         assert plan["port"]==trade_port and plan["source"]=="127.0.0.1" and plan["transport"]=="agent"
         call(terminal,"node.service_firewall",dict(firewall,action="apply",token="not-confirmed"),error=True)
@@ -118,7 +118,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         assert not removed["can_apply"], "no ownership record can authorize deletion"
         assert not (state/"firewall").exists(), "inspection must not register rules"
         call(terminal, "node.deploy", spec, error=True)  # No replacement of an existing ledger.
-        wait(lambda: (state / "services/paper-test/service.json").exists())
+        wait(lambda: (state / "services/account-test/service.json").exists())
         def trading_listening():
             try:
                 with socket.create_connection(("127.0.0.1", trade_port), timeout=0.1):
@@ -126,8 +126,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
             except OSError:
                 return False
         wait(trading_listening)
-        def paper_service(node):
-            return next(s for s in node["health"]["services"] if s["id"] == "paper-test")
+        def account_service(node):
+            return next(s for s in node["health"]["services"] if s["id"] == "account-test")
         # Research on the same node supplies the archived bars: the test-only
         # provider seeds its ledger while the service is stopped.
         research_port = port()
@@ -146,44 +146,36 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
             call(terminal, "node.action", {"id": "research", "service": "research", "action": "start"})
             call(terminal, "research.attach", {"id": "research", "service": "research"})
             return json.loads(output)
-        call(terminal, "research.dataset.select", seed([100, 101], "remote-paper"))
-        attached = call(terminal, "node.attach", {"id": "research", "service": "paper-test"})
-        assert attached["connection"]["health"]["phase"] == "awaiting_input"
-        call(terminal, "paper.create", {"deposit": "1000", "contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
-        expected = call(terminal, "paper.act", {"request_id": "managed.tick", "action": "advance"})["paper"]
-        # A page-free connection survives the server's 30 second idle timeout.
-        time.sleep(32)
-        kept = call(terminal, "runtime.snapshot")
-        assert kept["connection"]["state"] == "connected" and kept["paper"] == expected
-        assert kept["connection"]["last_heartbeat_ms"] > attached["connection"]["last_heartbeat_ms"]
-        call(terminal, "paper.close")
+        # A CTP account service waits for its account; attaching does not create one.
+        attached = call(terminal, "node.attach", {"id": "research", "service": "account-test"})
+        assert account_service(attached["nodes"][0])["health"] == "awaiting_input", attached["nodes"]
+        call(terminal, "live.close")
         old_pid = deployed["pid"]
         os.kill(old_pid, signal.SIGTERM if os.name == "nt" else signal.SIGKILL)
         def restarted():
             n = call(terminal, "runtime.snapshot")["nodes"][0]
-            s = paper_service(n)
+            s = account_service(n)
             return s if s["state"] == "running" and s["pid"] != old_pid and s["restarts"] >= 1 else None
         restarted_service = wait(restarted)
-        call(terminal, "node.action", {"id": "research", "service": "paper-test", "action": "stop"})
-        stopped = paper_service(call(terminal, "runtime.snapshot")["nodes"][0])
+        call(terminal, "node.action", {"id": "research", "service": "account-test", "action": "stop"})
+        stopped = account_service(call(terminal, "runtime.snapshot")["nodes"][0])
         assert stopped["state"] == "stopped" and not stopped["desired_running"]
-        updated=call(terminal,"node.update",{"id":"research","service":"paper-test","revision":stopped["revision"]})
-        retained=paper_service(updated["nodes"][0])
+        updated=call(terminal,"node.update",{"id":"research","service":"account-test","revision":stopped["revision"]})
+        retained=account_service(updated["nodes"][0])
         assert retained["state"]=="stopped" and retained["port"]==stopped["port"]
         time.sleep(6)
-        assert paper_service(call(terminal, "runtime.snapshot")["nodes"][0])["state"] == "stopped"
-        call(terminal, "node.action", {"id": "research", "service": "paper-test", "action": "start"})
+        assert account_service(call(terminal, "runtime.snapshot")["nodes"][0])["state"] == "stopped"
+        call(terminal, "node.action", {"id": "research", "service": "account-test", "action": "start"})
         # Agent crash makes status unknown, its owned child exits; restart loads desired state.
         stop(agent)
         wait(lambda: call(terminal, "runtime.snapshot")["nodes"][0]["state"] == "unreachable", 25)
         agent = launch_node()
-        recovered = wait(lambda: (n if (n := call(terminal, "runtime.snapshot")["nodes"][0])["state"] == "online" and paper_service(n)["state"] == "running" else None), 25)
+        recovered = wait(lambda: (n if (n := call(terminal, "runtime.snapshot")["nodes"][0])["state"] == "online" and account_service(n)["state"] == "running" else None), 25)
         assert recovered["health"]["instance_id"] != first["health"]["instance_id"]
         wait(trading_listening)
-        assert call(terminal, "node.attach", {"id": "research", "service": "paper-test"})["paper"] == expected
-        assert call(terminal, "paper.act", {"request_id": "managed.tick", "action": "advance"})["paper"] == expected
-        call(terminal, "paper.close")
-        call(terminal, "node.action", {"id": "research", "service": "paper-test", "action": "stop"})
+        call(terminal, "node.attach", {"id": "research", "service": "account-test"})
+        call(terminal, "live.close")
+        call(terminal, "node.action", {"id": "research", "service": "account-test", "action": "stop"})
         # A port conflict reaches a bounded failure; no infinite restart storm.
         with socket.socket() as occupied:
             occupied.bind(("127.0.0.1", 0)); occupied.listen()

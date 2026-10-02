@@ -11,9 +11,6 @@ template <typename Resolve>
 ServicePrograms resolve_programs(node::v1::ServiceKind kind, Resolve resolve) {
   ServicePrograms programs;
   switch (kind) {
-  case node::v1::PAPER_TRADING:
-    programs.executable = resolve("ASTERION_TRADING_EXECUTABLE", "asterion-trading", false);
-    break;
   case node::v1::LIVE_TRADING:
     programs.executable = resolve("ASTERION_TRADING_EXECUTABLE", "asterion-trading", false);
     programs.catalog = resolve("ASTERION_CTP_CATALOG_LIBRARY", "ctp-trader", true);
@@ -28,9 +25,6 @@ ServicePrograms resolve_programs(node::v1::ServiceKind kind, Resolve resolve) {
     programs.worker = resolve("ASTERION_BACKTEST_EXECUTABLE", "asterion-backtest", false);
     programs.factor = resolve("ASTERION_FACTOR_EXECUTABLE", "asterion-factor", false);
     programs.data = resolve("ASTERION_DATA_PIPELINE_EXECUTABLE", "asterion-data-pipeline", false);
-    break;
-  case node::v1::STRATEGY:
-    programs.executable = resolve("ASTERION_STRATEGY_EXECUTABLE", "asterion-strategy", false);
     break;
   default:
     throw std::invalid_argument("unknown service kind");

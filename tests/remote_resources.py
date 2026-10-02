@@ -77,8 +77,8 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
   except ValueError: pass
   else: raise AssertionError('checksum mismatch accepted')
   binary.write_bytes(data)
-  # Research and strategy executables are mandatory and independently integrity checked.
-  for name in ('asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'asterion-strategy', 'plugins/asterion-tushare.so', 'plugins/asterion-order-limits.so'):
+  # Research executables are mandatory and independently integrity checked.
+  for name in ('asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'plugins/asterion-tushare.so', 'plugins/asterion-order-limits.so'):
    payload=target/'x86_64'/name; original_payload=payload.read_bytes()
    payload.unlink()
    assert 'error' in call(''), name

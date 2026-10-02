@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory(prefix="ast-upgrade-", ignore_cleanup_errors=Tr
     assert inspect()["state"] == "current"
     assert inspect(revision)["state"] == "update_available"
     before, after = digest(agent), digest(revision)
-    data = root / "services" / "paper" / "ledger"
+    data = root / "services" / "account" / "ledger"
     data.mkdir(parents=True)
     (data / "retained").write_bytes(b"test-owned immutable ledger")
     endpoint = "asterion.acceptance.update." + str(os.getpid()) if os.name == "nt" else str(root / "agent.sock")
@@ -59,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix="ast-upgrade-", ignore_cleanup_errors=Tr
     finally:
         process.terminate()
         process.wait(timeout=15)
-    data = preserved / "paper" / "ledger"
+    data = preserved / "account" / "ledger"
     assert replace("0" * 64).returncode != 0
     assert digest(installed) == before
 

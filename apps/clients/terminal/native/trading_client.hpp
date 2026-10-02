@@ -7,17 +7,15 @@
 #include "service_endpoint.hpp"
 #include <filesystem>
 namespace asterion::terminal {
-// Terminal owns the process connection, never the authoritative trading ledger.
+// Terminal owns the connection to one CTP account's service, never its record.
 class NodeClient;
-enum class TradingMode { paper, live };
 class TradingClient {
 public:
-  TradingClient(const std::filesystem::path& directory, TradingMode mode,
-                const Json& manifest = nullptr);
-  TradingClient(const ServiceEndpoint& remote, TradingMode mode);
+  explicit TradingClient(const std::filesystem::path& directory, const Json& manifest = nullptr);
+  explicit TradingClient(const ServiceEndpoint& remote);
   ~TradingClient();
   void create(const Json& manifest);
-  // Live sessions only. Credentials pass through to the service and are not kept.
+  // Credentials pass through to the service and are not kept.
   void connect_broker(std::string password, std::string auth_code);
   void disconnect_broker();
   void query_costs();

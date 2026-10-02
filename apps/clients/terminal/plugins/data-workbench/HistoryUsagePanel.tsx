@@ -7,12 +7,7 @@ import {
   asDisplayError,
   type DisplayError,
 } from "../contract";
-import type {
-  HistoryDatasetRecord,
-  HistoryUsage,
-  ReplayUsage,
-  HistoryReference,
-} from "../../src/bridge/client";
+import type { HistoryDatasetRecord, HistoryUsage, HistoryReference } from "../../src/bridge/client";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
 const kinds = {
@@ -80,7 +75,7 @@ export function HistoryUsagePanel({
         <summary>{t("内容版本")}</summary>
         <code>{item.revision}</code>
       </details>
-      <p>{t("核对研究记录、本窗口草稿和回放账户。尚未开放历史版本删除。")}</p>
+      <p>{t("核对研究记录和本窗口草稿。尚未开放历史版本删除。")}</p>
       {loading && <p role="status">{t("正在核对使用情况…")}</p>}
       {error && (
         <p role="alert">
@@ -159,28 +154,6 @@ export function HistoryUsagePanel({
               )}
             </section>
           )}
-          <ReplayUsageSection
-            title={t("本机回放账户")}
-            description={t("检查当前环境默认目录的回放账户；运行中账户通过本机服务核对。")}
-            usage={usage.local_replays}
-          />
-          {!!usage.remote_replays.length && (
-            <section aria-label={t("远程回放账户")}>
-              <h4>{t("远程回放账户")}</h4>
-              <p className="subtle">
-                {t("检查当前连接的远程节点及直连账户；停止的远程服务不会自动启动。")}
-              </p>
-              {usage.remote_replays.map(group => (
-                <ReplayUsageSection
-                  key={group.direct ? "direct" : `node:${group.node}`}
-                  title={
-                    group.direct ? t("当前直连账户") : t("远程节点：{name}", { name: group.node })
-                  }
-                  usage={group}
-                />
-              ))}
-            </section>
-          )}
         </>
       )}
       <details className="history-usage-scope">
@@ -192,72 +165,13 @@ export function HistoryUsagePanel({
         </p>
         <p>
           {t(
-            "未检查本机自选目录、停止的远程账本、停止的远程研究服务、未连接的节点及其他窗口的研究草稿。结果是本次查询的观察值，不是删除许可；检查失败时不能按无引用处理。",
+            "未检查停止的远程研究服务、未连接的节点及其他窗口的研究草稿。结果是本次查询的观察值，不是删除许可；检查失败时不能按无引用处理。",
           )}
         </p>
       </details>
       <button type="button" disabled={loading || context.busy} onClick={() => void load()}>
         {t("刷新使用情况")}
       </button>
-    </section>
-  );
-}
-
-function ReplayUsageSection({
-  title,
-  description,
-  usage,
-}: {
-  title: string;
-  description?: string;
-  usage: ReplayUsage;
-}) {
-  return (
-    <section aria-label={title}>
-      <h4>{title}</h4>
-      {description && <p className="subtle">{description}</p>}
-      <p>
-        {t("已检查 {count} 个账户，发现 {references} 个引用。", {
-          count: usage.checked,
-          references: usage.references.length,
-        })}
-      </p>
-      {!!usage.references.length && (
-        <table className="coverage-table" aria-label={t("回放账户引用")}>
-          <thead>
-            <tr>
-              <th>{t("关联记录")}</th>
-              <th>{t("用途")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {usage.references.map(row => (
-              <tr key={row.name}>
-                <td>{row.name}</td>
-                <td>{row.roles.map(role => t(roles[role])).join("、")}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      {(usage.error || !!usage.unavailable.length) && (
-        <div role="alert">
-          <p>{t("回放账户检查未完成；无法读取的账户不能视为无引用。")}</p>
-          <details>
-            <summary>{t("未完成检查的详情")}</summary>
-            {usage.error && (
-              <p>
-                <ErrorNotice error={usage.error} namespace="diagnostics" />
-              </p>
-            )}
-            {usage.unavailable.map(row => (
-              <p key={row.name}>
-                {row.name} · <ErrorNotice error={row.diagnostic} namespace="diagnostics" />
-              </p>
-            ))}
-          </details>
-        </div>
-      )}
     </section>
   );
 }

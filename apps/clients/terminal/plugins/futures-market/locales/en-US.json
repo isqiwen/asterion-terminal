@@ -266,12 +266,12 @@
   "金融期货": "Financial Futures",
   "历史K线": "History candles",
   "合约目录来自 {day} 的本机缓存，连接后更新。": "Contract catalog from the local copy of {day}; it refreshes after connecting.",
-  "前往历史回放": "Open historical replay",
-  "此处只展示行情；历史回放不向柜台发送委托。": "Quotes only here. Historical replay sends no broker orders.",
   "尚未设置 CTP 账户": "No CTP account is set",
   "当前 CTP 账户": "Current CTP account",
   "当前 CTP 账户：{name}（{broker} · {user}）": "Current CTP account: {name} ({broker} · {user})",
   "柜台信息在设置的 CTP 账户中填写一次；填了交易前置才能加载完整合约目录。": "Enter the counter details once under CTP Accounts in Settings. The full contract catalog needs a trade front.",
   "管理 CTP 账户": "Manage CTP Accounts",
-  "连接行情后用当前账户的交易前置加载完整合约目录；仅查询合约，不开通交易。": "After the market login, the trade front of the current account loads the full contract catalog. It only queries contracts and does not enable trading."
+  "连接行情后用当前账户的交易前置加载完整合约目录；仅查询合约，不开通交易。": "After the market login, the trade front of the current account loads the full contract catalog. It only queries contracts and does not enable trading.",
+  "此处只展示行情；委托在交易页的 CTP 账户中发送。": "Quotes only. Orders are sent from a CTP account on the Trading page.",
+  "前往 CTP 交易": "Go to CTP Trading"
 }

@@ -46,19 +46,13 @@ fs::path checked_bundle(const std::string& arch) {
   if (info.size() != 6 || info.at("version") != 2 ||
       info.at("product_version") != ASTERION_PRODUCT_VERSION ||
       info.at("source_sha256") != ASTERION_SERVICE_SOURCE_SHA256 || info.at("os") != "linux" ||
-      info.at("arch") != arch || info.at("files").size() != 13)
+      info.at("arch") != arch || info.at("files").size() != 12)
     throw std::invalid_argument("bundled Linux service version mismatch");
-  std::vector<std::string> names{"asterion-node-agent",
-                                 "asterion-trading",
-                                 "asterion-market-data",
-                                 "asterion-task-service",
-                                 "asterion-backtest",
-                                 "asterion-factor",
-                                 "asterion-data-pipeline",
-                                 "asterion-strategy",
-                                 "initialize-linux.py",
-                                 "plugins/asterion-tushare.so",
-                                 "plugins/asterion-order-limits.so"};
+  std::vector<std::string> names{"asterion-node-agent",         "asterion-trading",
+                                 "asterion-market-data",        "asterion-task-service",
+                                 "asterion-backtest",           "asterion-factor",
+                                 "asterion-data-pipeline",      "initialize-linux.py",
+                                 "plugins/asterion-tushare.so", "plugins/asterion-order-limits.so"};
   if (arch == "x86_64") {
     names.push_back("ctp-md.so");
     names.push_back("ctp-trader.so");
@@ -82,7 +76,7 @@ fs::path bundled_linux_program(const std::string& arch, const std::string& progr
   if (program != "asterion-node-agent" && program != "asterion-trading" &&
       program != "asterion-market-data" && program != "asterion-task-service" &&
       program != "asterion-backtest" && program != "asterion-factor" &&
-      program != "asterion-data-pipeline" && program != "asterion-strategy" &&
+      program != "asterion-data-pipeline" &&
       !((program == "ctp-md.so" || program == "ctp-trader.so") && arch == "x86_64"))
     throw std::invalid_argument("invalid bundled program");
   return checked_bundle(arch) / program;

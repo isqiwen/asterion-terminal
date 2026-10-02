@@ -13,7 +13,7 @@ if sys.platform != "linux":
 build = Path(sys.argv[1]).resolve()
 subprocess.run(["cmake", "--build", str(build), "--target", "asterion-node-agent", "asterion-trading",
     "asterion-market-data", "asterion-task-service", "asterion-backtest", "asterion-factor",
-    "asterion-data-pipeline", "asterion-strategy"], check=True)
+    "asterion-data-pipeline"], check=True)
 source_hash = fingerprint()
 if (build / "service-source.sha256").read_text().strip() != source_hash:
     raise SystemExit("Build directory service source does not match this checkout")
@@ -21,7 +21,7 @@ os_name = "linux"
 if platform.machine().lower() not in ('x86_64', 'amd64'):
     raise SystemExit('Linux currently supports x86_64 only')
 arch = "x86_64"
-files = [build / name for name in ("asterion-node-agent", "asterion-trading", "asterion-market-data", "asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline", "asterion-strategy")]
+files = [build / name for name in ("asterion-node-agent", "asterion-trading", "asterion-market-data", "asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline")]
 if arch == "x86_64": files.extend([build / "ctp-md.so", build / "ctp-trader.so"])
 files.append(build / "plugins/asterion-tushare.so")
 files.append(build / "plugins/asterion-order-limits.so")

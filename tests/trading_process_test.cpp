@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include "bar_fixture.hpp"
 #include <asterion/protocol/trading.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -28,9 +27,9 @@ struct Host {
 #endif
     const auto path = directory.u8string();
     process = std::make_unique<ChildProcess>(
-        executable,
-        std::vector<std::string>{"--mode", "paper", "--session", id, "--endpoint", endpoint,
-                                 "--directory", std::string(path.begin(), path.end())});
+        executable, std::vector<std::string>{"--session", id, "--endpoint", endpoint, "--directory",
+                                             std::string(path.begin(), path.end()), "--ctp-library",
+                                             ASTERION_TEST_CTP_TRADER});
     const auto end = std::chrono::steady_clock::now() + 3s;
     for (;;) {
       try {
@@ -53,7 +52,6 @@ struct Host {
     wire::Request r;
     r.set_version(1);
     r.set_session_id(id);
-    r.set_mode(wire::PAPER);
     r.set_correlation_id("test.request");
     return r;
   }
@@ -63,108 +61,26 @@ struct Host {
     if (!response.ParseFromString(channel.receive(2s)))
       throw std::runtime_error("bad response");
     EXPECT_EQ(response.session_id(), id);
-    EXPECT_EQ(response.mode(), wire::PAPER);
     EXPECT_EQ(response.correlation_id(), r.correlation_id());
     return response;
   }
-  wire::Request create(std::string deposit) {
-    auto r = request();
-    Json input{{"version", 4},
-               {"type", "historical_paper"},
-               {"risk",
-                {{"max_order_quantity", "100"},
-                 {"max_gross_quantity", "100"},
-                 {"max_working_orders", std::uint64_t{100}}}},
-               {"deposit", deposit},
-               {"contracts",
-                {{{"dataset", test::dataset_json({test::flat("2026-09-25", 100, "100"),
-                                                  test::flat("2026-09-25", 200, "101")})},
-                  {"cost_schedule", test::cost_schedule({{"margin_per_lot", "100"},
-                                                         {"open_fee", "2"},
-                                                         {"close_today_fee", "3"},
-                                                         {"close_yesterday_fee", "4"},
-                                                         {"margin_rate", "0"},
-                                                         {"open_fee_rate", "0"},
-                                                         {"close_today_fee_rate", "0"},
-                                                         {"close_yesterday_fee_rate", "0"}})}}}}};
-    *r.mutable_create() = protocol::encode_input(input);
-    return r;
-  }
 };
 } // namespace
-TEST(TradingProcess, RejectsVersionModeAndSessionMismatchBeforeJournalWrite) {
-  Host host("paper.identity");
-  auto r = host.create("1000");
+TEST(TradingProcess, RejectsVersionAndSessionMismatchBeforeWritingARecord) {
+  Host host("live.identity");
+  auto r = host.request();
+  r.mutable_attach();
   r.set_version(2);
   EXPECT_TRUE(host.call(r).has_error());
   r.set_version(1);
-  r.set_mode(wire::LIVE);
-  EXPECT_TRUE(host.call(r).has_error());
-  r.set_mode(wire::PAPER);
   r.set_session_id("other");
   EXPECT_TRUE(host.call(r).has_error());
-  EXPECT_TRUE(std::filesystem::is_empty(host.directory));
-  r = host.create("1000");
-  EXPECT_TRUE(host.call(r).has_snapshot());
-  EXPECT_TRUE(host.call(r).has_error()); // Creating again cannot replace the ledger.
+  r.set_session_id(host.id);
+  EXPECT_TRUE(host.call(r).has_uninitialized());
+  // Nothing was created: only the service's own log directory may exist.
+  EXPECT_FALSE(std::filesystem::exists(host.directory / "journal.sqlite"));
   r = host.request();
   r.mutable_shutdown();
   EXPECT_TRUE(host.call(r).has_error());
-  EXPECT_FALSE(host.process->exited());
-}
-TEST(TradingProcess, IndependentInstancesHaveSeparateLedgersAndClocks) {
-  Host a("paper.a"), b("paper.b");
-  EXPECT_NE(a.process->id(), b.process->id());
-  ASSERT_TRUE(a.call(a.create("1000")).has_snapshot());
-  ASSERT_TRUE(b.call(b.create("2000")).has_snapshot());
-  auto advance = a.request();
-  advance.mutable_command()->set_request_id("tick1");
-  advance.mutable_command()->mutable_advance();
-  auto left = a.call(advance);
-  ASSERT_TRUE(left.has_snapshot());
-  EXPECT_EQ(left.snapshot().cursor(), 1);
-  auto query = b.request();
-  query.mutable_snapshot();
-  auto right = b.call(query);
-  ASSERT_TRUE(right.has_snapshot());
-  EXPECT_EQ(right.snapshot().cursor(), 0);
-  EXPECT_EQ(right.snapshot().balance().units(), 200000000000LL);
-  EXPECT_EQ(left.snapshot().balance().units(), 100000000000LL);
-}
-
-TEST(TradingProcess, HistoricalUsageIsReadOnlyAndBoundToFixedInput) {
-  Host host("paper.history");
-  auto query = host.request();
-  query.mutable_history_usage()->set_dataset_id(std::string(64, 'a'));
-  ASSERT_TRUE(host.call(query).has_error());
-  EXPECT_TRUE(std::filesystem::is_empty(host.directory));
-  auto create = host.create("1000");
-  auto* dataset = create.mutable_create()->mutable_contracts(0)->mutable_dataset();
-  dataset->set_settlement_dataset_ids(0, std::string(64, 'a'));
-  dataset->set_revision(protocol::bar_dataset_revision(*dataset));
-  const auto initial = host.call(create);
-  ASSERT_TRUE(initial.has_snapshot());
-  const auto file = host.directory / "journal.sqlite";
-  const auto wal = host.directory / "journal.sqlite-wal";
-  const auto before = sha256_file(file), before_wal = sha256_file(wal);
-  const auto response = host.call(query);
-  ASSERT_TRUE(response.has_history_usage());
-  EXPECT_EQ(response.history_usage().dataset_id(), std::string(64, 'a'));
-  EXPECT_EQ(response.history_usage().dataset_revision(), dataset->revision());
-  EXPECT_EQ(response.history_usage().directory(), host.directory.string());
-  EXPECT_TRUE(response.history_usage().market());
-  EXPECT_TRUE(response.history_usage().settlement());
-  query.mutable_history_usage()->set_dataset_id(std::string(64, 'c'));
-  const auto absent = host.call(query);
-  ASSERT_TRUE(absent.has_history_usage());
-  EXPECT_FALSE(absent.history_usage().market());
-  EXPECT_FALSE(absent.history_usage().settlement());
-  query.mutable_history_usage()->set_dataset_id("invalid");
-  ASSERT_TRUE(host.call(query).has_error());
-  query.mutable_snapshot();
-  EXPECT_EQ(host.call(query).snapshot().SerializeAsString(),
-            initial.snapshot().SerializeAsString());
-  EXPECT_EQ(sha256_file(file), before);
-  EXPECT_EQ(sha256_file(wal), before_wal);
   EXPECT_FALSE(host.process->exited());
 }

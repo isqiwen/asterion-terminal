@@ -7,7 +7,6 @@ export function accountName(directory: string, fallback: string) {
 }
 export function AccountLibrary({
   context,
-  kind,
   directory,
   setDirectory,
   onCreate,
@@ -15,7 +14,6 @@ export function AccountLibrary({
   onError,
 }: {
   context: TerminalContext;
-  kind: "paper" | "live";
   directory: string;
   setDirectory: (value: string) => void;
   onCreate: () => void;
@@ -23,7 +21,7 @@ export function AccountLibrary({
   onError: (error: unknown) => void;
 }) {
   const node = context.snapshot?.nodes.find(n => n.id === "local");
-  const accounts = node?.health?.services.filter(s => s.kind === kind) ?? [];
+  const accounts = node?.health?.services.filter(s => s.kind === "live") ?? [];
   const unavailable = context.busy || !!context.snapshot?.stale || node?.state !== "online";
   return (
     <section className="account-library" aria-label={t("账户列表")}>
@@ -33,7 +31,7 @@ export function AccountLibrary({
           <p className="subtle">{t("打开已有账户，或创建新的独立账户。记录由本机服务保存。")}</p>
         </div>
         <button className="primary" disabled={unavailable} onClick={onCreate}>
-          {t(kind === "paper" ? "新建回放账户" : "添加 CTP 账户")}
+          {t("添加 CTP 账户")}
         </button>
       </div>
       {!accounts.length && <p className="workflow-empty">{t("尚无账户")}</p>}
@@ -41,9 +39,7 @@ export function AccountLibrary({
         {accounts.map(account => (
           <article key={account.id}>
             <strong>{accountName(account.directory, account.id)}</strong>
-            <span className="subtle">
-              {t(kind === "paper" ? "历史回放 · 无真实委托" : "CTP 账户 · 连接前确认环境")}
-            </span>
+            <span className="subtle">{t("CTP 账户 · 连接前确认环境")}</span>
             <button disabled={unavailable} onClick={() => onOpen(account.directory)}>
               {t("打开账户")}
             </button>
@@ -60,9 +56,9 @@ export function AccountLibrary({
         <p className="subtle">{t("用于打开不在列表中的账户，不修改原有记录。")}</p>
         <div className="futures-file">
           <label>
-            {t(kind === "paper" ? "交易记录目录" : "实盘记录目录")}
+            {t("实盘记录目录")}
             <input
-              aria-label={t(kind === "paper" ? "交易记录目录" : "实盘记录目录")}
+              aria-label={t("实盘记录目录")}
               value={directory}
               onChange={e => setDirectory(e.target.value)}
             />
@@ -83,7 +79,7 @@ export function AccountLibrary({
             </button>
           )}
           <button disabled={context.busy || !directory} onClick={() => onOpen(directory)}>
-            {t(kind === "paper" ? "恢复会话" : "恢复 CTP 账户")}
+            {t("恢复 CTP 账户")}
           </button>
         </div>
       </details>

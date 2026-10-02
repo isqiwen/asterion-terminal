@@ -6,9 +6,7 @@ export type ServiceKind = Service["kind"];
 export const kindLabels: Record<ServiceKind, string> = {
   market: "实时行情",
   research: "研究与计算",
-  paper: "模拟交易",
-  live: "实盘交易",
-  strategy: "策略",
+  live: "CTP 交易",
 };
 export type Binding = {
   service: string;
@@ -24,11 +22,7 @@ export function binding(snapshot: Snapshot | null, kind: ServiceKind): Binding |
     return value && { ...value, online: value.transport_online };
   }
   if (kind === "research") return snapshot.research;
-  if (kind === "strategy") {
-    const value = snapshot.strategy;
-    return value ? { ...value, service: value.id, online: value.state === "connected" } : null;
-  }
-  const value = kind === "live" ? snapshot.live?.connection : snapshot.connection;
+  const value = snapshot.live?.connection;
   return value
     ? {
         service: value.session ?? "",
@@ -86,14 +80,5 @@ export function runtimeStatus(snapshot: Snapshot | null, kind: ServiceKind) {
     );
   if (kind === "live")
     return t(snapshot?.live?.session?.phase === "ready" ? "账户已就绪" : "等待账户连接");
-  if (kind === "paper") return t(snapshot?.paper ? "账户已就绪" : "等待初始化");
-  if (kind === "strategy")
-    return t(
-      snapshot?.strategy?.phase === "running"
-        ? "运行中"
-        : snapshot?.strategy?.phase === "completed"
-          ? "已完成"
-          : "等待运行或恢复",
-    );
   return t("已连接");
 }

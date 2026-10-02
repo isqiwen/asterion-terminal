@@ -3,7 +3,7 @@ import { seedDataset } from "./dataset-fixture";
 import { test, expect, type APIRequestContext } from "./test";
 import { createGenerator } from "ts-json-schema-generator";
 import Ajv from "ajv";
-import { mkdtemp, mkdir } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -51,43 +51,8 @@ test("C++ snapshots conform to the Terminal API types in every state", async ({ 
 
     check("after dataset selection", await seedDataset(page.request, [100, 99], "contract"));
 
-    const directory = join(folder, "account");
-    await mkdir(directory);
-    const created = await call(page.request, "paper.create", {
-      directory,
-      deposit: "1000",
-      contracts: [
-        {
-          venue: "SHFE",
-          symbol: "rb2610",
-          cost_schedule: [
-            {
-              effective_from: "1970-01-01",
-              source: "test fixture",
-              values: {
-                margin_per_lot: "100",
-                open_fee: "2",
-                close_today_fee: "3",
-                close_yesterday_fee: "4",
-                margin_rate: "0",
-                open_fee_rate: "0",
-                close_today_fee_rate: "0",
-                close_yesterday_fee_rate: "0",
-              },
-            },
-          ],
-        },
-      ],
-      max_order_quantity: "1",
-      max_gross_quantity: "1",
-      max_working_orders: "1",
-    });
-    check("after paper session", created);
-    const acted = await call(page.request, "paper.act", { request_id: "c1", action: "advance" });
-    check("after a replay step", acted);
-
     // Poll replies: either a full snapshot or an explicit unchanged marker.
-    let revision = acted.revision as number;
+    let revision = started.revision as number;
     for (let attempt = 0; attempt < 5; ++attempt) {
       const polled = await call(page.request, "runtime.snapshot", { since: revision });
       if ("unchanged" in polled) {
@@ -98,8 +63,6 @@ test("C++ snapshots conform to the Terminal API types in every state", async ({ 
       revision = polled.revision;
       await page.waitForTimeout(2500);
     }
-    await call(page.request, "paper.close");
-
     // Research: a queued, running and finished backtest, then its result.
     await call(page.request, "research.submit", {
       id: "contract-backtest",

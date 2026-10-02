@@ -12,7 +12,7 @@ ARCHES = ('x86_64',)
 def files_for(arch):
     if arch not in ARCHES:
         raise ValueError('Linux currently supports x86_64 only')
-    return ('asterion-node-agent', 'asterion-trading', 'asterion-market-data', 'asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'asterion-strategy', 'initialize-linux.py', 'plugins/asterion-tushare.so', 'plugins/asterion-order-limits.so') + (('ctp-md.so', 'ctp-trader.so') if arch == 'x86_64' else ())
+    return ('asterion-node-agent', 'asterion-trading', 'asterion-market-data', 'asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'initialize-linux.py', 'plugins/asterion-tushare.so', 'plugins/asterion-order-limits.so') + (('ctp-md.so', 'ctp-trader.so') if arch == 'x86_64' else ())
 
 
 def validate(manifest, files, arch):

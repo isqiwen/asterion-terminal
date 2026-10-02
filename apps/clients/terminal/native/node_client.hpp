@@ -21,13 +21,13 @@ NodeEndpoint local_node();
 void shutdown_development_node(bool recover = false);
 std::filesystem::path local_node_directory();
 std::filesystem::path node_enrollment_directory();
-std::filesystem::path new_account_directory(const std::string& name, bool live);
+std::filesystem::path new_account_directory(const std::string& name);
 std::filesystem::path keychain_helper();
 Json local_node_program_status();
 NodeEndpoint upgrade_local_node(const std::string& expected);
 struct ServiceDeployment {
   std::string service;
-  node::v1::ServiceKind kind = node::v1::PAPER_TRADING;
+  node::v1::ServiceKind kind = node::v1::UNSPECIFIED_SERVICE;
   HostPlatform platform;
   ServicePrograms programs;
   std::uint16_t port = 0;
@@ -57,16 +57,14 @@ public:
                          const std::vector<std::string>& hashes);
   Json coordinate_upgrade(const std::string& operation, const std::string& action);
   void maintenance(bool enter, const std::string& operation, const std::string& instance);
-  ServiceEndpoint service_endpoint(const std::string& service,
-                                   node::v1::ServiceKind kind = node::v1::PAPER_TRADING);
+  ServiceEndpoint service_endpoint(const std::string& service, node::v1::ServiceKind kind);
   void deploy(const ServiceDeployment& deployment);
   void update(const ServiceUpdate& update);
-  ServiceEndpoint local_session(const std::filesystem::path& directory,
-                                node::v1::ServiceKind kind = node::v1::PAPER_TRADING);
+  // The service of one CTP trading account record.
+  ServiceEndpoint local_session(const std::filesystem::path& directory);
   ServiceEndpoint local_market();
   ServiceEndpoint
   local_research(const std::optional<std::vector<std::string>>& selected_plugins = std::nullopt);
-  ServiceEndpoint local_strategy(const std::string& service);
   Json firewall(const std::string& service, const std::string& action,
                 const std::string& token = {});
   void action(const std::string& service, const std::string& operation);

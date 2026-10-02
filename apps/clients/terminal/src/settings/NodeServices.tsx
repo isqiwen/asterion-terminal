@@ -24,7 +24,7 @@ const actionLabels: Record<Action, string> = {
   use: "切换运行位置",
   update: "更新服务程序",
 };
-const kinds: ServiceKind[] = ["market", "research", "paper", "live", "strategy"];
+const kinds: ServiceKind[] = ["market", "research", "live"];
 export function NodeServices({
   snapshot,
   busy,
@@ -90,16 +90,13 @@ export function NodeServices({
     let success = false;
     if (pending.action === "use") {
       const kind = pendingService.kind;
-      if (kind === "paper" && snapshot?.connection && !(await run("paper.close"))) return;
       if (kind === "live" && snapshot?.live && !(await run("live.close"))) return;
       const method: TerminalCommand =
         kind === "market"
           ? "market.attach"
           : kind === "research"
             ? "research.attach"
-            : kind === "strategy"
-              ? "strategy.attach"
-              : "node.attach";
+            : "node.attach";
       success = await run(method, params);
     } else if (pending.action === "update")
       success = await run("node.update", { ...params, revision: pending.revision });
@@ -215,9 +212,7 @@ export function NodeServices({
                         : t(
                             kind === "market" || kind === "research"
                               ? "尚未连接"
-                              : kind === "strategy"
-                                ? "启动策略时自动准备"
-                                : "创建或恢复账户时自动准备",
+                              : "创建或恢复账户时自动准备",
                           )}
                     </p>
                   </div>
@@ -241,7 +236,7 @@ export function NodeServices({
             <summary>{t("本机运行说明")}</summary>
             <p>
               {t(
-                "macOS Terminal 使用当前系统账户自动运行服务管理器，无需 SSH、密钥或机器初始化脚本。在期货工作台创建模拟会话时，交易服务由本机服务管理器按需启动。",
+                "macOS Terminal 使用当前系统账户自动运行服务管理器，无需 SSH、密钥或机器初始化脚本。打开 CTP 交易账户时，交易服务由本机服务管理器按需启动。",
               )}
             </p>
             <button disabled={disabled} onClick={() => void run("node.local")}>
@@ -362,7 +357,6 @@ export function NodeServices({
                       >
                         <option value="research">{t("研究与计算")}</option>
                         <option value="market">{t("实时行情")}</option>
-                        <option value="paper">{t("历史模拟交易")}</option>
                       </select>
                     </label>
                     <div className="futures-fields">
@@ -581,14 +575,13 @@ export function NodeServices({
                     })}
                   </p>
                   <p>{t("只切换此功能的连接。原服务继续运行，已有数据和任务不会搬到目标机器。")}</p>
-                  {(pendingService?.kind === "paper" || pendingService?.kind === "live") &&
-                    pendingActive && (
-                      <p>
-                        {t(
-                          "将先断开当前账户连接；若目标连接失败，需要手动重新连接。不会重发交易命令。",
-                        )}
-                      </p>
-                    )}
+                  {pendingService?.kind === "live" && pendingActive && (
+                    <p>
+                      {t(
+                        "将先断开当前账户连接；若目标连接失败，需要手动重新连接。不会重发交易命令。",
+                      )}
+                    </p>
+                  )}
                 </>
               ) : pending.action === "update" ? (
                 <p>{t("仅更新此服务的程序，保留配置和数据；完成后仍保持停止。")}</p>
@@ -607,9 +600,6 @@ export function NodeServices({
                   )}
                   {pendingService?.kind === "live" && (
                     <p>{t("停止交易服务不会自动撤销柜台委托，请先在账户中核对委托与持仓。")}</p>
-                  )}
-                  {pendingService?.kind === "strategy" && (
-                    <p>{t("策略执行将中断；交易账户及已有委托不会因此自动关闭或撤销。")}</p>
                   )}
                 </>
               )}

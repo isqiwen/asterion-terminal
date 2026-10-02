@@ -34,7 +34,6 @@ const variables = {
   ASTERION_BACKTEST_EXECUTABLE: "asterion-backtest",
   ASTERION_FACTOR_EXECUTABLE: "asterion-factor",
   ASTERION_DATA_PIPELINE_EXECUTABLE: "asterion-data-pipeline",
-  ASTERION_STRATEGY_EXECUTABLE: "asterion-strategy",
   ASTERION_KEYCHAIN_EXECUTABLE: "asterion-keychain",
 };
 for (const [key, name] of Object.entries(variables))

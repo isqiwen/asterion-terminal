@@ -16,7 +16,7 @@ def make_bundle(root, native=None):
     for arch, machine in [('x86_64',62)]:
         folder=root/arch; folder.mkdir(parents=True,exist_ok=True)
         header=bytearray(64); header[:6]=b'\x7fELF\x02\x01'; header[18:20]=machine.to_bytes(2,'little')
-        for name in ['asterion-node-agent','asterion-trading','asterion-market-data', 'asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'asterion-strategy','plugins/asterion-tushare.so','plugins/asterion-order-limits.so']+(['ctp-md.so','ctp-trader.so'] if arch=='x86_64' else []):
+        for name in ['asterion-node-agent','asterion-trading','asterion-market-data', 'asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline','plugins/asterion-tushare.so','plugins/asterion-order-limits.so']+(['ctp-md.so','ctp-trader.so'] if arch=='x86_64' else []):
             (folder/name).parent.mkdir(parents=True,exist_ok=True)
             if native and platform.system()=='Linux' and arch==native_arch:
                 shutil.copyfile(Path(native)/name,folder/name)

@@ -64,26 +64,16 @@ export type AccountContract = {
   cost_schedule: CostVersion[];
   mark: string;
 };
-export type PaperAccount = {
-  // Historical sessions settle every contract together at each day end.
-  replay?: {
-    settled_days: number;
-    day_end: boolean;
-    settlement_due: boolean;
-    days: number;
-  };
-  mode: "historical_paper";
-  persistent: true;
+export type RiskLimits = {
+  max_order_quantity: string;
+  max_gross_quantity: string;
+  max_working_orders: number;
+};
+// The account a backtest ends with.
+export type BacktestAccount = {
+  mode: "backtest";
+  persistent: false;
   storage_state: "ready" | "recovery_required";
-  strategy?: {
-    grant_id: string;
-    strategy_id: string;
-    stream_id: string;
-    dataset_revision: string;
-    max_quantity: string;
-    active: boolean;
-    last_sequence: number;
-  };
   balance: string;
   equity: string;
   available: string;
@@ -96,7 +86,7 @@ export type PaperAccount = {
   total: number;
   timestamp_ns: string | null;
   contracts: AccountContract[];
-  risk: { max_order_quantity: string; max_gross_quantity: string; max_working_orders: number };
+  risk: RiskLimits;
   positions: {
     venue: string;
     symbol: string;
@@ -130,7 +120,7 @@ export type PaperAccount = {
 export type LiveSession = {
   mode: "live";
   broker: { front: string; broker_id: string; user_id: string; app_id: string };
-  risk: PaperAccount["risk"];
+  risk: RiskLimits;
   // Bound on a limit price's distance from the broker's latest price.
   max_price_deviation: string;
   contracts: FuturesContract[];
@@ -240,9 +230,6 @@ export type TerminalCommand =
   | "native.plugins.uninstall"
   | "node.plugins.configure"
   | "node.update"
-  | "strategy.run"
-  | "strategy.attach"
-  | "strategy.revoke"
   | "research.local"
   | "research.attach"
   | "research.submit"
@@ -277,12 +264,6 @@ export type TerminalCommand =
   | "node.firewall.inspect"
   | "node.firewall.apply"
   | "node.service_firewall"
-  | "paper.create"
-  | "paper.open"
-  | "paper.close"
-  | "paper.act"
-  | "paper.connect"
-  | "paper.reconnect"
   | "live.create"
   | "live.open"
   | "live.connect"
@@ -315,7 +296,7 @@ export type NodeStatus = {
     uptime_ms: number;
     services: {
       revision: string;
-      kind: "paper" | "live" | "market" | "research" | "strategy";
+      kind: "live" | "market" | "research";
       active_workers: number;
       plugin_artifacts: string[];
       id: string;
@@ -560,7 +541,7 @@ export type BacktestResult = {
   dataset_revision: string;
   engine_version: string;
   max_drawdown: string;
-  account: Omit<PaperAccount, "mode" | "persistent"> & { mode: "backtest"; persistent: false };
+  account: BacktestAccount;
   equity: { timestamp_ns: string; equity: string; event: "trade" | "settlement" }[];
   settlements: {
     trading_day: string;
@@ -590,7 +571,7 @@ export type BacktestExperiment = {
     version: number;
     type: "historical_paper";
     deposit: string;
-    risk: PaperAccount["risk"];
+    risk: RiskLimits;
     contracts: { dataset: DatasetEvidence; cost_schedule: CostVersion[] }[];
   };
   // One range per contract, in contract order.
@@ -717,12 +698,6 @@ export type SavedResearchDataset = {
     | "revision"
   >[];
 };
-export type ReplayUsage = {
-  checked: number;
-  references: { name: string; roles: ("market" | "settlement")[] }[];
-  unavailable: { name: string; diagnostic: string }[];
-  error?: string;
-};
 export type HistoryReference = {
   kind: "download" | "backtest" | "bar_factor" | "daily_factor" | "saved_dataset";
   id: string;
@@ -733,8 +708,6 @@ export type HistoryUsage = {
   dataset_id: string;
   references: HistoryReference[];
   selected_roles: ("market" | "settlement")[];
-  local_replays: ReplayUsage;
-  remote_replays: (ReplayUsage & { node: string; direct: boolean })[];
   disconnected_nodes: { names: string[]; error?: string };
   other_research: {
     node: string;
@@ -868,24 +841,6 @@ export type Snapshot = {
   // Revision of the core's published state and when the core last refreshed it.
   revision: number;
   refreshed_at_ms: number;
-  strategy?: null | {
-    remote: boolean;
-    host: string;
-    port: number;
-    id: string;
-    state: "connected" | "disconnected";
-    phase: string;
-    processed: number;
-    total: number;
-    fast?: number;
-    slow?: number;
-    quantity?: string;
-    symbol?: string;
-    error: string;
-    account?: string;
-    grant_id?: string;
-    revision?: string;
-  };
   research: null | {
     connection_id: string;
     port: number;
@@ -924,25 +879,7 @@ export type Snapshot = {
   // The core's rule per exchange for assigning closes to today's and
   // yesterday's positions.
   close_policies: Record<string, "explicit_buckets" | "today_first" | "yesterday_first">;
-  connection: {
-    transport: "local" | "tcp_tls";
-    state: "connected" | "disconnected";
-    host?: string;
-    port?: number;
-    session?: string;
-    mode?: "paper";
-    restarts: number;
-    reconnects: number;
-    last_heartbeat_ms: number;
-    latency_ms: number;
-    health: null | {
-      instance_id: string;
-      version: string;
-      uptime_ms: number;
-      phase: string;
-    };
-  } | null;
-  // Portfolio contracts selected for research and paper trading, in order.
+  // Portfolio contracts selected for research, in order.
   datasets: DatasetSelection[];
   native_plugins: null | {
     directory: string;
@@ -954,8 +891,7 @@ export type Snapshot = {
     kind: string;
     state: string;
   }[];
-  diagnostics: { succeeded: number; failed: number; trading_process_id: number | null };
-  paper: PaperAccount | null;
+  diagnostics: { succeeded: number; failed: number };
   live: null | {
     session: LiveSession | null;
     connection: {

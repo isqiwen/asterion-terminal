@@ -13,8 +13,6 @@ void deploy_service(NodeClient& node, const json& p) {
         "remote services require an online Linux Agent of the same version");
   const auto& arch = status.health->arch();
   const auto kind = parse_service_kind(text(p, "kind"));
-  if (kind == node::v1::STRATEGY)
-    throw std::invalid_argument("invalid service kind");
   node.deploy({.service = text(p, "service"),
                .kind = kind,
                .platform = {.os = "linux", .arch = arch},
@@ -32,8 +30,7 @@ void update_service(NodeClient& node, bool local, const json& p) {
   for (const auto& service_status : health.services())
     if (service_status.id() == service)
       kind = service_status.kind();
-  if (kind != node::v1::PAPER_TRADING && kind != node::v1::MARKET_DATA &&
-      kind != node::v1::TASK_SERVICE && kind != node::v1::STRATEGY &&
+  if (kind != node::v1::MARKET_DATA && kind != node::v1::TASK_SERVICE &&
       kind != node::v1::LIVE_TRADING)
     throw std::invalid_argument("unknown service kind");
   node.update({.service = service,
@@ -233,14 +230,11 @@ void Application::Impl::register_node_commands() {
       for (const auto& item : state.health->services())
         if (item.id() == service)
           kind = item.kind();
-    if (kind != node::v1::PAPER_TRADING && kind != node::v1::LIVE_TRADING)
-      throw std::invalid_argument("attach a paper or live trading service");
-    auto& client = kind == node::v1::LIVE_TRADING ? live : paper;
-    if (client)
+    if (kind != node::v1::LIVE_TRADING)
+      throw std::invalid_argument("attach a CTP trading service");
+    if (live)
       throw std::invalid_argument("disconnect the current trading session first");
-    client = std::make_unique<TradingClient>(node->service_endpoint(service, kind),
-                                             kind == node::v1::LIVE_TRADING ? TradingMode::live
-                                                                            : TradingMode::paper);
+    live = std::make_unique<TradingClient>(node->service_endpoint(service, kind));
     return snapshot();
   });
   core.command("node.deploy", [this](const json& p) {

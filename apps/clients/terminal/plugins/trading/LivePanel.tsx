@@ -102,7 +102,6 @@ export function LivePanel(context: TerminalContext) {
       ) : (
         <AccountLibrary
           context={context}
-          kind="live"
           directory={directory}
           setDirectory={setDirectory}
           onCreate={() => setCreating(true)}

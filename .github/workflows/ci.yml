@@ -91,7 +91,7 @@ jobs:
       - run: python scripts/prepare_ctp.py
       - run: conan install . -s build_type=Release -s compiler.cppstd=20 -o with_tests=False -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
       - run: cmake --preset conan-release
-      - run: cmake --build --preset conan-release --target asterion-node-agent asterion-trading asterion-market-data asterion-task-service asterion-backtest asterion-factor asterion-data-pipeline asterion-strategy
+      - run: cmake --build --preset conan-release --target asterion-node-agent asterion-trading asterion-market-data asterion-task-service asterion-backtest asterion-factor asterion-data-pipeline
       - name: Verify native Linux executables
         run: |
           ./build/Release/asterion-node-agent --version
@@ -100,7 +100,6 @@ jobs:
           ./build/Release/asterion-backtest --version
           ./build/Release/asterion-factor --version
           ./build/Release/asterion-data-pipeline --version
-          ./build/Release/asterion-strategy --version
           ldd build/Release/asterion-node-agent
           ldd build/Release/asterion-trading
       - run: python scripts/deployment_bundle.py build/Release

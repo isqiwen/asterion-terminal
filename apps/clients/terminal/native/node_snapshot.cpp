@@ -4,31 +4,23 @@ namespace asterion::terminal {
 namespace wire = node::v1;
 const char* service_kind_name(wire::ServiceKind kind) {
   switch (kind) {
-  case wire::PAPER_TRADING:
-    return "paper";
   case wire::LIVE_TRADING:
     return "live";
   case wire::MARKET_DATA:
     return "market";
   case wire::TASK_SERVICE:
     return "research";
-  case wire::STRATEGY:
-    return "strategy";
   default:
     return "unsupported";
   }
 }
 wire::ServiceKind parse_service_kind(const std::string& name) {
-  if (name == "paper")
-    return wire::PAPER_TRADING;
   if (name == "live")
     return wire::LIVE_TRADING;
   if (name == "market")
     return wire::MARKET_DATA;
   if (name == "research")
     return wire::TASK_SERVICE;
-  if (name == "strategy")
-    return wire::STRATEGY;
   throw std::invalid_argument("invalid service kind");
 }
 Json node_snapshot_json(const NodeSnapshot& snapshot) {

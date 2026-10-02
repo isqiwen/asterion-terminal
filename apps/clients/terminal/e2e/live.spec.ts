@@ -10,6 +10,9 @@ import { join } from "node:path";
 test("live CTP session connects, authorizes and trades through the execution chain", async ({
   page,
 }) => {
+  // The broker's flow limit spaces queries a second apart; the whole chain
+  // plus the backtest form does not fit the default budget.
+  test.setTimeout(90000);
   const folder = await mkdtemp(join(tmpdir(), "asterion-live-e2e-"));
   const directory = join(folder, "account");
   await mkdir(directory);
@@ -109,7 +112,6 @@ test("live CTP session connects, authorizes and trades through the execution cha
       .locator(".workspace-tabs")
       .getByRole("button", { name: "研究", exact: true })
       .click();
-    await page.getByRole("button", { name: "历史回放", exact: true }).click();
     await page.getByRole("button", { name: "CTP 已授权", exact: true }).click();
     await expect(panel.getByTestId("live-phase")).toHaveText("已就绪");
 
@@ -134,14 +136,21 @@ test("live CTP session connects, authorizes and trades through the execution cha
       .locator(".workspace-tabs")
       .getByRole("button", { name: "研究", exact: true })
       .click();
-    await page.getByRole("button", { name: "历史回放", exact: true }).click();
-    await page.getByRole("button", { name: "新建回放账户", exact: true }).click();
-    await page.getByRole("button", { name: "下一步", exact: true }).click();
+    await page.getByRole("button", { name: "均线回测", exact: true }).click();
+    const openCosts = async () => {
+      await page.getByRole("button", { name: "新建回测", exact: true }).click();
+      await page.getByRole("button", { name: "下一步", exact: true }).click();
+    };
+    await openCosts();
     const costs = page.getByRole("region", { name: "SHFE · rb2610 保证金与手续费" });
     await expect(costs).toContainText("来源 CTP 账户 9999/000001 · 2026-09-28 起生效");
     await expect(costs.getByRole("button", { name: "填入模板", exact: true })).toBeDisabled();
     await expect(costs.getByRole("alert")).toContainText("费率版本未覆盖首个交易日 2026-09-25");
     await seedDataset(page.request, [3500, 3501], "live-rates-covered", { day: "2026-09-28" });
+    // Seeding restarts the research service, which closes the open form.
+    await page.reload();
+    await page.getByRole("button", { name: "均线回测", exact: true }).click();
+    await openCosts();
     await costs.getByRole("button", { name: "填入模板", exact: true }).click();
     await expect(costs.getByLabel("保证金率", { exact: true })).toHaveValue("0.12");
     await expect(costs.getByLabel("平今费率", { exact: true })).toHaveValue("0.0003");

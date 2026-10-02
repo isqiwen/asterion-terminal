@@ -20,7 +20,6 @@
 #include <asterion/v1/market.pb.h>
 #include <asterion/v1/node.pb.h>
 #include <asterion/v1/research.pb.h>
-#include <asterion/v1/strategy.pb.h>
 #include <atomic>
 #include <fstream>
 #include <iostream>
@@ -144,8 +143,7 @@ class Agent {
                                     "--session",         name,
                                     "--directory",       s.configuration.directory,
                                     "--health-endpoint", s.health_endpoint};
-      if (s.configuration.kind == wire::TASK_SERVICE ||
-          s.configuration.kind == wire::PAPER_TRADING || s.configuration.kind == wire::LIVE_TRADING)
+      if (s.configuration.kind == wire::TASK_SERVICE || s.configuration.kind == wire::LIVE_TRADING)
         args.insert(args.end(),
                     {"--plugin-directory",
                      utf8(plugins_.materialize(name, s.configuration.plugin_artifacts))});
@@ -158,10 +156,6 @@ class Agent {
           throw std::runtime_error("backtest worker integrity check failed");
         args.insert(args.end(), {"--worker-endpoint", s.worker_endpoint});
       }
-      if (s.configuration.kind == wire::PAPER_TRADING)
-        args.insert(args.end(), {"--mode", "paper"});
-      if (s.configuration.kind == wire::LIVE_TRADING)
-        args.insert(args.end(), {"--mode", "live"});
       if (s.configuration.kind == wire::MARKET_DATA && !s.configuration.provider_artifact.empty()) {
         const auto source = binary(s.configuration.provider_artifact);
         if (sha256_file(source) != s.configuration.provider_artifact)
@@ -557,31 +551,10 @@ public:
                     reply.health().instance_id().empty())
                   throw std::runtime_error("task health identity mismatch");
                 s.health = reply.health().recovery_required() ? "degraded" : "ready";
-              } else if (s.configuration.kind == wire::STRATEGY) {
-                strategy::v1::Request ping;
-                ping.set_version(1);
-                ping.set_session_id(name);
-                ping.set_correlation_id("health." + unique_process_id());
-                ping.mutable_heartbeat();
-                channel.send(ping.SerializeAsString(), 1s);
-                strategy::v1::Response reply;
-                if (!reply.ParseFromString(channel.receive(1s)))
-                  throw std::runtime_error("invalid strategy health");
-                protocol::validate_message(reply);
-                if (reply.version() != 1 || reply.session_id() != name ||
-                    reply.correlation_id() != ping.correlation_id() || !reply.has_health() ||
-                    reply.health().instance_id().empty())
-                  throw std::runtime_error("strategy health identity mismatch");
-                s.health = reply.health().recovery_required() ? "degraded"
-                           : reply.health().initialized()     ? "ready"
-                                                              : "awaiting_input";
               } else {
                 protocol::v1::Request ping;
                 ping.set_version(1);
                 ping.set_session_id(name);
-                const auto mode = s.configuration.kind == wire::LIVE_TRADING ? protocol::v1::LIVE
-                                                                             : protocol::v1::PAPER;
-                ping.set_mode(mode);
                 ping.set_correlation_id("health." + unique_process_id());
                 ping.mutable_heartbeat();
                 channel.send(ping.SerializeAsString(), 1s);
@@ -589,7 +562,7 @@ public:
                 if (!reply.ParseFromString(channel.receive(1s)))
                   throw std::runtime_error("invalid health response");
                 protocol::validate_message(reply);
-                if (reply.version() != 1 || reply.session_id() != name || reply.mode() != mode ||
+                if (reply.version() != 1 || reply.session_id() != name ||
                     reply.correlation_id() != ping.correlation_id() || !reply.has_health())
                   throw std::runtime_error("health identity mismatch");
                 s.health = reply.health().recovery_required() ? "degraded"
@@ -870,8 +843,7 @@ public:
         const auto& d = r.deploy();
         validate_service_id(d.service_id());
         validate_artifact_digest(d.sha256());
-        if (d.kind() != wire::PAPER_TRADING && d.kind() != wire::MARKET_DATA &&
-            d.kind() != wire::TASK_SERVICE && d.kind() != wire::STRATEGY &&
+        if (d.kind() != wire::MARKET_DATA && d.kind() != wire::TASK_SERVICE &&
             d.kind() != wire::LIVE_TRADING)
           throw std::invalid_argument("explicit service kind required");
         if (!d.provider_artifact().empty()) {
@@ -929,8 +901,7 @@ public:
         s.configuration.data_artifact = d.data_artifact();
         s.configuration.artifact = d.sha256();
         s.configuration.port = static_cast<unsigned short>(d.port());
-        const bool ledger = s.configuration.kind == wire::PAPER_TRADING ||
-                            s.configuration.kind == wire::LIVE_TRADING;
+        const bool ledger = s.configuration.kind == wire::LIVE_TRADING;
         if (local_ && ledger) {
           const fs::path ledger(std::u8string(d.directory().begin(), d.directory().end()));
           if (!ledger.is_absolute() || !fs::is_directory(ledger))

@@ -5,7 +5,7 @@ message Upload { string sha256 = 1; uint64 size = 2; string os = 3; string arch 
 message Chunk { string sha256 = 1; uint64 offset = 2; bytes data = 3; }
 message Finish { string sha256 = 1; }
 // LIVE_TRADING carries the CTP trader SDK as its catalog artifact.
-enum ServiceKind { UNSPECIFIED_SERVICE = 0; PAPER_TRADING = 1; MARKET_DATA = 2; TASK_SERVICE = 3; STRATEGY = 4; LIVE_TRADING = 5; }
+enum ServiceKind { UNSPECIFIED_SERVICE = 0; MARKET_DATA = 2; TASK_SERVICE = 3; LIVE_TRADING = 5; }
 message Deploy { string service_id = 1; string sha256 = 2; uint32 port = 3; string directory = 4; ServiceKind kind = 5; string provider_artifact = 6; string worker_artifact = 7; string factor_artifact = 8; string data_artifact = 9; string catalog_artifact = 10; repeated string plugin_artifacts = 11; }
 message Update { string service_id = 1; string expected_revision = 2; string artifact = 3; string provider_artifact = 4; string worker_artifact = 5; string factor_artifact = 6; string data_artifact = 7; string catalog_artifact = 8; repeated string plugin_artifacts = 9; }
 message ConfigurePlugins { string service_id = 1; string expected_revision = 2; repeated string artifacts = 3; }

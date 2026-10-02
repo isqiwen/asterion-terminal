@@ -19,13 +19,14 @@ if os.name == "nt":
     print("POSIX signal semantics only")
     sys.exit(0)
 kind, executable = sys.argv[1:3]
+trader_sdk = sys.argv[3] if len(sys.argv) > 3 else ""
 with tempfile.TemporaryDirectory(prefix="ast-stop-", dir="/tmp", ignore_cleanup_errors=True) as folder:
     root = Path(folder)
     (root / "data").mkdir()
     endpoint = root / "service.sock"
     args = {
-        "trading": ["--mode", "paper", "--session", "stop", "--directory", str(root / "data")],
-        "strategy": ["--session", "stop", "--directory", str(root / "data")],
+        "trading": ["--session", "stop", "--directory", str(root / "data"),
+                    "--ctp-library", trader_sdk],
         "market": ["--session", "stop", "--directory", str(root / "data")],
         "task": ["--session", "stop", "--directory", str(root / "data")],
     }[kind]

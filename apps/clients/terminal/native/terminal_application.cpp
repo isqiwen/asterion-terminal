@@ -57,12 +57,10 @@ std::string next_runtime_scope() {
 Application::Impl::Impl() {
   // Only reached before the first publication; later reads never lock.
   core.command("runtime.snapshot", [this](const json&) { return snapshot(); });
-  register_paper_commands();
   register_live_commands();
   register_node_commands();
   register_research_commands();
   register_connection_commands();
-  register_strategy_commands();
   register_market_commands();
   core.start();
   refresher = std::jthread([this](std::stop_token stop) { refresh_loop(stop); });
@@ -85,16 +83,10 @@ Application::Impl::Parts Application::Impl::gather_parts(bool hold_between_calls
     read();
   };
   step([&] {
-    parts.paper = paper ? paper->snapshot() : json(nullptr);
-    parts.connection = paper ? paper->connection() : json(nullptr);
-    parts.process = paper ? json(paper->process_id()) : json(nullptr);
-  });
-  step([&] {
     parts.live = live ? live->snapshot() : json(nullptr);
     parts.live_connection = live ? live->connection() : json(nullptr);
   });
   step([&] { parts.research = research ? research->status() : json(nullptr); });
-  step([&] { parts.strategy = strategy ? strategy->status() : json(nullptr); });
   step([&] { parts.market = market ? market->snapshot() : json(nullptr); });
   step([&] {
     for (const auto& [id, node] : nodes) {
@@ -133,13 +125,11 @@ json Application::Impl::compose(const Parts& parts) {
           {"research_result", research_result},
           {"history_page", nullptr},
           {"daily_page", nullptr},
-          {"strategy", parts.strategy},
           {"market", parts.market},
           {"ssh_key", ssh_key},
           {"agent_program", agent_program},
           {"firewall_plan", firewall_plan},
           {"nodes", parts.nodes},
-          {"connection", parts.connection},
           {"protocol", 1},
           {"product", "Asterion Terminal"},
           {"core", "C++20"},
@@ -164,7 +154,6 @@ json Application::Impl::compose(const Parts& parts) {
                }
              return policies;
            }()},
-          {"paper", parts.paper},
           {"live", parts.live.is_null()
                        ? json(nullptr)
                        : json{{"session", parts.live}, {"connection", parts.live_connection}}},
@@ -175,15 +164,12 @@ json Application::Impl::compose(const Parts& parts) {
                summaries.push_back(item.summary);
              return summaries;
            }()},
-          {"diagnostics",
-           {{"succeeded", metrics.succeeded},
-            {"failed", metrics.failed},
-            {"trading_process_id", parts.process}}},
+          {"diagnostics", {{"succeeded", metrics.succeeded}, {"failed", metrics.failed}}},
           {"native_plugins", native_plugins},
           {"plugins",
            json::array(
                {{{"id", "asterion.data.ctp"}, {"kind", "data"}, {"state", "available"}},
-                {{"id", "asterion.execution.paper"}, {"kind", "execution"}, {"state", "available"}},
+                {{"id", "asterion.execution.ctp"}, {"kind", "execution"}, {"state", "available"}},
                 {{"id", "asterion.storage.sqlite-journal"},
                  {"kind", "storage"},
                  {"state", "available"}}})}};

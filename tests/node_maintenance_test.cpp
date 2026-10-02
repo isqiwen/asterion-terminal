@@ -42,16 +42,18 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
   }
   const auto instance = client->status().at("health").at("instance_id").get<std::string>();
   const auto platform = current_platform();
-  client->deploy({.service = "paper",
-                  .platform = platform,
-                  .programs = {.executable = ASTERION_TRADE_PATH},
-                  .directory = (root / "ledger").string()});
+  client->deploy(
+      {.service = "account",
+       .kind = node::v1::LIVE_TRADING,
+       .platform = platform,
+       .programs = {.executable = ASTERION_TRADE_PATH, .catalog = ASTERION_FAKE_CTP_TRADER},
+       .directory = (root / "ledger").string()});
   EXPECT_THROW(client->coordinate_upgrade("upgrade.active-trading", "prepare"), std::exception);
   EXPECT_EQ(client->status().at("state"), "online");
   EXPECT_TRUE(client->status().at("error").get<std::string>().empty());
   EXPECT_FALSE(client->status().at("health").at("maintenance").get<bool>());
   EXPECT_THROW(client->maintenance(true, "upgrade.test", instance), std::exception);
-  client->action("paper", "stop");
+  client->action("account", "stop");
   EXPECT_THROW(client->maintenance(true, "upgrade.test", "different"), std::exception);
   client->maintenance(true, "upgrade.test", instance);
   client->maintenance(true, "upgrade.test",
@@ -60,8 +62,8 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
   NodeClient second(config);
   EXPECT_TRUE(second.status().at("health").at("maintenance").get<bool>());
   EXPECT_EQ(second.status().at("health").at("pid").get<std::uint64_t>(), agent.id());
-  EXPECT_THROW(second.action("paper", "start"), std::exception);
-  EXPECT_THROW(second.action("paper", "stop"), std::exception);
+  EXPECT_THROW(second.action("account", "start"), std::exception);
+  EXPECT_THROW(second.action("account", "stop"), std::exception);
   EXPECT_THROW(second.maintenance(false, "wrong", instance), std::exception);
   EXPECT_EQ(second.status().at("state"), "online");
   EXPECT_TRUE(second.status().at("error").get<std::string>().empty());
@@ -115,7 +117,7 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
     });
     auto start = std::async(std::launch::async, [&] {
       try {
-        second.action("paper", "start");
+        second.action("account", "start");
         return std::string{};
       } catch (const std::exception& error) {
         return std::string(error.what());
@@ -131,7 +133,7 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
     if (entered)
       client->maintenance(false, "race", instance);
     else
-      second.action("paper", "stop");
+      second.action("account", "stop");
   }
 }
 
@@ -184,7 +186,7 @@ TEST(NodeMaintenance, AcknowledgedMutationIsNotReportedFailedWhenStatusReadFails
     if (maintenance)
       EXPECT_NO_THROW(client.maintenance(true, "operation", "test-instance"));
     else
-      EXPECT_NO_THROW(client.action("paper", "start"));
+      EXPECT_NO_THROW(client.action("account", "start"));
     server.get();
     const auto state = client.status();
     EXPECT_EQ(state.at("state"), "unreachable");

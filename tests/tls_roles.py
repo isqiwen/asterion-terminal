@@ -13,7 +13,7 @@ import sys
 import tempfile
 import time
 
-agent, trading, certificates = sys.argv[1:]
+agent, trading, certificates, trader_sdk = sys.argv[1:]
 
 
 def varint(value):
@@ -110,7 +110,7 @@ with tempfile.TemporaryDirectory(prefix="ast-roles-", ignore_cleanup_errors=True
     processes = [
         start([agent, "--directory", str(root / "agent"), "--bind", "127.0.0.1",
                "--port", str(agent_port), *tls], agent_port),
-        start([trading, "--mode", "paper", "--session", "roles", "--directory",
+        start([trading, "--session", "roles", "--ctp-library", trader_sdk, "--directory",
                str(root / "ledger"), "--bind", "127.0.0.1", "--port", str(trading_port), *tls],
               trading_port),
     ]
@@ -134,8 +134,8 @@ with tempfile.TemporaryDirectory(prefix="ast-roles-", ignore_cleanup_errors=True
         # No role: authenticated by the CA but authorized for nothing.
         assert exchange(agent_port, root, "unroled", status) is None
         # Trading service: heartbeat for a client certificate, nothing for none.
-        heartbeat = (varint(1 << 3) + varint(1) + field(2, b"roles") + varint(3 << 3) +
-                     varint(1) + field(4, b"hb") + field(16, b""))
+        heartbeat = (varint(1 << 3) + varint(1) + field(2, b"roles") + field(4, b"hb") +
+                     field(16, b""))
         reply = exchange(trading_port, root, "trading-client", heartbeat)
         assert reply and 14 in reply, reply
         assert exchange(trading_port, root, "unroled", heartbeat) is None

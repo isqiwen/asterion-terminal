@@ -19,22 +19,6 @@ for (const locale of ["zh-CN", "en-US"]) {
           .locator(".terminal-business")
           .evaluate(el => el.scrollWidth <= el.clientWidth + 1),
       ).toBe(true);
-    await button("研究", "Research").click();
-    await button("历史回放", "Historical replay").click();
-    await button("新建回放账户", "New replay account").click();
-    await button("下一步", "Next").click();
-    await page.getByLabel(en ? "Account name" : "账户名称", { exact: true }).fill("draft-paper");
-    await fits();
-    await button("取消", "Cancel").click();
-    await expect(
-      page.getByRole("region", { name: en ? "Accounts" : "账户列表", exact: true }),
-    ).toBeVisible();
-    await button("新建回放账户", "New replay account").click();
-    await button("下一步", "Next").click();
-    await expect(page.getByLabel(en ? "Account name" : "账户名称", { exact: true })).toHaveValue(
-      "draft-paper",
-    );
-    await button("取消", "Cancel").click();
     await button("交易", "Trading").click();
     await button("添加 CTP 账户", "Add CTP account").click();
     await fits();
@@ -49,6 +33,12 @@ for (const locale of ["zh-CN", "en-US"]) {
     await button("下一步", "Next").click();
     await page.getByLabel(en ? "Initial Capital" : "初始资金", { exact: true }).fill("25000");
     await fits();
+    // A draft survives leaving the workspace and coming back.
+    await button("交易", "Trading").click();
+    await button("研究", "Research").click();
+    await expect(page.getByLabel(en ? "Initial Capital" : "初始资金", { exact: true })).toHaveValue(
+      "25000",
+    );
     await page.screenshot({
       path: `apps/clients/terminal/test-results/backtest-setup-${locale}.png`,
     });

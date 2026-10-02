@@ -11,12 +11,6 @@ export const plugin: TerminalPlugin = {
   id: "asterion.terminal.research",
   apiVersion: 1,
   commands: [
-    "paper.create",
-    "paper.open",
-    "paper.close",
-    "paper.act",
-    "strategy.run",
-    "strategy.revoke",
     "research.local",
     "research.datasets",
     "research.dataset.saved",

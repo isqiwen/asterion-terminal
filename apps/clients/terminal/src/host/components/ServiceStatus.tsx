@@ -53,9 +53,7 @@ export function ServiceStatus({
   const kinds: Record<string, string> = {
     market: "实时行情",
     research: "回测与因子研究",
-    paper: "模拟交易",
     live: "CTP 交易",
-    strategy: "策略运行",
   };
   const health: Record<string, string> = {
     ready: "正常",

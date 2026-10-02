@@ -93,12 +93,12 @@ std::filesystem::path node_enrollment_directory() {
     throw std::runtime_error("local user data directory unavailable");
   return *home / ".asterion" / "nodes";
 }
-std::filesystem::path new_account_directory(const std::string& name, bool live) {
+std::filesystem::path new_account_directory(const std::string& name) {
   if (name.empty() || name.size() > 120 || name == "." || name == ".." || name.front() == '.' ||
       name.find_first_of("/\\:\r\n") != std::string::npos || name.find('\0') != std::string::npos)
     throw std::invalid_argument("invalid managed account name");
   const auto root = local_root() / "accounts";
-  const auto group = root / (live ? "ctp" : "paper");
+  const auto group = root / "ctp";
   for (const auto& directory : {root, group}) {
     if (fs::is_symlink(directory))
       throw std::invalid_argument("invalid managed account directory");
@@ -196,13 +196,11 @@ void shutdown_development_node(bool recover) {
                   "development shutdown is waiting for Agent maintenance to finish");
     auto services = status.health->services();
     const auto priority = [](node::v1::ServiceKind kind) {
-      if (kind == node::v1::STRATEGY)
-        return 0;
       if (kind == node::v1::TASK_SERVICE)
+        return 0;
+      if (kind == node::v1::LIVE_TRADING)
         return 1;
-      if (kind == node::v1::LIVE_TRADING || kind == node::v1::PAPER_TRADING)
-        return 2;
-      return 3;
+      return 2;
     };
     std::stable_sort(services.begin(), services.end(), [&](const auto& a, const auto& b) {
       return priority(a.kind()) < priority(b.kind());

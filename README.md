@@ -10,7 +10,7 @@
 
 - **行情**：CTP 实时行情（全市场合约目录、期货全景、自选、五档、分时、分钟 K 线）；Tushare 历史分钟线与日线下载及图表查看。
 - **研究**：持久化任务服务，K 线数据集驱动的 SMA 组合回测和单合约因子评价，独立历史版本仓库。
-- **交易**：历史数据驱动的模拟交易（账户、持仓、冻结、手续费、按数据源结算价逐日结算、交易前限额），可信 SMA 策略授权运行；CTP 实盘（授权、合约白名单、风控、先记录后发送、断线不重发）。
+- **交易**：CTP 交易（柜台仿真或实盘：授权、合约白名单、价格与限额风控、先记录后发送、断线不重发）；可保存多个 CTP 账户，行情和交易使用当前账户。
 - **服务管理**：随桌面提供的 Node Agent 托管本机服务；可通过 SSH 引导部署到远程 Linux x86_64。
 
 ## 快速开始
@@ -38,9 +38,9 @@ pnpm desktop                        # 构建并启动桌面开发窗口
 | 路径 | 内容 |
 | --- | --- |
 | `core/` | C++ 基础（Decimal、ID、时间、错误）、内核（插件、IPC、进程、日志）、期货领域模型 |
-| `plugins/` | 数据（CTP、Tushare、历史数据源注册）、执行（模拟、CTP）、存储、策略、风控、工具插件 |
+| `plugins/` | 数据（CTP、Tushare、历史数据源注册）、执行（回测撮合、CTP）、存储、策略、风控、工具插件 |
 | `protocol/` | Protobuf 契约与校验 |
-| `apps/services/` | 独立服务：node-agent、market-data、trading、task-service、backtest、factor、data-pipeline、strategy |
+| `apps/services/` | 独立服务：node-agent、market-data、trading、task-service、backtest、factor、data-pipeline |
 | `apps/clients/terminal/` | 桌面终端：Electron 主进程、React 宿主与工作区插件、C++ 应用编排 |
 | `bindings/` | C ABI 与 Node-API 绑定 |
 | `packages/client-ui/` | 终端使用的图表组件 |
@@ -52,7 +52,7 @@ pnpm desktop                        # 构建并启动桌面开发窗口
 - [开发指南](docs/development.md)
 - [终端界面](docs/terminal.md)
 - [行情与数据](docs/market-data.md)
-- [模拟交易与风控](docs/trading.md)
+- [交易与风控](docs/trading.md)
 - [研究任务](docs/research.md)
 - [服务与部署](docs/services.md)
 - [现状与下一步](docs/status.md)

@@ -67,9 +67,9 @@ void Application::Impl::register_live_commands() {
       auto node = local_node_client(existing);
       const auto path =
           directory.empty()
-              ? new_account_directory(name, true)
+              ? new_account_directory(name)
               : std::filesystem::path(std::u8string(directory.begin(), directory.end()));
-      auto client = std::make_unique<TradingClient>(path, TradingMode::live, manifest);
+      auto client = std::make_unique<TradingClient>(path, manifest);
       return std::pair{std::move(node), std::move(client)};
     });
     nodes.try_emplace("local", std::move(node));
@@ -87,8 +87,7 @@ void Application::Impl::register_live_commands() {
     auto [node, next] = without_operations([&, existing = existing_local_node()] {
       auto node = local_node_client(existing);
       auto client = std::make_unique<TradingClient>(
-          std::filesystem::path(std::u8string(directory.begin(), directory.end())),
-          TradingMode::live);
+          std::filesystem::path(std::u8string(directory.begin(), directory.end())));
       return std::pair{std::move(node), std::move(client)};
     });
     nodes.try_emplace("local", std::move(node));

@@ -13,11 +13,9 @@ Json decode_history_usage(const data::v1::HistoryUsage&);
 Json decode_history_update_plan(const data::v1::HistoryUpdatePlan&);
 Json decode_minute_page(const data::v1::MinutePage&);
 
-// Research datasets run in memory inside one task; paper sessions and strategy
-// runs journal one command per bar, so they take a smaller range.
+// Research datasets run in memory inside one task.
 inline constexpr int max_dataset_sources = 32;
 inline constexpr std::size_t max_dataset_bars = 200000;
-inline constexpr std::size_t max_session_bars = 20000;
 Instrument instrument(const v1::Contract&);
 v1::Bar encode_bar(const MarketBar&);
 MarketBar market_bar(const v1::Bar&);

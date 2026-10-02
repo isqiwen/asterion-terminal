@@ -307,16 +307,7 @@ v1::Command encode_command(const Json& c) {
   v1::Command result;
   result.set_request_id(c.at("request_id").get<std::string>());
   const auto action = c.at("action").get<std::string>();
-  if (action == "replay_settle") {
-    require_fields(c, {"request_id", "action", "day_index"});
-    if (!c.at("day_index").is_number_integer() || c.at("day_index") < 0 ||
-        c.at("day_index") >= max_events)
-      throw std::invalid_argument("invalid settlement day index");
-    result.mutable_replay_settle()->set_day_index(c.at("day_index").get<unsigned>());
-  } else if (action == "advance") {
-    require_fields(c, {"request_id", "action"});
-    result.mutable_advance();
-  } else if (action == "cancel") {
+  if (action == "cancel") {
     require_fields(c, {"request_id", "action", "order_id"});
     result.mutable_cancel()->set_order_id(c.at("order_id").get<std::string>());
   } else if (action == "submit") {
@@ -331,15 +322,6 @@ v1::Command encode_command(const Json& c) {
     order->set_offset(offset(c.at("offset").get<std::string>()));
     set(order->mutable_quantity(), c.at("quantity"));
     set(order->mutable_price(), c.at("price"));
-  } else if (action == "strategy_grant") {
-    require_fields(c, {"request_id", "action", "grant_id", "strategy_id", "stream_id",
-                       "dataset_revision", "max_quantity"});
-    auto* g = result.mutable_strategy_grant();
-    g->set_grant_id(c.at("grant_id").get<std::string>());
-    g->set_strategy_id(c.at("strategy_id").get<std::string>());
-    g->set_stream_id(c.at("stream_id").get<std::string>());
-    g->set_dataset_revision(c.at("dataset_revision").get<std::string>());
-    set(g->mutable_max_quantity(), c.at("max_quantity"));
   } else if (action == "live_authorize") {
     require_fields(c, {"request_id", "action", "user_id"});
     result.mutable_live_authorize()->set_user_id(c.at("user_id").get<std::string>());
@@ -349,32 +331,6 @@ v1::Command encode_command(const Json& c) {
   } else if (action == "live_resolve") {
     require_fields(c, {"request_id", "action", "order_id"});
     result.mutable_live_resolve()->set_order_id(c.at("order_id").get<std::string>());
-  } else if (action == "strategy_revoke") {
-    require_fields(c, {"request_id", "action", "grant_id"});
-    result.mutable_strategy_revoke()->set_grant_id(c.at("grant_id").get<std::string>());
-  } else if (action == "strategy_target") {
-    require_fields(c, {"request_id", "action", "grant_id", "strategy_id", "stream_id",
-                       "dataset_revision", "sequence", "timestamp_ns", "venue", "symbol",
-                       "target_quantity"});
-    if (!c.at("sequence").is_number_integer() || c.at("sequence") < 1 ||
-        c.at("sequence") > max_events)
-      throw std::invalid_argument("invalid strategy sequence");
-    auto* t = result.mutable_strategy_target();
-    t->set_grant_id(c.at("grant_id").get<std::string>());
-    t->set_strategy_id(c.at("strategy_id").get<std::string>());
-    t->set_stream_id(c.at("stream_id").get<std::string>());
-    t->set_dataset_revision(c.at("dataset_revision").get<std::string>());
-    t->set_sequence(c.at("sequence").get<std::uint64_t>());
-    const auto time = c.at("timestamp_ns").get<std::string>();
-    std::int64_t ns = 0;
-    const auto [end, error] = std::from_chars(time.data(), time.data() + time.size(), ns);
-    if (error != std::errc{} || end != time.data() + time.size() || std::to_string(ns) != time)
-      throw std::invalid_argument("invalid timestamp");
-    t->set_timestamp_ns(ns);
-    t->set_venue(c.at("venue").get<std::string>());
-    t->set_symbol(c.at("symbol").get<std::string>());
-    InstrumentId{t->venue(), t->symbol()}.validate();
-    set(t->mutable_target_quantity(), c.at("target_quantity"));
   } else
     throw std::invalid_argument("unsupported trading operation");
   return result;
@@ -382,14 +338,6 @@ v1::Command encode_command(const Json& c) {
 Json decode_command(const v1::Command& c) {
   Json result{{"request_id", c.request_id()}};
   switch (c.operation_case()) {
-  case v1::Command::kReplaySettle:
-    if (c.replay_settle().day_index() >= max_events)
-      throw std::invalid_argument("invalid settlement day index");
-    result.update({{"action", "replay_settle"}, {"day_index", c.replay_settle().day_index()}});
-    break;
-  case v1::Command::kAdvance:
-    result["action"] = "advance";
-    break;
   case v1::Command::kCancel:
     result["action"] = "cancel";
     result["order_id"] = c.cancel().order_id();
@@ -406,18 +354,6 @@ Json decode_command(const v1::Command& c) {
     result.update(fields);
     break;
   }
-  case v1::Command::kStrategyGrant: {
-    const auto& g = c.strategy_grant();
-    if (!g.has_max_quantity())
-      throw std::invalid_argument("missing strategy position limit");
-    result.update({{"action", "strategy_grant"},
-                   {"grant_id", g.grant_id()},
-                   {"strategy_id", g.strategy_id()},
-                   {"stream_id", g.stream_id()},
-                   {"dataset_revision", g.dataset_revision()},
-                   {"max_quantity", get(g.max_quantity())}});
-    break;
-  }
   case v1::Command::kLiveAuthorize:
     result.update({{"action", "live_authorize"}, {"user_id", c.live_authorize().user_id()}});
     break;
@@ -427,25 +363,6 @@ Json decode_command(const v1::Command& c) {
   case v1::Command::kLiveResolve:
     result.update({{"action", "live_resolve"}, {"order_id", c.live_resolve().order_id()}});
     break;
-  case v1::Command::kStrategyRevoke:
-    result.update({{"action", "strategy_revoke"}, {"grant_id", c.strategy_revoke().grant_id()}});
-    break;
-  case v1::Command::kStrategyTarget: {
-    const auto& t = c.strategy_target();
-    if (!t.has_target_quantity() || !t.sequence() || t.sequence() > max_events)
-      throw std::invalid_argument("incomplete strategy target");
-    auto fields = instrument_fields(t.venue(), t.symbol());
-    result.update({{"action", "strategy_target"},
-                   {"grant_id", t.grant_id()},
-                   {"strategy_id", t.strategy_id()},
-                   {"stream_id", t.stream_id()},
-                   {"dataset_revision", t.dataset_revision()},
-                   {"sequence", t.sequence()},
-                   {"timestamp_ns", std::to_string(t.timestamp_ns())},
-                   {"target_quantity", get(t.target_quantity())}});
-    result.update(fields);
-    break;
-  }
   default:
     throw std::invalid_argument("missing trading operation");
   }
@@ -453,24 +370,6 @@ Json decode_command(const v1::Command& c) {
 }
 v1::Snapshot encode_snapshot(const Json& s) {
   v1::Snapshot result;
-  if (s.contains("replay")) {
-    const auto& r = s.at("replay");
-    result.mutable_replay()->set_settled_days(r.at("settled_days").get<unsigned>());
-    result.mutable_replay()->set_settlement_due(r.at("settlement_due").get<bool>());
-    result.mutable_replay()->set_day_end(r.at("day_end").get<bool>());
-    result.mutable_replay()->set_days(r.at("days").get<unsigned>());
-  }
-  if (s.contains("strategy")) {
-    const auto& g = s.at("strategy");
-    auto command = g;
-    command.erase("active");
-    command.erase("last_sequence");
-    command["action"] = "strategy_grant";
-    command["request_id"] = "snapshot";
-    *result.mutable_strategy()->mutable_grant() = encode_command(command).strategy_grant();
-    result.mutable_strategy()->set_active(g.at("active").get<bool>());
-    result.mutable_strategy()->set_last_sequence(g.at("last_sequence").get<std::uint64_t>());
-  }
   *result.mutable_risk() = encode_risk(s.at("risk"));
   for (const auto& c : s.at("contracts")) {
     auto* item = result.add_contracts();
@@ -554,26 +453,6 @@ Json decode_snapshot(const v1::Snapshot& s) {
               {"total", s.total()},
               {"timestamp_ns",
                s.has_timestamp_ns() ? Json(std::to_string(s.timestamp_ns())) : Json(nullptr)}};
-  if (s.has_replay()) {
-    if (s.replay().settled_days() > s.replay().days() || s.replay().days() > s.total())
-      throw std::invalid_argument("invalid settled day count");
-    result["replay"] = {{"settled_days", s.replay().settled_days()},
-                        {"settlement_due", s.replay().settlement_due()},
-                        {"day_end", s.replay().day_end()},
-                        {"days", s.replay().days()}};
-  }
-  if (s.has_strategy()) {
-    if (!s.strategy().has_grant() || s.strategy().last_sequence() > s.cursor())
-      throw std::invalid_argument("invalid strategy authorization snapshot");
-    v1::Command command;
-    *command.mutable_strategy_grant() = s.strategy().grant();
-    auto grant = decode_command(command);
-    grant.erase("request_id");
-    grant.erase("action");
-    grant["active"] = s.strategy().active();
-    grant["last_sequence"] = s.strategy().last_sequence();
-    result["strategy"] = std::move(grant);
-  }
 #define VALUE(name) result[#name] = get(s.name())
   VALUE(balance);
   VALUE(equity);

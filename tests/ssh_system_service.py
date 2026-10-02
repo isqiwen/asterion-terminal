@@ -96,7 +96,7 @@ def main():
 
         def service_running():
             current = health()
-            return current['state'] == 'online' and any(s['id'] == 'paper-acceptance' and s['state'] == 'running' and s['health'] in ('ready', 'awaiting_input') for s in current['health']['services'])
+            return current['state'] == 'online' and any(s['id'] == 'account-acceptance' and s['state'] == 'running' and s['health'] in ('ready', 'awaiting_input') for s in current['health']['services'])
 
         def service_command(action):
             if linux:
@@ -131,7 +131,7 @@ def main():
                 service_user = run(['systemctl', 'show', label, '--property=User', '--value'], capture_output=True, text=True).stdout.strip()
                 assert service_user == 'asterion'
             native = result['nodes'][0]['health']
-            call('node.deploy', dict(kind='paper', id=identity, service='paper-acceptance', port=str(trading_port)))
+            call('node.deploy', dict(kind='live', id=identity, service='account-acceptance', port=str(trading_port)))
             wait(service_running)
             # Closing Terminal must not terminate either system service or trading.
             terminal.terminate(); terminal.communicate(timeout=15)
@@ -141,7 +141,7 @@ def main():
             old_pid = health()['health']['services'][0]['pid']
             run(service_command('restart'))
             wait(lambda: service_running() and health()['health']['services'][0]['pid'] != old_pid)
-            call('node.action', dict(id=identity, service='paper-acceptance', action='stop'))
+            call('node.action', dict(id=identity, service='account-acceptance', action='stop'))
             run(service_command('restart'))
             # Reattach after restart: explicit stopped state must survive.
             time.sleep(2)

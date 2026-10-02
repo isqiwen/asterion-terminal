@@ -15,10 +15,9 @@ namespace asterion::terminal {
 using namespace std::chrono_literals;
 namespace wire = protocol::v1;
 struct TradingClient::Impl {
-  TradingMode mode;
   std::optional<ServiceEndpoint> remote;
   ipc::TlsChannel tcp;
-  std::string session_id = "paper." + unique_process_id();
+  std::string session_id;
 
   ipc::Channel channel;
   std::uint64_t sequence = 0;
@@ -27,8 +26,7 @@ struct TradingClient::Impl {
   Json health = nullptr;
   std::int64_t last_heartbeat_ms = 0;
   std::int64_t latency_ms = 0;
-  Impl(const ServiceEndpoint& config, TradingMode trading_mode)
-      : mode(trading_mode), remote(config) {
+  explicit Impl(const ServiceEndpoint& config) : remote(config) {
     validate_id(config.session);
     session_id = config.session;
     if (config.endpoint.empty())
@@ -52,25 +50,23 @@ struct TradingClient::Impl {
     tcp.close();
   }
   ~Impl() { close(); }
-  wire::Mode wire_mode() const { return mode == TradingMode::live ? wire::LIVE : wire::PAPER; }
   Json call(wire::Request request) {
     if (failed)
       throw Error(ErrorCode::unavailable, "trading connection lost; reconnect remote sessions in "
                                           "Settings, recover local sessions from their directory");
     request.set_version(1);
     request.set_session_id(session_id);
-    request.set_mode(wire_mode());
     request.set_correlation_id("rpc." + std::to_string(++sequence));
     wire::Response response;
     const auto sent = std::chrono::steady_clock::now();
     // Reads bound how long a status poll can wait; mutations keep a longer
     // deadline because their outcome becomes unknown on timeout. A live order
     // may wait up to 10 s for its quote and 5 s for the SDK to send it, so the
-    // live deadline must exceed that or a sent order would look lost.
-    const bool mutation = request.has_command() || request.has_create() || request.has_recover() ||
+    // deadline must exceed that or a sent order would look lost.
+    const bool mutation = request.has_command() || request.has_recover() ||
                           request.has_live_create() || request.has_live_connect() ||
                           request.has_live_disconnect() || request.has_live_costs();
-    const auto timeout = !mutation ? 3s : mode == TradingMode::live ? 30s : 10s;
+    const auto timeout = mutation ? 30s : 3s;
     try {
       if (remote->endpoint.empty())
         tcp.send(request.SerializeAsString(), timeout);
@@ -81,10 +77,9 @@ struct TradingClient::Impl {
         throw Error(ErrorCode::unavailable, "invalid trading response");
       protocol::validate_message(response);
       if (response.version() != 1 || response.session_id() != session_id ||
-          response.mode() != wire_mode() || response.correlation_id() != request.correlation_id())
+          response.correlation_id() != request.correlation_id())
         throw Error(ErrorCode::unavailable, "trading response identity mismatch");
-      if (!response.has_error() &&
-          !(mode == TradingMode::paper ? response.has_snapshot() : response.has_live()) &&
+      if (!response.has_error() && !response.has_live() &&
           !(request.has_attach() && response.has_uninitialized()) &&
           !(request.has_heartbeat() && response.has_health()))
         throw Error(ErrorCode::unavailable, "missing trading response");
@@ -121,8 +116,7 @@ struct TradingClient::Impl {
       return nullptr;
     }
     try {
-      last_snapshot = mode == TradingMode::live ? protocol::decode_live_snapshot(response.live())
-                                                : protocol::decode_snapshot(response.snapshot());
+      last_snapshot = protocol::decode_live_snapshot(response.live());
     } catch (...) {
       failed = true;
       close();
@@ -132,33 +126,26 @@ struct TradingClient::Impl {
   }
 };
 namespace {
-wire::Request create_request(TradingMode mode, const Json& manifest) {
+wire::Request create_request(const Json& manifest) {
   wire::Request request;
-  if (mode == TradingMode::live)
-    *request.mutable_live_create() = protocol::encode_live_input(manifest);
-  else
-    *request.mutable_create() = protocol::encode_input(manifest);
+  *request.mutable_live_create() = protocol::encode_live_input(manifest);
   return request;
 }
 } // namespace
-TradingClient::TradingClient(const std::filesystem::path& directory, TradingMode mode,
-                             const Json& manifest) {
+TradingClient::TradingClient(const std::filesystem::path& directory, const Json& manifest) {
   node_ = std::make_unique<NodeClient>(local_node());
-  impl_ = std::make_unique<Impl>(node_->local_session(directory, mode == TradingMode::live
-                                                                     ? node::v1::LIVE_TRADING
-                                                                     : node::v1::PAPER_TRADING),
-                                 mode);
+  impl_ = std::make_unique<Impl>(node_->local_session(directory));
   wire::Request attach;
   attach.mutable_attach();
   impl_->call(std::move(attach));
   if (!manifest.is_null())
-    impl_->call(create_request(mode, manifest));
+    impl_->call(create_request(manifest));
   else if (impl_->last_snapshot.is_null())
     throw std::invalid_argument("trading record is not initialized");
   monitor();
 }
-TradingClient::TradingClient(const ServiceEndpoint& config, TradingMode mode)
-    : impl_(std::make_unique<Impl>(config, mode)) {
+TradingClient::TradingClient(const ServiceEndpoint& config)
+    : impl_(std::make_unique<Impl>(config)) {
   wire::Request request;
   request.mutable_attach();
   impl_->call(std::move(request));
@@ -179,11 +166,8 @@ void TradingClient::monitor() {
           ++reconnects_;
           try {
             auto next = std::make_unique<Impl>(
-                node_ ? node_->service_endpoint(impl_->session_id, impl_->mode == TradingMode::live
-                                                                       ? node::v1::LIVE_TRADING
-                                                                       : node::v1::PAPER_TRADING)
-                      : *impl_->remote,
-                impl_->mode);
+                node_ ? node_->service_endpoint(impl_->session_id, node::v1::LIVE_TRADING)
+                      : *impl_->remote);
             wire::Request attach;
             attach.mutable_attach();
             next->call(std::move(attach));
@@ -218,12 +202,10 @@ TradingClient::~TradingClient() {
 }
 void TradingClient::create(const Json& manifest) {
   std::lock_guard lock(mutex_);
-  impl_->call(create_request(impl_->mode, manifest));
+  impl_->call(create_request(manifest));
 }
 void TradingClient::connect_broker(std::string password, std::string auth_code) {
   std::lock_guard lock(mutex_);
-  if (impl_->mode != TradingMode::live)
-    throw std::invalid_argument("broker connections belong to live sessions");
   wire::Request request;
   request.mutable_live_connect()->set_password(std::move(password));
   request.mutable_live_connect()->set_auth_code(std::move(auth_code));
@@ -231,16 +213,12 @@ void TradingClient::connect_broker(std::string password, std::string auth_code) 
 }
 void TradingClient::query_costs() {
   std::lock_guard lock(mutex_);
-  if (impl_->mode != TradingMode::live)
-    throw std::invalid_argument("broker rates belong to live sessions");
   wire::Request request;
   request.mutable_live_costs();
   impl_->call(std::move(request));
 }
 void TradingClient::disconnect_broker() {
   std::lock_guard lock(mutex_);
-  if (impl_->mode != TradingMode::live)
-    throw std::invalid_argument("broker connections belong to live sessions");
   wire::Request request;
   request.mutable_live_disconnect();
   impl_->call(std::move(request));
@@ -252,7 +230,7 @@ void TradingClient::reconnect() {
   const auto config = *impl_->remote;
   impl_->close();
   impl_->failed = true;
-  auto next = std::make_unique<Impl>(config, impl_->mode);
+  auto next = std::make_unique<Impl>(config);
   wire::Request request;
   request.mutable_attach();
   next->call(std::move(request));
@@ -286,8 +264,7 @@ Json TradingClient::connection() const {
                  {"state", impl_->failed ? "disconnected" : "connected"},
                  {"host", impl_->remote->host},
                  {"port", impl_->remote->port},
-                 {"session", impl_->session_id},
-                 {"mode", impl_->mode == TradingMode::live ? "live" : "paper"}});
+                 {"session", impl_->session_id}});
   return status;
 }
 std::uint64_t TradingClient::process_id() const {

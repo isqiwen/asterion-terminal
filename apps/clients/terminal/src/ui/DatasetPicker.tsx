@@ -13,8 +13,8 @@ const label = (item: HistoryDatasetRecord) =>
 // Mirrors the core's portfolio limit.
 const maxContracts = 20;
 
-// Chooses published archive versions for paper trading,
-// backtests, factors and strategies; a portfolio holds one dataset per
+// Chooses published archive versions for backtests and factors; a portfolio
+// holds one dataset per
 // contract and all of them share the same trading days. The contract identity
 // comes from the archive; only units a data source does not provide are
 // entered here.
@@ -416,7 +416,7 @@ export function DatasetPicker({
       {onDownload && (
         <div className="source-actions">
           {chosen && !settlements.length && (
-            <p role="status">{t("此合约缺少日线结算数据，补齐后才能用于回测或历史回放。")}</p>
+            <p role="status">{t("此合约缺少日线结算数据，补齐后才能用于回测。")}</p>
           )}
           <button type="button" onClick={onDownload}>
             {t("前往下载数据")}

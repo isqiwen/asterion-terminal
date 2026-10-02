@@ -87,14 +87,13 @@ def verify_macos_bundle():
                 raise SystemExit("DMG does not contain the trading sidecar")
             run(["codesign", "--verify", "--strict", str(trading)])
             run([str(trading), "--version"])
-            run([sys.executable, str(ROOT / "tests/isolated_node.py"), sys.executable, str(ROOT / "tests/remote_trading.py"), str(ROOT / "build/Release/asterion_terminal_dev_bridge"), str(trading), str(ROOT / "build/Release/asterion_test_certificates")])
             node = app / "Contents/Resources/native/asterion-node-agent"
             run(["codesign", "--verify", "--strict", str(node)])
             run([str(node), "--version"])
             market = app / "Contents/Resources/native/asterion-market-data"
             run(["codesign", "--verify", "--strict", str(market)])
             run([str(market), "--version"])
-            for name in ("asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline", "asterion-strategy"):
+            for name in ("asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline"):
                 program = app / "Contents/Resources/native" / name
                 run(["codesign", "--verify", "--strict", str(program)])
                 run([str(program), "--version"])
@@ -105,15 +104,12 @@ def verify_macos_bundle():
             previous = env.get("ASTERION_TRADING_EXECUTABLE")
             try:
                 env["ASTERION_TRADING_EXECUTABLE"] = str(trading)
-                run([sys.executable, str(ROOT / "tests/isolated_node.py"), sys.executable, str(ROOT / "tests/paper_recovery.py"), str(ROOT / "build/Release/asterion_terminal_dev_bridge")])
-                research_variables = {"ASTERION_TASK_EXECUTABLE": "asterion-task-service", "ASTERION_BACKTEST_EXECUTABLE": "asterion-backtest", "ASTERION_FACTOR_EXECUTABLE": "asterion-factor", "ASTERION_DATA_PIPELINE_EXECUTABLE": "asterion-data-pipeline", "ASTERION_STRATEGY_EXECUTABLE": "asterion-strategy"}
+                research_variables = {"ASTERION_TASK_EXECUTABLE": "asterion-task-service", "ASTERION_BACKTEST_EXECUTABLE": "asterion-backtest", "ASTERION_FACTOR_EXECUTABLE": "asterion-factor", "ASTERION_DATA_PIPELINE_EXECUTABLE": "asterion-data-pipeline"}
                 research_saved = {name: env.get(name) for name in research_variables}
                 try:
                     for name, program in research_variables.items():
                         env[name] = str(app / "Contents/Resources/native" / program)
                     run([sys.executable, str(ROOT / "tests/isolated_node.py"), sys.executable, str(ROOT / "tests/research_agent.py"), str(ROOT / "build/Release/asterion_terminal_dev_bridge")])
-                    run([sys.executable, str(ROOT / "tests/isolated_node.py"), sys.executable, str(ROOT / "tests/strategy_terminal.py"), str(ROOT / "build/Release/asterion_terminal_dev_bridge")])
-                    run(["ctest", "--test-dir", str(ROOT / "build/Release"), "-R", "^strategy_(replay|calendar)_process$", "--output-on-failure", "--no-tests=error"])
                 finally:
                     for name, value in research_saved.items():
                         if value is None:
@@ -142,7 +138,7 @@ def verify_macos_bundle():
                     env["ASTERION_TRADING_EXECUTABLE"] = previous
         finally:
             run(["hdiutil", "detach", folder])
-    print("DMG checksum, signatures, packaged strategy/research/trading recovery and vendor market lifecycle verified")
+    print("DMG checksum, signatures, packaged research recovery and vendor market lifecycle verified")
 
 
 def main():
@@ -226,7 +222,7 @@ def main():
     env["ASTERION_CPP_BUILD"] = str(ROOT / "build" / configuration)
     native = ROOT / "build/electron-resources/native"
     native.mkdir(parents=True, exist_ok=True)
-    names = ("asterion-trading", "asterion-node-agent", "asterion-market-data", "asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline", "asterion-strategy", "asterion-keychain")
+    names = ("asterion-trading", "asterion-node-agent", "asterion-market-data", "asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline", "asterion-keychain")
     programs = [ROOT / "build" / configuration / name for name in names]
     programs.append(ROOT / "build" / configuration / "asterion_terminal.node")
     for source in programs:

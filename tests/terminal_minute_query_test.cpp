@@ -216,7 +216,7 @@ TEST(TerminalMinuteQueries, ConcurrentReadersDoNotBlockCommandsOrPublishOldServi
   const auto snapshot = app.dispatch(request("runtime.snapshot"));
   EXPECT_FALSE(snapshot.value("stale", false));
   EXPECT_TRUE(snapshot.at("history_page").is_null());
-  EXPECT_TRUE(app.dispatch(request("paper.close")).contains("protocol"));
+  EXPECT_TRUE(app.dispatch(request("live.close")).contains("protocol"));
   // This deliberately invalid mutation must reach validation, not fail as a busy command.
   EXPECT_THROW(app.dispatch(request("futures.inspect_csv")), std::exception);
   EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(500ms));
@@ -287,7 +287,7 @@ TEST(TerminalDailyQueries, ConcurrentDailyAndMinuteReadersDoNotBlockOrPublishSta
   const auto snapshot = app.dispatch(request("runtime.snapshot"));
   EXPECT_TRUE(snapshot.at("daily_page").is_null());
   EXPECT_TRUE(snapshot.at("history_page").is_null());
-  EXPECT_TRUE(app.dispatch(request("paper.close")).contains("protocol"));
+  EXPECT_TRUE(app.dispatch(request("live.close")).contains("protocol"));
   EXPECT_LT(std::chrono::steady_clock::now() - before, testing_support::bound(500ms));
   source.release();
   EXPECT_EQ(first.get().at("daily_page").at("id"), "daily");
@@ -413,7 +413,7 @@ TEST(TerminalDailyFactor, SubmissionDoesNotBlockOtherWindowsAndRejectsChangedSer
                                                {"evaluation", {{"mode", "full_sample"}}}});
   auto pending = std::async(std::launch::async, [&] { return app.dispatch(submit); });
   ASSERT_TRUE(source.wait(1));
-  EXPECT_TRUE(app.dispatch(request("paper.close")).contains("protocol"));
+  EXPECT_TRUE(app.dispatch(request("live.close")).contains("protocol"));
   EXPECT_FALSE(app.dispatch(request("runtime.snapshot")).value("stale", false));
   terminal::ApplicationTestAccess::attach(app, replacement.address());
   EXPECT_NE(app.dispatch(request("runtime.snapshot")).at("research").at("connection_id"), first_id);
@@ -453,7 +453,7 @@ TEST(TerminalHistoryUpdate, SlowPlanDoesNotBlockAndObsoleteServiceCannotSubmit) 
   EXPECT_TRUE(source.wait(1));
   const auto started = std::chrono::steady_clock::now();
   EXPECT_FALSE(app.dispatch(request("runtime.snapshot")).value("stale", false));
-  EXPECT_TRUE(app.dispatch(request("paper.close")).contains("protocol"));
+  EXPECT_TRUE(app.dispatch(request("live.close")).contains("protocol"));
   EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(500ms));
   terminal::ApplicationTestAccess::attach(app, replacement.address());
   source.release();
@@ -499,7 +499,7 @@ TEST(TerminalHistoryUsage, SlowQueryDoesNotBlockAndRejectsStaleOrWrongIdentity) 
   EXPECT_TRUE(source.wait(1));
   const auto started = std::chrono::steady_clock::now();
   EXPECT_FALSE(app.dispatch(request("runtime.snapshot")).value("stale", false));
-  EXPECT_TRUE(app.dispatch(request("paper.close")).contains("protocol"));
+  EXPECT_TRUE(app.dispatch(request("live.close")).contains("protocol"));
   EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(500ms));
   terminal::ApplicationTestAccess::attach(app, replacement.address());
   source.release();

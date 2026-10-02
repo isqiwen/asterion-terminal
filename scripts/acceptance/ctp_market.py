@@ -128,9 +128,13 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", ignore_cleanup_errors=T
     try:
         state = call("market.local")
         step("local market service", bool(state.get("market")))
-        state = call("market.connect", {"front": args.front, "broker": args.broker,
-                                        "user": args.user, "password": password,
-                                        "instruments": instruments})
+        # The script runs in its own isolated node: the account it saves is the
+        # only one there and therefore the current one.
+        call("ctp.connections.save", {"id": "acceptance", "name": "acceptance", "revision": "",
+                                      "broker_id": args.broker, "user_id": args.user,
+                                      "app_id": "", "trade_front": "",
+                                      "market_front": args.front})
+        state = call("market.connect", {"password": password, "instruments": instruments})
         password = ""
         deadline = time.monotonic() + args.timeout
         seen = {}

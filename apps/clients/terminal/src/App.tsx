@@ -135,7 +135,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     document.addEventListener("visibilitychange", update);
     return () => document.removeEventListener("visibilitychange", update);
   }, []);
-  const polling = !!snapshot && (!!snapshot.connection || !!snapshot.nodes?.length);
+  const polling = !!snapshot && (!!snapshot.live || !!snapshot.nodes?.length);
   const live = !!snapshot?.market;
   useEffect(() => {
     // Polls read the core's published snapshot by revision; an unchanged
@@ -347,9 +347,9 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
               >
                 {t("{p0} 项任务执行中", {
                   p0:
-                    (snapshot?.research?.tasks.filter(task =>
+                    snapshot?.research?.tasks.filter(task =>
                       ["running", "queued", "cancel_requested"].includes(task.state),
-                    ).length ?? 0) + (snapshot?.strategy?.phase === "running" ? 1 : 0),
+                    ).length ?? 0,
                 })}
                 {failedTasks > 0 && ` · ${t("{p0} 项任务异常", { p0: failedTasks })}`}
               </button>
@@ -362,13 +362,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                     : t("正在读取状态…")}
               </span>
               <span className="status-divider" />
-              <button
-                onClick={() =>
-                  snapshot?.paper && !snapshot.live
-                    ? context.navigate("workspace.research", { page: "replay" })
-                    : context.navigate("workspace.trading")
-                }
-              >
+              <button onClick={() => context.navigate("workspace.trading")}>
                 {snapshot?.live
                   ? t(
                       snapshot.stale || snapshot.live.connection.state !== "connected"
@@ -380,15 +374,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                             ? "CTP 已授权"
                             : "CTP 只读连接",
                     )
-                  : snapshot?.paper
-                    ? t(
-                        !snapshot.stale &&
-                          snapshot.connection?.state === "connected" &&
-                          snapshot.paper.storage_state !== "recovery_required"
-                          ? "历史模拟交易"
-                          : "模拟账户待恢复",
-                      )
-                    : t("尚未打开交易账户")}
+                  : t("尚未打开交易账户")}
               </button>
             </>
           }

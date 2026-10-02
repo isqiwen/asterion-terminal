@@ -212,7 +212,7 @@ std::vector<HistoryService> NodeClient::history_inventory() {
   std::vector<HistoryService> result;
   const bool local = !impl_->endpoint.endpoint.empty();
   for (const auto& service : status.health->services()) {
-    if (service.kind() != wire::PAPER_TRADING && service.kind() != wire::TASK_SERVICE)
+    if (service.kind() != wire::TASK_SERVICE)
       continue;
     if (result.size() >= 1000)
       throw std::invalid_argument("historical service inspection limit exceeded");
@@ -263,8 +263,7 @@ void NodeClient::deploy(const ServiceDeployment& deployment) {
   auto upload_artifact = [&](const std::filesystem::path& path) {
     return impl_->upload_artifact(path, os, arch);
   };
-  if (kind != wire::PAPER_TRADING && kind != wire::MARKET_DATA && kind != wire::TASK_SERVICE &&
-      kind != wire::STRATEGY && kind != wire::LIVE_TRADING)
+  if (kind != wire::MARKET_DATA && kind != wire::TASK_SERVICE && kind != wire::LIVE_TRADING)
     throw std::invalid_argument("invalid service kind");
   const auto hash = upload_artifact(path);
   const auto library =
@@ -287,7 +286,7 @@ void NodeClient::deploy(const ServiceDeployment& deployment) {
   d->set_data_artifact(data_hash);
   d->set_catalog_artifact(programs.catalog.empty() ? std::string{}
                                                    : upload_artifact(programs.catalog));
-  const bool risk = kind == wire::PAPER_TRADING || kind == wire::LIVE_TRADING;
+  const bool risk = kind == wire::LIVE_TRADING;
   if ((kind == wire::TASK_SERVICE || risk) && deployment.plugins) {
     for (const auto& artifact : *deployment.plugins) {
       const auto uploaded = upload_artifact(artifact.path);
@@ -381,19 +380,15 @@ void NodeClient::configure_plugins(const std::string& service, const std::string
   impl_->call(request);
   impl_->refresh_after_acknowledgement();
 }
-ServiceEndpoint NodeClient::local_session(const std::filesystem::path& directory,
-                                          wire::ServiceKind kind) {
-  if (kind != wire::PAPER_TRADING && kind != wire::LIVE_TRADING)
-    throw std::invalid_argument("invalid trading session kind");
+ServiceEndpoint NodeClient::local_session(const std::filesystem::path& directory) {
+  const auto kind = wire::LIVE_TRADING;
   if (impl_->endpoint.endpoint.empty())
     throw std::invalid_argument("local Agent required");
   if (!directory.is_absolute() || !std::filesystem::is_directory(directory) ||
       std::filesystem::is_symlink(directory))
     throw std::invalid_argument("choose an existing absolute trading record directory");
   // Reported here: a service that refuses the directory only shows as unreachable.
-  check_journal_directory(directory, kind == wire::LIVE_TRADING
-                                         ? std::set<std::string>{"plugins", "ctp-flow"}
-                                         : std::set<std::string>{"plugins"});
+  check_journal_directory(directory, {"plugins", "ctp-flow"});
   const auto path = std::filesystem::canonical(directory).u8string();
   const std::string value(path.begin(), path.end());
   std::string service;
@@ -403,15 +398,13 @@ ServiceEndpoint NodeClient::local_session(const std::filesystem::path& directory
     for (const auto& s : impl_->cached->services())
       if (s.directory() == value) {
         if (s.kind() != kind)
-          throw std::invalid_argument(kind == wire::LIVE_TRADING
-                                          ? "this directory holds a paper session"
-                                          : "this directory holds a live session");
+          throw std::invalid_argument("this directory belongs to another service");
         service = s.id();
         break;
       }
   }
   if (service.empty()) {
-    service = (kind == wire::LIVE_TRADING ? "live-" : "paper-") + unique_process_id();
+    service = "live-" + unique_process_id();
     deploy({.service = service,
             .kind = kind,
             .platform = current_platform(),
@@ -480,30 +473,6 @@ NodeClient::local_research(const std::optional<std::vector<std::string>>& select
   } else
     action(service, "start");
   return service_endpoint(service, wire::TASK_SERVICE);
-}
-ServiceEndpoint NodeClient::local_strategy(const std::string& service) {
-  if (impl_->endpoint.endpoint.empty())
-    throw std::invalid_argument("local Agent required");
-  validate_id(service);
-  bool exists = false;
-  {
-    std::lock_guard lock(impl_->mutex);
-    impl_->refresh();
-    for (const auto& s : impl_->cached->services())
-      if (s.id() == service) {
-        if (s.kind() != wire::STRATEGY)
-          throw std::invalid_argument("service kind mismatch");
-        exists = true;
-      }
-  }
-  if (!exists) {
-    deploy({.service = service,
-            .kind = wire::STRATEGY,
-            .platform = current_platform(),
-            .programs = local_service_programs(wire::STRATEGY)});
-  } else
-    action(service, "start");
-  return service_endpoint(service, wire::STRATEGY);
 }
 Json NodeClient::firewall(const std::string& service, const std::string& action,
                           const std::string& token) {

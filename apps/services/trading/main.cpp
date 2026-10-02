@@ -1,7 +1,6 @@
 #include <asterion/kernel/logger.hpp>
 #include <asterion/kernel/native_plugin.hpp>
 #include "live_session.hpp"
-#include "paper_session.hpp"
 #include <CLI/CLI.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/service_host.hpp>
@@ -14,16 +13,13 @@
 #include <stdexcept>
 using namespace std::chrono_literals;
 int main(int argc, char** argv) {
-  CLI::App app{"Asterion trading session host (one account ledger per process)"};
+  CLI::App app{"Asterion CTP trading session host (one account record per process)"};
   app.set_version_flag("--version", "Asterion Trading 0.1.0");
-  std::string mode, session_id, directory, health_endpoint;
+  std::string session_id, directory, health_endpoint;
   app.add_option("--health-endpoint", health_endpoint, "Private supervisor health channel");
   std::uint64_t owner_pid = 0;
   app.add_option("--owner-pid", owner_pid, "Managed service supervisor identity");
   asterion::service::Transport transport;
-  app.add_option("--mode", mode, "Immutable execution mode")
-      ->required()
-      ->check(CLI::IsMember({"paper", "live"}));
   app.add_option("--session", session_id, "Unique session identity")->required();
   app.add_option("--endpoint", transport.endpoint, "Private local IPC endpoint (Agent-managed)");
   app.add_option("--bind", transport.bind, "TCP bind IP address (independent service)");
@@ -36,7 +32,8 @@ int main(int argc, char** argv) {
       ->check(CLI::ExistingDirectory);
   std::string plugin_directory, ctp_library;
   app.add_option("--plugin-directory", plugin_directory)->check(CLI::ExistingDirectory);
-  app.add_option("--ctp-library", ctp_library, "CTP trader SDK for live sessions")
+  app.add_option("--ctp-library", ctp_library, "CTP trader SDK")
+      ->required()
       ->check(CLI::ExistingFile);
   argv = app.ensure_utf8(argv);
   CLI11_PARSE(app, argc, argv);
@@ -46,31 +43,18 @@ int main(int argc, char** argv) {
           std::filesystem::path(std::u8string(plugin_directory.begin(), plugin_directory.end())));
     asterion::validate_id(session_id);
     namespace wire = asterion::protocol::v1;
-    const bool live = mode == "live";
-    const auto wire_mode = live ? wire::LIVE : wire::PAPER;
-    if (live == ctp_library.empty())
-      throw std::invalid_argument(live ? "live sessions require --ctp-library"
-                                       : "--ctp-library only belongs to live sessions");
     const std::filesystem::path sdk(std::u8string(ctp_library.begin(), ctp_library.end()));
     transport.validate();
     asterion::service::install_stop_signals();
     asterion::service::OwnerWatch owner(owner_pid);
     const std::filesystem::path journal(std::u8string(directory.begin(), directory.end()));
-    std::unique_ptr<asterion::trading::PaperSession> session;
     std::unique_ptr<asterion::trading::LiveSession> live_session;
-    // A remote service recovers its server-owned ledger before accepting
-    // clients. A live session then waits for credentials; nothing is sent.
-    if (std::filesystem::exists(journal / "journal.sqlite")) {
-      if (live)
-        live_session = std::make_unique<asterion::trading::LiveSession>(journal, sdk);
-      else
-        session = std::make_unique<asterion::trading::PaperSession>(journal);
-    }
-    const auto ready = [&] { return bool(session) || bool(live_session); };
-    const auto needs_recovery = [&] {
-      return (session && session->recovery_required()) ||
-             (live_session && live_session->recovery_required());
-    };
+    // The service recovers its own record before accepting clients, then
+    // waits for credentials; nothing is sent.
+    if (std::filesystem::exists(journal / "journal.sqlite"))
+      live_session = std::make_unique<asterion::trading::LiveSession>(journal, sdk);
+    const auto ready = [&] { return bool(live_session); };
+    const auto needs_recovery = [&] { return live_session && live_session->recovery_required(); };
     const auto started = std::chrono::steady_clock::now();
     const auto instance = asterion::unique_process_id();
     std::atomic<bool> initialized{ready()}, degraded{false};
@@ -85,13 +69,11 @@ int main(int argc, char** argv) {
       if (!request.ParseFromString(frame))
         return std::string();
       asterion::protocol::validate_message(request);
-      if (request.version() != 1 || request.session_id() != session_id ||
-          request.mode() != wire_mode || !request.has_heartbeat())
+      if (request.version() != 1 || request.session_id() != session_id || !request.has_heartbeat())
         return std::string();
       asterion::protocol::v1::Response response;
       response.set_version(1);
       response.set_session_id(session_id);
-      response.set_mode(wire_mode);
       response.set_correlation_id(request.correlation_id());
       auto* h = response.mutable_health();
       h->set_instance_id(instance);
@@ -120,7 +102,6 @@ int main(int argc, char** argv) {
         wire::Response response;
         response.set_version(1);
         response.set_session_id(session_id);
-        response.set_mode(wire_mode);
         {
           std::lock_guard lock(ledger_mutex);
           busy_since = now();
@@ -130,9 +111,8 @@ int main(int argc, char** argv) {
             asterion::protocol::validate_message(request);
             response.set_correlation_id(request.correlation_id());
             asterion::validate_id(request.correlation_id());
-            if (request.version() != 1 || request.session_id() != session_id ||
-                request.mode() != wire_mode)
-              throw std::invalid_argument("protocol version, session or mode mismatch");
+            if (request.version() != 1 || request.session_id() != session_id)
+              throw std::invalid_argument("protocol version or session mismatch");
             if (request.has_heartbeat()) {
               auto* health = response.mutable_health();
               health->set_instance_id(instance);
@@ -143,19 +123,11 @@ int main(int argc, char** argv) {
                                                  .count()));
               health->set_initialized(ready());
               health->set_recovery_required(needs_recovery());
-            } else if (request.has_history_usage()) {
-              if (live)
-                throw std::invalid_argument("historical usage requires a paper session service");
-              if (!session)
-                throw std::invalid_argument("session is not initialized");
-              *response.mutable_history_usage() =
-                  session->history_usage(request.history_usage().dataset_id());
-              response.mutable_history_usage()->set_directory(directory);
             } else if (request.has_shutdown()) {
               throw std::invalid_argument("service stop is a Node Agent operation");
             } else if (request.has_attach() && !ready())
               response.mutable_uninitialized();
-            else if (live) {
+            else {
               if (request.has_live_create() || request.has_recover()) {
                 if (live_session)
                   throw std::invalid_argument("session already initialized");
@@ -182,29 +154,6 @@ int main(int argc, char** argv) {
                 throw std::invalid_argument("missing live session operation");
               *response.mutable_live() =
                   asterion::protocol::encode_live_snapshot(live_session->snapshot());
-            } else {
-              if (request.has_live_create() || request.has_live_connect() ||
-                  request.has_live_disconnect() || request.has_live_costs())
-                throw std::invalid_argument("live operations require a live session service");
-              if (request.has_create() || request.has_recover()) {
-                if (session)
-                  throw std::invalid_argument("session already initialized");
-                const auto manifest = request.has_create()
-                                          ? asterion::protocol::decode_input(request.create())
-                                          : asterion::Json(nullptr);
-                session = std::make_unique<asterion::trading::PaperSession>(
-                    std::filesystem::path(std::u8string(directory.begin(), directory.end())),
-                    manifest);
-              } else if (request.has_command()) {
-                if (!session)
-                  throw std::invalid_argument("session is not initialized");
-                session->execute(asterion::protocol::decode_command(request.command()));
-              } else if (!request.has_snapshot() && !request.has_attach())
-                throw std::invalid_argument("missing session operation");
-              if (!session)
-                throw std::invalid_argument("session is not initialized");
-              *response.mutable_snapshot() =
-                  asterion::protocol::encode_snapshot(session->snapshot());
             }
           } catch (const std::exception& error) {
             response.mutable_error()->set_code(

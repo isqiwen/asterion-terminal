@@ -40,7 +40,7 @@ test("plugins can only invoke the commands they declare", async () => {
   const [registered] = registerTerminalPlugins([plugin]);
   const scoped = scopedContext(registered, base);
   await scoped.trade("research.local");
-  await expect(scoped.trade("paper.act")).rejects.toThrow("paper.act");
+  await expect(scoped.trade("live.act")).rejects.toThrow("live.act");
   await expect(scoped.query("research.minutes.page", {})).rejects.toThrow("research.minutes.page");
   expect("inspect" in scoped).toBe(false);
   expect(calls).toEqual(["research.local"]);

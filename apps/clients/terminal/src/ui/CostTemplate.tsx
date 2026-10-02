@@ -3,7 +3,7 @@ import { translate, type MessageValues } from "../i18n";
 import type { CostVersion, DatasetSelection } from "../bridge/client";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 
-// Margin and fee inputs shared by paper sessions and backtests.
+// Margin and fee inputs of backtests.
 export const costFields = [
   "margin_per_lot",
   "margin_rate",
@@ -222,7 +222,7 @@ const labels: [(typeof costFields)[number], string][] = [
 ];
 const contractKey = (contract: { venue: string; symbol: string }) =>
   `${contract.venue}.${contract.symbol}`;
-// The "contracts" entries of paper.create and research.submit, in selection order.
+// The "contracts" entries of research.submit, in selection order.
 export function contractCostRequest(datasets: DatasetSelection[], drafts: ContractCostDrafts) {
   return datasets.map(dataset => ({
     venue: dataset.venue,
