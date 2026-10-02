@@ -37,8 +37,7 @@ json catalog_terms(const json& market, const json& requested) {
 // Live CTP sessions: create, open, connect with credentials, authorize and
 // trade. Every order passes the service's authorization, allowlist and risk.
 void Application::Impl::register_live_commands() {
-  core.access().grant("terminal.local", "live.manage");
-  core.command("live.create", "live.manage", [this](const json& p) {
+  core.command("live.create", [this](const json& p) {
     fields_with_risk(p, {p.contains("name") ? "name" : "directory", "front", "broker_id", "user_id",
                          "app_id", "max_price_deviation", "contracts"});
     if (live)
@@ -75,7 +74,7 @@ void Application::Impl::register_live_commands() {
     live = std::move(next);
     return snapshot();
   });
-  core.command("live.open", "live.manage", [this](const json& p) {
+  core.command("live.open", [this](const json& p) {
     fields(p, {"directory"});
     if (live)
       throw std::invalid_argument("close the current live session first");
@@ -95,14 +94,14 @@ void Application::Impl::register_live_commands() {
     return snapshot();
   });
   // Credentials go to the session service and are not kept by the Terminal.
-  core.command("live.connect", "live.manage", [this](const json& p) {
+  core.command("live.connect", [this](const json& p) {
     fields(p, {"password", "auth_code"});
     if (!live)
       throw std::invalid_argument("create or recover a live session first");
     live->connect_broker(text(p, "password"), text(p, "auth_code"));
     return snapshot();
   });
-  core.command("live.disconnect", "live.manage", [this](const json& p) {
+  core.command("live.disconnect", [this](const json& p) {
     fields(p, {});
     if (!live)
       throw std::invalid_argument("create or recover a live session first");
@@ -111,20 +110,20 @@ void Application::Impl::register_live_commands() {
   });
   // The account's margin and commission rates from the broker; observations
   // only, never recorded as trading commands.
-  core.command("live.costs", "live.manage", [this](const json& p) {
+  core.command("live.costs", [this](const json& p) {
     fields(p, {});
     if (!live)
       throw std::invalid_argument("create or recover a live session first");
     live->query_costs();
     return snapshot();
   });
-  core.command("live.act", "live.manage", [this](const json& p) {
+  core.command("live.act", [this](const json& p) {
     if (!live)
       throw std::invalid_argument("create or recover a live session first");
     live->execute(p);
     return snapshot();
   });
-  core.command("live.close", "live.manage", [this](const json& p) {
+  core.command("live.close", [this](const json& p) {
     fields(p, {});
     live.reset();
     return snapshot();

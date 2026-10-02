@@ -45,40 +45,39 @@ void update_service(NodeClient& node, bool local, const json& p) {
 } // namespace
 // Node lifecycle: SSH enrollment, firewall, Agent upgrade, service deployment.
 void Application::Impl::register_node_commands() {
-  core.access().grant("terminal.local", "node.manage");
-  core.command("development.shutdown", "node.manage", [this](const json& p) {
+  core.command("development.shutdown", [this](const json& p) {
     fields(p, {"recover"});
     if (!p.at("recover").is_boolean())
       throw std::invalid_argument("invalid development shutdown request");
     without_operations([&] { shutdown_development_node(p.at("recover").get<bool>()); });
     return json{{"stopped", true}};
   });
-  core.command("native.plugins.inspect", "node.manage", [this](const json& p) {
+  core.command("native.plugins.inspect", [this](const json& p) {
     fields(p, {});
     native_plugins = plugin_catalog_json(local_plugin_catalog());
     return snapshot();
   });
-  core.command("native.plugins.preview", "node.manage", [this](const json& p) {
+  core.command("native.plugins.preview", [this](const json& p) {
     fields(p, {"path"});
     auto result = snapshot();
     PluginCatalog preview{.directory = {}, .entries = {preview_plugin(text(p, "path"))}};
     result["plugin_candidate"] = plugin_catalog_json(preview).at("items").at(0);
     return result;
   });
-  core.command("native.plugins.install", "node.manage", [this](const json& p) {
+  core.command("native.plugins.install", [this](const json& p) {
     fields(p, {"path", "sha256"});
     install_plugin(native_plugin_directory(), local_node_directory() / "plugins", text(p, "path"),
                    text(p, "sha256"));
     native_plugins = plugin_catalog_json(local_plugin_catalog());
     return snapshot();
   });
-  core.command("native.plugins.uninstall", "node.manage", [this](const json& p) {
+  core.command("native.plugins.uninstall", [this](const json& p) {
     fields(p, {"file", "sha256"});
     uninstall_plugin(local_node_directory() / "plugins", text(p, "file"), text(p, "sha256"));
     native_plugins = plugin_catalog_json(local_plugin_catalog());
     return snapshot();
   });
-  core.command("research.local.create", "node.manage", [this](const json& p) {
+  core.command("research.local.create", [this](const json& p) {
     fields(p, {"plugins"});
     if (!p.at("plugins").is_array())
       throw std::invalid_argument("invalid native plugin selection");
@@ -93,7 +92,7 @@ void Application::Impl::register_node_commands() {
     ++research_generation;
     return snapshot();
   });
-  core.command("node.plugins.configure", "node.manage", [this](const json& p) {
+  core.command("node.plugins.configure", [this](const json& p) {
     fields(p, {"id", "service", "revision", "plugins"});
     if (!p.at("plugins").is_array())
       throw std::invalid_argument("invalid native plugin selection");
@@ -104,7 +103,7 @@ void Application::Impl::register_node_commands() {
     });
     return snapshot();
   });
-  core.command("node.initializer.export", "node.manage", [this](const json& p) {
+  core.command("node.initializer.export", [this](const json& p) {
     fields(p, {"path"});
     const auto destination = p.at("path").get<std::string>();
     auto result = snapshot();
@@ -116,12 +115,12 @@ void Application::Impl::register_node_commands() {
           std::filesystem::path(std::u8string(destination.begin(), destination.end())));
     return result;
   });
-  core.command("node.key.prepare", "node.manage", [this](const json& p) {
+  core.command("node.key.prepare", [this](const json& p) {
     fields(p, {"id"});
     ssh_key = prepare_ssh_key(text(p, "id"));
     return snapshot();
   });
-  core.command("node.service_firewall", "node.manage", [this](const json& p) {
+  core.command("node.service_firewall", [this](const json& p) {
     fields(p, {"id", "service", "action", "token"});
     firewall_plan = nullptr;
     firewall_parameters = nullptr;
@@ -133,7 +132,7 @@ void Application::Impl::register_node_commands() {
     firewall_plan = std::move(plan);
     return snapshot();
   });
-  core.command("node.firewall.inspect", "node.manage", [this](const json& p) {
+  core.command("node.firewall.inspect", [this](const json& p) {
     fields(p, {"id", "host", "ssh_port", "username", "key_source", "private_key", "known_hosts",
                "agent_port", "firewall_port", "firewall_action"});
     firewall_plan = nullptr;
@@ -147,7 +146,7 @@ void Application::Impl::register_node_commands() {
     firewall_expiry = std::chrono::steady_clock::now() + std::chrono::minutes(5);
     return snapshot();
   });
-  core.command("node.firewall.apply", "node.manage", [this](const json& p) {
+  core.command("node.firewall.apply", [this](const json& p) {
     fields(p, {"token", "private_key"});
     if (firewall_plan.is_null() || firewall_parameters.is_null() ||
         text(p, "token") != firewall_plan.at("token").get<std::string>() ||
@@ -162,7 +161,7 @@ void Application::Impl::register_node_commands() {
     firewall_plan = std::move(changed);
     return snapshot();
   });
-  core.command("node.bootstrap", "node.manage", [this](const json& p) {
+  core.command("node.bootstrap", [this](const json& p) {
     fields(p, {"id", "host", "ssh_port", "username", "key_source", "private_key", "known_hosts",
                "agent_port"});
     auto [id, node] = without_operations([&] {
@@ -173,7 +172,7 @@ void Application::Impl::register_node_commands() {
     nodes.insert_or_assign(id, std::move(node));
     return snapshot();
   });
-  core.command("node.connect", "node.manage", [this](const json& p) {
+  core.command("node.connect", [this](const json& p) {
     fields(p, {"id"});
     auto [id, node] = without_operations([&] {
       auto config = enrolled_node(text(p, "id"));
@@ -183,7 +182,7 @@ void Application::Impl::register_node_commands() {
     nodes.insert_or_assign(id, std::move(node));
     return snapshot();
   });
-  core.command("node.agent.upgrade", "node.manage", [this](const json& p) {
+  core.command("node.agent.upgrade", [this](const json& p) {
     fields(p, {"expected_digest"});
     const auto expected = text(p, "expected_digest");
     agent_program = local_node_program_status();
@@ -206,26 +205,26 @@ void Application::Impl::register_node_commands() {
     }
     return snapshot();
   });
-  core.command("node.agent.inspect", "node.manage", [this](const json& p) {
+  core.command("node.agent.inspect", [this](const json& p) {
     fields(p, {});
     agent_program = nullptr;
     agent_program = local_node_program_status();
     return snapshot();
   });
-  core.command("node.local", "node.manage", [this](const json& p) {
+  core.command("node.local", [this](const json& p) {
     fields(p, {});
     if (!nodes.contains("local"))
       nodes.emplace("local", std::make_shared<NodeClient>(local_node()));
     return snapshot();
   });
-  core.command("node.disconnect", "node.manage", [this](const json& p) {
+  core.command("node.disconnect", [this](const json& p) {
     fields(p, {"id"});
     if (text(p, "id") == "local")
       throw std::invalid_argument("the local node monitor cannot be removed");
     nodes.erase(text(p, "id"));
     return snapshot();
   });
-  core.command("node.attach", "node.manage", [this](const json& p) {
+  core.command("node.attach", [this](const json& p) {
     fields(p, {"id", "service"});
     const auto node = nodes.at(text(p, "id"));
     const auto service = text(p, "service");
@@ -244,19 +243,19 @@ void Application::Impl::register_node_commands() {
                                                                             : TradingMode::paper);
     return snapshot();
   });
-  core.command("node.deploy", "node.manage", [this](const json& p) {
+  core.command("node.deploy", [this](const json& p) {
     fields(p, {"id", "service", "port", "kind"});
     const auto node = nodes.at(text(p, "id"));
     without_operations([&] { deploy_service(*node, p); });
     return snapshot();
   });
-  core.command("node.update", "node.manage", [this](const json& p) {
+  core.command("node.update", [this](const json& p) {
     fields(p, {"id", "service", "revision"});
     const auto node = nodes.at(text(p, "id"));
     without_operations([&] { update_service(*node, text(p, "id") == "local", p); });
     return snapshot();
   });
-  core.command("node.action", "node.manage", [this](const json& p) {
+  core.command("node.action", [this](const json& p) {
     fields(p, {"id", "service", "action"});
     nodes.at(text(p, "id"))->action(text(p, "service"), text(p, "action"));
     return snapshot();

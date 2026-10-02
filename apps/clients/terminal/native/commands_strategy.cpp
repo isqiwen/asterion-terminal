@@ -4,7 +4,7 @@
 namespace asterion::terminal {
 // Strategy runs: authorization handoff between the paper account and the strategy host.
 void Application::Impl::register_strategy_commands() {
-  core.command("strategy.run", "paper.manage", [this](const json& p) {
+  core.command("strategy.run", [this](const json& p) {
     fields(p, {"id", "fast", "slow", "quantity"});
     if (!paper || paper->endpoint().endpoint.empty())
       throw std::invalid_argument("automatic strategy setup currently "
@@ -79,7 +79,7 @@ void Application::Impl::register_strategy_commands() {
     strategy->create(config);
     return snapshot();
   });
-  core.command("strategy.attach", "node.manage", [this](const json& p) {
+  core.command("strategy.attach", [this](const json& p) {
     fields(p, {"id", "service"});
     if (text(p, "id") == "local" && !nodes.contains("local"))
       nodes.emplace("local", std::make_shared<NodeClient>(local_node()));
@@ -88,7 +88,7 @@ void Application::Impl::register_strategy_commands() {
             ->service_endpoint(text(p, "service"), asterion::node::v1::STRATEGY));
     return snapshot();
   });
-  core.command("strategy.revoke", "paper.manage", [this](const json& p) {
+  core.command("strategy.revoke", [this](const json& p) {
     fields(p, {"grant_id"});
     const auto grant = text(p, "grant_id");
     validate_id(grant);

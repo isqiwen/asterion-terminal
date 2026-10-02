@@ -104,10 +104,9 @@ TEST(Logger, SinkFailureDoesNotChangeCommandResult) {
       std::make_shared<spdlog::logger>("failed", std::make_shared<FailingSink>()));
   EXPECT_FALSE(logger->write(LogLevel::info, "failure.probe"));
   Runtime runtime("logging.test", std::make_shared<ManualClock>(), logger);
-  runtime.access().grant("local", "read");
-  runtime.command("read", "read", [](const Json&) { return Json(42); });
+  runtime.command("read", [](const Json&) { return Json(42); });
   runtime.start();
-  EXPECT_EQ(runtime.dispatch("local", "read", Json::object()), 42);
+  EXPECT_EQ(runtime.dispatch("read", Json::object()), 42);
   runtime.stop();
   EXPECT_GE(logger->failures(), 4);
 }

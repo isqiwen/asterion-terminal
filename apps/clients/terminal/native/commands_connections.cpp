@@ -21,7 +21,7 @@ DataConnection Application::Impl::resolve_data_connection(const std::string& id,
   return connection;
 }
 void Application::Impl::register_connection_commands() {
-  core.command("research.connections.save", "node.manage", [this](const json& params) {
+  core.command("research.connections.save", [this](const json& params) {
     fields(params, {"id", "name", "source", "revision", "requests_per_minute", "remember",
                     "credential", "credential_action"});
     if (!research)
@@ -45,7 +45,7 @@ void Application::Impl::register_connection_commands() {
     connection_verification = nullptr;
     return snapshot();
   });
-  core.command("research.connections.remove", "node.manage", [this](const json& params) {
+  core.command("research.connections.remove", [this](const json& params) {
     fields(params, {"id", "revision"});
     data_connections.remove(text(params, "id"), text(params, "revision"));
     connection_verification = nullptr;
@@ -53,7 +53,7 @@ void Application::Impl::register_connection_commands() {
   });
   // Verifies a saved connection against its data source; the provider I/O
   // runs outside the lock.
-  core.command("research.connections.verify", "node.manage", [this](const json& params) {
+  core.command("research.connections.verify", [this](const json& params) {
     fields(params, {"id", "revision", "source"});
     const auto connection = resolve_data_connection(text(params, "id"), text(params, "revision"),
                                                     text(params, "source"));

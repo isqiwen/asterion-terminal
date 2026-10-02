@@ -24,32 +24,26 @@ void Runtime::add_plugin(std::unique_ptr<Plugin> plugin) {
     throw Error(ErrorCode::conflict, "runtime composition is sealed");
   plugins_.add(std::move(plugin));
 }
-void Runtime::command(std::string name, std::string capability,
-                      std::function<Json(const Json&)> handler) {
+void Runtime::command(std::string name, std::function<Json(const Json&)> handler) {
   if (state_ != RuntimeState::created)
     throw Error(ErrorCode::conflict, "runtime composition is sealed");
   validate_id(name);
-  validate_id(capability);
   if (!handler)
     throw Error(ErrorCode::invalid_request, "empty command handler");
   if (commands_.size() >= 256)
     throw Error(ErrorCode::resource_exhausted, "command registry full");
-  if (!commands_.emplace(std::move(name), Command{std::move(capability), std::move(handler)})
-           .second)
+  if (!commands_.emplace(std::move(name), std::move(handler)).second)
     throw Error(ErrorCode::conflict, "duplicate command");
 }
 void Runtime::start() {
   if (state_ != RuntimeState::created)
     throw Error(ErrorCode::conflict, "runtime is single-use");
   state_ = RuntimeState::starting;
-  config_.seal();
-  access_.seal();
   try {
     plugins_.start();
     state_ = RuntimeState::running;
     logger_->write(LogLevel::info, "runtime.started");
   } catch (...) {
-    resources_.clear();
     state_ = RuntimeState::failed;
     logger_->write(LogLevel::error, "runtime.start_failed");
     throw;
@@ -63,13 +57,11 @@ void Runtime::stop() {
   const auto failed = state_ == RuntimeState::failed;
   state_ = RuntimeState::stopping;
   plugins_.stop();
-  resources_.clear();
   state_ = failed ? RuntimeState::failed : RuntimeState::stopped;
   logger_->write(LogLevel::info, "runtime.stopped");
   logger_->flush();
 }
-Json Runtime::dispatch(const std::string& principal, const std::string& method,
-                       const Json& params) {
+Json Runtime::dispatch(const std::string& method, const Json& params) {
   if (state_ != RuntimeState::running)
     throw Error(ErrorCode::unavailable, "runtime not running");
   if (dispatching == this)
@@ -97,8 +89,7 @@ Json Runtime::dispatch(const std::string& principal, const std::string& method,
   try {
     if (found == commands_.end())
       throw Error(ErrorCode::invalid_request, "unsupported command");
-    access_.require(principal, found->second.capability);
-    auto result = found->second.handler(params);
+    auto result = found->second(params);
     finish(true);
     return result;
   } catch (...) {

@@ -90,7 +90,6 @@ struct Application::Impl {
                  auto file = process_logger("terminal");
                  return file ? file : std::make_shared<Logger>();
                }()};
-  ResourceRegistry::Scope scope = core.resources().create_scope("terminal");
   // Serializes mutable client selection and Runtime dispatch. Minute-page I/O
   // uses a captured shared client outside this lock; see Application.
   std::mutex operations;

@@ -4,8 +4,7 @@
 namespace asterion::terminal {
 // Paper trading sessions: create, connect, recover and act on an account.
 void Application::Impl::register_paper_commands() {
-  core.access().grant("terminal.local", "paper.manage");
-  core.command("paper.create", "paper.manage", [this](const json& p) {
+  core.command("paper.create", [this](const json& p) {
     const bool remote = paper && paper->connection().at("transport") == "tcp_tls";
     if (remote)
       fields_with_risk(p, {"deposit", "contracts"});
@@ -55,7 +54,7 @@ void Application::Impl::register_paper_commands() {
     paper = std::move(next);
     return snapshot();
   });
-  core.command("paper.connect", "paper.manage", [this](const json& p) {
+  core.command("paper.connect", [this](const json& p) {
     fields(p,
            {"host", "port", "session", "mode", "ca_file", "certificate_file", "private_key_file"});
     const auto mode = text(p, "mode");
@@ -79,14 +78,14 @@ void Application::Impl::register_paper_commands() {
                                                                     : TradingMode::paper);
     return snapshot();
   });
-  core.command("paper.reconnect", "paper.manage", [this](const json& p) {
+  core.command("paper.reconnect", [this](const json& p) {
     fields(p, {});
     if (!paper)
       throw std::invalid_argument("choose a connection profile first");
     paper->reconnect();
     return snapshot();
   });
-  core.command("paper.open", "paper.manage", [this](const json& p) {
+  core.command("paper.open", [this](const json& p) {
     fields(p, {"directory"});
     if (paper)
       throw std::invalid_argument("close the current paper session first");
@@ -105,12 +104,12 @@ void Application::Impl::register_paper_commands() {
     paper = std::move(next);
     return snapshot();
   });
-  core.command("paper.close", "paper.manage", [this](const json& p) {
+  core.command("paper.close", [this](const json& p) {
     fields(p, {});
     paper.reset();
     return snapshot();
   });
-  core.command("paper.act", "paper.manage", [this](const json& p) {
+  core.command("paper.act", [this](const json& p) {
     if (!paper)
       throw std::invalid_argument("create or recover a paper session first");
     paper->execute(p);

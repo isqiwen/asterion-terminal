@@ -55,9 +55,8 @@ std::string next_runtime_scope() {
   return scopes.next();
 }
 Application::Impl::Impl() {
-  core.access().grant("terminal.local", "runtime.read");
   // Only reached before the first publication; later reads never lock.
-  core.command("runtime.snapshot", "runtime.read", [this](const json&) { return snapshot(); });
+  core.command("runtime.snapshot", [this](const json&) { return snapshot(); });
   register_paper_commands();
   register_live_commands();
   register_node_commands();
@@ -212,7 +211,6 @@ json Application::Impl::read_published(const json& params) {
   std::optional<std::uint64_t> since;
   if (params.contains("since"))
     since = params.at("since").get<std::uint64_t>();
-  core.access().require("terminal.local", "runtime.read");
   std::lock_guard lock(cache_mutex);
   if (cache.is_null())
     return nullptr;
@@ -323,8 +321,7 @@ json Application::Impl::dispatch(const json& request) {
     ~Active() { slot = nullptr; }
   } active{operation_lock};
   operation_lock = &operation;
-  auto result = core.dispatch("terminal.local", method,
-                              method == "runtime.snapshot" ? json::object() : params);
+  auto result = core.dispatch(method, method == "runtime.snapshot" ? json::object() : params);
   // A command's snapshot becomes the published state; a read's one-shot data
   // (pages, listings, usage) never does.
   if (!read_only && result.is_object() && result.contains("protocol")) {

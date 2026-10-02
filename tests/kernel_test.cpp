@@ -19,58 +19,6 @@
 #include <future>
 #include <iostream>
 using namespace asterion;
-TEST(Kernel, configuration_and_resources) {
-  Configuration config;
-  config.declare("plugin.limit", 10, [](const Json& value) {
-    return value.is_number_integer() && value > 0 && value <= 100;
-  });
-  EXPECT_THROW(([&] { config.apply({{"plugin.limit", 20}, {"unexpected", 1}}); })(), Error);
-  EXPECT_TRUE((config.at("plugin.limit") == 10)) << "configuration rejection is atomic";
-  EXPECT_THROW(([&] { config.apply({{"plugin.limit", "20"}}); })(), Error);
-  const auto saved = config.at("plugin.limit");
-  config.apply({{"plugin.limit", 20}});
-  config.seal();
-  EXPECT_TRUE((saved == 10)) << "configuration reads are immutable snapshots";
-  EXPECT_THROW(([&] { config.apply({{"plugin.limit", 30}}); })(), Error);
-  ResourceRegistry resources(1, 1);
-  auto scope = resources.create_scope("plugin.one");
-  scope.publish("counter", std::make_shared<int>(42));
-  auto handle = resources.resolve<int>("plugin.one", "counter");
-  auto retained = handle.lock();
-  EXPECT_THROW(([&] { scope.publish("counter", std::make_shared<int>(1)); })(), Error);
-  EXPECT_THROW(([&] { scope.publish("second", std::make_shared<int>(1)); })(), Error);
-  EXPECT_THROW(
-      ([&] { static_cast<void>(resources.resolve<std::string>("plugin.one", "counter")); })(),
-      Error);
-  EXPECT_THROW(([&] { static_cast<void>(resources.create_scope("plugin.two")); })(), Error);
-  scope.close();
-  EXPECT_THROW(([&] { static_cast<void>(handle.lock()); })(), Error);
-  EXPECT_TRUE((*retained == 42)) << "revocation preserves memory lifetime of existing borrowers";
-  auto replacement = resources.create_scope("plugin.one");
-  replacement.publish("counter", std::make_shared<int>(99));
-  EXPECT_THROW(([&] { static_cast<void>(handle.lock()); })(), Error);
-  EXPECT_TRUE((*resources.resolve<int>("plugin.one", "counter").lock() == 99))
-      << "new scope does not revive old handle";
-  resources.clear();
-  EXPECT_THROW(([&] { replacement.publish("new", std::make_shared<int>(0)); })(), Error);
-}
-TEST(Kernel, resource_destructor_reentry) {
-  ResourceRegistry resources;
-  auto scope = resources.create_scope("owner");
-  struct Cleanup {
-    std::function<void()> callback;
-    ~Cleanup() { callback(); }
-  };
-  bool cleaned = false;
-  auto cleanup = std::make_shared<Cleanup>();
-  cleanup->callback = [&] {
-    EXPECT_THROW(([&] { static_cast<void>(resources.resolve<int>("owner", "value")); })(), Error);
-    cleaned = true;
-  };
-  scope.publish("cleanup", std::move(cleanup));
-  resources.clear();
-  EXPECT_TRUE((cleaned)) << "resource destructors may reenter registry without deadlock";
-}
 TEST(Kernel, worker_shutdown) {
   ThreadPool worker(1, 1);
   std::promise<void> entered;
@@ -118,39 +66,35 @@ TEST(Kernel, runtime_integration) {
   std::vector<std::string> lifecycle;
   runtime.add_plugin(std::make_unique<LifecyclePlugin>(lifecycle, "first"));
   runtime.add_plugin(std::make_unique<LifecyclePlugin>(lifecycle, "second"));
-  auto scope = runtime.resources().create_scope("service");
-  scope.publish("value", std::make_shared<int>(7));
-  auto handle = runtime.resources().resolve<int>("service", "value");
-  runtime.access().grant("test.user", "service.read");
-  runtime.command("service.read", "service.read", [&](const Json&) {
+  runtime.command("service.read", [&](const Json&) {
     clock->advance(5);
-    return Json(*handle.lock());
+    return Json(7);
   });
-  runtime.command("service.stop", "service.read", [&](const Json&) {
+  runtime.command("service.stop", [&](const Json&) {
     runtime.stop();
     return Json();
   });
-  EXPECT_THROW(([&] { runtime.dispatch("test.user", "service.read", {}); })(), Error);
+  EXPECT_THROW(([&] { runtime.command("service.read", [](const Json&) { return Json(); }); })(),
+               Error)
+      << "duplicate command";
+  EXPECT_THROW(([&] { runtime.dispatch("service.read", {}); })(), Error) << "not started";
   runtime.start();
-  EXPECT_TRUE((runtime.dispatch("test.user", "service.read", {}) == 7))
-      << "runtime command resolves owned resource";
-  EXPECT_THROW(([&] { runtime.dispatch("intruder", "service.read", {}); })(), Error);
-  EXPECT_THROW(([&] { runtime.dispatch("test.user", "service.stop", {}); })(), Error);
+  EXPECT_THROW(([&] { runtime.command("late", [](const Json&) { return Json(); }); })(), Error)
+      << "composition is sealed once started";
+  EXPECT_TRUE((runtime.dispatch("service.read", {}) == 7));
+  EXPECT_THROW(([&] { runtime.dispatch("service.unknown", {}); })(), Error);
+  EXPECT_THROW(([&] { runtime.dispatch("service.stop", {}); })(), Error);
   EXPECT_TRUE((runtime.state() == RuntimeState::running))
       << "callback cannot tear down running command";
   EXPECT_TRUE((runtime.observations().metrics().succeeded == 1 &&
                runtime.observations().metrics().failed == 2))
-      << "runtime traces successes and denied/failed commands";
+      << "runtime traces successes and failed or unknown commands";
   EXPECT_TRUE((runtime.observations().recent().front().duration_ns == 5))
       << "monotonic trace timing";
-  runtime.access().revoke("test.user");
-  EXPECT_THROW(([&] { runtime.dispatch("test.user", "service.read", {}); })(), Error);
-  EXPECT_THROW(([&] { runtime.access().grant("intruder", "service.read"); })(), Error);
   runtime.stop();
   EXPECT_TRUE((lifecycle == std::vector<std::string>(
                                 {"first.start", "second.start", "second.stop", "first.stop"})))
       << "runtime owns reverse teardown";
-  EXPECT_THROW(([&] { static_cast<void>(handle.lock()); })(), Error);
   EXPECT_THROW(([&] { runtime.start(); })(), Error);
   Observability bounded(2);
   bounded.record({"t:1", "request", 1, 0, true});
@@ -161,15 +105,11 @@ TEST(Kernel, runtime_integration) {
       << "bounded traces and cumulative metrics";
   std::vector<std::string> failed_lifecycle;
   Runtime failed("test.failed");
-  auto failed_scope = failed.resources().create_scope("failed");
-  failed_scope.publish("value", std::make_shared<int>(1));
-  auto failed_handle = failed.resources().resolve<int>("failed", "value");
   failed.add_plugin(std::make_unique<LifecyclePlugin>(failed_lifecycle, "first"));
   failed.add_plugin(std::make_unique<LifecyclePlugin>(failed_lifecycle, "second", true));
   EXPECT_THROW(([&] { failed.start(); })(), std::runtime_error);
   EXPECT_TRUE((failed.state() == RuntimeState::failed && failed_lifecycle.back() == "first.stop"))
       << "startup rollback exposes failed state";
-  EXPECT_THROW(([&] { static_cast<void>(failed_handle.lock()); })(), Error);
 }
 
 TEST(ThreadPool, WorkersRunConcurrentlyAndShutdownCancelsQueue) {
