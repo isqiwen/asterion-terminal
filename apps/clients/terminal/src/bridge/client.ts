@@ -896,6 +896,9 @@ export type Snapshot = {
   core: string;
   phase: "ready";
   asset: "futures";
+  // The core's rule per exchange for assigning closes to today's and
+  // yesterday's positions.
+  close_policies: Record<string, "explicit_buckets" | "today_first" | "yesterday_first">;
   connection: {
     transport: "local" | "tcp_tls";
     state: "connected" | "disconnected";

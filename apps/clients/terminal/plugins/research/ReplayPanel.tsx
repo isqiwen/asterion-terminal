@@ -8,6 +8,7 @@ import {
   type ContractCostDrafts,
   DatasetPicker,
   ErrorNotice,
+  explicitCloseBuckets,
   asDisplayError,
   type DisplayError,
 } from "../contract";
@@ -62,10 +63,7 @@ export function ReplayPanel(context: TerminalContext) {
       item => `${item.contract.venue}.${item.contract.symbol}` === order.contract,
     ) ?? paper?.contracts[0];
   const currency = paper?.contracts[0]?.contract.currency ?? "";
-  // Mirrors the core's ClosePolicy: only SHFE/INE (and unverified venues)
-  // take explicit today/yesterday closes; the rest assign buckets themselves.
-  const venue = traded?.contract.venue ?? "";
-  const explicitBuckets = !["CFFEX", "DCE", "CZCE", "GFEX"].includes(venue);
+  const explicitBuckets = explicitCloseBuckets(snapshot, traded?.contract.venue ?? "");
   const offsetValue =
     order.offset === "open"
       ? "open"

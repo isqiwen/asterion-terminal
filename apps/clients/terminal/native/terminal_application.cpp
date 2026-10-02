@@ -143,6 +143,25 @@ json Application::Impl::compose(const Parts& parts) {
           {"core", "C++20"},
           {"phase", "ready"},
           {"asset", "futures"},
+          // How each exchange assigns closes to today's and yesterday's
+          // positions; the order forms follow the core's rule.
+          {"close_policies",
+           [] {
+             json policies = json::object();
+             for (const auto* venue : {"SHFE", "INE", "CFFEX", "DCE", "CZCE", "GFEX"})
+               switch (close_policy(venue)) {
+               case ClosePolicy::explicit_buckets:
+                 policies[venue] = "explicit_buckets";
+                 break;
+               case ClosePolicy::today_first:
+                 policies[venue] = "today_first";
+                 break;
+               case ClosePolicy::yesterday_first:
+                 policies[venue] = "yesterday_first";
+                 break;
+               }
+             return policies;
+           }()},
           {"paper", parts.paper},
           {"live", parts.live.is_null()
                        ? json(nullptr)

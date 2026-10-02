@@ -4,6 +4,7 @@ import { FlowSteps } from "../../src/ui/FlowSteps";
 import { useState } from "react";
 import {
   ErrorNotice,
+  explicitCloseBuckets,
   asDisplayError,
   saveCostTemplate,
   translate,
@@ -463,9 +464,7 @@ function LiveAccount({
     snapshot?.live?.connection.state === "disconnected";
   const authorized = !!live.authorization && live.authorization.trading_day === live.trading_day;
   const traded = live.contracts.find(item => key(item) === order.contract) ?? live.contracts[0];
-  // Mirrors the core's ClosePolicy: SHFE/INE (and unverified venues) need
-  // explicit today/yesterday closes; the rest assign buckets themselves.
-  const explicitBuckets = !["CFFEX", "DCE", "CZCE", "GFEX"].includes(traded?.venue ?? "");
+  const explicitBuckets = explicitCloseBuckets(snapshot, traded?.venue ?? "");
   const offset =
     order.offset === "open"
       ? "open"

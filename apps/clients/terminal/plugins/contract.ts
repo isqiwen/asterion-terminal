@@ -2,6 +2,7 @@ export { useWorkspaceDraft, useWorkspaceRequestId } from "../src/host/workspace/
 export { Icon } from "../src/ui/Icon";
 export { useHistoryDatasets } from "../src/ui/useHistoryDatasets";
 export { DatasetPicker } from "../src/ui/DatasetPicker";
+export { explicitCloseBuckets } from "../src/ui/closePolicy";
 export { ResearchAccess } from "../src/ui/ResearchAccess";
 export {
   CostTemplate,
