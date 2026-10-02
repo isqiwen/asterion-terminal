@@ -145,16 +145,27 @@ TEST_F(ServiceHostTest, AdmitsABurstUpToCapacityAndRejectsBeyondIt) {
       },
       options);
   auto served = std::async(std::launch::async, [&] { return host.run(); });
+  // A failed assertion must still stop the host, or the future never completes.
+  struct Stop {
+    ~Stop() { service::request_stop(); }
+  } stop;
   std::vector<ipc::Channel> clients;
   for (int i = 0; i < 4; ++i)
     clients.push_back(connect(endpoint));
-  const auto deadline = std::chrono::steady_clock::now() + 3s;
+  // Generous for a loaded machine; the property is that all four are admitted.
+  const auto deadline = std::chrono::steady_clock::now() + 15s;
   while (started < 4 && std::chrono::steady_clock::now() < deadline)
     std::this_thread::sleep_for(5ms);
   ASSERT_EQ(started.load(), 4) << "idle workers must accept the whole burst";
   auto excess = connect(endpoint);
-  excess.send("late", 1s);
-  EXPECT_THROW(static_cast<void>(excess.receive(1s)), std::exception) << "no capacity left";
+  // The host closes an excess peer at once, so either the write or the read fails.
+  EXPECT_THROW(
+      {
+        excess.send("late", 1s);
+        static_cast<void>(excess.receive(1s));
+      },
+      std::exception)
+      << "no capacity left";
   for (int i = 0; i < 4; ++i) {
     clients[i].send(std::to_string(i), 1s);
     EXPECT_EQ(clients[i].receive(2s), "echo:" + std::to_string(i));

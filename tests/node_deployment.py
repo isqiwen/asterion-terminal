@@ -136,11 +136,10 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         call(terminal, "node.deploy", {"id": "research", "kind": "research", "service": "research", "port": str(research_port)})
         history = str(Path(bridge).resolve().parent / "asterion_test_history")
         def seed(prices, identity):
-            snapshot = call(terminal, "node.action", {"id": "research", "service": "research", "action": "stop"})
-            service = next(s for n in snapshot["nodes"] if n["id"] == "research" for s in n["health"]["services"] if s["id"] == "research")
-            assert Path(service["directory"]).resolve() == (state / "services/research/ledger").resolve(), service
+            call(terminal, "node.action", {"id": "research", "service": "research", "action": "stop"})
+            # A remote node does not report its directories; this is the Agent's own layout.
             output = subprocess.run(
-                [history, "--directory", service["directory"], "--id", identity,
+                [history, "--directory", str(state / "services/research/ledger"), "--id", identity,
                  "--price", *map(str, prices)],
                 env=dict(os.environ, ASTERION_NODE_DIRECTORY=str(state), ASTERION_TEST_NODE_ISOLATED="1"),
                 check=True, capture_output=True, text=True).stdout
