@@ -13,7 +13,10 @@
 #include <iostream>
 #include <atomic>
 #include <memory>
+#include <optional>
 #include <thread>
+#include <csignal>
+#include <unistd.h>
 
 using nlohmann::json;
 namespace {
@@ -442,16 +445,51 @@ TEST(MarketHistory, VolumeUsesPerContractDayBaselineAndResetsOnDiscontinuity) {
   EXPECT_FALSE(history.snapshot()["points"].back().contains("volume"));
 }
 
+namespace {
+// A disposable Agent directory for this process; the Agent it starts is
+// terminated by its recorded PID and the directory removed at exit.
+class IsolatedNode {
+public:
+  IsolatedNode()
+      : path_(std::filesystem::temp_directory_path() /
+              ("ast-node-test-" + asterion::unique_process_id())) {
+    std::filesystem::create_directory(path_);
+    ::setenv("ASTERION_NODE_DIRECTORY", path_.c_str(), 1);
+    ::setenv("ASTERION_TEST_NODE_ISOLATED", "1", 1);
+    // The Agent exits with this process even if CTest kills it on timeout.
+    ::setenv("ASTERION_TEST_OWNER_PID", std::to_string(::getpid()).c_str(), 1);
+  }
+  ~IsolatedNode() {
+    std::ifstream pidfile(path_ / "agent.pid");
+    if (pid_t pid = 0; pidfile >> pid && pid > 0 && ::kill(pid, SIGTERM) == 0)
+      for (int i = 0; i < 50 && ::kill(pid, 0) == 0; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::error_code ignored;
+    std::filesystem::remove_all(path_, ignored);
+  }
+
+private:
+  std::filesystem::path path_;
+};
+} // namespace
 int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  if (::testing::GTEST_FLAG(list_tests))
+    return RUN_ALL_TESTS();
+  // CTest runs each case with --isolated-node, so cases run in parallel, each
+  // with its own Agent.
+  std::optional<IsolatedNode> node;
+  for (int i = 1; i < argc; ++i)
+    if (std::string_view(argv[i]) == "--isolated-node")
+      node.emplace();
   // Direct invocation must never register test sessions in the user's daily Agent.
   const char* directory = std::getenv("ASTERION_NODE_DIRECTORY");
   const char* isolated = std::getenv("ASTERION_TEST_NODE_ISOLATED");
   if (!directory || !*directory || !isolated || std::string_view(isolated) != "1") {
-    std::cerr << "Run terminal tests through CTest or tests/isolated_node.py; "
-                 "an isolated test Agent is required.\n";
+    std::cerr << "Run terminal tests through CTest, with --isolated-node or "
+                 "tests/isolated_node.py; an isolated test Agent is required.\n";
     return 2;
   }
-  ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
 TEST(TerminalApi, LargeResearchDatasetsBacktestButPaperSessionsStaySmall) {

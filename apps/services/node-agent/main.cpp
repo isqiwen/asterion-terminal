@@ -4,6 +4,7 @@
 #include "managed_paths.hpp"
 #include "firewall.hpp"
 #include "windows_service.hpp"
+#include <asterion/kernel/environment.hpp>
 #include <asterion/kernel/service_host.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <CLI/CLI.hpp>
@@ -1085,6 +1086,19 @@ int main(int argc, char** argv) {
   auto run = [&]() -> int {
     try {
       service::install_stop_signals();
+      // An isolated test Agent ends with the test process that owns it, even
+      // when that process is killed before it can clean up.
+      // The owner is not the Agent's parent, so this polls it by PID; reuse of
+      // that PID can only delay the stop.
+      std::jthread test_owner;
+      if (environment_variable("ASTERION_TEST_NODE_ISOLATED") == "1")
+        if (const auto owner = environment_variable("ASTERION_TEST_OWNER_PID"))
+          test_owner = std::jthread([pid = std::stoull(*owner)](std::stop_token stop) {
+            while (!stop.stop_requested() && process_running(pid))
+              std::this_thread::sleep_for(500ms);
+            if (!stop.stop_requested())
+              service::request_stop();
+          });
       transport.validate();
       const fs::path root(std::u8string(directory.begin(), directory.end()));
       if (!root.is_absolute() || !fs::is_directory(root))

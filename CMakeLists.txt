@@ -232,16 +232,20 @@ foreach(target asterion_paper_record asterion_order_limits_config asterion_risk_
   if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /WX /utf-8)
   else()
-    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    # Designated initializers omit members on purpose; Clang accepts that and
+    # GCC's -Wextra would reject it.
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror
+      $<$<CXX_COMPILER_ID:GNU>:-Wno-missing-field-initializers>)
   endif()
 endforeach()
 
 if(BUILD_TESTING)
+  # Test-only history fixtures used by the process and e2e tests on every platform.
+  add_executable(asterion_test_history tests/history_dataset_fixture.cpp)
+  target_link_libraries(asterion_test_history PRIVATE asterion_task_store CLI11::CLI11)
+  add_executable(asterion_test_minutes tests/minute_dataset_fixture.cpp)
+  target_link_libraries(asterion_test_minutes PRIVATE asterion_tushare asterion_task_store CLI11::CLI11)
   if(APPLE AND ASTERION_NODE_HEADERS)
-    add_executable(asterion_test_history tests/history_dataset_fixture.cpp)
-    target_link_libraries(asterion_test_history PRIVATE asterion_task_store CLI11::CLI11)
-    add_executable(asterion_test_minutes tests/minute_dataset_fixture.cpp)
-    target_link_libraries(asterion_test_minutes PRIVATE asterion_tushare asterion_task_store CLI11::CLI11)
     find_program(ASTERION_TEST_NODE node REQUIRED)
     add_library(asterion_node_bridge_fixture MODULE bindings/node/terminal.cpp tests/node_bridge_fixture.cpp)
     target_compile_features(asterion_node_bridge_fixture PRIVATE cxx_std_20)
@@ -416,8 +420,9 @@ if(BUILD_TESTING)
   add_executable(asterion_terminal_tests tests/terminal_api_test.cpp)
   target_link_libraries(asterion_terminal_tests PRIVATE asterion_task_store asterion_terminal_api GTest::gtest)
   target_compile_options(asterion_terminal_tests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
-  add_test(NAME terminal_api COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/isolated_node.py $<TARGET_FILE:asterion_terminal_tests>)
-  set_tests_properties(terminal_api PROPERTIES TIMEOUT 60)
+  # One CTest per case, each with its own isolated Agent.
+  gtest_discover_tests(asterion_terminal_tests EXTRA_ARGS --isolated-node DISCOVERY_MODE PRE_TEST
+    PROPERTIES TIMEOUT 90)
   asterion_unit_tests(asterion_plugin_tests tests/plugin_manager_test.cpp Asterion::Kernel)
   enable_language(C)
   add_subdirectory(tests/native-plugin)
