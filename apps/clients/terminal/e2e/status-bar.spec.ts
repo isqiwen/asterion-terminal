@@ -69,3 +69,28 @@ test("revisioned polls accept unchanged replies from an idle core", async ({ pag
   });
   expect(result.poll).toMatchObject({ unchanged: true, revision: result.revision });
 });
+
+test("a service that has just started reads as starting, not as a fault", async ({ page }) => {
+  let health = "starting";
+  await page.route("**/__asterion/api", async route => {
+    if (route.request().postDataJSON().method !== "runtime.snapshot") return route.continue();
+    const response = await route.fetch();
+    const body = await response.json();
+    for (const node of body.result?.nodes ?? [])
+      for (const service of node.health?.services ?? [])
+        if (service.desired_running) service.health = health;
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto("/");
+  const service = page
+    .locator(".status-bar")
+    .getByRole("button", { name: "查看服务连接", exact: true });
+  await expect(service).toContainText("服务启动中");
+  await expect(service).not.toHaveClass(/bad|good/);
+  health = "unresponsive";
+  await expect(service).toContainText("服务异常");
+  await expect(service).toHaveClass(/bad/);
+  health = "ready";
+  await expect(service).toHaveText("● 服务");
+  await expect(service).toHaveClass(/good/);
+});

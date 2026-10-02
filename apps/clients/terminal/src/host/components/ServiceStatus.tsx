@@ -40,6 +40,11 @@ export function ServiceStatus({
     };
   }, [open]);
   const uncertain = failed || !snapshot || !!snapshot.stale;
+  // A service that was just started has not answered its first heartbeat
+  // yet; that is not a fault and is shown as starting, not as an error.
+  const starting = (s: { state: string; error: string; health: string }) =>
+    !s.error && ["running", "starting"].includes(s.state) && s.health === "starting";
+  const services = snapshot?.nodes.flatMap(n => n.health?.services ?? []) ?? [];
   const unhealthy = snapshot?.nodes.some(
     n =>
       n.state !== "online" ||
@@ -47,9 +52,11 @@ export function ServiceStatus({
       n.health.services.some(
         s =>
           s.desired_running &&
+          !starting(s) &&
           (s.state !== "running" || !!s.error || !["ready", "awaiting_input"].includes(s.health)),
       ),
   );
+  const warming = !unhealthy && services.some(s => s.desired_running && starting(s));
   const kinds: Record<string, string> = {
     market: "实时行情",
     research: "回测与因子研究",
@@ -68,13 +75,13 @@ export function ServiceStatus({
     <div className="service-status" ref={root}>
       <button
         ref={trigger}
-        className={uncertain || unhealthy ? "bad" : "good"}
+        className={uncertain || unhealthy ? "bad" : warming ? undefined : "good"}
         aria-label={t("查看服务连接")}
         aria-expanded={open}
         aria-controls="service-status-panel"
         onClick={() => setOpen(!open)}
       >
-        ● {t(uncertain ? "服务待确认" : unhealthy ? "服务异常" : "服务")}
+        ● {t(uncertain ? "服务待确认" : unhealthy ? "服务异常" : warming ? "服务启动中" : "服务")}
       </button>
       {open && (
         <section
