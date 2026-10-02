@@ -75,10 +75,6 @@
   "已报送": "Submitted",
   "已接受": "Accepted",
   "已拒绝": "Rejected",
-  "交易前置地址": "Trading Front",
-  "经纪商代码": "Broker ID",
-  "投资者账号": "Investor ID",
-  "AppID": "AppID",
   "动态权益": "Equity",
   "持仓盈亏": "Position P&L",
   "平仓盈亏": "Closed P&L",
@@ -161,5 +157,10 @@
   "新建回放账户": "New replay account",
   "未确认委托": "Unconfirmed Orders",
   "在券商端确认某笔委托不存在后，可将其标为已核实，它不再占用在途委托额度。": "After confirming at the broker that an order does not exist, mark it verified; it stops counting against the working-order limit.",
-  "已核实券商无此委托：{id}": "Verified absent at broker: {id}"
+  "已核实券商无此委托：{id}": "Verified absent at broker: {id}",
+  "交易使用设置中的当前 CTP 账户，需要交易前置与 AppID。": "Trading uses the current CTP account from Settings and needs a trade front and an AppID.",
+  "尚未设置 CTP 账户": "No CTP account is set",
+  "当前 CTP 账户": "Current CTP account",
+  "未填写交易前置": "no trade front",
+  "管理 CTP 账户": "Manage CTP Accounts"
 }

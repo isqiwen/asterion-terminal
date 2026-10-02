@@ -902,5 +902,16 @@
   "unsupported service action": "unsupported service action",
   "unsupported upload path characters": "unsupported upload path characters",
   "update target mismatch": "update target mismatch",
-  "应用自带的插件必须保持启用": "Plugins shipped with the application must stay enabled."
+  "应用自带的插件必须保持启用": "Plugins shipped with the application must stay enabled.",
+  "CTP connection has no market front": "CTP connection has no market front",
+  "CTP connection has no trade front": "CTP connection has no trade front",
+  "invalid CTP connection settings": "invalid CTP connection settings",
+  "CTP connection changed; inspect again": "CTP connection changed; inspect again",
+  "CTP connection is unavailable": "CTP connection is unavailable",
+  "too many CTP connections": "too many CTP connections",
+  "invalid CTP connection identity": "invalid CTP connection identity",
+  "invalid CTP connection storage": "invalid CTP connection storage",
+  "select a CTP account first": "select a CTP account first",
+  "close the trading account before changing the CTP account": "close the trading account before changing the CTP account",
+  "disconnect market data before changing the CTP account": "disconnect market data before changing the CTP account"
 }

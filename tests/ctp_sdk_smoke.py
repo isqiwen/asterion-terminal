@@ -32,7 +32,8 @@ try:
     assert next(s for n in updated['nodes'] for s in n['health']['services'] if s['id']==service['id'])['state']=='stopped'
     call('node.action',dict(id='local',service=service['id'],action='start'))
     call('market.attach',dict(id='local',service=service['id']))
-    call('market.connect',dict(front='tcp://127.0.0.1:1',broker='test',user='fixture',password='loopback-only',instruments=[]))
+    call('ctp.connections.save',dict(id='fixture',name='Fixture',revision='',broker_id='test',user_id='fixture',app_id='',trade_front='',market_front='tcp://127.0.0.1:1'))
+    call('market.connect',dict(password='loopback-only',instruments=[]))
     time.sleep(.2)
     assert call('market.disconnect')['market']['phase']=='disconnected'
 finally:

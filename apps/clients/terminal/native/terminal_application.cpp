@@ -127,6 +127,8 @@ json Application::Impl::compose(const Parts& parts) {
             {"items", catalog}}},
           {"research", parts.research},
           {"data_connections", data_connections.snapshot()},
+          {"ctp_connections", ctp_connections.snapshot()},
+          {"ctp_current", current_ctp_id()},
           {"connection_verification", connection_verification},
           {"research_result", research_result},
           {"history_page", nullptr},

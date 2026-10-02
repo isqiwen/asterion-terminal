@@ -902,5 +902,16 @@
   "unsupported service action": "不支持的服务操作。",
   "unsupported upload path characters": "上传路径包含不支持的字符。",
   "update target mismatch": "更新目标不匹配。",
-  "应用自带的插件必须保持启用": "应用自带的插件必须保持启用"
+  "应用自带的插件必须保持启用": "应用自带的插件必须保持启用",
+  "CTP connection has no market front": "当前 CTP 账户没有填写行情前置。",
+  "CTP connection has no trade front": "当前 CTP 账户没有填写交易前置。",
+  "invalid CTP connection settings": "CTP 账户设置无效。",
+  "CTP connection changed; inspect again": "CTP 账户已变化，请重新检查。",
+  "CTP connection is unavailable": "找不到该 CTP 账户。",
+  "too many CTP connections": "CTP 账户数量已达上限。",
+  "invalid CTP connection identity": "CTP 账户标识无效。",
+  "invalid CTP connection storage": "CTP 账户文件无效。",
+  "select a CTP account first": "请先在设置中设置当前 CTP 账户。",
+  "close the trading account before changing the CTP account": "切换 CTP 账户前请先关闭交易账户。",
+  "disconnect market data before changing the CTP account": "切换 CTP 账户前请先断开行情。"
 }

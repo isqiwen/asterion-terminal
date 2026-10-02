@@ -15,6 +15,7 @@ import {
 } from "../contract";
 import { open } from "@asterion/desktop-bridge/desktop";
 import { nativeDesktop } from "../../src/bridge/desktop";
+import { currentCtpAccount } from "../../src/bridge/client";
 import type { LiveSession, TerminalCommand } from "../../src/bridge/client";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.trading", key, values);
@@ -95,6 +96,7 @@ export function LivePanel(context: TerminalContext) {
             run={run}
             setError={setError}
             onCreated={() => setCreating(false)}
+            openSettings={context.openSettings}
           />
         </div>
       ) : (
@@ -120,7 +122,8 @@ function CreateLive({
   run,
   setError,
   onCreated,
-}: Pick<TerminalContext, "snapshot" | "busy"> & {
+  openSettings,
+}: Pick<TerminalContext, "snapshot" | "busy" | "openSettings"> & {
   run: Run;
   setError: (error: DisplayError) => void;
   onCreated: () => void;
@@ -129,12 +132,10 @@ function CreateLive({
   const [name, setName] = useWorkspaceDraft("live-name", "");
   const [catalogCredentials, setCatalogCredentials] = useState({ password: "", auth_code: "" });
   const [directory, setDirectory] = useWorkspaceDraft("live-directory", "");
-  const [broker, setBroker] = useWorkspaceDraft("live-broker", {
-    front: "",
-    broker_id: "",
-    user_id: "",
-    app_id: "",
-  });
+  // Trading uses the current CTP account from Settings. The created record
+  // keeps its own copy and does not follow later edits.
+  const connection = currentCtpAccount(snapshot);
+  const tradable = !!connection?.trade_front && !!connection.app_id;
   const [limits, setLimits] = useWorkspaceDraft("live-risk", {
     max_order_quantity: "",
     max_gross_quantity: "",
@@ -169,7 +170,6 @@ function CreateLive({
           }
           void run("live.create", {
             ...(directory ? { directory } : { name }),
-            ...broker,
             ...limits,
             contracts: contracts.map(item => {
               const [venue, ...symbol] = item.split(".");
@@ -217,27 +217,17 @@ function CreateLive({
             </details>
             <section className="account-field-group" aria-label={t("CTP 账户")}>
               <h3>{t("CTP 账户")}</h3>
-              <div className="futures-fields">
-                {(
-                  [
-                    ["front", "交易前置地址"],
-                    ["broker_id", "经纪商代码"],
-                    ["user_id", "投资者账号"],
-                    ["app_id", "AppID"],
-                  ] as const
-                ).map(([field, label]) => (
-                  <label key={field}>
-                    {t(label)}
-                    <input
-                      aria-label={t(label)}
-                      value={broker[field]}
-                      placeholder={field === "front" ? "tcp://host:port" : undefined}
-                      onChange={event => setBroker({ ...broker, [field]: event.target.value })}
-                      required
-                    />
-                  </label>
-                ))}
-              </div>
+              <p role="status" aria-label={t("当前 CTP 账户")}>
+                {connection
+                  ? `${connection.name} · ${connection.broker_id} · ${connection.user_id} · ${
+                      connection.trade_front || t("未填写交易前置")
+                    }`
+                  : t("尚未设置 CTP 账户")}
+              </p>
+              <button type="button" onClick={() => openSettings("ctp")}>
+                {t("管理 CTP 账户")}
+              </button>
+              <p className="subtle">{t("交易使用设置中的当前 CTP 账户，需要交易前置与 AppID。")}</p>
               <p className="subtle">{t("密码与授权码在每次连接时输入，不保存。")}</p>
             </section>
           </fieldset>
@@ -290,13 +280,7 @@ function CreateLive({
                     onClick={() => {
                       const credentials = catalogCredentials;
                       setCatalogCredentials({ password: "", auth_code: "" });
-                      void run("market.catalog", {
-                        front: broker.front,
-                        broker: broker.broker_id,
-                        user: broker.user_id,
-                        app_id: broker.app_id,
-                        ...credentials,
-                      });
+                      void run("market.catalog", credentials);
                     }}
                   >
                     {t("获取合约列表")}
@@ -394,11 +378,11 @@ function CreateLive({
           </fieldset>
           {step === 2 && (
             <section className="creation-review">
-              <h3>{name || broker.user_id}</h3>
+              <h3>{name || connection?.user_id}</h3>
               <p>
-                {broker.broker_id} · {broker.user_id}
+                {connection?.broker_id} · {connection?.user_id}
               </p>
-              <p>{broker.front}</p>
+              <p>{connection?.trade_front}</p>
               <p>{contracts.join(" + ")}</p>
               <p>
                 {t("单笔数量上限")}：{limits.max_order_quantity} · {t("总持仓量上限")}：
@@ -413,7 +397,11 @@ function CreateLive({
                 {t("上一步")}
               </button>
             )}
-            <button className="primary" type="submit" disabled={step > 0 && !contracts.length}>
+            <button
+              className="primary"
+              type="submit"
+              disabled={!tradable || (step > 0 && !contracts.length)}
+            >
               {t(step === 2 ? "创建 CTP 账户" : "下一步")}
             </button>
           </div>

@@ -73,21 +73,18 @@ const path = require("node:path");
       return response.result;
     };
     await call("market.local");
-    await call("market.connect", {
-      front: "tcp://127.0.0.1:1",
-      broker: "test",
-      user: "fixture",
-      password: "explicit-depth-fixture",
-      instruments: [],
-    });
-    await call("market.catalog", {
-      front: "tcp://127.0.0.1:1",
-      broker: "test",
-      user: "catalog",
-      password: "explicit-catalog-fixture",
+    await call("ctp.connections.save", {
+      id: "fixture",
+      name: "fixture",
+      revision: "",
+      broker_id: "test",
+      user_id: "fixture",
       app_id: "",
-      auth_code: "",
+      trade_front: "tcp://127.0.0.1:1",
+      market_front: "tcp://127.0.0.1:1",
     });
+    await call("market.connect", { password: "explicit-depth-fixture", instruments: [] });
+    await call("market.catalog", { password: "explicit-catalog-fixture", auth_code: "" });
     await expect
       .poll(
         async () =>

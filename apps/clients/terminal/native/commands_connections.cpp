@@ -20,6 +20,16 @@ DataConnection Application::Impl::resolve_data_connection(const std::string& id,
     throw std::invalid_argument("data connection requires configuration");
   return connection;
 }
+CtpConnection Application::Impl::current_ctp() const {
+  auto connection = ctp_connections.current();
+  if (!connection)
+    throw std::invalid_argument("select a CTP account first");
+  return std::move(*connection);
+}
+json Application::Impl::current_ctp_id() const {
+  const auto connection = ctp_connections.current();
+  return connection ? json(connection->id) : json(nullptr);
+}
 void Application::Impl::register_connection_commands() {
   core.command("research.connections.save", [this](const json& params) {
     fields(params, {"id", "name", "source", "revision", "requests_per_minute", "remember",
@@ -71,6 +81,39 @@ void Application::Impl::register_connection_commands() {
       checks.push_back({{"scope", check.scope()}, {"state", check.state()}});
     connection_verification = {
         {"id", text(params, "id")}, {"revision", text(params, "revision")}, {"checks", checks}};
+    return snapshot();
+  });
+  core.command("ctp.connections.save", [this](const json& params) {
+    fields(params, {"id", "name", "revision", "broker_id", "user_id", "app_id", "trade_front",
+                    "market_front"});
+    ctp_connections.save({text(params, "id"),
+                          text(params, "name"),
+                          text(params, "broker_id"),
+                          text(params, "user_id"),
+                          text(params, "app_id", true),
+                          text(params, "trade_front", true),
+                          text(params, "market_front", true),
+                          {}},
+                         text(params, "revision", true));
+    return snapshot();
+  });
+  // Market data and trading follow the current account, so it only changes
+  // while neither is using the previous one.
+  core.command("ctp.connections.select", [this](const json& params) {
+    fields(params, {"id"});
+    if (live)
+      throw Error(ErrorCode::conflict, "close the trading account before changing the CTP account");
+    if (market) {
+      const auto phase = market->snapshot().at("phase").get<std::string>();
+      if (phase != "disconnected" && phase != "error" && phase != "sdk_unavailable")
+        throw Error(ErrorCode::conflict, "disconnect market data before changing the CTP account");
+    }
+    ctp_connections.select(text(params, "id"));
+    return snapshot();
+  });
+  core.command("ctp.connections.remove", [this](const json& params) {
+    fields(params, {"id", "revision"});
+    ctp_connections.remove(text(params, "id"), text(params, "revision"));
     return snapshot();
   });
 }

@@ -97,3 +97,31 @@ export async function seedDataset(
   const selection = await seedHistory(request, prices, id, options);
   return rpc(request, "research.dataset.select", selection);
 }
+
+// Counter details are entered once in Settings; specs create them through the
+// same command and make the account current, as the user would.
+export async function ctpConnection(
+  request: APIRequestContext,
+  id: string,
+  fields: {
+    broker_id: string;
+    user_id: string;
+    app_id?: string;
+    trade_front?: string;
+    market_front?: string;
+  },
+) {
+  const existing = (await rpc(request, "runtime.snapshot")).ctp_connections ?? [];
+  if (existing.some((item: { id: string }) => item.id === id))
+    return rpc(request, "ctp.connections.select", { id });
+  await rpc(request, "ctp.connections.save", {
+    id,
+    name: id,
+    revision: "",
+    app_id: "",
+    trade_front: "",
+    market_front: "",
+    ...fields,
+  });
+  await rpc(request, "ctp.connections.select", { id });
+}

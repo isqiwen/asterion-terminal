@@ -151,10 +151,17 @@ test("C++ snapshots conform to the Terminal API types in every state", async ({ 
     );
 
     // Live market through the test SDK (ASTERION_CTP_LIBRARY from the e2e wrapper).
+    await call(page.request, "ctp.connections.save", {
+      id: "fixture",
+      name: "Fixture",
+      revision: "",
+      broker_id: "test",
+      user_id: "fixture",
+      app_id: "",
+      trade_front: "",
+      market_front: "tcp://127.0.0.1:1",
+    });
     const connected = await call(page.request, "market.connect", {
-      front: "tcp://127.0.0.1:1",
-      broker: "test",
-      user: "fixture",
       password: "contract-only",
       instruments: [{ venue: "SHFE", symbol: "rb2610" }],
     });

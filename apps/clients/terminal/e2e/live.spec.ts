@@ -1,4 +1,4 @@
-import { rpc, seedDataset } from "./dataset-fixture";
+import { ctpConnection, rpc, seedDataset } from "./dataset-fixture";
 import { removeFolder } from "./cleanup";
 import { test, expect } from "./test";
 import { mkdtemp, mkdir } from "node:fs/promises";
@@ -15,6 +15,12 @@ test("live CTP session connects, authorizes and trades through the execution cha
   await mkdir(directory);
   const password = "e2e-live-password";
   try {
+    await ctpConnection(page.request, "live-account", {
+      broker_id: "9999",
+      user_id: "000001",
+      app_id: "client_app",
+      trade_front: "tcp://127.0.0.1:41205",
+    });
     await page.goto("/");
     await rpc(page.request, "market.local");
     await page.reload();
@@ -26,13 +32,9 @@ test("live CTP session connects, authorizes and trades through the execution cha
     await panel.getByRole("button", { name: "添加 CTP 账户", exact: true }).click();
     await panel.getByText("自定义记录目录", { exact: true }).click();
     await panel.getByLabel("实盘记录目录", { exact: true }).fill(directory);
-    for (const [label, value] of [
-      ["交易前置地址", "tcp://127.0.0.1:41205"],
-      ["经纪商代码", "9999"],
-      ["投资者账号", "000001"],
-      ["AppID", "client_app"],
-    ])
-      await panel.getByLabel(label, { exact: true }).fill(value);
+    await expect(panel.getByRole("status", { name: "当前 CTP 账户" })).toContainText(
+      "live-account",
+    );
     await panel.getByRole("button", { name: "下一步", exact: true }).click();
     if (await panel.getByLabel("目录查询密码", { exact: true }).isVisible()) {
       await panel.getByLabel("目录查询密码", { exact: true }).fill("catalog-only");

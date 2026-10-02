@@ -8,6 +8,7 @@ import type { TerminalPlugin } from "../../plugins/contract";
 import { useState, useEffect } from "react";
 import { savePreferences, usePreferences } from "../ui/preferences";
 import { DataConnections } from "./DataConnections";
+import { CtpConnections } from "./CtpConnections";
 import { NativePlugins } from "./NativePlugins";
 import { Connections } from "./Connections";
 import type { TerminalCommand, Snapshot } from "@asterion/desktop-bridge/client";
@@ -59,6 +60,7 @@ export function Settings({
           {[
             ["preferences", t("偏好设置"), "settings"],
             ["connections", t("连接与部署"), "connections"],
+            ["ctp", t("CTP 账户"), "connections"],
             ["sources", t("数据源"), "connections"],
             ["plugins", t("插件"), "plugins"],
             ["about", t("关于"), "info"],
@@ -152,6 +154,7 @@ export function Settings({
             </label>
           </>
         )}
+        {page === "ctp" && <CtpConnections snapshot={snapshot} busy={busy} trade={trade} />}
         {page === "sources" && <DataConnections snapshot={snapshot} busy={busy} trade={trade} />}
         {page === "connections" && <Connections snapshot={snapshot} busy={busy} trade={trade} />}
         {page === "plugins" && (

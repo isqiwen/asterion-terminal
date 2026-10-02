@@ -1,4 +1,15 @@
+import { ctpConnection } from "./dataset-fixture";
 import { test, expect, type Page } from "./test";
+
+// The current CTP account: with a trade front the full catalog loads too.
+async function account(page: Page, catalog: boolean) {
+  await ctpConnection(page.request, catalog ? "full-market" : "market-only", {
+    broker_id: "test",
+    user_id: "fixture",
+    market_front: "tcp://127.0.0.1:1",
+    ...(catalog ? { trade_front: "tcp://127.0.0.1:1" } : {}),
+  });
+}
 
 // Board controls live in the market ⋯ menu once quotes are flowing.
 async function marketMenu(page: Page) {
@@ -10,14 +21,12 @@ async function marketMenu(page: Page) {
 test("full market loads automatically and watchlist membership stays independent", async ({
   page,
 }) => {
+  await account(page, true);
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await page.getByRole("tab", { name: "实时行情", exact: true }).click();
   const panel = page.getByRole("region", { name: "实时期货行情" });
-  await panel.getByLabel("行情前置", { exact: true }).fill("tcp://127.0.0.1:1");
-  await panel.getByLabel("目录查询前置", { exact: true }).fill("tcp://127.0.0.1:1");
-  await panel.getByLabel("经纪商代码", { exact: true }).fill("test");
-  await panel.getByLabel("用户代码", { exact: true }).fill("fixture");
+  await expect(panel.getByRole("status", { name: "当前 CTP 账户" })).toContainText("full-market");
   await panel.getByLabel("密码", { exact: true }).fill("ui-fixture-secret");
   await panel.getByRole("button", { name: "连接行情", exact: true }).click();
   await expect(panel.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
@@ -39,13 +48,12 @@ test("full market loads automatically and watchlist membership stays independent
 });
 
 test("login without subscriptions keeps the add-contract workflow visible", async ({ page }) => {
+  await account(page, false);
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await page.getByRole("tab", { name: "实时行情", exact: true }).click();
   const panel = page.getByRole("region", { name: "实时期货行情" });
-  await panel.getByLabel("行情前置", { exact: true }).fill("tcp://127.0.0.1:1");
-  await panel.getByLabel("经纪商代码", { exact: true }).fill("test");
-  await panel.getByLabel("用户代码", { exact: true }).fill("fixture");
+  await expect(panel.getByRole("status", { name: "当前 CTP 账户" })).toContainText("market-only");
   await panel.getByLabel("密码", { exact: true }).fill("ui-fixture-secret");
   await panel.getByRole("button", { name: "连接行情", exact: true }).click();
   await expect(
@@ -62,15 +70,14 @@ test("login without subscriptions keeps the add-contract workflow visible", asyn
 test("read-only market workspace receives C++ test SDK quotes without storing credentials", async ({
   page,
 }) => {
+  await account(page, false);
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await page.getByRole("tab", { name: "实时行情", exact: true }).click();
   const panel = page.getByRole("region", { name: "实时期货行情" });
   await panel.getByLabel("实际合约", { exact: true }).fill("rb2610");
   await panel.getByRole("button", { name: "添加自选" }).click();
-  await panel.getByLabel("行情前置", { exact: true }).fill("tcp://127.0.0.1:1");
-  await panel.getByLabel("经纪商代码", { exact: true }).fill("test");
-  await panel.getByLabel("用户代码", { exact: true }).fill("fixture");
+  await expect(panel.getByRole("status", { name: "当前 CTP 账户" })).toContainText("market-only");
   await panel.getByLabel("密码", { exact: true }).fill("ui-fixture-secret");
   const connect = panel.getByRole("button", { name: "连接行情", exact: true });
   await expect(panel.locator(".market-session > .panel-heading").getByRole("status")).toHaveText(

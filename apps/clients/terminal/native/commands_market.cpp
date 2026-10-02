@@ -27,10 +27,17 @@ void Application::Impl::register_market_commands() {
     return snapshot();
   });
   core.command("market.connect", [this](const json& p) {
-    fields(p, {"front", "broker", "user", "password", "instruments"});
+    fields(p, {"password", "instruments"});
     if (!market)
       throw std::invalid_argument("start or select a market service first");
-    market->connect(p);
+    const auto connection = current_ctp();
+    if (connection.market_front.empty())
+      throw std::invalid_argument("CTP connection has no market front");
+    market->connect({{"front", connection.market_front},
+                     {"broker", connection.broker_id},
+                     {"user", connection.user_id},
+                     {"password", p.at("password")},
+                     {"instruments", p.at("instruments")}});
     return snapshot();
   });
   core.command("market.subscribe", [this](const json& p) {
@@ -41,10 +48,18 @@ void Application::Impl::register_market_commands() {
     return snapshot();
   });
   core.command("market.catalog", [this](const json& p) {
-    fields(p, {"front", "broker", "user", "password", "app_id", "auth_code"});
+    fields(p, {"password", "auth_code"});
     if (!market)
       throw std::invalid_argument("select a market service first");
-    market->catalog(p);
+    const auto connection = current_ctp();
+    if (connection.trade_front.empty())
+      throw std::invalid_argument("CTP connection has no trade front");
+    market->catalog({{"front", connection.trade_front},
+                     {"broker", connection.broker_id},
+                     {"user", connection.user_id},
+                     {"password", p.at("password")},
+                     {"app_id", connection.app_id},
+                     {"auth_code", p.at("auth_code")}});
     return snapshot();
   });
   // Read-only: the market service I/O runs outside the operation lock in dispatch.

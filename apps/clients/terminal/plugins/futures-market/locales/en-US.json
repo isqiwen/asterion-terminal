@@ -20,9 +20,6 @@
   "行情连接异常，请检查配置或服务时段。": "Market connection failed. Check configuration or service hours.",
   "详情": "Details",
   "CTP 连接与自选": "CTP Connection and Watchlist",
-  "行情前置": "Market Front",
-  "经纪商代码": "Broker ID",
-  "用户代码": "User ID",
   "密码": "Password",
   "连接行情": "Connect Feed",
   "交易所": "Exchange",
@@ -197,8 +194,6 @@
   "已登录，尚未订阅合约。选择交易所并添加实际月份合约后接收行情。": "Logged in, with no subscriptions. Choose an exchange and add an actual delivery-month contract to receive quotes.",
   "正在获取完整合约目录…": "Loading the full contract catalog…",
   "合约目录获取失败，请检查目录前置与认证配置。": "Contract catalog could not be loaded. Check the catalog endpoint and authentication settings.",
-  "完整市场需要目录查询前置（CTP 交易前置）；仅查询合约，不开通交易。配置后连接行情会自动加载目录。": "The full market needs a catalog endpoint (CTP trader front), used only to query contracts. Once configured, connecting market data loads the catalog automatically.",
-  "目录查询前置": "Catalog endpoint",
   "授权码": "Authentication code",
   "目录查询密码": "Catalog password",
   "加载完整市场": "Load full market",
@@ -272,5 +267,11 @@
   "历史K线": "History candles",
   "合约目录来自 {day} 的本机缓存，连接后更新。": "Contract catalog from the local copy of {day}; it refreshes after connecting.",
   "前往历史回放": "Open historical replay",
-  "此处只展示行情；历史回放不向柜台发送委托。": "Quotes only here. Historical replay sends no broker orders."
+  "此处只展示行情；历史回放不向柜台发送委托。": "Quotes only here. Historical replay sends no broker orders.",
+  "尚未设置 CTP 账户": "No CTP account is set",
+  "当前 CTP 账户": "Current CTP account",
+  "当前 CTP 账户：{name}（{broker} · {user}）": "Current CTP account: {name} ({broker} · {user})",
+  "柜台信息在设置的 CTP 账户中填写一次；填了交易前置才能加载完整合约目录。": "Enter the counter details once under CTP Accounts in Settings. The full contract catalog needs a trade front.",
+  "管理 CTP 账户": "Manage CTP Accounts",
+  "连接行情后用当前账户的交易前置加载完整合约目录；仅查询合约，不开通交易。": "After the market login, the trade front of the current account loads the full contract catalog. It only queries contracts and does not enable trading."
 }

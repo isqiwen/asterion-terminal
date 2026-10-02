@@ -76,12 +76,18 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
     process = launch()
     try:
         call(process, "market.local")
-        call(process, "market.catalog", dict(front="tcp://127.0.0.1:1", broker="test",
-                                             user="catalog", password="catalog-only",
-                                             app_id="", auth_code=""))
+        # The counter details are entered once; commands refer to them by id.
+        call(process, "ctp.connections.save", dict(
+            id="catalog", name="Catalog", revision="", broker_id="test", user_id="catalog",
+            app_id="", trade_front="tcp://127.0.0.1:1", market_front=""))
+        call(process, "ctp.connections.save", dict(
+            id="account", name="Account", revision="", broker_id="9999", user_id="000001",
+            app_id="client_app", trade_front="tcp://127.0.0.1:41205", market_front=""))
+        # The first saved account is current; trading needs the second one.
+        call(process, "market.catalog", dict(password="catalog-only", auth_code=""))
         wait(process, lambda s: s["market"]["catalog"]["phase"] == "ready")
-        create = dict(directory=str(directory), front="tcp://127.0.0.1:41205",
-                      broker_id="9999", user_id="000001", app_id="client_app",
+        assert call(process, "ctp.connections.select", dict(id="account"))["ctp_current"] == "account"
+        create = dict(directory=str(directory),
                       max_order_quantity="5", max_gross_quantity="10", max_working_orders="1",
                       max_price_deviation="0.02")
         refused = call(process, "live.create",

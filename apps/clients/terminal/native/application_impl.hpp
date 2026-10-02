@@ -6,6 +6,7 @@
 #include "market_client.hpp"
 #include "moving_average.hpp"
 #include "node_client.hpp"
+#include "ctp_connections.hpp"
 #include "data_connections.hpp"
 #include "node_enrollment.hpp"
 #include "remote_bundle.hpp"
@@ -60,6 +61,10 @@ struct Application::Impl {
   DataConnections data_connections{local_node_directory() / "data-connections",
                                    keychain_store(keychain_helper())};
   json connection_verification = nullptr;
+  CtpConnections ctp_connections{local_node_directory() / "ctp-connections"};
+  // The single CTP account in use: market data and trading both follow it.
+  CtpConnection current_ctp() const;
+  json current_ctp_id() const;
   DataConnection resolve_data_connection(const std::string& id, const std::string& revision,
                                          const std::string& source);
   json research_result = nullptr;

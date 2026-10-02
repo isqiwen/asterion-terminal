@@ -8,20 +8,22 @@ import {
   type MessageValues,
   type TerminalContext,
 } from "../contract";
+import { currentCtpAccount } from "../../src/bridge/client";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.futures-market", key, values);
 type Instrument = { venue: string; symbol: string };
-type Profile = { front: string; broker: string; user: string; instruments: Instrument[] };
-const storage = "asterion.ctp-market.profile.v1";
+// The counter account is the current CTP account from Settings; this panel
+// only remembers the watchlist to subscribe at login.
+type Profile = { instruments: Instrument[] };
+const storage = "asterion.ctp-market.watchlist.v1";
 function read(): { profile: Profile; error: DisplayError } {
-  const blank = { front: "", broker: "", user: "", instruments: [] };
+  const blank = { instruments: [] };
   try {
     const raw = localStorage.getItem(storage);
     if (!raw) return { profile: blank, error: "" };
     const p = JSON.parse(raw);
     if (
-      Object.keys(p).sort().join() !== "broker,front,instruments,user" ||
-      ![p.front, p.broker, p.user].every(v => typeof v === "string") ||
+      Object.keys(p).join() !== "instruments" ||
       !Array.isArray(p.instruments) ||
       p.instruments.length > 50 ||
       !p.instruments.every(
@@ -38,16 +40,13 @@ export function LivePanel({ context }: { context: TerminalContext }) {
   const [initial] = useState(read);
   const [profile, setProfile] = useState(initial.profile);
   const [password, setPassword] = useState("");
-  const [catalogFront, setCatalogFront] = useState(
-    () => localStorage.getItem("asterion.ctp.catalog.front") ?? "",
-  );
-  const [appId, setAppId] = useState(() => localStorage.getItem("asterion.ctp.catalog.app") ?? "");
   const [authCode, setAuthCode] = useState("");
   const [catalogPassword, setCatalogPassword] = useState("");
   const [venue, setVenue] = useState("SHFE"),
     [symbol, setSymbol] = useState("");
   const [error, setError] = useState<DisplayError>(initial.error);
   const market = context.snapshot?.market;
+  const connection = currentCtpAccount(context.snapshot);
   const online = !!market?.transport_online;
   const phase = market ? (online ? market.phase : "unreachable") : "not_started";
   const idle = !market || ["disconnected", "error", "sdk_unavailable"].includes(market.phase);
@@ -57,33 +56,19 @@ export function LivePanel({ context }: { context: TerminalContext }) {
   const watchlistKey = JSON.stringify(market?.watchlist ?? []);
   useEffect(() => {
     if (idle || initial.error) return;
-    const next = {
-      front: profile.front,
-      broker: profile.broker,
-      user: profile.user,
-      instruments: JSON.parse(watchlistKey) as Instrument[],
-    };
+    const next = { instruments: JSON.parse(watchlistKey) as Instrument[] };
     try {
       localStorage.setItem(storage, JSON.stringify(next));
     } catch (reason) {
       setError(asDisplayError(reason));
     }
     setProfile(next);
-  }, [watchlistKey, idle, initial.error, profile.front, profile.broker, profile.user]);
+  }, [watchlistKey, idle, initial.error]);
   async function loadCatalog(secret: string) {
-    localStorage.setItem("asterion.ctp.catalog.front", catalogFront);
-    localStorage.setItem("asterion.ctp.catalog.app", appId);
     const auth = authCode;
     setCatalogPassword("");
     setAuthCode("");
-    await context.trade("market.catalog", {
-      front: catalogFront,
-      broker: profile.broker,
-      user: profile.user,
-      password: secret,
-      app_id: appId,
-      auth_code: auth,
-    });
+    await context.trade("market.catalog", { password: secret, auth_code: auth });
   }
   async function run(action: () => Promise<void>) {
     setError("");
@@ -177,48 +162,30 @@ export function LivePanel({ context }: { context: TerminalContext }) {
           <form
             onSubmit={event => {
               event.preventDefault();
-              if (!canConnect) return;
+              if (!canConnect || !connection?.market_front) return;
               const secret = password;
               setPassword("");
               void run(async () => {
                 save(profile);
-                await context.trade("market.connect", { ...profile, password: secret });
-                if (catalogFront.trim()) await loadCatalog(secret);
+                await context.trade("market.connect", {
+                  password: secret,
+                  instruments: profile.instruments,
+                });
+                if (connection.trade_front) await loadCatalog(secret);
               });
             }}
           >
+            <p role="status" aria-label={t("当前 CTP 账户")}>
+              {connection
+                ? t("当前 CTP 账户：{name}（{broker} · {user}）", {
+                    name: connection.name,
+                    broker: connection.broker_id,
+                    user: connection.user_id,
+                  })
+                : t("尚未设置 CTP 账户")}
+            </p>
             <fieldset disabled={!canEdit}>
               <div className="futures-fields">
-                <label>
-                  {t("行情前置")}
-                  <input
-                    aria-label={t("行情前置")}
-                    placeholder="tcp://host:port"
-                    required
-                    value={profile.front}
-                    onChange={e => setProfile({ ...profile, front: e.target.value })}
-                  />
-                </label>
-                <label>
-                  {t("经纪商代码")}
-                  <input
-                    aria-label={t("经纪商代码")}
-                    required
-                    maxLength={10}
-                    value={profile.broker}
-                    onChange={e => setProfile({ ...profile, broker: e.target.value })}
-                  />
-                </label>
-                <label>
-                  {t("用户代码")}
-                  <input
-                    aria-label={t("用户代码")}
-                    required
-                    maxLength={15}
-                    value={profile.user}
-                    onChange={e => setProfile({ ...profile, user: e.target.value })}
-                  />
-                </label>
                 <label>
                   {t("密码")}
                   <input
@@ -231,54 +198,41 @@ export function LivePanel({ context }: { context: TerminalContext }) {
                     onChange={e => setPassword(e.target.value)}
                   />
                 </label>
+                {connection?.trade_front && (
+                  <label>
+                    {t("授权码")}
+                    <input
+                      aria-label={t("授权码")}
+                      type="password"
+                      autoComplete="off"
+                      value={authCode}
+                      onChange={e => setAuthCode(e.target.value)}
+                    />
+                  </label>
+                )}
               </div>
-              <button type="submit" disabled={!canConnect}>
+              <button type="submit" disabled={!canConnect || !connection?.market_front}>
                 {t("连接行情")}
+              </button>{" "}
+              <button type="button" onClick={() => context.openSettings("ctp")}>
+                {t("管理 CTP 账户")}
               </button>
             </fieldset>
-          </form>
-          <form
-            onSubmit={event => {
-              event.preventDefault();
-              void run(() => loadCatalog(catalogPassword));
-            }}
-          >
             <p className="subtle">
-              {t(
-                "完整市场需要目录查询前置（CTP 交易前置）；仅查询合约，不开通交易。配置后连接行情会自动加载目录。",
-              )}
+              {connection?.trade_front
+                ? t("连接行情后用当前账户的交易前置加载完整合约目录；仅查询合约，不开通交易。")
+                : t("柜台信息在设置的 CTP 账户中填写一次；填了交易前置才能加载完整合约目录。")}
             </p>
-            <fieldset disabled={busy}>
-              <div className="futures-fields">
-                <label>
-                  {t("目录查询前置")}
-                  <input
-                    aria-label={t("目录查询前置")}
-                    placeholder="tcp://host:port"
-                    value={catalogFront}
-                    onChange={e => setCatalogFront(e.target.value)}
-                    required
-                  />
-                </label>
-                <label>
-                  AppID
-                  <input
-                    aria-label="AppID"
-                    value={appId}
-                    onChange={e => setAppId(e.target.value)}
-                  />
-                </label>
-                <label>
-                  {t("授权码")}
-                  <input
-                    aria-label={t("授权码")}
-                    type="password"
-                    autoComplete="off"
-                    value={authCode}
-                    onChange={e => setAuthCode(e.target.value)}
-                  />
-                </label>
-                {!idle && (
+          </form>
+          {!idle && connection?.trade_front && (
+            <form
+              onSubmit={event => {
+                event.preventDefault();
+                void run(() => loadCatalog(catalogPassword));
+              }}
+            >
+              <fieldset disabled={busy}>
+                <div className="futures-fields">
                   <label>
                     {t("目录查询密码")}
                     <input
@@ -290,15 +244,23 @@ export function LivePanel({ context }: { context: TerminalContext }) {
                       required
                     />
                   </label>
-                )}
-              </div>
-              {!idle && (
+                  <label>
+                    {t("授权码")}
+                    <input
+                      aria-label={t("授权码")}
+                      type="password"
+                      autoComplete="off"
+                      value={authCode}
+                      onChange={e => setAuthCode(e.target.value)}
+                    />
+                  </label>
+                </div>
                 <button disabled={!online || market?.catalog?.phase === "loading"}>
                   {t("加载完整市场")}
                 </button>
-              )}
-            </fieldset>
-          </form>
+              </fieldset>
+            </form>
+          )}
           <form
             className="market-watchlist"
             onSubmit={event => {

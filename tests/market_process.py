@@ -21,7 +21,9 @@ def wait(predicate):
     raise AssertionError(state)
 try:
     state=call('market.local');assert state['market']['phase']=='disconnected'
-    state=call('market.connect',dict(front='tcp://127.0.0.1:1',broker='test',user='fixture',password='fixture-only-secret',instruments=[dict(venue='SHFE',symbol='rb2610'),dict(venue='SHFE',symbol='bad2601')]))
+    call('ctp.connections.save',dict(id='fixture',name='Fixture',revision='',broker_id='test',user_id='fixture',app_id='',trade_front='tcp://127.0.0.1:1',market_front='tcp://127.0.0.1:1'))
+    call('ctp.connections.save',dict(id='other',name='Other',revision='',broker_id='test',user_id='other',app_id='',trade_front='',market_front='tcp://127.0.0.1:1'))
+    state=call('market.connect',dict(password='fixture-only-secret',instruments=[dict(venue='SHFE',symbol='rb2610'),dict(venue='SHFE',symbol='bad2601')]))
     state=wait(lambda s:s['market']['phase']=='connected' and s['market']['subscriptions'][0]['quote'])
     market=state['market'];quote=market['subscriptions'][0]['quote'];assert quote['last']=='3510' and quote['bid']=='3509' and quote['ask']=='3511'
     assert quote['previous_settlement'] is None and market['out_of_order']>=1 and market['subscriptions'][1]['state']=='error'
@@ -32,9 +34,12 @@ try:
     assert all('volume' not in p for p in points)
     wait(lambda s:s['market']['phase']=='reconnecting')
     wait(lambda s:s['market']['phase']=='connected' and s['market']['out_of_order']>=2)
+    # The account in use cannot change under a live market login.
+    process.stdin.write(json.dumps(dict(version=1,method='ctp.connections.select',params=dict(id='other')))+'\n');process.stdin.flush()
+    refused=json.loads(process.stdout.readline());assert 'disconnect market data' in refused['error']['message'],refused
     call('market.subscribe',dict(instruments=[dict(venue='SHFE',symbol='rb2610')]))
     assert len(wait(lambda s:len(s['market']['subscriptions'])==1)['market']['subscriptions'])==1
-    call('market.catalog',dict(front='tcp://127.0.0.1:1',broker='test',user='catalog',password='fixture-only-secret',app_id='',auth_code=''))
+    call('market.catalog',dict(password='fixture-only-secret',auth_code=''))
     state=wait(lambda s:s['market']['catalog']['phase']=='ready')
     assert state['market']['catalog']['contracts'][0]['symbol']=='rb2610'
     call('market.subscribe',dict(instruments=[]))
@@ -43,7 +48,7 @@ try:
     state=call('market.disconnect');state=wait(lambda s:s['market']['phase']=='disconnected')
     # The last ready catalog stays available offline, marked as a cached copy.
     catalog=state['market']['catalog'];assert catalog['phase']=='cached' and catalog['contracts'][0]['symbol']=='rb2610',catalog
-    call('market.connect',dict(front='tcp://127.0.0.1:1',broker='test',user='fixture',password='reject-test-only',instruments=[]))
+    call('market.connect',dict(password='reject-test-only',instruments=[]))
     wait(lambda s:s['market']['phase']=='error' and s['market']['error_code']==3)
     call('market.disconnect')
     call('node.local')

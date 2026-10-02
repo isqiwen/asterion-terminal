@@ -496,5 +496,21 @@
   "服务管理器": "Service Manager",
   "必需": "Required",
   "应用自带的插件始终启用；自行安装的插件可以选择是否启用。": "Plugins shipped with the application are always enabled. Plugins you install are optional.",
-  "正在准备": "PREPARING"
+  "正在准备": "PREPARING",
+  "交易前置": "Trade Front",
+  "投资者账号": "Investor ID",
+  "未填写": "Not set",
+  "经纪商代码": "Broker ID",
+  "行情前置": "Market Front",
+  "CTP 账户": "CTP Account",
+  "保存账户": "Save Account",
+  "删除账户": "Delete Account",
+  "只看行情可以只填行情前置；交易和合约目录查询需要交易前置与 AppID。切换当前账户前先断开行情并关闭交易账户。修改或删除不影响已创建的交易记录，它保留创建时的柜台信息。": "For market data only, the market front is enough. Trading and the contract catalog need a trade front and an AppID. Disconnect market data and close the trading account before changing the current account. Edits and deletions do not affect trading records already created; each keeps the counter details it was created with.",
+  "在这里填写一次期货公司提供的柜台信息。行情和交易都使用当前账户；密码与授权码在每次连接时输入，不保存。": "Enter the counter details from your broker once. Market data and trading both use the current account. Passwords and authorization codes are entered at each connection and never saved.",
+  "当前账户": "Current",
+  "确认删除账户": "Confirm Delete",
+  "编辑账户": "Edit Account",
+  "设为当前账户": "Make Current",
+  "账户名称": "Account Name",
+  "新建账户": "New Account"
 }

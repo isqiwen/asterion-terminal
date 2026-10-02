@@ -38,20 +38,25 @@ json catalog_terms(const json& market, const json& requested) {
 // trade. Every order passes the service's authorization, allowlist and risk.
 void Application::Impl::register_live_commands() {
   core.command("live.create", [this](const json& p) {
-    fields_with_risk(p, {p.contains("name") ? "name" : "directory", "front", "broker_id", "user_id",
-                         "app_id", "max_price_deviation", "contracts"});
+    fields_with_risk(
+        p, {p.contains("name") ? "name" : "directory", "max_price_deviation", "contracts"});
     if (live)
       throw std::invalid_argument("close the current live session first");
     // Validated before the braced initializer (GCC < 13 PR66139 leak).
     const auto risk = risk_parameters(p);
+    // Trading uses the current CTP account. The record keeps its own copy:
+    // later edits apply to accounts created afterwards, never to this one.
+    const auto connection = current_ctp();
+    if (connection.trade_front.empty())
+      throw std::invalid_argument("CTP connection has no trade front");
     auto contracts = catalog_terms(market ? market->snapshot() : json(nullptr), p.at("contracts"));
     json manifest{{"version", 2},
                   {"type", "live_ctp"},
                   {"broker",
-                   {{"front", text(p, "front")},
-                    {"broker_id", text(p, "broker_id")},
-                    {"user_id", text(p, "user_id")},
-                    {"app_id", text(p, "app_id")}}},
+                   {{"front", connection.trade_front},
+                    {"broker_id", connection.broker_id},
+                    {"user_id", connection.user_id},
+                    {"app_id", connection.app_id}}},
                   {"risk", risk},
                   {"max_price_deviation", text(p, "max_price_deviation")},
                   {"contracts", std::move(contracts)}};

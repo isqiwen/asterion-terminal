@@ -230,6 +230,9 @@ export type TerminalCommand =
   | "research.connections.save"
   | "research.connections.remove"
   | "research.connections.verify"
+  | "ctp.connections.save"
+  | "ctp.connections.remove"
+  | "ctp.connections.select"
   | "research.local.create"
   | "native.plugins.inspect"
   | "native.plugins.preview"
@@ -492,6 +495,25 @@ export type UnreadableDataConnection = { id: string; name: string; error: "unrea
 export type DataConnectionEntry = DataConnection | UnreadableDataConnection;
 export const readableConnection = (entry: DataConnectionEntry): entry is DataConnection =>
   !("error" in entry);
+// One counter account as the broker issues it; passwords are never part of it.
+export type CtpConnection = {
+  id: string;
+  name: string;
+  broker_id: string;
+  user_id: string;
+  app_id: string;
+  trade_front: string;
+  market_front: string;
+  revision: string;
+};
+export type CtpConnectionEntry = CtpConnection | UnreadableDataConnection;
+export const readableCtpConnection = (entry: CtpConnectionEntry): entry is CtpConnection =>
+  !("error" in entry);
+export function currentCtpAccount(snapshot: Snapshot | null): CtpConnection | undefined {
+  return (snapshot?.ctp_connections ?? [])
+    .filter(readableCtpConnection)
+    .find(item => item.id === snapshot?.ctp_current);
+}
 export type NativeHistorySource = {
   id: string;
   name: string;
@@ -825,6 +847,9 @@ export type NativePluginInfo = {
 export type Snapshot = {
   plugin_candidate?: NativePluginInfo;
   data_connections?: DataConnectionEntry[];
+  ctp_connections?: CtpConnectionEntry[];
+  // The single CTP account in use: market data and trading both follow it.
+  ctp_current?: string | null;
   connection_verification?: null | {
     id: string;
     revision: string;
