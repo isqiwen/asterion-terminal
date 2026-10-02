@@ -27,7 +27,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-latest]
+        # Linux matches the image the remote bundle is built on. GCC 11 on 22.04
+        # leaks initializer-list elements when a later element throws.
+        os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +39,9 @@ jobs:
       - run: python -m pip install conan==2.32.0 ninja
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
-      - run: conan install . -s build_type=Debug -s compiler.cppstd=20 -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
+      # Dependencies build optimized: embedded DuckDB with debug information
+      # exceeds the Agent artifact limit on Linux.
+      - run: conan install . -s "&:build_type=Debug" -s build_type=Release -s compiler.cppstd=20 -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
       - run: cmake --preset conan-debug
       # -k 0 reports every failing translation unit in one run, not only the first.
       - run: cmake --build --preset conan-debug -- -k 0
@@ -166,7 +170,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
+          - os: ubuntu-24.04
             sanitizer: address,undefined
           - os: macos-latest
             sanitizer: thread
@@ -179,7 +183,7 @@ jobs:
       - run: python -m pip install conan==2.32.0 ninja
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
-      - run: conan install . -s build_type=Debug -s compiler.cppstd=20 -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
+      - run: conan install . -s "&:build_type=Debug" -s build_type=Release -s compiler.cppstd=20 -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
       - run: cmake --preset conan-debug -DASTERION_SANITIZERS=${{ matrix.sanitizer }}
       - run: cmake --build --preset conan-debug
       - run: ctest --preset conan-debug --output-on-failure
