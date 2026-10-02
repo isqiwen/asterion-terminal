@@ -5,7 +5,7 @@ const t = (key: string, values?: MessageValues) => translate("host", key, values
 import { useLocale } from "../i18n";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { WindowFrame } from "../host/components/WindowFrame";
-import { request } from "../bridge/client";
+import { readableCtpConnection, request } from "../bridge/client";
 import "./setup.css";
 import { defaultResearchPlugins } from "../host/native-plugins";
 export function SetupGate({ children }: { children: ReactNode }) {
@@ -18,7 +18,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
       setError(t("保存失败，请检查本机存储权限。"));
     }
   };
-  const steps = [t("服务管理器"), t("行情服务"), t("数据服务")];
+  const steps = [t("服务管理器"), t("行情服务"), t("数据服务"), t("交易服务")];
   // Things the user should know before entering; none of them blocks entry.
   const [notices, setNotices] = useState<string[]>([]);
   const [step, setStep] = useState(0);
@@ -97,13 +97,46 @@ export function SetupGate({ children }: { children: ReactNode }) {
       const interrupted = (status.research?.tasks ?? []).filter(
         task => task.state === "interrupted",
       ).length;
+      setStep(3);
+      // Each account that trades has its own service. Starting it only runs
+      // the program: nothing logs in or reaches the counter. An account
+      // whose service does not come up is reported and can be started from
+      // the Trading page; it does not keep the workbench closed.
+      const unopened: string[] = [];
+      for (const account of (status.ctp_connections ?? []).filter(readableCtpConnection)) {
+        if (!account.trading_record) continue;
+        try {
+          await request("live.open", { account: account.id });
+        } catch {
+          unopened.push(account.name);
+        }
+      }
+      let trading = true;
+      for (const deadline = Date.now() + 20000; ;) {
+        const services =
+          (await request("runtime.snapshot")).nodes
+            .find(n => n.id === "local")
+            ?.health?.services.filter(
+              service => service.kind === "live" && service.desired_running,
+            ) ?? [];
+        if (services.every(service => healthy.includes(service.health))) break;
+        if (Date.now() >= deadline) {
+          trading = false;
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
       setNotices([
+        ...unopened.map(name =>
+          t("账户 {p0} 的交易服务未能启动，可在交易页查看原因并重试", { p0: name }),
+        ),
+        ...(trading ? [] : [t("部分交易服务尚未就绪，可在状态栏查看")]),
         ...invalid.map(plugin =>
           t("插件 {p0} 无法加载，可在设置的插件页查看原因", { p0: plugin.id || plugin.file }),
         ),
         ...(interrupted ? [t("{p0} 项任务上次被中断，可在任务中心重试", { p0: interrupted })] : []),
       ]);
-      setStep(3);
+      setStep(4);
       setReady(true);
     } catch (reason) {
       setError(asDisplayError(reason));

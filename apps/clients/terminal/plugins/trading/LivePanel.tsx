@@ -68,7 +68,7 @@ export function LivePanel(context: TerminalContext) {
     };
   const state = (item: CtpConnection) => {
     const session = snapshot?.live[item.id]?.session;
-    if (!session) return item.trading_record ? "未打开" : "未开通交易";
+    if (!session) return item.trading_record ? "服务未启动" : "未开通交易";
     if (session.phase !== "ready") return phases[session.phase];
     return session.authorization?.trading_day === session.trading_day ? "已允许发送委托" : "已就绪";
   };
@@ -121,7 +121,7 @@ export function LivePanel(context: TerminalContext) {
                   run={runFor(account.id)}
                 />
               ) : entry ? (
-                <p className="alert">{t("交易服务尚未初始化，请关闭后重新打开此账户。")}</p>
+                <p className="alert">{t("交易服务尚未初始化。")}</p>
               ) : account.trading_record ? (
                 <div className="workflow-empty">
                   <p>
@@ -132,9 +132,11 @@ export function LivePanel(context: TerminalContext) {
                     disabled={busy}
                     onClick={() => void runFor(account.id)("live.open")}
                   >
-                    {t("打开账户")}
+                    {t("启动交易服务")}
                   </button>
-                  <p className="subtle">{t("打开只启动此账户的交易服务，不登录柜台。")}</p>
+                  <p className="subtle">
+                    {t("此账户的交易服务未在运行。启动只运行服务程序，不登录柜台。")}
+                  </p>
                 </div>
               ) : (
                 <div className="account-setup">
@@ -481,9 +483,14 @@ function LiveAccount({
             {t("断开账户")}
           </button>
         )}
-        <button disabled={busy} onClick={() => void run("live.close")}>
-          {t("关闭账户")}
-        </button>
+        {stale && (
+          <button
+            disabled={busy}
+            onClick={() => void run("live.close").then(closed => closed && run("live.open"))}
+          >
+            {t("重新连接交易服务")}
+          </button>
+        )}
       </div>
       {(!environmentReady || live.phase === "disconnected" || live.phase === "error") && (
         <section className="environment-check">
@@ -527,11 +534,11 @@ function LiveAccount({
       )}
       <details className="lifecycle-help">
         <summary>{t("连接说明")}</summary>
-        <p>{t("离开账户只断开 Terminal；断开账户会退出柜台连接，已有委托不会自动撤销。")}</p>
+        <p>{t("断开账户会退出柜台连接，已有委托不会自动撤销。")}</p>
       </details>
       {stale && (
         <p className="alert" role="alert">
-          {t("实盘服务连接或记录状态不确定。请关闭会话并从原目录恢复；断线命令不会自动重发。")}
+          {t("交易服务连接或记录状态不确定。请重新连接交易服务；断线命令不会自动重发。")}
         </p>
       )}
       {live.phase === "error" && (

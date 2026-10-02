@@ -464,5 +464,8 @@
   "保存到本机钥匙串，下次启动不用再输入": "Save in this Mac's keychain so it need not be entered next time",
   "保存并验证": "Save and Verify",
   "确认清除": "Confirm Clear",
-  "清除": "Clear"
+  "清除": "Clear",
+  "交易服务": "Trading service",
+  "账户 {p0} 的交易服务未能启动，可在交易页查看原因并重试": "The trading service of account {p0} did not start. See the Trading page for the reason and retry.",
+  "部分交易服务尚未就绪，可在状态栏查看": "Some trading services are not ready yet; see the status bar."
 }

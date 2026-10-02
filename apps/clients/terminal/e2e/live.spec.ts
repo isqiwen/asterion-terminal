@@ -135,9 +135,15 @@ test("live CTP session connects, authorizes and trades through the execution cha
     await expect(panel.getByRole("heading", { name: "开通交易：other-account" })).toBeVisible();
     await expect(list.getByRole("button", { name: /^live-account/ })).toContainText("未连接");
     await list.getByRole("button", { name: /^live-account/ }).click();
-    await panel.getByRole("button", { name: "关闭账户", exact: true }).click();
-    await expect(panel.getByRole("button", { name: "打开账户", exact: true })).toBeVisible();
-    await expect(list.getByRole("button", { name: /^live-account/ })).toContainText("未打开");
+    // A Terminal that is not attached to the account's service says so and
+    // offers to start it; a launch does that by itself, without logging in.
+    await rpc(page.request, "live.close", { account: "live-account" });
+    await expect(list.getByRole("button", { name: /^live-account/ })).toContainText("服务未启动");
+    await expect(panel.getByRole("button", { name: "启动交易服务", exact: true })).toBeVisible();
+    await page.reload();
+    await expect(page.locator(".setup-step").filter({ hasText: "交易服务" })).toHaveCount(0);
+    await expect(list.getByRole("button", { name: /^live-account/ })).toContainText("未连接");
+    await expect(panel.getByTestId("live-phase")).toHaveText("未连接");
 
     // Current broker rates must not silently apply to earlier history.
     await seedDataset(page.request, [3500, 3501], "live-rates");
