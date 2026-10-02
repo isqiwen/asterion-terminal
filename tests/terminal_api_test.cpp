@@ -464,8 +464,14 @@ public:
     if (pid_t pid = 0; pidfile >> pid && pid > 0 && ::kill(pid, SIGTERM) == 0)
       for (int i = 0; i < 50 && ::kill(pid, 0) == 0; ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // The Agent's services stop writing within their supervisor grace period.
     std::error_code ignored;
-    std::filesystem::remove_all(path_, ignored);
+    for (int i = 0; i < 6; ++i) {
+      std::filesystem::remove_all(path_, ignored);
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      if (!std::filesystem::exists(path_))
+        break;
+    }
   }
 
 private:

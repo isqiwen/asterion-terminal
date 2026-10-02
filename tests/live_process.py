@@ -66,8 +66,7 @@ def submit(order_id, quantity, price="3500", symbol="rb2610"):
 
 
 def stop(process):
-    process.stdin.close()
-    stdout, stderr = process.communicate(timeout=15)
+    stdout, stderr = process.communicate(timeout=15)  # closes stdin
     assert SECRET not in stdout + stderr and AUTH not in stdout + stderr
 
 

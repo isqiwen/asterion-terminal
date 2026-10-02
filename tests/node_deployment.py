@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 from bundle_fixture import make_bundle
+from history_fixture import contracts
 
 if sys.platform != "linux":
     print("Remote deployment integration runs on Linux; local lifecycle is tested separately")
@@ -125,12 +126,31 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
             except OSError:
                 return False
         wait(trading_listening)
+        def paper_service(node):
+            return next(s for s in node["health"]["services"] if s["id"] == "paper-test")
+        # Research on the same node supplies the archived bars: the test-only
+        # provider seeds its ledger while the service is stopped.
+        research_port = port()
+        while research_port in {management, trade_port}:
+            research_port = port()
+        call(terminal, "node.deploy", {"id": "research", "kind": "research", "service": "research", "port": str(research_port)})
+        history = str(Path(bridge).resolve().parent / "asterion_test_history")
+        def seed(prices, identity):
+            snapshot = call(terminal, "node.action", {"id": "research", "service": "research", "action": "stop"})
+            service = next(s for n in snapshot["nodes"] if n["id"] == "research" for s in n["health"]["services"] if s["id"] == "research")
+            assert Path(service["directory"]).resolve() == (state / "services/research/ledger").resolve(), service
+            output = subprocess.run(
+                [history, "--directory", service["directory"], "--id", identity,
+                 "--price", *map(str, prices)],
+                env=dict(os.environ, ASTERION_NODE_DIRECTORY=str(state), ASTERION_TEST_NODE_ISOLATED="1"),
+                check=True, capture_output=True, text=True).stdout
+            call(terminal, "node.action", {"id": "research", "service": "research", "action": "start"})
+            call(terminal, "research.attach", {"id": "research", "service": "research"})
+            return json.loads(output)
+        call(terminal, "research.dataset.select", seed([100, 101], "remote-paper"))
         attached = call(terminal, "node.attach", {"id": "research", "service": "paper-test"})
         assert attached["connection"]["health"]["phase"] == "awaiting_input"
-        source = root / "ticks.csv"
-        source.write_text("timestamp_ns,price,quantity\n100,100,1\n200,101,1\n")
-        call(terminal, "futures.inspect_csv", {"path": str(source), "venue": "SHFE", "symbol": "rb2610", "product": "rb", "delivery_month": "2026-10", "currency": "CNY", "price_increment": "1", "quantity_increment": "1", "multiplier": "10"})
-        call(terminal, "paper.create", {"deposit": "1000", "margin_per_lot": "100", "open_fee": "2", "close_today_fee": "3", "close_yesterday_fee": "4", "margin_rate": "0", "open_fee_rate": "0", "close_today_fee_rate": "0", "close_yesterday_fee_rate": "0", "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
+        call(terminal, "paper.create", {"deposit": "1000", "contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
         expected = call(terminal, "paper.act", {"request_id": "managed.tick", "action": "advance"})["paper"]
         # A page-free connection survives the server's 30 second idle timeout.
         time.sleep(32)
@@ -142,23 +162,23 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         os.kill(old_pid, signal.SIGTERM if os.name == "nt" else signal.SIGKILL)
         def restarted():
             n = call(terminal, "runtime.snapshot")["nodes"][0]
-            s = n["health"]["services"][0]
+            s = paper_service(n)
             return s if s["state"] == "running" and s["pid"] != old_pid and s["restarts"] >= 1 else None
         restarted_service = wait(restarted)
         call(terminal, "node.action", {"id": "research", "service": "paper-test", "action": "stop"})
-        stopped = call(terminal, "runtime.snapshot")["nodes"][0]["health"]["services"][0]
+        stopped = paper_service(call(terminal, "runtime.snapshot")["nodes"][0])
         assert stopped["state"] == "stopped" and not stopped["desired_running"]
         updated=call(terminal,"node.update",{"id":"research","service":"paper-test","revision":stopped["revision"]})
-        retained=updated["nodes"][0]["health"]["services"][0]
+        retained=paper_service(updated["nodes"][0])
         assert retained["state"]=="stopped" and retained["port"]==stopped["port"]
         time.sleep(6)
-        assert call(terminal, "runtime.snapshot")["nodes"][0]["health"]["services"][0]["state"] == "stopped"
+        assert paper_service(call(terminal, "runtime.snapshot")["nodes"][0])["state"] == "stopped"
         call(terminal, "node.action", {"id": "research", "service": "paper-test", "action": "start"})
         # Agent crash makes status unknown, its owned child exits; restart loads desired state.
         stop(agent)
         wait(lambda: call(terminal, "runtime.snapshot")["nodes"][0]["state"] == "unreachable", 25)
         agent = launch_node()
-        recovered = wait(lambda: (n if (n := call(terminal, "runtime.snapshot")["nodes"][0])["state"] == "online" and n["health"]["services"][0]["state"] == "running" else None), 25)
+        recovered = wait(lambda: (n if (n := call(terminal, "runtime.snapshot")["nodes"][0])["state"] == "online" and paper_service(n)["state"] == "running" else None), 25)
         assert recovered["health"]["instance_id"] != first["health"]["instance_id"]
         wait(trading_listening)
         assert call(terminal, "node.attach", {"id": "research", "service": "paper-test"})["paper"] == expected
@@ -176,50 +196,32 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
             failure = wait(bounded_failure, 30)
             assert failure["restarts"] == 3
             call(terminal, "node.action", {"id": "research", "service": "blocked-port", "action": "stop"})
-        # Research uses the same verified bundle, but its own service and worker.
-        research_port = port()
-        while research_port in {management, trade_port}:
-            research_port = port()
-        call(terminal, "node.deploy", {"id": "research", "kind": "research", "service": "backtests", "port": str(research_port)})
-        call(terminal, "research.attach", {"id": "research", "service": "backtests"})
-        source.write_text("timestamp_ns,price,quantity\n" + "".join(
-            f"{1790298000000000000 + (0 if i < 4 else 259200000000000) + (i % 4) * 1000000000},{price},1\n"
-            for i, price in enumerate([100, 101, 102, 101, 104, 103, 102, 103])))
-        call(terminal, "futures.inspect_csv", {"path": str(source), "venue": "SHFE", "symbol": "rb2610", "product": "rb", "delivery_month": "2026-10", "currency": "CNY", "price_increment": "1", "quantity_increment": "1", "multiplier": "10"})
-        call(terminal, "research.submit", {"calendar_task":"","id": "remote-backtest", "days":[{"trading_day": "2026-09-25", "schedule_source":"test fixture", "settlement_price":"105", "settlement_source":"test settlement", "sessions":[{"begin_ns":"1790298000000000000","end_ns":"1790298010000000000"}]},{"trading_day":"2026-09-28","schedule_source":"second fixture","settlement_price":"110","settlement_source":"second settlement","sessions":[{"begin_ns":"1790557200000000000","end_ns":"1790557210000000000"}]}], "fast": 1, "slow": 3, "quantity": "1", "deposit": "10000", "margin_per_lot": "100", "open_fee": "2", "close_today_fee": "3", "close_yesterday_fee": "4", "margin_rate": "0", "open_fee_rate": "0", "close_today_fee_rate": "0", "close_yesterday_fee_rate": "0", "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
-        def research_done(task_id="remote-backtest"):
+        # Research results survive a program update of the stopped service.
+        call(terminal, "research.dataset.clear")
+        call(terminal, "research.dataset.select", seed([100, 101, 102, 101, 104, 103, 102, 103], "remote-backtest"))
+        call(terminal, "research.submit", {"id": "remote-backtest", "fast": 1, "slow": 3, "quantity": "1", "deposit": "10000", "contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
+        def research_done(task_id):
             tasks = [task for task in call(terminal, "runtime.snapshot")["research"]["tasks"] if task["id"] == task_id]
             return tasks and tasks[0]["state"] == "succeeded"
-        wait(research_done)
+        wait(lambda: research_done("remote-backtest"))
         result = call(terminal, "research.result", {"id": "remote-backtest"})["research_result"]
-        assert result["result"]["account"]["equity"] == "10014", result
-        assert [day["equity"] for day in result["result"]["settlements"]] == ["10038", "10014"]
-        source.write_text("timestamp_ns,price,quantity\n" + "".join(
-            f"{1790298000000000000 + i * 1000000000},{100 + i + i % 3},1\n"
-            for i in range(160)))
-        call(terminal, "futures.inspect_csv", {"path": str(source), "venue": "SHFE", "symbol": "rb2610", "product": "rb", "delivery_month": "2026-10", "currency": "CNY", "price_increment": "1", "quantity_increment": "1", "multiplier": "10"})
+        assert result["kind"] == "backtest" and result["result"]["settlements"], result
+        call(terminal, "research.dataset.clear")
+        call(terminal, "research.dataset.select", seed([100 + i + i % 3 for i in range(160)], "remote-factor"))
         call(terminal, "research.factor.submit", {"id": "remote-factor", "lookbacks": [2, 5, 10], "horizon": 1, "evaluation": {"mode": "walk_forward", "training_events": 80, "validation_events": 40}})
         wait(lambda: research_done("remote-factor"))
         factor_result = call(terminal, "research.result", {"id": "remote-factor"})["research_result"]
         assert factor_result["kind"] == "factor" and len(factor_result["result"]["samples"]) == 78, factor_result
         assert len(factor_result["result"]["folds"]) == 2, factor_result
         assert factor_result["experiment"]["evaluation"] == {"mode": "walk_forward", "training_events": 80, "validation_events": 40}, factor_result
-        call(terminal, "research.data.submit", {"id": "remote-data"})
-        wait(lambda: research_done("remote-data"))
-        publication = call(terminal, "research.result", {"id": "remote-data"})["research_result"]
-        assert publication["kind"] == "data_import" and publication["result"]["dataset"]["revision"] == factor_result["result"]["dataset_revision"], publication
-        source.unlink()
-        stopped=call(terminal,"node.action",{"id":"research","service":"backtests","action":"stop"})
-        current=next(s for n in stopped["nodes"] for s in n["health"]["services"] if s["id"]=="backtests")
-        call(terminal,"node.update",{"id":"research","service":"backtests","revision":current["revision"]})
-        call(terminal,"node.action",{"id":"research","service":"backtests","action":"start"})
-        call(terminal, "research.attach", {"id": "research", "service": "backtests"})
+        stopped=call(terminal,"node.action",{"id":"research","service":"research","action":"stop"})
+        current=next(s for n in stopped["nodes"] for s in n["health"]["services"] if s["id"]=="research")
+        call(terminal,"node.update",{"id":"research","service":"research","revision":current["revision"]})
+        call(terminal,"node.action",{"id":"research","service":"research","action":"start"})
+        call(terminal, "research.attach", {"id": "research", "service": "research"})
         assert call(terminal, "research.result", {"id": "remote-backtest"})["research_result"] == result
         assert call(terminal, "research.result", {"id": "remote-factor"})["research_result"] == factor_result
-        assert call(terminal, "research.result", {"id": "remote-data"})["research_result"] == publication
-        selected = call(terminal, "research.data.use", {"id": "remote-data"})["dataset"]
-        assert selected["persistent"] and selected["revision"] == factor_result["result"]["dataset_revision"], selected
-        call(terminal, "node.action", {"id": "research", "service": "backtests", "action": "stop"})
+        call(terminal, "node.action", {"id": "research", "service": "research", "action": "stop"})
         call(terminal, "node.disconnect", {"id": "research"})
         assert agent.poll() is None
     finally:

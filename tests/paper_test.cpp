@@ -808,9 +808,11 @@ TEST(PaperExecution, RestingOrdersDoNotMakeReplayQuadratic) {
   const auto started = std::chrono::steady_clock::now();
   while (execution.cursor() < execution.size())
     execution.advance();
-  // Previously every event copied the full ledger (O(events x orders)).
+  // Previously every event copied the full ledger (O(events x orders)). The
+  // bound catches that kind of blowup, not small slowdowns: about 5 s alone,
+  // with headroom for machines shared with other tests.
   EXPECT_LT(std::chrono::steady_clock::now() - started,
-            asterion::testing_support::bound(std::chrono::seconds(10)));
+            asterion::testing_support::bound(std::chrono::seconds(30)));
   EXPECT_EQ(execution.account().fills().size(), 0U);
   EXPECT_EQ(execution.account().orders().size(), resting);
 }

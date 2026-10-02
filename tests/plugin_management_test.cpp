@@ -174,6 +174,9 @@ TEST_F(PluginManagement, ConnectionsRejectForbiddenPersistenceAndUnsafePaths) {
 }
 
 TEST_F(PluginManagement, InstallationKeepsVersionsSeparateAndUninstallPreservesBundledFiles) {
+  // Installing a plugin file is a macOS Terminal action and only takes .dylib.
+  if (current_platform().os != "macos")
+    GTEST_SKIP();
   const auto bundled = root / "bundled";
   const auto managed = root / "managed";
   fs::create_directory(bundled);
@@ -203,6 +206,9 @@ TEST_F(PluginManagement, InstallationKeepsVersionsSeparateAndUninstallPreservesB
 }
 
 TEST_F(PluginManagement, UninstallCanRemoveAnObservedCorruptCopyWithoutTouchingOtherFiles) {
+  // Installing a plugin file is a macOS Terminal action and only takes .dylib.
+  if (current_platform().os != "macos")
+    GTEST_SKIP();
   const auto bundled = root / "bundled", managed = root / "managed";
   fs::create_directory(bundled);
   const auto candidate = terminal::preview_plugin(PLUGIN_NEWER);
