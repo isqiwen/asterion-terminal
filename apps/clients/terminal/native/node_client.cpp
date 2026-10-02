@@ -55,7 +55,14 @@ struct NodeClient::Impl {
   wire::Response call(wire::Request request) {
     request.set_version(1);
     request.set_correlation_id("node." + std::to_string(++sequence));
-    const auto timeout = request.has_status() ? 3s : request.has_firewall() ? 30s : 10s;
+    // Sanitizer-instrumented programs are several times larger and slower to
+    // verify and start, as with the artifact limit; release builds keep 10 s.
+#ifdef ASTERION_SANITIZED
+    const auto mutation = 60s;
+#else
+    const auto mutation = 10s;
+#endif
+    const auto timeout = request.has_status() ? 3s : request.has_firewall() ? 30s : mutation;
     std::string stage = "connect";
     bool operation_rejected = false;
     const auto* operation = request.GetDescriptor()->FindFieldByNumber(request.operation_case());
