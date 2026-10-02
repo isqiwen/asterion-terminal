@@ -1,6 +1,8 @@
 export { useWorkspaceDraft, useWorkspaceRequestId } from "../src/host/workspace/drafts";
 export { Icon } from "../src/ui/Icon";
+export { useHistoryDatasets } from "../src/ui/useHistoryDatasets";
 export { DatasetPicker } from "../src/ui/DatasetPicker";
+export { ResearchAccess } from "../src/ui/ResearchAccess";
 export {
   CostTemplate,
   CostScheduleDetails,
@@ -18,36 +20,11 @@ export type { MessageValues, LanguageResources } from "../src/i18n";
 import type { Snapshot, TerminalCommand } from "../src/bridge/client";
 import type { ComponentType, ReactNode } from "react";
 
-// Terminal 插件接口定义：宿主提供的能力与插件贡献的工作区、卡片。
-// 契约不依赖任何具体插件；总览插件只是 DashboardWidget 的一个消费者。
-
-// Context handed to overview cards when they render.
-export type DashboardContext = Readonly<{
-  widgets: DashboardWidget[];
-  status?: ReactNode;
-  storageKey: string;
-  refresh: () => void;
-  catalogError: DisplayError;
-  openTasks: () => void;
-}>;
-export type DashboardWidget = {
-  id: string;
-  title: string;
-  category: string;
-  description: string;
-  width: 1 | 2;
-  defaultVisible?: boolean;
-  hasContent?: boolean;
-  column?: "primary" | "secondary";
-  position?: "main" | "aside";
-  attentionCount?: (context: DashboardContext) => number;
-  render: (context: DashboardContext) => ReactNode;
-};
+// Terminal plugins contribute workspaces, tasks and language resources.
 export type TerminalContext = {
   snapshot: Snapshot | null;
   busy: boolean;
   error: DisplayError;
-  widgets: DashboardWidget[];
   marketMode?: "live" | "history";
   workspacePage?: string;
   workspaceParams?: Readonly<Record<string, string>>;
@@ -56,14 +33,15 @@ export type TerminalContext = {
     options?: { marketMode?: "live" | "history"; page?: string; params?: Record<string, string> },
   ) => void;
   openSettings: (page?: "preferences" | "connections") => void;
-  openTasks: () => void;
-  refresh: () => void;
   query: (
     method:
       | "research.minutes.page"
       | "research.daily.page"
       | "research.datasets"
+      | "research.dataset.saved"
       | "research.coverage"
+      | "research.history.usage"
+      | "research.history.plan"
       | "market.minutes",
     params: Record<string, unknown>,
   ) => Promise<Snapshot>;
@@ -89,7 +67,6 @@ export type TerminalPlugin = {
     hideToolbar?: boolean;
   };
   tasks?: (context: TerminalContext) => TerminalTask[];
-  widgets?: (context: TerminalContext) => DashboardWidget[];
 };
 
 export type TerminalTask = {

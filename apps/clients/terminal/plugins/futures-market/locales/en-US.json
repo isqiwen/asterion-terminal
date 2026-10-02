@@ -53,10 +53,7 @@
   "行情来源": "Quote Source",
   "历史行情": "Historical Quotes",
   "自选行情": "Watchlist",
-  "实时报价与行情时间": "Live quotes and source timestamps",
   "管理自选": "Manage watchlist",
-  "关注你的期货合约": "Follow your futures contracts",
-  "连接行情，查看自选合约的实时报价。": "Connect a feed to see live quotes for your watchlist.",
   "行情未连接": "Feed disconnected",
   "自选行情表": "Watchlist quotes",
   "全部自选": "All watchlist",
@@ -110,7 +107,6 @@
   "成交明细": "Time and sales",
   "图表": "Chart",
   "合约信息": "Contract information",
-  "只读行情；实盘交易尚未开放": "Read-only quotes; live execution is unavailable",
   "主力净额": "Main net amount",
   "卖一": "Ask 1",
   "开盘": "Open",
@@ -148,7 +144,6 @@
   "该信息源尚未接入": "This information source is not connected",
   "涨幅%": "Change %",
   "昨收": "Previous close",
-  "前往模拟交易": "Open paper trading",
   "名称": "Name",
   "时间": "时间",
   "增仓": "OI change",
@@ -275,5 +270,7 @@
   "郑州商品期货": "Zhengzhou Commodities",
   "金融期货": "Financial Futures",
   "历史K线": "History candles",
-  "合约目录来自 {day} 的本机缓存，连接后更新。": "Contract catalog from the local copy of {day}; it refreshes after connecting."
+  "合约目录来自 {day} 的本机缓存，连接后更新。": "Contract catalog from the local copy of {day}; it refreshes after connecting.",
+  "前往历史回放": "Open historical replay",
+  "此处只展示行情；历史回放不向柜台发送委托。": "Quotes only here. Historical replay sends no broker orders."
 }

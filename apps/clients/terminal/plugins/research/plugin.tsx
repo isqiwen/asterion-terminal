@@ -6,12 +6,22 @@ import zh from "./locales/zh-CN.json";
 import en from "./locales/en-US.json";
 import { lazy } from "react";
 import type { TerminalPlugin } from "../contract";
-const Panel = lazy(() => import("./Panel").then(module => ({ default: module.Panel })));
+const Workspace = lazy(() => import("./Workspace").then(module => ({ default: module.Workspace })));
 export const plugin: TerminalPlugin = {
   id: "asterion.terminal.research",
   apiVersion: 1,
   commands: [
+    "paper.create",
+    "paper.open",
+    "paper.close",
+    "paper.act",
+    "strategy.run",
+    "strategy.revoke",
     "research.local",
+    "research.datasets",
+    "research.dataset.saved",
+    "research.dataset.save",
+    "research.dataset.use",
     "research.dataset.select",
     "research.dataset.remove",
     "research.submit",
@@ -42,7 +52,11 @@ export const plugin: TerminalPlugin = {
         ),
         completed: task.completed,
         total: task.total,
-        open: () => context.navigate("workspace.research"),
+        open: () =>
+          context.navigate("workspace.research", {
+            page: "task",
+            params: { id: task.id, kind: task.kind },
+          }),
       })),
   workspace: {
     id: "workspace.research",
@@ -50,6 +64,6 @@ export const plugin: TerminalPlugin = {
       return t("研究");
     },
     icon: <Icon name="research" />,
-    component: context => <Panel {...context} />,
+    component: context => <Workspace {...context} />,
   },
 };

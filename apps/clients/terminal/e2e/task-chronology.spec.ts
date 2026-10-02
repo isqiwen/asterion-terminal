@@ -22,7 +22,11 @@ test("durable task order and dates survive reload independently of task IDs", as
   expect(metadata.submitted_at_ms).toBeGreaterThan(0);
   for (let reload = 0; reload < 2; reload++) {
     await page.reload();
-    await page.getByRole("button", { name: "研究", exact: true }).click();
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
+    await page.getByRole("button", { name: "因子分析", exact: true }).click();
     const tasks = page.getByRole("region", { name: "研究任务", exact: true });
     const ids = tasks.locator("tbody tr code");
     await expect(ids.first()).toHaveText(newer);
@@ -35,12 +39,15 @@ test("durable task order and dates survive reload independently of task IDs", as
     await latest.getByText("详情", { exact: true }).click();
     await expect(latest).toContainText("最近更新");
   }
-  await page.getByRole("button", { name: "研究", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   await page.screenshot({ path: join(__dirname, "../test-results/task-chronology.png") });
   page = await openSettingsWindow(page);
   await page.getByLabel("语言", { exact: true }).selectOption("en-US");
   page = await closeSettingsWindow(page);
-  await page.getByRole("button", { name: "Research", exact: true }).click();
+  await page
+    .locator(".workspace-tabs")
+    .getByRole("button", { name: "Research", exact: true })
+    .click();
   await expect(page.getByRole("columnheader", { name: "Submitted", exact: true })).toBeVisible();
   await page.setViewportSize({ width: 800, height: 900 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(

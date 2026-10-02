@@ -1,3 +1,6 @@
+import { AccountLibrary, accountName } from "../trading/AccountLibrary";
+import { ActivityTabs, type Activity } from "../trading/ActivityTabs";
+import { FlowSteps } from "../../src/ui/FlowSteps";
 import {
   ContractCosts,
   CostScheduleDetails,
@@ -10,14 +13,19 @@ import {
 } from "../contract";
 import { useWorkspaceDraft, translate, type MessageValues } from "../contract";
 const t = (key: string, values?: MessageValues) =>
-  translate("asterion.terminal.trading", key, values);
+  translate("asterion.terminal.research", key, values);
 import { StrategyPanel } from "./StrategyPanel";
 import { useEffect, useRef, useState } from "react";
 import { open } from "@asterion/desktop-bridge/desktop";
 import { nativeDesktop } from "../../src/bridge/desktop";
 import { timestamp, type TerminalCommand } from "../../src/bridge/client";
 import type { TerminalContext } from "../contract";
-export function Panel({ snapshot, busy, trade }: TerminalContext) {
+export function ReplayPanel(context: TerminalContext) {
+  const { snapshot, busy, trade, navigate } = context;
+  const [creating, setCreating] = useWorkspaceDraft("paper-creating", false);
+  const [step, setStep] = useWorkspaceDraft("paper-step", 0);
+  const [name, setName] = useWorkspaceDraft("paper-name", "");
+  const [activity, setActivity] = useState<Activity>("positions");
   const states: Record<string, string | number> = {
     accepted: t("待成交"),
     partially_filled: t("部分成交"),
@@ -32,14 +40,14 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
   };
   const paper = snapshot?.paper;
   const remote = snapshot?.connection?.transport === "tcp_tls";
-  const [directory, setDirectory] = useWorkspaceDraft("directory", "");
-  const [account, setAccount] = useWorkspaceDraft("account", {
+  const [directory, setDirectory] = useWorkspaceDraft("replay-directory", "");
+  const [account, setAccount] = useWorkspaceDraft("replay-account", {
     deposit: "",
     max_order_quantity: "",
     max_gross_quantity: "",
     max_working_orders: "",
   });
-  const [costs, setCosts] = useWorkspaceDraft<ContractCostDrafts>("contract-costs", {});
+  const [costs, setCosts] = useWorkspaceDraft<ContractCostDrafts>("replay-contract-costs", {});
   const datasets = snapshot?.datasets ?? [];
   const [order, setOrder] = useState({
     contract: "",
@@ -71,8 +79,10 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
     setError("");
     try {
       await trade(method, params);
+      return true;
     } catch (reason) {
       setError(asDisplayError(reason));
+      return false;
     }
   }
   async function selectDirectory() {
@@ -90,9 +100,14 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
   function act(params: Record<string, string | number>) {
     return run("paper.act", { request_id: crypto.randomUUID(), ...params });
   }
-  const blocked = busy || paper?.storage_state === "recovery_required" || !!paper?.strategy?.active;
+  const blocked =
+    busy ||
+    !!snapshot?.stale ||
+    snapshot?.connection?.state === "disconnected" ||
+    paper?.storage_state === "recovery_required" ||
+    !!paper?.strategy?.active;
   // Automatic settlement sends the same command as the button, once per day.
-  const [autoSettle, setAutoSettle] = useWorkspaceDraft("auto-settle", false);
+  const [autoSettle, setAutoSettle] = useWorkspaceDraft("replay-auto-settle", false);
   const settledDay = useRef<number | null>(null);
   const due = paper?.replay?.settlement_due ? paper.replay.settled_days : null;
   function settle() {
@@ -103,59 +118,120 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
   useEffect(() => {
     if (autoSettle && due !== null && !blocked && settledDay.current !== due) settle();
   });
+  const owner = snapshot?.nodes
+    .find(n => n.id === "local")
+    ?.health?.services.find(service => service.id === snapshot?.connection?.session);
+  async function createAccount() {
+    const request = { ...account, contracts: contractCostRequest(datasets, costs) };
+    if (
+      await run(
+        "paper.create",
+        remote ? request : { ...(directory ? { directory } : { name }), ...request },
+      )
+    ) {
+      setCreating(false);
+      setStep(0);
+    }
+  }
   return (
     <section className="futures-data paper-trading" aria-label={t("期货模拟交易")}>
       <div className="panel-heading">
-        <h2>{t("期货模拟交易")}</h2>
+        <h2>
+          {paper
+            ? accountName(owner?.directory ?? "", snapshot?.connection?.session ?? t("历史回放"))
+            : t("历史回放")}
+        </h2>
         <span className="panel-spacer" />
         <small>{t("历史回放 · 非实盘")}</small>
       </div>
       {error && (
         <p className="alert" role="alert">
-          <ErrorNotice error={error} namespace="asterion.terminal.trading" />
+          <ErrorNotice error={error} namespace="asterion.terminal.research" />
         </p>
       )}
-      {!paper ? (
-        <>
-          <p className="dashboard-caption">
-            {t(
-              "选择从数据源下载的一个或多个合约的 K 线创建模拟账户，组合共用一个资金账户。会话写入交易服务所在机器的专用目录，重启后可恢复。",
-            )}
-          </p>
-          <DatasetPicker snapshot={snapshot} busy={busy} trade={trade} />
+      {!paper && !creating && !remote ? (
+        <AccountLibrary
+          context={context}
+          kind="paper"
+          directory={directory}
+          setDirectory={setDirectory}
+          onCreate={() => {
+            setCreating(true);
+            setStep(0);
+          }}
+          onOpen={value => void run("paper.open", { directory: value })}
+          onError={reason => setError(asDisplayError(reason))}
+        />
+      ) : !paper ? (
+        <div className="account-setup">
+          <div className="workflow-heading">
+            <h3>{t("新建回放账户")}</h3>
+            <button disabled={busy} onClick={() => setCreating(false)}>
+              {t("取消")}
+            </button>
+          </div>
+          <FlowSteps labels={[t("选择历史数据"), t("账户与规则"), t("确认创建")]} current={step} />
+          <div hidden={step !== 0}>
+            <p className="content-caption">
+              {t(
+                "选择从数据源下载的一个或多个合约的 K 线创建模拟账户，组合共用一个资金账户。会话写入交易服务所在机器的专用目录，重启后可恢复。",
+              )}
+            </p>
+            <DatasetPicker query={context.query} snapshot={snapshot} busy={busy} trade={trade} />
+            <div className="workflow-actions">
+              <button onClick={() => navigate("workspace.data")}>{t("下载历史数据")}</button>
+              <button
+                className="primary"
+                disabled={busy || !datasets.length}
+                onClick={() => setStep(1)}
+              >
+                {t("下一步")}
+              </button>
+            </div>
+          </div>
           <form
+            hidden={step !== 1}
             onSubmit={e => {
               e.preventDefault();
-              const request = { ...account, contracts: contractCostRequest(datasets, costs) };
-              void run("paper.create", remote ? request : { directory, ...request });
+              setStep(2);
             }}
           >
-            <fieldset disabled={busy || snapshot?.connection?.state === "disconnected"}>
+            <fieldset
+              disabled={busy || step !== 1 || snapshot?.connection?.state === "disconnected"}
+            >
               {!remote && (
-                <div className="futures-file">
-                  <label>
-                    {t("交易记录目录")}
-                    <input
-                      aria-label={t("交易记录目录")}
-                      value={directory}
-                      onChange={e => setDirectory(e.target.value)}
-                      placeholder={t("已存在的专用空目录；恢复时选择原目录")}
-                      required
-                    />
-                  </label>
-                  {nativeDesktop && (
-                    <button type="button" onClick={() => void selectDirectory()}>
-                      {t("选择目录")}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    disabled={!directory}
-                    onClick={() => void run("paper.open", { directory })}
-                  >
-                    {t("恢复会话")}
-                  </button>
-                </div>
+                <label>
+                  {t("账户名称")}
+                  <input
+                    aria-label={t("账户名称")}
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    required={!directory}
+                    maxLength={40}
+                  />
+                </label>
+              )}
+              {!remote && (
+                <details>
+                  <summary>{t("自定义记录目录")}</summary>
+                  <p className="subtle">{t("留空时自动创建专用目录，之后从账户列表打开。")}</p>
+                  <div className="futures-file">
+                    <label>
+                      {t("交易记录目录")}
+                      <input
+                        aria-label={t("交易记录目录")}
+                        value={directory}
+                        onChange={e => setDirectory(e.target.value)}
+                        placeholder={t("已存在的专用空目录；恢复时选择原目录")}
+                      />
+                    </label>
+                    {nativeDesktop && (
+                      <button type="button" onClick={() => void selectDirectory()}>
+                        {t("选择目录")}
+                      </button>
+                    )}
+                  </div>
+                </details>
               )}
               {remote && (
                 <p>
@@ -196,19 +272,48 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
                 </section>
               ))}
               <ContractCosts datasets={datasets} drafts={costs} onChange={setCosts} />
-              <div className="source-actions">
+              <div className="workflow-actions">
+                <button type="button" onClick={() => setStep(0)}>
+                  {t("上一步")}
+                </button>
                 <button className="primary" type="submit" disabled={!datasets.length}>
-                  {t("创建模拟会话")}
+                  {t("下一步")}
                 </button>
               </div>
             </fieldset>
           </form>
-          <p className="dashboard-caption">
-            {t(
-              "保证金与手续费由你填写，不代表交易所规则。委托在下一根 K 线以保守价格撮合，每根最多成交该 K 线成交量的 10%；每个交易日结束按日线结算价结算。",
-            )}
-          </p>
-        </>
+          {step === 2 && (
+            <section className="creation-review">
+              <h3>{name || snapshot?.connection?.session || t("历史回放")}</h3>
+              <p>{datasets.map(item => `${item.venue} · ${item.symbol}`).join(" + ")}</p>
+              <p>
+                {t("初始模拟资金")}：{account.deposit}
+              </p>
+              <p>
+                {t("单笔数量上限")}：{account.max_order_quantity} · {t("总持仓量上限")}：
+                {account.max_gross_quantity} · {t("在途委托数上限")}：{account.max_working_orders}
+              </p>
+              <p className="subtle">{t("历史回放 · 无真实委托")}</p>
+              <p className="content-caption">
+                {t(
+                  "保证金与手续费由你填写，不代表交易所规则。委托在下一根 K 线以保守价格撮合，每根最多成交该 K 线成交量的 10%；每个交易日结束按日线结算价结算。",
+                )}
+              </p>
+              <div className="workflow-actions">
+                <button disabled={busy} onClick={() => setStep(1)}>
+                  {t("上一步")}
+                </button>
+                <button
+                  className="primary"
+                  disabled={busy || !datasets.length}
+                  onClick={() => void createAccount()}
+                >
+                  {t("创建回放账户")}
+                </button>
+              </div>
+            </section>
+          )}
+        </div>
       ) : (
         <>
           <div className="paper-toolbar">
@@ -219,6 +324,14 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
             </strong>
             <span>{t("{cursor} / {total} 根", { cursor: paper.cursor, total: paper.total })}</span>
             <span>{timestamp(paper.timestamp_ns)}</span>
+            {paper.replay && (
+              <span>
+                {t("已结算 {settled} / {days} 个交易日", {
+                  settled: paper.replay.settled_days,
+                  days: paper.replay.days,
+                })}
+              </span>
+            )}
             <button
               disabled={blocked || paper.cursor === paper.total || paper.replay?.settlement_due}
               onClick={() => void act({ action: "advance" })}
@@ -251,6 +364,15 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
                   )
                 : t("交易连接或存储状态不确定，请关闭会话并从原目录恢复，核对结果后再操作。")}
             </p>
+          )}
+          <p className="subtle account-location">
+            {remote
+              ? `${snapshot?.connection?.host} · ${snapshot?.connection?.session}`
+              : t("本机")}{" "}
+            · {t("断开仅离开账户，服务与已有任务继续运行。")}
+          </p>
+          {paper.cursor === paper.total && (
+            <p role="status">{t("历史回放已结束，可查看记录或创建新的账户。")}</p>
           )}
           <dl className="paper-metrics">
             {(
@@ -367,101 +489,116 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
               </div>
             </fieldset>
           </form>
-          <h3 className="paper-heading">{t("持仓")}</h3>
-          <div className="paper-table" role="region" aria-label={t("模拟持仓")} tabIndex={0}>
-            <table aria-label={t("模拟持仓")}>
-              <thead>
-                <tr>
-                  <th>{t("合约")}</th>
-                  <th>{t("方向")}</th>
-                  <th>{t("今昨仓")}</th>
-                  <th>{t("手数")}</th>
-                  <th>{t("计价成本")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paper.positions.map((p, i) => (
-                  <tr key={i}>
-                    <td>{p.symbol}</td>
-                    <td>{p.side === "buy" ? t("多头") : t("空头")}</td>
-                    <td>{p.bucket === "today" ? t("今仓") : t("昨仓")}</td>
-                    <td>{p.quantity}</td>
-                    <td>{p.basis}</td>
+          <ActivityTabs value={activity} onChange={setActivity} strategy />
+          <div hidden={activity !== "positions"}>
+            <h3 className="paper-heading">{t("持仓")}</h3>
+            <div className="paper-table" role="region" aria-label={t("模拟持仓")} tabIndex={0}>
+              <table aria-label={t("模拟持仓")}>
+                <thead>
+                  <tr>
+                    <th>{t("合约")}</th>
+                    <th>{t("方向")}</th>
+                    <th>{t("今昨仓")}</th>
+                    <th>{t("手数")}</th>
+                    <th>{t("计价成本")}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {!paper.positions.length && <p className="dashboard-caption">{t("暂无持仓")}</p>}
-          <h3 className="paper-heading">{t("委托")}</h3>
-          <div className="paper-table" role="region" aria-label={t("模拟委托")} tabIndex={0}>
-            <table aria-label={t("模拟委托")}>
-              <thead>
-                <tr>
-                  <th>{t("合约")}</th>
-                  <th>{t("方向 / 开平")}</th>
-                  <th>{t("限价")}</th>
-                  <th>{t("手数")}</th>
-                  <th>{t("已成交")}</th>
-                  <th>{t("状态")}</th>
-                  <th>{t("操作")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paper.orders
-                  .slice()
-                  .reverse()
-                  .map(o => (
-                    <tr key={o.id}>
-                      <td>{o.symbol}</td>
-                      <td>
-                        {o.side === "buy" ? t("买入") : t("卖出")} / {offsets[o.offset]}
-                      </td>
-                      <td>{o.limit_price}</td>
-                      <td>{o.quantity}</td>
-                      <td>{o.filled}</td>
-                      <td>{states[o.state] ?? o.state}</td>
-                      <td>
-                        {["accepted", "partially_filled"].includes(o.state) && (
-                          <button
-                            disabled={blocked}
-                            onClick={() => void act({ action: "cancel", order_id: o.id })}
-                          >
-                            {t("撤单")}
-                          </button>
-                        )}
-                      </td>
+                </thead>
+                <tbody>
+                  {paper.positions.map((p, i) => (
+                    <tr key={i}>
+                      <td>{p.symbol}</td>
+                      <td>{p.side === "buy" ? t("多头") : t("空头")}</td>
+                      <td>{p.bucket === "today" ? t("今仓") : t("昨仓")}</td>
+                      <td>{p.quantity}</td>
+                      <td>{p.basis}</td>
                     </tr>
                   ))}
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+            </div>
+            {!paper.positions.length && <p className="content-caption">{t("暂无持仓")}</p>}
           </div>
-          <h3 className="paper-heading">{t("成交")}</h3>
-          <div className="paper-table" role="region" aria-label={t("模拟成交")} tabIndex={0}>
-            <table aria-label={t("模拟成交")}>
-              <thead>
-                <tr>
-                  <th>{t("合约")}</th>
-                  <th>{t("成交编号")}</th>
-                  <th>{t("价格")}</th>
-                  <th>{t("手数")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paper.fills
-                  .slice()
-                  .reverse()
-                  .map(f => (
-                    <tr key={f.id}>
-                      <td>{f.symbol}</td>
-                      <td>{f.id}</td>
-                      <td>{f.price}</td>
-                      <td>{f.quantity}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
+          <div hidden={activity !== "orders"}>
+            <h3 className="paper-heading">{t("委托")}</h3>
+            <div className="paper-table" role="region" aria-label={t("模拟委托")} tabIndex={0}>
+              <table aria-label={t("模拟委托")}>
+                <thead>
+                  <tr>
+                    <th>{t("合约")}</th>
+                    <th>{t("方向 / 开平")}</th>
+                    <th>{t("限价")}</th>
+                    <th>{t("手数")}</th>
+                    <th>{t("已成交")}</th>
+                    <th>{t("状态")}</th>
+                    <th>{t("操作")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paper.orders
+                    .slice()
+                    .reverse()
+                    .map(o => (
+                      <tr key={o.id}>
+                        <td>{o.symbol}</td>
+                        <td>
+                          {o.side === "buy" ? t("买入") : t("卖出")} / {offsets[o.offset]}
+                        </td>
+                        <td>{o.limit_price}</td>
+                        <td>{o.quantity}</td>
+                        <td>{o.filled}</td>
+                        <td>{states[o.state] ?? o.state}</td>
+                        <td>
+                          {["accepted", "partially_filled"].includes(o.state) && (
+                            <button
+                              disabled={blocked}
+                              onClick={() => void act({ action: "cancel", order_id: o.id })}
+                            >
+                              {t("撤单")}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
           </div>
+          <div hidden={activity !== "fills"}>
+            <h3 className="paper-heading">{t("成交")}</h3>
+            <div className="paper-table" role="region" aria-label={t("模拟成交")} tabIndex={0}>
+              <table aria-label={t("模拟成交")}>
+                <thead>
+                  <tr>
+                    <th>{t("合约")}</th>
+                    <th>{t("成交编号")}</th>
+                    <th>{t("价格")}</th>
+                    <th>{t("手数")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paper.fills
+                    .slice()
+                    .reverse()
+                    .map(f => (
+                      <tr key={f.id}>
+                        <td>{f.symbol}</td>
+                        <td>{f.id}</td>
+                        <td>{f.price}</td>
+                        <td>{f.quantity}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {activity === "strategy" && (
+            <StrategyPanel
+              key={snapshot?.connection?.session}
+              snapshot={snapshot}
+              busy={busy}
+              trade={trade}
+            />
+          )}
           <details>
             <summary>{t("风险限制")}</summary>
             <p>
@@ -500,12 +637,6 @@ export function Panel({ snapshot, busy, trade }: TerminalContext) {
           </details>
         </>
       )}
-      <StrategyPanel
-        key={snapshot?.connection?.session ?? "no-account"}
-        snapshot={snapshot}
-        busy={busy}
-        trade={trade}
-      />
     </section>
   );
 }

@@ -29,7 +29,7 @@ flowchart TB
 
 ## 进程
 
-所有服务由 Node Agent 启动和监督。Terminal 是客户端，关闭不影响服务。
+所有服务由 Node Agent 启动和监督。安装版 Terminal 关闭后服务继续运行；开发入口退出时自动停止本机开发服务，保留数据，详见开发指南。
 
 | 程序 | 职责 |
 | --- | --- |
@@ -63,7 +63,7 @@ flowchart TB
 | `bindings/node/`、`bindings/c/` | Node-API 与 C ABI |
 | `apps/clients/terminal/native/` | C++ 编排：服务客户端、命令、状态快照 |
 | `apps/clients/terminal/src/` | React 宿主：工作台、设置、启动、多语言、桥接 |
-| `apps/clients/terminal/plugins/` | 工作区插件：市场、自选、合约、总览、数据、研究、交易 |
+| `apps/clients/terminal/plugins/` | 工作区插件：自选、合约、市场、数据、研究、交易 |
 | `apps/clients/terminal/dev/` | 浏览器开发桥（`pnpm dev` 与 e2e 使用） |
 
 ### 状态同步

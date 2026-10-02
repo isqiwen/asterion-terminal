@@ -7,9 +7,6 @@
   flex-direction: column;
   background: var(--canvas);
 }
-.terminal-business > .dashboard {
-  flex: 1;
-}
 .futures-data,
 .futures-market {
   display: flex;
@@ -559,6 +556,9 @@
   border-radius: 6px;
   background: var(--panel);
 }
+.dataset-picker .dataset-version-field {
+  grid-column: 1 / -1;
+}
 .dataset-picker h3 {
   margin: 0;
   font-size: 12px;
@@ -573,19 +573,6 @@
   border: 0;
   margin: 0;
   padding: 0;
-}
-.trading-modes {
-  display: flex;
-  gap: 8px;
-  padding: 12px 24px 0;
-}
-.trading-modes button {
-  border-color: transparent;
-  background: transparent;
-}
-.trading-modes button[aria-pressed="true"] {
-  color: var(--accent);
-  background: var(--accent-surface);
 }
 .dataset-list {
   display: grid;
@@ -612,4 +599,94 @@
 }
 .cost-template p {
   margin: 0;
+}
+
+.content-caption {
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.workspace-empty {
+  flex: 1;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+}
+.workspace-empty p {
+  margin: 0;
+  max-width: 420px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+
+.research-access {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--grid);
+  color: var(--muted);
+}
+
+.saved-datasets {
+  padding-block: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.saved-dataset-row {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block: 8px;
+}
+.saved-dataset-row label {
+  display: grid;
+  gap: 6px;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.saved-dataset-row select,
+.saved-dataset-row input {
+  width: 100%;
+  min-width: 0;
+}
+
+.dataset-composition {
+  margin-block: 12px;
+}
+.dataset-composition > summary {
+  cursor: pointer;
+}
+.dataset-composition fieldset {
+  max-height: 220px;
+  overflow: auto;
+  margin-block: 8px;
+}
+.dataset-composition .dataset-segment {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px;
+}
+.dataset-composition .dataset-segment input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  flex: 0 0 14px;
+  padding: 0;
+  margin: 3px 0 0;
+}
+.dataset-segment span {
+  overflow-wrap: anywhere;
 }

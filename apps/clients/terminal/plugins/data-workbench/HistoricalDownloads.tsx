@@ -30,8 +30,9 @@ function SourceDownloads({
   trade,
   query,
   navigate,
+  openSettings,
   source,
-}: Pick<TerminalContext, "snapshot" | "busy" | "trade" | "query" | "navigate"> & {
+}: Pick<TerminalContext, "snapshot" | "busy" | "trade" | "query" | "navigate" | "openSettings"> & {
   source: HistorySource;
 }) {
   const [form, setForm] = useWorkspaceDraft(`historyQuery:${source.id}`, {
@@ -102,13 +103,13 @@ function SourceDownloads({
     <div className="history-layout">
       <section className="history-config" aria-label={t("新建下载")}>
         <h3>{t("新建下载")}</h3>
-        <p className="dashboard-caption">{t(source.description)}</p>
-        {research?.remote ? <p>{t("历史下载当前使用本机研究服务。")}</p> : null}
-        {(!research?.online || research.remote) && (
-          <button disabled={busy} onClick={() => void run("research.local")}>
-            {t("连接本机研究服务")}
-          </button>
-        )}
+        <p className="content-caption">{t(source.description)}</p>
+        {research?.remote ? (
+          <div className="source-actions">
+            <p>{t("历史下载当前使用本机研究服务。")}</p>
+            <button onClick={() => openSettings("connections")}>{t("查看运行位置")}</button>
+          </div>
+        ) : null}
         <form
           onSubmit={event => {
             event.preventDefault();
@@ -362,7 +363,7 @@ function SourceDownloads({
               .reverse()
               .filter(task => task.state !== "succeeded")
               .map(task => (
-                <article className="publication-row" key={task.id}>
+                <article className="publication-row" data-task-id={task.id} key={task.id}>
                   <div className="publication-name">
                     <strong>{task.source_name}</strong>
                     <small>
@@ -411,7 +412,7 @@ function SourceDownloads({
           .filter(task => task.state === "succeeded")
           .reverse()
           .map(task => (
-            <article className="publication-row" key={task.id}>
+            <article className="publication-row" data-task-id={task.id} key={task.id}>
               <div className="publication-name">
                 <strong>{task.source_name}</strong>
                 <small>
@@ -427,15 +428,32 @@ function SourceDownloads({
               >
                 {t("查看数据")}
               </button>
+              <button
+                className="primary"
+                disabled={busy || !research?.online || !task.history_dataset_id}
+                onClick={() => {
+                  setToken("");
+                  navigate("workspace.research", {
+                    page: "backtest",
+                    params: {
+                      source_dataset_id: task.history_dataset_id!,
+                      connection_id: research?.connection_id ?? "",
+                      selection_id: crypto.randomUUID(),
+                    },
+                  });
+                }}
+              >
+                {t("用于回测")}
+              </button>
               {task.kind === "daily_download" && (
                 <button
-                  disabled={busy || !research?.online}
+                  disabled={busy || !research?.online || !task.history_dataset_id}
                   onClick={() => {
                     setToken("");
                     navigate("workspace.research", {
                       page: "daily_factor",
                       params: {
-                        source_task_id: task.id,
+                        source_dataset_id: task.history_dataset_id!,
                         connection_id: research?.connection_id ?? "",
                       },
                     });
@@ -488,7 +506,6 @@ function SourceDownloads({
 }
 
 export function HistoricalDownloads(context: TerminalContext) {
-  const [connectionError, setConnectionError] = useState<DisplayError>("");
   const sources = historySources(context.snapshot?.research?.sources ?? []);
   const [sourceId, setSourceId] = useWorkspaceDraft("historySource", "");
   const source = sources.find(item => item.id === sourceId) ?? sources[0];
@@ -534,23 +551,7 @@ export function HistoricalDownloads(context: TerminalContext) {
           />
         </>
       ) : (
-        <>
-          <p role="alert">{t("数据源不可用")}</p>
-          {!context.snapshot?.research?.online && (
-            <button
-              disabled={context.busy}
-              onClick={() => {
-                setConnectionError("");
-                void context
-                  .trade("research.local")
-                  .catch(error => setConnectionError(asDisplayError(error)));
-              }}
-            >
-              {t("连接本机研究服务")}
-            </button>
-          )}
-          <ErrorNotice error={connectionError} />
-        </>
+        <>{context.snapshot?.research?.online && <p role="alert">{t("数据源不可用")}</p>}</>
       )}
     </section>
   );

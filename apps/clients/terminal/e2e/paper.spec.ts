@@ -14,14 +14,27 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
     await expect(page.getByRole("button", { name: "查看服务连接", exact: true })).toBeVisible({
       timeout: 60000,
     });
-    await seedHistory(page.request, [100, 99, 110], "paper");
+    const history = await seedHistory(page.request, [100, 99, 110], "paper");
     await page.reload();
-    await page.getByRole("button", { name: "交易", exact: true }).click();
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
+    await page.getByRole("button", { name: "历史回放", exact: true }).click();
+    await page.getByRole("button", { name: "新建回放账户", exact: true }).click();
     // Bars and settlement come from completed downloads; the contract units
     // are the only specification typed here.
     const picker = page.getByRole("form", { name: "历史数据集" });
-    await picker.getByLabel("K 线来源", { exact: true }).selectOption("paper-bars");
-    await expect(picker.getByLabel("结算价来源", { exact: true })).toHaveValue("paper-settlement");
+    await picker
+      .getByLabel("K 线来源", { exact: true })
+      .selectOption(history.source_dataset_ids[0]);
+    if (await picker.getByLabel("结算价来源", { exact: true }).isVisible())
+      await picker
+        .getByLabel("结算价来源", { exact: true })
+        .selectOption(history.settlement_dataset_ids[0]);
+    await expect(picker.getByLabel("结算价来源", { exact: true })).toHaveValue(
+      history.settlement_dataset_ids[0],
+    );
     await picker.getByLabel("最小变动价位", { exact: true }).fill("1");
     await picker.getByLabel("合约乘数", { exact: true }).fill("10");
     await picker.screenshot({ path: join(__dirname, "../test-results/dataset-picker.png") });
@@ -30,6 +43,8 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
     await expect(selected).toContainText("SHFE · rb2610");
     await expect(selected).toContainText("3 根 · 1 个交易日");
     await selected.screenshot({ path: join(__dirname, "../test-results/dataset-selected.png") });
+    await page.getByRole("button", { name: "下一步", exact: true }).click();
+    await page.getByText("自定义记录目录", { exact: true }).click();
     for (const [label, value] of [
       ["交易记录目录", directory],
       ["初始模拟资金", "1000"],
@@ -75,15 +90,26 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
     });
     await expect(template).toContainText("已固定 3 个费率版本");
     await expect(page.getByLabel("每手开仓费", { exact: true })).toHaveValue("2");
-    await page.getByRole("button", { name: "研究", exact: true }).click();
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
+    await page.getByRole("button", { name: "历史回放", exact: true }).click();
     await page.getByRole("button", { name: "均线回测", exact: true }).click();
+    await page.getByRole("button", { name: "新建回测", exact: true }).click();
+    await page.getByRole("button", { name: "下一步", exact: true }).click();
     await expect(page.getByLabel("初始资金", { exact: true })).toHaveValue("");
     await page.getByLabel("初始资金", { exact: true }).fill("9000");
-    await page.getByRole("button", { name: "交易", exact: true }).click();
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
+    await page.getByRole("button", { name: "历史回放", exact: true }).click();
     await expect(page.getByLabel("交易记录目录", { exact: true })).toHaveValue(directory);
     await expect(page.getByLabel("初始模拟资金", { exact: true })).toHaveValue("1000");
     await expect(page.getByLabel("单笔数量上限", { exact: true })).toHaveValue("1");
-    await page.getByRole("button", { name: "创建模拟会话", exact: true }).click();
+    await page.getByRole("button", { name: "下一步", exact: true }).click();
+    await page.getByRole("button", { name: "创建回放账户", exact: true }).click();
     await expect(page.getByTestId("paper-balance")).toHaveText("1000 CNY");
     await page.getByRole("button", { name: "回放下一根", exact: true }).click();
     await page.getByLabel("限价", { exact: true }).fill("100");
@@ -91,23 +117,25 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
     await page.getByRole("button", { name: "提交模拟委托", exact: true }).click();
     await expect(page.getByRole("alert")).toBeVisible();
     await expect(page.getByTestId("paper-frozen")).toHaveText("0 CNY");
-    await expect(page.getByRole("table", { name: "模拟委托" }).locator("tbody tr")).toHaveCount(0);
+    await expect(
+      page.getByRole("table", { includeHidden: true, name: "模拟委托" }).locator("tbody tr"),
+    ).toHaveCount(0);
     await page.getByLabel("委托手数", { exact: true }).fill("1");
 
     await page.getByRole("button", { name: "提交模拟委托", exact: true }).click();
     await expect(page.getByTestId("paper-frozen")).toHaveText("102 CNY");
-    await expect(page.getByRole("table", { name: "模拟成交" }).locator("tbody tr")).toHaveCount(0);
+    await expect(
+      page.getByRole("table", { includeHidden: true, name: "模拟成交" }).locator("tbody tr"),
+    ).toHaveCount(0);
     await page.getByRole("button", { name: "回放下一根", exact: true }).click();
     await expect(page.getByTestId("paper-balance")).toHaveText("998 CNY");
-    await expect(page.getByRole("table", { name: "模拟持仓" })).toContainText("多头");
-    await page.getByRole("button", { name: "总览", exact: true }).click();
-    const summary = page.getByRole("region", { name: "账户与持仓", exact: true });
-    await expect(summary.getByText("历史模拟 · CNY", { exact: true })).toBeVisible();
-    await expect(summary.getByRole("region", { name: "模拟持仓", exact: true })).toContainText(
+    await expect(page.getByRole("table", { includeHidden: true, name: "模拟持仓" })).toContainText(
+      "多头",
+    );
+    await page.getByRole("button", { name: "持仓", exact: true }).click();
+    await expect(page.getByRole("table", { name: "模拟持仓", exact: true })).toContainText(
       "rb2610",
     );
-    await page.screenshot({ path: join(__dirname, "../test-results/overview-account.png") });
-    await summary.getByRole("button", { name: "查看账户", exact: true }).click();
     await page.getByLabel("买卖方向", { exact: true }).selectOption("sell");
     await page.getByLabel("开平仓", { exact: true }).selectOption("close_today");
     await page.getByLabel("限价", { exact: true }).fill("110");
@@ -121,8 +149,12 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
     await expect(page.getByRole("button", { name: "日终结算", exact: true })).toHaveCount(0);
     await expect(page.getByTestId("paper-balance")).toHaveText("1105 CNY");
     await expect(page.getByTestId("paper-fees")).toHaveText("5 CNY");
-    await expect(page.getByRole("table", { name: "模拟持仓" }).locator("tbody tr")).toHaveCount(0);
-    await expect(page.getByRole("table", { name: "模拟成交" }).locator("tbody tr")).toHaveCount(2);
+    await expect(
+      page.getByRole("table", { includeHidden: true, name: "模拟持仓" }).locator("tbody tr"),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("table", { includeHidden: true, name: "模拟成交" }).locator("tbody tr"),
+    ).toHaveCount(2);
     await page.screenshot({ path: join(__dirname, "../test-results/paper-trading.png") });
     const response = await page.request.post("/__asterion/api", {
       data: { version: 1, method: "runtime.snapshot", params: {} },
@@ -139,16 +171,21 @@ test("paper trading uses C++ ledger and restores persisted account", async ({ pa
     await expect(
       page.getByText("交易连接或存储状态不确定，请关闭会话并从原目录恢复，核对结果后再操作。"),
     ).toBeVisible();
-    await page.getByRole("button", { name: "总览", exact: true }).click();
-    await expect(page.getByText("模拟会话需要恢复", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "交易", exact: true }).click();
+    await expect(page.locator(".status-bar")).toContainText("模拟账户待恢复");
     await page.getByRole("button", { name: "断开连接", exact: true }).click();
     await page.reload();
-    await page.getByRole("button", { name: "交易", exact: true }).click();
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
+    await page.getByRole("button", { name: "历史回放", exact: true }).click();
+    await page.getByText("从指定目录恢复", { exact: true }).click();
     await page.getByLabel("交易记录目录", { exact: true }).fill(directory);
     await page.getByRole("button", { name: "恢复会话", exact: true }).click();
     await expect(page.getByTestId("paper-balance")).toHaveText("1105 CNY");
-    await expect(page.getByRole("table", { name: "模拟成交" }).locator("tbody tr")).toHaveCount(2);
+    await expect(
+      page.getByRole("table", { includeHidden: true, name: "模拟成交" }).locator("tbody tr"),
+    ).toHaveCount(2);
     const restoredResponse = await page.request.post("/__asterion/api", {
       data: { version: 1, method: "runtime.snapshot", params: {} },
     });

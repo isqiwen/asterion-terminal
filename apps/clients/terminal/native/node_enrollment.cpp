@@ -1,4 +1,5 @@
 #include "node_enrollment.hpp"
+#include "node_client.hpp"
 #include "firewall.hpp"
 #include "remote_bundle.hpp"
 #include <asterion/kernel/environment.hpp>
@@ -10,6 +11,7 @@
 #include <fstream>
 #include <sstream>
 #include <regex>
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <thread>
@@ -56,18 +58,7 @@ std::string batch_quote(const std::string& s) {
   }
   return r + "\"";
 }
-fs::path state_root() {
-  if (const auto test = environment_path("ASTERION_NODE_DIRECTORY"))
-    return *test / "enrollments";
-#ifdef _WIN32
-  const auto home = environment_path("LOCALAPPDATA");
-#else
-  const auto home = environment_path("HOME");
-#endif
-  if (!home)
-    throw std::runtime_error("local user data directory unavailable");
-  return *home / ".asterion" / "nodes";
-}
+
 void write(const fs::path& p, const std::string& content) {
   if (fs::is_symlink(p))
     throw std::invalid_argument("enrollment path cannot be a symlink");
@@ -135,7 +126,7 @@ void validate_key_path(const fs::path& file, bool directory) {
 }
 fs::path key_directory(const std::string& id) {
   valid_id(id);
-  const auto base = state_root() / ".ssh-keys";
+  const auto base = node_enrollment_directory() / ".ssh-keys";
   validate_key_path(base, true);
   const auto directory = base / id;
   validate_key_path(directory, true);
@@ -353,7 +344,7 @@ namespace {
 fs::path firewall_record(const Json& p) {
   const auto id = p.at("id").get<std::string>();
   valid_id(id);
-  return state_root() / ".firewall" /
+  return node_enrollment_directory() / ".firewall" /
          (id + "-" + std::to_string(port(p, "firewall_port")) + ".json");
 }
 Json owned_firewall(const Json& p) {
@@ -379,9 +370,36 @@ Json probe_firewall(const Json& p, Ssh& ssh, const std::string& os) {
   return report;
 }
 } // namespace
+Json registered_node_inventory() {
+  Json result{{"names", Json::array()}};
+  try {
+    const auto root = node_enrollment_directory();
+    if (fs::is_symlink(root))
+      throw std::invalid_argument("invalid enrollment root");
+    if (!fs::exists(root))
+      return result;
+    std::vector<std::string> names;
+    for (const auto& entry : fs::directory_iterator(root)) {
+      const auto name = entry.path().filename().string();
+      if (name.starts_with('.') || name == "enrollment.lock" || name == "ssh-keys.lock")
+        continue;
+      valid_id(name);
+      if (names.size() >= 1000)
+        throw std::invalid_argument("registered node inspection limit exceeded");
+      if (!fs::is_directory(entry.path()) || fs::is_symlink(entry.path()))
+        throw std::invalid_argument("invalid enrollment path");
+      names.push_back(name);
+    }
+    std::ranges::sort(names);
+    result["names"] = names;
+  } catch (const std::exception& e) {
+    result["error"] = e.what();
+  }
+  return result;
+}
 Json prepare_ssh_key(const std::string& id) {
   valid_id(id);
-  const auto root = state_root();
+  const auto root = node_enrollment_directory();
   if (fs::is_symlink(root))
     throw std::invalid_argument("invalid enrollment root");
   fs::create_directories(root);
@@ -484,7 +502,7 @@ Json change_node_firewall(const Json& p, const Json& plan) {
     throw std::invalid_argument("firewall inspection changed; inspect and confirm again");
   const auto file = firewall_record(p);
   const bool remove = plan.at("action") == "remove";
-  if (fs::is_symlink(state_root()) || fs::is_symlink(file.parent_path()))
+  if (fs::is_symlink(node_enrollment_directory()) || fs::is_symlink(file.parent_path()))
     throw std::invalid_argument("invalid firewall state directory");
   fs::create_directories(file.parent_path());
 #ifndef _WIN32
@@ -501,7 +519,7 @@ Json change_node_firewall(const Json& p, const Json& plan) {
         owned.at("source") != plan.at("source"))
       throw std::invalid_argument("no matching owned firewall rule");
   } else {
-    if (fs::is_symlink(state_root()) || fs::is_symlink(file.parent_path()))
+    if (fs::is_symlink(node_enrollment_directory()) || fs::is_symlink(file.parent_path()))
       throw std::invalid_argument("invalid firewall state directory");
     fs::create_directories(file.parent_path());
 #ifndef _WIN32
@@ -546,7 +564,7 @@ Json change_node_firewall(const Json& p, const Json& plan) {
 }
 NodeEndpoint enrolled_node(const std::string& id) {
   valid_id(id);
-  const auto root = state_root() / id;
+  const auto root = node_enrollment_directory() / id;
   const auto file = root / "enrollment.json";
   if (fs::is_symlink(root) || fs::is_symlink(file) || !fs::is_regular_file(file) ||
       fs::file_size(file) > 65536)
@@ -582,7 +600,7 @@ NodeEndpoint enroll_node(const Json& p) {
   if (!ssh.command(probe))
     throw std::runtime_error("SSH verification failed; check host identity, authentication, Linux "
                              "platform and host initialization");
-  const auto base = state_root();
+  const auto base = node_enrollment_directory();
   if (fs::is_symlink(base))
     throw std::invalid_argument("invalid enrollment root");
   fs::create_directories(base);

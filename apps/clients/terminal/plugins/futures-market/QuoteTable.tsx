@@ -54,7 +54,6 @@ function speed(row: LiveMarket["subscriptions"][number]) {
 }
 export function QuoteTable({
   market,
-  compact = false,
   overviewStyle = false,
   selected,
   onSelect,
@@ -70,7 +69,6 @@ export function QuoteTable({
   sort?: { column: string; direction: "ascending" | "descending" };
   onSort?: (column: string) => void;
   market: LiveMarket;
-  compact?: boolean;
   overviewStyle?: boolean;
   selected?: string;
   onSelect?: (id: string) => void;
@@ -78,12 +76,7 @@ export function QuoteTable({
   onOpen?: (id: string) => void;
 }) {
   return (
-    <div
-      className={compact ? "dashboard-table market-quote-table" : "market-quote-table"}
-      tabIndex={0}
-      role="region"
-      aria-label={t("自选行情表")}
-    >
+    <div className="market-quote-table" tabIndex={0} role="region" aria-label={t("自选行情表")}>
       <table className="data-table">
         <thead>
           <tr>
@@ -94,7 +87,8 @@ export function QuoteTable({
                   "最新价",
                   "买一 / 量",
                   "卖一 / 量",
-                  ...(compact ? [] : ["成交量", "持仓量"]),
+                  "成交量",
+                  "持仓量",
                   "更新时间（北京时间）",
                   "状态",
                 ]
@@ -247,12 +241,10 @@ export function QuoteTable({
                     <td className="numeric">
                       {q?.ask ?? "—"} / {q?.ask_quantity ?? "—"}
                     </td>
-                    {!compact && (
-                      <>
-                        <td className="numeric">{q?.volume ?? "—"}</td>
-                        <td className="numeric">{q?.open_interest ?? "—"}</td>
-                      </>
-                    )}
+                    <>
+                      <td className="numeric">{q?.volume ?? "—"}</td>
+                      <td className="numeric">{q?.open_interest ?? "—"}</td>
+                    </>
                     <td>
                       {q?.source_ms ? (
                         <time
@@ -262,15 +254,10 @@ export function QuoteTable({
                             hour12: false,
                           })}
                         >
-                          {compact
-                            ? new Date(q.source_ms).toLocaleTimeString(getLocale(), {
-                                timeZone: "Asia/Shanghai",
-                                hour12: false,
-                              })
-                            : new Date(q.source_ms).toLocaleString(getLocale(), {
-                                timeZone: "Asia/Shanghai",
-                                hour12: false,
-                              })}
+                          {new Date(q.source_ms).toLocaleString(getLocale(), {
+                            timeZone: "Asia/Shanghai",
+                            hour12: false,
+                          })}
                         </time>
                       ) : (
                         "—"

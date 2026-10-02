@@ -171,6 +171,7 @@ Json decode_task(const research::v1::Task& task) {
                  {"trading_day", task.trading_day()},
                  {"instrument", task.instrument()},
                  {"source_name", task.source_name()},
+                 {"history_dataset_id", task.history_dataset_id()},
                  {"data_source", task.has_daily()     ? task.daily().source()
                                  : task.has_minutes() ? task.minutes().source()
                                                       : task.data_source()},
@@ -211,7 +212,7 @@ Json decode_task_result(const research::v1::TaskResponse& response, const std::s
                  {"last_day", bars.back().at("trading_day")},
                  {"interval_minutes", dataset.at("interval_minutes")},
                  {"source", dataset.at("source")},
-                 {"source_task_id", dataset.at("source_task_id")}};
+                 {"source_dataset_ids", dataset.at("source_dataset_ids")}};
     dataset.erase("bars");
     dataset.erase("days");
     return summary;

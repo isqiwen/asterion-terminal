@@ -1,5 +1,4 @@
 import { registerTerminalPlugins } from "./host/plugin-registry";
-import { plugin as overview } from "../plugins/overview/plugin";
 import {
   plugin as market,
   watchlistPlugin,
@@ -14,19 +13,10 @@ export const terminalPlugins = registerTerminalPlugins([
   watchlistPlugin,
   contractPlugin,
   market,
-  overview,
   data,
   research,
   trading,
 ]);
 export const workspaces = terminalPlugins.map(plugin => plugin.workspace);
 
-export const workspaceShortcuts = [
-  overview,
-  market,
-  data,
-  research,
-  trading,
-  watchlistPlugin,
-  contractPlugin,
-].map(plugin => plugin.workspace.id);
+export const workspaceShortcuts = workspaces.map(workspace => workspace.id);

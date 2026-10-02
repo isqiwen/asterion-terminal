@@ -259,7 +259,9 @@ module.exports = async function checkNativeHistory(page, temp, capture) {
     "aria-pressed",
     "true",
   );
-  await expect(page.getByLabel("日线来源", { exact: true })).toHaveValue("native-daily-fixture");
+  await expect(page.getByLabel("日线来源", { exact: true })).toHaveValue(
+    dailyTask.history_dataset_id,
+  );
   await page.getByLabel("回看日线数", { exact: true }).fill("5");
   await page.getByLabel("未来日线数", { exact: true }).fill("1");
   await page.getByLabel("评价方式", { exact: true }).selectOption("holdout");

@@ -1,4 +1,6 @@
 #include "credential_fixture.hpp"
+#include "application_environment.hpp"
+#include "node_client.hpp"
 #include <asterion/kernel/process/child.hpp>
 #include <algorithm>
 #include <fstream>
@@ -64,3 +66,60 @@ TEST(DataConnections, SnapshotReflectsSavesAndRemovalsThroughTheCache) {
   connections.remove("one", connections.snapshot()[0].at("revision").get<std::string>());
   EXPECT_TRUE(connections.snapshot().empty());
 }
+
+TEST(DataConnections, IdenticalConnectionIdsHaveIndependentCredentialsAcrossEnvironments) {
+  Directory root;
+  fs::create_directory(root.path);
+  auto credentials = std::make_shared<test::MemoryCredentials>();
+  terminal::DataConnections production(root.path / "production", credentials);
+  terminal::DataConnections development(root.path / "development", credentials);
+  auto first = connection("same-id", true);
+  auto second = first;
+  second.credential = "different-development-secret";
+  production.save(first, "", "replace", schema());
+  development.save(second, "", "replace", schema());
+  EXPECT_EQ(credentials->items.size(), 2U);
+  EXPECT_EQ(production.get(first.id).credential, first.credential);
+  EXPECT_EQ(development.get(second.id).credential, second.credential);
+  development.remove(second.id, development.get(second.id).revision);
+  EXPECT_EQ(production.get(first.id).credential, first.credential);
+  EXPECT_EQ(credentials->items.size(), 1U);
+}
+
+#ifdef __APPLE__
+TEST(TerminalEnvironment, SeparatesManagedPathsAndServiceIdentityWithoutCreatingFiles) {
+  struct Environment {
+    std::optional<std::string> profile = environment_variable("ASTERION_ENVIRONMENT");
+    std::optional<std::string> directory = environment_variable("ASTERION_NODE_DIRECTORY");
+    ~Environment() {
+      if (profile)
+        setenv("ASTERION_ENVIRONMENT", profile->c_str(), 1);
+      else
+        unsetenv("ASTERION_ENVIRONMENT");
+      if (directory)
+        setenv("ASTERION_NODE_DIRECTORY", directory->c_str(), 1);
+      else
+        unsetenv("ASTERION_NODE_DIRECTORY");
+    }
+  } restore;
+  const auto home = environment_path("HOME").value();
+  unsetenv("ASTERION_NODE_DIRECTORY");
+  setenv("ASTERION_ENVIRONMENT", "production", 1);
+  EXPECT_EQ(terminal::local_node_directory(), home / "Library/Application Support/Asterion/node");
+  EXPECT_EQ(terminal::node_enrollment_directory(), home / ".asterion/nodes");
+  EXPECT_TRUE(terminal::local_node_service_name().empty());
+  setenv("ASTERION_ENVIRONMENT", "development", 1);
+  const auto development = home / "Library/Application Support/Asterion Development/node";
+  EXPECT_EQ(terminal::local_node_directory(), development);
+  EXPECT_EQ(terminal::node_enrollment_directory(), development / "enrollments");
+  EXPECT_EQ(terminal::local_node_service_name(), "me.asterion.node-agent.dev");
+  Directory isolated;
+  setenv("ASTERION_NODE_DIRECTORY", isolated.path.c_str(), 1);
+  EXPECT_EQ(terminal::local_node_directory(), isolated.path);
+  EXPECT_EQ(terminal::node_enrollment_directory(), isolated.path / "enrollments");
+  EXPECT_EQ(terminal::local_node_program_status().at("state"), "isolated");
+  EXPECT_FALSE(fs::exists(isolated.path));
+  setenv("ASTERION_ENVIRONMENT", "invalid", 1);
+  EXPECT_THROW(terminal::local_node_directory(), std::invalid_argument);
+}
+#endif

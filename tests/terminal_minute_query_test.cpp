@@ -1,6 +1,8 @@
 #include "../apps/clients/terminal/native/application_impl.hpp"
 #include "timing.hpp"
+#include <asterion/kernel/environment.hpp>
 #include <asterion/kernel/service_host.hpp>
+#include <asterion/kernel/process/artifact.hpp>
 #include <future>
 #include <gtest/gtest.h>
 using namespace asterion;
@@ -8,6 +10,13 @@ using namespace std::chrono_literals;
 namespace asterion::terminal {
 // Install a real IPC client without provisioning an Agent or touching user state.
 struct ApplicationTestAccess {
+  static void node(Application& app, std::shared_ptr<NodeClient> client) {
+    std::lock_guard lock(app.impl_->operations);
+    if (client)
+      app.impl_->nodes["local"] = std::move(client);
+    else
+      app.impl_->nodes.erase("local");
+  }
   static void catalog(Application& app, std::int64_t cutoff) {
     std::lock_guard lock(app.impl_->operations);
     app.impl_->history_cutoff = cutoff;
@@ -40,7 +49,7 @@ struct MinuteService {
   std::condition_variable condition;
   unsigned entered = 0;
   bool released = false;
-  std::atomic<bool> wrong_identity{false};
+  std::atomic<bool> wrong_identity{false}, reference{false};
   research::v1::TaskSubmit submitted;
   std::unique_ptr<service::ServiceHost> host;
   std::future<bool> running;
@@ -66,7 +75,42 @@ struct MinuteService {
           response.set_correlation_id(request.correlation_id());
           if (request.has_list())
             response.mutable_tasks();
-          else if (request.has_minute_page()) {
+          else if (request.has_history_usage()) {
+            {
+              std::unique_lock lock(mutex);
+              ++entered;
+              condition.notify_all();
+              if (!condition.wait_for(lock, 4s, [&] { return released; }))
+                throw std::runtime_error("fixture query was not released");
+            }
+            response.mutable_history_usage()->set_dataset_id(
+                wrong_identity ? std::string(64, 'b') : request.history_usage().id());
+            if (reference) {
+              auto* row = response.mutable_history_usage()->add_references();
+              row->set_kind(data::v1::HISTORY_BACKTEST);
+              row->set_id("external-task");
+              row->add_roles(data::v1::HISTORY_MARKET);
+            }
+          } else if (request.has_history_update_plan()) {
+            {
+              std::unique_lock lock(mutex);
+              ++entered;
+              condition.notify_all();
+              if (!condition.wait_for(lock, 4s, [&] { return released; }))
+                throw std::runtime_error("fixture query was not released");
+            }
+            auto* plan = response.mutable_history_update_plan();
+            *plan->mutable_query() = request.history_update_plan();
+            auto* input = plan->mutable_daily();
+            input->set_source("tushare.fut_daily");
+            input->set_source_instrument("CU2403.SHF");
+            input->set_version(2);
+            input->set_contract_id("SHFE/cu/2024-03");
+            input->set_begin_day("2024-03-01");
+            input->set_end_day(plan->query().end_day());
+            input->set_requests_per_minute(plan->query().requests_per_minute());
+            plan->set_id(sha256_bytes(plan->SerializeAsString()));
+          } else if (request.has_minute_page()) {
             {
               std::unique_lock lock(mutex);
               ++entered;
@@ -363,7 +407,7 @@ TEST(TerminalDailyFactor, SubmissionDoesNotBlockOtherWindowsAndRejectsChangedSer
   EXPECT_EQ(app.dispatch(request("runtime.snapshot")).at("research").at("connection_id"), first_id);
   const auto submit =
       request("research.daily-factor.submit", {{"id", "analysis"},
-                                               {"source_task_id", "daily"},
+                                               {"source_dataset_id", std::string(64, 'a')},
                                                {"lookback", 20},
                                                {"horizon", 5},
                                                {"evaluation", {{"mode", "full_sample"}}}});
@@ -384,7 +428,7 @@ TEST(TerminalDailyFactor, SubmissionDoesNotBlockOtherWindowsAndRejectsChangedSer
   }
   replacement.release();
   EXPECT_TRUE(app.dispatch(submit).contains("protocol"));
-  EXPECT_EQ(replacement.submitted.daily_factor().source_task_id(), "daily");
+  EXPECT_EQ(replacement.submitted.daily_factor().source_dataset_id(), std::string(64, 'a'));
   EXPECT_EQ(replacement.submitted.daily_factor().lookback(), 20);
   auto bad = submit;
   bad["params"]["lookback"] = 1.5;
@@ -392,4 +436,192 @@ TEST(TerminalDailyFactor, SubmissionDoesNotBlockOtherWindowsAndRejectsChangedSer
   bad = submit;
   bad["params"]["bars"] = Json::array();
   EXPECT_THROW(app.dispatch(bad), std::invalid_argument);
+}
+
+TEST(TerminalHistoryUpdate, SlowPlanDoesNotBlockAndObsoleteServiceCannotSubmit) {
+  MinuteService source;
+  MinuteService replacement;
+  terminal::Application app;
+  terminal::ApplicationTestAccess::attach(app, source.address());
+  const Json params = {{"dataset_id", std::string(64, 'a')},
+                       {"calendar_dataset_id", ""},
+                       {"mode", "extend"},
+                       {"end_day", "2024-03-02"},
+                       {"requests_per_minute", 60}};
+  auto pending = std::async(std::launch::async,
+                            [&] { return app.dispatch(request("research.history.plan", params)); });
+  EXPECT_TRUE(source.wait(1));
+  const auto started = std::chrono::steady_clock::now();
+  EXPECT_FALSE(app.dispatch(request("runtime.snapshot")).value("stale", false));
+  EXPECT_TRUE(app.dispatch(request("paper.close")).contains("protocol"));
+  EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(500ms));
+  terminal::ApplicationTestAccess::attach(app, replacement.address());
+  source.release();
+  EXPECT_THROW((void)pending.get(), Error);
+  replacement.release();
+  const auto plan =
+      app.dispatch(request("research.history.plan", params)).at("history_update_plan");
+  auto submit = request("research.history.submit", {{"id", "update"},
+                                                    {"query", params},
+                                                    {"plan_id", plan.at("id")},
+                                                    {"token", ""},
+                                                    {"connection", ""},
+                                                    {"connection_revision", ""}});
+  replacement.reset();
+  auto stale = std::async(std::launch::async, [&] { return app.dispatch(submit); });
+  EXPECT_TRUE(replacement.wait(1));
+  terminal::ApplicationTestAccess::attach(app, source.address());
+  replacement.release();
+  EXPECT_THROW((void)stale.get(), Error);
+  EXPECT_TRUE(replacement.submitted.id().empty());
+  submit["params"]["plan_id"] = std::string(64, '0');
+  EXPECT_THROW(app.dispatch(submit), std::invalid_argument);
+  EXPECT_TRUE(source.submitted.id().empty());
+}
+
+TEST(TerminalHistoryUsage, SlowQueryDoesNotBlockAndRejectsStaleOrWrongIdentity) {
+  MinuteService source;
+  MinuteService replacement;
+  struct Environment {
+    std::optional<std::string> previous = environment_variable("ASTERION_NODE_DIRECTORY");
+    ~Environment() {
+      if (previous)
+        setenv("ASTERION_NODE_DIRECTORY", previous->c_str(), 1);
+      else
+        unsetenv("ASTERION_NODE_DIRECTORY");
+    }
+  } restore;
+  setenv("ASTERION_NODE_DIRECTORY", source.root.c_str(), 1);
+  terminal::Application app;
+  terminal::ApplicationTestAccess::attach(app, source.address());
+  const auto query = request("research.history.usage", {{"id", std::string(64, 'a')}});
+  auto pending = std::async(std::launch::async, [&] { return app.dispatch(query); });
+  EXPECT_TRUE(source.wait(1));
+  const auto started = std::chrono::steady_clock::now();
+  EXPECT_FALSE(app.dispatch(request("runtime.snapshot")).value("stale", false));
+  EXPECT_TRUE(app.dispatch(request("paper.close")).contains("protocol"));
+  EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(500ms));
+  terminal::ApplicationTestAccess::attach(app, replacement.address());
+  source.release();
+  EXPECT_THROW((void)pending.get(), Error);
+  replacement.release();
+  const auto result = app.dispatch(query).at("history_usage");
+  EXPECT_EQ(result.at("dataset_id"), std::string(64, 'a'));
+  EXPECT_TRUE(result.at("references").empty());
+  EXPECT_TRUE(result.at("selected_roles").empty());
+  replacement.wrong_identity = true;
+  EXPECT_THROW(app.dispatch(query), Error);
+}
+
+TEST(TerminalHistoryUsage, OtherServicesAreScopedAndNodeChangesRejectObsoleteResults) {
+  MinuteService source, other;
+  struct Environment {
+    std::optional<std::string> previous = environment_variable("ASTERION_NODE_DIRECTORY");
+    ~Environment() {
+      if (previous)
+        setenv("ASTERION_NODE_DIRECTORY", previous->c_str(), 1);
+      else
+        unsetenv("ASTERION_NODE_DIRECTORY");
+    }
+  } restore;
+  setenv("ASTERION_NODE_DIRECTORY", source.root.c_str(), 1);
+  source.release();
+  other.release();
+  other.reference = true;
+  std::atomic<unsigned> mutations{0};
+  const auto socket = (source.root / "node.sock").string();
+  service::ServiceHost host(
+      {socket, {}, 0, {}}, [&](service::Connection& connection, std::stop_token) {
+        node::v1::Request request;
+        if (!request.ParseFromString(connection.receive(2s)) || !request.has_status()) {
+          ++mutations;
+          return;
+        }
+        node::v1::Response response;
+        response.set_version(1);
+        response.set_correlation_id(request.correlation_id());
+        auto* status = response.mutable_status();
+        status->set_instance_id("fixture");
+        status->set_os("macos");
+        status->set_arch("arm64");
+        for (const auto& [name, endpoint, state] :
+             std::vector<std::tuple<std::string, std::string, std::string>>{
+                 {"minute-fixture", source.endpoint, "running"},
+                 {"other", other.endpoint, "running"},
+                 {"stopped", other.endpoint + ".stopped", "stopped"},
+                 {"offline", other.endpoint + ".missing", "running"}}) {
+          auto* entry = status->add_services();
+          entry->set_id(name);
+          entry->set_endpoint(endpoint);
+          entry->set_state(state);
+          entry->set_kind(node::v1::TASK_SERVICE);
+        }
+        connection.send(response.SerializeAsString(), 2s);
+      });
+  auto running = std::async(std::launch::async, [&] { return host.run(); });
+  struct Stop {
+    std::future<bool>& running;
+    ~Stop() {
+      service::request_stop();
+      running.wait();
+    }
+  } stop{running};
+  auto node = std::make_shared<terminal::NodeClient>(
+      terminal::NodeEndpoint{"local", "localhost", 0, {}, socket});
+  terminal::Application app;
+  terminal::ApplicationTestAccess::attach(app, source.address());
+  auto current_address = source.address();
+  current_address.host = "localhost"; // Host is irrelevant for the same IPC endpoint.
+  terminal::ApplicationTestAccess::attach(app, current_address);
+  terminal::ApplicationTestAccess::node(app, node);
+  const auto enrollments = source.root / "enrollments";
+  EXPECT_TRUE(terminal::registered_node_inventory().at("names").empty());
+  EXPECT_FALSE(std::filesystem::exists(enrollments));
+  std::filesystem::create_directories(enrollments / "offline");
+  std::filesystem::create_directories(enrollments / ".ssh-keys");
+  EXPECT_EQ(terminal::registered_node_inventory().at("names"), Json::array({"offline"}));
+  const auto query = request("research.history.usage", {{"id", std::string(64, 'a')}});
+  const auto queried = app.dispatch(query).at("history_usage");
+  EXPECT_EQ(queried.at("disconnected_nodes").at("names"), Json::array({"offline"}));
+  const auto groups = queried.at("other_research");
+  ASSERT_EQ(groups.size(), 3U); // Current service is excluded, not inspected twice.
+  EXPECT_TRUE(groups[0].at("checked"));
+  EXPECT_EQ(groups[0].at("references")[0].at("id"), "external-task");
+  EXPECT_FALSE(groups[1].at("checked"));
+  EXPECT_EQ(groups[1].at("error"), "invalid local research ledger directory");
+  EXPECT_FALSE(groups[2].at("checked"));
+  other.wrong_identity = true;
+  const auto wrong = app.dispatch(query).at("history_usage").at("other_research")[0];
+  EXPECT_FALSE(wrong.at("checked"));
+  EXPECT_TRUE(wrong.at("references").empty());
+  other.wrong_identity = false;
+  other.reset();
+  auto pending = std::async(std::launch::async, [&] { return app.dispatch(query); });
+  ASSERT_TRUE(other.wait(1));
+  const auto begin = std::chrono::steady_clock::now();
+  EXPECT_FALSE(app.dispatch(request("runtime.snapshot")).value("stale", false));
+  terminal::ApplicationTestAccess::node(app, nullptr);
+  EXPECT_LT(std::chrono::steady_clock::now() - begin, testing_support::bound(500ms));
+  other.release();
+  try {
+    (void)pending.get();
+    FAIL() << "stale node result accepted";
+  } catch (const Error& error) {
+    EXPECT_STREQ(error.what(), "node connections changed during archive query");
+  }
+  terminal::ApplicationTestAccess::node(app, node);
+  other.reset();
+  auto registry_pending = std::async(std::launch::async, [&] { return app.dispatch(query); });
+  ASSERT_TRUE(other.wait(1));
+  std::filesystem::create_directory(enrollments / "new-offline");
+  other.release();
+  try {
+    (void)registry_pending.get();
+    FAIL() << "stale registration result accepted";
+  } catch (const Error& error) {
+    EXPECT_STREQ(error.what(), "registered nodes changed during archive query");
+  }
+  std::filesystem::create_directory_symlink(source.root, enrollments / "linked");
+  EXPECT_TRUE(terminal::registered_node_inventory().contains("error"));
+  EXPECT_EQ(mutations, 0U);
 }

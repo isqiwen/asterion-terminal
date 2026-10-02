@@ -34,7 +34,15 @@ export async function seedHistory(
     product = "rb",
     keep = false,
     day = "2026-09-25",
-  }: { product?: string; keep?: boolean; day?: string } = {},
+    minuteDays = [],
+    dailyDays = [],
+  }: {
+    product?: string;
+    keep?: boolean;
+    day?: string;
+    minuteDays?: string[];
+    dailyDays?: string[];
+  } = {},
 ) {
   expect(process.env.ASTERION_TEST_NODE_ISOLATED).toBe("1");
   // The selection lives in the shared core process; earlier specs may leave one.
@@ -64,11 +72,20 @@ export async function seedHistory(
       day,
       "--price",
       ...prices.map(String),
+      ...(minuteDays.length ? ["--minute-days", ...minuteDays] : []),
+      ...(dailyDays.length ? ["--daily-days", ...dailyDays] : []),
     ],
     { encoding: "utf8" },
   );
   await rpc(request, "research.local");
-  return JSON.parse(output) as Record<string, string>;
+  return JSON.parse(output) as {
+    source_dataset_ids: string[];
+    settlement_dataset_ids: string[];
+    begin_day: string;
+    end_day: string;
+    price_increment: string;
+    multiplier: string;
+  };
 }
 
 export async function seedDataset(

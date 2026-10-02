@@ -56,7 +56,7 @@ test("market board groups exchanges and links contract selection without inventi
     await route.fulfill({ response, json: body });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "市场", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   const board = page.locator(".futures-market-board");
   const detail = page.getByRole("complementary", { name: "合约详情" });
   // Without a catalog the board lists subscribed months even in product overview.

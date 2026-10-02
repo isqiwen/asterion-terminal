@@ -1,0 +1,305 @@
+.flow-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  list-style: none;
+  padding: 0;
+  margin: 20px 0;
+}
+.flow-steps li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.flow-steps li span {
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+}
+.flow-steps li[aria-current] {
+  color: var(--accent);
+}
+.flow-steps li[aria-current] span {
+  border-color: var(--accent);
+}
+.workflow-heading {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.workflow-heading h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.workflow-heading p {
+  margin: 8px 0 0;
+}
+.workflow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+.workflow-empty {
+  padding: 32px 0;
+  color: var(--muted);
+}
+.account-library,
+.account-setup {
+  padding: 24px;
+  max-width: 1040px;
+  margin: auto;
+}
+.account-cards {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin-bottom: 24px;
+}
+.account-cards article {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  min-width: 0;
+}
+.account-cards strong,
+.account-cards p {
+  overflow-wrap: anywhere;
+}
+.account-cards button {
+  justify-self: start;
+}
+.account-library details,
+.account-setup details {
+  margin-block: 16px;
+}
+.account-setup fieldset {
+  min-width: 0;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.account-setup .account-field-group {
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.account-setup label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-block: 8px;
+}
+.account-setup input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.account-setup > form,
+.account-setup > div > form {
+  margin: 0;
+}
+.account-setup .futures-fields {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.creation-review {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.creation-review p {
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.paper-trading {
+  overflow: auto;
+}
+.terminal-business > .paper-trading > .panel-heading {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--canvas);
+}
+.paper-trading .paper-toolbar {
+  padding: 12px 24px;
+  gap: 12px;
+  font-size: 12px;
+}
+.paper-trading .paper-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 14px 24px;
+  gap: 14px;
+  margin: 0;
+}
+.paper-trading .paper-metrics dd,
+.paper-trading .paper-metrics > :nth-child(-n + 2) dd {
+  font-size: 20px;
+  margin-top: 4px;
+}
+.paper-trading > form {
+  padding: 16px 24px;
+}
+.paper-trading > form .futures-fields {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.paper-trading .account-location,
+.paper-trading .lifecycle-help {
+  margin: 8px 24px;
+  font-size: 11px;
+}
+.activity-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 12px 24px;
+  border-block: 1px solid var(--line);
+}
+.activity-tabs button[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-surface);
+  border-color: var(--accent);
+}
+.paper-trading .paper-heading {
+  margin: 12px 24px;
+  font-size: 12px;
+}
+.paper-trading .paper-table {
+  margin: 0 24px 16px;
+}
+.ctp-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--panel);
+  padding: 10px 24px;
+  position: sticky;
+  top: 64px;
+  z-index: 2;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.ctp-identity span {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+.environment-check {
+  padding: 16px 24px;
+  border-block: 1px solid var(--line);
+}
+.environment-check > label:not(.checkbox) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.environment-check .checkbox {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.environment-check input[type="checkbox"] {
+  width: auto;
+}
+.paper-trading .account-rates-details {
+  margin: 8px 24px;
+}
+.paper-trading .live-authorization {
+  margin: 12px 24px;
+  padding: 12px 0;
+}
+.paper-trading .live-authorization h3 {
+  font-size: 12px;
+  margin: 0 0 8px;
+}
+.research-navigation {
+  margin: 20px 24px 0;
+}
+.research-layout.backtest-layout {
+  display: block;
+  padding-top: 16px;
+}
+.backtest-layout .research-config {
+  max-width: 980px;
+  margin: auto;
+  padding: 20px;
+}
+.backtest-layout .research-fields {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.backtest-layout .research-config > h3 {
+  display: none;
+}
+.backtest-layout .research-main {
+  max-width: 1300px;
+  margin: auto;
+}
+.backtest-layout .research-result {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.research-progress {
+  max-width: 800px;
+  margin: 20px auto;
+  padding: 24px;
+  border: 1px solid var(--line);
+}
+.research-progress progress {
+  width: 100%;
+  margin: 16px 0;
+}
+[hidden] {
+  display: none !important;
+}
+@media (max-width: 900px) {
+  .account-setup .futures-fields,
+  .backtest-layout .research-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .paper-trading > form .futures-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .workflow-heading {
+    flex-wrap: wrap;
+  }
+  .paper-trading .paper-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.paper-trading > .trading-permission {
+  margin: 0;
+  padding: 10px 24px;
+  border-block: 1px solid var(--line);
+}
+.trading-permission .source-actions {
+  margin: 0;
+}
+.trading-permission .checkbox {
+  margin: 0 0 10px;
+}
+.trading-permission .checkbox input {
+  width: auto;
+}
+
+@media (min-width: 1100px) {
+  .paper-trading .paper-metrics {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+.paper-trading > .trading-permission .source-actions {
+  padding: 0;
+}
+.paper-trading > p {
+  margin: 8px 24px;
+}

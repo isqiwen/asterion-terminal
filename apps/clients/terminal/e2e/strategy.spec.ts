@@ -56,7 +56,12 @@ test("strategy runs through Agent and can relinquish its paper account", async (
     await page.getByRole("button", { name: "查看服务连接", exact: true }).click();
     await page.getByRole("button", { name: "重新检测", exact: true }).click();
     await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: "交易", exact: true }).click();
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
+    await page.getByRole("button", { name: "历史回放", exact: true }).click();
+    await page.getByRole("button", { name: "策略", exact: true }).click();
     const panel = page.getByRole("region", { name: "策略运行", exact: true });
     await panel.getByLabel("短周期", { exact: true }).fill("1");
     await panel.getByLabel("长周期", { exact: true }).fill("2");

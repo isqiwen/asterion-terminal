@@ -34,12 +34,10 @@ public:
 
   private:
     friend class Store;
-    DailyFactorSubmission(std::string, research::v1::DailyFactorRequest, research::v1::Task,
-                          data::v1::DailyDownloadResult);
+    DailyFactorSubmission(std::string, research::v1::DailyFactorRequest, data::v1::HistoryRecord);
     std::string id_;
     research::v1::DailyFactorRequest request_;
-    research::v1::Task source_;
-    data::v1::DailyDownloadResult result_;
+    data::v1::HistoryRecord source_;
     research::v1::DailyFactorInput input_;
     bool verified_ = false;
   };
@@ -51,7 +49,7 @@ public:
   void finish(Completion completion);
   research::v1::Task submit(const std::string& id, const research::v1::BacktestInput& input);
   research::v1::Task submit(const std::string& id, const research::v1::FactorInput& input);
-  // Captures completed download sources under the host lock; resolve their
+  // Captures immutable archive versions under the host lock; resolve their
   // files outside it with resolve_bar_dataset, then confirm_sources under it.
   BarDatasetSources prepare_dataset(const data::v1::BarDatasetRequest&) const;
   void confirm_sources(const BarDatasetSources&) const;
@@ -64,6 +62,9 @@ public:
   data::v1::MinuteDownloadResult minute_result(const std::string&) const;
   research::v1::Task get(const std::string& id) const;
   research::v1::TaskList list() const;
+  data::v1::HistoryUsage history_usage(const std::string& dataset_id) const;
+  static data::v1::HistoryUsage inspect_history_usage(const std::filesystem::path& directory,
+                                                      const std::string& dataset_id);
   research::v1::TaskLaunches dispatch(const research::v1::TaskDispatch& processes) const;
   std::string claim(const std::string& id);
   void progress(const std::string& id, const std::string& token, unsigned completed);
@@ -81,8 +82,10 @@ public:
   research::v1::FactorResult factor_result(const std::string& id) const;
 
 private:
+  Store(std::filesystem::path, std::shared_ptr<const Clock>, bool read_only);
   research::v1::Task submit_task(research::v1::Task task);
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };
+void append_saved_references(data::v1::HistoryUsage&, const data::v1::ResearchDatasets&);
 } // namespace asterion::tasks

@@ -15,8 +15,8 @@ export type FuturesContract = {
 };
 // Bars resolved by the research service from completed data-source downloads.
 export type DatasetSelection = {
-  source_task_id: string;
-  settlement_task_id: string;
+  source_dataset_ids: string[];
+  settlement_dataset_ids: string[];
   begin_day: string;
   end_day: string;
   contract: FuturesContract;
@@ -40,10 +40,8 @@ export type DatasetEvidence = {
   version: number;
   revision: string;
   source: string;
-  source_task_id: string;
-  settlement_task_id: string;
-  manifest_sha256: string;
-  settlement_manifest_sha256: string;
+  source_dataset_ids: string[];
+  settlement_dataset_ids: string[];
   interval_minutes: number;
   contract: FuturesContract;
 };
@@ -253,7 +251,13 @@ export type TerminalCommand =
   | "research.minutes.submit"
   | "research.contracts.load"
   | "research.datasets"
+  | "research.dataset.saved"
+  | "research.dataset.save"
+  | "research.dataset.use"
   | "research.coverage"
+  | "research.history.usage"
+  | "research.history.plan"
+  | "research.history.submit"
   | "research.dataset.select"
   | "research.dataset.remove"
   | "research.action"
@@ -505,6 +509,7 @@ export type ResearchTask = {
   provider_artifact?: string;
   risk_artifact?: string;
   data_source?: string;
+  history_dataset_id?: string;
   kind: "backtest" | "factor" | "daily_factor" | "minute_download" | "daily_download";
   id: string;
   state:
@@ -553,7 +558,7 @@ export type ExperimentData = {
   last_day: string;
   interval_minutes: number;
   source: string;
-  source_task_id: string;
+  source_dataset_ids: string[];
 };
 export type BacktestExperiment = {
   version: number;
@@ -588,7 +593,7 @@ export type DailyFactorExperiment = {
   horizon: number;
   evaluation: { mode: "full_sample" } | { mode: "holdout"; split_index: number };
   data: {
-    source_task_id: string;
+    source_dataset_id: string;
     source: string;
     contract_id: string;
     manifest_sha256: string;
@@ -662,6 +667,11 @@ export type ResearchResult =
     };
 // Trading days per contract across archived minute and daily versions.
 export type HistoryCoverage = {
+  minute_dataset_id: string;
+  daily_dataset_id: string;
+  minute_source: string;
+  daily_source: string;
+  interval_minutes: number;
   contract_id: string;
   minute_days: number;
   minute_first: string;
@@ -671,6 +681,64 @@ export type HistoryCoverage = {
   daily_last: string;
   uncovered: number;
   uncovered_days: string[];
+};
+export type SavedResearchDataset = {
+  id: string;
+  name: string;
+  selections: Pick<
+    DatasetSelection,
+    | "source_dataset_ids"
+    | "settlement_dataset_ids"
+    | "begin_day"
+    | "end_day"
+    | "contract"
+    | "revision"
+  >[];
+};
+export type ReplayUsage = {
+  checked: number;
+  references: { name: string; roles: ("market" | "settlement")[] }[];
+  unavailable: { name: string; diagnostic: string }[];
+  error?: string;
+};
+export type HistoryReference = {
+  kind: "download" | "backtest" | "bar_factor" | "daily_factor" | "saved_dataset";
+  id: string;
+  name: string;
+  roles: ("market" | "settlement" | "output")[];
+};
+export type HistoryUsage = {
+  dataset_id: string;
+  references: HistoryReference[];
+  selected_roles: ("market" | "settlement")[];
+  local_replays: ReplayUsage;
+  remote_replays: (ReplayUsage & { node: string; direct: boolean })[];
+  disconnected_nodes: { names: string[]; error?: string };
+  other_research: {
+    node: string;
+    service: string;
+    checked: boolean;
+    stopped?: boolean;
+    references: HistoryReference[];
+    error?: string;
+  }[];
+};
+export type HistoryUpdateQuery = {
+  dataset_id: string;
+  calendar_dataset_id: string;
+  mode: "extend" | "repair";
+  end_day: string;
+  requests_per_minute: number;
+};
+export type HistoryUpdatePlan = {
+  id: string;
+  query: HistoryUpdateQuery;
+  source: string;
+  contract_id: string;
+  interval_minutes: number;
+  begin: string;
+  end: string;
+  missing_days: string[];
 };
 export type HistoryDatasetRecord = {
   id: string;
@@ -766,7 +834,10 @@ export type Snapshot = {
   history_page: HistoryPage | null;
   history_contracts: HistoryContractCatalog;
   history_datasets?: HistoryDatasetRecord[];
+  saved_datasets?: SavedResearchDataset[];
   history_coverage?: HistoryCoverage[];
+  history_update_plan?: HistoryUpdatePlan;
+  history_usage?: HistoryUsage;
   // Present when the core answered from its last snapshot because another operation was running.
   stale?: true;
   // Revision of the core's published state and when the core last refreshed it.

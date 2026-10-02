@@ -79,7 +79,7 @@ export function historySources(declared: readonly NativeHistorySource[]): Histor
           : translate("asterion.terminal.data-workbench", "数据源凭据"),
         required: info.credential_required,
         maxLength: info.connection?.credential_max_length ?? 256,
-        help: "Token 用于合约查询与本机下载；任务提交后清空输入。任务凭据由当前账户保护，关闭桌面不停止下载。",
+        help: "Token 用于合约查询与本机下载；任务提交后清空输入。任务凭据由当前账户保护。",
       },
       catalog: snapshot =>
         snapshot?.history_contracts?.source === info.id ? snapshot.history_contracts : null,

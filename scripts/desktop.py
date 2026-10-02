@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import signal
 
 ROOT = Path(__file__).resolve().parents[1]
 env = os.environ.copy()
@@ -20,6 +21,22 @@ def run(args, cwd=ROOT):
     if executable is None:
         raise SystemExit(f"Required build tool not found: {args[0]}")
     subprocess.run([executable, *args[1:]], cwd=cwd, env=env, check=True)
+
+
+def run_development():
+    child = subprocess.Popen([shutil.which("node", path=env["PATH"]), str(ROOT / "scripts/electron-dev.cjs")],
+                             cwd=ROOT, env=env, start_new_session=True)
+    def forward(signum, _frame):
+        if child.poll() is None:
+            child.send_signal(signum)
+    previous = {signum: signal.signal(signum, forward) for signum in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        result = child.wait()
+        if result:
+            raise SystemExit(result)
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
 
 
 def stage_native(source, destination):
@@ -231,7 +248,7 @@ def main():
         run(["node", "--check", "apps/clients/terminal/electron/preload.cjs"])
         return
     if mode == "dev":
-        run(["node", str(ROOT / "scripts/electron-dev.cjs")])
+        run_development()
         return
     builder = ["pnpm", "exec", "electron-builder", "--mac", "--config", "apps/clients/terminal/electron/builder.cjs"]
     run(builder)

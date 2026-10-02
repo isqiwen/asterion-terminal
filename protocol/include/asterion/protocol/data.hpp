@@ -7,10 +7,15 @@ namespace asterion::protocol {
 data::v1::DailyBar encode_daily_bar(const HistoricalDailyBar&);
 HistoricalDailyBar daily_bar(const data::v1::DailyBar&);
 Json decode_daily_page(const data::v1::DailyPage&);
+data::v1::HistoryUpdateQuery encode_history_update_query(const Json&);
+Json decode_history_update_query(const data::v1::HistoryUpdateQuery&);
+Json decode_history_usage(const data::v1::HistoryUsage&);
+Json decode_history_update_plan(const data::v1::HistoryUpdatePlan&);
 Json decode_minute_page(const data::v1::MinutePage&);
 
 // Research datasets run in memory inside one task; paper sessions and strategy
 // runs journal one command per bar, so they take a smaller range.
+inline constexpr int max_dataset_sources = 32;
 inline constexpr std::size_t max_dataset_bars = 200000;
 inline constexpr std::size_t max_session_bars = 20000;
 Instrument instrument(const v1::Contract&);
@@ -26,4 +31,7 @@ Json decode_bar_dataset(const data::v1::BarDataset&);
 data::v1::BarDataset encode_bar_dataset(const Json&);
 data::v1::BarDatasetRequest encode_bar_dataset_request(const Json&);
 Json decode_bar_dataset_request(const data::v1::BarDatasetRequest&);
+std::string research_dataset_revision(const data::v1::ResearchDataset&);
+void validate_research_dataset(const data::v1::ResearchDataset&);
+Json decode_research_dataset(const data::v1::ResearchDataset&);
 } // namespace asterion::protocol

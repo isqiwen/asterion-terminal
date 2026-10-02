@@ -205,6 +205,27 @@ NodeSnapshot NodeClient::inspect_status() const {
           .error = impl_->error,
           .health = impl_->cached};
 }
+std::vector<HistoryService> NodeClient::history_inventory() {
+  std::lock_guard lock(impl_->mutex);
+  impl_->refresh();
+  const auto status = inspect_status();
+  std::vector<HistoryService> result;
+  const bool local = !impl_->endpoint.endpoint.empty();
+  for (const auto& service : status.health->services()) {
+    if (service.kind() != wire::PAPER_TRADING && service.kind() != wire::TASK_SERVICE)
+      continue;
+    if (result.size() >= 1000)
+      throw std::invalid_argument("historical service inspection limit exceeded");
+    if (!local && service.port() > 65535)
+      throw std::invalid_argument("invalid historical service address");
+    ServiceEndpoint address{local ? "" : impl_->endpoint.host, service.id(),
+                            local ? std::uint16_t(0) : static_cast<std::uint16_t>(service.port()),
+                            local ? ipc::TlsIdentity{} : impl_->endpoint.tls,
+                            local ? service.endpoint() : ""};
+    result.push_back({service.kind(), service.directory(), service.state(), std::move(address)});
+  }
+  return result;
+}
 Json NodeClient::status() const {
   return node_snapshot_json(inspect_status());
 }

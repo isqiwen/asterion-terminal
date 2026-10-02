@@ -4,6 +4,7 @@
 #include "market_client.hpp"
 #include <asterion/kernel/process/artifact.hpp>
 #include <CLI/CLI.hpp>
+#include <asterion/kernel/environment.hpp>
 #include <iostream>
 int main(int argc, char** argv) {
   CLI::App app{"Native user-service control acceptance"};
@@ -12,7 +13,7 @@ int main(int argc, char** argv) {
   app.add_option("--operation", operation)
       ->required()
       ->check(CLI::IsMember({"install", "stop", "replace", "upgrade", "inspect", "verify-stopped",
-                             "deploy-market", "market-status", "status"}));
+                             "deploy-market", "deploy-research", "market-status", "status"}));
   app.add_option("--executable", executable)->required();
   app.add_option("--root", root)->required();
   app.add_option("--endpoint", endpoint)->required();
@@ -29,8 +30,23 @@ int main(int argc, char** argv) {
     auto path = [](const std::string& value) {
       return std::filesystem::path(std::u8string(value.begin(), value.end()));
     };
-    if (operation == "deploy-market" || operation == "market-status" || operation == "status") {
+    if (operation == "deploy-market" || operation == "deploy-research" ||
+        operation == "market-status" || operation == "status") {
       asterion::terminal::NodeClient client({"local", "localhost", 0, {}, endpoint});
+      if (operation == "deploy-research") {
+        const auto isolated = asterion::environment_path("ASTERION_NODE_DIRECTORY");
+        if (asterion::environment_variable("ASTERION_TEST_NODE_ISOLATED") != "1" || !isolated ||
+            std::filesystem::canonical(*isolated) != std::filesystem::canonical(root))
+          throw std::invalid_argument("research fixture requires isolated node");
+        for (const auto& id : {"other-research", "stopped-research"}) {
+          client.deploy({.service = id,
+                         .kind = asterion::node::v1::TASK_SERVICE,
+                         .platform = asterion::current_platform(),
+                         .programs = asterion::terminal::local_service_programs(
+                             asterion::node::v1::TASK_SERVICE)});
+        }
+        client.action("stopped-research", "stop");
+      }
       if (operation == "deploy-market") {
         const auto platform = asterion::current_platform();
         client.deploy({.service = "market-running",

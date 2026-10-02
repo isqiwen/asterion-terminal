@@ -13,7 +13,7 @@ Terminal 每 5 秒发送专用心跳；超过 15 秒未确认显示失联。界�
 
 ## 本机部署（默认）
 
-桌面包内置 Agent 和全部服务程序。首次启动时注册为当前用户的 launchd 任务，并自动启动行情和研究服务；模拟交易会话创建时再部署。关闭 Terminal 不停止服务。
+桌面包内置 Agent 和全部服务程序。首次启动时注册为当前用户的 launchd 任务，并自动启动行情和研究服务；模拟交易会话创建时再部署。安装版关闭 Terminal 不停止服务。开发版退出时自动停止本机开发服务与 Agent，保留数据；远程服务不受影响，详见 [开发指南](development.md)。
 
 数据目录：`~/Library/Application Support/Asterion/node`。
 

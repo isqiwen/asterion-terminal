@@ -1,6 +1,8 @@
 #pragma once
 #include "node_client.hpp"
 namespace asterion::terminal {
+// Names only; never reads identities, contacts hosts or creates directories.
+Json registered_node_inventory();
 Json prepare_ssh_key(const std::string& id);
 Json inspect_node_firewall(const Json& parameters);
 Json change_node_firewall(const Json& parameters, const Json& plan);

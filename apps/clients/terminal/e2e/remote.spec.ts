@@ -1,4 +1,4 @@
-import { seedDataset } from "./dataset-fixture";
+import { seedDataset, rpc } from "./dataset-fixture";
 import { removeFolder } from "./cleanup";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 import { test, expect } from "@playwright/test";
@@ -91,8 +91,13 @@ test("saved remote profile connects through mTLS and reconnects without stopping
     page = await closeSettingsWindow(page);
     await seedDataset(page.request, [100, 99], "remote");
     await page.reload();
-    await page.getByRole("button", { name: "交易", exact: true }).click();
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
+    await page.getByRole("button", { name: "历史回放", exact: true }).click();
     await expect(page.getByLabel("交易记录目录", { exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "下一步", exact: true }).click();
     for (const [label, value] of [
       ["初始模拟资金", "2000"],
       ["每手保证金", "100"],
@@ -104,8 +109,36 @@ test("saved remote profile connects through mTLS and reconnects without stopping
       ["在途委托数上限", "100"],
     ])
       await page.getByLabel(label, { exact: true }).fill(value);
-    await page.getByRole("button", { name: "创建模拟会话", exact: true }).click();
+    await page.getByRole("button", { name: "下一步", exact: true }).click();
+    await page.getByRole("button", { name: "创建回放账户", exact: true }).click();
     await expect(page.getByTestId("paper-balance")).toHaveText("2000 CNY");
+    const beforeUsage = await rpc(page.request, "runtime.snapshot");
+    const datasetId = beforeUsage.datasets[0].source_dataset_ids[0];
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "数据", exact: true })
+      .click();
+    await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
+    const archive = page.getByRole("region", { name: "历史数据仓库", exact: true });
+    await archive
+      .locator(`[data-dataset-id="${datasetId}"]`)
+      .getByRole("button", { name: "使用情况", exact: true })
+      .click();
+    const remoteUsage = archive.getByRole("region", { name: "远程回放账户", exact: true });
+    await expect(remoteUsage).toContainText("当前直连账户");
+    await expect(remoteUsage).toContainText("已检查 1 个账户，发现 1 个引用");
+    await expect(remoteUsage.getByRole("table")).toContainText("paper.e2e");
+    await expect(remoteUsage.getByRole("table")).toContainText("行情输入");
+    await expect(remoteUsage.getByRole("alert")).toHaveCount(0);
+    expect((await rpc(page.request, "runtime.snapshot")).paper).toEqual(beforeUsage.paper);
+    expect(server.exitCode).toBeNull();
+    await remoteUsage.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: "build/history-remote-usage-browser.png", fullPage: true });
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
+    await page.getByRole("button", { name: "历史回放", exact: true }).click();
     await page.getByRole("button", { name: "回放下一根", exact: true }).click();
     await expect(page.getByText("1 / 2 根", { exact: true })).toBeVisible();
     page = await openSettingsWindow(page);
@@ -118,7 +151,7 @@ test("saved remote profile connects through mTLS and reconnects without stopping
     page = await closeSettingsWindow(page);
     await expect(page.getByText("1 / 2 根", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "断开连接", exact: true }).click();
-    await expect(page.getByLabel("交易记录目录", { exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "账户列表", exact: true })).toBeVisible();
     expect(server.exitCode).toBeNull();
   } finally {
     await page.request.post("/__asterion/api", {

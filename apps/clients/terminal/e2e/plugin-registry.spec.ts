@@ -63,7 +63,7 @@ test("shared code does not import an application or a concrete plugin", () => {
       ].map(match => match[1]);
       for (const name of imports) {
         expect(name, relative(root, file)).not.toMatch(
-          /(?:apps\/|@asterion\/(?:terminal|desktop-bridge|workbench|overview))/,
+          /(?:apps\/|@asterion\/(?:terminal|desktop-bridge|workbench))/,
         );
         if (directory === "core") expect(name, relative(root, file)).not.toContain("plugins/");
       }
@@ -75,10 +75,10 @@ test("Terminal registry drives settings and workspace navigation", async ({ page
   await workbench.goto("/");
   const settings = await openSettingsWindow(workbench);
   await settings.getByRole("button", { name: "插件", exact: true }).click();
-  await expect(settings.getByText("已注册 · 按需加载", { exact: true })).toHaveCount(7);
+  await expect(settings.getByText("已注册 · 按需加载", { exact: true })).toHaveCount(6);
   const page = await closeSettingsWindow(settings);
-  await page.getByRole("button", { name: "研究", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   await expect(page.getByRole("heading", { name: "均线回测", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "交易", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "期货模拟交易", exact: true })).toBeVisible();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "交易", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "CTP 交易", exact: true })).toBeVisible();
 });

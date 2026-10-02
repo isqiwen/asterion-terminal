@@ -151,9 +151,13 @@ target_link_libraries(asterion_ctp_trader PUBLIC Asterion::Domain PRIVATE asteri
 add_executable(asterion-market-data apps/services/market-data/main.cpp)
 target_link_libraries(asterion-market-data PRIVATE asterion_ctp asterion_protocol CLI11::CLI11 $<$<PLATFORM_ID:Windows>:shell32>)
 
+add_library(asterion_paper_record STATIC apps/services/trading/paper_record.cpp)
+target_include_directories(asterion_paper_record PUBLIC apps/services/trading)
+target_link_libraries(asterion_paper_record PUBLIC asterion_protocol PRIVATE asterion_sqlite)
+
 add_library(asterion_trading_session STATIC apps/services/trading/paper_session.cpp apps/services/trading/live_session.cpp)
 target_include_directories(asterion_trading_session PUBLIC apps/services/trading)
-target_link_libraries(asterion_trading_session PUBLIC asterion_risk_providers asterion_paper asterion_sqlite asterion_protocol asterion_ctp_trader)
+target_link_libraries(asterion_trading_session PUBLIC asterion_paper_record asterion_risk_providers asterion_paper asterion_sqlite asterion_protocol asterion_ctp_trader)
 add_executable(asterion-trading apps/services/trading/main.cpp)
 target_link_libraries(asterion-trading PRIVATE asterion_trading_session asterion_protocol CLI11::CLI11 $<$<PLATFORM_ID:Windows>:shell32>)
 
@@ -168,11 +172,11 @@ target_link_libraries(asterion_node_storage PUBLIC Asterion::Kernel asterion_pro
 add_executable(asterion-node-agent apps/services/node-agent/main.cpp)
 target_link_libraries(asterion-node-agent PRIVATE asterion_node_storage asterion_node_firewall Asterion::Kernel asterion_protocol OpenSSL::Crypto CLI11::CLI11 $<$<PLATFORM_ID:Windows>:shell32>)
 
-add_library(asterion_terminal_api STATIC bindings/c/src/terminal.cpp apps/clients/terminal/native/market_client.cpp apps/clients/terminal/native/research_client.cpp apps/clients/terminal/native/strategy_client.cpp apps/clients/terminal/native/terminal_application.cpp apps/clients/terminal/native/commands_paper.cpp apps/clients/terminal/native/commands_live.cpp apps/clients/terminal/native/commands_node.cpp apps/clients/terminal/native/commands_research.cpp apps/clients/terminal/native/commands_connections.cpp apps/clients/terminal/native/data_connections.cpp apps/clients/terminal/native/commands_strategy.cpp apps/clients/terminal/native/commands_market.cpp apps/clients/terminal/native/trading_client.cpp apps/clients/terminal/native/node_client.cpp apps/clients/terminal/native/plugin_catalog.cpp apps/clients/terminal/native/node_snapshot.cpp apps/clients/terminal/native/service_programs.cpp apps/clients/terminal/native/local_node.cpp apps/clients/terminal/native/node_service.cpp apps/clients/terminal/native/node_program.cpp apps/clients/terminal/native/node_identity.cpp apps/clients/terminal/native/node_enrollment.cpp apps/clients/terminal/native/remote_bundle.cpp)
+add_library(asterion_terminal_api STATIC bindings/c/src/terminal.cpp apps/clients/terminal/native/market_client.cpp apps/clients/terminal/native/research_client.cpp apps/clients/terminal/native/strategy_client.cpp apps/clients/terminal/native/terminal_application.cpp apps/clients/terminal/native/history_replays.cpp apps/clients/terminal/native/commands_paper.cpp apps/clients/terminal/native/commands_live.cpp apps/clients/terminal/native/commands_node.cpp apps/clients/terminal/native/commands_research.cpp apps/clients/terminal/native/commands_connections.cpp apps/clients/terminal/native/data_connections.cpp apps/clients/terminal/native/commands_strategy.cpp apps/clients/terminal/native/commands_market.cpp apps/clients/terminal/native/trading_client.cpp apps/clients/terminal/native/node_client.cpp apps/clients/terminal/native/plugin_catalog.cpp apps/clients/terminal/native/node_snapshot.cpp apps/clients/terminal/native/service_programs.cpp apps/clients/terminal/native/local_node.cpp apps/clients/terminal/native/node_service.cpp apps/clients/terminal/native/node_program.cpp apps/clients/terminal/native/node_identity.cpp apps/clients/terminal/native/node_enrollment.cpp apps/clients/terminal/native/remote_bundle.cpp)
 target_compile_definitions(asterion_terminal_api PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
 set_source_files_properties(apps/clients/terminal/native/remote_bundle.cpp PROPERTIES COMPILE_DEFINITIONS ASTERION_SERVICE_SOURCE_SHA256="${ASTERION_SERVICE_SOURCE_SHA256}")
 target_include_directories(asterion_terminal_api PUBLIC bindings/c/include PRIVATE apps/clients/terminal/native)
-target_link_libraries(asterion_terminal_api PUBLIC asterion_chart_indicators asterion_node_firewall asterion_protocol PRIVATE asterion_sma asterion_sqlite nlohmann_json::nlohmann_json OpenSSL::Crypto)
+target_link_libraries(asterion_terminal_api PUBLIC asterion_chart_indicators asterion_node_firewall asterion_protocol PRIVATE asterion_task_store asterion_paper_record asterion_sma asterion_sqlite nlohmann_json::nlohmann_json OpenSSL::Crypto)
 add_dependencies(asterion_terminal_api asterion-trading asterion-node-agent asterion-market-data)
 
 # Node-API is the desktop SDK boundary. Headers are explicitly prepared from
@@ -224,7 +228,7 @@ foreach(application IN LISTS ASTERION_SERVICE_APPS)
 endforeach()
 add_dependencies(asterion_terminal_api asterion-strategy asterion-task-service asterion-backtest asterion-factor asterion-data-pipeline)
 
-foreach(target asterion_order_limits_config asterion_risk_providers asterion_order_limits_plugin asterion_tushare asterion_order_limits asterion_ctp_trader asterion_strategy_session asterion_history_files asterion_history_providers asterion_task_client asterion_factor_engine asterion_factor_analysis asterion_task_store asterion_sma asterion_backtest_engine ${ASTERION_SERVICE_TARGETS} asterion_ctp asterion-market-data asterion_node_firewall asterion_node_storage asterion-node-agent asterion-trading asterion_trading_session asterion_terminal_dev_bridge asterion_paper asterion_sqlite asterion_foundation asterion_kernel asterion_domain asterion_runtime_info asterion_terminal_api)
+foreach(target asterion_paper_record asterion_order_limits_config asterion_risk_providers asterion_order_limits_plugin asterion_tushare asterion_order_limits asterion_ctp_trader asterion_strategy_session asterion_history_files asterion_history_providers asterion_task_client asterion_factor_engine asterion_factor_analysis asterion_task_store asterion_sma asterion_backtest_engine ${ASTERION_SERVICE_TARGETS} asterion_ctp asterion-market-data asterion_node_firewall asterion_node_storage asterion-node-agent asterion-trading asterion_trading_session asterion_terminal_dev_bridge asterion_paper asterion_sqlite asterion_foundation asterion_kernel asterion_domain asterion_runtime_info asterion_terminal_api)
   if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /WX /utf-8)
   else()
@@ -402,6 +406,9 @@ if(BUILD_TESTING)
   target_link_libraries(asterion_transport_tests PRIVATE asio::asio)
   asterion_unit_tests(asterion_ipc_tests tests/ipc_test.cpp Asterion::Kernel)
   asterion_unit_tests(asterion_service_host_tests tests/service_host_test.cpp Asterion::Kernel)
+  asterion_unit_tests(asterion_history_replay_tests tests/history_replays_test.cpp asterion_terminal_api)
+  target_link_libraries(asterion_history_replay_tests PRIVATE asterion_trading_session asterion_sqlite)
+  add_dependencies(asterion_history_replay_tests asterion_test_certificates)
   asterion_unit_tests(asterion_terminal_query_tests tests/terminal_minute_query_test.cpp asterion_terminal_api)
   asterion_unit_tests(asterion_data_connection_tests tests/data_connections_test.cpp asterion_terminal_api)
   target_include_directories(asterion_data_connection_tests PRIVATE apps/clients/terminal/native)

@@ -68,7 +68,7 @@ message Request {
   string correlation_id = 4;
   oneof operation { Empty snapshot = 10; PaperInput create = 11; Empty recover = 12; Command command = 13; Empty shutdown = 14; Empty attach = 15; Empty heartbeat = 16;
     LiveInput live_create = 17; LiveCredentials live_connect = 18; Empty live_disconnect = 19;
-    Empty live_costs = 20; }
+    Empty live_costs = 20; PaperHistoryQuery history_usage = 21; }
 }
 message ContractState { Contract contract = 1; Costs costs = 2; Decimal mark = 3; CostSchedule cost_schedule = 4; }
 message Position { string venue = 1; string symbol = 2; Side side = 3; bool today = 4; Decimal quantity = 5; Decimal basis = 6; }
@@ -127,7 +127,10 @@ message LiveSnapshot {
 }
 message Error { string code = 1; string message = 2; }
 message Health { string instance_id = 1; string version = 2; uint64 uptime_ms = 3; bool initialized = 4; bool recovery_required = 5; }
+// Immutable provenance only; does not advance or mutate the account.
+message PaperHistoryQuery { string dataset_id = 1; }
+message PaperHistoryUsage { string dataset_id = 1; bool market = 2; bool settlement = 3; string dataset_revision = 4; string directory = 5; }
 message Response {
   uint32 version = 1; string session_id = 2; Mode mode = 3; string correlation_id = 4;
-  oneof result { Snapshot snapshot = 10; Error error = 11; Empty closed = 12; Empty uninitialized = 13; Health health = 14; LiveSnapshot live = 15; }
+  oneof result { Snapshot snapshot = 10; Error error = 11; Empty closed = 12; Empty uninitialized = 13; Health health = 14; LiveSnapshot live = 15; PaperHistoryUsage history_usage = 16; }
 }

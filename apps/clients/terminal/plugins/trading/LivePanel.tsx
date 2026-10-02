@@ -1,3 +1,6 @@
+import { AccountLibrary } from "./AccountLibrary";
+import { ActivityTabs, type Activity } from "./ActivityTabs";
+import { FlowSteps } from "../../src/ui/FlowSteps";
 import { useState } from "react";
 import {
   ErrorNotice,
@@ -44,7 +47,10 @@ const key = (item: { venue: string; symbol: string }) => `${item.venue}.${item.s
 // Live CTP trading. Orders go to a real futures account only after the owner
 // connects with credentials typed here, confirms the account, and the order
 // passes the allowed contracts, exchange units and pre-trade risk.
-export function LivePanel({ snapshot, busy, trade }: TerminalContext) {
+export function LivePanel(context: TerminalContext) {
+  const { snapshot, busy, trade } = context;
+  const [creating, setCreating] = useWorkspaceDraft("live-creating", false);
+  const [directory, setDirectory] = useWorkspaceDraft("live-directory", "");
   const live = snapshot?.live?.session ?? null;
   const [error, setError] = useState<DisplayError>("");
   async function run(method: TerminalCommand, params: Record<string, unknown> = {}) {
@@ -58,13 +64,13 @@ export function LivePanel({ snapshot, busy, trade }: TerminalContext) {
     }
   }
   return (
-    <section className="futures-data paper-trading" aria-label={t("期货实盘交易")}>
+    <section className="futures-data paper-trading" aria-label={t("CTP 交易账户")}>
       <div className="panel-heading">
-        <h2>{t("期货实盘交易")}</h2>
+        <h2>{t("CTP 交易")}</h2>
         <span className="panel-spacer" />
-        <small>{t("CTP · 真实账户")}</small>
+        <small>{t("柜台仿真 / 真实资金")}</small>
       </div>
-      <p className="alert">{t("实盘会连接真实期货账户并发送真实委托，成交与盈亏均为真实结果。")}</p>
+
       {error && (
         <p className="alert" role="alert">
           <ErrorNotice error={error} namespace="asterion.terminal.trading" />
@@ -74,8 +80,32 @@ export function LivePanel({ snapshot, busy, trade }: TerminalContext) {
         <p className="alert">{t("实盘会话服务尚未初始化，请关闭后从原目录恢复。")}</p>
       ) : live ? (
         <LiveAccount live={live} snapshot={snapshot} busy={busy} run={run} />
+      ) : creating ? (
+        <div className="account-setup">
+          <div className="workflow-heading">
+            <h3>{t("添加 CTP 账户")}</h3>
+            <button disabled={busy} onClick={() => setCreating(false)}>
+              {t("取消")}
+            </button>
+          </div>
+          <CreateLive
+            snapshot={snapshot}
+            busy={busy}
+            run={run}
+            setError={setError}
+            onCreated={() => setCreating(false)}
+          />
+        </div>
       ) : (
-        <CreateLive snapshot={snapshot} busy={busy} run={run} setError={setError} />
+        <AccountLibrary
+          context={context}
+          kind="live"
+          directory={directory}
+          setDirectory={setDirectory}
+          onCreate={() => setCreating(true)}
+          onOpen={value => void run("live.open", { directory: value })}
+          onError={reason => setError(asDisplayError(reason))}
+        />
       )}
     </section>
   );
@@ -88,10 +118,15 @@ function CreateLive({
   busy,
   run,
   setError,
+  onCreated,
 }: Pick<TerminalContext, "snapshot" | "busy"> & {
   run: Run;
   setError: (error: DisplayError) => void;
+  onCreated: () => void;
 }) {
+  const [step, setStep] = useWorkspaceDraft("live-step", 0);
+  const [name, setName] = useWorkspaceDraft("live-name", "");
+  const [catalogCredentials, setCatalogCredentials] = useState({ password: "", auth_code: "" });
   const [directory, setDirectory] = useWorkspaceDraft("live-directory", "");
   const [broker, setBroker] = useWorkspaceDraft("live-broker", {
     front: "",
@@ -122,165 +157,268 @@ function CreateLive({
     }
   }
   return (
-    <form
-      onSubmit={event => {
-        event.preventDefault();
-        void run("live.create", {
-          directory,
-          ...broker,
-          ...limits,
-          contracts: contracts.map(item => {
-            const [venue, ...symbol] = item.split(".");
-            return { venue, symbol: symbol.join(".") };
-          }),
-        });
-      }}
-    >
-      <fieldset disabled={busy}>
-        <div className="futures-file">
-          <label>
-            {t("实盘记录目录")}
-            <input
-              aria-label={t("实盘记录目录")}
-              value={directory}
-              onChange={event => setDirectory(event.target.value)}
-              placeholder={t("已存在的专用空目录；恢复时选择原目录")}
-              required
-            />
-          </label>
-          {nativeDesktop && (
-            <button type="button" onClick={() => void selectDirectory()}>
-              {t("选择目录")}
-            </button>
-          )}
-          <button
-            type="button"
-            disabled={!directory}
-            onClick={() => void run("live.open", { directory })}
-          >
-            {t("恢复实盘会话")}
-          </button>
-        </div>
-        <section className="account-field-group" aria-label={t("CTP 账户")}>
-          <h3>{t("CTP 账户")}</h3>
-          <div className="futures-fields">
-            {(
-              [
-                ["front", "交易前置地址"],
-                ["broker_id", "经纪商代码"],
-                ["user_id", "投资者账号"],
-                ["app_id", "AppID"],
-              ] as const
-            ).map(([field, label]) => (
-              <label key={field}>
-                {t(label)}
-                <input
-                  aria-label={t(label)}
-                  value={broker[field]}
-                  placeholder={field === "front" ? "tcp://host:port" : undefined}
-                  onChange={event => setBroker({ ...broker, [field]: event.target.value })}
-                  required
-                />
-              </label>
-            ))}
-          </div>
-          <p className="subtle">{t("密码与授权码在每次连接时输入，不保存。")}</p>
-        </section>
-        <section className="account-field-group" aria-label={t("可交易合约")}>
-          <h3>{t("可交易合约")}</h3>
-          {catalog?.phase !== "ready" ? (
-            <p className="subtle">
-              {t("需要先在行情工作区加载 CTP 合约目录；合约单位以目录为准。")}
-            </p>
-          ) : (
-            <div className="futures-file">
-              <label>
-                {t("合约")}
-                <input
-                  aria-label={t("添加合约")}
-                  list="live-catalog"
-                  value={choice}
-                  placeholder="SHFE.rb2610"
-                  onChange={event => setChoice(event.target.value)}
-                />
-              </label>
-              <datalist id="live-catalog">
-                {listed.map(item => (
-                  <option key={key(item)} value={key(item)}>
-                    {item.name}
-                  </option>
+    <>
+      <FlowSteps labels={[t("账户信息"), t("合约与风控"), t("确认创建")]} current={step} />
+      <form
+        onSubmit={event => {
+          event.preventDefault();
+          if (step < 2) {
+            setStep(step + 1);
+            return;
+          }
+          void run("live.create", {
+            ...(directory ? { directory } : { name }),
+            ...broker,
+            ...limits,
+            contracts: contracts.map(item => {
+              const [venue, ...symbol] = item.split(".");
+              return { venue, symbol: symbol.join(".") };
+            }),
+          }).then(created => {
+            if (created) {
+              setStep(0);
+              onCreated();
+            }
+          });
+        }}
+      >
+        <fieldset disabled={busy}>
+          <fieldset hidden={step !== 0} disabled={step !== 0}>
+            <label>
+              {t("账户名称")}
+              <input
+                aria-label={t("账户名称")}
+                value={name}
+                onChange={e => setName(e.target.value)}
+                required={!directory}
+                maxLength={40}
+              />
+            </label>
+            <details>
+              <summary>{t("自定义记录目录")}</summary>
+              <p className="subtle">{t("留空时自动创建专用目录，之后从账户列表打开。")}</p>
+              <div className="futures-file">
+                <label>
+                  {t("实盘记录目录")}
+                  <input
+                    aria-label={t("实盘记录目录")}
+                    value={directory}
+                    onChange={event => setDirectory(event.target.value)}
+                    placeholder={t("已存在的专用空目录；恢复时选择原目录")}
+                  />
+                </label>
+                {nativeDesktop && (
+                  <button type="button" onClick={() => void selectDirectory()}>
+                    {t("选择目录")}
+                  </button>
+                )}
+              </div>
+            </details>
+            <section className="account-field-group" aria-label={t("CTP 账户")}>
+              <h3>{t("CTP 账户")}</h3>
+              <div className="futures-fields">
+                {(
+                  [
+                    ["front", "交易前置地址"],
+                    ["broker_id", "经纪商代码"],
+                    ["user_id", "投资者账号"],
+                    ["app_id", "AppID"],
+                  ] as const
+                ).map(([field, label]) => (
+                  <label key={field}>
+                    {t(label)}
+                    <input
+                      aria-label={t(label)}
+                      value={broker[field]}
+                      placeholder={field === "front" ? "tcp://host:port" : undefined}
+                      onChange={event => setBroker({ ...broker, [field]: event.target.value })}
+                      required
+                    />
+                  </label>
                 ))}
-              </datalist>
-              <button
-                type="button"
-                disabled={
-                  !listed.some(item => key(item) === choice) ||
-                  contracts.includes(choice) ||
-                  contracts.length >= 20
-                }
-                onClick={() => {
-                  setContracts([...contracts, choice]);
-                  setChoice("");
-                }}
-              >
-                {t("添加")}
-              </button>
-            </div>
-          )}
-          <ul className="dataset-list" aria-label={t("已选可交易合约")}>
-            {contracts.map(item => (
-              <li key={item}>
-                <p>
-                  <strong>{item}</strong>{" "}
+              </div>
+              <p className="subtle">{t("密码与授权码在每次连接时输入，不保存。")}</p>
+            </section>
+          </fieldset>
+          <fieldset hidden={step !== 1} disabled={step !== 1}>
+            <section className="account-field-group" aria-label={t("可交易合约")}>
+              <h3>{t("可交易合约")}</h3>
+              {catalog?.phase !== "ready" ? (
+                <div>
+                  <p className="subtle">
+                    {t("先读取柜台合约规格，不会创建委托。凭据仅用于本次查询。")}
+                  </p>
+                  <div className="futures-fields">
+                    <label>
+                      {t("交易密码")}
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        aria-label={t("目录查询密码")}
+                        value={catalogCredentials.password}
+                        onChange={e =>
+                          setCatalogCredentials({ ...catalogCredentials, password: e.target.value })
+                        }
+                      />
+                    </label>
+                    <label>
+                      {t("授权码")}
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        aria-label={t("目录查询授权码")}
+                        value={catalogCredentials.auth_code}
+                        onChange={e =>
+                          setCatalogCredentials({
+                            ...catalogCredentials,
+                            auth_code: e.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
                   <button
                     type="button"
-                    aria-label={t("移除 {contract}", { contract: item })}
-                    onClick={() => setContracts(contracts.filter(other => other !== item))}
+                    disabled={
+                      busy ||
+                      !catalogCredentials.password ||
+                      ["connecting", "authenticating", "logging_in", "querying"].includes(
+                        catalog?.phase ?? "",
+                      )
+                    }
+                    onClick={() => {
+                      const credentials = catalogCredentials;
+                      setCatalogCredentials({ password: "", auth_code: "" });
+                      void run("market.catalog", {
+                        front: broker.front,
+                        broker: broker.broker_id,
+                        user: broker.user_id,
+                        app_id: broker.app_id,
+                        ...credentials,
+                      });
+                    }}
                   >
-                    {t("移除")}
+                    {t("获取合约列表")}
                   </button>
-                </p>
-              </li>
-            ))}
-          </ul>
-        </section>
-        <section className="account-field-group" aria-label={t("委托与持仓限制")}>
-          <h3>{t("委托与持仓限制")}</h3>
-          <div className="futures-fields">
-            {(
-              [
-                ["max_order_quantity", "单笔数量上限"],
-                ["max_gross_quantity", "总持仓量上限"],
-                ["max_working_orders", "在途委托数上限"],
-                ["max_price_deviation", "价格偏离上限"],
-              ] as const
-            ).map(([field, label]) => (
-              <label key={field}>
-                {t(label)}
-                <input
-                  aria-label={t(label)}
-                  inputMode="decimal"
-                  placeholder={field === "max_price_deviation" ? "0.02" : undefined}
-                  value={limits[field]}
-                  onChange={event => setLimits({ ...limits, [field]: event.target.value })}
-                  required
-                />
-              </label>
-            ))}
-          </div>
-          <p className="subtle">
-            {t(
-              "限价须在涨跌停范围内，且与券商最新价（当日无成交时为昨结算价）的偏离不超过该比例，例如 0.02 表示 2%。每笔委托发出前查询一次行情，约需 1 秒。",
+                  <p role="status">
+                    {t(
+                      catalog?.phase === "error"
+                        ? "合约查询失败，请核对连接信息后重试。"
+                        : "合约规格未就绪",
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <div className="futures-file">
+                  <label>
+                    {t("合约")}
+                    <input
+                      aria-label={t("添加合约")}
+                      list="live-catalog"
+                      value={choice}
+                      placeholder="SHFE.rb2610"
+                      onChange={event => setChoice(event.target.value)}
+                    />
+                  </label>
+                  <datalist id="live-catalog">
+                    {listed.map(item => (
+                      <option key={key(item)} value={key(item)}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </datalist>
+                  <button
+                    type="button"
+                    disabled={
+                      !listed.some(item => key(item) === choice) ||
+                      contracts.includes(choice) ||
+                      contracts.length >= 20
+                    }
+                    onClick={() => {
+                      setContracts([...contracts, choice]);
+                      setChoice("");
+                    }}
+                  >
+                    {t("添加")}
+                  </button>
+                </div>
+              )}
+              <ul className="dataset-list" aria-label={t("已选可交易合约")}>
+                {contracts.map(item => (
+                  <li key={item}>
+                    <p>
+                      <strong>{item}</strong>{" "}
+                      <button
+                        type="button"
+                        aria-label={t("移除 {contract}", { contract: item })}
+                        onClick={() => setContracts(contracts.filter(other => other !== item))}
+                      >
+                        {t("移除")}
+                      </button>
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+            <section className="account-field-group" aria-label={t("委托与持仓限制")}>
+              <h3>{t("委托与持仓限制")}</h3>
+              <div className="futures-fields">
+                {(
+                  [
+                    ["max_order_quantity", "单笔数量上限"],
+                    ["max_gross_quantity", "总持仓量上限"],
+                    ["max_working_orders", "在途委托数上限"],
+                    ["max_price_deviation", "价格偏离上限"],
+                  ] as const
+                ).map(([field, label]) => (
+                  <label key={field}>
+                    {t(label)}
+                    <input
+                      aria-label={t(label)}
+                      inputMode="decimal"
+                      placeholder={field === "max_price_deviation" ? "0.02" : undefined}
+                      value={limits[field]}
+                      onChange={event => setLimits({ ...limits, [field]: event.target.value })}
+                      required
+                    />
+                  </label>
+                ))}
+              </div>
+              <p className="subtle">
+                {t(
+                  "限价须在涨跌停范围内，且与券商最新价（当日无成交时为昨结算价）的偏离不超过该比例，例如 0.02 表示 2%。每笔委托发出前查询一次行情，约需 1 秒。",
+                )}
+              </p>
+            </section>
+          </fieldset>
+          {step === 2 && (
+            <section className="creation-review">
+              <h3>{name || broker.user_id}</h3>
+              <p>
+                {broker.broker_id} · {broker.user_id}
+              </p>
+              <p>{broker.front}</p>
+              <p>{contracts.join(" + ")}</p>
+              <p>
+                {t("单笔数量上限")}：{limits.max_order_quantity} · {t("总持仓量上限")}：
+                {limits.max_gross_quantity}
+              </p>
+              <p>{t("创建账户不会登录或发送委托。下一步确认环境、连接并授权。")}</p>
+            </section>
+          )}
+          <div className="workflow-actions">
+            {step > 0 && (
+              <button type="button" onClick={() => setStep(step - 1)}>
+                {t("上一步")}
+              </button>
             )}
-          </p>
-        </section>
-        <div className="source-actions">
-          <button className="primary" type="submit" disabled={!contracts.length}>
-            {t("创建实盘会话")}
-          </button>
-        </div>
-      </fieldset>
-    </form>
+            <button className="primary" type="submit" disabled={step > 0 && !contracts.length}>
+              {t(step === 2 ? "创建 CTP 账户" : "下一步")}
+            </button>
+          </div>
+        </fieldset>
+      </form>
+    </>
   );
 }
 
@@ -291,6 +429,25 @@ function LiveAccount({
   run,
 }: Pick<TerminalContext, "snapshot" | "busy"> & { live: LiveSession; run: Run }) {
   const [credentials, setCredentials] = useState({ password: "", auth_code: "" });
+  const [activity, setActivity] = useState<Activity>("positions");
+  const identity = JSON.stringify([
+    snapshot?.live?.connection.session,
+    snapshot?.live?.connection.host,
+    snapshot?.live?.connection.port,
+    live.broker.front,
+    live.broker.broker_id,
+    live.broker.user_id,
+  ]);
+  const [environment, setEnvironment] = useWorkspaceDraft<"unknown" | "simulation" | "real">(
+    `ctp-environment:${identity}`,
+    "unknown",
+  );
+  const [environmentConfirmed, setEnvironmentConfirmed] = useWorkspaceDraft(
+    `ctp-environment-confirmed:${identity}`,
+    false,
+  );
+  const environmentReady = environment !== "unknown" && environmentConfirmed;
+
   const [confirmed, setConfirmed] = useState(false);
   const [order, setOrder] = useState({
     contract: "",
@@ -301,6 +458,7 @@ function LiveAccount({
   });
   const ready = live.phase === "ready";
   const stale =
+    !!snapshot?.stale ||
     live.storage_state === "recovery_required" ||
     snapshot?.live?.connection.state === "disconnected";
   const authorized = !!live.authorization && live.authorization.trading_day === live.trading_day;
@@ -320,12 +478,22 @@ function LiveAccount({
     run("live.act", { request_id: crypto.randomUUID(), ...params });
   return (
     <>
-      <div className="paper-toolbar">
+      <div className="paper-toolbar ctp-identity">
         <strong>
           {live.broker.broker_id} · {live.broker.user_id}
         </strong>
-        <span data-testid="live-phase">{t(phases[live.phase])}</span>
-        {live.trading_day && <span>{t("交易日 {day}", { day: live.trading_day })}</span>}
+        <strong>
+          {t(
+            environmentReady && environment === "real"
+              ? "真实资金 · 用户确认"
+              : environmentReady && environment === "simulation"
+                ? "CTP 仿真 · 用户确认"
+                : "CTP 环境待确认",
+          )}
+        </strong>
+        <span data-testid="live-phase">{t(stale ? "服务失联" : phases[live.phase])}</span>
+        <span>{t(authorized ? "已允许发送委托" : "尚未允许发送委托")}</span>
+        <span>{live.broker.front}</span>
         <span className="panel-spacer" />
         {live.phase !== "disconnected" && (
           <button disabled={busy} onClick={() => void run("live.disconnect")}>
@@ -333,9 +501,53 @@ function LiveAccount({
           </button>
         )}
         <button disabled={busy} onClick={() => void run("live.close")}>
-          {t("关闭会话")}
+          {t("离开账户")}
         </button>
       </div>
+      {(!environmentReady || live.phase === "disconnected" || live.phase === "error") && (
+        <section className="environment-check">
+          <label>
+            {t("柜台环境")}
+            <select
+              aria-label={t("柜台环境")}
+              value={environment}
+              onChange={e => {
+                setEnvironment(e.target.value as typeof environment);
+                setEnvironmentConfirmed(false);
+              }}
+            >
+              <option value="unknown">{t("请选择并核对")}</option>
+              <option value="simulation">{t("CTP 仿真")}</option>
+              <option value="real">{t("真实资金")}</option>
+            </select>
+          </label>
+          <p className="subtle">
+            {t("请向开户机构核对账号及前置地址。环境由你确认，系统无法自动验证资金性质。")}
+          </p>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={environmentConfirmed}
+              disabled={environment === "unknown"}
+              onChange={e => setEnvironmentConfirmed(e.target.checked)}
+            />
+            {t("我已核对账户与柜台环境")}
+          </label>
+        </section>
+      )}
+      {environmentReady && (
+        <p className={environment === "real" ? "alert" : "subtle"}>
+          {t(
+            environment === "real"
+              ? "真实资金账户：授权后的委托可能产生真实成交与盈亏。"
+              : "已标记为 CTP 仿真；委托仍会发送到上方柜台，请确认地址正确。",
+          )}
+        </p>
+      )}
+      <details className="lifecycle-help">
+        <summary>{t("连接说明")}</summary>
+        <p>{t("离开账户只断开 Terminal；断开账户会退出柜台连接，已有委托不会自动撤销。")}</p>
+      </details>
       {stale && (
         <p className="alert" role="alert">
           {t("实盘服务连接或记录状态不确定。请关闭会话并从原目录恢复；断线命令不会自动重发。")}
@@ -364,7 +576,7 @@ function LiveAccount({
             void run("live.connect", sent);
           }}
         >
-          <fieldset disabled={busy || stale}>
+          <fieldset disabled={busy || stale || !environmentReady}>
             <div className="futures-fields">
               <label>
                 {t("交易密码")}
@@ -403,8 +615,7 @@ function LiveAccount({
         </form>
       )}
       {ready && (
-        <section className="account-field-group live-authorization" aria-label={t("实盘授权")}>
-          <h3>{t("实盘授权")}</h3>
+        <section className="trading-permission" aria-label={t("交易授权")}>
           {authorized ? (
             <div className="source-actions">
               <span>{t("已授权 · 交易日 {day}", { day: live.authorization!.trading_day })}</span>
@@ -420,18 +631,18 @@ function LiveAccount({
                   checked={confirmed}
                   onChange={event => setConfirmed(event.target.checked)}
                 />
-                {t("我确认使用账户 {user} 发送真实委托", { user: live.broker.user_id })}
+                {t("我确认使用账户 {user} 向上方柜台发送委托", { user: live.broker.user_id })}
               </label>
               <div className="source-actions">
                 <button
                   className="primary"
-                  disabled={busy || !confirmed || stale}
+                  disabled={busy || !confirmed || stale || !environmentReady}
                   onClick={() => {
                     setConfirmed(false);
                     void act({ action: "live_authorize", user_id: live.broker.user_id });
                   }}
                 >
-                  {t("授权实盘交易")}
+                  {t("允许发送委托")}
                 </button>
                 <span className="subtle">{t("授权只在本次连接和当前交易日有效。")}</span>
               </div>
@@ -439,7 +650,12 @@ function LiveAccount({
           )}
         </section>
       )}
-      {ready && <AccountRates live={live} busy={busy} run={run} />}
+      {ready && (
+        <details className="account-rates-details">
+          <summary>{t("账户费率与模板")}</summary>
+          <AccountRates live={live} busy={busy} run={run} />
+        </details>
+      )}
       {live.funds && (
         <dl className="paper-metrics">
           {(
@@ -460,7 +676,7 @@ function LiveAccount({
         </dl>
       )}
       <form
-        aria-label={t("实盘委托")}
+        aria-label={t("CTP 委托")}
         onSubmit={event => {
           event.preventDefault();
           if (!traded) return;
@@ -476,7 +692,7 @@ function LiveAccount({
           });
         }}
       >
-        <fieldset disabled={busy || !ready || !authorized || stale}>
+        <fieldset disabled={busy || !ready || !authorized || stale || !environmentReady}>
           <div className="futures-fields">
             <label>
               {t("合约")}
@@ -543,7 +759,7 @@ function LiveAccount({
           </div>
           <div className="source-actions">
             <button className="primary" type="submit">
-              {t("提交实盘委托")}
+              {t("提交柜台委托")}
             </button>
             <span className="subtle">
               {t("委托先写入本机交易记录再发送；断线后不会自动重发。")}
@@ -551,100 +767,107 @@ function LiveAccount({
           </div>
         </fieldset>
       </form>
-      <h3 className="paper-heading">{t("持仓")}</h3>
-      <div className="paper-table" role="region" aria-label={t("实盘持仓")} tabIndex={0}>
-        <table aria-label={t("实盘持仓")}>
-          <thead>
-            <tr>
-              <th>{t("合约")}</th>
-              <th>{t("方向")}</th>
-              <th>{t("今仓")}</th>
-              <th>{t("昨仓")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {live.positions.map(p => (
-              <tr key={`${key(p)}.${p.side}`}>
-                <td>{p.symbol}</td>
-                <td>{p.side === "buy" ? t("多头") : t("空头")}</td>
-                <td>{p.today}</td>
-                <td>{p.yesterday}</td>
+      <ActivityTabs value={activity} onChange={setActivity} />
+      <div hidden={activity !== "positions"}>
+        <h3 className="paper-heading">{t("持仓")}</h3>
+        <div className="paper-table" role="region" aria-label={t("CTP 持仓")} tabIndex={0}>
+          <table aria-label={t("CTP 持仓")}>
+            <thead>
+              <tr>
+                <th>{t("合约")}</th>
+                <th>{t("方向")}</th>
+                <th>{t("今仓")}</th>
+                <th>{t("昨仓")}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <h3 className="paper-heading">{t("委托")}</h3>
-      <div className="paper-table" role="region" aria-label={t("实盘委托记录")} tabIndex={0}>
-        <table aria-label={t("实盘委托记录")}>
-          <thead>
-            <tr>
-              <th>{t("合约")}</th>
-              <th>{t("方向 / 开平")}</th>
-              <th>{t("限价")}</th>
-              <th>{t("手数")}</th>
-              <th>{t("已成交")}</th>
-              <th>{t("状态")}</th>
-              <th>{t("操作")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {live.orders
-              .slice()
-              .reverse()
-              .map(o => (
-                <tr key={o.broker_key}>
-                  <td>{o.symbol}</td>
-                  <td>
-                    {o.side === "buy" ? t("买入") : t("卖出")} / {t(offsets[o.offset])}
-                  </td>
-                  <td>{o.limit_price}</td>
-                  <td>{o.quantity}</td>
-                  <td>{o.filled}</td>
-                  <td>
-                    {t(statuses[o.status])}
-                    {o.error_code ? ` (${o.error_code})` : ""}
-                  </td>
-                  <td>
-                    {o.id && ["submitted", "accepted", "partially_filled"].includes(o.status) && (
-                      <button
-                        disabled={busy || !ready || stale}
-                        onClick={() => void act({ action: "cancel", order_id: o.id })}
-                      >
-                        {t("撤单")}
-                      </button>
-                    )}
-                  </td>
+            </thead>
+            <tbody>
+              {live.positions.map(p => (
+                <tr key={`${key(p)}.${p.side}`}>
+                  <td>{p.symbol}</td>
+                  <td>{p.side === "buy" ? t("多头") : t("空头")}</td>
+                  <td>{p.today}</td>
+                  <td>{p.yesterday}</td>
                 </tr>
               ))}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       </div>
-      <h3 className="paper-heading">{t("成交")}</h3>
-      <div className="paper-table" role="region" aria-label={t("实盘成交")} tabIndex={0}>
-        <table aria-label={t("实盘成交")}>
-          <thead>
-            <tr>
-              <th>{t("合约")}</th>
-              <th>{t("时间")}</th>
-              <th>{t("价格")}</th>
-              <th>{t("手数")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {live.trades
-              .slice()
-              .reverse()
-              .map(f => (
-                <tr key={f.id}>
-                  <td>{f.symbol}</td>
-                  <td>{f.trade_time}</td>
-                  <td>{f.price}</td>
-                  <td>{f.quantity}</td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
+      <div hidden={activity !== "orders"}>
+        <h3 className="paper-heading">{t("委托")}</h3>
+        <div className="paper-table" role="region" aria-label={t("CTP 委托记录")} tabIndex={0}>
+          <table aria-label={t("CTP 委托记录")}>
+            <thead>
+              <tr>
+                <th>{t("合约")}</th>
+                <th>{t("方向 / 开平")}</th>
+                <th>{t("限价")}</th>
+                <th>{t("手数")}</th>
+                <th>{t("已成交")}</th>
+                <th>{t("状态")}</th>
+                <th>{t("操作")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {live.orders
+                .slice()
+                .reverse()
+                .map(o => (
+                  <tr key={o.broker_key}>
+                    <td>{o.symbol}</td>
+                    <td>
+                      {o.side === "buy" ? t("买入") : t("卖出")} / {t(offsets[o.offset])}
+                    </td>
+                    <td>{o.limit_price}</td>
+                    <td>{o.quantity}</td>
+                    <td>{o.filled}</td>
+                    <td>
+                      {t(statuses[o.status])}
+                      {o.error_code ? ` (${o.error_code})` : ""}
+                    </td>
+                    <td>
+                      {o.id && ["submitted", "accepted", "partially_filled"].includes(o.status) && (
+                        <button
+                          disabled={busy || !ready || stale}
+                          onClick={() => void act({ action: "cancel", order_id: o.id })}
+                        >
+                          {t("撤单")}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div hidden={activity !== "fills"}>
+        <h3 className="paper-heading">{t("成交")}</h3>
+        <div className="paper-table" role="region" aria-label={t("CTP 成交")} tabIndex={0}>
+          <table aria-label={t("CTP 成交")}>
+            <thead>
+              <tr>
+                <th>{t("合约")}</th>
+                <th>{t("时间")}</th>
+                <th>{t("价格")}</th>
+                <th>{t("手数")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {live.trades
+                .slice()
+                .reverse()
+                .map(f => (
+                  <tr key={f.id}>
+                    <td>{f.symbol}</td>
+                    <td>{f.trade_time}</td>
+                    <td>{f.price}</td>
+                    <td>{f.quantity}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
       </div>
       <details>
         <summary>{t("风险限制")}</summary>

@@ -240,6 +240,55 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
       period: "day",
     });
     assert.equal(pageResult.daily_page.bars[0].close, "2");
+    await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
+    const archiveView = page.getByRole("region", { name: "历史数据仓库", exact: true });
+    await archiveView
+      .locator(`[data-dataset-id="${daily.id}"]`)
+      .getByRole("button", { name: "使用情况", exact: true })
+      .click();
+    const usageView = archiveView.getByRole("region", { name: "使用情况", exact: true });
+    await expect(usageView).toContainText("找到 1 条关联记录");
+    await expect(usageView.getByRole("table", { name: "数据版本关联记录" })).toContainText(
+      "third-party-daily",
+    );
+    await expect(usageView).toContainText("下载产物");
+    await page.screenshot({ path: "build/history-usage-native.png", fullPage: true });
+    await usageView.getByRole("button", { name: "关闭", exact: true }).click();
+
+    await archiveView
+      .locator(`[data-dataset-id="${daily.id}"]`)
+      .getByRole("button", { name: "下载后续数据", exact: true })
+      .click();
+    const updateView = archiveView.getByRole("region", { name: "下载后续数据", exact: true });
+    await updateView.getByLabel("下载至日期").fill("2024-03-03");
+    await updateView.getByRole("button", { name: "预览下载范围", exact: true }).click();
+    await expect(updateView).toContainText("本次下载：2024-03-03 — 2024-03-03");
+    await updateView.getByRole("button", { name: "开始下载此范围", exact: true }).click();
+    await expect(updateView.getByRole("button", { name: "查看新版本", exact: true })).toBeVisible({
+      timeout: 30000,
+    });
+    const extended = (
+      await call("research.datasets", {
+        venue: "",
+        product: "",
+        contract_id: "",
+        source: "",
+      })
+    ).history_datasets;
+    assert.equal(extended.length, 3);
+    assert.deepEqual(
+      extended.find(item => item.id === daily.id),
+      daily,
+    );
+    const newDaily = extended.find(item => item.source === "fixture.daily" && item.id !== daily.id);
+    assert.equal(newDaily.begin, "2024-03-03");
+    assert.equal(newDaily.end, "2024-03-03");
+    await page.screenshot({ path: "build/history-update-native.png", fullPage: true });
+    await updateView.getByRole("button", { name: "查看新版本", exact: true }).click();
+    await expect(
+      archiveView.getByRole("region", { name: "日线数据表", exact: true }).getByRole("table"),
+    ).toContainText("2024-03-03");
+
     const configuration = JSON.parse(
       await fs.readFile(path.join(temp, "node/services/research/service.json"), "utf8"),
     );
@@ -298,10 +347,16 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
     assert.deepEqual(emptyConfig.plugin_artifacts, []);
     await call("research.local");
     assert.deepEqual((await call("runtime.snapshot")).research.sources, []);
+    const detachedUsage = (await call("research.history.usage", { id: daily.id })).history_usage;
+    assert.deepEqual(
+      detachedUsage.references.map(row => [row.kind, row.id, row.roles]),
+      [["download", "third-party-daily", ["output"]]],
+    );
+
     assert.equal(
       (await call("research.datasets", { venue: "", product: "", contract_id: "", source: "" }))
         .history_datasets.length,
-      2,
+      3,
     );
     await call("node.action", { id: "local", service: "research", action: "stop" });
     await expect(
@@ -419,6 +474,11 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
     await expect(editor.getByRole("button", { name: "停止", exact: true })).toBeEnabled();
     await manager.getByRole("heading").first().scrollIntoViewIfNeeded();
     await settings.screenshot({ path: "build/native-plugin-management.png", fullPage: true });
+    // Keep the restored workbench away from pages that prepare research automatically.
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "自选", exact: true })
+      .click();
     await call("node.action", { id: "local", service: "research", action: "stop" });
     await application.close();
     application = undefined;
@@ -427,7 +487,9 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
     application = await launch();
     page = await application.firstWindow();
     page.on("pageerror", error => errors.push(String(error)));
-    await expect(page.getByRole("button", { name: "总览", exact: true })).toBeVisible({
+    await expect(
+      page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
+    ).toBeVisible({
       timeout: 60000,
     });
     // The research service is stopped here, so its task index can be read.

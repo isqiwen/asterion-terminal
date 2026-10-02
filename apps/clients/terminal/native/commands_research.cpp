@@ -79,6 +79,47 @@ data::v1::DailyPageQuery daily_page_query(const json& p) {
 }
 // Research tasks: dataset selection, backtest, factor and data-source downloads.
 void Application::Impl::register_research_commands() {
+  core.command("research.history.usage", "node.manage", [this](const json& p) {
+    fields(p, {"id"});
+    data::v1::HistoryUsage usage;
+    usage.set_dataset_id(text(p, "id"));
+    (void)protocol::decode_history_usage(usage);
+    if (!research)
+      throw std::invalid_argument("connect research service first");
+    return json::object();
+  });
+  core.command("research.history.plan", "node.manage", [this](const json& p) {
+    (void)protocol::encode_history_update_query(p);
+    if (!research)
+      throw std::invalid_argument("connect research service first");
+    return json::object();
+  });
+  core.command("research.history.submit", "node.manage", [this](const json& p) {
+    fields(p, {"id", "query", "plan_id", "token", "connection", "connection_revision"});
+    (void)protocol::encode_history_update_query(p.at("query"));
+    if (!research)
+      throw std::invalid_argument("connect research service first");
+    return json::object();
+  });
+  core.command("research.dataset.saved", "node.manage", [this](const json& p) {
+    fields(p, {});
+    if (!research)
+      throw std::invalid_argument("connect research service first");
+    return json::object();
+  });
+  core.command("research.dataset.save", "node.manage", [this](const json& p) {
+    fields(p, {"name"});
+    if (!research)
+      throw std::invalid_argument("connect research service first");
+    (void)selected();
+    return json::object();
+  });
+  core.command("research.dataset.use", "node.manage", [this](const json& p) {
+    fields(p, {"id"});
+    if (!research)
+      throw std::invalid_argument("connect research service first");
+    return json::object();
+  });
   core.command("research.datasets", "node.manage", [this](const json& p) {
     fields(p, {"venue", "product", "contract_id", "source"});
     if (!research)
@@ -221,73 +262,15 @@ void Application::Impl::register_research_commands() {
   // service resolves and verifies them. Required before paper trading,
   // backtests, factors and strategy runs.
   core.command("research.dataset.select", "node.manage", [this](const json& p) {
-    fields(p, {"source_task_id", "settlement_task_id", "begin_day", "end_day", "price_increment",
-               "multiplier"});
+    fields(p, {"source_dataset_ids", "settlement_dataset_ids", "begin_day", "end_day",
+               "price_increment", "multiplier"});
     if (!research)
       throw std::invalid_argument("research service is not connected");
-    // The contract comes from the download's unified identity; only the units
-    // a data source does not provide are entered by the user.
-    std::string key;
-    for (const auto& task : research->tasks())
-      if (task.at("id") == p.at("source_task_id") && task.at("state") == "succeeded" &&
-          (task.at("kind") == "minute_download" || task.at("kind") == "daily_download"))
-        key = task.at("instrument").get<std::string>();
-    if (key.empty())
-      throw std::invalid_argument("select a completed minute or daily download");
-    const auto id = HistoryIdentity::parse(key).exchange_id();
-    const auto identity = HistoryIdentity::parse(key);
-    auto product = id.symbol.substr(0, identity.product.size());
-    const auto request =
-        protocol::encode_bar_dataset_request({{"source_task_id", p.at("source_task_id")},
-                                              {"settlement_task_id", p.at("settlement_task_id")},
-                                              {"begin_day", p.at("begin_day")},
-                                              {"end_day", p.at("end_day")},
-                                              {"contract",
-                                               {{"venue", id.venue},
-                                                {"symbol", id.symbol},
-                                                {"currency", "CNY"},
-                                                {"price_increment", text(p, "price_increment")},
-                                                {"quantity_increment", "1"},
-                                                {"multiplier", text(p, "multiplier")},
-                                                {"product", std::move(product)},
-                                                {"delivery_month", identity.delivery_month}}}});
-    auto dataset = research->bar_dataset(request);
-    const auto& bars = dataset.bars();
-    const auto& first = bars.Get(0);
-    const auto& last = bars.Get(bars.size() - 1);
-    json uncovered = json::array();
-    for (const auto& day : dataset.uncovered_days())
-      uncovered.push_back(day);
-    json summary = protocol::decode_bar_dataset_request(request);
-    summary.update({{"venue", dataset.contract().venue()},
-                    {"symbol", dataset.contract().symbol()},
-                    {"revision", dataset.revision()},
-                    {"source", dataset.source()},
-                    {"interval_minutes", dataset.interval_minutes()},
-                    {"count", bars.size()},
-                    {"days", dataset.days_size()},
-                    {"first_day", first.trading_day()},
-                    {"last_day", last.trading_day()},
-                    {"first_timestamp_ns", std::to_string(first.timestamp_ns())},
-                    {"last_timestamp_ns", std::to_string(last.timestamp_ns())},
-                    {"last_close", Decimal::from_raw(last.close().units()).str()},
-                    {"uncovered_days", uncovered}});
-    // One dataset per contract: selecting a contract again replaces it.
-    DatasetSelection next{request, std::move(dataset), std::move(summary)};
-    const auto same = std::ranges::find_if(selections, [&](const DatasetSelection& item) {
-      return item.dataset.contract().venue() == next.dataset.contract().venue() &&
-             item.dataset.contract().symbol() == next.dataset.contract().symbol();
-    });
-    if (same != selections.end())
-      *same = std::move(next);
-    else if (selections.size() == max_portfolio_contracts)
-      throw std::invalid_argument("a portfolio holds at most 20 contracts");
-    else
-      selections.push_back(std::move(next));
-    return snapshot();
+    return json::object();
   });
   core.command("research.dataset.remove", "node.manage", [this](const json& p) {
     fields(p, {"venue", "symbol"});
+    ++dataset_selection_generation;
     const auto count = std::erase_if(selections, [&](const DatasetSelection& item) {
       return item.dataset.contract().venue() == text(p, "venue") &&
              item.dataset.contract().symbol() == text(p, "symbol");
@@ -298,6 +281,7 @@ void Application::Impl::register_research_commands() {
   });
   core.command("research.dataset.clear", "node.manage", [this](const json& p) {
     fields(p, {});
+    ++dataset_selection_generation;
     selections.clear();
     return snapshot();
   });
@@ -320,7 +304,7 @@ void Application::Impl::register_research_commands() {
     return snapshot();
   });
   core.command("research.daily-factor.submit", "node.manage", [this](const json& p) {
-    fields(p, {"id", "source_task_id", "lookback", "horizon", "evaluation"});
+    fields(p, {"id", "source_dataset_id", "lookback", "horizon", "evaluation"});
     validate_id(text(p, "id"));
     auto definition = p;
     definition.erase("id");

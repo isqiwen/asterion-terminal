@@ -1,5 +1,6 @@
 #pragma once
 #include "sqlite_journal.hpp"
+#include <asterion/v1/trading.pb.h>
 #include "risk_module.hpp"
 #include <optional>
 #include "paper_execution.hpp"
@@ -15,6 +16,7 @@ public:
   ~PaperSession();
   void execute(const Json& command);
   Json snapshot() const;
+  protocol::v1::PaperHistoryUsage history_usage(const std::string& dataset_id) const;
   bool recovery_required() const noexcept { return failed_; }
 
 private:
@@ -34,6 +36,7 @@ private:
   // Day-end settlement of every contract, fixed by the manifest.
   std::shared_ptr<const PaperReplaySchedule> schedule_;
   std::string dataset_revision_;
+  std::map<std::string, std::pair<bool, bool>> history_roles_;
   std::map<std::string, Json> commands_;
   // Committed commands in journal order; points into commands_ nodes.
   std::vector<const Json*> sequence_;

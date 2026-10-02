@@ -634,7 +634,9 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   history_files::download_daily(provider, history_files::daily_range(request),
                                 attempt.output_directory(), 500);
   const auto result = history_files::daily_result(attempt.output_directory());
-  EXPECT_THROW(tasks::daily_factor_dataset(store->get("source"), result), std::invalid_argument);
+  research::v1::DailyFactorRequest unpublished;
+  unpublished.set_source_dataset_id(result.manifest_sha256());
+  EXPECT_THROW(store->prepare_daily_factor("unpublished", unpublished), std::invalid_argument);
   research::v1::TaskFinish finish;
   finish.set_id("source");
   finish.set_token(attempt.token());
@@ -642,10 +644,13 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   auto completion = store->prepare_finish(finish);
   completion.verify();
   store->finish(std::move(completion));
-  const auto source = store->get("source");
-  const auto dataset = tasks::daily_factor_dataset(source, store->daily_result("source"));
+  data::v1::HistoryRecord source;
+  source.set_version(1);
+  *source.mutable_daily() = request;
+  *source.mutable_daily_result() = result;
+  const auto dataset = tasks::daily_factor_dataset(source);
   ASSERT_EQ(dataset.bars_size(), 80);
-  EXPECT_EQ(dataset.source_task_id(), "source");
+  EXPECT_EQ(dataset.source_dataset_id(), result.manifest_sha256());
   EXPECT_EQ(dataset.manifest_sha256(), result.manifest_sha256());
   EXPECT_EQ(dataset.contract_id(), request.contract_id());
   EXPECT_EQ(dataset.bars(0).amount().units(), Decimal::parse("1.00000001").raw());
@@ -662,7 +667,7 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   const auto analysis = factor::run_daily(input);
   EXPECT_EQ(analysis.samples_size(), 74);
   research::v1::DailyFactorRequest parameters;
-  parameters.set_source_task_id("source");
+  parameters.set_source_dataset_id(result.manifest_sha256());
   parameters.set_lookback(2);
   parameters.set_horizon(2);
   parameters.set_holdout_start(40);
@@ -671,6 +676,15 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   submission.verify();
   EXPECT_EQ(store->submit(submission).kind(), research::v1::DAILY_FACTOR);
   EXPECT_EQ(store->submit(submission).id(), "analysis");
+  const auto usage = store->history_usage(result.manifest_sha256());
+  ASSERT_EQ(usage.references_size(), 2);
+  const auto factor_reference = std::ranges::find_if(
+      usage.references(), [](const auto& row) { return row.id() == "analysis"; });
+  ASSERT_NE(factor_reference, usage.references().end());
+  EXPECT_EQ(factor_reference->kind(), data::v1::HISTORY_DAILY_FACTOR);
+  ASSERT_EQ(factor_reference->roles_size(), 1);
+  EXPECT_EQ(factor_reference->roles(0), data::v1::HISTORY_MARKET);
+
   ASSERT_EQ(store->dispatch({}).launches_size(), 1);
   EXPECT_TRUE(store->dispatch({}).launches(0).daily_factor());
   EXPECT_EQ(store->dispatch({}).launches(0).program(), research::v1::FACTOR_PROGRAM);
@@ -779,31 +793,32 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
     EXPECT_EQ(reply.result_task().state(), research::v1::SUCCEEDED);
     const auto evidence = protocol::decode_task_result(reply, "worker-analysis");
     EXPECT_EQ(evidence.at("kind"), "daily_factor");
-    EXPECT_EQ(evidence.at("experiment").at("data").at("source_task_id"), "source");
+    EXPECT_EQ(evidence.at("experiment").at("data").at("source_dataset_id"),
+              result.manifest_sha256());
   }
   store = std::make_unique<tasks::Store>(folder.path);
   EXPECT_EQ(store->daily_factor_result("worker-analysis").SerializeAsString(),
             analysis.SerializeAsString());
-  auto wrong = result;
-  wrong.set_manifest_sha256(std::string(64, 'a'));
-  EXPECT_THROW(tasks::daily_factor_dataset(source, wrong), std::invalid_argument);
-  wrong = result;
-  wrong.set_rows(result.rows() + 1);
-  EXPECT_THROW(tasks::daily_factor_dataset(source, wrong), std::invalid_argument);
+  auto wrong = source;
+  wrong.mutable_daily_result()->set_manifest_sha256(std::string(64, 'a'));
+  EXPECT_THROW(tasks::daily_factor_dataset(wrong), std::invalid_argument);
+  wrong = source;
+  wrong.mutable_daily_result()->set_rows(result.rows() + 1);
+  EXPECT_THROW(tasks::daily_factor_dataset(wrong), std::invalid_argument);
   auto mismatched = source;
   mismatched.mutable_daily()->set_contract_id("SHFE/cu/2024-04");
-  EXPECT_THROW(tasks::daily_factor_dataset(mismatched, result), std::invalid_argument);
+  EXPECT_THROW(tasks::daily_factor_dataset(mismatched), std::invalid_argument);
   mismatched = source;
   mismatched.mutable_daily()->set_end_day("2023-04-02");
-  EXPECT_THROW(tasks::daily_factor_dataset(mismatched, result), std::invalid_argument);
+  EXPECT_THROW(tasks::daily_factor_dataset(mismatched), std::invalid_argument);
   auto manifest =
       Json::parse(contents(std::filesystem::path(attempt.output_directory()) / "daily.json"));
   manifest["complete"] = false;
   replace_file_durably(std::filesystem::path(attempt.output_directory()) / "daily.json",
                        manifest.dump());
-  EXPECT_THROW(tasks::daily_factor_dataset(source, result), std::invalid_argument);
+  EXPECT_THROW(tasks::daily_factor_dataset(source), std::invalid_argument);
   replace_file_durably(std::filesystem::path(attempt.output_directory()) / "daily-0.parquet", "{}");
-  EXPECT_THROW(tasks::daily_factor_dataset(source, result), std::invalid_argument);
+  EXPECT_THROW(tasks::daily_factor_dataset(source), std::invalid_argument);
   // The accepted snapshot remains usable after its source is damaged; no lazy file references.
   EXPECT_EQ(factor::run_daily(input).SerializeAsString(), analysis.SerializeAsString());
 }

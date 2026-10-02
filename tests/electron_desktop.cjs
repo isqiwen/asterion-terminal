@@ -65,6 +65,15 @@ async function closeDesktop(application) {
     assert.equal(await page.evaluate(() => typeof require), "undefined");
     assert.equal(await page.evaluate(() => typeof window.asterionDesktop.auth), "undefined");
     assert.equal(await page.evaluate(() => window.asterionDesktop.platform), process.platform);
+    const environment = await application.evaluate(({ app }) =>
+      app.isPackaged ? "production" : "development",
+    );
+    assert.equal(await page.evaluate(() => window.asterionDesktop.environment), environment);
+    assert.equal(await application.evaluate(() => process.env.ASTERION_ENVIRONMENT), environment);
+    await expect(page.locator(".environment-label")).toHaveCount(
+      environment === "development" ? 1 : 0,
+    );
+
     if (process.platform === "darwin") {
       await expect(page.locator("html")).toHaveAttribute("data-integrated-titlebar", "macos");
       assert.equal(
@@ -132,7 +141,10 @@ async function closeDesktop(application) {
     await columnDialog.getByRole("checkbox", { name: "持仓量", exact: true }).uncheck();
     await columnDialog.getByRole("button", { name: "应用列设置", exact: true }).click();
     await expect(columnButton).toBeFocused();
-    await page.getByRole("button", { name: "研究", exact: true }).click();
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
     await page
       .getByRole("navigation", { name: "业务工作区" })
       .getByRole("button", { name: "市场", exact: true })
@@ -176,8 +188,15 @@ async function closeDesktop(application) {
       },
     );
     await call("research.local");
-    await call("research.dataset.select", JSON.parse(seeded.stdout));
-    await page.getByRole("button", { name: "数据", exact: true }).click();
+    const historySelection = JSON.parse(seeded.stdout);
+    assert.ok(historySelection.source_dataset_ids[0]);
+    await call("research.dataset.clear");
+    // Fixtures change the native core outside React; establish a fresh snapshot before UI work.
+    await page.reload();
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "数据", exact: true })
+      .click();
     await page.getByRole("button", { name: "历史数据", exact: true }).click();
     const minuteDownloads = page.getByRole("region", { name: "历史数据", exact: true });
     await minuteDownloads.getByLabel("品种代码", { exact: true }).fill("CU");
@@ -185,19 +204,73 @@ async function closeDesktop(application) {
       .getByLabel("Tushare Token", { exact: true })
       .fill("electron-fixture-secret");
 
-    await page.getByRole("button", { name: "研究", exact: true }).click();
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
     await page.getByRole("button", { name: "均线回测", exact: true }).click();
+    await page.getByRole("button", { name: "新建回测", exact: true }).click();
+    const backtestData = page.getByRole("form", { name: "历史数据集", exact: true });
+    await expect(backtestData).toBeVisible();
+    await expect(
+      backtestData.getByRole("list", { name: "已选合约", exact: true }).locator("li"),
+    ).toHaveCount(0);
+    await backtestData
+      .getByLabel("K 线来源", { exact: true })
+      .selectOption(historySelection.source_dataset_ids[0]);
+    await backtestData.getByLabel("最小变动价位", { exact: true }).fill("1");
+    await backtestData.getByLabel("合约乘数", { exact: true }).fill("10");
+    await backtestData.getByRole("button", { name: "使用此数据集", exact: true }).click();
+    await expect(backtestData.getByRole("list", { name: "已选合约", exact: true })).toContainText(
+      "3 根 · 1 个交易日",
+    );
+    await capture(page, "native-backtest-data");
+    await page.getByRole("button", { name: "下一步", exact: true }).click();
     await page.getByLabel("初始资金", { exact: true }).fill("25000");
-    await expect(page.getByRole("form", { name: "历史数据集", exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "数据", exact: true }).click();
+    await capture(page, "native-backtest-rules");
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "数据", exact: true })
+      .click();
     await expect(page.getByLabel("CSV 文件路径", { exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "历史数据", exact: true }).click();
     await expect(minuteDownloads.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
     await expect(minuteDownloads.getByLabel("品种代码", { exact: true })).toHaveValue("CU");
 
-    await page.getByRole("button", { name: "研究", exact: true }).click();
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
     await expect(page.getByLabel("初始资金", { exact: true })).toHaveValue("25000");
-    await page.getByRole("button", { name: "数据", exact: true }).click();
+    for (const [label, value] of [
+      ["快均线", "1"],
+      ["慢均线", "2"],
+      ["目标手数", "1"],
+      ["单笔数量上限", "1"],
+      ["总持仓量上限", "1"],
+      ["在途委托数上限", "1"],
+      ["每手保证金", "100"],
+      ["每手开仓费", "2"],
+      ["每手平今费", "3"],
+      ["每手平昨费", "4"],
+    ])
+      await page.getByLabel(label, { exact: true }).fill(value);
+    await page.getByRole("button", { name: "下一步", exact: true }).click();
+    await capture(page, "native-backtest-review");
+    await page.getByRole("button", { name: "开始回测", exact: true }).click();
+    await expect(page.getByRole("region", { name: "回测进度", exact: true })).toContainText(
+      "已完成",
+      { timeout: 20000 },
+    );
+    await page.getByRole("button", { name: "查看结果", exact: true }).click();
+    await expect(page.getByRole("region", { name: "回测结果", exact: true })).toBeVisible();
+    await page.locator(".terminal-business").evaluate(el => (el.scrollTop = 0));
+    await capture(page, "native-backtest-result");
+
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "数据", exact: true })
+      .click();
 
     await page.getByRole("button", { name: "历史数据", exact: true }).click();
     await expect(page.getByLabel("品种代码", { exact: true })).toHaveValue("CU");
@@ -338,23 +411,30 @@ async function closeDesktop(application) {
     assert.equal(await page.evaluate(() => window.open("https://example.com") === null), true);
     // Exercise actual UI controls and C++ ledger across a whole desktop restart.
     await settings.evaluate(() => window.asterionDesktop.close());
-    const account = path.join(temp, "paper-account");
-    await fs.mkdir(account);
+
     await page.reload();
-    await page.getByRole("button", { name: "交易", exact: true }).click();
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
+    await page.getByRole("button", { name: "历史回放", exact: true }).click();
+    await page.getByRole("button", { name: "新建回放账户", exact: true }).click();
     const picker = page.getByRole("form", { name: "历史数据集" });
     await picker.getByRole("button", { name: "移除 SHFE · rb2610", exact: true }).click();
     await expect(picker.getByRole("list", { name: "已选合约" }).locator("li")).toHaveCount(0);
-    await picker.getByLabel("K 线来源", { exact: true }).selectOption("native-paper-bars");
+    await picker
+      .getByLabel("K 线来源", { exact: true })
+      .selectOption(historySelection.source_dataset_ids[0]);
     await expect(picker.getByLabel("结算价来源", { exact: true })).toHaveValue(
-      "native-paper-settlement",
+      historySelection.settlement_dataset_ids[0],
     );
     await picker.getByLabel("最小变动价位", { exact: true }).fill("1");
     await picker.getByLabel("合约乘数", { exact: true }).fill("10");
     await picker.getByRole("button", { name: "使用此数据集", exact: true }).click();
     await expect(picker.getByRole("list", { name: "已选合约" })).toContainText("3 根 · 1 个交易日");
+    await page.getByRole("button", { name: "下一步", exact: true }).click();
     for (const [label, value] of [
-      ["交易记录目录", account],
+      ["账户名称", "native-paper"],
       ["初始模拟资金", "1000"],
       ["每手保证金", "100"],
       ["每手开仓费", "2"],
@@ -365,7 +445,9 @@ async function closeDesktop(application) {
       ["在途委托数上限", "1"],
     ])
       await page.getByLabel(label, { exact: true }).fill(value);
-    await page.getByRole("button", { name: "创建模拟会话", exact: true }).click();
+    await page.getByRole("button", { name: "下一步", exact: true }).click();
+    await capture(page, "native-paper-review");
+    await page.getByRole("button", { name: "创建回放账户", exact: true }).click();
     await expect(page.getByTestId("paper-balance")).toHaveText("1000 CNY");
     await page.getByRole("button", { name: "回放下一根", exact: true }).click();
     await page.getByLabel("限价", { exact: true }).fill("100");
@@ -373,28 +455,43 @@ async function closeDesktop(application) {
     await page.getByRole("button", { name: "提交模拟委托", exact: true }).click();
     await expect(page.getByRole("alert")).toBeVisible();
     await expect(page.getByTestId("paper-frozen")).toHaveText("0 CNY");
-    await expect(page.getByRole("table", { name: "模拟委托" }).locator("tbody tr")).toHaveCount(0);
+    await expect(
+      page.getByRole("table", { includeHidden: true, name: "模拟委托" }).locator("tbody tr"),
+    ).toHaveCount(0);
     await page.getByLabel("委托手数", { exact: true }).fill("1");
     await page.getByRole("button", { name: "提交模拟委托", exact: true }).click();
     await expect(page.getByTestId("paper-frozen")).toHaveText("102 CNY");
     await page.getByRole("button", { name: "回放下一根", exact: true }).click();
     await expect(page.getByTestId("paper-balance")).toHaveText("998 CNY");
-    await expect(page.getByRole("table", { name: "模拟成交" }).locator("tbody tr")).toHaveCount(1);
+    await expect(
+      page.getByRole("table", { includeHidden: true, name: "模拟成交" }).locator("tbody tr"),
+    ).toHaveCount(1);
     const ownedPid = Number(await fs.readFile(path.join(temp, "node", "agent.pid"), "utf8"));
     await closeDesktop(application);
     application = undefined;
     process.kill(ownedPid, 0); // Closing the desktop must not stop its managed Agent.
     application = await launch();
     const restored = await application.firstWindow();
-    await restored.getByRole("button", { name: "交易", exact: true }).click({ timeout: 60000 });
-    await restored.getByLabel("交易记录目录", { exact: true }).fill(account);
-    await restored.getByRole("button", { name: "恢复会话", exact: true }).click();
+    await expect(
+      restored.getByRole("navigation", { name: "业务工作区" }).getByRole("button"),
+    ).toHaveCount(6);
+    await expect(
+      restored.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }),
+    ).toHaveAttribute("aria-current", "page", { timeout: 60000 });
+    await restored.getByRole("button", { name: "历史回放", exact: true }).click();
+    await expect(restored.getByRole("region", { name: "账户列表", exact: true })).toContainText(
+      "native-paper",
+    );
+    await capture(restored, "native-account-list");
+    await restored.getByRole("button", { name: "打开账户", exact: true }).click();
     await expect(restored.getByTestId("paper-balance")).toHaveText("998 CNY");
     await expect(restored.getByTestId("paper-fees")).toHaveText("2 CNY");
-    await expect(restored.getByRole("table", { name: "模拟持仓" })).toContainText("多头");
-    await expect(restored.getByRole("table", { name: "模拟成交" }).locator("tbody tr")).toHaveCount(
-      1,
-    );
+    await expect(
+      restored.getByRole("table", { includeHidden: true, name: "模拟持仓" }),
+    ).toContainText("多头");
+    await expect(
+      restored.getByRole("table", { includeHidden: true, name: "模拟成交" }).locator("tbody tr"),
+    ).toHaveCount(1);
     await restored.getByLabel("买卖方向", { exact: true }).selectOption("sell");
     await restored.getByLabel("开平仓", { exact: true }).selectOption("close_today");
     await restored.getByLabel("限价", { exact: true }).fill("110");
@@ -404,17 +501,20 @@ async function closeDesktop(application) {
     await expect(restored.getByText("已结算 1 / 1 个交易日", { exact: true })).toBeVisible();
     await expect(restored.getByTestId("paper-balance")).toHaveText("1105 CNY");
     await expect(restored.getByTestId("paper-fees")).toHaveText("5 CNY");
-    await expect(restored.getByRole("table", { name: "模拟持仓" }).locator("tbody tr")).toHaveCount(
-      0,
-    );
-    await expect(restored.getByRole("table", { name: "模拟成交" }).locator("tbody tr")).toHaveCount(
-      2,
-    );
+    await expect(
+      restored.getByRole("table", { includeHidden: true, name: "模拟持仓" }).locator("tbody tr"),
+    ).toHaveCount(0);
+    await expect(
+      restored.getByRole("table", { includeHidden: true, name: "模拟成交" }).locator("tbody tr"),
+    ).toHaveCount(2);
     await restored.locator(".terminal-business").evaluate(el => (el.scrollTop = 0));
     await capture(restored, "native-trading");
-    await restored.getByRole("button", { name: "总览", exact: true }).click();
-    await expect(restored.getByRole("heading", { name: "账户与持仓", exact: true })).toBeVisible();
-    await capture(restored, "native-overview");
+    await restored
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "自选", exact: true })
+      .click();
+    await expect(restored.locator(".watchlist-workspace")).toBeVisible();
+    await capture(restored, "native-watchlist");
     console.log(
       "Electron: direct startup without Cloud, no authentication IPC, startup, real C++ bridge, renderer isolation, settings ownership/reuse/bounds, cross-window locale, retained draft, dialog IPC, shortcuts, Agent independence and paper ledger recovery after desktop restart passed",
     );

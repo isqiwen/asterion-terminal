@@ -12,6 +12,8 @@ const {
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const root = path.resolve(__dirname, "../../../..");
+const environment = app.isPackaged ? "production" : "development";
+process.env.ASTERION_ENVIRONMENT = environment;
 const devUrl = !app.isPackaged ? process.env.ASTERION_DEV_URL : undefined;
 if (devUrl && !/^http:\/\/127\.0\.0\.1:\d+$/.test(devUrl))
   throw new Error("Invalid desktop development URL");
@@ -51,12 +53,72 @@ process.env.ASTERION_REMOTE_RESOURCES = path.join(resources, "remote-linux");
 protocol.registerSchemesAsPrivileged([
   { scheme: "asterion", privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
-app.setName("Asterion Terminal");
+app.setName(app.isPackaged ? "Asterion Terminal" : "Asterion Terminal Development");
 // Existing application identity and OS-managed service data remain unchanged.
 if (!app.commandLine.hasSwitch("user-data-dir"))
-  app.setPath("userData", path.join(app.getPath("appData"), "me.asterion.terminal"));
+  app.setPath(
+    "userData",
+    path.join(
+      app.getPath("appData"),
+      app.isPackaged ? "me.asterion.terminal" : "me.asterion.terminal.dev",
+    ),
+  );
 let main, settings, native;
 let quitting = false;
+let pending = 0;
+const automaticDevelopmentStop = !app.isPackaged && !process.env.ASTERION_NODE_DIRECTORY;
+let developmentStopping = false;
+let developmentStopped = false;
+async function stopDevelopment() {
+  if (developmentStopping || developmentStopped) return;
+  developmentStopping = true;
+  for (const win of owned) win.webContents.send("asterion:development-stopping", true);
+  console.log("Stopping local development services…");
+  try {
+    const deadline = Date.now() + 60000;
+    while (pending) {
+      if (Date.now() >= deadline)
+        throw new Error("A native operation is still running; retry closing after it finishes.");
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    if (native) {
+      const response = JSON.parse(
+        await native.request(
+          JSON.stringify({
+            version: 1,
+            method: "development.shutdown",
+            params: { recover: false },
+          }),
+        ),
+      );
+      if (response.error) throw new Error(response.error.message);
+    }
+    developmentStopped = true;
+    console.log("Local development services stopped.");
+    app.quit();
+  } catch (error) {
+    console.error(`Development shutdown failed; background services may remain: ${error.message}`);
+    developmentStopping = false;
+    for (const win of owned) win.webContents.send("asterion:development-stopping", false);
+    const chinese = app.getLocale().startsWith("zh");
+    await dialog.showMessageBox(main, {
+      type: "error",
+      title: chinese ? "开发环境未完全停止" : "Development shutdown incomplete",
+      message: chinese
+        ? "后台服务尚未全部停止。处理错误后，重新关闭开发窗口即可重试。"
+        : "Some background services remain. Resolve the error and close the development window again to retry.",
+      detail: error.message,
+      buttons: [chinese ? "知道了" : "OK"],
+    });
+  }
+}
+if (automaticDevelopmentStop) {
+  process.on("SIGINT", () => app.quit());
+  process.on("SIGTERM", () => app.quit());
+  process.on("message", message => {
+    if (message?.type === "asterion:development-quit") app.quit();
+  });
+}
 const owned = new Set();
 function authorized(event) {
   const win = BrowserWindow.fromWebContents(event.sender);
@@ -88,6 +150,7 @@ function configure(win) {
 function preferences() {
   return {
     preload: path.join(__dirname, "preload.cjs"),
+    additionalArguments: [`--asterion-environment=${environment}`],
     contextIsolation: true,
     nodeIntegration: false,
     sandbox: true,
@@ -201,7 +264,12 @@ function options(input, save = false) {
     ];
   return result;
 }
-app.on("before-quit", () => {
+app.on("before-quit", event => {
+  if (automaticDevelopmentStop && !developmentStopped) {
+    event.preventDefault();
+    void stopDevelopment();
+    return;
+  }
   quitting = true;
 });
 app.on("window-all-closed", () => app.quit());
@@ -236,9 +304,9 @@ app
     // Terminal core logs: one file per day, kept 30 days.
     process.env.ASTERION_LOG_DIRECTORY ??= app.getPath("logs");
     native = require(path.join(resources, "native/asterion_terminal.node"));
-    let pending = 0;
     ipcMain.handle("asterion:request", async (event, body) => {
       authorized(event);
+      if (developmentStopping) throw new Error("Development environment is stopping");
       if (typeof body !== "string" || Buffer.byteLength(body) > 65536 || body.includes("\0"))
         throw new Error("Invalid native request");
       // Bound queued native work. The C++ facade rejects concurrent mutations.
@@ -296,7 +364,12 @@ app
       webPreferences: preferences(),
     });
     configure(main);
-    main.on("close", () => {
+    main.on("close", event => {
+      if (automaticDevelopmentStop && !developmentStopped) {
+        event.preventDefault();
+        void stopDevelopment();
+        return;
+      }
       quitting = true;
       settings?.destroy();
     });

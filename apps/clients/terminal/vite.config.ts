@@ -7,24 +7,42 @@ import { createInterface } from "node:readline";
 const root = fileURLToPath(new URL("../../..", import.meta.url));
 // C++ build that serves the dev bridge; Windows desktop builds use Release.
 const cppBuild = process.env.ASTERION_CPP_BUILD ?? resolve(root, "build/Debug");
-const port = Number(process.env.ASTERION_DEV_PORT ?? 1420);
+const port = Number(process.env.ASTERION_DEV_PORT ?? 1423);
 const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 
 // Development-only transport to the same C++ API used by Electron. No fake backend.
 function localCore(): Plugin {
+  let closeCore: (() => Promise<void>) | undefined;
   return {
+    async closeBundle() {
+      await closeCore?.();
+    },
     name: "asterion-local-core",
     configureServer(server) {
+      // Vite handles SIGTERM, but a terminal process-group SIGINT can bypass
+      // its close hooks. Wait for native cleanup before leaving this process.
+      const interrupt = () => {
+        void server.close().then(
+          () => process.exit(),
+          error => {
+            server.config.logger.error(String(error));
+            process.exit(1);
+          },
+        );
+      };
+      process.on("SIGINT", interrupt);
       const executable =
         "asterion_terminal_dev_bridge" + (process.platform === "win32" ? ".exe" : "");
       const child = spawn(resolve(cppBuild, executable), [], {
         env: {
           ...process.env,
+          ASTERION_ENVIRONMENT: "development",
           ASTERION_REMOTE_RESOURCES:
             process.env.ASTERION_REMOTE_RESOURCES ??
             resolve(root, "build/electron-resources/remote-linux"),
         },
         stdio: ["pipe", "pipe", "pipe"],
+        detached: true,
       });
       const pending: { resolve: (response: string) => void; reject: (error: Error) => void }[] = [];
       let failed: Error | null = null;
@@ -36,7 +54,36 @@ function localCore(): Plugin {
       child.on("error", fail);
       child.on("exit", () => fail(new Error("C++ 核心已退出，请重新启动开发服务")));
       child.stderr.on("data", data => server.config.logger.error(String(data)));
-      server.httpServer?.once("close", () => child.kill());
+      closeCore = async () => {
+        process.off("SIGINT", interrupt);
+        if (failed) {
+          child.kill();
+          throw failed;
+        }
+        if (process.env.ASTERION_NODE_DIRECTORY) {
+          child.kill();
+          return;
+        }
+        const result = await new Promise<string>((resolve, reject) => {
+          pending.push({ resolve, reject });
+          child.stdin.write(
+            JSON.stringify({
+              version: 1,
+              method: "development.shutdown",
+              params: { recover: false },
+            }) + "\n",
+          );
+        });
+        const response = JSON.parse(result);
+        if (response.error) {
+          server.config.logger.error(
+            `Development cleanup incomplete; services may remain: ${response.error.message}`,
+          );
+          child.kill();
+          throw new Error(response.error.message);
+        }
+        child.kill();
+      };
       server.middlewares.use("/__asterion/api", (req, res) => {
         // This middleware runs before Vite's own host check, so it enforces one
         // itself: a DNS-rebound page carries an attacker-chosen Host header.
@@ -98,7 +145,6 @@ export default defineConfig({
       "@asterion/client-ui": resolve(root, "packages/client-ui/src"),
       "@asterion/workbench": resolve(root, "apps/clients/terminal/src/host"),
       "@asterion/desktop-bridge": resolve(root, "apps/clients/terminal/src/bridge"),
-      "@asterion/overview": resolve(root, "apps/clients/terminal/plugins/overview"),
       "@asterion/terminal": resolve(root, "apps/clients/terminal/src"),
     },
   },

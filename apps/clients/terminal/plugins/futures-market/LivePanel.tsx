@@ -372,7 +372,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
       {!market ? (
         <>
           {toolbar}
-          <div className="dashboard-empty">
+          <div className="workspace-empty">
             <strong>{t("尚无订阅行情")}</strong>
             <p>{t("添加实际合约并连接行情服务。")}</p>
           </div>

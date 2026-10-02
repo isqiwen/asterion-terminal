@@ -3,6 +3,7 @@
 #include <asterion/protocol/trading.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/process/child.hpp>
+#include <asterion/kernel/process/artifact.hpp>
 #include <thread>
 using namespace asterion;
 using namespace std::chrono_literals;
@@ -129,4 +130,41 @@ TEST(TradingProcess, IndependentInstancesHaveSeparateLedgersAndClocks) {
   EXPECT_EQ(right.snapshot().cursor(), 0);
   EXPECT_EQ(right.snapshot().balance().units(), 200000000000LL);
   EXPECT_EQ(left.snapshot().balance().units(), 100000000000LL);
+}
+
+TEST(TradingProcess, HistoricalUsageIsReadOnlyAndBoundToFixedInput) {
+  Host host("paper.history");
+  auto query = host.request();
+  query.mutable_history_usage()->set_dataset_id(std::string(64, 'a'));
+  ASSERT_TRUE(host.call(query).has_error());
+  EXPECT_TRUE(std::filesystem::is_empty(host.directory));
+  auto create = host.create("1000");
+  auto* dataset = create.mutable_create()->mutable_contracts(0)->mutable_dataset();
+  dataset->set_settlement_dataset_ids(0, std::string(64, 'a'));
+  dataset->set_revision(protocol::bar_dataset_revision(*dataset));
+  const auto initial = host.call(create);
+  ASSERT_TRUE(initial.has_snapshot());
+  const auto file = host.directory / "journal.sqlite";
+  const auto wal = host.directory / "journal.sqlite-wal";
+  const auto before = sha256_file(file), before_wal = sha256_file(wal);
+  const auto response = host.call(query);
+  ASSERT_TRUE(response.has_history_usage());
+  EXPECT_EQ(response.history_usage().dataset_id(), std::string(64, 'a'));
+  EXPECT_EQ(response.history_usage().dataset_revision(), dataset->revision());
+  EXPECT_EQ(response.history_usage().directory(), host.directory.string());
+  EXPECT_TRUE(response.history_usage().market());
+  EXPECT_TRUE(response.history_usage().settlement());
+  query.mutable_history_usage()->set_dataset_id(std::string(64, 'c'));
+  const auto absent = host.call(query);
+  ASSERT_TRUE(absent.has_history_usage());
+  EXPECT_FALSE(absent.history_usage().market());
+  EXPECT_FALSE(absent.history_usage().settlement());
+  query.mutable_history_usage()->set_dataset_id("invalid");
+  ASSERT_TRUE(host.call(query).has_error());
+  query.mutable_snapshot();
+  EXPECT_EQ(host.call(query).snapshot().SerializeAsString(),
+            initial.snapshot().SerializeAsString());
+  EXPECT_EQ(sha256_file(file), before);
+  EXPECT_EQ(sha256_file(wal), before_wal);
+  EXPECT_FALSE(host.process->exited());
 }

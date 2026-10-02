@@ -44,7 +44,9 @@ test("fresh setup requires consent, reports real failure, retries and persists c
   await page.goto("/");
   await expect(page.getByRole("button", { name: "开始设置", exact: true })).toBeEnabled();
   expect(starts).toBe(0);
-  await expect(page.getByRole("button", { name: "总览", exact: true })).toHaveCount(0);
+  await expect(
+    page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
+  ).toHaveCount(0);
   await page.getByRole("combobox", { name: "语言", exact: true }).selectOption("en");
   await expect(page.getByRole("button", { name: "BEGIN SETUP", exact: true })).toBeVisible();
   await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("zh");
@@ -54,7 +56,9 @@ test("fresh setup requires consent, reports real failure, retries and persists c
   await page.getByRole("alert").getByRole("button", { name: "详情" }).click();
   await expect(page.getByRole("alert")).toContainText("Agent start failed");
   expect(await page.evaluate(() => localStorage.getItem("asterion.setup.completed.v1"))).toBeNull();
-  await expect(page.getByRole("button", { name: "总览", exact: true })).toHaveCount(0);
+  await expect(
+    page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
+  ).toHaveCount(0);
   fail = false;
   await page.getByRole("button", { name: "重试启动", exact: true }).click();
   await expect(page.getByRole("button", { name: "重试启动", exact: true })).toBeEnabled();
@@ -76,9 +80,13 @@ test("fresh setup requires consent, reports real failure, retries and persists c
     "100",
   );
   await page.getByRole("button", { name: "进入工作台", exact: true }).click();
-  await expect(page.getByRole("button", { name: "总览", exact: true })).toBeVisible();
+  await expect(
+    page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
+  ).toBeVisible();
   await page.reload();
-  await expect(page.getByRole("button", { name: "总览", exact: true })).toBeVisible();
+  await expect(
+    page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
+  ).toBeVisible();
   expect(starts).toBe(5);
   expect(marketStarts).toBe(4);
   expect(researchStarts).toBe(3);
@@ -86,7 +94,9 @@ test("fresh setup requires consent, reports real failure, retries and persists c
   fail = true;
   await page.reload();
   await expect(page.getByRole("button", { name: "重试启动", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "总览", exact: true })).toHaveCount(0);
+  await expect(
+    page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
+  ).toHaveCount(0);
 });
 
 for (const updateState of ["update_available", "recovery_required"])

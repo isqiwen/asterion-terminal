@@ -11,6 +11,11 @@ class Database;
 // creating or changing anything; the same check start() applies.
 void check_journal_directory(const std::filesystem::path& directory,
                              const std::set<std::string>& sidecar_directories);
+// Reads only the first committed record through SQLite's normal locking.
+// Does not create a database, replay commands or write records. SQLite may
+// create WAL coordination files; an exclusive writer causes this read to fail.
+Json read_journal_header(const std::filesystem::path& directory,
+                         const std::set<std::string>& sidecar_directories = {});
 // Ordered journal in a dedicated directory, stored as journal.sqlite. The
 // directory may also hold the declared sidecar directories and nothing else.
 class SqliteJournal final : public JournalPort {

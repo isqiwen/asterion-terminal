@@ -4,13 +4,12 @@
 #include <asterion/protocol/factor.hpp>
 #include <stdexcept>
 namespace asterion::tasks {
-research::v1::DailyFactorDataset daily_factor_dataset(const research::v1::Task& source,
-                                                      const data::v1::DailyDownloadResult& result) {
+research::v1::DailyFactorDataset daily_factor_dataset(const data::v1::HistoryRecord& source) {
   protocol::validate_message(source);
+  const auto& result = source.daily_result();
   protocol::validate_message(result);
-  if (source.kind() != research::v1::DAILY_DOWNLOAD || source.state() != research::v1::SUCCEEDED ||
-      !source.has_daily())
-    throw std::invalid_argument("daily factor requires a completed daily download task");
+  if (source.version() != 1 || !source.has_daily() || !source.has_daily_result())
+    throw std::invalid_argument("daily factor requires a published daily dataset");
   const auto range = history_files::daily_range(source.daily());
   const auto directory =
       std::filesystem::path(std::u8string(result.directory().begin(), result.directory().end()));
@@ -25,7 +24,7 @@ research::v1::DailyFactorDataset daily_factor_dataset(const research::v1::Task& 
     throw std::invalid_argument("daily dataset result does not match request");
   research::v1::DailyFactorDataset dataset;
   dataset.set_version(1);
-  dataset.set_source_task_id(source.id());
+  dataset.set_source_dataset_id(result.manifest_sha256());
   dataset.set_source(source.daily().source());
   dataset.set_contract_id(source.daily().contract_id());
   dataset.set_manifest_sha256(meta.manifest_sha256);

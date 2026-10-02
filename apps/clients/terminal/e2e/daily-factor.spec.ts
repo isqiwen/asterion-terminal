@@ -42,7 +42,11 @@ test("download research entry binds the selected source to its service", async (
   let service = "source-service";
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (!["runtime.snapshot", "research.daily-factor.submit"].includes(request.method))
+    if (
+      !["runtime.snapshot", "research.daily-factor.submit", "research.datasets"].includes(
+        request.method,
+      )
+    )
       return route.continue();
     const response = await route.fetch({
       postData: { ...request, method: "runtime.snapshot", params: {} },
@@ -58,6 +62,7 @@ test("download research entry binds the selected source to its service", async (
       tasks: [
         {
           id: "same-id",
+          history_dataset_id: "a".repeat(64),
           kind: "daily_download",
           data_source: "tushare.fut_daily",
           state: "succeeded",
@@ -75,15 +80,28 @@ test("download research entry binds the selected source to its service", async (
         },
       ],
     };
+    if (request.method === "research.datasets")
+      data.result.history_datasets = [
+        {
+          id: "a".repeat(64),
+          revision: "a".repeat(64),
+          contract_id: "SHFE/cu/2024-03",
+          source: "tushare.fut_daily",
+          begin: "2023-01-01",
+          end: "2023-06-01",
+          interval_minutes: 0,
+          rows: 80,
+        },
+      ];
     await route.fulfill({ response, json: data });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "数据", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await page
     .getByRole("combobox", { name: "数据源", exact: true })
     .selectOption("tushare.fut_daily");
   await page.getByRole("button", { name: "日线因子分析", exact: true }).click();
-  await expect(page.getByLabel("日线来源", { exact: true })).toHaveValue("same-id");
+  await expect(page.getByLabel("日线来源", { exact: true })).toHaveValue("a".repeat(64));
   service = "other-service";
   await expect(
     page.getByText("研究连接已改变，请重新选择当前服务中的日线。", { exact: true }),
@@ -91,10 +109,10 @@ test("download research entry binds the selected source to its service", async (
   await expect(page.getByLabel("日线来源", { exact: true })).toHaveValue("");
   await expect(page.getByRole("button", { name: "开始日线分析", exact: true })).toBeDisabled();
   // The other service has the same task ID; only an explicit selection may use it.
-  await page.getByLabel("日线来源", { exact: true }).selectOption("same-id");
+  await page.getByLabel("日线来源", { exact: true }).selectOption("a".repeat(64));
   await expect(page.getByRole("button", { name: "开始日线分析", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "开始日线分析", exact: true }).click();
-  const submitted = page.getByText("任务已提交，可关闭窗口。", { exact: true });
+  const submitted = page.getByText("任务已提交，可在任务中心查看进度。", { exact: true });
   await expect(submitted).toBeVisible();
   service = "third-service";
   await expect(page.getByLabel("日线来源", { exact: true })).toHaveValue("");

@@ -2,7 +2,7 @@ syntax = "proto3";
 package asterion.data.v1;
 import "asterion/v1/domain.proto";
 
-// Bars resolved by the task service from completed data-source downloads.
+// Bars resolved by the task service from immutable archive versions.
 // revision is the SHA-256 of contract, interval, bars and days; provenance
 // fields identify the source downloads and are not part of content identity.
 message BarDataset {
@@ -13,19 +13,27 @@ message BarDataset {
   repeated asterion.protocol.v1.Bar bars = 5;
   repeated asterion.protocol.v1.TradingDay days = 6;
   string source = 7;
-  string source_task_id = 8;
-  string settlement_task_id = 9;
-  string manifest_sha256 = 10;
-  string settlement_manifest_sha256 = 11;
+  reserved 8, 9, 10, 11, 13, 14;
+  repeated string source_dataset_ids = 15;
+  repeated string settlement_dataset_ids = 16;
   // Trading days of the settlement download, inside the dataset's first and
   // last bar days, that have no bars. Informational; not part of the revision.
   repeated string uncovered_days = 12;
 }
-// Clients select completed downloads and a contract specification; they
+// Clients select published archive versions and a contract specification; they
 // cannot upload bars. Days are inclusive; empty means the dataset bounds.
+// A named immutable portfolio of exact archive inputs; no market rows are copied.
+message ResearchDataset {
+  uint32 version = 1; string id = 2; string name = 3;
+  repeated BarDatasetRequest selections = 4;
+  repeated string content_revisions = 5;
+}
+message ResearchDatasets { repeated ResearchDataset items = 1; }
 message BarDatasetRequest {
-  string source_task_id = 1;     // minute or daily download
-  string settlement_task_id = 2; // daily download of the same contract
+  reserved 1, 2, 6, 7;
+  // Sorted unique immutable versions, 1..32 per role. Same contract and semantics.
+  repeated string source_dataset_ids = 8;
+  repeated string settlement_dataset_ids = 9;
   string begin_day = 3;
   string end_day = 4;
   asterion.protocol.v1.Contract contract = 5;
@@ -139,14 +147,15 @@ message HistoryRecord { uint32 version = 1; oneof definition { MinuteDownload mi
 message HistoryFilter { string venue = 1; string product = 2; string contract_id = 3; string source = 4; }
 message HistoryDataset { string id = 1; string contract_id = 2; string source = 3; string revision = 4; string begin = 5; string end = 6; uint32 interval_minutes = 7; uint64 rows = 8; }
 message HistoryDatasets { repeated HistoryDataset items = 1; }
-// Trading days per contract across the archive's minute and daily versions.
-// Uncovered days are daily trading days, between the first and last minute
-// days, that no minute version contains; only the first 50 are listed.
+// Compare exact minute/daily versions of one contract. Never merge periods,
+// sources or revisions. Missing whole trading days do not assess intraday quality.
 message HistoryCoverage {
   string contract_id = 1;
   uint32 minute_days = 2; string minute_first = 3; string minute_last = 4;
   uint32 daily_days = 5; string daily_first = 6; string daily_last = 7;
   uint32 uncovered = 8; repeated string uncovered_days = 9;
+  string minute_dataset_id = 10; string daily_dataset_id = 11;
+  string minute_source = 12; string daily_source = 13; uint32 interval_minutes = 14;
 }
 message HistoryCoverages { repeated HistoryCoverage items = 1; }
 
@@ -165,3 +174,35 @@ message HistoryConnectionSchema {
 message HistoryConnectionVerify { string source = 1; string credential = 2; }
 message HistoryConnectionCheck { string scope = 1; uint32 state = 2; }
 message HistoryConnectionVerification { repeated HistoryConnectionCheck checks = 1; }
+
+// A reviewed single-range download derived from an immutable archive version.
+// Repair deliberately re-fetches the original request window: missing trading
+// days alone do not define exchange night-session timestamp boundaries.
+enum HistoryUpdateMode { HISTORY_UPDATE_UNSPECIFIED = 0; EXTEND = 1; REPAIR = 2; }
+message HistoryUpdateQuery {
+  string dataset_id = 1; string calendar_dataset_id = 2;
+  HistoryUpdateMode mode = 3; string end_day = 4; uint32 requests_per_minute = 5;
+}
+message HistoryUpdatePlan {
+  string id = 1; HistoryUpdateQuery query = 2;
+  oneof download { MinuteDownload minutes = 3; DailyDownload daily = 4; }
+  repeated string missing_days = 5;
+}
+message HistoryUpdateSubmit { HistoryUpdateQuery query = 1; string plan_id = 2; }
+
+// Observed references in one research service only. This is not a deletion
+// permit: independent replay ledgers, other services and clients are not scanned.
+enum HistoryReferenceKind {
+  HISTORY_REFERENCE_UNSPECIFIED = 0;
+  HISTORY_DOWNLOAD = 1; HISTORY_BACKTEST = 2; HISTORY_BAR_FACTOR = 3;
+  HISTORY_DAILY_FACTOR = 4; HISTORY_SAVED_DATASET = 5;
+}
+enum HistoryReferenceRole {
+  HISTORY_ROLE_UNSPECIFIED = 0;
+  HISTORY_MARKET = 1; HISTORY_SETTLEMENT = 2; HISTORY_OUTPUT = 3;
+}
+message HistoryReference {
+  HistoryReferenceKind kind = 1; string id = 2; string name = 3;
+  repeated HistoryReferenceRole roles = 4;
+}
+message HistoryUsage { string dataset_id = 1; repeated HistoryReference references = 2; }

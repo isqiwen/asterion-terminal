@@ -4,6 +4,7 @@
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/research.hpp>
 #include <memory>
+#include <chrono>
 namespace asterion::terminal {
 class ResearchClient {
 public:
@@ -22,7 +23,18 @@ public:
   data::v1::BarDataset bar_dataset(const data::v1::BarDatasetRequest&);
   void submit(const std::string&, const data::v1::MinuteDownload&, const std::string& token);
   void submit(const std::string&, const data::v1::DailyDownload&, const std::string& token);
+  data::v1::HistoryUpdatePlan history_update_plan(const data::v1::HistoryUpdateQuery&);
+  void submit_update(const std::string&, const data::v1::HistoryUpdateSubmit&,
+                     const std::string& token);
+  ServiceEndpoint endpoint() const;
+  Json history_usage(const std::string&);
+  // One-shot read only: no poller, retry, task listing or service mutation.
+  static Json inspect_history_usage(const ServiceEndpoint&, const std::string&,
+                                    std::chrono::steady_clock::time_point deadline);
   Json datasets(const data::v1::HistoryFilter&);
+  Json saved_datasets();
+  data::v1::ResearchDataset saved_dataset(const std::string&);
+  void save_dataset(const data::v1::ResearchDataset&);
   // Per-contract trading-day coverage of the archive.
   Json coverage(const data::v1::HistoryFilter&);
   std::vector<HistoryListing> catalog(const std::string& source, const std::string& credential,

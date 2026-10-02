@@ -69,7 +69,7 @@ test("settings shows a busy command without automatically retrying or losing dra
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "数据", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await page.getByRole("button", { name: "历史数据", exact: true }).click();
   await page.getByLabel("品种代码").fill("CU");
   const settings = await openSettingsWindow(page);
@@ -105,7 +105,7 @@ test("settings shows a busy command without automatically retrying or losing dra
 
 test("settings reuses its window and preserves workbench drafts", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "数据", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await page.getByRole("button", { name: "历史数据", exact: true }).click();
   await page.getByLabel("品种代码").fill("CU");
   const settings = await openSettingsWindow(page);

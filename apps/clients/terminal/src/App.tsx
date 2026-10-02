@@ -26,6 +26,7 @@ import "./ui/theme/style.css";
 import "./terminal.css";
 import "./host/workspace/workbench.css";
 import "./settings/settings.css";
+import "./ui/workflows.css";
 export function Terminal() {
   return new URLSearchParams(location.search).get("screen") === "settings" ? (
     <TerminalWorkbench settingsWindow />
@@ -42,7 +43,23 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   const [drafts] = useState(createWorkspaceDrafts);
   const [headerTarget, setHeaderTarget] = useState<HTMLElement | null>(null);
   useEffect(() => setHeaderTarget(document.getElementById("terminal-header-tools")), []);
-  const [view, setView] = useState("workspace.overview");
+  const [view, setView] = useState(() => {
+    try {
+      const saved = localStorage.getItem("asterion.workspace");
+      if (workspaces.some(workspace => workspace.id === saved)) return saved!;
+    } catch {
+      /* Storage may be unavailable; navigation still works. */
+    }
+    return "workspace.watchlist";
+  });
+  useEffect(() => {
+    if (settingsWindow) return;
+    try {
+      localStorage.setItem("asterion.workspace", view);
+    } catch {
+      /* Keep the current window usable. */
+    }
+  }, [view, settingsWindow]);
   const [workspacePages, setWorkspacePages] = useState<Record<string, string>>({});
   const [workspaceParams, setWorkspaceParams] = useState<
     Record<string, Record<string, string> | undefined>
@@ -173,7 +190,6 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     snapshot,
     busy,
     error,
-    widgets: [],
     marketMode,
     workspacePage: workspacePages[view],
     workspaceParams: workspaceParams[view],
@@ -185,15 +201,10 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
       setView(id);
     },
     openSettings: showSettings,
-    openTasks: () => setTasks(true),
-    refresh: () => void refresh(),
     trade,
   };
   // Each plugin sees the shared context with trade scoped to its
   // declared commands.
-  context.widgets = terminalPlugins.flatMap(
-    plugin => plugin.widgets?.(scopedContext(plugin, context)) ?? [],
-  );
   const currentPlugin = terminalPlugins.find(plugin => plugin.workspace.id === view)!;
   const current = currentPlugin.workspace;
   const Panel = current.component;
@@ -203,6 +214,9 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   const backgroundTasks = terminalPlugins.flatMap(
     plugin => plugin.tasks?.(scopedContext(plugin, context)) ?? [],
   );
+  const failedTasks =
+    snapshot?.research?.tasks.filter(task => ["failed", "interrupted"].includes(task.state))
+      .length ?? 0;
   return (
     <WindowFrame
       title={settingsWindow ? t("设置") + " — Asterion Terminal" : t("星枢 · Asterion Terminal")}
@@ -293,7 +307,13 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                 {backgroundTasks.length ? (
                   <div className="terminal-task-list">
                     {backgroundTasks.map(task => (
-                      <button key={task.id} onClick={task.open}>
+                      <button
+                        key={task.id}
+                        onClick={() => {
+                          setTasks(false);
+                          task.open();
+                        }}
+                      >
                         <strong>{task.title}</strong>
                         <span>
                           {task.status} · {task.completed} / {task.total}
@@ -302,7 +322,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                     ))}
                   </div>
                 ) : (
-                  <p className="dashboard-caption">
+                  <p className="content-caption">
                     {busy ? t("正在处理本机请求…") : t("暂无后台任务")}
                   </p>
                 )}
@@ -320,25 +340,55 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                 settings={() => showSettings("connections")}
               />
               <span className="status-divider" />
-              <button aria-expanded={tasks} onClick={() => setTasks(!tasks)}>
+              <button
+                className={failedTasks ? "bad" : undefined}
+                aria-expanded={tasks}
+                onClick={() => setTasks(!tasks)}
+              >
                 {t("{p0} 项任务执行中", {
                   p0:
                     (snapshot?.research?.tasks.filter(task =>
                       ["running", "queued", "cancel_requested"].includes(task.state),
                     ).length ?? 0) + (snapshot?.strategy?.phase === "running" ? 1 : 0),
                 })}
+                {failedTasks > 0 && ` · ${t("{p0} 项任务异常", { p0: failedTasks })}`}
               </button>
               <span className="panel-spacer" />
               <span className="status-updated">
-                {error
+                {error || snapshot?.stale
                   ? t("状态待确认")
                   : checkedAt
                     ? t("状态读取于 {p0}", { p0: new Date(checkedAt).toLocaleTimeString(locale) })
                     : t("正在读取状态…")}
               </span>
               <span className="status-divider" />
-              <button onClick={() => setView("workspace.trading")}>
-                {snapshot?.paper ? t("历史模拟交易") : t("交易未连接")}
+              <button
+                onClick={() =>
+                  snapshot?.paper && !snapshot.live
+                    ? context.navigate("workspace.research", { page: "replay" })
+                    : context.navigate("workspace.trading")
+                }
+              >
+                {snapshot?.live
+                  ? t(
+                      snapshot.stale || snapshot.live.connection.state !== "connected"
+                        ? "CTP 服务失联"
+                        : snapshot.live.session?.phase !== "ready"
+                          ? "CTP 账户未就绪"
+                          : snapshot.live.session.authorization?.trading_day ===
+                              snapshot.live.session.trading_day
+                            ? "CTP 已授权"
+                            : "CTP 只读连接",
+                    )
+                  : snapshot?.paper
+                    ? t(
+                        !snapshot.stale &&
+                          snapshot.connection?.state === "connected" &&
+                          snapshot.paper.storage_state !== "recovery_required"
+                          ? "历史模拟交易"
+                          : "模拟账户待恢复",
+                      )
+                    : t("尚未打开交易账户")}
               </button>
             </>
           }

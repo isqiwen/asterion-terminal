@@ -46,6 +46,13 @@ void update_service(NodeClient& node, bool local, const json& p) {
 // Node lifecycle: SSH enrollment, firewall, Agent upgrade, service deployment.
 void Application::Impl::register_node_commands() {
   core.access().grant("terminal.local", "node.manage");
+  core.command("development.shutdown", "node.manage", [this](const json& p) {
+    fields(p, {"recover"});
+    if (!p.at("recover").is_boolean())
+      throw std::invalid_argument("invalid development shutdown request");
+    without_operations([&] { shutdown_development_node(p.at("recover").get<bool>()); });
+    return json{{"stopped", true}};
+  });
   core.command("native.plugins.inspect", "node.manage", [this](const json& p) {
     fields(p, {});
     native_plugins = plugin_catalog_json(local_plugin_catalog());

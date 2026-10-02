@@ -1,4 +1,5 @@
 #include "history_coverage.hpp"
+#include "history_update.hpp"
 #include <asterion/kernel/logger.hpp>
 #include <asterion/kernel/native_plugin.hpp>
 #include "task_store.hpp"
@@ -142,11 +143,65 @@ int main(int argc, char** argv) {
         admitted();
         expire_leases();
         admitted();
-        if (quiescing && (request.has_submit() || request.has_retry() || request.has_dispatch() ||
-                          (!worker && request.has_claim())))
+        if (quiescing &&
+            (request.has_save_dataset() || request.has_submit() || request.has_retry() ||
+             request.has_dispatch() || (!worker && request.has_claim())))
           throw asterion::Error(asterion::ErrorCode::unavailable,
                                 "task service is preparing for upgrade");
-        if (request.has_history_datasets()) {
+        if (request.has_history_usage()) {
+          const auto id = request.history_usage().id();
+          auto usage = store.history_usage(id);
+          lock.unlock();
+          // References may outlive a local archive copy, or originate on another service.
+          // Inspect persisted inputs by immutable identity without requiring that copy.
+          const auto saved_datasets = archive.research_datasets();
+          asterion::tasks::append_saved_references(usage, saved_datasets);
+          *response.mutable_history_usage() = std::move(usage);
+        } else if (request.has_history_update_plan()) {
+          lock.unlock();
+          *response.mutable_history_update_plan() = asterion::tasks::history_update_plan(
+              archive, request.history_update_plan(),
+              std::chrono::duration_cast<std::chrono::nanoseconds>(
+                  std::chrono::system_clock::now().time_since_epoch())
+                  .count());
+        } else if (request.has_saved_datasets()) {
+          lock.unlock();
+          *response.mutable_saved_datasets() = archive.research_datasets();
+        } else if (request.has_saved_dataset()) {
+          lock.unlock();
+          *response.mutable_saved_dataset() =
+              archive.research_dataset(request.saved_dataset().id());
+        } else if (request.has_save_dataset()) {
+          const auto value = request.save_dataset();
+          asterion::protocol::validate_research_dataset(value);
+          std::vector<asterion::tasks::BarDatasetSources> inputs;
+          for (const auto& input : value.selections())
+            inputs.push_back(store.prepare_dataset(input));
+          lock.unlock();
+          std::size_t bars = 0;
+          std::vector<std::string> days;
+          for (std::size_t i = 0; i < inputs.size(); ++i) {
+            const auto resolved = asterion::tasks::resolve_bar_dataset(inputs[i]);
+            if (resolved.revision() != value.content_revisions(static_cast<int>(i)))
+              throw std::invalid_argument("saved research dataset revision mismatch");
+            bars += static_cast<std::size_t>(resolved.bars_size());
+            std::vector<std::string> current;
+            for (const auto& day : resolved.days())
+              current.push_back(day.trading_day());
+            if (i && days != current)
+              throw std::invalid_argument("saved research dataset trading days differ");
+            days = std::move(current);
+          }
+          if (bars > asterion::protocol::max_dataset_bars)
+            throw std::invalid_argument("dataset exceeds 200000 bars; narrow the date range");
+          lock.lock();
+          for (const auto& input : inputs)
+            store.confirm_sources(input);
+          if (quiescing)
+            throw std::invalid_argument("task service is preparing for upgrade");
+          archive.save_research_dataset(value);
+          *response.mutable_saved_dataset() = value;
+        } else if (request.has_history_datasets()) {
           const auto& q = request.history_datasets();
           lock.unlock();
           const asterion::HistoryStorePort& repository = archive;
@@ -235,9 +290,26 @@ int main(int argc, char** argv) {
           *response.mutable_launches() = store.dispatch(request.dispatch());
         else if (request.has_submit()) {
           const auto& p = request.submit();
-          if (!p.provider_token().empty() && !p.has_minutes() && !p.has_daily())
+          if (!p.provider_token().empty() && !p.has_minutes() && !p.has_daily() &&
+              !p.has_history_update())
             throw std::invalid_argument("credential requires download task");
-          if (p.has_daily_factor()) {
+          if (p.has_history_update()) {
+            lock.unlock();
+            const auto plan = asterion::tasks::history_update_plan(
+                archive, p.history_update().query(),
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count());
+            if (plan.id() != p.history_update().plan_id())
+              throw std::invalid_argument("history update plan changed; preview again");
+            lock.lock();
+            admitted();
+            if (quiescing)
+              throw std::invalid_argument("task service is preparing for upgrade");
+            *response.mutable_task() =
+                plan.has_minutes() ? store.submit(p.id(), plan.minutes(), p.provider_token())
+                                   : store.submit(p.id(), plan.daily(), p.provider_token());
+          } else if (p.has_daily_factor()) {
             auto submission = store.prepare_daily_factor(p.id(), p.daily_factor());
             lock.unlock();
             submission.verify();

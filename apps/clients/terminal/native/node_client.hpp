@@ -17,7 +17,11 @@ struct NodeEndpoint {
   std::string endpoint{};
 };
 NodeEndpoint local_node();
+// Only the normal development profile; test directories and production are excluded.
+void shutdown_development_node(bool recover = false);
 std::filesystem::path local_node_directory();
+std::filesystem::path node_enrollment_directory();
+std::filesystem::path new_account_directory(const std::string& name, bool live);
 std::filesystem::path keychain_helper();
 Json local_node_program_status();
 NodeEndpoint upgrade_local_node(const std::string& expected);
@@ -36,12 +40,19 @@ struct ServiceUpdate {
   HostPlatform platform;
   ServicePrograms programs;
 };
+struct HistoryService {
+  node::v1::ServiceKind kind;
+  std::string directory, state;
+  ServiceEndpoint address;
+};
 class NodeClient {
 public:
   explicit NodeClient(NodeEndpoint endpoint);
   ~NodeClient();
   Json status() const;
   NodeSnapshot inspect_status() const;
+  // Explicit read-only inventory refresh; does not start or deploy services.
+  std::vector<HistoryService> history_inventory();
   void configure_plugins(const std::string& service, const std::string& revision,
                          const std::vector<std::string>& hashes);
   Json coordinate_upgrade(const std::string& operation, const std::string& action);

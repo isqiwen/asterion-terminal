@@ -73,7 +73,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-strategy-terminal-", ignore_cl
         call(process,"paper.close")
         second=root/"second";second.mkdir()
         call(process,"research.local")
-        call(process,"research.dataset.select",{"source_task_id":"fixture0-bars","settlement_task_id":"fixture0-settlement","begin_day":"","end_day":"","price_increment":"1","multiplier":"10"})
+        call(process,"research.dataset.select",dict(source_dataset_ids=[next(t["history_dataset_id"] for t in call(process,"runtime.snapshot")["research"]["tasks"] if t["id"]=="fixture0-bars")],settlement_dataset_ids=[next(t["history_dataset_id"] for t in call(process,"runtime.snapshot")["research"]["tasks"] if t["id"]=="fixture0-settlement")],begin_day="",end_day="",price_increment="1",multiplier="10"))
         call(process,"paper.create",{"directory":str(second),"deposit":"10000","contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
         call(process,"strategy.run",{"id":"cancelled","fast":"1","slow":"2","quantity":"1"})
         revoked=call(process,"strategy.revoke",{"grant_id":"grant.strategy-cancelled"})["paper"]

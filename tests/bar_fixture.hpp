@@ -54,10 +54,8 @@ inline data::v1::BarDataset dataset(const std::vector<MarketBar>& bars,
     row->mutable_settlement_price()->set_units(day.settlement_price.raw());
   }
   result.set_source("test.fixture");
-  result.set_source_task_id("fixture-source");
-  result.set_settlement_task_id("fixture-settlement");
-  result.set_manifest_sha256(std::string(64, 'a'));
-  result.set_settlement_manifest_sha256(std::string(64, 'b'));
+  result.add_source_dataset_ids(std::string(64, 'a'));
+  result.add_settlement_dataset_ids(std::string(64, 'b'));
   result.set_revision(protocol::bar_dataset_revision(result));
   protocol::validate_bar_dataset(result);
   return result;

@@ -9,12 +9,15 @@ std::atomic<int> injected_failures{0};
 void fail_next_commits_for_testing(int count) {
   injected_failures = count;
 }
-Database::Database(const std::filesystem::path& file) {
+Database::Database(const std::filesystem::path& file, Access access) {
   if (!file.is_absolute() || std::filesystem::is_symlink(file))
     throw std::invalid_argument("database requires an absolute regular file path");
   // No shared cache, no URI parsing and no extension loading: the path is data.
-  const auto flags =
-      SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_PRIVATECACHE;
+  if (access == Access::read_only && !std::filesystem::is_regular_file(file))
+    throw std::invalid_argument("database requires an existing regular file");
+  const auto flags = (access == Access::read_only ? SQLITE_OPEN_READONLY
+                                                  : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE) |
+                     SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_PRIVATECACHE;
   if (sqlite3_open_v2(file.string().c_str(), &handle_, flags, nullptr) != SQLITE_OK) {
     sqlite3_close(handle_);
     handle_ = nullptr;
@@ -23,13 +26,17 @@ Database::Database(const std::filesystem::path& file) {
   try {
     sqlite3_extended_result_codes(handle_, 1);
     sqlite3_busy_timeout(handle_, 0);
+    execute("PRAGMA trusted_schema=OFF");
+    if (access == Access::read_only) {
+      execute("PRAGMA query_only=ON");
+      return;
+    }
     // One writer owns the file; WAL with exclusive locking keeps no shared
     // memory file, and FULL sync makes each commit durable before returning.
     execute("PRAGMA locking_mode=EXCLUSIVE");
     execute("PRAGMA journal_mode=WAL");
     execute("PRAGMA synchronous=FULL");
     execute("PRAGMA foreign_keys=ON");
-    execute("PRAGMA trusted_schema=OFF");
     // Take the exclusive lock now so a second writer fails at open.
     execute("BEGIN EXCLUSIVE");
     execute("COMMIT");

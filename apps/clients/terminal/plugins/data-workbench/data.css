@@ -175,7 +175,7 @@
   min-width: 0;
   border: 0;
 }
-.history-config .dashboard-caption {
+.history-config .content-caption {
   padding: 0;
 }
 .history-config input,
@@ -315,4 +315,60 @@
   padding: 6px 10px;
   border-bottom: 1px solid var(--line);
   text-align: left;
+}
+.history-update,
+.history-usage {
+  margin: 16px 24px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+.history-update > .source-actions,
+.history-usage > .source-actions {
+  justify-content: space-between;
+}
+.history-update form {
+  padding: 12px 0;
+}
+.history-update fieldset > button {
+  margin-top: 12px;
+}
+.history-update-preview {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.archive-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-inline: 24px;
+}
+.archive-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+@media (max-width: 900px) {
+  .archive-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .archive-actions {
+    justify-content: flex-start;
+  }
+}
+
+.history-usage-table {
+  overflow-x: auto;
+  margin-block: 12px;
+}
+.history-usage-table td {
+  overflow-wrap: anywhere;
+}
+.history-usage-scope {
+  margin-block: 12px;
+  color: var(--muted);
+}
+
+.history-usage-scope code {
+  overflow-wrap: anywhere;
 }

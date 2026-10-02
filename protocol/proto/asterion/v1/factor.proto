@@ -86,7 +86,7 @@ message FactorFold {
 // synthetic quantities, contract multiplier or execution assumptions.
 message DailyFactorDataset {
   uint32 version = 1;
-  string source_task_id = 2;
+  reserved 2; string source_dataset_id = 7;
   string source = 3;
   reserved 4; string contract_id = 20;
   string manifest_sha256 = 5;
@@ -124,7 +124,7 @@ message DailyFactorResult {
 
 // Clients select a service-owned completed download; they cannot upload bars or provenance.
 message DailyFactorRequest {
-  string source_task_id = 1;
+  reserved 1; string source_dataset_id = 6;
   uint32 lookback = 2;
   uint32 horizon = 3;
   oneof evaluation { bool full_sample = 4; uint32 holdout_start = 5; }

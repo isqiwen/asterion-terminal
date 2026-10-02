@@ -14,7 +14,6 @@
     "paths": {
       "@asterion/workbench/*": ["apps/clients/terminal/src/host/*"],
       "@asterion/desktop-bridge/*": ["apps/clients/terminal/src/bridge/*"],
-      "@asterion/overview/*": ["apps/clients/terminal/plugins/overview/*"],
       "@asterion/terminal/*": ["apps/clients/terminal/src/*"],
       "@asterion/client-ui/*": ["packages/client-ui/src/*"]
     },

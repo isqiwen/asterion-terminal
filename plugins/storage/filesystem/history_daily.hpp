@@ -23,6 +23,7 @@ struct DailyDatasetInfo {
 };
 struct DailyDataset {
   DailyDatasetInfo info;
+  HistorySemantics semantics;
   std::vector<HistoricalDailyBar> bars;
 };
 using DailyProgress = std::function<void(unsigned completed, unsigned total, std::uint64_t rows)>;
@@ -35,5 +36,6 @@ DailyDatasetInfo inspect_daily(const std::filesystem::path&);
 // At most twenty years of one bar per date. Verify all hashes before returning.
 DailyDataset read_daily(const std::filesystem::path&);
 // Trading days present in a complete dataset; every page digest is checked.
-std::vector<std::string> daily_trading_days(const std::filesystem::path&);
+std::vector<std::string> daily_trading_days(const std::filesystem::path&,
+                                            const std::string& expected_revision);
 } // namespace asterion::history_files

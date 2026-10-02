@@ -89,7 +89,7 @@ test("dataset viewer charts exact bars, pages, filters and retains the last page
     await route.fulfill({ response, json: data });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "数据", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await page.getByRole("button", { name: "查看数据", exact: true }).click();
   const viewer = page.getByRole("region", { name: "历史数据查看", exact: true });
   const assertTableAlignment = async () => {
@@ -220,7 +220,7 @@ test("dataset viewer charts exact bars, pages, filters and retains the last page
   await viewer.getByRole("button", { name: "返回数据集", exact: true }).click();
   await page.addInitScript(() => localStorage.setItem("asterion.locale", "en-US"));
   await page.reload();
-  await page.getByRole("button", { name: "Data", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "Data", exact: true }).click();
   await page.getByRole("button", { name: "View data", exact: true }).click();
   await expect(
     page.getByRole("region", { name: "Historical dataset viewer", exact: true }),

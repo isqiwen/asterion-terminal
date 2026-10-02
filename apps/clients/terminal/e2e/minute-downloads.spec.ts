@@ -51,7 +51,7 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
   const identity: { connection?: string } = {};
   await mockCatalog(page, identity);
   await page.goto("/");
-  await page.getByRole("button", { name: "数据", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   const section = page.getByRole("region", { name: "历史数据", exact: true });
   await section.getByLabel("品种代码", { exact: true }).fill("CU");
   await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");
@@ -75,9 +75,9 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
   await page.screenshot({ path: "build/contract-units-browser.png" });
   await section.getByLabel("分钟周期", { exact: true }).selectOption("5");
   await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");
-  await page.getByRole("button", { name: "研究", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   await expect(page.getByRole("region", { name: "期货研究", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "数据", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await expect(section.getByLabel("月份合约", { exact: true })).toHaveValue("SHFE/cu/2023-10");
   await expect(section.getByLabel("分钟周期", { exact: true })).toHaveValue("5");
   await expect(section.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
@@ -122,9 +122,9 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
   await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");
   await section.getByRole("button", { name: "下载整个合约", exact: true }).click();
   await expect(section.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
-  await page.getByRole("button", { name: "总览", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }).click();
   await expect(section).toHaveCount(0);
-  await page.getByRole("button", { name: "数据", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");
   await section.getByRole("button", { name: "确认下载提交", exact: true }).click();
   await expect(section.getByText("Tushare SHFE/cu/2023-10", { exact: true })).toBeVisible();
@@ -154,7 +154,7 @@ test("history is a dedicated source-aware page and clears credentials on subpage
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "数据", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   const history = page.getByRole("region", { name: "历史数据", exact: true });
   await expect(history).toBeVisible();
   await expect(page.getByLabel("CSV 文件路径")).toHaveCount(0);
@@ -238,7 +238,7 @@ test("completed dataset exposes provenance and honest coverage separately from a
     await route.fulfill({ response, json: data });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "数据", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   const history = page.getByRole("region", { name: "历史数据", exact: true });
   await expect(history.getByText("暂无进行中的下载", { exact: true })).toBeVisible();
   await history.getByRole("button", { name: "数据集详情", exact: true }).click();
@@ -258,7 +258,7 @@ test("daily adapter submits catalog scope without minute fields and clears crede
 }) => {
   await mockCatalog(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "数据", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   const section = page.getByRole("region", { name: "历史数据", exact: true });
   await section
     .getByRole("combobox", { name: "数据源", exact: true })
@@ -328,7 +328,7 @@ test("all contract months download as one task each within the request limit", a
     await route.fulfill({ response, json: data });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "数据", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   const section = page.getByRole("region", { name: "历史数据", exact: true });
   await section.getByLabel("品种代码", { exact: true }).fill("CU");
   await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");

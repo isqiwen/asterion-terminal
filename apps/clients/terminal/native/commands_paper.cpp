@@ -10,7 +10,7 @@ void Application::Impl::register_paper_commands() {
     if (remote)
       fields_with_risk(p, {"deposit", "contracts"});
     else
-      fields_with_risk(p, {"directory", "deposit", "contracts"});
+      fields_with_risk(p, {p.contains("name") ? "name" : "directory", "deposit", "contracts"});
     if (paper && !remote)
       throw std::invalid_argument("close the current paper session first");
     const auto costs = selection_costs(p.at("contracts"));
@@ -35,13 +35,17 @@ void Application::Impl::register_paper_commands() {
       paper->create(manifest);
       return snapshot();
     }
+    (void)protocol::encode_input(manifest);
     // Starting the session service waits for the Agent; other commands proceed.
-    const auto directory = text(p, "directory");
+    const auto directory = p.contains("directory") ? text(p, "directory") : std::string{};
+    const auto name = p.contains("name") ? text(p, "name") : std::string{};
     auto [node, next] = without_operations([&, existing = existing_local_node()] {
       auto node = local_node_client(existing);
-      auto client = std::make_unique<TradingClient>(
-          std::filesystem::path(std::u8string(directory.begin(), directory.end())),
-          TradingMode::paper, manifest);
+      const auto path =
+          directory.empty()
+              ? new_account_directory(name, false)
+              : std::filesystem::path(std::u8string(directory.begin(), directory.end()));
+      auto client = std::make_unique<TradingClient>(path, TradingMode::paper, manifest);
       return std::pair{std::move(node), std::move(client)};
     });
     nodes.try_emplace("local", std::move(node));

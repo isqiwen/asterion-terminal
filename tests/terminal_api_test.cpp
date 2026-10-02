@@ -95,6 +95,17 @@ TEST(TerminalApi, SnapshotRejectsMalformedQueriesBeforeReadingState) {
   }
   EXPECT_TRUE(call(runtime.get(), request("runtime.snapshot")).contains("result"));
 }
+TEST(TerminalApi, AutomaticShutdownCannotTargetProductionOrIsolatedFixtures) {
+  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
+                                                                      asterion_terminal_destroy);
+  ASSERT_NE(runtime, nullptr);
+  for (bool recover : {false, true}) {
+    const auto response =
+        call(runtime.get(), request("development.shutdown", {{"recover", recover}}));
+    ASSERT_TRUE(response.contains("error"));
+    EXPECT_EQ(response.at("error").at("code"), "permission_denied");
+  }
+}
 TEST(TerminalApi, Contracts) {
 
   std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
@@ -209,6 +220,48 @@ TEST(TerminalApi, PersistentPaperRoundTripThroughCAbi) {
       invoke("paper.act", {{"request_id", "x"}, {"action", "live_order"}}).contains("error"));
   EXPECT_TRUE(invoke("paper.close")["result"]["paper"].is_null());
 }
+TEST(TerminalApi, ManagedAccountNameDoesNotOverwriteOrEscapeItsDirectory) {
+  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
+                                                                      asterion_terminal_destroy);
+  auto invoke = [&](const std::string& method, json params = json::object()) {
+    return call(runtime.get(), request(method, std::move(params)));
+  };
+  const auto selection = history(runtime.get(), {100, 101, 102}, "managed-account");
+  ASSERT_TRUE(invoke("research.dataset.select", selection).contains("result"));
+  json parameters{{"name", "../escaped"},
+                  {"deposit", "1000"},
+                  {"contracts", fixture_contracts()},
+                  {"max_order_quantity", "10"},
+                  {"max_gross_quantity", "10"},
+                  {"max_working_orders", "10"}};
+  EXPECT_TRUE(invoke("paper.create", parameters).contains("error"));
+  parameters["name"] = "managed-account";
+  auto created = invoke("paper.create", parameters);
+  ASSERT_TRUE(created.contains("result")) << created.dump();
+  const auto service = created["result"]["connection"]["session"];
+  std::string directory;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  do {
+    const auto state = invoke("runtime.snapshot");
+    for (const auto& node : state["result"]["nodes"])
+      if (node["id"] == "local")
+        for (const auto& item : node["health"]["services"])
+          if (item["id"] == service)
+            directory = item["directory"].get<std::string>();
+    if (!directory.empty())
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  } while (std::chrono::steady_clock::now() < deadline);
+  ASSERT_FALSE(directory.empty());
+  EXPECT_EQ(std::filesystem::path(directory).filename(), "managed-account");
+  ASSERT_TRUE(invoke("paper.close").contains("result"));
+  const auto duplicate = invoke("paper.create", parameters);
+  ASSERT_TRUE(duplicate.contains("error"));
+  EXPECT_EQ(duplicate["error"]["code"], "conflict");
+  const auto recovered = invoke("paper.open", {{"directory", directory}});
+  ASSERT_TRUE(recovered.contains("result")) << recovered.dump();
+  EXPECT_EQ(recovered["result"]["paper"]["balance"], "1000");
+}
 TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
   std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
                                                                       asterion_terminal_destroy);
@@ -239,7 +292,7 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
     done = true;
   });
   int concurrent_reads = 0;
-  int busy_commands = 0;
+  int responsive_commands = 0;
   while (!done) {
     const auto invalid = call(runtime.get(), request("runtime.snapshot", {{"extra", true}}));
     EXPECT_TRUE(invalid.contains("error"));
@@ -256,22 +309,18 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
       ++concurrent_reads;
     else
       EXPECT_EQ(datasets[0]["count"], 500);
-    if (status["result"].value("stale", false)) {
-      const auto command_started = std::chrono::steady_clock::now();
-      const auto inspect = call(runtime.get(), request("node.agent.inspect"));
-      EXPECT_LT(std::chrono::steady_clock::now() - command_started,
-                asterion::testing_support::bound(std::chrono::milliseconds(500)));
-      if (inspect.contains("error")) {
-        EXPECT_EQ(inspect["error"]["code"], "conflict");
-        ++busy_commands;
-      } else {
-        EXPECT_TRUE(inspect.contains("result")); // Import completed before this call.
-      }
-    }
+    const auto command_started = std::chrono::steady_clock::now();
+    const auto inspect = call(runtime.get(), request("node.agent.inspect"));
+    EXPECT_LT(std::chrono::steady_clock::now() - command_started,
+              asterion::testing_support::bound(std::chrono::milliseconds(500)));
+    if (inspect.contains("result"))
+      ++responsive_commands;
+    else
+      EXPECT_EQ(inspect["error"]["code"], "conflict"); // Brief selection commit may own the lock.
   }
   slow.join();
   EXPECT_GT(concurrent_reads, 0) << "import finished before a concurrent read was observed";
-  EXPECT_GT(busy_commands, 0) << "commands must not queue behind a running import";
+  EXPECT_GT(responsive_commands, 0) << "archive reads must let other commands complete";
   const auto fresh = call(runtime.get(), request("runtime.snapshot", {{"since", revision}}));
   EXPECT_FALSE(fresh["result"].contains("unchanged"));
   EXPECT_GT(fresh["result"]["revision"].get<std::uint64_t>(), revision);

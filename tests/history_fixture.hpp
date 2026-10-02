@@ -14,18 +14,21 @@ inline Json seed_history(const std::filesystem::path& root, const std::vector<in
                          const std::string& id,
                          std::vector<std::string> minute_days = {"2026-09-25"},
                          std::vector<std::string> daily_days = {},
-                         const std::string& product = "rb") {
+                         const std::string& product = "rb", unsigned interval = 1,
+                         int settlement_price = 110,
+                         const std::string& normalization = "test.confirmed.v1") {
   if (daily_days.empty())
     daily_days = minute_days;
   class Minutes final : public HistoricalBarPort {
   public:
     std::vector<int> prices;
+    std::string normalization;
     std::vector<std::string> days;
     PluginDescriptor descriptor() const override {
       return {"test.minutes", PluginKind::data, plugin_contract_version, {}};
     }
     HistorySemantics semantics() const override {
-      return {"tushare.ft_mins", "test.confirmed.v1", "Asia/Shanghai", "bar_end"};
+      return {"tushare.ft_mins", normalization, "Asia/Shanghai", "bar_end"};
     }
     void start() override {}
     void stop() noexcept override {}
@@ -46,11 +49,13 @@ inline Json seed_history(const std::filesystem::path& root, const std::vector<in
   } minutes;
   class Daily final : public HistoricalDailyPort {
   public:
+    int settlement_price = 110;
+    std::string normalization;
     PluginDescriptor descriptor() const override {
       return {"test.daily", PluginKind::data, plugin_contract_version, {}};
     }
     HistorySemantics semantics() const override {
-      return {"tushare.fut_daily", "test.confirmed.v1", "Asia/Shanghai", "trading_day"};
+      return {"tushare.fut_daily", normalization, "Asia/Shanghai", "trading_day"};
     }
     void start() override {}
     void stop() noexcept override {}
@@ -70,13 +75,16 @@ inline Json seed_history(const std::filesystem::path& root, const std::vector<in
                           dec("100"),
                           {},
                           {},
-                          dec("110")});
+                          Decimal::parse(std::to_string(settlement_price))});
       }
       return rows;
     }
   } daily;
   if (prices.empty() || prices.size() > 200000)
     throw std::invalid_argument("invalid test prices");
+  minutes.normalization = normalization;
+  daily.normalization = normalization;
+  daily.settlement_price = settlement_price;
   minutes.prices = prices;
   minutes.days = minute_days;
   daily.days = daily_days;
@@ -94,7 +102,7 @@ inline Json seed_history(const std::filesystem::path& root, const std::vector<in
                                                      {"contract_id", contract_id},
                                                      {"source", "tushare.ft_mins"},
                                                      {"source_instrument", source_instrument},
-                                                     {"interval_minutes", 1},
+                                                     {"interval_minutes", interval},
                                                      {"begin_ns", std::to_string(begin)},
                                                      {"end_ns", std::to_string(end)},
                                                      {"requests_per_minute", 500}});
@@ -129,11 +137,13 @@ inline Json seed_history(const std::filesystem::path& root, const std::vector<in
   };
   finish(id + "-bars", minute, minutes);
   finish(id + "-settlement", day, daily);
-  return {{"source_task_id", id + "-bars"},
-          {"settlement_task_id", id + "-settlement"},
-          {"begin_day", ""},
-          {"end_day", ""},
-          {"price_increment", "1"},
-          {"multiplier", "10"}};
+  return {
+      {"source_dataset_ids", Json::array({store.minute_result(id + "-bars").manifest_sha256()})},
+      {"settlement_dataset_ids",
+       Json::array({store.daily_result(id + "-settlement").manifest_sha256()})},
+      {"begin_day", ""},
+      {"end_day", ""},
+      {"price_increment", "1"},
+      {"multiplier", "10"}};
 }
 } // namespace asterion::test

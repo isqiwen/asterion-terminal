@@ -8,7 +8,7 @@ import {
   type TerminalContext,
 } from "../contract";
 const t = (key: string, values?: MessageValues) =>
-  translate("asterion.terminal.trading", key, values);
+  translate("asterion.terminal.research", key, values);
 
 export function StrategyPanel({
   snapshot,
@@ -63,7 +63,7 @@ export function StrategyPanel({
     <section aria-label={t("策略运行")} className="strategy-panel">
       <div className="panel-heading">
         <h3>{t("策略运行")}</h3>
-        <span className="subtle">{t("历史模拟 · 双均线")}</span>
+        <span className="subtle">{t("历史回放 · 双均线")}</span>
         <span className="panel-spacer" />
         {active && (
           <button
@@ -97,7 +97,7 @@ export function StrategyPanel({
         </div>
       )}
       {active && (
-        <p className="dashboard-caption">
+        <p className="content-caption">
           {t("策略控制此账户。撤销授权后可手动操作，已有持仓保留。")}
         </p>
       )}
@@ -134,27 +134,17 @@ export function StrategyPanel({
               <button type="submit" className="primary" disabled={!snapshot?.datasets.length}>
                 {t(retry ? "重试同一配置" : "授权并运行")}
               </button>
-              <span className="subtle">{t("关闭窗口后继续运行")}</span>
+              <span className="subtle">{t("离开页面后继续运行")}</span>
             </div>
           </fieldset>
         </form>
       )}
       {!fresh && !active && !retry && strategy?.phase !== "completed" && (
-        <p className="dashboard-caption">
-          {t("选择历史数据并创建新的本机模拟账户后，可运行策略。")}
-        </p>
-      )}
-      {paper?.replay && (
-        <p className="dashboard-caption">
-          {t("已结算 {settled} / {days} 个交易日", {
-            settled: paper.replay.settled_days,
-            days: paper.replay.days,
-          })}
-        </p>
+        <p className="content-caption">{t("选择历史数据并创建新的本机模拟账户后，可运行策略。")}</p>
       )}
       {error && (
         <p role="alert" className="alert">
-          <ErrorNotice error={error} namespace="asterion.terminal.trading" />
+          <ErrorNotice error={error} namespace="asterion.terminal.research" />
         </p>
       )}
       <details className="futures-help">

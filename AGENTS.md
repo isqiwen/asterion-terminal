@@ -19,7 +19,7 @@
 
 - Core 分层：`asterion_foundation` → `asterion_kernel` → `asterion_domain`，依赖只能向下。
 - 供应商、存储后端、具体策略和风险算法写成插件，放在 `plugins/`，不进 Core。
-- 每个服务是独立进程，由 Node Agent 托管；Terminal 只连接服务，关闭窗口不停止服务。
+- 每个服务是独立进程，由 Node Agent 托管；安装版关闭窗口不停止服务。开发环境随唯一开发入口退出自动停止本机服务与 Agent，保留业务数据；远程节点不随开发入口退出而停止。
 - 进程间通信使用 `protocol/proto/` 中的 Protobuf；本机 Unix Socket，远程 TCP + mTLS。
 - Terminal 专属 C++ 编排在 `apps/clients/terminal/native/`；UI 插件契约在 `apps/clients/terminal/plugins/contract.ts`。
 - 插件是可信的进程内代码，不是安全隔离。
@@ -31,7 +31,7 @@
 - 领域对象之间通过类型化接口交互；JSON 只用于协议边界和界面展示。
 - Core 与服务只输出英文诊断，跨进程错误携带 `ErrorCode`；面向用户的新诊断登记到 `apps/clients/terminal/src/i18n/locales/diagnostics.*.json`。
 - 持久状态与密钥通过 `kernel/durable_file.hpp` 写入。
-- 改变撮合、费用、保证金、风控或交易命令语义时，提升 `apps/services/trading/paper_session.cpp` 的日志引擎标识；恢复时拒绝不同标识。
+- 改变撮合、费用、保证金、风控或交易命令语义时，提升 `apps/services/trading/paper_record.hpp` 的日志引擎标识；恢复时拒绝不同标识。
 - 依赖由 Conan（C++）和 pnpm（前端）锁定，禁止隐式下载和全局 include/link 路径。日志用 spdlog，命令行用 CLI11，测试用 GoogleTest + CTest。
 - 格式：C++ 用 `.clang-format`，前端用 Prettier；提交前运行 `pnpm run format`。
 

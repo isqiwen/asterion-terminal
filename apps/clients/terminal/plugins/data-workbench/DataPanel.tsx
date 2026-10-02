@@ -1,10 +1,13 @@
 import "./data.css";
-import { type TerminalContext, translate } from "../contract";
+import { ResearchAccess, type TerminalContext, translate } from "../contract";
 import { ArchivedDataPanel } from "./ArchivedDataPanel";
 import { HistoricalDownloads } from "./HistoricalDownloads";
 
 const t = (key: string) => translate("asterion.terminal.data-workbench", key);
 export function DataPanel(context: TerminalContext) {
+  return <ResearchAccess context={context}>{ready => <DataContent {...ready} />}</ResearchAccess>;
+}
+function DataContent(context: TerminalContext) {
   const page = context.workspacePage ?? "history";
   const setPage = (page: string) => context.navigate("workspace.data", { page });
   return (

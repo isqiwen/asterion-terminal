@@ -39,19 +39,22 @@ export function ServiceStatus({
       document.removeEventListener("keydown", key);
     };
   }, [open]);
-  const uncertain = failed || !snapshot;
+  const uncertain = failed || !snapshot || !!snapshot.stale;
   const unhealthy = snapshot?.nodes.some(
     n =>
       n.state !== "online" ||
       !n.health ||
       n.health.services.some(
-        s => s.desired_running && !["ready", "awaiting_input"].includes(s.health),
+        s =>
+          s.desired_running &&
+          (s.state !== "running" || !!s.error || !["ready", "awaiting_input"].includes(s.health)),
       ),
   );
   const kinds: Record<string, string> = {
     market: "实时行情",
     research: "回测与因子研究",
     paper: "模拟交易",
+    live: "CTP 交易",
     strategy: "策略运行",
   };
   const health: Record<string, string> = {
@@ -67,13 +70,13 @@ export function ServiceStatus({
     <div className="service-status" ref={root}>
       <button
         ref={trigger}
-        className={uncertain || unhealthy ? "subtle" : "good"}
+        className={uncertain || unhealthy ? "bad" : "good"}
         aria-label={t("查看服务连接")}
         aria-expanded={open}
         aria-controls="service-status-panel"
         onClick={() => setOpen(!open)}
       >
-        ● {t("服务")}
+        ● {t(uncertain ? "服务待确认" : unhealthy ? "服务异常" : "服务")}
       </button>
       {open && (
         <section

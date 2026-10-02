@@ -13,14 +13,6 @@ const shapes = {
       <path d="M12 8v8M8 12h8" />
     </>
   ),
-  overview: (
-    <>
-      <rect x="3" y="3" width="7" height="7" rx="1.5" />
-      <rect x="14" y="3" width="7" height="7" rx="1.5" />
-      <rect x="3" y="14" width="7" height="7" rx="1.5" />
-      <rect x="14" y="14" width="7" height="7" rx="1.5" />
-    </>
-  ),
   market: (
     <>
       <path d="M3 18h18M4 13l5-5 4 4 7-8M15 4h5v5" />

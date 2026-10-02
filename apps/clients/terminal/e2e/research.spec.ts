@@ -5,14 +5,20 @@ import { join } from "node:path";
 
 test("Agent runs a bar backtest and restores its evidence", async ({ page }) => {
   await page.goto("/");
-  await seedDataset(page.request, [100, 101, 102, 101, 104, 103, 102, 103], "research");
+  const seeded = await seedDataset(
+    page.request,
+    [100, 101, 102, 101, 104, 103, 102, 103],
+    "research",
+  );
   await page.reload();
-  await page.getByRole("button", { name: "研究", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   const research = page.getByRole("region", { name: "期货研究", exact: true });
   await expect(research.getByText("研究服务已连接", { exact: true })).toBeVisible();
+  await research.getByRole("button", { name: "新建回测", exact: true }).click();
   const selected = research.getByRole("list", { name: "已选合约" });
   await expect(selected).toContainText("SHFE · rb2610");
   await expect(selected).toContainText("8 根 · 1 个交易日");
+  await research.getByRole("button", { name: "下一步", exact: true }).click();
   for (const [label, value] of [
     ["快均线", "1"],
     ["慢均线", "3"],
@@ -28,8 +34,8 @@ test("Agent runs a bar backtest and restores its evidence", async ({ page }) => 
   ])
     await research.getByLabel(label, { exact: true }).fill(value);
   // Drafts survive switching workspaces.
-  await page.getByRole("button", { name: "数据", exact: true }).click();
-  await page.getByRole("button", { name: "研究", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   await expect(research.getByLabel("快均线", { exact: true })).toHaveValue("1");
   await expect(research.getByLabel("初始资金", { exact: true })).toHaveValue("10000");
   const taskIds = () =>
@@ -37,21 +43,31 @@ test("Agent runs a bar backtest and restores its evidence", async ({ page }) => 
       .getByRole("region", { name: "研究任务", exact: true })
       .locator("tbody tr code")
       .allTextContents();
+  await research.getByRole("button", { name: "返回回测记录", exact: true }).click();
   const before = new Set(await taskIds());
+  await research.getByRole("button", { name: "新建回测", exact: true }).click();
+  await research.getByRole("button", { name: "下一步", exact: true }).click();
+  await research.getByRole("button", { name: "下一步", exact: true }).click();
   await research.getByRole("button", { name: "开始回测", exact: true }).click();
-  await expect(research.getByText("任务已提交，可关闭窗口。", { exact: true })).toBeVisible();
+  await expect(
+    research.getByText("任务已提交，可在任务中心查看进度。", { exact: true }),
+  ).toBeVisible();
+  await research.getByRole("button", { name: "返回回测记录", exact: true }).click();
   await expect.poll(async () => (await taskIds()).filter(id => !before.has(id)).length).toBe(1);
   const taskId = (await taskIds()).find(id => !before.has(id))!;
   await page.reload();
-  await page.getByRole("button", { name: "研究", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   const row = research
     .getByRole("region", { name: "研究任务", exact: true })
     .getByRole("row")
     .filter({ hasText: taskId });
   await expect(row.getByText("已完成", { exact: true })).toBeVisible({ timeout: 20000 });
   // A full reload starts a fresh draft scope; persisted task results remain available.
+  await research.getByRole("button", { name: "新建回测", exact: true }).click();
+  await research.getByRole("button", { name: "下一步", exact: true }).click();
   await expect(research.getByLabel("初始资金", { exact: true })).toHaveValue("");
   await research.getByLabel("快均线", { exact: true }).fill("9");
+  await research.getByRole("button", { name: "返回回测记录", exact: true }).click();
   await row.getByRole("button", { name: "查看结果", exact: true }).click();
   const result = research.getByRole("region", { name: "回测结果", exact: true });
   await expect(result.getByRole("img", { name: "权益曲线" })).toBeVisible();
@@ -65,17 +81,21 @@ test("Agent runs a bar backtest and restores its evidence", async ({ page }) => 
   await expect(parameter("初始资金")).toHaveText("10000");
   await expect(parameter("平今手续费")).toHaveText("3");
   await expect(parameter("输入 K 线")).toHaveText("8");
-  await expect(parameter("K 线下载任务")).toHaveText("research-bars");
-  await expect(parameter("结算价下载任务")).toHaveText("research-settlement");
+  await expect(parameter("K 线数据版本")).toHaveText(seeded.datasets[0].source_dataset_ids[0]);
+  await expect(parameter("结算价数据版本")).toHaveText(
+    seeded.datasets[0].settlement_dataset_ids[0],
+  );
   await expect(parameter("交易日范围")).toHaveText("2026-09-25 – 2026-09-25");
   await result.getByText("逐日结算", { exact: true }).click();
   const settlements = result.locator(".research-settlements tbody tr");
   await expect(settlements).toHaveCount(1);
   await expect(settlements.first()).toContainText("110");
-  await expect(research.getByLabel("快均线", { exact: true })).toHaveValue("9");
+  await expect(research.getByRole("heading", { name: /均线回测/ })).toHaveCount(2);
   await result
     .locator(".research-experiment")
     .screenshot({ path: join(__dirname, "../test-results/research-evidence.png") });
+  await page.screenshot({ path: join(__dirname, "../test-results/backtest-result.png") });
+  await research.getByRole("button", { name: "返回回测记录", exact: true }).click();
   await page.setViewportSize({ width: 800, height: 900 });
   await expect(
     research.getByRole("button", { name: "查看结果", exact: true }).last(),
@@ -112,7 +132,10 @@ test("Agent runs a bar backtest and restores its evidence", async ({ page }) => 
   page = await openSettingsWindow(page);
   await page.getByLabel("语言", { exact: true }).selectOption("en-US");
   page = await closeSettingsWindow(page);
-  await page.getByRole("button", { name: "Research", exact: true }).click();
+  await page
+    .locator(".workspace-tabs")
+    .getByRole("button", { name: "Research", exact: true })
+    .click();
   const english = page.getByRole("region", { name: "Backtest Result", exact: true });
   // The parameters <details> opened in Chinese stays open across the
   // language switch; clicking it again would collapse it.
@@ -128,12 +151,14 @@ test("a portfolio backtest settles every contract on one account", async ({ page
   await seedDataset(page.request, prices, "portfolio-rb");
   await seedDataset(page.request, prices, "portfolio-hc", { product: "hc", keep: true });
   await page.reload();
-  await page.getByRole("button", { name: "研究", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   const research = page.getByRole("region", { name: "期货研究", exact: true });
-  await research.getByRole("button", { name: "均线回测", exact: true }).click();
+  await page.getByRole("button", { name: "均线回测", exact: true }).click();
+  await research.getByRole("button", { name: "新建回测", exact: true }).click();
   const selected = research.getByRole("list", { name: "已选合约" });
   await expect(selected.getByRole("listitem")).toHaveCount(2);
   await expect(selected).toContainText("SHFE · hc2610");
+  await research.getByRole("button", { name: "下一步", exact: true }).click();
   for (const [label, value] of [
     ["快均线", "1"],
     ["慢均线", "3"],
@@ -154,8 +179,12 @@ test("a portfolio backtest settles every contract on one account", async ({ page
     ])
       await costs.getByLabel(label, { exact: true }).fill(value);
   }
+  await research.getByRole("button", { name: "下一步", exact: true }).click();
   await research.getByRole("button", { name: "开始回测", exact: true }).click();
-  await expect(research.getByText("任务已提交，可关闭窗口。", { exact: true })).toBeVisible();
+  await expect(
+    research.getByText("任务已提交，可在任务中心查看进度。", { exact: true }),
+  ).toBeVisible();
+  await research.getByRole("button", { name: "返回回测记录", exact: true }).click();
   const row = research
     .getByRole("region", { name: "研究任务", exact: true })
     .getByRole("row")
@@ -171,7 +200,7 @@ test("a portfolio backtest settles every contract on one account", async ({ page
   await result.getByText("实验参数", { exact: true }).click();
   await expect(result.getByRole("region", { name: "SHFE · hc2610" })).toContainText("100");
   // Factor analysis studies one contract and says so instead of submitting.
-  await research.getByRole("button", { name: "因子分析", exact: true }).click();
+  await page.getByRole("button", { name: "因子分析", exact: true }).click();
   await expect(
     research.getByText("因子分析只研究一个合约，请只保留一个数据集。", { exact: true }),
   ).toBeVisible();

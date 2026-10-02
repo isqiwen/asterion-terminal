@@ -15,10 +15,13 @@ for (const mode of ["full", "holdout", "search", "rolling"])
       `factor-${mode}`,
     );
     await page.reload();
-    await page.getByRole("button", { name: "研究", exact: true }).click();
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
     const research = page.getByRole("region", { name: "期货研究", exact: true });
     await expect(research.getByText("研究服务已连接", { exact: true })).toBeVisible();
-    await research.getByRole("button", { name: "因子分析", exact: true }).click();
+    await page.getByRole("button", { name: "因子分析", exact: true }).click();
     await expect(research.getByLabel("初始资金", { exact: true })).toHaveCount(0);
     await research.getByLabel("回看 K 线数", { exact: true }).fill(search ? "2,5,10" : "2");
     await research.getByLabel("未来收益 K 线数", { exact: true }).fill("1");
@@ -37,15 +40,21 @@ for (const mode of ["full", "holdout", "search", "rolling"])
         .allTextContents();
     const before = new Set(await taskIds());
     await research.getByRole("button", { name: "开始分析", exact: true }).click();
-    await expect(research.getByText("任务已提交，可关闭窗口。", { exact: true })).toBeVisible();
+    await expect(
+      research.getByText("任务已提交，可在任务中心查看进度。", { exact: true }),
+    ).toBeVisible();
     await expect.poll(async () => (await taskIds()).filter(id => !before.has(id)).length).toBe(1);
     const taskId = (await taskIds()).find(id => !before.has(id))!;
     await page.reload();
-    await page.getByRole("button", { name: "研究", exact: true }).click();
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
+    await page.getByRole("button", { name: "因子分析", exact: true }).click();
     const row = research.getByRole("row").filter({ hasText: taskId });
     await expect(row.getByText("已完成", { exact: true })).toBeVisible({ timeout: 20000 });
     await row.getByRole("button", { name: "查看结果", exact: true }).click();
-    await expect(research.getByRole("button", { name: "因子分析", exact: true })).toHaveAttribute(
+    await expect(page.getByRole("button", { name: "因子分析", exact: true })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
@@ -125,7 +134,10 @@ for (const mode of ["full", "holdout", "search", "rolling"])
       page = await openSettingsWindow(page);
       await page.getByLabel("语言", { exact: true }).selectOption("en-US");
       page = await closeSettingsWindow(page);
-      await page.getByRole("button", { name: "Research", exact: true }).click();
+      await page
+        .locator(".workspace-tabs")
+        .getByRole("button", { name: "Research", exact: true })
+        .click();
       await expect(
         page.getByRole("button", { name: "Factor Analysis", exact: true }),
       ).toHaveAttribute("aria-pressed", "true");

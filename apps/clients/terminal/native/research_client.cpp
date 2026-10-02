@@ -5,9 +5,75 @@
 #include <mutex>
 #include <thread>
 #include <stdexcept>
+#include <optional>
+#include <algorithm>
 namespace asterion::terminal {
 using namespace std::chrono_literals;
 namespace wire = research::v1;
+namespace {
+wire::TaskResponse
+call_research(const ServiceEndpoint& endpoint, wire::TaskRequest request,
+              std::optional<std::chrono::steady_clock::time_point> deadline = {}) {
+  const auto timeout = [&](std::chrono::milliseconds usual) {
+    if (!deadline)
+      return usual;
+    const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+        *deadline - std::chrono::steady_clock::now());
+    if (left <= 0ms)
+      throw Error(ErrorCode::unavailable, "research reference inspection timed out");
+    return std::min(usual, left);
+  };
+  request.set_version(1);
+  request.set_service_id(endpoint.session);
+  request.set_correlation_id(unique_process_id());
+  auto exchange = [&](auto channel) {
+    // Dataset resolution reads and verifies every stored segment; large
+    // research datasets (and submissions that resolve one) take longer.
+    const bool dataset =
+        request.has_history_usage() || request.has_history_update_plan() ||
+        (request.has_submit() && request.submit().has_history_update()) ||
+        request.has_save_dataset() || request.has_bar_dataset() || request.has_history_coverage() ||
+        (request.has_submit() &&
+         (request.submit().has_backtest() || request.submit().has_factor_request()));
+    channel.send(request.SerializeAsString(), timeout(dataset ? 30s : 5s));
+    return channel.receive(
+        timeout((request.has_history_catalog() || request.has_verify_connection()) ? 90s
+                : dataset                                                          ? 60s
+                                                                                   : 5s));
+  };
+  const auto raw = endpoint.endpoint.empty()
+                       ? exchange(ipc::TlsChannel::connect(endpoint.host, endpoint.port,
+                                                           endpoint.tls, timeout(5s)))
+                       : exchange(ipc::Channel::connect(endpoint.endpoint, timeout(5s)));
+  wire::TaskResponse response;
+  if (!response.ParseFromString(raw))
+    throw Error(ErrorCode::unavailable, "invalid research response");
+  protocol::validate_message(response);
+  if (response.version() != 1 || response.service_id() != endpoint.session ||
+      response.correlation_id() != request.correlation_id())
+    throw Error(ErrorCode::unavailable, "research response identity mismatch");
+  if (response.has_error())
+    throw_remote_error(response.error().code(), response.error().message());
+  if (request.has_history_usage()         ? !response.has_history_usage()
+      : request.has_history_update_plan() ? !response.has_history_update_plan()
+      : request.has_saved_datasets()      ? !response.has_saved_datasets()
+      : (request.has_saved_dataset() || request.has_save_dataset()) ? !response.has_saved_dataset()
+      : request.has_verify_connection() ? !response.has_connection_verification()
+      : request.has_history_catalog()   ? !response.has_history_catalog()
+      : request.has_history_datasets()  ? !response.has_history_datasets()
+      : request.has_history_coverage()  ? !response.has_history_coverage()
+      : request.has_daily_page()        ? !response.has_daily_page()
+      : request.has_minute_page()       ? !response.has_minute_page()
+      : request.has_bar_dataset()       ? !response.has_bar_dataset()
+      : request.has_list()              ? !response.has_tasks()
+      : request.has_result()
+          ? (!response.has_backtest() && !response.has_factor() && !response.has_minutes() &&
+             !response.has_daily() && !response.has_daily_factor())
+          : !response.has_task())
+    throw Error(ErrorCode::unavailable, "unexpected research response");
+  return response;
+}
+} // namespace
 struct ResearchClient::Impl {
   ServiceEndpoint endpoint;
   const std::string connection_id = unique_process_id();
@@ -57,48 +123,7 @@ struct ResearchClient::Impl {
       poller.join();
   }
   wire::TaskResponse call(wire::TaskRequest request) {
-    request.set_version(1);
-    request.set_service_id(endpoint.session);
-    request.set_correlation_id(unique_process_id());
-    auto exchange = [&](auto channel) {
-      // Dataset resolution reads and verifies every stored segment; large
-      // research datasets (and submissions that resolve one) take longer.
-      const bool dataset = request.has_bar_dataset() || request.has_history_coverage() ||
-                           (request.has_submit() && (request.submit().has_backtest() ||
-                                                     request.submit().has_factor_request()));
-      channel.send(request.SerializeAsString(), dataset ? 30s : 5s);
-      return channel.receive((request.has_history_catalog() || request.has_verify_connection())
-                                 ? 90s
-                             : dataset ? 60s
-                                       : 5s);
-    };
-    const auto raw =
-        endpoint.endpoint.empty()
-            ? exchange(ipc::TlsChannel::connect(endpoint.host, endpoint.port, endpoint.tls, 5s))
-            : exchange(ipc::Channel::connect(endpoint.endpoint, 5s));
-    wire::TaskResponse response;
-    if (!response.ParseFromString(raw))
-      throw Error(ErrorCode::unavailable, "invalid research response");
-    protocol::validate_message(response);
-    if (response.version() != 1 || response.service_id() != endpoint.session ||
-        response.correlation_id() != request.correlation_id())
-      throw Error(ErrorCode::unavailable, "research response identity mismatch");
-    if (response.has_error())
-      throw_remote_error(response.error().code(), response.error().message());
-    if (request.has_verify_connection()  ? !response.has_connection_verification()
-        : request.has_history_catalog()  ? !response.has_history_catalog()
-        : request.has_history_datasets() ? !response.has_history_datasets()
-        : request.has_history_coverage() ? !response.has_history_coverage()
-        : request.has_daily_page()       ? !response.has_daily_page()
-        : request.has_minute_page()      ? !response.has_minute_page()
-        : request.has_bar_dataset()      ? !response.has_bar_dataset()
-        : request.has_list()             ? !response.has_tasks()
-        : request.has_result()
-            ? (!response.has_backtest() && !response.has_factor() && !response.has_minutes() &&
-               !response.has_daily() && !response.has_daily_factor())
-            : !response.has_task())
-      throw Error(ErrorCode::unavailable, "unexpected research response");
-    return response;
+    return call_research(endpoint, std::move(request));
   }
   void refresh() {
     wire::TaskRequest request;
@@ -200,8 +225,8 @@ data::v1::BarDataset ResearchClient::bar_dataset(const data::v1::BarDatasetReque
   const auto response = impl_->call(request);
   const auto& dataset = response.bar_dataset();
   protocol::validate_bar_dataset(dataset);
-  if (dataset.source_task_id() != query.source_task_id() ||
-      dataset.settlement_task_id() != query.settlement_task_id() ||
+  if (!std::ranges::equal(dataset.source_dataset_ids(), query.source_dataset_ids()) ||
+      !std::ranges::equal(dataset.settlement_dataset_ids(), query.settlement_dataset_ids()) ||
       dataset.contract().SerializeAsString() != query.contract().SerializeAsString())
     throw Error(ErrorCode::unavailable, "bar dataset identity mismatch");
   return dataset;
@@ -240,6 +265,48 @@ void ResearchClient::submit(const std::string& id, const data::v1::DailyDownload
   impl_->call(request);
   impl_->refresh();
 }
+data::v1::HistoryUpdatePlan
+ResearchClient::history_update_plan(const data::v1::HistoryUpdateQuery& query) {
+  wire::TaskRequest request;
+  *request.mutable_history_update_plan() = query;
+  const auto response = impl_->call(request);
+  const auto plan = response.history_update_plan();
+  (void)protocol::decode_history_update_plan(plan);
+  if (plan.query().SerializeAsString() != query.SerializeAsString())
+    throw Error(ErrorCode::unavailable, "history update plan changed; preview again");
+  return plan;
+}
+void ResearchClient::submit_update(const std::string& id,
+                                   const data::v1::HistoryUpdateSubmit& input,
+                                   const std::string& token) {
+  std::lock_guard lock(impl_->commands);
+  if (impl_->endpoint.endpoint.empty())
+    throw std::invalid_argument("Historical downloads currently require a local research service");
+  wire::TaskRequest request;
+  request.mutable_submit()->set_id(id);
+  *request.mutable_submit()->mutable_history_update() = input;
+  request.mutable_submit()->set_provider_token(token);
+  impl_->call(request);
+  impl_->refresh();
+}
+ServiceEndpoint ResearchClient::endpoint() const {
+  return impl_->endpoint;
+}
+Json ResearchClient::history_usage(const std::string& id) {
+  return inspect_history_usage(impl_->endpoint, id, std::chrono::steady_clock::now() + 60s);
+}
+Json ResearchClient::inspect_history_usage(const ServiceEndpoint& endpoint, const std::string& id,
+                                           std::chrono::steady_clock::time_point deadline) {
+  if (endpoint.session.empty() ||
+      (endpoint.endpoint.empty() && (endpoint.host.empty() || !endpoint.port)))
+    throw std::invalid_argument("invalid historical service address");
+  wire::TaskRequest request;
+  request.mutable_history_usage()->set_id(id);
+  const auto response = call_research(endpoint, std::move(request), deadline);
+  if (response.history_usage().dataset_id() != id)
+    throw Error(ErrorCode::unavailable, "invalid historical usage response");
+  return protocol::decode_history_usage(response.history_usage());
+}
 Json ResearchClient::datasets(const data::v1::HistoryFilter& filter) {
   wire::TaskRequest request;
   *request.mutable_history_datasets() = filter;
@@ -265,7 +332,12 @@ Json ResearchClient::coverage(const data::v1::HistoryFilter& filter) {
     Json days = Json::array();
     for (const auto& day : row.uncovered_days())
       days.push_back(day);
-    items.push_back({{"contract_id", row.contract_id()},
+    items.push_back({{"minute_dataset_id", row.minute_dataset_id()},
+                     {"daily_dataset_id", row.daily_dataset_id()},
+                     {"minute_source", row.minute_source()},
+                     {"daily_source", row.daily_source()},
+                     {"interval_minutes", row.interval_minutes()},
+                     {"contract_id", row.contract_id()},
                      {"minute_days", row.minute_days()},
                      {"minute_first", row.minute_first()},
                      {"minute_last", row.minute_last()},
@@ -349,5 +421,31 @@ Json ResearchClient::daily_page(const data::v1::DailyPageQuery& query) {
       (!query.end_day().empty() && page.end_day() != query.end_day()))
     throw Error(ErrorCode::unavailable, "daily dataset page identity mismatch");
   return protocol::decode_daily_page(page);
+}
+Json ResearchClient::saved_datasets() {
+  wire::TaskRequest request;
+  request.mutable_saved_datasets();
+  const auto response = impl_->call(request);
+  Json items = Json::array();
+  for (const auto& item : response.saved_datasets().items())
+    items.push_back(protocol::decode_research_dataset(item));
+  return items;
+}
+data::v1::ResearchDataset ResearchClient::saved_dataset(const std::string& id) {
+  wire::TaskRequest request;
+  request.mutable_saved_dataset()->set_id(id);
+  auto value = impl_->call(request).saved_dataset();
+  protocol::validate_research_dataset(value);
+  if (value.id() != id)
+    throw std::invalid_argument("saved research dataset revision mismatch");
+  return value;
+}
+void ResearchClient::save_dataset(const data::v1::ResearchDataset& value) {
+  protocol::validate_research_dataset(value);
+  wire::TaskRequest request;
+  *request.mutable_save_dataset() = value;
+  const auto response = impl_->call(request);
+  if (response.saved_dataset().SerializeAsString() != value.SerializeAsString())
+    throw std::invalid_argument("saved research dataset revision mismatch");
 }
 } // namespace asterion::terminal

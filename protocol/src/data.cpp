@@ -5,6 +5,7 @@
 #include <asterion/protocol/data.hpp>
 #include <stdexcept>
 #include <cmath>
+#include <set>
 namespace asterion::protocol {
 Json decode_minute_page(const data::v1::MinutePage& page) {
   validate_message(page);
@@ -194,5 +195,121 @@ Json decode_daily_page(const data::v1::DailyPage& page) {
           {"begin_day", page.begin_day()},
           {"end_day", page.end_day()},
           {"bars", bars}};
+}
+data::v1::HistoryUpdateQuery encode_history_update_query(const Json& value) {
+  require_fields(value,
+                 {"dataset_id", "calendar_dataset_id", "mode", "end_day", "requests_per_minute"});
+  data::v1::HistoryUpdateQuery result;
+  result.set_dataset_id(value.at("dataset_id").get<std::string>());
+  result.set_calendar_dataset_id(value.at("calendar_dataset_id").get<std::string>());
+  result.set_end_day(value.at("end_day").get<std::string>());
+  const auto mode = value.at("mode").get<std::string>();
+  if (mode != "extend" && mode != "repair")
+    throw std::invalid_argument("invalid history update request");
+  result.set_mode(mode == "extend" ? data::v1::EXTEND : data::v1::REPAIR);
+  if (!value.at("requests_per_minute").is_number_integer() || value.at("requests_per_minute") < 1 ||
+      value.at("requests_per_minute") > 500)
+    throw std::invalid_argument("invalid history update request");
+  result.set_requests_per_minute(value.at("requests_per_minute").get<unsigned>());
+  (void)decode_history_update_query(result);
+  return result;
+}
+Json decode_history_update_query(const data::v1::HistoryUpdateQuery& value) {
+  validate_message(value);
+  const auto digest = [](const std::string& id) {
+    return id.size() == 64 && id.find_first_not_of("0123456789abcdef") == std::string::npos;
+  };
+  if (!digest(value.dataset_id()) || value.requests_per_minute() < 1 ||
+      value.requests_per_minute() > 500 ||
+      (value.mode() != data::v1::EXTEND && value.mode() != data::v1::REPAIR))
+    throw std::invalid_argument("invalid history update request");
+  if (value.mode() == data::v1::EXTEND) {
+    if (!value.calendar_dataset_id().empty())
+      throw std::invalid_argument("invalid history update request");
+    (void)parse_trading_date(value.end_day());
+  } else if (!digest(value.calendar_dataset_id()) || !value.end_day().empty())
+    throw std::invalid_argument("invalid history update request");
+  return {{"dataset_id", value.dataset_id()},
+          {"calendar_dataset_id", value.calendar_dataset_id()},
+          {"mode", value.mode() == data::v1::EXTEND ? "extend" : "repair"},
+          {"end_day", value.end_day()},
+          {"requests_per_minute", value.requests_per_minute()}};
+}
+Json decode_history_update_plan(const data::v1::HistoryUpdatePlan& value) {
+  validate_message(value);
+  auto canonical = value;
+  canonical.clear_id();
+  if (value.id() != sha256_bytes(canonical.SerializeAsString()) ||
+      (!value.has_minutes() && !value.has_daily()))
+    throw std::invalid_argument("history update plan changed; preview again");
+  const auto query = decode_history_update_query(value.query());
+  std::vector<std::string> days;
+  for (const auto& day : value.missing_days()) {
+    (void)parse_trading_date(day);
+    if (!days.empty() && days.back() >= day)
+      throw std::invalid_argument("invalid history update request");
+    days.push_back(day);
+  }
+  const auto source = value.has_minutes() ? value.minutes().source() : value.daily().source();
+  const auto contract =
+      value.has_minutes() ? value.minutes().contract_id() : value.daily().contract_id();
+  validate_history_source(source);
+  (void)HistoryIdentity::parse(contract);
+  return {{"id", value.id()},
+          {"query", query},
+          {"source", source},
+          {"contract_id", contract},
+          {"interval_minutes", value.has_minutes() ? value.minutes().interval_minutes() : 0},
+          {"begin", value.has_minutes() ? format_shanghai_time(value.minutes().begin_ns())
+                                        : value.daily().begin_day()},
+          {"end", value.has_minutes() ? format_shanghai_time(value.minutes().end_ns())
+                                      : value.daily().end_day()},
+          {"missing_days", days}};
+}
+Json decode_history_usage(const data::v1::HistoryUsage& value) {
+  validate_message(value);
+  if (value.dataset_id().size() != 64 ||
+      value.dataset_id().find_first_not_of("0123456789abcdef") != std::string::npos ||
+      value.references_size() > 10000)
+    throw std::invalid_argument("invalid historical usage response");
+  Json rows = Json::array();
+  std::set<std::pair<int, std::string>> identities;
+  for (const auto& row : value.references()) {
+    std::string kind;
+    switch (row.kind()) {
+    case data::v1::HISTORY_DOWNLOAD:
+      kind = "download";
+      break;
+    case data::v1::HISTORY_BACKTEST:
+      kind = "backtest";
+      break;
+    case data::v1::HISTORY_BAR_FACTOR:
+      kind = "bar_factor";
+      break;
+    case data::v1::HISTORY_DAILY_FACTOR:
+      kind = "daily_factor";
+      break;
+    case data::v1::HISTORY_SAVED_DATASET:
+      kind = "saved_dataset";
+      break;
+    default:
+      throw std::invalid_argument("invalid historical usage response");
+    }
+    if (row.id().empty() || row.roles().empty() || !identities.emplace(row.kind(), row.id()).second)
+      throw std::invalid_argument("invalid historical usage response");
+    Json roles = Json::array();
+    int previous = 0;
+    for (const auto role : row.roles()) {
+      if (role <= previous || role > data::v1::HISTORY_OUTPUT ||
+          ((row.kind() == data::v1::HISTORY_DOWNLOAD) != (role == data::v1::HISTORY_OUTPUT)))
+        throw std::invalid_argument("invalid historical usage response");
+      previous = role;
+      roles.push_back(role == data::v1::HISTORY_MARKET       ? "market"
+                      : role == data::v1::HISTORY_SETTLEMENT ? "settlement"
+                                                             : "output");
+    }
+    rows.push_back({{"kind", kind}, {"id", row.id()}, {"name", row.name()}, {"roles", roles}});
+  }
+  return {{"dataset_id", value.dataset_id()}, {"references", rows}};
 }
 } // namespace asterion::protocol

@@ -11,47 +11,78 @@ std::filesystem::path directory(const std::string& text) {
 } // namespace
 data::v1::HistoryCoverages history_coverage(const history_files::Archive& archive,
                                             const data::v1::HistoryFilter& filter) {
-  struct Days {
-    std::set<std::string> minute, daily;
+  struct Version {
+    HistoryDataset info;
+    std::set<std::string> days;
   };
-  std::map<std::string, Days> contracts;
+  std::map<std::string, std::vector<Version>> minutes, daily;
   const HistoryStorePort& store = archive;
   for (const auto& item :
        store.datasets({filter.venue(), filter.product(), filter.contract_id(), filter.source()})) {
     const auto record = archive.get(item.id);
-    auto& days = contracts[item.contract.key()];
-    if (record.has_minute_result())
+    Version version{item, {}};
+    if (record.has_minute_result()) {
+      for (auto& day : history_files::minute_trading_days(
+               directory(record.minute_result().directory()), item.id))
+        version.days.insert(std::move(day));
+      minutes[item.contract.key()].push_back(std::move(version));
+    } else {
       for (auto& day :
-           history_files::minute_trading_days(directory(record.minute_result().directory())))
-        days.minute.insert(std::move(day));
-    else if (record.has_daily_result())
-      for (auto& day :
-           history_files::daily_trading_days(directory(record.daily_result().directory())))
-        days.daily.insert(std::move(day));
+           history_files::daily_trading_days(directory(record.daily_result().directory()), item.id))
+        version.days.insert(std::move(day));
+      daily[item.contract.key()].push_back(std::move(version));
+    }
   }
   data::v1::HistoryCoverages result;
-  for (const auto& [contract, days] : contracts) {
+  const auto append = [&](const std::string& contract, const Version* minute, const Version* day) {
+    if (result.items_size() >= 10000)
+      throw std::invalid_argument("historical archive query exceeds limit; narrow filters");
     auto* row = result.add_items();
     row->set_contract_id(contract);
-    row->set_minute_days(static_cast<unsigned>(days.minute.size()));
-    row->set_daily_days(static_cast<unsigned>(days.daily.size()));
-    if (!days.minute.empty()) {
-      row->set_minute_first(*days.minute.begin());
-      row->set_minute_last(*days.minute.rbegin());
+    if (minute) {
+      row->set_minute_dataset_id(minute->info.id);
+      row->set_minute_source(minute->info.source);
+      row->set_interval_minutes(minute->info.interval_minutes);
+      row->set_minute_days(static_cast<unsigned>(minute->days.size()));
+      if (!minute->days.empty()) {
+        row->set_minute_first(*minute->days.begin());
+        row->set_minute_last(*minute->days.rbegin());
+      }
     }
-    if (!days.daily.empty()) {
-      row->set_daily_first(*days.daily.begin());
-      row->set_daily_last(*days.daily.rbegin());
+    if (day) {
+      row->set_daily_dataset_id(day->info.id);
+      row->set_daily_source(day->info.source);
+      row->set_daily_days(static_cast<unsigned>(day->days.size()));
+      if (!day->days.empty()) {
+        row->set_daily_first(*day->days.begin());
+        row->set_daily_last(*day->days.rbegin());
+      }
     }
-    if (days.minute.empty() || days.daily.empty())
-      continue;
+    // This is a comparison of two exact versions, not proof of intraday completeness.
+    if (!minute || !day || minute->days.empty())
+      return;
     unsigned uncovered = 0;
-    for (auto day = days.daily.lower_bound(*days.minute.begin());
-         day != days.daily.end() && *day <= *days.minute.rbegin(); ++day)
-      if (!days.minute.contains(*day) && ++uncovered <= 50)
-        row->add_uncovered_days(*day);
+    for (const auto& date : day->days)
+      if (date >= row->minute_first() && date <= row->minute_last() &&
+          !minute->days.contains(date)) {
+        if (++uncovered <= 50)
+          row->add_uncovered_days(date);
+      }
     row->set_uncovered(uncovered);
-  }
+  };
+  for (const auto& [contract, versions] : minutes)
+    for (const auto& version : versions) {
+      const auto found = daily.find(contract);
+      if (found == daily.end())
+        append(contract, &version, nullptr);
+      else
+        for (const auto& day : found->second)
+          append(contract, &version, &day);
+    }
+  for (const auto& [contract, versions] : daily)
+    if (!minutes.contains(contract))
+      for (const auto& version : versions)
+        append(contract, nullptr, &version);
   return result;
 }
 } // namespace asterion::tasks

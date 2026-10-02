@@ -7,6 +7,7 @@
 #include <asterion/protocol/data.hpp>
 #include <fstream>
 #include <algorithm>
+#include <optional>
 namespace asterion::history_files {
 namespace {
 void safe(const std::filesystem::path& p) {
@@ -48,19 +49,35 @@ HistoryDataset summary(const data::v1::HistoryRecord& record) {
   throw std::invalid_argument("invalid historical archive record");
 }
 } // namespace
-Archive::Archive(std::filesystem::path root) : root_(std::move(root)) {
+Archive::Archive(std::filesystem::path root, Access access)
+    : root_(std::move(root)), access_(access) {
   if (!root_.is_absolute())
     throw std::invalid_argument("historical archive requires an absolute directory");
   safe(root_);
+  if (access_ == Access::read_only) {
+    for (const auto& directory : {root_, root_ / "research", root_ / "index"}) {
+      safe(directory);
+      if (!std::filesystem::is_directory(directory))
+        throw std::invalid_argument("historical archive requires existing directories");
+    }
+    return;
+  }
   std::filesystem::create_directories(root_);
+  safe(root_ / "research");
+  std::filesystem::create_directory(root_ / "research");
   safe(root_ / "index");
   std::filesystem::create_directory(root_ / "index");
+}
+void Archive::writable() const {
+  if (access_ == Access::read_only)
+    throw std::logic_error("historical archive is read only");
 }
 PluginDescriptor Archive::descriptor() const {
   return {"asterion.storage.history.filesystem", PluginKind::storage, plugin_contract_version, {}};
 }
 std::filesystem::path Archive::directory(const HistoryIdentity& contract, const std::string& source,
                                          unsigned interval, const std::string& acquisition) const {
+  writable();
   contract.validate();
   validate_history_source(source);
   validate_id(acquisition);
@@ -77,6 +94,7 @@ std::filesystem::path Archive::directory(const HistoryIdentity& contract, const 
   return p;
 }
 void Archive::publish(const data::v1::HistoryRecord& record) {
+  writable();
   const auto item = summary(record);
   digest(item.id);
   const auto path = std::filesystem::path(record.has_minutes() ? record.minute_result().directory()
@@ -108,7 +126,7 @@ data::v1::HistoryRecord Archive::get(const std::string& id) const {
   digest(id);
   const auto index = root_ / "index" / (id + ".pb");
   safe(index);
-  if (!std::filesystem::is_regular_file(index) || std::filesystem::file_size(index) > 65536)
+  if (!std::filesystem::is_regular_file(index) || std::filesystem::file_size(index) > 262144)
     throw std::invalid_argument("historical dataset is unavailable");
   std::ifstream file(index, std::ios::binary);
   std::string bytes((std::istreambuf_iterator<char>(file)), {});
@@ -134,7 +152,14 @@ std::vector<HistoryDataset> Archive::datasets(const HistoryFilter& filter) const
     (void)HistoryIdentity::parse(filter.contract_id);
   if (!filter.source.empty())
     validate_history_source(filter.source);
-  FileLock lock(root_, "archive.lock", FileLock::Access::shared);
+  safe(root_ / "archive.lock");
+  std::optional<FileLock> lock;
+  if (access_ == Access::writer || std::filesystem::exists(root_ / "archive.lock"))
+    lock.emplace(root_, "archive.lock",
+                 access_ == Access::writer ? FileLock::Access::shared
+                                           : FileLock::Access::shared_existing);
+  else if (!std::filesystem::is_empty(root_ / "index"))
+    throw std::invalid_argument("historical archive coordination file is missing");
   std::vector<HistoryDataset> result;
   for (const auto& file : std::filesystem::directory_iterator(root_ / "index")) {
     safe(file.path());
@@ -150,6 +175,64 @@ std::vector<HistoryDataset> Archive::datasets(const HistoryFilter& filter) const
       throw std::invalid_argument("historical archive query exceeds limit; narrow filters");
   }
   std::ranges::sort(result, {}, &HistoryDataset::id);
+  return result;
+}
+void Archive::save_research_dataset(const data::v1::ResearchDataset& value) {
+  writable();
+  protocol::validate_research_dataset(value);
+  for (const auto& input : value.selections()) {
+    for (const auto& id : input.source_dataset_ids())
+      (void)get(id);
+    for (const auto& id : input.settlement_dataset_ids())
+      (void)get(id);
+  }
+  FileLock lock(root_, "research.lock");
+  const auto path = root_ / "research" / (value.id() + ".pb");
+  safe(path);
+  if (std::filesystem::exists(path)) {
+    (void)research_dataset(value.id());
+    return;
+  }
+  if (std::distance(std::filesystem::directory_iterator(root_ / "research"),
+                    std::filesystem::directory_iterator{}) >= 1000)
+    throw std::invalid_argument("saved research dataset capacity reached");
+  replace_file_durably(path, value.SerializeAsString());
+}
+data::v1::ResearchDataset Archive::research_dataset(const std::string& id) const {
+  digest(id);
+  const auto path = root_ / "research" / (id + ".pb");
+  safe(path);
+  if (!std::filesystem::is_regular_file(path) || std::filesystem::file_size(path) > 262144)
+    throw std::invalid_argument("saved research dataset is unavailable");
+  std::ifstream file(path, std::ios::binary);
+  std::string bytes((std::istreambuf_iterator<char>(file)), {});
+  data::v1::ResearchDataset value;
+  if (!value.ParseFromString(bytes) || value.id() != id)
+    throw std::invalid_argument("saved research dataset revision mismatch");
+  protocol::validate_research_dataset(value);
+  return value;
+}
+data::v1::ResearchDatasets Archive::research_datasets() const {
+  safe(root_ / "research.lock");
+  std::optional<FileLock> lock;
+  if (access_ == Access::writer || std::filesystem::exists(root_ / "research.lock"))
+    lock.emplace(root_, "research.lock",
+                 access_ == Access::writer ? FileLock::Access::shared
+                                           : FileLock::Access::shared_existing);
+  else if (!std::filesystem::is_empty(root_ / "research"))
+    throw std::invalid_argument("historical archive coordination file is missing");
+  std::vector<data::v1::ResearchDataset> rows;
+  for (const auto& entry : std::filesystem::directory_iterator(root_ / "research")) {
+    if (entry.path().extension() != ".pb" || rows.size() >= 1000)
+      throw std::invalid_argument("invalid saved research dataset");
+    rows.push_back(research_dataset(entry.path().stem().string()));
+  }
+  std::ranges::sort(rows, [](const auto& a, const auto& b) {
+    return std::make_pair(a.name(), a.id()) < std::make_pair(b.name(), b.id());
+  });
+  data::v1::ResearchDatasets result;
+  for (auto& row : rows)
+    *result.add_items() = std::move(row);
   return result;
 }
 } // namespace asterion::history_files

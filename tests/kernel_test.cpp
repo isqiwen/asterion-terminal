@@ -305,6 +305,10 @@ TEST(Kernel, FileLockReadersShareWhileWritersRemainExclusive) {
     }
   } cleanup{root};
   using Access = FileLock::Access;
+  EXPECT_THROW(FileLock(root, "missing.lock", Access::shared_existing), std::runtime_error);
+  EXPECT_FALSE(std::filesystem::exists(root / "missing.lock"));
+  std::filesystem::create_directory(root / "directory.lock");
+  EXPECT_THROW(FileLock(root, "directory.lock", Access::shared_existing), std::runtime_error);
 #ifndef _WIN32
   const auto peer = [&](Access access, bool expected) {
     const auto pid = fork();
@@ -326,6 +330,7 @@ TEST(Kernel, FileLockReadersShareWhileWritersRemainExclusive) {
 #endif
   {
     FileLock reader(root, "dataset.lock", Access::shared);
+    EXPECT_NO_THROW(FileLock(root, "dataset.lock", Access::shared_existing));
     EXPECT_NO_THROW(FileLock(root, "dataset.lock", Access::shared));
     EXPECT_THROW(FileLock(root, "dataset.lock"), std::runtime_error);
 #ifndef _WIN32
@@ -335,6 +340,7 @@ TEST(Kernel, FileLockReadersShareWhileWritersRemainExclusive) {
   }
   {
     FileLock writer(root, "dataset.lock");
+    EXPECT_THROW(FileLock(root, "dataset.lock", Access::shared_existing), std::runtime_error);
     EXPECT_THROW(FileLock(root, "dataset.lock", Access::shared), std::runtime_error);
     EXPECT_THROW(FileLock(root, "dataset.lock"), std::runtime_error);
 #ifndef _WIN32

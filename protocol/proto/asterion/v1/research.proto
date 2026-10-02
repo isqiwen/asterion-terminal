@@ -84,6 +84,7 @@ message Task {
   string instrument = 10;
   string source_name = 14;
   string data_source = 23;
+  string history_dataset_id = 26; // Projection of the verified published download result.
   string risk_artifact = 25; // Immutable native risk SHA-256 for backtests.
   string provider_artifact = 24; // Immutable native provider SHA-256 for downloads.
   uint32 minute_interval_minutes = 20; // summary projection; zero for other task kinds
@@ -96,7 +97,7 @@ message Task {
 message TaskList { repeated Task tasks = 1; repeated asterion.data.v1.HistorySource sources = 2; }
 message TaskClaim { string id = 1; TaskKind kind = 2; }
 message TaskId { string id = 1; }
-message TaskSubmit { reserved 2, 3, 4, 5; string id = 1; oneof definition { BacktestRequest backtest = 10; FactorRequest factor_request = 11; asterion.data.v1.MinuteDownload minutes = 6; asterion.data.v1.DailyDownload daily = 8; DailyFactorRequest daily_factor = 9; } string provider_token = 7; }
+message TaskSubmit { reserved 2, 3, 4, 5; string id = 1; oneof definition { BacktestRequest backtest = 10; FactorRequest factor_request = 11; asterion.data.v1.MinuteDownload minutes = 6; asterion.data.v1.DailyDownload daily = 8; DailyFactorRequest daily_factor = 9; asterion.data.v1.HistoryUpdateSubmit history_update = 12; } string provider_token = 7; }
 message TaskAttempt { Task task = 1; string token = 2; string provider_token = 3; string output_directory = 4; }
 message TaskProgress { string id = 1; string token = 2; uint32 completed = 3; }
 message TaskFinish { reserved 5, 6; string id = 1; string token = 2; oneof output { BacktestResult result = 3; FactorResult factor = 4; asterion.data.v1.MinuteDownloadResult minutes = 7; asterion.data.v1.DailyDownloadResult daily = 8; DailyFactorResult daily_factor = 9; } }
@@ -141,6 +142,11 @@ message TaskRequest {
     asterion.data.v1.HistoryFilter history_datasets = 27;
     asterion.data.v1.HistoryConnectionVerify verify_connection = 28;
     asterion.data.v1.HistoryFilter history_coverage = 29;
+    asterion.data.v1.ResearchDataset save_dataset = 31;
+    asterion.protocol.v1.Empty saved_datasets = 32;
+    TaskId saved_dataset = 33;
+    asterion.data.v1.HistoryUpdateQuery history_update_plan = 34;
+    TaskId history_usage = 35;
     TaskDispatch dispatch = 22; asterion.node.v1.Quiesce quiesce = 30;
   }
 }
@@ -171,5 +177,9 @@ message TaskResponse {
     asterion.data.v1.HistoryDatasets history_datasets = 28;
     asterion.data.v1.HistoryConnectionVerification connection_verification = 29;
     asterion.data.v1.HistoryCoverages history_coverage = 30;
+    asterion.data.v1.ResearchDataset saved_dataset = 31;
+    asterion.data.v1.ResearchDatasets saved_datasets = 32;
+    asterion.data.v1.HistoryUpdatePlan history_update_plan = 34;
+    asterion.data.v1.HistoryUsage history_usage = 35;
   }
 }

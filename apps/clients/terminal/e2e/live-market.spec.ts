@@ -11,7 +11,7 @@ test("full market loads automatically and watchlist membership stays independent
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "市场", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await page.getByRole("tab", { name: "实时行情", exact: true }).click();
   const panel = page.getByRole("region", { name: "实时期货行情" });
   await panel.getByLabel("行情前置", { exact: true }).fill("tcp://127.0.0.1:1");
@@ -22,13 +22,13 @@ test("full market loads automatically and watchlist membership stays independent
   await panel.getByRole("button", { name: "连接行情", exact: true }).click();
   await expect(panel.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
   await expect((await marketMenu(page)).getByRole("button", { name: "全部月份" })).toBeVisible();
-  await page.getByRole("button", { name: "自选", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }).click();
   await expect(page.locator(".watchlist-table tbody tr")).toHaveCount(0);
-  await page.getByRole("button", { name: "市场", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await (await marketMenu(page)).getByRole("button", { name: "加入自选", exact: true }).click();
-  await page.getByRole("button", { name: "自选", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }).click();
   await expect(page.locator(".watchlist-table tbody tr")).toHaveCount(1);
-  await page.getByRole("button", { name: "市场", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await (await marketMenu(page)).getByRole("button", { name: "移出自选", exact: true }).click();
   await expect(panel.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain(
@@ -40,7 +40,7 @@ test("full market loads automatically and watchlist membership stays independent
 
 test("login without subscriptions keeps the add-contract workflow visible", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "市场", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await page.getByRole("tab", { name: "实时行情", exact: true }).click();
   const panel = page.getByRole("region", { name: "实时期货行情" });
   await panel.getByLabel("行情前置", { exact: true }).fill("tcp://127.0.0.1:1");
@@ -63,7 +63,7 @@ test("read-only market workspace receives C++ test SDK quotes without storing cr
   page,
 }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "市场", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await page.getByRole("tab", { name: "实时行情", exact: true }).click();
   const panel = page.getByRole("region", { name: "实时期货行情" });
   await panel.getByLabel("实际合约", { exact: true }).fill("rb2610");
@@ -99,11 +99,6 @@ test("read-only market workspace receives C++ test SDK quotes without storing cr
     "ui-fixture-secret",
   );
   await expect(panel.getByLabel("密码", { exact: true })).toHaveValue("");
-  await page.getByRole("button", { name: "总览", exact: true }).click();
-  const overview = page.getByRole("region", { name: "自选行情", exact: true });
-  await expect(overview.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
-  await page.screenshot({ path: "apps/clients/terminal/test-results/overview-live.png" });
-  await overview.getByRole("button", { name: "管理自选", exact: true }).click();
   await page.screenshot({ path: "apps/clients/terminal/test-results/live-market.png" });
   await (await marketMenu(page)).getByRole("button", { name: "断开行情", exact: true }).click();
   await expect(panel.locator(".market-session > .panel-heading").getByRole("status")).toHaveText(

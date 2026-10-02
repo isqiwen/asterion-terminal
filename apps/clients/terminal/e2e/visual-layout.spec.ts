@@ -34,7 +34,7 @@ for (const locale of ["zh-CN", "en-US"]) {
     // Use the host's semantic nav container; titles remain plugin-owned and localized.
     for (const width of [1440, 800]) {
       await page.setViewportSize({ width, height: 900 });
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < (await entries.count()); i++) {
         await entries.nth(i).click();
         await expect(
           page.locator(".terminal-business > :not([role=status])").first(),

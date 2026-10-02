@@ -30,6 +30,7 @@ test("language switches every workspace, preserves preferences and survives relo
   await page.getByLabel("显示密度", { exact: true }).selectOption("comfortable");
   await page.getByLabel("语言", { exact: true }).selectOption("en-US");
   await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
+  await expect(page.locator(".environment-label")).toHaveText("Development");
   await expect(page.getByRole("heading", { name: "Preferences", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Preferences", exact: true }).click();
   await expect(page.getByLabel("Display Density", { exact: true })).toHaveValue("comfortable");
@@ -48,22 +49,16 @@ test("language switches every workspace, preserves preferences and survives relo
   expect((await denied.json()).error).toBeTruthy();
 
   await page.getByRole("button", { name: "Plugins", exact: true }).click();
-  await expect(page.getByText("Registered · Loaded on Demand", { exact: true })).toHaveCount(7);
+  await expect(page.getByText("Registered · Loaded on Demand", { exact: true })).toHaveCount(6);
   page = await closeSettingsWindow(page);
-  for (const workspace of [
-    "Watchlist",
-    "Contract",
-    "Market",
-    "Data",
-    "Research",
-    "Trading",
-    "Overview",
-  ]) {
-    await page.getByRole("button", { name: workspace, exact: true }).click();
-    await expect(page.getByRole("button", { name: workspace, exact: true })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+  for (const workspace of ["Watchlist", "Contract", "Market", "Data", "Research", "Trading"]) {
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: workspace, exact: true })
+      .click();
+    await expect(
+      page.locator(".workspace-tabs").getByRole("button", { name: workspace, exact: true }),
+    ).toHaveAttribute("aria-current", "page");
     await expect(page.locator("body")).not.toContainText(/\p{Script=Han}/u);
   }
   for (const label of await page.locator(".activity-rail .nav-label").all()) {
@@ -77,7 +72,9 @@ test("language switches every workspace, preserves preferences and survives relo
   }
   await page.screenshot({ path: "apps/clients/terminal/test-results/english-workbench.png" });
   await page.reload();
-  await expect(page.getByRole("button", { name: "Overview", exact: true })).toBeVisible();
+  await expect(
+    page.locator(".workspace-tabs").getByRole("button", { name: "Watchlist", exact: true }),
+  ).toBeVisible();
   page = await openSettingsWindow(page);
   await page.getByRole("button", { name: "Preferences", exact: true }).click();
   await expect(page.getByLabel("Display Density", { exact: true })).toHaveValue("comfortable");
@@ -87,7 +84,9 @@ test("language switches every workspace, preserves preferences and survives relo
   page = await closeSettingsWindow(page);
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
-  await expect(page.getByRole("button", { name: "总览", exact: true })).toBeVisible();
+  await expect(
+    page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
+  ).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -111,8 +110,12 @@ test.describe("first launch language", () => {
     await page.unroute("**/__asterion/api");
     await page.getByRole("button", { name: "RETRY", exact: true }).click();
     await page.getByRole("button", { name: "ENTER WORKBENCH", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Overview", exact: true })).toBeVisible();
+    await expect(
+      page.locator(".workspace-tabs").getByRole("button", { name: "Watchlist", exact: true }),
+    ).toBeVisible();
     await page.reload();
-    await expect(page.getByRole("button", { name: "Overview", exact: true })).toBeVisible();
+    await expect(
+      page.locator(".workspace-tabs").getByRole("button", { name: "Watchlist", exact: true }),
+    ).toBeVisible();
   });
 });

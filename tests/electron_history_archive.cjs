@@ -9,7 +9,10 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
 (async () => {
   assert.equal(process.platform, "darwin");
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "asterion-history-native-"));
-  let application;
+  // Fixture tasks must pin the exact plugins bundled with this desktop, even
+  // when ASTERION_CPP_BUILD selects a different build configuration.
+  const pluginDirectory = path.resolve("build/electron-resources/native/plugins");
+  let application, remoteServer;
   try {
     application = await electron.launch({
       executablePath: require("electron"),
@@ -18,6 +21,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
         ...process.env,
         ASTERION_NODE_DIRECTORY: `${temp}/node`,
         ASTERION_TEST_NODE_ISOLATED: "1",
+        ASTERION_PLUGIN_DIRECTORY: pluginDirectory,
       },
       timeout: 30000,
     });
@@ -56,7 +60,12 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
       path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug", "asterion_test_minutes"),
       ["--directory", service.directory],
       {
-        env: { ...process.env, ASTERION_NODE_DIRECTORY: root, ASTERION_TEST_NODE_ISOLATED: "1" },
+        env: {
+          ...process.env,
+          ASTERION_NODE_DIRECTORY: root,
+          ASTERION_TEST_NODE_ISOLATED: "1",
+          ASTERION_PLUGIN_DIRECTORY: pluginDirectory,
+        },
         timeout: 15000,
       },
     );
@@ -136,12 +145,78 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
         "103",
       ],
       {
-        env: { ...process.env, ASTERION_NODE_DIRECTORY: root, ASTERION_TEST_NODE_ISOLATED: "1" },
+        env: {
+          ...process.env,
+          ASTERION_NODE_DIRECTORY: root,
+          ASTERION_TEST_NODE_ISOLATED: "1",
+          ASTERION_PLUGIN_DIRECTORY: pluginDirectory,
+        },
+        timeout: 15000,
+      },
+    );
+    const prefix = await execFile(
+      path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug", "asterion_test_history"),
+      ["--directory", service.directory, "--id", "native-prefix", "--price", "100", "101", "102"],
+      {
+        env: {
+          ...process.env,
+          ASTERION_NODE_DIRECTORY: root,
+          ASTERION_TEST_NODE_ISOLATED: "1",
+          ASTERION_PLUGIN_DIRECTORY: pluginDirectory,
+        },
         timeout: 15000,
       },
     );
     await call("research.local");
-    await call("research.dataset.select", JSON.parse(seeded.stdout));
+    await call("research.dataset.clear");
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
+    await page.getByRole("button", { name: "新建回测", exact: true }).click();
+    const input = JSON.parse(seeded.stdout),
+      extra = JSON.parse(prefix.stdout);
+    const picker = page.getByRole("form", { name: "历史数据集" });
+    await picker.getByLabel("K 线来源", { exact: true }).selectOption(input.source_dataset_ids[0]);
+    if (await picker.getByLabel("结算价来源", { exact: true }).isVisible())
+      await picker
+        .getByLabel("结算价来源", { exact: true })
+        .selectOption(input.settlement_dataset_ids[0]);
+    await picker.getByLabel("最小变动价位", { exact: true }).fill("1");
+    await picker.getByLabel("合约乘数", { exact: true }).fill("10");
+    await picker.getByText("拼接更多下载", { exact: false }).click();
+    await picker
+      .getByRole("group", { name: "补充 K 线", exact: true })
+      .getByRole("checkbox", { name: new RegExp(extra.source_dataset_ids[0].slice(0, 8)) })
+      .check();
+    await picker.getByRole("button", { name: "使用此数据集", exact: true }).click();
+    await expect(picker.getByRole("list", { name: "已选合约" })).toContainText("7 根");
+    const selected = (await call("runtime.snapshot")).datasets;
+    assert.equal(selected[0].source_dataset_ids.length, 2);
+    await picker.locator(".dataset-composition").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: "build/history-archive/native-composition-picker.png" });
+    await page.getByText("保存当前选择", { exact: true }).click();
+    await page.getByLabel("数据集名称", { exact: true }).fill("原生回测输入");
+    await page.getByRole("button", { name: "保存数据集", exact: true }).click();
+    await expect(
+      page.getByText("数据集已保存，可在当前研究服务中重复使用。", { exact: true }),
+    ).toBeVisible();
+    const saved = (await call("research.dataset.saved")).saved_datasets[0];
+    await call("research.dataset.clear");
+    await page.reload();
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
+    await page.getByRole("button", { name: "新建回测", exact: true }).click();
+    await page.getByRole("combobox", { name: "已保存数据集", exact: true }).selectOption(saved.id);
+    await page.getByRole("button", { name: "使用已保存数据集", exact: true }).click();
+    await expect(page.getByRole("list", { name: "已选合约" })).toContainText("7 根");
+    assert.deepEqual((await call("runtime.snapshot")).datasets, selected);
+    await page.screenshot({
+      path: "build/history-archive/native-composed-dataset.png",
+      fullPage: true,
+    });
     const policy = {
       deposit: "10000",
       contracts: [
@@ -204,9 +279,21 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
       await digest(path.join(service.directory, "native-risk-backtest", "risk-plugin.dylib")),
       completed.risk_artifact,
     );
-    const account = path.join(temp, "paper");
-    await fs.mkdir(account);
-    await call("paper.create", { directory: account, ...policy });
+    const accountName = "原生回放引用";
+    const account = path.join(root, "accounts", "paper", accountName);
+    const created = await call("paper.create", { name: accountName, ...policy });
+    const paperService = created.connection.session;
+    assert.ok(created.diagnostics.trading_process_id > 0);
+    const activeUsage = (await call("research.history.usage", { id: input.source_dataset_ids[0] }))
+      .history_usage;
+    assert.equal(activeUsage.local_replays.checked, 1);
+    assert.deepEqual(activeUsage.local_replays.unavailable, []);
+    assert.deepEqual(activeUsage.local_replays.references, [
+      { name: accountName, roles: ["market"] },
+    ]);
+    const afterUsage = await call("runtime.snapshot");
+    assert.deepEqual(afterUsage.paper, created.paper);
+    assert.equal(afterUsage.diagnostics.trading_process_id, created.diagnostics.trading_process_id);
     await call("paper.act", { request_id: "advance", action: "advance" });
     const before = (await call("runtime.snapshot")).paper;
     const denied = await call(
@@ -234,7 +321,293 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     await call("paper.open", { directory: account });
     assert.deepEqual((await call("runtime.snapshot")).paper, before);
     await call("paper.close");
+    // A closed window connection does not stop its Agent-owned account.
+    const disconnectedUsage = (
+      await call("research.history.usage", { id: input.settlement_dataset_ids[0] })
+    ).history_usage;
+    assert.deepEqual(disconnectedUsage.local_replays.references, [
+      { name: accountName, roles: ["settlement"] },
+    ]);
+    assert.deepEqual(disconnectedUsage.local_replays.unavailable, []);
+    const replayHealth = async () =>
+      (await call("runtime.snapshot")).nodes
+        .find(n => n.id === "local")
+        .health.services.find(s => s.id === paperService);
+    await expect.poll(async () => (await replayHealth()).health, { timeout: 15000 }).toBe("ready");
+    const healthyReplay = await replayHealth();
+    assert.equal(healthyReplay.pid, created.diagnostics.trading_process_id);
+    assert.equal(healthyReplay.state, "running");
+    assert.equal(healthyReplay.restarts, 0);
+    assert.equal(healthyReplay.error, "");
+    {
+      await page
+        .locator(".workspace-tabs")
+        .getByRole("button", { name: "数据", exact: true })
+        .click();
+      await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
+      const archive = page.getByRole("region", { name: "历史数据仓库", exact: true });
+      await archive
+        .locator(`[data-dataset-id="${input.source_dataset_ids[0]}"]`)
+        .getByRole("button", { name: "使用情况", exact: true })
+        .click();
+      const local = archive.getByRole("region", { name: "本机回放账户", exact: true });
+      await expect(local).toContainText("已检查 1 个账户，发现 1 个引用");
+      await expect(local.getByRole("table")).toContainText(accountName);
+      await expect(local.getByRole("alert")).toHaveCount(0);
+      const afterQueryHealth = await replayHealth();
+      assert.equal(afterQueryHealth.pid, healthyReplay.pid);
+      assert.equal(afterQueryHealth.restarts, healthyReplay.restarts);
+      assert.equal(afterQueryHealth.health, "ready");
+      await fs.writeFile(
+        "build/history-archive/native-active-replay-health.json",
+        JSON.stringify({ before: healthyReplay, after: afterQueryHealth }, null, 2),
+      );
+      await local.scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: "build/history-archive/native-active-replay-usage.png",
+        fullPage: true,
+      });
+      await archive
+        .getByRole("region", { name: "使用情况", exact: true })
+        .getByRole("button", { name: "关闭", exact: true })
+        .click();
+    }
+    await call("node.action", { id: "local", service: paperService, action: "stop" });
+    const ledgerDigest = await digest(path.join(account, "journal.sqlite"));
+    for (const [id, role] of [
+      [input.source_dataset_ids[0], "market"],
+      [extra.source_dataset_ids[0], "market"],
+      [input.settlement_dataset_ids[0], "settlement"],
+    ]) {
+      const usage = (await call("research.history.usage", { id })).history_usage;
+      assert.equal(usage.local_replays.checked, 1);
+      assert.deepEqual(usage.local_replays.unavailable, []);
+      assert.deepEqual(usage.local_replays.references, [{ name: accountName, roles: [role] }]);
+    }
+    assert.equal(await digest(path.join(account, "journal.sqlite")), ledgerDigest);
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "数据", exact: true })
+      .click();
+    await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
+    const archiveUsage = page.getByRole("region", { name: "历史数据仓库", exact: true });
+    await archiveUsage
+      .locator(`[data-dataset-id="${input.source_dataset_ids[0]}"]`)
+      .getByRole("button", { name: "使用情况", exact: true })
+      .click();
+    const localUsage = archiveUsage.getByRole("region", { name: "本机回放账户", exact: true });
+    await expect(localUsage).toContainText("已检查 1 个账户，发现 1 个引用");
+    await expect(localUsage.getByRole("table")).toContainText(accountName);
+    await expect(localUsage.getByRole("table")).toContainText("行情输入");
+    await localUsage.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: "build/history-archive/native-replay-usage.png",
+      fullPage: true,
+    });
+    // Exercise the same archive UI over the native bridge and a real mTLS service.
+    const binary = name => path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug", name);
+    await execFile(binary("asterion_test_certificates"), [temp]);
+    const probe = require("node:net").createServer();
+    await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
+    const port = probe.address().port;
+    await new Promise(resolve => probe.close(resolve));
+    const remoteLedger = path.join(temp, "remote-ledger");
+    await fs.mkdir(remoteLedger);
+    remoteServer = require("node:child_process").spawn(
+      binary("asterion-trading"),
+      [
+        "--mode",
+        "paper",
+        "--session",
+        "paper.native.remote",
+        "--bind",
+        "127.0.0.1",
+        "--port",
+        String(port),
+        "--directory",
+        remoteLedger,
+        "--tls-ca",
+        path.join(temp, "ca.crt"),
+        "--tls-cert",
+        path.join(temp, "server.crt"),
+        "--tls-key",
+        path.join(temp, "server.key"),
+      ],
+      { stdio: "ignore" },
+    );
+    await expect
+      .poll(
+        () =>
+          new Promise(resolve => {
+            const socket = require("node:net").connect(port, "127.0.0.1");
+            socket.on("connect", () => {
+              socket.destroy();
+              resolve(true);
+            });
+            socket.on("error", () => resolve(false));
+          }),
+      )
+      .toBe(true);
+    await call("paper.connect", {
+      host: "127.0.0.1",
+      port: String(port),
+      session: "paper.native.remote",
+      mode: "paper",
+      ca_file: path.join(temp, "ca.crt"),
+      certificate_file: path.join(temp, "client.crt"),
+      private_key_file: path.join(temp, "client.key"),
+    });
+    const remoteCreated = await call("paper.create", policy);
+    const remoteDigest = await digest(path.join(remoteLedger, "journal.sqlite"));
+    const usagePanel = archiveUsage.getByRole("region", { name: "使用情况", exact: true });
+    await usagePanel.getByRole("button", { name: "刷新使用情况", exact: true }).click();
+    const remoteUsage = usagePanel.getByRole("region", { name: "当前直连账户", exact: true });
+    await expect(remoteUsage).toContainText("已检查 1 个账户，发现 1 个引用");
+    await expect(remoteUsage.getByRole("table")).toContainText("paper.native.remote");
+    await expect(remoteUsage.getByRole("alert")).toHaveCount(0);
+    assert.deepEqual((await call("runtime.snapshot")).paper, remoteCreated.paper);
+    assert.equal(await digest(path.join(remoteLedger, "journal.sqlite")), remoteDigest);
+    assert.equal(remoteServer.exitCode, null);
+    await remoteUsage.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: "build/history-archive/native-remote-replay-usage.png",
+      fullPage: true,
+    });
+    await call("paper.close");
+    assert.equal(remoteServer.exitCode, null);
+    console.log("Native remote usage: real mTLS, unchanged ledger and independent service passed");
+    const ipcId = (await fs.readFile(path.join(root, "ipc-id"), "utf8")).trim();
+    await execFile(
+      binary("asterion_test_node_service_control"),
+      [
+        "--operation",
+        "deploy-research",
+        "--executable",
+        binary("asterion-node-agent"),
+        "--root",
+        root,
+        "--endpoint",
+        `/tmp/ast-node-${ipcId}/node.sock`,
+        "--name",
+        "me.asterion.acceptance.cross-research",
+      ],
+      {
+        env: {
+          ...process.env,
+          ASTERION_NODE_DIRECTORY: root,
+          ASTERION_TEST_NODE_ISOLATED: "1",
+          ASTERION_PLUGIN_DIRECTORY: pluginDirectory,
+        },
+        timeout: 20000,
+      },
+    );
+    await expect
+      .poll(
+        async () =>
+          (await call("runtime.snapshot")).nodes
+            .find(n => n.id === "local")
+            .health.services.find(s => s.id === "other-research")?.health,
+        { timeout: 15000 },
+      )
+      .toBe("ready");
+    const disconnectedDirectory = path.join(root, "enrollments", "native-offline-fixture");
+    await fs.mkdir(disconnectedDirectory, { recursive: true });
+    await fs.writeFile(
+      path.join(disconnectedDirectory, "enrollment.json"),
+      "intentionally unread: test fixture",
+    );
+    const beforeCross = await call("runtime.snapshot");
+    await usagePanel.getByRole("button", { name: "刷新使用情况", exact: true }).click();
+    const otherResearch = usagePanel.getByRole("region", { name: "其他研究服务", exact: true });
+    await expect(
+      otherResearch.getByRole("region", { name: "本机 / other-research", exact: true }),
+    ).toContainText("已检查，发现 0 条关联记录");
+    const stoppedResearch = otherResearch.getByRole("region", {
+      name: "本机 / stopped-research",
+      exact: true,
+    });
+    await expect(stoppedResearch.getByRole("alert")).toHaveCount(0);
+    await expect(stoppedResearch).toContainText("已检查，发现 0 条关联记录");
+    await expect(stoppedResearch).toContainText("本机账本已检查；服务保持停止。");
+    await expect(
+      usagePanel.getByRole("region", { name: "未连接的节点", exact: true }),
+    ).toContainText("native-offline-fixture");
+    const afterCross = await call("runtime.snapshot");
+    assert.ok(!afterCross.nodes.some(n => n.id === "native-offline-fixture"));
+    assert.equal(afterCross.research.connection_id, beforeCross.research.connection_id);
+    assert.deepEqual(afterCross.datasets, beforeCross.datasets);
+    const nodeServices = afterCross.nodes.find(n => n.id === "local").health.services;
+    assert.equal(nodeServices.find(s => s.id === "stopped-research").state, "stopped");
+    const researchState = snapshot =>
+      snapshot.nodes
+        .find(n => n.id === "local")
+        .health.services.filter(s =>
+          ["research", "other-research", "stopped-research"].includes(s.id),
+        )
+        .map(s => ({
+          id: s.id,
+          pid: s.pid,
+          state: s.state,
+          restarts: s.restarts,
+          desired_running: s.desired_running,
+        }));
+    assert.deepEqual(researchState(afterCross), researchState(beforeCross));
+    await fs.writeFile(
+      "build/history-archive/native-cross-research-state.json",
+      JSON.stringify(
+        {
+          before: researchState(beforeCross),
+          after: researchState(afterCross),
+          same_connection: afterCross.research.connection_id === beforeCross.research.connection_id,
+          same_datasets:
+            JSON.stringify(afterCross.datasets) === JSON.stringify(beforeCross.datasets),
+        },
+        null,
+        2,
+      ),
+    );
+    await otherResearch.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: "build/history-archive/native-cross-research-usage.png",
+      fullPage: true,
+    });
+    console.log(
+      "Native cross-research usage: running and stopped ledgers, offline inventory, unchanged active workspace passed",
+    );
+
     await call("node.action", { id: "local", service: "research", action: "stop" });
+    const stoppedTaskDigest = await digest(path.join(service.directory, "tasks.sqlite"));
+    await call("research.attach", { id: "local", service: "other-research" });
+    const stoppedReferences = (
+      await call("research.history.usage", { id: input.source_dataset_ids[0] })
+    ).history_usage.other_research.find(s => s.node === "local" && s.service === "research");
+    assert.equal(stoppedReferences.checked, true);
+    assert.equal(stoppedReferences.stopped, true);
+    assert.ok(
+      stoppedReferences.references.some(
+        r => r.id === "native-risk-backtest" && r.kind === "backtest",
+      ),
+    );
+    assert.ok(stoppedReferences.references.some(r => r.kind === "saved_dataset"));
+    assert.equal(await digest(path.join(service.directory, "tasks.sqlite")), stoppedTaskDigest);
+    const stoppedState = (await call("runtime.snapshot")).nodes
+      .find(n => n.id === "local")
+      .health.services.find(s => s.id === "research");
+    assert.equal(stoppedState.state, "stopped");
+    assert.equal(stoppedState.pid, 0);
+    await fs.writeFile(
+      "build/history-archive/native-stopped-research-usage.json",
+      JSON.stringify(
+        {
+          usage: stoppedReferences,
+          ledger_unchanged: true,
+          state: stoppedState.state,
+          pid: stoppedState.pid,
+        },
+        null,
+        2,
+      ),
+    );
     await call("research.local");
     assert.equal((await task()).risk_artifact, completed.risk_artifact);
     assert.equal((await task()).state, "succeeded");
@@ -247,6 +620,12 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     );
   } finally {
     if (application) await application.close();
+    if (remoteServer && remoteServer.exitCode === null) {
+      await new Promise(resolve => {
+        remoteServer.once("exit", resolve);
+        remoteServer.kill("SIGTERM");
+      });
+    }
     try {
       process.kill(
         Number(await fs.readFile(path.join(temp, "node", "agent.pid"), "utf8")),

@@ -251,9 +251,12 @@ DailyDatasetInfo download_daily(HistoricalDailyPort& provider, const HistoricalD
   }
   return info(manifest);
 }
-std::vector<std::string> daily_trading_days(const std::filesystem::path& dir) {
+std::vector<std::string> daily_trading_days(const std::filesystem::path& dir,
+                                            const std::string& expected_revision) {
   directory_check(dir);
   FileLock lock(dir, "daily.lock", FileLock::Access::shared);
+  if (sha256_file(dir / manifest_name) != expected_revision)
+    throw std::invalid_argument("historical archive revision mismatch");
   const auto manifest = read_json(dir / manifest_name);
   if (manifest.at("version") != 3 || !manifest.at("complete").get<bool>())
     throw std::invalid_argument("daily dataset is incomplete");
@@ -277,7 +280,9 @@ DailyDataset read_daily(const std::filesystem::path& dir) {
   directory_check(dir);
   FileLock lock(dir, "daily.lock", FileLock::Access::shared);
   DailyDataset result;
-  result.info = info(verify(dir, &result.bars));
+  const auto manifest = verify(dir, &result.bars);
+  result.info = info(manifest);
+  result.semantics = decode_semantics(manifest.at("semantics"));
   return result;
 }
 data::v1::DailyPage read_daily_page(const data::v1::DailyDownload& input,

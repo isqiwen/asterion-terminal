@@ -1,5 +1,5 @@
 import { defineConfig } from "@playwright/test";
-const origin = `http://127.0.0.1:${process.env.ASTERION_DEV_PORT ?? "1420"}`;
+const origin = `http://127.0.0.1:${process.env.ASTERION_DEV_PORT ?? "1423"}`;
 export default defineConfig({
   testDir: "./e2e",
   outputDir: "./test-results",

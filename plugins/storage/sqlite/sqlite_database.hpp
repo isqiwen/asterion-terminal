@@ -12,7 +12,8 @@ namespace asterion::sqlite {
 // synced before it returns. Not shared between threads; the owner serializes.
 class Database {
 public:
-  explicit Database(const std::filesystem::path& file);
+  enum class Access { writer, read_only };
+  explicit Database(const std::filesystem::path& file, Access access = Access::writer);
   ~Database();
   Database(const Database&) = delete;
   Database& operator=(const Database&) = delete;

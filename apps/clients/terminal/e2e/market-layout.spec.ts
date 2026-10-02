@@ -212,7 +212,7 @@ test("dense market board links real dataset commands, sorting, pagination and co
     await route.fulfill({ response, json: data });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "市场", exact: true }).click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   const assets = page.getByRole("navigation", { name: "资产类别" });
   const categories = page.getByRole("navigation", { name: "期货分类" });
   await expect(assets.getByRole("button")).toHaveCount(7);

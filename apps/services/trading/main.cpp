@@ -143,6 +143,14 @@ int main(int argc, char** argv) {
                                                  .count()));
               health->set_initialized(ready());
               health->set_recovery_required(needs_recovery());
+            } else if (request.has_history_usage()) {
+              if (live)
+                throw std::invalid_argument("historical usage requires a paper session service");
+              if (!session)
+                throw std::invalid_argument("session is not initialized");
+              *response.mutable_history_usage() =
+                  session->history_usage(request.history_usage().dataset_id());
+              response.mutable_history_usage()->set_directory(directory);
             } else if (request.has_shutdown()) {
               throw std::invalid_argument("service stop is a Node Agent operation");
             } else if (request.has_attach() && !ready())

@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import {
   translate,
-  getLocale,
+  useHistoryDatasets,
+  ErrorNotice,
   useWorkspaceDraft,
   useWorkspaceRequestId,
   type TerminalContext,
@@ -10,21 +11,23 @@ import type { ResearchResult, TerminalCommand } from "../../src/bridge/client";
 const t = (key: string) => translate("asterion.terminal.research", key);
 export function DailyFactorForm({
   snapshot,
+  query,
   busy,
   navigate,
   run,
   workspaceParams,
-}: Pick<TerminalContext, "snapshot" | "busy" | "navigate" | "workspaceParams"> & {
+}: Pick<TerminalContext, "query" | "snapshot" | "busy" | "navigate" | "workspaceParams"> & {
   run: (method: TerminalCommand, params: Record<string, unknown>) => Promise<boolean>;
 }) {
   const research = snapshot?.research;
   const destination = JSON.stringify([research?.connection_id]);
   const [source, setSource] = useWorkspaceDraft(`daily-source:${destination}`, "");
   const matchesService =
-    !workspaceParams?.source_task_id || workspaceParams.connection_id === research?.connection_id;
+    !workspaceParams?.source_dataset_id ||
+    workspaceParams.connection_id === research?.connection_id;
   useEffect(() => {
-    if (workspaceParams?.source_task_id)
-      setSource(matchesService ? workspaceParams.source_task_id : "");
+    if (workspaceParams?.source_dataset_id)
+      setSource(matchesService ? workspaceParams.source_dataset_id : "");
   }, [workspaceParams, matchesService, setSource]);
   const navigationKey = JSON.stringify([destination, workspaceParams]);
   const [acknowledged, setAcknowledged] = useState("");
@@ -39,9 +42,8 @@ export function DailyFactorForm({
     JSON.stringify([destination, source, parameters]),
   );
   const [submitted, setSubmitted] = useState("");
-  const sources =
-    research?.tasks.filter(task => task.kind === "daily_download" && task.state === "succeeded") ??
-    [];
+  const archive = useHistoryDatasets(snapshot, query);
+  const sources = archive.items.filter(item => item.interval_minutes === 0);
   const selected = sources.some(task => task.id === source);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -50,7 +52,7 @@ export function DailyFactorForm({
     if (
       await run("research.daily-factor.submit", {
         id,
-        source_task_id: source,
+        source_dataset_id: source,
         lookback: Number(parameters.lookback),
         horizon: Number(parameters.horizon),
         evaluation:
@@ -72,7 +74,12 @@ export function DailyFactorForm({
       <p className="subtle">
         {t("按实际日线观测计算收盘价动量，不补齐缺失日期。每个评价分区至少需要 30 个有效样本。")}
       </p>
-      {!sources.length && <p>{t("当前研究服务没有已完成的日线下载。")}</p>}
+      {archive.error && (
+        <p role="alert">
+          <ErrorNotice error={archive.error} />
+        </p>
+      )}
+      {!archive.loading && !sources.length && <p>{t("当前研究服务没有已发布的日线数据。")}</p>}
       <button disabled={busy} onClick={() => navigate("workspace.data", { page: "history" })}>
         {t("下载历史日线")}
       </button>
@@ -89,10 +96,11 @@ export function DailyFactorForm({
                 setSubmitted("");
               }}
             >
-              <option value="">{t("选择已完成下载")}</option>
+              <option value="">{t("选择日线数据版本")}</option>
               {sources.map(task => (
                 <option key={task.id} value={task.id}>
-                  {task.instrument} · {new Date(task.submitted_at_ms).toLocaleString(getLocale())}
+                  {task.contract_id} · {task.begin} — {task.end} · {task.source} ·{" "}
+                  {task.id.slice(0, 8)}
                 </option>
               ))}
             </select>
@@ -146,7 +154,7 @@ export function DailyFactorForm({
       </form>
       {submitted === destination && (
         <p role="status" className="subtle">
-          {t("任务已提交，可关闭窗口。")}
+          {t("任务已提交，可在任务中心查看进度。")}
         </p>
       )}
     </>
@@ -209,7 +217,7 @@ export function DailyFactorResults({
       <details>
         <summary>{t("实验详情")}</summary>
         <p>
-          {t("来源任务")}: {experiment.data.source_task_id}
+          {t("来源数据版本")}: {experiment.data.source_dataset_id}
         </p>
         <p>{experiment.data.source}</p>
         <p>

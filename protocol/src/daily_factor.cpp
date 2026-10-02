@@ -7,10 +7,12 @@
 
 namespace asterion::protocol {
 research::v1::DailyFactorRequest encode_daily_factor_request(const Json& value) {
-  require_fields(value, {"source_task_id", "lookback", "horizon", "evaluation"});
+  require_fields(value, {"source_dataset_id", "lookback", "horizon", "evaluation"});
   research::v1::DailyFactorRequest request;
-  request.set_source_task_id(value.at("source_task_id").get<std::string>());
-  validate_id(request.source_task_id());
+  request.set_source_dataset_id(value.at("source_dataset_id").get<std::string>());
+  if (request.source_dataset_id().size() != 64 ||
+      request.source_dataset_id().find_first_not_of("0123456789abcdef") != std::string::npos)
+    throw std::invalid_argument("invalid historical dataset revision");
   for (const auto* key : {"lookback", "horizon"})
     if (!value.at(key).is_number_integer() || value.at(key) < 1 || value.at(key) > 10000)
       throw std::invalid_argument("invalid daily factor request");
@@ -100,7 +102,7 @@ Json decode_daily_factor(const research::v1::DailyFactorInput& input,
         {"evaluation", input.has_holdout_start() ? Json{{"mode", "holdout"}, {"split_index", split}}
                                                  : Json{{"mode", "full_sample"}}},
         {"data",
-         {{"source_task_id", data.source_task_id()},
+         {{"source_dataset_id", data.source_dataset_id()},
           {"source", data.source()},
           {"contract_id", data.contract_id()},
           {"manifest_sha256", data.manifest_sha256()},
@@ -118,7 +120,8 @@ Json decode_daily_factor(const research::v1::DailyFactorInput& input,
 }
 std::vector<HistoricalDailyBar> daily_factor_bars(const research::v1::DailyFactorDataset& input) {
   validate_message(input);
-  validate_id(input.source_task_id());
+  if (input.source_dataset_id() != input.manifest_sha256())
+    throw std::invalid_argument("invalid historical dataset revision");
   validate_history_source(input.source());
   (void)HistoryIdentity::parse(input.contract_id());
   if (input.version() != 1 || input.source().empty() || input.contract_id().empty() ||
@@ -162,7 +165,7 @@ std::string daily_factor_revision(const research::v1::DailyFactorDataset& input)
   return sha256_bytes(Json{
       {"version", 1},
       {"kind", "futures.daily-close"},
-      {"source_task_id", input.source_task_id()},
+      {"source_dataset_id", input.source_dataset_id()},
       {"source", input.source()},
       {"contract_id", input.contract_id()},
       {"manifest_sha256", input.manifest_sha256()},

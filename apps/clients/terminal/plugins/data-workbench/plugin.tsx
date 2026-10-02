@@ -16,6 +16,9 @@ export const plugin: TerminalPlugin = {
     "research.result",
     "research.datasets",
     "research.coverage",
+    "research.history.usage",
+    "research.history.plan",
+    "research.history.submit",
     "research.daily.submit",
     "research.daily.page",
     "research.minutes.submit",
@@ -51,40 +54,5 @@ export const plugin: TerminalPlugin = {
     },
     icon: <Icon name="data" />,
     component: context => <Panel {...context} busy={context.busy || !context.snapshot} />,
-  },
-  widgets: context => {
-    const datasets = context.snapshot?.datasets ?? [];
-    const openData = () => context.navigate("workspace.data", { page: "history" });
-    return [
-      {
-        id: "data.local",
-        title: t("数据工作台"),
-        category: t("数据"),
-        description: t("从数据源下载历史数据"),
-        width: 2,
-        column: "primary",
-        defaultVisible: true,
-        hasContent: datasets.length > 0,
-        render: () => (
-          <div className="overview-data">
-            <strong>
-              {datasets.length
-                ? datasets.map(item => `${item.venue} · ${item.symbol}`).join(" + ")
-                : t("尚未选择历史数据")}
-            </strong>
-            <p>
-              {datasets.length
-                ? t("{count} 根 K 线 · {first} – {last}", {
-                    count: datasets.reduce((sum, item) => sum + item.count, 0),
-                    first: datasets[0].first_day,
-                    last: datasets[0].last_day,
-                  })
-                : t("选择数据源和具体月份合约，下载完整历史数据。")}
-            </p>
-            <button onClick={openData}>{t("打开数据工作区")}</button>
-          </div>
-        ),
-      },
-    ];
   },
 };

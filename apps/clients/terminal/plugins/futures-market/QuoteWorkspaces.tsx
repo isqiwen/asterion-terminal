@@ -566,7 +566,10 @@ export function ContractWorkspace(context: TerminalContext) {
                 {t("合约")}
                 <input readOnly value={active.symbol} />
               </label>
-              <div className="contract-order-fields" title={t("只读行情；实盘交易尚未开放")}>
+              <div
+                className="contract-order-fields"
+                title={t("此处只展示行情；历史回放不向柜台发送委托。")}
+              >
                 {["价格", "手数", "指令", "账户"].map(label => (
                   <label key={label}>
                     {t(label)}
@@ -574,10 +577,13 @@ export function ContractWorkspace(context: TerminalContext) {
                   </label>
                 ))}
               </div>
-              <button className="primary" onClick={() => context.navigate("workspace.trading")}>
-                {t("前往模拟交易")}
+              <button
+                className="primary"
+                onClick={() => context.navigate("workspace.research", { page: "replay" })}
+              >
+                {t("前往历史回放")}
               </button>
-              <p className="quote-empty">{t("只读行情；实盘交易尚未开放")}</p>
+              <p className="quote-empty">{t("此处只展示行情；历史回放不向柜台发送委托。")}</p>
             </section>
           </>
         ) : (

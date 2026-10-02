@@ -1,3 +1,4 @@
+#include <set>
 #include <asterion/domain/futures.hpp>
 #include <asterion/foundation/id.hpp>
 #include <asterion/kernel/process/artifact.hpp>
@@ -26,6 +27,25 @@ std::int64_t nanoseconds(const Json& json) {
 }
 bool digest(const std::string& text) {
   return text.size() == 64 && text.find_first_not_of("0123456789abcdef") == std::string::npos;
+}
+void validate_versions(const google::protobuf::RepeatedPtrField<std::string>& ids) {
+  if (ids.empty() || ids.size() > max_dataset_sources)
+    throw std::invalid_argument("dataset requires 1..32 versions per source role");
+  for (int i = 0; i < ids.size(); ++i)
+    if (!digest(ids.Get(i)) || (i && ids.Get(i) <= ids.Get(i - 1)))
+      throw std::invalid_argument("dataset versions must be sorted unique SHA-256 identities");
+}
+void encode_versions(const Json& json, google::protobuf::RepeatedPtrField<std::string>* out) {
+  if (!json.is_array() || json.size() > static_cast<std::size_t>(max_dataset_sources))
+    throw std::invalid_argument("dataset requires 1..32 versions per source role");
+  auto ids = json.get<std::vector<std::string>>();
+  std::ranges::sort(ids);
+  for (const auto& id : ids)
+    *out->Add() = id;
+  validate_versions(*out);
+}
+Json versions(const google::protobuf::RepeatedPtrField<std::string>& ids) {
+  return std::vector<std::string>(ids.begin(), ids.end());
 }
 Json bar_json(const MarketBar& bar) {
   return {{"trading_day", bar.trading_day}, {"timestamp_ns", std::to_string(bar.timestamp_ns)},
@@ -96,11 +116,10 @@ void validate_bar_dataset(const data::v1::BarDataset& dataset) {
     if (i && dataset.uncovered_days(i) <= dataset.uncovered_days(i - 1))
       throw std::invalid_argument("invalid uncovered trading days");
   }
-  if (dataset.source().empty() || dataset.source().size() > 64 ||
-      !digest(dataset.manifest_sha256()) || !digest(dataset.settlement_manifest_sha256()))
+  if (dataset.source().empty() || dataset.source().size() > 64)
     throw std::invalid_argument("invalid bar dataset provenance");
-  validate_id(dataset.source_task_id());
-  validate_id(dataset.settlement_task_id());
+  validate_versions(dataset.source_dataset_ids());
+  validate_versions(dataset.settlement_dataset_ids());
   const auto spec = instrument(dataset.contract());
   const MarketBar* previous = nullptr;
   std::vector<std::string> bar_days;
@@ -152,16 +171,13 @@ Json decode_bar_dataset(const data::v1::BarDataset& dataset) {
   auto result = contents(dataset);
   result.update({{"revision", dataset.revision()},
                  {"source", dataset.source()},
-                 {"source_task_id", dataset.source_task_id()},
-                 {"settlement_task_id", dataset.settlement_task_id()},
-                 {"manifest_sha256", dataset.manifest_sha256()},
-                 {"settlement_manifest_sha256", dataset.settlement_manifest_sha256()}});
+                 {"source_dataset_ids", versions(dataset.source_dataset_ids())},
+                 {"settlement_dataset_ids", versions(dataset.settlement_dataset_ids())}});
   return result;
 }
 data::v1::BarDataset encode_bar_dataset(const Json& json) {
   require_fields(json, {"version", "revision", "contract", "interval_minutes", "bars", "days",
-                        "source", "source_task_id", "settlement_task_id", "manifest_sha256",
-                        "settlement_manifest_sha256"});
+                        "source", "source_dataset_ids", "settlement_dataset_ids"});
   if (!json.at("version").is_number_integer() || json.at("version") != 1 ||
       !json.at("interval_minutes").is_number_unsigned() || !json.at("bars").is_array() ||
       !json.at("days").is_array() || json.at("bars").size() > max_dataset_bars)
@@ -185,19 +201,17 @@ data::v1::BarDataset encode_bar_dataset(const Json& json) {
     set(day->mutable_settlement_price(), decimal(row, "settlement_price"));
   }
   result.set_source(json.at("source").get<std::string>());
-  result.set_source_task_id(json.at("source_task_id").get<std::string>());
-  result.set_settlement_task_id(json.at("settlement_task_id").get<std::string>());
-  result.set_manifest_sha256(json.at("manifest_sha256").get<std::string>());
-  result.set_settlement_manifest_sha256(json.at("settlement_manifest_sha256").get<std::string>());
+  encode_versions(json.at("source_dataset_ids"), result.mutable_source_dataset_ids());
+  encode_versions(json.at("settlement_dataset_ids"), result.mutable_settlement_dataset_ids());
   validate_bar_dataset(result);
   return result;
 }
 data::v1::BarDatasetRequest encode_bar_dataset_request(const Json& json) {
-  require_fields(json,
-                 {"source_task_id", "settlement_task_id", "begin_day", "end_day", "contract"});
+  require_fields(
+      json, {"source_dataset_ids", "settlement_dataset_ids", "begin_day", "end_day", "contract"});
   data::v1::BarDatasetRequest result;
-  result.set_source_task_id(json.at("source_task_id").get<std::string>());
-  result.set_settlement_task_id(json.at("settlement_task_id").get<std::string>());
+  encode_versions(json.at("source_dataset_ids"), result.mutable_source_dataset_ids());
+  encode_versions(json.at("settlement_dataset_ids"), result.mutable_settlement_dataset_ids());
   result.set_begin_day(json.at("begin_day").get<std::string>());
   result.set_end_day(json.at("end_day").get<std::string>());
   *result.mutable_contract() = encode_contract(json.at("contract"));
@@ -206,8 +220,8 @@ data::v1::BarDatasetRequest encode_bar_dataset_request(const Json& json) {
 }
 Json decode_bar_dataset_request(const data::v1::BarDatasetRequest& request) {
   validate_message(request);
-  validate_id(request.source_task_id());
-  validate_id(request.settlement_task_id());
+  validate_versions(request.source_dataset_ids());
+  validate_versions(request.settlement_dataset_ids());
   for (const auto* day : {&request.begin_day(), &request.end_day()})
     if (!day->empty())
       (void)parse_trading_date(*day);
@@ -217,10 +231,45 @@ Json decode_bar_dataset_request(const data::v1::BarDatasetRequest& request) {
   (void)instrument(request.contract());
   // Evaluated before the braced initializer (GCC < 13 PR66139 leak).
   auto contract = decode_contract(request.contract());
-  return {{"source_task_id", request.source_task_id()},
-          {"settlement_task_id", request.settlement_task_id()},
+  return {{"source_dataset_ids", versions(request.source_dataset_ids())},
+          {"settlement_dataset_ids", versions(request.settlement_dataset_ids())},
           {"begin_day", request.begin_day()},
           {"end_day", request.end_day()},
           {"contract", std::move(contract)}};
+}
+std::string research_dataset_revision(const data::v1::ResearchDataset& value) {
+  auto canonical = value;
+  canonical.clear_id();
+  return sha256_bytes(canonical.SerializeAsString());
+}
+void validate_research_dataset(const data::v1::ResearchDataset& value) {
+  validate_message(value);
+  if (value.version() != 1 || value.name().empty() || value.name().size() > 120 ||
+      value.name().front() == ' ' || value.name().back() == ' ' ||
+      std::any_of(value.name().begin(), value.name().end(),
+                  [](unsigned char c) { return c < 32 || c == 127; }) ||
+      value.selections_size() < 1 || value.selections_size() > 20 ||
+      value.content_revisions_size() != value.selections_size())
+    throw std::invalid_argument("invalid saved research dataset");
+  std::set<std::string> contracts;
+  for (int i = 0; i < value.selections_size(); ++i) {
+    const auto& request = value.selections(i);
+    (void)decode_bar_dataset_request(request);
+    if (!contracts.insert(request.contract().venue() + "/" + request.contract().symbol()).second ||
+        !digest(value.content_revisions(i)))
+      throw std::invalid_argument("invalid saved research dataset");
+  }
+  if (!digest(value.id()) || value.id() != research_dataset_revision(value))
+    throw std::invalid_argument("saved research dataset revision mismatch");
+}
+Json decode_research_dataset(const data::v1::ResearchDataset& value) {
+  validate_research_dataset(value);
+  Json inputs = Json::array();
+  for (int i = 0; i < value.selections_size(); ++i) {
+    auto input = decode_bar_dataset_request(value.selections(i));
+    input["revision"] = value.content_revisions(i);
+    inputs.push_back(std::move(input));
+  }
+  return {{"id", value.id()}, {"name", value.name()}, {"selections", std::move(inputs)}};
 }
 } // namespace asterion::protocol

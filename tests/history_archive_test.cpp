@@ -3,6 +3,8 @@
 #include "history_minutes.hpp"
 #include "bar_dataset_source.hpp"
 #include "bar_fixture.hpp"
+#include "task_store.hpp"
+#include "daily_factor_source.hpp"
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -148,4 +150,98 @@ TEST(HistoryArchive, RejectsUnconfirmedSourceAndPartialDataset) {
   EXPECT_THROW(history_files::download_daily(provider, range, root.path, 500),
                std::invalid_argument);
   EXPECT_TRUE(std::filesystem::is_empty(root.path));
+}
+
+TEST(HistoryArchive, ResearchResolvesPublishedVersionsWithoutDownloadTasks) {
+  Folder root;
+  tasks::Store store(root.path);
+  history_files::Archive archive(root.path / "history");
+  AlternateDaily provider;
+  const auto original = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "first");
+  const auto id = original.daily_result().manifest_sha256();
+  auto contract = test::contract();
+  contract.set_venue("SHFE");
+  contract.set_symbol("cu2403");
+  contract.set_product("cu");
+  contract.set_delivery_month("2024-03");
+  contract.mutable_price_increment()->set_units(1);
+  data::v1::BarDatasetRequest request;
+  request.add_source_dataset_ids(id);
+  request.add_settlement_dataset_ids(id);
+  *request.mutable_contract() = contract;
+  ASSERT_EQ(store.list().tasks_size(), 0);
+  const auto captured = store.prepare_dataset(request);
+  const auto before = tasks::resolve_bar_dataset(captured);
+  EXPECT_EQ(before.bars_size(), 1);
+  EXPECT_EQ(before.source_dataset_ids(0), id);
+  provider.normalization = "fixture.normalization.v2";
+  const auto newer = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "second");
+  EXPECT_NE(newer.daily_result().manifest_sha256(), id);
+  EXPECT_NO_THROW(store.confirm_sources(captured));
+  EXPECT_EQ(tasks::resolve_bar_dataset(store.prepare_dataset(request)).SerializeAsString(),
+            before.SerializeAsString());
+  EXPECT_EQ(tasks::daily_factor_dataset(archive.get(id)).source_dataset_id(), id);
+  request.add_source_dataset_ids("first");
+  EXPECT_THROW(store.prepare_dataset(request), std::invalid_argument);
+}
+
+TEST(HistoryArchive, NamedDatasetsAreImmutableAndSurviveRestart) {
+  Folder root;
+  history_files::Archive archive(root.path / "history");
+  AlternateDaily provider;
+  const auto original = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "named");
+  data::v1::ResearchDataset saved;
+  saved.set_version(1);
+  saved.set_name("铜日线研究");
+  auto* input = saved.add_selections();
+  input->add_source_dataset_ids(original.daily_result().manifest_sha256());
+  input->add_settlement_dataset_ids(original.daily_result().manifest_sha256());
+  *input->mutable_contract() = test::contract("SHFE", "cu2403", "cu", "2024-03");
+  saved.add_content_revisions(std::string(64, 'a'));
+  saved.set_id(protocol::research_dataset_revision(saved));
+  archive.save_research_dataset(saved);
+  archive.save_research_dataset(saved);
+  ASSERT_EQ(archive.research_datasets().items_size(), 1);
+  auto changed = saved;
+  changed.mutable_selections(0)->mutable_contract()->mutable_multiplier()->set_units(
+      Decimal::parse("20").raw());
+  changed.set_id(protocol::research_dataset_revision(changed));
+  EXPECT_NE(changed.id(), saved.id());
+  archive.save_research_dataset(changed);
+  history_files::Archive restored(root.path / "history");
+  EXPECT_EQ(restored.research_datasets().items_size(), 2);
+  EXPECT_EQ(restored.research_dataset(saved.id()).SerializeAsString(), saved.SerializeAsString());
+  auto corrupted = saved;
+  corrupted.set_name("unexpected rewrite");
+  replace_file_durably(root.path / "history" / "research" / (saved.id() + ".pb"),
+                       corrupted.SerializeAsString());
+  EXPECT_THROW(restored.research_dataset(saved.id()), std::invalid_argument);
+}
+
+TEST(HistoryArchive, NamedDatasetsRejectInvalidNamesDuplicateContractsAndMissingVersions) {
+  Folder root;
+  history_files::Archive archive(root.path / "history");
+  data::v1::ResearchDataset value;
+  value.set_version(1);
+  value.set_name("test");
+  auto* input = value.add_selections();
+  input->add_source_dataset_ids(std::string(64, 'a'));
+  input->add_settlement_dataset_ids(std::string(64, 'b'));
+  *input->mutable_contract() = test::contract();
+  value.add_content_revisions(std::string(64, 'c'));
+  value.set_id(protocol::research_dataset_revision(value));
+  EXPECT_THROW(archive.save_research_dataset(value), std::invalid_argument);
+  const auto valid = value;
+  *value.add_selections() = valid.selections(0);
+  value.add_content_revisions(std::string(64, 'c'));
+  value.set_id(protocol::research_dataset_revision(value));
+  EXPECT_THROW(protocol::validate_research_dataset(value), std::invalid_argument);
+  for (const std::string name : {"", " trailing ", "line\nbreak"}) {
+    value = valid;
+    value.set_name(name);
+    value.set_id(protocol::research_dataset_revision(value));
+    EXPECT_THROW(protocol::validate_research_dataset(value), std::invalid_argument);
+  }
+  EXPECT_THROW(archive.research_dataset("../outside"), std::invalid_argument);
+  EXPECT_EQ(archive.research_datasets().items_size(), 0);
 }

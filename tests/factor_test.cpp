@@ -775,7 +775,7 @@ TEST(Factor, DailyInputBindsSourceAndExactBarsAndPurgesHoldoutLabels) {
   input.set_holdout_start(40);
   auto& dataset = *input.mutable_dataset();
   dataset.set_version(1);
-  dataset.set_source_task_id("daily-source");
+  dataset.set_source_dataset_id(std::string(64, 'a'));
   dataset.set_source("tushare.fut_daily");
   dataset.set_contract_id("SHFE/cu/2024-03");
   dataset.set_manifest_sha256(std::string(64, 'a'));
@@ -818,7 +818,7 @@ TEST(Factor, DailyInputBindsSourceAndExactBarsAndPurgesHoldoutLabels) {
   invalid_evidence = result;
   invalid_evidence.set_purged_count(0);
   EXPECT_THROW(protocol::decode_daily_factor(input, invalid_evidence), std::invalid_argument);
-  Json parameters = {{"source_task_id", "daily-source"},
+  Json parameters = {{"source_dataset_id", std::string(64, 'a')},
                      {"lookback", 2},
                      {"horizon", 2},
                      {"evaluation", {{"mode", "holdout"}, {"split_index", 40}}}};
@@ -841,7 +841,7 @@ TEST(Factor, DailyInputBindsSourceAndExactBarsAndPurgesHoldoutLabels) {
   EXPECT_NE(protocol::daily_factor_revision(changed.dataset()), input.dataset_revision());
   EXPECT_THROW(factor::run_daily(changed), std::invalid_argument);
   changed = input;
-  changed.mutable_dataset()->set_source_task_id("another-source");
+  changed.mutable_dataset()->set_source_dataset_id("another-source");
   EXPECT_THROW(factor::run_daily(changed), std::invalid_argument);
   changed = input;
   changed.mutable_dataset()->mutable_bars(0)->clear_volume();

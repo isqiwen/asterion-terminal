@@ -41,17 +41,19 @@ def completed(process, task_id="agent-recovery"):
     raise AssertionError(snapshot)
 
 
+selections = {}
 def select(process, identity):
-    return call(process,"research.dataset.select",{
-        "source_task_id":identity+"-bars","settlement_task_id":identity+"-settlement",
-        "begin_day":"","end_day":"","price_increment":"1","multiplier":"10"})
+    return call(process,"research.dataset.select",selections[identity])
+
 
 with tempfile.TemporaryDirectory(prefix="asterion-research-agent-", ignore_cleanup_errors=True):
     process=launch()
     try:
         invoke=lambda method,params=None:call(process,method,params)
-        seed(invoke,[100,101,102,101,104,103,102,103],"short")
-        seed(invoke,[100+i+i%3 for i in range(160)],"long")
+        selections["short"] = {k:v for k,v in seed(invoke,[100,101,102,101,104,103,102,103],"short")["datasets"][0].items() if k in {"source_dataset_ids","settlement_dataset_ids","begin_day","end_day","price_increment","multiplier"}}
+        selections["short"].update(price_increment="1",multiplier="10")
+        selections["long"] = {k:v for k,v in seed(invoke,[100+i+i%3 for i in range(160)],"long")["datasets"][0].items() if k in {"source_dataset_ids","settlement_dataset_ids","begin_day","end_day"}}
+        selections["long"].update(price_increment="1",multiplier="10")
         select(process,"short")
         call(process,"research.submit",{"id":"agent-recovery","fast":1,"slow":3,"quantity":"1","deposit":"10000","contracts": contracts(),"max_order_quantity":"100","max_gross_quantity":"100","max_working_orders":"100"})
         select(process,"long")

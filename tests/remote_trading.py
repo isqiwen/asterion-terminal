@@ -79,8 +79,19 @@ with tempfile.TemporaryDirectory(prefix="asterion-tcp-中文-", ignore_cleanup_e
             assert "CERTIFICATE_VERIFY_FAILED" not in str(error), error
         connected = request(terminal, "paper.connect", params)
         assert connected["paper"] is None and connected["connection"]["state"] == "connected"
-        seed(lambda method, params=None: request(terminal, method, params), [100,99,110], "fixture0")
+        selected = seed(lambda method, params=None: request(terminal, method, params), [100,99,110], "fixture0")
+        dataset_id = selected["datasets"][0]["source_dataset_ids"][0]
+        uninitialized = request(terminal, "research.history.usage", {"id":dataset_id})["history_usage"]["remote_replays"][0]
+        assert uninitialized["checked"] == 0 and len(uninitialized["unavailable"]) == 1, uninitialized
         request(terminal, "paper.create", {"deposit": "1000", "contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
+        import hashlib
+        def ledger_digest():
+            return {p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in account.iterdir() if p.is_file()}
+        before = ledger_digest()
+        usage = request(terminal, "research.history.usage", {"id":dataset_id})["history_usage"]["remote_replays"][0]
+        assert usage["direct"] and usage["checked"] == 1 and not usage["unavailable"], usage
+        assert usage["references"] == [{"name":"paper.remote", "roles":["market"]}], usage
+        assert ledger_digest() == before
         action = {"request_id": "remote.tick1", "action": "advance"}
         observer = launch()
         try:
@@ -107,6 +118,9 @@ with tempfile.TemporaryDirectory(prefix="asterion-tcp-中文-", ignore_cleanup_e
         stop(daemon)
         stale = request(terminal, "runtime.snapshot")
         assert stale["connection"]["state"] == "disconnected" and stale["paper"]["storage_state"] == "recovery_required"
+        request(terminal, "research.local")
+        unavailable = request(terminal, "research.history.usage", {"id":dataset_id})["history_usage"]["remote_replays"][0]
+        assert unavailable["checked"] == 0 and len(unavailable["unavailable"]) == 1, unavailable
         daemon = server()
         assert request(terminal, "paper.reconnect")["paper"] == expected
         assert request(terminal, "paper.act", action)["paper"] == expected, "duplicate command changed the ledger"

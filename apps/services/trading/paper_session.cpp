@@ -1,4 +1,5 @@
 #include "paper_session.hpp"
+#include "paper_record.hpp"
 #include "portfolio.hpp"
 #include <algorithm>
 #include "order_limits.hpp"
@@ -17,18 +18,6 @@ std::string string(const Json& value, const char* key) {
 Decimal decimal(const Json& value, const char* key) {
   return Decimal::parse(string(value, key));
 }
-// Journal record 0 carries this identity. Bump it whenever a change to
-// matching, account/fee/margin arithmetic, risk evaluation or command
-// semantics could make replaying an existing journal produce a different
-// ledger. Recovery refuses a journal written under a different identity rather
-// than silently recomputing history with new rules.
-// v5: futures portfolio over contracts sharing trading days; one bar event
-// stream; each order fills on its own contract's next bar; day-end settlement
-// at every contract's dataset price.
-// v7: dated cost schedules switch atomically at trading-day boundaries.
-// v6: the durable command budget covers a complete 20000-bar strategy replay.
-const std::string journal_engine = "asterion.paper-futures.v7";
-constexpr int journal_format = 5;
 // Cheap fingerprint of post-command state. Replay must reproduce it exactly.
 Json outcome(const PaperExecution& engine, const Json& authorization, const Json& replay) {
   const auto& account = engine.account();
@@ -219,22 +208,21 @@ PaperSession::PaperSession(std::filesystem::path directory, const Json& create_m
     if (records.empty())
       throw std::invalid_argument("directory holds no recoverable paper session");
     const auto& header = records.front();
-    if (!header.is_object() || !header.contains("format") || header.at("format") != journal_format)
-      throw std::invalid_argument("unsupported trading journal format; this build reads format 5 "
-                                  "only and leaves the directory unchanged");
-    require_fields(header, {"format", "engine", "risk_artifact", "manifest"});
-    if (header.at("engine") != journal_engine)
-      throw std::invalid_argument(
-          "trading journal was written by engine " + header.at("engine").dump() +
-          " but this build implements " + journal_engine +
-          "; recovery refused instead of recomputing history under different rules");
+    validate_paper_header(header);
     risk_module_ = risk_providers::Module::pinned(directory / "plugins",
                                                   header.at("risk_artifact").get<std::string>());
     manifest_ = header.at("manifest");
     engine_ = build(manifest_);
     engine_->start();
   }
-  dataset_revision_ = protocol::dataset_revision(protocol::encode_input(manifest_));
+  const auto input = protocol::encode_input(manifest_);
+  dataset_revision_ = protocol::dataset_revision(input);
+  for (const auto& contract : input.contracts()) {
+    for (const auto& id : contract.dataset().source_dataset_ids())
+      history_roles_[id].first = true;
+    for (const auto& id : contract.dataset().settlement_dataset_ids())
+      history_roles_[id].second = true;
+  }
   replay_ = {{"settled_days", 0}};
   for (std::size_t i = 1; i < records.size(); ++i) {
     require_fields(records[i], {"command", "outcome"});
@@ -250,6 +238,18 @@ PaperSession::PaperSession(std::filesystem::path directory, const Json& create_m
                                   std::to_string(i) + "; recovery refused");
     sequence_.push_back(&commands_.emplace(id, command).first->second);
   }
+}
+protocol::v1::PaperHistoryUsage PaperSession::history_usage(const std::string& id) const {
+  if (id.size() != 64 || id.find_first_not_of("0123456789abcdef") != std::string::npos)
+    throw std::invalid_argument("invalid historical dataset identity");
+  protocol::v1::PaperHistoryUsage result;
+  result.set_dataset_id(id);
+  result.set_dataset_revision(dataset_revision_);
+  if (const auto found = history_roles_.find(id); found != history_roles_.end()) {
+    result.set_market(found->second.first);
+    result.set_settlement(found->second.second);
+  }
+  return result;
 }
 void PaperSession::validate_history(const Json& command) const {
   if (string(command, "action") != "strategy_grant")

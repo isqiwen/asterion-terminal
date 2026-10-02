@@ -1,18 +1,14 @@
 #pragma once
 #include <asterion/protocol/data.hpp>
 #include <asterion/v1/research.pb.h>
-#include <optional>
+#include <vector>
 namespace asterion::tasks {
-// Completed downloads captured under the store lock; resolve() reads their
-// files outside it. The settlement source is a daily download of the same
-// contract whose trading days and settlement prices settle every bar.
+// Immutable archive records captured under the store lock. File verification
+// runs outside it; task history is not needed to resolve these versions.
 struct BarDatasetSources {
   data::v1::BarDatasetRequest request;
-  research::v1::Task source;
-  std::optional<data::v1::MinuteDownloadResult> minutes;
-  std::optional<data::v1::DailyDownloadResult> daily;
-  research::v1::Task settlement;
-  data::v1::DailyDownloadResult settlement_result;
+  std::vector<data::v1::HistoryRecord> sources;
+  std::vector<data::v1::HistoryRecord> settlements;
 };
 // Minute bars carry their exchange trading day from the data source and need
 // bar-end labels. Daily bars are labelled 15:00 local on their trading day.

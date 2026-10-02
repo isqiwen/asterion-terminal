@@ -23,8 +23,8 @@ function contractRows(dataset: DatasetEvidence, data: ExperimentData, schedule?:
     ["输入 K 线", data.count],
     ["交易日范围", `${data.first_day} – ${data.last_day}`],
     ["数据源", data.source],
-    ["K 线下载任务", dataset.source_task_id],
-    ["结算价下载任务", dataset.settlement_task_id],
+    ["K 线数据版本", dataset.source_dataset_ids.join(" · ")],
+    ["结算价数据版本", dataset.settlement_dataset_ids.join(" · ")],
   ];
   const costs = schedule?.filter(row => row.effective_from <= data.first_day).at(-1)?.values;
   if (costs)

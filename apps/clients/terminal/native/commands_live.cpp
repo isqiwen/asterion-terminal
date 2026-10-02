@@ -39,8 +39,8 @@ json catalog_terms(const json& market, const json& requested) {
 void Application::Impl::register_live_commands() {
   core.access().grant("terminal.local", "live.manage");
   core.command("live.create", "live.manage", [this](const json& p) {
-    fields_with_risk(p, {"directory", "front", "broker_id", "user_id", "app_id",
-                         "max_price_deviation", "contracts"});
+    fields_with_risk(p, {p.contains("name") ? "name" : "directory", "front", "broker_id", "user_id",
+                         "app_id", "max_price_deviation", "contracts"});
     if (live)
       throw std::invalid_argument("close the current live session first");
     // Validated before the braced initializer (GCC < 13 PR66139 leak).
@@ -57,12 +57,15 @@ void Application::Impl::register_live_commands() {
                   {"max_price_deviation", text(p, "max_price_deviation")},
                   {"contracts", std::move(contracts)}};
     (void)protocol::encode_live_input(manifest);
-    const auto directory = text(p, "directory");
+    const auto directory = p.contains("directory") ? text(p, "directory") : std::string{};
+    const auto name = p.contains("name") ? text(p, "name") : std::string{};
     auto [node, next] = without_operations([&, existing = existing_local_node()] {
       auto node = local_node_client(existing);
-      auto client = std::make_unique<TradingClient>(
-          std::filesystem::path(std::u8string(directory.begin(), directory.end())),
-          TradingMode::live, manifest);
+      const auto path =
+          directory.empty()
+              ? new_account_directory(name, true)
+              : std::filesystem::path(std::u8string(directory.begin(), directory.end()));
+      auto client = std::make_unique<TradingClient>(path, TradingMode::live, manifest);
       return std::pair{std::move(node), std::move(client)};
     });
     nodes.try_emplace("local", std::move(node));
