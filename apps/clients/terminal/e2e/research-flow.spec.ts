@@ -199,8 +199,10 @@ test("a failed preparation waits for explicit retry instead of restarting in a l
 test("archive versions remain selectable without any download tasks", async ({ page }) => {
   await page.goto("/");
   await seedHistory(page.request, [100, 101], "unrelated-contract", { product: "al" });
+  // A product no other spec seeds: the daily settlement is matched
+  // automatically only when it is the contract's single candidate.
   const selected = await seedHistory(page.request, [100, 101, 102, 103], "archive-only", {
-    product: "zn",
+    product: "sn",
   });
   await page.route("**/__asterion/api", async route => {
     if (route.request().postDataJSON().method !== "runtime.snapshot") return route.continue();

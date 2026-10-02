@@ -5,7 +5,9 @@
 #include <asterion/kernel/process/artifact.hpp>
 #include <CLI/CLI.hpp>
 #include <asterion/kernel/environment.hpp>
+#include <chrono>
 #include <iostream>
+#include <thread>
 int main(int argc, char** argv) {
   CLI::App app{"Native user-service control acceptance"};
   std::string operation, executable, root, endpoint, name, source, expected, provider;
@@ -45,6 +47,15 @@ int main(int argc, char** argv) {
                          .programs = asterion::terminal::local_service_programs(
                              asterion::node::v1::TASK_SERVICE)});
         }
+        // Stop only after the task service has started once: a ledger that never
+        // created manager.lock is refused by the read-only usage check.
+        const auto lock = std::filesystem::path(root) / "services" / "stopped-research" / "ledger" /
+                          "manager.lock";
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+        while (!std::filesystem::exists(lock) && std::chrono::steady_clock::now() < deadline)
+          std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        if (!std::filesystem::exists(lock))
+          throw std::runtime_error("stopped-research did not start");
         client.action("stopped-research", "stop");
       }
       if (operation == "deploy-market") {
