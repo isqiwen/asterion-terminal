@@ -184,6 +184,18 @@ with tempfile.TemporaryDirectory(prefix="ast-native-", ignore_cleanup_errors=Tru
         assert marker.read_bytes() == b"Test-owned data must survive an upgrade."
         result = invoke("stop", pid())
         assert result.returncode == 0, result.stderr
+        # A stopped Agent, as the development environment leaves it, updates
+        # without a running process to coordinate with.
+        stopped_before = digest(binary)
+        assert stopped_before != digest(revision)
+        offline = invoke("upgrade", source=revision, expected=stopped_before)
+        assert offline.returncode == 0, offline.stderr
+        assert not record_path.exists() and digest(binary) == digest(revision)
+        wait(lambda: alive(pid()))
+        assert json.loads(invoke("status").stdout)["health"]["pid"] == pid()
+        assert marker.read_bytes() == b"Test-owned data must survive an upgrade."
+        result = invoke("stop", pid())
+        assert result.returncode == 0, result.stderr
     finally:
         if mac:
             command(["/bin/launchctl", "bootout", domain + "/" + name])

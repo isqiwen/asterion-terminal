@@ -206,7 +206,8 @@ void upgrade_node_service(const fs::path& source, const fs::path& installed, con
         record.at("endpoint") != endpoint || record.at("name") != name ||
         record.at("before") != expected_digest || record.at("after") != target ||
         (record.at("phase") != "draining" && record.at("phase") != "quiesced" &&
-         record.at("phase") != "stopped" && record.at("phase") != "published"))
+         record.at("phase") != "stopped" && record.at("phase") != "published" &&
+         record.at("phase") != "offline"))
       throw std::runtime_error("Agent service update transaction differs");
   } else {
     if (observed != expected_digest)
@@ -224,6 +225,21 @@ void upgrade_node_service(const fs::path& source, const fs::path& installed, con
   };
   NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
   const auto operation = "upgrade." + target.substr(0, 32);
+  if (record.at("phase") == "draining") {
+    try {
+      NodeClient probe(config);
+    } catch (const Error&) {
+      // A stopped Agent has no services to drain or restore. Its lock is the
+      // proof that it is not running; a live Agent keeps the update refused.
+      try {
+        FileLock stopped(root, "agent.lock");
+      } catch (const std::runtime_error&) {
+        throw Error(ErrorCode::unavailable, "running Agent does not answer; update is not safe");
+      }
+      save("offline");
+    }
+  }
+  const bool offline = record.at("phase") == "offline";
   if (record.at("phase") == "draining") {
     NodeClient control(config);
     // Capture clients before prepare: idle services may exit as soon as the
@@ -279,7 +295,7 @@ void upgrade_node_service(const fs::path& source, const fs::path& installed, con
     }
     save("stopped");
   }
-  if (record.at("phase") == "stopped") {
+  if (record.at("phase") == "stopped" || offline) {
     if (sha256_file(installed) != target || fs::exists(root / "agent-upgrade.json"))
       replace_node_program(source, installed, root, expected_digest);
     else {
@@ -288,7 +304,8 @@ void upgrade_node_service(const fs::path& source, const fs::path& installed, con
           fs::exists(root / "bin" / "agent-upgrade.staged"))
         throw std::runtime_error("unfinished Agent publication requires inspection");
     }
-    save("published");
+    if (!offline)
+      save("published");
   }
   if (sha256_file(installed) != target)
     throw std::runtime_error("published Agent differs from update record");
@@ -299,6 +316,11 @@ void upgrade_node_service(const fs::path& source, const fs::path& installed, con
       NodeClient probe(config);
       if (sha256_file(installed) != target)
         throw std::runtime_error("Agent program changed after restart");
+      if (offline) {
+        fs::remove(record_path);
+        sync_directory(root);
+        return;
+      }
       const auto progress = probe.coordinate_upgrade(operation, "resume");
       if (progress.at("phase") != "restoring" && progress.at("phase") != "complete")
         throw std::runtime_error("Agent upgrade restoration has not started");
