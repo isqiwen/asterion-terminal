@@ -15,7 +15,7 @@ test("several CTP accounts trade side by side while one supplies market data", a
   await expect(region.getByRole("button", { name: "保存账户", exact: true })).toBeDisabled();
   await fill({ 行情前置: "127.0.0.1:41213" });
   await region.getByRole("button", { name: "保存账户", exact: true }).click();
-  await expect(region.getByRole("alert")).toContainText("CTP 账户设置无效");
+  await expect(region.getByRole("alert")).toContainText("行情前置格式应为 tcp://主机:端口");
   await fill({ 行情前置: "tcp://127.0.0.1:41213" });
   await region.getByRole("button", { name: "保存账户", exact: true }).click();
   // The first account with a market front supplies market data without a further step.

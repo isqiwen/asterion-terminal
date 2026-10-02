@@ -32,15 +32,24 @@ bool front(const std::string& text) {
            return std::isalnum(c) || c == '.' || c == '-';
          });
 }
+// Each field fails with its own message: the form shows which one to fix.
 void validate(const CtpConnection& c) {
+  if (c.name.empty() || c.name.size() > 128 || c.name.find('\0') != std::string::npos)
+    throw std::invalid_argument("CTP account name must be 1 to 128 characters");
+  if (!identity(c.broker_id, 10, true))
+    throw std::invalid_argument("CTP broker id must be 1 to 10 characters without spaces");
+  if (!identity(c.user_id, 15, true))
+    throw std::invalid_argument("CTP investor id must be 1 to 15 characters without spaces");
+  if (!identity(c.app_id, 32, false))
+    throw std::invalid_argument("CTP AppID must be at most 32 characters without spaces");
+  if (!c.trade_front.empty() && !front(c.trade_front))
+    throw std::invalid_argument("CTP trade front must look like tcp://host:port");
+  if (!c.market_front.empty() && !front(c.market_front))
+    throw std::invalid_argument("CTP market front must look like tcp://host:port");
   // A connection may be used for market data only: the application
   // identifier and either front may be left out until they are needed.
-  if (c.name.empty() || c.name.size() > 128 || c.name.find('\0') != std::string::npos ||
-      !identity(c.broker_id, 10, true) || !identity(c.user_id, 15, true) ||
-      !identity(c.app_id, 32, false) || (!c.trade_front.empty() && !front(c.trade_front)) ||
-      (!c.market_front.empty() && !front(c.market_front)) ||
-      (c.trade_front.empty() && c.market_front.empty()))
-    throw std::invalid_argument("invalid CTP connection settings");
+  if (c.trade_front.empty() && c.market_front.empty())
+    throw std::invalid_argument("enter a CTP trade front or market front");
 }
 Json encode(const CtpConnection& c) {
   return {{"version", 1},

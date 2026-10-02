@@ -172,6 +172,12 @@ export function CtpConnections({
           {field("trade_front", t("交易前置"), { maxLength: 64, placeholder: "tcp://host:port" })}
           {field("market_front", t("行情前置"), { maxLength: 64, placeholder: "tcp://host:port" })}
         </fieldset>
+        {/* Next to the button it answers, not below the notes. */}
+        {error && (
+          <p className="alert" role="alert">
+            <ErrorNotice error={error} />
+          </p>
+        )}
         <button disabled={busy || (!draft.trade_front && !draft.market_front)}>
           {t("保存账户")}
         </button>{" "}
@@ -186,11 +192,6 @@ export function CtpConnections({
           "只看行情可以只填行情前置；交易和合约目录查询需要交易前置与 AppID。更换行情账户前先断开行情，不影响交易中的账户。账户开通交易后，经纪商代码、投资者账号、AppID 和交易前置不能再修改；需要更换请新建账户。",
         )}
       </p>
-      {error && (
-        <p role="alert">
-          <ErrorNotice error={error} />
-        </p>
-      )}
     </section>
   );
 }
