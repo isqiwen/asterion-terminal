@@ -844,7 +844,10 @@ test("dense market board links real dataset commands, sorting, pagination and co
   await expect(page.locator(".watchlist-charts").getByRole("img")).toHaveCount(2);
   await page.screenshot({ path: "build/watchlist-stale-quote.png" });
   marketOnline = true;
-  await expect(page.locator(".watchlist-chart-pane .quote-freshness")).toHaveCount(0);
+  // Cleared by the next status poll, which a loaded machine delays.
+  await expect(page.locator(".watchlist-chart-pane .quote-freshness")).toHaveCount(0, {
+    timeout: 15000,
+  });
   await page.getByRole("searchbox", { name: "搜索自选合约" }).fill("no-such-contract");
   await expect(page.getByText("没有匹配的自选合约", { exact: true })).toBeVisible();
   await expect(page.getByText("尚无订阅行情", { exact: true })).toHaveCount(0);

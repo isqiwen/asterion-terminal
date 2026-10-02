@@ -510,6 +510,16 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
         { timeout: 15000 },
       )
       .toBe("ready");
+    // The baseline must already show the fixture's stopped service as stopped.
+    await expect
+      .poll(
+        async () =>
+          (await call("runtime.snapshot")).nodes
+            .find(n => n.id === "local")
+            .health.services.find(s => s.id === "stopped-research")?.state,
+        { timeout: 15000 },
+      )
+      .toBe("stopped");
     const disconnectedDirectory = path.join(root, "enrollments", "native-offline-fixture");
     await fs.mkdir(disconnectedDirectory, { recursive: true });
     await fs.writeFile(
