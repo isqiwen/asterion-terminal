@@ -83,6 +83,7 @@ export function Settings({
             {
               preferences: t("偏好设置"),
               connections: t("连接与部署"),
+              ctp: t("CTP 账户"),
               sources: t("数据源"),
               plugins: t("插件"),
               about: t("关于"),

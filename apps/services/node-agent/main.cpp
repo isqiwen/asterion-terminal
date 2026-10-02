@@ -50,6 +50,9 @@ struct Service {
   std::int64_t last_heartbeat = 0;
   unsigned failures = 0;
   std::chrono::steady_clock::time_point probe{};
+  // When the current process was started; probes repeat quickly until the
+  // first heartbeat so a healthy service is reported within moments.
+  std::chrono::steady_clock::time_point started{};
   unsigned int restarts = 0;
   std::unique_ptr<ChildProcess> process;
   std::chrono::steady_clock::time_point retry{};
@@ -205,7 +208,8 @@ class Agent {
       s.health = "starting";
       s.last_heartbeat = 0;
       s.failures = 0;
-      s.probe = std::chrono::steady_clock::now() + 2s;
+      s.started = std::chrono::steady_clock::now();
+      s.probe = s.started + 200ms;
       s.error.clear();
     } catch (const std::exception& e) {
       s.process.reset();
@@ -574,7 +578,14 @@ public:
                                      .count();
               s.failures = 0;
               s.error.clear();
-            } catch (const std::exception&) {
+            } catch (const std::exception& e) {
+              // Not listening yet is expected right after a start: keep
+              // "starting" and probe again shortly, within a bounded window.
+              if (!s.last_heartbeat && std::chrono::steady_clock::now() - s.started < 10s) {
+                s.probe = std::chrono::steady_clock::now() + 250ms;
+                s.error = std::string("waiting for the first heartbeat: ") + e.what();
+                continue;
+              }
               s.health = "unresponsive";
               s.error = "service heartbeat unavailable";
               if (++s.failures >= 3) {

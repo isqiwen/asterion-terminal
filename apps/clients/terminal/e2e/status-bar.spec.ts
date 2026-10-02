@@ -71,20 +71,27 @@ test("revisioned polls accept unchanged replies from an idle core", async ({ pag
 });
 
 test("a service that has just started reads as starting, not as a fault", async ({ page }) => {
-  let health = "starting";
+  // Startup itself waits for healthy services; this is a restart afterwards.
+  let health = "ready";
   await page.route("**/__asterion/api", async route => {
     if (route.request().postDataJSON().method !== "runtime.snapshot") return route.continue();
     const response = await route.fetch();
     const body = await response.json();
     for (const node of body.result?.nodes ?? [])
       for (const service of node.health?.services ?? [])
-        if (service.desired_running) service.health = health;
+        if (service.desired_running) {
+          service.health = health;
+          // As the Agent reports it: the missed first probe is the error text.
+          service.error = health === "ready" ? "" : "IPC endpoint is not ready";
+        }
     await route.fulfill({ response, json: body });
   });
   await page.goto("/");
   const service = page
     .locator(".status-bar")
     .getByRole("button", { name: "查看服务连接", exact: true });
+  await expect(service).toHaveText("● 服务");
+  health = "starting";
   await expect(service).toContainText("服务启动中");
   await expect(service).not.toHaveClass(/bad|good/);
   health = "unresponsive";

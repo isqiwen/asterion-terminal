@@ -41,9 +41,10 @@ export function ServiceStatus({
   }, [open]);
   const uncertain = failed || !snapshot || !!snapshot.stale;
   // A service that was just started has not answered its first heartbeat
-  // yet; that is not a fault and is shown as starting, not as an error.
-  const starting = (s: { state: string; error: string; health: string }) =>
-    !s.error && ["running", "starting"].includes(s.state) && s.health === "starting";
+  // yet (the missed probe is its reported error); that is not a fault and is
+  // shown as starting, not as an error.
+  const starting = (s: { state: string; health: string }) =>
+    ["running", "starting"].includes(s.state) && s.health === "starting";
   const services = snapshot?.nodes.flatMap(n => n.health?.services ?? []) ?? [];
   const unhealthy = snapshot?.nodes.some(
     n =>

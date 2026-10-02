@@ -10,6 +10,9 @@ test("several CTP accounts trade side by side while one supplies market data", a
     for (const [label, value] of Object.entries(fields))
       await region.getByLabel(label, { exact: true }).fill(value);
   };
+  // The form stays collapsed until an account is added.
+  await expect(region).toContainText("还没有 CTP 账户");
+  await region.getByRole("button", { name: "添加账户", exact: true }).click();
   await fill({ 账户名称: "仿真柜台", 经纪商代码: "9999", 投资者账号: "000001" });
   // Neither front is filled yet: nothing to connect to, so nothing to save.
   await expect(region.getByRole("button", { name: "保存账户", exact: true })).toBeDisabled();
@@ -20,8 +23,9 @@ test("several CTP accounts trade side by side while one supplies market data", a
   await region.getByRole("button", { name: "保存账户", exact: true }).click();
   // The first account with a market front supplies market data without a further step.
   const first = region.getByRole("region", { name: "仿真柜台", exact: true });
-  await expect(first.getByRole("heading")).toContainText("用于行情");
-  await expect(first).toContainText("交易前置 未填写");
+  const marketBadge = ".ctp-badge.market";
+  await expect(first.locator(marketBadge)).toHaveText("用于行情");
+  await expect(first.locator("dd").nth(3)).toHaveText("未填写");
 
   await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await page.getByRole("tab", { name: "实时行情", exact: true }).click();
@@ -38,6 +42,7 @@ test("several CTP accounts trade side by side while one supplies market data", a
     ["实盘柜台甲", "000002"],
     ["实盘柜台乙", "000003"],
   ]) {
+    await region.getByRole("button", { name: "添加账户", exact: true }).click();
     await fill({
       账户名称: name,
       经纪商代码: "8888",
@@ -58,10 +63,10 @@ test("several CTP accounts trade side by side while one supplies market data", a
     "实盘柜台乙 · 8888 · 000003 · tcp://127.0.0.1:41205",
   );
   const second = region.getByRole("region", { name: "实盘柜台甲", exact: true });
-  await expect(second.getByRole("heading")).not.toContainText("用于行情");
+  await expect(second.locator(marketBadge)).toHaveCount(0);
   await second.getByRole("button", { name: "用于行情", exact: true }).click();
-  await expect(second.getByRole("heading")).toContainText("用于行情");
-  await expect(first.getByRole("heading")).not.toContainText("用于行情");
+  await expect(second.locator(marketBadge)).toBeVisible();
+  await expect(first.locator(marketBadge)).toHaveCount(0);
   await settings.screenshot({ path: "apps/clients/terminal/test-results/ctp-accounts.png" });
   await page.screenshot({ path: "apps/clients/terminal/test-results/ctp-trading-accounts.png" });
 
@@ -69,6 +74,6 @@ test("several CTP accounts trade side by side while one supplies market data", a
   await second.getByRole("button", { name: "删除账户", exact: true }).click();
   await second.getByRole("button", { name: "确认删除账户", exact: true }).click();
   await expect(second).toHaveCount(0);
-  await expect(first.getByRole("heading")).not.toContainText("用于行情");
+  await expect(region.locator(marketBadge)).toHaveCount(0);
   await expect(list.getByRole("button", { name: /^实盘柜台/ })).toHaveCount(1);
 });

@@ -34,6 +34,40 @@ test("startup lists unloadable plugins and interrupted tasks without blocking en
   await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
 });
 
+test("startup waits for the first service heartbeats before offering entry", async ({ page }) => {
+  let health = "starting";
+  await page.route("**/__asterion/api", async route => {
+    if (route.request().postDataJSON().method !== "runtime.snapshot") return route.continue();
+    const response = await route.fetch();
+    const body = await response.json();
+    for (const node of body.result?.nodes ?? [])
+      for (const service of node.health?.services ?? [])
+        if (service.kind === "research" && service.desired_running) {
+          service.health = health === "failed" ? "offline" : health;
+          if (health === "starting") service.error = "IPC endpoint is not ready";
+          if (health === "failed") {
+            service.state = "failed";
+            service.error = "test: exited at start";
+          }
+        }
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto("/");
+  // Market is healthy; research has started but not answered a heartbeat yet.
+  const research = page.locator(".setup-step").filter({ hasText: "研究服务" });
+  await expect(research).toContainText("进行中");
+  await expect(page.locator(".setup-step").filter({ hasText: "行情服务" })).toContainText("完成");
+  await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toHaveCount(0);
+  health = "ready";
+  await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
+  await expect(research).toContainText("完成");
+  // A service that failed to start fails its own step at once.
+  health = "failed";
+  await page.reload();
+  await expect(page.getByRole("button", { name: "重试启动", exact: true })).toBeVisible();
+  await expect(failedStep(page)).toHaveText(/^研究服务/);
+});
+
 test("startup reports the failing step, retries and waits for the user on every launch", async ({
   page,
 }) => {

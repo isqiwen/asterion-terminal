@@ -411,3 +411,91 @@
 .deployment-center > .deployment-heading {
   margin-top: 4px;
 }
+
+/* CTP accounts: one card per account, facts aligned, actions at the bottom. */
+.ctp-settings {
+  display: grid;
+  gap: 14px;
+  justify-items: start;
+}
+.ctp-settings > p {
+  margin: 0;
+  line-height: 1.6;
+}
+.ctp-account-card {
+  justify-self: stretch;
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 0;
+}
+.ctp-account-card header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ctp-account-card h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+.ctp-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+}
+.ctp-badge.market {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-surface);
+}
+.ctp-account-card dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 18px;
+  margin: 0;
+  font-size: 13px;
+}
+.ctp-account-card dt {
+  color: var(--muted);
+}
+.ctp-account-card dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.ctp-account-card footer {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ctp-account-card p {
+  margin: 0;
+  line-height: 1.6;
+}
+.ctp-account-card fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.ctp-account-dialog {
+  width: min(560px, calc(100vw - 48px));
+}
+.ctp-account-dialog form {
+  display: grid;
+  gap: 14px;
+}
+.ctp-account-dialog fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}

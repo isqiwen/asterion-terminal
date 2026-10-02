@@ -50,7 +50,37 @@ export function SetupGate({ children }: { children: ReactNode }) {
       }
       const attached = await request("node.local");
       setStep(1);
+      // A step completes only when its service has answered its first
+      // heartbeat, so the steps move forward only and the workbench opens
+      // with everything already healthy.
+      const healthy = ["ready", "awaiting_input"];
+      const settled = async (kind: "market" | "research", failure: string) => {
+        for (const deadline = Date.now() + 20000; ;) {
+          const status = await request("runtime.snapshot");
+          const node = status.nodes.find(n => n.id === "local");
+          if (status.stale || node?.state !== "online" || !node.health?.instance_id) {
+            setStep(0);
+            throw new Error(
+              t(status.stale ? "本机核心尚未就绪" : "本机服务管理器尚未就绪，请重试启动"),
+            );
+          }
+          const expected = node.health.services.filter(
+            service => service.kind === kind && service.desired_running,
+          );
+          const online =
+            kind === "market" ? !!status.market?.transport_online : !!status.research?.online;
+          if (
+            expected.some(service => service.state === "failed") ||
+            ((kind === "market" || expected.length > 0) && !online)
+          )
+            throw new Error(t(failure));
+          if (expected.every(service => healthy.includes(service.health))) return status;
+          if (Date.now() >= deadline) throw new Error(t(failure));
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      };
       await request("market.local");
+      await settled("market", "本机行情服务尚未就绪，请重试启动");
       setStep(2);
       const existingResearch = attached.nodes
         .find(n => n.id === "local")
@@ -59,25 +89,12 @@ export function SetupGate({ children }: { children: ReactNode }) {
       if (existingResearch?.desired_running) await request("research.local");
       else if (!existingResearch)
         await request("research.local.create", { plugins: defaultResearchPlugins(plugins) });
-      // The services answered their start requests; one final reading must
-      // agree, and a failure is reported on the step it belongs to.
-      const status = await request("runtime.snapshot");
-      const node = status.nodes.find(n => n.id === "local");
-      if (status.stale) {
-        setStep(0);
-        throw new Error(t("本机核心尚未就绪"));
-      }
-      if (node?.state !== "online" || !node.health?.instance_id) {
-        setStep(0);
-        throw new Error(t("本机服务管理器尚未就绪，请重试启动"));
-      }
+      const status = await settled("research", "本机研究服务尚未就绪，请重试启动");
+      // Market data must still be reachable once everything is up.
       if (!status.market?.transport_online) {
         setStep(1);
         throw new Error(t("本机行情服务尚未就绪，请重试启动"));
       }
-      const expectedResearch = node.health.services.find(service => service.id === "research");
-      if (expectedResearch?.desired_running && !status.research?.online)
-        throw new Error(t("本机研究服务尚未就绪，请重试启动"));
       const invalid = plugins.filter(plugin => plugin.state === "invalid");
       const interrupted = (status.research?.tasks ?? []).filter(
         task => task.state === "interrupted",

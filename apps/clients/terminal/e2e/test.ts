@@ -33,14 +33,40 @@ export const test = base.extend<{
             `isolated node reset failed: ${response.status()} ${await response.text()}`,
           );
         process.env.ASTERION_NODE_DIRECTORY = (await response.json()).node_directory;
-        // Start the local Agent and market service as the app's startup does,
-        // so each file begins from a running environment as before.
-        for (const method of ["node.local", "market.local"]) {
-          const started = await request.post("/__asterion/api", {
-            data: { version: 1, method, params: {} },
+        // Bring the environment up as the app's startup does (Agent, market
+        // and research services, each past its first heartbeat), so the first
+        // test of a file meets the same ready state as the later ones.
+        const call = async (method: string, params: object = {}) => {
+          const reply = await request.post("/__asterion/api", {
+            data: { version: 1, method, params },
           });
-          const body = await started.json();
+          const body = await reply.json();
           if (body.error) throw new Error(`${method} after reset: ${body.error.message}`);
+          return body.result;
+        };
+        await call("node.local");
+        await call("market.local");
+        const plugins = (await call("native.plugins.inspect")).native_plugins.items
+          .filter(
+            (item: { state: string; managed?: boolean }) =>
+              item.state === "available" && !item.managed,
+          )
+          .map((item: { sha256: string }) => item.sha256);
+        await call("research.local.create", { plugins });
+        for (const deadline = Date.now() + 30000; ;) {
+          const services = (await call("runtime.snapshot")).nodes.flatMap(
+            (node: { health?: { services: { desired_running: boolean; health: string }[] } }) =>
+              node.health?.services ?? [],
+          );
+          if (
+            services.every(
+              (service: { desired_running: boolean; health: string }) =>
+                !service.desired_running || ["ready", "awaiting_input"].includes(service.health),
+            )
+          )
+            break;
+          if (Date.now() > deadline) throw new Error("services did not become healthy after reset");
+          await new Promise(resolve => setTimeout(resolve, 300));
         }
         currentFile = testInfo.file;
       }
