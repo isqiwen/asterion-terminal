@@ -14,6 +14,8 @@ public:
   // Task list read from the service now, not the last poll.
   Json tasks();
   data::v1::HistorySource source(const std::string& id) const;
+  // The sources one plugin declares that take a credential.
+  std::vector<data::v1::HistorySource> provider_sources(const std::string& plugin_id) const;
   data::v1::HistoryConnectionVerification verify_connection(const std::string& source,
                                                             const std::string& credential);
   void submit(const std::string& id, const research::v1::BacktestRequest& input);

@@ -227,6 +227,12 @@
   align-items: end;
   padding-bottom: 1px;
 }
+.history-credential {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .history-lifetime {
   color: var(--muted);
   font-size: 12px;

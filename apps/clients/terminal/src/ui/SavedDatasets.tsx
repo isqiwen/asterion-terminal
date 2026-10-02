@@ -145,7 +145,7 @@ export function SavedDatasets({
           </details>
         )}
       </fieldset>
-      {saved && <p role="status">{t("数据集已保存，可在当前研究服务中重复使用。")}</p>}
+      {saved && <p role="status">{t("数据集已保存，可在当前数据服务中重复使用。")}</p>}
       {error && (
         <p role="alert">
           <ErrorNotice error={error} />

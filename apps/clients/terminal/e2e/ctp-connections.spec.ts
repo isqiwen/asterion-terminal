@@ -27,7 +27,7 @@ test("several CTP accounts trade side by side while one supplies market data", a
   await region.getByRole("button", { name: "保存账户", exact: true }).click();
   // The first account supplies market data without a further step.
   const first = region.getByRole("region", { name: "仿真柜台", exact: true });
-  const marketBadge = ".ctp-badge.market";
+  const marketBadge = ".settings-badge.accent";
   await expect(first.locator(marketBadge)).toHaveText("用于行情");
 
   await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();

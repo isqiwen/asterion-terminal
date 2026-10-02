@@ -87,7 +87,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
       <h2>{t("历史数据仓库")}</h2>
       {!online && (
         <button disabled={context.busy} onClick={() => void context.trade("research.local")}>
-          {t("连接研究服务")}
+          {t("连接数据服务")}
         </button>
       )}
       <form

@@ -332,7 +332,9 @@ TEST(DailyTasks, RealServiceDispatchAndManagedWorkerResumeCompletedSourceData) {
     try {
       research::v1::TaskRequest ping;
       ping.mutable_heartbeat();
+      // The service listens on the worker endpoint first, then on its own.
       call(ping, true);
+      call(ping);
       break;
     } catch (const std::exception&) {
       if (service.exited() || std::chrono::steady_clock::now() > deadline)

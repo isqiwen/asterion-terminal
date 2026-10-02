@@ -117,8 +117,6 @@ test("dense market board links real dataset commands, sorting, pagination and co
         source: "tushare.ft_mins",
         exchange: "SHFE",
         product: "RB",
-        connection: "",
-        connection_revision: "",
         cutoff_ns: "0",
         items: [
           {

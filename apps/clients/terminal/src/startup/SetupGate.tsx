@@ -18,7 +18,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
       setError(t("保存失败，请检查本机存储权限。"));
     }
   };
-  const steps = [t("服务管理器"), t("行情服务"), t("研究服务")];
+  const steps = [t("服务管理器"), t("行情服务"), t("数据服务")];
   // Things the user should know before entering; none of them blocks entry.
   const [notices, setNotices] = useState<string[]>([]);
   const [step, setStep] = useState(0);
@@ -69,10 +69,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
           );
           const online =
             kind === "market" ? !!status.market?.transport_online : !!status.research?.online;
-          if (
-            expected.some(service => service.state === "failed") ||
-            ((kind === "market" || expected.length > 0) && !online)
-          )
+          if (expected.some(service => service.state === "failed") || !online)
             throw new Error(t(failure));
           if (expected.every(service => healthy.includes(service.health))) return status;
           if (Date.now() >= deadline) throw new Error(t(failure));
@@ -86,10 +83,11 @@ export function SetupGate({ children }: { children: ReactNode }) {
         .find(n => n.id === "local")
         ?.health?.services.find(service => service.id === "research");
       const plugins = (await request("native.plugins.inspect")).native_plugins?.items ?? [];
-      if (existingResearch?.desired_running) await request("research.local");
-      else if (!existingResearch)
-        await request("research.local.create", { plugins: defaultResearchPlugins(plugins) });
-      const status = await settled("research", "本机研究服务尚未就绪，请重试启动");
+      // A service left stopped is started again: the workbench never opens
+      // without it.
+      if (existingResearch) await request("research.local");
+      else await request("research.local.create", { plugins: defaultResearchPlugins(plugins) });
+      const status = await settled("research", "本机数据服务尚未就绪，请重试启动");
       // Market data must still be reachable once everything is up.
       if (!status.market?.transport_online) {
         setStep(1);

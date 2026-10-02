@@ -412,17 +412,17 @@
   margin-top: 4px;
 }
 
-/* CTP accounts: one card per account, facts aligned, actions at the bottom. */
-.ctp-settings {
+/* Settings lists: one card per item, facts aligned, actions at the bottom. */
+.settings-cards {
   display: grid;
   gap: 14px;
   justify-items: start;
 }
-.ctp-settings > p {
+.settings-cards > p {
   margin: 0;
   line-height: 1.6;
 }
-.ctp-account-card {
+.settings-card {
   justify-self: stretch;
   display: grid;
   gap: 14px;
@@ -431,71 +431,81 @@
   border-radius: 8px;
   min-width: 0;
 }
-.ctp-account-card header {
+.settings-card header {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
-.ctp-account-card h3 {
+.settings-card h3 {
   margin: 0;
   font-size: 15px;
   font-weight: 500;
   color: var(--text-strong);
   overflow-wrap: anywhere;
 }
-.ctp-badge {
+.settings-badge {
   font-size: 12px;
   padding: 2px 8px;
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--muted);
 }
-.ctp-badge.market {
+.settings-badge.accent {
   border-color: var(--accent);
   color: var(--accent);
   background: var(--accent-surface);
 }
-.ctp-account-card dl {
+.settings-card dl {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   gap: 6px 18px;
   margin: 0;
   font-size: 13px;
 }
-.ctp-account-card dt {
+.settings-card dt {
   color: var(--muted);
 }
-.ctp-account-card dd {
+.settings-card dd {
   margin: 0;
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
-.ctp-account-card footer {
+.settings-card footer {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
-.ctp-account-card p {
+.settings-card p {
   margin: 0;
   line-height: 1.6;
 }
-.ctp-account-card fieldset {
+.settings-card fieldset {
   border: 0;
   margin: 0;
   padding: 0;
   min-width: 0;
 }
-.ctp-account-dialog {
+.settings-dialog {
   width: min(560px, calc(100vw - 48px));
 }
-.ctp-account-dialog form {
+.settings-dialog form {
   display: grid;
   gap: 14px;
 }
-.ctp-account-dialog fieldset {
+.settings-dialog fieldset {
   border: 0;
   margin: 0;
   padding: 0;
   min-width: 0;
+}
+.settings-badge.warning {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+.settings-card dd.ok {
+  color: var(--success);
+}
+.settings-card dd.bad {
+  color: var(--danger);
 }

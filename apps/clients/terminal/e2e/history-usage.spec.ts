@@ -28,7 +28,7 @@ test("usage shows fixed source and saved references, refreshes draft and ignores
   await usage.getByRole("button", { name: "刷新使用情况", exact: true }).click();
   await expect(usage).not.toContainText("本窗口研究草稿");
   await usage.getByText("检查范围与保留说明", { exact: true }).click();
-  await expect(usage).toContainText("未检查停止的远程研究服务");
+  await expect(usage).toContainText("未检查停止的远程数据服务");
   await page.screenshot({ path: "build/history-usage-browser.png", fullPage: true });
   await usage.getByRole("button", { name: "关闭", exact: true }).click();
   let release!: () => void;
@@ -147,13 +147,13 @@ test("other research services retain known references and disclose stopped or fa
     .locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`)
     .getByRole("button", { name: "使用情况", exact: true })
     .click();
-  const research = archive.getByRole("region", { name: "其他研究服务", exact: true });
+  const research = archive.getByRole("region", { name: "其他数据服务", exact: true });
   await expect(research.getByRole("table")).toContainText("跨服务输入");
   await expect(research.getByRole("table")).toContainText("行情输入、结算输入");
   await expect(research.getByRole("alert")).toHaveCount(2);
   const stopped = research.getByRole("region", { name: "测试节点 B / research-b", exact: true });
   await stopped.getByText("未完成检查的详情", { exact: true }).click();
-  await expect(stopped).toContainText("研究服务未运行，引用尚未检查");
+  await expect(stopped).toContainText("数据服务未运行，引用尚未检查");
   await page.setViewportSize({ width: 1024, height: 768 });
   await research.scrollIntoViewIfNeeded();
   await page.screenshot({ path: "build/history-cross-research-browser.png", fullPage: true });

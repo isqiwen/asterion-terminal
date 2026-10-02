@@ -128,7 +128,7 @@ void Application::Impl::register_research_commands() {
     return result;
   });
   core.command("research.history.submit", [this](const json& p) {
-    fields(p, {"id", "query", "plan_id", "token", "connection", "connection_revision"});
+    fields(p, {"id", "query", "plan_id", "token"});
     const auto query = protocol::encode_history_update_query(p.at("query"));
     if (!research)
       throw std::invalid_argument("connect research service first");
@@ -140,17 +140,7 @@ void Application::Impl::register_research_commands() {
     if (generation != research_generation.load())
       throw Error(ErrorCode::conflict, "research service changed during archive query");
     const auto source = plan.has_minutes() ? plan.minutes().source() : plan.daily().source();
-    auto credential = text(p, "token", true);
-    if (!text(p, "connection", true).empty()) {
-      if (!credential.empty())
-        throw std::invalid_argument("choose a saved connection or a temporary credential");
-      const auto connection =
-          resolve_data_connection(text(p, "connection"), text(p, "connection_revision"), source);
-      if (query.requests_per_minute() != connection.requests_per_minute)
-        throw std::invalid_argument("data connection request budget changed; inspect again");
-      credential = connection.credential;
-    } else if (!text(p, "connection_revision", true).empty())
-      throw std::invalid_argument("invalid data connection identity");
+    const auto credential = source_credential(source, text(p, "token", true));
     data::v1::HistoryUpdateSubmit input;
     *input.mutable_query() = query;
     input.set_plan_id(plan.id());
@@ -260,16 +250,13 @@ void Application::Impl::register_research_commands() {
     return result;
   });
   core.command("research.daily.submit", [this](const json& p) {
-    fields(p, {"id", "source", "contract_id", "requests_per_minute", "token", "catalog_cutoff_ns",
-               "connection", "connection_revision"});
+    fields(p, {"id", "source", "contract_id", "requests_per_minute", "token", "catalog_cutoff_ns"});
     if (!research)
       throw std::invalid_argument("connect research service first");
     const auto& rpm = p.at("requests_per_minute");
     if (!rpm.is_number_integer() || rpm < 1 || rpm > 500)
       throw std::invalid_argument("invalid daily download definition");
-    if (text(p, "connection", true) != history_connection ||
-        text(p, "connection_revision", true) != history_connection_revision ||
-        text(p, "source") != history_source ||
+    if (text(p, "source") != history_source ||
         text(p, "catalog_cutoff_ns") != std::to_string(history_cutoff))
       throw std::invalid_argument("contract catalog changed; select the contract again");
     const auto found =
@@ -287,17 +274,8 @@ void Application::Impl::register_research_commands() {
     input.set_begin_day(found->list_date);
     input.set_end_day(end);
     input.set_requests_per_minute(rpm.get<unsigned>());
-    auto credential = text(p, "token", true);
-    if (p.contains("connection") && !text(p, "connection", true).empty()) {
-      if (!credential.empty())
-        throw std::invalid_argument("choose a saved connection or a temporary credential");
-      const auto connection = resolve_data_connection(
-          text(p, "connection"), text(p, "connection_revision"), input.source());
-      if (input.requests_per_minute() != connection.requests_per_minute)
-        throw std::invalid_argument("data connection request budget changed; inspect again");
-      credential = connection.credential;
-    }
-    research->submit(text(p, "id"), input, credential);
+    research->submit(text(p, "id"), input,
+                     source_credential(input.source(), text(p, "token", true)));
     return snapshot();
   });
   core.command("research.minutes.page", [this](const json& p) {
@@ -317,17 +295,8 @@ void Application::Impl::register_research_commands() {
   });
   // Contract catalog from a data source; the provider I/O runs outside the lock.
   core.command("research.contracts.load", [this](const json& p) {
-    fields(p, {"source", "exchange", "product", "token", "connection", "connection_revision"});
-    if (text(p, "connection", true).empty() && !text(p, "connection_revision", true).empty())
-      throw std::invalid_argument("invalid data connection identity");
-    auto credential = text(p, "token", true);
-    if (!text(p, "connection", true).empty()) {
-      if (!credential.empty())
-        throw std::invalid_argument("choose a saved connection or a temporary credential");
-      credential = resolve_data_connection(text(p, "connection"), text(p, "connection_revision"),
-                                           text(p, "source"))
-                       .credential;
-    }
+    fields(p, {"source", "exchange", "product", "token"});
+    const auto credential = source_credential(text(p, "source"), text(p, "token", true));
     const auto client = research;
     if (!client)
       throw std::invalid_argument("connect research service first");
@@ -337,11 +306,6 @@ void Application::Impl::register_research_commands() {
     });
     if (research != client)
       throw Error(ErrorCode::conflict, "research connection changed; reload catalog");
-    if (!text(p, "connection", true).empty())
-      (void)resolve_data_connection(text(p, "connection"), text(p, "connection_revision"),
-                                    text(p, "source"));
-    history_connection = text(p, "connection", true);
-    history_connection_revision = text(p, "connection_revision", true);
     history_source = text(p, "source");
     history_contracts = std::move(catalog);
     history_exchange = text(p, "exchange");
@@ -353,7 +317,7 @@ void Application::Impl::register_research_commands() {
   });
   core.command("research.minutes.submit", [this](const json& p) {
     fields(p, {"id", "source", "contract_id", "interval_minutes", "requests_per_minute", "token",
-               "catalog_cutoff_ns", "connection", "connection_revision"});
+               "catalog_cutoff_ns"});
     if (!research)
       throw std::invalid_argument("connect research service first");
     for (const auto* name : {"interval_minutes", "requests_per_minute"}) {
@@ -368,9 +332,7 @@ void Application::Impl::register_research_commands() {
     input.set_contract_id(text(p, "contract_id"));
     input.set_interval_minutes(p.at("interval_minutes").get<unsigned>());
     input.set_requests_per_minute(p.at("requests_per_minute").get<unsigned>());
-    if (text(p, "connection", true) != history_connection ||
-        text(p, "connection_revision", true) != history_connection_revision ||
-        text(p, "source") != history_source ||
+    if (text(p, "source") != history_source ||
         text(p, "catalog_cutoff_ns") != std::to_string(history_cutoff))
       throw std::invalid_argument("contract catalog changed; select the contract again");
     const auto found =
@@ -382,17 +344,8 @@ void Application::Impl::register_research_commands() {
     input.set_begin_ns(parse_shanghai_time(found->list_date + " 00:00:00"));
     input.set_end_ns(std::min(history_cutoff / 1000000000 * 1000000000,
                               parse_shanghai_time(found->delist_date + " 23:59:59")));
-    auto credential = text(p, "token", true);
-    if (p.contains("connection") && !text(p, "connection", true).empty()) {
-      if (!credential.empty())
-        throw std::invalid_argument("choose a saved connection or a temporary credential");
-      const auto connection = resolve_data_connection(
-          text(p, "connection"), text(p, "connection_revision"), input.source());
-      if (input.requests_per_minute() != connection.requests_per_minute)
-        throw std::invalid_argument("data connection request budget changed; inspect again");
-      credential = connection.credential;
-    }
-    research->submit(text(p, "id"), input, credential);
+    research->submit(text(p, "id"), input,
+                     source_credential(input.source(), text(p, "token", true)));
     return snapshot();
   });
   core.command("research.local", [this](const json& p) {

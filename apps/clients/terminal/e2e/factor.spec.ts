@@ -20,7 +20,7 @@ for (const mode of ["full", "holdout", "search", "rolling"])
       .getByRole("button", { name: "研究", exact: true })
       .click();
     const research = page.getByRole("region", { name: "期货研究", exact: true });
-    await expect(research.getByText("研究服务已连接", { exact: true })).toBeVisible();
+    await expect(research.getByText("数据服务已连接", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "因子分析", exact: true }).click();
     await expect(research.getByLabel("初始资金", { exact: true })).toHaveCount(0);
     await research.getByLabel("回看 K 线数", { exact: true }).fill(search ? "2,5,10" : "2");

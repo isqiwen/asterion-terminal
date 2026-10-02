@@ -84,11 +84,11 @@ export function HistoryUsagePanel({
       )}
       {usage && (
         <>
-          <h4>{t("当前研究服务")}</h4>
+          <h4>{t("当前数据服务")}</h4>
           <p role="status">
             {usage.references.length
               ? t("找到 {count} 条关联记录，请保留此版本。", { count: usage.references.length })
-              : t("当前研究服务中未发现关联记录；这不代表该版本可以删除。")}
+              : t("当前数据服务中未发现关联记录；这不代表该版本可以删除。")}
           </p>
           {!!usage.selected_roles.length && (
             <p>
@@ -99,8 +99,8 @@ export function HistoryUsagePanel({
           )}
           <ReferenceTable rows={usage.references} />
           {!!usage.other_research.length && (
-            <section aria-label={t("其他研究服务")}>
-              <h4>{t("其他研究服务")}</h4>
+            <section aria-label={t("其他数据服务")}>
+              <h4>{t("其他数据服务")}</h4>
               <p className="subtle">
                 {t("检查已连接节点的任务与已保存数据集；停止的本机服务只读检查账本。")}
               </p>
@@ -119,7 +119,7 @@ export function HistoryUsagePanel({
                     </p>
                   ) : (
                     <div role="alert">
-                      <p>{t("研究服务检查未完成，不能视为无引用。")}</p>
+                      <p>{t("数据服务检查未完成，不能视为无引用。")}</p>
                       {group.error && (
                         <details>
                           <summary>{t("未完成检查的详情")}</summary>
@@ -165,7 +165,7 @@ export function HistoryUsagePanel({
         </p>
         <p>
           {t(
-            "未检查停止的远程研究服务、未连接的节点及其他窗口的研究草稿。结果是本次查询的观察值，不是删除许可；检查失败时不能按无引用处理。",
+            "未检查停止的远程数据服务、未连接的节点及其他窗口的研究草稿。结果是本次查询的观察值，不是删除许可；检查失败时不能按无引用处理。",
           )}
         </p>
       </details>

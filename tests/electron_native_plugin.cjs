@@ -97,41 +97,40 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
       ["fixture.minutes", "fixture.daily"],
     );
     await settings.getByRole("button", { name: "数据源", exact: true }).click();
-    const connections = settings.getByRole("region", { name: "数据源连接", exact: true });
-    await expect(connections).toBeVisible();
-    await settings.screenshot({ path: "build/data-connections-before.png", fullPage: true });
-    assert.deepEqual(errors, []);
-    await connections.getByLabel("数据源", { exact: true }).selectOption("fixture.minutes");
-    await connections.getByLabel("连接名称", { exact: true }).fill("测试会话连接");
-    await connections.getByLabel("测试凭据", { exact: true }).fill("invalid");
-    await connections.getByRole("button", { name: "保存连接", exact: true }).click();
-    const savedRegion = connections.getByRole("region", { name: "测试会话连接", exact: true });
-    await savedRegion.getByRole("button", { name: "验证连接", exact: true }).click();
-    await expect(savedRegion.getByText("合约目录：凭据无效", { exact: true })).toBeVisible();
-    await savedRegion.getByRole("button", { name: "编辑连接", exact: true }).click();
-    await connections.getByLabel("测试凭据", { exact: true }).fill("fixture-session-secret");
-    await connections.getByRole("button", { name: "保存连接", exact: true }).click();
-    await savedRegion.getByRole("button", { name: "验证连接", exact: true }).click();
-    await expect(
-      savedRegion.getByText("历史数据接口：接口访问成功", { exact: true }),
-    ).toBeVisible();
-    let profile = (await call("runtime.snapshot")).data_connections[0];
-    assert.equal(profile.credential_ready, true);
-    assert.ok(!JSON.stringify(await call("runtime.snapshot")).includes("fixture-session-secret"));
-    const connectionFile = path.join(temp, "node/data-connections", profile.id + ".json");
-    assert.ok(!(await fs.readFile(connectionFile, "utf8")).includes("fixture-session-secret"));
-    await call("research.connections.save", {
-      id: "remembered",
-      name: "Saved token",
-      source: "fixture.daily",
-      revision: "",
-      requests_per_minute: 30,
-      remember: true,
-      credential: "fixture-saved-secret",
-      credential_action: "replace",
+    // One card per provider: the fixture plugin's two sources share one credential.
+    const provider = "test.independent.c";
+    const card = settings.getByRole("region", { name: "数据源", exact: true }).getByRole("region", {
+      name: "Third-party test minutes / Third-party test daily",
+      exact: true,
     });
-    await connections.scrollIntoViewIfNeeded();
-    await settings.screenshot({ path: "build/data-connections.png", fullPage: true });
+    await expect(card).toBeVisible();
+    await expect(card.getByText("未设置", { exact: true })).toBeVisible();
+    await settings.screenshot({ path: "build/data-sources-before.png", fullPage: true });
+    assert.deepEqual(errors, []);
+    const dialog = settings.getByRole("dialog");
+    await card.getByRole("button", { name: "设置 测试凭据", exact: true }).click();
+    await dialog.getByLabel("测试凭据", { exact: true }).fill("invalid");
+    await dialog.getByRole("button", { name: "保存并验证", exact: true }).click();
+    // Saving verifies at once: both sources report the rejected credential.
+    await expect(card.locator("dd.bad").filter({ hasText: "凭据无效" }))
+      .toHaveCount(2)
+      .catch(async error => {
+        console.error("Data source page:", await settings.locator("body").innerText());
+        throw error;
+      });
+    await card.getByRole("button", { name: "设置 测试凭据", exact: true }).click();
+    await dialog.getByLabel("测试凭据", { exact: true }).fill("fixture-session-secret");
+    await dialog.getByRole("button", { name: "保存并验证", exact: true }).click();
+    await expect(card.locator("dd.ok")).toHaveCount(4);
+    await expect(card.locator("dd.bad")).toHaveCount(0);
+    const savedEntry = async () =>
+      (await call("runtime.snapshot")).data_credentials.find(item => item.provider === provider);
+    assert.equal((await savedEntry()).credential_ready, true);
+    assert.equal((await savedEntry()).remember, false);
+    assert.ok(!JSON.stringify(await call("runtime.snapshot")).includes("fixture-session-secret"));
+    const credentialFile = path.join(temp, "node/data-providers", provider + ".json");
+    assert.ok(!(await fs.readFile(credentialFile, "utf8")).includes("fixture-session-secret"));
+    await settings.screenshot({ path: "build/data-sources.png", fullPage: true });
     await settings.getByRole("button", { name: "插件", exact: true }).click();
     await page
       .getByRole("navigation", { name: "业务工作区" })
@@ -144,7 +143,7 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
       "Third-party test daily · 日 K 线",
     ]);
     await history.getByLabel("品种代码", { exact: true }).fill("CU");
-    await history.getByLabel("使用连接", { exact: true }).selectOption(profile.id);
+    await expect(history.getByText("使用已保存的 测试凭据", { exact: true })).toBeVisible();
     await expect(history.getByRole("button", { name: "查询月份合约", exact: true })).toBeEnabled();
     await history.getByRole("button", { name: "查询月份合约", exact: true }).click();
     await expect
@@ -168,18 +167,14 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
         exchange: "SHFE",
         product: "CU",
         token: "",
-        connection: source === "fixture.minutes" ? profile.id : "",
-        connection_revision: source === "fixture.minutes" ? profile.revision : "",
       });
       await call(method, {
         id,
         source,
         contract_id: "SHFE/cu/2024-03",
         catalog_cutoff_ns: catalog.history_contracts.cutoff_ns,
-        requests_per_minute: source === "fixture.minutes" ? profile.requests_per_minute : 60,
+        requests_per_minute: 30,
         token: "",
-        connection: source === "fixture.minutes" ? profile.id : "",
-        connection_revision: source === "fixture.minutes" ? profile.revision : "",
         ...extra,
       });
       await expect
@@ -198,36 +193,15 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
       "node/services/research/ledger/third-party-minutes/provider.credential",
     );
     assert.equal(await fs.readFile(taskCredentialPath, "utf8"), "fixture-session-secret");
-    await call("research.connections.save", {
-      id: profile.id,
-      name: profile.name,
-      source: profile.source,
-      revision: profile.revision,
-      requests_per_minute: profile.requests_per_minute,
-      remember: false,
-      credential: "replacement-session-secret",
-      credential_action: "replace",
+    // Replacing the provider's credential does not touch a submitted task's
+    // copy; remembering it keeps it across restarts.
+    await call("research.credentials.save", {
+      provider,
+      credential: "fixture-saved-secret",
+      remember: true,
+      requests_per_minute: 30,
     });
-    const changedProfile = (await call("runtime.snapshot")).data_connections.find(
-      item => item.id === profile.id,
-    );
-    assert.notEqual(changedProfile.revision, profile.revision);
-    const staleProfile = await page.evaluate(
-      async old =>
-        JSON.parse(
-          await window.asterionDesktop.request(
-            JSON.stringify({
-              version: 1,
-              method: "research.connections.verify",
-              params: { id: old.id, revision: old.revision, source: old.source },
-            }),
-          ),
-        ),
-      profile,
-    );
-    assert.equal(staleProfile.error.code, "conflict");
     assert.equal(await fs.readFile(taskCredentialPath, "utf8"), "fixture-session-secret");
-    profile = changedProfile;
     const archive = await call("research.datasets", {
       venue: "",
       product: "",
@@ -381,8 +355,6 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
       exchange: "SHFE",
       product: "CU",
       token: "",
-      connection: "",
-      connection_revision: "",
     });
     await call("research.minutes.submit", {
       id: "pinned-retry",
@@ -392,8 +364,6 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
       requests_per_minute: 1,
       interval_minutes: 1,
       token: "",
-      connection: "",
-      connection_revision: "",
     });
     await expect
       .poll(
@@ -495,14 +465,7 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
     application = undefined;
     process.kill(Number(await fs.readFile(path.join(temp, "node/agent.pid"), "utf8")), "SIGTERM");
     await new Promise(resolve => setTimeout(resolve, 2000));
-    application = await launch();
-    page = await application.firstWindow();
-    page.on("pageerror", error => errors.push(String(error)));
-    await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
-    await expect(
-      page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
-    ).toBeVisible();
-    // The research service is stopped here, so its task index can be read.
+    // The data service is stopped here, so its task index can be read.
     const index = new (require("node:sqlite").DatabaseSync)(
       path.join(temp, "node/services/research/ledger/tasks.sqlite"),
       { readOnly: true },
@@ -517,16 +480,21 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
       inventory.find(item => item.id === "test.independent.c").sha256,
     );
     assert.notEqual(originalTaskManifest.provider_artifact, fixtureHash);
-    const restoredProfiles = (await call("runtime.snapshot")).data_connections;
-    assert.equal(restoredProfiles.find(item => item.id === profile.id).credential_ready, false);
-    assert.equal(restoredProfiles.find(item => item.id === "remembered").credential_ready, true);
+    application = await launch();
+    page = await application.firstWindow();
+    page.on("pageerror", error => errors.push(String(error)));
+    await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
+    await expect(
+      page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
+    ).toBeVisible();
+    assert.equal((await savedEntry()).credential_ready, true);
     // The remembered token lives in the login keychain; remove the test entry.
-    const remembered = restoredProfiles.find(item => item.id === "remembered");
-    await call("research.connections.remove", { id: remembered.id, revision: remembered.revision });
+    await call("research.credentials.clear", { provider });
+    assert.equal(await savedEntry(), undefined);
     const restored = managed(await call("runtime.snapshot"));
-    assert.equal(restored.desired_running, false);
+    // Startup started the stopped service again, with its pinned plugins.
+    assert.equal(restored.desired_running, true);
     assert.deepEqual(restored.plugin_artifacts, [fixtureHash]);
-    await call("research.local");
     assert.equal(
       (await call("runtime.snapshot")).research.sources[0].plugin_id,
       "test.independent.c",

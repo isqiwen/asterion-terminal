@@ -200,7 +200,8 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
   ASSERT_TRUE(call(runtime.get(), request("research.dataset.clear")).contains("result"));
   std::atomic<bool> done{false};
   std::thread slow([&] {
-    EXPECT_TRUE(call(runtime.get(), request("research.dataset.select", params)).contains("result"));
+    const auto selected = call(runtime.get(), request("research.dataset.select", params));
+    EXPECT_TRUE(selected.contains("result")) << selected.dump();
     done = true;
   });
   int concurrent_reads = 0;

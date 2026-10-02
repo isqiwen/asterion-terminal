@@ -232,7 +232,7 @@ export function Panel({
             {research.remote ? `${research.host} · ${research.service}` : t("本机")}
           </span>
         )}
-        <span role="status">{research?.online ? t("研究服务已连接") : t("研究服务未连接")}</span>
+        <span role="status">{research?.online ? t("数据服务已连接") : t("数据服务未连接")}</span>
       </div>
       {error && (
         <p className="alert" role="alert">

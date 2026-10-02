@@ -11,7 +11,7 @@ import {
 import {
   type HistoryDatasetRecord,
   type HistoryUpdatePlan,
-  readableConnection,
+  savedCredential,
 } from "../../src/bridge/client";
 import { HistoryDatasetViewer } from "./HistoryDatasetViewer";
 const t = (key: string, values?: MessageValues) =>
@@ -40,13 +40,8 @@ export function HistoryUpdatePanel({
     panel.current?.scrollIntoView({ block: "nearest" });
   }, []);
   const [end, setEnd] = useState(yesterday);
-  const [connectionId, setConnectionId] = useState("");
   const source = context.snapshot?.research?.sources.find(source => source.id === item.source);
-  const connections =
-    context.snapshot?.data_connections
-      ?.filter(readableConnection)
-      .filter(value => value.source === item.source) ?? [];
-  const connection = connections.find(value => value.id === connectionId);
+  const saved = savedCredential(context.snapshot, item.source);
   const [rate, setRate] = useState(String(source?.connection?.requests_per_minute_default ?? 60));
   const [token, setToken] = useState("");
   const [plan, setPlan] = useState<HistoryUpdatePlan | null>(null);
@@ -69,7 +64,7 @@ export function HistoryUpdatePanel({
     return () => {
       ++generation.value;
     };
-  }, [end, rate, connectionId, connection?.revision]);
+  }, [end, rate, saved?.requests_per_minute]);
   const task = context.snapshot?.research?.tasks.find(task => task.id === id);
   const accepted = submitted || !!task;
   const params = {
@@ -77,7 +72,7 @@ export function HistoryUpdatePanel({
     calendar_dataset_id: calendar ?? "",
     mode: calendar ? "repair" : "extend",
     end_day: calendar ? "" : end,
-    requests_per_minute: Number(connection?.requests_per_minute ?? rate),
+    requests_per_minute: Number(saved?.requests_per_minute ?? rate),
   };
   async function preview() {
     const current = ++ticket.current.value;
@@ -108,9 +103,7 @@ export function HistoryUpdatePanel({
         id,
         query: plan.query,
         plan_id: plan.id,
-        token: connection ? "" : token,
-        connection: connection?.id ?? "",
-        connection_revision: connection?.revision ?? "",
+        token: saved ? "" : token,
       });
       if (current === ticket.current.value) setSubmitted(true);
     } catch (e) {
@@ -179,24 +172,7 @@ export function HistoryUpdatePanel({
                 />
               </label>
             )}
-            <label>
-              {t("使用连接")}
-              <select
-                value={connectionId}
-                onChange={event => {
-                  setConnectionId(event.target.value);
-                  setToken("");
-                }}
-              >
-                <option value="">{t("临时凭据")}</option>
-                {connections.map(value => (
-                  <option key={value.id} value={value.id}>
-                    {value.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {!connection && (
+            {!saved && (
               <label>
                 {t("每分钟请求数")}
                 <input
@@ -235,7 +211,7 @@ export function HistoryUpdatePanel({
           </p>
           {!accepted && (
             <div className="source-actions">
-              {!connection && source?.credential_required && (
+              {!saved && source?.credential_required && (
                 <label>
                   {source.connection
                     ? getLocale() === "zh-CN"
@@ -259,8 +235,7 @@ export function HistoryUpdatePanel({
                   !enabled ||
                   working ||
                   context.busy ||
-                  (!!source?.credential_required &&
-                    !(connection ? connection.credential_ready : token))
+                  (!!source?.credential_required && !saved && !token)
                 }
                 onClick={() => void submit()}
               >

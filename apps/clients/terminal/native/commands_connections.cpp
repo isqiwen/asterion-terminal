@@ -1,24 +1,13 @@
 #include "application_impl.hpp"
 namespace asterion::terminal {
-DataConnection Application::Impl::resolve_data_connection(const std::string& id,
-                                                          const std::string& revision,
-                                                          const std::string& source) {
+std::string Application::Impl::source_credential(const std::string& source,
+                                                 std::string typed) const {
   if (!research)
     throw std::invalid_argument("connect research service first");
-  auto connection = data_connections.get(id);
-  const auto provider = research->source(source);
-  if (connection.revision != revision)
-    throw Error(ErrorCode::conflict, "data connection changed; inspect again");
-  if (connection.source != source || connection.plugin_id != provider.plugin_id() ||
-      !provider.has_connection())
-    throw std::invalid_argument("data connection provider is unavailable");
-  const auto& schema = provider.connection();
-  if (connection.requests_per_minute > schema.requests_per_minute_max() ||
-      connection.credential.size() > schema.credential_max_length() ||
-      (schema.credential_required() && connection.credential.empty()) ||
-      (connection.remember && !schema.remember_allowed()))
-    throw std::invalid_argument("data connection requires configuration");
-  return connection;
+  if (!typed.empty())
+    return typed;
+  const auto saved = data_credentials.find(research->source(source).plugin_id());
+  return saved ? saved->credential : std::string();
 }
 CtpConnection Application::Impl::market_ctp() const {
   auto connection = ctp_connections.market();
@@ -38,56 +27,67 @@ json Application::Impl::ctp_accounts() const {
   return accounts;
 }
 void Application::Impl::register_connection_commands() {
-  core.command("research.connections.save", [this](const json& params) {
-    fields(params, {"id", "name", "source", "revision", "requests_per_minute", "remember",
-                    "credential", "credential_action"});
+  core.command("research.credentials.save", [this](const json& params) {
+    fields(params, {"provider", "credential", "remember", "requests_per_minute"});
     if (!research)
       throw std::invalid_argument("connect research service first");
-    const auto source = research->source(text(params, "source"));
-    if (!source.has_connection())
-      throw std::invalid_argument("history connection configuration is unsupported");
+    const auto sources = research->provider_sources(text(params, "provider"));
+    if (sources.empty())
+      throw std::invalid_argument("data source is unavailable");
     if (!params.at("requests_per_minute").is_number_unsigned() ||
         !params.at("remember").is_boolean())
-      throw std::invalid_argument("invalid data connection settings");
-    DataConnection connection{text(params, "id"),
-                              text(params, "name"),
-                              source.id(),
-                              source.plugin_id(),
-                              {},
-                              params.at("requests_per_minute").get<unsigned>(),
-                              params.at("remember").get<bool>(),
-                              text(params, "credential", true)};
-    data_connections.save(std::move(connection), text(params, "revision", true),
-                          text(params, "credential_action"), source.connection());
-    connection_verification = nullptr;
+      throw std::invalid_argument("invalid data source credential settings");
+    // One credential serves every source of the provider, so it has to fit
+    // the strictest of them.
+    DataCredentialLimits limits{false, 256, true, 500};
+    for (const auto& source : sources) {
+      const auto& schema = source.connection();
+      limits.credential_required |= schema.credential_required();
+      limits.credential_max_length =
+          std::min<std::size_t>(limits.credential_max_length, schema.credential_max_length());
+      limits.remember_allowed &= schema.remember_allowed();
+      limits.requests_per_minute_max =
+          std::min(limits.requests_per_minute_max, schema.requests_per_minute_max());
+    }
+    data_credentials.save({text(params, "provider"),
+                           params.at("requests_per_minute").get<unsigned>(),
+                           params.at("remember").get<bool>(), text(params, "credential", true)},
+                          limits);
+    credential_verification = nullptr;
     return snapshot();
   });
-  core.command("research.connections.remove", [this](const json& params) {
-    fields(params, {"id", "revision"});
-    data_connections.remove(text(params, "id"), text(params, "revision"));
-    connection_verification = nullptr;
+  core.command("research.credentials.clear", [this](const json& params) {
+    fields(params, {"provider"});
+    data_credentials.clear(text(params, "provider"));
+    credential_verification = nullptr;
     return snapshot();
   });
-  // Verifies a saved connection against its data source; the provider I/O
-  // runs outside the lock.
-  core.command("research.connections.verify", [this](const json& params) {
-    fields(params, {"id", "revision", "source"});
-    const auto connection = resolve_data_connection(text(params, "id"), text(params, "revision"),
-                                                    text(params, "source"));
+  // Checks the saved credential against every source of the provider; the
+  // provider I/O runs outside the lock.
+  core.command("research.credentials.verify", [this](const json& params) {
+    fields(params, {"provider"});
     const auto client = research;
     if (!client)
       throw std::invalid_argument("connect research service first");
-    const auto verification = outside_lock(
-        [&] { return client->verify_connection(connection.source, connection.credential); });
+    const auto provider = text(params, "provider");
+    const auto sources = client->provider_sources(provider);
+    if (sources.empty())
+      throw std::invalid_argument("data source is unavailable");
+    const auto saved = data_credentials.find(provider);
+    if (!saved)
+      throw std::invalid_argument("data source credential is required");
+    json checks = json::array();
+    outside_lock([&] {
+      for (const auto& source : sources) {
+        const auto verification = client->verify_connection(source.id(), saved->credential);
+        for (const auto& check : verification.checks())
+          checks.push_back(
+              {{"source", source.id()}, {"scope", check.scope()}, {"state", check.state()}});
+      }
+    });
     if (research != client)
       throw Error(ErrorCode::conflict, "research connection changed; retry verification");
-    (void)resolve_data_connection(text(params, "id"), text(params, "revision"),
-                                  text(params, "source"));
-    json checks = json::array();
-    for (const auto& check : verification.checks())
-      checks.push_back({{"scope", check.scope()}, {"state", check.state()}});
-    connection_verification = {
-        {"id", text(params, "id")}, {"revision", text(params, "revision")}, {"checks", checks}};
+    credential_verification = {{"provider", provider}, {"checks", checks}};
     return snapshot();
   });
   core.command("ctp.connections.save", [this](const json& params) {

@@ -382,7 +382,7 @@ export function NativePlugins({ snapshot, busy, trade }: Props) {
           ))}
           {services.length === 0 && (
             <fieldset disabled={busy || node?.state !== "online" || node?.health?.maintenance}>
-              <legend>{t("创建本机研究服务")}</legend>
+              <legend>{t("创建本机数据服务")}</legend>
               <p>{t("应用自带的插件始终启用；自行安装的插件可以选择是否启用。")}</p>
               {availableResearchPlugins(inventory.items).map(item => (
                 <PluginChoice
@@ -413,13 +413,13 @@ export function NativePlugins({ snapshot, busy, trade }: Props) {
                   }
                 }}
               >
-                {t("创建研究服务")}
+                {t("创建数据服务")}
               </button>
             </fieldset>
           )}
         </>
       )}
-      <p>{t("当前管理本机研究服务的原生插件；可复用凭据在连接页面配置。")}</p>
+      <p>{t("当前管理本机数据服务的原生插件；可复用凭据在连接页面配置。")}</p>
     </section>
   );
 }

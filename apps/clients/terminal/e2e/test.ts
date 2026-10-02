@@ -53,7 +53,7 @@ export const test = base.extend<{
           )
           .map((item: { sha256: string }) => item.sha256);
         await call("research.local.create", { plugins });
-        for (const deadline = Date.now() + 30000; ;) {
+        for (const deadline = Date.now() + 60000; ;) {
           const services = (await call("runtime.snapshot")).nodes.flatMap(
             (node: { health?: { services: { desired_running: boolean; health: string }[] } }) =>
               node.health?.services ?? [],
@@ -72,6 +72,8 @@ export const test = base.extend<{
       }
       await use();
     },
-    { auto: true },
+    // Its own time limit: bringing the services up does not eat into the
+    // time of the first test of a file.
+    { auto: true, timeout: 90000 },
   ],
 });

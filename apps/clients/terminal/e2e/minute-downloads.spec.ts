@@ -5,8 +5,6 @@ const catalogFixture = {
   source: "tushare.ft_mins",
   exchange: "SHFE",
   product: "CU",
-  connection: "",
-  connection_revision: "",
   cutoff_ns: "1790582400000000000",
   items: [
     {

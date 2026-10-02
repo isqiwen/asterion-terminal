@@ -111,21 +111,19 @@ json Application::Impl::compose(const Parts& parts) {
          {"quote_unit", item.quote_unit ? json(*item.quote_unit) : json(nullptr)}});
   return {{"history_contracts",
            {{"source", history_source},
-            {"connection", history_connection},
-            {"connection_revision", history_connection_revision},
             {"exchange", history_exchange},
             {"product", history_product},
             {"cutoff_ns", std::to_string(history_cutoff)},
             {"items", catalog}}},
           {"research", parts.research},
-          {"data_connections", data_connections.snapshot()},
+          {"data_credentials", data_credentials.snapshot()},
           {"ctp_connections", ctp_accounts()},
           {"ctp_market",
            [&] {
              const auto account = ctp_connections.market();
              return account ? json(account->id) : json(nullptr);
            }()},
-          {"connection_verification", connection_verification},
+          {"credential_verification", credential_verification},
           {"research_result", research_result},
           {"history_page", nullptr},
           {"daily_page", nullptr},

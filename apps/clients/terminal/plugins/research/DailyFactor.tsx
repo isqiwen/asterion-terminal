@@ -79,7 +79,7 @@ export function DailyFactorForm({
           <ErrorNotice error={archive.error} />
         </p>
       )}
-      {!archive.loading && !sources.length && <p>{t("当前研究服务没有已发布的日线数据。")}</p>}
+      {!archive.loading && !sources.length && <p>{t("当前数据服务没有已发布的日线数据。")}</p>}
       <button disabled={busy} onClick={() => navigate("workspace.data", { page: "history" })}>
         {t("下载历史日线")}
       </button>

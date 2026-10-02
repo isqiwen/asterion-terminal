@@ -51,7 +51,7 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
   await page.getByLabel("数据集名称", { exact: true }).fill("跨下载研究");
   await page.getByRole("button", { name: "保存数据集", exact: true }).click();
   await expect(
-    page.getByText("数据集已保存，可在当前研究服务中重复使用。", { exact: true }),
+    page.getByText("数据集已保存，可在当前数据服务中重复使用。", { exact: true }),
   ).toBeVisible();
   const saved = (await rpc(page.request, "research.dataset.saved")).saved_datasets.find(
     (item: { name: string }) => item.name === "跨下载研究",

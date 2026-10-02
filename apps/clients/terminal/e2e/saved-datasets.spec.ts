@@ -29,7 +29,7 @@ test("named portfolio survives service restart and restores exact inputs atomica
   await page.getByLabel("数据集名称", { exact: true }).fill("金属组合");
   await page.getByLabel("数据集名称", { exact: true }).press("Enter");
   await expect(
-    page.getByText("数据集已保存，可在当前研究服务中重复使用。", { exact: true }),
+    page.getByText("数据集已保存，可在当前数据服务中重复使用。", { exact: true }),
   ).toBeVisible();
   await rpc(page.request, "research.dataset.save", { name: "金属组合" });
   const library = (await rpc(page.request, "research.dataset.saved")).saved_datasets;

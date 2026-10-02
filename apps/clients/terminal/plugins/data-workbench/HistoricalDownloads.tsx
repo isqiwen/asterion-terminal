@@ -1,7 +1,7 @@
 import { HistoryDatasetViewer } from "./HistoryDatasetViewer";
 import { useState } from "react";
 import { historySources, type HistorySource } from "./history-sources";
-import { readableConnection, timestamp } from "../../src/bridge/client";
+import { savedCredential, timestamp } from "../../src/bridge/client";
 import { BackendError } from "../../src/i18n/errors";
 import {
   type TerminalContext,
@@ -43,23 +43,15 @@ function SourceDownloads({
     rate: String(source.rate.default),
   });
   const [viewId, setViewId] = useState<string | null>(null);
-  const [connectionId, setConnectionId] = useState("");
-  const savedConnections =
-    snapshot?.data_connections
-      ?.filter(readableConnection)
-      .filter(item => item.source === source.id) ?? [];
-  const connection = savedConnections.find(item => item.id === connectionId);
+  // The provider's saved credential is used as it is; without one the
+  // credential is typed for this download only.
+  const saved = savedCredential(snapshot, source.id);
   const [token, setToken] = useState(""); // Never retain credentials in workspace drafts/storage.
   const [error, setError] = useState<DisplayError>("");
   const research = snapshot?.research;
   const catalog = source.catalog(snapshot);
   const matchingCatalog =
-    catalog?.exchange === form.exchange &&
-    catalog.product === form.product &&
-    catalog.connection === (connection?.id ?? "") &&
-    catalog.connection_revision === (connection?.revision ?? "")
-      ? catalog
-      : null;
+    catalog?.exchange === form.exchange && catalog.product === form.product ? catalog : null;
   const contracts = matchingCatalog?.items ?? [];
   const selected = contracts.find(item => item.code === form.code);
   // "*" downloads every listed month; at most two downloads run at once, so
@@ -70,7 +62,7 @@ function SourceDownloads({
   const cutoff = matchingCatalog?.cutoff_ns ?? "0";
   const [pending, setPending] = useWorkspaceRequestId(
     `historySubmission:${source.id}`,
-    JSON.stringify([research?.connection_id, form, cutoff, connection?.id, connection?.revision]),
+    JSON.stringify([research?.connection_id, form, cutoff]),
   );
   const tasks = research?.tasks.filter(source.ownsTask) ?? [];
   const result = snapshot?.research_result ? source.dataset(snapshot.research_result) : null;
@@ -106,7 +98,7 @@ function SourceDownloads({
         <p className="content-caption">{t(source.description)}</p>
         {research?.remote ? (
           <div className="source-actions">
-            <p>{t("历史下载当前使用本机研究服务。")}</p>
+            <p>{t("历史下载当前使用本机数据服务。")}</p>
             <button onClick={() => openSettings("connections")}>{t("查看运行位置")}</button>
           </div>
         ) : null}
@@ -117,7 +109,7 @@ function SourceDownloads({
             const id = pending ?? `history-${crypto.randomUUID()}`;
             setPending(id);
             setSubmitted(null);
-            const rate = Number(connection ? connection.requests_per_minute : form.rate);
+            const rate = Number(saved ? saved.requests_per_minute : form.rate);
             void (async () => {
               let count = 0;
               for (const [index, item] of targets.entries()) {
@@ -130,11 +122,9 @@ function SourceDownloads({
                       code: item.code,
                       rate: String(all ? Math.max(1, Math.floor(rate / 2)) : rate),
                     },
-                    connection ? "" : token,
+                    saved ? "" : token,
                     matchingCatalog,
                   ),
-                  connection: connection?.id ?? "",
-                  connection_revision: connection?.revision ?? "",
                 });
                 if (!ok) break;
                 count += 1;
@@ -171,26 +161,14 @@ function SourceDownloads({
                   }
                 />
               </label>
-              <label>
-                {t("使用连接")}
-                <select
-                  aria-label={t("使用连接")}
-                  value={connectionId}
-                  onChange={event => {
-                    setConnectionId(event.target.value);
-                    setToken("");
-                    setForm(previous => ({ ...previous, code: "" }));
-                  }}
-                >
-                  <option value="">{t("临时凭据")}</option>
-                  {savedConnections.map(item => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {!connection && (
+              {saved ? (
+                <div className="history-credential">
+                  <span>{t("使用已保存的 {label}", { label: source.credential.label })}</span>
+                  <button type="button" onClick={() => openSettings("sources")}>
+                    {t("更改")}
+                  </button>
+                </div>
+              ) : (
                 <label>
                   {source.credential.label}
                   <input
@@ -203,25 +181,16 @@ function SourceDownloads({
                   />
                 </label>
               )}
-              {connection && source.credential.required && !connection.credential_ready && (
-                <p>{t("请在设置中重新输入连接凭据。")}</p>
-              )}
               <div className="history-catalog-action">
                 <button
                   type="button"
-                  disabled={
-                    (source.credential.required &&
-                      !(connection ? connection.credential_ready : token)) ||
-                    !form.product
-                  }
+                  disabled={(source.credential.required && !saved && !token) || !form.product}
                   onClick={() =>
                     void run(source.catalogCommand, {
                       source: source.id,
                       exchange: form.exchange,
                       product: form.product,
-                      token: connection ? "" : token,
-                      connection: connection?.id ?? "",
-                      connection_revision: connection?.revision ?? "",
+                      token: saved ? "" : token,
                     })
                   }
                 >
@@ -270,8 +239,8 @@ function SourceDownloads({
                   min="1"
                   max={source.rate.max}
                   required
-                  disabled={!!connection}
-                  value={connection ? String(connection.requests_per_minute) : form.rate}
+                  disabled={!!saved}
+                  value={saved ? String(saved.requests_per_minute) : form.rate}
                   onChange={event => update("rate", event.target.value)}
                 />
               </label>
@@ -309,7 +278,14 @@ function SourceDownloads({
             {matchingCatalog && !contracts.length && (
               <p role="status">{t("没有找到月份合约，请检查交易所和品种代码。")}</p>
             )}
-            <p className="subtle">{t(source.credential.help)}</p>
+            {!saved && (
+              <div className="history-credential">
+                <span className="subtle">{t(source.credential.help)}</span>
+                <button type="button" onClick={() => openSettings("sources")}>
+                  {t("在设置中保存")}
+                </button>
+              </div>
+            )}
             {all && (
               <p className="subtle">
                 {t(

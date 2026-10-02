@@ -6,7 +6,7 @@
 #include "market_client.hpp"
 #include "node_client.hpp"
 #include "ctp_connections.hpp"
-#include "data_connections.hpp"
+#include "data_credentials.hpp"
 #include "node_enrollment.hpp"
 #include "remote_bundle.hpp"
 #include "research_client.hpp"
@@ -55,9 +55,9 @@ struct Application::Impl {
   json native_plugins = nullptr;
   // Remembered credentials live in the keychain; the helper is found next to
   // the Terminal programs or through ASTERION_KEYCHAIN_EXECUTABLE.
-  DataConnections data_connections{local_node_directory() / "data-connections",
+  DataCredentials data_credentials{local_node_directory() / "data-providers",
                                    keychain_store(keychain_helper())};
-  json connection_verification = nullptr;
+  json credential_verification = nullptr;
   CtpConnections ctp_connections{local_node_directory() / "ctp-connections"};
   // The one CTP account that supplies market data.
   CtpConnection market_ctp() const;
@@ -65,8 +65,9 @@ struct Application::Impl {
   static std::filesystem::path ctp_record_directory(const std::string& account);
   // Stored accounts, each with whether it has a trading record.
   json ctp_accounts() const;
-  DataConnection resolve_data_connection(const std::string& id, const std::string& revision,
-                                         const std::string& source);
+  // The credential a download of this source uses: the one typed for this
+  // request, otherwise the one saved for the source's provider.
+  std::string source_credential(const std::string& source, std::string typed) const;
   json research_result = nullptr;
   // One dataset per portfolio contract, in selection order.
   std::vector<DatasetSelection> selections;
@@ -78,7 +79,6 @@ struct Application::Impl {
   std::vector<json> selection_costs(const json& contracts) const;
   std::vector<HistoryListing> history_contracts;
   std::string history_source;
-  std::string history_connection, history_connection_revision;
   std::string history_exchange, history_product;
   std::int64_t history_cutoff = 0;
   std::shared_ptr<MarketClient> market;

@@ -60,7 +60,7 @@ export function ServiceStatus({
   const warming = !unhealthy && services.some(s => s.desired_running && starting(s));
   const kinds: Record<string, string> = {
     market: "实时行情",
-    research: "回测与因子研究",
+    research: "数据服务",
     live: "CTP 交易",
   };
   const health: Record<string, string> = {

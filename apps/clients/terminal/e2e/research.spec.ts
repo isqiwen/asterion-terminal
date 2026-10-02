@@ -13,7 +13,7 @@ test("Agent runs a bar backtest and restores its evidence", async ({ page }) => 
   await page.reload();
   await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   const research = page.getByRole("region", { name: "期货研究", exact: true });
-  await expect(research.getByText("研究服务已连接", { exact: true })).toBeVisible();
+  await expect(research.getByText("数据服务已连接", { exact: true })).toBeVisible();
   await research.getByRole("button", { name: "新建回测", exact: true }).click();
   const selected = research.getByRole("list", { name: "已选合约" });
   await expect(selected).toContainText("SHFE · rb2610");

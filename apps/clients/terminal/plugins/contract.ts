@@ -33,7 +33,7 @@ export type TerminalContext = {
     id: string,
     options?: { marketMode?: "live" | "history"; page?: string; params?: Record<string, string> },
   ) => void;
-  openSettings: (page?: "preferences" | "connections" | "ctp") => void;
+  openSettings: (page?: "preferences" | "connections" | "ctp" | "sources") => void;
   query: (
     method:
       | "research.minutes.page"

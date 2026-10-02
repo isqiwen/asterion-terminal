@@ -334,7 +334,9 @@ export function NodeServices({
                   <fieldset disabled={disabled}>
                     <legend>{t("部署到 {machine}", { machine: node.id })}</legend>
                     <p className="subtle">
-                      {t("每个服务拥有独立数据目录；研究服务包含回测、因子与下载工作程序。")}
+                      {t(
+                        "每个服务拥有独立数据目录；数据服务保管历史数据，并调度下载、回测和因子分析任务。",
+                      )}
                     </p>
                     <label>
                       {t("服务类型")}

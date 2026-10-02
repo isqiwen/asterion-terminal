@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState } from "react";
 import { readableCtpConnection } from "../bridge/client";
 import type { CtpConnection, Snapshot, TerminalCommand } from "../bridge/client";
 import { translate } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
+import { SettingsDialog } from "./SettingsDialog";
 const t = (key: string) => translate("host", key);
 const blank = {
   name: "",
@@ -12,42 +13,6 @@ const blank = {
   trade_front: "",
   market_front: "",
 };
-// The account form opens over the list: adding or editing never moves the
-// accounts being looked at, and Escape or Cancel leaves them untouched.
-function AccountDialog({
-  title,
-  busy,
-  onCancel,
-  onSubmit,
-  children,
-}: {
-  title: string;
-  busy: boolean;
-  onCancel: () => void;
-  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
-  children: ReactNode;
-}) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const value = dialog.current!;
-    value.showModal();
-    return () => value.close();
-  }, []);
-  return (
-    <dialog
-      ref={dialog}
-      className="service-action-dialog ctp-account-dialog"
-      aria-labelledby="ctp-account-title"
-      onCancel={event => {
-        event.preventDefault();
-        if (!busy) onCancel();
-      }}
-    >
-      <h2 id="ctp-account-title">{title}</h2>
-      <form onSubmit={onSubmit}>{children}</form>
-    </dialog>
-  );
-}
 // One place for the counter accounts the broker issues. Each can trade on the
 // Trading page; exactly one of them supplies market data.
 export function CtpConnections({
@@ -116,9 +81,9 @@ export function CtpConnections({
     </label>
   );
   return (
-    <section className="ctp-settings" aria-label={t("CTP 账户")}>
+    <section className="settings-cards" aria-label={t("CTP 账户")}>
       {unreadable.map(entry => (
-        <section className="ctp-account-card" key={entry.id} aria-label={entry.name}>
+        <section className="settings-card" key={entry.id} aria-label={entry.name}>
           <header>
             <h3>{entry.name}</h3>
           </header>
@@ -126,13 +91,13 @@ export function CtpConnections({
         </section>
       ))}
       {connections.map(connection => (
-        <section className="ctp-account-card" key={connection.id} aria-label={connection.name}>
+        <section className="settings-card" key={connection.id} aria-label={connection.name}>
           <header>
             <h3>{connection.name}</h3>
             {connection.id === snapshot?.ctp_market && (
-              <span className="ctp-badge market">{t("用于行情")}</span>
+              <span className="settings-badge accent">{t("用于行情")}</span>
             )}
-            {connection.trading_record && <span className="ctp-badge">{t("已开通交易")}</span>}
+            {connection.trading_record && <span className="settings-badge">{t("已开通交易")}</span>}
           </header>
           <dl>
             <dt>{t("经纪商代码")}</dt>
@@ -202,7 +167,7 @@ export function CtpConnections({
         {t("添加账户")}
       </button>
       {adding && (
-        <AccountDialog
+        <SettingsDialog
           title={t(editing ? "编辑账户" : "新建账户")}
           busy={busy}
           onCancel={() => {
@@ -270,7 +235,7 @@ export function CtpConnections({
               {t("保存账户")}
             </button>
           </div>
-        </AccountDialog>
+        </SettingsDialog>
       )}
       {!adding && error && (
         <p className="alert" role="alert">

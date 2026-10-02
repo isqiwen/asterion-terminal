@@ -1,6 +1,6 @@
 #pragma once
 // Test-only credential store: never touches the login keychain.
-#include "data_connections.hpp"
+#include "data_credentials.hpp"
 #include <map>
 namespace asterion::test {
 class MemoryCredentials final : public terminal::CredentialStore {

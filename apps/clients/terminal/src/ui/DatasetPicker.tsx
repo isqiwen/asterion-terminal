@@ -134,7 +134,7 @@ export function DatasetPicker({
       ...selection(valid ? sourceRequest.id : ""),
       consumed: sourceRequest.request,
     }));
-    setError(valid ? "" : t("数据版本不属于当前研究服务，请重新选择数据。"));
+    setError(valid ? "" : t("数据版本不属于当前数据服务，请重新选择数据。"));
     // Consume each navigation intent once; subsequent edits belong to this draft.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -255,7 +255,7 @@ export function DatasetPicker({
       )}
       {loading && <p role="status">{t("正在读取历史仓库…")}</p>}
       {!snapshot?.research ? (
-        <p className="subtle">{t("研究服务未连接，无法读取已下载的历史数据。")}</p>
+        <p className="subtle">{t("数据服务未连接，无法读取已下载的历史数据。")}</p>
       ) : !versions.length ? (
         <p className="subtle">{t("历史仓库还没有数据。请先在数据页下载分钟线或日线。")}</p>
       ) : (

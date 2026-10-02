@@ -100,7 +100,7 @@ test("data handoff stays bound to its service and never reuses another contract'
   await expect(page.getByLabel("合约乘数", { exact: true })).not.toHaveValue("99");
   identity = "other-service-with-same-task-ids";
   await expect(
-    page.getByText("数据版本不属于当前研究服务，请重新选择数据。", { exact: true }),
+    page.getByText("数据版本不属于当前数据服务，请重新选择数据。", { exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel("K 线来源", { exact: true })).toHaveValue("");
   await expect(page.getByRole("button", { name: "加入组合", exact: true })).toBeDisabled();

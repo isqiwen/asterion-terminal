@@ -34,6 +34,28 @@ test("startup lists unloadable plugins and interrupted tasks without blocking en
   await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
 });
 
+test("startup starts a data service that was left stopped", async ({ page, request }) => {
+  const call = async (method: string, params: object = {}) => {
+    const body = await (
+      await request.post("/__asterion/api", { data: { version: 1, method, params } })
+    ).json();
+    if (body.error) throw new Error(`${method}: ${body.error.message}`);
+    return body.result;
+  };
+  await call("node.action", { id: "local", service: "research", action: "stop" });
+  const research = async () =>
+    (await call("runtime.snapshot")).nodes
+      .find((node: { id: string }) => node.id === "local")
+      .health.services.find((service: { id: string }) => service.id === "research");
+  await expect.poll(async () => (await research()).desired_running).toBe(false);
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled({
+    timeout: 30000,
+  });
+  expect((await research()).health).toBe("ready");
+  expect((await call("runtime.snapshot")).research.online).toBe(true);
+});
+
 test("startup waits for the first service heartbeats before offering entry", async ({ page }) => {
   let health = "starting";
   await page.route("**/__asterion/api", async route => {
@@ -54,7 +76,7 @@ test("startup waits for the first service heartbeats before offering entry", asy
   });
   await page.goto("/");
   // Market is healthy; research has started but not answered a heartbeat yet.
-  const research = page.locator(".setup-step").filter({ hasText: "研究服务" });
+  const research = page.locator(".setup-step").filter({ hasText: "数据服务" });
   await expect(research).toContainText("进行中");
   await expect(page.locator(".setup-step").filter({ hasText: "行情服务" })).toContainText("完成");
   await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toHaveCount(0);
@@ -65,7 +87,7 @@ test("startup waits for the first service heartbeats before offering entry", asy
   health = "failed";
   await page.reload();
   await expect(page.getByRole("button", { name: "重试启动", exact: true })).toBeVisible();
-  await expect(failedStep(page)).toHaveText(/^研究服务/);
+  await expect(failedStep(page)).toHaveText(/^数据服务/);
 });
 
 test("startup reports the failing step, retries and waits for the user on every launch", async ({
@@ -130,14 +152,14 @@ test("startup reports the failing step, retries and waits for the user on every 
   await page.getByRole("button", { name: "重试启动", exact: true }).click();
   await expect(page.getByRole("button", { name: "重试启动", exact: true })).toBeEnabled();
   expect(researchStarts).toBe(1);
-  await expect(failedStep(page)).toHaveText(/^研究服务/);
+  await expect(failedStep(page)).toHaveText(/^数据服务/);
   failResearch = false;
   await page.getByRole("button", { name: "重试启动", exact: true }).click();
   await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
   expect(starts).toBe(4);
   expect(marketStarts).toBe(3);
   expect(researchStarts).toBe(2);
-  await expect(page.getByRole("progressbar", { name: "研究服务" })).toHaveAttribute(
+  await expect(page.getByRole("progressbar", { name: "数据服务" })).toHaveAttribute(
     "aria-valuenow",
     "100",
   );
@@ -235,7 +257,7 @@ for (const failure of ["market", "research", "stale"] as const)
     await expect(page.getByRole("button", { name: "重试启动", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toHaveCount(0);
     await expect(failedStep(page)).toHaveText(
-      { market: /^行情服务/, research: /^研究服务/, stale: /^服务管理器/ }[failure],
+      { market: /^行情服务/, research: /^数据服务/, stale: /^服务管理器/ }[failure],
     );
     fail = false;
     await page.getByRole("button", { name: "重试启动", exact: true }).click();

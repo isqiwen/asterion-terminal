@@ -15,7 +15,7 @@ test("compact footer exposes services, tasks and navigation", async ({ page }) =
   await expect(panel).not.toContainText("本机服务");
   await expect(panel).toContainText("此电脑");
   await expect(panel).toContainText("实时行情");
-  await expect(panel).toContainText("回测与因子研究");
+  await expect(panel).toContainText("数据服务");
   await expect(panel.getByText("market-data", { exact: true })).not.toBeVisible();
   await panel.getByText("连接详情", { exact: true }).click();
   await expect(panel.getByText("market-data", { exact: true })).toBeVisible();

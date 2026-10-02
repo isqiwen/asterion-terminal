@@ -217,9 +217,9 @@ export type FirewallPlan = {
 export type TerminalCommand =
   | "node.agent.upgrade"
   | "node.agent.inspect"
-  | "research.connections.save"
-  | "research.connections.remove"
-  | "research.connections.verify"
+  | "research.credentials.save"
+  | "research.credentials.clear"
+  | "research.credentials.verify"
   | "ctp.connections.save"
   | "ctp.connections.remove"
   | "ctp.connections.market"
@@ -460,21 +460,28 @@ export type HistoryConnectionSchema = {
   requests_per_minute_default: number;
   requests_per_minute_max: number;
 };
-export type DataConnection = {
-  id: string;
-  name: string;
-  source: string;
-  plugin_id: string;
-  revision: string;
+// What was saved for one data provider (a data source plugin): a single
+// credential used by all of its sources. The credential itself never leaves
+// the core.
+export type DataCredential = {
+  provider: string;
   requests_per_minute: number;
   remember: boolean;
   credential_ready: boolean;
 };
-// A stored connection file the core could not read; kept for inspection.
-export type UnreadableDataConnection = { id: string; name: string; error: "unreadable" };
-export type DataConnectionEntry = DataConnection | UnreadableDataConnection;
-export const readableConnection = (entry: DataConnectionEntry): entry is DataConnection =>
-  !("error" in entry);
+// A stored file the core could not read; kept for inspection.
+export type UnreadableDataCredential = { provider: string; error: "unreadable" };
+export type DataCredentialEntry = DataCredential | UnreadableDataCredential;
+export type UnreadableCtpConnection = { id: string; name: string; error: "unreadable" };
+// The saved credential of the provider a source belongs to, when it can be used.
+export function savedCredential(
+  snapshot: Snapshot | null,
+  source: string,
+): DataCredential | undefined {
+  const provider = snapshot?.research?.sources.find(item => item.id === source)?.plugin_id;
+  const entry = snapshot?.data_credentials?.find(item => item.provider === provider);
+  return entry && !("error" in entry) && entry.credential_ready ? entry : undefined;
+}
 // One counter account as the broker issues it; passwords are never part of it.
 export type CtpConnection = {
   id: string;
@@ -488,7 +495,7 @@ export type CtpConnection = {
   // Whether this account has its trading record; its counter details are then fixed.
   trading_record: boolean;
 };
-export type CtpConnectionEntry = CtpConnection | UnreadableDataConnection;
+export type CtpConnectionEntry = CtpConnection | UnreadableCtpConnection;
 export const readableCtpConnection = (entry: CtpConnectionEntry): entry is CtpConnection =>
   !("error" in entry);
 // The one account that supplies market data.
@@ -749,8 +756,6 @@ export type HistoryDatasetRecord = {
 };
 export type HistoryContractCatalog = {
   source: string;
-  connection: string;
-  connection_revision: string;
   exchange: string;
   product: string;
   cutoff_ns: string;
@@ -821,14 +826,14 @@ export type NativePluginInfo = {
 };
 export type Snapshot = {
   plugin_candidate?: NativePluginInfo;
-  data_connections?: DataConnectionEntry[];
+  data_credentials?: DataCredentialEntry[];
   ctp_connections?: CtpConnectionEntry[];
   // The CTP account that supplies market data; trading accounts are independent.
   ctp_market?: string | null;
-  connection_verification?: null | {
-    id: string;
-    revision: string;
-    checks: { scope: string; state: number }[];
+  // The last check of a provider's saved credential, per source.
+  credential_verification?: null | {
+    provider: string;
+    checks: { source: string; scope: string; state: number }[];
   };
   daily_page: DailyPage | null;
   history_page: HistoryPage | null;

@@ -362,8 +362,6 @@ TEST(TerminalDailyQueries, SubmissionRequiresCurrentCatalogAndSendsTypedDatesToS
   const auto cutoff = parse_shanghai_time("2023-06-01 10:00:00");
   auto submission =
       request("research.daily.submit", {{"id", "daily"},
-                                        {"connection", ""},
-                                        {"connection_revision", ""},
                                         {"contract_id", "SHFE/cu/2024-03"},
                                         {"source", "tushare.fut_daily"},
                                         {"requests_per_minute", 60},
@@ -461,12 +459,9 @@ TEST(TerminalHistoryUpdate, SlowPlanDoesNotBlockAndObsoleteServiceCannotSubmit) 
   replacement.release();
   const auto plan =
       app.dispatch(request("research.history.plan", params)).at("history_update_plan");
-  auto submit = request("research.history.submit", {{"id", "update"},
-                                                    {"query", params},
-                                                    {"plan_id", plan.at("id")},
-                                                    {"token", ""},
-                                                    {"connection", ""},
-                                                    {"connection_revision", ""}});
+  auto submit =
+      request("research.history.submit",
+              {{"id", "update"}, {"query", params}, {"plan_id", plan.at("id")}, {"token", ""}});
   replacement.reset();
   auto stale = std::async(std::launch::async, [&] { return app.dispatch(submit); });
   EXPECT_TRUE(replacement.wait(1));

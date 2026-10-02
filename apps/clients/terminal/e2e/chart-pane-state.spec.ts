@@ -31,8 +31,6 @@ test("chart panes retain intervals and indicators across contracts without subst
         source: "tushare.ft_mins",
         exchange: "SHFE",
         product: "RB",
-        connection: "",
-        connection_revision: "",
         cutoff_ns: "0",
         items: [
           {

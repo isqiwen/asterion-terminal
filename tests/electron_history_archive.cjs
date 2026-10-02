@@ -198,7 +198,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     await page.getByLabel("数据集名称", { exact: true }).fill("原生回测输入");
     await page.getByRole("button", { name: "保存数据集", exact: true }).click();
     await expect(
-      page.getByText("数据集已保存，可在当前研究服务中重复使用。", { exact: true }),
+      page.getByText("数据集已保存，可在当前数据服务中重复使用。", { exact: true }),
     ).toBeVisible();
     const saved = (await call("research.dataset.saved")).saved_datasets[0];
     await call("research.dataset.clear");
@@ -343,7 +343,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     );
     const beforeCross = await call("runtime.snapshot");
     await usagePanel.getByRole("button", { name: "刷新使用情况", exact: true }).click();
-    const otherResearch = usagePanel.getByRole("region", { name: "其他研究服务", exact: true });
+    const otherResearch = usagePanel.getByRole("region", { name: "其他数据服务", exact: true });
     await expect(
       otherResearch.getByRole("region", { name: "本机 / other-research", exact: true }),
     ).toContainText("已检查，发现 0 条关联记录");

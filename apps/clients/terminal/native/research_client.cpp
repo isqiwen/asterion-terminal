@@ -176,6 +176,15 @@ data::v1::HistorySource ResearchClient::source(const std::string& id) const {
       return source;
   throw std::invalid_argument("historical data source is unavailable");
 }
+std::vector<data::v1::HistorySource>
+ResearchClient::provider_sources(const std::string& plugin_id) const {
+  std::lock_guard lock(impl_->mutex);
+  std::vector<data::v1::HistorySource> result;
+  for (const auto& source : impl_->typed_sources)
+    if (source.plugin_id() == plugin_id && source.has_connection())
+      result.push_back(source);
+  return result;
+}
 data::v1::HistoryConnectionVerification
 ResearchClient::verify_connection(const std::string& source, const std::string& credential) {
   wire::TaskRequest request;

@@ -79,7 +79,7 @@ export function historySources(declared: readonly NativeHistorySource[]): Histor
           : translate("asterion.terminal.data-workbench", "数据源凭据"),
         required: info.credential_required,
         maxLength: info.connection?.credential_max_length ?? 256,
-        help: "Token 用于合约查询与本机下载；任务提交后清空输入。任务凭据由当前账户保护。",
+        help: "只用于这一次查询和下载，提交后清空。",
       },
       catalog: snapshot =>
         snapshot?.history_contracts?.source === info.id ? snapshot.history_contracts : null,
@@ -91,8 +91,6 @@ export function historySources(declared: readonly NativeHistorySource[]): Histor
         ...(daily ? {} : { interval_minutes: Number(query.frequency) }),
         requests_per_minute: Number(query.rate),
         token,
-        connection: "",
-        connection_revision: "",
       }),
       ownsTask: task =>
         task.kind === (daily ? "daily_download" : "minute_download") &&
