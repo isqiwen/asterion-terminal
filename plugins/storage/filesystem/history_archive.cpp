@@ -109,17 +109,19 @@ void Archive::publish(const data::v1::HistoryRecord& record) {
     checked /= part;
     safe(checked);
   }
-  if (record.has_minutes())
-    verify_minute_result(record.minutes(), record.minute_result());
-  else
-    verify_daily_result(record.daily(), record.daily_result());
   FileLock lock(root_, "archive.lock");
   const auto index = root_ / "index" / (item.id + ".pb");
   safe(index);
+  // A version is verified once, when first published; republishing the same
+  // version (every task service start) only checks its index record.
   if (std::filesystem::exists(index)) {
     (void)get(item.id);
     return;
   }
+  if (record.has_minutes())
+    verify_minute_result(record.minutes(), record.minute_result());
+  else
+    verify_daily_result(record.daily(), record.daily_result());
   replace_file_durably(index, record.SerializeAsString());
 }
 data::v1::HistoryRecord Archive::get(const std::string& id) const {

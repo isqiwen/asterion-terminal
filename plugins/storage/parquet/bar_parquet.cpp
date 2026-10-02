@@ -8,19 +8,23 @@ namespace asterion::parquet {
 namespace {
 namespace fs = std::filesystem;
 constexpr auto scale = "100000000";
-// A private in-memory engine per call: no catalog, no extension downloads.
-struct Engine {
-  duckdb::DBConfig config;
-  std::unique_ptr<duckdb::DuckDB> database;
-  std::unique_ptr<duckdb::Connection> connection;
-  Engine() {
+// One in-memory engine per process (no catalog, no extension downloads);
+// starting DuckDB costs far more than a query. Each call has its own
+// connection; DuckDB serializes what it must.
+duckdb::DuckDB& shared_database() {
+  static const auto database = [] {
+    duckdb::DBConfig config;
     config.SetOptionByName("autoinstall_known_extensions", duckdb::Value::BOOLEAN(false));
     config.SetOptionByName("autoload_known_extensions", duckdb::Value::BOOLEAN(false));
     config.SetOptionByName("allow_community_extensions", duckdb::Value::BOOLEAN(false));
     config.SetOptionByName("threads", duckdb::Value::BIGINT(1));
-    database = std::make_unique<duckdb::DuckDB>(nullptr, &config);
-    connection = std::make_unique<duckdb::Connection>(*database);
-  }
+    return std::make_unique<duckdb::DuckDB>(nullptr, &config);
+  }();
+  return *database;
+}
+struct Engine {
+  std::unique_ptr<duckdb::Connection> connection;
+  Engine() : connection(std::make_unique<duckdb::Connection>(shared_database())) {}
   std::unique_ptr<duckdb::MaterializedQueryResult> run(const std::string& sql) {
     auto result = connection->Query(sql);
     if (result->HasError())
@@ -91,7 +95,7 @@ std::int64_t narrow(const duckdb::hugeint_t& value) {
 }
 void write_minute_bars(const fs::path& path, const std::vector<HistoricalBar>& bars) {
   Engine engine;
-  engine.run("CREATE TABLE bars(timestamp_ns BIGINT NOT NULL, open DECIMAL(18,8) NOT NULL,"
+  engine.run("CREATE TEMP TABLE bars(timestamp_ns BIGINT NOT NULL, open DECIMAL(18,8) NOT NULL,"
              " high DECIMAL(18,8) NOT NULL, low DECIMAL(18,8) NOT NULL,"
              " close DECIMAL(18,8) NOT NULL, volume DECIMAL(38,8) NOT NULL,"
              " amount DECIMAL(38,8) NOT NULL, open_interest DECIMAL(38,8) NOT NULL,"
@@ -177,7 +181,7 @@ std::vector<HistoricalBar> read_minute_bars(const fs::path& path) {
 }
 void write_daily_bars(const fs::path& path, const std::vector<HistoricalDailyBar>& bars) {
   Engine engine;
-  engine.run("CREATE TABLE bars(trading_day DATE NOT NULL, open DECIMAL(18,8) NOT NULL,"
+  engine.run("CREATE TEMP TABLE bars(trading_day DATE NOT NULL, open DECIMAL(18,8) NOT NULL,"
              " high DECIMAL(18,8) NOT NULL, low DECIMAL(18,8) NOT NULL,"
              " close DECIMAL(18,8) NOT NULL, volume DECIMAL(38,8) NOT NULL,"
              " amount DECIMAL(38,8) NOT NULL, open_interest DECIMAL(38,8) NOT NULL,"

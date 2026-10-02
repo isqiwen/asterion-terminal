@@ -287,7 +287,7 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
   EXPECT_EQ(same["result"]["revision"], revision);
   EXPECT_FALSE(same["result"].contains("datasets"));
   EXPECT_TRUE(call(runtime.get(), request("runtime.snapshot", {{"since", "x"}})).contains("error"));
-  const auto params = history(runtime.get(), std::vector<int>(500, 100), "concurrent");
+  const auto params = history(runtime.get(), std::vector<int>(20000, 100), "concurrent");
   ASSERT_TRUE(call(runtime.get(), request("research.dataset.clear")).contains("result"));
   std::atomic<bool> done{false};
   std::thread slow([&] {
@@ -311,7 +311,7 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
     if (datasets.empty())
       ++concurrent_reads;
     else
-      EXPECT_EQ(datasets[0]["count"], 500);
+      EXPECT_EQ(datasets[0]["count"], 20000);
     const auto command_started = std::chrono::steady_clock::now();
     const auto inspect = call(runtime.get(), request("node.agent.inspect"));
     EXPECT_LT(std::chrono::steady_clock::now() - command_started,
@@ -327,7 +327,7 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
   const auto fresh = call(runtime.get(), request("runtime.snapshot", {{"since", revision}}));
   EXPECT_FALSE(fresh["result"].contains("unchanged"));
   EXPECT_GT(fresh["result"]["revision"].get<std::uint64_t>(), revision);
-  EXPECT_EQ(fresh["result"]["datasets"][0]["count"], 500);
+  EXPECT_EQ(fresh["result"]["datasets"][0]["count"], 20000);
 }
 
 TEST(MarketHistory, BoundsEventsAndBreaksOnGapsFailuresAndDisconnects) {

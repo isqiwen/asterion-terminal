@@ -134,7 +134,11 @@ TEST(HistoryArchive, RejectsUnsupportedVersionAndCorruptChunksWithoutOverwriting
   query.set_limit(10);
   EXPECT_THROW(history_files::read_daily_page(record.daily(), record.daily_result(), query),
                std::exception);
-  EXPECT_THROW(archive.publish(record), std::exception);
+  // Republishing a known version checks only its index record: corruption is
+  // reported when the data is read, and nothing is overwritten.
+  EXPECT_NO_THROW(archive.publish(record));
+  EXPECT_THROW(history_files::read_daily_page(record.daily(), record.daily_result(), query),
+               std::exception);
   std::ifstream in(chunk);
   std::string content;
   in >> content;

@@ -421,8 +421,12 @@ struct Store::Impl {
                        "explicit retry required");
         commit(entry, next, "");
       }
+      // Startup checks each result file against its recorded digest only.
+      // Deterministic verification (re-reading downloads, recomputing
+      // backtests and factors) runs on first read: doing it here made
+      // startup proportional to all work ever stored.
       if (entry.task.state() == wire::SUCCEEDED)
-        static_cast<void>(read_result(entry));
+        check_result_digest(entry);
     }
   }
   void writable() const {
@@ -493,13 +497,19 @@ struct Store::Impl {
     commit(entry, next, entry.token);
     entry.verified_digest.swap(verified);
   }
-  wire::TaskResponse read_result(const Entry& entry) const {
+  void check_result_digest(const Entry& entry) const {
     const auto path = result_path(entry);
     safe(path);
     safe(path.parent_path());
     if (!fs::is_regular_file(path) || fs::file_size(path) > 64 * 1024 * 1024 ||
         sha256_file(path) != entry.task.result_digest())
       throw std::invalid_argument("task result digest mismatch");
+  }
+  // `deep` runs the deterministic verification (once per digest per process);
+  // without it only the result file's digest is checked.
+  wire::TaskResponse read_result(const Entry& entry, bool deep = true) const {
+    check_result_digest(entry);
+    const auto path = result_path(entry);
     std::ifstream input(path, std::ios::binary);
     const std::vector<Json> records{
         parse_json(std::string(std::istreambuf_iterator<char>(input), {}), 64 * 1024 * 1024)};
@@ -507,7 +517,7 @@ struct Store::Impl {
     if (records.front().at("version") != 1)
       throw std::invalid_argument("unsupported result storage version");
     wire::TaskResponse result;
-    const bool verify = !read_only && entry.verified_digest != entry.task.result_digest();
+    const bool verify = deep && !read_only && entry.verified_digest != entry.task.result_digest();
     if (entry.task.kind() == wire::DAILY_FACTOR) {
       *result.mutable_daily_factor() =
           message<wire::DailyFactorResult>(records.front().at("result"));
@@ -549,7 +559,8 @@ Store::Store(fs::path directory, std::shared_ptr<const Clock> clock, bool read_o
     if (entry.task.state() != wire::SUCCEEDED ||
         (!entry.task.has_daily() && !entry.task.has_minutes()))
       continue;
-    const auto result = impl_->read_result(entry);
+    // Already published versions were verified when first published.
+    const auto result = impl_->read_result(entry, false);
     data::v1::HistoryRecord record;
     record.set_version(1);
     if (entry.task.has_daily()) {
