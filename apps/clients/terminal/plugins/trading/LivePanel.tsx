@@ -559,12 +559,26 @@ function LiveAccount({
         </p>
       )}
       {live.unconfirmed.length > 0 && (
-        <p className="alert" role="alert">
-          {t(
-            "{n} 笔已记录的委托没有出现在券商回报中：{ids}。它们不会被重发，并继续占用在途委托额度；请在券商端核实。",
-            { n: live.unconfirmed.length, ids: live.unconfirmed.map(item => item.id).join("、") },
-          )}
-        </p>
+        <section className="alert" role="alert" aria-label={t("未确认委托")}>
+          <p>
+            {t(
+              "{n} 笔已记录的委托没有出现在券商回报中：{ids}。它们不会被重发，并继续占用在途委托额度；请在券商端核实。",
+              { n: live.unconfirmed.length, ids: live.unconfirmed.map(item => item.id).join("、") },
+            )}
+          </p>
+          <p>{t("在券商端确认某笔委托不存在后，可将其标为已核实，它不再占用在途委托额度。")}</p>
+          <div className="source-actions">
+            {live.unconfirmed.map(item => (
+              <button
+                key={item.id}
+                disabled={busy || stale}
+                onClick={() => void act({ action: "live_resolve", order_id: item.id })}
+              >
+                {t("已核实券商无此委托：{id}", { id: item.id })}
+              </button>
+            ))}
+          </div>
+        </section>
       )}
       {(live.phase === "disconnected" || live.phase === "error") && (
         <form

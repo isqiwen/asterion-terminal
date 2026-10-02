@@ -522,5 +522,6 @@
   "task store is read only": "Task store is read only",
   "historical archive is read only": "Historical archive is read only",
   "task reference inspection limit exceeded": "Task reference inspection limit exceeded",
-  "invalid task record size": "Invalid task record size"
+  "invalid task record size": "Invalid task record size",
+  "only an unconfirmed order of a synchronized account can be resolved": "only an unconfirmed order of a synchronized account can be resolved"
 }

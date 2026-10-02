@@ -32,6 +32,8 @@ private:
     InstrumentId instrument;
     Offset offset = Offset::open;
     Decimal quantity;
+    // The owner verified at the broker that it does not exist.
+    bool resolved = false;
   };
   void append(const Json& record);
   const Instrument& allowed(const InstrumentId& id) const;

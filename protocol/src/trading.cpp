@@ -346,6 +346,9 @@ v1::Command encode_command(const Json& c) {
   } else if (action == "live_revoke") {
     require_fields(c, {"request_id", "action"});
     result.mutable_live_revoke();
+  } else if (action == "live_resolve") {
+    require_fields(c, {"request_id", "action", "order_id"});
+    result.mutable_live_resolve()->set_order_id(c.at("order_id").get<std::string>());
   } else if (action == "strategy_revoke") {
     require_fields(c, {"request_id", "action", "grant_id"});
     result.mutable_strategy_revoke()->set_grant_id(c.at("grant_id").get<std::string>());
@@ -420,6 +423,9 @@ Json decode_command(const v1::Command& c) {
     break;
   case v1::Command::kLiveRevoke:
     result["action"] = "live_revoke";
+    break;
+  case v1::Command::kLiveResolve:
+    result.update({{"action", "live_resolve"}, {"order_id", c.live_resolve().order_id()}});
     break;
   case v1::Command::kStrategyRevoke:
     result.update({{"action", "strategy_revoke"}, {"grant_id", c.strategy_revoke().grant_id()}});

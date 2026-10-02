@@ -64,12 +64,13 @@ struct TradingClient::Impl {
     wire::Response response;
     const auto sent = std::chrono::steady_clock::now();
     // Reads bound how long a status poll can wait; mutations keep a longer
-    // deadline because their outcome becomes unknown on timeout.
-    const auto timeout = request.has_command() || request.has_create() || request.has_recover() ||
-                                 request.has_live_create() || request.has_live_connect() ||
-                                 request.has_live_disconnect()
-                             ? 10s
-                             : 3s;
+    // deadline because their outcome becomes unknown on timeout. A live order
+    // may wait up to 10 s for its quote and 5 s for the SDK to send it, so the
+    // live deadline must exceed that or a sent order would look lost.
+    const bool mutation = request.has_command() || request.has_create() || request.has_recover() ||
+                          request.has_live_create() || request.has_live_connect() ||
+                          request.has_live_disconnect() || request.has_live_costs();
+    const auto timeout = !mutation ? 3s : mode == TradingMode::live ? 30s : 10s;
     try {
       if (remote->endpoint.empty())
         tcp.send(request.SerializeAsString(), timeout);

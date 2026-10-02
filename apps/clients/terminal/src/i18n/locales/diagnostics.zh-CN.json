@@ -522,5 +522,6 @@
   "task store is read only": "任务账本为只读状态",
   "historical archive is read only": "历史仓库为只读状态",
   "task reference inspection limit exceeded": "任务引用检查超过容量限制，检查未完成",
-  "invalid task record size": "任务记录大小无效，检查未完成"
+  "invalid task record size": "任务记录大小无效，检查未完成",
+  "only an unconfirmed order of a synchronized account can be resolved": "只能核实已同步账户中的未确认委托。"
 }

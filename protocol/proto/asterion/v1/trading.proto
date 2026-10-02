@@ -31,6 +31,9 @@ message LiveCredentials { string password = 1; string auth_code = 2; }
 // The owner confirms the account by its user ID; valid for the current
 // connection and trading day only.
 message LiveAuthorize { string user_id = 1; }
+// The owner verified at the broker that an unconfirmed order does not exist;
+// it stops counting as working exposure. It is never resent either way.
+message LiveResolve { string order_id = 1; }
 enum Side { SIDE_UNSPECIFIED = 0; BUY = 1; SELL = 2; }
 // CLOSE leaves bucket assignment to the exchange rule (see ClosePolicy).
 enum Offset { OFFSET_UNSPECIFIED = 0; OPEN = 1; CLOSE_TODAY = 2; CLOSE_YESTERDAY = 3; CLOSE = 4; }
@@ -58,7 +61,7 @@ message ReplaySettle { uint32 day_index = 1; }
 message ReplayState { uint32 settled_days = 1; bool settlement_due = 2; bool day_end = 3; uint32 days = 4; }
 message Command {
   string request_id = 1;
-  oneof operation { Empty advance = 2; Submit submit = 3; Cancel cancel = 4; StrategyGrant strategy_grant = 5; StrategyRevoke strategy_revoke = 6; StrategyTarget strategy_target = 7; ReplaySettle replay_settle = 8; LiveAuthorize live_authorize = 9; Empty live_revoke = 10; }
+  oneof operation { Empty advance = 2; Submit submit = 3; Cancel cancel = 4; StrategyGrant strategy_grant = 5; StrategyRevoke strategy_revoke = 6; StrategyTarget strategy_target = 7; ReplaySettle replay_settle = 8; LiveAuthorize live_authorize = 9; Empty live_revoke = 10; LiveResolve live_resolve = 11; }
 }
 // A connection is bound to one immutable process session and mode.
 message Request {

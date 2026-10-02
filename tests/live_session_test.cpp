@@ -232,6 +232,34 @@ TEST_F(Live, RecordedOrdersTheBrokerDoesNotReportCountAsWorkingExposure) {
   restored.execute(authorize("authorize.restored"));
   EXPECT_THROW(restored.execute(submit("next", "1")), std::invalid_argument)
       << "the unconfirmed order still occupies the working-order limit";
+  const auto resolve = [](std::string id, std::string order) {
+    return Json{{"request_id", std::move(id)}, {"action", "live_resolve"}, {"order_id", order}};
+  };
+  EXPECT_THROW(restored.execute(resolve("resolve.unknown", "missing")), std::invalid_argument);
+  // The owner verified at the broker that "lost" does not exist.
+  restored.execute(resolve("resolve.lost", "lost"));
+  EXPECT_TRUE(restored.snapshot().at("unconfirmed").empty());
+  restored.execute(resolve("resolve.lost", "lost")); // retried request: acknowledged
+  EXPECT_THROW(restored.execute(resolve("resolve.again", "lost")), std::invalid_argument)
+      << "a resolved order is no longer unconfirmed";
+  restored.execute(submit("next", "1"));
+  EXPECT_TRUE(find_order(restored.snapshot(), "next").is_object());
+}
+TEST_F(Live, ResolvedOrdersStayResolvedAcrossRecovery) {
+  {
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, manifest());
+    ASSERT_EQ(ready(session).at("phase"), "ready");
+    session.execute(authorize());
+    session.execute(submit("lost", "3"));
+  }
+  exchange.reset();
+  {
+    LiveSession restored(directory.path, ASTERION_TEST_CTP_TRADER);
+    ASSERT_EQ(ready(restored).at("unconfirmed").size(), 1U);
+    restored.execute({{"request_id", "resolve"}, {"action", "live_resolve"}, {"order_id", "lost"}});
+  }
+  LiveSession again(directory.path, ASTERION_TEST_CTP_TRADER);
+  EXPECT_TRUE(ready(again).at("unconfirmed").empty());
 }
 TEST_F(Live, CredentialsAreNeverWrittenAndHeadersPinTheEngine) {
   {
@@ -249,9 +277,9 @@ TEST_F(Live, CredentialsAreNeverWrittenAndHeadersPinTheEngine) {
   }
   const auto header_file = test::journal_record(directory.path, 0);
   auto header = test::read_record(header_file);
-  EXPECT_EQ(header.at("engine"), "asterion.live-futures.v4");
+  EXPECT_EQ(header.at("engine"), "asterion.live-futures.v5");
   EXPECT_EQ(header.at("manifest"), manifest());
-  header["engine"] = "asterion.live-futures.v1";
+  header["engine"] = "asterion.live-futures.v4";
   test::write_record(header_file, header);
   EXPECT_THROW((LiveSession{directory.path, ASTERION_TEST_CTP_TRADER}), std::invalid_argument);
 }
@@ -331,7 +359,9 @@ TEST(LiveProtocol, SnapshotAndCommandsRoundTrip) {
   auto expected = snapshot;
   expected["mode"] = "live";
   EXPECT_EQ(protocol::decode_live_snapshot(protocol::encode_live_snapshot(snapshot)), expected);
-  for (const auto& command : {authorize(), Json{{"request_id", "r"}, {"action", "live_revoke"}}})
+  for (const auto& command :
+       {authorize(), Json{{"request_id", "r"}, {"action", "live_revoke"}},
+        Json{{"request_id", "s"}, {"action", "live_resolve"}, {"order_id", "o"}}})
     EXPECT_EQ(protocol::decode_command(protocol::encode_command(command)), command);
   auto wrong = snapshot;
   wrong["orders"][0]["status"] = "lost";

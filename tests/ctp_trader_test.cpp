@@ -393,3 +393,20 @@ TEST_F(CtpTrader, LateQueryRepliesCannotReplaceReconnectedAccountState) {
   EXPECT_TRUE(after.positions.empty());
   EXPECT_TRUE(after.costs.empty());
 }
+TEST_F(CtpTrader, QuotesGoAheadOfQueuedRateQueries) {
+  ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow);
+  trader.start();
+  trader.connect(configuration());
+  ASSERT_EQ(wait_for(trader, ready, 15s).phase, "ready");
+  // Ten rate queries need over ten seconds at the CTP query limit.
+  std::vector<std::pair<InstrumentId, std::string>> contracts;
+  for (const auto* symbol : {"rb2610", "rb2611", "rb2612", "rb2701", "rb2702"})
+    contracts.push_back({{"SHFE", symbol}, "rb"});
+  trader.query_costs(contracts);
+  const auto started = std::chrono::steady_clock::now();
+  const auto quote = trader.quote({"SHFE", "rb2610"});
+  ASSERT_TRUE(quote);
+  EXPECT_EQ(quote->last, d("3500"));
+  EXPECT_LT(std::chrono::steady_clock::now() - started, 4s)
+      << "an order's quote must not wait behind rate queries";
+}

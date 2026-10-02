@@ -10,11 +10,13 @@ namespace asterion::trading {
 namespace {
 // Record 0 carries this identity. Bump it whenever authorization, allowlist,
 // risk or order-recording semantics change; recovery refuses other identities.
+// v5: the owner can resolve an unconfirmed order after verifying it at the
+// broker; resolved orders no longer count as working exposure.
 // v4: reconnect rebuilds broker reports; unreported intents stay unconfirmed.
 // v3: authorization and order submission are fenced by connection generation.
 // v2: limit prices are checked against the broker's latest market (exchange
 // limits and a session deviation bound) before risk.
-const std::string journal_engine = "asterion.live-futures.v4";
+const std::string journal_engine = "asterion.live-futures.v5";
 constexpr int journal_format = 1;
 std::string text(const Json& value, const char* key) {
   auto result = value.at(key).get<std::string>();
@@ -134,7 +136,13 @@ LiveSession::LiveSession(std::filesystem::path directory, const std::filesystem:
     const auto action = text(command, "action");
     if (action == "live_authorize")
       require_fields(record, {"command", "authorization"});
-    else if (action != "submit")
+    else if (action == "live_resolve") {
+      require_fields(record, {"command"});
+      const auto found = intents_.find(text(command, "order_id"));
+      if (found == intents_.end())
+        throw std::invalid_argument("live trading record resolves an unknown order");
+      found->second.resolved = true;
+    } else if (action != "submit")
       require_fields(record, {"command"});
     else {
       require_fields(record, {"command", "broker_key", "trading_day"});
@@ -196,7 +204,7 @@ LiveSession::unconfirmed(const BrokerSnapshot& state) const {
   if (state.phase != "ready")
     return result;
   for (const auto& [order_id, intent] : intents_) {
-    if (intent.trading_day != state.trading_day)
+    if (intent.resolved || intent.trading_day != state.trading_day)
       continue;
     const bool reported = std::ranges::any_of(state.orders, [&](const BrokerOrder& order) {
       return order.broker_key == intent.broker_key;
@@ -238,6 +246,18 @@ void LiveSession::execute(const Json& command) {
     append({{"command", command}});
     commands_.emplace(id, command);
     authorization_ = nullptr;
+  } else if (action == "live_resolve") {
+    // Only an order listed as unconfirmed right now: the broker is
+    // synchronized and does not report it.
+    require_fields(command, {"request_id", "action", "order_id"});
+    const auto order_id = text(command, "order_id");
+    const auto listed = unconfirmed(trader_->snapshot());
+    if (std::ranges::none_of(listed, [&](const auto& item) { return item.first == order_id; }))
+      throw std::invalid_argument("only an unconfirmed order of a synchronized account can be "
+                                  "resolved");
+    append({{"command", command}});
+    commands_.emplace(id, command);
+    intents_.at(order_id).resolved = true;
   } else if (action == "submit") {
     submit(command);
   } else if (action == "cancel") {
@@ -265,8 +285,11 @@ void LiveSession::check_price(const LimitOrder& order,
     throw std::invalid_argument("limit price is outside the exchange price limits");
   const auto distance = order.limit_price > *reference ? order.limit_price - *reference
                                                        : *reference - order.limit_price;
-  if (distance >
-      *reference * Decimal::parse(manifest_.at("max_price_deviation").get<std::string>()))
+  // Rounded: an exact product could exceed eight decimal places.
+  const auto bound =
+      multiply(*reference, Decimal::parse(manifest_.at("max_price_deviation").get<std::string>()),
+               Rounding::half_up);
+  if (distance > bound)
     throw std::invalid_argument(
         "limit price deviates from the latest price beyond the session limit");
 }

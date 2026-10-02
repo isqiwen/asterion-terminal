@@ -765,11 +765,16 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
           query_outstanding = false;
           fail(-1002);
         }
-        // Orders and session requests first; queries one at a time.
+        // Orders and session requests first; queries one at a time. A quote
+        // gates a waiting order, so it goes before refreshes and rate queries.
         auto next = std::find_if(queue.begin(), queue.end(),
                                  [](const Command& c) { return !is_query(c.kind); });
-        if (next == queue.end() && !query_outstanding && now >= next_query_at)
-          next = queue.begin();
+        if (next == queue.end() && !query_outstanding && now >= next_query_at) {
+          next = std::find_if(queue.begin(), queue.end(),
+                              [](const Command& c) { return c.kind == Kind::query_quote; });
+          if (next == queue.end())
+            next = queue.begin();
+        }
         if (next == queue.end())
           continue;
         command = std::move(*next);
