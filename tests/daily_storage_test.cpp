@@ -7,6 +7,7 @@
 #include "history_daily.hpp"
 #include "tushare.hpp"
 #include "task_store.hpp"
+#include "task_store_support.hpp"
 #include <asterion/protocol/data.hpp>
 #include <limits>
 #include <asterion/kernel/durable_file.hpp>
@@ -163,7 +164,7 @@ TEST(DailyTasks, RealServiceDispatchAndManagedWorkerResumeCompletedSourceData) {
   {
     tasks::Store store(folder.path, tasks::Identity{"daily-test", "fixture-data"});
     data::Store data(warehouse.path, "fixture-data", "daily-test");
-    store.submit(test::authorize_download(data, "daily-test", "daily", input));
+    tasks::submit(store, test::authorize_download(data, "daily-test", "daily", input));
     data::v1::DownloadAllocation allocation;
     auto* identity = allocation.mutable_identity();
     identity->set_data_instance("fixture-data");
@@ -522,7 +523,8 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
                                                      {"begin_day", "2023-01-01"},
                                                      {"end_day", "2023-04-01"},
                                                      {"requests_per_minute", 500}});
-  store->submit(test::authorize_download(*data_store, "daily-factor-test", "source", request));
+  tasks::submit(*store,
+                test::authorize_download(*data_store, "daily-factor-test", "source", request));
   task::v1::TaskAttempt attempt;
   attempt.set_token(store->commit(store->claim("source")).token());
   *attempt.mutable_task() = store->get("source");
@@ -594,8 +596,8 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   parameters.set_lookback(2);
   parameters.set_horizon(2);
   parameters.set_holdout_start(40);
-  EXPECT_EQ(store->submit("analysis", input).kind(), task::v1::DAILY_FACTOR);
-  EXPECT_EQ(store->submit("analysis", input).id(), "analysis");
+  EXPECT_EQ(tasks::submit(*store, "analysis", input).kind(), task::v1::DAILY_FACTOR);
+  EXPECT_EQ(tasks::submit(*store, "analysis", input).id(), "analysis");
   const auto usage = store->history_usage(result.manifest_sha256());
   ASSERT_EQ(usage.references_size(), 2);
   const auto factor_reference = std::ranges::find_if(
@@ -634,14 +636,14 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   verified = store->prepare_finish(finished);
   verified.prepare_payload();
   store->commit(store->finish(std::move(verified)));
-  EXPECT_EQ(store->daily_factor_result("analysis").SerializeAsString(),
+  EXPECT_EQ(tasks::daily_factor_result(*store, "analysis").SerializeAsString(),
             analysis.SerializeAsString());
   store.reset();
   store = std::make_unique<tasks::Store>(folder.path,
                                          tasks::Identity{"daily-factor-test", "fixture-data"});
   EXPECT_EQ(store->get("analysis").attempt(), 2);
   EXPECT_EQ(store->get("analysis").daily_factor().SerializeAsString(), input.SerializeAsString());
-  EXPECT_EQ(store->daily_factor_result("analysis").SerializeAsString(),
+  EXPECT_EQ(tasks::daily_factor_result(*store, "analysis").SerializeAsString(),
             analysis.SerializeAsString());
   store.reset();
   {
@@ -743,7 +745,7 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   }
   store = std::make_unique<tasks::Store>(folder.path,
                                          tasks::Identity{"daily-factor-test", "fixture-data"});
-  EXPECT_EQ(store->daily_factor_result("worker-analysis").SerializeAsString(),
+  EXPECT_EQ(tasks::daily_factor_result(*store, "worker-analysis").SerializeAsString(),
             analysis.SerializeAsString());
   auto wrong = source;
   wrong.mutable_daily_result()->set_manifest_sha256(std::string(64, 'a'));
@@ -782,7 +784,7 @@ TEST(DailyTasks, ProviderArtifactIsImmutableAcrossRetryAndStoreRestart) {
   std::string artifact;
   {
     tasks::Store store(folder.path, tasks::Identity{"daily-test", "fixture-data"});
-    artifact = store.submit(test::authorize_download(data, "daily-test", "pinned", input))
+    artifact = tasks::submit(store, test::authorize_download(data, "daily-test", "pinned", input))
                    .provider_artifact();
     ASSERT_EQ(artifact.size(), 64);
     store.commit(store.cancel("pinned")).task();

@@ -1101,3 +1101,55 @@ TEST DMG，前一版 DMG 不包含本次凭据保存功能；正式签名发行�
   该构建不含测试目标，本轮修改过的测试代码未经 GCC 编译。
 - 未验证：GitHub CI（未推送）、ThreadSanitizer 构建、`pnpm test:desktop`、DMG 打包与安装副本、
   真实柜台或仿真环境。
+
+
+## 2026-10-06（续）：遗留失败与进一步清理
+
+基线：`main`，HEAD `2b9b689e`（上一节的全部修改已提交）。本轮未推送。
+
+### 已完成
+
+- **`dominant-series.spec.ts` 失败的原因与处理。** 回测引擎按 [回测](../backtest.md) 的现行
+  规则在交易日末保留策略目标：9 月 25 日最后一根 K 线给出的平仓目标在 9 月 28 日首根
+  K 线以 225 成交。该用例的期望值仍是“日末目标作废”的旧规则（3 笔成交、权益 10012）。
+  实现与文档一致，改的是用例期望（4 笔成交、权益 10058 = 10000 + 50 + 20 − 12），
+  引擎未改，回测引擎版本不变。
+- **任务存储的同步组合接口移出生产代码。** `Store::submit`（4 个重载）、
+  `finish(id, token, result)`（2 个）、`result`、`factor_result`、`daily_factor_result`
+  只被测试调用，其中结果读取走的是一条私有路径。现改为 `tests/task_store_support.hpp`
+  中基于公开分步接口的辅助函数，测试读取结果因此走生产路径
+  `prepare_result → verify → confirm_result`。约 190 处测试调用随之改写，行为断言未改。
+- **Agent 升级计划类型化。** `maintenance-plan.json` 原先以 JSON 文档保存在内存并在十余处
+  按字符串读取阶段；现为 `agent::UpgradePlan`（`upgrade_plan.*`），阶段为枚举，文件格式
+  逐字段不变。
+- **删除无使用者的代码。** 服务端 TLS 监听 `TlsListener`、`TlsPendingConnection` 及
+  `TlsChannel::peer_address/peer_role`（原使用者 `ServiceHost` 已删除，服务经 `RpcHost`
+  接受 TLS）；随之失去唯一用途的 `DeadlinePolicy::preserve_accepted`；
+  `backtest::result_json`、`daily_request_json`、`minute_request_json`。
+- **清理本地化注册表。** `diagnostics.*.json` 删除 367 条（原 1,194 条）在全部 C++、
+  TypeScript、Python 源码中都不出现的条目：已删除的模拟账户、策略会话、回放账户与
+  Windows 功能的诊断，以及服务改为输出英文诊断前遗留的 250 条中文键。界面文案删除 28 条
+  无引用的键。两种语言保持同一键集；界面缺键仍在使用时显式报错。
+
+### 未处理及原因
+
+- **撤单排在活动命令之后。** 进一步核对：Terminal 原生层对同一账户的命令本身就是互斥的
+  （`LiveAccount::busy`，第二条命令直接得到“另一操作进行中”），所以仅改服务端排队对现有
+  客户端没有可观察的效果；它要与“策略接入 CTP 账户”时的并发模型一起设计。
+- **Agent 的服务健康状态仍是字符串**（探测结果原样转发到协议），防火墙计划仍是内存中的
+  JSON；`Agent` 仍是一个大类。
+- **`ipc::Listener`、`PaperExecution::settle_day_end` 等少量接口只被测试使用**，未迁出。
+
+### 验证
+
+- macOS Debug（Apple Clang，`-Werror`）完整构建通过；CTest 501 项全部通过（`-j 6`，388 秒），
+  `node_deployment` 按既有条件跳过。测试数由 503 变为 501：删除了 2 项只针对
+  `preserve_accepted` 的用例。
+- `pnpm run test:e2e` 94 项全部通过（23.9 分钟），日志中没有缺失翻译。
+- Linux x86_64：GCC 13 Release 服务包重建并替换 `build/linux-bundles/`；同一容器内以 GCC 13
+  编译全部目标（含测试，294 步）通过，未在容器内运行测试。`pnpm desktop:check` 退出 0。
+- clang-format、Prettier、`tsc --noEmit`、ESLint 通过。
+- 未验证：GitHub CI（未推送）、ThreadSanitizer、`tests/native_agent_upgrade.py`（会操作本机
+  用户服务管理器，未在本机运行；升级计划的持久化由
+  `NodeMaintenance.UpgradePreservesDesiredStateAcrossAgentRestartAndCompletionRetry` 覆盖）、
+  `pnpm test:desktop`、DMG 打包与安装副本、真实柜台或仿真环境。

@@ -2,7 +2,6 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <string>
 #include <string_view>
 namespace asterion::ipc {
@@ -20,10 +19,10 @@ enum class PeerRole { unknown, admin, client, service, local };
 std::string_view role_name(PeerRole role) noexcept;
 // The subject value for a role, e.g. "asterion:admin".
 std::string role_subject(PeerRole role);
-// Single-owner framed TCP stream. Mutual TLS is mandatory; no plaintext mode.
+// Single-owner framed TCP client stream. Mutual TLS is mandatory; no plaintext
+// mode. Services accept TLS peers through RpcHost.
 // Distinct channels have independent event loops and may be used concurrently.
 // Move ownership between threads; never operate on one channel concurrently.
-class TlsPendingConnection;
 class TlsChannel {
 public:
   TlsChannel();
@@ -36,52 +35,7 @@ public:
                             const TlsIdentity& identity, std::chrono::milliseconds timeout);
   std::string receive(std::chrono::milliseconds timeout);
   void send(const std::string& payload, std::chrono::milliseconds timeout);
-  std::string peer_address() const;
-  // Role of the authenticated peer certificate.
-  PeerRole peer_role() const;
   void close() noexcept;
-
-private:
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
-  friend class TlsListener;
-  friend class TlsPendingConnection;
-};
-// Accepted TCP transport with no application I/O capability. Move into a
-// an admission loop and consume it exactly once to complete mutual authentication.
-class TlsPendingConnection {
-public:
-  TlsPendingConnection();
-  ~TlsPendingConnection();
-  TlsPendingConnection(TlsPendingConnection&&) noexcept;
-  TlsPendingConnection& operator=(TlsPendingConnection&&) noexcept;
-  TlsPendingConnection(const TlsPendingConnection&) = delete;
-  TlsPendingConnection& operator=(const TlsPendingConnection&) = delete;
-  TlsChannel handshake(std::chrono::milliseconds timeout) &&;
-  // Single-owner nonblocking admission: start once, then poll from the listener
-  // thread. A silent peer consumes a bounded socket slot, never a business worker.
-  void start_handshake(std::chrono::milliseconds timeout);
-  std::optional<TlsChannel> poll_handshake();
-
-private:
-  struct Handshake;
-  std::shared_ptr<Handshake> handshake_;
-  std::unique_ptr<TlsChannel::Impl> impl_;
-  friend class TlsListener;
-};
-class TlsListener {
-public:
-  TlsListener(const std::string& bind_address, std::uint16_t port, const TlsIdentity& identity);
-  ~TlsListener();
-  TlsListener(const TlsListener&) = delete;
-  TlsListener& operator=(const TlsListener&) = delete;
-  // Only the listener owner calls accept. Handshakes belong to independent
-  // pending connections and can run on different threads.
-  TlsPendingConnection
-  accept_pending(std::chrono::milliseconds wait_timeout = std::chrono::milliseconds{-1});
-  // Synchronous convenience: accept TCP, then enforce a bounded handshake.
-  TlsChannel accept(std::chrono::milliseconds handshake_timeout,
-                    std::chrono::milliseconds wait_timeout = std::chrono::milliseconds{-1});
 
 private:
   struct Impl;

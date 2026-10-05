@@ -2,6 +2,7 @@
 #include "download_budget.hpp"
 #include "data_fixture.hpp"
 #include "task_store.hpp"
+#include "task_store_support.hpp"
 #include "bar_fixture.hpp"
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
@@ -434,7 +435,7 @@ TEST(DownloadPublication, CancellationBeforeDecisionKeepsTheCandidatePrivate) {
   auto request = allocation();
   request.mutable_daily()->set_source("tushare.fut_daily");
   const auto id = request.identity().task_id();
-  store.submit(test::authorize_download(data, "tasks-one", id, request.daily()));
+  tasks::submit(store, test::authorize_download(data, "tasks-one", id, request.daily()));
   task::v1::TaskFinish finish;
   finish.set_id(id);
   finish.set_token(store.commit(store.claim(id)).token());
@@ -473,8 +474,9 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataS
   {
     data::Store data(warehouse.path, "data-one", "tasks-one");
     tasks::Store store(tasks.path, tasks::Identity{"tasks-one", "data-one"});
-    store.submit(test::authorize_download(data, "tasks-one", id, request.daily()));
-    store.submit(test::authorize_download(data, "tasks-one", "queued-download", request.daily()));
+    tasks::submit(store, test::authorize_download(data, "tasks-one", id, request.daily()));
+    tasks::submit(store,
+                  test::authorize_download(data, "tasks-one", "queued-download", request.daily()));
     token = store.commit(store.claim(id)).token();
     const auto candidate = download(request, test::allocate_download(data, request).directory());
     const auto prepared = data.prepare(data.verify_download(candidate));

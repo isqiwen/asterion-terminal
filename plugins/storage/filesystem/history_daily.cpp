@@ -141,12 +141,6 @@ HistoricalDailyRange daily_range(const data::v1::DailyDownload& input) {
 unsigned daily_work_units(const data::v1::DailyDownload& input) {
   return page_count(daily_range(input));
 }
-Json daily_request_json(const data::v1::DailyDownload& input) {
-  auto result = specification(daily_range(input));
-  result["version"] = input.version();
-  result["requests_per_minute"] = input.requests_per_minute();
-  return result;
-}
 data::v1::DailyDownload daily_request(const Json& value) {
   require_fields(value, {"version", "contract_id", "source", "source_instrument", "begin_day",
                          "end_day", "requests_per_minute"});

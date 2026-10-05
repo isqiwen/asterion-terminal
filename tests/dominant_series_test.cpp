@@ -3,6 +3,7 @@
 #include "engine.hpp"
 #include "history_daily.hpp"
 #include "task_store.hpp"
+#include "task_store_support.hpp"
 #include "data_fixture.hpp"
 #include <asterion/kernel/process/child.hpp>
 #include <gtest/gtest.h>
@@ -220,18 +221,18 @@ TEST(DominantSeries, PersistedRollingResultRejectsPreviousEngineAndSurvivesResta
   const auto expected = backtest::run(input);
   {
     tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    store.submit("rolling", input);
+    tasks::submit(store, "rolling", input);
     const auto token = store.commit(store.claim("rolling")).token();
     auto old = expected;
     old.set_engine_version("asterion.backtest.sma-long-flat.v8");
-    EXPECT_THROW(store.commit(store.finish("rolling", token, old)), std::invalid_argument);
+    EXPECT_THROW(store.commit(tasks::finish(store, "rolling", token, old)), std::invalid_argument);
     EXPECT_EQ(store.get("rolling").state(), task::v1::RUNNING);
-    store.commit(store.finish("rolling", token, expected));
+    store.commit(tasks::finish(store, "rolling", token, expected));
   }
   tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
   EXPECT_EQ(restored.get("rolling").state(), task::v1::SUCCEEDED);
   EXPECT_EQ(restored.get("rolling").input().SerializeAsString(), input.SerializeAsString());
-  EXPECT_EQ(restored.result("rolling").SerializeAsString(), expected.SerializeAsString());
+  EXPECT_EQ(tasks::result(restored, "rolling").SerializeAsString(), expected.SerializeAsString());
 }
 TEST(DominantSeries, ScheduleFollowsThePreviousDaysOpenInterestAndNeverMovesBack) {
   Directory directory;

@@ -97,16 +97,18 @@ test("a product's months backtest as its dominant series and roll at real prices
     .locator("tbody tr");
   await expect(row.first().getByText("已完成", { exact: true })).toBeVisible({ timeout: 20000 });
   // Bought rb2610 at 105, sold it at 110 on the roll day, then bought rb2701
-  // at 223 and settled at 220: 50 - 30 - 8 in fees. The gross limit of one lot
-  // was never exceeded.
+  // at 223 and settled at 220. The day's last bar asks to go flat; a target
+  // survives the day end, so the first bar of 2026-09-28 sells at 225:
+  // 50 + 20 - 12 in fees. The gross limit of one lot was never exceeded.
   const task = (await rpc(page.request, "runtime.snapshot")).task_service.tasks.at(-1);
   const result = (await rpc(page.request, "task.result", { id: task.id })).task_result.result;
   expect(result.account.fills.map((fill: { price: string }) => fill.price)).toEqual([
     "105",
     "110",
     "223",
+    "225",
   ]);
-  expect(result.account.equity).toBe("10012");
+  expect(result.account.equity).toBe("10058");
   expect(result.settlements).toHaveLength(5);
   await row.first().getByRole("button", { name: "查看结果", exact: true }).click();
   await expect(

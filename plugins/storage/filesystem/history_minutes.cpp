@@ -241,12 +241,6 @@ HistoricalBarRange minute_range(const data::v1::MinuteDownload& input) {
   (void)total_pages(range);
   return range;
 }
-Json minute_request_json(const data::v1::MinuteDownload& input) {
-  auto result = specification(minute_range(input));
-  result["version"] = input.version();
-  result["requests_per_minute"] = input.requests_per_minute();
-  return result;
-}
 data::v1::MinuteDownload minute_request(const Json& value) {
   require_fields(value, {"version", "contract_id", "source", "source_instrument",
                          "interval_minutes", "begin_ns", "end_ns", "requests_per_minute"});

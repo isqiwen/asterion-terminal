@@ -165,7 +165,7 @@ add_library(asterion_node_firewall STATIC apps/services/node-agent/firewall.cpp)
 target_include_directories(asterion_node_firewall PUBLIC apps/services/node-agent)
 target_link_libraries(asterion_node_firewall PUBLIC Asterion::Kernel PRIVATE asio::asio OpenSSL::Crypto)
 
-add_library(asterion_node_storage STATIC apps/services/node-agent/plugin_artifacts.cpp apps/services/node-agent/service_configuration.cpp apps/services/node-agent/development_programs.cpp)
+add_library(asterion_node_storage STATIC apps/services/node-agent/plugin_artifacts.cpp apps/services/node-agent/service_configuration.cpp apps/services/node-agent/development_programs.cpp apps/services/node-agent/upgrade_plan.cpp)
 target_include_directories(asterion_node_storage PUBLIC apps/services/node-agent)
 target_link_libraries(asterion_node_storage PUBLIC Asterion::Kernel asterion_protocol)
 

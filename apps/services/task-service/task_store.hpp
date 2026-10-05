@@ -41,8 +41,9 @@ public:
   void confirm(Change&); // State owner only, after successful persistence.
   void persistence_failed();
   bool is_active(const std::string&) const;
-  // Synchronous composition for stopped-service operations and storage tests.
-  // The running host uses persist/confirm separately.
+  // Persists and confirms on the calling thread. The running host uses this
+  // only for a change that needs no write; otherwise it persists on its journal
+  // thread and confirms on its state owner.
   Change commit(Change);
   class Submission {
   public:
@@ -135,8 +136,6 @@ public:
     std::string result_digest_;
     bool prepared_ = false;
   };
-  task::v1::Task submit(const std::string&, factor::v1::DailyFactorInput);
-  factor::v1::DailyFactorResult daily_factor_result(const std::string&) const;
   Completion prepare_finish(const task::v1::TaskFinish& result);
   [[nodiscard]] Change finish(Completion completion);
   // Cancellation and publication are ordered by the same durable task writer.
@@ -144,9 +143,6 @@ public:
   [[nodiscard]] Change prepare_publication(Completion, const data::v1::PreparedDownload&);
   std::vector<data::v1::DownloadPublication> pending_publications() const;
   [[nodiscard]] Change confirm_publication(const data::v1::PublishedDownload&);
-  task::v1::Task submit(const std::string& id, backtest::v1::BacktestInput input);
-  task::v1::Task submit(const std::string& id, factor::v1::FactorInput input);
-  task::v1::Task submit(const data::v1::DownloadAuthorization&);
   // Full immutable input is loaded and integrity-checked only for explicit reads.
   task::v1::Task get(const std::string& id) const;
   task::v1::Task describe(const std::string& id) const;
@@ -183,22 +179,14 @@ public:
   // State operations return metadata; use get() when the input is required.
   [[nodiscard]] Change cancel(const std::string& id);
   [[nodiscard]] Change retry(const std::string& id);
-  [[nodiscard]] Change finish(const std::string& id, const std::string& token,
-                              const backtest::v1::BacktestResult& result);
-  [[nodiscard]] Change finish(const std::string& id, const std::string& token,
-                              const factor::v1::FactorResult& result);
   [[nodiscard]] Change fail(const std::string& id, const std::string& token,
                             const std::string& error);
   [[nodiscard]] Change interrupt(const std::string& id, const std::string& token,
                                  const std::string& error);
   [[nodiscard]] Change acknowledge_cancel(const std::string& id, const std::string& token);
-  backtest::v1::BacktestResult result(const std::string& id) const;
-
-  factor::v1::FactorResult factor_result(const std::string& id) const;
 
 private:
   Store(std::filesystem::path, Identity, std::shared_ptr<const Clock>, bool read_only);
-  task::v1::Task submit_prepared(Submission);
   void validate_input(const InputRead&) const;
   std::unique_ptr<Impl> impl_;
 };

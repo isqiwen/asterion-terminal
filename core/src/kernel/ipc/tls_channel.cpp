@@ -97,11 +97,6 @@ TlsChannel::TlsChannel() = default;
 TlsChannel::~TlsChannel() = default;
 TlsChannel::TlsChannel(TlsChannel&&) noexcept = default;
 TlsChannel& TlsChannel::operator=(TlsChannel&&) noexcept = default;
-std::string TlsChannel::peer_address() const {
-  if (!impl_)
-    throw std::logic_error("closed TLS channel");
-  return impl_->stream.lowest_layer().remote_endpoint().address().to_string();
-}
 std::string_view role_name(PeerRole role) noexcept {
   switch (role) {
   case PeerRole::admin:
@@ -121,11 +116,6 @@ std::string role_subject(PeerRole role) {
   if (role == PeerRole::unknown || role == PeerRole::local)
     throw std::invalid_argument("only admin, client and service roles are issued");
   return "asterion:" + std::string(role_name(role));
-}
-PeerRole TlsChannel::peer_role() const {
-  if (!impl_)
-    throw std::logic_error("closed TLS channel");
-  return detail::tls_peer_role(impl_->stream.native_handle());
 }
 
 void TlsChannel::close() noexcept {
@@ -208,97 +198,5 @@ std::string TlsChannel::receive(Ms timeout) {
     close();
     throw;
   }
-}
-struct TlsListener::Impl {
-  std::shared_ptr<asio::io_context> io = std::make_shared<asio::io_context>();
-  std::shared_ptr<asio::ssl::context> ctx;
-  Tcp::acceptor acceptor;
-  Impl(const std::string& address, std::uint16_t port, const TlsIdentity& identity)
-      : ctx(detail::tls_context(identity, true)), acceptor(*io) {
-    const Tcp::endpoint endpoint(asio::ip::make_address(address), port);
-    acceptor.open(endpoint.protocol());
-    acceptor.set_option(Tcp::acceptor::reuse_address(true));
-    acceptor.bind(endpoint);
-    acceptor.listen();
-  }
-};
-TlsListener::TlsListener(const std::string& address, std::uint16_t port,
-                         const TlsIdentity& identity)
-    : impl_(std::make_unique<Impl>(address, port, identity)) {}
-TlsListener::~TlsListener() = default;
-struct TlsPendingConnection::Handshake {
-  Clock::time_point deadline;
-  asio::error_code error;
-  bool complete = false;
-};
-TlsPendingConnection::TlsPendingConnection() = default;
-TlsPendingConnection::~TlsPendingConnection() = default;
-TlsPendingConnection::TlsPendingConnection(TlsPendingConnection&&) noexcept = default;
-TlsPendingConnection& TlsPendingConnection::operator=(TlsPendingConnection&&) noexcept = default;
-TlsChannel TlsPendingConnection::handshake(Ms timeout) && {
-  if (handshake_)
-    throw std::logic_error("TLS handshake is already pending");
-  if (!impl_)
-    throw Error(ErrorCode::unavailable, "pending TLS connection is closed");
-  if (timeout.count() <= 0)
-    throw std::invalid_argument("positive TLS handshake timeout required");
-  TlsChannel channel;
-  channel.impl_ = std::move(impl_);
-  channel.impl_->operation(timeout, [&](auto done) {
-    channel.impl_->stream.async_handshake(asio::ssl::stream_base::server, done);
-  });
-  return channel;
-}
-void TlsPendingConnection::start_handshake(Ms timeout) {
-  if (!impl_ || handshake_)
-    throw std::logic_error("TLS handshake requires an unused pending connection");
-  if (timeout.count() <= 0)
-    throw std::invalid_argument("positive TLS handshake timeout required");
-  handshake_ = std::make_shared<Handshake>();
-  handshake_->deadline = Clock::now() + timeout;
-  impl_->stream.async_handshake(asio::ssl::stream_base::server,
-                                [state = handshake_](asio::error_code error) {
-                                  state->error = error;
-                                  state->complete = true;
-                                });
-}
-std::optional<TlsChannel> TlsPendingConnection::poll_handshake() {
-  if (!impl_ || !handshake_)
-    throw std::logic_error("TLS handshake is not pending");
-  if (Clock::now() >= handshake_->deadline) {
-    impl_->cancel();
-    throw Error(ErrorCode::unavailable, "TLS handshake timed out");
-  }
-  impl_->io->restart();
-  impl_->io->poll();
-  if (!handshake_->complete)
-    return std::nullopt;
-  if (handshake_->error) {
-    impl_->cancel();
-    throw Error(ErrorCode::unavailable, "TLS handshake failed");
-  }
-  TlsChannel channel;
-  channel.impl_ = std::move(impl_);
-  handshake_.reset();
-  return channel;
-}
-TlsPendingConnection TlsListener::accept_pending(Ms wait_timeout) {
-  TlsPendingConnection pending;
-  pending.impl_ =
-      std::make_unique<TlsChannel::Impl>(std::make_shared<asio::io_context>(), impl_->ctx);
-  run(
-      *impl_->io, wait_timeout,
-      [&](auto done) { impl_->acceptor.async_accept(pending.impl_->stream.next_layer(), done); },
-      [&] {
-        asio::error_code ignored;
-        impl_->acceptor.cancel(ignored);
-      },
-      detail::DeadlinePolicy::preserve_accepted);
-  return pending;
-}
-TlsChannel TlsListener::accept(Ms timeout, Ms wait_timeout) {
-  if (timeout.count() <= 0)
-    throw std::invalid_argument("positive TLS handshake timeout required");
-  return accept_pending(wait_timeout).handshake(timeout);
 }
 } // namespace asterion::ipc

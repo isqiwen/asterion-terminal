@@ -1155,36 +1155,6 @@ bool Store::abandon_submission(Submission& input) {
 bool Store::has_submission() const {
   return impl_->submitting.has_value();
 }
-wire::Task Store::submit_prepared(Submission input) {
-  admit_submission(input);
-  wire::Task confirmed;
-  try {
-    input.prepare_files();
-    confirmed = commit(register_submission(input)).task();
-  } catch (...) {
-    abandon_submission(input);
-    throw;
-  }
-  return attach_definition(std::move(confirmed), std::move(input.task_));
-}
-wire::Task Store::submit(const std::string& id, factor::v1::DailyFactorInput input) {
-  return submit_prepared(submission(id, std::move(input)));
-}
-wire::Task Store::submit(const std::string& id, backtest::v1::BacktestInput input) {
-  return submit_prepared(submission(id, std::move(input)));
-}
-wire::Task Store::submit(const std::string& id, factor::v1::FactorInput input) {
-  return submit_prepared(submission(id, std::move(input)));
-}
-wire::Task Store::submit(const data::v1::DownloadAuthorization& input) {
-  return submit_prepared(submission(input));
-}
-asterion::factor::v1::DailyFactorResult Store::daily_factor_result(const std::string& id) const {
-  const auto entry = impl_->find(id);
-  if (entry.task.state() != wire::SUCCEEDED || entry.task.kind() != wire::DAILY_FACTOR)
-    throw std::invalid_argument("daily factor result is not confirmed");
-  return impl_->read_result(entry).daily_factor();
-}
 wire::Task Store::get(const std::string& id) const {
   auto read = prepare_input(id);
   read.load();
@@ -1602,26 +1572,6 @@ Store::Change Store::confirm_publication(const data::v1::PublishedDownload& publ
   return impl_->change(entry, std::move(next), "");
 }
 
-Store::Change Store::finish(const std::string& id, const std::string& token,
-                            const asterion::backtest::v1::BacktestResult& result) {
-  wire::TaskFinish request;
-  request.set_id(id);
-  request.set_token(token);
-  *request.mutable_result() = result;
-  auto completion = prepare_finish(request);
-  completion.prepare_payload();
-  return finish(std::move(completion));
-}
-Store::Change Store::finish(const std::string& id, const std::string& token,
-                            const asterion::factor::v1::FactorResult& result) {
-  wire::TaskFinish request;
-  request.set_id(id);
-  request.set_token(token);
-  *request.mutable_factor() = result;
-  auto completion = prepare_finish(request);
-  completion.prepare_payload();
-  return finish(std::move(completion));
-}
 Store::Change Store::fail(const std::string& id, const std::string& token,
                           const std::string& error) {
   auto entry = impl_->fenced(id, token);
@@ -1649,20 +1599,6 @@ Store::Change Store::acknowledge_cancel(const std::string& id, const std::string
   auto next = summary(entry.task);
   next.set_state(wire::CANCELLED);
   return impl_->change(entry, std::move(next), token);
-}
-asterion::backtest::v1::BacktestResult Store::result(const std::string& id) const {
-  const auto entry = impl_->find(id);
-  if (entry.task.state() != wire::SUCCEEDED)
-    throw std::invalid_argument("task has no confirmed result");
-  if (entry.task.kind() != wire::BACKTEST)
-    throw std::invalid_argument("not a backtest result");
-  return impl_->read_result(entry).backtest();
-}
-asterion::factor::v1::FactorResult Store::factor_result(const std::string& id) const {
-  const auto entry = impl_->find(id);
-  if (entry.task.state() != wire::SUCCEEDED || entry.task.kind() != wire::FACTOR)
-    throw std::invalid_argument("factor result is not confirmed");
-  return impl_->read_result(entry).factor();
 }
 } // namespace asterion::tasks
 

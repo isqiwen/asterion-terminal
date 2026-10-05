@@ -5,6 +5,7 @@
 #include "service_configuration.hpp"
 #include "resource_budget.hpp"
 #include "supervision_rpc.hpp"
+#include "upgrade_plan.hpp"
 #include <asterion/v1/data_service.pb.h>
 #include "managed_paths.hpp"
 #include "firewall.hpp"
@@ -86,14 +87,14 @@ class Agent {
   };
   std::map<std::string, Upload> uploads_;
   std::string maintenance_;
-  Json upgrade_ = nullptr;
+  std::optional<agent::UpgradePlan> upgrade_;
   std::string upgrade_error_;
   wire::Status::Phase phase_ = wire::Status::INITIALIZING;
   wire::Error failure_;
   Progress& io_progress_;
   Progress state_progress_, initialization_progress_, persistence_progress_;
   bool recovering_drain_ = false;
-  bool upgrade_active() const { return !upgrade_.is_null() && upgrade_.at("phase") != "complete"; }
+  bool upgrade_active() const { return upgrade_ && upgrade_->active(); }
   ThreadPool journal_{1, 8}, operations_{2, 8};
   bool mutation_active_ = false, node_mutation_ = false, stopping_ = false;
   std::size_t admitted_mutations_ = 0;
@@ -362,11 +363,12 @@ class Agent {
     }
     s.retry = std::chrono::steady_clock::now() + 5s;
   }
-  PolledTask<void> save_upgrade(Json next) {
-    co_await persist([path = root_ / "maintenance-plan.json", bytes = next.dump()] {
-      require_managed_path(path);
-      replace_file_durably(path, bytes);
-    });
+  PolledTask<void> save_upgrade(agent::UpgradePlan next) {
+    co_await persist(
+        [path = root_ / "maintenance-plan.json", bytes = agent::encode_upgrade_plan(next).dump()] {
+          require_managed_path(path);
+          replace_file_durably(path, bytes);
+        });
     upgrade_ = std::move(next);
   }
   template <class Request, class Response>
@@ -399,8 +401,8 @@ class Agent {
       co_return;
     upgrade_error_.clear();
     if (recovering_drain_) {
-      for (const auto& pid : upgrade_.at("processes"))
-        if (process_running(pid.get<std::uint64_t>())) {
+      for (const auto pid : upgrade_->processes)
+        if (process_running(pid)) {
           upgrade_error_ = "waiting for previous service processes to exit";
           co_return;
         }
@@ -447,8 +449,8 @@ class Agent {
       }
     }
     if (ready) {
-      auto next = upgrade_;
-      next["phase"] = "ready";
+      auto next = *upgrade_;
+      next.phase = agent::UpgradePlan::Phase::ready;
       co_await save_upgrade(std::move(next));
     }
   }
@@ -457,13 +459,12 @@ class Agent {
     if (request.action() != "prepare" && request.action() != "resume" &&
         request.action() != "complete")
       throw std::invalid_argument("invalid upgrade action");
-    if (!upgrade_.is_null() && upgrade_.at("phase") == "complete") {
-      if (upgrade_.at("operation") == request.operation_id()) {
-        result.set_phase("complete");
-        co_return;
-      }
+    using Phase = agent::UpgradePlan::Phase;
+    if (upgrade_ && !upgrade_->active() && upgrade_->operation == request.operation_id()) {
+      result.set_phase("complete");
+      co_return;
     }
-    if (upgrade_active() && upgrade_.at("operation") != request.operation_id())
+    if (upgrade_active() && upgrade_->operation != request.operation_id())
       throw std::runtime_error("another upgrade owns this node");
     if (!upgrade_active()) {
       if (request.action() != "prepare")
@@ -476,46 +477,40 @@ class Agent {
             s.configuration.kind != wire::TASK_SERVICE &&
             s.configuration.kind != wire::DATA_SERVICE)
           throw std::runtime_error("service lacks an automatic upgrade recovery boundary: " + name);
-      Json revisions = Json::object();
-      for (const auto& [name, s] : services_)
-        revisions[name] = revision(s.configuration);
-      Json processes = Json::array();
+      agent::UpgradePlan next;
+      next.operation = request.operation_id();
       for (const auto& [name, s] : services_) {
+        next.services.emplace(name, revision(s.configuration));
         if (s.process)
-          processes.push_back(s.process->id());
+          next.processes.push_back(s.process->id());
         for (const auto& [id, worker] : s.workers)
-          processes.push_back(worker->id());
+          next.processes.push_back(worker->id());
       }
-      Json next = {{"processes", processes},
-                   {"version", 1},
-                   {"operation", request.operation_id()},
-                   {"phase", "draining"},
-                   {"services", revisions}};
       // The node mutation owns the freeze until the candidate is confirmed.
       co_await save_upgrade(std::move(next));
     }
-    const auto phase = upgrade_.at("phase").get<std::string>();
-    if (request.action() == "resume" && phase == "ready") {
-      auto next = upgrade_;
-      next["phase"] = "restoring";
+    const auto phase = upgrade_->phase;
+    if (request.action() == "resume" && phase == Phase::ready) {
+      auto next = *upgrade_;
+      next.phase = Phase::restoring;
       co_await save_upgrade(std::move(next));
       for (auto& [name, s] : services_)
         if (s.configuration.desired)
           co_await start(name, s);
     } else if (request.action() == "complete") {
-      if (phase != "restoring")
+      if (phase != Phase::restoring)
         throw std::runtime_error("upgrade services have not resumed");
       for (const auto& [name, s] : services_)
         if (s.configuration.desired &&
             (!s.process || (s.health != "ready" && s.health != "awaiting_input")))
           throw std::runtime_error("upgrade is waiting for restored service health");
-      auto next = upgrade_;
-      next["phase"] = "complete";
+      auto next = *upgrade_;
+      next.phase = Phase::complete;
       co_await save_upgrade(std::move(next));
       result.set_phase("complete");
       co_return;
     }
-    result.set_phase(upgrade_.at("phase").get<std::string>());
+    result.set_phase(std::string(agent::upgrade_phase_name(upgrade_->phase)));
     result.set_detail(upgrade_error_);
   }
   unsigned owned_workers() const {
@@ -648,7 +643,8 @@ class Agent {
   Service* current_observation(const ObservationIdentity& observation, bool task_dispatch) {
     if ((task_dispatch && phase_ != wire::Status::READY) || stopping_ ||
         mutating_service_ == observation.name || !maintenance_.empty() ||
-        (upgrade_active() && (task_dispatch || upgrade_.at("phase") != "restoring")))
+        (upgrade_active() &&
+         (task_dispatch || upgrade_->phase != agent::UpgradePlan::Phase::restoring)))
       return nullptr;
     auto found = services_.find(observation.name);
     if (found == services_.end())
@@ -762,7 +758,7 @@ class Agent {
 
   struct Loaded {
     std::map<std::string, Service> services;
-    Json upgrade = nullptr;
+    std::optional<agent::UpgradePlan> upgrade;
     HostCapacity capacity;
   };
   Loaded load() {
@@ -794,22 +790,17 @@ class Agent {
       if (fs::file_size(upgrade_path) > 65536)
         throw std::runtime_error("invalid upgrade plan size");
       std::ifstream file(upgrade_path);
-      loaded.upgrade = parse_json(std::string(std::istreambuf_iterator<char>(file), {}));
-      require_fields(loaded.upgrade, {"version", "operation", "phase", "services", "processes"});
-      if (loaded.upgrade.at("version") != 1 ||
-          (loaded.upgrade.at("phase") != "draining" && loaded.upgrade.at("phase") != "ready" &&
-           loaded.upgrade.at("phase") != "restoring" && loaded.upgrade.at("phase") != "complete"))
-        throw std::runtime_error("invalid upgrade plan");
-      validate_id(loaded.upgrade.at("operation").get<std::string>());
-      if (!loaded.upgrade.at("processes").is_array())
-        throw std::runtime_error("invalid upgrade processes");
-      if ((!loaded.upgrade.is_null() && loaded.upgrade.at("phase") != "complete") &&
-          loaded.upgrade.at("services").size() != loaded.services.size())
-        throw std::runtime_error("upgrade service configuration changed");
-      for (const auto& [name, service] : loaded.services)
-        if ((!loaded.upgrade.is_null() && loaded.upgrade.at("phase") != "complete") &&
-            loaded.upgrade.at("services").at(name) != revision(service.configuration))
+      loaded.upgrade = agent::decode_upgrade_plan(
+          parse_json(std::string(std::istreambuf_iterator<char>(file), {})));
+      if (loaded.upgrade->active()) {
+        const auto& frozen = loaded.upgrade->services;
+        if (frozen.size() != loaded.services.size())
           throw std::runtime_error("upgrade service configuration changed");
+        for (const auto& [name, service] : loaded.services)
+          if (const auto found = frozen.find(name);
+              found == frozen.end() || found->second != revision(service.configuration))
+            throw std::runtime_error("upgrade service configuration changed");
+      }
     }
     return loaded;
   }
@@ -827,7 +818,8 @@ class Agent {
       services_ = std::move(loaded.services);
       resource_budget_.emplace(loaded.capacity, current_platform().os == "macos");
       upgrade_ = std::move(loaded.upgrade);
-      recovering_drain_ = upgrade_active() && upgrade_.at("phase") == "draining";
+      recovering_drain_ =
+          upgrade_active() && upgrade_->phase == agent::UpgradePlan::Phase::draining;
       phase_ = wire::Status::READY;
     } catch (const std::exception& error) {
       fail("Agent initialization failed; inspect node logs", error);
@@ -1365,9 +1357,9 @@ public:
     if (now < next_supervision_)
       return;
     next_supervision_ = now + 200ms;
-    if (upgrade_active() && upgrade_.at("phase") != "restoring") {
+    if (upgrade_active() && upgrade_->phase != agent::UpgradePlan::Phase::restoring) {
       if (phase_ == wire::Status::READY && !mutation_active_ && !upgrading_ &&
-          observations_.empty() && upgrade_.at("phase") == "draining")
+          observations_.empty() && upgrade_->phase == agent::UpgradePlan::Phase::draining)
         upgrading_.emplace(drain_upgrade());
       return;
     }

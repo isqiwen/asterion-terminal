@@ -1,6 +1,7 @@
 #include "factor_engine.hpp"
 #include "bar_fixture.hpp"
 #include "task_store.hpp"
+#include "task_store_support.hpp"
 #include "daily_momentum.hpp"
 #include "momentum.hpp"
 #include <asterion/kernel/process/child.hpp>
@@ -191,18 +192,20 @@ TEST_F(FactorTasks, ResultAcceptanceChecksIdentityAndTimelineWithoutReexecutingA
   EXPECT_NO_THROW(protocol::validate_factor_result(spec, result));
   {
     tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
-    store.submit("accepted", spec);
-    store.commit(store.finish("accepted", store.commit(store.claim("accepted")).token(), result));
+    tasks::submit(store, "accepted", spec);
+    store.commit(
+        tasks::finish(store, "accepted", store.commit(store.claim("accepted")).token(), result));
   }
   tasks::Store restored(root, tasks::Identity{"factor-tests", "fixture-data"});
-  EXPECT_EQ(restored.factor_result("accepted").SerializeAsString(), result.SerializeAsString());
+  EXPECT_EQ(tasks::factor_result(restored, "accepted").SerializeAsString(),
+            result.SerializeAsString());
 }
 
 TEST_F(FactorTasks, DurableTypeIdentityCancellationAndTamperedResult) {
   asterion::factor::v1::FactorResult expected = factor::run(input());
   {
     tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
-    auto task = store.submit("factor", input());
+    auto task = tasks::submit(store, "factor", input());
     wire::TaskDispatch allowance;
     allowance.set_launch_slots(1);
     const auto launches = store.dispatch(allowance);
@@ -210,29 +213,31 @@ TEST_F(FactorTasks, DurableTypeIdentityCancellationAndTamperedResult) {
     EXPECT_EQ(launches.launches(0).program(), wire::FACTOR_PROGRAM);
 
     EXPECT_EQ(task.kind(), wire::FACTOR);
-    EXPECT_EQ(store.submit("factor", input()).id(), task.id());
+    EXPECT_EQ(tasks::submit(store, "factor", input()).id(), task.id());
     EXPECT_FALSE(store.list().tasks(0).has_factor());
     auto changed = input();
     changed.set_horizon(2);
-    EXPECT_THROW(store.submit("factor", changed), std::invalid_argument);
+    EXPECT_THROW(tasks::submit(store, "factor", changed), std::invalid_argument);
     auto token = store.commit(store.claim("factor")).token();
     auto bad = expected;
     bad.set_dataset_revision("wrong-input");
-    EXPECT_THROW(store.commit(store.finish("factor", token, bad)), std::invalid_argument);
+    EXPECT_THROW(store.commit(tasks::finish(store, "factor", token, bad)), std::invalid_argument);
     EXPECT_EQ(store.get("factor").state(), wire::RUNNING);
     store.commit(store.cancel("factor")).task();
-    store.commit(store.finish("factor", token, expected));
+    store.commit(tasks::finish(store, "factor", token, expected));
     EXPECT_EQ(store.get("factor").state(), wire::CANCELLED);
     store.commit(store.retry("factor")).task();
     const auto next = store.commit(store.claim("factor")).token();
     EXPECT_NE(next, token);
-    EXPECT_THROW(store.commit(store.finish("factor", token, expected)), std::invalid_argument);
-    store.commit(store.finish("factor", next, expected));
-    EXPECT_THROW(store.result("factor"), std::invalid_argument);
+    EXPECT_THROW(store.commit(tasks::finish(store, "factor", token, expected)),
+                 std::invalid_argument);
+    store.commit(tasks::finish(store, "factor", next, expected));
+    EXPECT_THROW(tasks::result(store, "factor"), std::invalid_argument);
   }
   {
     tasks::Store recovered(root, tasks::Identity{"factor-tests", "fixture-data"});
-    EXPECT_EQ(recovered.factor_result("factor").SerializeAsString(), expected.SerializeAsString());
+    EXPECT_EQ(tasks::factor_result(recovered, "factor").SerializeAsString(),
+              expected.SerializeAsString());
     EXPECT_EQ(recovered.get("factor").attempt(), 2U);
   }
 }
@@ -324,21 +329,22 @@ TEST_F(FactorTasks, HoldoutPartitionIdentityTamperingAndRecovery) {
   const auto expected = factor::run(value);
   {
     tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
-    store.submit("holdout", value);
+    tasks::submit(store, "holdout", value);
     auto changed = value;
     changed.set_holdout_start(51);
-    EXPECT_THROW(store.submit("holdout", changed), std::invalid_argument);
+    EXPECT_THROW(tasks::submit(store, "holdout", changed), std::invalid_argument);
     const auto token = store.commit(store.claim("holdout")).token();
     auto bad = expected;
     bad.mutable_partitions(1)->set_sample_count(48);
-    EXPECT_THROW(store.commit(store.finish("holdout", token, bad)), std::invalid_argument);
+    EXPECT_THROW(store.commit(tasks::finish(store, "holdout", token, bad)), std::invalid_argument);
     bad = expected;
     bad.set_purged_count(0);
-    EXPECT_THROW(store.commit(store.finish("holdout", token, bad)), std::invalid_argument);
-    store.commit(store.finish("holdout", token, expected));
+    EXPECT_THROW(store.commit(tasks::finish(store, "holdout", token, bad)), std::invalid_argument);
+    store.commit(tasks::finish(store, "holdout", token, expected));
   }
   tasks::Store recovered(root, tasks::Identity{"factor-tests", "fixture-data"});
-  EXPECT_EQ(recovered.factor_result("holdout").SerializeAsString(), expected.SerializeAsString());
+  EXPECT_EQ(tasks::factor_result(recovered, "holdout").SerializeAsString(),
+            expected.SerializeAsString());
 }
 
 namespace {
@@ -434,29 +440,30 @@ TEST_F(FactorTasks, SearchSelectionAndCandidateEvidencePersistAndRejectTampering
   const auto expected = factor::run(value);
   {
     tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
-    EXPECT_EQ(store.submit("search", value).total(), 250U);
+    EXPECT_EQ(tasks::submit(store, "search", value).total(), 250U);
     const auto token = store.commit(store.claim("search")).token();
     auto bad = expected;
     bad.mutable_candidates(0)->set_lookback(999);
-    EXPECT_THROW(store.commit(store.finish("search", token, bad)), std::invalid_argument);
+    EXPECT_THROW(store.commit(tasks::finish(store, "search", token, bad)), std::invalid_argument);
     bad = expected;
     bad.set_lookback(99);
-    EXPECT_THROW(store.commit(store.finish("search", token, bad)), std::invalid_argument);
-    store.commit(store.finish("search", token, expected));
+    EXPECT_THROW(store.commit(tasks::finish(store, "search", token, bad)), std::invalid_argument);
+    store.commit(tasks::finish(store, "search", token, expected));
   }
   tasks::Store recovered(root, tasks::Identity{"factor-tests", "fixture-data"});
-  EXPECT_EQ(recovered.factor_result("search").SerializeAsString(), expected.SerializeAsString());
+  EXPECT_EQ(tasks::factor_result(recovered, "search").SerializeAsString(),
+            expected.SerializeAsString());
 }
 
 TEST_F(FactorTasks, ResultEvidencePreservesAllCandidatesAndHoldoutConfiguration) {
   const auto spec = search_input();
   tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
-  store.submit("factor", spec);
-  store.commit(
-      store.finish("factor", store.commit(store.claim("factor")).token(), factor::run(spec)));
+  tasks::submit(store, "factor", spec);
+  store.commit(tasks::finish(store, "factor", store.commit(store.claim("factor")).token(),
+                             factor::run(spec)));
   task::v1::TaskResponse response;
   *response.mutable_result_task() = store.get("factor");
-  *response.mutable_factor() = store.factor_result("factor");
+  *response.mutable_factor() = tasks::factor_result(store, "factor");
   const auto evidence = protocol::decode_task_result(response, "factor");
   EXPECT_EQ(evidence.at("experiment").at("lookbacks").size(),
             static_cast<std::size_t>(spec.lookbacks_size()));
@@ -580,21 +587,22 @@ TEST_F(FactorTasks, RollingEvidencePersistsAndRejectsChangedWindowsOrInvalidScor
   const auto expected = factor::run(value);
   {
     tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
-    EXPECT_EQ(store.submit("rolling", value).total(), 720U);
+    EXPECT_EQ(tasks::submit(store, "rolling", value).total(), 720U);
     const auto token = store.commit(store.claim("rolling")).token();
     auto bad = expected;
     bad.mutable_folds(1)->set_training_begin(0);
-    EXPECT_THROW(store.commit(store.finish("rolling", token, bad)), std::invalid_argument);
+    EXPECT_THROW(store.commit(tasks::finish(store, "rolling", token, bad)), std::invalid_argument);
     bad = expected;
     bad.mutable_folds(0)->mutable_holdout()->set_spearman(1.5);
-    EXPECT_THROW(store.commit(store.finish("rolling", token, bad)), std::invalid_argument);
-    store.commit(store.finish("rolling", token, expected));
+    EXPECT_THROW(store.commit(tasks::finish(store, "rolling", token, bad)), std::invalid_argument);
+    store.commit(tasks::finish(store, "rolling", token, expected));
   }
   tasks::Store recovered(root, tasks::Identity{"factor-tests", "fixture-data"});
-  EXPECT_EQ(recovered.factor_result("rolling").SerializeAsString(), expected.SerializeAsString());
+  EXPECT_EQ(tasks::factor_result(recovered, "rolling").SerializeAsString(),
+            expected.SerializeAsString());
   task::v1::TaskResponse response;
   *response.mutable_result_task() = recovered.get("rolling");
-  *response.mutable_factor() = recovered.factor_result("rolling");
+  *response.mutable_factor() = tasks::factor_result(recovered, "rolling");
   const auto evidence = protocol::decode_task_result(response, "rolling");
   EXPECT_EQ(evidence.at("experiment").at("evaluation").at("training_events"), 80);
   EXPECT_EQ(evidence.at("result").at("folds").size(), 2U);

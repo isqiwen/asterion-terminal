@@ -4,6 +4,7 @@
 #include "history_minutes.hpp"
 #include "history_daily.hpp"
 #include "task_store.hpp"
+#include "task_store_support.hpp"
 #include "data_store.hpp"
 #include "data_fixture.hpp"
 #include "tushare.hpp"
@@ -71,7 +72,7 @@ int main(int argc, char** argv) {
     input.set_end_ns(range.end_ns);
     input.set_requests_per_minute(60);
     const std::string id = "native-minute-fixture";
-    store.submit(test::authorize_download(warehouse, "task", id, input));
+    tasks::submit(store, test::authorize_download(warehouse, "task", id, input));
     task::v1::TaskAttempt attempt;
     attempt.set_token(store.commit(store.claim(id)).token());
     *attempt.mutable_task() = store.get(id);
@@ -120,7 +121,7 @@ int main(int argc, char** argv) {
                                                      {"end_day", "2023-04-30"},
                                                      {"requests_per_minute", 500}});
     const std::string daily_id = "native-daily-fixture";
-    store.submit(test::authorize_download(warehouse, "task", daily_id, daily));
+    tasks::submit(store, test::authorize_download(warehouse, "task", daily_id, daily));
     // Leave the task QUEUED. Only the real Agent-dispatched worker may claim
     // and finish it after Electron starts the isolated task service.
     allocation.mutable_identity()->set_task_id(daily_id);

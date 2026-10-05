@@ -222,8 +222,4 @@ backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::
   execution.stop();
   return result;
 }
-Json result_json(const backtest::v1::BacktestResult& result) {
-  return protocol::decode_backtest_result(result);
-}
-
 } // namespace asterion::backtest
