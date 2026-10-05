@@ -66,14 +66,6 @@ TEST(Foundation, ClockDomains) {
 }
 
 TEST(Foundation, StrictSerialization) {
-  const EventEnvelope event{"test:1",
-                            "test.source",
-                            "tick.received",
-                            1790384400000000001LL,
-                            {{"price", "3510.00000001"}}};
-  const auto copy = decode_event(encode_event(event));
-  EXPECT_TRUE((copy.timestamp_ns == event.timestamp_ns && copy.payload == event.payload))
-      << "exact nanosecond and decimal strings survive wire roundtrip";
   EXPECT_THROW(([] { static_cast<void>(parse_json(R"({"a":1,"a":2})")); })(), Error);
   EXPECT_THROW(([] { static_cast<void>(parse_json(R"({"nested":{"a":1,"a":2}})")); })(), Error);
   EXPECT_TRUE((parse_json(R"({"a":{"k":1},"b":{"k":2}})").size() == 2))
@@ -82,12 +74,6 @@ TEST(Foundation, StrictSerialization) {
       ([] { static_cast<void>(parse_json(std::string(70, '[') + "0" + std::string(70, ']'))); })(),
       Error);
   EXPECT_THROW(([] { static_cast<void>(parse_json("{}", 1)); })(), Error);
-  auto wire = Json::parse(encode_event(event));
-  wire["version"] = 1.0;
-  EXPECT_THROW(([&] { static_cast<void>(decode_event(wire.dump())); })(), Error);
-  wire["version"] = 1;
-  wire["timestamp_ns"] = "01";
-  EXPECT_THROW(([&] { static_cast<void>(decode_event(wire.dump())); })(), Error);
 }
 
 TEST(Foundation, BoundedConcurrency) {

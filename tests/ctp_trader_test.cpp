@@ -5,7 +5,7 @@
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/environment.hpp>
-#include <asterion/kernel/service_host.hpp>
+#include <asterion/kernel/rpc_host.hpp>
 #include <gtest/gtest.h>
 #include <thread>
 #include <future>
@@ -22,18 +22,15 @@ Decimal d(const char* text) {
 }
 // Test control entry points exported by the SDK double.
 struct FakeControl {
-  ctp::SharedLibrary reset_library{ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reset",
-                                   "asterion_fake_trader_reset"};
-  ctp::SharedLibrary reconnect_library{ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reconnect",
-                                       "asterion_fake_trader_reconnect"};
+  ctp::SharedLibrary reset_library{ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reset"};
+  ctp::SharedLibrary reconnect_library{ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reconnect"};
   ctp::SharedLibrary rejections_library{ASTERION_TEST_CTP_TRADER,
-                                        "asterion_fake_trader_query_rejections",
                                         "asterion_fake_trader_query_rejections"};
   void reset() { reset_library.symbol<void (*)()>()(); }
   void reconnect() { reconnect_library.symbol<void (*)()>()(); }
   int query_rejections() { return rejections_library.symbol<int (*)()>()(); }
   template <class F, class... Args> auto call(const char* name, Args... args) {
-    ctp::SharedLibrary control(ASTERION_TEST_CTP_TRADER, name, name);
+    ctp::SharedLibrary control(ASTERION_TEST_CTP_TRADER, name);
     return control.symbol<F>()(args...);
   }
 };
@@ -57,7 +54,7 @@ template <class F> BrokerSnapshot wait_for(ctp::Trader& trader, F done, auto tim
   return state;
 }
 bool ready(const BrokerSnapshot& s) {
-  return s.phase == "ready";
+  return s.phase == BrokerPhase::ready;
 }
 const BrokerOrder* find(const BrokerSnapshot& s, const std::string& id) {
   for (const auto& o : s.orders)
@@ -144,7 +141,7 @@ TEST(CtpVendor, TraderLoopbackLifecycleUsesThePackagedAbi) {
   const auto library = environment_path("ASTERION_VENDOR_CTP_TRADER_LIBRARY")
                            .value_or(current_executable().parent_path() / filename);
   ASSERT_TRUE(fs::is_regular_file(library));
-  ctp::SharedLibrary version(library, "", "_ZN19CThostFtdcTraderApi13GetApiVersionEv");
+  ctp::SharedLibrary version(library, "_ZN19CThostFtdcTraderApi13GetApiVersionEv");
   const auto api_version = version.symbol<const char* (*)()>();
   ASSERT_NE(api_version, nullptr);
   ASSERT_NE(api_version(), nullptr);
@@ -180,10 +177,10 @@ TEST(CtpVendor, TraderLoopbackLifecycleUsesThePackagedAbi) {
       ASSERT_NE(incoming.revents & POLLIN, 0);
       Socket peer(::accept(listener.fd, nullptr, nullptr));
       ASSERT_GE(peer.fd, 0);
-      EXPECT_NE(trader.snapshot().phase, "ready");
+      EXPECT_NE(trader.snapshot().phase, BrokerPhase::ready);
       EXPECT_TRUE(trader.snapshot().orders.empty());
       trader.disconnect();
-      EXPECT_EQ(trader.snapshot().phase, "disconnected");
+      EXPECT_EQ(trader.snapshot().phase, BrokerPhase::disconnected);
     }
   } // SDK Release and its worker complete before unloading the real library.
 }
@@ -214,7 +211,7 @@ TEST_F(CtpTrader, QueuedReportsInvalidatePermissionBeforeTheOwnerAppliesThem) {
   ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow, gate, [] {});
   trader.connect(configuration());
   const auto initial = wait_for(trader, ready, 15s);
-  ASSERT_EQ(initial.phase, "ready");
+  ASSERT_EQ(initial.phase, BrokerPhase::ready);
   send(trader, gate, order("working", "SHFE", "rb2610", Side::buy, "3", "3500"), Offset::open,
        initial.connection_generation, initial.exposure_revision, dispatch_deadline());
   const auto before = wait_for(
@@ -237,7 +234,7 @@ TEST_F(CtpTrader, QueuedReportsInvalidatePermissionBeforeTheOwnerAppliesThem) {
   EXPECT_THROW(gate.issue(gate.revision(), "unapplied"), Error);
   EXPECT_THROW(trader.disconnect_checked(before.connection_generation, before.exposure_revision),
                Error);
-  EXPECT_EQ(trader.snapshot().phase, "ready");
+  EXPECT_EQ(trader.snapshot().phase, BrokerPhase::ready);
   trader.poll();
   EXPECT_TRUE(gate.issue(gate.revision(), "applied").consume("applied"));
   const auto applied = trader.snapshot();
@@ -248,7 +245,7 @@ TEST_F(CtpTrader, CallbackOverflowRequiresReconciliationAndStillAllowsCancellati
   ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow, gate, [] {});
   trader.connect(configuration());
   const auto initial = wait_for(trader, ready, 15s);
-  ASSERT_EQ(initial.phase, "ready");
+  ASSERT_EQ(initial.phase, BrokerPhase::ready);
   send(trader, gate, order("working", "SHFE", "rb2610", Side::buy, "3", "3500"), Offset::open,
        initial.connection_generation, initial.exposure_revision, dispatch_deadline());
   ASSERT_NE(find(wait_for(
@@ -268,8 +265,8 @@ TEST_F(CtpTrader, CallbackOverflowRequiresReconciliationAndStillAllowsCancellati
   ASSERT_GE(gate.revision(), revision + 1100);
   EXPECT_THROW(gate.issue(gate.revision(), "unapplied"), Error);
   trader.poll();
-  EXPECT_EQ(trader.snapshot().phase, "error");
-  EXPECT_EQ(trader.snapshot().error_code, -1008);
+  EXPECT_EQ(trader.snapshot().phase, BrokerPhase::error);
+  EXPECT_EQ(trader.snapshot().error_code, broker_code::callback_overflow);
   EXPECT_FALSE(trader.snapshot().positions_reconciled);
   EXPECT_THROW(gate.issue(gate.revision(), "lost-report"), Error);
   cancel(trader, "working");
@@ -284,14 +281,14 @@ TEST_F(CtpTrader, CallbackOverflowRequiresReconciliationAndStillAllowsCancellati
   EXPECT_EQ(find(cancelled, "working")->status, BrokerOrderStatus::cancelled);
   EXPECT_THROW(gate.issue(gate.revision(), "still-unreconciled"), Error);
   trader.connect(configuration());
-  ASSERT_EQ(wait_for(trader, ready, 15s).phase, "ready");
+  ASSERT_EQ(wait_for(trader, ready, 15s).phase, BrokerPhase::ready);
   EXPECT_TRUE(gate.issue(gate.revision(), "reconciled").consume("reconciled"));
 }
 TEST_F(CtpTrader, DisconnectRetainsAlreadyReceivedOrderAndTradeFacts) {
   ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow, gate, [] {});
   trader.connect(configuration());
   const auto initial = wait_for(trader, ready, 15s);
-  ASSERT_EQ(initial.phase, "ready");
+  ASSERT_EQ(initial.phase, BrokerPhase::ready);
   send(trader, gate, order("working", "SHFE", "rb2610", Side::buy, "3", "3500"), Offset::open,
        initial.connection_generation, initial.exposure_revision, dispatch_deadline());
   const auto accepted = wait_for(
@@ -312,7 +309,7 @@ TEST_F(CtpTrader, DisconnectRetainsAlreadyReceivedOrderAndTradeFacts) {
   trader.disconnect();
   trader.poll();
   const auto closed = trader.snapshot();
-  EXPECT_EQ(closed.phase, "disconnected");
+  EXPECT_EQ(closed.phase, BrokerPhase::disconnected);
   ASSERT_NE(find(closed, "working"), nullptr);
   EXPECT_EQ(find(closed, "working")->filled, d("1"));
   ASSERT_EQ(closed.trades.size(), 1U);
@@ -322,7 +319,7 @@ TEST_F(CtpTrader, RevokedPermissionNeverInvokesTheSdkOrInventsABrokerOrder) {
   ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow, gate, [] {});
   trader.connect(configuration());
   const auto state = wait_for(trader, ready, 15s);
-  ASSERT_EQ(state.phase, "ready");
+  ASSERT_EQ(state.phase, BrokerPhase::ready);
   auto prepared =
       trader.prepare(order("revoked", "SHFE", "rb2610", Side::buy, "1", "3500"), Offset::open,
                      state.connection_generation, state.exposure_revision, dispatch_deadline());
@@ -331,7 +328,7 @@ TEST_F(CtpTrader, RevokedPermissionNeverInvokesTheSdkOrInventsABrokerOrder) {
   gate.invalidate();
   const auto result = await(trader, trader.dispatch(std::move(prepared), std::move(permit), 1));
   EXPECT_FALSE(result.invoked);
-  EXPECT_EQ(result.code, -1007);
+  EXPECT_EQ(result.code, broker_code::permit_refused);
   EXPECT_TRUE(trader.snapshot().orders.empty());
   EXPECT_EQ(fake.call<int (*)()>("asterion_fake_catalog_side_effects"), effects);
 }
@@ -345,7 +342,7 @@ TEST_F(CtpTrader, SdkLifecycleHasOneOwnerAndBlockedReleaseDoesNotBlockControl) {
     } release{fake};
     trader.connect(configuration());
     const auto initial = wait_for(trader, ready, 15s);
-    ASSERT_EQ(initial.phase, "ready");
+    ASSERT_EQ(initial.phase, BrokerPhase::ready);
     auto pending =
         send(trader, gate, order("resting", "SHFE", "rb2610", Side::buy, "3", "3500"), Offset::open,
              initial.connection_generation, initial.exposure_revision, dispatch_deadline());
@@ -369,7 +366,7 @@ TEST_F(CtpTrader, SdkLifecycleHasOneOwnerAndBlockedReleaseDoesNotBlockControl) {
       std::this_thread::sleep_for(10ms);
     }
     ASSERT_EQ(fake.call<int (*)()>("asterion_fake_trader_sdk_releases"), 1);
-    EXPECT_EQ(trader.snapshot().phase, "disconnected");
+    EXPECT_EQ(trader.snapshot().phase, BrokerPhase::disconnected);
 
     auto replacement = std::async(std::launch::async, [&] { trader.connect(configuration()); });
     const auto responsive = replacement.wait_for(1s);
@@ -377,15 +374,15 @@ TEST_F(CtpTrader, SdkLifecycleHasOneOwnerAndBlockedReleaseDoesNotBlockControl) {
       fake.call<void (*)(int)>("asterion_fake_trader_hold_release", 0);
     replacement.get();
     ASSERT_EQ(responsive, std::future_status::ready);
-    EXPECT_EQ(trader.snapshot().phase, "connecting");
+    EXPECT_EQ(trader.snapshot().phase, BrokerPhase::connecting);
     EXPECT_EQ(fake.call<int (*)()>("asterion_fake_trader_sdk_creations"), 1);
     // A disconnect cancels the waiting replacement before it creates an SDK.
     trader.disconnect();
-    EXPECT_EQ(trader.snapshot().phase, "disconnected");
+    EXPECT_EQ(trader.snapshot().phase, BrokerPhase::disconnected);
     fake.call<void (*)(int)>("asterion_fake_trader_hold_release", 0);
     trader.connect(configuration());
     const auto restored = wait_for(trader, ready, 15s);
-    ASSERT_EQ(restored.phase, "ready");
+    ASSERT_EQ(restored.phase, BrokerPhase::ready);
     EXPECT_NE(restored.connection_generation, initial.connection_generation);
     EXPECT_EQ(fake.call<int (*)()>("asterion_fake_trader_sdk_creations"), 2);
   }
@@ -396,7 +393,7 @@ TEST_F(CtpTrader, PartialQuoteResponsesRequireSuccessfulCompletionAndCurrentIden
   ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow, gate, [] {});
   trader.start();
   trader.connect(configuration());
-  ASSERT_EQ(wait_for(trader, ready, 15s).phase, "ready");
+  ASSERT_EQ(wait_for(trader, ready, 15s).phase, BrokerPhase::ready);
   for (const int mode : {1, 3, 4}) {
     fake.call<void (*)(int)>("asterion_fake_trader_quote_mode", mode);
     EXPECT_FALSE(await(trader, trader.quote({"SHFE", "rb2610"}))) << "mode " << mode;
@@ -423,7 +420,7 @@ TEST_F(CtpTrader, DispatchReturnsWithoutWaitingAndLateSdkResultCannotOverwriteBr
   } release{fake};
   trader.connect(configuration());
   const auto state = wait_for(trader, ready, 15s);
-  ASSERT_EQ(state.phase, "ready");
+  ASSERT_EQ(state.phase, BrokerPhase::ready);
   auto prepared =
       trader.prepare(order("early.fill", "SHFE", "rb2610", Side::buy, "1", "3500"), Offset::open,
                      state.connection_generation, state.exposure_revision, dispatch_deadline());
@@ -470,7 +467,7 @@ TEST_F(CtpTrader, ExpiredSubmissionNeverDispatchesEvenIfJournalingCompletesLater
   std::this_thread::sleep_until(deadline + 20ms);
   const auto result = await(trader, dispatch_with_permission(trader, gate, std::move(prepared)));
   EXPECT_FALSE(result.invoked);
-  EXPECT_EQ(result.code, -1005);
+  EXPECT_EQ(result.code, broker_code::expired);
   EXPECT_EQ(fake.call<int (*)()>("asterion_fake_catalog_side_effects"), effects);
   EXPECT_TRUE(trader.snapshot().orders.empty());
 }
@@ -586,7 +583,7 @@ TEST_F(CtpTrader, ExposureChangesBeforeOrDuringJournalingRejectTheEvaluatedOrder
             state.exposure_revision);
   const auto result = await(trader, dispatch_with_permission(trader, gate, std::move(prepared)));
   EXPECT_FALSE(result.invoked);
-  EXPECT_EQ(result.code, -1004);
+  EXPECT_EQ(result.code, broker_code::exposure_changed);
   EXPECT_FALSE(find(trader.snapshot(), "during.risk"));
 }
 TEST_F(CtpTrader, PreparationHasNoBrokerEffectsAndDispatchTracksFills) {
@@ -599,7 +596,7 @@ TEST_F(CtpTrader, PreparationHasNoBrokerEffectsAndDispatchTracksFills) {
       << "not connected";
   trader.connect(configuration());
   auto state = wait_for(trader, ready, 15s);
-  ASSERT_EQ(state.phase, "ready");
+  ASSERT_EQ(state.phase, BrokerPhase::ready);
   EXPECT_EQ(state.trading_day, "20260928");
   ASSERT_TRUE(state.funds);
   EXPECT_EQ(state.funds->available, d("950000"));
@@ -654,13 +651,13 @@ TEST_F(CtpTrader, PreparationHasNoBrokerEffectsAndDispatchTracksFills) {
       << "duplicate order ID";
   EXPECT_EQ(fake.query_rejections(), 0) << "queries respect the CTP flow limit";
   trader.disconnect();
-  EXPECT_EQ(trader.snapshot().phase, "disconnected");
+  EXPECT_EQ(trader.snapshot().phase, BrokerPhase::disconnected);
 }
 TEST_F(CtpTrader, RejectionsAndCancellation) {
   ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow, gate, [] {});
   trader.start();
   trader.connect(configuration());
-  ASSERT_EQ(wait_for(trader, ready, 15s).phase, "ready");
+  ASSERT_EQ(wait_for(trader, ready, 15s).phase, BrokerPhase::ready);
   send(trader, gate, order("bad", "DCE", "zz2609", Side::buy, "1", "100"), Offset::open,
        trader.snapshot().connection_generation, trader.snapshot().exposure_revision,
        dispatch_deadline());
@@ -703,7 +700,7 @@ TEST_F(CtpTrader, ReconnectAndRestartKeepOrdersAttributed) {
     ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow, gate, [] {});
     trader.start();
     trader.connect(configuration());
-    ASSERT_EQ(wait_for(trader, ready, 15s).phase, "ready");
+    ASSERT_EQ(wait_for(trader, ready, 15s).phase, BrokerPhase::ready);
     key = send(trader, gate, order("resting", "SHFE", "rb2610", Side::buy, "4", "3400"),
                Offset::open, trader.snapshot().connection_generation,
                trader.snapshot().exposure_revision, dispatch_deadline())
@@ -721,7 +718,7 @@ TEST_F(CtpTrader, ReconnectAndRestartKeepOrdersAttributed) {
     fake.reconnect();
     auto state = wait_for(
         trader, [&](const BrokerSnapshot& s) { return s.sequence > before + 2 && ready(s); }, 15s);
-    ASSERT_EQ(state.phase, "ready");
+    ASSERT_EQ(state.phase, BrokerPhase::ready);
     ASSERT_EQ(state.orders.size(), 1U) << "the queried order merges with the tracked one";
     EXPECT_EQ(find(state, "resting")->broker_key, key);
     // A new session allocates keys that cannot collide with the old one.
@@ -739,7 +736,7 @@ TEST_F(CtpTrader, ReconnectAndRestartKeepOrdersAttributed) {
                   },
                   5s)
                   .phase,
-              "ready");
+              BrokerPhase::ready);
   }
   // A restarted process attributes orders from its journal; others stay
   // unattributed but visible.
@@ -748,7 +745,7 @@ TEST_F(CtpTrader, ReconnectAndRestartKeepOrdersAttributed) {
   restarted.connect(configuration(), {{{"20260928", key}, {"resting", 1}},
                                       {{"20260927", next_key}, {"yesterday", 2}}});
   const auto state = wait_for(restarted, ready, 15s);
-  ASSERT_EQ(state.phase, "ready");
+  ASSERT_EQ(state.phase, BrokerPhase::ready);
   ASSERT_EQ(state.orders.size(), 2U);
   EXPECT_EQ(find(state, "resting")->status, BrokerOrderStatus::cancelled);
   EXPECT_TRUE(find(state, ""));
@@ -806,7 +803,7 @@ TEST_F(CtpTrader, ReusedReferenceRetiresThePreviousCallerBinding) {
   // The journal can contain a request which never reached the broker. Its
   // reference is then absent from the broker's MaxOrderRef on recovery.
   trader.connect(configuration(), {{{"20260928", key}, {"unconfirmed", 1}}});
-  ASSERT_EQ(wait_for(trader, ready, 15s).phase, "ready");
+  ASSERT_EQ(wait_for(trader, ready, 15s).phase, BrokerPhase::ready);
   const auto sent =
       send(trader, gate, order("replacement", "SHFE", "rb2610", Side::buy, "3", "3500"),
            Offset::open, trader.snapshot().connection_generation,
@@ -825,7 +822,7 @@ TEST_F(CtpTrader, ReusedReferenceRetiresThePreviousCallerBinding) {
 TEST_F(CtpTrader, DelayedInputRejectionCannotRejectAReconnectedOrder) {
   ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow, gate, [] {});
   trader.connect(configuration());
-  ASSERT_EQ(wait_for(trader, ready, 15s).phase, "ready");
+  ASSERT_EQ(wait_for(trader, ready, 15s).phase, BrokerPhase::ready);
   fake.call<void (*)(int)>("asterion_fake_trader_hold_insert_errors", 1);
   const auto old = send(trader, gate, order("old", "DCE", "zz2609", Side::buy, "3", "100"),
                         Offset::open, trader.snapshot().connection_generation,
@@ -839,7 +836,7 @@ TEST_F(CtpTrader, DelayedInputRejectionCannotRejectAReconnectedOrder) {
                 },
                 15s)
                 .phase,
-            "ready");
+            BrokerPhase::ready);
   const auto current = send(trader, gate, order("current", "DCE", "m2609", Side::buy, "3", "2800"),
                             Offset::open, trader.snapshot().connection_generation,
                             trader.snapshot().exposure_revision, dispatch_deadline());
@@ -871,10 +868,12 @@ TEST_F(CtpTrader, CredentialFailuresStopBeforeTrading) {
   EXPECT_THROW(trader.connect({"http://x", "9999", "1", "p", "a", "c"}), std::invalid_argument);
   EXPECT_THROW(trader.connect(configuration("secret", "")), std::invalid_argument);
   trader.connect(configuration("secret", "bad-auth"));
-  auto state = wait_for(trader, [](const BrokerSnapshot& s) { return s.phase == "error"; }, 5s);
+  auto state =
+      wait_for(trader, [](const BrokerSnapshot& s) { return s.phase == BrokerPhase::error; }, 5s);
   EXPECT_EQ(state.error_code, 63);
   trader.connect(configuration("bad"));
-  state = wait_for(trader, [](const BrokerSnapshot& s) { return s.phase == "error"; }, 5s);
+  state =
+      wait_for(trader, [](const BrokerSnapshot& s) { return s.phase == BrokerPhase::error; }, 5s);
   EXPECT_EQ(state.error_code, 3);
   EXPECT_THROW(send(trader, gate, order("x", "SHFE", "rb2610", Side::buy, "1", "3500"),
                     Offset::open, trader.snapshot().connection_generation,
@@ -887,20 +886,20 @@ TEST_F(CtpTrader, AccountRatesFillCostsWithoutAffectingTheSession) {
   trader.start();
   EXPECT_THROW(trader.query_costs({{{"SHFE", "rb2610"}, "rb"}}), Error) << "not connected";
   trader.connect(configuration());
-  ASSERT_EQ(wait_for(trader, ready, 15s).phase, "ready");
+  ASSERT_EQ(wait_for(trader, ready, 15s).phase, BrokerPhase::ready);
   trader.query_costs({{{"SHFE", "rb2610"}, "rb"}, {{"SHFE", "zz2610"}, "zz"}});
   const auto state = wait_for(
       trader,
       [](const BrokerSnapshot& s) {
         return s.costs.size() == 2 && std::ranges::none_of(s.costs, [](const BrokerCosts& c) {
-                 return c.state == "querying";
+                 return c.state == BrokerCostsState::querying;
                });
       },
       15s);
   ASSERT_EQ(state.costs.size(), 2U);
-  EXPECT_EQ(state.phase, "ready") << "a missing rate does not end the session";
+  EXPECT_EQ(state.phase, BrokerPhase::ready) << "a missing rate does not end the session";
   const auto& rb = state.costs[0];
-  ASSERT_EQ(rb.state, "ready");
+  ASSERT_EQ(rb.state, BrokerCostsState::ready);
   ASSERT_TRUE(rb.costs);
   // Margin takes the higher short rate; commission comes from the product row.
   EXPECT_EQ(rb.costs->margin_rate, d("0.12"));
@@ -910,24 +909,23 @@ TEST_F(CtpTrader, AccountRatesFillCostsWithoutAffectingTheSession) {
   EXPECT_EQ(rb.costs->close_today_fee_rate, d("0.0003"));
   EXPECT_EQ(rb.costs->close_today_fee, d("1.5"));
   EXPECT_GT(rb.queried_ms, 0);
-  EXPECT_EQ(state.costs[1].state, "unavailable");
+  EXPECT_EQ(state.costs[1].state, BrokerCostsState::unavailable);
   EXPECT_FALSE(state.costs[1].costs);
   EXPECT_EQ(fake.query_rejections(), 0) << "rate queries respect the CTP flow limit";
 }
 
 TEST_F(CtpTrader, QuoteFlowControlRetriesWithoutEndingTheConnection) {
-  ctp::SharedLibrary reject(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reject_quotes",
-                            "asterion_fake_trader_reject_quotes");
+  ctp::SharedLibrary reject(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reject_quotes");
   ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow, gate, [] {});
   trader.start();
   trader.connect(configuration());
-  ASSERT_EQ(wait_for(trader, ready, 15s).phase, "ready");
+  ASSERT_EQ(wait_for(trader, ready, 15s).phase, BrokerPhase::ready);
   for (const int code : {-2, -3}) {
     reject.symbol<void (*)(int, int)>()(code, 1);
     auto quote = await(trader, trader.quote({"SHFE", "rb2610"}));
     ASSERT_TRUE(quote);
     EXPECT_EQ(quote->last, d("3500"));
-    EXPECT_EQ(trader.snapshot().phase, "ready");
+    EXPECT_EQ(trader.snapshot().phase, BrokerPhase::ready);
   }
   EXPECT_EQ(fake.query_rejections(), 2);
   auto pending =
@@ -942,7 +940,7 @@ TEST_F(CtpTrader, ReconnectFencesAuthorizationBeforeAndDuringJournaling) {
   trader.start();
   trader.connect(configuration());
   auto state = wait_for(trader, ready, 15s);
-  ASSERT_EQ(state.phase, "ready");
+  ASSERT_EQ(state.phase, BrokerPhase::ready);
   const auto reconnect = [&] {
     const auto generation = trader.snapshot().connection_generation;
     fake.reconnect();
@@ -960,10 +958,10 @@ TEST_F(CtpTrader, ReconnectFencesAuthorizationBeforeAndDuringJournaling) {
   auto prepared = trader.prepare(order("during.journal", "SHFE", "rb2610", Side::buy, "4", "3400"),
                                  Offset::open, state.connection_generation, state.exposure_revision,
                                  dispatch_deadline());
-  ASSERT_EQ(reconnect().phase, "ready");
+  ASSERT_EQ(reconnect().phase, BrokerPhase::ready);
   const auto result = await(trader, dispatch_with_permission(trader, gate, std::move(prepared)));
   EXPECT_FALSE(result.invoked);
-  EXPECT_EQ(result.code, -1003);
+  EXPECT_EQ(result.code, broker_code::session_changed);
   trader.disconnect();
   trader.connect(configuration());
   const auto synced = wait_for(trader, ready, 15s);
@@ -971,12 +969,11 @@ TEST_F(CtpTrader, ReconnectFencesAuthorizationBeforeAndDuringJournaling) {
   EXPECT_TRUE(synced.orders.empty()) << "nothing was sent in the newer connection";
 }
 TEST_F(CtpTrader, DisconnectCompletesAThrottledQuoteWithoutRetryingItAfterReconnect) {
-  ctp::SharedLibrary reject(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reject_quotes",
-                            "asterion_fake_trader_reject_quotes");
+  ctp::SharedLibrary reject(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reject_quotes");
   ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow, gate, [] {});
   trader.start();
   trader.connect(configuration());
-  ASSERT_EQ(wait_for(trader, ready, 15s).phase, "ready");
+  ASSERT_EQ(wait_for(trader, ready, 15s).phase, BrokerPhase::ready);
   reject.symbol<void (*)(int, int)>()(-3, 100);
   auto query = trader.quote({"SHFE", "rb2610"});
   const auto deadline = std::chrono::steady_clock::now() + 5s;
@@ -990,23 +987,22 @@ TEST_F(CtpTrader, DisconnectCompletesAThrottledQuoteWithoutRetryingItAfterReconn
   EXPECT_FALSE(query.get());
   reject.symbol<void (*)(int, int)>()(0, 0);
   trader.connect(configuration());
-  ASSERT_EQ(wait_for(trader, ready, 15s).phase, "ready");
+  ASSERT_EQ(wait_for(trader, ready, 15s).phase, BrokerPhase::ready);
   EXPECT_TRUE(await(trader, trader.quote({"SHFE", "rb2610"})));
 }
 
 TEST_F(CtpTrader, TimedOutQuoteRetiresRetriesAndLeavesTheWorkerAvailable) {
-  ctp::SharedLibrary reject(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reject_quotes",
-                            "asterion_fake_trader_reject_quotes");
+  ctp::SharedLibrary reject(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reject_quotes");
   ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow, gate, [] {});
   trader.start();
   trader.connect(configuration());
-  ASSERT_EQ(wait_for(trader, ready, 15s).phase, "ready");
+  ASSERT_EQ(wait_for(trader, ready, 15s).phase, BrokerPhase::ready);
   reject.symbol<void (*)(int, int)>()(-3, 100);
   EXPECT_FALSE(await(trader, trader.quote({"SHFE", "rb2610"})));
-  EXPECT_EQ(trader.snapshot().phase, "ready");
+  EXPECT_EQ(trader.snapshot().phase, BrokerPhase::ready);
   reject.symbol<void (*)(int, int)>()(0, 0);
   EXPECT_TRUE(await(trader, trader.quote({"SHFE", "rb2610"})));
-  EXPECT_EQ(trader.snapshot().phase, "ready");
+  EXPECT_EQ(trader.snapshot().phase, BrokerPhase::ready);
 }
 
 TEST_F(CtpTrader, LateQueryRepliesCannotReplaceReconnectedAccountState) {
@@ -1014,7 +1010,7 @@ TEST_F(CtpTrader, LateQueryRepliesCannotReplaceReconnectedAccountState) {
   trader.start();
   trader.connect(configuration());
   const auto initial = wait_for(trader, ready, 15s);
-  ASSERT_EQ(initial.phase, "ready");
+  ASSERT_EQ(initial.phase, BrokerPhase::ready);
   fake.reconnect();
   const auto synced = wait_for(
       trader,
@@ -1022,11 +1018,9 @@ TEST_F(CtpTrader, LateQueryRepliesCannotReplaceReconnectedAccountState) {
         return ready(s) && s.connection_generation != initial.connection_generation;
       },
       15s);
-  ASSERT_EQ(synced.phase, "ready");
-  ctp::SharedLibrary inject(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_stale_queries",
-                            "asterion_fake_trader_stale_queries");
-  ctp::SharedLibrary batches(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_stale_batches",
-                             "asterion_fake_trader_stale_batches");
+  ASSERT_EQ(synced.phase, BrokerPhase::ready);
+  ctp::SharedLibrary inject(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_stale_queries");
+  ctp::SharedLibrary batches(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_stale_batches");
   const auto before = batches.symbol<int (*)()>()();
   inject.symbol<void (*)()>()();
   const auto deadline = std::chrono::steady_clock::now() + 5s;
@@ -1046,7 +1040,7 @@ TEST_F(CtpTrader, QuotesGoAheadOfQueuedRateQueries) {
   ctp::Trader trader(ASTERION_TEST_CTP_TRADER, flow, gate, [] {});
   trader.start();
   trader.connect(configuration());
-  ASSERT_EQ(wait_for(trader, ready, 15s).phase, "ready");
+  ASSERT_EQ(wait_for(trader, ready, 15s).phase, BrokerPhase::ready);
   // Ten rate queries need over ten seconds at the CTP query limit.
   std::vector<std::pair<InstrumentId, std::string>> contracts;
   for (const auto* symbol : {"rb2610", "rb2611", "rb2612", "rb2701", "rb2702"})
@@ -1068,7 +1062,7 @@ TEST_F(CtpTrader, RecordContinuationRejectsAChangedConnectionOrExposureBeforeDis
   ASSERT_TRUE(before.positions_reconciled);
   EXPECT_THROW(
       trader.disconnect_checked(before.connection_generation + 1, before.exposure_revision), Error);
-  EXPECT_EQ(trader.snapshot().phase, "ready");
+  EXPECT_EQ(trader.snapshot().phase, BrokerPhase::ready);
   send(trader, gate, order("working", "SHFE", "rb2610", Side::buy, "3", "3500"), Offset::open,
        before.connection_generation, before.exposure_revision, dispatch_deadline());
   ASSERT_TRUE(wait_for(
@@ -1078,10 +1072,10 @@ TEST_F(CtpTrader, RecordContinuationRejectsAChangedConnectionOrExposureBeforeDis
                            find(state, "working")->status == BrokerOrderStatus::accepted;
                   },
                   2s)
-                  .phase == "ready");
+                  .phase == BrokerPhase::ready);
   EXPECT_THROW(trader.disconnect_checked(before.connection_generation, before.exposure_revision),
                Error);
-  EXPECT_EQ(trader.snapshot().phase, "ready");
+  EXPECT_EQ(trader.snapshot().phase, BrokerPhase::ready);
   cancel(trader, "working");
   const auto after = wait_for(
       trader,
@@ -1092,5 +1086,5 @@ TEST_F(CtpTrader, RecordContinuationRejectsAChangedConnectionOrExposureBeforeDis
       2s);
   ASSERT_EQ(find(after, "working")->status, BrokerOrderStatus::cancelled);
   EXPECT_NO_THROW(trader.disconnect_checked(after.connection_generation, after.exposure_revision));
-  EXPECT_EQ(trader.snapshot().phase, "disconnected");
+  EXPECT_EQ(trader.snapshot().phase, BrokerPhase::disconnected);
 }

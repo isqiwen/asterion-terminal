@@ -5,9 +5,6 @@ namespace asterion {
 OrderLimits::OrderLimits(OrderLimitsConfig config) : config_(config) {
   config_.validate();
 }
-PluginDescriptor OrderLimits::descriptor() const {
-  return {"asterion.risk.order-limits", PluginKind::risk, plugin_contract_version, {}};
-}
 RiskDecision OrderLimits::evaluate(const PreTradeRiskContext& c) const {
   if (!running_)
     return {RiskReason::unavailable};

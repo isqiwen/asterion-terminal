@@ -5,14 +5,10 @@
 #include <atomic>
 #include <stdexcept>
 #include <string>
-#ifdef _WIN32
-#include <windows.h>
-#else
 #include <cerrno>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#endif
 namespace asterion {
 namespace {
 std::atomic<int> directory_sync_failures{0};
@@ -21,7 +17,6 @@ std::atomic<int> directory_sync_failures{0};
   throw std::runtime_error(std::string("cannot ") + action + " " +
                            std::string(name.begin(), name.end()));
 }
-#ifndef _WIN32
 bool flush(int file) {
 #ifdef __APPLE__
   // fsync on macOS only reaches the drive cache; F_FULLFSYNC reaches media.
@@ -76,53 +71,18 @@ void verify_identity(int file, const std::filesystem::path& path) {
     failed(path, "verify publication identity");
 }
 
-#endif
 } // namespace
 void write_file_durably(const std::filesystem::path& path, std::string_view contents,
                         bool owner_only) {
-#ifdef _WIN32
-  (void)owner_only; // Windows inherits the per-user profile ACL of the parent.
-  const HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                                  FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (file == INVALID_HANDLE_VALUE)
-    failed(path, "create");
-  bool ok = true;
-  std::size_t offset = 0;
-  while (ok && offset < contents.size()) {
-    DWORD written = 0;
-    const auto chunk = static_cast<DWORD>(std::min<std::size_t>(contents.size() - offset, 1 << 20));
-    ok = WriteFile(file, contents.data() + offset, chunk, &written, nullptr) && written > 0;
-    offset += written;
-  }
-  ok = ok && FlushFileBuffers(file);
-  CloseHandle(file);
-  if (!ok)
-    failed(path, "durably write");
-#else
   Descriptor file(::open(path.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK,
                          owner_only ? 0600 : 0644));
   if (file.value < 0)
     failed(path, "create");
   write_open_file(file, path, contents, owner_only);
   file.close(path);
-#endif
   sync_directory(path.parent_path().empty() ? std::filesystem::path(".") : path.parent_path());
 }
 void sync_file_durably(const std::filesystem::path& path) {
-#ifdef _WIN32
-  const HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
-                                  FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-  if (file == INVALID_HANDLE_VALUE)
-    failed(path, "open");
-  BY_HANDLE_FILE_INFORMATION info{};
-  const bool valid =
-      GetFileInformationByHandle(file, &info) && info.nNumberOfLinks == 1 &&
-      !(info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT));
-  const bool ok = valid && FlushFileBuffers(file);
-  CloseHandle(file);
-  if (!ok)
-    failed(path, "sync");
-#else
   Descriptor file(::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK));
   if (file.value < 0)
     failed(path, "open");
@@ -131,7 +91,6 @@ void sync_file_durably(const std::filesystem::path& path) {
     failed(path, "sync");
   verify_identity(file.value, path);
   file.close(path);
-#endif
   sync_directory(path.parent_path().empty() ? std::filesystem::path(".") : path.parent_path());
 }
 void fail_next_directory_syncs_for_testing(int count) {
@@ -142,9 +101,6 @@ void sync_directory(const std::filesystem::path& directory) {
   while (remaining > 0)
     if (directory_sync_failures.compare_exchange_weak(remaining, remaining - 1))
       failed(directory, "sync directory");
-#ifdef _WIN32
-  (void)directory;
-#else
   const int handle = ::open(directory.c_str(), O_RDONLY | O_CLOEXEC | O_DIRECTORY | O_NOFOLLOW);
   if (handle < 0)
     failed(directory, "open directory");
@@ -152,7 +108,6 @@ void sync_directory(const std::filesystem::path& directory) {
   ::close(handle);
   if (!ok)
     failed(directory, "sync directory");
-#endif
 }
 void create_directories_durably(const std::filesystem::path& directory) {
   if (directory.empty() || std::filesystem::is_symlink(directory))
@@ -173,11 +128,6 @@ void publish_file_durably(const std::filesystem::path& temporary,
                           const std::filesystem::path& path) {
   if (std::filesystem::is_symlink(temporary) || std::filesystem::is_symlink(path))
     throw std::runtime_error("durable publication refuses symbolic links");
-#ifdef _WIN32
-  if (!MoveFileExW(temporary.c_str(), path.c_str(),
-                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-    failed(path, "publish");
-#else
   Descriptor file(::open(temporary.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK));
   if (file.value < 0)
     failed(temporary, "open");
@@ -193,21 +143,9 @@ void publish_file_durably(const std::filesystem::path& temporary,
   if (temporary.parent_path() != path.parent_path())
     sync_directory(temporary.parent_path().empty() ? std::filesystem::path(".")
                                                    : temporary.parent_path());
-#endif
 }
 void replace_file_durably(const std::filesystem::path& path, std::string_view contents,
                           bool owner_only) {
-#ifdef _WIN32
-  // Windows product work remains paused; keep the existing portable path.
-  auto temporary = path;
-  temporary += ".tmp";
-  if (std::filesystem::is_symlink(temporary) || std::filesystem::is_symlink(path))
-    throw std::runtime_error("durable replacement refuses symbolic links");
-  write_file_durably(temporary, contents, owner_only);
-  if (!MoveFileExW(temporary.c_str(), path.c_str(),
-                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-    failed(path, "replace");
-#else
   if (std::filesystem::is_symlink(path))
     throw std::runtime_error("durable replacement refuses symbolic links");
   auto temporary = path;
@@ -236,6 +174,5 @@ void replace_file_durably(const std::filesystem::path& path, std::string_view co
   cleanup.active = false;
   file.close(temporary);
   sync_directory(path.parent_path().empty() ? std::filesystem::path(".") : path.parent_path());
-#endif
 }
 } // namespace asterion

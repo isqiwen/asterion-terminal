@@ -8,13 +8,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <thread>
-#ifdef _WIN32
-// windows.h must precede sddl.h, which depends on its declarations.
-#include <windows.h>
-#include <sddl.h>
-#else
 #include <unistd.h>
-#endif
 namespace asterion::terminal {
 namespace fs = std::filesystem;
 namespace {
@@ -143,107 +137,6 @@ void manage_node_service(const fs::path& executable, const fs::path& root,
       require_command("/bin/launchctl", {"bootstrap", domain, utf8(file)});
     require_command("/bin/launchctl", {"kickstart", domain + "/" + name});
   }
-#elif defined(_WIN32)
-  // A per-user scheduled task preserves the same identity and private-pipe ACL.
-  // It needs no stored password and survives Terminal exit (not user logout).
-  HANDLE token = nullptr;
-  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
-    throw std::runtime_error("cannot read service identity");
-  DWORD size = 0;
-  GetTokenInformation(token, TokenUser, nullptr, 0, &size);
-  std::vector<unsigned char> buffer(size);
-  const bool read = GetTokenInformation(token, TokenUser, buffer.data(), size, &size) != FALSE;
-  CloseHandle(token);
-  LPWSTR sid = nullptr;
-  if (!read ||
-      !ConvertSidToStringSidW(reinterpret_cast<TOKEN_USER*>(buffer.data())->User.Sid, &sid))
-    throw std::runtime_error("cannot read service identity");
-  const auto sid_path = fs::path(sid);
-  LocalFree(sid);
-  const auto user = utf8(sid_path);
-  const auto arguments = "--directory &quot;" + xml(utf8(root)) + "&quot; --endpoint &quot;" +
-                         xml(endpoint) + "&quot;";
-  const auto definition = root / "scheduled-task.xml";
-  // Task Scheduler's canonical XML is UTF-16 with a byte-order mark; schtasks
-  // /XML reliably accepts only that form.
-  const std::string task_xml = "<?xml version=\"1.0\" encoding=\"UTF-16\"?><Task version=\"1.2\" "
-                               "xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/"
-                               "task\"><Triggers><LogonTrigger><Enabled>true</Enabled><UserId>" +
-                               user +
-                               "</UserId></LogonTrigger></Triggers><Principals><Principal "
-                               "id=\"Author\"><UserId>" +
-                               user +
-                               "</UserId><LogonType>InteractiveToken</"
-                               "LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></"
-                               "Principals><Settings><MultipleInstancesPolicy>IgnoreNew</"
-                               "MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</"
-                               "DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</"
-                               "StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</"
-                               "ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</"
-                               "Interval><Count>3</Count></RestartOnFailure></Settings><Actions "
-                               "Context=\"Author\"><Exec><Command>" +
-                               xml(utf8(executable)) + "</Command><Arguments>" + arguments +
-                               "</Arguments></Exec></Actions></Task>";
-  const int units = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, task_xml.data(),
-                                        static_cast<int>(task_xml.size()), nullptr, 0);
-  if (units <= 0)
-    throw std::runtime_error("service definition is not valid Unicode");
-  std::wstring wide(static_cast<std::size_t>(units), L'\0');
-  MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, task_xml.data(),
-                      static_cast<int>(task_xml.size()), wide.data(), units);
-  std::string utf16("\xFF\xFE", 2);
-  for (const wchar_t unit : wide) {
-    utf16.push_back(static_cast<char>(unit & 0xFF));
-    utf16.push_back(static_cast<char>((unit >> 8) & 0xFF));
-  }
-  write(definition, utf16, stopping);
-  wchar_t system[MAX_PATH];
-  const auto length = GetSystemDirectoryW(system, MAX_PATH);
-  if (!length || length >= MAX_PATH)
-    throw std::runtime_error("cannot locate task scheduler");
-  const auto scheduler = fs::path(system) / "schtasks.exe";
-  if (name.empty())
-    name = "AsterionNodeAgent";
-  if (stopping) {
-    auto literal = [](const std::string& value) {
-      std::string s = "'";
-      for (char c : value) {
-        s += c;
-        if (c == '\'')
-          s += '\'';
-      }
-      return s + "'";
-    };
-    const auto expected_args = "--directory \"" + utf8(root) + "\" --endpoint \"" + endpoint + "\"";
-    const auto check =
-        verifying ? "$ErrorActionPreference='Stop';$s=New-Object -ComObject "
-                    "Schedule.Service;$s.Connect();$t=$s.GetFolder('\\').GetTask(" +
-                        literal(name) +
-                        ");$a=$t.Definition.Actions;if($t.Enabled -or "
-                        "$t.GetInstances(0).Count -ne 0 -or $a.Count -ne 1 -or "
-                        "$a.Item(1).Path -ne " +
-                        literal(utf8(executable)) + " -or $a.Item(1).Arguments -cne " +
-                        literal(expected_args) + "){exit 1}"
-                  : "$ErrorActionPreference='Stop';$t=Get-ScheduledTask -TaskPath "
-                    "'\\' "
-                    "-TaskName " +
-                        literal(name) + ";$p=Get-Process -Id " + std::to_string(expected_pid) +
-                        ";if(@($t.Actions).Count -ne 1 -or $t.Actions[0].Execute "
-                        "-ne " +
-                        literal(utf8(executable)) + " -or $t.Actions[0].Arguments -cne " +
-                        literal(expected_args) + " -or $p.Path -ne " + literal(utf8(executable)) +
-                        "){exit 1}";
-    require_command(fs::path(system) / "WindowsPowerShell/v1.0/powershell.exe",
-                    {"-NoProfile", "-NonInteractive", "-Command", check});
-    if (!verifying) {
-      require_command(scheduler, {"/Change", "/TN", name, "/DISABLE"});
-      require_command(scheduler, {"/End", "/TN", name});
-    }
-  } else {
-    require_command(scheduler, {"/Create", "/TN", name, "/XML", utf8(definition), "/F"});
-    require_command(scheduler, {"/Run", "/TN", name});
-  }
-
 #else
   const auto home = environment_path("HOME");
   if (!home)

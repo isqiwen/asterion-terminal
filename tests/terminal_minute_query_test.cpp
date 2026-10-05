@@ -3,7 +3,7 @@
 #include "timing.hpp"
 #include <asterion/kernel/environment.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/kernel/service_host.hpp>
+#include "blocking_service.hpp"
 #include <asterion/kernel/process/artifact.hpp>
 #include <future>
 #include <latch>
@@ -141,23 +141,18 @@ struct MinuteService {
   unsigned requested_before_sequence = 0;
   data::v1::DownloadAuthorizationRequest captured_authorization;
   data::v1::DownloadBudgetConfiguration configured_budget;
-  std::unique_ptr<service::ServiceHost> host;
+  std::unique_ptr<testing_support::BlockingService> host;
   std::future<bool> running;
-  std::unique_ptr<service::ServiceHost> data_host;
+  std::unique_ptr<testing_support::BlockingService> data_host;
   std::future<bool> data_running;
   MinuteService() {
     service::reset_stop_request();
-#ifdef _WIN32
-    root = std::filesystem::temp_directory_path() / ("ast-query-" + unique_process_id());
-    endpoint = "asterion.query." + unique_process_id();
-#else
     root = std::filesystem::path("/tmp") / ("ast-query-" + unique_process_id().substr(0, 12));
     endpoint = (root / "service").string();
-#endif
     std::filesystem::create_directory(root);
-    host = std::make_unique<service::ServiceHost>(
+    host = std::make_unique<testing_support::BlockingService>(
         service::Transport{endpoint, {}, 0, {}},
-        [this](service::Connection& connection, std::stop_token) {
+        [this](testing_support::Connection& connection, std::stop_token) {
           task::v1::TaskRequest request;
           if (!request.ParseFromString(connection.receive(2s)))
             throw std::runtime_error("bad request");
@@ -213,9 +208,9 @@ struct MinuteService {
           connection.send(response.SerializeAsString(), 2s);
         });
     running = std::async(std::launch::async, [&] { return host->run(); });
-    data_host = std::make_unique<service::ServiceHost>(
+    data_host = std::make_unique<testing_support::BlockingService>(
         service::Transport{endpoint + ".data", {}, 0, {}},
-        [this](service::Connection& connection, std::stop_token) {
+        [this](testing_support::Connection& connection, std::stop_token) {
           data::v1::DataRequest request;
           if (!request.ParseFromString(connection.receive(2s)))
             throw std::runtime_error("bad data request");
@@ -846,8 +841,8 @@ TEST(TerminalNodeCommands, SlowServiceActionDoesNotBlockNodeObservationOrUnrelat
   const auto released = release.get_future().share();
   std::atomic<unsigned> actions{0};
   const auto socket = (source.root / "node.sock").string();
-  service::ServiceHost host(
-      {socket, {}, 0, {}}, [&](service::Connection& connection, std::stop_token) {
+  testing_support::BlockingService host(
+      {socket, {}, 0, {}}, [&](testing_support::Connection& connection, std::stop_token) {
         node::v1::Request request;
         if (!request.ParseFromString(connection.receive(2s)))
           throw std::runtime_error("invalid fixture request");
@@ -933,8 +928,8 @@ TEST(TerminalHistoryUsage, OtherServicesAreScopedAndNodeChangesRejectObsoleteRes
   other.reference = true;
   std::atomic<unsigned> mutations{0};
   const auto socket = (source.root / "node.sock").string();
-  service::ServiceHost host(
-      {socket, {}, 0, {}}, [&](service::Connection& connection, std::stop_token) {
+  testing_support::BlockingService host(
+      {socket, {}, 0, {}}, [&](testing_support::Connection& connection, std::stop_token) {
         node::v1::Request request;
         if (!request.ParseFromString(connection.receive(2s)) || !request.has_status()) {
           ++mutations;
@@ -1041,14 +1036,14 @@ struct LiveService {
   std::mutex mutex;
   std::condition_variable condition;
   bool entered = false, released, block_observations = false;
-  std::unique_ptr<service::ServiceHost> host;
+  std::unique_ptr<testing_support::BlockingService> host;
   std::future<bool> running;
   explicit LiveService(bool block) : released(!block) {
     service::reset_stop_request();
     std::filesystem::create_directory(root);
-    host = std::make_unique<service::ServiceHost>(
+    host = std::make_unique<testing_support::BlockingService>(
         service::Transport{endpoint, {}, 0, {}},
-        [this](service::Connection& connection, std::stop_token stop) {
+        [this](testing_support::Connection& connection, std::stop_token stop) {
           while (!stop.stop_requested()) {
             protocol::v1::Request message;
             std::string frame;
@@ -1464,7 +1459,7 @@ TEST(TerminalMarket, SlowHistoryAndReadBackpressureLeaveControlsAvailable) {
         return [&, response = std::move(response),
                 watch = request.has_watch()]() mutable -> std::optional<service::RpcHost::Message> {
           LiveMarketSnapshot state;
-          state.phase = connected ? "connected" : "disconnected";
+          state.phase = connected ? MarketPhase::connected : MarketPhase::disconnected;
           state.sequence = ++sequence;
           *response.mutable_snapshot() = protocol::encode_market(state, "fixture-instance");
           response.mutable_snapshot()->mutable_catalog()->set_phase("unconfigured");

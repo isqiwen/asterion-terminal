@@ -59,7 +59,6 @@ AstStatus evaluate(void* self, const AstRiskContext* input, uint32_t* decision) 
         input->working_orders > std::numeric_limits<std::size_t>::max())
       throw AstStatus(AST_INVALID);
     const Instrument instrument{{text(input->venue), text(input->symbol)},
-                                AssetClass::futures,
                                 text(input->quote_currency),
                                 Decimal::from_raw(input->price_increment),
                                 Decimal::from_raw(input->quantity_increment),

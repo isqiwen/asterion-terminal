@@ -12,7 +12,7 @@ Decimal d(const char* value) {
   return Decimal::parse(value);
 }
 Instrument instrument() {
-  return {{"TEST", "TEST-202612"}, AssetClass::futures, "CNY", d("0.2"), d("1"), d("10")};
+  return {{"TEST", "TEST-202612"}, "CNY", d("0.2"), d("1"), d("10")};
 }
 TEST(Domain, decimal_contract) {
   for (const char* value : {"0", "0.00000001", "-0.00000001", "12.3456", "-12.3456",

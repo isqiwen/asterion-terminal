@@ -2,20 +2,13 @@
 #include <filesystem>
 #include <stdexcept>
 #include <string>
-#ifdef _WIN32
-#include <windows.h>
-#else
 #include <sys/file.h>
 #include <fcntl.h>
 #include <unistd.h>
-#endif
 namespace asterion {
 class FileLock {
-#ifdef _WIN32
-  HANDLE handle_ = INVALID_HANDLE_VALUE;
-#else
   int handle_ = -1;
-#endif
+
 public:
   enum class Access { exclusive, shared, shared_existing };
   // Non-blocking, cooperative process lock. Existing owners stay exclusive by default.
@@ -29,16 +22,6 @@ public:
       throw std::invalid_argument("invalid agent lock path");
     if (access == Access::shared_existing && !std::filesystem::is_regular_file(path))
       throw std::runtime_error("agent directory is unavailable");
-#ifdef _WIN32
-    handle_ =
-        CreateFileW(path.c_str(),
-                    access == Access::shared_existing ? GENERIC_READ : GENERIC_READ | GENERIC_WRITE,
-                    access != Access::exclusive ? FILE_SHARE_READ | FILE_SHARE_WRITE : 0, nullptr,
-                    access == Access::shared_existing ? OPEN_EXISTING : OPEN_ALWAYS,
-                    FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (handle_ == INVALID_HANDLE_VALUE)
-      throw std::runtime_error("agent directory is already owned or unavailable");
-#else
     handle_ = ::open(path.c_str(),
                      (access == Access::shared_existing ? O_RDONLY : O_RDWR | O_CREAT) |
                          O_NOFOLLOW | O_CLOEXEC,
@@ -50,16 +33,10 @@ public:
       handle_ = -1;
       throw std::runtime_error("agent directory is already owned");
     }
-#endif
   }
   ~FileLock() {
-#ifdef _WIN32
-    if (handle_ != INVALID_HANDLE_VALUE)
-      CloseHandle(handle_);
-#else
     if (handle_ >= 0)
       ::close(handle_);
-#endif
   }
   FileLock(const FileLock&) = delete;
   FileLock& operator=(const FileLock&) = delete;

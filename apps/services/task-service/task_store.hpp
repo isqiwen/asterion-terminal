@@ -147,8 +147,6 @@ public:
   task::v1::Task submit(const std::string& id, backtest::v1::BacktestInput input);
   task::v1::Task submit(const std::string& id, factor::v1::FactorInput input);
   task::v1::Task submit(const data::v1::DownloadAuthorization&);
-  data::v1::DailyDownloadResult daily_result(const std::string&) const;
-  data::v1::MinuteDownloadResult minute_result(const std::string&) const;
   // Full immutable input is loaded and integrity-checked only for explicit reads.
   task::v1::Task get(const std::string& id) const;
   task::v1::Task describe(const std::string& id) const;

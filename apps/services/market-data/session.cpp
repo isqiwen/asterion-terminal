@@ -37,14 +37,16 @@ struct State {
   std::string phase() const {
     if (catalog.initializing())
       return "initializing";
-    return feed ? feed->phase() : sdk.empty() ? "sdk_unavailable" : "disconnected";
+    if (feed)
+      return std::string(market_phase_name(feed->phase()));
+    return sdk.empty() ? "sdk_unavailable" : "disconnected";
   }
   void advance() {
     if (feed)
       feed->poll();
     catalog.poll();
     const auto [catalog_revision, catalog_state] = catalog.snapshot();
-    if (feed && feed->phase() == "connected" && catalog_state.phase() == "ready" &&
+    if (feed && feed->phase() == MarketPhase::connected && catalog_state.phase() == "ready" &&
         applied_catalog != catalog_revision) {
       std::map<InstrumentId, int> multipliers;
       for (const auto& row : catalog_state.contracts())
@@ -63,7 +65,7 @@ struct State {
     for (const auto& event : batch.events) {
       event_cursor = event.sequence;
       if (const auto* status = std::get_if<LiveMarketSnapshot>(&event.value)) {
-        if (status->phase != "connected")
+        if (status->phase != MarketPhase::connected)
           intraday.interrupt();
       } else if (const auto* quote = std::get_if<MarketQuoteObservation>(&event.value);
                  quote && !quote->out_of_order)
@@ -92,9 +94,10 @@ struct State {
       const auto forced =
           held ? intraday.changed_after(held->intraday) : std::vector<InstrumentId>{};
       state = feed->snapshot(held ? held->feed : std::nullopt, forced);
-    } else
-      state.phase = sdk.empty() ? "sdk_unavailable" : "disconnected";
+    }
     auto out = protocol::encode_market(state, instance);
+    if (!feed && sdk.empty())
+      out.set_phase("sdk_unavailable");
     out.set_sequence(state.sequence + catalog_revision + extra_sequence + intraday.revision());
     if (state.subscriptions_delta)
       out.set_base_sequence(held->sequence);
@@ -128,8 +131,7 @@ struct State {
     try {
       if (control) {
         if (request.has_quiesce()) {
-          const auto state = feed ? feed->phase() : "disconnected";
-          if (catalog.running() || (state != "disconnected" && state != "sdk_unavailable")) {
+          if (catalog.running() || (feed && feed->phase() != MarketPhase::disconnected)) {
             response.mutable_error()->set_code("unavailable");
             response.mutable_error()->set_message(
                 "market connection must be disconnected before upgrade");

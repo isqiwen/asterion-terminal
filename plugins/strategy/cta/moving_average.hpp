@@ -1,16 +1,17 @@
 #pragma once
-#include <asterion/kernel/plugin.hpp>
-#include <asterion/domain/strategy_port.hpp>
+#include <asterion/domain/market.hpp>
+#include <optional>
 #include <deque>
 namespace asterion {
 // Long/flat SMA trend strategy on bar closes. No clock, data source or execution ownership.
-class MovingAverage final : public StrategyPort, public Plugin {
+class MovingAverage final {
 public:
   MovingAverage(Instrument instrument, std::size_t fast, std::size_t slow, Decimal quantity);
-  PluginDescriptor descriptor() const override;
-  void start() override;
-  void stop() noexcept override;
-  std::optional<Decimal> on_bar(const MarketBar& bar) override;
+  void start();
+  void stop() noexcept;
+  // Called once per completed bar, in order. The returned target is an intent,
+  // never an authorized order; the host routes it through the execution chain.
+  std::optional<Decimal> on_bar(const MarketBar& bar);
 
 private:
   Instrument instrument_;

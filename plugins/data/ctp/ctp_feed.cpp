@@ -201,7 +201,7 @@ struct Feed::Impl final {
     next.reserve(ids.size());
     index.reserve(ids.size());
     for (const auto& id : ids) {
-      MarketSubscription subscription{id, "pending", 0, {}};
+      MarketSubscription subscription{id, SubscriptionState::pending, 0, {}};
       const auto old = subscription_index.find(id.symbol);
       if (preserve_quotes && old != subscription_index.end() &&
           state.subscriptions[old->second].instrument == id)
@@ -258,8 +258,7 @@ struct Feed::Impl final {
     CThostFtdcMdApi* api = nullptr;
     std::string front;
     Sdk(Impl& owner, std::uint64_t generation, std::string address)
-        : library(owner.library_path, "?CreateFtdcMdApi@CThostFtdcMdApi@@SAPEAV1@PEBD_N1@Z",
-                  "_ZN15CThostFtdcMdApi15CreateFtdcMdApiEPKcbb"),
+        : library(owner.library_path, "_ZN15CThostFtdcMdApi15CreateFtdcMdApiEPKcbb"),
           bridge(owner, generation), front(std::move(address)) {}
     ~Sdk() {
       if (api) {
@@ -309,7 +308,7 @@ struct Feed::Impl final {
       return;
     closing = true;
     logged_in = login_pending = subscription_pending = false;
-    state.phase = "disconnected";
+    state.phase = MarketPhase::disconnected;
     ++state.sequence;
     record_status();
   }
@@ -477,27 +476,27 @@ struct Feed::Impl final {
             const auto before = state.sequence;
             if constexpr (std::is_same_v<T, Connected>) {
               logged_in = false;
-              state.phase = config.password.empty() ? "error" : "logging_in";
+              state.phase = config.password.empty() ? MarketPhase::error : MarketPhase::logging_in;
               state.error_code = 0;
               login_pending = !config.password.empty();
               ++state.sequence;
             } else if constexpr (std::is_same_v<T, Disconnected>) {
               logged_in = false;
-              state.phase = "reconnecting";
+              state.phase = MarketPhase::reconnecting;
               state.error_code = value.reason;
               for (auto& sub : state.subscriptions)
-                sub.state = "pending";
+                sub.state = SubscriptionState::pending;
               ++state.sequence;
             } else if constexpr (std::is_same_v<T, Login>) {
               if (value.code) {
-                state.phase = "error";
+                state.phase = MarketPhase::error;
                 state.error_code = value.code;
                 logged_in = false;
                 erase(config.password);
                 ++state.sequence;
               } else if (value.last) {
                 logged_in = true;
-                state.phase = "connected";
+                state.phase = MarketPhase::connected;
                 state.error_code = 0;
                 subscription_pending = true;
                 ++state.sequence;
@@ -508,7 +507,7 @@ struct Feed::Impl final {
                 return;
               auto& sub = state.subscriptions[found->second];
               sub.error_code = value.code;
-              sub.state = value.code ? "error" : "subscribed";
+              sub.state = value.code ? SubscriptionState::error : SubscriptionState::subscribed;
               ++state.sequence;
               subscription_revisions[found->second] = state.sequence;
               record({0, event.received_ms,
@@ -516,13 +515,13 @@ struct Feed::Impl final {
               return;
             } else if constexpr (std::is_same_v<T, Failure>) {
               if (value.code) {
-                state.phase = "error";
+                state.phase = MarketPhase::error;
                 state.error_code = value.code;
                 ++state.sequence;
               }
             } else if constexpr (std::is_same_v<T, SubscriptionFailure>) {
               for (auto& sub : state.subscriptions) {
-                sub.state = "error";
+                sub.state = SubscriptionState::error;
                 sub.error_code = value.code;
               }
               ++state.sequence;
@@ -536,8 +535,8 @@ struct Feed::Impl final {
   void poll() {
     if (!closing && (ingress_failed || event_failed)) {
       event_failed = true;
-      if (state.phase != "error" || state.error_code != -1000) {
-        state.phase = "error";
+      if (state.phase != MarketPhase::error || state.error_code != -1000) {
+        state.phase = MarketPhase::error;
         state.error_code = -1000;
         ++state.sequence;
       }
@@ -562,9 +561,6 @@ Feed::Feed(ThreadPool& sdk_owner, const std::filesystem::path& library,
            const std::filesystem::path& flow, std::size_t event_capacity)
     : impl_(std::make_unique<Impl>(sdk_owner, library, flow, event_capacity)) {}
 Feed::~Feed() = default;
-PluginDescriptor Feed::descriptor() const {
-  return {"asterion.data.ctp", PluginKind::data, plugin_contract_version, {}};
-}
 void Feed::start() {
   if (impl_->library_path.empty())
     throw Error(ErrorCode::unavailable, "CTP SDK unavailable");
@@ -590,7 +586,7 @@ void Feed::connect(Configuration config, const std::vector<InstrumentId>& ids) {
   start();
   if (impl_->event_failed || impl_->ingress_failed)
     throw Error(ErrorCode::unavailable, "market event stream failed; restart market service");
-  if (!impl_->closing && impl_->state.phase != "error")
+  if (!impl_->closing && impl_->state.phase != MarketPhase::error)
     throw Error(ErrorCode::conflict, "disconnect current market session first");
   impl_->close();
   std::lock_guard lock(impl_->mutex);
@@ -598,7 +594,7 @@ void Feed::connect(Configuration config, const std::vector<InstrumentId>& ids) {
   impl_->select_subscriptions(ids, false);
   ++impl_->generation;
   impl_->closing = false;
-  impl_->state.phase = "connecting";
+  impl_->state.phase = MarketPhase::connecting;
   impl_->state.error_code = 0;
   ++impl_->state.sequence;
   impl_->record_status();
@@ -647,7 +643,7 @@ LiveMarketSnapshot Feed::snapshot(std::optional<std::uint64_t> after,
     out.subscriptions.push_back(state.subscriptions[i]);
   return out;
 }
-std::string Feed::phase() const {
+MarketPhase Feed::phase() const {
   return impl_->state.phase;
 }
 MarketEventBatch Feed::events_after(const std::string& stream_id, std::uint64_t cursor,

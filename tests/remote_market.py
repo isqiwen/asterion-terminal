@@ -7,14 +7,13 @@ import sys
 import tempfile
 import time
 build=Path(sys.argv[1]).resolve()
-ext='.exe' if sys.platform=='win32' else ''
-sdk='asterion_test_ctp.dll' if sys.platform=='win32' else 'libasterion_test_ctp.dylib' if sys.platform=='darwin' else 'libasterion_test_ctp.so'
+sdk='libasterion_test_ctp.dylib' if sys.platform=='darwin' else 'libasterion_test_ctp.so'
 with tempfile.TemporaryDirectory(prefix='asterion-market-tls-', ignore_cleanup_errors=True) as folder:
     root=Path(folder)
-    subprocess.run([str(build/('asterion_test_certificates'+ext)),folder],check=True)
+    subprocess.run([str(build/('asterion_test_certificates')),folder],check=True)
     with socket.socket() as probe:
         probe.bind(('127.0.0.1',0));port=probe.getsockname()[1]
-    server=subprocess.Popen([str(build/('asterion-market-data'+ext)),'--session','market.test','--directory',folder,'--bind','127.0.0.1','--port',str(port),'--tls-ca',str(root/'ca.crt'),'--tls-cert',str(root/'server.crt'),'--tls-key',str(root/'server.key'),'--ctp-library',str(build/sdk)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+    server=subprocess.Popen([str(build/('asterion-market-data')),'--session','market.test','--directory',folder,'--bind','127.0.0.1','--port',str(port),'--tls-ca',str(root/'ca.crt'),'--tls-cert',str(root/'server.crt'),'--tls-key',str(root/'server.key'),'--ctp-library',str(build/sdk)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
     try:
         for _ in range(100):
             try:
@@ -26,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix='asterion-market-tls-', ignore_cleanup_e
                 channel.sendall(b'\x00\x00\x00\x01x')
                 assert channel.recv(1)==b'', 'Unauthenticated client received application data'
         except ssl.SSLError:pass
-        subprocess.run([str(build/('asterion_test_market_remote'+ext)),str(port),folder],check=True,timeout=15)
+        subprocess.run([str(build/('asterion_test_market_remote')),str(port),folder],check=True,timeout=15)
         assert server.poll() is None, 'Terminal disconnect must not stop the service'
     finally:
         server.terminate();server.communicate(timeout=8)

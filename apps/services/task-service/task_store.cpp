@@ -1185,18 +1185,6 @@ asterion::factor::v1::DailyFactorResult Store::daily_factor_result(const std::st
     throw std::invalid_argument("daily factor result is not confirmed");
   return impl_->read_result(entry).daily_factor();
 }
-data::v1::MinuteDownloadResult Store::minute_result(const std::string& id) const {
-  const auto entry = impl_->find(id);
-  if (entry.task.state() != wire::SUCCEEDED || entry.task.kind() != wire::MINUTE_DOWNLOAD)
-    throw std::invalid_argument("minute download is not complete");
-  return impl_->read_result(entry).minutes();
-}
-data::v1::DailyDownloadResult Store::daily_result(const std::string& id) const {
-  const auto entry = impl_->find(id);
-  if (entry.task.state() != wire::SUCCEEDED || entry.task.kind() != wire::DAILY_DOWNLOAD)
-    throw std::invalid_argument("daily download is not complete");
-  return impl_->read_result(entry).daily();
-}
 wire::Task Store::get(const std::string& id) const {
   auto read = prepare_input(id);
   read.load();

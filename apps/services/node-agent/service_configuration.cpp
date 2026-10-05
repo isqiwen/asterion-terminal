@@ -4,9 +4,6 @@
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <fstream>
-#ifdef _WIN32
-#include <windows.h>
-#endif
 namespace asterion::agent {
 namespace fs = std::filesystem;
 namespace wire = node::v1;
@@ -46,14 +43,8 @@ void save_service_configuration(const fs::path& folder,
     throw std::runtime_error("unfinished service configuration requires explicit recovery");
   const auto configuration = configuration_json(configuration_value);
   write_file_durably(pending, configuration.dump());
-#ifdef _WIN32
-  if (!MoveFileExW(pending.c_str(), path.c_str(),
-                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-    throw std::runtime_error("cannot publish service configuration");
-#else
   fs::rename(pending, path);
   sync_directory(path.parent_path());
-#endif
 }
 ServiceConfiguration load_service_configuration(const fs::path& folder, bool local,
                                                 unsigned short control_port) {

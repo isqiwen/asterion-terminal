@@ -2,7 +2,7 @@
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/rpc_diagnostics.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/service_host.hpp>
+#include <asterion/kernel/rpc_host.hpp>
 #include <asterion/kernel/trace.hpp>
 namespace asterion::protocol {
 using namespace std::chrono_literals;

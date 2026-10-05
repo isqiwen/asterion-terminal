@@ -104,9 +104,6 @@ SqliteJournal::SqliteJournal(std::filesystem::path directory, std::set<std::stri
 SqliteJournal::~SqliteJournal() {
   stop();
 }
-PluginDescriptor SqliteJournal::descriptor() const {
-  return {"asterion.storage.sqlite-journal", PluginKind::storage, plugin_contract_version, {}};
-}
 void check_journal_directory(const std::filesystem::path& directory,
                              const std::set<std::string>& sidecars) {
   for (const auto& entry : std::filesystem::directory_iterator(directory)) {
@@ -342,7 +339,7 @@ std::vector<SqliteJournal::OrderIndex> SqliteJournal::order_identities(std::stri
                   "AND newer.excluded_by IS NULL) ORDER BY o.sequence LIMIT ?");
   query.bind(1, day)
       .bind(2, static_cast<std::int64_t>(after))
-      .bind(3, static_cast<std::int64_t>(JournalPort::page_size));
+      .bind(3, static_cast<std::int64_t>(SqliteJournal::page_size));
   std::vector<OrderIndex> result;
   while (query.step())
     result.push_back({query.text(0), std::string(day), query.text(1),

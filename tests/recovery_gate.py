@@ -15,7 +15,7 @@ TESTS = (
     "TaskStore.DatedCostsArePinnedSwitchAtSettlementAndRejectForgedResults",
     "live_process",
     "task_agent_recovery",
-    "ServiceHostTest.HealthChannelAnswersIndependently",
+    "RpcHost.PendingRepliesLeaveReadAndControlConnectionsAvailable",
 )
 
 

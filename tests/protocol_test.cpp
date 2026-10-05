@@ -15,14 +15,10 @@ struct Endpoint {
   std::string path;
   std::filesystem::path directory;
   Endpoint() {
-#ifdef _WIN32
-    path = "asterion.test." + unique_process_id();
-#else
     directory = std::filesystem::path("/tmp") / ("ast-test-" + unique_process_id());
     std::filesystem::create_directory(directory);
     std::filesystem::permissions(directory, std::filesystem::perms::owner_all);
     path = (directory / "socket").string();
-#endif
   }
   ~Endpoint() {
     if (!directory.empty()) {

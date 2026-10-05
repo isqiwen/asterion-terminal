@@ -7,9 +7,7 @@
 namespace asterion {
 HostPlatform current_platform() {
   HostPlatform result;
-#ifdef _WIN32
-  result.os = "windows";
-#elif defined(__APPLE__)
+#if defined(__APPLE__)
   result.os = "macos";
 #else
   result.os = "linux";
@@ -43,19 +41,6 @@ HostPlatform artifact_platform(const std::filesystem::path& path) {
       return {"macos", "x86_64"};
     if (u32(4) == 0x0100000c)
       return {"macos", "arm64"};
-  } else if (h[0] == 'M' && h[1] == 'Z') {
-    const auto offset = u32(60);
-    if (offset > 1024 * 1024)
-      throw std::invalid_argument("invalid PE header");
-    input.seekg(offset);
-    input.read(reinterpret_cast<char*>(h.data()), 6);
-    if (input && u32(0) == 0x4550) {
-      const auto machine = unsigned(h[4]) | (unsigned(h[5]) << 8);
-      if (machine == 0x8664)
-        return {"windows", "x86_64"};
-      if (machine == 0xaa64)
-        return {"windows", "arm64"};
-    }
   }
   throw std::invalid_argument("unsupported native executable platform");
 }

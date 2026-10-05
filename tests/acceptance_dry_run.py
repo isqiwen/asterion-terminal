@@ -16,25 +16,6 @@ from unittest.mock import patch
 
 
 def alive(pid):
-    if os.name == "nt":
-        import ctypes
-        api = ctypes.WinDLL("kernel32", use_last_error=True)
-        api.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
-        api.OpenProcess.restype = ctypes.c_void_p
-        api.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
-        api.WaitForSingleObject.restype = ctypes.c_uint32
-        api.CloseHandle.argtypes = [ctypes.c_void_p]
-        handle = api.OpenProcess(0x00100000, False, pid)
-        if not handle:
-            if ctypes.get_last_error() == 87:
-                return False
-            raise OSError(ctypes.get_last_error(), "Cannot observe test process")
-        try:
-            status = api.WaitForSingleObject(handle, 0)
-            assert status in (0, 258), status
-            return status == 258
-        finally:
-            api.CloseHandle(handle)
     try:
         os.kill(pid, 0)
         return True

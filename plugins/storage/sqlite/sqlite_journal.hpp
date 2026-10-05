@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/kernel/journal_port.hpp>
+#include <asterion/foundation/serialization.hpp>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -22,7 +22,7 @@ Json read_journal_header(const std::filesystem::path& directory,
                          const std::set<std::string>& sidecar_directories = {});
 // Stable header, command index and active events live in journal.sqlite;
 // immutable event segments live in archives/, alongside declared sidecars.
-class SqliteJournal final : public JournalPort {
+class SqliteJournal final {
 public:
   struct Capacity {
     std::uint64_t records_used, records_limit, bytes_used, bytes_limit;
@@ -39,12 +39,13 @@ public:
   explicit SqliteJournal(std::filesystem::path directory,
                          std::set<std::string> sidecar_directories = {},
                          std::function<void(const Json&)> validate_header = {});
-  ~SqliteJournal() override;
-  PluginDescriptor descriptor() const override;
-  void start() override;
-  void stop() noexcept override;
-  std::vector<Json> read(std::uint64_t first) const override;
-  void append(const Json& record) override;
+  ~SqliteJournal();
+  void start();
+  void stop() noexcept;
+  static constexpr std::size_t page_size = 64;
+  // Up to page_size consecutive records, starting at the given sequence.
+  std::vector<Json> read(std::uint64_t first) const;
+  void append(const Json& record);
   // An identified record and its lifetime deduplication entry commit together.
   // A submission also claims its lifetime order identity in the same transaction.
   // Automatic segmentation never retires either identity.

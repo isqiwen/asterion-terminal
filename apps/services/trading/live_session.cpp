@@ -20,56 +20,11 @@ namespace {
 const std::string journal_engine = "asterion.live-futures.v25";
 constexpr int journal_format = 1;
 constexpr auto quote_validity = std::chrono::seconds(10);
-constexpr std::size_t terminal_batch = 32;
 std::string text(const Json& value, const char* key) {
   auto result = value.at(key).get<std::string>();
   if (result.empty() || result.find('\0') != std::string::npos)
     throw std::invalid_argument("invalid live trading field");
   return result;
-}
-std::string side_name(Side side) {
-  return side == Side::buy ? "buy" : "sell";
-}
-std::string offset_name(Offset offset) {
-  switch (offset) {
-  case Offset::open:
-    return "open";
-  case Offset::close_today:
-    return "close_today";
-  case Offset::close_yesterday:
-    return "close_yesterday";
-  case Offset::close:
-    return "close";
-  }
-  return "open";
-}
-Offset offset_of(const std::string& value) {
-  if (value == "open")
-    return Offset::open;
-  if (value == "close_today")
-    return Offset::close_today;
-  if (value == "close_yesterday")
-    return Offset::close_yesterday;
-  if (value == "close")
-    return Offset::close;
-  throw std::invalid_argument("invalid open/close offset");
-}
-std::string status_name(BrokerOrderStatus status) {
-  switch (status) {
-  case BrokerOrderStatus::submitted:
-    return "submitted";
-  case BrokerOrderStatus::accepted:
-    return "accepted";
-  case BrokerOrderStatus::partially_filled:
-    return "partially_filled";
-  case BrokerOrderStatus::filled:
-    return "filled";
-  case BrokerOrderStatus::cancelled:
-    return "cancelled";
-  case BrokerOrderStatus::rejected:
-    return "rejected";
-  }
-  return "submitted";
 }
 bool working(BrokerOrderStatus status) {
   return status == BrokerOrderStatus::submitted || status == BrokerOrderStatus::accepted ||
@@ -121,7 +76,8 @@ LiveAccountState::LiveAccountState(std::filesystem::path directory,
   const auto& broker = manifest.at("broker");
   broker_id_ = broker.at("broker_id");
   investor_id_ = broker.at("user_id");
-  const auto account_id = text(manifest, "account_id");
+  account_id_ = text(manifest, "account_id");
+  const auto& account_id = account_id_;
   trade_front_ = broker.at("front");
   app_id_ = broker.at("app_id");
   create_directories_durably(ownership_directory);
@@ -172,88 +128,54 @@ LiveAccountState::LiveAccountState(std::filesystem::path directory,
   auto artifact = create_manifest.is_null() ? text(header_, "risk_artifact") : std::string{};
   std::set<std::string> revisions{revision};
   std::set<std::string> pending_cancels;
-  journal_->replay([&](std::uint64_t sequence, const Json& record) {
-    if (sequence == 0) {
-      if (record != header_)
-        throw Error(ErrorCode::conflict,
-                    "account record changed while acquiring execution ownership");
-      return;
-    }
-    if (record.is_object() && record.contains("orders_terminal")) {
-      require_fields(record, {"orders_terminal"});
-      const auto& orders = record.at("orders_terminal");
-      if (!orders.is_array() || orders.empty() || orders.size() > terminal_batch)
-        throw std::invalid_argument("invalid persisted terminal order evidence");
-      for (const auto& order : orders) {
-        const auto found = intents_.find(text(order, "order_id"));
-        if (found == intents_.end())
-          throw std::invalid_argument("invalid persisted terminal order evidence");
-        validate_terminal(order, found->second);
-        intents_.erase(found);
-      }
-      return;
-    }
-    if (record.is_object() && record.contains("order_not_sent")) {
-      require_fields(record, {"order_not_sent", "error_code"});
-      const auto found = intents_.find(text(record, "order_not_sent"));
-      if (found == intents_.end() || !record.at("error_code").is_number_integer() ||
-          (record.at("error_code") != -1003 && record.at("error_code") != -1004 &&
-           record.at("error_code") != -1005 && record.at("error_code") != -1006 &&
-           record.at("error_code") != -1007))
-        throw std::invalid_argument("invalid unsent live order result");
-      intents_.erase(found);
-      return;
-    }
-    if (record.is_object() && record.contains("cancel_result")) {
-      require_fields(record, {"cancel_result", "outcome"});
-      const auto id = text(record, "cancel_result");
-      const auto outcome = text(record, "outcome");
-      if (!pending_cancels.erase(id) ||
-          (outcome != "dispatch_acknowledged" && outcome != "unknown"))
-        throw std::invalid_argument("invalid live cancellation result");
-      return;
-    }
-    if (!record.is_object() || !record.contains("command"))
-      throw std::invalid_argument("invalid live trading record");
-    const auto& command = record.at("command");
-    static_cast<void>(protocol::encode_command(command));
-    const auto id = text(command, "request_id");
-    if (text(record, "policy_revision") != revision)
-      throw std::invalid_argument("trading command policy does not match the active revision");
-    const auto action = text(command, "action");
-    if (action == "cancel")
-      pending_cancels.insert(id);
-    if (action == "live_policy") {
-      require_fields(record,
-                     {"command", "policy_revision", "new_policy_revision", "risk_artifact"});
-      require_fields(command, {"request_id", "action", "policy", "risk_artifact"});
-      revision = text(record, "new_policy_revision");
-      validate_id(revision);
-      if (!revisions.insert(revision).second)
-        throw std::invalid_argument("account policy revision is repeated");
-      definition = protocol::decode_live_policy(protocol::encode_live_policy(command.at("policy")));
-      artifact = text(record, "risk_artifact");
-      if (command.at("risk_artifact") != artifact)
-        throw std::invalid_argument("policy algorithm does not match its recorded artifact");
-    } else if (action == "live_authorize")
-      require_fields(record, {"command", "policy_revision", "authorization"});
-    else if (action == "live_resolve") {
-      require_fields(record, {"command", "policy_revision"});
-      const auto found = intents_.find(text(command, "order_id"));
-      if (found == intents_.end())
-        throw std::invalid_argument("live trading record resolves an unknown order");
-      intents_.erase(found);
-    } else if (action != "submit")
-      require_fields(record, {"command", "policy_revision"});
-    else {
-      require_fields(record, {"command", "policy_revision", "broker_key", "trading_day"});
-      intents_[text(command, "order_id")] = {text(record, "broker_key"),
-                                             text(record, "trading_day"),
-                                             {text(command, "venue"), text(command, "symbol")},
-                                             offset_of(text(command, "offset")),
-                                             Decimal::parse(text(command, "quantity"))};
-    }
-  });
+  journal_->replay(
+      [&](const Json& header) {
+        if (header != header_)
+          throw Error(ErrorCode::conflict,
+                      "account record changed while acquiring execution ownership");
+      },
+      [&](const JournalRecord& record) {
+        if (const auto* terminal = std::get_if<OrdersTerminal>(&record)) {
+          for (const auto& order : terminal->orders) {
+            const auto found = intents_.find(order.order_id);
+            if (found == intents_.end())
+              throw std::invalid_argument("invalid persisted terminal order evidence");
+            check_terminal(order, found->second);
+            intents_.erase(found);
+          }
+          return;
+        }
+        if (const auto* unsent = std::get_if<OrderNotSent>(&record)) {
+          if (!intents_.erase(unsent->order_id))
+            throw std::invalid_argument("invalid unsent live order result");
+          return;
+        }
+        if (const auto* cancel = std::get_if<CancelResult>(&record)) {
+          if (!pending_cancels.erase(cancel->request_id))
+            throw std::invalid_argument("invalid live cancellation result");
+          return;
+        }
+        const auto& command = std::get<CommandRecord>(record);
+        const auto& request = command.request;
+        if (command.policy_revision != revision)
+          throw std::invalid_argument("trading command policy does not match the active revision");
+        if (request.as<CancelOrder>())
+          pending_cancels.insert(request.id);
+        else if (const auto* change = request.as<ChangePolicy>()) {
+          revision = command.new_policy_revision;
+          if (!revisions.insert(revision).second)
+            throw std::invalid_argument("account policy revision is repeated");
+          definition =
+              protocol::decode_live_policy(protocol::encode_live_policy(change->definition));
+          artifact = command.risk_artifact;
+        } else if (const auto* resolve = request.as<ResolveOrder>()) {
+          if (!intents_.erase(resolve->order_id))
+            throw std::invalid_argument("live trading record resolves an unknown order");
+        } else if (const auto* submit = request.as<SubmitOrder>())
+          intents_[submit->order.id] = {command.broker_key, command.trading_day,
+                                        submit->order.instrument, submit->offset,
+                                        submit->order.quantity};
+      });
   auto algorithm = create_manifest.is_null()
                        ? risk_providers::Module::pinned(directory / "plugins" / artifact, artifact)
                        : risk_providers::Module::selected();
@@ -277,35 +199,21 @@ LiveAccountState::~LiveAccountState() {
   if (trader_)
     trader_->disconnect();
 }
-AccountCommand LiveAccountState::append(Json record) {
+AccountCommand LiveAccountState::append(JournalEntry entry) {
+  const auto trace = entry.trace;
   try {
-    if (record.contains("command"))
-      record["policy_revision"] = policy_->revision;
-    capacity_ = (co_await journal_->append(record)).capacity;
+    capacity_ = (co_await journal_->append(std::move(entry))).capacity;
   } catch (...) {
     failed_ = true;
     throw;
   }
-  try {
-    const auto identity = [](const Json& value, const char* name) -> std::string_view {
-      return value.contains(name) ? value.at(name).get_ref<const std::string&>()
-                                  : std::string_view{};
-    };
-    const auto& command = record.contains("command") ? record.at("command") : record;
-    log_identity_event(
-        "trading", "journal.committed",
-        {{"account_id", identity(header_, "account_id")},
-         {"request_id", record.contains("cancel_result") ? identity(record, "cancel_result")
-                                                         : identity(command, "request_id")},
-         {"action", identity(command, "action")},
-         {"order_id", record.contains("order_not_sent") ? identity(record, "order_not_sent")
-                                                        : identity(command, "order_id")},
-         {"broker_key", identity(record, "broker_key")},
-         {"outcome",
-          record.contains("order_not_sent") ? "not_sent" : identity(record, "outcome")}});
-  } catch (...) {
-    log_process_failure("trading", "trace.failed", ErrorCode::internal_error, 1);
-  }
+  log_identity_event("trading", "journal.committed",
+                     {{"account_id", account_id_},
+                      {"request_id", trace.request_id},
+                      {"action", trace.action},
+                      {"order_id", trace.order_id},
+                      {"broker_key", trace.broker_key},
+                      {"outcome", trace.outcome}});
 }
 void LiveAccountState::log_broker_observations(const BrokerSnapshot& state) const noexcept {
   try {
@@ -317,7 +225,7 @@ void LiveAccountState::log_broker_observations(const BrokerSnapshot& state) cons
       observed_trades_ = 0;
       observed_generation_ = state.connection_generation;
     }
-    const auto& record = header_.at("account_id").get_ref<const std::string&>();
+    const auto& record = account_id_;
     for (const auto& order : state.orders) {
       ObservedOrder observation{order.status, order.filled, order.exchange_order_id,
                                 order.order_id};
@@ -355,7 +263,7 @@ void LiveAccountState::connect(std::string password, std::string auth_code) {
     throw std::invalid_argument("live trading record needs recovery; reopen the session");
   if (password.empty() || auth_code.empty())
     throw std::invalid_argument("enter the CTP password and authentication code");
-  authorization_ = nullptr;
+  authorization_.reset();
   send_gate_.invalidate();
   trader_->connect(
       {trade_front_, broker_id_, investor_id_, std::move(password), app_id_, std::move(auth_code)});
@@ -367,7 +275,7 @@ void LiveAccountState::query_costs() {
   trader_->query_costs(contracts);
 }
 void LiveAccountState::disconnect() {
-  authorization_ = nullptr;
+  authorization_.reset();
   send_gate_.invalidate();
   trader_->disconnect();
 }
@@ -381,7 +289,7 @@ const Instrument& LiveAccountState::allowed(const InstrumentId& id) const {
 std::vector<std::pair<std::string, const LiveAccountState::Intent*>>
 LiveAccountState::unconfirmed(const BrokerSnapshot& state) const {
   std::vector<std::pair<std::string, const Intent*>> result;
-  if (state.phase != "ready" || !identities_ready(state))
+  if (state.phase != BrokerPhase::ready || !identities_ready(state))
     return result;
   for (const auto& [order_id, intent] : intents_) {
     const bool reported = std::ranges::any_of(state.orders, [&](const BrokerOrder& order) {
@@ -394,22 +302,22 @@ LiveAccountState::unconfirmed(const BrokerSnapshot& state) const {
   return result;
 }
 void LiveAccountState::check_account(std::string_view account_id) const {
-  if (account_id.empty() || account_id != header_.at("account_id").get_ref<const std::string&>())
+  if (account_id.empty() || account_id != account_id_)
     throw Error(
         ErrorCode::conflict,
         "trading account identity does not match; review the current account before acting");
 }
-AccountCommand LiveAccountState::revise_policy(const Json& command) {
-  require_fields(command, {"request_id", "action", "policy", "risk_artifact"});
-  auto prepared = co_await journal_->prepare_policy(
-      directory_ / "plugins", command.at("policy"), unique_process_id(),
-      text(command, "risk_artifact"), policy_->algorithm.artifact());
+AccountCommand LiveAccountState::revise_policy(const AccountRequest& request,
+                                               const ChangePolicy& change) {
+  auto prepared = co_await journal_->prepare_policy(directory_ / "plugins", change.definition,
+                                                    unique_process_id(), change.risk_artifact,
+                                                    policy_->algorithm.artifact());
   auto next = std::move(prepared.policy);
   std::exception_ptr failure;
   try {
     const auto state = trader_->snapshot();
-    if (state.phase != "ready" || !identities_ready(state) || !state.positions_reconciled ||
-        !unconfirmed(state).empty())
+    if (state.phase != BrokerPhase::ready || !identities_ready(state) ||
+        !state.positions_reconciled || !unconfirmed(state).empty())
       throw Error(ErrorCode::conflict,
                   "policy change requires reconciled positions and no unconfirmed orders");
     for (const auto& position : state.positions)
@@ -418,13 +326,11 @@ AccountCommand LiveAccountState::revise_policy(const Json& command) {
     for (const auto& order : state.orders)
       if (working(order.status))
         next->preserve_exposure(*policy_, order.instrument);
-    Json record{{"command", command},
-                {"new_policy_revision", next->revision},
-                {"risk_artifact", next->algorithm.artifact()}};
     trader_->disconnect_checked(state.connection_generation, state.exposure_revision);
-    authorization_ = nullptr;
+    authorization_.reset();
     send_gate_.invalidate();
-    co_await append(std::move(record));
+    co_await append(
+        policy_entry(request, policy_->revision, next->revision, next->algorithm.artifact()));
     policy_.swap(next);
   } catch (...) {
     failure = std::current_exception();
@@ -434,93 +340,79 @@ AccountCommand LiveAccountState::revise_policy(const Json& command) {
   if (failure)
     std::rethrow_exception(failure);
 }
-void LiveAccountState::admit_revoke(std::string_view account_id, std::string_view revision,
-                                    const Json& command) {
+void LiveAccountState::admit_revoke(std::string_view account_id, std::string_view revision) {
   check_account(account_id);
-  require_fields(command, {"request_id", "action"});
-  const auto id = text(command, "request_id");
-  validate_id(id);
   if (revision != policy_->revision)
     throw Error(ErrorCode::conflict,
                 "account policy changed; review the current revision before acting");
   // The entry point already closed permission. Only the owner changes authorization.
-  authorization_ = nullptr;
+  authorization_.reset();
 }
 AccountCommand LiveAccountState::execute(std::string account_id, std::string policy_revision,
-                                         Json command, std::uint64_t admitted_control) {
+                                         AccountRequest request, std::uint64_t admitted_control) {
   check_account(account_id);
   if (failed_)
     throw std::invalid_argument("live trading record needs recovery; reopen the session");
-  const auto id = text(command, "request_id");
-  validate_id(id);
-  const auto action = text(command, "action");
-  Json recorded;
+  std::optional<CommandRecord> recorded;
   try {
-    recorded = (co_await journal_->find_command(id)).record;
+    recorded = std::move((co_await journal_->find_command(request.id)).command);
   } catch (...) {
     failed_ = true;
     throw;
   }
-  if (!recorded.is_null()) {
+  if (recorded) {
     // A retried order or cancel is acknowledged, never sent again. An
     // authorization is never acknowledged from history: it may have ended.
-    if (recorded.at("command") != command || recorded.at("policy_revision") != policy_revision ||
-        action == "live_authorize" || action == "live_revoke")
+    if (recorded->request.command != request.command ||
+        recorded->policy_revision != policy_revision || request.as<Authorize>() ||
+        request.as<Revoke>())
       throw Error(ErrorCode::conflict, "request ID was already used");
     co_return;
   }
   if (policy_revision != policy_->revision)
     throw Error(ErrorCode::conflict,
                 "account policy changed; review the current revision before acting");
-  if ((action == "live_authorize" || action == "submit") &&
+  if ((request.as<Authorize>() || request.as<SubmitOrder>()) &&
       admitted_control != send_gate_.revision())
     throw Error(ErrorCode::conflict,
                 "account control changed after command admission; submit a new request");
-  if (action == "live_policy") {
-    co_await revise_policy(command);
-  } else if (action == "live_authorize") {
-    require_fields(command, {"request_id", "action", "user_id"});
-    if (command.at("user_id") != investor_id_)
+  if (const auto* change = request.as<ChangePolicy>()) {
+    co_await revise_policy(request, *change);
+  } else if (const auto* grant = request.as<Authorize>()) {
+    if (grant->user_id != investor_id_)
       throw std::invalid_argument("authorization names a different account");
     const auto state = trader_->snapshot();
-    if (state.phase != "ready" || !identities_ready(state))
+    if (state.phase != BrokerPhase::ready || !identities_ready(state))
       throw Error(ErrorCode::unavailable, "connect and synchronize the account before authorizing");
-    const auto control = admitted_control;
-    Json authorization{{"trading_day", state.trading_day}, {"authorized_at_ms", now_ms()}};
-    Json record{{"command", command}, {"authorization", authorization}};
-    co_await append(std::move(record));
-    if (control != send_gate_.revision() ||
-        state.connection_generation != trader_->snapshot().connection_generation)
+    Authorization authorization{state.trading_day, now_ms()};
+    co_await append(authorization_entry(request, policy_->revision, authorization));
+    if (admitted_control != send_gate_.revision() ||
+        state.connection_generation !=
+            observed([](const BrokerSnapshot& now) { return now.connection_generation; }))
       throw Error(ErrorCode::conflict, "account state changed before durable grant completed");
     authorization_ = std::move(authorization);
     authorization_generation_ = state.connection_generation;
-  } else if (action == "live_revoke") {
-    require_fields(command, {"request_id", "action"});
-    Json record{{"command", command}};
-    co_await append(std::move(record));
-  } else if (action == "live_resolve") {
+  } else if (request.as<Revoke>()) {
+    co_await append(command_entry(request, policy_->revision));
+  } else if (const auto* resolve = request.as<ResolveOrder>()) {
     // Only an order listed as unconfirmed right now: the broker is
     // synchronized and does not report it.
-    require_fields(command, {"request_id", "action", "order_id"});
-    const auto order_id = text(command, "order_id");
-    const auto listed = unconfirmed(trader_->snapshot());
-    if (std::ranges::none_of(listed, [&](const auto& item) { return item.first == order_id; }))
+    const auto listed = observed([&](const BrokerSnapshot& state) { return unconfirmed(state); });
+    if (std::ranges::none_of(listed,
+                             [&](const auto& item) { return item.first == resolve->order_id; }))
       throw std::invalid_argument("only an unconfirmed order of a synchronized account can be "
                                   "resolved");
-    Json record{{"command", command}};
-    co_await append(std::move(record));
-    intents_.erase(order_id);
-  } else if (action == "submit") {
-    co_await submit(command, admitted_control);
-  } else if (action == "cancel") {
-    require_fields(command, {"request_id", "action", "order_id"});
-    const auto order_id = text(command, "order_id");
-    if (!identities_ready(trader_->snapshot()))
+    co_await append(command_entry(request, policy_->revision));
+    intents_.erase(resolve->order_id);
+  } else if (const auto* order = request.as<SubmitOrder>()) {
+    co_await submit(request, *order, admitted_control);
+  } else {
+    const auto& order_id = std::get<CancelOrder>(request.operation).order_id;
+    if (!observed([&](const BrokerSnapshot& state) { return identities_ready(state); }))
       throw Error(ErrorCode::unavailable, "account identity reconciliation is not complete");
     if (!intents_.contains(order_id))
       throw Error(ErrorCode::conflict, "order is not active in this account");
-    Json record{{"command", command}};
-    co_await append(std::move(record));
+    co_await append(command_entry(request, policy_->revision));
     std::exception_ptr failure;
     try {
       const auto result = co_await wait_sdk(trader_->cancel(order_id));
@@ -531,12 +423,10 @@ AccountCommand LiveAccountState::execute(std::string account_id, std::string pol
       failure = std::current_exception();
     }
     // SDK acceptance is not exchange cancellation. Broker reports own status.
-    Json outcome{{"cancel_result", id}, {"outcome", failure ? "unknown" : "dispatch_acknowledged"}};
-    co_await append(std::move(outcome));
+    co_await append(entry(CancelResult{request.id, !failure}));
     if (failure)
       std::rethrow_exception(failure);
-  } else
-    throw std::invalid_argument("unsupported live trading operation");
+  }
 }
 // The broker's current market bounds the limit price: within the exchange's
 // limits and within the session's deviation from the latest price (the
@@ -564,39 +454,30 @@ void LiveAccountState::check_price(const LimitOrder& order, const std::optional<
     throw std::invalid_argument(
         "limit price deviates from the latest price beyond the session limit");
 }
-AccountCommand LiveAccountState::submit(const Json& command, std::uint64_t control) {
-  require_fields(command, {"request_id", "action", "order_id", "venue", "symbol", "side", "offset",
-                           "quantity", "price"});
-  const auto order_id = text(command, "order_id");
-  validate_id(order_id);
-  Json previous;
+AccountCommand LiveAccountState::submit(const AccountRequest& request,
+                                        const SubmitOrder& submission, std::uint64_t control) {
+  const auto& order = submission.order;
+  const auto& order_id = order.id;
+  const auto& id = order.instrument;
+  const auto offset = submission.offset;
+  bool known = false;
   try {
-    previous = (co_await journal_->find_order(order_id)).record;
+    known = (co_await journal_->find_order(order_id)).order_known;
   } catch (...) {
     failed_ = true;
     throw;
   }
-  if (!previous.is_null())
+  if (known)
     throw Error(ErrorCode::conflict, "order ID was already used");
-  const auto before = trader_->snapshot();
-  if (!authorized(before))
+  const auto [permitted, reconciled] = observed([&](const BrokerSnapshot& state) {
+    return std::pair{authorized(state), state.positions_reconciled};
+  });
+  if (!permitted)
     throw std::invalid_argument("authorize live trading for this account first");
-  if (before.phase != "ready")
-    throw Error(ErrorCode::unavailable, "CTP trading session is not ready");
-  if (authorization_.at("trading_day") != before.trading_day)
-    throw std::invalid_argument("the trading day changed; authorize live trading again");
-  const InstrumentId id{text(command, "venue"), text(command, "symbol")};
   const auto& terms = allowed(id);
-  const auto side = text(command, "side");
-  if (side != "buy" && side != "sell")
-    throw std::invalid_argument("invalid order side");
-  const auto offset = offset_of(text(command, "offset"));
-  if (offset == Offset::open && !before.positions_reconciled)
+  if (offset == Offset::open && !reconciled)
     throw Error(ErrorCode::unavailable,
                 "broker fills are awaiting position reconciliation; opening orders are paused");
-  const LimitOrder order{order_id, id, side == "buy" ? Side::buy : Side::sell,
-                         Decimal::parse(text(command, "quantity")),
-                         Decimal::parse(text(command, "price"))};
   if (order.quantity <= Decimal{} || !order.quantity.multiple_of(terms.quantity_increment))
     throw std::invalid_argument("order quantity must be a positive multiple of the lot size");
   if (order.limit_price <= Decimal{} || !order.limit_price.multiple_of(terms.price_increment))
@@ -640,17 +521,20 @@ AccountCommand LiveAccountState::submit(const Json& command, std::uint64_t contr
   auto prepared =
       trader_->prepare(order, offset, authorization_generation_, state.exposure_revision, deadline);
   const auto& prepared_order = prepared->order();
-  check_price(order, quote, trader_->snapshot());
-  Json record{{"command", command},
-              {"broker_key", prepared_order.broker_key},
-              {"trading_day", state.trading_day}};
-  co_await append(std::move(record));
+  trader_->observe([&](const BrokerSnapshot& now) { check_price(order, quote, now); });
+  co_await append(
+      submission_entry(request, policy_->revision, prepared_order.broker_key, state.trading_day));
   const auto sequence = capacity_.total_records - 1;
   intents_[order_id] = {prepared_order.broker_key, state.trading_day, id, offset, order.quantity};
-  if (control != send_gate_.revision() || !authorized(trader_->snapshot())) {
-    Json refused{{"order_not_sent", order_id}, {"error_code", -1007}};
-    co_await append(std::move(refused));
+  // Only positive local evidence can release the recorded intent. If recording
+  // it fails, recovery retains the intent as an unknown order.
+  const auto not_sent = [&](int code) -> AccountCommand {
+    co_await append(entry(OrderNotSent{order_id, code}));
     intents_.erase(order_id);
+  };
+  if (control != send_gate_.revision() ||
+      !observed([&](const BrokerSnapshot& now) { return authorized(now); })) {
+    co_await not_sent(broker_code::permit_refused);
     throw Error(ErrorCode::conflict,
                 "order execution basis changed during durable submission; the order was not sent");
   }
@@ -661,27 +545,22 @@ AccountCommand LiveAccountState::submit(const Json& command, std::uint64_t contr
     // An ingress producer can invalidate between the last check and this CAS.
   }
   if (!permit) {
-    Json refused{{"order_not_sent", order_id}, {"error_code", -1007}};
-    co_await append(std::move(refused));
-    intents_.erase(order_id);
+    co_await not_sent(broker_code::permit_refused);
     throw Error(ErrorCode::conflict,
                 "order permission changed before dispatch; the order was not sent");
   }
   const auto result =
       co_await wait_sdk(trader_->dispatch(std::move(prepared), std::move(*permit), sequence));
   if (!result.invoked) {
-    // Only positive local evidence can release the recorded intent. If this
-    // append fails, recovery retains it as an unknown order.
-    Json refused{{"order_not_sent", order_id}, {"error_code", result.code}};
-    co_await append(std::move(refused));
-    intents_.erase(order_id);
+    co_await not_sent(result.code);
     throw Error(ErrorCode::conflict,
                 "order dispatch was refused before the SDK call; the order was not sent");
   }
   if (result.code) {
-    const auto reported = trader_->snapshot();
-    if (std::ranges::none_of(reported.orders,
-                             [&](const BrokerOrder& value) { return value.order_id == order_id; }))
+    if (!observed([&](const BrokerSnapshot& now) {
+          return std::ranges::any_of(
+              now.orders, [&](const BrokerOrder& value) { return value.order_id == order_id; });
+        }))
       throw Error(
           ErrorCode::unavailable,
           "SDK did not confirm order dispatch; verify the broker before sending another order");
@@ -689,35 +568,33 @@ AccountCommand LiveAccountState::submit(const Json& command, std::uint64_t contr
 }
 void LiveAccountState::poll_broker() {
   trader_->poll();
-  const auto state = trader_->snapshot();
-  if (attribution_.generation != state.connection_generation ||
-      attribution_.day != state.trading_day)
-    attribution_ = state.phase == "ready"
-                       ? Attribution{state.trading_day, state.connection_generation}
-                       : Attribution{};
-  if (!identities_ready(state))
-    return;
-  for (const auto& order : state.orders) {
-    if (working(order.status))
-      continue;
-    const auto intent = intents_.find(order.order_id);
-    if (intent != intents_.end() && !intent->second.terminal &&
-        intent->second.trading_day == state.trading_day &&
-        intent->second.broker_key == order.broker_key)
-      intent->second.terminal = order;
-  }
+  trader_->observe([&](const BrokerSnapshot& state) {
+    if (attribution_.generation != state.connection_generation ||
+        attribution_.day != state.trading_day)
+      attribution_ = state.phase == BrokerPhase::ready
+                         ? Attribution{state.trading_day, state.connection_generation}
+                         : Attribution{};
+    if (!identities_ready(state))
+      return;
+    for (const auto& order : state.orders) {
+      if (working(order.status))
+        continue;
+      const auto intent = intents_.find(order.order_id);
+      if (intent != intents_.end() && !intent->second.terminal &&
+          intent->second.trading_day == state.trading_day &&
+          intent->second.broker_key == order.broker_key)
+        intent->second.terminal = order;
+    }
+  });
 }
-void LiveAccountState::validate_terminal(const Json& record, const Intent& intent) {
-  require_fields(record, {"order_id", "broker_key", "trading_day", "status", "filled",
-                          "exchange_order_id", "error_code"});
-  const auto status = text(record, "status");
-  const auto filled = Decimal::parse(text(record, "filled"));
-  if (record.at("broker_key") != intent.broker_key ||
-      record.at("trading_day") != intent.trading_day ||
-      (status != "filled" && status != "cancelled" && status != "rejected") || filled < Decimal{} ||
-      filled > intent.quantity || (status == "filled" && filled != intent.quantity) ||
-      (status == "rejected" && filled != Decimal{}) ||
-      !record.at("exchange_order_id").is_string() || !record.at("error_code").is_number_integer())
+void LiveAccountState::check_terminal(const TerminalOrder& order, const Intent& intent) {
+  const bool final = order.status == BrokerOrderStatus::filled ||
+                     order.status == BrokerOrderStatus::cancelled ||
+                     order.status == BrokerOrderStatus::rejected;
+  if (order.broker_key != intent.broker_key || order.trading_day != intent.trading_day || !final ||
+      order.filled < Decimal{} || order.filled > intent.quantity ||
+      (order.status == BrokerOrderStatus::filled && order.filled != intent.quantity) ||
+      (order.status == BrokerOrderStatus::rejected && order.filled != Decimal{}))
     throw std::invalid_argument("invalid persisted terminal order evidence");
 }
 bool LiveAccountState::storage_work_pending() const {
@@ -727,28 +604,23 @@ bool LiveAccountState::storage_work_pending() const {
 }
 AccountCommand LiveAccountState::advance_storage() {
   try {
-    Json orders = Json::array();
+    OrdersTerminal terminal;
     for (const auto& [id, intent] : intents_) {
       if (!intent.terminal)
         continue;
       const auto& order = *intent.terminal;
-      Json record{{"order_id", id},
-                  {"broker_key", intent.broker_key},
-                  {"trading_day", intent.trading_day},
-                  {"status", status_name(order.status)},
-                  {"filled", order.filled.str()},
-                  {"exchange_order_id", order.exchange_order_id},
-                  {"error_code", order.error_code}};
-      validate_terminal(record, intent);
-      orders.push_back(std::move(record));
-      if (orders.size() == terminal_batch)
+      TerminalOrder evidence{
+          id,           intent.broker_key,       intent.trading_day, order.status,
+          order.filled, order.exchange_order_id, order.error_code};
+      check_terminal(evidence, intent);
+      terminal.orders.push_back(std::move(evidence));
+      if (terminal.orders.size() == OrdersTerminal::batch)
         break;
     }
-    if (!orders.empty()) {
-      Json record{{"orders_terminal", orders}};
-      co_await append(std::move(record));
-      for (const auto& order : orders)
-        intents_.erase(order.at("order_id").get<std::string>());
+    if (!terminal.orders.empty()) {
+      co_await append(entry(terminal));
+      for (const auto& order : terminal.orders)
+        intents_.erase(order.order_id);
       co_return;
     }
     const auto scope = attribution_;
@@ -775,16 +647,18 @@ void LiveAccountState::poll_sdk() {
   }
 }
 bool LiveAccountState::business_ready() const {
-  return !failed_ && attribution_.complete && trader_->ready();
+  return !failed_ && attribution_.complete && observed([](const BrokerSnapshot& state) {
+    return state.phase == BrokerPhase::ready && state.positions_reconciled;
+  });
 }
 bool LiveAccountState::identities_ready(const BrokerSnapshot& state) const {
   return attribution_.complete && attribution_.generation == state.connection_generation &&
          attribution_.day == state.trading_day;
 }
 bool LiveAccountState::authorized(const BrokerSnapshot& state) const {
-  return !authorization_.is_null() && state.phase == "ready" && identities_ready(state) &&
+  return authorization_ && state.phase == BrokerPhase::ready && identities_ready(state) &&
          authorization_generation_ == state.connection_generation &&
-         authorization_.at("trading_day") == state.trading_day;
+         authorization_->trading_day == state.trading_day;
 }
 Json LiveAccountState::snapshot() const {
   const auto state = trader_->snapshot();
@@ -799,12 +673,14 @@ Json LiveAccountState::snapshot() const {
         {"app_id", app_id_}}},
       {"policy_revision", policy_->revision},
       {"risk_artifact", policy_->algorithm.artifact()},
-      {"account_id", header_.at("account_id")},
+      {"account_id", account_id_},
       {"segment_count", capacity.segment_count},
       {"risk", definition.at("risk")},
       {"max_price_deviation", definition.at("max_price_deviation")},
       {"contracts", definition.at("contracts")},
-      {"phase", state.phase == "ready" && !identities_ready(state) ? "synchronizing" : state.phase},
+      {"phase", broker_phase_name(state.phase == BrokerPhase::ready && !identities_ready(state)
+                                      ? BrokerPhase::synchronizing
+                                      : state.phase)},
       {"error_code", state.error_code},
       {"trading_day", state.trading_day},
       {"synchronized_ms", state.synchronized_ms},
@@ -812,7 +688,7 @@ Json LiveAccountState::snapshot() const {
       {"positions", Json::array()},
       {"orders", Json::array()},
       {"trades", Json::array()},
-      {"authorization", authorized(state) ? authorization_ : Json(nullptr)},
+      {"authorization", authorized(state) ? authorization_->json() : Json(nullptr)},
       {"unconfirmed", Json::array()},
       {"costs", Json::array()},
       {"storage_state", failed_ ? "recovery_required" : "ready"},
@@ -834,7 +710,7 @@ Json LiveAccountState::snapshot() const {
                {"close_yesterday_fee_rate", c.costs->close_yesterday_fee_rate.str()}};
     result["costs"].push_back({{"venue", c.instrument.venue},
                                {"symbol", c.instrument.symbol},
-                               {"state", c.state},
+                               {"state", broker_costs_state_name(c.state)},
                                {"error_code", c.error_code},
                                {"queried_ms", c.queried_ms},
                                {"costs", std::move(costs)}});

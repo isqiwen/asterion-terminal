@@ -3,6 +3,7 @@
 #include "account_policy.hpp"
 #include "account_journal.hpp"
 #include "account_command.hpp"
+#include "account_records.hpp"
 #include <asterion/kernel/progress.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
 #include <map>
@@ -29,10 +30,9 @@ public:
   void disconnect();
   // Asks the broker for the account's rates on every allowed contract.
   void query_costs();
-  void admit_revoke(std::string_view account_id, std::string_view policy_revision,
-                    const Json& command);
-  AccountCommand execute(std::string account_id, std::string policy_revision, Json command,
-                         std::uint64_t admitted_control);
+  void admit_revoke(std::string_view account_id, std::string_view policy_revision);
+  AccountCommand execute(std::string account_id, std::string policy_revision,
+                         AccountRequest request, std::uint64_t admitted_control);
   Json snapshot() const;
   bool waiting_for_sdk() const { return bool(sdk_ready_); }
   void poll_broker();
@@ -71,14 +71,14 @@ private:
     Decimal quantity;
     std::optional<BrokerOrder> terminal = std::nullopt;
   };
-  static void validate_terminal(const Json& record, const Intent& intent);
+  static void check_terminal(const TerminalOrder& order, const Intent& intent);
   struct Attribution {
     std::string day;
     std::uint64_t generation = 0, cursor = 0;
     bool complete = false;
   } attribution_;
-  AccountCommand append(Json record);
-  AccountCommand revise_policy(const Json& command);
+  AccountCommand append(JournalEntry entry);
+  AccountCommand revise_policy(const AccountRequest& request, const ChangePolicy& change);
   void log_broker_observations(const BrokerSnapshot& state) const noexcept;
   struct ObservedOrder {
     BrokerOrderStatus status;
@@ -92,11 +92,19 @@ private:
   mutable std::size_t observed_trades_ = 0;
   mutable std::map<std::string, ObservedOrder> observed_orders_;
   const Instrument& allowed(const InstrumentId& id) const;
-  AccountCommand submit(const Json& command, std::uint64_t control);
+  AccountCommand submit(const AccountRequest& request, const SubmitOrder& submission,
+                        std::uint64_t control);
   void check_account(std::string_view account_id) const;
   void check_price(const LimitOrder& order, const std::optional<BrokerQuote>& quote,
                    const BrokerSnapshot& state) const;
   std::vector<std::pair<std::string, const Intent*>> unconfirmed(const BrokerSnapshot& state) const;
+  // A value computed from the broker's current state, read in place. The full
+  // snapshot is copied only where a command needs one basis across a suspension.
+  template <class F> auto observed(F read) const {
+    std::invoke_result_t<F&, const BrokerSnapshot&> result{};
+    trader_->observe([&](const BrokerSnapshot& state) { result = read(state); });
+    return result;
+  }
   // Declared first: ownership outlives the SDK, risk plugin and journal.
   std::unique_ptr<FileLock> account_owner_;
   std::unique_ptr<AccountJournal> journal_;
@@ -105,12 +113,13 @@ private:
   std::unique_ptr<const AccountPolicy> policy_;
   BrokerSendGate& send_gate_;
   std::unique_ptr<ctp::Trader> trader_;
-  std::string trade_front_, app_id_, broker_id_, investor_id_;
+  std::string account_id_, trade_front_, app_id_, broker_id_, investor_id_;
+  // Journal record 0; the durable form of the account's creation.
   Json header_;
   // Order ID -> what was recorded before sending it.
   std::map<std::string, Intent> intents_;
   // Valid for this connection and its trading day; never restored.
-  Json authorization_ = nullptr;
+  std::optional<Authorization> authorization_;
   std::uint64_t authorization_generation_ = 0;
   bool authorized(const BrokerSnapshot& state) const;
   bool identities_ready(const BrokerSnapshot& state) const;

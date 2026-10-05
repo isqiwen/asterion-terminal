@@ -1,6 +1,7 @@
 #pragma once
 #include "sqlite_journal.hpp"
 #include "account_policy.hpp"
+#include "account_records.hpp"
 #include "ctp_order_identity.hpp"
 #include <asterion/foundation/bounded_queue.hpp>
 #include <coroutine>
@@ -15,7 +16,10 @@ public:
   using Post = std::function<void(std::function<void()>)>;
   struct Result {
     SqliteJournal::Capacity capacity{};
-    Json record;
+    // find_command: the record that first used the request ID.
+    std::optional<CommandRecord> command;
+    // find_order: the order ID belongs to a recorded submission.
+    bool order_known = false;
     std::unique_ptr<const AccountPolicy> policy;
     ctp::KnownOrders orders{};
     std::uint64_t order_cursor = 0;
@@ -25,7 +29,8 @@ public:
   ~AccountJournal();
   // Initialization only: storage reads bounded pages; the caller applies them on
   // the unpublished account owner, never on the writer thread.
-  void replay(const std::function<void(std::uint64_t, const Json&)>& apply);
+  void replay(const std::function<void(const Json&)>& header,
+              const std::function<void(const JournalRecord&)>& apply);
   SqliteJournal::Capacity initial_capacity() const { return initial_capacity_; }
   // Initial creation is not published to clients until its header is durable.
   SqliteJournal::Capacity initialize(Json header);
@@ -39,7 +44,7 @@ public:
     void await_suspend(std::coroutine_handle<> command);
     Result await_resume();
   };
-  Write append(Json record);
+  Write append(JournalEntry entry);
   Write find_command(std::string id);
   Write find_order(std::string id);
   Write restore_orders(std::string day, std::uint64_t after);

@@ -6,11 +6,7 @@
 #include <filesystem>
 #include <stdexcept>
 #include <string>
-#ifdef _WIN32
-#include <windows.h>
-#else
 #include <dlfcn.h>
-#endif
 namespace asterion::ctp {
 inline std::int64_t now_ms() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -51,44 +47,26 @@ template <std::size_t N> void erase(char (&value)[N]) {
 // already replace SDKs only while stopped, so a new SDK uses a new process.
 class SharedLibrary {
 public:
-  SharedLibrary(const std::filesystem::path& path, const char* windows_symbol,
-                const char* itanium_symbol) {
-#ifdef _WIN32
-    handle_ = LoadLibraryExW(path.c_str(), nullptr,
-                             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-    if (handle_)
-      symbol_ = reinterpret_cast<void*>(GetProcAddress(handle_, windows_symbol));
-#else
-    static_cast<void>(windows_symbol);
+  SharedLibrary(const std::filesystem::path& path, const char* symbol) {
     int flags = RTLD_NOW | RTLD_LOCAL;
 #ifdef __linux__
     flags |= RTLD_NODELETE;
 #endif
     handle_ = dlopen(path.c_str(), flags);
     if (handle_)
-      symbol_ = dlsym(handle_, itanium_symbol);
-#endif
+      symbol_ = dlsym(handle_, symbol);
   }
   SharedLibrary(const SharedLibrary&) = delete;
   SharedLibrary& operator=(const SharedLibrary&) = delete;
   ~SharedLibrary() {
-#ifdef _WIN32
-    if (handle_)
-      FreeLibrary(handle_);
-#else
     if (handle_)
       dlclose(handle_);
-#endif
   }
   // The factory symbol, or null when the library or symbol is missing.
   template <class F> F symbol() const noexcept { return reinterpret_cast<F>(symbol_); }
 
 private:
-#ifdef _WIN32
-  HMODULE handle_ = nullptr;
-#else
   void* handle_ = nullptr;
-#endif
   void* symbol_ = nullptr;
 };
 } // namespace asterion::ctp

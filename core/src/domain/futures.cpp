@@ -8,8 +8,7 @@ namespace asterion {
 void FuturesContract::validate() const {
   instrument.validate();
   constexpr std::array<std::string_view, 6> venues{"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"};
-  if (instrument.asset_class != AssetClass::futures ||
-      std::ranges::find(venues, instrument.id.venue) == venues.end()) {
+  if (std::ranges::find(venues, instrument.id.venue) == venues.end()) {
     throw std::invalid_argument(
         "futures contracts currently support SHFE / DCE / CZCE / CFFEX / INE / GFEX only");
   }

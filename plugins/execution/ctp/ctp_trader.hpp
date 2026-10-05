@@ -1,5 +1,4 @@
 #pragma once
-#include <asterion/kernel/plugin.hpp>
 #include "ctp_order_identity.hpp"
 #include <asterion/domain/broker_execution.hpp>
 #include <filesystem>
@@ -20,28 +19,30 @@ struct TraderConfiguration {
 // queries are serialized and spaced by the CTP flow limit (one per second).
 // The host serializes mutations and poll() on its account owner. SDK state
 // operations return through one reserved slot; callbacks only copy events.
-class Trader final : public BrokerExecutionPort, public Plugin {
+class Trader final {
 public:
   Trader(const std::filesystem::path& library, const std::filesystem::path& flow,
          BrokerSendGate& gate, std::function<void()> events_ready);
-  ~Trader() override;
-  PluginDescriptor descriptor() const override;
-  void start() override;
-  void stop() noexcept override;
+  ~Trader();
+  void start();
+  void stop() noexcept;
   // Durable attribution includes trading day; daily broker key reuse cannot
   // bind a new order to a historical caller order ID.
   void connect(TraderConfiguration config, KnownOrders known = {});
   bool restore_orders(std::string_view day, std::uint64_t generation, const KnownOrders& known);
-  std::unique_ptr<PreparedBrokerOrder>
-  prepare(const LimitOrder& order, Offset offset, std::uint64_t connection_generation,
-          std::uint64_t exposure_revision, std::chrono::steady_clock::time_point deadline) override;
+  std::unique_ptr<PreparedBrokerOrder> prepare(const LimitOrder& order, Offset offset,
+                                               std::uint64_t connection_generation,
+                                               std::uint64_t exposure_revision,
+                                               std::chrono::steady_clock::time_point deadline);
   std::future<BrokerDispatchResult> dispatch(std::unique_ptr<PreparedBrokerOrder> prepared,
                                              BrokerSendPermit permit,
-                                             std::uint64_t journal_sequence) override;
-  std::future<BrokerDispatchResult> cancel(const std::string& order_id) override;
-  BrokerSnapshot snapshot() const override;
-  // Account-owner observation without copying orders, trades or positions.
-  bool ready() const;
+                                             std::uint64_t journal_sequence);
+  std::future<BrokerDispatchResult> cancel(const std::string& order_id);
+  BrokerSnapshot snapshot() const;
+  // Reads the current state in place, without copying orders, trades or
+  // positions. The reader runs under the trader's state lock: it returns
+  // promptly and never calls the trader.
+  void observe(const std::function<void(const BrokerSnapshot&)>& reader) const;
   // Queries the account's margin and commission rates for each contract with
   // its product code; results arrive in snapshot().costs. Requires ready.
   void query_costs(const std::vector<std::pair<InstrumentId, std::string>>& contracts);
@@ -51,7 +52,7 @@ public:
   // events_ready wakes that owner; it must not call poll from a producer thread.
   void poll();
   std::chrono::steady_clock::time_point next_deadline() const;
-  void disconnect() override;
+  void disconnect();
   // Freeze exactly the exposure snapshot checked for a policy change.
   // A late broker report or reconnect rejects before closing the connection.
   void disconnect_checked(std::uint64_t generation, std::uint64_t exposure_revision);

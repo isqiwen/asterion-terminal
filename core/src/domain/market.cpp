@@ -20,18 +20,6 @@ void InstrumentId::validate() const {
 }
 void Instrument::validate() const {
   id.validate();
-  switch (asset_class) {
-  case AssetClass::equity:
-  case AssetClass::futures:
-  case AssetClass::option:
-  case AssetClass::crypto:
-  case AssetClass::fx:
-  case AssetClass::bond:
-  case AssetClass::commodity:
-    break;
-  default:
-    throw std::invalid_argument("unsupported asset class");
-  }
   if (!valid_identifier(quote_currency) || price_increment <= Decimal{} ||
       quantity_increment <= Decimal{} || multiplier <= Decimal{}) {
     throw std::invalid_argument("invalid instrument units");

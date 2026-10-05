@@ -6,34 +6,16 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
-#ifdef _WIN32
-#include <windows.h>
-#endif
 namespace asterion::terminal {
 namespace fs = std::filesystem;
 namespace {
 fs::path checked_bundle(const std::string& arch) {
   if (arch != "x86_64")
     throw std::invalid_argument("unsupported remote Linux architecture");
-#ifdef _WIN32
-  // Read the process environment directly: the Electron host sets this after
-  // startup.
-  const auto size = GetEnvironmentVariableW(L"ASTERION_REMOTE_RESOURCES", nullptr, 0);
-  if (!size)
-    throw std::runtime_error("desktop package lacks bundled Linux service resources");
-  std::wstring configured(size, L'\0');
-  const auto copied =
-      GetEnvironmentVariableW(L"ASTERION_REMOTE_RESOURCES", configured.data(), size);
-  if (!copied || copied >= size)
-    throw std::runtime_error("invalid bundled resource environment");
-  configured.resize(copied);
-  const fs::path root(configured);
-#else
   const auto configured = environment_path("ASTERION_REMOTE_RESOURCES");
   if (!configured)
     throw std::runtime_error("desktop package lacks bundled Linux service resources");
   const fs::path root(*configured);
-#endif
   const auto folder = root / arch;
   if (!root.is_absolute() || fs::is_symlink(root) || fs::is_symlink(folder))
     throw std::invalid_argument("invalid bundled resource directory");

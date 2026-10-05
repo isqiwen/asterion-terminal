@@ -1,17 +1,15 @@
 #pragma once
-#include <asterion/kernel/plugin.hpp>
 #include <asterion/domain/history_store.hpp>
 #include <asterion/v1/data.pb.h>
 #include <filesystem>
 namespace asterion::history_files {
-class Archive final : public HistoryStorePort, public Plugin {
+class Archive final {
 public:
   enum class Access { writer, read_only };
   explicit Archive(std::filesystem::path root, Access access = Access::writer);
-  PluginDescriptor descriptor() const override;
-  void start() override {}
-  void stop() noexcept override {}
-  std::vector<HistoryDataset> datasets(const HistoryFilter&) const override;
+  void start() {}
+  void stop() noexcept {}
+  std::vector<HistoryDataset> datasets(const HistoryFilter&) const;
   std::filesystem::path directory(const HistoryIdentity&, const std::string& source,
                                   unsigned interval, const std::string& acquisition) const;
   // The data owner verifies files on its file pool before retaining prepared

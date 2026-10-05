@@ -139,8 +139,7 @@ FuturesAccount::FuturesAccount(Decimal deposit, std::vector<ContractTerms> contr
     const auto& terms = contracts_[i];
     terms.instrument.validate();
     terms.costs.validate();
-    if (terms.instrument.asset_class != AssetClass::futures ||
-        !terms.instrument.quantity_increment.multiple_of(one) ||
+    if (!terms.instrument.quantity_increment.multiple_of(one) ||
         terms.instrument.quote_currency != contracts_.front().instrument.quote_currency)
       throw std::invalid_argument(
           "portfolio contracts must be futures in one currency with whole-lot quantities");

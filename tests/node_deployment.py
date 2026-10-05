@@ -151,7 +151,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         # A deployed CTP account service waits for its account.
         wait(lambda: account_service(call(terminal, "runtime.snapshot")["nodes"][0])["health"] == "awaiting_input")
         old_pid = deployed["pid"]
-        os.kill(old_pid, signal.SIGTERM if os.name == "nt" else signal.SIGKILL)
+        os.kill(old_pid, signal.SIGKILL)
         def restarted():
             n = call(terminal, "runtime.snapshot")["nodes"][0]
             s = account_service(n)

@@ -190,16 +190,12 @@ TEST(TerminalApi, Contracts) {
                                   {{"venue", "SHFE"}, {"symbol", "rb2610"}}))["result"]["datasets"]
           .empty());
   using namespace asterion;
-  FuturesContract czce{{{"CZCE", "SR609"},
-                        AssetClass::futures,
-                        "CNY",
-                        Decimal::parse("1"),
-                        Decimal::parse("1"),
-                        Decimal::parse("10")},
-                       "SR",
-                       "2026-09"};
+  FuturesContract czce{
+      {{"CZCE", "SR609"}, "CNY", Decimal::parse("1"), Decimal::parse("1"), Decimal::parse("10")},
+      "SR",
+      "2026-09"};
   czce.validate();
-  czce.instrument.asset_class = AssetClass::equity;
+  czce.instrument.id.venue = "NYMEX";
   EXPECT_THROW(([&] { czce.validate(); })(), std::invalid_argument);
 }
 

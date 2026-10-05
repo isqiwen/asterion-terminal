@@ -100,9 +100,11 @@ data::v1::HistoryVersionEvidence encode_history_evidence(const Json& json) {
 Instrument instrument(const v1::Contract& c) {
   if (!c.has_price_increment() || !c.has_quantity_increment() || !c.has_multiplier())
     throw std::invalid_argument("incomplete contract specification");
-  Instrument result{
-      {c.venue(), c.symbol()},    AssetClass::futures,           c.currency(),
-      value(c.price_increment()), value(c.quantity_increment()), value(c.multiplier())};
+  Instrument result{{c.venue(), c.symbol()},
+                    c.currency(),
+                    value(c.price_increment()),
+                    value(c.quantity_increment()),
+                    value(c.multiplier())};
   FuturesContract{result, c.product(), c.delivery_month()}.validate();
   return result;
 }

@@ -24,7 +24,6 @@ const renderer = app.isPackaged
 const resources = app.isPackaged
   ? process.resourcesPath
   : path.join(root, "build/electron-resources");
-const suffix = process.platform === "win32" ? ".exe" : "";
 process.env.ASTERION_PLUGIN_DIRECTORY ??= path.join(resources, "native", "plugins");
 const variables = {
   ASTERION_TRADING_EXECUTABLE: "asterion-trading",
@@ -38,17 +37,9 @@ const variables = {
   ASTERION_KEYCHAIN_EXECUTABLE: "asterion-keychain",
 };
 for (const [key, name] of Object.entries(variables))
-  process.env[key] = path.join(resources, "native", name + suffix);
-process.env.ASTERION_CTP_LIBRARY = path.join(
-  resources,
-  "native",
-  "ctp-md" + { darwin: ".dylib", win32: ".dll", linux: ".so" }[process.platform],
-);
-process.env.ASTERION_CTP_CATALOG_LIBRARY = path.join(
-  resources,
-  "native",
-  "ctp-trader" + { darwin: ".dylib", win32: ".dll", linux: ".so" }[process.platform],
-);
+  process.env[key] = path.join(resources, "native", name);
+process.env.ASTERION_CTP_LIBRARY = path.join(resources, "native", "ctp-md" + ".dylib");
+process.env.ASTERION_CTP_CATALOG_LIBRARY = path.join(resources, "native", "ctp-trader" + ".dylib");
 process.env.ASTERION_REMOTE_RESOURCES = path.join(resources, "remote-linux");
 protocol.registerSchemesAsPrivileged([
   { scheme: "asterion", privileges: { standard: true, secure: true, supportFetchAPI: true } },

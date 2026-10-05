@@ -48,7 +48,7 @@ if(ASTERION_SANITIZERS)
   target_compile_definitions(asterion_foundation PUBLIC ASTERION_SANITIZED=1)
 endif()
 
-add_library(asterion_kernel STATIC core/src/kernel/native_plugin.cpp core/src/kernel/trace.cpp core/src/kernel/logger.cpp core/src/kernel/ipc/local_channel.cpp core/src/kernel/ipc/tls_channel.cpp core/src/kernel/process/child.cpp core/src/kernel/process/artifact.cpp core/src/kernel/process/owner.cpp core/src/kernel/durable_file.cpp core/src/kernel/service_host.cpp core/src/kernel/rpc_host.cpp core/src/kernel/ipc/rpc_client.cpp core/src/kernel/environment.cpp)
+add_library(asterion_kernel STATIC core/src/kernel/native_plugin.cpp core/src/kernel/trace.cpp core/src/kernel/logger.cpp core/src/kernel/ipc/local_channel.cpp core/src/kernel/ipc/tls_channel.cpp core/src/kernel/process/child.cpp core/src/kernel/process/artifact.cpp core/src/kernel/process/owner.cpp core/src/kernel/durable_file.cpp core/src/kernel/rpc_host.cpp core/src/kernel/ipc/rpc_client.cpp core/src/kernel/environment.cpp)
 target_sources(asterion_kernel PRIVATE core/src/kernel/process/capacity.cpp core/src/kernel/payload_budget.cpp)
 add_library(Asterion::Kernel ALIAS asterion_kernel)
 target_include_directories(asterion_kernel PUBLIC bindings/plugin/include)
@@ -131,6 +131,13 @@ add_library(asterion_protocol STATIC ${ASTERION_PROTO_SOURCES} protocol/src/trad
 target_include_directories(asterion_protocol PUBLIC protocol/include ${ASTERION_PROTO_GEN})
 target_link_libraries(asterion_protocol PUBLIC Asterion::Domain protobuf::libprotobuf)
 
+# Storage plugins that persist protocol-typed records.
+add_library(asterion_history_files STATIC plugins/storage/filesystem/history_archive.cpp plugins/storage/filesystem/history_minutes.cpp plugins/storage/filesystem/history_daily.cpp)
+target_include_directories(asterion_history_files PUBLIC plugins/storage/filesystem)
+target_link_libraries(asterion_history_files PUBLIC asterion_protocol PRIVATE asterion_chart_indicators asterion_bar_parquet)
+add_library(asterion_task_events STATIC plugins/storage/sqlite/task_events.cpp)
+target_link_libraries(asterion_task_events PUBLIC asterion_sqlite asterion_protocol)
+
 add_library(asterion_data_client STATIC protocol/src/data_client.cpp)
 target_link_libraries(asterion_data_client PUBLIC asterion_protocol)
 
@@ -148,7 +155,7 @@ add_executable(asterion-market-data apps/services/market-data/main.cpp apps/serv
 target_link_libraries(asterion-market-data PRIVATE asterion_ctp asterion_protocol CLI11::CLI11)
 
 
-add_library(asterion_trading_session STATIC apps/services/trading/live_session.cpp apps/services/trading/account_loop.cpp apps/services/trading/account_journal.cpp apps/services/trading/account_policy.cpp)
+add_library(asterion_trading_session STATIC apps/services/trading/live_session.cpp apps/services/trading/account_loop.cpp apps/services/trading/account_journal.cpp apps/services/trading/account_policy.cpp apps/services/trading/account_records.cpp)
 target_include_directories(asterion_trading_session PUBLIC apps/services/trading)
 target_link_libraries(asterion_trading_session PUBLIC asterion_risk_providers asterion_sqlite asterion_protocol asterion_ctp_trader)
 add_executable(asterion-trading apps/services/trading/main.cpp)
@@ -398,7 +405,6 @@ if(BUILD_TESTING)
   target_include_directories(asterion_transport_tests PRIVATE core/src)
   target_link_libraries(asterion_transport_tests PRIVATE asio::asio)
   asterion_unit_tests(asterion_ipc_tests tests/ipc_test.cpp Asterion::Kernel)
-  asterion_unit_tests(asterion_service_host_tests tests/service_host_test.cpp Asterion::Kernel)
   asterion_unit_tests(asterion_terminal_query_tests tests/terminal_minute_query_test.cpp asterion_terminal_api)
   asterion_unit_tests(asterion_data_credential_tests tests/data_credentials_test.cpp asterion_terminal_api)
   asterion_unit_tests(asterion_ctp_connection_tests tests/ctp_connections_test.cpp asterion_terminal_api)

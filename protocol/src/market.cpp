@@ -4,7 +4,7 @@ market::v1::Snapshot encode_market(const LiveMarketSnapshot& state, const std::s
   market::v1::Snapshot out;
   out.set_subscriptions_delta(state.subscriptions_delta);
   out.set_instance_id(instance);
-  out.set_phase(state.phase);
+  out.set_phase(std::string(market_phase_name(state.phase)));
   out.set_error_code(state.error_code);
   out.set_sequence(state.sequence);
   out.set_out_of_order(state.out_of_order);
@@ -12,7 +12,7 @@ market::v1::Snapshot encode_market(const LiveMarketSnapshot& state, const std::s
     auto* row = out.add_subscriptions();
     row->mutable_instrument()->set_venue(s.instrument.venue);
     row->mutable_instrument()->set_symbol(s.instrument.symbol);
-    row->set_state(s.state);
+    row->set_state(std::string(subscription_state_name(s.state)));
     row->set_error_code(s.error_code);
     if (!s.quote)
       continue;
@@ -88,12 +88,13 @@ market::v1::EventBatch encode_market_events(const MarketEventBatch& batch) {
       auto* state = row->mutable_subscription();
       state->mutable_instrument()->set_venue(subscription->instrument.venue);
       state->mutable_instrument()->set_symbol(subscription->instrument.symbol);
-      state->set_state(subscription->state);
+      state->set_state(std::string(subscription_state_name(subscription->state)));
       state->set_error_code(subscription->error_code);
     } else {
       const auto& observation = std::get<MarketQuoteObservation>(event.value);
       LiveMarketSnapshot single;
-      single.subscriptions.push_back({observation.quote.instrument, "", 0, observation.quote});
+      single.subscriptions.push_back(
+          {observation.quote.instrument, SubscriptionState::subscribed, 0, observation.quote});
       auto encoded = encode_market(single, batch.stream_id);
       *row->mutable_quote()->mutable_quote() = encoded.subscriptions(0).quote();
       row->mutable_quote()->set_out_of_order(observation.out_of_order);

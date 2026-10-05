@@ -39,7 +39,6 @@ TEST(TushareDaily, PreservesTradingDatesOptionalSettlementAndExactCurrencyUnits)
   EXPECT_EQ(bars[1].amount.str(), "1234567.89012345");
   EXPECT_EQ(bars[1].settlement, Decimal::parse("100.5"));
   EXPECT_EQ(bars[1].previous_settlement, Decimal::parse("99.5"));
-  EXPECT_EQ(provider.descriptor().kind, PluginKind::data);
 }
 TEST(TushareDaily, RejectsMalformedDatesContractsAmountsQuantitiesAndAmbiguousRows) {
   auto valid = Json::parse(daily_response());

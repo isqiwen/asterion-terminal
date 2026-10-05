@@ -46,11 +46,10 @@ public:
 // Test control entry point exported by the CTP SDK double. The handle keeps
 // the library, and so its exchange state, loaded across sessions.
 struct FakeExchange {
-  ctp::SharedLibrary library{ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reset",
-                             "asterion_fake_trader_reset"};
+  ctp::SharedLibrary library{ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reset"};
   void reset() { library.symbol<void (*)()>()(); }
   template <class F, class... Args> auto call(const char* name, Args... args) {
-    ctp::SharedLibrary control(ASTERION_TEST_CTP_TRADER, name, name);
+    ctp::SharedLibrary control(ASTERION_TEST_CTP_TRADER, name);
     return control.symbol<F>()(args...);
   }
 };
@@ -150,10 +149,8 @@ struct HeldCommit {
 };
 struct HeldRiskPlugin {
   fs::path original = native_plugin_directory();
-  ctp::SharedLibrary hold_library{RISK_FIXTURE, "asterion_fixture_risk_hold",
-                                  "asterion_fixture_risk_hold"};
-  ctp::SharedLibrary waiting_library{RISK_FIXTURE, "asterion_fixture_risk_waiting",
-                                     "asterion_fixture_risk_waiting"};
+  ctp::SharedLibrary hold_library{RISK_FIXTURE, "asterion_fixture_risk_hold"};
+  ctp::SharedLibrary waiting_library{RISK_FIXTURE, "asterion_fixture_risk_waiting"};
   explicit HeldRiskPlugin(int stage) {
     configure_native_plugins(fs::path(RISK_FIXTURE).parent_path());
     hold(stage);
@@ -1016,7 +1013,7 @@ TEST_F(Live, DurableNotSentEvidenceAcrossPagesReleasesIntentWithoutResendingOnRe
     SqliteJournal journal(directory.path, {"ctp-flow", "plugins", "archives"});
     journal.start();
     // Put the intent at the end of one page and its result on the next page.
-    for (std::size_t i = 1; i < JournalPort::page_size - 1; ++i) {
+    for (std::size_t i = 1; i < SqliteJournal::page_size - 1; ++i) {
       const auto id = "revoke." + std::to_string(i);
       journal.append({{"command", {{"request_id", id}, {"action", "live_revoke"}}},
                       {"policy_revision", revision}},
@@ -1218,8 +1215,7 @@ TEST_F(Live, AutomaticReconnectRequiresNewAuthorizationEvenOnTheSameTradingDay) 
   LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
   ASSERT_EQ(ready(session).at("phase"), "ready");
   act(session, authorize());
-  ctp::SharedLibrary reconnect(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reconnect",
-                               "asterion_fake_trader_reconnect");
+  ctp::SharedLibrary reconnect(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reconnect");
   reconnect.symbol<void (*)()>()();
   ASSERT_TRUE(wait_for(session, [](const Json& s) { return s.at("authorization").is_null(); })
                   .at("authorization")
@@ -1249,8 +1245,7 @@ TEST_F(Live, TradingDayRolloverRebuildsReportsAndRatesWithoutResending) {
                 .at("costs")[0]
                 .at("state"),
             "ready");
-  ctp::SharedLibrary rollover(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_next_day",
-                              "asterion_fake_trader_next_day");
+  ctp::SharedLibrary rollover(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_next_day");
   int index = 0;
   for (const auto* day : {"20260929", "20260930"}) {
     SCOPED_TRACE(day);
@@ -1359,8 +1354,7 @@ TEST_F(Live, SameDayReconnectDoesNotMistakeCachedOrdersForBrokerConfirmation) {
   ASSERT_TRUE(
       wait_for(session, [](const Json& s) { return !s.at("orders").empty(); }).at("orders").size());
   exchange.reset(); // broker no longer reports the order
-  ctp::SharedLibrary reconnect(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reconnect",
-                               "asterion_fake_trader_reconnect");
+  ctp::SharedLibrary reconnect(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reconnect");
   reconnect.symbol<void (*)()>()();
   const auto state = wait_for(session, [](const Json& s) {
     return s.at("phase") == "ready" && s.at("authorization").is_null();

@@ -18,7 +18,7 @@ Decimal d(const char* value) {
   return Decimal::parse(value);
 }
 Instrument instrument() {
-  return {{"SHFE", "rb2610"}, AssetClass::futures, "CNY", d("1"), d("1"), d("10")};
+  return {{"SHFE", "rb2610"}, "CNY", d("1"), d("1"), d("10")};
 }
 std::shared_ptr<const RiskPort> risk() {
   auto value = std::make_shared<OrderLimits>(OrderLimitsConfig{d("100"), d("100"), 100});
@@ -101,7 +101,7 @@ TEST(FuturesAccount, RejectsWithoutMutationAndSettlesShortPositions) {
 }
 TEST(SqliteJournal, RecoveryReadsConsecutiveBoundedPagesAndRejectsGaps) {
   Directory directory;
-  const auto count = JournalPort::page_size * 2 + 3;
+  const auto count = SqliteJournal::page_size * 2 + 3;
   {
     SqliteJournal journal(directory.path);
     journal.start();
@@ -119,7 +119,7 @@ TEST(SqliteJournal, RecoveryReadsConsecutiveBoundedPagesAndRejectsGaps) {
     while (next < count) {
       const auto page = recovered.read(next);
       ASSERT_FALSE(page.empty());
-      EXPECT_LE(page.size(), JournalPort::page_size);
+      EXPECT_LE(page.size(), SqliteJournal::page_size);
       for (const auto& record : page)
         EXPECT_EQ(record.at("sequence"), next++);
     }
@@ -128,7 +128,7 @@ TEST(SqliteJournal, RecoveryReadsConsecutiveBoundedPagesAndRejectsGaps) {
     while (after < count - 1) {
       const auto identities = recovered.order_identities("20260928", after);
       ASSERT_FALSE(identities.empty());
-      EXPECT_LE(identities.size(), JournalPort::page_size);
+      EXPECT_LE(identities.size(), SqliteJournal::page_size);
       for (const auto& order : identities) {
         EXPECT_EQ(order.sequence, ++after);
         EXPECT_EQ(order.order_id, "order." + std::to_string(after));
@@ -562,7 +562,7 @@ TEST(PaperExecution, RestingOrdersDoNotMakeReplayQuadratic) {
 }
 namespace {
 Instrument venue_instrument(const char* venue, const char* symbol) {
-  return {{venue, symbol}, AssetClass::futures, "CNY", d("1"), d("1"), d("10")};
+  return {{venue, symbol}, "CNY", d("1"), d("1"), d("10")};
 }
 LimitOrder venue_order(const Instrument& spec, std::string id, Side side, const char* quantity,
                        const char* price) {

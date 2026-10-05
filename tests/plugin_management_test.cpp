@@ -59,8 +59,7 @@ TEST_F(PluginManagement, ArtifactInstallationRepairsInterruptedCopiesFromVerifie
   fs::create_directory(root / "artifacts");
   fs::create_directories(root / "services/task");
   const auto hash = sha256_file(PLUGIN_GOOD);
-  const auto suffix = current_platform().os == "windows" ? ".exe" : ".bin";
-  fs::copy_file(PLUGIN_GOOD, root / "artifacts" / (hash + suffix));
+  fs::copy_file(PLUGIN_GOOD, root / "artifacts" / (hash + ".bin"));
   const agent::PluginArtifacts artifacts(root, NODE_AGENT);
   const auto installed = artifacts.materialize("task", {hash});
   const auto library = installed / (hash + (current_platform().os == "macos" ? ".dylib" : ".so"));
@@ -75,11 +74,11 @@ TEST_F(PluginManagement, ArtifactInstallationRepairsInterruptedCopiesFromVerifie
   // A library whose descriptor cannot be read is rejected by the inspecting
   // child; the Agent process itself never loads it.
   const auto broken = sha256_file(PLUGIN_BAD_ABI);
-  fs::copy_file(PLUGIN_BAD_ABI, root / "artifacts" / (broken + suffix));
+  fs::copy_file(PLUGIN_BAD_ABI, root / "artifacts" / (broken + ".bin"));
   EXPECT_THROW(artifacts.verify({broken}), std::invalid_argument);
   EXPECT_THROW(artifacts.verify({hash, hash}), std::invalid_argument);
   // A tampered source artifact is never copied.
-  write_file_durably(root / "artifacts" / (hash + suffix), "tampered");
+  write_file_durably(root / "artifacts" / (hash + ".bin"), "tampered");
   EXPECT_THROW(artifacts.materialize("task", {hash}), std::invalid_argument);
 }
 TEST_F(PluginManagement, ConfigurationKeepsVersionRevisionAndStoppedState) {

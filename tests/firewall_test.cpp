@@ -15,15 +15,6 @@ TEST(Firewall, RequiresOneConcreteSourceAndOwnedRule) {
       node::firewall_change("macos", "192.0.2.1", 7442, "asterion-" + std::string(32, 'a'), false),
       std::invalid_argument);
 }
-TEST(Firewall, WindowsRuleIsScopedAndOwned) {
-  const auto script = node::firewall_change("windows", "192.0.2.1", 7442,
-                                            "asterion-" + std::string(32, 'a'), false);
-  EXPECT_NE(script.find("-RemoteAddress '192.0.2.1'"), std::string::npos);
-  EXPECT_NE(script.find("-LocalPort 7442"), std::string::npos);
-  EXPECT_NE(script.find("owned rule changed"), std::string::npos);
-  EXPECT_EQ(script.find("Set-NetFirewallProfile"), std::string::npos);
-}
-#ifndef _WIN32
 namespace {
 void replace(std::string& value, const std::string& from, const std::string& to) {
   std::size_t position = 0;
@@ -65,7 +56,7 @@ struct UfwFixture : testing::Test {
     // double.
     replace(script, "/usr/sbin/ufw", "'" + (root / "ufw").string() + "'");
     replace(script, "prefix='sudo -n'", "prefix=''");
-    return node::run_firewall_script("linux", script);
+    return node::run_firewall_script(script);
   }
 };
 } // namespace
@@ -98,4 +89,3 @@ TEST_F(UfwFixture, DisabledFirewallIsNeverEnabled) {
   EXPECT_THROW(execute(), std::runtime_error);
   EXPECT_FALSE(std::filesystem::exists(root / "calls"));
 }
-#endif

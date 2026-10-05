@@ -1,12 +1,7 @@
 #include <asterion/kernel/process/file_lock.hpp>
-#ifndef _WIN32
 #include <sys/wait.h>
 #include <sys/stat.h>
-#endif
 #include <asterion/kernel/environment.hpp>
-#ifdef _WIN32
-#include <windows.h>
-#endif
 #include <cstdlib>
 #include <cstring>
 #include <chrono>
@@ -95,49 +90,33 @@ TEST(Kernel, DurableFilesAreOwnerOnlyAndReplaceAtomically) {
   const auto file = root / "secret.pem";
   write_file_durably(file, "first");
   {
-    // Closed before the replacement: Windows cannot replace an open file.
     std::ifstream first(file, std::ios::binary);
     EXPECT_EQ(std::string(std::istreambuf_iterator<char>(first), {}), "first");
   }
-#ifndef _WIN32
   using std::filesystem::perms;
   EXPECT_EQ(std::filesystem::status(file).permissions() & perms::all,
             perms::owner_read | perms::owner_write);
-#endif
   replace_file_durably(file, "second");
   {
     std::ifstream second(file, std::ios::binary);
     EXPECT_EQ(std::string(std::istreambuf_iterator<char>(second), {}), "second");
   }
   EXPECT_FALSE(std::filesystem::exists(root / "secret.pem.tmp"));
-#ifndef _WIN32
   std::filesystem::create_symlink(file, root / "link");
   EXPECT_THROW(replace_file_durably(root / "link", "x"), std::runtime_error);
-#endif
   std::filesystem::remove_all(root);
 }
 TEST(Kernel, EnvironmentLookupsAreUnicodeAndTreatEmptyAsUnset) {
   const char* name = "ASTERION_TEST_ENVIRONMENT_PATH";
   const std::string value = "/tmp/用户/数据";
-#ifdef _WIN32
-  const std::wstring key(name, name + std::strlen(name));
-  const std::filesystem::path expected(std::u8string(value.begin(), value.end()));
-  ASSERT_TRUE(SetEnvironmentVariableW(key.c_str(), expected.wstring().c_str()));
-#else
   ASSERT_EQ(::setenv(name, value.c_str(), 1), 0);
-#endif
   EXPECT_EQ(environment_variable(name), value);
   EXPECT_EQ(environment_path(name),
             std::filesystem::path(std::u8string(value.begin(), value.end())));
-#ifdef _WIN32
-  SetEnvironmentVariableW(key.c_str(), L"");
-#else
   ::setenv(name, "", 1);
-#endif
   EXPECT_FALSE(environment_variable(name).has_value());
   EXPECT_FALSE(environment_path("ASTERION_TEST_ENVIRONMENT_UNSET").has_value());
 }
-#ifndef _WIN32
 #include <asterion/kernel/process/child.hpp>
 #include <fcntl.h>
 #include <unistd.h>
@@ -165,7 +144,6 @@ TEST(Kernel, child_does_not_inherit_host_pipes) {
         << "A running child kept the host's pipe writer alive";
   }
 }
-#endif
 
 TEST(Kernel, FileLockReadersShareWhileWritersRemainExclusive) {
   const auto root = std::filesystem::temp_directory_path() /
@@ -184,7 +162,6 @@ TEST(Kernel, FileLockReadersShareWhileWritersRemainExclusive) {
   EXPECT_FALSE(std::filesystem::exists(root / "missing.lock"));
   std::filesystem::create_directory(root / "directory.lock");
   EXPECT_THROW(FileLock(root, "directory.lock", Access::shared_existing), std::runtime_error);
-#ifndef _WIN32
   const auto peer = [&](Access access, bool expected) {
     const auto pid = fork();
     ASSERT_GE(pid, 0);
@@ -202,31 +179,25 @@ TEST(Kernel, FileLockReadersShareWhileWritersRemainExclusive) {
     ASSERT_TRUE(WIFEXITED(status));
     EXPECT_EQ(WEXITSTATUS(status), 0);
   };
-#endif
   {
     FileLock reader(root, "dataset.lock", Access::shared);
     EXPECT_NO_THROW(FileLock(root, "dataset.lock", Access::shared_existing));
     EXPECT_NO_THROW(FileLock(root, "dataset.lock", Access::shared));
     EXPECT_THROW(FileLock(root, "dataset.lock"), std::runtime_error);
-#ifndef _WIN32
     peer(Access::shared, true);
     peer(Access::exclusive, false);
-#endif
   }
   {
     FileLock writer(root, "dataset.lock");
     EXPECT_THROW(FileLock(root, "dataset.lock", Access::shared_existing), std::runtime_error);
     EXPECT_THROW(FileLock(root, "dataset.lock", Access::shared), std::runtime_error);
     EXPECT_THROW(FileLock(root, "dataset.lock"), std::runtime_error);
-#ifndef _WIN32
     peer(Access::shared, false);
     peer(Access::exclusive, false);
-#endif
   }
   EXPECT_NO_THROW(FileLock(root, "dataset.lock"));
 }
 
-#ifndef _WIN32
 namespace {
 class DurableFiles : public testing::Test {
 protected:
@@ -362,7 +333,6 @@ TEST_F(DurableFiles, PublicationChecksTheOpenedSourceAndSyncsBothDirectories) {
   EXPECT_EQ(read(target), "complete");
   EXPECT_FALSE(std::filesystem::exists(source));
 }
-#endif
 
 TEST(Kernel, PolledOperationsApplyResultsOnlyOnTheOwnerAndPropagateFailure) {
   std::promise<int> completion;

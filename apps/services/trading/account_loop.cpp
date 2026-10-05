@@ -296,20 +296,27 @@ std::future<void> LiveSession::query_costs() {
 }
 std::future<void> LiveSession::execute(std::string_view account_id,
                                        std::string_view policy_revision, const Json& command) {
+  std::optional<AccountRequest> request;
+  try {
+    request = AccountRequest::parse(command);
+  } catch (...) {
+    std::promise<void> rejected;
+    rejected.set_exception(std::current_exception());
+    return rejected.get_future();
+  }
+  const bool revoke = request->as<Revoke>(), cancel = request->as<CancelOrder>();
   auto begin = [record = std::string(account_id), policy = std::string(policy_revision),
-                command](LiveAccountState& account, std::uint64_t control) {
-    return account.execute(record, policy, command, control);
+                request = std::move(*request)](LiveAccountState& account, std::uint64_t control) {
+    return account.execute(record, policy, request, control);
   };
-  if (command.value("action", "") == "live_revoke")
+  if (revoke)
     return loop_->mutate(
         std::move(begin),
-        [record = std::string(account_id), policy = std::string(policy_revision),
-         command](LiveAccountState& account) { account.admit_revoke(record, policy, command); },
+        [record = std::string(account_id), policy = std::string(policy_revision)](
+            LiveAccountState& account) { account.admit_revoke(record, policy); },
         Loop::Admission::stop_sends);
-  else
-    return loop_->mutate(std::move(begin), {},
-                         command.value("action", "") == "cancel" ? Loop::Admission::control
-                                                                 : Loop::Admission::command);
+  return loop_->mutate(std::move(begin), {},
+                       cancel ? Loop::Admission::control : Loop::Admission::command);
 }
 
 std::future<Json> LiveSession::snapshot() const {

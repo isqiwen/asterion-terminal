@@ -2,6 +2,9 @@
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/ipc/rpc_client.hpp>
 #include <asio.hpp>
+#include <cerrno>
+#include <csignal>
+#include <unistd.h>
 #include <filesystem>
 #include <tuple>
 #include <asterion/kernel/ipc/local_channel.hpp>
@@ -11,6 +14,50 @@
 #include <thread>
 using namespace asterion;
 using namespace std::chrono_literals;
+TEST(ServiceSignalsDeathTest, BrokenPipeDoesNotKillTheServiceAndTerminationStillStopsIt) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  ASSERT_EXIT(
+      {
+        // Do not inherit SIG_IGN from a Python/Node parent and get a false pass.
+        struct sigaction action{};
+        action.sa_handler = SIG_DFL;
+        sigemptyset(&action.sa_mask);
+        if (::sigaction(SIGPIPE, &action, nullptr) != 0)
+          _exit(10);
+        service::reset_stop_request();
+        service::install_stop_signals();
+        int pipe[2];
+        if (::pipe(pipe) != 0)
+          _exit(11);
+        ::close(pipe[0]);
+        errno = 0;
+        const auto written = ::write(pipe[1], "test", 4);
+        const auto failure = errno;
+        ::close(pipe[1]);
+        if (written != -1 || failure != EPIPE || service::stop_requested())
+          _exit(12);
+        if (::raise(SIGTERM) != 0 || !service::stop_requested())
+          _exit(13);
+        _exit(0);
+      },
+      ::testing::ExitedWithCode(0), "");
+}
+
+TEST(ServiceTransport, RequiresExactlyOneCompleteTransport) {
+  EXPECT_NO_THROW((service::Transport{"/tmp/x", {}, 0, {}}.validate()));
+  EXPECT_NO_THROW((service::Transport{{}, "127.0.0.1", 9000, {"/ca", "/cert", "/key"}}.validate()));
+  EXPECT_THROW((service::Transport{}.validate()), std::invalid_argument);
+  EXPECT_THROW(
+      (service::Transport{"/tmp/x", "127.0.0.1", 9000, {"/ca", "/cert", "/key"}}.validate()),
+      std::invalid_argument);
+  EXPECT_THROW((service::Transport{{}, "127.0.0.1", 9000, {"/ca", "", "/key"}}.validate()),
+               std::invalid_argument);
+  EXPECT_THROW((service::Transport{{}, "127.0.0.1", 0, {"/ca", "/cert", "/key"}}.validate()),
+               std::invalid_argument);
+  EXPECT_THROW((service::Transport{"/tmp/x", {}, 0, {"/ca", {}, {}}}.validate()),
+               std::invalid_argument);
+}
+
 TEST(RpcHost, StreamingRepliesShareIoAndReturnToRequestsAfterTheirFinalFrame) {
   service::reset_stop_request();
   using Host = service::RpcHost;

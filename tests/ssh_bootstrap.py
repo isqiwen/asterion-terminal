@@ -10,8 +10,6 @@ import sys
 import tempfile
 import time
 from bundle_fixture import make_bundle
-if os.name == 'nt':
-    raise SystemExit('This POSIX SSH process fixture runs on Linux/macOS')
 with tempfile.TemporaryDirectory(prefix='asterion-ssh-', ignore_cleanup_errors=True) as temporary:
     root=Path(temporary); tools=root/'tools'; tools.mkdir(); remote=root/'remote'; remote.mkdir()
     for tool in ('ssh','sftp'):

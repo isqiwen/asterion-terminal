@@ -3,13 +3,19 @@
 #include <asterion/foundation/error.hpp>
 namespace asterion::trading {
 namespace {
-std::string excluded_order(const Json& record) {
-  if (record.contains("order_not_sent"))
-    return record.at("order_not_sent").get<std::string>();
-  if (record.contains("command") && record.at("command").at("action") == "live_resolve")
-    return record.at("command").at("order_id").get<std::string>();
+// The order a record removes from the unconfirmed set without a broker report.
+std::string_view excluded_order(const JournalRecord& record) {
+  if (const auto* unsent = std::get_if<OrderNotSent>(&record))
+    return unsent->order_id;
+  if (const auto* command = std::get_if<CommandRecord>(&record))
+    if (const auto* resolve = command->request.as<ResolveOrder>())
+      return resolve->order_id;
   return {};
 }
+struct Page {
+  std::optional<Json> header;
+  std::vector<JournalRecord> records;
+};
 } // namespace
 AccountJournal::AccountJournal(std::filesystem::path directory,
                                std::function<void(const Json&)> validate, Post post,
@@ -45,56 +51,64 @@ AccountJournal::~AccountJournal() {
   jobs_.close();
   thread_.join();
 }
-void AccountJournal::replay(const std::function<void(std::uint64_t, const Json&)>& apply) {
+void AccountJournal::replay(const std::function<void(const Json&)>& header,
+                            const std::function<void(const JournalRecord&)>& apply) {
   std::uint64_t submitted = 0;
   for (std::uint64_t first = 0; first < initial_capacity_.total_records;) {
-    auto task = std::make_shared<std::packaged_task<std::vector<Json>(SqliteJournal&)>>(
+    auto task = std::make_shared<std::packaged_task<Page(SqliteJournal&)>>(
         [first, &submitted, total = initial_capacity_.total_records](SqliteJournal& journal) {
-          auto page = journal.read(first);
+          const auto mismatch = [] {
+            return std::invalid_argument("trading order index does not match its journal record");
+          };
+          Page page;
           auto sequence = first;
-          for (const auto& record : page) {
-            if (record.contains("command") &&
-                journal.command_sequence(
-                    record.at("command").at("request_id").get<std::string>()) != sequence)
-              throw std::invalid_argument(
-                  "trading command index does not match its journal record");
-            if (record.contains("command") && record.at("command").at("action") == "submit") {
-              ++submitted;
-              const auto id = record.at("command").at("order_id").get<std::string>();
-              const auto index = journal.order_index(id);
-              if (!index || index->sequence != sequence ||
-                  index->trading_day != record.at("trading_day").get<std::string>() ||
-                  index->broker_key != record.at("broker_key").get<std::string>())
+          for (auto& stored : journal.read(first)) {
+            if (sequence == 0) {
+              page.header = std::move(stored);
+              ++sequence;
+              continue;
+            }
+            auto record = parse_record(stored);
+            if (const auto* command = std::get_if<CommandRecord>(&record)) {
+              if (journal.command_sequence(command->request.id) != sequence)
                 throw std::invalid_argument(
-                    "trading order index does not match its journal record");
-              if (index->excluded_by) {
-                const auto exclusion = journal.record(index->excluded_by);
-                if (excluded_order(exclusion) != id)
-                  throw std::invalid_argument(
-                      "trading order index does not match its journal record");
+                    "trading command index does not match its journal record");
+              if (const auto* submit = command->request.as<SubmitOrder>()) {
+                ++submitted;
+                const auto index = journal.order_index(submit->order.id);
+                if (!index || index->sequence != sequence ||
+                    index->trading_day != command->trading_day ||
+                    index->broker_key != command->broker_key)
+                  throw mismatch();
+                if (index->excluded_by &&
+                    excluded_order(parse_record(journal.record(index->excluded_by))) !=
+                        submit->order.id)
+                  throw mismatch();
               }
             }
-            const auto excluded = excluded_order(record);
-            if (!excluded.empty()) {
+            if (const auto excluded = excluded_order(record); !excluded.empty()) {
               const auto index = journal.order_index(excluded);
               if (!index || index->excluded_by != sequence)
-                throw std::invalid_argument(
-                    "trading order index does not match its journal record");
+                throw mismatch();
             }
+            page.records.push_back(std::move(record));
             ++sequence;
           }
           // Unique identities plus per-record checks and equal cardinality rule out
           // an extra index row that could otherwise claim an unrelated broker report.
           if (sequence == total && journal.order_identity_count() != submitted)
-            throw std::invalid_argument("trading order index does not match its journal record");
+            throw mismatch();
           return page;
         });
     auto result = task->get_future();
     if (!jobs_.try_push([task](SqliteJournal& journal) { (*task)(journal); }))
       throw std::logic_error("account journal already has a pending write");
     const auto page = result.get();
-    for (const auto& record : page)
-      apply(first++, record);
+    if (page.header)
+      header(*page.header);
+    for (const auto& record : page.records)
+      apply(record);
+    first += page.records.size() + (page.header ? 1 : 0);
   }
 }
 SqliteJournal::Capacity AccountJournal::initialize(Json header) {
@@ -132,39 +146,40 @@ AccountJournal::Result AccountJournal::Write::await_resume() {
     std::rethrow_exception(error);
   return std::move(result);
 }
-AccountJournal::Write AccountJournal::append(Json record) {
+AccountJournal::Write AccountJournal::append(JournalEntry entry) {
   return {*this,
-          [record = std::move(record)](SqliteJournal& journal) {
-            const auto id = record.contains("command")
-                                ? record.at("command").at("request_id").get<std::string>()
-                                : std::string{};
-            const auto order_id =
-                record.contains("command") && record.at("command").at("action") == "submit"
-                    ? record.at("command").at("order_id").get<std::string>()
-                    : std::string{};
-            const auto excluded = excluded_order(record);
-            journal.append(record, id, order_id, excluded);
-            return Result{journal.capacity(), nullptr, {}};
+          [entry = std::move(entry)](SqliteJournal& journal) {
+            journal.append(entry.body, entry.command_id, entry.order_id, entry.excluded_order);
+            Result result;
+            result.capacity = journal.capacity();
+            return result;
           },
           {},
           {},
           {}};
 }
 AccountJournal::Write AccountJournal::find_command(std::string id) {
-  return {
-      *this,
-      [id = std::move(id)](SqliteJournal& journal) { return Result{{}, journal.command(id), {}}; },
-      {},
-      {},
-      {}};
+  return {*this,
+          [id = std::move(id)](SqliteJournal& journal) {
+            Result result;
+            if (const auto record = journal.command(id); !record.is_null())
+              result.command = std::get<CommandRecord>(parse_record(record));
+            return result;
+          },
+          {},
+          {},
+          {}};
 }
 AccountJournal::Write AccountJournal::find_order(std::string id) {
-  return {
-      *this,
-      [id = std::move(id)](SqliteJournal& journal) { return Result{{}, journal.order(id), {}}; },
-      {},
-      {},
-      {}};
+  return {*this,
+          [id = std::move(id)](SqliteJournal& journal) {
+            Result result;
+            result.order_known = !journal.order(id).is_null();
+            return result;
+          },
+          {},
+          {},
+          {}};
 }
 AccountJournal::Write AccountJournal::restore_orders(std::string day, std::uint64_t after) {
   return {*this,
@@ -198,7 +213,9 @@ AccountJournal::Write AccountJournal::prepare_policy(std::filesystem::path plugi
             auto policy =
                 std::make_unique<AccountPolicy>(definition, revision, std::move(algorithm));
             policy->capture(plugins);
-            return Result{{}, nullptr, std::move(policy)};
+            Result result;
+            result.policy = std::move(policy);
+            return result;
           },
           {},
           {},

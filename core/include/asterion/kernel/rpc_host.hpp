@@ -1,8 +1,36 @@
 #pragma once
-#include <asterion/kernel/service_host.hpp>
-#include <optional>
+#include <asterion/kernel/ipc/tls_channel.hpp>
 #include <asterion/kernel/progress.hpp>
+#include <chrono>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
 namespace asterion::service {
+using Milliseconds = std::chrono::milliseconds;
+// Exactly one of a private local IPC endpoint or TCP with mutual TLS.
+// Plaintext TCP is never offered.
+struct Transport {
+  std::string endpoint;
+  std::string bind;
+  std::uint16_t port = 0;
+  ipc::TlsIdentity tls;
+  bool remote() const noexcept { return !bind.empty(); }
+  // Throws std::invalid_argument unless exactly one complete transport is set.
+  void validate() const;
+};
+// Process-wide cooperative stop request. install_stop_signals() routes
+// SIGINT/SIGTERM to it; owner loss and applications may request it too.
+// Services ignore SIGPIPE so broken writes (including inside vendor
+// libraries) report EPIPE instead of exit.
+void install_stop_signals();
+void request_stop() noexcept;
+bool stop_requested() noexcept;
+// Clears a stop request. Only for hosts that run several service lifetimes in
+// one process, such as tests.
+void reset_stop_request() noexcept;
 // Request/reply transport with one bounded, nonblocking I/O owner. A business
 // request may outlive a socket; closing a connection never cancels or replays it.
 class RpcHost {

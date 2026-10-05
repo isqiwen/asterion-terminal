@@ -1,6 +1,5 @@
 #pragma once
-#include <asterion/kernel/plugin.hpp>
-#include <asterion/domain/execution_port.hpp>
+#include <asterion/domain/account.hpp>
 #include <asterion/domain/risk_port.hpp>
 #include <optional>
 #include <vector>
@@ -22,18 +21,17 @@ struct ContractBars {
 // when the bar's low reaches its limit, at min(open, limit); a sell fills
 // when the high reaches it, at max(open, limit). Fills share at most
 // paper_bar_participation of that bar's volume.
-class PaperExecution final : public ExecutionPort, public Plugin {
+class PaperExecution final {
 public:
   struct Event {
     std::size_t contract, bar;
   };
   PaperExecution(Decimal deposit, std::vector<ContractBars> contracts,
                  std::shared_ptr<const RiskPort> risk);
-  PluginDescriptor descriptor() const override;
-  void start() override { running_ = true; }
-  void stop() noexcept override { running_ = false; }
-  void submit(LimitOrder order, Offset offset) override;
-  void cancel(const std::string& id) override;
+  void start() { running_ = true; }
+  void stop() noexcept { running_ = false; }
+  void submit(LimitOrder order, Offset offset);
+  void cancel(const std::string& id);
   // A strategy target decided from a preceding bar. Apply after any new-day
   // cost change and before matching the next bar of this contract.
   struct LongTarget {
@@ -55,7 +53,7 @@ public:
   // Long/flat target for one contract, routed through normal account checks.
   void reconcile_long_target(const std::string& order_id, const InstrumentId& instrument,
                              Decimal target, Decimal price);
-  Json snapshot() const override;
+  Json snapshot() const;
   const FuturesAccount& account() const noexcept { return account_; }
   // Number of consumed events; the next advance consumes event(cursor).
   std::size_t cursor() const noexcept { return cursor_; }

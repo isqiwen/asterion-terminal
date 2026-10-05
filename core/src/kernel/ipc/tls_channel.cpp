@@ -156,8 +156,7 @@ TlsChannel TlsChannel::connect(const std::string& host, std::uint16_t port,
       },
       [&] { resolver.cancel(); });
   // IPv4 first: services bind IPv4 addresses by default, and "localhost" often
-  // resolves to ::1 first. On Windows a refused connection only fails after
-  // SYN retransmission (about 2 s), which a v6-first order paid on every call.
+  // resolves to ::1 first.
   std::vector<Tcp::endpoint> endpoints;
   for (const auto& entry : addresses)
     endpoints.push_back(entry.endpoint());
@@ -218,15 +217,7 @@ struct TlsListener::Impl {
       : ctx(detail::tls_context(identity, true)), acceptor(*io) {
     const Tcp::endpoint endpoint(asio::ip::make_address(address), port);
     acceptor.open(endpoint.protocol());
-#ifdef _WIN32
-    const int enabled = 1;
-    if (::setsockopt(acceptor.native_handle(), SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
-                     reinterpret_cast<const char*>(&enabled),
-                     static_cast<int>(sizeof(enabled))) != 0)
-      throw Error(ErrorCode::unavailable, "cannot acquire exclusive TCP address");
-#else
     acceptor.set_option(Tcp::acceptor::reuse_address(true));
-#endif
     acceptor.bind(endpoint);
     acceptor.listen();
   }

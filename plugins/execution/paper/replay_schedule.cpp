@@ -13,8 +13,6 @@ PaperReplaySchedule::PaperReplaySchedule(const std::vector<Instrument>& contract
     throw std::invalid_argument("scheduled paper replay requires contracts, events and days");
   std::set<std::string> all;
   for (std::size_t c = 0; c < contracts.size(); ++c) {
-    if (contracts[c].asset_class != AssetClass::futures)
-      throw std::invalid_argument("scheduled paper replay requires futures contracts");
     if (settlements[c].empty())
       throw std::invalid_argument("scheduled paper replay requires contracts, events and days");
     for (std::size_t d = 0; d < settlements[c].size(); ++d) {

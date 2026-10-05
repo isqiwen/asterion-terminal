@@ -107,11 +107,7 @@ public:
       std::strcpy(tick.ExchangeID, "SHFE");
       auto epoch = std::time(nullptr) + 8 * 3600;
       std::tm tm{};
-#ifdef _WIN32
-      gmtime_s(&tm, &epoch);
-#else
       gmtime_r(&epoch, &tm);
-#endif
       std::strftime(tick.ActionDay, sizeof(tick.ActionDay), "%Y%m%d", &tm);
       std::strftime(tick.TradingDay, sizeof(tick.TradingDay), "%Y%m%d", &tm);
       std::strftime(tick.UpdateTime, sizeof(tick.UpdateTime), "%H:%M:%S", &tm);

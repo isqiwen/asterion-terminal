@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory(prefix="ast-node-test-", ignore_cleanup_errors=
                 os.kill(int(pidfile.read_text()), signal.SIGTERM)
                 stopped = True
             except (OSError, ValueError):
-                # Already exited: ProcessLookupError on POSIX, WinError 87 on Windows.
+                # Already exited.
                 pass
         if stopped:
             time.sleep(3)

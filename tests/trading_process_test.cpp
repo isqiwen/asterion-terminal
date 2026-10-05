@@ -17,14 +17,9 @@ struct Host {
     directory =
         std::filesystem::temp_directory_path() / ("asterion-process-" + unique_process_id());
     std::filesystem::create_directory(directory);
-#ifdef _WIN32
-    endpoint = "asterion.test." + unique_process_id();
-    const auto executable = current_executable().parent_path() / "asterion-trading.exe";
-#else
     // macOS's temp_directory_path can exceed sockaddr_un's path length.
     endpoint = "/tmp/ast-" + unique_process_id() + ".sock";
     const auto executable = current_executable().parent_path() / "asterion-trading";
-#endif
     const auto path = directory.u8string();
     process = std::make_unique<ChildProcess>(
         executable, std::vector<std::string>{"--session", id, "--endpoint", endpoint, "--directory",

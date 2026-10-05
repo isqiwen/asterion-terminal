@@ -152,7 +152,7 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
       throw std::runtime_error("factor analysis cancelled");
     const auto event = protocol::market_bar(bars(input)[static_cast<int>(i)]);
     const auto value = factor.on_bar(event);
-    // Only the evaluator reads the future label; it never enters FactorPort.
+    // Only the evaluator reads the future label; it never enters the factor.
     if (value && i >= warmup && i + input.horizon() < count) {
       const auto split = input.has_holdout_start() ? input.holdout_start() : count;
       if (i < split && i + input.horizon() >= split) {

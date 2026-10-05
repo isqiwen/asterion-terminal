@@ -34,7 +34,7 @@ with tempfile.TemporaryDirectory(prefix="ast-upgrade-", ignore_cleanup_errors=Tr
     data = root / "services" / "account" / "ledger"
     data.mkdir(parents=True)
     (data / "retained").write_bytes(b"test-owned immutable ledger")
-    endpoint = "asterion.acceptance.update." + str(os.getpid()) if os.name == "nt" else str(root / "agent.sock")
+    endpoint = str(root / "agent.sock")
     def replace(expected=before, source=revision):
         return subprocess.run(
             [str(fixture), "--operation", "replace", "--executable", str(installed),

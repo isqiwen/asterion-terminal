@@ -7,7 +7,6 @@ import subprocess
 import sys
 import tempfile
 import time
-if os.name == 'nt': raise SystemExit('POSIX sshd fixture')
 with tempfile.TemporaryDirectory(prefix='asterion-sshd-', ignore_cleanup_errors=True) as folder:
     root=Path(folder)
     for name in ('host','client','other'):

@@ -8,10 +8,6 @@ import { join } from "node:path";
 test("firewall changes require a concrete preview and explicit confirmation", async ({
   page: workbench,
 }) => {
-  test.skip(
-    process.platform === "win32",
-    "POSIX SSH transport fixture; Windows native firewall awaits target validation",
-  );
   const folder = await mkdtemp(join(tmpdir(), "asterion-fw-ui-"));
   try {
     const artifact = Buffer.alloc(64);

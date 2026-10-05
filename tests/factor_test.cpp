@@ -15,7 +15,7 @@ Decimal d(const char* value) {
   return Decimal::parse(value);
 }
 Instrument spec() {
-  return {{"SHFE", "rb2610"}, AssetClass::futures, "CNY", d("1"), d("1"), d("10")};
+  return {{"SHFE", "rb2610"}, "CNY", d("1"), d("1"), d("10")};
 }
 void revision(factor::v1::FactorInput&);
 factor::v1::FactorInput input() {
@@ -57,7 +57,6 @@ TEST(Factor, StreamingWarmupLifecycleAndRejectedEventPreservesHistory) {
   factor.stop();
   factor.start();
   EXPECT_FALSE(factor.on_bar(first));
-  EXPECT_EQ(factor.descriptor().kind, PluginKind::tool);
   EXPECT_THROW(MomentumFactor(spec(), 0), std::invalid_argument);
 }
 TEST(Factor, PearsonTiedRanksUndefinedVarianceAndSmallPriceChanges) {

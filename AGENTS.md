@@ -77,13 +77,13 @@ philosophy guides implementation within those constraints.
 - Work directly on `main` in the primary checkout. Do not create development
   branches unless requested. Do not push unless requested.
 - Keep audits and reviews in `docs/reviews/`. Before related work, read the
-  [technical audit](docs/reviews/technical-audit.md) and
+  [architecture design](docs/reviews/architecture-design-review.md),
+  [implementation record](docs/reviews/architecture-implementation.md) and
   [remediation progress](docs/reviews/audit-progress.md), compare their baselines
   with current code, and update progress after completing work.
 - For running desktop issues, verify the actual launch directory, frontend source,
-  and native-module path. See [connection conflicts](docs/reviews/connection-conflict.md)
-  and [checkout integration](docs/reviews/worktree-gap.md). Never transfer test
-  conclusions between checkouts without verifying the inputs.
+  and native-module path as described in the [development guide](docs/development.md).
+  Never transfer test conclusions between checkouts without verifying the inputs.
 - Run E2E only through `pnpm run test:e2e`, which isolates Agent and the test CTP SDK.
   Never invoke `playwright test` directly; it can operate real local services.
 - Changes to `core/`, `protocol/`, `plugins/`, `apps/services/`, or `bindings/`

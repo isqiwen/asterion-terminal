@@ -10,9 +10,6 @@ MovingAverage::MovingAverage(Instrument instrument, std::size_t fast, std::size_
     throw std::invalid_argument(
         "SMA requires 0 < fast < slow <= 10000 and a positive lot-aligned quantity");
 }
-PluginDescriptor MovingAverage::descriptor() const {
-  return {"asterion.strategy.cta.sma-long-flat", PluginKind::strategy, plugin_contract_version, {}};
-}
 void MovingAverage::start() {
   if (running_)
     throw std::logic_error("strategy already started");

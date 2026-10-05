@@ -18,12 +18,8 @@
 #include <algorithm>
 #include <thread>
 #include <stdexcept>
-#ifndef _WIN32
 #include <sys/stat.h>
 #include <unistd.h>
-#else
-#include <windows.h>
-#endif
 namespace asterion::terminal {
 namespace fs = std::filesystem;
 using namespace std::chrono_literals;
@@ -50,9 +46,7 @@ fs::path local_root() {
   [[maybe_unused]] const bool development = development_environment();
   auto root = environment("ASTERION_NODE_DIRECTORY");
   if (root.empty()) {
-#ifdef _WIN32
-    root = environment("LOCALAPPDATA") / "Asterion" / "node";
-#elif defined(__APPLE__)
+#if defined(__APPLE__)
     root = environment("HOME") / "Library" / "Application Support" /
            (development ? "Asterion Development" : "Asterion") / "node";
 #else
@@ -67,9 +61,7 @@ fs::path local_root() {
 fs::path bundled_agent() {
   auto executable = environment("ASTERION_NODE_AGENT_EXECUTABLE");
   if (executable.empty())
-    executable =
-        current_executable().parent_path() /
-        (current_platform().os == "windows" ? "asterion-node-agent.exe" : "asterion-node-agent");
+    executable = current_executable().parent_path() / "asterion-node-agent";
   return executable;
 }
 
@@ -119,11 +111,7 @@ std::filesystem::path local_node_directory() {
 std::filesystem::path node_enrollment_directory() {
   if (development_environment() || environment_path("ASTERION_NODE_DIRECTORY"))
     return local_root() / "enrollments";
-#ifdef _WIN32
-  const auto home = environment_path("LOCALAPPDATA");
-#else
   const auto home = environment_path("HOME");
-#endif
   if (!home)
     throw std::runtime_error("local user data directory unavailable");
   return *home / ".asterion" / "nodes";
@@ -176,11 +164,7 @@ NodeEndpoint upgrade_local_node(ServiceIo& io, const std::string& expected) {
   if (!input.eof() || identity.size() != 32 ||
       identity.find_first_not_of("0123456789abcdef") != std::string::npos)
     throw std::runtime_error("invalid Agent identity");
-#ifdef _WIN32
-  const auto endpoint = "asterion.node." + identity;
-#else
   const auto endpoint = (fs::path("/tmp") / ("ast-node-" + identity) / "node.sock").string();
-#endif
   upgrade_node_service(io, source, root / "bin" / source.filename(), root, endpoint, expected,
                        local_node_service_name());
   return NodeEndpoint{"local", "localhost", 0, {}, endpoint};
@@ -251,9 +235,7 @@ NodeEndpoint local_node(ServiceIo& io) {
   if (!root.is_absolute() || fs::is_symlink(root))
     throw std::invalid_argument("invalid local Agent directory");
   create_directories_durably(root);
-#ifndef _WIN32
   fs::permissions(root, fs::perms::owner_all);
-#endif
   const bool managed_development =
       development_environment() && !environment_variable("ASTERION_NODE_DIRECTORY");
   static bool development_prepared = false;
@@ -292,9 +274,6 @@ NodeEndpoint local_node(ServiceIo& io) {
   }
   if (identity.size() != 32 || identity.find_first_not_of("0123456789abcdef") != std::string::npos)
     throw std::invalid_argument("invalid Agent identity");
-#ifdef _WIN32
-  const auto endpoint = "asterion.node." + identity;
-#else
   const auto sockets = fs::path("/tmp") / ("ast-node-" + identity);
   if (::mkdir(sockets.c_str(), 0700) != 0 && errno != EEXIST)
     throw std::runtime_error("cannot create Agent socket directory");
@@ -303,7 +282,6 @@ NodeEndpoint local_node(ServiceIo& io) {
       (st.st_mode & 077) != 0)
     throw std::runtime_error("Agent socket directory is not private");
   const auto endpoint = (sockets / "node.sock").string();
-#endif
   NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
   try {
     auto probe = NodeClient::open(io, config).get();

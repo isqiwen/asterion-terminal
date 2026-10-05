@@ -263,9 +263,8 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
   explicit Impl(const std::filesystem::path& path, const std::filesystem::path& directory,
                 BrokerSendGate& gate, std::function<void()> ready)
       : flow(directory), send_gate(gate), events_ready(std::move(ready)) {
-    library = std::make_unique<SharedLibrary>(
-        path, "?CreateFtdcTraderApi@CThostFtdcTraderApi@@SAPEAV1@PEBD@Z",
-        "_ZN19CThostFtdcTraderApi19CreateFtdcTraderApiEPKc");
+    library =
+        std::make_unique<SharedLibrary>(path, "_ZN19CThostFtdcTraderApi19CreateFtdcTraderApiEPKc");
     factory = library->symbol<Factory>();
     if (!factory) {
       library.reset();
@@ -299,7 +298,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
   void changed() { ++state.sequence; }
   void fail(int code) {
     send_gate.invalidate();
-    state.phase = "error";
+    state.phase = BrokerPhase::error;
     state.error_code = code;
     changed();
   }
@@ -332,7 +331,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     drain_callbacks();
     if (query_outstanding && std::chrono::steady_clock::now() - query_started >= query_timeout) {
       query_outstanding = false;
-      fail(-1002);
+      fail(broker_code::query_timeout);
       finish_quotes();
     }
     std::function<void()> work;
@@ -350,7 +349,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       if (affects_permission)
         send_gate.pending();
       if (callback_size == callback_capacity) {
-        ingress_error = -1008;
+        ingress_error = broker_code::callback_overflow;
         if (!affects_permission)
           send_gate.pending();
       } else {
@@ -400,7 +399,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
         }
         if (malformed) {
           std::lock_guard lock(ingress_mutex);
-          ingress_error = -1000;
+          ingress_error = broker_code::sdk_failure;
           send_gate.pending();
         }
       }
@@ -408,7 +407,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     {
       std::lock_guard lock(ingress_mutex);
       if (ingress_error) {
-        if (!closing && (state.phase != "error" || state.error_code != ingress_error ||
+        if (!closing && (state.phase != BrokerPhase::error || state.error_code != ingress_error ||
                          state.positions_reconciled)) {
           state.positions_reconciled = false;
           fail(ingress_error);
@@ -426,8 +425,8 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     const auto now = std::chrono::steady_clock::now();
     for (auto it = quotes.begin(); it != quotes.end();) {
       auto& answer = it->second;
-      const bool valid = !closing && generation == answer.generation && state.phase == "ready" &&
-                         now < answer.deadline;
+      const bool valid = !closing && generation == answer.generation &&
+                         state.phase == BrokerPhase::ready && now < answer.deadline;
       if (valid && !(answer.dispatched && answer.completed)) {
         ++it;
         continue;
@@ -461,7 +460,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     queue.push_back(std::move(command));
   }
   void synchronize() {
-    state.phase = "synchronizing";
+    state.phase = BrokerPhase::synchronizing;
     changed();
     push(Kind::query_orders);
     push(Kind::query_trades);
@@ -470,7 +469,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
   }
   // Positions and funds after a trade; one refresh is queued at a time.
   void refresh() {
-    if (refresh_queued || state.phase != "ready")
+    if (refresh_queued || state.phase != BrokerPhase::ready)
       return;
     refresh_queued = true;
     push(Kind::query_positions);
@@ -485,8 +484,8 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
   void abandon_rates() {
     for (const auto& [instrument, _] : rates) {
       auto& costs = costs_for(instrument);
-      costs.state = "unavailable";
-      costs.error_code = -1003;
+      costs.state = BrokerCostsState::unavailable;
+      costs.error_code = broker_code::session_changed;
     }
     rates.clear();
   }
@@ -512,9 +511,9 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
         const auto& c = *entry.commission;
         costs.costs = FuturesCosts{entry.margin->first,  c[0], c[4], c[2],
                                    entry.margin->second, c[1], c[5], c[3]};
-        costs.state = "ready";
+        costs.state = BrokerCostsState::ready;
       } else
-        costs.state = "unavailable";
+        costs.state = BrokerCostsState::unavailable;
       rates.erase(rate_instrument);
     }
     changed();
@@ -537,7 +536,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
   void OnFrontConnected() noexcept override { receive(FrontConnectedEvent{}, true); }
   void apply(const FrontConnectedEvent&, std::chrono::steady_clock::time_point) {
 
-    state.phase = "authenticating";
+    state.phase = BrokerPhase::authenticating;
     state.error_code = 0;
     changed();
     push(Kind::authenticate);
@@ -554,7 +553,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     abandon_rates();
     reports.abandon_positions();
     state.costs.clear();
-    state.phase = "connecting";
+    state.phase = BrokerPhase::connecting;
     state.error_code = reason;
     changed();
   }
@@ -569,7 +568,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       erase(config.auth_code);
       return fail(info->ErrorID);
     }
-    state.phase = "logging_in";
+    state.phase = BrokerPhase::logging_in;
     changed();
     push(Kind::login);
   }
@@ -586,7 +585,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       return fail(info->ErrorID);
     }
     if (!login)
-      return fail(-1001);
+      return fail(broker_code::login_incomplete);
     front_id = login->FrontID;
     session_id = login->SessionID;
     int max_ref = 0;
@@ -604,7 +603,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     state.costs.clear();
     state.synchronized_ms = 0;
     state.positions_reconciled = false;
-    state.phase = "confirming";
+    state.phase = BrokerPhase::confirming;
     changed();
     push(Kind::confirm);
   }
@@ -698,8 +697,8 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       query_done();
       refresh_queued = false;
       state.synchronized_ms = now_ms();
-      if (state.phase == "synchronizing")
-        state.phase = "ready";
+      if (state.phase == BrokerPhase::synchronizing)
+        state.phase = BrokerPhase::ready;
       if (position_refresh_again || position_query_revision != state.exposure_revision)
         refresh();
       changed();
@@ -940,7 +939,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     {
       std::lock_guard lock(mutex);
       if (closing || command.generation != generation)
-        return -1003;
+        return broker_code::session_changed;
       copy(orders.BrokerID, config.broker);
       copy(orders.InvestorID, config.user);
       copy(trades.BrokerID, config.broker);
@@ -1003,7 +1002,9 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     if (command.generation != generation || now >= command.deadline ||
         (command.kind == Kind::query_quote && !quotes.contains(command.serial))) {
       if (command.result)
-        complete(command, now >= command.deadline ? -1005 : -1003, false);
+        complete(command,
+                 now >= command.deadline ? broker_code::expired : broker_code::session_changed,
+                 false);
       return std::nullopt;
     }
     if (command.kind != Kind::insert)
@@ -1065,16 +1066,16 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
         std::lock_guard lock(mutex);
         const auto now = std::chrono::steady_clock::now();
         if (closing || command.generation != generation)
-          code = -1003;
+          code = broker_code::session_changed;
         else if (now >= command.deadline)
-          code = -1005;
+          code = broker_code::expired;
         else if (command.kind == Kind::insert &&
                  (command.exposure_revision != state.exposure_revision ||
                   (command.order.CombOffsetFlag[0] == THOST_FTDC_OF_Open &&
                    !state.positions_reconciled)))
-          code = -1004;
+          code = broker_code::exposure_changed;
         else if (command.kind == Kind::insert && !command.permit.consume(command.order_id))
-          code = -1007;
+          code = broker_code::permit_refused;
       }
       const bool invoked = !code;
       // No owner handoff, wait or queue after consuming an order permit.
@@ -1135,7 +1136,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
         order_requests.clear();
         order_in_flight = false;
         state = {};
-        state.phase = "connecting";
+        state.phase = BrokerPhase::connecting;
         closing = false;
         changed();
         return true;
@@ -1160,7 +1161,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       } catch (const std::runtime_error&) {
         on_owner([this] {
           close_locked();
-          fail(-1000);
+          fail(broker_code::sdk_failure);
         });
       }
       // No state lock is held across a vendor call, including Release. A
@@ -1181,11 +1182,11 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     ++generation;
     for (auto& command : queue)
       if (command.result)
-        complete(command, -1003, false);
+        complete(command, broker_code::session_changed, false);
     queue.clear();
     query_outstanding = refresh_queued = false;
     abandon_rates();
-    state.phase = "disconnected";
+    state.phase = BrokerPhase::disconnected;
     changed();
     finish_quotes();
   }
@@ -1195,7 +1196,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       std::unique_lock ingress(ingress_mutex, std::defer_lock);
       if (expected) {
         ingress.lock();
-        if (callback_size || ingress_error || closing || state.phase != "ready" ||
+        if (callback_size || ingress_error || closing || state.phase != BrokerPhase::ready ||
             generation != expected->first || state.exposure_revision != expected->second ||
             !state.positions_reconciled)
           throw Error(ErrorCode::conflict, "broker state changed before account freeze");
@@ -1204,7 +1205,7 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
         erase(connecting->config.password);
         erase(connecting->config.auth_code);
         connecting.reset();
-        state.phase = "disconnected";
+        state.phase = BrokerPhase::disconnected;
         changed();
       }
       close_locked();
@@ -1217,9 +1218,6 @@ Trader::Trader(const std::filesystem::path& library, const std::filesystem::path
                BrokerSendGate& gate, std::function<void()> events_ready)
     : impl_(std::make_unique<Impl>(library, flow, gate, std::move(events_ready))) {}
 Trader::~Trader() = default;
-PluginDescriptor Trader::descriptor() const {
-  return {"asterion.execution.ctp", PluginKind::execution, plugin_contract_version, {}};
-}
 void Trader::start() {
   if (!impl_->factory)
     throw Error(ErrorCode::unavailable, "CTP trader SDK unavailable");
@@ -1256,7 +1254,7 @@ void Trader::connect(TraderConfiguration config, KnownOrders known) {
       erase(impl_->connecting->config.auth_code);
     }
     impl_->connecting = Impl::Connection{std::move(config), std::move(known)};
-    impl_->state.phase = "connecting";
+    impl_->state.phase = BrokerPhase::connecting;
     impl_->state.error_code = 0;
     impl_->changed();
   }
@@ -1291,7 +1289,7 @@ Trader::prepare(const LimitOrder& order, Offset offset, std::uint64_t connection
   BrokerOrder pending;
   {
     std::lock_guard lock(impl_->mutex);
-    if (impl_->closing || impl_->state.phase != "ready")
+    if (impl_->closing || impl_->state.phase != BrokerPhase::ready)
       throw Error(ErrorCode::unavailable, "CTP trading session is not ready");
     if (impl_->order_in_flight)
       throw Error(ErrorCode::resource_exhausted, "an order is awaiting SDK completion");
@@ -1364,18 +1362,18 @@ std::future<BrokerDispatchResult> Trader::dispatch(std::unique_ptr<PreparedBroke
   {
     std::lock_guard lock(impl_->mutex);
     if (impl_->order_in_flight)
-      return refused(-1006);
+      return refused(broker_code::dispatch_busy);
     if (impl_->closing || command.generation != impl_->generation) {
       // Journaled but never sent: do not insert a local rejection into the
       // newly synchronized broker snapshot as if the broker had confirmed it.
-      return refused(-1003);
+      return refused(broker_code::session_changed);
     }
     if (std::chrono::steady_clock::now() >= command.deadline) {
-      return refused(-1005);
+      return refused(broker_code::expired);
     }
     if (command.exposure_revision != impl_->state.exposure_revision ||
         (pending.offset == Offset::open && !impl_->state.positions_reconciled)) {
-      return refused(-1004);
+      return refused(broker_code::exposure_changed);
     }
     impl_->reports.remember({impl_->state.trading_day, pending.broker_key},
                             {pending.order_id, journal_sequence});
@@ -1395,7 +1393,8 @@ std::future<BrokerDispatchResult> Trader::cancel(const std::string& order_id) {
   std::future<BrokerDispatchResult> result;
   {
     std::lock_guard lock(impl_->mutex);
-    if (impl_->closing || (impl_->state.phase != "ready" && impl_->state.error_code != -1008))
+    if (impl_->closing || (impl_->state.phase != BrokerPhase::ready &&
+                           impl_->state.error_code != broker_code::callback_overflow))
       throw Error(ErrorCode::unavailable, "CTP trading session is not ready");
     const auto* order = impl_->reports.find_order(order_id);
     if (order && (order->status == BrokerOrderStatus::filled ||
@@ -1436,7 +1435,7 @@ std::future<BrokerDispatchResult> Trader::cancel(const std::string& order_id) {
 void Trader::query_costs(const std::vector<std::pair<InstrumentId, std::string>>& contracts) {
   {
     std::lock_guard lock(impl_->mutex);
-    if (impl_->closing || impl_->state.phase != "ready")
+    if (impl_->closing || impl_->state.phase != BrokerPhase::ready)
       throw Error(ErrorCode::unavailable, "CTP trading session is not ready");
     for (const auto& [instrument, product] : contracts) {
       instrument.validate();
@@ -1464,7 +1463,7 @@ std::future<std::optional<BrokerQuote>> Trader::quote(const InstrumentId& instru
   std::future<std::optional<BrokerQuote>> result;
   {
     std::lock_guard lock(impl_->mutex);
-    if (impl_->closing || impl_->state.phase != "ready")
+    if (impl_->closing || impl_->state.phase != BrokerPhase::ready)
       throw Error(ErrorCode::unavailable, "CTP trading session is not ready");
     Command command;
     command.kind = Kind::query_quote;
@@ -1494,14 +1493,14 @@ std::chrono::steady_clock::time_point Trader::next_deadline() const {
     deadline = std::min(deadline, quote.deadline);
   return deadline;
 }
-bool Trader::ready() const {
+void Trader::observe(const std::function<void(const BrokerSnapshot&)>& reader) const {
   std::lock_guard lock(impl_->mutex);
-  return impl_->state.phase == "ready" && impl_->state.positions_reconciled;
+  impl_->state.connection_generation = impl_->generation;
+  reader(impl_->state);
 }
 BrokerSnapshot Trader::snapshot() const {
-  std::lock_guard lock(impl_->mutex);
-  auto result = impl_->state;
-  result.connection_generation = impl_->generation;
+  BrokerSnapshot result;
+  observe([&](const BrokerSnapshot& state) { result = state; });
   return result;
 }
 void Trader::disconnect() {

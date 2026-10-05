@@ -9,7 +9,7 @@ Decimal d(const char* text) {
   return Decimal::parse(text);
 }
 Instrument instrument() {
-  return {{"SHFE", "rb2610"}, AssetClass::futures, "CNY", d("1"), d("1"), d("10")};
+  return {{"SHFE", "rb2610"}, "CNY", d("1"), d("1"), d("10")};
 }
 } // namespace
 TEST(OrderLimits, lifecycle_and_exact_bounds) {
@@ -17,7 +17,6 @@ TEST(OrderLimits, lifecycle_and_exact_bounds) {
   LimitOrder order{"test", spec.id, Side::buy, d("2"), d("100")};
   PreTradeRiskContext context{spec, order, Offset::open, d("4"), d("4"), 1};
   OrderLimits risk({d("2"), d("10"), 2});
-  EXPECT_EQ(risk.descriptor().kind, PluginKind::risk);
   EXPECT_EQ(risk.evaluate(context).reason, RiskReason::unavailable);
   risk.start();
   EXPECT_TRUE(risk.evaluate(context).allowed()); // Exactly 10 total and 2 working.
@@ -141,7 +140,6 @@ TEST(NativeRisk, MatchesQuantityPolicyAcrossSidesOffsetsReservationsAndLifecycle
       {"max_order_quantity", "3"}, {"max_gross_quantity", "10"}, {"max_working_orders", "4"}};
   NativeRisk native(NativeLibrary(RISK_PLUGIN), settings);
   OrderLimits reference({d("3"), d("10"), 4});
-  EXPECT_EQ(native.descriptor().id, reference.descriptor().id);
   EXPECT_EQ(native.artifact().size(), 64);
   auto spec = instrument();
   LimitOrder order{"native-risk", spec.id, Side::buy, d("1"), d("100")};

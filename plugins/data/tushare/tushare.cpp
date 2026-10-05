@@ -196,9 +196,6 @@ Minutes::Minutes(std::string token, Post post) : token_(std::move(token)), post_
   if (token_.empty() || token_.size() > 256 || token_.find_first_of("\r\n\t ") != std::string::npos)
     throw std::invalid_argument("Tushare token is required without whitespace");
 }
-PluginDescriptor Minutes::descriptor() const {
-  return {"asterion.data.tushare", PluginKind::data, plugin_contract_version, {}};
-}
 HistorySemantics Minutes::semantics() const {
   return {"tushare.ft_mins", "tushare.minutes.v3", "Asia/Shanghai", "bar_end"};
 }
@@ -527,9 +524,6 @@ std::chrono::year_month_day daily_date(const std::string& value) {
 Daily::Daily(std::string token, Post post) : token_(std::move(token)), post_(std::move(post)) {
   if (token_.empty() || token_.size() > 256 || token_.find_first_of("\r\n\t ") != std::string::npos)
     throw std::invalid_argument("Tushare token is required without whitespace");
-}
-PluginDescriptor Daily::descriptor() const {
-  return {"asterion.data.tushare.daily", PluginKind::data, plugin_contract_version, {}};
 }
 HistorySemantics Daily::semantics() const {
   return {"tushare.fut_daily", "tushare.daily.v2", "Asia/Shanghai", "trading_day"};

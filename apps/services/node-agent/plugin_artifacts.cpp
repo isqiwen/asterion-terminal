@@ -12,7 +12,7 @@
 namespace asterion::agent {
 namespace fs = std::filesystem;
 fs::path PluginArtifacts::binary(const std::string& hash) const {
-  return root_ / "artifacts" / (hash + (current_platform().os == "windows" ? ".exe" : ".bin"));
+  return root_ / "artifacts" / (hash + ".bin");
 }
 void PluginArtifacts::verify(const std::vector<std::string>& artifacts) const {
   if (artifacts.size() > 128)

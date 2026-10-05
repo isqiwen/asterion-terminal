@@ -434,9 +434,6 @@ TEST(Tushare, PublishedDatasetPagesThroughRealDataService) {
     dataset_directory = record.minute_result().directory();
     dataset_id = record.minute_result().manifest_sha256();
   }
-#ifdef _WIN32
-  const auto endpoint = "asterion.viewer." + unique_process_id();
-#else
   const auto socket_dir =
       std::filesystem::path("/tmp") / ("ast-v-" + unique_process_id().substr(0, 12));
   std::filesystem::create_directory(socket_dir);
@@ -449,7 +446,6 @@ TEST(Tushare, PublishedDatasetPagesThroughRealDataService) {
     }
   } cleanup{socket_dir};
   const auto endpoint = (socket_dir / "task.sock").string();
-#endif
   const auto path = root.path.u8string();
   ChildProcess service(ASTERION_DATA_SERVICE_PATH,
                        {"--directory", std::string(path.begin(), path.end()), "--endpoint",

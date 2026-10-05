@@ -1029,3 +1029,75 @@ UI 新增显式保存复选框和清除按钮；后续密码/授权码留空时�
 本轮仅涉及 Terminal、本机配置管理和测试；Linux 服务源码指纹未变。本轮未重新构建
 TEST DMG，前一版 DMG 不包含本次凭据保存功能；正式签名发行及实际账户保存后的真实
 柜台复验仍不在上述测试通过结论内。未提交或推送。
+
+
+## 2026-10-06：架构评估后的整改
+
+基线：`main`，HEAD `0217a915`（本轮开始前已提交全部既有修改）。范围是当日架构与实现评估
+列出的问题；以下按问题记录处理结果，未处理的项目写明原因。本轮未提交、未推送。
+
+### 已完成
+
+- **删除被取代的代码。** `ServiceHost`、`HealthChannel`、`OwnerWatch` 及
+  `kernel/service_host.*` 删除，`Transport` 与停止信号并入 `kernel/rpc_host.*`；
+  测试改用仅测试可见的 `tests/blocking_service.hpp`。全部 `_WIN32` 分支、PowerShell 防火墙、
+  PE 平台识别、`shell32` 链接及脚本中的 Windows 分支删除。`Plugin`/`PluginDescriptor`/
+  `PluginKind`、`EventEnvelope`、`AssetClass` 删除。
+- **删除单实现端口。** `BrokerExecutionPort`、`ExecutionPort`、`StrategyPort`、`FactorPort`、
+  `HistoryStorePort`、`JournalPort`、`LiveMarketDataPort` 删除；保留有两个实现的
+  `RiskPort`、`HistoricalBarPort`、`HistoricalDailyPort`。
+- **交易路径类型化。** 新增 `apps/services/trading/account_records.*`：账户命令与日志记录
+  解析为类型，账户状态机不再检查 JSON；柜台阶段、费率状态为枚举，`-1000…-1008` 改为
+  `broker_code` 具名常量。日志的 JSON 持久格式逐字段不变，因此日志引擎标识保持
+  `asterion.live-futures.v25`，已有交易记录可照常恢复。行情阶段与订阅状态同样改为枚举，
+  线上协议的字符串不变。
+- **账户线程不再逐轮拷贝柜台快照。** 新增 `ctp::Trader::observe`，轮询与各项判定就地读取；
+  一笔报单的完整拷贝由约 5 次降为 1 次（风险评估需要跨挂起的同一依据）。
+- **服务宿主拆分。** 任务服务的 `main()`（约 855 行）改为 `TaskHost`，数据服务的 `main()`
+  （约 600 行）改为 `DataHost`，各按操作拆成成员函数；Node Agent 的 530 行请求路由按操作
+  拆成成员函数。除下一条外均为不改行为的提取。
+- **一处行为修正。** 升级静默期间提交下载任务原来返回 `invalid_request`，与其它任务类型
+  不一致；现与它们一样返回 `unavailable`。
+- **构建与文档。** 存储插件目标 `asterion_history_files`、`asterion_task_events` 改在根
+  CMake 与其它插件一起定义；AGENTS.md 的失效引用改为现有文档；架构、交易、原生插件文档
+  与代码对齐；任务存储中两个无调用者的结果读取方法删除。
+
+### 未处理及原因
+
+- **撤单排在活动命令之后。** 让撤单在报单等待行情查询时插入执行，需要第二条活动命令、
+  第二个 SDK 等待位以及两者对单一日志写入位的排序，会改变交易状态机的并发模型，而目前
+  只有 SDK 替身可以验证。保留“同一时刻一条持久命令”的现行设计，行为已写入
+  [交易](../trading.md)；应与“策略接入 CTP 账户”一起设计。
+- **重复请求编号的应答。** 重试命中“已记录但未发送”的报单时返回成功，是既有契约
+  （应答确认的是持久意图，订单事实以快照为准），并有测试
+  `Live.DurableNotSentEvidenceAcrossPagesReleasesIntentWithoutResendingOnRecovery` 明确
+  断言。评估中把它列为缺口不成立，未修改。
+- **Terminal 只读打开已停止任务服务的账本。** 这是引用检查的既有功能，改为经由服务会让
+  停止的服务无法被检查。保留，并作为唯一例外写入 [架构](../architecture.md)。
+- **插件依赖协议层、Foundation 依赖 nlohmann_json。** 前者是持久格式的类型化表示，为它
+  再建一套领域类型会形成第二份数据定义；后者是 Foundation 既定的序列化职责。均未改，
+  前者已在架构文档说明。
+- **任务存储的同步组合接口。** `Store::submit`、`finish(id, token, result)`、`result` 等
+  只被测试使用（约 150 处），并经由私有路径读取结果。迁出需要重写三个大型测试文件的调用
+  方式，本轮未做。
+- **Agent 仍是一个约 1,400 行的类。** 本轮只拆了请求路由；升级协调与监督的进一步拆分
+  需要单独的设计。
+- **Terminal 原生层的 JSON、实施记录的篇幅、前端单元测试。** 原生层是界面边界，使用 JSON
+  符合现行规则；3,600 行的实施记录是用户的验收记录，未改写；没有为数量而新增测试。
+
+### 验证
+
+- macOS Debug（Apple Clang，`-Wall -Wextra -Wpedantic -Werror`）完整构建通过。
+- CTest 503 项全部通过（`-j 6`，388 秒），`node_deployment` 按既有条件跳过。测试数由 510
+  变为 503：删除了 6 项 `ServiceHost`/`HealthChannel` 测试和 1 项 Windows 防火墙测试；
+  恢复关卡中的健康通道项改为 `RpcHost.PendingRepliesLeaveReadAndControlConnectionsAvailable`。
+  `tests/live_session_test.cpp` 未改动，交易相关 81 项在类型化前后均通过。
+- `pnpm run test:e2e` 94 项中 93 项通过。失败的
+  `dominant-series.spec.ts`（回测成交多出一笔 225）在本轮开始前的提交 `0217a915` 上以同样
+  的结果失败，分别换回原任务服务和数据服务入口也同样失败，不是本轮引入；本轮未处理。
+- clang-format、Prettier、`tsc --noEmit`、ESLint 通过。
+- Linux x86_64 服务包在 `asterion-service-cache` 容器内以 GCC 13 Release 重建成功并替换
+  `build/linux-bundles/`；随后 `pnpm desktop:check` 退出 0（Node-API 桥接与服务包指纹一致）。
+  该构建不含测试目标，本轮修改过的测试代码未经 GCC 编译。
+- 未验证：GitHub CI（未推送）、ThreadSanitizer 构建、`pnpm test:desktop`、DMG 打包与安装副本、
+  真实柜台或仿真环境。

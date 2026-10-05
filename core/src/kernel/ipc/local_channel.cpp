@@ -7,11 +7,6 @@
 #include <limits>
 #include <thread>
 #include <stdexcept>
-#ifdef _WIN32
-// windows.h must precede sddl.h, which depends on its declarations.
-#include <windows.h>
-#include <sddl.h>
-#else
 #include <cerrno>
 #include <fcntl.h>
 #include <poll.h>
@@ -20,7 +15,6 @@
 #include <sys/un.h>
 #include <unistd.h>
 #include "local_security.hpp"
-#endif
 namespace asterion::ipc {
 namespace {
 using Clock = std::chrono::steady_clock;
@@ -52,92 +46,6 @@ int connection_remaining(Deadline end) {
   const auto ms = std::chrono::ceil<std::chrono::milliseconds>(left).count();
   return static_cast<int>(std::min<std::int64_t>(ms, std::numeric_limits<int>::max()));
 }
-#ifdef _WIN32
-using Handle = HANDLE;
-const Handle invalid = INVALID_HANDLE_VALUE;
-std::wstring pipe_name(const std::string& name) {
-  if (!name.starts_with("asterion.") || name.size() > 100 ||
-      name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-") !=
-          std::string::npos)
-    throw std::invalid_argument("invalid local pipe name");
-  return L"\\\\.\\pipe\\" + std::wstring(name.begin(), name.end());
-}
-void release(Handle h) {
-  if (h != invalid)
-    CloseHandle(h);
-}
-void wait_operation(Handle file, OVERLAPPED& operation, Deadline end, DWORD& transferred) {
-  DWORD wait = INFINITE;
-  if (end != Deadline::max())
-    wait = static_cast<DWORD>(std::clamp<std::int64_t>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(end - Clock::now()).count(), 0,
-        std::numeric_limits<int>::max()));
-  if (WaitForSingleObject(operation.hEvent, wait) != WAIT_OBJECT_0) {
-    CancelIoEx(file, &operation);
-    GetOverlappedResult(file, &operation, &transferred, TRUE);
-    failed("IPC timeout; command outcome may be unknown");
-  }
-  if (!GetOverlappedResult(file, &operation, &transferred, FALSE))
-    failed("IPC peer disconnected");
-}
-void transfer(Handle file, char* data, std::size_t size, bool writing, Deadline end) {
-  while (size) {
-    (void)remaining(end);
-    OVERLAPPED op{};
-    op.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!op.hEvent)
-      failed("cannot allocate IPC event");
-    DWORD count = 0;
-    try {
-      const DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(size, 65536));
-      const BOOL result = writing ? WriteFile(file, data, chunk, &count, &op)
-                                  : ReadFile(file, data, chunk, &count, &op);
-      if (!result) {
-        if (GetLastError() != ERROR_IO_PENDING)
-          failed("IPC peer disconnected");
-        wait_operation(file, op, end, count);
-      }
-      if (!count)
-        failed("IPC peer disconnected");
-    } catch (...) {
-      CloseHandle(op.hEvent);
-      throw;
-    }
-    CloseHandle(op.hEvent);
-    data += count;
-    size -= count;
-  }
-}
-struct Security {
-  PSECURITY_DESCRIPTOR descriptor = nullptr;
-  SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), nullptr, FALSE};
-  Security() {
-    HANDLE token = nullptr;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
-      failed("cannot identify IPC user");
-    DWORD size = 0;
-    GetTokenInformation(token, TokenUser, nullptr, 0, &size);
-    std::string buffer(size, '\0');
-    const BOOL ok = GetTokenInformation(token, TokenUser, buffer.data(), size, &size);
-    CloseHandle(token);
-    if (!ok)
-      failed("cannot identify IPC user");
-    LPWSTR sid = nullptr;
-    if (!ConvertSidToStringSidW(reinterpret_cast<TOKEN_USER*>(buffer.data())->User.Sid, &sid))
-      failed("cannot encode IPC identity");
-    const std::wstring acl = L"D:P(A;;GA;;;" + std::wstring(sid) + L")";
-    LocalFree(sid);
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(acl.c_str(), SDDL_REVISION_1,
-                                                              &descriptor, nullptr))
-      failed("cannot secure IPC pipe");
-    attributes.lpSecurityDescriptor = descriptor;
-  }
-  ~Security() {
-    if (descriptor)
-      LocalFree(descriptor);
-  }
-};
-#else
 using Handle = int;
 constexpr Handle invalid = -1;
 void release(Handle h) {
@@ -193,7 +101,6 @@ void transfer(Handle fd, char* data, std::size_t size, bool writing, Deadline en
     size -= static_cast<std::size_t>(count);
   }
 }
-#endif
 } // namespace
 struct Channel::Impl {
   Handle handle = invalid;
@@ -212,26 +119,6 @@ void Channel::close() noexcept {
 Channel Channel::connect(const std::string& endpoint, std::chrono::milliseconds timeout) {
   const auto end = deadline(timeout);
   Channel result;
-#ifdef _WIN32
-  const auto name = pipe_name(endpoint);
-  for (;;) {
-    (void)connection_remaining(end);
-    result.impl_->handle = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-                                       OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
-    if (result.impl_->handle != invalid)
-      break;
-    if (GetLastError() != ERROR_PIPE_BUSY)
-      failed("IPC endpoint is not ready");
-    const auto left = connection_remaining(end);
-    const DWORD wait = left < 0 ? NMPWAIT_WAIT_FOREVER : static_cast<DWORD>(left);
-    if (!WaitNamedPipeW(name.c_str(), wait)) {
-      if (GetLastError() == ERROR_SEM_TIMEOUT)
-        failed("IPC connection timeout; no command was sent");
-      failed("IPC endpoint became unavailable");
-    }
-    // Another client may take the instance after WaitNamedPipe succeeds.
-  }
-#else
   const auto addr = address(endpoint);
   for (;;) {
     (void)connection_remaining(end);
@@ -261,10 +148,7 @@ Channel Channel::connect(const std::string& endpoint, std::chrono::milliseconds 
     std::this_thread::sleep_for(std::chrono::milliseconds(left < 0 ? 10 : std::min(left, 10)));
     // A failed socket's state is unspecified. Recreate rather than reuse it.
   }
-#endif
-#ifndef _WIN32
   detail::verify_local_peer(result.impl_->handle);
-#endif
   return result;
 }
 std::string Channel::receive(std::chrono::milliseconds timeout) {
@@ -313,27 +197,15 @@ struct Listener::Impl {
   bool bound = false;
   ~Impl() {
     release(handle);
-#ifndef _WIN32
     if (bound) {
       std::error_code error;
       std::filesystem::remove(endpoint, error);
     }
-#endif
   }
 };
 Listener::Listener(std::string endpoint, int pending_connections)
     : impl_(std::make_unique<Impl>()) {
   impl_->endpoint = std::move(endpoint);
-#ifdef _WIN32
-  Security security;
-  impl_->handle =
-      CreateNamedPipeW(pipe_name(impl_->endpoint).c_str(),
-                       PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
-                       PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-                       PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, &security.attributes);
-  if (impl_->handle == invalid)
-    failed("cannot create exclusive local IPC pipe");
-#else
   const auto addr = address(impl_->endpoint);
   impl_->handle = ::socket(AF_UNIX, SOCK_STREAM, 0);
   if (impl_->handle < 0)
@@ -346,46 +218,11 @@ Listener::Listener(std::string endpoint, int pending_connections)
     failed("cannot secure IPC endpoint");
   if (::listen(impl_->handle, pending_connections) < 0)
     failed("cannot listen on IPC socket");
-#endif
 }
 Listener::~Listener() = default;
 Channel Listener::accept(std::chrono::milliseconds timeout) {
   Channel result;
   const auto end = deadline(timeout);
-#ifdef _WIN32
-  OVERLAPPED op{};
-  op.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-  if (!op.hEvent)
-    failed("cannot allocate IPC event");
-  try {
-    if (!ConnectNamedPipe(impl_->handle, &op)) {
-      const auto error = GetLastError();
-      if (error == ERROR_IO_PENDING) {
-        DWORD ignored = 0;
-        wait_operation(impl_->handle, op, end, ignored);
-      } else if (error != ERROR_PIPE_CONNECTED)
-        failed("IPC accept failed");
-    }
-  } catch (...) {
-    CloseHandle(op.hEvent);
-    throw;
-  }
-  CloseHandle(op.hEvent);
-  // Keep a pending instance alive before handing the connected one off. This
-  // permits repeated/concurrent clients without an ownership gap in which a
-  // different listener could acquire FILE_FLAG_FIRST_PIPE_INSTANCE.
-  Security security;
-  const auto next = CreateNamedPipeW(
-      pipe_name(impl_->endpoint).c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-      PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-      PIPE_UNLIMITED_INSTANCES, 65536, 65536, 0, &security.attributes);
-  if (next == invalid) {
-    DisconnectNamedPipe(impl_->handle);
-    failed("cannot replenish local IPC listener");
-  }
-  result.impl_->handle = impl_->handle;
-  impl_->handle = next;
-#else
   for (;;) {
     ready(impl_->handle, POLLIN, end);
     result.impl_->handle = ::accept(impl_->handle, nullptr, nullptr);
@@ -396,7 +233,6 @@ Channel Listener::accept(std::chrono::milliseconds timeout) {
   }
   configure(result.impl_->handle);
   detail::verify_local_peer(result.impl_->handle);
-#endif
   return result;
 }
 } // namespace asterion::ipc

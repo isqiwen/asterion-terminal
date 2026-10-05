@@ -8,14 +8,14 @@ namespace wire = asterion::market::v1;
 namespace {
 wire::Snapshot initial(int count = 3) {
   LiveMarketSnapshot state;
-  state.phase = "connected";
+  state.phase = MarketPhase::connected;
   state.sequence = 10;
   for (int i = 0; i < count; ++i) {
     MarketQuote q;
     q.instrument = {"SHFE", std::string(1, static_cast<char>('a' + i / 9000)) +
                                 std::to_string(1000 + i % 9000)};
     q.last = Decimal::parse("100");
-    state.subscriptions.push_back({q.instrument, "subscribed", 0, q});
+    state.subscriptions.push_back({q.instrument, SubscriptionState::subscribed, 0, q});
   }
   auto out = protocol::encode_market(state, "service-instance");
   out.mutable_catalog()->set_phase("unconfigured");

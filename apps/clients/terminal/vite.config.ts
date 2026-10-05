@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 const root = fileURLToPath(new URL("../../..", import.meta.url));
-// C++ build that serves the dev bridge; Windows desktop builds use Release.
+// C++ build that serves the dev bridge.
 const cppBuild = process.env.ASTERION_CPP_BUILD ?? resolve(root, "build/Debug");
 const port = Number(process.env.ASTERION_DEV_PORT ?? 1423);
 const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
@@ -32,8 +32,7 @@ function localCore(): Plugin {
         );
       };
       process.on("SIGINT", interrupt);
-      const executable =
-        "asterion_terminal_dev_bridge" + (process.platform === "win32" ? ".exe" : "");
+      const executable = "asterion_terminal_dev_bridge";
       // One C++ core process; isolated test runs replace it between spec files.
       const startCore = () => {
         const child = spawn(resolve(cppBuild, executable), [], {

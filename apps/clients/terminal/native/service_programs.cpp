@@ -42,10 +42,7 @@ ServicePrograms local_service_programs(node::v1::ServiceKind kind) {
   return resolve_programs(kind, [&](const char* variable, const char* name, bool library) {
     if (const auto configured = environment_path(variable))
       return *configured;
-    const auto extension = library ? (platform.os == "macos"     ? ".dylib"
-                                      : platform.os == "windows" ? ".dll"
-                                                                 : ".so")
-                                   : (platform.os == "windows" ? ".exe" : "");
+    const auto extension = library ? (platform.os == "macos" ? ".dylib" : ".so") : "";
     return root / (std::string(name) + extension);
   });
 }

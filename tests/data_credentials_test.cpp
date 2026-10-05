@@ -40,7 +40,6 @@ TEST(DataCredentials, DirectoryPublicationFailureDoesNotChangeTheCredentialStore
   credentials.save(credential("provider", true), limits);
   EXPECT_EQ(credentials.find("provider")->credential, "secret-provider");
 }
-#ifndef _WIN32
 TEST(NodeEnrollment, ManagedKeyIsNotAcknowledgedWhenDirectoryPublicationFails) {
   Directory root;
   struct Environment {
@@ -66,7 +65,6 @@ TEST(NodeEnrollment, ManagedKeyIsNotAcknowledgedWhenDirectoryPublicationFails) {
   EXPECT_EQ(terminal::prepare_ssh_key("task"), prepared);
   EXPECT_EQ(fs::last_write_time(identity).time_since_epoch().count(), before);
 }
-#endif
 TEST(DataCredentials, UnreadableFileIsListedWithoutFailingTheSnapshot) {
   Directory root;
   fs::create_directory(root.path);

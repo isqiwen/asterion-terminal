@@ -1,6 +1,6 @@
 #pragma once
-#include <asterion/kernel/plugin.hpp>
-#include <asterion/domain/factor_port.hpp>
+#include <asterion/domain/market.hpp>
+#include <optional>
 #include <deque>
 #include <span>
 namespace asterion {
@@ -28,13 +28,12 @@ private:
   std::size_t lookback_;
   std::deque<Decimal> history_;
 };
-class MomentumFactor final : public FactorPort, public Plugin {
+class MomentumFactor final {
 public:
   MomentumFactor(Instrument instrument, std::size_t lookback);
-  PluginDescriptor descriptor() const override;
-  void start() override;
-  void stop() noexcept override;
-  std::optional<double> on_bar(const MarketBar& bar) override;
+  void start();
+  void stop() noexcept;
+  std::optional<double> on_bar(const MarketBar& bar);
 
 private:
   Instrument instrument_;

@@ -13,13 +13,8 @@ struct LocalIpc : testing::Test {
   std::filesystem::path root;
   std::string endpoint;
   void SetUp() override {
-#ifdef _WIN32
-    root = std::filesystem::temp_directory_path() / ("ast-ipc-" + unique_process_id());
-    endpoint = "asterion.ipc." + unique_process_id();
-#else
     root = std::filesystem::path("/tmp") / ("ast-ipc-" + unique_process_id().substr(0, 12));
     endpoint = (root / "channel").string();
-#endif
     std::filesystem::create_directory(root);
   }
   void TearDown() override {

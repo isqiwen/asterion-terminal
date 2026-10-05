@@ -2,6 +2,7 @@
 #include <asterion/domain/market.hpp>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <array>
 #include <variant>
 #include <vector>
@@ -25,14 +26,44 @@ struct MarketQuote {
   std::string action_day, trading_day, update_time;
   std::int64_t source_ms = 0, received_ms = 0;
 };
+enum class SubscriptionState { pending, subscribed, error };
+constexpr std::string_view subscription_state_name(SubscriptionState state) noexcept {
+  switch (state) {
+  case SubscriptionState::pending:
+    return "pending";
+  case SubscriptionState::subscribed:
+    return "subscribed";
+  case SubscriptionState::error:
+    return "error";
+  }
+  return "error";
+}
+enum class MarketPhase { disconnected, connecting, logging_in, reconnecting, connected, error };
+constexpr std::string_view market_phase_name(MarketPhase phase) noexcept {
+  switch (phase) {
+  case MarketPhase::disconnected:
+    return "disconnected";
+  case MarketPhase::connecting:
+    return "connecting";
+  case MarketPhase::logging_in:
+    return "logging_in";
+  case MarketPhase::reconnecting:
+    return "reconnecting";
+  case MarketPhase::connected:
+    return "connected";
+  case MarketPhase::error:
+    return "error";
+  }
+  return "error";
+}
 struct MarketSubscription {
   InstrumentId instrument;
-  std::string state = "pending";
+  SubscriptionState state = SubscriptionState::pending;
   int error_code = 0;
   std::optional<MarketQuote> quote;
 };
 struct LiveMarketSnapshot {
-  std::string phase = "disconnected";
+  MarketPhase phase = MarketPhase::disconnected;
   int error_code = 0;
   std::uint64_t sequence = 0, out_of_order = 0;
   // A delta preserves subscription membership and includes only changed rows.
@@ -59,19 +90,5 @@ struct MarketEventBatch {
   // stream is permanently incomplete even if its retained prefix is readable.
   bool gap = false, failed = false;
   std::vector<MarketEvent> events;
-};
-// Provider-neutral live market port; credentials/configuration belong to the
-// provider.
-class LiveMarketDataPort {
-public:
-  virtual ~LiveMarketDataPort() = default;
-  virtual void subscribe(const std::vector<InstrumentId>& instruments) = 0;
-  virtual LiveMarketSnapshot snapshot(std::optional<std::uint64_t> after = {},
-                                      std::span<const InstrumentId> forced = {}) const = 0;
-  // Non-destructive bounded reads. Only the initial cursor (0) may omit stream
-  // identity. Consumers advance their cursor only after committing the batch.
-  virtual MarketEventBatch events_after(const std::string& stream_id, std::uint64_t cursor,
-                                        std::size_t limit) const = 0;
-  virtual void disconnect() = 0;
 };
 } // namespace asterion

@@ -56,7 +56,7 @@ TEST(Ctp, ProtocolPreservesMissingPricesAndSourceDates) {
   q.action_day = "20260925";
   q.trading_day = "20260928";
   q.source_ms = 0;
-  state.subscriptions.push_back({q.instrument, "subscribed", 0, q});
+  state.subscriptions.push_back({q.instrument, asterion::SubscriptionState::subscribed, 0, q});
   auto result = asterion::protocol::decode_market(asterion::protocol::encode_market(state, "test"));
   EXPECT_TRUE(result["subscriptions"][0]["quote"]["last"].is_null());
   EXPECT_EQ(result["subscriptions"][0]["quote"]["action_day"], "20260925");
@@ -124,14 +124,14 @@ TEST(CtpEvents, OwnerAppliesCallbacksAndReconnectWaitsOnlyOnTheSdkThread) {
   const auto began = std::chrono::steady_clock::now();
   feed.connect({"tcp://localhost:12345", "test", "publication", "test-only"}, {{"SHFE", "rb2610"}});
   EXPECT_LT(std::chrono::steady_clock::now() - began, testing_support::bound(100ms));
-  EXPECT_EQ(feed.phase(), "connecting");
+  EXPECT_EQ(feed.phase(), asterion::MarketPhase::connecting);
   EXPECT_FALSE(feed.snapshot().subscriptions.front().quote);
   std::filesystem::remove(release);
   ASSERT_TRUE(wait_gate(init));
   // Release delivered the old generation's delayed login. Its SPI stays alive
   // until release finishes, but the new state must remain unconnected.
   feed.poll();
-  EXPECT_EQ(feed.phase(), "connecting");
+  EXPECT_EQ(feed.phase(), asterion::MarketPhase::connecting);
   std::filesystem::remove(init);
   ASSERT_TRUE(wait_quotes(feed, 2));
   const auto before = feed.snapshot();
@@ -156,7 +156,7 @@ TEST(CtpEvents, CallbackOverflowFailsTheStreamInsteadOfPublishingASilentGap) {
   ctp::Feed feed(directory.sdk, ASTERION_TEST_CTP, directory.path);
   feed.connect({"tcp://localhost:12345", "test", "flood", "test-only"}, {{"SHFE", "rb2610"}});
   const auto deadline = std::chrono::steady_clock::now() + testing_support::bound(5s);
-  while (feed.phase() != "connected") {
+  while (feed.phase() != asterion::MarketPhase::connected) {
     ASSERT_LT(std::chrono::steady_clock::now(), deadline);
     feed.poll();
     std::this_thread::sleep_for(1ms);
@@ -167,12 +167,12 @@ TEST(CtpEvents, CallbackOverflowFailsTheStreamInsteadOfPublishingASilentGap) {
     std::this_thread::sleep_for(1ms);
   }
   feed.poll();
-  EXPECT_EQ(feed.phase(), "error");
+  EXPECT_EQ(feed.phase(), asterion::MarketPhase::error);
   EXPECT_TRUE(feed.events_after("", 0, 1024).failed);
   EXPECT_THROW(feed.connect({"tcp://localhost:12345", "test", "steady", "test-only"}, {}), Error);
   feed.disconnect();
   feed.poll();
-  EXPECT_EQ(feed.phase(), "disconnected");
+  EXPECT_EQ(feed.phase(), asterion::MarketPhase::disconnected);
   EXPECT_TRUE(feed.events_after("", 0, 1024).failed);
 }
 
@@ -199,16 +199,16 @@ TEST(CtpEvents, PreservesPreCoalescingQuotesAndReconnectBoundaries) {
     } else if (const auto* status = std::get_if<asterion::LiveMarketSnapshot>(&event.value)) {
       for (const auto& subscription : status->subscriptions)
         EXPECT_FALSE(subscription.quote);
-      if (status->phase == "reconnecting") {
+      if (status->phase == asterion::MarketPhase::reconnecting) {
         reconnecting = true;
         EXPECT_EQ(status->error_code, 4097);
       }
-      if (reconnecting && status->phase == "connected")
+      if (reconnecting && status->phase == asterion::MarketPhase::connected)
         reconnected = true;
     } else {
       const auto& subscription = std::get<asterion::MarketSubscription>(event.value);
       EXPECT_FALSE(subscription.quote);
-      EXPECT_EQ(subscription.state, "subscribed");
+      EXPECT_EQ(subscription.state, asterion::SubscriptionState::subscribed);
     }
   }
   ASSERT_EQ(quotes.size(), 4U);
@@ -282,7 +282,7 @@ TEST(CtpEvents, SubscriptionReorderingAndVenueReplacementKeepQuotesBoundToExactC
   do {
     feed.poll();
     current = feed.snapshot();
-    if (current.subscriptions.at(2).state == "error")
+    if (current.subscriptions.at(2).state == asterion::SubscriptionState::error)
       break;
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   } while (std::chrono::steady_clock::now() < deadline);
@@ -290,10 +290,10 @@ TEST(CtpEvents, SubscriptionReorderingAndVenueReplacementKeepQuotesBoundToExactC
   ASSERT_TRUE(current.subscriptions[0].quote);
   EXPECT_EQ(current.subscriptions[0].quote->instrument.symbol, "rb2710");
   EXPECT_EQ(current.subscriptions[0].quote->instrument.venue, "SHFE");
-  EXPECT_EQ(current.subscriptions[1].state, "subscribed");
+  EXPECT_EQ(current.subscriptions[1].state, asterion::SubscriptionState::subscribed);
   EXPECT_EQ(current.subscriptions[1].instrument.venue, "DCE");
   EXPECT_FALSE(current.subscriptions[1].quote) << "SHFE observations cannot become DCE quotes";
-  EXPECT_EQ(current.subscriptions[2].state, "error");
+  EXPECT_EQ(current.subscriptions[2].state, asterion::SubscriptionState::error);
   EXPECT_EQ(current.subscriptions[2].error_code, 31);
   feed.subscribe({});
   EXPECT_TRUE(feed.snapshot().subscriptions.empty());
@@ -323,7 +323,7 @@ TEST(CtpEvents, FullCatalogAcknowledgementsRetainOnlyTheirChangedContract) {
     if (state.out_of_order == count) {
       ASSERT_EQ(state.subscriptions.size(), count);
       for (const auto& row : state.subscriptions) {
-        ASSERT_EQ(row.state, "subscribed");
+        ASSERT_EQ(row.state, asterion::SubscriptionState::subscribed);
         ASSERT_TRUE(row.quote);
       }
       break;
@@ -457,11 +457,7 @@ TEST(CtpPublication, CatalogRevisionIsOmittedOnlyWithinItsWatchConnection) {
     row->set_multiplier(10);
   }
   replace_file_durably(directory.path / "ctp-catalog.pb", catalog.SerializeAsString());
-#ifdef _WIN32
-  const auto endpoint = "asterion.catalog-watch." + unique_process_id();
-#else
   const auto endpoint = "/tmp/ast-catalog-" + unique_process_id() + ".sock";
-#endif
   ChildProcess process(ASTERION_MARKET_PATH, {"--session", "catalog.test", "--directory",
                                               directory.path.string(), "--endpoint", endpoint});
   const auto open = [&] {
@@ -531,11 +527,7 @@ TEST(CtpEvents, ProcessExposesBoundedProtobufReadsAndRejectsStaleIdentity) {
   using namespace std::chrono_literals;
   namespace wire = asterion::market::v1;
   CtpDirectory directory;
-#ifdef _WIN32
-  const auto endpoint = "asterion.market-events." + unique_process_id();
-#else
   const auto endpoint = "/tmp/ast-events-" + unique_process_id() + ".sock";
-#endif
   const auto raw = directory.path.u8string();
   const std::vector<std::string> args{
       "--session",  "events.test", "--directory",   std::string(raw.begin(), raw.end()),
@@ -651,7 +643,8 @@ TEST(Ctp, DepthPreservesMissingLevelsZeroSizeAndExactPrices) {
   quote.bid_levels[0] = ctp::depth_level(100.00000001, 0);
   quote.ask_levels[3] = ctp::depth_level(105, 9);
   LiveMarketSnapshot state;
-  state.subscriptions.push_back({quote.instrument, "subscribed", 0, quote});
+  state.subscriptions.push_back(
+      {quote.instrument, asterion::SubscriptionState::subscribed, 0, quote});
   const auto encoded = protocol::encode_market(state, "depth");
   const auto decoded = protocol::decode_market(encoded)["subscriptions"][0]["quote"];
   ASSERT_EQ(decoded["bid_levels"].size(), 4);
@@ -680,7 +673,8 @@ TEST(Ctp, SessionPricesPreserveExactValuesAbsenceAndZero) {
   quote.open = Decimal::parse("3490.25000001");
   quote.upper_limit = Decimal::parse("0");
   LiveMarketSnapshot state;
-  state.subscriptions.push_back({quote.instrument, "subscribed", 0, quote});
+  state.subscriptions.push_back(
+      {quote.instrument, asterion::SubscriptionState::subscribed, 0, quote});
   auto encoded = protocol::encode_market(state, "session-prices");
   const auto decoded = protocol::decode_market(encoded)["subscriptions"][0]["quote"];
   EXPECT_EQ(decoded["open"], "3490.25000001");
@@ -706,7 +700,8 @@ TEST(Ctp, OpenInterestChangeUsesProviderReferenceAndPreservesMissing) {
   quote.open_interest_change = ctp::open_interest_change(100, 125.25);
   quote.previous_close = Decimal::parse("3480.12500001");
   LiveMarketSnapshot state;
-  state.subscriptions.push_back({quote.instrument, "subscribed", 0, quote});
+  state.subscriptions.push_back(
+      {quote.instrument, asterion::SubscriptionState::subscribed, 0, quote});
   const auto decoded = protocol::decode_market(
       protocol::encode_market(state, "reference"))["subscriptions"][0]["quote"];
   EXPECT_EQ(decoded["open_interest_change"], "-25.25");
@@ -724,11 +719,7 @@ TEST(CtpPublication, WatchStreamsChangedQuotesAndIntradayValuesWithAFullReconnec
   using namespace std::chrono_literals;
   namespace wire = asterion::market::v1;
   CtpDirectory directory;
-#ifdef _WIN32
-  const auto endpoint = "asterion.quote-watch." + unique_process_id();
-#else
   const auto endpoint = "/tmp/ast-quotes-" + unique_process_id() + ".sock";
-#endif
   ChildProcess process(ASTERION_MARKET_PATH,
                        {"--session", "quotes.test", "--directory", directory.path.string(),
                         "--endpoint", endpoint, "--ctp-library", ASTERION_TEST_CTP});
@@ -898,7 +889,7 @@ TEST(CtpEvents, FullMarketSubscriptionsAreBatchedAndRetentionRemainsBounded) {
     complete =
         state.subscriptions.size() == instruments.size() &&
         std::all_of(state.subscriptions.begin(), state.subscriptions.end(), [](const auto& row) {
-          return row.quote.has_value() && row.state == "subscribed";
+          return row.quote.has_value() && row.state == asterion::SubscriptionState::subscribed;
         });
     if (complete)
       break;

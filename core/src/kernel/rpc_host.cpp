@@ -8,13 +8,21 @@
 #include <asio/ssl.hpp>
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <csignal>
 #include <filesystem>
 #include <map>
+#include <stdexcept>
 #include <sys/stat.h>
 
 namespace asterion::service {
 namespace {
 using Clock = std::chrono::steady_clock;
+std::atomic<bool> stop_flag{false};
+static_assert(std::atomic<bool>::is_always_lock_free, "stop flag is set from a signal handler");
+extern "C" void signal_stop(int) {
+  stop_flag.store(true);
+}
 using Tcp = asio::ip::tcp;
 using Local = asio::local::stream_protocol;
 using Tls = asio::ssl::stream<Tcp::socket>;
@@ -38,6 +46,37 @@ struct LocalListener {
   ~LocalListener() { ::unlink(endpoint.c_str()); }
 };
 } // namespace
+
+void Transport::validate() const {
+  const bool tls_complete =
+      !tls.ca_file.empty() && !tls.certificate_file.empty() && !tls.private_key_file.empty();
+  const bool tls_empty =
+      tls.ca_file.empty() && tls.certificate_file.empty() && tls.private_key_file.empty();
+  if (remote() ? (!endpoint.empty() || !port || !tls_complete)
+               : (endpoint.empty() || port || !tls_empty))
+    throw std::invalid_argument("choose --endpoint OR --bind/--port with all three TLS files");
+}
+void install_stop_signals() {
+  struct sigaction action{};
+  action.sa_handler = signal_stop;
+  sigemptyset(&action.sa_mask);
+  if (::sigaction(SIGINT, &action, nullptr) != 0 || ::sigaction(SIGTERM, &action, nullptr) != 0)
+    throw std::runtime_error("cannot install stop signal handlers");
+  // Vendor libraries own sockets that our IPC wrappers cannot configure.
+  // A disconnected peer must produce EPIPE, not terminate the whole service.
+  action.sa_handler = SIG_IGN;
+  if (::sigaction(SIGPIPE, &action, nullptr) != 0)
+    throw std::runtime_error("cannot install stop signal handlers");
+}
+void request_stop() noexcept {
+  stop_flag.store(true);
+}
+bool stop_requested() noexcept {
+  return stop_flag.load();
+}
+void reset_stop_request() noexcept {
+  stop_flag.store(false);
+}
 struct RpcHost::Impl {
   enum class Phase { handshake, reading, pending, writing, closed };
   struct PayloadBudget {

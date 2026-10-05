@@ -91,9 +91,6 @@ void Archive::writable() const {
   if (access_ == Access::read_only)
     throw std::logic_error("historical archive is read only");
 }
-PluginDescriptor Archive::descriptor() const {
-  return {"asterion.storage.history.filesystem", PluginKind::storage, plugin_contract_version, {}};
-}
 std::filesystem::path Archive::directory(const HistoryIdentity& contract, const std::string& source,
                                          unsigned interval, const std::string& acquisition) const {
   writable();

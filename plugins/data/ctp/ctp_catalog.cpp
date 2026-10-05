@@ -215,8 +215,7 @@ struct CatalogQuery::Impl {
        std::chrono::milliseconds timeout)
       : timeout(timeout), deadline(std::chrono::steady_clock::now() + timeout),
         config(std::move(configuration)),
-        library(path, "?CreateFtdcTraderApi@CThostFtdcTraderApi@@SAPEAV1@PEBD@Z",
-                "_ZN19CThostFtdcTraderApi19CreateFtdcTraderApiEPKc") {}
+        library(path, "_ZN19CThostFtdcTraderApi19CreateFtdcTraderApiEPKc") {}
   ~Impl() {
     erase(config.password);
     erase(config.auth_code);

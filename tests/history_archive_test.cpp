@@ -83,7 +83,7 @@ TEST(HistoryArchive, IndependentSourcesContractsVersionsAndRepositoryQueries) {
   provider.source = "fixture.second";
   auto second = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "two");
   publish(archive, provider, {"DCE", "m", "2024-03"}, "three");
-  const HistoryStorePort& store = archive;
+  const auto& store = archive;
   EXPECT_EQ(store.datasets({}).size(), 3);
   EXPECT_EQ(store.datasets({"SHFE", "cu", "", ""}).size(), 2);
   EXPECT_EQ(store.datasets({"", "", "SHFE/cu/2024-03", "fixture.second"}).size(), 1);

@@ -1,5 +1,4 @@
 #pragma once
-#include <asterion/kernel/plugin.hpp>
 #include <asterion/domain/historical_bars.hpp>
 #include <asterion/domain/daily_bars.hpp>
 #include <asterion/foundation/serialization.hpp>
@@ -50,13 +49,12 @@ using CalendarLookup = std::function<std::optional<bool>(std::chrono::year_month
 std::string minute_trading_day(std::int64_t bar_end_ns, const CalendarLookup& open);
 HistoricalBarRange contract_range(const FuturesListing&, unsigned interval, std::int64_t cutoff_ns);
 HistoricalDailyRange daily_contract_range(const FuturesListing&, std::int64_t cutoff_ns);
-class Minutes final : public HistoricalBarPort, public Plugin {
+class Minutes final : public HistoricalBarPort {
 public:
   explicit Minutes(std::string token, Post post = https_transport());
-  PluginDescriptor descriptor() const override;
   HistorySemantics semantics() const override;
-  void start() override;
-  void stop() noexcept override;
+  void start();
+  void stop() noexcept;
   std::vector<HistoricalBar> read(const HistoricalBarRange&, std::stop_token) override;
 
 private:
@@ -69,13 +67,12 @@ private:
   std::map<std::string, std::map<std::chrono::sys_days, bool>> calendar_;
   std::set<std::pair<std::string, int>> calendar_years_;
 };
-class Daily final : public HistoricalDailyPort, public Plugin {
+class Daily final : public HistoricalDailyPort {
 public:
   explicit Daily(std::string token, Post post = https_transport());
-  PluginDescriptor descriptor() const override;
   HistorySemantics semantics() const override;
-  void start() override;
-  void stop() noexcept override;
+  void start();
+  void stop() noexcept;
   std::vector<HistoricalDailyBar> read(const HistoricalDailyRange&, std::stop_token) override;
 
 private:

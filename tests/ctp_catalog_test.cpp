@@ -29,8 +29,7 @@ protected:
 };
 } // namespace
 TEST_F(CtpCatalog, ReturnsOnlyActiveFuturesWithoutSettlementOrOrderActions) {
-  ctp::SharedLibrary control(ASTERION_TEST_CTP_TRADER, "asterion_fake_catalog_side_effects",
-                             "asterion_fake_catalog_side_effects");
+  ctp::SharedLibrary control(ASTERION_TEST_CTP_TRADER, "asterion_fake_catalog_side_effects");
   const auto count = control.symbol<int (*)()>();
   const int before = count();
   const auto result = read();

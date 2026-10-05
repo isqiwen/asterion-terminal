@@ -4,7 +4,7 @@ target_link_libraries(asterion_data_queries PUBLIC asterion_history_files asteri
 add_library(asterion_data_store STATIC data_store.cpp download_budget.cpp)
 target_include_directories(asterion_data_store PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(asterion_data_store PUBLIC asterion_data_queries PRIVATE asterion_history_providers)
-add_executable(asterion-data-service main.cpp)
+add_executable(asterion-data-service main.cpp data_host.cpp)
 target_compile_features(asterion-data-service PRIVATE cxx_std_20)
 target_compile_definitions(asterion-data-service PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
 target_link_libraries(asterion-data-service PRIVATE asterion_data_store asterion_history_providers CLI11::CLI11)

@@ -174,7 +174,7 @@ TEST(Backtest, RejectsUnsupportedDaysAndStopsCooperatively) {
   EXPECT_EQ(done, 1U);
 }
 TEST(Backtest, SmaWarmupAndLifecycleUseSamePluginOutsideBacktest) {
-  Instrument instrument{{"SHFE", "rb2610"}, AssetClass::futures, "CNY", d("1"), d("1"), d("10")};
+  Instrument instrument{{"SHFE", "rb2610"}, "CNY", d("1"), d("1"), d("10")};
   MovingAverage strategy(instrument, 1, 3, d("1"));
   auto tick = test::flat("2026-09-25", 100, "100", "1");
   EXPECT_THROW(strategy.on_bar(tick), std::logic_error);
@@ -829,14 +829,10 @@ struct TaskProcess : testing::Test {
   std::string endpoint;
   unsigned lease_seconds = 2;
   void SetUp() override {
-#ifdef _WIN32
-    endpoint = "asterion.task_service." + unique_process_id();
-#else
     sockets = std::filesystem::path("/tmp") / ("ast-r-" + unique_process_id().substr(0, 12));
     std::filesystem::create_directory(sockets);
     std::filesystem::permissions(sockets, std::filesystem::perms::owner_all);
     endpoint = (sockets / "task.sock").string();
-#endif
     start();
   }
   void TearDown() override {
@@ -890,11 +886,9 @@ struct TaskProcess : testing::Test {
     }
   }
   void launch() {
-#ifndef _WIN32
     std::filesystem::remove(endpoint); // This test exclusively owns the private directory.
     std::filesystem::remove(endpoint + ".worker");
     std::filesystem::remove(endpoint + ".health");
-#endif
     const auto directory_utf8 = directory.path.u8string();
     service = std::make_unique<ChildProcess>(
         ASTERION_TASK_SERVICE_PATH,

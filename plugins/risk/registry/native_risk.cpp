@@ -13,9 +13,6 @@ NativeRisk::NativeRisk(NativeLibrary library,
   if (table_->size != sizeof(AstRiskV1) || table_->version != 1 || !table_->evaluate)
     throw std::invalid_argument("invalid native risk capability");
 }
-PluginDescriptor NativeRisk::descriptor() const {
-  return {library_.descriptor().id, PluginKind::risk, plugin_contract_version, {}};
-}
 void NativeRisk::start() {
   instance_->start();
   running_ = true;
@@ -28,8 +25,6 @@ RiskDecision NativeRisk::evaluate(const PreTradeRiskContext& context) const {
   if (!running_)
     return {RiskReason::unavailable};
   context.order.validate(context.instrument);
-  if (context.instrument.asset_class != AssetClass::futures)
-    throw std::invalid_argument("native risk requires a futures instrument");
   const auto& i = context.instrument;
   const auto& o = context.order;
   uint32_t offset = std::numeric_limits<uint32_t>::max();

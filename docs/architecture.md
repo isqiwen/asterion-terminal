@@ -21,7 +21,7 @@ flowchart TB
 | 层 | 目标 | 内容 |
 | --- | --- | --- |
 | 基础 | `asterion_foundation` | `Decimal`（8 位小数定点）、ID、时钟、错误码、序列化 |
-| 内核 | `asterion_kernel` | 插件生命周期、本机 IPC 与 TCP+mTLS 通道、服务宿主、子进程与文件锁、持久文件写入、线程池、日志与追踪 |
+| 内核 | `asterion_kernel` | 原生插件装载、本机 IPC 与 TCP+mTLS 通道、RPC 服务宿主与客户端、子进程与文件锁、持久文件写入、线程池、日志与追踪 |
 | 领域 | `asterion_domain` | 合约与订单、组合期货账本、交易时段、当日分钟线、执行/风险/策略/因子端口 |
 
 领域依赖内核，内核依赖基础，不能反向依赖。
@@ -68,8 +68,12 @@ flowchart TB
 ```
 
 柜台拥有成交、资金与持仓事实；交易服务拥有本账户的执行许可、风险占用和本地投影。
+交易服务内部以类型表示账户命令、日志记录、柜台阶段和本地结果码（`account_records.hpp`、
+`broker_execution.hpp`）；JSON 只是命令的传输形式和日志的持久形式，在边界解析一次。
 Data 拥有历史版本和来源证据；Task 拥有固定任务、尝试及结果。Agent 只管理程序、进程和
 资源准入，Terminal 只提交意图和展示这些拥有者发布的状态。关闭窗口不改变服务端事实。
+唯一的例外是引用检查：本机任务服务处于停止状态时，Terminal 以只读方式打开它在受管目录
+中的账本，列出对某个历史版本的引用，不恢复任务也不写入任何文件。
 
 
 ## 插件
@@ -83,7 +87,9 @@ Data 拥有历史版本和来源证据；Task 拥有固定任务、尝试及结�
 | 风控 | `risk/order-limits`（交易前限额） |
 | 工具 | `tools/chart_indicators`（均线、MACD）、`tools/factor_analysis` |
 
-Domain 的风险、策略、因子、执行、行情和历史端口只暴露业务能力，不继承 Kernel 的 `Plugin` 生命周期。具体插件可以同时实现业务端口和生命周期接口；原生历史适配器由自身持有的 `NativeInstance` 完成启停，工厂返回可用端口，释放端口即释放实例。
+Domain 只为确有多个实现的能力保留端口：交易前风控（`RiskPort`，内置订单限额与原生风控）和历史分钟线、日线读取（`HistoricalBarPort`、`HistoricalDailyPort`，Tushare 与原生历史适配器）。只有一个实现的能力不设端口，宿主直接使用具体类型：CTP 行情 `ctp::Feed`、CTP 交易 `ctp::Trader`、回测撮合 `PaperExecution`、`MovingAverage`、`MomentumFactor`、`SqliteJournal` 与历史仓库 `Archive`。Kernel 不再有统一的插件生命周期基类；需要启停的插件自行提供 `start`/`stop`，原生历史适配器由自身持有的 `NativeInstance` 完成启停。
+
+存储与回测插件直接读写 Protobuf 契约类型（数据集、任务事件、回测输入），因此依赖 `asterion_protocol`；这是持久格式的类型化表示，不是对服务或传输的依赖。
 
 历史数据与交易前风控通过原生 ABI 动态装载，其余业务插件仍使用仓库内 C++ 接口和静态目标。UI 插件在构建时注册。所有插件均为宿主进程内的可信代码；能力范围见 [原生插件 SDK](native-plugins.md)。
 
@@ -120,6 +126,9 @@ Node-API 直接接纳异步请求并将完成交回 JS，不再建请求线程�
 | 数据服务 | 状态与 I/O、一条串行持久写入线程、固定文件池；候选验证与发布裁决分离 |
 | 任务服务 | 状态与 I/O、一条日志线程、固定文件池；算法只在 worker 执行 |
 | Node Agent | 管理与 I/O、一条配置写入线程、固定管理池；监督与资源准入属于同一 owner |
+
+任务服务和数据服务的状态拥有者分别是 `TaskHost` 与 `DataHost`，`main()` 只解析参数并把端点
+接到它们；Node Agent 的请求路由按操作拆成成员函数。
 | 下载 / 回测 / 因子 worker | 主控制线程与执行线程各一条；I/O、心跳、取消和父进程检查在主线程推进 |
 
 固定池大小来自节点预算，不随请求数增加；当前 Data/Task 文件池由 Agent 分配一或两条线程。

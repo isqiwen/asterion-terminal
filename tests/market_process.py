@@ -6,13 +6,13 @@ import subprocess
 import sys
 import time
 build=Path(sys.argv[1]).resolve()
-env=dict(os.environ,ASTERION_CTP_LIBRARY=str(build/('asterion_test_ctp.dll' if sys.platform=='win32' else 'libasterion_test_ctp.dylib' if sys.platform=='darwin' else 'libasterion_test_ctp.so')))
-env['ASTERION_CTP_CATALOG_LIBRARY']=str(build/('asterion_test_ctp_trader.dll' if sys.platform=='win32' else 'libasterion_test_ctp_trader.dylib' if sys.platform=='darwin' else 'libasterion_test_ctp_trader.so'))
+env=dict(os.environ,ASTERION_CTP_LIBRARY=str(build/('libasterion_test_ctp.dylib' if sys.platform=='darwin' else 'libasterion_test_ctp.so')))
+env['ASTERION_CTP_CATALOG_LIBRARY']=str(build/('libasterion_test_ctp_trader.dylib' if sys.platform=='darwin' else 'libasterion_test_ctp_trader.so'))
 remembered = sys.platform == 'darwin'
 if remembered:
     from keychain_fixture import install
     env['ASTERION_KEYCHAIN_EXECUTABLE'] = install(Path(os.environ['ASTERION_NODE_DIRECTORY']) / 'market-test-keychain')
-process=subprocess.Popen([str(build/('asterion_terminal_dev_bridge.exe' if sys.platform=='win32' else 'asterion_terminal_dev_bridge'))],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+process=subprocess.Popen([str(build/'asterion_terminal_dev_bridge')],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
 def call(method,params=None):
     process.stdin.write(json.dumps(dict(version=1,method=method,params=params or {}))+'\n');process.stdin.flush()
     reply=json.loads(process.stdout.readline());assert 'error' not in reply,reply;return reply['result']

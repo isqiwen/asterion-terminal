@@ -16,13 +16,8 @@
 #include <cstring>
 #include <thread>
 #include <stdexcept>
-#ifdef _WIN32
-#include <windows.h>
-#include <sddl.h>
-#else
 #include <unistd.h>
 #include <sys/stat.h>
-#endif
 namespace asterion::terminal {
 namespace fs = std::filesystem;
 using namespace std::chrono_literals;
@@ -71,58 +66,19 @@ fs::path tool(const char* name) {
       throw std::invalid_argument("SSH tool directory must be absolute");
     return root / name;
   }
-#ifdef _WIN32
-  wchar_t directory[MAX_PATH];
-  auto n = GetSystemDirectoryW(directory, MAX_PATH);
-  if (!n || n >= MAX_PATH)
-    throw std::runtime_error("OpenSSH is unavailable");
-  return fs::path(directory) / "OpenSSH" / (std::string(name) + ".exe");
-#else
   return fs::path("/usr/bin") / name;
-#endif
 }
 void private_directory(const fs::path& directory) {
-#ifdef _WIN32
-  HANDLE token = nullptr;
-  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
-    throw std::runtime_error("cannot identify local user");
-  DWORD size = 0;
-  GetTokenInformation(token, TokenUser, nullptr, 0, &size);
-  std::vector<unsigned char> buffer(size);
-  const bool ok = GetTokenInformation(token, TokenUser, buffer.data(), size, &size) != FALSE;
-  CloseHandle(token);
-  LPWSTR sid = nullptr;
-  if (!ok || !ConvertSidToStringSidW(reinterpret_cast<TOKEN_USER*>(buffer.data())->User.Sid, &sid))
-    throw std::runtime_error("cannot identify local user");
-  const std::wstring acl = L"D:P(A;OICI;FA;;;" + std::wstring(sid) + L")";
-  LocalFree(sid);
-  PSECURITY_DESCRIPTOR descriptor = nullptr;
-  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(acl.c_str(), SDDL_REVISION_1,
-                                                            &descriptor, nullptr))
-    throw std::runtime_error("cannot protect local SSH directory");
-  SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), descriptor, FALSE};
-  const bool made = CreateDirectoryW(directory.c_str(), &attributes) != FALSE;
-  LocalFree(descriptor);
-  if (!made)
-    throw std::runtime_error("cannot create private SSH directory");
-#else
   if (::mkdir(directory.c_str(), 0700) != 0)
     throw std::runtime_error("cannot create private SSH directory");
-#endif
 }
 void validate_key_path(const fs::path& file, bool directory) {
   if (fs::is_symlink(file) || (directory ? !fs::is_directory(file) : !fs::is_regular_file(file)))
     throw std::invalid_argument("invalid managed SSH key path");
-#ifdef _WIN32
-  const auto attributes = GetFileAttributesW(file.c_str());
-  if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
-    throw std::invalid_argument("managed SSH keys cannot use reparse points");
-#else
   struct stat info{};
   if (::lstat(file.c_str(), &info) != 0 || info.st_uid != ::geteuid() || (info.st_mode & 0077) ||
       (!directory && info.st_nlink != 1))
     throw std::invalid_argument("managed SSH key permissions must be private to this user");
-#endif
 }
 fs::path key_directory(const std::string& id) {
   valid_id(id);
@@ -152,71 +108,17 @@ std::string selected_ssh_key(const Json& p) {
   return read_key_file(key_directory(p.at("id")) / "identity");
 }
 
-std::string powershell(const std::string& script) {
-  std::string wide;
-  for (unsigned char c : script) {
-    if (c > 127)
-      throw std::invalid_argument("installer script must be ASCII");
-    wide += static_cast<char>(c);
-    wide += '\0';
-  }
-  std::string encoded(4 * ((wide.size() + 2) / 3), '\0');
-  EVP_EncodeBlock(reinterpret_cast<unsigned char*>(encoded.data()),
-                  reinterpret_cast<const unsigned char*>(wide.data()),
-                  static_cast<int>(wide.size()));
-  return "powershell.exe -NoProfile -NonInteractive -EncodedCommand " + encoded;
-}
 // OpenSSH consumes a local identity file. Never persist it in a saved profile or upload it.
 class SshIdentity {
   fs::path file_;
-#ifdef _WIN32
-  HANDLE handle_{INVALID_HANDLE_VALUE};
-#else
   int handle_{-1};
-#endif
+
 public:
   explicit SshIdentity(const std::string& key) {
     if (key.size() > 65536 || key.find('\0') != std::string::npos ||
         !key.starts_with("-----BEGIN ") || key.find("PRIVATE KEY-----") == std::string::npos ||
         key.find("-----END ") == std::string::npos)
       throw std::invalid_argument("paste the complete SSH private key");
-#ifdef _WIN32
-    HANDLE token = nullptr;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
-      throw std::runtime_error("cannot identify SSH user");
-    DWORD size = 0;
-    GetTokenInformation(token, TokenUser, nullptr, 0, &size);
-    std::vector<unsigned char> buffer(size);
-    const bool read = GetTokenInformation(token, TokenUser, buffer.data(), size, &size) != FALSE;
-    CloseHandle(token);
-    LPWSTR sid = nullptr;
-    if (!read ||
-        !ConvertSidToStringSidW(reinterpret_cast<TOKEN_USER*>(buffer.data())->User.Sid, &sid))
-      throw std::runtime_error("cannot identify SSH user");
-    const std::wstring acl = L"D:P(A;;FA;;;" + std::wstring(sid) + L")";
-    LocalFree(sid);
-    PSECURITY_DESCRIPTOR descriptor = nullptr;
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(acl.c_str(), SDDL_REVISION_1,
-                                                              &descriptor, nullptr))
-      throw std::runtime_error("cannot protect SSH identity");
-    SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), descriptor, FALSE};
-    file_ = fs::temp_directory_path() / ("asterion-ssh-" + unique_process_id());
-    handle_ = CreateFileW(file_.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_DELETE,
-                          &attributes, CREATE_NEW, FILE_ATTRIBUTE_TEMPORARY, nullptr);
-    LocalFree(descriptor);
-    if (handle_ == INVALID_HANDLE_VALUE)
-      throw std::runtime_error("cannot create SSH identity");
-    const auto content = key + "\n";
-    DWORD written = 0;
-    if (!WriteFile(handle_, content.data(), static_cast<DWORD>(content.size()), &written,
-                   nullptr) ||
-        written != content.size() || !FlushFileBuffers(handle_)) {
-      CloseHandle(handle_);
-      DeleteFileW(file_.c_str());
-      throw std::runtime_error("cannot prepare SSH identity");
-    }
-    CloseHandle(handle_);
-#else
     auto name = (fs::temp_directory_path() / "asterion-ssh-XXXXXX").string();
     handle_ = mkstemp(name.data());
     if (handle_ < 0)
@@ -234,17 +136,10 @@ public:
       offset += static_cast<std::size_t>(count);
     }
     ::close(handle_);
-#endif
   }
   SshIdentity(const SshIdentity&) = delete;
   SshIdentity& operator=(const SshIdentity&) = delete;
-  ~SshIdentity() {
-#ifdef _WIN32
-    DeleteFileW(file_.c_str());
-#else
-    ::unlink(file_.c_str());
-#endif
-  }
+  ~SshIdentity() { ::unlink(file_.c_str()); }
   const fs::path& file() const { return file_; }
 };
 std::string quote_script(const std::string& script) {
@@ -292,7 +187,7 @@ struct Ssh {
     ChildProcess child(tool("ssh"), args, true);
     return child.wait(timeout) && child.exit_code() == 0;
   }
-  Json report(const std::string& script, const std::string& os) {
+  Json report(const std::string& script) {
     const auto output = fs::temp_directory_path() / ("asterion-ssh-report-" + unique_process_id());
     struct Cleanup {
       fs::path file;
@@ -301,7 +196,7 @@ struct Ssh {
         fs::remove(file, error);
       }
     } cleanup{output};
-    const auto cmd = os == "windows" ? powershell(script) : "sh -c " + quote_script(script);
+    const auto cmd = "sh -c " + quote_script(script);
     auto args = options;
     args.insert(args.end(), {"-p", port, "-l", user, "--", host, cmd});
     ChildProcess child(tool("ssh"), args, true, output);
@@ -362,7 +257,7 @@ Json owned_firewall(const Json& p) {
 }
 Json probe_firewall(const Json& p, Ssh& ssh, const std::string& os) {
   (void)p;
-  auto report = ssh.report(node::firewall_inspection(os), os);
+  auto report = ssh.report(node::firewall_inspection(os));
   node::validate_firewall_source(report.at("source").get<std::string>());
   if (report.size() != 4 || report.at("os") != os || !report.at("backend").is_string() ||
       !report.at("state").is_string())
@@ -421,9 +316,7 @@ Json prepare_ssh_key(const std::string& id) {
                              utf8(directory / "identity")});
       if (!generate.wait(30s) || generate.exit_code() != 0)
         throw std::runtime_error("cannot generate local SSH identity; check OpenSSH installation");
-#ifndef _WIN32
       fs::permissions(directory / "identity.pub", fs::perms::owner_read | fs::perms::owner_write);
-#endif
     } catch (...) {
       std::error_code ignored;
       fs::remove_all(directory, ignored);
@@ -480,23 +373,21 @@ Json inspect_node_firewall(const Json& p) {
   if (action == "allow" && !owned.is_null() && owned.at("source") != source)
     throw std::invalid_argument(
         "source address changed; remove the previous owned rule before allowing a new source");
-  return {
-      {"id", p.at("id")},
-      {"host", p.at("host")},
-      {"os", platform.os},
-      {"port", target_port},
-      {"source", source},
-      {"observed_source", observed.at("source")},
-      {"backend", observed.at("backend")},
-      {"state", observed.at("state")},
-      {"action", action},
-      {"rule",
-       owned.is_null() ? "asterion-" + unique_process_id() : owned.at("rule").get<std::string>()},
-      {"can_apply", observed.at("state") == "active" &&
-                        (observed.at("backend") == "ufw" || observed.at("backend") == "windows") &&
-                        (action == "allow" || !owned.is_null())},
-      {"owned", !owned.is_null()},
-      {"verification", "not_checked"}};
+  return {{"id", p.at("id")},
+          {"host", p.at("host")},
+          {"os", platform.os},
+          {"port", target_port},
+          {"source", source},
+          {"observed_source", observed.at("source")},
+          {"backend", observed.at("backend")},
+          {"state", observed.at("state")},
+          {"action", action},
+          {"rule", owned.is_null() ? "asterion-" + unique_process_id()
+                                   : owned.at("rule").get<std::string>()},
+          {"can_apply", observed.at("state") == "active" && observed.at("backend") == "ufw" &&
+                            (action == "allow" || !owned.is_null())},
+          {"owned", !owned.is_null()},
+          {"verification", "not_checked"}};
 }
 Json change_node_firewall(const Json& p, const Json& plan) {
   SshIdentity identity(selected_ssh_key(p));
@@ -511,9 +402,7 @@ Json change_node_firewall(const Json& p, const Json& plan) {
   if (fs::is_symlink(node_enrollment_directory()) || fs::is_symlink(file.parent_path()))
     throw std::invalid_argument("invalid firewall state directory");
   create_directories_durably(file.parent_path());
-#ifndef _WIN32
   fs::permissions(file.parent_path(), fs::perms::owner_all);
-#endif
   FileLock ownership(file.parent_path(), "firewall.lock");
   const auto current = owned_firewall(p);
   if (!current.is_null() &&
@@ -528,9 +417,7 @@ Json change_node_firewall(const Json& p, const Json& plan) {
     if (fs::is_symlink(node_enrollment_directory()) || fs::is_symlink(file.parent_path()))
       throw std::invalid_argument("invalid firewall state directory");
     create_directories_durably(file.parent_path());
-#ifndef _WIN32
     fs::permissions(file.parent_path(), fs::perms::owner_all);
-#endif
     Json record = plan;
     for (const char* field : {"host", "username", "ssh_port"})
       record[field] = p.at(field);
@@ -538,10 +425,8 @@ Json change_node_firewall(const Json& p, const Json& plan) {
     // losing the rule identity.
     write(file, record.dump());
   }
-  const auto result =
-      ssh.report(node::firewall_change(os, plan.at("source"), plan.at("port").get<unsigned short>(),
-                                       plan.at("rule"), remove),
-                 os);
+  const auto result = ssh.report(node::firewall_change(
+      os, plan.at("source"), plan.at("port").get<unsigned short>(), plan.at("rule"), remove));
   if (result != Json{{"changed", true}})
     throw std::runtime_error("unexpected firewall change response");
   if (remove) {
@@ -595,8 +480,7 @@ NodeEndpoint enroll_node(ServiceIo& io, const Json& p) {
                                 "the Agent port must be at least 1024");
   const auto detected = ssh.report(
       "set -eu\ntest \"$(uname -s)\" = Linux\ncase \"$(uname -m)\" in x86_64) arch=x86_64;; *) "
-      "exit 3;; esac\nprintf '{\"os\":\"linux\",\"arch\":\"%s\"}\\n' \"$arch\"\n",
-      "linux");
+      "exit 3;; esac\nprintf '{\"os\":\"linux\",\"arch\":\"%s\"}\\n' \"$arch\"\n");
   if (detected.size() != 2 || detected.at("os") != "linux")
     throw std::invalid_argument("remote deployment supports Linux only");
   const HostPlatform platform{"linux", detected.at("arch").get<std::string>()};
@@ -613,9 +497,7 @@ NodeEndpoint enroll_node(ServiceIo& io, const Json& p) {
   if (fs::is_symlink(base))
     throw std::invalid_argument("invalid enrollment root");
   create_directories_durably(base);
-#ifndef _WIN32
   fs::permissions(base, fs::perms::owner_all);
-#endif
   FileLock lock(base, "enrollment.lock");
   const auto root = base / id;
   Json config{{"version", 1},         {"id", id},           {"host", ssh.host},
@@ -636,9 +518,7 @@ NodeEndpoint enroll_node(ServiceIo& io, const Json& p) {
     }
   } else {
     create_directories_durably(root);
-#ifndef _WIN32
     fs::permissions(root, fs::perms::owner_all);
-#endif
     create_node_identity(root, ssh.host);
     write(root / "enrollment.json", config.dump());
   }

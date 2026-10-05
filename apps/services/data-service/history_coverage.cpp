@@ -16,7 +16,7 @@ data::v1::HistoryCoverages history_coverage(const history_files::Archive& archiv
     std::set<std::string> days;
   };
   std::map<std::string, std::vector<Version>> minutes, daily;
-  const HistoryStorePort& store = archive;
+  const auto& store = archive;
   for (const auto& item :
        store.datasets({filter.venue(), filter.product(), filter.contract_id(), filter.source()})) {
     const auto record = archive.get(item.id);

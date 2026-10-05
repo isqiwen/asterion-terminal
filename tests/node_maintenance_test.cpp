@@ -66,7 +66,6 @@ TEST_F(NodeProgramPublication, DirectorySyncFailureKeepsRecoveryIntentUntilAnExp
             timestamp.time_since_epoch().count());
   EXPECT_EQ(sha256_file(root / "retained-ledger"), retained);
 }
-#ifndef _WIN32
 TEST_F(NodeProgramPublication, HardLinkedStagingIsRejectedWithoutReplacingTheInstalledProgram) {
   fs::create_hard_link(staged, root / "retained-candidate");
   EXPECT_THROW(resume(), std::runtime_error);
@@ -75,7 +74,6 @@ TEST_F(NodeProgramPublication, HardLinkedStagingIsRejectedWithoutReplacingTheIns
   EXPECT_TRUE(fs::exists(journal));
   EXPECT_EQ(fs::hard_link_count(staged), 2U);
 }
-#endif
 TEST_F(NodeProgramPublication, InitialInstallationPublishesCompleteExecutableBeforeAcknowledging) {
   fs::remove(journal);
   fs::remove(staged);
@@ -114,11 +112,7 @@ TEST(NodeMaintenance, freezes_mutations_and_serializes_start) {
       fs::remove_all(root, ec);
     }
   } cleanup{root};
-#ifdef _WIN32
-  const auto endpoint = "asterion.maintenance." + unique_process_id();
-#else
   const auto endpoint = (root / "agent.sock").string();
-#endif
   ChildProcess agent(ASTERION_AGENT_PATH,
                      {"--directory", (root / "agent").string(), "--endpoint", endpoint});
   NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
@@ -245,11 +239,7 @@ TEST(NodeMaintenance, AcknowledgedMutationIsNotReportedFailedWhenStatusReadFails
         fs::remove_all(root, ec);
       }
     } cleanup{root};
-#ifdef _WIN32
-    const auto endpoint = "asterion.ack." + unique_process_id();
-#else
     const auto endpoint = (root / "test.sock").string();
-#endif
     ipc::Listener listener(endpoint);
     auto server = std::async(std::launch::async, [&] {
       for (int i = 0; i < 3; ++i) {
@@ -313,11 +303,7 @@ TEST(NodeMaintenance, SilentPeerAndBusyAdministrationLeaveStatusAndReadsAvailabl
       fs::remove_all(root, ec);
     }
   } cleanup{root};
-#ifdef _WIN32
-  const auto endpoint = "asterion.slow." + unique_process_id();
-#else
   const auto endpoint = (root / "agent.sock").string();
-#endif
   ChildProcess agent(ASTERION_AGENT_PATH, {"--directory", root.string(), "--endpoint", endpoint});
   NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
   const auto deadline = std::chrono::steady_clock::now() + 10s;
@@ -394,18 +380,12 @@ TEST(NodeMaintenance, UpgradePreservesDesiredStateAcrossAgentRestartAndCompletio
       fs::remove_all(root, e);
     }
   } cleanup{root};
-#ifdef _WIN32
-  const auto endpoint = "asterion.upgrade." + unique_process_id();
-#else
   const auto endpoint = (root / "node.sock").string();
-#endif
   const NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
   std::unique_ptr<ChildProcess> agent;
   std::shared_ptr<NodeClient> client;
   auto start = [&] {
-#ifndef _WIN32
     fs::remove(endpoint);
-#endif
     agent = std::make_unique<ChildProcess>(
         ASTERION_AGENT_PATH,
         std::vector<std::string>{"--directory", (root / "agent").string(), "--endpoint", endpoint});

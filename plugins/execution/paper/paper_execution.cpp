@@ -63,9 +63,6 @@ PaperExecution::PaperExecution(Decimal deposit, std::vector<ContractBars> contra
       throw std::invalid_argument("portfolio bars disagree on trading days by time");
   data_ = std::move(data);
 }
-PluginDescriptor PaperExecution::descriptor() const {
-  return {"asterion.execution.paper", PluginKind::execution, plugin_contract_version, {}};
-}
 void PaperExecution::require_running() const {
   if (!running_)
     throw std::logic_error("paper execution plugin is not started");

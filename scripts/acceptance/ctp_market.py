@@ -32,39 +32,15 @@ def stop_test_agent(directory):
     pid = int(pidfile.read_text())
     if pid <= 1 or pid == os.getpid():
         raise RuntimeError("invalid isolated Agent process identity")
-    if os.name == "nt":
-        import ctypes
-        api = ctypes.WinDLL("kernel32", use_last_error=True)
-        api.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
-        api.OpenProcess.restype = ctypes.c_void_p
-        api.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
-        api.WaitForSingleObject.restype = ctypes.c_uint32
-        api.CloseHandle.argtypes = [ctypes.c_void_p]
-        handle = api.OpenProcess(0x00100000, False, pid)
-        if not handle:
-            if ctypes.get_last_error() == 87:
-                return
-            raise OSError(ctypes.get_last_error(), "Cannot observe isolated Agent exit")
-        try:
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except OSError:
-                if api.WaitForSingleObject(handle, 0) != 0:
-                    raise
-            if api.WaitForSingleObject(handle, 15000) != 0:
-                raise RuntimeError("isolated Agent did not exit")
-        finally:
-            api.CloseHandle(handle)
-    else:
-        try:
-            os.kill(pid, signal.SIGTERM)
-            deadline = time.monotonic() + 15
-            while time.monotonic() < deadline:
-                os.kill(pid, 0)
-                time.sleep(0.05)
-        except ProcessLookupError:
-            return
-        raise RuntimeError("isolated Agent did not exit")
+    try:
+        os.kill(pid, signal.SIGTERM)
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            os.kill(pid, 0)
+            time.sleep(0.05)
+    except ProcessLookupError:
+        return
+    raise RuntimeError("isolated Agent did not exit")
 
 ROOT = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -81,10 +57,9 @@ parser.add_argument("--password-stdin", action="store_true",
 args = parser.parse_args()
 
 build = Path(args.build).resolve()
-suffix = ".exe" if os.name == "nt" else ""
-bridge = build / ("asterion_terminal_dev_bridge" + suffix)
+bridge = build / "asterion_terminal_dev_bridge"
 sdk = Path(args.sdk).resolve() if args.sdk else build / (
-    "ctp-md.dll" if os.name == "nt" else "ctp-md.dylib" if sys.platform == "darwin" else "ctp-md.so")
+    "ctp-md.dylib" if sys.platform == "darwin" else "ctp-md.so")
 report = {"front": args.front, "broker": args.broker, "instruments": args.instrument,
           "sdk": sdk.name, "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
           "passed": False, "steps": []}

@@ -114,9 +114,6 @@ MomentumFactor::MomentumFactor(Instrument instrument, std::size_t lookback)
     : instrument_(std::move(instrument)), prices_(lookback) {
   instrument_.validate();
 }
-PluginDescriptor MomentumFactor::descriptor() const {
-  return {"asterion.tool.factor.momentum", PluginKind::tool, plugin_contract_version, {}};
-}
 void MomentumFactor::start() {
   if (running_)
     throw std::logic_error("factor already started");

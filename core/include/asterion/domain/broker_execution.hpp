@@ -5,8 +5,24 @@
 #include <future>
 #include <memory>
 #include <optional>
+#include <string_view>
 #include <vector>
 namespace asterion {
+// Asterion's own outcomes share error_code and dispatch result fields with the
+// provider's codes, which never use this range.
+namespace broker_code {
+inline constexpr int sdk_failure = -1000;
+inline constexpr int login_incomplete = -1001;
+inline constexpr int query_timeout = -1002;
+// The connection that prepared the request has ended or is closing.
+inline constexpr int session_changed = -1003;
+inline constexpr int exposure_changed = -1004;
+inline constexpr int expired = -1005;
+inline constexpr int dispatch_busy = -1006;
+inline constexpr int permit_refused = -1007;
+// Accepted events were kept; the account needs reconciliation.
+inline constexpr int callback_overflow = -1008;
+} // namespace broker_code
 // Live accounts are owned by the broker. These are broker-reported
 // observations converted at the provider boundary, not a local ledger; money
 // arrives as provider values rounded to 0.01.
@@ -47,9 +63,21 @@ struct BrokerFunds {
 // contract. Margin takes the higher of the long and short rates. "ready"
 // once both queries answered with a row; "unavailable" if either returned
 // none or failed.
+enum class BrokerCostsState { querying, ready, unavailable };
+constexpr std::string_view broker_costs_state_name(BrokerCostsState state) noexcept {
+  switch (state) {
+  case BrokerCostsState::querying:
+    return "querying";
+  case BrokerCostsState::ready:
+    return "ready";
+  case BrokerCostsState::unavailable:
+    return "unavailable";
+  }
+  return "unavailable";
+}
 struct BrokerCosts {
   InstrumentId instrument;
-  std::string state = "querying";
+  BrokerCostsState state = BrokerCostsState::querying;
   int error_code = 0;
   std::int64_t queried_ms = 0;
   std::optional<FuturesCosts> costs;
@@ -65,10 +93,40 @@ struct BrokerQuote {
   // Distinct from exchange trade time; never serialized as a remote timestamp.
   std::chrono::steady_clock::time_point completed_at;
 };
+enum class BrokerPhase {
+  disconnected,
+  connecting,
+  authenticating,
+  logging_in,
+  confirming,
+  synchronizing,
+  ready,
+  error
+};
+constexpr std::string_view broker_phase_name(BrokerPhase phase) noexcept {
+  switch (phase) {
+  case BrokerPhase::disconnected:
+    return "disconnected";
+  case BrokerPhase::connecting:
+    return "connecting";
+  case BrokerPhase::authenticating:
+    return "authenticating";
+  case BrokerPhase::logging_in:
+    return "logging_in";
+  case BrokerPhase::confirming:
+    return "confirming";
+  case BrokerPhase::synchronizing:
+    return "synchronizing";
+  case BrokerPhase::ready:
+    return "ready";
+  case BrokerPhase::error:
+    return "error";
+  }
+  return "error";
+}
 struct BrokerSnapshot {
-  // disconnected, connecting, authenticating, logging_in, confirming,
-  // synchronizing, ready, error. Orders are accepted only when ready.
-  std::string phase = "disconnected";
+  // Orders are accepted only when ready.
+  BrokerPhase phase = BrokerPhase::disconnected;
   int error_code = 0;
   std::string trading_day;
   // Increments on every change; lets callers skip unchanged snapshots.
@@ -89,7 +147,7 @@ struct BrokerSnapshot {
 };
 // A provider-prepared order owns immutable identity and wire data. Preparation
 // has no broker side effects. Destroying it without dispatch sends nothing.
-// The originating execution port must outlive the preparation.
+// The originating trader must outlive the preparation.
 class PreparedBrokerOrder {
 public:
   virtual ~PreparedBrokerOrder() = default;
@@ -108,26 +166,5 @@ struct BrokerDispatchResult {
   // False is positive evidence that the SDK request was never invoked.
   // True does not prove acceptance, execution, rejection or cancellation.
   bool invoked = false;
-};
-// Provider-neutral preparation and dispatch. The account owns authorization,
-// risk and durable intent; a provider never invokes account persistence code.
-class BrokerExecutionPort {
-public:
-  virtual ~BrokerExecutionPort() = default;
-  virtual std::unique_ptr<PreparedBrokerOrder>
-  prepare(const LimitOrder& order, Offset offset, std::uint64_t connection_generation,
-          std::uint64_t exposure_revision, std::chrono::steady_clock::time_point deadline) = 0;
-  // Consume exactly one preparation after the account's durable barrier.
-  // The committed sequence orders identity restoration against later submissions.
-  // Returns immediately. Session/exposure/expiry fences can refuse dispatch;
-  // completion reports whether the SDK call began. Never retries an order.
-  virtual std::future<BrokerDispatchResult> dispatch(std::unique_ptr<PreparedBrokerOrder> prepared,
-                                                     BrokerSendPermit permit,
-                                                     std::uint64_t journal_sequence) = 0;
-  // Requests cancellation without waiting for the SDK call. Its completion is
-  // not exchange cancellation; broker reports own the order outcome.
-  virtual std::future<BrokerDispatchResult> cancel(const std::string& order_id) = 0;
-  virtual BrokerSnapshot snapshot() const = 0;
-  virtual void disconnect() = 0;
 };
 } // namespace asterion

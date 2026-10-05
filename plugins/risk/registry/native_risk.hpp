@@ -1,18 +1,16 @@
 #pragma once
-#include <asterion/kernel/plugin.hpp>
 #include <asterion/domain/risk_port.hpp>
 #include <asterion/kernel/native_plugin.hpp>
 #include <asterion/plugin/risk.h>
 #include <utility>
 namespace asterion {
 // The runtime owns the library through every instance; no provider-owned C++ type crosses ABI.
-class NativeRisk final : public RiskPort, public Plugin {
+class NativeRisk final : public RiskPort {
 public:
   NativeRisk(NativeLibrary library,
              const std::vector<std::pair<std::string, std::string>>& settings);
-  PluginDescriptor descriptor() const override;
-  void start() override;
-  void stop() noexcept override;
+  void start();
+  void stop() noexcept;
   RiskDecision evaluate(const PreTradeRiskContext&) const override;
   const std::string& artifact() const { return library_.sha256(); }
 
