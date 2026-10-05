@@ -7,8 +7,10 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
+from unittest.mock import patch
 root = Path(os.environ['ASTERION_SSH_FIXTURE'])
 args = sys.argv[1:]
 assert 'StrictHostKeyChecking=yes' in args and 'BatchMode=yes' in args
@@ -47,6 +49,9 @@ if command.startswith("sh -c "):
     sys.exit(0)
 if command.startswith('test "$(uname -s)"'):
     assert 'id -u' in command
+    assert 'test "$(sudo -n /usr/local/sbin/asterion-host --manage check)" = asterion-host-v2' in command
+    if (root/'old-helper').exists():
+        sys.exit(1)
 elif command.startswith('umask 077; mkdir '):
     stage=shlex.split(command)[-1]
     assert re.fullmatch(r'\.asterion-install-[a-f0-9]{32}',stage)
@@ -56,7 +61,7 @@ elif command.startswith('if test ') or command.startswith("sh '.asterion-install
     stage=install.parent
     script=install.read_text(); service=(stage/'service').read_text() if (stage/'service').exists() else ''
     digest=hashlib.sha256((stage/'agent').read_bytes()).hexdigest()
-    assert digest in script and 'cmp' in script and 'chmod 600' in script
+    assert digest in script and "<<'ASTERION_PUBLISH'\n" in script
     assert 'asterion-host --manage install' in script or 'launchctl bootstrap system' in script
     if not service:
         assert command.startswith('sh ') and 'sudo -n sh' not in command
@@ -64,11 +69,29 @@ elif command.startswith('if test ') or command.startswith("sh '.asterion-install
     if (root/'fail_install').exists():
         sys.exit(1)
     port=int(re.search(r'(?:--port</string><string>|--port )(\d+)',service)[1]) if service else int(re.search(r"--manage install '[^']+' (\d+)",script)[1])
-    deployed=root/'deployed'; deployed.mkdir()
-    for name in ('agent','ca.crt','server.crt','server.key'):
-        shutil.copyfile(stage/name,deployed/name)
-    (deployed/'state').mkdir(); (deployed/'agent').chmod(0o700)
-    process=subprocess.Popen([str(deployed/'agent'),'--bind','127.0.0.1','--port',str(port),'--directory',str(deployed/'state'),'--tls-ca',str(deployed/'ca.crt'),'--tls-cert',str(deployed/'server.crt'),'--tls-key',str(deployed/'server.key')],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+    deployed=root/'deployed'; root.chmod(0o700)
+    # Execute the actual uploaded publication body in the owned fixture path.
+    # The privileged systemd command remains simulated; publication does not.
+    publication=script.split("<<'ASTERION_PUBLISH'\n",1)[1].split('\nASTERION_PUBLISH\n',1)[0]
+    original_sync=os.fsync
+    def flush(fd):
+        info=os.fstat(fd)
+        if (root/'fail_file_sync').exists() and stat.S_ISREG(info.st_mode):
+            raise OSError('injected file sync failure')
+        if ((root/'fail_publish_sync').exists() and stat.S_ISDIR(info.st_mode)
+                and (deployed/'asterion-node-agent').is_file() and info.st_ino==deployed.stat().st_ino):
+            raise OSError('injected publication directory sync failure')
+        return original_sync(fd)
+    argv=sys.argv; sys.argv=['install-publication',str(stage),str(deployed),digest]
+    try:
+        with patch('os.fsync',side_effect=flush):
+            exec(compile(publication,str(install),'exec'), {'__name__':'__main__'})
+    except OSError:
+        sys.exit(1)
+    finally:
+        sys.argv=argv
+    assert not list(deployed.glob('.asterion-publish-*'))
+    process=subprocess.Popen([str(deployed/'asterion-node-agent'),'--bind','127.0.0.1','--port',str(port),'--directory',str(deployed/'state'),'--tls-ca',str(deployed/'ca.crt'),'--tls-cert',str(deployed/'server.crt'),'--tls-key',str(deployed/'server.key')],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
     (root/'pid').write_text(str(process.pid))
 elif command.startswith('rm -rf -- '):
     stage=shlex.split(command)[-1]; assert re.fullmatch(r'\.asterion-install-[a-f0-9]{32}',stage)

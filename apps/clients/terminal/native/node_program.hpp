@@ -3,6 +3,12 @@
 #include <filesystem>
 #include <string>
 namespace asterion::terminal {
+class ServiceIo;
+// Caller holds bootstrap.lock. Publish the first verified executable durably,
+// or validate an existing identical installation without replacing it.
+void install_node_program(const std::filesystem::path& source,
+                          const std::filesystem::path& installed,
+                          const std::filesystem::path& root);
 // Read-only: never creates files, starts a service or hashes on a UI timer.
 Json inspect_node_program(const std::filesystem::path& source,
                           const std::filesystem::path& installed,
@@ -15,7 +21,7 @@ void replace_node_program(const std::filesystem::path& source,
                           const std::string& expected_digest);
 // Explicit local OS-managed upgrade. Requires all business services stopped.
 // The optional registration name is for isolated native acceptance fixtures.
-void upgrade_node_service(const std::filesystem::path& source,
+void upgrade_node_service(ServiceIo&, const std::filesystem::path& source,
                           const std::filesystem::path& installed, const std::filesystem::path& root,
                           const std::string& endpoint, const std::string& expected_digest,
                           const std::string& name = {});

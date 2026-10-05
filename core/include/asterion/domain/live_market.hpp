@@ -1,7 +1,7 @@
 #pragma once
 #include <asterion/domain/market.hpp>
-#include <asterion/kernel/plugin.hpp>
 #include <optional>
+#include <span>
 #include <array>
 #include <variant>
 #include <vector>
@@ -35,11 +35,14 @@ struct LiveMarketSnapshot {
   std::string phase = "disconnected";
   int error_code = 0;
   std::uint64_t sequence = 0, out_of_order = 0;
+  // A delta preserves subscription membership and includes only changed rows.
+  bool subscriptions_delta = false;
   std::vector<MarketSubscription> subscriptions;
 };
 // Ordered, normalized provider observations, distinct from coalesced UI state.
-// Status events carry subscriptions without cached quotes. Volume is cumulative
-// provider volume, not the quantity of an individual trade.
+// Session status events carry subscriptions without cached quotes. Individual
+// subscription acknowledgements carry only their changed subscription, also
+// without a quote. Volume is cumulative provider volume, not trade quantity.
 struct MarketQuoteObservation {
   MarketQuote quote;
   bool out_of_order = false;
@@ -47,7 +50,7 @@ struct MarketQuoteObservation {
 struct MarketEvent {
   std::uint64_t sequence = 0;
   std::int64_t received_ms = 0;
-  std::variant<LiveMarketSnapshot, MarketQuoteObservation> value;
+  std::variant<LiveMarketSnapshot, MarketQuoteObservation, MarketSubscription> value;
 };
 struct MarketEventBatch {
   std::string stream_id;
@@ -59,11 +62,12 @@ struct MarketEventBatch {
 };
 // Provider-neutral live market port; credentials/configuration belong to the
 // provider.
-class LiveMarketDataPort : public Plugin {
+class LiveMarketDataPort {
 public:
   virtual ~LiveMarketDataPort() = default;
   virtual void subscribe(const std::vector<InstrumentId>& instruments) = 0;
-  virtual LiveMarketSnapshot snapshot() const = 0;
+  virtual LiveMarketSnapshot snapshot(std::optional<std::uint64_t> after = {},
+                                      std::span<const InstrumentId> forced = {}) const = 0;
   // Non-destructive bounded reads. Only the initial cursor (0) may omit stream
   // identity. Consumers advance their cursor only after committing the batch.
   virtual MarketEventBatch events_after(const std::string& stream_id, std::uint64_t cursor,

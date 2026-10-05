@@ -49,7 +49,6 @@ function BarChart({
 }
 export function HistoryDatasetViewer({
   id,
-  archive = false,
   source,
   sourceLabel,
   timeAxis,
@@ -59,7 +58,6 @@ export function HistoryDatasetViewer({
   onClose,
 }: Pick<TerminalContext, "snapshot" | "busy" | "query"> & {
   id: string;
-  archive?: boolean;
   source: string;
   sourceLabel: string;
   timeAxis: "instant" | "trading-day";
@@ -77,7 +75,7 @@ export function HistoryDatasetViewer({
   }, [query]);
   const daily = timeAxis === "trading-day";
   const formatTime = daily ? dailyChartDate : timestamp;
-  const offline = !snapshot?.research?.online;
+  const offline = !snapshot?.data?.online;
   const disabled = busy || loading || offline;
   const fetchPage = useCallback(
     async (offset: number, limit: number, range: { start: string; end: string }) => {
@@ -85,19 +83,15 @@ export function HistoryDatasetViewer({
       setError("");
       setLoading(true);
       try {
-        const result = await invoke.current(
-          daily ? "research.daily.page" : "research.minutes.page",
-          {
-            ...(daily ? { period: "day" } : {}),
-            include_macd: false,
-            archive,
-            id,
-            offset,
-            limit,
-            start: daily ? range.start : wall(range.start),
-            end: daily ? range.end : wall(range.end),
-          },
-        );
+        const result = await invoke.current(daily ? "data.daily.page" : "data.minutes.page", {
+          ...(daily ? { period: "day" } : {}),
+          include_macd: false,
+          id,
+          offset,
+          limit,
+          start: daily ? range.start : wall(range.start),
+          end: daily ? range.end : wall(range.end),
+        });
         if (current !== sequence.current) return;
         const next = daily ? result.daily_page : result.history_page;
         if (
@@ -116,7 +110,7 @@ export function HistoryDatasetViewer({
         if (current === sequence.current) setLoading(false);
       }
     },
-    [id, source, daily, archive],
+    [id, source, daily],
   );
   const cancelPending = useCallback(() => {
     sequence.current++;

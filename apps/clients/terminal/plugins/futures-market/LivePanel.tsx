@@ -2,6 +2,7 @@ import { MarketBoard } from "./MarketBoard";
 import { useEffect, useState } from "react";
 import {
   ErrorNotice,
+  BackendError,
   asDisplayError,
   translate,
   type DisplayError,
@@ -42,6 +43,8 @@ export function LivePanel({ context }: { context: TerminalContext }) {
   const [password, setPassword] = useState("");
   const [authCode, setAuthCode] = useState("");
   const [catalogPassword, setCatalogPassword] = useState("");
+  const [remember, setRemember] = useState(false);
+  const [notice, setNotice] = useState("");
   const [venue, setVenue] = useState("SHFE"),
     [symbol, setSymbol] = useState("");
   const [error, setError] = useState<DisplayError>(initial.error);
@@ -64,8 +67,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
     }
     setProfile(next);
   }, [watchlistKey, idle, initial.error]);
-  async function loadCatalog(secret: string) {
-    const auth = authCode;
+  async function loadCatalog(secret: string, auth = authCode) {
     setCatalogPassword("");
     setAuthCode("");
     await context.trade("market.catalog", {
@@ -76,6 +78,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
   }
   async function run(action: () => Promise<void>) {
     setError("");
+    setNotice("");
     try {
       await action();
     } catch (e) {
@@ -134,17 +137,18 @@ export function LivePanel({ context }: { context: TerminalContext }) {
           )}
         </div>
         {error && (
-          <p role="alert" className="alert">
+          <div role="alert" className="alert">
             <ErrorNotice error={error} namespace="asterion.terminal.futures-market" />
-          </p>
+          </div>
         )}
+        {notice && <p role="status">{notice}</p>}
         {market?.error_code ? (
-          <p role="alert" className="alert">
+          <div role="alert" className="alert">
             {t("行情连接异常，请检查配置或服务时段。")}
             <details>
               <summary>{t("详情")}</summary>CTP {market.error_code}
             </details>
-          </p>
+          </div>
         ) : null}
         {market?.catalog?.phase === "loading" && <p role="status">{t("正在获取完整合约目录…")}</p>}
         {market?.catalog?.phase === "cached" && (
@@ -153,13 +157,11 @@ export function LivePanel({ context }: { context: TerminalContext }) {
           </p>
         )}
         {market?.catalog?.phase === "error" && (
-          <p role="alert">
-            {t("合约目录获取失败，请检查目录前置与认证配置。")}
-            <details>
-              <summary>{t("详情")}</summary>
-              {market.catalog.diagnostic}
-            </details>
-          </p>
+          <div role="alert">
+            <ErrorNotice
+              error={new BackendError(market.catalog.error_code, market.catalog.diagnostic)}
+            />
+          </div>
         )}
         <details className="market-config" open={idle || !market?.subscriptions.length}>
           <summary>{t("CTP 连接与自选")}</summary>
@@ -168,14 +170,24 @@ export function LivePanel({ context }: { context: TerminalContext }) {
               event.preventDefault();
               if (!canConnect || !connection) return;
               const secret = password;
+              const auth = authCode;
               setPassword("");
+              setAuthCode("");
               void run(async () => {
                 save(profile);
+                if (remember && (secret || auth)) {
+                  await context.trade("market.credentials.save", {
+                    account: connection.id,
+                    password: secret,
+                    auth_code: auth,
+                  });
+                  setNotice(t("登录凭据已保存到本机钥匙串。"));
+                }
                 await context.trade("market.connect", {
                   password: secret,
                   instruments: profile.instruments,
                 });
-                await loadCatalog(secret);
+                await loadCatalog(secret, auth);
               });
             }}
           >
@@ -199,7 +211,8 @@ export function LivePanel({ context }: { context: TerminalContext }) {
                     aria-label={t("密码")}
                     type="password"
                     autoComplete="off"
-                    required
+                    required={remember && !!authCode}
+                    placeholder={t("留空使用已保存的凭据")}
                     maxLength={40}
                     value={password}
                     onChange={e => setPassword(e.target.value)}
@@ -213,17 +226,42 @@ export function LivePanel({ context }: { context: TerminalContext }) {
                       maxLength={16}
                       type="password"
                       autoComplete="off"
-                      required
+                      required={remember && !!password}
+                      placeholder={t("留空使用已保存的凭据")}
                       value={authCode}
                       onChange={e => setAuthCode(e.target.value)}
                     />
                   </label>
                 )}
               </div>
+              <label className="market-remember">
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={event => setRemember(event.target.checked)}
+                />
+                {t("保存密码和授权码到本机钥匙串")}
+              </label>
               <button type="submit" disabled={!canConnect || !connection}>
                 {t("连接行情")}
               </button>
             </fieldset>
+            <button
+              type="button"
+              disabled={busy || !connection}
+              onClick={() =>
+                void run(async () => {
+                  await context.trade("market.credentials.clear", { account: connection!.id });
+                  setPassword("");
+                  setAuthCode("");
+                  setCatalogPassword("");
+                  setRemember(false);
+                  setNotice(t("已清除保存的登录凭据。"));
+                })
+              }
+            >
+              {t("清除已保存的登录凭据")}
+            </button>
             <p className="subtle">
               {t("连接行情后用行情账户的交易前置加载完整合约目录；仅查询合约，不开通交易。")}
             </p>
@@ -245,7 +283,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
                       autoComplete="off"
                       value={catalogPassword}
                       onChange={e => setCatalogPassword(e.target.value)}
-                      required
+                      placeholder={t("留空使用已保存的凭据")}
                     />
                   </label>
                   <label>
@@ -255,7 +293,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
                       maxLength={16}
                       type="password"
                       autoComplete="off"
-                      required
+                      placeholder={t("留空使用已保存的凭据")}
                       value={authCode}
                       onChange={e => setAuthCode(e.target.value)}
                     />
@@ -330,7 +368,7 @@ export function LivePanel({ context }: { context: TerminalContext }) {
               <p>{t("忽略乱序报价：{count}", { count: market.out_of_order })}</p>
             </details>
           )}
-          <p className="subtle">{t("只读行情 · 密码不保存 · 使用服务方提供的实际月份合约")}</p>
+          <p className="subtle">{t("只读行情 · 使用服务方提供的实际月份合约")}</p>
         </details>
       </div>
     </div>

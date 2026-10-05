@@ -26,7 +26,7 @@ TEST_F(PluginManagement, BrokenModuleDoesNotHideHealthySelection) {
   const auto catalog = terminal::PluginCatalog::inspect(root);
   ASSERT_EQ(catalog.entries.size(), 2);
   const std::vector<std::string> hashes{sha256_file(good)};
-  const auto selected = catalog.select_research(hashes);
+  const auto selected = catalog.select_data_task_plugins(hashes);
   ASSERT_EQ(selected.uploads.size(), 1);
   EXPECT_EQ(selected.uploads.front().path, good);
   const auto view = terminal::plugin_catalog_json(catalog);
@@ -38,13 +38,13 @@ TEST_F(PluginManagement, RetainedArtifactDoesNotRequireSourceButNewSelectionDoes
   const std::vector<std::string> hashes{sha256_file(good)};
   fs::remove(good);
   const auto catalog = terminal::PluginCatalog::inspect(root);
-  const auto retained = catalog.select_research(hashes, hashes);
+  const auto retained = catalog.select_data_task_plugins(hashes, hashes);
   EXPECT_EQ(retained.hashes, hashes);
   EXPECT_TRUE(retained.uploads.empty());
-  EXPECT_THROW(catalog.select_research(hashes), std::invalid_argument);
+  EXPECT_THROW(catalog.select_data_task_plugins(hashes), std::invalid_argument);
   const std::vector<std::string> duplicate{hashes.front(), hashes.front()};
-  EXPECT_THROW(catalog.select_research(duplicate, hashes), std::invalid_argument);
-  EXPECT_TRUE(catalog.select_research({}).hashes.empty());
+  EXPECT_THROW(catalog.select_data_task_plugins(duplicate, hashes), std::invalid_argument);
+  EXPECT_TRUE(catalog.select_data_task_plugins({}).hashes.empty());
 }
 TEST_F(PluginManagement, DuplicateIdentityCannotBeSelectedByFilenameOrder) {
   const auto good = copy_plugin(PLUGIN_GOOD, "first");
@@ -53,23 +53,23 @@ TEST_F(PluginManagement, DuplicateIdentityCannotBeSelectedByFilenameOrder) {
   for (const auto& entry : catalog.entries)
     EXPECT_EQ(entry.availability, terminal::PluginAvailability::invalid);
   const std::vector<std::string> hashes{sha256_file(good)};
-  EXPECT_THROW(catalog.select_research(hashes), std::invalid_argument);
+  EXPECT_THROW(catalog.select_data_task_plugins(hashes), std::invalid_argument);
 }
 TEST_F(PluginManagement, ArtifactInstallationRepairsInterruptedCopiesFromVerifiedArtifacts) {
   fs::create_directory(root / "artifacts");
-  fs::create_directories(root / "services/research");
+  fs::create_directories(root / "services/task");
   const auto hash = sha256_file(PLUGIN_GOOD);
   const auto suffix = current_platform().os == "windows" ? ".exe" : ".bin";
   fs::copy_file(PLUGIN_GOOD, root / "artifacts" / (hash + suffix));
   const agent::PluginArtifacts artifacts(root, NODE_AGENT);
-  const auto installed = artifacts.materialize("research", {hash});
+  const auto installed = artifacts.materialize("task", {hash});
   const auto library = installed / (hash + (current_platform().os == "macos" ? ".dylib" : ".so"));
   EXPECT_EQ(sha256_file(library), hash);
   // An interrupted temporary and a truncated copy are derived files: the
   // next installation removes and rewrites them instead of failing forever.
   write_file_durably(installed / (library.filename().string() + ".tmp"), "partial");
   write_file_durably(library, "truncated");
-  EXPECT_EQ(artifacts.materialize("research", {hash}), installed);
+  EXPECT_EQ(artifacts.materialize("task", {hash}), installed);
   EXPECT_EQ(sha256_file(library), hash);
   EXPECT_EQ(std::distance(fs::directory_iterator(installed), fs::directory_iterator{}), 1);
   // A library whose descriptor cannot be read is rejected by the inspecting
@@ -80,14 +80,15 @@ TEST_F(PluginManagement, ArtifactInstallationRepairsInterruptedCopiesFromVerifie
   EXPECT_THROW(artifacts.verify({hash, hash}), std::invalid_argument);
   // A tampered source artifact is never copied.
   write_file_durably(root / "artifacts" / (hash + suffix), "tampered");
-  EXPECT_THROW(artifacts.materialize("research", {hash}), std::invalid_argument);
+  EXPECT_THROW(artifacts.materialize("task", {hash}), std::invalid_argument);
 }
 TEST_F(PluginManagement, ConfigurationKeepsVersionRevisionAndStoppedState) {
   fs::create_directory(root / "ledger");
-  const Json document{{"version", 3},
+  const Json document{{"version", 5},
                       {"kind", static_cast<int>(node::v1::TASK_SERVICE)},
                       {"artifact", std::string(64, 'a')},
                       {"provider_artifact", ""},
+                      {"data_service", "data-one"},
                       {"worker_artifact", std::string(64, 'b')},
                       {"factor_artifact", std::string(64, 'c')},
                       {"data_artifact", std::string(64, 'd')},
@@ -177,11 +178,11 @@ TEST_F(PluginManagement, InstallationKeepsVersionsSeparateAndUninstallPreservesB
   EXPECT_EQ(catalog.entries[1].availability, terminal::PluginAvailability::available);
   EXPECT_TRUE(catalog.entries[1].managed);
   const std::vector<std::string> both{before, newer.artifact.sha256};
-  EXPECT_THROW(catalog.select_research(both), std::invalid_argument);
+  EXPECT_THROW(catalog.select_data_task_plugins(both), std::invalid_argument);
   // The bundled plugin is required: another version may replace it, nothing may not.
-  EXPECT_THROW(catalog.select_research({}), std::invalid_argument);
+  EXPECT_THROW(catalog.select_data_task_plugins({}), std::invalid_argument);
   const std::vector<std::string> replaced{newer.artifact.sha256};
-  EXPECT_EQ(catalog.select_research(replaced).hashes, replaced);
+  EXPECT_EQ(catalog.select_data_task_plugins(replaced).hashes, replaced);
   EXPECT_THROW(terminal::install_plugin(bundled, managed, PLUGIN_NEWER, newer.artifact.sha256),
                std::invalid_argument);
   EXPECT_THROW(terminal::install_plugin(bundled, managed, PLUGIN_NEWER, std::string(64, '0')),

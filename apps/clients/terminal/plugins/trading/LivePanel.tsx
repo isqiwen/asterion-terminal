@@ -1,3 +1,4 @@
+import { AccountPolicyEditor } from "./AccountPolicyEditor";
 import { ActivityTabs, type Activity } from "./ActivityTabs";
 import { FlowSteps } from "../../src/ui/FlowSteps";
 import { useState } from "react";
@@ -433,7 +434,8 @@ function LiveAccount({
   );
   const environmentReady = environment !== "unknown" && environmentConfirmed;
 
-  const [confirmed, setConfirmed] = useState(false);
+  const [confirmedPolicy, setConfirmedPolicy] = useState<string | null>(null);
+  const confirmed = confirmedPolicy === live.policy_revision;
   const [order, setOrder] = useState({
     contract: "",
     side: "buy",
@@ -442,10 +444,7 @@ function LiveAccount({
     price: "",
   });
   const ready = live.phase === "ready";
-  const stale =
-    !!snapshot?.stale ||
-    live.storage_state === "recovery_required" ||
-    connection.state === "disconnected";
+  const stale = live.storage_state === "recovery_required" || connection.state === "disconnected";
   const authorized = !!live.authorization && live.authorization.trading_day === live.trading_day;
   const traded = live.contracts.find(item => key(item) === order.contract) ?? live.contracts[0];
   const explicitBuckets = explicitCloseBuckets(snapshot, traded?.venue ?? "");
@@ -458,9 +457,21 @@ function LiveAccount({
           : order.offset
         : "close";
   const act = (params: Record<string, unknown>) =>
-    run("live.act", { request_id: crypto.randomUUID(), ...params });
+    run("live.act", {
+      request_id: crypto.randomUUID(),
+      account_id: live.account_id,
+      policy_revision: live.policy_revision,
+      ...params,
+    });
   return (
     <>
+      <AccountPolicyEditor
+        key={live.policy_revision}
+        live={live}
+        snapshot={snapshot}
+        disabled={busy || stale}
+        run={run}
+      />
       <div className="paper-toolbar ctp-identity">
         <strong>
           {account.name} · {live.broker.broker_id} · {live.broker.user_id}
@@ -543,7 +554,9 @@ function LiveAccount({
       )}
       {live.phase === "error" && (
         <p className="alert" role="alert">
-          {t("CTP 返回错误 {code}；核对账户信息后重新连接。", { code: live.error_code })}
+          {live.error_code === -1008
+            ? t("柜台回报队列已满，新增报单已停止。请重新连接并核对账户；已有委托不会自动撤销。")
+            : t("CTP 返回错误 {code}；核对账户信息后重新连接。", { code: live.error_code })}
         </p>
       )}
       {live.unconfirmed.length > 0 && (
@@ -632,7 +645,9 @@ function LiveAccount({
                 <input
                   type="checkbox"
                   checked={confirmed}
-                  onChange={event => setConfirmed(event.target.checked)}
+                  onChange={event =>
+                    setConfirmedPolicy(event.target.checked ? live.policy_revision : null)
+                  }
                 />
                 {t("我确认使用账户 {user} 向上方柜台发送委托", { user: live.broker.user_id })}
               </label>
@@ -641,7 +656,7 @@ function LiveAccount({
                   className="primary"
                   disabled={busy || !confirmed || stale || !environmentReady}
                   onClick={() => {
-                    setConfirmed(false);
+                    setConfirmedPolicy(null);
                     void act({ action: "live_authorize", user_id: live.broker.user_id });
                   }}
                 >
@@ -831,7 +846,11 @@ function LiveAccount({
                     <td>
                       {o.id && ["submitted", "accepted", "partially_filled"].includes(o.status) && (
                         <button
-                          disabled={busy || !ready || stale}
+                          disabled={
+                            busy ||
+                            stale ||
+                            !(ready || (live.phase === "error" && live.error_code === -1008))
+                          }
                           onClick={() => void act({ action: "cancel", order_id: o.id })}
                         >
                           {t("撤单")}

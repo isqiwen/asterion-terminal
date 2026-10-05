@@ -21,21 +21,37 @@ char* error(const char* code, const char* message) noexcept {
   }
 }
 } // namespace
-extern "C" void* asterion_terminal_create() noexcept {
+extern "C" void* asterion_terminal_create(char** failure) noexcept {
+  if (failure)
+    *failure = nullptr;
   try {
     return new Terminal;
+  } catch (const std::exception& e) {
+    if (failure)
+      *failure = error(asterion::error_name(asterion::classify(e)).data(), e.what());
   } catch (...) {
-    return nullptr;
+    if (failure)
+      *failure = error("internal_error", "native core initialization failed");
   }
+  return nullptr;
 }
 extern "C" char* asterion_terminal_call(void* runtime, const char* request) noexcept {
   try {
     if (!runtime || !request || std::strlen(request) > 65536)
       throw std::invalid_argument("invalid native API request");
-    // Dispatch before building the envelope: GCC < 13 leaks initializer_list
-    // elements when a later element throws (PR66139).
-    auto result = static_cast<Terminal*>(runtime)->dispatch(asterion::parse_json(request));
-    return copy(json{{"result", std::move(result)}}.dump());
+    asterion::Payload response;
+    std::exception_ptr failure;
+    static_cast<Terminal*>(runtime)
+        ->request(request,
+                  [&](asterion::Payload value, std::exception_ptr error) noexcept {
+                    failure = error;
+                    if (!failure)
+                      response = std::move(value);
+                  })
+        .get();
+    if (failure)
+      std::rethrow_exception(failure);
+    return copy(*response);
   } catch (const std::exception& e) {
     return error(asterion::error_name(asterion::classify(e)).data(), e.what());
   } catch (...) {

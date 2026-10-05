@@ -1,8 +1,8 @@
 import { expect, type APIRequestContext } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
-// Test-only history: completed minute and daily download tasks written by the
-// compiled test provider into the isolated node's research ledger. It is not a
+// Test-only history: verified minute and daily versions published by the
+// compiled test provider into the isolated data warehouse. It is not a
 // client workflow; production history comes only from data-source plugins.
 const build = process.env.ASTERION_CPP_BUILD ?? resolve(__dirname, "../../../../build/Debug");
 
@@ -23,7 +23,7 @@ export async function rpc(
 type Service = { id: string; directory: string };
 type Snapshot = { nodes: { id: string; health: { services: Service[] } }[] };
 
-// Returns the research.dataset.select parameters for the seeded downloads of
+// Returns the data.dataset.select parameters for the seeded downloads of
 // the SHFE `product` 2026-10 contract. `keep` adds to the current selection
 // instead of starting a new one.
 export async function seedHistory(
@@ -36,28 +36,34 @@ export async function seedHistory(
     day = "2026-09-25",
     minuteDays = [],
     dailyDays = [],
+    month = "2026-10",
+    openInterest = 100,
+    settlement = 110,
   }: {
     product?: string;
     keep?: boolean;
     day?: string;
     minuteDays?: string[];
     dailyDays?: string[];
+    month?: string;
+    openInterest?: number;
+    settlement?: number;
   } = {},
 ) {
   expect(process.env.ASTERION_TEST_NODE_ISOLATED).toBe("1");
   // The selection lives in the shared core process; earlier specs may leave one.
-  if (!keep) await rpc(request, "research.dataset.clear");
-  await rpc(request, "research.local");
+  if (!keep) await rpc(request, "data.dataset.clear");
+  await rpc(request, "node.data_tasks.local.open");
   const snapshot: Snapshot = await rpc(request, "node.action", {
     id: "local",
-    service: "research",
+    service: "historical-data",
     action: "stop",
   });
   const service = snapshot.nodes
     .find(node => node.id === "local")!
-    .health.services.find(item => item.id === "research")!;
+    .health.services.find(item => item.id === "historical-data")!;
   expect(resolve(service.directory)).toBe(
-    resolve(process.env.ASTERION_NODE_DIRECTORY!, "services/research/ledger"),
+    resolve(process.env.ASTERION_NODE_DIRECTORY!, "services/historical-data/ledger"),
   );
   const output = execFileSync(
     resolve(build, "asterion_test_history"),
@@ -74,10 +80,19 @@ export async function seedHistory(
       ...prices.map(String),
       ...(minuteDays.length ? ["--minute-days", ...minuteDays] : []),
       ...(dailyDays.length ? ["--daily-days", ...dailyDays] : []),
+      "--month",
+      month,
+      "--open-interest",
+      String(openInterest),
+      "--settlement",
+      String(settlement),
     ],
     { encoding: "utf8" },
   );
-  await rpc(request, "research.local");
+  await rpc(request, "node.data_tasks.local.open");
+  await expect
+    .poll(async () => (await rpc(request, "runtime.snapshot")).data?.online, { timeout: 10000 })
+    .toBe(true);
   return JSON.parse(output) as {
     source_dataset_ids: string[];
     settlement_dataset_ids: string[];
@@ -95,7 +110,7 @@ export async function seedDataset(
   options: { product?: string; keep?: boolean; day?: string } = {},
 ) {
   const selection = await seedHistory(request, prices, id, options);
-  return rpc(request, "research.dataset.select", selection);
+  return rpc(request, "data.dataset.select", selection);
 }
 
 // Counter details are entered once in Settings; specs create accounts through

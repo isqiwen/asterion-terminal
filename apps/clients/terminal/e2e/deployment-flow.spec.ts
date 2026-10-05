@@ -27,40 +27,44 @@ test("remote deployment stays separate from use; switching and stopping name the
   await page.route("**/__asterion/api", async route => {
     const { method, params } = route.request().postDataJSON();
     if (
-      !["runtime.snapshot", "node.local", "node.deploy", "research.attach", "node.action"].includes(
-        method,
-      )
+      ![
+        "runtime.snapshot",
+        "node.local",
+        "node.deploy",
+        "node.data_tasks.attach",
+        "node.action",
+      ].includes(method)
     )
       return route.continue();
-    if (["node.deploy", "research.attach", "node.action"].includes(method))
+    if (["node.deploy", "node.data_tasks.attach", "node.action"].includes(method))
       mutations.push({ method, params });
     if (method === "node.deploy") {
       expect(params.id).toBe(remote.id);
       const service = structuredClone(
-        base.nodes.find(n => n.id === "local")!.health!.services.find(s => s.kind === "research")!,
+        base.nodes.find(n => n.id === "local")!.health!.services.find(s => s.kind === "task")!,
       );
       Object.assign(service, {
         id: params.service,
         port: Number(params.port),
         active_workers: 2,
         endpoint: "",
-        directory: "/test/remote/research",
+        directory: "/test/remote/taskService",
         revision: "remote-revision",
       });
       remote.health!.services.push(service);
     }
-    if (method === "research.attach")
-      current.research = {
-        ...base.research!,
+    if (method === "node.data_tasks.attach")
+      current.task_service = {
+        ...base.task_service!,
         remote: true,
         host: remote.host,
         port: 7550,
-        service: "research",
-        connection_id: "test-remote-research",
+        service: "task",
+        connection_id: "test-remote-taskService",
         online: true,
       };
     if (method === "node.action") {
-      expect(params).toEqual({ id: "compute-1", service: "research", action: "stop" });
+      expect(params).toEqual({ id: "compute-1", service: "task", action: "stop" });
       Object.assign(remote.health!.services[0], {
         state: "stopped",
         desired_running: false,
@@ -80,16 +84,16 @@ test("remote deployment stays separate from use; switching and stopping name the
   const location = page
     .getByRole("list", { name: "当前运行位置" })
     .getByRole("listitem")
-    .filter({ hasText: "研究与计算" });
+    .filter({ hasText: "任务服务" });
   await expect(location).toContainText("本机");
   await page.getByRole("button", { name: "机器管理", exact: true }).click();
   await page.getByRole("button", { name: "compute-1 在线", exact: true }).click();
   await page.getByRole("button", { name: "部署服务", exact: true }).click();
-  await page.getByLabel("新服务名称", { exact: true }).fill("research");
+  await page.getByLabel("新服务名称", { exact: true }).fill("task");
   await page.getByLabel("服务端口", { exact: true }).fill("7550");
   await page.getByRole("button", { name: "上传并部署", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("当前运行位置未改变");
-  const service = page.getByRole("listitem", { name: "research", exact: true });
+  const service = page.getByRole("listitem", { name: "task", exact: true });
   await expect(service.getByRole("button", { name: "使用此服务" })).toBeVisible();
   expect(mutations.map(m => m.method)).toEqual(["node.deploy"]);
   await page.getByRole("button", { name: "当前运行位置", exact: true }).click();
@@ -97,7 +101,7 @@ test("remote deployment stays separate from use; switching and stopping name the
   await page.getByRole("button", { name: "机器管理", exact: true }).click();
   await service.getByRole("button", { name: "使用此服务" }).click();
   const dialog = page.getByRole("dialog", { name: "切换运行位置" });
-  await expect(dialog).toContainText("compute-1 / research");
+  await expect(dialog).toContainText("compute-1 / task");
   await expect(dialog).toContainText("已有数据和任务不会搬到目标机器");
   await dialog.getByRole("button", { name: "取消", exact: true }).click();
   expect(mutations).toHaveLength(1);

@@ -2,6 +2,7 @@
 #include <asterion/domain/historical_bars.hpp>
 #include <asterion/domain/daily_bars.hpp>
 #include <memory>
+#include <functional>
 namespace asterion::history_providers {
 struct ConnectionSchema {
   std::string credential_label_en, credential_label_zh;
@@ -28,10 +29,13 @@ std::vector<ConnectionCheck> verify_connection(const std::string& source,
                                                std::stop_token stop = {});
 void validate_request(const std::string& source, const HistoryIdentity&, unsigned interval,
                       unsigned requests_per_minute);
-std::unique_ptr<HistoricalBarPort> minutes(const std::string& source,
-                                           const std::string& credential);
-std::unique_ptr<HistoricalDailyPort> daily(const std::string& source,
-                                           const std::string& credential);
+using RequestBudget = std::function<void(std::stop_token)>;
+// Returns a ready business port. Reads require a request budget callback. The native instance owns
+// plugin start/stop.
+std::unique_ptr<HistoricalBarPort> minutes(const std::string& source, const std::string& credential,
+                                           RequestBudget budget = {});
+std::unique_ptr<HistoricalDailyPort> daily(const std::string& source, const std::string& credential,
+                                           RequestBudget budget = {});
 std::vector<HistoryListing> catalog(const std::string& source, const std::string& credential,
                                     const std::string& venue, const std::string& product,
                                     std::stop_token = {});

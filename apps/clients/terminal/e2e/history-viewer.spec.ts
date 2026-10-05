@@ -13,13 +13,13 @@ test("dataset viewer charts exact bars, pages, filters and retains the last page
   let mismatchNext = false;
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (!["runtime.snapshot", "research.minutes.page"].includes(request.method))
+    if (!["runtime.snapshot", "data.minutes.page"].includes(request.method))
       return route.continue();
-    if (request.method === "research.minutes.page" && (failNext || failInitial)) {
+    if (request.method === "data.minutes.page" && (failNext || failInitial)) {
       failNext = false;
       return route.fulfill({ status: 503, body: "fixture read failure" });
     }
-    if (request.method === "research.minutes.page") {
+    if (request.method === "data.minutes.page") {
       const wait = delayed;
       delayed = null;
       if (wait) await wait;
@@ -60,18 +60,20 @@ test("dataset viewer charts exact bars, pages, filters and retains the last page
       postData: { version: 1, method: "runtime.snapshot", params: {} },
     });
     const data = (await response.json()) as { result: Snapshot };
-    if (!data.result.research) return route.fulfill({ response, json: data });
-    data.result.research.online = online;
-    data.result.history_page = request.method === "research.minutes.page" ? viewed : null;
-    if (request.method === "research.minutes.page" && mismatchNext && data.result.history_page) {
+    if (!data.result.task_service || !data.result.data)
+      return route.fulfill({ response, json: data });
+    data.result.data.online = online;
+    data.result.history_page = request.method === "data.minutes.page" ? viewed : null;
+    if (request.method === "data.minutes.page" && mismatchNext && data.result.history_page) {
       data.result.history_page = { ...data.result.history_page, id: "different-dataset" };
       mismatchNext = false;
     }
-    data.result.research!.tasks = [
+    data.result.task_service!.tasks = [
       {
         kind: "minute_download",
         data_source: "tushare.ft_mins",
         id: "viewer-fixture",
+        history_dataset_id: "viewer-fixture",
         state: "succeeded",
         attempt: 1,
         completed: 1,
@@ -205,7 +207,7 @@ test("dataset viewer charts exact bars, pages, filters and retains the last page
   const lateResponse = page.waitForResponse(
     response =>
       response.url().endsWith("/__asterion/api") &&
-      response.request().postDataJSON()?.method === "research.minutes.page" &&
+      response.request().postDataJSON()?.method === "data.minutes.page" &&
       response.request().postDataJSON()?.params.offset === 100,
   );
   await viewer.getByRole("button", { name: "下一页", exact: true }).click();

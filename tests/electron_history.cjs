@@ -7,29 +7,32 @@ const fs = require("node:fs/promises");
 const { promisify } = require("node:util");
 const execFile = promisify(require("node:child_process").execFile);
 
-module.exports = async function checkNativeHistory(page, temp, capture) {
-  const call = async (method, params = {}) => {
-    const response = await page.evaluate(
+module.exports = async function checkNativeHistory(page, temp, capture, pluginDirectory) {
+  const request = (method, params = {}) =>
+    page.evaluate(
       async ({ method, params }) =>
         JSON.parse(
           await window.asterionDesktop.request(JSON.stringify({ version: 1, method, params })),
         ),
       { method, params },
     );
+  const call = async (method, params = {}) => {
+    const response = await request(method, params);
     assert.equal(response.error, undefined, JSON.stringify(response.error));
     return response.result;
   };
-  await call("research.local");
-  const stopped = await call("node.action", { id: "local", service: "research", action: "stop" });
+  await call("node.data_tasks.local.open");
+  const stopped = await call("node.action", { id: "local", service: "task", action: "stop" });
+  await call("node.action", { id: "local", service: "historical-data", action: "stop" });
   const service = stopped.nodes
     .filter(node => node.id === "local")
     .flatMap(node => node.health?.services ?? [])
-    .find(service => service.id === "research");
-  assert.ok(service, "isolated Agent did not report its research service");
+    .find(service => service.id === "task");
+  assert.ok(service, "isolated Agent did not report its task service");
   const root = await fs.realpath(path.join(temp, "node"));
   assert.equal(
     path.relative(root, await fs.realpath(service.directory)),
-    path.join("services", "research", "ledger"),
+    path.join("services", "task", "ledger"),
   );
   assert.equal(service.state, "stopped");
   const seeded = await execFile(
@@ -37,57 +40,77 @@ module.exports = async function checkNativeHistory(page, temp, capture) {
       path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug", "asterion_test_minutes"),
     ["--directory", service.directory],
     {
-      env: { ...process.env, ASTERION_NODE_DIRECTORY: root, ASTERION_TEST_NODE_ISOLATED: "1" },
+      env: {
+        ...process.env,
+        ASTERION_NODE_DIRECTORY: root,
+        ASTERION_TEST_NODE_ISOLATED: "1",
+        // Authorization pins the actual desktop plugin bytes, including staging/signing.
+        ASTERION_PLUGIN_DIRECTORY: pluginDirectory,
+      },
       timeout: 10000,
     },
   );
   assert.match(seeded.stdout, /queued daily fixture/);
   assert.ok((await fs.stat(path.join(service.directory, "tasks.sqlite"))).isFile());
-  await call("research.local");
+  await call("node.data_tasks.local.open");
   await expect
     .poll(
       async () => {
         const snapshot = await call("runtime.snapshot");
-        return snapshot.research?.tasks.find(task => task.id === "native-daily-fixture")?.state;
+        const task = snapshot.task_service?.tasks.find(task => task.id === "native-daily-fixture");
+        return task && { state: task.state, error: task.error || snapshot.task_service.error };
       },
       {
         timeout: 20000,
         message: "Agent must dispatch the queued daily worker and publish its result",
       },
     )
-    .toBe("succeeded");
-  const dailyTask = (await call("runtime.snapshot")).research.tasks.find(
+    .toEqual({ state: "succeeded", error: "" });
+  const dailyTask = (await call("runtime.snapshot")).task_service.tasks.find(
     task => task.id === "native-daily-fixture",
   );
   assert.equal(dailyTask.attempt, 1);
   assert.equal(dailyTask.completed, dailyTask.total);
   assert.match(dailyTask.result_digest, /^[0-9a-f]{64}$/);
   // Read through the owning service: SQLite uses an exclusive writer lock.
-  await call("node.action", { id: "local", service: "research", action: "stop" });
-  await call("research.local");
-  const recoveredDaily = (await call("runtime.snapshot")).research.tasks.find(
-    t => t.id === dailyTask.id,
-  );
-  assert.equal(recoveredDaily.state, "succeeded");
-  assert.equal(recoveredDaily.attempt, 1);
-  assert.equal(recoveredDaily.result_digest, dailyTask.result_digest);
-  const read = offset =>
-    call("research.minutes.page", {
-      id: "native-minute-fixture",
-      offset,
-      limit: 100,
-      start: "",
-      end: "",
-      include_macd: false,
+  await call("node.action", { id: "local", service: "task", action: "stop" });
+  await call("node.data_tasks.local.open");
+  await expect
+    .poll(async () =>
+      (await call("runtime.snapshot")).task_service.tasks.find(t => t.id === dailyTask.id),
+    )
+    .toMatchObject({
+      state: "succeeded",
+      attempt: 1,
+      result_digest: dailyTask.result_digest,
     });
-  const [first, last, snapshot] = await Promise.all([read(0), read(100), call("runtime.snapshot")]);
+  const minuteDatasetId = (await call("runtime.snapshot")).task_service.tasks.find(
+    task => task.id === "native-minute-fixture",
+  ).history_dataset_id;
+  const pageQuery = offset => ({
+    id: minuteDatasetId,
+    offset,
+    limit: 100,
+    start: "",
+    end: "",
+    include_macd: false,
+  });
+  const [firstRead, lastRead, snapshot] = await Promise.all([
+    request("data.minutes.page", pageQuery(0)),
+    request("data.minutes.page", pageQuery(100)),
+    call("runtime.snapshot"),
+  ]);
+  assert.equal(firstRead.error, undefined, JSON.stringify(firstRead.error));
+  assert.equal(lastRead.error, undefined, JSON.stringify(lastRead.error));
+  const first = firstRead.result;
+  const last = lastRead.result;
   assert.equal(first.history_page.bars.length, 100);
   assert.equal(last.history_page.bars.length, 20);
   assert.equal(first.history_page.bars[0].open, "100.00000001");
   assert.equal(first.history_page.bars[0].amount, "12345678.12345678");
   assert.equal(snapshot.history_page, null);
-  const empty = await call("research.minutes.page", {
-    id: "native-minute-fixture",
+  const empty = await call("data.minutes.page", {
+    id: minuteDatasetId,
     offset: 0,
     limit: 100,
     start: "2023-08-25 09:30:01",
@@ -109,11 +132,11 @@ module.exports = async function checkNativeHistory(page, temp, capture) {
   await viewer.getByRole("button", { name: "下一页", exact: true }).click();
   await expect(viewer.locator("tbody tr")).toHaveCount(20);
   await expect(viewer.locator(".history-pagination")).toContainText("101–120 / 120");
-  await call("node.action", { id: "local", service: "research", action: "stop" });
+  await call("node.action", { id: "local", service: "historical-data", action: "stop" });
   await expect(viewer.getByRole("status")).toContainText("历史数据服务未连接", { timeout: 15000 });
   await expect(viewer.locator("tbody tr")).toHaveCount(20);
   await expect(viewer.getByRole("button", { name: "上一页", exact: true })).toBeDisabled();
-  await call("research.local");
+  await call("node.data_tasks.local.open");
   await expect(viewer).toHaveCount(0, { timeout: 15000 });
   await page.getByRole("button", { name: "查看数据", exact: true }).click();
   await expect(viewer.locator("tbody tr")).toHaveCount(100);
@@ -138,8 +161,8 @@ module.exports = async function checkNativeHistory(page, temp, capture) {
   await board.getByRole("button", { name: "向后", exact: true }).click();
   await expect(board.locator(".market-history-pages")).toContainText("101–120 / 120");
   await expect(board.getByRole("img", { name: "合约历史 K 线", exact: true })).toBeVisible();
-  const indicators = await call("research.minutes.page", {
-    id: "native-minute-fixture",
+  const indicators = await call("data.minutes.page", {
+    id: minuteDatasetId,
     offset: 100,
     limit: 20,
     start: "",
@@ -164,8 +187,8 @@ module.exports = async function checkNativeHistory(page, temp, capture) {
   await board.getByRole("button", { name: "向后", exact: true }).click();
   await expect(board.locator(".market-history-pages")).toContainText("101–120 / 120");
   const daily = (
-    await call("research.daily.page", {
-      id: "native-daily-fixture",
+    await call("data.daily.page", {
+      id: dailyTask.history_dataset_id,
       period: "day",
       offset: 100,
       limit: 20,
@@ -196,8 +219,8 @@ module.exports = async function checkNativeHistory(page, temp, capture) {
     );
     await expect(board.locator(".market-history-pages")).toContainText(`1–${count} / ${count}`);
     const grouped = (
-      await call("research.daily.page", {
-        id: "native-daily-fixture",
+      await call("data.daily.page", {
+        id: dailyTask.history_dataset_id,
         period,
         offset: 0,
         limit: 100,
@@ -270,16 +293,17 @@ module.exports = async function checkNativeHistory(page, temp, capture) {
   await expect
     .poll(
       async () =>
-        (await call("runtime.snapshot")).research.tasks.find(task => task.kind === "daily_factor")
-          ?.state,
+        (await call("runtime.snapshot")).task_service.tasks.find(
+          task => task.kind === "daily_factor",
+        )?.state,
       { timeout: 20000 },
     )
     .toBe("succeeded");
-  const factorTask = (await call("runtime.snapshot")).research.tasks.find(
+  const factorTask = (await call("runtime.snapshot")).task_service.tasks.find(
     task => task.kind === "daily_factor",
   );
   assert.equal(factorTask.attempt, 1);
-  const taskTable = page.getByRole("region", { name: "研究任务", exact: true });
+  const taskTable = page.getByRole("region", { name: "回测与因子任务", exact: true });
   await taskTable.getByRole("button", { name: "查看结果", exact: true }).click();
   const factorView = page.getByRole("region", { name: "日线因子结果", exact: true });
   await expect(factorView).toContainText("有效样本: 113");
@@ -294,14 +318,14 @@ module.exports = async function checkNativeHistory(page, temp, capture) {
   await factorView.getByRole("button", { name: "下一页", exact: true }).click();
   await expect(rows.first()).toContainText("2023-02-25");
   await capture(page, "native-daily-factor");
-  await call("node.action", { id: "local", service: "research", action: "stop" });
-  await call("research.local");
+  await call("node.action", { id: "local", service: "task", action: "stop" });
+  await call("node.data_tasks.local.open");
   await expect
     .poll(
       async () => {
         try {
-          return (await call("research.result", { id: factorTask.id })).research_result?.result
-            .samples.length;
+          return (await call("task.result", { id: factorTask.id })).task_result?.result.samples
+            .length;
         } catch {
           return 0;
         }

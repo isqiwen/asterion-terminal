@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <vector>
 #include "timed_operation.hpp"
+#include "tls_security.hpp"
 #include <array>
 #include <asio.hpp>
 #include <asio/ssl.hpp>
@@ -25,7 +26,13 @@ std::string pem(const std::string& filename) {
     throw std::invalid_argument("cannot read TLS identity file");
   return {std::istreambuf_iterator<char>(file), {}};
 }
-std::shared_ptr<asio::ssl::context> context(const TlsIdentity& identity, bool server) {
+using detail::run;
+Ms remaining(Clock::time_point end) {
+  return std::max(Ms{0}, std::chrono::duration_cast<Ms>(end - Clock::now()));
+}
+} // namespace
+namespace detail {
+std::shared_ptr<asio::ssl::context> tls_context(const TlsIdentity& identity, bool server) {
   auto ctx = std::make_shared<asio::ssl::context>(asio::ssl::context::tls);
   if (SSL_CTX_set_min_proto_version(ctx->native_handle(), TLS1_3_VERSION) != 1)
     throw std::runtime_error("TLS 1.3 unavailable");
@@ -42,11 +49,32 @@ std::shared_ptr<asio::ssl::context> context(const TlsIdentity& identity, bool se
   SSL_CTX_set_num_tickets(ctx->native_handle(), 0);
   return ctx;
 }
-using detail::run;
-Ms remaining(Clock::time_point end) {
-  return std::max(Ms{0}, std::chrono::duration_cast<Ms>(end - Clock::now()));
+PeerRole tls_peer_role(SSL* stream) {
+  // The handshake already verified this certificate against the node CA.
+  std::unique_ptr<X509, decltype(&X509_free)> peer(SSL_get1_peer_certificate(stream), X509_free);
+  if (!peer)
+    return PeerRole::unknown;
+  const auto* subject = X509_get_subject_name(peer.get());
+  PeerRole found = PeerRole::unknown;
+  for (int index = X509_NAME_get_index_by_NID(subject, NID_organizationalUnitName, -1); index >= 0;
+       index = X509_NAME_get_index_by_NID(subject, NID_organizationalUnitName, index)) {
+    const auto* data = X509_NAME_ENTRY_get_data(X509_NAME_get_entry(subject, index));
+    const std::string_view value(reinterpret_cast<const char*>(ASN1_STRING_get0_data(data)),
+                                 static_cast<std::size_t>(ASN1_STRING_length(data)));
+    PeerRole role = PeerRole::unknown;
+    for (const auto candidate : {PeerRole::admin, PeerRole::client, PeerRole::service})
+      if (value == role_subject(candidate))
+        role = candidate;
+    // Exactly one recognised role; several conflicting ones grant nothing.
+    if (role != PeerRole::unknown) {
+      if (found != PeerRole::unknown && found != role)
+        return PeerRole::unknown;
+      found = role;
+    }
+  }
+  return found;
 }
-} // namespace
+} // namespace detail
 struct TlsChannel::Impl {
   std::shared_ptr<asio::io_context> io;
   std::shared_ptr<asio::ssl::context> ctx;
@@ -97,31 +125,9 @@ std::string role_subject(PeerRole role) {
 PeerRole TlsChannel::peer_role() const {
   if (!impl_)
     throw std::logic_error("closed TLS channel");
-  // The handshake already verified this certificate against the node CA.
-  std::unique_ptr<X509, decltype(&X509_free)> peer(
-      SSL_get1_peer_certificate(impl_->stream.native_handle()), X509_free);
-  if (!peer)
-    return PeerRole::unknown;
-  const auto* subject = X509_get_subject_name(peer.get());
-  PeerRole found = PeerRole::unknown;
-  for (int index = X509_NAME_get_index_by_NID(subject, NID_organizationalUnitName, -1); index >= 0;
-       index = X509_NAME_get_index_by_NID(subject, NID_organizationalUnitName, index)) {
-    const auto* data = X509_NAME_ENTRY_get_data(X509_NAME_get_entry(subject, index));
-    const std::string_view value(reinterpret_cast<const char*>(ASN1_STRING_get0_data(data)),
-                                 static_cast<std::size_t>(ASN1_STRING_length(data)));
-    PeerRole role = PeerRole::unknown;
-    for (const auto candidate : {PeerRole::admin, PeerRole::client, PeerRole::service})
-      if (value == role_subject(candidate))
-        role = candidate;
-    // Exactly one recognised role; several conflicting ones grant nothing.
-    if (role != PeerRole::unknown) {
-      if (found != PeerRole::unknown && found != role)
-        return PeerRole::unknown;
-      found = role;
-    }
-  }
-  return found;
+  return detail::tls_peer_role(impl_->stream.native_handle());
 }
+
 void TlsChannel::close() noexcept {
   impl_.reset();
 }
@@ -130,8 +136,8 @@ TlsChannel TlsChannel::connect(const std::string& host, std::uint16_t port,
   if (host.empty() || host.find('\0') != std::string::npos || !port || timeout.count() <= 0)
     throw std::invalid_argument("TCP host, port and positive timeout are required");
   TlsChannel channel;
-  channel.impl_ =
-      std::make_unique<Impl>(std::make_shared<asio::io_context>(), context(identity, false));
+  channel.impl_ = std::make_unique<Impl>(std::make_shared<asio::io_context>(),
+                                         detail::tls_context(identity, false));
   auto& p = *channel.impl_;
   if (SSL_set1_host(p.stream.native_handle(), host.c_str()) != 1 ||
       SSL_set_tlsext_host_name(p.stream.native_handle(), host.c_str()) != 1)
@@ -209,7 +215,7 @@ struct TlsListener::Impl {
   std::shared_ptr<asio::ssl::context> ctx;
   Tcp::acceptor acceptor;
   Impl(const std::string& address, std::uint16_t port, const TlsIdentity& identity)
-      : ctx(context(identity, true)), acceptor(*io) {
+      : ctx(detail::tls_context(identity, true)), acceptor(*io) {
     const Tcp::endpoint endpoint(asio::ip::make_address(address), port);
     acceptor.open(endpoint.protocol());
 #ifdef _WIN32
@@ -229,11 +235,18 @@ TlsListener::TlsListener(const std::string& address, std::uint16_t port,
                          const TlsIdentity& identity)
     : impl_(std::make_unique<Impl>(address, port, identity)) {}
 TlsListener::~TlsListener() = default;
+struct TlsPendingConnection::Handshake {
+  Clock::time_point deadline;
+  asio::error_code error;
+  bool complete = false;
+};
 TlsPendingConnection::TlsPendingConnection() = default;
 TlsPendingConnection::~TlsPendingConnection() = default;
 TlsPendingConnection::TlsPendingConnection(TlsPendingConnection&&) noexcept = default;
 TlsPendingConnection& TlsPendingConnection::operator=(TlsPendingConnection&&) noexcept = default;
 TlsChannel TlsPendingConnection::handshake(Ms timeout) && {
+  if (handshake_)
+    throw std::logic_error("TLS handshake is already pending");
   if (!impl_)
     throw Error(ErrorCode::unavailable, "pending TLS connection is closed");
   if (timeout.count() <= 0)
@@ -243,6 +256,39 @@ TlsChannel TlsPendingConnection::handshake(Ms timeout) && {
   channel.impl_->operation(timeout, [&](auto done) {
     channel.impl_->stream.async_handshake(asio::ssl::stream_base::server, done);
   });
+  return channel;
+}
+void TlsPendingConnection::start_handshake(Ms timeout) {
+  if (!impl_ || handshake_)
+    throw std::logic_error("TLS handshake requires an unused pending connection");
+  if (timeout.count() <= 0)
+    throw std::invalid_argument("positive TLS handshake timeout required");
+  handshake_ = std::make_shared<Handshake>();
+  handshake_->deadline = Clock::now() + timeout;
+  impl_->stream.async_handshake(asio::ssl::stream_base::server,
+                                [state = handshake_](asio::error_code error) {
+                                  state->error = error;
+                                  state->complete = true;
+                                });
+}
+std::optional<TlsChannel> TlsPendingConnection::poll_handshake() {
+  if (!impl_ || !handshake_)
+    throw std::logic_error("TLS handshake is not pending");
+  if (Clock::now() >= handshake_->deadline) {
+    impl_->cancel();
+    throw Error(ErrorCode::unavailable, "TLS handshake timed out");
+  }
+  impl_->io->restart();
+  impl_->io->poll();
+  if (!handshake_->complete)
+    return std::nullopt;
+  if (handshake_->error) {
+    impl_->cancel();
+    throw Error(ErrorCode::unavailable, "TLS handshake failed");
+  }
+  TlsChannel channel;
+  channel.impl_ = std::move(impl_);
+  handshake_.reset();
   return channel;
 }
 TlsPendingConnection TlsListener::accept_pending(Ms wait_timeout) {

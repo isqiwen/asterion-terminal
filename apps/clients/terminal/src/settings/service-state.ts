@@ -5,7 +5,8 @@ export type Service = NonNullable<NodeStatus["health"]>["services"][number];
 export type ServiceKind = Service["kind"];
 export const kindLabels: Record<ServiceKind, string> = {
   market: "实时行情",
-  research: "研究与计算",
+  data: "历史数据服务",
+  task: "任务服务",
   live: "CTP 交易",
 };
 export type Binding = {
@@ -21,7 +22,8 @@ export function binding(snapshot: Snapshot | null, kind: ServiceKind): Binding |
     const value = snapshot.market;
     return value && { ...value, online: value.transport_online };
   }
-  if (kind === "research") return snapshot.research;
+  if (kind === "task") return snapshot.task_service;
+  if (kind === "data") return snapshot.data;
   // Trading runs one service per CTP account; there is no single location.
   return null;
 }
@@ -42,8 +44,11 @@ export function location(active: Binding | null, nodes: NodeStatus[]) {
 }
 export function serviceStatus(node: NodeStatus, service: Service) {
   if (node.state !== "online") return t("状态未知");
+  if (service.state === "stopping") return t("停止中");
   if (service.state === "stopped") return t("已停止");
   if (service.state === "failed") return t("启动失败");
+  if (service.state === "waiting_capacity") return t("等待节点容量");
+  if (service.state === "starting") return t("启动中");
   return t(
     (
       {

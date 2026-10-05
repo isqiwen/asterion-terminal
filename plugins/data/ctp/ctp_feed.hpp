@@ -1,4 +1,6 @@
 #pragma once
+#include <asterion/kernel/plugin.hpp>
+#include <asterion/kernel/thread_pool.hpp>
 #include <asterion/domain/live_market.hpp>
 #include <filesystem>
 #include <map>
@@ -16,20 +18,26 @@ std::int64_t source_time(const std::string& day, const std::string& time, int mi
 // volume, which includes the contract multiplier.
 std::optional<Decimal> average_price(double value, const std::string& venue,
                                      std::optional<int> multiplier);
-class Feed final : public LiveMarketDataPort {
+class Feed final : public LiveMarketDataPort, public Plugin {
 public:
-  Feed(const std::filesystem::path& library, const std::filesystem::path& flow,
-       std::size_t event_capacity = 4096);
+  // The shared SDK executor has exactly one worker and outlives this adapter.
+  Feed(ThreadPool& sdk_owner, const std::filesystem::path& library,
+       const std::filesystem::path& flow, std::size_t event_capacity = 4096);
   ~Feed() override;
   PluginDescriptor descriptor() const override;
   void start() override;
   void stop() noexcept override;
   void connect(Configuration config, const std::vector<InstrumentId>& instruments);
+  // All public state operations belong to one owner. SDK callbacks only enqueue
+  // owned provider observations; poll applies at most 1,024 per turn.
+  void poll();
   void subscribe(const std::vector<InstrumentId>& instruments) override;
   // Contract multipliers from the trading catalog; required to normalize
   // non-CZCE average prices. Unknown contracts report no average price.
   void set_multipliers(std::map<InstrumentId, int> multipliers);
-  LiveMarketSnapshot snapshot() const override;
+  LiveMarketSnapshot snapshot(std::optional<std::uint64_t> after = {},
+                              std::span<const InstrumentId> forced = {}) const override;
+  std::string phase() const;
   MarketEventBatch events_after(const std::string& stream_id, std::uint64_t cursor,
                                 std::size_t limit) const override;
   void disconnect() override;

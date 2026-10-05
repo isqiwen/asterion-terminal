@@ -24,7 +24,7 @@ const shapes = {
       <path d="M4 5v14c0 4 16 4 16 0V5M4 12c0 4 16 4 16 0" />
     </>
   ),
-  research: (
+  backtest: (
     <>
       <path d="M9 3h6M10 3v6l-6 10a1.5 1.5 0 0 0 1.3 2h13.4a1.5 1.5 0 0 0 1.3-2L14 9V3M8 14h8" />
     </>

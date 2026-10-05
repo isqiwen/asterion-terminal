@@ -6,13 +6,11 @@
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/foundation/serialization.hpp>
 #include <asterion/kernel/process/artifact.hpp>
+#include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
 #include <fstream>
 #include <thread>
 #include <stdexcept>
-#ifdef _WIN32
-#include <windows.h>
-#endif
 namespace asterion::terminal {
 namespace fs = std::filesystem;
 namespace {
@@ -24,17 +22,48 @@ void plain(const fs::path& p) {
   if (fs::is_symlink(p))
     throw std::runtime_error("Agent update path cannot be a symlink");
 }
-void publish(const fs::path& source, const fs::path& destination) {
-#ifdef _WIN32
-  if (!MoveFileExW(source.c_str(), destination.c_str(),
-                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-    throw std::runtime_error("cannot publish Agent update");
-#else
-  fs::rename(source, destination);
-  sync_directory(destination.parent_path());
-#endif
-}
 } // namespace
+void install_node_program(const fs::path& source, const fs::path& installed, const fs::path& root) {
+  if (!source.is_absolute() || !installed.is_absolute() || !root.is_absolute() ||
+      installed.parent_path() != root / "bin" || source == installed)
+    throw std::invalid_argument("invalid Agent installation paths");
+  for (const auto& path : {root, root / "bin", source, installed})
+    plain(path);
+  if (!fs::is_regular_file(source))
+    throw std::runtime_error("bundled Agent program is missing");
+  const auto platform = artifact_platform(source), host = current_platform();
+  if (platform.os != host.os || platform.arch != host.arch)
+    throw std::runtime_error("bundled Agent platform mismatch");
+  const auto target = sha256_file(source);
+  create_directories_durably(root / "bin");
+  if (fs::exists(installed)) {
+    if (!fs::is_regular_file(installed))
+      throw std::runtime_error("installed Agent is not a regular file");
+    if (sha256_file(installed) != target)
+      throw std::runtime_error(
+          "local Agent version differs; upgrade the system service explicitly");
+    // The matching executable can be the result of a failed directory sync.
+    // The directory creation check above finishes publication before registration.
+    return;
+  }
+  const auto temporary = root / "bin" / ("install-" + unique_process_id());
+  if (!fs::create_directory(temporary))
+    throw std::runtime_error("cannot create Agent staging directory");
+  struct Cleanup {
+    fs::path path;
+    ~Cleanup() {
+      std::error_code error;
+      fs::remove_all(path, error);
+    }
+  } cleanup{temporary};
+  const auto staged = temporary / installed.filename();
+  fs::copy_file(source, staged);
+  if (sha256_file(staged) != target)
+    throw std::runtime_error("Agent source changed during staging");
+  publish_file_durably(staged, installed);
+  fs::remove(temporary);
+  sync_directory(installed.parent_path());
+}
 Json inspect_node_program(const fs::path& source, const fs::path& installed, const fs::path& root) {
   if (!source.is_absolute() || !installed.is_absolute() || !root.is_absolute() ||
       installed.parent_path() != root / "bin")
@@ -132,7 +161,7 @@ void replace_node_program(const fs::path& source, const fs::path& installed, con
     if (target == expected_digest)
       return;
     write_file_durably(pending, transaction.dump());
-    publish(pending, journal);
+    publish_file_durably(pending, journal);
   }
   const auto observed = sha256_file(installed);
   if (observed != expected_digest && observed != target)
@@ -149,20 +178,24 @@ void replace_node_program(const fs::path& source, const fs::path& installed, con
     const auto staged = artifact_platform(candidate);
     if (staged.os != host.os || staged.arch != host.arch)
       throw std::runtime_error("staged Agent platform mismatch");
-    publish(candidate, installed);
+    publish_file_durably(candidate, installed);
   } else if (fs::exists(candidate)) {
     throw std::runtime_error("unexpected staged Agent after publication");
   }
   if (sha256_file(installed) != target)
     throw std::runtime_error("published Agent integrity check failed");
+  // A failed rename-directory sync leaves the new executable visible. Retry
+  // that barrier even when recovery did not need another rename.
+  sync_directory(installed.parent_path());
   // Only transaction metadata is removed; all identity, service and ledger
   // data remain intact. Restart/health confirmation is the caller's next step.
   fs::remove(journal);
+  sync_directory(root);
 }
 
-void upgrade_node_service(const fs::path& source, const fs::path& installed, const fs::path& root,
-                          const std::string& endpoint, const std::string& expected_digest,
-                          const std::string& name) {
+void upgrade_node_service(ServiceIo& io, const fs::path& source, const fs::path& installed,
+                          const fs::path& root, const std::string& endpoint,
+                          const std::string& expected_digest, const std::string& name) {
   if (!source.is_absolute() || !installed.is_absolute() || !root.is_absolute() ||
       installed.parent_path() != root / "bin" || source == installed ||
       expected_digest.size() != 64 ||
@@ -221,13 +254,13 @@ void upgrade_node_service(const fs::path& source, const fs::path& installed, con
       throw std::runtime_error("unfinished Agent service update record requires inspection");
     record["phase"] = phase;
     write_file_durably(pending_path, record.dump());
-    publish(pending_path, record_path);
+    publish_file_durably(pending_path, record_path);
   };
   NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
   const auto operation = "upgrade." + target.substr(0, 32);
   if (record.at("phase") == "draining") {
     try {
-      NodeClient probe(config);
+      auto probe = NodeClient::open(io, config).get();
     } catch (const Error&) {
       // A stopped Agent has no services to drain or restore. Its lock is the
       // proof that it is not running; a live Agent keeps the update refused.
@@ -241,28 +274,32 @@ void upgrade_node_service(const fs::path& source, const fs::path& installed, con
   }
   const bool offline = record.at("phase") == "offline";
   if (record.at("phase") == "draining") {
-    NodeClient control(config);
+    auto control = NodeClient::open(io, config).get();
     // Capture clients before prepare: idle services may exit as soon as the
     // Agent accepts the maintenance plan. No session is changed before validation.
-    std::vector<std::unique_ptr<MarketClient>> markets;
-    const auto services = control.status().at("health").at("services");
+    std::vector<std::shared_ptr<MarketClient>> markets;
+    const auto services = control->status().get().at("health").at("services");
     for (const auto& service : services) {
       if (service.at("kind") == "market" && service.at("state") == "running")
-        markets.push_back(std::make_unique<MarketClient>(control.service_endpoint(
-            service.at("id").get<std::string>(), asterion::node::v1::MARKET_DATA)));
+        markets.push_back(
+            MarketClient::open(io, control
+                                       ->service_endpoint(service.at("id").get<std::string>(),
+                                                          asterion::node::v1::MARKET_DATA)
+                                       .get())
+                .get());
     }
-    control.coordinate_upgrade(operation, "prepare");
+    (void)control->coordinate_upgrade(operation, "prepare").get();
     save("draining");
     for (auto& market : markets) {
-      const auto state = market->snapshot();
+      const auto state = market->snapshot().get();
       if ((state.at("phase") != "disconnected" && state.at("phase") != "sdk_unavailable") ||
           state.at("catalog").at("phase") == "loading")
-        market->disconnect();
+        market->disconnect().get();
     }
     markets.clear();
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     for (;;) {
-      const auto progress = control.coordinate_upgrade(operation, "prepare");
+      const auto progress = control->coordinate_upgrade(operation, "prepare").get();
       if (progress.at("phase") == "ready")
         break;
       if (std::chrono::steady_clock::now() >= deadline)
@@ -274,17 +311,17 @@ void upgrade_node_service(const fs::path& source, const fs::path& installed, con
     save("quiesced");
   }
   if (record.at("phase") == "quiesced") {
-    std::unique_ptr<NodeClient> control;
+    std::shared_ptr<NodeClient> control;
     try {
-      control = std::make_unique<NodeClient>(config);
+      control = NodeClient::open(io, config).get();
     } catch (const Error&) {
       if (!fs::exists(record_path))
         throw;
       verify_node_service_stopped(installed, root, endpoint, name);
     }
     if (control) {
-      const auto status = control->status().at("health");
-      const auto progress = control->coordinate_upgrade(operation, "prepare");
+      const auto status = control->status().get().at("health");
+      const auto progress = control->coordinate_upgrade(operation, "prepare").get();
       if (progress.at("phase") != "ready")
         throw std::runtime_error("Agent upgrade has not reached its recovery boundary");
       const auto pid = status.at("pid").get<std::uint64_t>();
@@ -313,7 +350,7 @@ void upgrade_node_service(const fs::path& source, const fs::path& installed, con
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
   for (;;) {
     try {
-      NodeClient probe(config);
+      auto probe = NodeClient::open(io, config).get();
       if (sha256_file(installed) != target)
         throw std::runtime_error("Agent program changed after restart");
       if (offline) {
@@ -321,11 +358,11 @@ void upgrade_node_service(const fs::path& source, const fs::path& installed, con
         sync_directory(root);
         return;
       }
-      const auto progress = probe.coordinate_upgrade(operation, "resume");
+      const auto progress = probe->coordinate_upgrade(operation, "resume").get();
       if (progress.at("phase") != "restoring" && progress.at("phase") != "complete")
         throw std::runtime_error("Agent upgrade restoration has not started");
       if (progress.at("phase") != "complete")
-        probe.coordinate_upgrade(operation, "complete");
+        (void)probe->coordinate_upgrade(operation, "complete").get();
       fs::remove(record_path);
       sync_directory(root);
       return;

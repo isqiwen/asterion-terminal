@@ -4,4 +4,4 @@ target_link_libraries(asterion_factor_engine PUBLIC asterion_protocol PRIVATE as
 add_executable(asterion-factor main.cpp)
 target_compile_features(asterion-factor PRIVATE cxx_std_20)
 target_compile_definitions(asterion-factor PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
-target_link_libraries(asterion-factor PRIVATE asterion_factor_engine asterion_sqlite asterion_task_client CLI11::CLI11 $<$<PLATFORM_ID:Windows>:shell32>)
+target_link_libraries(asterion-factor PRIVATE asterion_factor_engine asterion_task_client CLI11::CLI11 $<$<PLATFORM_ID:Windows>:shell32>)

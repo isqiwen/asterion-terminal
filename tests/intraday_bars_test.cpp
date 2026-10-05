@@ -64,6 +64,25 @@ TEST(IntradayBars, NewTradingDayStartsANewSeries) {
   ASSERT_EQ(series->bars.size(), 1u);
   EXPECT_EQ(series->bars[0].volume, 0);
 }
+TEST(IntradayBars, DelayedAggregationAndInterruptionHaveIndependentRevisions) {
+  IntradayBars bars;
+  const InstrumentId id{"SHFE", "br2611"};
+  EXPECT_TRUE(bars.changed_after(0).empty());
+  bars.observe(quote(base, "100", 1));
+  const auto baseline = bars.revision();
+  EXPECT_TRUE(bars.changed_after(baseline).empty());
+  bars.observe(quote(base + 60000, "102", 2));
+  EXPECT_EQ(bars.changed_after(baseline), std::vector<InstrumentId>{id});
+  EXPECT_EQ(bars.change_1m_percent(id)->str(), "2");
+  const auto aggregated = bars.revision();
+  bars.interrupt();
+  EXPECT_EQ(bars.changed_after(aggregated), std::vector<InstrumentId>{id});
+  EXPECT_FALSE(bars.change_1m_percent(id));
+  const auto interrupted = bars.revision();
+  bars.interrupt();
+  EXPECT_EQ(bars.revision(), interrupted);
+  EXPECT_THROW(bars.changed_after(interrupted + 1), std::invalid_argument);
+}
 TEST(IntradayBars, ProtocolRoundTripValidatesBars) {
   IntradayBars bars;
   bars.observe(quote(base, "100", 10));

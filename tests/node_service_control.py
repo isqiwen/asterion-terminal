@@ -46,6 +46,13 @@ with tempfile.TemporaryDirectory(prefix='ast-os-',dir='/tmp', ignore_cleanup_err
         assert run('verify-stopped').returncode!=0
         first=pid();definition=home/'Library/LaunchAgents'/f'{name}.plist';original=definition.read_bytes()
         marker=state/'preserved-data';marker.write_text('retain this test-owned data')
+        deployed=run('deploy-market',extra={'--source':str(build/'asterion-market-data'),
+                                           '--provider':str(build/'libasterion_test_ctp.dylib')})
+        assert deployed.returncode==0,deployed.stderr
+        health=json.loads(run('status').stdout)['health']
+        children=[service['pid'] for service in health['services'] if service['pid']]
+        assert children
+        configurations={path:path.read_bytes() for path in (state/'services').glob('*/service.json')}
         assert run('stop',os.getpid()).returncode!=0
         assert alive(first)
         assert run('stop',first,{'--endpoint':endpoint+'-wrong'}).returncode!=0
@@ -56,6 +63,8 @@ with tempfile.TemporaryDirectory(prefix='ast-os-',dir='/tmp', ignore_cleanup_err
         definition.write_bytes(original)
         stopped=run('stop',first);assert stopped.returncode==0,stopped.stderr
         wait(lambda:not alive(first))
+        wait(lambda:all(not alive(child) for child in children))
+        assert all(path.read_bytes()==contents for path,contents in configurations.items())
         assert marker.read_text()=='retain this test-owned data' and definition.read_bytes()==original
         assert subprocess.run(['/bin/launchctl','print',domain],capture_output=True).returncode!=0
         verified=run('verify-stopped');assert verified.returncode==0,verified.stderr
@@ -83,16 +92,21 @@ with tempfile.TemporaryDirectory(prefix='ast-os-',dir='/tmp', ignore_cleanup_err
         assert marker.read_text()=='retain this test-owned data' and definition.read_bytes()==original
         assert not (state/'agent-upgrade.json').exists()
         stopped=run('stop',pid());assert stopped.returncode==0,stopped.stderr
-        # Simulate an interrupted upgrade after a verified OS stop.
+        # Obtain the real Agent quiescence decision before rejecting OS ownership.
+        # A synthetic outer checkpoint alone is not a valid coordinated upgrade.
         new_hash=hashlib.sha256(binary.read_bytes()).hexdigest()
         record_path=state/'agent-service-upgrade.json'
-        record={'version':1,'installed':str(binary),'endpoint':endpoint,'name':name,
-                'before':new_hash,'after':old_hash,'phase':'quiesced'}
-        record_path.write_text(json.dumps(record))
         args={'--source':str(build/'asterion-node-agent'),'--expected':new_hash}
+        restarted=run('install');assert restarted.returncode==0,restarted.stderr
+        wait(lambda:(response:=run('status')).returncode==0 and
+             json.loads(response.stdout)['health']['phase']=='ready')
         definition.write_bytes(original+b'\n')
         ambiguous=run('upgrade',extra=args)
         assert ambiguous.returncode!=0 and record_path.exists()
+        record=json.loads(record_path.read_text())
+        assert record['phase']=='quiesced'
+        plan=json.loads((state/'maintenance-plan.json').read_text())
+        assert plan['phase']=='ready' and plan['operation']=='upgrade.'+old_hash[:32]
         assert hashlib.sha256(binary.read_bytes()).hexdigest()==new_hash
         definition.write_bytes(original)
         recovered_stop=run('upgrade',extra=args)
@@ -117,6 +131,19 @@ with tempfile.TemporaryDirectory(prefix='ast-os-',dir='/tmp', ignore_cleanup_err
         assert not record_path.exists()
         assert marker.read_text()=='retain this test-owned data'
         stopped=run('stop',pid());assert stopped.returncode==0,stopped.stderr
+        # Startup recovery must remain stoppable through the same owned OS service path.
+        pending=state/'services/market-running/service.pending'
+        pending.write_bytes(b'test-owned unfinished configuration')
+        configurations={path:path.read_bytes() for path in (state/'services').glob('*/service.json')}
+        installed=run('install');assert installed.returncode==0,installed.stderr
+        wait(lambda:(response:=run('status')).returncode==0 and
+             json.loads(response.stdout)['health']['phase']=='recovery_required')
+        recovering=pid()
+        stopped=run('stop',recovering);assert stopped.returncode==0,stopped.stderr
+        wait(lambda:not alive(recovering))
+        assert pending.read_bytes()==b'test-owned unfinished configuration'
+        assert all(path.read_bytes()==contents for path,contents in configurations.items())
+        assert marker.read_text()=='retain this test-owned data'
     finally:
         subprocess.run(['/bin/launchctl','bootout',domain],capture_output=True)
-print('Unique launchd registration: wrong PID/config/registration rejected, owned stop confirmed, data retained, restart, real Agent upgrade and publication failure recovery passed')
+print('Unique launchd registration: wrong PID/config/registration rejected, owned stop confirmed in running and recovery phases, children stopped and configurations retained, restart, real Agent upgrade and publication failure recovery passed')

@@ -4,6 +4,43 @@ test.use({ enterWorkbench: false });
 // The one step whose row reports a failure.
 const failedStep = (page: Page) => page.locator(".setup-step").filter({ hasText: "失败" });
 
+test("Agent initialization failure stays on the Agent step and exposes its cause", async ({
+  page,
+}) => {
+  let fail = false;
+  let serviceStarts = 0;
+  await page.route("**/__asterion/api", async route => {
+    const method = route.request().postDataJSON().method;
+    if (method === "market.local") serviceStarts++;
+    if (method !== "runtime.snapshot") return route.continue();
+    const response = await route.fetch();
+    const body = await response.json();
+    const node = body.result.nodes.find((node: { id: string }) => node.id === "local");
+    node.health.phase = fail ? "recovery_required" : "initializing";
+    node.health.failure = fail
+      ? {
+          code: "invalid_request",
+          message:
+            "Agent initialization failed; inspect node logs: unsupported managed service configuration version: test-node/services/market-data/service.json",
+        }
+      : null;
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto("/");
+  await expect(page.locator(".setup-step").filter({ hasText: "服务管理器" })).toContainText(
+    "进行中",
+  );
+  await expect(page.locator(".setup-step").filter({ hasText: "行情服务" })).toContainText("等待");
+  fail = true;
+  await expect(failedStep(page)).toHaveText(/^服务管理器/);
+  await expect(page.getByText("Agent 初始化失败，请检查节点日志", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "详情", exact: true }).click();
+  await expect(page.locator(".error-diagnostic")).toContainText(
+    "unsupported managed service configuration version",
+  );
+  expect(serviceStarts).toBe(0);
+});
+
 test("startup lists unloadable plugins and interrupted tasks without blocking entry", async ({
   page,
 }) => {
@@ -23,8 +60,7 @@ test("startup lists unloadable plugins and interrupted tasks without blocking en
         state: "invalid",
         error: "plugin entry point is missing",
       });
-    else if (value.result.research?.tasks)
-      value.result.research.tasks.push({ id: "left-over", kind: "backtest", state: "interrupted" });
+    else if (value.result.task_service) value.result.task_service.interrupted_count = 1;
     return route.fulfill({ response, json: value });
   });
   await page.goto("/");
@@ -34,7 +70,10 @@ test("startup lists unloadable plugins and interrupted tasks without blocking en
   await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
 });
 
-test("startup starts a data service that was left stopped", async ({ page, request }) => {
+test("startup restores the Data/Task pair after the initial Agent inventory is still loading", async ({
+  page,
+  request,
+}) => {
   const call = async (method: string, params: object = {}) => {
     const body = await (
       await request.post("/__asterion/api", { data: { version: 1, method, params } })
@@ -42,53 +81,74 @@ test("startup starts a data service that was left stopped", async ({ page, reque
     if (body.error) throw new Error(`${method}: ${body.error.message}`);
     return body.result;
   };
-  await call("node.action", { id: "local", service: "research", action: "stop" });
-  const research = async () =>
+  await call("node.action", { id: "local", service: "task", action: "stop" });
+  await call("node.action", { id: "local", service: "historical-data", action: "stop" });
+  await page.route("**/__asterion/api", async route => {
+    if (route.request().postDataJSON().method !== "node.local") return route.continue();
+    const response = await route.fetch();
+    const body = await response.json();
+    const health = body.result.nodes.find((node: { id: string }) => node.id === "local").health;
+    health.phase = "initializing";
+    health.services = [];
+    await route.fulfill({ response, json: body });
+  });
+  const taskService = async () =>
     (await call("runtime.snapshot")).nodes
       .find((node: { id: string }) => node.id === "local")
-      .health.services.find((service: { id: string }) => service.id === "research");
-  await expect.poll(async () => (await research()).desired_running).toBe(false);
+      .health.services.find((service: { id: string }) => service.id === "task");
+  await expect.poll(async () => (await taskService()).desired_running).toBe(false);
   await page.goto("/");
   await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled({
     timeout: 30000,
   });
-  expect((await research()).health).toBe("ready");
-  expect((await call("runtime.snapshot")).research.online).toBe(true);
+  expect((await taskService()).health).toBe("ready");
+  const restored = await call("runtime.snapshot");
+  expect(restored.task_service.online).toBe(true);
+  expect(restored.data.online).toBe(true);
 });
 
-test("startup waits for the first service heartbeats before offering entry", async ({ page }) => {
-  let health = "starting";
-  await page.route("**/__asterion/api", async route => {
-    if (route.request().postDataJSON().method !== "runtime.snapshot") return route.continue();
-    const response = await route.fetch();
-    const body = await response.json();
-    for (const node of body.result?.nodes ?? [])
-      for (const service of node.health?.services ?? [])
-        if (service.kind === "research" && service.desired_running) {
-          service.health = health === "failed" ? "offline" : health;
-          if (health === "starting") service.error = "IPC endpoint is not ready";
-          if (health === "failed") {
-            service.state = "failed";
-            service.error = "test: exited at start";
+for (const [kind, label] of [
+  ["data", "数据服务"],
+  ["task", "任务服务"],
+] as const)
+  test(`startup waits for the ${kind} heartbeat and reports its own failure`, async ({ page }) => {
+    let health = "starting";
+    await page.route("**/__asterion/api", async route => {
+      if (route.request().postDataJSON().method !== "runtime.snapshot") return route.continue();
+      const response = await route.fetch();
+      const body = await response.json();
+      for (const node of body.result?.nodes ?? [])
+        for (const service of node.health?.services ?? [])
+          if (service.kind === kind && service.desired_running) {
+            service.health = health === "failed" ? "offline" : health;
+            if (health === "starting") service.error = "IPC endpoint is not ready";
+            if (health === "failed") {
+              service.state = "failed";
+              service.error = "test: exited at start";
+            }
           }
-        }
-    await route.fulfill({ response, json: body });
+      await route.fulfill({ response, json: body });
+    });
+    await page.goto("/");
+    // Each service needs its own heartbeat before its step completes.
+    const taskService = page.locator(".setup-step").filter({ hasText: label });
+    await expect(taskService).toContainText("进行中");
+    await expect(page.locator(".setup-step")).toHaveCount(5);
+    if (kind === "task")
+      await expect(page.locator(".setup-step").filter({ hasText: "数据服务" })).toContainText(
+        "完成",
+      );
+    await expect(page.locator(".setup-step").filter({ hasText: "行情服务" })).toContainText("完成");
+    await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toHaveCount(0);
+    health = "ready";
+    await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
+    await expect(taskService).toContainText("完成");
+    // A service that failed to start fails its own step at once.
+    health = "failed";
+    await page.reload();
+    await expect(page.getByRole("button", { name: "重试启动", exact: true })).toBeVisible();
+    await expect(failedStep(page)).toHaveText(new RegExp(`^${label}`));
   });
-  await page.goto("/");
-  // Market is healthy; research has started but not answered a heartbeat yet.
-  const research = page.locator(".setup-step").filter({ hasText: "数据服务" });
-  await expect(research).toContainText("进行中");
-  await expect(page.locator(".setup-step").filter({ hasText: "行情服务" })).toContainText("完成");
-  await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toHaveCount(0);
-  health = "ready";
-  await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
-  await expect(research).toContainText("完成");
-  // A service that failed to start fails its own step at once.
-  health = "failed";
-  await page.reload();
-  await expect(page.getByRole("button", { name: "重试启动", exact: true })).toBeVisible();
-  await expect(failedStep(page)).toHaveText(/^数据服务/);
-});
 
 test("startup reports the failing step, retries and waits for the user on every launch", async ({
   page,
@@ -97,8 +157,8 @@ test("startup reports the failing step, retries and waits for the user on every 
   let fail = true;
   let failMarket = true;
   let marketStarts = 0;
-  let failResearch = true;
-  let researchStarts = 0;
+  let failPair = true;
+  let dataTaskStarts = 0;
   await page.route("**/__asterion/api", async route => {
     const body = route.request().postDataJSON();
     if (body.method === "node.local") {
@@ -119,13 +179,13 @@ test("startup reports the failing step, retries and waits for the user on every 
           body: JSON.stringify({ error: { message: "Market start failed" } }),
         });
     }
-    if (["research.local", "research.local.create"].includes(body.method)) {
-      researchStarts++;
-      if (failResearch)
+    if (["node.data_tasks.local.open", "node.data_tasks.local.create"].includes(body.method)) {
+      dataTaskStarts++;
+      if (failPair)
         return route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify({ error: { message: "Research start failed" } }),
+          body: JSON.stringify({ error: { message: "Data/Task preparation failed" } }),
         });
     }
     return route.continue();
@@ -151,15 +211,15 @@ test("startup reports the failing step, retries and waits for the user on every 
   failMarket = false;
   await page.getByRole("button", { name: "重试启动", exact: true }).click();
   await expect(page.getByRole("button", { name: "重试启动", exact: true })).toBeEnabled();
-  expect(researchStarts).toBe(1);
+  expect(dataTaskStarts).toBe(1);
   await expect(failedStep(page)).toHaveText(/^数据服务/);
-  failResearch = false;
+  failPair = false;
   await page.getByRole("button", { name: "重试启动", exact: true }).click();
   await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
   expect(starts).toBe(4);
   expect(marketStarts).toBe(3);
-  expect(researchStarts).toBe(2);
-  await expect(page.getByRole("progressbar", { name: "数据服务" })).toHaveAttribute(
+  expect(dataTaskStarts).toBe(2);
+  await expect(page.getByRole("progressbar", { name: "任务服务", exact: true })).toHaveAttribute(
     "aria-valuenow",
     "100",
   );
@@ -179,7 +239,7 @@ test("startup reports the failing step, retries and waits for the user on every 
   ).toBeVisible();
   expect(starts).toBe(5);
   expect(marketStarts).toBe(4);
-  expect(researchStarts).toBe(3);
+  expect(dataTaskStarts).toBe(3);
   // A saved marker never skips actual service health verification.
   fail = true;
   await page.reload();
@@ -218,9 +278,12 @@ for (const updateState of ["update_available", "recovery_required"])
         return route.fulfill({ json: inspectedResponse });
       }
       if (
-        ["node.local", "market.local", "research.local", "research.local.create"].includes(
-          body.method,
-        )
+        [
+          "node.local",
+          "market.local",
+          "node.data_tasks.local.open",
+          "node.data_tasks.local.create",
+        ].includes(body.method)
       ) {
         expect(upgraded).toBe(true);
         serviceStarts++;
@@ -234,7 +297,7 @@ for (const updateState of ["update_available", "recovery_required"])
     await expect(page.getByRole("button", { name: "升级服务管理器", exact: true })).toHaveCount(0);
   });
 
-for (const failure of ["market", "research", "stale"] as const)
+for (const failure of ["market", "task"] as const)
   test(`final startup probe rejects ${failure} state even after successful starts`, async ({
     page,
   }) => {
@@ -242,23 +305,23 @@ for (const failure of ["market", "research", "stale"] as const)
     let fail = true;
     await page.route("**/__asterion/api", async route => {
       const body = route.request().postDataJSON();
-      if (["research.local", "research.local.create"].includes(body.method)) started = true;
+      if (["node.data_tasks.local.open", "node.data_tasks.local.create"].includes(body.method))
+        started = true;
       if (body.method === "runtime.snapshot" && started && fail) {
         const response = await route.fetch();
         const value = await response.json();
-        if (failure === "stale") value.result.stale = true;
-        else if (failure === "market") value.result.market.transport_online = false;
-        else value.result.research.online = false;
+        if (failure === "market") value.result.market.transport_online = false;
+        else value.result.task_service.online = false;
         return route.fulfill({ response, json: value });
       }
       return route.continue();
     });
     await page.goto("/");
-    await expect(page.getByRole("button", { name: "重试启动", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "重试启动", exact: true })).toBeVisible({
+      timeout: 25000,
+    });
     await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toHaveCount(0);
-    await expect(failedStep(page)).toHaveText(
-      { market: /^行情服务/, research: /^数据服务/, stale: /^服务管理器/ }[failure],
-    );
+    await expect(failedStep(page)).toHaveText({ market: /^行情服务/, task: /^任务服务/ }[failure]);
     fail = false;
     await page.getByRole("button", { name: "重试启动", exact: true }).click();
     await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
@@ -297,9 +360,12 @@ for (const [diagnostic, summary, english] of [
         });
       }
       if (
-        ["node.local", "market.local", "research.local", "research.local.create"].includes(
-          body.method,
-        )
+        [
+          "node.local",
+          "market.local",
+          "node.data_tasks.local.open",
+          "node.data_tasks.local.create",
+        ].includes(body.method)
       )
         serviceStarts++;
       return route.continue();

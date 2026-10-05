@@ -6,9 +6,9 @@
 #include <array>
 
 namespace asterion::protocol {
-research::v1::DailyFactorRequest encode_daily_factor_request(const Json& value) {
+factor::v1::DailyFactorRequest encode_daily_factor_request(const Json& value) {
   require_fields(value, {"source_dataset_id", "lookback", "horizon", "evaluation"});
-  research::v1::DailyFactorRequest request;
+  factor::v1::DailyFactorRequest request;
   request.set_source_dataset_id(value.at("source_dataset_id").get<std::string>());
   if (request.source_dataset_id().size() != 64 ||
       request.source_dataset_id().find_first_not_of("0123456789abcdef") != std::string::npos)
@@ -34,8 +34,8 @@ research::v1::DailyFactorRequest encode_daily_factor_request(const Json& value) 
     throw std::invalid_argument("invalid daily factor request");
   return request;
 }
-Json decode_daily_factor(const research::v1::DailyFactorInput& input,
-                         const research::v1::DailyFactorResult& result) {
+Json decode_daily_factor(const factor::v1::DailyFactorInput& input,
+                         const factor::v1::DailyFactorResult& result) {
   validate_daily_factor(input);
   validate_message(result);
   const auto reject = [] { throw std::invalid_argument("invalid daily factor result evidence"); };
@@ -103,6 +103,7 @@ Json decode_daily_factor(const research::v1::DailyFactorInput& input,
                                                  : Json{{"mode", "full_sample"}}},
         {"data",
          {{"source_dataset_id", data.source_dataset_id()},
+          {"history_evidence", decode_history_evidence(data.history_evidence())},
           {"source", data.source()},
           {"contract_id", data.contract_id()},
           {"manifest_sha256", data.manifest_sha256()},
@@ -118,13 +119,16 @@ Json decode_daily_factor(const research::v1::DailyFactorInput& input,
         {"samples", samples},
         {"partitions", partitions}}}};
 }
-std::vector<HistoricalDailyBar> daily_factor_bars(const research::v1::DailyFactorDataset& input) {
+std::vector<HistoricalDailyBar> daily_factor_bars(const factor::v1::DailyFactorDataset& input) {
   validate_message(input);
   if (input.source_dataset_id() != input.manifest_sha256())
     throw std::invalid_argument("invalid historical dataset revision");
+  validate_history_evidence(input.history_evidence());
+  if (input.history_evidence().dataset_id() != input.source_dataset_id())
+    throw std::invalid_argument("historical evidence does not match dataset versions");
   validate_history_source(input.source());
   (void)HistoryIdentity::parse(input.contract_id());
-  if (input.version() != 1 || input.source().empty() || input.contract_id().empty() ||
+  if (input.version() != 2 || input.source().empty() || input.contract_id().empty() ||
       input.contract_id().size() > 64 ||
       input.contract_id().find_first_not_of(
           "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/-") !=
@@ -144,7 +148,7 @@ std::vector<HistoricalDailyBar> daily_factor_bars(const research::v1::DailyFacto
   }
   return result;
 }
-std::string daily_factor_revision(const research::v1::DailyFactorDataset& input) {
+std::string daily_factor_revision(const factor::v1::DailyFactorDataset& input) {
   const auto bars = daily_factor_bars(input);
   Json rows = Json::array();
   const auto optional = [](const std::optional<Decimal>& value) -> Json {
@@ -171,7 +175,7 @@ std::string daily_factor_revision(const research::v1::DailyFactorDataset& input)
       {"manifest_sha256", input.manifest_sha256()},
       {"bars", rows}}.dump());
 }
-void validate_daily_factor(const research::v1::DailyFactorInput& input) {
+void validate_daily_factor(const factor::v1::DailyFactorInput& input) {
   validate_message(input);
   if (input.version() != 1 || !input.has_dataset() || !input.lookback() ||
       input.lookback() > 10000 || !input.horizon() || input.horizon() > 10000)

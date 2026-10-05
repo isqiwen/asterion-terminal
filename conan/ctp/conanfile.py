@@ -9,14 +9,19 @@ class Ctp(ConanFile):
     version = "6.7.7"
     package_type = "shared-library"
     settings = "os", "arch"
+    def validate(self):
+        target = (str(self.settings.os), str(self.settings.arch))
+        if target not in (("Macos", "armv8"), ("Macos", "x86_64"), ("Linux", "x86_64")):
+            raise ConanInvalidConfiguration("CTP supports macOS armv8/x86_64 and Linux x86_64 only")
+
     def package(self):
         root = self.conf.get("user.ctp:sdk_root", default="")
         if not root or not Path(root).is_dir():
             raise ConanInvalidConfiguration("Run scripts/prepare_ctp.py explicitly to stage the pinned SDK")
         copy(self, "*.h", src=root, dst=str(Path(self.package_folder) / "include"))
+        suffix = "dylib" if str(self.settings.os) == "Macos" else "so"
         for library in ("ctp-md", "ctp-trader"):
-            for suffix in ("dylib", "so", "dll"):
-                copy(self, library + "." + suffix, src=root, dst=str(Path(self.package_folder) / "bin"))
+            copy(self, library + "." + suffix, src=root, dst=str(Path(self.package_folder) / "bin"))
             if str(self.settings.os) == "Macos":
                 import subprocess
                 source = str(Path(root) / (library + ".dylib"))

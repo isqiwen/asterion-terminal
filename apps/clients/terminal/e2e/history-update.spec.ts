@@ -9,7 +9,7 @@ test("fixed archive previews incremental ranges and whole-day repair without sub
     minuteDays: ["2026-09-23", "2026-09-25"],
     dailyDays: ["2026-09-23", "2026-09-24", "2026-09-25"],
   });
-  const before = await rpc(page.request, "research.datasets", {
+  const before = await rpc(page.request, "data.datasets", {
     venue: "",
     product: "zn",
     contract_id: "",
@@ -48,7 +48,7 @@ test("fixed archive previews incremental ranges and whole-day repair without sub
   await expect(repair).toContainText("待核对 1 个交易日：2026-09-24");
   await expect(repair.getByRole("button", { name: "开始下载此范围", exact: true })).toBeDisabled();
   await page.screenshot({ path: "build/history-update-repair.png", fullPage: true });
-  const after = await rpc(page.request, "research.datasets", {
+  const after = await rpc(page.request, "data.datasets", {
     venue: "",
     product: "zn",
     contract_id: "",
@@ -56,7 +56,7 @@ test("fixed archive previews incremental ranges and whole-day repair without sub
   });
   expect(after.history_datasets).toEqual(before.history_datasets);
   expect(
-    (await rpc(page.request, "runtime.snapshot")).research.tasks.some((task: { id: string }) =>
+    (await rpc(page.request, "runtime.snapshot")).task_service.tasks.some((task: { id: string }) =>
       task.id.startsWith("history-"),
     ),
   ).toBe(false);

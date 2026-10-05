@@ -3,9 +3,18 @@
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/service_host.hpp>
 #include <filesystem>
+#include <fstream>
+#include <optional>
+#include <cstdlib>
+#include <asterion/kernel/logger.hpp>
 #include <future>
 #include <gtest/gtest.h>
 #include <thread>
+#ifndef _WIN32
+#include <cerrno>
+#include <csignal>
+#include <unistd.h>
+#endif
 using namespace asterion;
 using namespace std::chrono_literals;
 namespace {
@@ -45,6 +54,37 @@ struct ServiceHostTest : testing::Test {
   service::Transport local() const { return {endpoint, {}, 0, {}}; }
 };
 } // namespace
+
+#ifndef _WIN32
+TEST(ServiceSignalsDeathTest, BrokenPipeDoesNotKillTheServiceAndTerminationStillStopsIt) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  ASSERT_EXIT(
+      {
+        // Do not inherit SIG_IGN from a Python/Node parent and get a false pass.
+        struct sigaction action{};
+        action.sa_handler = SIG_DFL;
+        sigemptyset(&action.sa_mask);
+        if (::sigaction(SIGPIPE, &action, nullptr) != 0)
+          _exit(10);
+        service::reset_stop_request();
+        service::install_stop_signals();
+        int pipe[2];
+        if (::pipe(pipe) != 0)
+          _exit(11);
+        ::close(pipe[0]);
+        errno = 0;
+        const auto written = ::write(pipe[1], "test", 4);
+        const auto failure = errno;
+        ::close(pipe[1]);
+        if (written != -1 || failure != EPIPE || service::stop_requested())
+          _exit(12);
+        if (::raise(SIGTERM) != 0 || !service::stop_requested())
+          _exit(13);
+        _exit(0);
+      },
+      ::testing::ExitedWithCode(0), "");
+}
+#endif
 
 TEST(ServiceTransport, RequiresExactlyOneCompleteTransport) {
   EXPECT_NO_THROW((service::Transport{"/tmp/x", {}, 0, {}}.validate()));
@@ -172,4 +212,56 @@ TEST_F(ServiceHostTest, AdmitsABurstUpToCapacityAndRejectsBeyondIt) {
   }
   service::request_stop();
   EXPECT_TRUE(served.get());
+}
+
+TEST_F(ServiceHostTest, HandlerFailureIsLoggedWithoutPayloadAndOtherConnectionsStillWork) {
+  const char* value = std::getenv("ASTERION_LOG_DIRECTORY");
+  const std::optional<std::string> saved = value ? std::optional<std::string>(value) : std::nullopt;
+  struct Restore {
+    const std::optional<std::string>& saved;
+    ~Restore() {
+      if (saved)
+        ::setenv("ASTERION_LOG_DIRECTORY", saved->c_str(), 1);
+      else
+        ::unsetenv("ASTERION_LOG_DIRECTORY");
+    }
+  } restore{saved};
+  const auto logs = root / "logs";
+  ASSERT_EQ(::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1), 0);
+  service::HostOptions options;
+  options.poll = 20ms;
+  service::ServiceHost host(
+      local(),
+      [](service::Connection& connection, std::stop_token) {
+        if (connection.receive(1s) == "fail")
+          throw Error(ErrorCode::conflict, "sensitive-handler-detail");
+        connection.send("ok", 1s);
+      },
+      options);
+  auto served = std::async(std::launch::async, [&] { return host.run(); });
+  struct Stop {
+    ~Stop() { service::request_stop(); }
+  } stop;
+  auto bad = connect(endpoint);
+  bad.send("fail", 1s);
+  EXPECT_THROW(static_cast<void>(bad.receive(2s)), std::exception);
+  auto good = connect(endpoint);
+  good.send("ready", 1s);
+  EXPECT_EQ(good.receive(2s), "ok");
+  service::request_stop();
+  EXPECT_TRUE(served.get());
+  unsigned records = 0;
+  for (const auto& entry : std::filesystem::directory_iterator(logs)) {
+    std::ifstream stream(entry.path());
+    std::string line;
+    while (std::getline(stream, line)) {
+      EXPECT_EQ(line.find("sensitive-handler-detail"), std::string::npos);
+      const auto record = Json::parse(line);
+      EXPECT_EQ(record.at("event"), "connection.handler_failed");
+      EXPECT_EQ(record.at("fields").at("code"), "conflict");
+      EXPECT_EQ(record.at("fields").at("failures"), 1);
+      ++records;
+    }
+  }
+  EXPECT_EQ(records, 1U);
 }

@@ -27,8 +27,8 @@ export function ArchivedDataPanel(context: TerminalContext) {
   const [coverage, setCoverage] = useState<HistoryCoverage[] | null>(null);
   const query = useRef(context.query);
   query.current = context.query;
-  const online = !!context.snapshot?.research?.online;
-  const connection = context.snapshot?.research?.connection_id;
+  const online = !!context.snapshot?.data?.online;
+  const connection = context.snapshot?.data?.connection_id;
   const sequence = useRef(0);
   const load = useCallback(async (values: typeof filter) => {
     const current = ++sequence.current;
@@ -39,7 +39,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
     setLoading(true);
     setError("");
     try {
-      const response = await query.current("research.datasets", values);
+      const response = await query.current("data.datasets", values);
       if (current === sequence.current) setItems(response.history_datasets ?? []);
     } catch (e) {
       if (current === sequence.current) setError(asDisplayError(e));
@@ -53,8 +53,8 @@ export function ArchivedDataPanel(context: TerminalContext) {
     setError("");
     try {
       const [response, archives] = await Promise.all([
-        query.current("research.coverage", values),
-        query.current("research.datasets", values),
+        query.current("data.coverage", values),
+        query.current("data.datasets", values),
       ]);
       if (current === sequence.current) {
         setItems(archives.history_datasets ?? []);
@@ -86,7 +86,10 @@ export function ArchivedDataPanel(context: TerminalContext) {
     <section className="futures-data" aria-label={t("历史数据仓库")}>
       <h2>{t("历史数据仓库")}</h2>
       {!online && (
-        <button disabled={context.busy} onClick={() => void context.trade("research.local")}>
+        <button
+          disabled={context.busy}
+          onClick={() => void context.trade("node.data_tasks.local.open")}
+        >
           {t("连接数据服务")}
         </button>
       )}
@@ -182,7 +185,10 @@ export function ArchivedDataPanel(context: TerminalContext) {
                       {row.uncovered > 0 && (
                         <button
                           disabled={
-                            context.busy || loading || !online || context.snapshot?.research?.remote
+                            context.busy ||
+                            loading ||
+                            !online ||
+                            context.snapshot?.task_service?.remote
                           }
                           onClick={() => {
                             const item = items.find(item => item.id === row.minute_dataset_id);
@@ -260,7 +266,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
                 {t("查看数据")}
               </button>
               <button
-                disabled={!online || context.busy || context.snapshot?.research?.remote}
+                disabled={!online || context.busy || context.snapshot?.task_service?.remote}
                 onClick={() => {
                   setUpdate({ item });
                   setUsage(null);
@@ -271,7 +277,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
               <button
                 disabled={!online || context.busy}
                 onClick={() =>
-                  context.navigate("workspace.research", {
+                  context.navigate("workspace.backtest-factor", {
                     page: "backtest",
                     params: {
                       source_dataset_id: item.id,
@@ -287,7 +293,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
                 <button
                   disabled={!online || context.busy}
                   onClick={() =>
-                    context.navigate("workspace.research", {
+                    context.navigate("workspace.backtest-factor", {
                       page: "daily_factor",
                       params: { source_dataset_id: item.id, connection_id: connection ?? "" },
                     })
@@ -308,7 +314,6 @@ export function ArchivedDataPanel(context: TerminalContext) {
         <HistoryDatasetViewer
           {...context}
           id={selected.id}
-          archive
           source={selected.source}
           sourceLabel={selected.source}
           timeAxis={selected.interval_minutes ? "instant" : "trading-day"}

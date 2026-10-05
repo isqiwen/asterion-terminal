@@ -24,9 +24,9 @@ async function mockCatalog(page: Page, identity?: { connection?: string }) {
   let source = "tushare.ft_mins";
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (!["research.contracts.load", "runtime.snapshot"].includes(request.method))
+    if (!["data.contracts.load", "runtime.snapshot"].includes(request.method))
       return route.continue();
-    if (request.method === "research.contracts.load") {
+    if (request.method === "data.contracts.load") {
       expect(request.params.exchange).toBe("SHFE");
       expect(request.params.product).toBe("CU");
       loaded = true;
@@ -37,8 +37,8 @@ async function mockCatalog(page: Page, identity?: { connection?: string }) {
     });
     const data = (await response.json()) as { result: Snapshot };
     if (loaded) data.result.history_contracts = { ...catalogFixture, source };
-    if (identity?.connection && data.result.research)
-      data.result.research.connection_id = identity.connection;
+    if (identity?.connection && data.result.task_service)
+      data.result.task_service.connection_id = identity.connection;
     await route.fulfill({ response, json: data });
   });
 }
@@ -73,8 +73,11 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
   await page.screenshot({ path: "build/contract-units-browser.png" });
   await section.getByLabel("分钟周期", { exact: true }).selectOption("5");
   await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
-  await expect(page.getByRole("region", { name: "期货研究", exact: true })).toBeVisible();
+  await page
+    .locator(".workspace-tabs")
+    .getByRole("button", { name: "回测与因子", exact: true })
+    .click();
+  await expect(page.getByRole("region", { name: "期货回测与因子", exact: true })).toBeVisible();
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await expect(section.getByLabel("月份合约", { exact: true })).toHaveValue("SHFE/cu/2023-10");
   await expect(section.getByLabel("分钟周期", { exact: true })).toHaveValue("5");
@@ -82,7 +85,7 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
   const submissions: string[] = [];
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (request.method !== "research.minutes.submit") return route.fallback();
+    if (request.method !== "data.download.minutes.submit") return route.fallback();
     expect(request.params.contract_id).toBe("SHFE/cu/2023-10");
     expect(request.params.interval_minutes).toBe(5);
     expect(request.params).not.toHaveProperty("start");
@@ -97,8 +100,8 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
     });
     const data = (await response.json()) as { result: Snapshot };
     data.result.history_contracts = catalogFixture;
-    if (identity.connection) data.result.research!.connection_id = identity.connection;
-    data.result.research!.tasks.push({
+    if (identity.connection) data.result.task_service!.connection_id = identity.connection;
+    data.result.task_service!.tasks.push({
       kind: "minute_download",
       data_source: "tushare.ft_mins",
       id: request.params.id,
@@ -206,16 +209,16 @@ test("completed dataset exposes provenance and honest coverage separately from a
   };
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (!["runtime.snapshot", "research.result"].includes(request.method)) return route.continue();
+    if (!["runtime.snapshot", "task.result"].includes(request.method)) return route.continue();
     const response = await route.fetch({
       postData: { version: 1, method: "runtime.snapshot", params: {} },
     });
     const data = (await response.json()) as { result: Snapshot };
-    if (!data.result.research) return route.fulfill({ response });
-    data.result.research.tasks = [task];
-    if (request.method === "research.result") {
+    if (!data.result.task_service) return route.fulfill({ response });
+    data.result.task_service.tasks = [task];
+    if (request.method === "task.result") {
       expect(request.params.id).toBe(task.id);
-      data.result.research_result = {
+      data.result.task_result = {
         id: task.id,
         kind: "minute_download",
         task,
@@ -268,7 +271,7 @@ test("daily adapter submits catalog scope without minute fields and clears crede
   let submitted = false;
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (request.method !== "research.daily.submit") return route.fallback();
+    if (request.method !== "data.download.daily.submit") return route.fallback();
     expect(request.params.contract_id).toBe("SHFE/cu/2023-10");
     expect(request.params.catalog_cutoff_ns).toBe(catalogFixture.cutoff_ns);
     expect(request.params.token).toBe("daily-test-secret");
@@ -298,7 +301,9 @@ test("daily adapter submits catalog scope without minute fields and clears crede
   );
 });
 
-test("all contract months download as one task each within the request limit", async ({ page }) => {
+test("all contract months retain per-task pacing without changing the shared budget", async ({
+  page,
+}) => {
   const months = {
     ...catalogFixture,
     items: [
@@ -307,13 +312,15 @@ test("all contract months download as one task each within the request limit", a
     ],
   };
   let loaded = false;
+  let budgetConfigurations = 0;
   const submissions: Record<string, unknown>[] = [];
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (request.method === "research.contracts.load") loaded = true;
-    if (request.method === "research.minutes.submit") submissions.push(request.params);
+    if (request.method === "data.contracts.load") loaded = true;
+    if (request.method === "data.download.budget.configure") ++budgetConfigurations;
+    if (request.method === "data.download.minutes.submit") submissions.push(request.params);
     if (
-      !["research.contracts.load", "research.minutes.submit", "runtime.snapshot"].includes(
+      !["data.contracts.load", "data.download.minutes.submit", "runtime.snapshot"].includes(
         request.method,
       )
     )
@@ -340,7 +347,8 @@ test("all contract months download as one task each within the request limit", a
     "SHFE/cu/2023-10",
     "SHFE/cu/2023-11",
   ]);
-  expect(submissions.every(item => item.requests_per_minute === 30)).toBe(true);
+  expect(submissions.every(item => item.requests_per_minute === 60)).toBe(true);
   expect(new Set(submissions.map(item => item.id)).size).toBe(2);
+  expect(budgetConfigurations).toBe(0);
   await expect(section.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
 });

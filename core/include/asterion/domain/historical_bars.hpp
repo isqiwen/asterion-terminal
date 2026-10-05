@@ -1,6 +1,5 @@
 #pragma once
 #include <asterion/domain/history_identity.hpp>
-#include <asterion/kernel/plugin.hpp>
 #include <stop_token>
 #include <vector>
 namespace asterion {
@@ -20,8 +19,9 @@ struct HistoricalBarRange {
   std::string source;
   std::string source_instrument = {};
 };
-class HistoricalBarPort : public Plugin {
+class HistoricalBarPort {
 public:
+  virtual ~HistoricalBarPort() = default;
   virtual HistorySemantics semantics() const = 0;
   virtual std::vector<HistoricalBar> read(const HistoricalBarRange&, std::stop_token) = 0;
 };

@@ -57,8 +57,8 @@ with tempfile.TemporaryDirectory(prefix="ast-agent-concurrency-", ignore_cleanup
     subprocess.run([certificates, folder], check=True)
     with socket.socket() as reserve:
         reserve.bind(("127.0.0.1", 0)); port = reserve.getsockname()[1]
-    log = root / "transport.jsonl"
-    process = subprocess.Popen([agent_path, "--transport-log", str(log), "--directory", str(root / "state"), "--bind", "127.0.0.1", "--port", str(port), "--tls-ca", str(root / "ca.crt"), "--tls-cert", str(root / "server.crt"), "--tls-key", str(root / "server.key")], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    log = root / "state/logs/transport.log"
+    process = subprocess.Popen([agent_path, "--directory", str(root / "state"), "--bind", "127.0.0.1", "--port", str(port), "--tls-ca", str(root / "ca.crt"), "--tls-cert", str(root / "server.crt"), "--tls-key", str(root / "server.key")], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     context = ssl.create_default_context(cafile=str(root / "ca.crt"))
     context.load_cert_chain(str(root / "client.crt"), str(root / "client.key"))
     context.minimum_version = ssl.TLSVersion.TLSv1_3
@@ -116,7 +116,7 @@ with tempfile.TemporaryDirectory(prefix="ast-agent-concurrency-", ignore_cleanup
                     if time.monotonic() >= recovered: raise
                     time.sleep(.05)
         if mode == "handshake":
-            stalled = socket.create_connection(("127.0.0.1", port), timeout=3)
+            overloaded = [socket.create_connection(("127.0.0.1", port), timeout=3) for _ in range(8)]
         elif mode == "frame":
             stalled = connect()
             stalled.sendall(b"\x00") # Incomplete length header.
@@ -144,16 +144,16 @@ with tempfile.TemporaryDirectory(prefix="ast-agent-concurrency-", ignore_cleanup
         until = time.monotonic() + 5
         while True:
             records = [json.loads(line) for line in daily(log).read_text().splitlines()]
-            values = [record["fields"] for record in records]
-            if (any(v["stage"] == "receive" and v["outcome"] == "failed" for v in values)
-                    and any(v["stage"] == "parse" and v["outcome"] == "rejected" for v in values)):
+            failures = [r for r in records if r["event"] == "rpc.connection_failed"]
+            if failures:
                 break
             if time.monotonic() >= until:
                 raise AssertionError(records)
             time.sleep(.05)
-        assert any(v["operation"] == "status" and v["outcome"] == "completed" for v in values)
-        assert all(set(v) == {"connection", "operation", "stage", "outcome"} for v in values)
-        assert secret.decode() not in daily(log).read_text()
+        # Transport now uses the shared RpcHost diagnostics. Protect payload secrecy
+        # and explicit rejection, rather than the removed per-connection host stages.
+        assert all(set(r["fields"]) == {"code", "failures"} for r in failures), failures
+        assert all(secret.decode() not in path.read_text() for path in (root / "state/logs").glob("*.log"))
     finally:
         if stalled is not None: stalled.close()
         for channel in overloaded: channel.close()

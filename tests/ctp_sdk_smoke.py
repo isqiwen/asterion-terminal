@@ -1,4 +1,4 @@
-"""Check the vendor ABI and loopback startup using test-only credentials."""
+"""Check both vendor ABIs and loopback lifecycles using test-only credentials."""
 import os
 from pathlib import Path
 import subprocess
@@ -6,17 +6,22 @@ import sys
 import tempfile
 import time
 build = Path(sys.argv[1]).resolve()
-library = Path(os.environ.get('ASTERION_CTP_LIBRARY', str(build / ('ctp-md.dll' if sys.platform == 'win32' else 'ctp-md.dylib' if sys.platform == 'darwin' else 'ctp-md.so'))))
-if not library.exists():
-    print('Vendor SDK unavailable for this architecture');sys.exit(77)
+if sys.platform != 'darwin' and not sys.platform.startswith('linux'):
+    raise SystemExit('Vendor SDK acceptance requires macOS or Linux')
+suffix = '.dylib' if sys.platform == 'darwin' else '.so'
+library = Path(os.environ.get('ASTERION_CTP_LIBRARY', str(build / ('ctp-md' + suffix))))
+trader_library = Path(os.environ.get('ASTERION_CTP_CATALOG_LIBRARY', str(build / ('ctp-trader' + suffix))))
+for sdk_path in (library, trader_library):
+    if not sdk_path.is_file():
+        raise SystemExit('Required vendor SDK is missing: ' + str(sdk_path))
 import ctypes
 sdk = ctypes.CDLL(str(library))
-name = '?GetApiVersion@CThostFtdcMdApi@@SAPEBDXZ' if sys.platform == 'win32' else '_ZN15CThostFtdcMdApi13GetApiVersionEv'
+name = '_ZN15CThostFtdcMdApi13GetApiVersionEv'
 version = getattr(sdk, name);version.restype = ctypes.c_char_p
 assert b'6.7.7' in version(), version()
 print('Packaged CTP vendor SDK loaded, version:', version().decode())
 import json
-bridge = build / ('asterion_terminal_dev_bridge.exe' if sys.platform == 'win32' else 'asterion_terminal_dev_bridge')
+bridge = build / 'asterion_terminal_dev_bridge'
 env = dict(os.environ, ASTERION_CTP_LIBRARY=str(library))
 process = subprocess.Popen([str(bridge)], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 def call(method, params=None):
@@ -38,4 +43,8 @@ try:
     assert call('market.disconnect')['market']['phase']=='disconnected'
 finally:
     process.terminate();process.communicate(timeout=8)
-print('Vendor factory, loopback startup and Release passed; no external server contacted')
+subprocess.run([str(build / 'asterion_ctp_trader_tests'),
+                '--gtest_filter=CtpVendor.TraderLoopbackLifecycleUsesThePackagedAbi'],
+               env=dict(os.environ, ASTERION_VENDOR_CTP_TRADER_LIBRARY=str(trader_library)),
+               check=True, timeout=20)
+print('Vendor market and trader factories, loopback startup, reconnect and Release passed; no external server contacted')

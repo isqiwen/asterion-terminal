@@ -2,15 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import type { HistoryDatasetRecord, Snapshot } from "../bridge/client";
 import { asDisplayError, type DisplayError } from "../i18n/errors";
 export type HistoryQuery = (
-  method: "research.datasets" | "research.dataset.saved",
+  method: "data.datasets" | "data.dataset.saved",
   params: Record<string, unknown>,
 ) => Promise<Snapshot>;
 export function useHistoryDatasets(snapshot: Snapshot | null, query: HistoryQuery) {
   const ref = useRef(query);
   ref.current = query;
-  const connection = snapshot?.research?.connection_id;
-  const online = !!snapshot?.research?.online;
-  const completed = (snapshot?.research?.tasks ?? [])
+  const connection = snapshot?.data?.connection_id;
+  const online = !!snapshot?.data?.online;
+  const completed = (snapshot?.task_service?.tasks ?? [])
     .filter(task => task.history_dataset_id)
     .map(task => task.history_dataset_id)
     .join(",");
@@ -25,7 +25,7 @@ export function useHistoryDatasets(snapshot: Snapshot | null, query: HistoryQuer
     setState({ connection, items: [], error: "", loading: online });
     if (online)
       void ref
-        .current("research.datasets", { venue: "", product: "", contract_id: "", source: "" })
+        .current("data.datasets", { venue: "", product: "", contract_id: "", source: "" })
         .then(response => {
           if (active)
             setState({

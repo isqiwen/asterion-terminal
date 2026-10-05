@@ -1,11 +1,12 @@
-import { ctpConnection } from "./dataset-fixture";
+import { ctpConnection, rpc } from "./dataset-fixture";
+import { checkSnapshot } from "./snapshot-schema";
 import { test, expect, type Page } from "./test";
 
 // The market data account of these specs.
-async function account(page: Page) {
+async function account(page: Page, user = "fixture") {
   await ctpConnection(page.request, "market-account", {
     broker_id: "test",
-    user_id: "fixture",
+    user_id: user,
     market: true,
   });
 }
@@ -20,7 +21,10 @@ async function marketMenu(page: Page) {
 test("full market loads automatically and watchlist membership stays independent", async ({
   page,
 }) => {
-  await account(page);
+  // This case measures membership, while the next case and native process
+  // tests exercise reconnects. A forced reconnect can disable a button between
+  // pointer-down and click and correctly prevent the subscription command.
+  await account(page, "steady");
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await page.getByRole("tab", { name: "实时行情", exact: true }).click();
@@ -79,6 +83,23 @@ test("read-only market workspace receives C++ test SDK quotes without storing cr
   await connect.click();
   await expect(panel.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
   await incremental;
+  // Quote arrival can precede catalog completion. Only a settled catalog is
+  // unchanged between the full read and the incremental read below.
+  await expect
+    .poll(async () => (await rpc(page.request, "runtime.snapshot")).market?.catalog.phase)
+    .toBe("ready");
+  const held: unknown = await rpc(page.request, "runtime.snapshot");
+  checkSnapshot("full market quote snapshot", held);
+  const market = held.market!;
+  const delta: unknown = await rpc(page.request, "runtime.snapshot", {
+    since: 0,
+    market_rows: Math.max(0, ...market.subscriptions.map(row => row.revision ?? 0)),
+    market_set: market.subscription_set,
+    catalog: market.catalog.revision,
+  });
+  checkSnapshot("market delta with omitted unchanged catalog", delta);
+  expect(delta.market?.delta).toBe(true);
+  expect(delta.market?.catalog.omitted).toBe(true);
   const detail = panel.getByRole("complementary", { name: "合约详情" });
   await detail.getByRole("button", { name: "Tick", exact: true }).first().click();
   await expect(panel.getByRole("img", { name: "最近报价走势" })).toBeVisible();
@@ -86,7 +107,9 @@ test("read-only market workspace receives C++ test SDK quotes without storing cr
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain(
     "ui-fixture-secret",
   );
-  await expect(panel.getByLabel("密码", { exact: true })).toHaveValue("");
+  // Once connected, the connection controls move into the market settings portal.
+  await expect((await marketMenu(page)).getByLabel("密码", { exact: true })).toHaveValue("");
+  await page.getByRole("button", { name: "行情设置" }).click();
   await page.screenshot({ path: "apps/clients/terminal/test-results/live-market.png" });
   await (await marketMenu(page)).getByRole("button", { name: "断开行情", exact: true }).click();
   await expect(panel.locator(".market-session > .panel-heading").getByRole("status")).toHaveText(
@@ -94,4 +117,39 @@ test("read-only market workspace receives C++ test SDK quotes without storing cr
   );
   await expect(panel.getByRole("img", { name: "最近报价走势" })).toHaveCount(0);
   await expect(detail.locator(".quote-pane-status").first()).toHaveText("断线 · 旧报价");
+});
+
+test("remembered market login is reused with blank fields and can be cleared", async ({ page }) => {
+  await rpc(page.request, "market.disconnect");
+  await account(page, "steady");
+  await page.goto("/");
+  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
+  const panel = page.getByRole("region", { name: "实时期货行情" });
+  await panel.getByLabel("密码", { exact: true }).fill("remember-fixture");
+  await panel.getByLabel("授权码", { exact: true }).fill("fixture-auth");
+  await panel.getByLabel("保存密码和授权码到本机钥匙串").check();
+  await panel.getByRole("button", { name: "连接行情", exact: true }).click();
+  await expect
+    .poll(async () => (await rpc(page.request, "runtime.snapshot")).market?.phase)
+    .toBe("connected");
+  await expect(panel.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
+  await (await marketMenu(page)).getByRole("button", { name: "断开行情", exact: true }).click();
+  await page.reload();
+  await expect(panel.getByLabel("密码", { exact: true })).toHaveValue("");
+  await expect(panel.getByLabel("授权码", { exact: true })).toHaveValue("");
+  await panel.getByRole("button", { name: "连接行情", exact: true }).click();
+  await expect
+    .poll(async () => (await rpc(page.request, "runtime.snapshot")).market?.phase)
+    .toBe("connected");
+  await expect(panel.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
+  const stored = await page.evaluate(() => JSON.stringify(localStorage));
+  expect(stored).not.toContain("remember-fixture");
+  expect(stored).not.toContain("fixture-auth");
+  const settings = await marketMenu(page);
+  await settings.getByText("CTP 连接与自选", { exact: true }).click();
+  await settings.getByRole("button", { name: "清除已保存的登录凭据" }).click();
+  await (await marketMenu(page)).getByRole("button", { name: "断开行情", exact: true }).click();
+  await page.reload();
+  await panel.getByRole("button", { name: "连接行情", exact: true }).click();
+  await expect(panel.getByRole("alert")).toContainText("没有可用的已保存行情凭据");
 });

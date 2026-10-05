@@ -1,6 +1,6 @@
 # Chart indicators
 
-Display-only numerical helpers for service-owned datasets. No order, ledger or research API consumes these floating-point values. Raw bars remain Decimal.
+Display-only numerical helpers for service-owned datasets. No order, ledger or task API consumes these floating-point values. Raw bars remain Decimal.
 
 MACD uses EMA periods 12 and 26, signal period 9, and histogram `2 * (diff - signal)`. Price EMAs are seeded with the first close of the complete dataset; signal starts at zero. The first 33 observations are withheld. Queries must replay the complete prefix, including observations before a time filter, before emitting values. No page-local seeding is allowed.
 

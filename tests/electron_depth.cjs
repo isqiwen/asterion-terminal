@@ -44,7 +44,7 @@ const path = require("node:path");
     );
     application = await electron.launch({
       chromiumSandbox: true,
-      executablePath: require("electron"),
+      executablePath: require("../scripts/electron-path.cjs")(),
       args: [path.join(client, "electron"), `--user-data-dir=${temp}/ui`],
       env: {
         ...process.env,
@@ -56,7 +56,7 @@ const path = require("node:path");
     const page = await application.firstWindow();
     await page.waitForFunction(() => !!window.asterionDesktop);
     try {
-      // First launch in a fresh node: the research programs are verified and
+      // First launch in a fresh node: the task programs are verified and
       // deployed, then each service must answer its first heartbeat.
       await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
     } catch (error) {
@@ -68,10 +68,7 @@ const path = require("node:path");
           ),
         ),
       );
-      for (const dir of [
-        path.join(temp, "node/logs"),
-        path.join(temp, "node/services/research/logs"),
-      ])
+      for (const dir of [path.join(temp, "node/logs"), path.join(temp, "node/services/task/logs")])
         for (const file of await fs.readdir(dir).catch(() => []))
           console.error(
             "LOG",

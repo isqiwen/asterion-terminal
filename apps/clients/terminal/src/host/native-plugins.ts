@@ -1,14 +1,13 @@
 import type { NativePluginInfo } from "../bridge/client";
 
-export function availableResearchPlugins(items: readonly NativePluginInfo[]): NativePluginInfo[] {
+export function availableDataTaskPlugins(items: readonly NativePluginInfo[]): NativePluginInfo[] {
   return items.filter(
     plugin =>
       plugin.state === "available" &&
       plugin.capabilities.some(
         capability =>
-          (capability.id === "asterion.history.v1" ||
-            capability.id === "asterion.risk.pre-trade.v1") &&
-          capability.version === 1,
+          (capability.id === "asterion.history.v2" && capability.version === 2) ||
+          (capability.id === "asterion.risk.pre-trade.v1" && capability.version === 1),
       ),
   );
 }
@@ -16,7 +15,7 @@ export function availableResearchPlugins(items: readonly NativePluginInfo[]): Na
 // Plugins shipped with the application are required; only installed ones are optional.
 export function requiredPluginIds(items: readonly NativePluginInfo[]): Set<string> {
   return new Set(
-    availableResearchPlugins(items)
+    availableDataTaskPlugins(items)
       .filter(item => !item.managed)
       .map(item => item.id),
   );
@@ -40,8 +39,8 @@ export function selectPlugin(
   return remaining.includes(hash) ? remaining : [...remaining, hash];
 }
 
-export function defaultResearchPlugins(items: readonly NativePluginInfo[]): string[] {
-  return availableResearchPlugins(items)
+export function defaultDataTaskPlugins(items: readonly NativePluginInfo[]): string[] {
+  return availableDataTaskPlugins(items)
     .filter(item => !item.managed)
     .map(item => item.sha256);
 }

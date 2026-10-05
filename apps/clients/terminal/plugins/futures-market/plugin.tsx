@@ -14,12 +14,15 @@ export const plugin: TerminalPlugin = {
   commands: [
     "market.local",
     "market.connect",
+    "market.credentials.save",
+    "market.credentials.clear",
     "market.catalog",
     "market.subscribe",
     "market.disconnect",
     "market.minutes",
-    "research.minutes.page",
-    "research.daily.page",
+    "data.minutes.page",
+    "data.datasets",
+    "data.daily.page",
   ],
   languageResources: { "zh-CN": zh, "en-US": en },
   workspace: {

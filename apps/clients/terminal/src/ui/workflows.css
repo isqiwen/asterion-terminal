@@ -236,40 +236,40 @@
   font-size: 12px;
   margin: 0 0 8px;
 }
-.research-navigation {
+.backtest-factor-navigation {
   margin: 20px 24px 0;
 }
-.research-layout.backtest-layout {
+.backtest-factor-layout.backtest-layout {
   display: block;
   padding-top: 16px;
 }
-.backtest-layout .research-config {
+.backtest-layout .backtest-factor-config {
   max-width: 980px;
   margin: auto;
   padding: 20px;
 }
-.backtest-layout .research-fields {
+.backtest-layout .backtest-factor-fields {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
-.backtest-layout .research-config > h3 {
+.backtest-layout .backtest-factor-config > h3 {
   display: none;
 }
-.backtest-layout .research-main {
+.backtest-layout .backtest-factor-main {
   max-width: 1300px;
   margin: auto;
 }
-.backtest-layout .research-result {
+.backtest-layout .backtest-factor-result {
   margin: 0;
   padding: 0;
   border: 0;
 }
-.research-progress {
+.backtest-factor-progress {
   max-width: 800px;
   margin: 20px auto;
   padding: 24px;
   border: 1px solid var(--line);
 }
-.research-progress progress {
+.backtest-factor-progress progress {
   width: 100%;
   margin: 16px 0;
 }
@@ -278,7 +278,7 @@
 }
 @media (max-width: 900px) {
   .account-setup .futures-fields,
-  .backtest-layout .research-fields {
+  .backtest-layout .backtest-factor-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .paper-trading > form .futures-fields {

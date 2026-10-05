@@ -84,3 +84,19 @@ TEST(TradingProcess, RejectsVersionAndSessionMismatchBeforeWritingARecord) {
   EXPECT_TRUE(host.call(r).has_error());
   EXPECT_FALSE(host.process->exited());
 }
+
+TEST(TradingProcess, IdleConnectionsDoNotOccupyBusinessExecutionCapacity) {
+  Host host("live.idle");
+  std::vector<ipc::Channel> idle;
+  for (int i = 0; i < 24; ++i)
+    idle.push_back(ipc::Channel::connect(host.endpoint, 1s));
+  auto active = ipc::Channel::connect(host.endpoint, 1s);
+  auto request = host.request();
+  request.mutable_heartbeat();
+  active.send(request.SerializeAsString(), 1s);
+  wire::Response response;
+  ASSERT_TRUE(response.ParseFromString(active.receive(1s)));
+  EXPECT_TRUE(response.has_health());
+  EXPECT_FALSE(response.health().initialized());
+  EXPECT_EQ(response.correlation_id(), request.correlation_id());
+}

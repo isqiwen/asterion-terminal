@@ -4,6 +4,7 @@ import { historySources, type HistorySource } from "./history-sources";
 import { savedCredential, timestamp } from "../../src/bridge/client";
 import { BackendError } from "../../src/i18n/errors";
 import {
+  TaskPagination,
   type TerminalContext,
   useWorkspaceDraft,
   useWorkspaceRequestId,
@@ -19,6 +20,7 @@ const states = {
   queued: "排队中",
   running: "下载中",
   cancel_requested: "正在取消",
+  publishing: "正在发布",
   succeeded: "已完成",
   failed: "失败",
   cancelled: "已取消",
@@ -48,24 +50,24 @@ function SourceDownloads({
   const saved = savedCredential(snapshot, source.id);
   const [token, setToken] = useState(""); // Never retain credentials in workspace drafts/storage.
   const [error, setError] = useState<DisplayError>("");
-  const research = snapshot?.research;
+  const taskService = snapshot?.task_service;
   const catalog = source.catalog(snapshot);
   const matchingCatalog =
     catalog?.exchange === form.exchange && catalog.product === form.product ? catalog : null;
   const contracts = matchingCatalog?.items ?? [];
   const selected = contracts.find(item => item.code === form.code);
-  // "*" downloads every listed month; at most two downloads run at once, so
-  // each gets half the rate and together they stay within it.
+  // "*" downloads every listed month; Data grants the shared provider budget
+  // before each actual request, independently of worker concurrency.
   const all = form.code === "*" && contracts.length > 0;
   const targets = all ? contracts : selected ? [selected] : [];
   const [submitted, setSubmitted] = useState<number | null>(null);
   const cutoff = matchingCatalog?.cutoff_ns ?? "0";
   const [pending, setPending] = useWorkspaceRequestId(
     `historySubmission:${source.id}`,
-    JSON.stringify([research?.connection_id, form, cutoff]),
+    JSON.stringify([taskService?.connection_id, form, cutoff]),
   );
-  const tasks = research?.tasks.filter(source.ownsTask) ?? [];
-  const result = snapshot?.research_result ? source.dataset(snapshot.research_result) : null;
+  const tasks = taskService?.tasks.filter(source.ownsTask) ?? [];
+  const result = snapshot?.task_result ? source.dataset(snapshot.task_result) : null;
   const update = (key: keyof typeof form, value: string) =>
     setForm(previous => ({ ...previous, [key]: value }));
   const run = async (method: Parameters<typeof trade>[0], params?: Record<string, unknown>) => {
@@ -96,12 +98,6 @@ function SourceDownloads({
       <section className="history-config" aria-label={t("新建下载")}>
         <h3>{t("新建下载")}</h3>
         <p className="content-caption">{t(source.description)}</p>
-        {research?.remote ? (
-          <div className="source-actions">
-            <p>{t("历史下载当前使用本机数据服务。")}</p>
-            <button onClick={() => openSettings("connections")}>{t("查看运行位置")}</button>
-          </div>
-        ) : null}
         <form
           onSubmit={event => {
             event.preventDefault();
@@ -120,7 +116,7 @@ function SourceDownloads({
                     {
                       ...form,
                       code: item.code,
-                      rate: String(all ? Math.max(1, Math.floor(rate / 2)) : rate),
+                      rate: String(rate),
                     },
                     saved ? "" : token,
                     matchingCatalog,
@@ -134,7 +130,7 @@ function SourceDownloads({
             })().finally(() => setToken(""));
           }}
         >
-          <fieldset disabled={busy || !research?.online || research.remote}>
+          <fieldset disabled={busy || !taskService?.online || !snapshot?.data?.online}>
             <div className="futures-fields">
               <label>
                 {t("交易所")}
@@ -245,6 +241,21 @@ function SourceDownloads({
                 />
               </label>
             </div>
+            <p className="subtle">
+              {t("同一账号的下载共享当前数据服务的额度；多节点请分别分配份额。")}
+            </p>
+            <button
+              type="button"
+              onClick={() =>
+                void run("data.download.budget.configure", {
+                  source: source.id,
+                  token: saved ? "" : token,
+                  requests_per_minute: Number(saved?.requests_per_minute ?? form.rate),
+                })
+              }
+            >
+              {t("应用共享额度")}
+            </button>
             {selected && (
               <p className="history-lifetime">
                 {t("上市日期")} {selected.list_date} — {t("最后交易日")} {selected.delist_date}
@@ -289,7 +300,7 @@ function SourceDownloads({
             {all && (
               <p className="subtle">
                 {t(
-                  "为每个月份合约各建一个下载任务，每个合约下载完整存续期。最多同时运行 2 个任务，每个任务使用一半的请求上限。",
+                  "为每个月份合约各建一个下载任务，每个合约下载完整存续期。所有下载共用已配置的账号额度。",
                 )}
               </p>
             )}
@@ -314,13 +325,14 @@ function SourceDownloads({
           <p className="subtle">
             {t(
               source.timeAxis === "trading-day"
-                ? "日线保存供应商交易日期与结算价，可作为研究的 K 线或结算价来源；不补造缺失的交易日。"
-                : "分钟数据按 K 线结束时间保存，交易日来自交易所交易日历，可用于研究。不补造缺失的 K 线或主力连续合约。",
+                ? "日线保存供应商交易日期与结算价，可作为回测与因子的 K 线或结算价来源；不补造缺失的交易日。"
+                : "分钟数据按 K 线结束时间保存，交易日来自交易所交易日历，可用于回测与因子分析。不补造缺失的 K 线或主力连续合约。",
             )}
           </p>
         </details>
       </section>
       <section className="history-activity" aria-label={t("下载记录")}>
+        <TaskPagination taskService={taskService} busy={busy} trade={trade} />
         {error && (
           <p role="alert">
             <ErrorNotice error={error} namespace="asterion.terminal.data-workbench" />
@@ -344,7 +356,7 @@ function SourceDownloads({
                     <strong>{task.source_name}</strong>
                     <small>
                       {t(states[task.state])}
-                      {!research?.online && ` · ${t("最后确认状态")}`} · {task.completed}/
+                      {!taskService?.online && ` · ${t("最后确认状态")}`} · {task.completed}/
                       {task.total} {t("时间分段")}
                     </small>
                     {task.error && (
@@ -354,20 +366,16 @@ function SourceDownloads({
                   <div>
                     {["queued", "running"].includes(task.state) && (
                       <button
-                        disabled={busy || !research?.online}
-                        onClick={() =>
-                          void run("research.action", { id: task.id, action: "cancel" })
-                        }
+                        disabled={busy || !taskService?.online}
+                        onClick={() => void run("task.action", { id: task.id, action: "cancel" })}
                       >
                         {t("取消")}
                       </button>
                     )}
                     {["failed", "cancelled", "interrupted"].includes(task.state) && (
                       <button
-                        disabled={busy || !research?.online}
-                        onClick={() =>
-                          void run("research.action", { id: task.id, action: "retry" })
-                        }
+                        disabled={busy || !taskService?.online}
+                        onClick={() => void run("task.action", { id: task.id, action: "retry" })}
                       >
                         {t("继续下载")}
                       </button>
@@ -396,24 +404,24 @@ function SourceDownloads({
                 </small>
               </div>
               <button
-                disabled={busy || !research?.online}
+                disabled={busy || !snapshot?.data?.online || !task.history_dataset_id}
                 onClick={() => {
                   setToken("");
-                  setViewId(task.id);
+                  setViewId(task.history_dataset_id!);
                 }}
               >
                 {t("查看数据")}
               </button>
               <button
                 className="primary"
-                disabled={busy || !research?.online || !task.history_dataset_id}
+                disabled={busy || !taskService?.online || !task.history_dataset_id}
                 onClick={() => {
                   setToken("");
-                  navigate("workspace.research", {
+                  navigate("workspace.backtest-factor", {
                     page: "backtest",
                     params: {
                       source_dataset_id: task.history_dataset_id!,
-                      connection_id: research?.connection_id ?? "",
+                      connection_id: snapshot?.data?.connection_id ?? "",
                       selection_id: crypto.randomUUID(),
                     },
                   });
@@ -423,14 +431,14 @@ function SourceDownloads({
               </button>
               {task.kind === "daily_download" && (
                 <button
-                  disabled={busy || !research?.online || !task.history_dataset_id}
+                  disabled={busy || !taskService?.online || !task.history_dataset_id}
                   onClick={() => {
                     setToken("");
-                    navigate("workspace.research", {
+                    navigate("workspace.backtest-factor", {
                       page: "daily_factor",
                       params: {
                         source_dataset_id: task.history_dataset_id!,
-                        connection_id: research?.connection_id ?? "",
+                        connection_id: snapshot?.data?.connection_id ?? "",
                       },
                     });
                   }}
@@ -439,8 +447,8 @@ function SourceDownloads({
                 </button>
               )}
               <button
-                disabled={busy || !research?.online}
-                onClick={() => void run("research.result", { id: task.id })}
+                disabled={busy || !taskService?.online}
+                onClick={() => void run("task.result", { id: task.id })}
               >
                 {t("数据集详情")}
               </button>
@@ -482,7 +490,7 @@ function SourceDownloads({
 }
 
 export function HistoricalDownloads(context: TerminalContext) {
-  const sources = historySources(context.snapshot?.research?.sources ?? []);
+  const sources = historySources(context.snapshot?.data?.sources ?? []);
   const [sourceId, setSourceId] = useWorkspaceDraft("historySource", "");
   const source = sources.find(item => item.id === sourceId) ?? sources[0];
   return (
@@ -491,7 +499,7 @@ export function HistoricalDownloads(context: TerminalContext) {
         <div>
           <span className="history-eyebrow">DATA / HISTORY</span>
           <h2>{t("历史数据")}</h2>
-          <p className="subtle">{t("为研究积累可追溯的合约历史数据")}</p>
+          <p className="subtle">{t("保存可追溯的合约历史数据")}</p>
         </div>
         <label>
           {t("数据源")}
@@ -521,13 +529,13 @@ export function HistoricalDownloads(context: TerminalContext) {
             <span>{source.timezone}</span>
           </div>
           <SourceDownloads
-            key={JSON.stringify([source.id, context.snapshot?.research?.connection_id])}
+            key={JSON.stringify([source.id, context.snapshot?.task_service?.connection_id])}
             {...context}
             source={source}
           />
         </>
       ) : (
-        <>{context.snapshot?.research?.online && <p role="alert">{t("数据源不可用")}</p>}</>
+        <>{context.snapshot?.task_service?.online && <p role="alert">{t("数据源不可用")}</p>}</>
       )}
     </section>
   );

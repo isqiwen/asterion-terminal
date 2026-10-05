@@ -40,7 +40,7 @@ export function HistoryUsagePanel({
     setError("");
     setLoading(true);
     try {
-      const response = await query.current("research.history.usage", { id: item.id });
+      const response = await query.current("data.history.usage", { id: item.id });
       if (current === sequence.current.value) setUsage(response.history_usage ?? null);
     } catch (e) {
       if (current === sequence.current.value) setError(asDisplayError(e));
@@ -75,7 +75,7 @@ export function HistoryUsagePanel({
         <summary>{t("内容版本")}</summary>
         <code>{item.revision}</code>
       </details>
-      <p>{t("核对研究记录和本窗口草稿。尚未开放历史版本删除。")}</p>
+      <p>{t("核对任务记录和本窗口草稿。尚未开放历史版本删除。")}</p>
       {loading && <p role="status">{t("正在核对使用情况…")}</p>}
       {error && (
         <p role="alert">
@@ -92,19 +92,19 @@ export function HistoryUsagePanel({
           </p>
           {!!usage.selected_roles.length && (
             <p>
-              {t("本窗口研究草稿：{roles}", {
+              {t("本窗口回测与因子草稿：{roles}", {
                 roles: usage.selected_roles.map(role => t(roles[role])).join("、"),
               })}
             </p>
           )}
           <ReferenceTable rows={usage.references} />
-          {!!usage.other_research.length && (
+          {!!usage.other_data_services.length && (
             <section aria-label={t("其他数据服务")}>
               <h4>{t("其他数据服务")}</h4>
               <p className="subtle">
                 {t("检查已连接节点的任务与已保存数据集；停止的本机服务只读检查账本。")}
               </p>
-              {usage.other_research.map(group => (
+              {usage.other_data_services.map(group => (
                 <section
                   key={`${group.node}:${group.service}`}
                   aria-label={`${group.node === "local" ? t("本机") : group.node} / ${group.service || t("服务清单")}`}
@@ -165,7 +165,7 @@ export function HistoryUsagePanel({
         </p>
         <p>
           {t(
-            "未检查停止的远程数据服务、未连接的节点及其他窗口的研究草稿。结果是本次查询的观察值，不是删除许可；检查失败时不能按无引用处理。",
+            "未检查停止的远程数据服务、未连接的节点及其他窗口的回测与因子草稿。结果是本次查询的观察值，不是删除许可；检查失败时不能按无引用处理。",
           )}
         </p>
       </details>

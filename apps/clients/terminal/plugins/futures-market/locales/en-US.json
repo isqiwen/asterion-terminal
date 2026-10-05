@@ -26,7 +26,6 @@
   "实际合约": "Dated Contract",
   "添加自选": "Add to Watchlist",
   "移除 {symbol}": "Remove {symbol}",
-  "只读行情 · 密码不保存 · 使用服务方提供的实际月份合约": "Read-only quotes · Password is not saved · Use provider-issued dated contracts",
   "尚无订阅行情": "No Quotes Subscribed",
   "添加实际合约并连接行情服务。": "Add a dated contract and connect the feed.",
   "合约": "Contract",
@@ -193,7 +192,6 @@
   "周线按周一至周日，月线、季线和年线按自然月、自然季度和自然年聚合已有日线；日期为最后一条来源日期，缺失日期不补齐，末期可能尚未结束。": "Weekly bars group available daily records Monday–Sunday; monthly, quarterly and yearly bars use calendar months, quarters and years. Labels are the last observed source date. Missing dates are not filled, and the final period may still be open.",
   "已登录，尚未订阅合约。选择交易所并添加实际月份合约后接收行情。": "Logged in, with no subscriptions. Choose an exchange and add an actual delivery-month contract to receive quotes.",
   "正在获取完整合约目录…": "Loading the full contract catalog…",
-  "合约目录获取失败，请检查目录前置与认证配置。": "Contract catalog could not be loaded. Check the catalog endpoint and authentication settings.",
   "授权码": "Authentication code",
   "目录查询密码": "Catalog password",
   "加载完整市场": "Load full market",
@@ -245,9 +243,6 @@
   "分钟 K 线": "Minute candles",
   "周K": "Weekly",
   "图表周期": "Chart period",
-  "境外商品期货": "Overseas Commodities",
-  "境外行情源尚未接入": "Overseas market data source not connected",
-  "境外金融期货": "Overseas Financials",
   "大连商品期货": "Dalian Commodities",
   "季K": "Quarterly",
   "年K": "Yearly",
@@ -272,5 +267,11 @@
   "尚未选择行情账户": "No market data account selected",
   "更换": "Change",
   "行情来源：{name}（{broker} · {user}）": "Market data source: {name} ({broker} · {user})",
-  "连接行情后用行情账户的交易前置加载完整合约目录；仅查询合约，不开通交易。": "After the market login, the trade front of the market data account loads the full contract catalog. It only queries contracts and does not enable trading."
+  "连接行情后用行情账户的交易前置加载完整合约目录；仅查询合约，不开通交易。": "After the market login, the trade front of the market data account loads the full contract catalog. It only queries contracts and does not enable trading.",
+  "留空使用已保存的凭据": "Leave blank to use saved credentials",
+  "保存密码和授权码到本机钥匙串": "Save password and authorization code in Keychain",
+  "登录凭据已保存到本机钥匙串。": "Login credentials saved in Keychain.",
+  "清除已保存的登录凭据": "Clear saved login credentials",
+  "已清除保存的登录凭据。": "Saved login credentials cleared.",
+  "只读行情 · 使用服务方提供的实际月份合约": "Read-only market data · Use actual contract months provided by your broker"
 }

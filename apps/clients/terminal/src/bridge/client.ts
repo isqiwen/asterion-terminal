@@ -13,7 +13,7 @@ export type FuturesContract = {
   quantity_increment: string;
   multiplier: string;
 };
-// Bars resolved by the research service from completed data-source downloads.
+// Bars resolved by Data from immutable provider downloads.
 export type DatasetSelection = {
   source_dataset_ids: string[];
   settlement_dataset_ids: string[];
@@ -35,8 +35,23 @@ export type DatasetSelection = {
   // Exchange trading days (from the daily download) without minute bars.
   uncovered_days: string[];
 };
+// Month contracts of one product selected as its dominant series: the months
+// that trade (each also a selected dataset) and the day each becomes dominant.
+// factor scales that month's raw prices for the strategy's signal.
+export type DatasetSeries = {
+  venue: string;
+  product: string;
+  symbols: string[];
+  rolls: { trading_day: string; symbol: string; factor: string }[];
+};
+export type HistoryVersionEvidence = {
+  dataset_id: string;
+  acquired_at_ns: string;
+  source_availability: "unknown";
+};
 // A dataset recorded in experiment evidence; bars and days are omitted.
 export type DatasetEvidence = {
+  history_evidence: HistoryVersionEvidence[];
   version: number;
   revision: string;
   source: string;
@@ -119,7 +134,22 @@ export type BacktestAccount = {
 // execution chain (authorization, allowed contracts, risk, order records).
 export type LiveSession = {
   mode: "live";
-  broker: { front: string; broker_id: string; user_id: string; app_id: string };
+  account_id: string;
+  policy_revision: string;
+  risk_artifact: string;
+  segment_count: number;
+  capacity: {
+    records_used: number;
+    records_limit: number;
+    bytes_used: number;
+    bytes_limit: number;
+  };
+  broker: {
+    front: string;
+    broker_id: string;
+    user_id: string;
+    app_id: string;
+  };
   risk: RiskLimits;
   // Bound on a limit price's distance from the broker's latest price.
   max_price_deviation: string;
@@ -217,44 +247,50 @@ export type FirewallPlan = {
 export type TerminalCommand =
   | "node.agent.upgrade"
   | "node.agent.inspect"
-  | "research.credentials.save"
-  | "research.credentials.clear"
-  | "research.credentials.verify"
+  | "data.download.budget.configure"
+  | "task.page"
+  | "data.credentials.save"
+  | "data.credentials.clear"
+  | "data.credentials.verify"
   | "ctp.connections.save"
   | "ctp.connections.remove"
   | "ctp.connections.market"
-  | "research.local.create"
+  | "node.data_tasks.local.create"
   | "native.plugins.inspect"
   | "native.plugins.preview"
   | "native.plugins.install"
   | "native.plugins.uninstall"
   | "node.plugins.configure"
   | "node.update"
-  | "research.local"
-  | "research.attach"
-  | "research.submit"
-  | "research.factor.submit"
-  | "research.daily-factor.submit"
-  | "research.daily.page"
-  | "research.daily.submit"
-  | "research.minutes.page"
-  | "research.minutes.submit"
-  | "research.contracts.load"
-  | "research.datasets"
-  | "research.dataset.saved"
-  | "research.dataset.save"
-  | "research.dataset.use"
-  | "research.coverage"
-  | "research.history.usage"
-  | "research.history.plan"
-  | "research.history.submit"
-  | "research.dataset.select"
-  | "research.dataset.remove"
-  | "research.action"
-  | "research.result"
+  | "node.data_tasks.local.open"
+  | "node.data_tasks.attach"
+  | "backtest.submit"
+  | "factor.submit"
+  | "factor.daily.submit"
+  | "data.daily.page"
+  | "data.download.daily.submit"
+  | "data.minutes.page"
+  | "data.download.minutes.submit"
+  | "data.contracts.load"
+  | "data.datasets"
+  | "data.dataset.saved"
+  | "data.dataset.save"
+  | "data.dataset.use"
+  | "data.coverage"
+  | "data.history.usage"
+  | "data.download.update.plan"
+  | "data.download.update.submit"
+  | "data.dataset.select"
+  | "data.dataset.series"
+  | "data.dataset.remove"
+  | "data.dataset.clear"
+  | "task.action"
+  | "task.result"
   | "market.local"
   | "market.attach"
   | "market.connect"
+  | "market.credentials.save"
+  | "market.credentials.clear"
   | "market.catalog"
   | "market.subscribe"
   | "market.disconnect"
@@ -265,6 +301,7 @@ export type TerminalCommand =
   | "node.firewall.apply"
   | "node.service_firewall"
   | "live.create"
+  | "live.policy.configure"
   | "live.open"
   | "live.connect"
   | "live.disconnect"
@@ -277,6 +314,19 @@ export type TerminalCommand =
   | "node.disconnect"
   | "node.deploy"
   | "node.action";
+export type ProgressObservation = {
+  observed: boolean;
+  pending: boolean;
+  age_ms: number;
+};
+export type ExecutionHealth = {
+  io: ProgressObservation;
+  state: ProgressObservation;
+  persistence: ProgressObservation;
+  initialization: ProgressObservation;
+  command: ProgressObservation;
+  business_ready: boolean;
+};
 export type NodeStatus = {
   id: string;
   host: string;
@@ -287,6 +337,15 @@ export type NodeStatus = {
   error: string;
   health: null | {
     instance_id: string;
+    phase: "initializing" | "ready" | "recovery_required";
+    failure: null | { code: string; message: string };
+    execution: ExecutionHealth;
+    worker_capacity: { limit: number; owned: number; reserved: number };
+    resource_budget: null | {
+      limit: { cpu_slots: number; memory_mib: number; io_slots: number };
+      committed: { cpu_slots: number; memory_mib: number; io_slots: number };
+      file_workers: number;
+    };
     maintenance: boolean;
     pid: number;
     os: string;
@@ -295,8 +354,11 @@ export type NodeStatus = {
     uptime_ms: number;
     services: {
       revision: string;
-      kind: "live" | "market" | "research";
+      kind: "live" | "market" | "task" | "data";
+      task_service: string;
+      data_service: string;
       active_workers: number;
+      resource_request: { cpu_slots: number; memory_mib: number; io_slots: number };
       plugin_artifacts: string[];
       id: string;
       artifact: string;
@@ -307,6 +369,7 @@ export type NodeStatus = {
       restarts: number;
       error: string;
       health: string;
+      execution: ExecutionHealth | null;
       last_heartbeat_ms: number;
       endpoint: string;
       directory: string;
@@ -478,7 +541,7 @@ export function savedCredential(
   snapshot: Snapshot | null,
   source: string,
 ): DataCredential | undefined {
-  const provider = snapshot?.research?.sources.find(item => item.id === source)?.plugin_id;
+  const provider = snapshot?.data?.sources.find(item => item.id === source)?.plugin_id;
   const entry = snapshot?.data_credentials?.find(item => item.provider === provider);
   return entry && !("error" in entry) && entry.credential_ready ? entry : undefined;
 }
@@ -517,7 +580,7 @@ export type NativeHistorySource = {
   credential_required: boolean;
   connection?: HistoryConnectionSchema | null;
 };
-export type ResearchTask = {
+export type TaskRecord = {
   provider_artifact?: string;
   risk_artifact?: string;
   data_source?: string;
@@ -528,6 +591,7 @@ export type ResearchTask = {
     | "queued"
     | "running"
     | "cancel_requested"
+    | "publishing"
     | "succeeded"
     | "failed"
     | "cancelled"
@@ -605,6 +669,7 @@ export type DailyFactorExperiment = {
   horizon: number;
   evaluation: { mode: "full_sample" } | { mode: "holdout"; split_index: number };
   data: {
+    history_evidence: HistoryVersionEvidence;
     source_dataset_id: string;
     source: string;
     contract_id: string;
@@ -636,32 +701,32 @@ export type DailyFactorResult = {
     spearman: number | null;
   }[];
 };
-export type ResearchResult =
+export type TaskResult =
   | {
       id: string;
       kind: "daily_factor";
-      task: ResearchTask;
+      task: TaskRecord;
       experiment: DailyFactorExperiment;
       result: DailyFactorResult;
     }
   | {
       id: string;
       kind: "backtest";
-      task: ResearchTask;
+      task: TaskRecord;
       experiment: BacktestExperiment;
       result: BacktestResult;
     }
   | {
       id: string;
       kind: "factor";
-      task: ResearchTask;
+      task: TaskRecord;
       experiment: FactorExperiment;
       result: FactorResult;
     }
   | {
       id: string;
       kind: "minute_download";
-      task: ResearchTask;
+      task: TaskRecord;
       experiment: {
         contract_id: string;
         interval_minutes: number;
@@ -673,7 +738,7 @@ export type ResearchResult =
   | {
       id: string;
       kind: "daily_download";
-      task: ResearchTask;
+      task: TaskRecord;
       experiment: { contract_id: string; begin_day: string; end_day: string };
       result: { directory: string; manifest_sha256: string; rows: number; pages: number };
     };
@@ -694,7 +759,7 @@ export type HistoryCoverage = {
   uncovered: number;
   uncovered_days: string[];
 };
-export type SavedResearchDataset = {
+export type SavedNamedDataset = {
   id: string;
   name: string;
   selections: Pick<
@@ -718,7 +783,7 @@ export type HistoryUsage = {
   references: HistoryReference[];
   selected_roles: ("market" | "settlement")[];
   disconnected_nodes: { names: string[]; error?: string };
-  other_research: {
+  other_data_services: {
     node: string;
     service: string;
     checked: boolean;
@@ -839,16 +904,15 @@ export type Snapshot = {
   history_page: HistoryPage | null;
   history_contracts: HistoryContractCatalog;
   history_datasets?: HistoryDatasetRecord[];
-  saved_datasets?: SavedResearchDataset[];
+  saved_datasets?: SavedNamedDataset[];
   history_coverage?: HistoryCoverage[];
   history_update_plan?: HistoryUpdatePlan;
   history_usage?: HistoryUsage;
   // Present when the core answered from its last snapshot because another operation was running.
-  stale?: true;
   // Revision of the core's published state and when the core last refreshed it.
   revision: number;
   refreshed_at_ms: number;
-  research: null | {
+  task_service: null | {
     connection_id: string;
     port: number;
     service: string;
@@ -856,10 +920,30 @@ export type Snapshot = {
     remote: boolean;
     online: boolean;
     error: string;
-    tasks: ResearchTask[];
+    tasks: TaskRecord[];
+    before_sequence: number;
+    next_before_sequence: number;
+    failed_count: number;
+    interrupted_count: number;
+    capacity: {
+      retained_tasks: number;
+      active_used: number;
+      active_reserved: number;
+      uncommitted: number;
+      active_limit: number;
+    } | null;
+  };
+  data: null | {
+    connection_id: string;
+    port: number;
+    service: string;
+    host: string;
+    remote: boolean;
+    online: boolean;
+    error: string;
     sources: NativeHistorySource[];
   };
-  research_result: null | ResearchResult;
+  task_result: null | TaskResult;
   market: LiveMarket | null;
   intraday?: IntradaySeries;
   initializer?: {
@@ -886,8 +970,9 @@ export type Snapshot = {
   // The core's rule per exchange for assigning closes to today's and
   // yesterday's positions.
   close_policies: Record<string, "explicit_buckets" | "today_first" | "yesterday_first">;
-  // Portfolio contracts selected for research, in order.
+  // Portfolio contracts selected for taskService, in order.
   datasets: DatasetSelection[];
+  dataset_series: DatasetSeries[];
   native_plugins: null | {
     directory: string;
     managed_directory?: string;
@@ -898,7 +983,13 @@ export type Snapshot = {
     kind: string;
     state: string;
   }[];
-  diagnostics: { succeeded: number; failed: number };
+  diagnostics: {
+    succeeded: number;
+    failed: number;
+    log_failures: number;
+    refresh_failures: number;
+    refresh_failed: boolean;
+  };
   // Open CTP trading accounts by account id; several may be open at once.
   live: Record<
     string,
@@ -910,6 +1001,17 @@ export type Snapshot = {
         session: string;
         port?: number;
         host?: string;
+        reconnects: number;
+        restarts: number;
+        last_heartbeat_ms: number;
+        latency_ms: number;
+        health: null | {
+          instance_id: string;
+          version: string;
+          uptime_ms: number;
+          phase: "starting" | "degraded" | "ready" | "awaiting_input";
+          execution: ExecutionHealth;
+        };
       };
     }
   >;

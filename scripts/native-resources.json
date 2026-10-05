@@ -1,0 +1,18 @@
+{
+  "files": [
+    "asterion-trading",
+    "asterion-node-agent",
+    "asterion-market-data",
+    "asterion-data-service",
+    "asterion-task-service",
+    "asterion-backtest",
+    "asterion-factor",
+    "asterion-data-pipeline",
+    "asterion-keychain",
+    "asterion_terminal.node",
+    "ctp-md.dylib",
+    "ctp-trader.dylib",
+    "plugins/asterion-tushare.dylib",
+    "plugins/asterion-order-limits.dylib"
+  ]
+}

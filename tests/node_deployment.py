@@ -49,8 +49,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
     management, trade_port = port(), port()
     while trade_port == management:
         trade_port = port()
-    transport_log = root / "agent-transport.jsonl"
-    args = [node, "--transport-log", str(transport_log), "--bind", "127.0.0.1", "--port", str(management), "--directory", str(state), "--tls-ca", str(root / "ca.crt"), "--tls-cert", str(root / "server.crt"), "--tls-key", str(root / "server.key")]
+    transport_log = state / "logs/transport.log"
+    args = [node, "--bind", "127.0.0.1", "--port", str(management), "--directory", str(state), "--tls-ca", str(root / "ca.crt"), "--tls-cert", str(root / "server.crt"), "--tls-key", str(root / "server.key")]
     def launch_node():
         p = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         def listening():
@@ -63,14 +63,14 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         wait(listening)
         return p
     agent = launch_node()
-    enrollment = root / "local/enrollments/research"; enrollment.mkdir(parents=True)
+    enrollment = root / "local/enrollments/task"; enrollment.mkdir(parents=True)
     for file in ("ca.crt", "client.crt", "client.key"): shutil.copyfile(root / file, enrollment / file)
-    (enrollment / "enrollment.json").write_text(json.dumps({"version": 1, "id": "research", "host": "localhost", "port": management, "os": "linux"}))
-    resources=make_bundle(root / "resources", Path(node).resolve().parent)
+    (enrollment / "enrollment.json").write_text(json.dumps({"version": 1, "id": "task", "host": "localhost", "port": management, "os": "linux"}))
+    resources=make_bundle(root / "resources", Path(node).resolve().parent, strip_debug=True)
     terminal = subprocess.Popen([bridge], env=dict(os.environ, ASTERION_REMOTE_RESOURCES=str(resources), ASTERION_NODE_DIRECTORY=str(root / "local")), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8")
     try:
-        connection = {"id": "research", "host": "localhost", "port": str(management), "ca_file": str(root / "ca.crt"), "certificate_file": str(root / "client.crt"), "private_key_file": str(root / "client.key")}
-        first = call(terminal, "node.connect", {"id": "research"})["nodes"][0]
+        connection = {"id": "task", "host": "localhost", "port": str(management), "ca_file": str(root / "ca.crt"), "certificate_file": str(root / "client.crt"), "private_key_file": str(root / "client.key")}
+        first = call(terminal, "node.connect", {"id": "task"})["nodes"][0]
         assert first["state"] == "online" and first["health"]["services"] == []
         # Invalid transfer cannot publish a runnable artifact.
         def varint(n):
@@ -105,12 +105,12 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         # No UI/API polling for > one heartbeat period: native monitor must run.
         time.sleep(6)
         assert call(terminal, "runtime.snapshot")["nodes"][0]["last_heartbeat_ms"] > first["last_heartbeat_ms"]
-        spec = {"kind":"live", "id": "research", "service": "account-test", "port": str(trade_port)}
+        spec = {"kind":"live", "id": "task", "service": "account-test", "port": str(trade_port)}
         call(terminal, "node.deploy", {**spec, "os": "invalid"}, error=True)
         assert not list((state / "services").iterdir())
         deployed = call(terminal, "node.deploy", spec)["nodes"][0]["health"]["services"][0]
         assert deployed["state"] == "running"
-        firewall={"id":"research","service":"account-test","action":"allow","token":""}
+        firewall={"id":"task","service":"account-test","action":"allow","token":""}
         plan=call(terminal,"node.service_firewall",firewall)["firewall_plan"]
         assert plan["port"]==trade_port and plan["source"]=="127.0.0.1" and plan["transport"]=="agent"
         call(terminal,"node.service_firewall",dict(firewall,action="apply",token="not-confirmed"),error=True)
@@ -128,24 +128,26 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         wait(trading_listening)
         def account_service(node):
             return next(s for s in node["health"]["services"] if s["id"] == "account-test")
-        # Research on the same node supplies the archived bars: the test-only
-        # provider seeds its ledger while the service is stopped.
-        research_port = port()
-        while research_port in {management, trade_port}:
-            research_port = port()
-        call(terminal, "node.deploy", {"id": "research", "kind": "research", "service": "research", "port": str(research_port)})
+        # The paired Data service owns archived bars. The test-only provider
+        # seeds that warehouse while Data is stopped.
+        task_port = port()
+        while task_port in {management, trade_port}:
+            task_port = port()
+        call(terminal, "node.deploy", {"id": "task", "kind": "task", "service": "task", "port": str(task_port)})
         history = str(Path(bridge).resolve().parent / "asterion_test_history")
         def seed(prices, identity):
-            call(terminal, "node.action", {"id": "research", "service": "research", "action": "stop"})
+            call(terminal, "node.action", {"id": "task", "service": "task-data", "action": "stop"})
             # A remote node does not report its directories; this is the Agent's own layout.
-            output = subprocess.run(
-                [history, "--directory", str(state / "services/research/ledger"), "--id", identity,
-                 "--price", *map(str, prices)],
+            seeded = subprocess.run(
+                [history, "--directory", str(state / "services/task-data/ledger"), "--id", identity,
+                 "--data-instance", "task-data", "--price", *map(str, prices)],
                 env=dict(os.environ, ASTERION_NODE_DIRECTORY=str(state), ASTERION_TEST_NODE_ISOLATED="1"),
-                check=True, capture_output=True, text=True).stdout
-            call(terminal, "node.action", {"id": "research", "service": "research", "action": "start"})
-            call(terminal, "research.attach", {"id": "research", "service": "research"})
-            return json.loads(output)
+                capture_output=True, text=True)
+            assert seeded.returncode == 0, seeded.stderr
+            call(terminal, "node.action", {"id": "task", "service": "task-data", "action": "start"})
+            call(terminal, "node.data_tasks.attach", {"id": "task", "service": "task"})
+            wait(lambda: call(terminal, "runtime.snapshot")["data"]["online"])
+            return json.loads(seeded.stdout)
         # A deployed CTP account service waits for its account.
         wait(lambda: account_service(call(terminal, "runtime.snapshot")["nodes"][0])["health"] == "awaiting_input")
         old_pid = deployed["pid"]
@@ -155,15 +157,15 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
             s = account_service(n)
             return s if s["state"] == "running" and s["pid"] != old_pid and s["restarts"] >= 1 else None
         restarted_service = wait(restarted)
-        call(terminal, "node.action", {"id": "research", "service": "account-test", "action": "stop"})
+        call(terminal, "node.action", {"id": "task", "service": "account-test", "action": "stop"})
         stopped = account_service(call(terminal, "runtime.snapshot")["nodes"][0])
         assert stopped["state"] == "stopped" and not stopped["desired_running"]
-        updated=call(terminal,"node.update",{"id":"research","service":"account-test","revision":stopped["revision"]})
+        updated=call(terminal,"node.update",{"id":"task","service":"account-test","revision":stopped["revision"]})
         retained=account_service(updated["nodes"][0])
         assert retained["state"]=="stopped" and retained["port"]==stopped["port"]
         time.sleep(6)
         assert account_service(call(terminal, "runtime.snapshot")["nodes"][0])["state"] == "stopped"
-        call(terminal, "node.action", {"id": "research", "service": "account-test", "action": "start"})
+        call(terminal, "node.action", {"id": "task", "service": "account-test", "action": "start"})
         # Agent crash makes status unknown, its owned child exits; restart loads desired state.
         stop(agent)
         wait(lambda: call(terminal, "runtime.snapshot")["nodes"][0]["state"] == "unreachable", 25)
@@ -171,7 +173,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         recovered = wait(lambda: (n if (n := call(terminal, "runtime.snapshot")["nodes"][0])["state"] == "online" and account_service(n)["state"] == "running" else None), 25)
         assert recovered["health"]["instance_id"] != first["health"]["instance_id"]
         wait(trading_listening)
-        call(terminal, "node.action", {"id": "research", "service": "account-test", "action": "stop"})
+        call(terminal, "node.action", {"id": "task", "service": "account-test", "action": "stop"})
         # A port conflict reaches a bounded failure; no infinite restart storm.
         with socket.socket() as occupied:
             occupied.bind(("127.0.0.1", 0)); occupied.listen()
@@ -182,34 +184,34 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
                 return failed if failed["state"] == "failed" else None
             failure = wait(bounded_failure, 30)
             assert failure["restarts"] == 3
-            call(terminal, "node.action", {"id": "research", "service": "blocked-port", "action": "stop"})
-        # Research results survive a program update of the stopped service.
-        call(terminal, "research.dataset.clear")
-        call(terminal, "research.dataset.select", seed([100, 101, 102, 101, 104, 103, 102, 103], "remote-backtest"))
-        call(terminal, "research.submit", {"id": "remote-backtest", "fast": 1, "slow": 3, "quantity": "1", "deposit": "10000", "contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
-        def research_done(task_id):
-            tasks = [task for task in call(terminal, "runtime.snapshot")["research"]["tasks"] if task["id"] == task_id]
+            call(terminal, "node.action", {"id": "task", "service": "blocked-port", "action": "stop"})
+        # Task results survive a program update of the stopped service.
+        call(terminal, "data.dataset.clear")
+        call(terminal, "data.dataset.select", seed([100, 101, 102, 101, 104, 103, 102, 103], "remote-backtest"))
+        call(terminal, "backtest.submit", {"id": "remote-backtest", "fast": 1, "slow": 3, "quantity": "1", "deposit": "10000", "contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
+        def task_done(task_id):
+            tasks = [task for task in call(terminal, "runtime.snapshot")["task_service"]["tasks"] if task["id"] == task_id]
             return tasks and tasks[0]["state"] == "succeeded"
-        wait(lambda: research_done("remote-backtest"))
-        result = call(terminal, "research.result", {"id": "remote-backtest"})["research_result"]
+        wait(lambda: task_done("remote-backtest"))
+        result = call(terminal, "task.result", {"id": "remote-backtest"})["task_result"]
         assert result["kind"] == "backtest" and result["result"]["settlements"], result
-        call(terminal, "research.dataset.clear")
-        call(terminal, "research.dataset.select", seed([100 + i + i % 3 for i in range(160)], "remote-factor"))
-        call(terminal, "research.factor.submit", {"id": "remote-factor", "lookbacks": [2, 5, 10], "horizon": 1, "evaluation": {"mode": "walk_forward", "training_events": 80, "validation_events": 40}})
-        wait(lambda: research_done("remote-factor"))
-        factor_result = call(terminal, "research.result", {"id": "remote-factor"})["research_result"]
+        call(terminal, "data.dataset.clear")
+        call(terminal, "data.dataset.select", seed([100 + i + i % 3 for i in range(160)], "remote-factor"))
+        call(terminal, "factor.submit", {"id": "remote-factor", "lookbacks": [2, 5, 10], "horizon": 1, "evaluation": {"mode": "walk_forward", "training_events": 80, "validation_events": 40}})
+        wait(lambda: task_done("remote-factor"))
+        factor_result = call(terminal, "task.result", {"id": "remote-factor"})["task_result"]
         assert factor_result["kind"] == "factor" and len(factor_result["result"]["samples"]) == 78, factor_result
         assert len(factor_result["result"]["folds"]) == 2, factor_result
         assert factor_result["experiment"]["evaluation"] == {"mode": "walk_forward", "training_events": 80, "validation_events": 40}, factor_result
-        stopped=call(terminal,"node.action",{"id":"research","service":"research","action":"stop"})
-        current=next(s for n in stopped["nodes"] for s in n["health"]["services"] if s["id"]=="research")
-        call(terminal,"node.update",{"id":"research","service":"research","revision":current["revision"]})
-        call(terminal,"node.action",{"id":"research","service":"research","action":"start"})
-        call(terminal, "research.attach", {"id": "research", "service": "research"})
-        assert call(terminal, "research.result", {"id": "remote-backtest"})["research_result"] == result
-        assert call(terminal, "research.result", {"id": "remote-factor"})["research_result"] == factor_result
-        call(terminal, "node.action", {"id": "research", "service": "research", "action": "stop"})
-        call(terminal, "node.disconnect", {"id": "research"})
+        stopped=call(terminal,"node.action",{"id":"task","service":"task","action":"stop"})
+        current=next(s for n in stopped["nodes"] for s in n["health"]["services"] if s["id"]=="task")
+        call(terminal,"node.update",{"id":"task","service":"task","revision":current["revision"]})
+        call(terminal,"node.action",{"id":"task","service":"task","action":"start"})
+        call(terminal, "node.data_tasks.attach", {"id": "task", "service": "task"})
+        assert call(terminal, "task.result", {"id": "remote-backtest"})["task_result"] == result
+        assert call(terminal, "task.result", {"id": "remote-factor"})["task_result"] == factor_result
+        call(terminal, "node.action", {"id": "task", "service": "task", "action": "stop"})
+        call(terminal, "node.disconnect", {"id": "task"})
         assert agent.poll() is None
     finally:
         failed = sys.exc_info()[0] is not None

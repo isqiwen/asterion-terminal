@@ -31,19 +31,19 @@ def close(process):
 
 process = launch()
 try:
-    call(process, "research.local")
+    call(process, "node.data_tasks.local.open")
     params = {"id": "tushare-invalid-token-fixture", "ts_code": "CU2310.SHF", "interval_minutes": 1,
               "catalog_cutoff_ns": "0", "requests_per_minute": 60, "token": "asterion-invalid-token-fixture"}
     for field in ("interval_minutes", "requests_per_minute"):
         for invalid in (0, -1, 1.5, 4294967297):
-            process.stdin.write(json.dumps({"version": 1, "method": "research.minutes.submit", "params": dict(params, **{field: invalid})}) + "\n")
+            process.stdin.write(json.dumps({"version": 1, "method": "data.download.minutes.submit", "params": dict(params, **{field: invalid})}) + "\n")
             process.stdin.flush()
             response = json.loads(process.stdout.readline())
             assert response["error"]["code"] == "invalid_request", response
     for method, values in [
-        ("research.minutes.submit", params),
-        ("research.minutes.submit", dict(params, start="2023-08-25 09:00:00", end="2023-08-25 09:02:00")),
-        ("research.contracts.load", {"exchange": "SHFE", "product": "CU", "token": params["token"]}),
+        ("data.download.minutes.submit", params),
+        ("data.download.minutes.submit", dict(params, start="2023-08-25 09:00:00", end="2023-08-25 09:02:00")),
+        ("data.contracts.load", {"exchange": "SHFE", "product": "CU", "token": params["token"]}),
     ]:
         process.stdin.write(json.dumps({"version": 1, "method": method, "params": values}) + "\n")
         process.stdin.flush()
@@ -52,7 +52,7 @@ try:
         assert params["token"] not in json.dumps(response), response
     snapshot = call(process, "runtime.snapshot")
     assert not snapshot["history_contracts"]["items"], snapshot
-    assert not any(task["id"] == params["id"] for task in snapshot["research"]["tasks"])
+    assert not any(task["id"] == params["id"] for task in snapshot["task_service"]["tasks"])
     for file in Path(os.environ["ASTERION_NODE_DIRECTORY"]).rglob("*"):
         if file.is_file() and not file.is_symlink() and file.suffix in {".json", ".log"}:
             assert params["token"].encode() not in file.read_bytes(), file.name

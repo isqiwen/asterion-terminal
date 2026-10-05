@@ -1,9 +1,10 @@
+export { TaskPagination } from "../src/ui/TaskPagination";
 export { useWorkspaceDraft, useWorkspaceRequestId } from "../src/host/workspace/drafts";
 export { Icon } from "../src/ui/Icon";
 export { useHistoryDatasets } from "../src/ui/useHistoryDatasets";
 export { DatasetPicker } from "../src/ui/DatasetPicker";
 export { explicitCloseBuckets } from "../src/ui/closePolicy";
-export { ResearchAccess } from "../src/ui/ResearchAccess";
+export { DataTaskAccess } from "../src/ui/DataTaskAccess";
 export {
   CostTemplate,
   CostScheduleDetails,
@@ -13,7 +14,7 @@ export {
   type ContractCostDrafts,
 } from "../src/ui/CostTemplate";
 import type { DisplayError } from "../src/i18n/errors";
-export { ErrorNotice, asDisplayError } from "../src/i18n/errors";
+export { BackendError, ErrorNotice, asDisplayError } from "../src/i18n/errors";
 export type { DisplayError } from "../src/i18n/errors";
 import type { LanguageResources } from "../src/i18n";
 export { translate, getLocale } from "../src/i18n";
@@ -36,13 +37,13 @@ export type TerminalContext = {
   openSettings: (page?: "preferences" | "connections" | "ctp" | "sources") => void;
   query: (
     method:
-      | "research.minutes.page"
-      | "research.daily.page"
-      | "research.datasets"
-      | "research.dataset.saved"
-      | "research.coverage"
-      | "research.history.usage"
-      | "research.history.plan"
+      | "data.minutes.page"
+      | "data.daily.page"
+      | "data.datasets"
+      | "data.dataset.saved"
+      | "data.coverage"
+      | "data.history.usage"
+      | "data.download.update.plan"
       | "market.minutes",
     params: Record<string, unknown>,
   ) => Promise<Snapshot>;

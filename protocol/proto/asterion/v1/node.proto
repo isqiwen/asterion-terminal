@@ -1,12 +1,16 @@
 syntax = "proto3";
+import "asterion/v1/health.proto";
 package asterion.node.v1;
 message Empty {}
+// Local development bootstrap input, consumed offline before Agent/service startup.
+message ProgramSources { ServiceKind kind = 1; string executable = 2; string provider = 3; string catalog = 4; string worker = 5; string factor = 6; string data = 7; }
+message DevelopmentPrograms { uint32 version = 1; repeated ProgramSources services = 2; repeated string bundled_plugins = 3; }
 message Upload { string sha256 = 1; uint64 size = 2; string os = 3; string arch = 4; }
 message Chunk { string sha256 = 1; uint64 offset = 2; bytes data = 3; }
 message Finish { string sha256 = 1; }
 // LIVE_TRADING carries the CTP trader SDK as its catalog artifact.
-enum ServiceKind { UNSPECIFIED_SERVICE = 0; MARKET_DATA = 2; TASK_SERVICE = 3; LIVE_TRADING = 5; }
-message Deploy { string service_id = 1; string sha256 = 2; uint32 port = 3; string directory = 4; ServiceKind kind = 5; string provider_artifact = 6; string worker_artifact = 7; string factor_artifact = 8; string data_artifact = 9; string catalog_artifact = 10; repeated string plugin_artifacts = 11; }
+enum ServiceKind { UNSPECIFIED_SERVICE = 0; MARKET_DATA = 2; TASK_SERVICE = 3; LIVE_TRADING = 5; DATA_SERVICE = 6; }
+message Deploy { string service_id = 1; string sha256 = 2; uint32 port = 3; string directory = 4; ServiceKind kind = 5; string provider_artifact = 6; string worker_artifact = 7; string factor_artifact = 8; string data_artifact = 9; string catalog_artifact = 10; repeated string plugin_artifacts = 11; string task_service = 12; string data_service = 13; }
 message Update { string service_id = 1; string expected_revision = 2; string artifact = 3; string provider_artifact = 4; string worker_artifact = 5; string factor_artifact = 6; string data_artifact = 7; string catalog_artifact = 8; repeated string plugin_artifacts = 9; }
 message ConfigurePlugins { string service_id = 1; string expected_revision = 2; repeated string artifacts = 3; }
 message Action { string service_id = 1; enum Kind { UNSPECIFIED = 0; START = 1; STOP = 2; RESTART = 3; } Kind kind = 2; }
@@ -18,7 +22,12 @@ message Upgrade { string operation_id = 1; string action = 2; }
 message UpgradeState { string phase = 1; string detail = 2; }
 message Maintenance { string instance_id = 1; string operation_id = 2; bool enter = 3; }
 message Request { uint32 version = 1; string correlation_id = 2; oneof operation { Empty status = 10; Upload upload = 11; Chunk chunk = 12; Finish finish = 13; Deploy deploy = 14; Action action = 15; Firewall firewall = 16; Update update = 17; Maintenance maintenance = 18; Upgrade upgrade = 19; ConfigurePlugins configure_plugins = 20; } }
-message Service { string id = 1; string artifact = 2; uint32 port = 3; string state = 4; bool desired_running = 5; uint64 pid = 6; uint32 restarts = 7; string error = 8; string health = 9; int64 last_heartbeat_ms = 10; string endpoint = 11; string directory = 12; ServiceKind kind = 13; uint32 active_workers = 14; string revision = 15; repeated string plugin_artifacts = 16; }
-message Status { string instance_id = 1; string os = 2; string arch = 3; string version = 4; uint64 uptime_ms = 5; repeated Service services = 6; bool maintenance = 7; uint64 pid = 8; uint32 upgrade_protocol = 9; }
+message Service { string id = 1; string artifact = 2; uint32 port = 3; string state = 4; bool desired_running = 5; uint64 pid = 6; uint32 restarts = 7; string error = 8; string health = 9; int64 last_heartbeat_ms = 10; string endpoint = 11; string directory = 12; ServiceKind kind = 13; uint32 active_workers = 14; string revision = 15; repeated string plugin_artifacts = 16; string task_service = 17; string data_service = 18; asterion.runtime.v1.ExecutionHealth execution = 19; ResourceUse resource_request = 20; }
+// Static admission reservations; these are not measured CPU/RSS/I/O usage.
+message ResourceUse { uint32 cpu_slots = 1; uint64 memory_mib = 2; uint32 io_slots = 3; }
+message ResourceBudget { ResourceUse limit = 1; ResourceUse committed = 2; uint32 file_workers = 3; }
+// Owned includes children still exiting; reserved includes dispatch and spawn preparation.
+message WorkerCapacity { uint32 limit = 1; uint32 owned = 2; uint32 reserved = 3; }
+message Status { string instance_id = 1; string os = 2; string arch = 3; string version = 4; uint64 uptime_ms = 5; repeated Service services = 6; bool maintenance = 7; uint64 pid = 8; uint32 upgrade_protocol = 9; enum Phase { UNSPECIFIED = 0; INITIALIZING = 1; READY = 2; RECOVERY_REQUIRED = 3; } Phase phase = 10; Error failure = 11; asterion.runtime.v1.ExecutionHealth execution = 12; WorkerCapacity worker_capacity = 13; ResourceBudget resource_budget = 14; }
 message Error { string message = 1; string code = 2; }
 message Response { uint32 version = 1; string correlation_id = 2; oneof result { Status status = 10; Empty accepted = 11; Error error = 12; FirewallPlan firewall = 13; UpgradeState upgrade = 14; } }

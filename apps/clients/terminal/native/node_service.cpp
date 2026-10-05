@@ -67,7 +67,7 @@ void write(const fs::path& file, const std::string& text, bool require_existing)
   if (require_existing)
     throw std::runtime_error("owned service definition is missing");
   // Service definitions are read by the OS service manager, not only this user.
-  write_file_durably(file, text, false);
+  replace_file_durably(file, text, false);
 }
 } // namespace
 void manage_node_service(const fs::path& executable, const fs::path& root,
@@ -111,7 +111,7 @@ void manage_node_service(const fs::path& executable, const fs::path& root,
     throw std::runtime_error("HOME is unavailable");
   const auto directory = *home / "Library/LaunchAgents";
   if (!stopping)
-    fs::create_directories(directory);
+    create_directories_durably(directory);
   if (name.empty())
     name = "me.asterion.node-agent";
   const auto file = directory / (name + ".plist");
@@ -263,7 +263,7 @@ void manage_node_service(const fs::path& executable, const fs::path& root,
   };
   const auto folder = *home / ".config/systemd/user";
   if (!stopping)
-    fs::create_directories(folder);
+    create_directories_durably(folder);
   if (name.empty())
     name = "asterion-node-agent";
   const auto file = folder / (name + ".service");

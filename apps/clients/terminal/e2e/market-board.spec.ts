@@ -76,9 +76,7 @@ test("market board groups exchanges and links contract selection without inventi
   // Commodity groups follow the reference board: Shanghai left, Dalian below.
   await expect(board.getByRole("region", { name: "上海商品期货" })).toContainText("rb2610");
   await expect(board.getByRole("region", { name: "大连商品期货" })).toContainText("i2701");
-  await expect(board.getByRole("region", { name: "境外商品期货" })).toContainText(
-    "境外行情源尚未接入",
-  );
+  await expect(board.getByRole("region", { name: /境外商品期货|境外金融期货/ })).toHaveCount(0);
   const categories = page.getByRole("navigation", { name: "期货分类" });
   await categories.getByRole("button", { name: "上期所", exact: true }).click();
   await expect(board.getByRole("button", { name: "i2701", exact: true })).toHaveCount(0);
@@ -123,8 +121,8 @@ test("market board groups exchanges and links contract selection without inventi
   await page.screenshot({ path: "build/market-board-desktop.png" });
   await page.setViewportSize({ width: 2048, height: 1152 });
   const first = await board.getByRole("region", { name: "上海商品期货" }).boundingBox();
-  const second = await board.getByRole("region", { name: "境外商品期货" }).boundingBox();
-  expect(second!.x).toBeGreaterThan(first!.x);
+  const second = await board.getByRole("region", { name: "大连商品期货" }).boundingBox();
+  expect(second!.y).toBeGreaterThan(first!.y);
   await page.screenshot({ path: "build/market-board-wide.png" });
   await page.setViewportSize({ width: 800, height: 900 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

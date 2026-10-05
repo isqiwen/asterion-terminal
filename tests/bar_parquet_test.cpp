@@ -47,3 +47,27 @@ TEST(BarParquet, DailyBarsKeepMissingReferencePricesAndRejectForeignSchemas) {
   EXPECT_ANY_THROW(parquet::read_daily_bars(folder.path / "broken.parquet"));
   EXPECT_THROW(parquet::write_daily_bars("relative.parquet", bars), std::invalid_argument);
 }
+TEST(BarParquet, MaximumStoragePagesRoundTripWithinTheEngineBudget) {
+  Folder folder;
+  // A minute segment spans at most 31 days. Unique minute-aligned timestamps
+  // bound each day to 1440 rows, even though the provider page cap is higher.
+  constexpr std::size_t minute_count = 31 * 24 * 60;
+  std::vector<HistoricalBar> minutes;
+  minutes.reserve(minute_count);
+  for (std::size_t i = 0; i < minute_count; ++i)
+    minutes.push_back({static_cast<std::int64_t>(i + 1) * 60000000000, d("100"), d("102"), d("99"),
+                       d("101"), d("20"), d("2020"), d("300"), ""});
+  const auto minute_file = folder.path / "minutes.parquet";
+  parquet::write_minute_bars(minute_file, minutes);
+  EXPECT_EQ(parquet::read_minute_bars(minute_file), minutes);
+
+  using namespace std::chrono;
+  std::vector<HistoricalDailyBar> daily;
+  for (int i = 0; i < 366; ++i)
+    daily.push_back({year_month_day(sys_days(year(2024) / January / 1) + days(i)), d("100"),
+                     d("102"), d("99"), d("101"), d("20"), d("2020"), d("300"), d("100"), d("100"),
+                     d("101")});
+  const auto daily_file = folder.path / "daily.parquet";
+  parquet::write_daily_bars(daily_file, daily);
+  EXPECT_EQ(parquet::read_daily_bars(daily_file), daily);
+}

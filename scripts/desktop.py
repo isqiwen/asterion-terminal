@@ -9,6 +9,8 @@ import subprocess
 import sys
 import tempfile
 import signal
+from generated_resources import publish_tree
+import macos_release
 
 ROOT = Path(__file__).resolve().parents[1]
 env = os.environ.copy()
@@ -61,12 +63,42 @@ def verify_macos_target(program, minimum):
         raise SystemExit(f"{program.name} requires macOS {versions or 'unknown'}, above the declared minimum {minimum}")
 
 
-def verify_macos_bundle():
+NATIVE_FILES = set(json.loads((ROOT / "scripts/native-resources.json").read_text())["files"])
+
+def verify_native_resources(directory):
+    if directory.is_symlink():
+        raise ValueError("Native resource directory cannot be a symlink")
+    entries = list(directory.rglob("*"))
+    actual = {path.relative_to(directory).as_posix() for path in entries if path.is_file()}
+    if actual != NATIVE_FILES or any(path.is_symlink() or
+            (path.is_dir() and path.relative_to(directory).as_posix() != "plugins") for path in entries):
+        raise ValueError("Native resources differ from the current distribution manifest")
+
+
+def stage_native_resources(build, destination):
+    for name in NATIVE_FILES:
+        source = build / name
+        if source.is_symlink() or not source.is_file():
+            raise ValueError("Missing or unsafe native resource: " + name)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".native-stage-", dir=destination.parent) as temporary:
+        prepared = Path(temporary) / "native"
+        (prepared / "plugins").mkdir(parents=True)
+        for name in sorted(NATIVE_FILES):
+            stage_native(build / name, prepared / name)
+        verify_native_resources(prepared)
+        publish_tree(prepared, destination)
+
+
+def verify_macos_bundle(distribution=True):
     if sys.platform != "darwin":
         raise SystemExit("DMG verification requires macOS")
-    bundles = list((ROOT / "build/desktop").glob("*.dmg"))
+    output = ROOT / "build" / ("desktop" if distribution else "desktop-test")
+    bundles = list(output.glob("*.dmg"))
     if len(bundles) != 1:
         raise SystemExit("Expected exactly one current DMG; inspect build outputs")
+    if distribution:
+        macos_release.verify_installer(bundles[0])
     run(["hdiutil", "verify", str(bundles[0])])
     with tempfile.TemporaryDirectory(prefix="asterion-verify-") as folder:
         run(["hdiutil", "attach", "-readonly", "-nobrowse", "-mountpoint", folder, str(bundles[0])])
@@ -75,6 +107,9 @@ def verify_macos_bundle():
             if len(apps) != 1:
                 raise SystemExit("Expected exactly one application in DMG")
             app = apps[0]
+            verify_native_resources(app / "Contents/Resources/native")
+            if distribution:
+                macos_release.verify_application(app, NATIVE_FILES)
             minimum = "13.0"
             for program in (app / "Contents/Resources/native").iterdir():
                 if program.is_file():
@@ -93,7 +128,7 @@ def verify_macos_bundle():
             market = app / "Contents/Resources/native/asterion-market-data"
             run(["codesign", "--verify", "--strict", str(market)])
             run([str(market), "--version"])
-            for name in ("asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline"):
+            for name in ("asterion-data-service", "asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline"):
                 program = app / "Contents/Resources/native" / name
                 run(["codesign", "--verify", "--strict", str(program)])
                 run([str(program), "--version"])
@@ -104,22 +139,23 @@ def verify_macos_bundle():
             previous = env.get("ASTERION_TRADING_EXECUTABLE")
             try:
                 env["ASTERION_TRADING_EXECUTABLE"] = str(trading)
-                research_variables = {"ASTERION_TASK_EXECUTABLE": "asterion-task-service", "ASTERION_BACKTEST_EXECUTABLE": "asterion-backtest", "ASTERION_FACTOR_EXECUTABLE": "asterion-factor", "ASTERION_DATA_PIPELINE_EXECUTABLE": "asterion-data-pipeline"}
-                research_saved = {name: env.get(name) for name in research_variables}
+                data_task_variables = {"ASTERION_DATA_SERVICE_EXECUTABLE": "asterion-data-service", "ASTERION_TASK_EXECUTABLE": "asterion-task-service", "ASTERION_BACKTEST_EXECUTABLE": "asterion-backtest", "ASTERION_FACTOR_EXECUTABLE": "asterion-factor", "ASTERION_DATA_PIPELINE_EXECUTABLE": "asterion-data-pipeline"}
+                data_task_saved = {name: env.get(name) for name in data_task_variables}
                 try:
-                    for name, program in research_variables.items():
+                    for name, program in data_task_variables.items():
                         env[name] = str(app / "Contents/Resources/native" / program)
-                    run([sys.executable, str(ROOT / "tests/isolated_node.py"), sys.executable, str(ROOT / "tests/research_agent.py"), str(ROOT / "build/Release/asterion_terminal_dev_bridge")])
+                    run([sys.executable, str(ROOT / "tests/isolated_node.py"), sys.executable, str(ROOT / "tests/task_agent.py"), str(ROOT / "build/Release/asterion_terminal_dev_bridge")])
                 finally:
-                    for name, value in research_saved.items():
+                    for name, value in data_task_saved.items():
                         if value is None:
                             env.pop(name, None)
                         else:
                             env[name] = value
-                saved = {name: env.get(name) for name in ("ASTERION_MARKET_EXECUTABLE", "ASTERION_CTP_LIBRARY")}
+                saved = {name: env.get(name) for name in ("ASTERION_MARKET_EXECUTABLE", "ASTERION_CTP_LIBRARY", "ASTERION_CTP_CATALOG_LIBRARY")}
                 try:
                     env["ASTERION_MARKET_EXECUTABLE"] = str(market)
                     env["ASTERION_CTP_LIBRARY"] = str(library)
+                    env["ASTERION_CTP_CATALOG_LIBRARY"] = str(app / "Contents/Resources/native/ctp-trader.dylib")
                     run([sys.executable, str(ROOT / "tests/isolated_node.py"), sys.executable, str(ROOT / "tests/ctp_sdk_smoke.py"), str(ROOT / "build/Release")])
                 finally:
                     for name, value in saved.items():
@@ -138,21 +174,23 @@ def verify_macos_bundle():
                     env["ASTERION_TRADING_EXECUTABLE"] = previous
         finally:
             run(["hdiutil", "detach", folder])
-    print("DMG checksum, signatures, packaged research recovery and vendor market lifecycle verified")
+    print("DMG checksum, signatures, packaged task recovery and vendor market/trader lifecycles verified")
 
 
 def main():
     mode = sys.argv[1] if len(sys.argv) == 2 else "dev"
-    if mode not in {"dev", "build", "check", "verify"}:
-        raise SystemExit("Usage: desktop.py dev|build|check|verify")
-    if mode == "verify":
-        verify_macos_bundle()
+    if mode not in {"dev", "build", "package-test", "check", "verify", "verify-test"}:
+        raise SystemExit("Usage: desktop.py dev|build|package-test|check|verify|verify-test")
+    if mode in {"verify", "verify-test"}:
+        verify_macos_bundle(mode == "verify")
         return
     if sys.platform != "darwin":
         raise SystemExit("Terminal desktop development and packaging require macOS")
+    if mode == "build":
+        macos_release.signing_preflight(env)
     resources = ROOT / "build/electron-resources/remote-linux"
     archives = Path(env.get("ASTERION_LINUX_BUNDLES", str(ROOT / "build/linux-bundles")))
-    if mode == "build" and not (archives / "asterion-services-linux-x86_64.zip").is_file():
+    if mode in {"build", "package-test"} and not (archives / "asterion-services-linux-x86_64.zip").is_file():
         raise SystemExit(
             "Missing required Linux x86_64 release bundle: "
             + str(archives / "asterion-services-linux-x86_64.zip")
@@ -176,7 +214,7 @@ def main():
         resources.mkdir(parents=True, exist_ok=True)
     env["ASTERION_REMOTE_RESOURCES"] = str(resources)
     profile = ROOT / "build/local-profile"
-    configuration = "Release" if mode == "build" else "Debug"
+    configuration = "Release" if mode in {"build", "package-test"} else "Debug"
     preset = "conan-" + configuration.lower()
     install = ["conan", "install", ".", "-s", "build_type=" + configuration, "-s", "compiler.cppstd=20", "-c", "tools.cmake.cmaketoolchain:generator=Ninja", "--build=missing"]
     if profile.exists():
@@ -221,24 +259,11 @@ def main():
     run(["cmake", "--build", "--preset", preset])
     env["ASTERION_CPP_BUILD"] = str(ROOT / "build" / configuration)
     native = ROOT / "build/electron-resources/native"
-    native.mkdir(parents=True, exist_ok=True)
-    names = ("asterion-trading", "asterion-node-agent", "asterion-market-data", "asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline", "asterion-keychain")
-    programs = [ROOT / "build" / configuration / name for name in names]
-    programs.append(ROOT / "build" / configuration / "asterion_terminal.node")
-    for source in programs:
-        stage_native(source, native / source.name)
-    plugin_root = ROOT / "build" / configuration / "plugins"
-    (native / "plugins").mkdir(parents=True, exist_ok=True)
-    for plugin in plugin_root.glob("*.dylib"):
-        stage_native(plugin, native / "plugins" / plugin.name)
-    library_name = "ctp-md.dylib"
-    library = ROOT / "build" / configuration / library_name
-    stage_native(library, native / library_name)
-    catalog_name = library_name.replace("ctp-md", "ctp-trader")
-    stage_native(ROOT / "build" / configuration / catalog_name, native / catalog_name)
+    stage_native_resources(ROOT / "build" / configuration, native)
     run(["pnpm", "build"])
     # Loading and calling the compiled addon is part of desktop:check.
-    run(["node", str(ROOT / "tests/electron_bridge.cjs"), str(native / "asterion_terminal.node")])
+    run([sys.executable, str(ROOT / "tests/isolated_node.py"), "node",
+         str(ROOT / "tests/electron_bridge.cjs"), str(native / "asterion_terminal.node")])
     if mode == "check":
         run(["node", "--check", "apps/clients/terminal/electron/main.cjs"])
         run(["node", "--check", "apps/clients/terminal/electron/preload.cjs"])
@@ -247,9 +272,24 @@ def main():
         run_development()
         return
     builder = ["pnpm", "exec", "electron-builder", "--mac", "--config", "apps/clients/terminal/electron/builder.cjs"]
+    env["ASTERION_PACKAGE_MODE"] = "release" if mode == "build" else "test"
+    output = ROOT / "build" / ("desktop" if mode == "build" else "desktop-test")
+    if output.exists():
+        if output.is_symlink() or not output.is_dir():
+            raise ValueError("Desktop output must be a generated directory")
+        shutil.rmtree(output)
     run(builder)
-    verify_macos_bundle()
-    installers = list((ROOT / "build/desktop").glob("*.dmg"))
+    installers = list(output.glob("*.dmg"))
+    if len(installers) != 1:
+        raise ValueError("Expected exactly one current installer")
+    if mode == "build":
+        macos_release.notarize_installer(installers[0], env)
+    verify_macos_bundle(mode == "build")
+    if mode == "build":
+        evidence = output / "installed"
+        run([sys.executable, str(ROOT / "tests/electron_installer.py"), str(installers[0]),
+             "--output", str(evidence)])
+        macos_release.write_evidence(installers[0], evidence / "acceptance.json")
     print(f"Desktop installer: {installers[0]}")
 
 

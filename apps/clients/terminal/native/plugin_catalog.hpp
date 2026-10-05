@@ -26,8 +26,8 @@ struct PluginCatalog {
   std::filesystem::path managed_directory;
   static PluginCatalog inspect(const std::filesystem::path& directory);
   // Already deployed hashes can be retained when their source files are absent.
-  PluginSelection select_research(std::span<const std::string> hashes,
-                                  std::span<const std::string> installed = {}) const;
+  PluginSelection select_data_task_plugins(std::span<const std::string> hashes,
+                                           std::span<const std::string> installed = {}) const;
 };
 PluginCatalog local_plugin_catalog();
 PluginCatalog plugin_inventory(const std::filesystem::path& bundled,

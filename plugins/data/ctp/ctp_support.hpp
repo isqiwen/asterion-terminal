@@ -46,7 +46,9 @@ template <std::size_t N> void erase(char (&value)[N]) {
     p[i] = 0;
 }
 // Explicitly loaded vendor library. The SDK instance must be released before
-// this object is destroyed.
+// this object is destroyed. Linux CTP keeps module-global allocations even
+// after dlclose; keep that module alive until process exit. Service updates
+// already replace SDKs only while stopped, so a new SDK uses a new process.
 class SharedLibrary {
 public:
   SharedLibrary(const std::filesystem::path& path, const char* windows_symbol,
@@ -58,7 +60,11 @@ public:
       symbol_ = reinterpret_cast<void*>(GetProcAddress(handle_, windows_symbol));
 #else
     static_cast<void>(windows_symbol);
-    handle_ = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    int flags = RTLD_NOW | RTLD_LOCAL;
+#ifdef __linux__
+    flags |= RTLD_NODELETE;
+#endif
+    handle_ = dlopen(path.c_str(), flags);
     if (handle_)
       symbol_ = dlsym(handle_, itanium_symbol);
 #endif

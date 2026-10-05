@@ -4,21 +4,27 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 
 def seed(call, prices, identity="fixture"):
     assert os.environ.get("ASTERION_TEST_NODE_ISOLATED") == "1"
-    call("research.local")
-    snapshot = call("node.action", {"id":"local", "service":"research", "action":"stop"})
-    service = next(s for n in snapshot["nodes"] if n["id"] == "local" for s in n["health"]["services"] if s["id"] == "research")
+    call("node.data_tasks.local.open")
+    snapshot = call("node.action", {"id":"local", "service":"historical-data", "action":"stop"})
+    service = next(s for n in snapshot["nodes"] if n["id"] == "local" for s in n["health"]["services"] if s["id"] == "historical-data")
     root = Path(os.environ["ASTERION_NODE_DIRECTORY"]).resolve()
-    assert Path(service["directory"]).resolve() == root / "services" / "research" / "ledger"
+    assert Path(service["directory"]).resolve() == root / "services" / "historical-data" / "ledger"
     executable = Path(sys.argv[1]).resolve().parent / "asterion_test_history"
     result = subprocess.run([str(executable), "--directory", service["directory"], "--id", identity,
                              "--price", *map(str, prices)], check=True, capture_output=True, text=True)
     selection = json.loads(result.stdout)
-    call("research.local")
-    return call("research.dataset.select", selection)
+    call("node.data_tasks.local.open")
+    deadline = time.monotonic() + 10
+    while not call("runtime.snapshot")["data"]["online"]:
+        if time.monotonic() >= deadline:
+            raise AssertionError("isolated data service did not become available")
+        time.sleep(.05)
+    return call("data.dataset.select", selection)
 
 
 # The seeded contract with the costs the process tests trade it under.

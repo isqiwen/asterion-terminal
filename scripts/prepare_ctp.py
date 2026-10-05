@@ -9,10 +9,12 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser(description=__doc__)
-p.add_argument("--os", choices=["macos", "linux", "windows"], default={"Darwin":"macos", "Linux":"linux", "Windows":"windows"}[platform.system()])
-p.add_argument("--arch", choices=["armv8", "x86_64"], default="armv8" if platform.machine().lower() in ("arm64", "aarch64") else "x86_64")
+p.add_argument("--os", choices=["macos", "linux"], default={"Darwin":"macos", "Linux":"linux"}.get(platform.system()))
+p.add_argument("--arch", choices=["armv8", "x86_64"], default={"arm64":"armv8", "aarch64":"armv8", "x86_64":"x86_64", "amd64":"x86_64"}.get(platform.machine().lower()))
 args = p.parse_args()
-if args.os in ('linux', 'windows') and args.arch != 'x86_64':
+if args.os is None or args.arch is None:
+    p.error('Specify a supported --os and --arch; host target could not be inferred')
+if args.os == 'linux' and args.arch != 'x86_64':
     p.error(f'{args.os} CTP SDK currently supports x86_64 only')
 manifest = json.loads((ROOT / "conan/ctp/sources.json").read_text())[args.os]
 stage = ROOT / "build/ctp-sdk" / (args.os + "-" + args.arch)
@@ -24,6 +26,6 @@ for name, item in manifest.items():
         if hashlib.sha256(data).hexdigest() != item["sha256"]:
             raise SystemExit("CTP SDK checksum mismatch: " + name)
         target.write_bytes(data)
-subprocess.run(["conan", "export-pkg", str(ROOT / "conan/ctp"), "--output-folder", str(stage / "conan"), "-s", "os=" + {"macos":"Macos","linux":"Linux","windows":"Windows"}[args.os], "-s", "arch=" + args.arch, "-c", "user.ctp:sdk_root=" + str(stage)], check=True)
+subprocess.run(["conan", "export-pkg", str(ROOT / "conan/ctp"), "--output-folder", str(stage / "conan"), "-s", "os=" + {"macos":"Macos","linux":"Linux"}[args.os], "-s", "arch=" + args.arch, "-c", "user.ctp:sdk_root=" + str(stage)], check=True)
 # Local recipes that patch an upstream dependency; conan.lock pins their revisions.
 subprocess.run(["conan", "export", str(ROOT / "conan/duckdb"), "--version", "1.4.3"], check=True)

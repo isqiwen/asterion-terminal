@@ -1,8 +1,11 @@
 #pragma once
+#include <asterion/kernel/plugin.hpp>
+#include "ctp_order_identity.hpp"
 #include <asterion/domain/broker_execution.hpp>
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <functional>
 namespace asterion::ctp {
 // Credentials stay in memory only while connected, for automatic re-login
 // after the SDK reconnects. Nothing here is persisted or logged.
@@ -12,29 +15,46 @@ struct TraderConfiguration {
 // CTP 6.7.7 TraderApi execution plugin. It authenticates, logs in, confirms
 // the settlement statement (required by CTP before trading each day), then
 // synchronizes orders, trades, positions and funds before reporting ready.
-// All SDK requests run on one worker thread, never under the state mutex;
+// SDK creation, initialization, requests and release share one fixed thread;
+// no vendor call holds the state mutex. Connection changes are asynchronous;
 // queries are serialized and spaced by the CTP flow limit (one per second).
-class Trader final : public BrokerExecutionPort {
+// The host serializes mutations and poll() on its account owner. SDK state
+// operations return through one reserved slot; callbacks only copy events.
+class Trader final : public BrokerExecutionPort, public Plugin {
 public:
-  Trader(const std::filesystem::path& library, const std::filesystem::path& flow);
+  Trader(const std::filesystem::path& library, const std::filesystem::path& flow,
+         BrokerSendGate& gate, std::function<void()> events_ready);
   ~Trader() override;
   PluginDescriptor descriptor() const override;
   void start() override;
   void stop() noexcept override;
-  // `known` maps broker keys to caller order IDs from the caller's journal, so
-  // orders from earlier sessions stay attributed after a reconnect.
-  void connect(TraderConfiguration config, std::map<std::string, std::string> known = {});
-  BrokerOrder submit(const LimitOrder& order, Offset offset, std::uint64_t connection_generation,
-                     const std::function<void(const BrokerOrder&)>& journal) override;
-  void cancel(const std::string& order_id) override;
+  // Durable attribution includes trading day; daily broker key reuse cannot
+  // bind a new order to a historical caller order ID.
+  void connect(TraderConfiguration config, KnownOrders known = {});
+  bool restore_orders(std::string_view day, std::uint64_t generation, const KnownOrders& known);
+  std::unique_ptr<PreparedBrokerOrder>
+  prepare(const LimitOrder& order, Offset offset, std::uint64_t connection_generation,
+          std::uint64_t exposure_revision, std::chrono::steady_clock::time_point deadline) override;
+  std::future<BrokerDispatchResult> dispatch(std::unique_ptr<PreparedBrokerOrder> prepared,
+                                             BrokerSendPermit permit,
+                                             std::uint64_t journal_sequence) override;
+  std::future<BrokerDispatchResult> cancel(const std::string& order_id) override;
   BrokerSnapshot snapshot() const override;
+  // Account-owner observation without copying orders, trades or positions.
+  bool ready() const;
   // Queries the account's margin and commission rates for each contract with
   // its product code; results arrive in snapshot().costs. Requires ready.
   void query_costs(const std::vector<std::pair<InstrumentId, std::string>>& contracts);
-  // Queries the contract's current market and waits for the answer; nothing
-  // when the broker has none, the query fails or times out. Requires ready.
-  std::optional<BrokerQuote> quote(const InstrumentId& instrument);
+  // Returns immediately. Empty result means unavailable, invalidated or expired.
+  std::future<std::optional<BrokerQuote>> quote(const InstrumentId& instrument);
+  // The account owner applies queued callbacks and advances quote deadlines.
+  // events_ready wakes that owner; it must not call poll from a producer thread.
+  void poll();
+  std::chrono::steady_clock::time_point next_deadline() const;
   void disconnect() override;
+  // Freeze exactly the exposure snapshot checked for a policy change.
+  // A late broker report or reconnect rejects before closing the connection.
+  void disconnect_checked(std::uint64_t generation, std::uint64_t exposure_revision);
 
 private:
   struct Impl;

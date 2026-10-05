@@ -12,7 +12,7 @@ namespace fs = std::filesystem;
 namespace wire = node::v1;
 namespace {
 Json configuration_json(const ServiceConfiguration& configuration) {
-  Json value{{"version", 3},
+  Json value{{"version", 5},
              {"kind", static_cast<int>(configuration.kind)},
              {"provider_artifact", configuration.provider_artifact},
              {"artifact", configuration.artifact},
@@ -23,10 +23,13 @@ Json configuration_json(const ServiceConfiguration& configuration) {
   if (!configuration.catalog_artifact.empty())
     value["catalog_artifact"] = configuration.catalog_artifact;
   if (configuration.kind == wire::TASK_SERVICE) {
+    value["data_service"] = configuration.data_service;
     value["worker_artifact"] = configuration.worker_artifact;
     value["factor_artifact"] = configuration.factor_artifact;
     value["data_artifact"] = configuration.data_artifact;
   }
+  if (configuration.kind == wire::DATA_SERVICE)
+    value["task_service"] = configuration.task_service;
   return value;
 }
 } // namespace
@@ -64,10 +67,14 @@ ServiceConfiguration load_service_configuration(const fs::path& folder, bool loc
   std::ifstream input(path);
   std::string raw{std::istreambuf_iterator<char>(input), {}};
   auto document = parse_json(raw, 65536);
-  if (document.size() != (document.at("kind") == static_cast<int>(wire::TASK_SERVICE) ? 11U : 8U) +
-                             (document.contains("catalog_artifact") ? 1U : 0U) ||
-      document.at("version") != 3 || !document.at("desired").is_boolean() ||
-      !document.at("port").is_number_unsigned())
+  if (document.at("version") != 5)
+    throw std::invalid_argument("unsupported managed service configuration version: " +
+                                path.string());
+  if (document.size() !=
+          (document.at("kind") == static_cast<int>(wire::TASK_SERVICE) ? 12U : 8U) +
+              (document.contains("catalog_artifact") ? 1U : 0U) +
+              (document.at("kind") == static_cast<int>(wire::DATA_SERVICE) ? 1U : 0U) ||
+      !document.at("desired").is_boolean() || !document.at("port").is_number_unsigned())
     throw std::invalid_argument("invalid managed service configuration");
   ServiceConfiguration configuration;
   configuration.kind = static_cast<wire::ServiceKind>(document.at("kind").get<int>());
@@ -80,14 +87,20 @@ ServiceConfiguration load_service_configuration(const fs::path& folder, bool loc
     validate_artifact_digest(configuration.catalog_artifact);
   }
   if (configuration.kind != wire::MARKET_DATA && configuration.kind != wire::TASK_SERVICE &&
-      configuration.kind != wire::LIVE_TRADING)
+      configuration.kind != wire::LIVE_TRADING && configuration.kind != wire::DATA_SERVICE)
     throw std::invalid_argument("unsupported service kind");
   if (!configuration.provider_artifact.empty()) {
     if (configuration.kind != wire::MARKET_DATA)
       throw std::invalid_argument("provider library only belongs to market data");
     validate_artifact_digest(configuration.provider_artifact);
   }
+  if (configuration.kind == wire::DATA_SERVICE) {
+    configuration.task_service = document.at("task_service").get<std::string>();
+    validate_service_id(configuration.task_service);
+  }
   if (configuration.kind == wire::TASK_SERVICE) {
+    configuration.data_service = document.at("data_service").get<std::string>();
+    validate_service_id(configuration.data_service);
     configuration.worker_artifact = document.at("worker_artifact").get<std::string>();
     validate_artifact_digest(configuration.worker_artifact);
     configuration.factor_artifact = document.at("factor_artifact").get<std::string>();

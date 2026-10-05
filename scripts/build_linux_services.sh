@@ -10,7 +10,9 @@ mkdir -p "$WORK/input" "$WORK/output" "$ROOT/build/linux-bundles"
 cd "$ROOT"
 # macOS tar metadata would become ._* files on Linux and change the fingerprint.
 git ls-files -co --exclude-standard -z | grep -zv '^build/\|node_modules\|/dist/\|test-results' |
-  while IFS= read -r -d '' file; do [ -e "$file" ] && printf '%s\0' "$file"; done |
+  while IFS= read -r -d '' file; do
+    if [ -e "$file" ]; then printf '%s\0' "$file"; fi
+  done |
   COPYFILE_DISABLE=1 xargs -0 tar --no-xattrs --no-mac-metadata -cf "$WORK/input/service-source.tar"
 docker run --rm --platform linux/amd64 \
   -v "$WORK/input:/input:ro" -v "$WORK/output:/output" \

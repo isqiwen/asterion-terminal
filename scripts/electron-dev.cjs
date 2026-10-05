@@ -72,7 +72,7 @@ probe.listen(port, "127.0.0.1", () =>
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       if (stopping) return;
-      desktop = spawn(require("electron"), ["apps/clients/terminal/electron"], {
+      desktop = spawn(require("./electron-path.cjs")(), ["apps/clients/terminal/electron"], {
         cwd: root,
         env: { ...process.env, ASTERION_DEV_URL: `http://127.0.0.1:${port}` },
         stdio: ["inherit", "inherit", "inherit", "ipc"],

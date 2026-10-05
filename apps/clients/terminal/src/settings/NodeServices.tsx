@@ -25,7 +25,7 @@ const actionLabels: Record<Action, string> = {
   update: "更新服务程序",
 };
 // Trading runs one service per CTP account and is managed on the Trading page.
-const kinds: ServiceKind[] = ["market", "research"];
+const kinds: ServiceKind[] = ["market", "data", "task"];
 export function NodeServices({
   snapshot,
   busy,
@@ -42,11 +42,11 @@ export function NodeServices({
   const [saved, setSaved] = useState<MachineProfile[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
   const [deploying, setDeploying] = useState(false);
-  const [deployment, setDeployment] = useState({ kind: "research", service: "", port: "" });
+  const [deployment, setDeployment] = useState({ kind: "task", service: "", port: "" });
   const [deployed, setDeployed] = useState<{ node: string; service: string } | null>(null);
   const nodes = snapshot?.nodes ?? [];
   const node = nodes.find(n => n.id === selected);
-  const disabled = busy || !!snapshot?.stale;
+  const disabled = busy;
   async function run(method: TerminalCommand, params: Record<string, string> = {}) {
     setError("");
     try {
@@ -58,14 +58,13 @@ export function NodeServices({
     }
   }
   useEffect(() => {
-    void run("node.local");
+    // Startup owns the local monitor. Opening settings only observes the shared
+    // snapshot; reconnecting here races commands from the workbench window.
     try {
       setSaved(loadMachineProfiles());
     } catch (reason) {
       setError(asDisplayError(reason));
     }
-    // Attach only the local monitor; remote connections remain explicit.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   function manage(id: string) {
     setSelected(id);
@@ -92,15 +91,19 @@ export function NodeServices({
     if (pending.action === "use") {
       const kind = pendingService.kind;
       if (kind === "live") return;
-      const method: TerminalCommand = kind === "market" ? "market.attach" : "research.attach";
-      success = await run(method, params);
+      const method: TerminalCommand =
+        kind === "market" ? "market.attach" : "node.data_tasks.attach";
+      success = await run(method, {
+        ...params,
+        service: kind === "data" ? pendingService.task_service : pending.service,
+      });
     } else if (pending.action === "update")
       success = await run("node.update", { ...params, revision: pending.revision });
     else success = await run("node.action", { ...params, action: pending.action });
     if (success) setPending(null);
   }
   async function deploy() {
-    if (!node || node.id === "local" || node.state !== "online" || node.health?.maintenance) return;
+    if (!node || node.state !== "online" || node.health?.maintenance) return;
     if (await run("node.deploy", { id: node.id, ...deployment })) {
       setDeployed({ node: node.id, service: deployment.service });
       setDeploying(false);
@@ -110,10 +113,14 @@ export function NodeServices({
     const target = nodes.find(item => item.id === targetId);
     const services = target?.health?.services ?? [];
     let suffix = 1;
-    while (services.some(s => s.id === `research-${suffix}`)) suffix++;
+    while (services.some(s => s.id === `backtest-factor-${suffix}`)) suffix++;
     let port = 7443;
     while (port === target?.port || services.some(s => s.port === port)) port++;
-    setDeployment({ kind: "research", service: `research-${suffix}`, port: String(port) });
+    setDeployment({
+      kind: "task",
+      service: `backtest-factor-${suffix}`,
+      port: targetId === "local" ? "0" : String(port),
+    });
     setDeploying(true);
     setDeployed(null);
   }
@@ -121,9 +128,9 @@ export function NodeServices({
   const watched =
     pendingNode && pendingService && matches(pendingActive, pendingNode, pendingService);
   const tasks =
-    watched && pendingService?.kind === "research"
-      ? (snapshot?.research?.tasks.filter(task =>
-          ["queued", "running", "cancel_requested"].includes(task.state),
+    watched && pendingService?.kind === "task"
+      ? (snapshot?.task_service?.tasks.filter(task =>
+          ["queued", "running", "cancel_requested", "publishing"].includes(task.state),
         ) ?? [])
       : [];
   return (
@@ -172,7 +179,6 @@ export function NodeServices({
           <ErrorNotice error={error} namespace="host" />
         </p>
       )}
-      {snapshot?.stale && <p role="status">{t("正在刷新状态，暂不能执行服务操作。")}</p>}
       {wizard ? (
         <RemoteMachine
           key={wizard === "new" ? "new" : wizard.id}
@@ -280,14 +286,12 @@ export function NodeServices({
                     ? t("本机服务")
                     : t("{machine} 的服务", { machine: node.id })}
                 </h3>
-                {node.id !== "local" && (
-                  <button
-                    disabled={disabled || node.state !== "online" || node.health?.maintenance}
-                    onClick={() => startDeployment(node.id)}
-                  >
-                    {t("部署服务")}
-                  </button>
-                )}
+                <button
+                  disabled={disabled || node.state !== "online" || node.health?.maintenance}
+                  onClick={() => startDeployment(node.id)}
+                >
+                  {t("部署服务")}
+                </button>
               </div>
               {node.state !== "online" && (
                 <p role="alert">{t("节点失联，以下是最后确认的状态。不会自动切换或重发命令。")}</p>
@@ -335,9 +339,16 @@ export function NodeServices({
                     <legend>{t("部署到 {machine}", { machine: node.id })}</legend>
                     <p className="subtle">
                       {t(
-                        "每个服务拥有独立数据目录；数据服务保管历史数据，并调度下载、回测和因子分析任务。",
+                        "数据服务保管历史数据，任务服务调度下载、回测和因子任务；两个服务拥有固定配对的独立目录。",
                       )}
                     </p>
+                    {node.id === "local" && (
+                      <p>
+                        {t(
+                          "新增实例拥有独立数据和任务。已有实例完整保留，部署后需显式切换；已有任务不会复制或重跑。",
+                        )}
+                      </p>
+                    )}
                     <label>
                       {t("服务类型")}
                       <select
@@ -345,8 +356,8 @@ export function NodeServices({
                         value={deployment.kind}
                         onChange={e => setDeployment({ ...deployment, kind: e.target.value })}
                       >
-                        <option value="research">{t("研究与计算")}</option>
-                        <option value="market">{t("实时行情")}</option>
+                        <option value="task">{t("数据与任务服务")}</option>
+                        {node.id !== "local" && <option value="market">{t("实时行情")}</option>}
                       </select>
                     </label>
                     <div className="futures-fields">
@@ -359,34 +370,61 @@ export function NodeServices({
                           onChange={e => setDeployment({ ...deployment, service: e.target.value })}
                         />
                       </label>
-                      <label>
-                        {t("服务端口")}
-                        <input
-                          aria-label={t("服务端口")}
-                          type="number"
-                          min={1}
-                          max={65535}
-                          required
-                          value={deployment.port}
-                          onChange={e => setDeployment({ ...deployment, port: e.target.value })}
-                        />
-                      </label>
+                      {node.id !== "local" && (
+                        <label>
+                          {t("服务端口")}
+                          <input
+                            aria-label={t("服务端口")}
+                            type="number"
+                            min={1}
+                            max={65535}
+                            required
+                            value={deployment.port}
+                            onChange={e => setDeployment({ ...deployment, port: e.target.value })}
+                          />
+                        </label>
+                      )}
                     </div>
-                    <p className="subtle">
-                      {t("选择目标机器可用的 TCP 端口。部署前会校验名称、端口和内置程序。")}
-                    </p>
+                    {node.id !== "local" && (
+                      <p className="subtle">
+                        {t("选择目标机器可用的 TCP 端口。部署前会校验名称、端口和内置程序。")}
+                      </p>
+                    )}
                     <div className="source-actions">
                       <button type="button" onClick={() => setDeploying(false)}>
                         {t("取消")}
                       </button>
                       <button className="primary" type="submit">
-                        {t("上传并部署")}
+                        {t(node.id === "local" ? "部署服务" : "上传并部署")}
                       </button>
                     </div>
                   </fieldset>
                 </form>
               )}
               <div className="managed-services" role="list" aria-label={t("服务列表")}>
+                {node.health && (
+                  <p className="subtle">
+                    {t(
+                      "节点工作进程额度：{owned} 已占用 · {reserved} 启动预留 · 上限 {limit}",
+                      node.health.worker_capacity,
+                    )}
+                  </p>
+                )}
+                {node.health?.resource_budget && (
+                  <p className="subtle">
+                    {t(
+                      "节点准入预算：CPU {cpu}/{cpuLimit} · 内存 {memory}/{memoryLimit} MiB · 磁盘工作 {io}/{ioLimit}",
+                      {
+                        cpu: node.health.resource_budget.committed.cpu_slots,
+                        cpuLimit: node.health.resource_budget.limit.cpu_slots,
+                        memory: node.health.resource_budget.committed.memory_mib,
+                        memoryLimit: node.health.resource_budget.limit.memory_mib,
+                        io: node.health.resource_budget.committed.io_slots,
+                        ioLimit: node.health.resource_budget.limit.io_slots,
+                      },
+                    )}
+                  </p>
+                )}
                 {(node.health?.services ?? []).map(service => {
                   const active = matches(binding(snapshot, service.kind), node, service);
                   const unavailable =
@@ -421,7 +459,12 @@ export function NodeServices({
                         <p>{t("运行中的工作进程：{count}", { count: service.active_workers })}</p>
                         <div className="source-actions">
                           <button
-                            disabled={unavailable || service.state === "running"}
+                            disabled={
+                              unavailable ||
+                              service.state === "running" ||
+                              service.state === "waiting_capacity" ||
+                              service.state === "starting"
+                            }
                             onClick={() =>
                               void run("node.action", {
                                 id: node.id,

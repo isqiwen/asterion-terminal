@@ -65,23 +65,53 @@ json history(void* runtime, const std::vector<int>& prices, const std::string& i
       throw std::runtime_error(result.dump());
     return result.at("result");
   };
-  invoke("research.local");
+  invoke("node.data_tasks.local.open");
   const auto stopped =
-      invoke("node.action", {{"id", "local"}, {"service", "research"}, {"action", "stop"}});
+      invoke("node.action", {{"id", "local"}, {"service", "historical-data"}, {"action", "stop"}});
   std::string directory;
   for (const auto& node : stopped.at("nodes"))
     if (node.at("id") == "local")
       for (const auto& service : node.at("health").at("services"))
-        if (service.at("id") == "research")
+        if (service.at("id") == "historical-data")
           directory = service.at("directory").get<std::string>();
   auto selection = asterion::test::seed_history(directory, prices, id);
-  invoke("research.local");
+  invoke("node.data_tasks.local.open");
+  const auto deadline =
+      std::chrono::steady_clock::now() + asterion::testing_support::bound(std::chrono::seconds(10));
+  while (!invoke("runtime.snapshot").at("data").at("online").get<bool>()) {
+    if (std::chrono::steady_clock::now() >= deadline)
+      throw std::runtime_error("isolated data service did not become available");
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
   return selection;
 }
 } // namespace
+TEST(TerminalApi, CreationPreservesTypedFailureAndClearsTheOutput) {
+  const char* value = std::getenv("ASTERION_LOG_DIRECTORY");
+  const std::optional<std::string> saved = value ? std::optional<std::string>(value) : std::nullopt;
+  ASSERT_EQ(::setenv("ASTERION_LOG_DIRECTORY", "relative", 1), 0);
+  char* failure = nullptr;
+  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> rejected(
+      asterion_terminal_create(&failure), asterion_terminal_destroy);
+  std::unique_ptr<char, decltype(&asterion_terminal_free)> detail(failure, asterion_terminal_free);
+  if (saved)
+    ::setenv("ASTERION_LOG_DIRECTORY", saved->c_str(), 1);
+  else
+    ::unsetenv("ASTERION_LOG_DIRECTORY");
+  ASSERT_EQ(rejected, nullptr);
+  ASSERT_NE(detail, nullptr);
+  const auto response = json::parse(detail.get());
+  EXPECT_EQ(response.at("error").at("code"), "invalid_request");
+  EXPECT_EQ(response.at("error").at("message"), "invalid log file or retention");
+  failure = detail.get(); // The successful call must clear, not retain, this pointer.
+  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+      asterion_terminal_create(&failure), asterion_terminal_destroy);
+  ASSERT_NE(runtime, nullptr);
+  EXPECT_EQ(failure, nullptr);
+}
 TEST(TerminalApi, SnapshotRejectsMalformedQueriesBeforeReadingState) {
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
-                                                                      asterion_terminal_destroy);
+  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+      asterion_terminal_create(nullptr), asterion_terminal_destroy);
   ASSERT_NE(runtime, nullptr);
   for (const auto& params : std::vector<json>{nullptr,
                                               json::array(),
@@ -99,8 +129,8 @@ TEST(TerminalApi, SnapshotRejectsMalformedQueriesBeforeReadingState) {
   EXPECT_TRUE(call(runtime.get(), request("runtime.snapshot")).contains("result"));
 }
 TEST(TerminalApi, AutomaticShutdownCannotTargetProductionOrIsolatedFixtures) {
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
-                                                                      asterion_terminal_destroy);
+  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+      asterion_terminal_create(nullptr), asterion_terminal_destroy);
   ASSERT_NE(runtime, nullptr);
   for (bool recover : {false, true}) {
     const auto response =
@@ -111,8 +141,8 @@ TEST(TerminalApi, AutomaticShutdownCannotTargetProductionOrIsolatedFixtures) {
 }
 TEST(TerminalApi, Contracts) {
 
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
-                                                                      asterion_terminal_destroy);
+  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+      asterion_terminal_create(nullptr), asterion_terminal_destroy);
   EXPECT_TRUE((runtime != nullptr)) << "runtime allocated";
   EXPECT_TRUE((call(runtime.get(), request("runtime.snapshot"))["result"]["datasets"].empty()))
       << "no invented dataset";
@@ -126,7 +156,7 @@ TEST(TerminalApi, Contracts) {
         << "duplicate method cannot bypass dispatch";
   }
   const auto params = history(runtime.get(), {100, 101}, "contracts");
-  auto imported = call(runtime.get(), request("research.dataset.select", params));
+  auto imported = call(runtime.get(), request("data.dataset.select", params));
   ASSERT_TRUE(imported.contains("result")) << imported.dump();
   ASSERT_EQ(imported["result"]["datasets"].size(), 1U);
   const auto dataset = imported["result"]["datasets"][0];
@@ -135,7 +165,7 @@ TEST(TerminalApi, Contracts) {
   EXPECT_TRUE(dataset["last_timestamp_ns"].is_string());
   auto invalid = params;
   invalid["price_increment"] = "0";
-  EXPECT_TRUE(call(runtime.get(), request("research.dataset.select", invalid)).contains("error"));
+  EXPECT_TRUE(call(runtime.get(), request("data.dataset.select", invalid)).contains("error"));
   EXPECT_EQ(call(runtime.get(), request("runtime.snapshot"))["result"]["datasets"],
             json::array({dataset}));
   auto wrong = request("runtime.snapshot");
@@ -147,17 +177,16 @@ TEST(TerminalApi, Contracts) {
       << "null runtime rejected without crossing ABI";
   auto extra = params;
   extra["extra"] = true;
-  EXPECT_TRUE((call(runtime.get(), request("research.dataset.select", extra)).contains("error")))
+  EXPECT_TRUE((call(runtime.get(), request("data.dataset.select", extra)).contains("error")))
       << "unknown fields rejected";
   // Selecting the same contract again replaces it; removal names the contract.
   EXPECT_EQ(
-      call(runtime.get(), request("research.dataset.select", params))["result"]["datasets"].size(),
-      1U);
-  EXPECT_TRUE(call(runtime.get(),
-                   request("research.dataset.remove", {{"venue", "SHFE"}, {"symbol", "rb2611"}}))
-                  .contains("error"));
+      call(runtime.get(), request("data.dataset.select", params))["result"]["datasets"].size(), 1U);
   EXPECT_TRUE(
-      call(runtime.get(), request("research.dataset.remove",
+      call(runtime.get(), request("data.dataset.remove", {{"venue", "SHFE"}, {"symbol", "rb2611"}}))
+          .contains("error"));
+  EXPECT_TRUE(
+      call(runtime.get(), request("data.dataset.remove",
                                   {{"venue", "SHFE"}, {"symbol", "rb2610"}}))["result"]["datasets"]
           .empty());
   using namespace asterion;
@@ -174,9 +203,48 @@ TEST(TerminalApi, Contracts) {
   EXPECT_THROW(([&] { czce.validate(); })(), std::invalid_argument);
 }
 
+TEST(TerminalApi, DataProgramUpdatePreservesServiceBindingAndPublishedVersions) {
+  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+      asterion_terminal_create(nullptr), asterion_terminal_destroy);
+  ASSERT_TRUE(runtime);
+  const auto selection = history(runtime.get(), {100, 101}, "data-update");
+  auto invoke = [&](const std::string& method, json params = json::object()) {
+    const auto response = call(runtime.get(), request(method, std::move(params)));
+    if (response.contains("error"))
+      throw std::runtime_error(response.dump());
+    return response.at("result");
+  };
+  const auto original = invoke("data.dataset.select", selection).at("datasets");
+  auto service = [](const json& snapshot) {
+    for (const auto& node : snapshot.at("nodes"))
+      if (node.at("id") == "local")
+        for (const auto& item : node.at("health").at("services"))
+          if (item.at("id") == "historical-data")
+            return item;
+    throw std::runtime_error("fixture data service not found");
+  };
+  const auto stopped = service(
+      invoke("node.action", {{"id", "local"}, {"service", "historical-data"}, {"action", "stop"}}));
+  const auto updated = service(invoke(
+      "node.update",
+      {{"id", "local"}, {"service", "historical-data"}, {"revision", stopped.at("revision")}}));
+  EXPECT_EQ(updated.at("state"), "stopped");
+  EXPECT_EQ(updated.at("task_service"), stopped.at("task_service"));
+  EXPECT_EQ(updated.at("directory"), stopped.at("directory"));
+  invoke("node.data_tasks.local.open");
+  const auto deadline =
+      std::chrono::steady_clock::now() + asterion::testing_support::bound(std::chrono::seconds(10));
+  while (!invoke("runtime.snapshot").at("data").at("online").get<bool>()) {
+    ASSERT_LT(std::chrono::steady_clock::now(), deadline);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  invoke("data.dataset.clear");
+  EXPECT_EQ(invoke("data.dataset.select", selection).at("datasets"), original);
+}
+
 TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
-                                                                      asterion_terminal_destroy);
+  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+      asterion_terminal_create(nullptr), asterion_terminal_destroy);
   ASSERT_TRUE(runtime);
   const auto first = call(runtime.get(), request("runtime.snapshot"));
   ASSERT_TRUE(first.contains("result"));
@@ -197,11 +265,22 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
   EXPECT_FALSE(same["result"].contains("datasets"));
   EXPECT_TRUE(call(runtime.get(), request("runtime.snapshot", {{"since", "x"}})).contains("error"));
   const auto params = history(runtime.get(), std::vector<int>(20000, 100), "concurrent");
-  ASSERT_TRUE(call(runtime.get(), request("research.dataset.clear")).contains("result"));
+  ASSERT_TRUE(call(runtime.get(), request("data.dataset.clear")).contains("result"));
   std::atomic<bool> done{false};
+  json selected;
   std::thread slow([&] {
-    const auto selected = call(runtime.get(), request("research.dataset.select", params));
-    EXPECT_TRUE(selected.contains("result")) << selected.dump();
+    // Either caller may enter first. Retry only the explicit pre-dispatch
+    // admission conflict; a resolution/selection conflict remains a failure.
+    const auto deadline = std::chrono::steady_clock::now() +
+                          asterion::testing_support::bound(std::chrono::seconds(5));
+    do {
+      selected = call(runtime.get(), request("data.dataset.select", params));
+      if (!selected.contains("error") || selected.at("error").value("code", "") != "conflict" ||
+          selected.at("error").value("message", "") !=
+              "another Terminal operation is in progress; retry after it completes")
+        break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    } while (std::chrono::steady_clock::now() < deadline);
     done = true;
   });
   int concurrent_reads = 0;
@@ -232,6 +311,7 @@ TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
       EXPECT_EQ(inspect["error"]["code"], "conflict"); // Brief selection commit may own the lock.
   }
   slow.join();
+  ASSERT_TRUE(selected.contains("result")) << selected.dump();
   EXPECT_GT(concurrent_reads, 0) << "import finished before a concurrent read was observed";
   EXPECT_GT(responsive_commands, 0) << "archive reads must let other commands complete";
   const auto fresh = call(runtime.get(), request("runtime.snapshot", {{"since", revision}}));
@@ -408,16 +488,16 @@ int main(int argc, char** argv) {
   }
   return RUN_ALL_TESTS();
 }
-TEST(TerminalApi, LargeResearchDatasetsBacktest) {
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
-                                                                      asterion_terminal_destroy);
+TEST(TerminalApi, LargeNamedDatasetsBacktest) {
+  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+      asterion_terminal_create(nullptr), asterion_terminal_destroy);
   auto invoke = [&](std::string method, json params = json::object()) {
     return call(runtime.get(), request(method, std::move(params)));
   };
   std::vector<int> prices(30000);
   for (std::size_t i = 0; i < prices.size(); ++i)
     prices[i] = 3000 + static_cast<int>(i % 200);
-  const auto selected = invoke("research.dataset.select", history(runtime.get(), prices, "large"));
+  const auto selected = invoke("data.dataset.select", history(runtime.get(), prices, "large"));
   ASSERT_TRUE(selected.contains("result")) << selected.dump().substr(0, 400);
   EXPECT_EQ(selected["result"]["datasets"][0]["count"], 30000);
   const json costs{{"deposit", "1000000"},
@@ -427,7 +507,7 @@ TEST(TerminalApi, LargeResearchDatasetsBacktest) {
                    {"max_working_orders", "10"}};
   auto backtest = costs;
   backtest.update({{"id", "large-backtest"}, {"fast", 5}, {"slow", 20}, {"quantity", "1"}});
-  const auto submitted = invoke("research.submit", backtest);
+  const auto submitted = invoke("backtest.submit", backtest);
   ASSERT_TRUE(submitted.contains("result")) << submitted.dump().substr(0, 400);
 }
 
@@ -466,8 +546,8 @@ TEST(TerminalApi, LongNodeOperationsDoNotBlockOtherCommands) {
                      {"agent_port", "7443"},
                      {"firewall_port", "7443"},
                      {"firewall_action", "allow"}};
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(asterion_terminal_create(),
-                                                                      asterion_terminal_destroy);
+  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+      asterion_terminal_create(nullptr), asterion_terminal_destroy);
   std::atomic<bool> done{false};
   std::thread slow([&] {
     (void)call(runtime.get(), request("node.firewall.inspect", inspect));
@@ -476,7 +556,7 @@ TEST(TerminalApi, LongNodeOperationsDoNotBlockOtherCommands) {
   std::this_thread::sleep_for(std::chrono::milliseconds(500));
   ASSERT_FALSE(done.load()) << "the probe should still be waiting for the silent peer";
   const auto started = std::chrono::steady_clock::now();
-  const auto other = call(runtime.get(), request("research.dataset.clear"));
+  const auto other = call(runtime.get(), request("data.dataset.clear"));
   EXPECT_TRUE(other.contains("result")) << other.dump();
   EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(2));
   const auto second = call(runtime.get(), request("node.firewall.inspect", inspect));

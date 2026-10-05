@@ -1,9 +1,11 @@
 #include <chrono>
 #include <cstdio>
-// Seed only an isolated, stopped test Task Service through its real persistence API.
+// Seed only an isolated, stopped Data/Task pair through their persistence APIs.
 #include "history_minutes.hpp"
 #include "history_daily.hpp"
 #include "task_store.hpp"
+#include "data_store.hpp"
+#include "data_fixture.hpp"
 #include "tushare.hpp"
 #include <asterion/kernel/environment.hpp>
 #include <CLI/CLI.hpp>
@@ -44,9 +46,14 @@ int main(int argc, char** argv) {
     const auto root = environment_path("ASTERION_NODE_DIRECTORY");
     if (environment_variable("ASTERION_TEST_NODE_ISOLATED") != "1" || !root ||
         std::filesystem::canonical(directory) !=
-            std::filesystem::canonical(*root / "services" / "research" / "ledger"))
-      throw std::invalid_argument("minute fixture requires an isolated research ledger");
-    tasks::Store store(directory); // Exclusive ownership refuses a running service.
+            std::filesystem::canonical(*root / "services" / "task" / "ledger"))
+      throw std::invalid_argument("minute fixture requires an isolated task ledger");
+    data::Store warehouse(*root / "services" / "historical-data" / "ledger", "historical-data",
+                          "task");
+    tasks::Store store(
+        directory,
+        tasks::Identity{"task",
+                        "historical-data"}); // Exclusive ownership refuses a running service.
     if (store.list().tasks_size())
       throw std::invalid_argument("minute fixture requires an empty task store");
     // A continuous afternoon session: no 10:15-10:30 pause inside the range.
@@ -64,11 +71,18 @@ int main(int argc, char** argv) {
     input.set_end_ns(range.end_ns);
     input.set_requests_per_minute(60);
     const std::string id = "native-minute-fixture";
-    store.submit(id, input, "explicit-test-fixture");
-    research::v1::TaskAttempt attempt;
-    attempt.set_token(store.claim(id));
+    store.submit(test::authorize_download(warehouse, "task", id, input));
+    task::v1::TaskAttempt attempt;
+    attempt.set_token(store.commit(store.claim(id)).token());
     *attempt.mutable_task() = store.get(id);
-    store.download_attempt(attempt);
+    data::v1::DownloadAllocation allocation;
+    auto* identity = allocation.mutable_identity();
+    identity->set_data_instance("historical-data");
+    identity->set_task_instance("task");
+    identity->set_task_id(id);
+    identity->set_attempt(attempt.task().attempt());
+    *allocation.mutable_minutes() = input;
+    attempt.set_output_directory(test::allocate_download(warehouse, allocation).directory());
     tushare::Minutes provider(
         "explicit-test-fixture", calendar([begin](const auto&, auto) {
           std::string response =
@@ -83,14 +97,20 @@ int main(int argc, char** argv) {
           return response + "]}}";
         }));
     provider.start();
-    history_files::download_minutes(provider, range, attempt.output_directory(), 60);
-    research::v1::TaskFinish finish;
+    history_files::download_minutes(provider, range, attempt.output_directory());
+    task::v1::TaskFinish finish;
     finish.set_id(id);
     finish.set_token(attempt.token());
     *finish.mutable_minutes() = history_files::minute_result(attempt.output_directory());
     auto completion = store.prepare_finish(finish);
-    completion.verify();
-    store.finish(std::move(completion));
+    completion.prepare_payload();
+    const auto prepared =
+        warehouse.prepare(warehouse.verify_download(completion.download_preparation()));
+    if (!(store.commit(store.prepare_publication(std::move(completion), prepared)).task().state() ==
+          asterion::task::v1::PUBLISHING))
+      throw std::runtime_error("fixture publication was cancelled");
+    store.commit(store.confirm_publication(
+        warehouse.publish(warehouse.verify_publication(store.pending_publications().front()))));
 
     const auto daily = history_files::daily_request({{"version", 2},
                                                      {"contract_id", "SHFE/cu/2023-10"},
@@ -100,12 +120,13 @@ int main(int argc, char** argv) {
                                                      {"end_day", "2023-04-30"},
                                                      {"requests_per_minute", 500}});
     const std::string daily_id = "native-daily-fixture";
-    store.submit(daily_id, daily, "explicit-test-fixture");
+    store.submit(test::authorize_download(warehouse, "task", daily_id, daily));
     // Leave the task QUEUED. Only the real Agent-dispatched worker may claim
-    // and finish it after Electron starts the isolated research service.
-    const auto daily_directory = std::filesystem::path(directory) / "history" / "SHFE" / "cu" /
-                                 "2023-10" / "tushare.fut_daily" / "daily" / daily_id;
-    std::filesystem::create_directories(daily_directory);
+    // and finish it after Electron starts the isolated task service.
+    allocation.mutable_identity()->set_task_id(daily_id);
+    allocation.mutable_identity()->set_attempt(1);
+    *allocation.mutable_daily() = daily;
+    const auto daily_directory = test::allocate_download(warehouse, allocation).directory();
     tushare::Daily daily_provider("explicit-test-fixture", [](const auto&, auto) {
       std::string response =
           R"({"code":0,"data":{"fields":["ts_code","trade_date","pre_close","pre_settle","open","high","low","close","settle","vol","amount","oi"],"items":[)";
@@ -124,8 +145,8 @@ int main(int argc, char** argv) {
     });
     daily_provider.start();
     history_files::download_daily(daily_provider, history_files::daily_range(daily),
-                                  daily_directory, 500);
-    if (store.get(daily_id).state() != research::v1::QUEUED || store.get(daily_id).attempt() != 0)
+                                  daily_directory);
+    if (store.get(daily_id).state() != task::v1::QUEUED || store.get(daily_id).attempt() != 0)
       throw std::runtime_error("daily fixture must remain queued for Agent dispatch");
     std::cout
         << "Created completed minute fixture and queued daily fixture with durable source pages\n";

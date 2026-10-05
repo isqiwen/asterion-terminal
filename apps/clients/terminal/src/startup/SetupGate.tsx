@@ -1,5 +1,5 @@
 import { Icon } from "../ui/Icon";
-import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
+import { BackendError, ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import { translate, type MessageValues } from "../i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 import { useLocale } from "../i18n";
@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { WindowFrame } from "../host/components/WindowFrame";
 import { readableCtpConnection, request } from "../bridge/client";
 import "./setup.css";
-import { defaultResearchPlugins } from "../host/native-plugins";
+import { defaultDataTaskPlugins } from "../host/native-plugins";
 export function SetupGate({ children }: { children: ReactNode }) {
   const { locale, setLocale } = useLocale();
   const language = locale === "zh-CN" ? "zh" : "en";
@@ -18,7 +18,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
       setError(t("保存失败，请检查本机存储权限。"));
     }
   };
-  const steps = [t("服务管理器"), t("行情服务"), t("数据服务"), t("交易服务")];
+  const steps = [t("服务管理器"), t("行情服务"), t("数据服务"), t("任务服务"), t("交易服务")];
   // Things the user should know before entering; none of them blocks entry.
   const [notices, setNotices] = useState<string[]>([]);
   const [step, setStep] = useState(0);
@@ -48,56 +48,83 @@ export function SetupGate({ children }: { children: ReactNode }) {
         if (verified.agent_program?.state !== "current")
           throw new Error(t("后台组件更新尚未完成，请重试启动"));
       }
-      const attached = await request("node.local");
+      await request("node.local");
+      for (const deadline = Date.now() + 20000; ;) {
+        const status = await request("runtime.snapshot");
+        const node = status.nodes.find(n => n.id === "local");
+        if (node?.health?.phase === "recovery_required") {
+          const failure = node.health.failure;
+          throw new BackendError(
+            "recovery_required",
+            failure?.message ?? "Agent recovery is required",
+          );
+        }
+        if (node?.state === "online" && node.health?.phase === "ready") break;
+        if (Date.now() >= deadline) throw new Error(t("本机服务管理器尚未就绪，请重试启动"));
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
       setStep(1);
       // A step completes only when its service has answered its first
       // heartbeat, so the steps move forward only and the workbench opens
       // with everything already healthy.
       const healthy = ["ready", "awaiting_input"];
-      const settled = async (kind: "market" | "research", failure: string) => {
+      const settled = async (kind: "market" | "data" | "task", failure: string) => {
         for (const deadline = Date.now() + 20000; ;) {
           const status = await request("runtime.snapshot");
           const node = status.nodes.find(n => n.id === "local");
-          if (status.stale || node?.state !== "online" || !node.health?.instance_id) {
+          if (node?.state !== "online" || !node.health?.instance_id) {
             setStep(0);
-            throw new Error(
-              t(status.stale ? "本机核心尚未就绪" : "本机服务管理器尚未就绪，请重试启动"),
-            );
+            throw new Error(t("本机服务管理器尚未就绪，请重试启动"));
           }
-          const expected = node.health.services.filter(
-            service => service.kind === kind && service.desired_running,
-          );
+          const selected =
+            kind === "market"
+              ? status.market?.service
+              : kind === "data"
+                ? status.data?.service
+                : status.task_service?.service;
+          const expected = node.health.services.find(service => service.id === selected);
           const online =
-            kind === "market" ? !!status.market?.transport_online : !!status.research?.online;
-          if (expected.some(service => service.state === "failed") || !online)
-            throw new Error(t(failure));
-          if (expected.every(service => healthy.includes(service.health))) return status;
+            kind === "market"
+              ? !!status.market?.transport_online
+              : kind === "data"
+                ? !!status.data?.online
+                : !!status.task_service?.online;
+          if (expected?.state === "failed") throw new Error(t(failure));
+          if (
+            node.health.phase === "ready" &&
+            online &&
+            expected?.desired_running &&
+            healthy.includes(expected.health)
+          )
+            return status;
           if (Date.now() >= deadline) throw new Error(t(failure));
           await new Promise(resolve => setTimeout(resolve, 300));
         }
       };
       await request("market.local");
-      await settled("market", "本机行情服务尚未就绪，请重试启动");
+      const marketReady = await settled("market", "本机行情服务尚未就绪，请重试启动");
       setStep(2);
-      const existingResearch = attached.nodes
+      // Initial Agent attachment may precede recovery of its service inventory.
+      const existingTask = marketReady.nodes
         .find(n => n.id === "local")
-        ?.health?.services.find(service => service.id === "research");
+        ?.health?.services.find(service => service.id === "task");
       const plugins = (await request("native.plugins.inspect")).native_plugins?.items ?? [];
       // A service left stopped is started again: the workbench never opens
       // without it.
-      if (existingResearch) await request("research.local");
-      else await request("research.local.create", { plugins: defaultResearchPlugins(plugins) });
-      const status = await settled("research", "本机数据服务尚未就绪，请重试启动");
+      if (existingTask) await request("node.data_tasks.local.open");
+      else
+        await request("node.data_tasks.local.create", { plugins: defaultDataTaskPlugins(plugins) });
+      await settled("data", "本机数据服务尚未就绪，请重试启动");
+      setStep(3);
+      const status = await settled("task", "本机任务服务尚未就绪，请重试启动");
       // Market data must still be reachable once everything is up.
       if (!status.market?.transport_online) {
         setStep(1);
         throw new Error(t("本机行情服务尚未就绪，请重试启动"));
       }
       const invalid = plugins.filter(plugin => plugin.state === "invalid");
-      const interrupted = (status.research?.tasks ?? []).filter(
-        task => task.state === "interrupted",
-      ).length;
-      setStep(3);
+      const interrupted = status.task_service?.interrupted_count ?? 0;
+      setStep(4);
       // Each account that trades has its own service. Starting it only runs
       // the program: nothing logs in or reaches the counter. An account
       // whose service does not come up is reported and can be started from
@@ -136,7 +163,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
         ),
         ...(interrupted ? [t("{p0} 项任务上次被中断，可在任务中心重试", { p0: interrupted })] : []),
       ]);
-      setStep(4);
+      setStep(5);
       setReady(true);
     } catch (reason) {
       setError(asDisplayError(reason));

@@ -14,6 +14,21 @@ void safe(const std::filesystem::path& p) {
   if (std::filesystem::is_symlink(p))
     throw std::invalid_argument("historical archive rejects symbolic links");
 }
+void require_owned_directory(const std::filesystem::path& root, std::filesystem::path path) {
+  if (path.is_absolute()) {
+    // Parent aliases such as macOS /var and /private/var name the same archive.
+    // Walk the supplied descendants so internal links are still rejected.
+    while (path.has_relative_path()) {
+      if (path.filename() == "." || path.filename() == "..")
+        break;
+      safe(path);
+      path = path.parent_path();
+      if (std::filesystem::equivalent(path, root))
+        return;
+    }
+  }
+  throw std::invalid_argument("historical dataset outside archive");
+}
 void digest(const std::string& id) {
   if (id.size() != 64 || id.find_first_not_of("0123456789abcdef") != std::string::npos)
     throw std::invalid_argument("invalid historical dataset revision");
@@ -54,19 +69,23 @@ Archive::Archive(std::filesystem::path root, Access access)
   if (!root_.is_absolute())
     throw std::invalid_argument("historical archive requires an absolute directory");
   safe(root_);
+  if (std::filesystem::exists(root_ / "index") &&
+      !std::filesystem::is_directory(root_ / "named-datasets"))
+    throw std::invalid_argument(
+        "unsupported historical archive layout; existing data was preserved");
   if (access_ == Access::read_only) {
-    for (const auto& directory : {root_, root_ / "research", root_ / "index"}) {
+    for (const auto& directory : {root_, root_ / "named-datasets", root_ / "index"}) {
       safe(directory);
       if (!std::filesystem::is_directory(directory))
         throw std::invalid_argument("historical archive requires existing directories");
     }
     return;
   }
-  std::filesystem::create_directories(root_);
-  safe(root_ / "research");
-  std::filesystem::create_directory(root_ / "research");
+  create_directories_durably(root_);
+  safe(root_ / "named-datasets");
+  create_directories_durably(root_ / "named-datasets");
   safe(root_ / "index");
-  std::filesystem::create_directory(root_ / "index");
+  create_directories_durably(root_ / "index");
 }
 void Archive::writable() const {
   if (access_ == Access::read_only)
@@ -89,39 +108,27 @@ std::filesystem::path Archive::directory(const HistoryIdentity& contract, const 
                                 interval ? std::to_string(interval) + "m" : "daily", acquisition}) {
     p /= part;
     safe(p);
-    std::filesystem::create_directory(p);
+    create_directories_durably(p);
   }
   return p;
 }
-void Archive::publish(const data::v1::HistoryRecord& record) {
+void Archive::publish_verified(const data::v1::HistoryRecord& record) {
   writable();
   const auto item = summary(record);
   digest(item.id);
   const auto path = std::filesystem::path(record.has_minutes() ? record.minute_result().directory()
                                                                : record.daily_result().directory());
-  const auto relative = path.lexically_relative(root_);
-  if (relative.empty() || relative.native().starts_with(".."))
-    throw std::invalid_argument("historical dataset outside archive");
-  auto checked = root_;
-  for (const auto& part : relative) {
-    if (part == ".." || part == ".")
-      throw std::invalid_argument("historical dataset outside archive");
-    checked /= part;
-    safe(checked);
-  }
+  require_owned_directory(root_, path);
   FileLock lock(root_, "archive.lock");
   const auto index = root_ / "index" / (item.id + ".pb");
   safe(index);
-  // A version is verified once, when first published; republishing the same
-  // version (every task service start) only checks its index record.
+  // Prepared evidence owns file verification. Reconfirming a publication
+  // checks its immutable index record without loading the data again.
   if (std::filesystem::exists(index)) {
     (void)get(item.id);
+    sync_directory(index.parent_path());
     return;
   }
-  if (record.has_minutes())
-    verify_minute_result(record.minutes(), record.minute_result());
-  else
-    verify_daily_result(record.daily(), record.daily_result());
   replace_file_durably(index, record.SerializeAsString());
 }
 data::v1::HistoryRecord Archive::get(const std::string& id) const {
@@ -137,16 +144,7 @@ data::v1::HistoryRecord Archive::get(const std::string& id) const {
     throw std::invalid_argument("historical archive revision mismatch");
   const auto path = std::filesystem::path(record.has_minutes() ? record.minute_result().directory()
                                                                : record.daily_result().directory());
-  auto relative = path.lexically_relative(root_);
-  if (relative.empty() || relative.native().starts_with(".."))
-    throw std::invalid_argument("historical dataset outside archive");
-  auto checked = root_;
-  for (const auto& part : relative) {
-    if (part == ".." || part == ".")
-      throw std::invalid_argument("historical dataset outside archive");
-    checked /= part;
-    safe(checked);
-  }
+  require_owned_directory(root_, path);
   return record;
 }
 std::vector<HistoryDataset> Archive::datasets(const HistoryFilter& filter) const {
@@ -179,60 +177,67 @@ std::vector<HistoryDataset> Archive::datasets(const HistoryFilter& filter) const
   std::ranges::sort(result, {}, &HistoryDataset::id);
   return result;
 }
-void Archive::save_research_dataset(const data::v1::ResearchDataset& value) {
+void Archive::save_named_dataset(const data::v1::NamedDataset& value) {
   writable();
-  protocol::validate_research_dataset(value);
+  protocol::validate_named_dataset(value);
   for (const auto& input : value.selections()) {
     for (const auto& id : input.source_dataset_ids())
       (void)get(id);
     for (const auto& id : input.settlement_dataset_ids())
       (void)get(id);
   }
-  FileLock lock(root_, "research.lock");
-  const auto path = root_ / "research" / (value.id() + ".pb");
+  FileLock lock(root_, "datasets.lock");
+  const auto path = root_ / "named-datasets" / (value.id() + ".pb");
   safe(path);
   if (std::filesystem::exists(path)) {
-    (void)research_dataset(value.id());
+    (void)named_dataset(value.id());
+    sync_directory(path.parent_path());
     return;
   }
-  if (std::distance(std::filesystem::directory_iterator(root_ / "research"),
-                    std::filesystem::directory_iterator{}) >= 1000)
-    throw std::invalid_argument("saved research dataset capacity reached");
   replace_file_durably(path, value.SerializeAsString());
 }
-data::v1::ResearchDataset Archive::research_dataset(const std::string& id) const {
+bool Archive::has_named_dataset(const std::string& id) const {
   digest(id);
-  const auto path = root_ / "research" / (id + ".pb");
+  const auto path = root_ / "named-datasets" / (id + ".pb");
+  safe(path);
+  if (!std::filesystem::exists(path))
+    return false;
+  (void)named_dataset(id);
+  return true;
+}
+data::v1::NamedDataset Archive::named_dataset(const std::string& id) const {
+  digest(id);
+  const auto path = root_ / "named-datasets" / (id + ".pb");
   safe(path);
   if (!std::filesystem::is_regular_file(path) || std::filesystem::file_size(path) > 262144)
-    throw std::invalid_argument("saved research dataset is unavailable");
+    throw std::invalid_argument("saved dataset is unavailable");
   std::ifstream file(path, std::ios::binary);
   std::string bytes((std::istreambuf_iterator<char>(file)), {});
-  data::v1::ResearchDataset value;
+  data::v1::NamedDataset value;
   if (!value.ParseFromString(bytes) || value.id() != id)
-    throw std::invalid_argument("saved research dataset revision mismatch");
-  protocol::validate_research_dataset(value);
+    throw std::invalid_argument("saved dataset revision mismatch");
+  protocol::validate_named_dataset(value);
   return value;
 }
-data::v1::ResearchDatasets Archive::research_datasets() const {
-  safe(root_ / "research.lock");
+data::v1::NamedDatasets Archive::named_datasets() const {
+  safe(root_ / "datasets.lock");
   std::optional<FileLock> lock;
-  if (access_ == Access::writer || std::filesystem::exists(root_ / "research.lock"))
-    lock.emplace(root_, "research.lock",
+  if (access_ == Access::writer || std::filesystem::exists(root_ / "datasets.lock"))
+    lock.emplace(root_, "datasets.lock",
                  access_ == Access::writer ? FileLock::Access::shared
                                            : FileLock::Access::shared_existing);
-  else if (!std::filesystem::is_empty(root_ / "research"))
+  else if (!std::filesystem::is_empty(root_ / "named-datasets"))
     throw std::invalid_argument("historical archive coordination file is missing");
-  std::vector<data::v1::ResearchDataset> rows;
-  for (const auto& entry : std::filesystem::directory_iterator(root_ / "research")) {
+  std::vector<data::v1::NamedDataset> rows;
+  for (const auto& entry : std::filesystem::directory_iterator(root_ / "named-datasets")) {
     if (entry.path().extension() != ".pb" || rows.size() >= 1000)
-      throw std::invalid_argument("invalid saved research dataset");
-    rows.push_back(research_dataset(entry.path().stem().string()));
+      throw std::invalid_argument("invalid saved dataset");
+    rows.push_back(named_dataset(entry.path().stem().string()));
   }
   std::ranges::sort(rows, [](const auto& a, const auto& b) {
     return std::make_pair(a.name(), a.id()) < std::make_pair(b.name(), b.id());
   });
-  data::v1::ResearchDatasets result;
+  data::v1::NamedDatasets result;
   for (auto& row : rows)
     *result.add_items() = std::move(row);
   return result;

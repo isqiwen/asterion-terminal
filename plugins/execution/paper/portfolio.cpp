@@ -26,24 +26,20 @@ PaperPortfolio paper_portfolio(const protocol::v1::PaperInput& input) {
   }
   return result;
 }
-PaperReplaySchedule replay_schedule(const std::vector<Instrument>& contracts,
-                                    const std::vector<std::vector<MarketBar>>& bars,
-                                    const std::vector<std::vector<DaySettlement>>& days) {
-  std::vector<const std::vector<MarketBar>*> series;
-  for (const auto& item : bars)
-    series.push_back(&item);
-  std::vector<std::string> event_days;
-  for (const auto& event : replay_order(series))
-    event_days.push_back(bars[event.contract][event.bar].trading_day);
-  return PaperReplaySchedule(contracts, event_days, days);
-}
-PaperReplaySchedule replay_schedule(const PaperPortfolio& portfolio) {
+PaperReplaySchedule replay_schedule(const PaperPortfolio& portfolio,
+                                    const std::vector<bool>& sparse) {
   std::vector<Instrument> contracts;
-  std::vector<std::vector<MarketBar>> bars;
+  std::vector<const std::vector<MarketBar>*> series;
   for (const auto& contract : portfolio.contracts) {
     contracts.push_back(contract.terms.instrument);
-    bars.push_back(contract.bars);
+    series.push_back(&contract.bars);
   }
-  return replay_schedule(contracts, bars, portfolio.days);
+  std::vector<std::string> event_days;
+  std::vector<std::size_t> event_contracts;
+  for (const auto& event : replay_order(series)) {
+    event_days.push_back(portfolio.contracts[event.contract].bars[event.bar].trading_day);
+    event_contracts.push_back(event.contract);
+  }
+  return PaperReplaySchedule(contracts, event_days, event_contracts, portfolio.days, sparse);
 }
 } // namespace asterion

@@ -1,312 +1,270 @@
 #include "trading_client.hpp"
-#include "node_client.hpp"
-#include <asterion/kernel/ipc/local_channel.hpp>
-#include <asterion/kernel/process/child.hpp>
+#include <asterion/kernel/ipc/rpc_client.hpp>
+#include <asterion/kernel/trace.hpp>
+#include <asterion/protocol/health.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <cstdlib>
-#include <cstring>
-#include <thread>
-#include <optional>
-#include <stdexcept>
-#ifndef _WIN32
-#include <sys/stat.h>
-#endif
+
 namespace asterion::terminal {
 using namespace std::chrono_literals;
 namespace wire = protocol::v1;
 struct TradingClient::Impl {
-  std::optional<ServiceEndpoint> remote;
-  ipc::TlsChannel tcp;
-  std::string session_id;
-
-  ipc::Channel channel;
-  std::uint64_t sequence = 0;
-  Json last_snapshot = nullptr;
-  bool failed = false;
+  ServiceIo& io;
+  const ServiceEndpoint endpoint;
+  std::unique_ptr<ipc::RpcClient> transport;
+  std::stop_source lifetime;
+  bool busy = false, failed = false;
+  std::shared_ptr<const Json> last_snapshot;
   Json health = nullptr;
-  std::int64_t last_heartbeat_ms = 0;
-  std::int64_t latency_ms = 0;
-  explicit Impl(const ServiceEndpoint& config) : remote(config) {
-    validate_id(config.session);
-    session_id = config.session;
-    if (config.endpoint.empty())
-      tcp = ipc::TlsChannel::connect(config.host, config.port, config.tls, 10s);
-    else {
-      const auto deadline = std::chrono::steady_clock::now() + 10s;
-      for (;;) {
-        try {
-          channel = ipc::Channel::connect(config.endpoint, 500ms);
-          break;
-        } catch (const Error&) {
-          if (std::chrono::steady_clock::now() >= deadline)
-            throw;
-          std::this_thread::sleep_for(50ms);
-        }
-      }
-    }
+  std::int64_t last_heartbeat_ms = 0, latency_ms = 0;
+  unsigned reconnects = 0, reconnect_attempts = 0;
+  Impl(ServiceIo& owner, ServiceEndpoint value) : io(owner), endpoint(std::move(value)) {
+    validate_id(endpoint.session);
+    transport =
+        endpoint.endpoint.empty()
+            ? std::make_unique<ipc::RpcClient>(endpoint.host, endpoint.port, endpoint.tls, 1,
+                                               io.payload_budget(ServiceIo::PayloadLane::control))
+            : std::make_unique<ipc::RpcClient>(endpoint.endpoint, 1,
+                                               io.payload_budget(ServiceIo::PayloadLane::control));
   }
-  void close() {
-    channel.close();
-    tcp.close();
+  bool stopped(std::stop_token stop) const {
+    return stop.stop_requested() || lifetime.stop_requested();
   }
-  ~Impl() { close(); }
-  Json call(wire::Request request) {
+  PolledTask<void> call(wire::Request request, std::stop_token stop) {
+    co_await PollUntil{[&] { return !busy || stopped(stop); }};
+    if (stopped(stop))
+      throw Error(ErrorCode::cancelled, "trading connection closed");
     if (failed)
       throw Error(ErrorCode::unavailable, "trading connection lost; reconnect remote sessions in "
                                           "Settings, recover local sessions from their directory");
+    busy = true;
+    struct Release {
+      bool& busy;
+      ~Release() { busy = false; }
+    } release{busy};
     request.set_version(1);
-    request.set_session_id(session_id);
-    request.set_correlation_id("rpc." + std::to_string(++sequence));
-    wire::Response response;
-    const auto sent = std::chrono::steady_clock::now();
-    // Reads bound how long a status poll can wait; mutations keep a longer
-    // deadline because their outcome becomes unknown on timeout. A live order
-    // may wait up to 10 s for its quote and 5 s for the SDK to send it, so the
-    // deadline must exceed that or a sent order would look lost.
+    request.set_session_id(endpoint.session);
+    request.set_correlation_id(next_correlation_id());
     const bool mutation = request.has_command() || request.has_recover() ||
                           request.has_live_create() || request.has_live_connect() ||
                           request.has_live_disconnect() || request.has_live_costs();
-    const auto timeout = mutation ? 30s : 3s;
+    const auto sent = std::chrono::steady_clock::now();
+    wire::Response response;
     try {
-      if (remote->endpoint.empty())
-        tcp.send(request.SerializeAsString(), timeout);
-      else
-        channel.send(request.SerializeAsString(), timeout);
-      if (!response.ParseFromString(remote->endpoint.empty() ? tcp.receive(timeout)
-                                                             : channel.receive(timeout)))
-        throw Error(ErrorCode::unavailable, "invalid trading response");
-      protocol::validate_message(response);
-      if (response.version() != 1 || response.session_id() != session_id ||
-          response.correlation_id() != request.correlation_id())
-        throw Error(ErrorCode::unavailable, "trading response identity mismatch");
-      if (!response.has_error() && !response.has_live() &&
-          !(request.has_attach() && response.has_uninitialized()) &&
-          !(request.has_heartbeat() && response.has_health()))
-        throw Error(ErrorCode::unavailable, "missing trading response");
+      auto reply = transport->request(request.SerializeAsString(), mutation ? 30s : 3s);
+      while (reply.wait_for(0ms) != std::future_status::ready) {
+        if (stopped(stop))
+          transport.reset(); // Complete outstanding futures with an unknown-outcome failure.
+        else
+          transport->poll();
+        co_await std::suspend_always{};
+      }
+      auto parsed = co_await io.read<std::pair<wire::Response, std::shared_ptr<const Json>>>(
+          [raw = reply.get(), previous = last_snapshot, &request] {
+            wire::Response value;
+            if (!value.ParseFromString(*raw))
+              throw Error(ErrorCode::unavailable, "invalid trading response");
+            protocol::validate_message(value);
+            if (value.version() != 1 || value.session_id() != request.session_id() ||
+                value.correlation_id() != request.correlation_id())
+              throw Error(ErrorCode::unavailable, "trading response identity mismatch");
+            if (!value.has_error() && !value.has_live() &&
+                !(request.has_attach() && value.has_uninitialized()) &&
+                !(request.has_heartbeat() && value.has_health()))
+              throw Error(ErrorCode::unavailable, "missing trading response");
+            std::shared_ptr<const Json> snapshot;
+            if (value.has_live()) {
+              auto next = protocol::decode_live_snapshot(value.live());
+              snapshot = previous && *previous == next
+                             ? previous
+                             : std::make_shared<const Json>(std::move(next));
+              value.clear_live();
+            }
+            return std::pair{std::move(value), std::move(snapshot)};
+          },
+          ServiceIo::ReadLane::response);
+      response = std::move(parsed.first);
+      if (response.has_health()) {
+        const auto& h = response.health();
+        if (h.instance_id().empty() || h.version().empty() || !h.has_execution())
+          throw Error(ErrorCode::unavailable, "invalid service health");
+        last_heartbeat_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+        latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::steady_clock::now() - sent)
+                         .count();
+        health = {{"instance_id", h.instance_id()},
+                  {"version", h.version()},
+                  {"uptime_ms", h.uptime_ms()},
+                  {"execution", protocol::execution_health_json(h.execution())},
+                  {"phase", protocol::trading_health_phase(h)}};
+      } else if (response.has_uninitialized()) {
+        if (last_snapshot)
+          throw Error(ErrorCode::unavailable, "remote ledger is no longer initialized");
+      } else if (parsed.second)
+        last_snapshot = std::move(parsed.second);
     } catch (...) {
       failed = true;
-      close();
       throw;
-    }
-    if (response.has_health()) {
-      const auto& h = response.health();
-      if (h.instance_id().empty() || h.version().empty()) {
-        failed = true;
-        close();
-        throw Error(ErrorCode::unavailable, "invalid service health");
-      }
-      last_heartbeat_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                              std::chrono::system_clock::now().time_since_epoch())
-                              .count();
-      latency_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                       std::chrono::steady_clock::now() - sent)
-                       .count();
-      health = {{"instance_id", h.instance_id()},
-                {"version", h.version()},
-                {"uptime_ms", h.uptime_ms()},
-                {"phase", h.recovery_required() ? "degraded"
-                          : h.initialized()     ? "ready"
-                                                : "awaiting_input"}};
-      return last_snapshot;
     }
     if (response.has_error())
       throw_remote_error(response.error().code(), response.error().message());
-    if (response.has_uninitialized()) {
-      last_snapshot = nullptr;
-      return nullptr;
-    }
-    try {
-      last_snapshot = protocol::decode_live_snapshot(response.live());
-    } catch (...) {
-      failed = true;
-      close();
-      throw Error(ErrorCode::unavailable, "invalid trading snapshot; recover the session");
-    }
-    return last_snapshot;
+    co_return;
   }
-};
-namespace {
-wire::Request create_request(const Json& manifest) {
-  wire::Request request;
-  *request.mutable_live_create() = protocol::encode_live_input(manifest);
-  return request;
-}
-} // namespace
-TradingClient::TradingClient(const std::filesystem::path& directory, const Json& manifest) {
-  node_ = std::make_unique<NodeClient>(local_node());
-  impl_ = std::make_unique<Impl>(node_->local_session(directory));
-  wire::Request attach;
-  attach.mutable_attach();
-  impl_->call(std::move(attach));
-  if (!manifest.is_null())
-    impl_->call(create_request(manifest));
-  else if (impl_->last_snapshot.is_null())
-    throw std::invalid_argument("trading record is not initialized");
-  monitor();
-}
-TradingClient::TradingClient(const ServiceEndpoint& config)
-    : impl_(std::make_unique<Impl>(config)) {
-  wire::Request request;
-  request.mutable_attach();
-  impl_->call(std::move(request));
-  monitor();
-}
-void TradingClient::monitor() {
-  wire::Request ping;
-  ping.mutable_heartbeat();
-  impl_->call(std::move(ping));
-  heartbeat_ = std::jthread([this](std::stop_token stop) {
-    std::unique_lock lock(mutex_);
-    while (!wake_.wait_for(lock, 5s, [&] { return stop.stop_requested(); })) {
-      if (impl_->failed) {
-        if (impl_->remote) {
-          if (reconnect_attempts_ >= 3)
-            continue;
-          ++reconnect_attempts_;
-          ++reconnects_;
-          try {
-            auto next = std::make_unique<Impl>(
-                node_ ? node_->service_endpoint(impl_->session_id, node::v1::LIVE_TRADING)
-                      : *impl_->remote);
-            wire::Request attach;
-            attach.mutable_attach();
-            next->call(std::move(attach));
-            if (!impl_->last_snapshot.is_null() && next->last_snapshot.is_null())
-              throw Error(ErrorCode::unavailable, "remote ledger is no longer initialized");
-            wire::Request ping;
-            ping.mutable_heartbeat();
-            next->call(std::move(ping));
-            impl_ = std::move(next);
-            reconnect_attempts_ = 0;
-          } catch (...) { /* Never resend a trading command during reconnect. */
-          }
-          continue;
-        }
+  PolledTask<void> initialize(Json manifest, std::stop_token stop) {
+    wire::Request attach;
+    attach.mutable_attach();
+    co_await call(std::move(attach), stop);
+    if (!manifest.is_null()) {
+      wire::Request create;
+      *create.mutable_live_create() = protocol::encode_live_input(manifest);
+      co_await call(std::move(create), stop);
+    } else if (!last_snapshot)
+      throw std::invalid_argument("trading record is not initialized");
+    wire::Request ping;
+    ping.mutable_heartbeat();
+    co_await call(std::move(ping), stop);
+  }
+  PolledTask<void> monitor(std::stop_token stop) {
+    auto next = std::chrono::steady_clock::now() + 500ms;
+    auto health_due = std::chrono::steady_clock::now() + 5s;
+    while (!stopped(stop)) {
+      co_await PollUntil{[&] { return stopped(stop) || std::chrono::steady_clock::now() >= next; }};
+      if (stopped(stop))
+        break;
+      if (failed && reconnect_attempts >= 3) {
+        next = std::chrono::steady_clock::now() + 5s;
+        continue;
       }
       try {
-        wire::Request ping;
-        ping.mutable_heartbeat();
-        impl_->call(std::move(ping));
-      } catch (...) {
-        impl_->failed = true;
-        impl_->close();
+        const bool reconnecting = failed;
+        if (reconnecting) {
+          ++reconnect_attempts;
+          ++reconnects;
+          failed = false;
+        }
+        wire::Request observe;
+        observe.mutable_attach();
+        co_await call(std::move(observe), stop);
+        if (reconnecting || std::chrono::steady_clock::now() >= health_due) {
+          wire::Request ping;
+          ping.mutable_heartbeat();
+          co_await call(std::move(ping), stop);
+          health_due = std::chrono::steady_clock::now() + 5s;
+        }
+        reconnect_attempts = 0;
+      } catch (const std::exception&) {
+        failed = true;
       }
+      next = std::chrono::steady_clock::now() + (failed ? 5s : 500ms);
     }
-  });
+    transport.reset();
+    co_return;
+  }
+  TradingClient::Read read() const { return {last_snapshot, connection(), failed}; }
+  Json connection() const {
+    Json status{{"reconnects", reconnects},
+                {"restarts", 0},
+                {"health", health},
+                {"last_heartbeat_ms", last_heartbeat_ms},
+                {"latency_ms", latency_ms},
+                {"session", endpoint.session},
+                {"state", failed ? "disconnected" : "connected"},
+                {"transport", endpoint.endpoint.empty() ? "tcp_tls" : "local"}};
+    if (endpoint.endpoint.empty())
+      status.update({{"host", endpoint.host}, {"port", endpoint.port}});
+    return status;
+  }
+};
+TradingClient::TradingClient(ServiceIo& io, ServiceEndpoint endpoint)
+    : io_(io), impl_(std::make_shared<Impl>(io, std::move(endpoint))) {}
+std::future<std::shared_ptr<TradingClient>>
+TradingClient::open(ServiceIo& io, ServiceEndpoint endpoint, Json manifest) {
+  return io.submit<std::shared_ptr<TradingClient>>(
+      [&io, endpoint = std::move(endpoint), manifest = std::move(manifest)](
+          std::stop_token stop) mutable -> PolledTask<std::shared_ptr<TradingClient>> {
+        auto client = co_await io.admin<std::shared_ptr<TradingClient>>([&] {
+          return std::shared_ptr<TradingClient>(new TradingClient(io, std::move(endpoint)));
+        });
+        co_await client->impl_->initialize(manifest, stop);
+        (void)client->io_.submit<void>(
+            [state = client->impl_](std::stop_token stop) { return state->monitor(stop); },
+            ServiceIo::Lane::observation);
+        co_return client;
+      });
 }
 TradingClient::~TradingClient() {
-  heartbeat_.request_stop();
-  wake_.notify_all();
-  if (heartbeat_.joinable())
-    heartbeat_.join();
+  impl_->lifetime.request_stop();
 }
-void TradingClient::create(const Json& manifest) {
-  std::lock_guard lock(mutex_);
-  impl_->call(create_request(manifest));
-}
-void TradingClient::connect_broker(std::string password, std::string auth_code) {
-  std::lock_guard lock(mutex_);
+std::future<void> TradingClient::connect_broker(std::string password, std::string auth_code) {
   wire::Request request;
   request.mutable_live_connect()->set_password(std::move(password));
   request.mutable_live_connect()->set_auth_code(std::move(auth_code));
-  impl_->call(std::move(request));
+  return io_.submit<void>(
+      [state = impl_, request = std::move(request)](std::stop_token stop) -> PolledTask<void> {
+        co_await state->call(request, stop);
+      });
 }
-void TradingClient::query_costs() {
-  std::lock_guard lock(mutex_);
+std::future<void> TradingClient::query_costs() {
   wire::Request request;
   request.mutable_live_costs();
-  impl_->call(std::move(request));
+  return io_.submit<void>(
+      [state = impl_, request = std::move(request)](std::stop_token stop) -> PolledTask<void> {
+        co_await state->call(request, stop);
+      });
 }
-void TradingClient::disconnect_broker() {
-  std::lock_guard lock(mutex_);
+std::future<void> TradingClient::disconnect_broker() {
   wire::Request request;
   request.mutable_live_disconnect();
-  impl_->call(std::move(request));
+  return io_.submit<void>(
+      [state = impl_, request = std::move(request)](std::stop_token stop) -> PolledTask<void> {
+        co_await state->call(request, stop);
+      });
 }
-void TradingClient::reconnect() {
-  std::lock_guard lock(mutex_);
-  if (!impl_->remote)
-    throw std::invalid_argument("local sessions must be reopened from their journal");
-  const auto config = *impl_->remote;
-  impl_->close();
-  impl_->failed = true;
-  auto next = std::make_unique<Impl>(config);
-  wire::Request request;
-  request.mutable_attach();
-  next->call(std::move(request));
-  wire::Request ping;
-  ping.mutable_heartbeat();
-  next->call(std::move(ping));
-  impl_ = std::move(next);
-  reconnect_attempts_ = 0;
+Json TradingClient::Read::snapshot() const {
+  if (!session)
+    return nullptr;
+  auto value = *session;
+  if (failed) {
+    value["storage_state"] = "recovery_required";
+    value["connection_state"] = "disconnected";
+  }
+  return value;
 }
-Json TradingClient::connection() const {
-  std::lock_guard lock(mutex_);
-  Json status = {{"reconnects", reconnects_},
-                 {"restarts", restarts_},
-                 {"health", impl_->health},
-                 {"last_heartbeat_ms", impl_->last_heartbeat_ms},
-                 {"latency_ms", impl_->latency_ms}};
-  if (node_) {
-    const auto n = node_->status();
-    if (!n.at("health").is_null())
-      for (const auto& s : n.at("health").at("services"))
-        if (s.at("id") == impl_->session_id)
-          status["restarts"] = s.at("restarts");
-  }
-  if (!impl_->remote->endpoint.empty()) {
-    status.update({{"transport", "local"},
-                   {"session", impl_->session_id},
-                   {"state", impl_->failed ? "disconnected" : "connected"}});
-    return status;
-  }
-  status.update({{"transport", "tcp_tls"},
-                 {"state", impl_->failed ? "disconnected" : "connected"},
-                 {"host", impl_->remote->host},
-                 {"port", impl_->remote->port},
-                 {"session", impl_->session_id}});
-  return status;
+Json TradingClient::Read::render() const {
+  return {{"session", snapshot()}, {"connection", connection}};
 }
-std::uint64_t TradingClient::process_id() const {
-  std::lock_guard lock(mutex_);
-  if (node_) {
-    const auto status = node_->status();
-    if (!status.at("health").is_null())
-      for (const auto& s : status.at("health").at("services"))
-        if (s.at("id") == impl_->session_id)
-          return s.at("pid").get<std::uint64_t>();
-  }
-  return 0;
+TradingClient::Read TradingClient::owner_view() const {
+  return impl_->read();
+}
+std::future<Json> TradingClient::view() const {
+  return io_.submit<Json>([state = impl_](std::stop_token) -> PolledTask<Json> {
+    co_return co_await state->io.read<Json>(
+        [projection = state->read()] { return projection.render(); },
+        ServiceIo::ReadLane::response);
+  });
 }
 ServiceEndpoint TradingClient::endpoint() const {
-  std::lock_guard lock(mutex_);
-  return *impl_->remote;
+  return impl_->endpoint;
 }
-void TradingClient::execute(const Json& command) {
-  std::lock_guard lock(mutex_);
+std::future<void> TradingClient::execute(const Json& command) {
   wire::Request request;
-  *request.mutable_command() = protocol::encode_command(command);
-  impl_->call(std::move(request));
+  auto payload = command;
+  request.set_account_id(payload.at("account_id").get<std::string>());
+  payload.erase("account_id");
+  request.set_policy_revision(payload.at("policy_revision").get<std::string>());
+  payload.erase("policy_revision");
+  *request.mutable_command() = protocol::encode_command(payload);
+  return io_.submit<void>(
+      [state = impl_, request = std::move(request)](std::stop_token stop) -> PolledTask<void> {
+        co_await state->call(request, stop);
+      });
 }
-Json TradingClient::snapshot() {
-  std::lock_guard lock(mutex_);
-  try {
-    wire::Request request;
-    if (impl_->remote)
-      request.mutable_attach();
-    else
-      request.mutable_snapshot();
-    return impl_->call(std::move(request));
-  } catch (const Error&) {
-    if (impl_->last_snapshot.is_null()) {
-      if (impl_->remote)
-        return nullptr;
-      throw;
-    }
-    auto snapshot = impl_->last_snapshot;
-    snapshot["storage_state"] = "recovery_required";
-    snapshot["connection_state"] = "disconnected";
-    return snapshot;
-  }
+std::future<Json> TradingClient::snapshot() const {
+  return io_.submit<Json>([state = impl_](std::stop_token) -> PolledTask<Json> {
+    co_return co_await state->io.read<Json>(
+        [projection = state->read()] { return projection.snapshot(); },
+        ServiceIo::ReadLane::response);
+  });
 }
 } // namespace asterion::terminal

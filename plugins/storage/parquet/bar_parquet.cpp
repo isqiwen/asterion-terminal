@@ -3,14 +3,22 @@
 #include <asterion/kernel/durable_file.hpp>
 #include <duckdb.hpp>
 #include <array>
+#include <mutex>
 #include <stdexcept>
 namespace asterion::parquet {
 namespace {
 namespace fs = std::filesystem;
 constexpr auto scale = "100000000";
 // One in-memory engine per process (no catalog, no extension downloads);
-// starting DuckDB costs far more than a query. Each call has its own
-// connection; DuckDB serializes what it must.
+// starting DuckDB costs far more than a query. Bound Parquet execution to one
+// query lane so concurrent chart/read requests cannot multiply the engine's
+// working set or concurrently touch its shared buffer queues. Each call still
+// owns a connection and its temporary tables; hashing and indicators run outside
+// this lane.
+std::mutex& query_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
 duckdb::DuckDB& shared_database() {
   static const auto database = [] {
     duckdb::DBConfig config;
@@ -18,11 +26,18 @@ duckdb::DuckDB& shared_database() {
     config.SetOptionByName("autoload_known_extensions", duckdb::Value::BOOLEAN(false));
     config.SetOptionByName("allow_community_extensions", duckdb::Value::BOOLEAN(false));
     config.SetOptionByName("threads", duckdb::Value::BIGINT(1));
+    // Storage reads and writes bounded pages/segments, not arbitrary analytics.
+    // This buffer budget is shared by the one query lane in this process. It
+    // does not include caller-owned bars or other process allocations.
+    config.SetOptionByName("memory_limit", duckdb::Value("128 MiB"));
+    config.SetOptionByName("temp_directory", duckdb::Value(""));
     return std::make_unique<duckdb::DuckDB>(nullptr, &config);
   }();
   return *database;
 }
 struct Engine {
+  // Declaration order keeps the connection's destruction inside the lease.
+  std::unique_lock<std::mutex> lease{query_mutex()};
   std::unique_ptr<duckdb::Connection> connection;
   Engine() : connection(std::make_unique<duckdb::Connection>(shared_database())) {}
   std::unique_ptr<duckdb::MaterializedQueryResult> run(const std::string& sql) {

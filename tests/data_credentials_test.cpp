@@ -1,6 +1,9 @@
+#include "timing.hpp"
 #include "credential_fixture.hpp"
 #include "application_environment.hpp"
 #include "node_client.hpp"
+#include "node_enrollment.hpp"
+#include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <algorithm>
 #include <fstream>
@@ -11,6 +14,7 @@ namespace {
 struct Directory {
   fs::path path = fs::temp_directory_path() / ("asterion-credentials-" + unique_process_id());
   ~Directory() {
+    fail_next_directory_syncs_for_testing(0);
     std::error_code ignored;
     fs::remove_all(path, ignored);
   }
@@ -20,6 +24,49 @@ terminal::DataCredential credential(const std::string& provider, bool remember) 
   return {provider, 60, remember, "secret-" + provider};
 }
 } // namespace
+TEST(DataCredentials, DirectoryPublicationFailureDoesNotChangeTheCredentialStore) {
+  Directory root;
+  fs::create_directory(root.path);
+  auto keychain = std::make_shared<test::MemoryCredentials>();
+  const auto directory = root.path / "providers";
+  terminal::DataCredentials credentials(directory, keychain);
+  for (int retry = 0; retry != 2; ++retry) {
+    fail_next_directory_syncs_for_testing(1);
+    EXPECT_THROW(credentials.save(credential("provider", true), limits), std::runtime_error);
+    fail_next_directory_syncs_for_testing(0);
+    EXPECT_TRUE(keychain->items.empty());
+    EXPECT_FALSE(fs::exists(directory / "provider.json"));
+  }
+  credentials.save(credential("provider", true), limits);
+  EXPECT_EQ(credentials.find("provider")->credential, "secret-provider");
+}
+#ifndef _WIN32
+TEST(NodeEnrollment, ManagedKeyIsNotAcknowledgedWhenDirectoryPublicationFails) {
+  Directory root;
+  struct Environment {
+    std::optional<std::string> directory = environment_variable("ASTERION_NODE_DIRECTORY");
+    ~Environment() {
+      if (directory)
+        setenv("ASTERION_NODE_DIRECTORY", directory->c_str(), 1);
+      else
+        unsetenv("ASTERION_NODE_DIRECTORY");
+    }
+  } environment;
+  setenv("ASTERION_NODE_DIRECTORY", root.path.c_str(), 1);
+  fail_next_directory_syncs_for_testing(1);
+  EXPECT_THROW(terminal::prepare_ssh_key("task"), std::runtime_error);
+  fail_next_directory_syncs_for_testing(0);
+  EXPECT_FALSE(fs::exists(root.path / "enrollments/.ssh-keys/task/identity"));
+  const auto prepared = terminal::prepare_ssh_key("task");
+  const auto identity = root.path / "enrollments/.ssh-keys/task/identity";
+  const auto before = fs::last_write_time(identity).time_since_epoch().count();
+  fail_next_directory_syncs_for_testing(1);
+  EXPECT_THROW(terminal::prepare_ssh_key("task"), std::runtime_error);
+  fail_next_directory_syncs_for_testing(0);
+  EXPECT_EQ(terminal::prepare_ssh_key("task"), prepared);
+  EXPECT_EQ(fs::last_write_time(identity).time_since_epoch().count(), before);
+}
+#endif
 TEST(DataCredentials, UnreadableFileIsListedWithoutFailingTheSnapshot) {
   Directory root;
   fs::create_directory(root.path);
@@ -119,5 +166,65 @@ TEST(TerminalEnvironment, SeparatesManagedPathsAndServiceIdentityWithoutCreating
   EXPECT_FALSE(fs::exists(isolated.path));
   setenv("ASTERION_ENVIRONMENT", "invalid", 1);
   EXPECT_THROW(terminal::local_node_directory(), std::invalid_argument);
+}
+#endif
+
+#ifdef __APPLE__
+#include <csignal>
+#include <cerrno>
+#include <unistd.h>
+TEST(KeychainHelper, BoundedTransportPreservesTheCredentialContract) {
+  auto store = terminal::keychain_store(ASTERION_TEST_KEYCHAIN_HELPER);
+  ASSERT_NE(store, nullptr);
+  EXPECT_EQ(store->load("normal"), "fixture-only-token");
+  EXPECT_FALSE(store->load("absent"));
+  EXPECT_NO_THROW(store->store("normal", "fixture-only-token"));
+  EXPECT_NO_THROW(store->erase("normal"));
+  EXPECT_THROW(store->store("normal", std::string(4097, 'x')), Error);
+  EXPECT_THROW(store->store("normal", std::string("a\0b", 3)), Error);
+  for (int i = 0; i < 8; ++i)
+    EXPECT_THROW(store->store("early-exit", "fixture-only-token"), Error);
+  EXPECT_EQ(store->load("normal"), "fixture-only-token");
+  EXPECT_THROW(
+      terminal::keychain_store(ASTERION_TEST_KEYCHAIN_HELPER, std::chrono::milliseconds(0)), Error);
+  EXPECT_THROW(terminal::keychain_store(ASTERION_TEST_KEYCHAIN_HELPER, std::chrono::seconds(31)),
+               Error);
+}
+TEST(KeychainHelper, HungIoExitAndExcessOutputAreTerminatedAndReaped) {
+  Directory root;
+  fs::create_directory(root.path);
+  // Prime first-launch executable validation before measuring a helper that
+  // must enter its fault mode and publish the PID we verify reaped.
+  ASSERT_EQ(terminal::keychain_store(ASTERION_TEST_KEYCHAIN_HELPER)->load("normal"),
+            "fixture-only-token");
+  auto store =
+      terminal::keychain_store(ASTERION_TEST_KEYCHAIN_HELPER,
+                               asterion::testing_support::bound(std::chrono::milliseconds(500)));
+  ASSERT_NE(store, nullptr);
+  for (const auto* mode : {"hang", "closed-output", "overflow"}) {
+    const auto pid_file = root.path / mode;
+    const auto started = std::chrono::steady_clock::now();
+    try {
+      store->load(std::string(mode) + ":" + pid_file.string());
+      FAIL() << "faulty helper succeeded";
+    } catch (const Error& error) {
+      if (std::string_view(mode) == "overflow") {
+        EXPECT_EQ(error.code(), ErrorCode::resource_exhausted);
+        EXPECT_STREQ(error.what(), "keychain helper response exceeds the credential limit");
+      } else {
+        EXPECT_EQ(error.code(), ErrorCode::unavailable);
+        EXPECT_STREQ(error.what(), "keychain helper timed out");
+      }
+    }
+    EXPECT_LT(std::chrono::steady_clock::now() - started,
+              asterion::testing_support::bound(std::chrono::seconds(3)));
+    pid_t pid = 0;
+    std::ifstream(pid_file) >> pid;
+    ASSERT_GT(pid, 0);
+    errno = 0;
+    EXPECT_EQ(::kill(pid, 0), -1);
+    EXPECT_EQ(errno, ESRCH) << "helper process survived or remained a zombie";
+    EXPECT_EQ(store->load("normal"), "fixture-only-token");
+  }
 }
 #endif

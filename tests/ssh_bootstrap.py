@@ -60,6 +60,11 @@ with tempfile.TemporaryDirectory(prefix='asterion-ssh-', ignore_cleanup_errors=T
         removal=call('node.firewall.inspect',dict(inspection,firewall_action='remove'))['result']['firewall_plan']
         assert removal['owned'] and removal['rule']==preview['rule']
         assert call('node.firewall.apply',dict(token=removal['token'],private_key=private_key))['result']['firewall_plan']['state']=='removed'
+        (remote/'old-helper').touch()
+        assert 'error' in call('node.bootstrap',request)
+        assert not (root/'local/enrollments/bootstrap-test').exists(), 'obsolete helper reached identity creation'
+        assert not list(remote.glob('.asterion-install-*')), 'obsolete helper reached upload'
+        (remote/'old-helper').unlink()
         (remote/'reject').touch()
         assert 'error' in call('node.bootstrap',request)
         assert not (root/'local/enrollments/bootstrap-test').exists()
@@ -68,9 +73,23 @@ with tempfile.TemporaryDirectory(prefix='asterion-ssh-', ignore_cleanup_errors=T
         enrollment=root/'local/enrollments/bootstrap-test'
         fingerprint=(enrollment/'client.key').read_bytes()
         assert not list(remote.glob('.asterion-install-*'))
-        (remote/'fail_install').unlink()
+        (remote/'fail_install').unlink(); (remote/'fail_file_sync').touch()
+        assert 'error' in call('node.bootstrap',request)
+        deployed=remote/'deployed'
+        assert not (deployed/'asterion-node-agent').exists(), 'failed file flush published an executable'
+        assert not (deployed/'install.json').exists(), 'failed prerequisites committed an installation'
+        assert not list(deployed.glob('.asterion-publish-*'))
+        (remote/'fail_file_sync').unlink(); (remote/'fail_publish_sync').touch()
+        assert 'error' in call('node.bootstrap',request)
+        executable=deployed/'asterion-node-agent'
+        assert executable.is_file() and not (deployed/'install.json').exists()
+        before=executable.stat()
+        (remote/'fail_publish_sync').unlink()
         result=call('node.bootstrap',request)
         assert result['result']['nodes'][0]['state']=='online',result
+        after=executable.stat()
+        assert (before.st_ino,before.st_mtime_ns)==(after.st_ino,after.st_mtime_ns), 'retry rewrote the published program'
+        assert (deployed/'install.json').is_file()
         assert (enrollment/'client.key').read_bytes()==fingerprint
         assert not (enrollment/'ca.key').exists()
         assert not list(remote.glob('.asterion-install-*'))

@@ -8,7 +8,7 @@ import type { TerminalContext, TerminalPlugin } from "../plugins/contract";
 const plugin: TerminalPlugin = {
   id: "test.panel",
   apiVersion: 1,
-  commands: ["research.local"],
+  commands: ["node.data_tasks.local.open"],
   workspace: {
     id: "test.workspace",
     title: "Test",
@@ -39,11 +39,11 @@ test("plugins can only invoke the commands they declare", async () => {
   } as unknown as TerminalContext;
   const [registered] = registerTerminalPlugins([plugin]);
   const scoped = scopedContext(registered, base);
-  await scoped.trade("research.local");
+  await scoped.trade("node.data_tasks.local.open");
   await expect(scoped.trade("live.act")).rejects.toThrow("live.act");
-  await expect(scoped.query("research.minutes.page", {})).rejects.toThrow("research.minutes.page");
+  await expect(scoped.query("data.minutes.page", {})).rejects.toThrow("data.minutes.page");
   expect("inspect" in scoped).toBe(false);
-  expect(calls).toEqual(["research.local"]);
+  expect(calls).toEqual(["node.data_tasks.local.open"]);
   expect(Object.isFrozen(registered.commands)).toBe(true);
 });
 
@@ -77,7 +77,10 @@ test("Terminal registry drives settings and workspace navigation", async ({ page
   await settings.getByRole("button", { name: "插件", exact: true }).click();
   await expect(settings.getByText("已注册 · 按需加载", { exact: true })).toHaveCount(6);
   const page = await closeSettingsWindow(settings);
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await page
+    .locator(".workspace-tabs")
+    .getByRole("button", { name: "回测与因子", exact: true })
+    .click();
   await expect(page.getByRole("heading", { name: "均线回测", exact: true })).toBeVisible();
   await page.locator(".workspace-tabs").getByRole("button", { name: "交易", exact: true }).click();
   await expect(page.getByRole("heading", { name: "CTP 交易", exact: true })).toBeVisible();

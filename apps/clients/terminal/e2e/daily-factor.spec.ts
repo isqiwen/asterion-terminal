@@ -1,10 +1,12 @@
 import { test, expect } from "./test";
 for (const locale of ["zh-CN", "en-US"]) {
-  test(`daily research empty state and retained parameters fit ${locale}`, async ({ page }) => {
+  test(`daily factor empty state and retained parameters fit ${locale}`, async ({ page }) => {
     const en = locale === "en-US";
     await page.addInitScript(value => localStorage.setItem("asterion.locale", value), locale);
     await page.goto("/");
-    await page.getByRole("button", { name: en ? "Research" : "研究", exact: true }).click();
+    await page
+      .getByRole("button", { name: en ? "Backtest & Factors" : "回测与因子", exact: true })
+      .click();
     await page.getByRole("button", { name: en ? "Daily factor" : "日线因子", exact: true }).click();
     await expect(
       page.getByRole("button", { name: en ? "Analyze daily bars" : "开始日线分析", exact: true }),
@@ -22,7 +24,7 @@ for (const locale of ["zh-CN", "en-US"]) {
       await page.setViewportSize({ width, height: 900 });
       expect(
         await page
-          .locator(".research-workspace")
+          .locator(".backtest-factor-workspace")
           .evaluate(el => el.scrollWidth <= el.clientWidth + 1),
       ).toBe(true);
       await page.screenshot({
@@ -38,25 +40,21 @@ for (const locale of ["zh-CN", "en-US"]) {
   });
 }
 
-test("download research entry binds the selected source to its service", async ({ page }) => {
+test("download factor entry binds the selected source to its service", async ({ page }) => {
   let service = "source-service";
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (
-      !["runtime.snapshot", "research.daily-factor.submit", "research.datasets"].includes(
-        request.method,
-      )
-    )
+    if (!["runtime.snapshot", "factor.daily.submit", "data.datasets"].includes(request.method))
       return route.continue();
     const response = await route.fetch({
       postData: { ...request, method: "runtime.snapshot", params: {} },
     });
     const data = await response.json();
-    data.result.research = {
-      ...data.result.research,
+    data.result.data = { ...data.result.data, connection_id: `data-${service}` };
+    data.result.task_service = {
+      ...data.result.task_service,
       connection_id: service,
       host: "",
-      service: "same-service-name",
       online: true,
       remote: false,
       tasks: [
@@ -80,7 +78,7 @@ test("download research entry binds the selected source to its service", async (
         },
       ],
     };
-    if (request.method === "research.datasets")
+    if (request.method === "data.datasets")
       data.result.history_datasets = [
         {
           id: "a".repeat(64),
@@ -104,7 +102,7 @@ test("download research entry binds the selected source to its service", async (
   await expect(page.getByLabel("日线来源", { exact: true })).toHaveValue("a".repeat(64));
   service = "other-service";
   await expect(
-    page.getByText("研究连接已改变，请重新选择当前服务中的日线。", { exact: true }),
+    page.getByText("数据连接已改变，请重新选择当前服务中的日线。", { exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel("日线来源", { exact: true })).toHaveValue("");
   await expect(page.getByRole("button", { name: "开始日线分析", exact: true })).toBeDisabled();

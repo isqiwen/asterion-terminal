@@ -2,6 +2,7 @@
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <cmath>
+#include <algorithm>
 #include <stdexcept>
 namespace asterion::protocol {
 namespace {
@@ -45,35 +46,35 @@ template <class Target> void parameters(const Json& input, Target& result) {
   }
 }
 } // namespace
-std::string factor_dataset_revision(const research::v1::FactorInput& input) {
+std::string factor_dataset_revision(const factor::v1::FactorInput& input) {
   validate_bar_dataset(input.dataset());
   return input.dataset().revision();
 }
-research::v1::FactorInput encode_factor(const Json& input) {
+factor::v1::FactorInput encode_factor(const Json& input) {
   require_fields(input,
                  {"version", "dataset_revision", "dataset", "lookbacks", "horizon", "evaluation"});
   if (!input.at("version").is_number_integer() || input.at("version") != 5)
     throw std::invalid_argument("unsupported factor input version");
-  research::v1::FactorInput result;
+  factor::v1::FactorInput result;
   result.set_version(5);
   result.set_dataset_revision(input.at("dataset_revision").get<std::string>());
   parameters(input, result);
   *result.mutable_dataset() = encode_bar_dataset(input.at("dataset"));
   return result;
 }
-research::v1::FactorRequest encode_factor_request(const Json& input) {
+factor::v1::FactorRequest encode_factor_request(const Json& input) {
   require_fields(input, {"data", "lookbacks", "horizon", "evaluation"});
-  research::v1::FactorRequest result;
+  factor::v1::FactorRequest result;
   *result.mutable_data() = encode_bar_dataset_request(input.at("data"));
   parameters(input, result);
   return result;
 }
-Json decode_factor(const research::v1::FactorInput& input) {
+namespace {
+Json factor_definition(const factor::v1::FactorInput& input) {
   validate_message(input);
   if (input.version() != 5 || !input.has_dataset())
     throw std::invalid_argument("incomplete factor dataset or unsupported version");
   Json result;
-  result["dataset"] = decode_bar_dataset(input.dataset());
   if (input.dataset_revision() != input.dataset().revision())
     throw std::invalid_argument("factor dataset revision mismatch");
   if (!input.horizon() || input.horizon() > 10000 || input.lookbacks_size() < 1 ||
@@ -109,7 +110,136 @@ Json decode_factor(const research::v1::FactorInput& input) {
     throw std::invalid_argument("explicit factor evaluation required");
   return result;
 }
-Json decode_factor_result(const research::v1::FactorResult& result) {
+} // namespace
+void validate_factor_input(const factor::v1::FactorInput& input) {
+  static_cast<void>(factor_definition(input));
+  validate_bar_dataset(input.dataset());
+  const auto& bars = input.dataset().bars();
+  const auto count = static_cast<unsigned>(bars.size());
+  const auto warmup = input.lookbacks(input.lookbacks_size() - 1);
+  if (count < warmup + input.horizon() + 30)
+    throw std::invalid_argument("factor analysis requires at least 30 labelled "
+                                "observations after warmup and tail exclusion");
+  if (input.has_holdout_start()) {
+    const auto split = input.holdout_start();
+    if (split < warmup + input.horizon() + 30 || count - split < input.horizon() + 30)
+      throw std::invalid_argument(
+          "each factor partition requires at least 30 labelled observations");
+  }
+  if (input.has_walk_forward()) {
+    const auto training = input.walk_forward().training_events();
+    const auto validation = input.walk_forward().validation_events();
+    if (count > 10000 || training > 10000 || validation > 10000 ||
+        training < warmup + input.horizon() + 30 || validation < input.horizon() + 30 ||
+        count <= training || (count - training) % validation != 0)
+      throw std::invalid_argument(
+          "walk-forward requires complete windows with at least 30 labelled "
+          "observations per partition");
+    const auto folds = (count - training) / validation;
+    if (folds < 2 || folds > 16)
+      throw std::invalid_argument("walk-forward requires 2..16 validation folds");
+  }
+  for (const auto& bar : bars)
+    if (bar.close().units() <= 0)
+      throw std::invalid_argument("factor analysis requires positive closes");
+}
+std::size_t factor_work_units(const factor::v1::FactorInput& input) {
+  const auto count = static_cast<std::size_t>(input.dataset().bars_size());
+  const auto candidates = input.lookbacks_size() > 1 ? input.lookbacks_size() : 0;
+  if (input.has_walk_forward()) {
+    const auto training = input.walk_forward().training_events();
+    const auto validation = input.walk_forward().validation_events();
+    return (count - training) / validation * (training + validation + candidates * training);
+  }
+  return count + candidates * input.holdout_start();
+}
+void validate_factor_result(const factor::v1::FactorInput& input,
+                            const factor::v1::FactorResult& result) {
+  (void)decode_factor_result(result);
+  const auto reject = [] {
+    throw std::invalid_argument("factor result evidence does not match its input");
+  };
+  const auto count = static_cast<unsigned>(input.dataset().bars_size());
+  const auto warmup = input.lookbacks(input.lookbacks_size() - 1);
+  const auto horizon = input.horizon();
+  const bool search = input.lookbacks_size() > 1;
+  if (result.engine_version() != "asterion.factor.bar-momentum.v5" ||
+      result.dataset_revision() != input.dataset_revision() || result.input_count() != count ||
+      result.horizon() != horizon || result.evaluation_warmup() != warmup)
+    reject();
+  const auto selection = [&](unsigned lookback, const auto& candidates, unsigned training_count) {
+    if (std::ranges::find(input.lookbacks(), lookback) == input.lookbacks().end() ||
+        candidates.size() != (search ? input.lookbacks_size() : 0))
+      reject();
+    for (int i = 0; i < candidates.size(); ++i)
+      if (candidates[i].lookback() != input.lookbacks(i) ||
+          candidates[i].sample_count() != training_count)
+        reject();
+  };
+  const auto partition = [&](const auto& part, const char* name, unsigned begin, unsigned end,
+                             unsigned samples) {
+    if (part.name() != name || part.begin_index() != begin || part.end_index() != end ||
+        part.sample_count() != samples)
+      reject();
+  };
+  int cursor = 0;
+  const auto samples = [&](unsigned begin, unsigned end) {
+    for (unsigned i = begin; i + horizon < end; ++i) {
+      if (cursor == result.samples_size())
+        reject();
+      const auto& row = result.samples(cursor++);
+      if (row.event_index() != i ||
+          row.timestamp_ns() != input.dataset().bars(static_cast<int>(i)).timestamp_ns() ||
+          row.label_timestamp_ns() !=
+              input.dataset().bars(static_cast<int>(i + horizon)).timestamp_ns())
+        reject();
+    }
+  };
+  if (input.has_walk_forward()) {
+    const auto training = input.walk_forward().training_events();
+    const auto validation = input.walk_forward().validation_events();
+    const auto folds = (count - training) / validation;
+    if (result.folds_size() != static_cast<int>(folds) ||
+        result.selection_rule() !=
+            (search ? "rolling_development_abs_spearman" : "rolling_fixed") ||
+        result.purged_count() != folds * horizon)
+      reject();
+    for (unsigned i = 0; i < folds; ++i) {
+      const auto& fold = result.folds(static_cast<int>(i));
+      const auto begin = i * validation, split = begin + training, end = split + validation;
+      if (fold.training_begin() != begin || fold.training_end() != split ||
+          fold.validation_end() != end)
+        reject();
+      selection(fold.lookback(), fold.candidates(), training - warmup - horizon);
+      partition(fold.development(), "development", begin, split, training - warmup - horizon);
+      partition(fold.holdout(), "holdout", split, end, validation - horizon);
+      samples(split, end);
+    }
+  } else {
+    const auto split = input.has_holdout_start() ? input.holdout_start() : count;
+    if (!result.folds().empty() ||
+        result.partitions_size() != (input.has_holdout_start() ? 2 : 1) ||
+        result.selection_rule() != (search ? "development_abs_spearman" : "fixed") ||
+        result.purged_count() != (input.has_holdout_start() ? horizon : 0))
+      reject();
+    selection(result.lookback(), result.candidates(), split - warmup - horizon);
+    partition(result.partitions(0), input.has_holdout_start() ? "development" : "full_sample", 0,
+              split, split - warmup - horizon);
+    samples(warmup, split);
+    if (input.has_holdout_start()) {
+      partition(result.partitions(1), "holdout", split, count, count - split - horizon);
+      samples(split, count);
+    }
+  }
+  if (cursor != result.samples_size())
+    reject();
+}
+Json decode_factor(const factor::v1::FactorInput& input, DatasetView view) {
+  auto result = factor_definition(input);
+  result["dataset"] = decode_bar_dataset(input.dataset(), view);
+  return result;
+}
+Json decode_factor_result(const factor::v1::FactorResult& result) {
   validate_message(result);
   if (result.version() != 5)
     throw std::invalid_argument("unsupported factor result version");
@@ -176,7 +306,7 @@ Json decode_factor_result(const research::v1::FactorResult& result) {
           fold.development().name() != "development" || fold.holdout().name() != "holdout" ||
           !fold.lookback())
         throw std::invalid_argument("invalid walk-forward fold");
-      research::v1::FactorResult metadata;
+      factor::v1::FactorResult metadata;
       metadata.set_version(5);
       metadata.set_input_count(result.input_count());
       metadata.set_selection_rule("fixed");

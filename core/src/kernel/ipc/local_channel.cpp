@@ -19,6 +19,7 @@
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include "local_security.hpp"
 #endif
 namespace asterion::ipc {
 namespace {
@@ -161,20 +162,7 @@ sockaddr_un address(const std::string& endpoint) {
   std::memcpy(addr.sun_path, endpoint.c_str(), endpoint.size() + 1);
   return addr;
 }
-void same_user(Handle fd) {
-#ifdef __APPLE__
-  uid_t uid = 0;
-  gid_t gid = 0;
-  if (::getpeereid(fd, &uid, &gid) != 0 || uid != ::geteuid())
-    failed("IPC peer identity rejected");
-#else
-  struct ucred credential{};
-  socklen_t size = sizeof(credential);
-  if (::getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &credential, &size) != 0 ||
-      credential.uid != ::geteuid())
-    failed("IPC peer identity rejected");
-#endif
-}
+
 void ready(Handle fd, short events, Deadline end) {
   pollfd descriptor{fd, events, 0};
   for (;;) {
@@ -275,7 +263,7 @@ Channel Channel::connect(const std::string& endpoint, std::chrono::milliseconds 
   }
 #endif
 #ifndef _WIN32
-  same_user(result.impl_->handle);
+  detail::verify_local_peer(result.impl_->handle);
 #endif
   return result;
 }
@@ -333,7 +321,8 @@ struct Listener::Impl {
 #endif
   }
 };
-Listener::Listener(std::string endpoint) : impl_(std::make_unique<Impl>()) {
+Listener::Listener(std::string endpoint, int pending_connections)
+    : impl_(std::make_unique<Impl>()) {
   impl_->endpoint = std::move(endpoint);
 #ifdef _WIN32
   Security security;
@@ -355,7 +344,7 @@ Listener::Listener(std::string endpoint) : impl_(std::make_unique<Impl>()) {
   impl_->bound = true;
   if (::chmod(impl_->endpoint.c_str(), 0600) < 0)
     failed("cannot secure IPC endpoint");
-  if (::listen(impl_->handle, 1) < 0)
+  if (::listen(impl_->handle, pending_connections) < 0)
     failed("cannot listen on IPC socket");
 #endif
 }
@@ -406,7 +395,7 @@ Channel Listener::accept(std::chrono::milliseconds timeout) {
       failed("IPC accept failed");
   }
   configure(result.impl_->handle);
-  same_user(result.impl_->handle);
+  detail::verify_local_peer(result.impl_->handle);
 #endif
   return result;
 }

@@ -40,7 +40,7 @@ export function HistoryUpdatePanel({
     panel.current?.scrollIntoView({ block: "nearest" });
   }, []);
   const [end, setEnd] = useState(yesterday);
-  const source = context.snapshot?.research?.sources.find(source => source.id === item.source);
+  const source = context.snapshot?.data?.sources.find(source => source.id === item.source);
   const saved = savedCredential(context.snapshot, item.source);
   const [rate, setRate] = useState(String(source?.connection?.requests_per_minute_default ?? 60));
   const [token, setToken] = useState("");
@@ -52,7 +52,7 @@ export function HistoryUpdatePanel({
   const [view, setView] = useState(false);
   const ticket = useRef({ value: 0 });
   const enabled =
-    !!context.snapshot?.research?.online && !context.snapshot.research.remote && !!source;
+    !!context.snapshot?.task_service?.online && !!context.snapshot?.data?.online && !!source;
   useEffect(() => {
     const generation = ticket.current;
     ++generation.value;
@@ -65,7 +65,7 @@ export function HistoryUpdatePanel({
       ++generation.value;
     };
   }, [end, rate, saved?.requests_per_minute]);
-  const task = context.snapshot?.research?.tasks.find(task => task.id === id);
+  const task = context.snapshot?.task_service?.tasks.find(task => task.id === id);
   const accepted = submitted || !!task;
   const params = {
     dataset_id: item.id,
@@ -82,7 +82,7 @@ export function HistoryUpdatePanel({
     setId("");
     setSubmitted(false);
     try {
-      const result = await context.query("research.history.plan", params);
+      const result = await context.query("data.download.update.plan", params);
       if (current === ticket.current.value) {
         setPlan(result.history_update_plan ?? null);
         setId(`history-${crypto.randomUUID()}`);
@@ -93,13 +93,28 @@ export function HistoryUpdatePanel({
       if (current === ticket.current.value) setWorking(false);
     }
   }
+  async function configureBudget() {
+    setWorking(true);
+    setError("");
+    try {
+      await context.trade("data.download.budget.configure", {
+        source: item.source,
+        token: saved ? "" : token,
+        requests_per_minute: Number(saved?.requests_per_minute ?? rate),
+      });
+    } catch (e) {
+      setError(asDisplayError(e));
+    } finally {
+      setWorking(false);
+    }
+  }
   async function submit() {
     if (!plan || !id) return;
     const current = ++ticket.current.value;
     setWorking(true);
     setError("");
     try {
-      await context.trade("research.history.submit", {
+      await context.trade("data.download.update.submit", {
         id,
         query: plan.query,
         plan_id: plan.id,
@@ -117,7 +132,6 @@ export function HistoryUpdatePanel({
     return (
       <HistoryDatasetViewer
         {...context}
-        archive
         id={task.history_dataset_id}
         source={item.source}
         sourceLabel={item.source}
@@ -207,7 +221,7 @@ export function HistoryUpdatePanel({
             </p>
           )}
           <p className="subtle">
-            {t("生成独立数据版本，原文件保持不变。完成后先检查数据，再用于研究。")}
+            {t("生成独立数据版本，原文件保持不变。完成后先检查数据，再用于回测或因子分析。")}
           </p>
           {!accepted && (
             <div className="source-actions">
@@ -228,6 +242,16 @@ export function HistoryUpdatePanel({
                   />
                 </label>
               )}
+              <p className="subtle">
+                {t("同一账号的下载共享当前数据服务的额度；多节点请分别分配份额。")}
+              </p>
+              <button
+                type="button"
+                disabled={working || context.busy}
+                onClick={() => void configureBudget()}
+              >
+                {t("应用共享额度")}
+              </button>
               <button
                 type="button"
                 className="primary"

@@ -8,6 +8,7 @@ for (const locale of ["zh-CN", "en-US"]) {
     page.on("pageerror", error => errors.push(error.message));
     await page.addInitScript(value => localStorage.setItem("asterion.locale", value), locale);
     await page.goto("/");
+    await expect(page.locator(".workspace-tabs")).toBeVisible();
     await seedDataset(page.request, [100, 101, 102], `workflow-${locale}`);
     await page.reload();
     await page.setViewportSize({ width: 1024, height: 768 });
@@ -25,7 +26,7 @@ for (const locale of ["zh-CN", "en-US"]) {
     ).toBeVisible();
     await fits();
     await page.screenshot({ path: `apps/clients/terminal/test-results/ctp-setup-${locale}.png` });
-    await button("研究", "Research").click();
+    await button("回测与因子", "Backtest & Factors").click();
     await button("均线回测", "Moving Average Backtest").click();
     await button("新建回测", "New backtest").click();
     await button("下一步", "Next").click();
@@ -33,7 +34,7 @@ for (const locale of ["zh-CN", "en-US"]) {
     await fits();
     // A draft survives leaving the workspace and coming back.
     await button("交易", "Trading").click();
-    await button("研究", "Research").click();
+    await button("回测与因子", "Backtest & Factors").click();
     await expect(page.getByLabel(en ? "Initial Capital" : "初始资金", { exact: true })).toHaveValue(
       "25000",
     );

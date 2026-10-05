@@ -30,26 +30,26 @@ with tempfile.TemporaryDirectory(prefix='asterion-managed-key-', ignore_cleanup_
         (enrolled/'enrollment.json').write_text('{}')
         assert 'error' in call('node.key.prepare',dict(id='lost-key'))
         assert not (enrolled.parent/'.ssh-keys/lost-key').exists()
-        prepared=call('node.key.prepare',dict(id='research'))['result']['ssh_key']
-        assert prepared['id']=='research' and prepared['public_key'].startswith('ssh-ed25519 ')
-        key=root/'state/enrollments/.ssh-keys/research/identity'
+        prepared=call('node.key.prepare',dict(id='task'))['result']['ssh_key']
+        assert prepared['id']=='task' and prepared['public_key'].startswith('ssh-ed25519 ')
+        key=root/'state/enrollments/.ssh-keys/task/identity'
         assert key.stat().st_mode & 0o777 == 0o600
         assert key.parent.stat().st_mode & 0o777 == 0o700
         original=key.read_bytes()
         public=subprocess.run(['/usr/bin/ssh-keygen','-y','-f',str(key)],check=True,capture_output=True,text=True).stdout
         assert public.split()[:2]==prepared['public_key'].split()[:2]
-        assert call('node.key.prepare',dict(id='research'))['result']['ssh_key']==prepared
+        assert call('node.key.prepare',dict(id='task'))['result']['ssh_key']==prepared
         app.terminate(); app.communicate(timeout=10); app=launch()
-        assert call('node.key.prepare',dict(id='research'))['result']['ssh_key']==prepared
+        assert call('node.key.prepare',dict(id='task'))['result']['ssh_key']==prepared
         assert key.read_bytes()==original
         public_file=key.with_name('identity.pub'); saved_public=public_file.read_text()
         public_file.write_text('ssh-ed25519 broken\n')
-        assert 'error' in call('node.key.prepare',dict(id='research'))
+        assert 'error' in call('node.key.prepare',dict(id='task'))
         assert key.read_bytes()==original
         public_file.write_text(saved_public)
         artifact=root/'linux'; header=bytearray(64); header[:6]=b'\x7fELF\x02\x01'; header[18]=62; artifact.write_bytes(header)
         known=root/'known'; known.write_text('test double only\n')
-        request=dict(id='research',host='localhost',ssh_port='22',username='asterion',key_source='managed',private_key='',known_hosts=str(known),agent_port='7442',firewall_port='7442',firewall_action='allow')
+        request=dict(id='task',host='localhost',ssh_port='22',username='asterion',key_source='managed',private_key='',known_hosts=str(known),agent_port='7442',firewall_port='7442',firewall_action='allow')
         assert call('node.firewall.inspect',request)['result']['firewall_plan']['state']=='read_only'
         assert 'error' in call('node.firewall.inspect',dict(request,private_key=original.decode()))
         assert 'error' in call('node.firewall.inspect',dict(request,id='missing'))
@@ -57,7 +57,7 @@ with tempfile.TemporaryDirectory(prefix='asterion-managed-key-', ignore_cleanup_
         assert 'error' in call('node.firewall.inspect',request)
         key.chmod(0o600)
         key.unlink(); key.symlink_to(root/'outside')
-        assert 'error' in call('node.key.prepare',dict(id='research'))
+        assert 'error' in call('node.key.prepare',dict(id='task'))
         for saved in (root/'state').rglob('*'):
             if saved.is_file() and not saved.is_symlink():
                 assert original not in saved.read_bytes(), 'private material leaked outside the managed identity'

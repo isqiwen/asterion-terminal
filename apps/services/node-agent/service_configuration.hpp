@@ -9,7 +9,7 @@ struct ServiceConfiguration {
   std::string artifact, provider_artifact, catalog_artifact, worker_artifact, factor_artifact,
       data_artifact;
   std::vector<std::string> plugin_artifacts;
-  std::string directory;
+  std::string directory, task_service, data_service;
   unsigned short port = 0;
   bool desired = true;
 };

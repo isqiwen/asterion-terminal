@@ -2,6 +2,8 @@
 #include "application_environment.hpp"
 #include "node_program.hpp"
 #include "node_service.hpp"
+#include "service_programs.hpp"
+#include "plugin_catalog.hpp"
 #include <asterion/kernel/environment.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/foundation/error.hpp>
@@ -71,6 +73,39 @@ fs::path bundled_agent() {
   return executable;
 }
 
+void prepare_development(const fs::path& root, const fs::path& agent) {
+  node::v1::DevelopmentPrograms manifest;
+  manifest.set_version(1);
+  for (const auto kind : {node::v1::MARKET_DATA, node::v1::DATA_SERVICE, node::v1::TASK_SERVICE,
+                          node::v1::LIVE_TRADING}) {
+    const auto programs = local_service_programs(kind);
+    auto& source = *manifest.add_services();
+    source.set_kind(kind);
+    source.set_executable(utf8(programs.executable));
+    source.set_provider(utf8(programs.provider));
+    source.set_catalog(utf8(programs.catalog));
+    source.set_worker(utf8(programs.worker));
+    source.set_factor(utf8(programs.factor));
+    source.set_data(utf8(programs.data));
+  }
+  for (const auto& plugin : local_plugin_catalog().entries) {
+    if (plugin.managed)
+      continue;
+    if (plugin.availability != PluginAvailability::available)
+      throw std::runtime_error("bundled development plugin is unavailable");
+    manifest.add_bundled_plugins(utf8(plugin.artifact.path));
+  }
+  const auto file = root / "development-programs.pb";
+  replace_file_durably(file, manifest.SerializeAsString());
+  create_directories_durably(root / "logs");
+  ChildProcess preparation(
+      agent, {"--directory", utf8(root), "--prepare-development", utf8(file)}, false,
+      root / "logs" / ("development-programs-" + unique_process_id() + ".log"), true);
+  if (!preparation.wait(60s) || preparation.exit_code() != 0)
+    throw std::runtime_error("development program synchronization failed; inspect node logs");
+  fs::remove(file);
+  sync_directory(root);
+}
 } // namespace
 std::filesystem::path keychain_helper() {
   auto executable = environment("ASTERION_KEYCHAIN_EXECUTABLE");
@@ -107,7 +142,7 @@ std::filesystem::path ctp_account_directory(const std::string& account, bool cre
   for (const auto& path : {root, group, directory}) {
     if (fs::is_symlink(path))
       throw std::invalid_argument("invalid managed account directory");
-    fs::create_directories(path);
+    create_directories_durably(path);
     fs::permissions(path, fs::perms::owner_all, fs::perm_options::replace);
   }
   return directory;
@@ -121,9 +156,13 @@ Json local_node_program_status() {
   const auto root = local_root(), source = bundled_agent();
   return inspect_node_program(source, root / "bin" / source.filename(), root);
 }
-NodeEndpoint upgrade_local_node(const std::string& expected) {
+NodeEndpoint upgrade_local_node(ServiceIo& io, const std::string& expected) {
   if (environment_variable("ASTERION_NODE_DIRECTORY"))
     throw std::runtime_error("system Agent upgrade is unavailable in isolated development");
+  // Development bootstrap synchronizes services before the updated Agent can
+  // recover them. The production upgrade path resumes saved programs directly.
+  if (development_environment())
+    return local_node(io);
   const auto root = local_root(), source = bundled_agent();
   if (!root.is_absolute() || fs::is_symlink(root))
     throw std::invalid_argument("invalid local Agent directory");
@@ -142,11 +181,11 @@ NodeEndpoint upgrade_local_node(const std::string& expected) {
 #else
   const auto endpoint = (fs::path("/tmp") / ("ast-node-" + identity) / "node.sock").string();
 #endif
-  upgrade_node_service(source, root / "bin" / source.filename(), root, endpoint, expected,
+  upgrade_node_service(io, source, root / "bin" / source.filename(), root, endpoint, expected,
                        local_node_service_name());
   return NodeEndpoint{"local", "localhost", 0, {}, endpoint};
 }
-void shutdown_development_node(bool recover) {
+void shutdown_development_node(ServiceIo& io, bool recover) {
   if (!development_environment() || environment_variable("ASTERION_NODE_DIRECTORY"))
     throw Error(ErrorCode::permission_denied,
                 "automatic shutdown requires the managed development environment");
@@ -174,9 +213,9 @@ void shutdown_development_node(bool recover) {
     throw std::runtime_error("invalid Agent identity");
   const auto endpoint = (fs::path("/tmp") / ("ast-node-" + identity) / "node.sock").string();
   const auto installed = root / "bin" / "asterion-node-agent";
-  std::unique_ptr<NodeClient> control;
+  std::shared_ptr<NodeClient> control;
   try {
-    control = std::make_unique<NodeClient>(NodeEndpoint{"local", "localhost", 0, {}, endpoint});
+    control = NodeClient::open(io, NodeEndpoint{"local", "localhost", 0, {}, endpoint}).get();
   } catch (const Error&) {
     // A disconnected socket does not prove the Agent stopped.
     {
@@ -190,34 +229,13 @@ void shutdown_development_node(bool recover) {
       return;
   }
   if (control) {
-    const auto status = control->inspect_status();
-    if (!status.online || !status.health || status.health->maintenance())
-      throw Error(ErrorCode::conflict,
-                  "development shutdown is waiting for Agent maintenance to finish");
-    auto services = status.health->services();
-    const auto priority = [](node::v1::ServiceKind kind) {
-      if (kind == node::v1::TASK_SERVICE)
-        return 0;
-      if (kind == node::v1::LIVE_TRADING)
-        return 1;
-      return 2;
-    };
-    std::stable_sort(services.begin(), services.end(), [&](const auto& a, const auto& b) {
-      return priority(a.kind()) < priority(b.kind());
-    });
-    // Same explicit stop operation as service management: workers are joined,
-    // desired-running is cleared durably, and incomplete tasks recover as interrupted.
-    for (const auto& service : services)
-      if (service.desired_running() || service.state() != "stopped" || service.active_workers())
-        control->action(service.id(), "stop");
-    const auto stopped = control->inspect_status();
-    if (!stopped.online || !stopped.health)
+    const auto status = control->inspect_status().get();
+    if (!status.online || !status.health)
       throw Error(ErrorCode::unavailable,
                   "development Agent status is unavailable during shutdown");
-    for (const auto& service : stopped.health->services())
-      if (service.desired_running() || service.state() != "stopped" || service.active_workers())
-        throw Error(ErrorCode::unavailable, "development service has not stopped: " + service.id());
-    stop_node_service(installed, root, endpoint, stopped.health->pid(), local_node_service_name());
+    // Agent owns service shutdown, including during initialization or recovery.
+    // Ending this environment must not rewrite persisted service intentions.
+    stop_node_service(installed, root, endpoint, status.health->pid(), local_node_service_name());
   }
   // A stopped development environment must not be launched again at login.
   // stop/verify above checks the exact owned definition before removal.
@@ -226,24 +244,39 @@ void shutdown_development_node(bool recover) {
   fs::remove(definition);
   sync_directory(definition.parent_path());
 }
-NodeEndpoint local_node() {
+NodeEndpoint local_node(ServiceIo& io) {
   static std::mutex bootstrap;
   std::lock_guard lock(bootstrap);
   const auto root = local_root();
   if (!root.is_absolute() || fs::is_symlink(root))
     throw std::invalid_argument("invalid local Agent directory");
-  fs::create_directories(root);
+  create_directories_durably(root);
 #ifndef _WIN32
   fs::permissions(root, fs::perms::owner_all);
 #endif
-  if (development_environment() && !environment_variable("ASTERION_NODE_DIRECTORY"))
+  const bool managed_development =
+      development_environment() && !environment_variable("ASTERION_NODE_DIRECTORY");
+  static bool development_prepared = false;
+  const bool prepare = managed_development && !development_prepared;
+  if (managed_development) {
     own_development(root);
+    if (prepare)
+      shutdown_development_node(io, true);
+  }
   FileLock ownership(root, "bootstrap.lock");
   for (const auto& file : {"agent-upgrade.json", "agent-upgrade.pending",
                            "agent-service-upgrade.json", "agent-service-upgrade.pending"}) {
     const auto pending = root / file;
     if (fs::exists(pending) || fs::is_symlink(pending))
       throw std::runtime_error("unfinished Agent update requires explicit recovery");
+  }
+  const auto executable = bundled_agent();
+  if (prepare) {
+    prepare_development(root, executable);
+    const auto installed = root / "bin" / executable.filename();
+    if (fs::exists(installed))
+      replace_node_program(executable, installed, root, sha256_file(installed));
+    development_prepared = true;
   }
   // Persist a random socket namespace; never trust a shared predictable socket.
   const auto identity_file = root / "ipc-id";
@@ -255,7 +288,7 @@ NodeEndpoint local_node() {
     input >> identity;
   } else {
     identity = unique_process_id();
-    write_file_durably(identity_file, identity);
+    replace_file_durably(identity_file, identity);
   }
   if (identity.size() != 32 || identity.find_first_not_of("0123456789abcdef") != std::string::npos)
     throw std::invalid_argument("invalid Agent identity");
@@ -273,11 +306,10 @@ NodeEndpoint local_node() {
 #endif
   NodeEndpoint config{"local", "localhost", 0, {}, endpoint};
   try {
-    NodeClient probe(config);
+    auto probe = NodeClient::open(io, config).get();
     return config;
   } catch (const Error&) {
   }
-  const auto executable = bundled_agent();
   if (environment_variable("ASTERION_NODE_DIRECTORY")) {
     // Explicit development/test isolation never registers a login service.
     ChildProcess process(executable, {"--directory", utf8(root), "--endpoint", endpoint}, true);
@@ -286,20 +318,14 @@ NodeEndpoint local_node() {
     const auto bin = root / "bin";
     if (fs::is_symlink(bin))
       throw std::invalid_argument("invalid Agent binary directory");
-    fs::create_directory(bin);
     const auto installed = bin / executable.filename();
-    if (fs::exists(installed)) {
-      if (sha256_file(installed) != sha256_file(executable))
-        throw std::runtime_error(
-            "local Agent version differs; upgrade the system service explicitly");
-    } else
-      fs::copy_file(executable, installed);
+    install_node_program(executable, installed, root);
     install_node_service(installed, root, endpoint, local_node_service_name());
   }
   const auto deadline = std::chrono::steady_clock::now() + 10s;
   for (;;) {
     try {
-      NodeClient probe(config);
+      auto probe = NodeClient::open(io, config).get();
       return config;
     } catch (const Error&) {
       if (std::chrono::steady_clock::now() >= deadline)

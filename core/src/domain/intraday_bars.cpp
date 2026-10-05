@@ -1,5 +1,6 @@
 #include <asterion/domain/intraday_bars.hpp>
 #include <algorithm>
+#include <stdexcept>
 namespace asterion {
 namespace {
 constexpr std::int64_t minute_ms = 60000;
@@ -53,12 +54,24 @@ void IntradayBars::observe(const MarketQuote& quote) {
   // Keep only the newest observation that is already a minute old as anchor.
   while (recent.size() >= 2 && recent[1].first <= quote.source_ms - minute_ms)
     recent.pop_front();
+  state.revision = ++revision_;
 }
 void IntradayBars::interrupt() {
   for (auto& [id, state] : states_) {
     state.series.interrupted = true;
+    if (!state.recent.empty())
+      state.revision = ++revision_;
     state.recent.clear();
   }
+}
+std::vector<InstrumentId> IntradayBars::changed_after(std::uint64_t revision) const {
+  if (revision > revision_)
+    throw std::invalid_argument("invalid intraday revision");
+  std::vector<InstrumentId> changed;
+  for (const auto& [id, state] : states_)
+    if (state.revision > revision)
+      changed.push_back(id);
+  return changed;
 }
 std::optional<IntradaySeries> IntradayBars::series(const InstrumentId& instrument) const {
   const auto found = states_.find(instrument);

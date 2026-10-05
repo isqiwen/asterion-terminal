@@ -1,4 +1,5 @@
 #pragma once
+#include <asterion/kernel/plugin.hpp>
 #include <asterion/domain/factor_port.hpp>
 #include <deque>
 #include <span>
@@ -27,7 +28,7 @@ private:
   std::size_t lookback_;
   std::deque<Decimal> history_;
 };
-class MomentumFactor final : public FactorPort {
+class MomentumFactor final : public FactorPort, public Plugin {
 public:
   MomentumFactor(Instrument instrument, std::size_t lookback);
   PluginDescriptor descriptor() const override;

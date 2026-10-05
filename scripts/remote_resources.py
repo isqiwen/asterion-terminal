@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import stat
 import zipfile
+import tempfile
+from generated_resources import publish_tree
 from service_fingerprint import fingerprint
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,7 +14,7 @@ ARCHES = ('x86_64',)
 def files_for(arch):
     if arch not in ARCHES:
         raise ValueError('Linux currently supports x86_64 only')
-    return ('asterion-node-agent', 'asterion-trading', 'asterion-market-data', 'asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'initialize-linux.py', 'plugins/asterion-tushare.so', 'plugins/asterion-order-limits.so') + (('ctp-md.so', 'ctp-trader.so') if arch == 'x86_64' else ())
+    return ('asterion-node-agent', 'asterion-trading', 'asterion-market-data', 'asterion-data-service', 'asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'initialize-linux.py', 'plugins/asterion-tushare.so', 'plugins/asterion-order-limits.so') + (('ctp-md.so', 'ctp-trader.so') if arch == 'x86_64' else ())
 
 
 def validate(manifest, files, arch):
@@ -49,6 +51,11 @@ def read_archive(path, arch):
 def verify(directory):
     if directory.is_symlink():
         raise ValueError('Bundled resource directory cannot be a symlink')
+    expected = {f'{arch}/{name}' for arch in ARCHES for name in (*files_for(arch), 'manifest.json')}
+    actual = {path.relative_to(directory).as_posix() for path in directory.rglob('*') if path.is_file()}
+    directories = {arch for arch in ARCHES} | {f'{arch}/plugins' for arch in ARCHES}
+    if actual != expected or any(path.is_symlink() or (path.is_dir() and path.relative_to(directory).as_posix() not in directories) for path in directory.rglob('*')):
+        raise ValueError('Unexpected or missing bundled Linux resources')
     for arch in ARCHES:
         folder=directory/arch
         paths=[folder/name for name in (*files_for(arch),'manifest.json')]
@@ -59,22 +66,21 @@ def verify(directory):
 
 def stage(archives, destination):
     payload={arch:read_archive(archives/f'asterion-services-linux-{arch}.zip',arch) for arch in ARCHES}
-    # Validate the bundle before writing any generated resource. Never extract ZIP paths.
-    for arch,files in payload.items():
-        folder=destination/arch
-        if destination.is_symlink() or folder.is_symlink():
-            raise ValueError('Generated resource directory cannot be a symlink')
-        folder.mkdir(parents=True,exist_ok=True)
-        for name,data in files.items():
-            target=folder/name
-            if target.parent.is_symlink():
-                raise ValueError('Generated resource directory cannot be a symlink')
-            target.parent.mkdir(parents=True,exist_ok=True)
-            if target.is_symlink():
-                raise ValueError('Generated resource file cannot be a symlink')
-            target.write_bytes(data)
-            target.chmod(0o644)
-    verify(destination)
+    # Validate every archive first, then publish an exact fresh generated tree.
+    if destination.is_symlink():
+        raise ValueError('Generated resource directory cannot be a symlink')
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.remote-stage-', dir=destination.parent) as temporary:
+        prepared = Path(temporary) / 'resources'
+        for arch, files in payload.items():
+            for name, data in files.items():
+                target = prepared / arch / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+                target.chmod(0o644)
+        verify(prepared)
+        publish_tree(prepared, destination)
+
 
 
 if __name__ == '__main__':

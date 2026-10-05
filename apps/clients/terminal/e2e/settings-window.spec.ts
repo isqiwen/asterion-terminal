@@ -2,6 +2,39 @@ import { test, expect } from "./test";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 import type { Snapshot } from "../src/bridge/client";
 
+test("opening connection settings only reads the monitor established by startup", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const settings = await openSettingsWindow(page);
+  const commands: string[] = [];
+  await settings.route("**/__asterion/api", route => {
+    const { method } = route.request().postDataJSON();
+    if (method !== "runtime.snapshot") {
+      commands.push(method);
+      return route.fulfill({
+        json: {
+          error: {
+            code: "conflict",
+            message: "another Terminal operation is in progress; retry after it completes",
+          },
+        },
+      });
+    }
+    return route.continue();
+  });
+  for (let visit = 0; visit < 2; visit++) {
+    await settings.getByRole("button", { name: "连接与部署", exact: true }).click();
+    await expect(settings.getByRole("list", { name: "当前运行位置" })).toContainText("task");
+    await settings.getByRole("button", { name: "机器管理", exact: true }).click();
+    await expect(settings.getByRole("button", { name: "本机 在线", exact: true })).toBeVisible();
+    await expect(settings.getByRole("alert")).toHaveCount(0);
+    await settings.getByRole("button", { name: "偏好设置", exact: true }).click();
+  }
+  expect(commands).toEqual([]);
+  await closeSettingsWindow(settings);
+});
+
 for (const state of ["update_available", "recovery_required"] as const) {
   test(`settings coordinates ${state} without manually stopping running services`, async ({
     page,

@@ -13,6 +13,7 @@ export const plugin: TerminalPlugin = {
   commands: [
     "market.catalog",
     "live.create",
+    "live.policy.configure",
     "live.open",
     "live.connect",
     "live.disconnect",

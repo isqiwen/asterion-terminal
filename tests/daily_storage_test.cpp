@@ -1,4 +1,7 @@
 #include "sqlite_database.hpp"
+#include "data_store.hpp"
+#include "data_fixture.hpp"
+#include <asterion/protocol/data_client.hpp>
 #include "daily_factor_source.hpp"
 #include "factor_engine.hpp"
 #include "history_daily.hpp"
@@ -13,6 +16,7 @@
 #include <thread>
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <gtest/gtest.h>
+#include <asterion/kernel/process/artifact.hpp>
 using namespace asterion;
 namespace {
 struct Folder {
@@ -54,7 +58,7 @@ TEST(DailyStorage, PersistsTypedValuesAndResumesAfterCancellationWithoutRedownlo
   provider.start();
   std::stop_source stop;
   EXPECT_THROW(
-      history_files::download_daily(provider, range(), folder.path, 500, stop.get_token(),
+      history_files::download_daily(provider, range(), folder.path, stop.get_token(),
                                     [&](unsigned completed, unsigned total, std::uint64_t rows) {
                                       EXPECT_EQ(total, 2);
                                       EXPECT_EQ(rows, completed);
@@ -64,11 +68,13 @@ TEST(DailyStorage, PersistsTypedValuesAndResumesAfterCancellationWithoutRedownlo
       std::runtime_error);
   const auto partial = history_files::inspect_daily(folder.path);
   EXPECT_FALSE(partial.complete);
+  EXPECT_EQ(partial.acquired_at_ns, 0);
   EXPECT_EQ(partial.pages, 1);
   EXPECT_THROW(history_files::read_daily(folder.path), std::invalid_argument);
   const auto first = contents(folder.path / "daily-0.parquet");
-  const auto result = history_files::download_daily(provider, range(), folder.path, 500);
+  const auto result = history_files::download_daily(provider, range(), folder.path);
   EXPECT_TRUE(result.complete);
+  EXPECT_GT(result.acquired_at_ns, 0);
   EXPECT_EQ(result.rows, 2);
   EXPECT_EQ(starts, (std::vector<std::string>{"20230101", "20240102"}));
   EXPECT_EQ(first, contents(folder.path / "daily-0.parquet"));
@@ -80,8 +86,19 @@ TEST(DailyStorage, PersistsTypedValuesAndResumesAfterCancellationWithoutRedownlo
   EXPECT_EQ(data.bars[0].amount.str(), "1234567.89012345");
   EXPECT_FALSE(data.bars[0].previous_close);
   EXPECT_EQ(data.bars[0].previous_settlement, Decimal::parse("99.5"));
-  EXPECT_EQ(history_files::download_daily(provider, range(), folder.path, 500).rows, 2);
+  const auto resumed = history_files::download_daily(provider, range(), folder.path);
+  EXPECT_EQ(resumed.rows, 2);
+  EXPECT_EQ(resumed.acquired_at_ns, result.acquired_at_ns);
+  EXPECT_EQ(resumed.manifest_sha256, result.manifest_sha256);
   EXPECT_EQ(starts.size(), 2);
+  auto obsolete = Json::parse(contents(folder.path / "daily.json"));
+  obsolete["version"] = 3;
+  obsolete.erase("acquired_at_ns");
+  obsolete.erase("source_availability");
+  replace_file_durably(folder.path / "daily.json", obsolete.dump());
+  EXPECT_THROW(history_files::download_daily(provider, range(), folder.path),
+               std::invalid_argument);
+  EXPECT_EQ(Json::parse(contents(folder.path / "daily.json")), obsolete);
   for (const auto& file : std::filesystem::directory_iterator(folder.path))
     EXPECT_EQ(contents(file.path()).find("fixture-secret"), std::string::npos);
 }
@@ -93,21 +110,22 @@ TEST(DailyStorage, RecoversDurableUnindexedPageAndRejectsChangedOrCorruptedInput
     return response(body);
   });
   provider.start();
-  history_files::download_daily(provider, range(), folder.path, 500);
+  history_files::download_daily(provider, range(), folder.path);
   auto manifest = Json::parse(contents(folder.path / "daily.json"));
   manifest["pages"].erase(1);
   manifest["rows"] = 1;
   manifest["complete"] = false;
+  manifest["acquired_at_ns"] = "0";
   replace_file_durably(folder.path / "daily.json", manifest.dump());
-  EXPECT_TRUE(history_files::download_daily(provider, range(), folder.path, 500).complete);
+  EXPECT_TRUE(history_files::download_daily(provider, range(), folder.path).complete);
   EXPECT_EQ(requests, 2); // No HTTP call for the validated orphan segment.
   auto changed = range();
   changed.end = std::chrono::year(2024) / std::chrono::January / 4;
-  EXPECT_THROW(history_files::download_daily(provider, changed, folder.path, 500),
+  EXPECT_THROW(history_files::download_daily(provider, changed, folder.path),
                std::invalid_argument);
   replace_file_durably(folder.path / "daily-1.parquet", "{}");
   EXPECT_THROW(history_files::read_daily(folder.path), std::invalid_argument);
-  EXPECT_THROW(history_files::download_daily(provider, range(), folder.path, 500),
+  EXPECT_THROW(history_files::download_daily(provider, range(), folder.path),
                std::invalid_argument);
   EXPECT_EQ(requests, 2);
 }
@@ -115,12 +133,11 @@ TEST(DailyStorage, SharedReadersExcludeWritersAndRejectForeignDirectories) {
   Folder folder;
   tushare::Daily provider("fixture", [](const auto& body, auto) { return response(body); });
   provider.start();
-  history_files::download_daily(provider, range(), folder.path, 500);
+  history_files::download_daily(provider, range(), folder.path);
   {
     FileLock reader(folder.path, "daily.lock", FileLock::Access::shared);
     EXPECT_EQ(history_files::read_daily(folder.path).bars.size(), 2);
-    EXPECT_THROW(history_files::download_daily(provider, range(), folder.path, 500),
-                 std::exception);
+    EXPECT_THROW(history_files::download_daily(provider, range(), folder.path), std::exception);
   }
   {
     FileLock writer(folder.path, "daily.lock");
@@ -128,159 +145,14 @@ TEST(DailyStorage, SharedReadersExcludeWritersAndRejectForeignDirectories) {
   }
   Folder foreign;
   replace_file_durably(foreign.path / "existing-data", "preserve");
-  EXPECT_THROW(history_files::download_daily(provider, range(), foreign.path, 500),
+  EXPECT_THROW(history_files::download_daily(provider, range(), foreign.path),
                std::invalid_argument);
   EXPECT_EQ(contents(foreign.path / "existing-data"), "preserve");
 }
 
-TEST(DailyTasks, ValidatesDefinitionsDispatchesDailyAndRestoresVerifiedResults) {
-  Folder folder;
-  const Json definition = {{"version", 2},
-                           {"contract_id", "SHFE/cu/2024-03"},
-                           {"source", "tushare.fut_daily"},
-                           {"source_instrument", "CU2403.SHF"},
-                           {"begin_day", "2023-01-01"},
-                           {"end_day", "2024-01-03"},
-                           {"requests_per_minute", 500}};
-  const auto input = history_files::daily_request(definition);
-  EXPECT_EQ(history_files::daily_request_json(input), definition);
-  for (const auto& mutation : std::vector<Json>{{{"version", 1}},
-                                                {{"requests_per_minute", 0}},
-                                                {{"requests_per_minute", 501}},
-                                                {{"requests_per_minute", 1.5}},
-                                                {{"begin_day", "2023-02-29"}},
-                                                {{"end_day", "2022-01-01"}},
-                                                {{"contract_id", "CU.SHF"}},
-                                                {{"unknown", 1}}}) {
-    auto bad = definition;
-    bad.update(mutation);
-    EXPECT_THROW(history_files::daily_request(bad), std::exception);
-  }
-  {
-    tasks::Store store(folder.path);
-    const auto task = store.submit("daily", input, "fixture-secret");
-    EXPECT_EQ(task.kind(), research::v1::DAILY_DOWNLOAD);
-    EXPECT_EQ(task.total(), 2);
-    EXPECT_EQ(store.submit("daily", input, "replacement-must-not-overwrite").submission_sequence(),
-              task.submission_sequence());
-    const auto dispatch = store.dispatch({});
-    ASSERT_EQ(dispatch.launches_size(), 1);
-    EXPECT_EQ(dispatch.launches(0).provider_artifact(), store.get("daily").provider_artifact());
-    EXPECT_EQ(dispatch.launches(0).provider_artifact().size(), 64);
-    EXPECT_TRUE(dispatch.launches(0).daily_download());
-    EXPECT_FALSE(dispatch.launches(0).minute_download());
-    EXPECT_EQ(dispatch.launches(0).program(), research::v1::DATA_PIPELINE_PROGRAM);
-    research::v1::TaskAttempt attempt;
-    attempt.set_token(store.claim("daily"));
-    *attempt.mutable_task() = store.get("daily");
-    store.download_attempt(attempt);
-    EXPECT_EQ(attempt.provider_token(), "fixture-secret");
-    const auto dir = std::filesystem::path(attempt.output_directory());
-    EXPECT_EQ(dir, folder.path / "history" / "SHFE" / "cu" / "2024-03" / "tushare.fut_daily" /
-                       "daily" / "daily");
-    tushare::Daily provider(attempt.provider_token(),
-                            [](const auto& body, auto) { return response(body); });
-    provider.start();
-    history_files::download_daily(provider, history_files::daily_range(input), dir, 500);
-    research::v1::TaskFinish finish;
-    finish.set_id("daily");
-    finish.set_token(attempt.token());
-    *finish.mutable_daily() = history_files::daily_result(dir);
-    auto wrong = finish;
-    wrong.mutable_daily()->set_directory(folder.path.string());
-    EXPECT_THROW(store.prepare_finish(wrong), std::invalid_argument);
-    wrong = finish;
-    wrong.mutable_daily()->set_rows(999);
-    auto invalid = store.prepare_finish(wrong);
-    EXPECT_THROW(invalid.verify(), std::invalid_argument);
-    EXPECT_THROW(store.finish(std::move(invalid)), std::invalid_argument);
-    auto completion = store.prepare_finish(finish);
-    completion.verify();
-    store.finish(std::move(completion));
-    EXPECT_EQ(store.get("daily").state(), research::v1::SUCCEEDED);
-    EXPECT_EQ(store.daily_result("daily").rows(), 2);
-    EXPECT_THROW(store.minute_result("daily"), std::invalid_argument);
-    const auto summary = store.list();
-    EXPECT_FALSE(summary.tasks(0).has_daily());
-    EXPECT_EQ(protocol::decode_task(summary.tasks(0)).at("kind"), "daily_download");
-    research::v1::TaskResponse result;
-    *result.mutable_result_task() = store.get("daily");
-    *result.mutable_daily() = store.daily_result("daily");
-    EXPECT_EQ(protocol::decode_task_result(result, "daily").at("experiment").at("begin_day"),
-              "2023-01-01");
-    result.mutable_daily()->set_manifest_sha256(std::string(64, 'z'));
-    EXPECT_THROW(protocol::decode_task_result(result, "daily"), std::invalid_argument);
-    for (const auto& file : std::filesystem::recursive_directory_iterator(folder.path))
-      if (file.is_regular_file() && file.path().filename() != "provider.credential")
-        EXPECT_EQ(contents(file.path()).find("fixture-secret"), std::string::npos);
-  }
-  tasks::Store restored(folder.path);
-  EXPECT_EQ(restored.daily_result("daily").rows(), 2);
-  EXPECT_EQ(restored.get("daily").daily().SerializeAsString(), input.SerializeAsString());
-  EXPECT_TRUE(restored.dispatch({}).launches().empty());
-}
-TEST(DailyTasks, CancellationFencesVerifiedCompletionAndRetryReusesStoredPages) {
-  Folder folder;
-  const auto input = history_files::daily_request({{"version", 2},
-                                                   {"contract_id", "SHFE/cu/2024-03"},
-                                                   {"source", "tushare.fut_daily"},
-                                                   {"source_instrument", "CU2403.SHF"},
-                                                   {"begin_day", "2024-01-02"},
-                                                   {"end_day", "2024-01-03"},
-                                                   {"requests_per_minute", 500}});
-  std::string first_token;
-  research::v1::TaskFinish finish;
-  {
-    tasks::Store store(folder.path);
-    store.submit("daily", input, "fixture");
-    research::v1::TaskAttempt attempt;
-    first_token = store.claim("daily");
-    attempt.set_token(first_token);
-    *attempt.mutable_task() = store.get("daily");
-    store.download_attempt(attempt);
-    tushare::Daily provider("fixture", [](const auto& body, auto) { return response(body); });
-    provider.start();
-    history_files::download_daily(provider, history_files::daily_range(input),
-                                  attempt.output_directory(), 500);
-    finish.set_id("daily");
-    finish.set_token(first_token);
-    *finish.mutable_daily() = history_files::daily_result(attempt.output_directory());
-    auto completion = store.prepare_finish(finish);
-    completion.verify();
-    store.cancel("daily");
-    store.finish(std::move(completion));
-    EXPECT_EQ(store.get("daily").state(), research::v1::CANCELLED);
-    EXPECT_THROW(store.daily_result("daily"), std::invalid_argument);
-    store.retry("daily");
-  }
-  tasks::Store restored(folder.path);
-  EXPECT_EQ(restored.get("daily").state(), research::v1::QUEUED);
-  research::v1::TaskAttempt attempt;
-  attempt.set_token(restored.claim("daily"));
-  EXPECT_NE(first_token, attempt.token());
-  *attempt.mutable_task() = restored.get("daily");
-  restored.download_attempt(attempt);
-  EXPECT_THROW(restored.prepare_finish(finish), std::invalid_argument);
-  int requests = 0;
-  tushare::Daily provider("fixture", [&](const auto& body, auto) {
-    ++requests;
-    return response(body);
-  });
-  provider.start();
-  history_files::download_daily(provider, history_files::daily_range(input),
-                                attempt.output_directory(), 500);
-  EXPECT_EQ(requests, 0);
-  finish.set_token(attempt.token());
-  auto completion = restored.prepare_finish(finish);
-  completion.verify();
-  restored.finish(std::move(completion));
-  EXPECT_EQ(restored.get("daily").attempt(), 2);
-  EXPECT_EQ(restored.daily_result("daily").rows(), 1);
-}
-
 TEST(DailyTasks, RealServiceDispatchAndManagedWorkerResumeCompletedSourceData) {
   using namespace std::chrono_literals;
-  Folder folder;
+  Folder folder, warehouse;
   const auto input = history_files::daily_request({{"version", 2},
                                                    {"contract_id", "SHFE/cu/2024-03"},
                                                    {"source", "tushare.fut_daily"},
@@ -289,14 +161,20 @@ TEST(DailyTasks, RealServiceDispatchAndManagedWorkerResumeCompletedSourceData) {
                                                    {"end_day", "2024-01-03"},
                                                    {"requests_per_minute", 500}});
   {
-    tasks::Store store(folder.path);
-    store.submit("daily", input, "fixture");
-    const auto dir = folder.path / "history" / "SHFE" / "cu" / "2024-03" / "tushare.fut_daily" /
-                     "daily" / "daily";
-    std::filesystem::create_directories(dir);
+    tasks::Store store(folder.path, tasks::Identity{"daily-test", "fixture-data"});
+    data::Store data(warehouse.path, "fixture-data", "daily-test");
+    store.submit(test::authorize_download(data, "daily-test", "daily", input));
+    data::v1::DownloadAllocation allocation;
+    auto* identity = allocation.mutable_identity();
+    identity->set_data_instance("fixture-data");
+    identity->set_task_instance("daily-test");
+    identity->set_task_id("daily");
+    identity->set_attempt(1);
+    *allocation.mutable_daily() = input;
+    const auto dir = test::allocate_download(data, allocation).directory();
     tushare::Daily provider("fixture", [](const auto& body, auto) { return response(body); });
     provider.start();
-    history_files::download_daily(provider, history_files::daily_range(input), dir, 500);
+    history_files::download_daily(provider, history_files::daily_range(input), dir);
   }
   const auto socket_dir =
       std::filesystem::path("/tmp") / ("ast-d-" + unique_process_id().substr(0, 12));
@@ -311,16 +189,24 @@ TEST(DailyTasks, RealServiceDispatchAndManagedWorkerResumeCompletedSourceData) {
   } cleanup{socket_dir};
   const auto endpoint = (socket_dir / "task.sock").string();
   const auto worker_endpoint = (socket_dir / "worker.sock").string();
+  const auto data_endpoint = (socket_dir / "data.sock").string();
+  const auto data_workers = (socket_dir / "data.workers").string();
+  ChildProcess data_service(ASTERION_DATA_SERVICE_PATH,
+                            {"--directory", warehouse.path.string(), "--session", "fixture-data",
+                             "--task-instance", "daily-test", "--endpoint", data_endpoint,
+                             "--worker-endpoint", data_workers});
+  protocol::DataClient data(data_endpoint, "fixture-data");
   ChildProcess service(ASTERION_TASK_SERVICE_PATH,
                        {"--directory", folder.path.string(), "--endpoint", endpoint,
-                        "--worker-endpoint", worker_endpoint, "--session", "daily-test"});
-  auto call = [&](research::v1::TaskRequest request, bool worker = false) {
+                        "--worker-endpoint", worker_endpoint, "--session", "daily-test",
+                        "--data-instance", "fixture-data", "--data-endpoint", data_workers});
+  auto call = [&](task::v1::TaskRequest request, bool worker = false) {
     request.set_version(1);
     request.set_service_id("daily-test");
     request.set_correlation_id(unique_process_id());
     auto channel = ipc::Channel::connect(worker ? worker_endpoint : endpoint, 2s);
     channel.send(request.SerializeAsString(), 2s);
-    research::v1::TaskResponse reply;
+    task::v1::TaskResponse reply;
     if (!reply.ParseFromString(channel.receive(2s)))
       throw std::runtime_error("bad response");
     protocol::validate_message(reply);
@@ -330,22 +216,32 @@ TEST(DailyTasks, RealServiceDispatchAndManagedWorkerResumeCompletedSourceData) {
   const auto deadline = std::chrono::steady_clock::now() + 10s;
   for (;;) {
     try {
-      research::v1::TaskRequest ping;
+      task::v1::TaskRequest ping;
       ping.mutable_heartbeat();
-      // The service listens on the worker endpoint first, then on its own.
-      call(ping, true);
-      call(ping);
-      break;
+      const bool task_ready =
+          call(ping, true).health().initialized() && call(ping).health().initialized();
+      data::v1::DataRequest data_ping;
+      data_ping.mutable_heartbeat();
+      if (task_ready && data.call(data_ping).health().initialized())
+        break;
     } catch (const std::exception&) {
       if (service.exited() || std::chrono::steady_clock::now() > deadline)
         throw;
-      std::this_thread::sleep_for(20ms);
     }
+    ASSERT_LT(std::chrono::steady_clock::now(), deadline);
+    std::this_thread::sleep_for(20ms);
   }
-  research::v1::TaskRequest request;
-  request.mutable_dispatch();
+  task::v1::TaskRequest request;
+  request.mutable_dispatch()->set_launch_slots(2);
   EXPECT_TRUE(call(request).has_error());
-  const auto launches = call(request, true);
+  auto launches = call(request, true);
+  // Agent periodically asks for launches; Task's independent observation of
+  // Data readiness may follow the heartbeat observed by this test.
+  while (launches.has_launches() && launches.launches().launches().empty() &&
+         std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(20ms);
+    launches = call(request, true);
+  }
   ASSERT_TRUE(launches.has_launches()) << launches.DebugString();
   ASSERT_EQ(launches.launches().launches_size(), 1);
   EXPECT_TRUE(launches.launches().launches(0).daily_download());
@@ -356,31 +252,40 @@ TEST(DailyTasks, RealServiceDispatchAndManagedWorkerResumeCompletedSourceData) {
                       false, worker_log, true);
   ASSERT_TRUE(worker.wait(10s)) << contents(worker_log);
   EXPECT_EQ(worker.exit_code(), 0) << contents(worker_log);
+  request.mutable_get()->set_id("daily");
+  const auto published_deadline = std::chrono::steady_clock::now() + 10s;
+  while (call(request).task().state() == task::v1::PUBLISHING &&
+         std::chrono::steady_clock::now() < published_deadline)
+    std::this_thread::sleep_for(20ms);
   request.mutable_result()->set_id("daily");
   auto result = call(request);
   ASSERT_TRUE(result.has_daily()) << result.DebugString();
   EXPECT_EQ(result.daily().rows(), 1);
   EXPECT_EQ(protocol::decode_task_result(result, "daily").at("kind"), "daily_download");
-  EXPECT_EQ(result.result_task().state(), research::v1::SUCCEEDED);
-  request.mutable_daily_page()->set_task_id("daily");
-  request.mutable_daily_page()->set_limit(5);
-  const auto page = call(request);
+  EXPECT_EQ(result.result_task().state(), task::v1::SUCCEEDED);
+  data::v1::DataRequest page_query;
+  page_query.mutable_daily_page()->set_dataset_id(result.daily().manifest_sha256());
+  page_query.mutable_daily_page()->set_limit(5);
+  const auto page = data.call(page_query);
   ASSERT_TRUE(page.has_daily_page()) << page.DebugString();
   EXPECT_EQ(protocol::decode_daily_page(page.daily_page()).at("bars").size(), 1);
   EXPECT_EQ(page.daily_page().bars(0).trading_day(), "2024-01-02");
-  request.mutable_daily_page()->set_task_id("../daily");
-  EXPECT_TRUE(call(request).has_error());
 
   request.mutable_submit()->set_id("queued");
-  *request.mutable_submit()->mutable_daily() = input;
-  request.mutable_submit()->set_provider_token("fixture-secret");
+  data::v1::DataRequest authorize;
+  authorize.mutable_authorize_download()->set_task_instance("daily-test");
+  authorize.mutable_authorize_download()->set_task_id("queued");
+  authorize.mutable_authorize_download()->set_credential("fixture");
+  *authorize.mutable_authorize_download()->mutable_daily() = input;
+  request.mutable_submit()->set_download_authorization(
+      data.call(authorize).download_authorization().id());
   auto submitted = call(request);
   ASSERT_TRUE(submitted.has_task()) << submitted.DebugString();
-  EXPECT_EQ(submitted.task().kind(), research::v1::DAILY_DOWNLOAD);
+  EXPECT_EQ(submitted.task().kind(), task::v1::DAILY_DOWNLOAD);
   EXPECT_EQ(submitted.SerializeAsString().find("fixture-secret"), std::string::npos);
   request.mutable_cancel()->set_id("queued");
-  EXPECT_EQ(call(request).task().state(), research::v1::CANCELLED);
-  request.mutable_list();
+  EXPECT_EQ(call(request).task().state(), task::v1::CANCELLED);
+  request.mutable_list()->set_limit(200);
   const auto summary = call(request);
   ASSERT_TRUE(summary.has_tasks());
   ASSERT_EQ(summary.tasks().tasks_size(), 2);
@@ -412,7 +317,7 @@ TEST(DailyPages, DatePagingKeepsExactPricesMissingSettlementAndDatasetOriginMacd
     return data.dump();
   });
   provider.start();
-  history_files::download_daily(provider, history_files::daily_range(input), folder.path, 500);
+  history_files::download_daily(provider, history_files::daily_range(input), folder.path);
   const auto result = history_files::daily_result(folder.path);
   data::v1::DailyPageQuery query;
   query.set_task_id("daily");
@@ -503,7 +408,7 @@ TEST(DailyPages, EmptyDatasetRetainsRequestedDatesWithoutInventedCoverage) {
     return data.dump();
   });
   provider.start();
-  history_files::download_daily(provider, history_files::daily_range(input), folder.path, 500);
+  history_files::download_daily(provider, history_files::daily_range(input), folder.path);
   auto result = history_files::daily_result(folder.path);
   data::v1::DailyPageQuery query;
   query.set_task_id("empty");
@@ -541,7 +446,7 @@ TEST(DailyPages, WeeklyAndMonthlyAggregateBeforeFilteringPagingAndMacd) {
     return data.dump();
   });
   provider.start();
-  history_files::download_daily(provider, history_files::daily_range(input), folder.path, 500);
+  history_files::download_daily(provider, history_files::daily_range(input), folder.path);
   const auto result = history_files::daily_result(folder.path);
   data::v1::DailyPageQuery query;
   query.set_task_id("weekly");
@@ -605,8 +510,11 @@ TEST(DailyPages, WeeklyAndMonthlyAggregateBeforeFilteringPagingAndMacd) {
 
 TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidence) {
   using namespace std::chrono;
-  Folder folder;
-  auto store = std::make_unique<tasks::Store>(folder.path);
+  Folder folder, warehouse;
+  auto data_store =
+      std::make_unique<data::Store>(warehouse.path, "fixture-data", "daily-factor-test");
+  auto store = std::make_unique<tasks::Store>(folder.path,
+                                              tasks::Identity{"daily-factor-test", "fixture-data"});
   const auto request = history_files::daily_request({{"version", 2},
                                                      {"contract_id", "SHFE/cu/2024-03"},
                                                      {"source", "tushare.fut_daily"},
@@ -614,11 +522,18 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
                                                      {"begin_day", "2023-01-01"},
                                                      {"end_day", "2023-04-01"},
                                                      {"requests_per_minute", 500}});
-  store->submit("source", request, "fixture");
-  research::v1::TaskAttempt attempt;
-  attempt.set_token(store->claim("source"));
+  store->submit(test::authorize_download(*data_store, "daily-factor-test", "source", request));
+  task::v1::TaskAttempt attempt;
+  attempt.set_token(store->commit(store->claim("source")).token());
   *attempt.mutable_task() = store->get("source");
-  store->download_attempt(attempt);
+  data::v1::DownloadAllocation allocation;
+  auto* identity = allocation.mutable_identity();
+  identity->set_data_instance("fixture-data");
+  identity->set_task_instance("daily-factor-test");
+  identity->set_task_id("source");
+  identity->set_attempt(attempt.task().attempt());
+  *allocation.mutable_daily() = request;
+  attempt.set_output_directory(test::allocate_download(*data_store, allocation).directory());
   tushare::Daily provider("fixture", [](const auto& body, auto) {
     auto data = Json::parse(response(body));
     auto& rows = data["data"]["items"];
@@ -634,23 +549,29 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   });
   provider.start();
   history_files::download_daily(provider, history_files::daily_range(request),
-                                attempt.output_directory(), 500);
+                                attempt.output_directory());
   const auto result = history_files::daily_result(attempt.output_directory());
-  research::v1::DailyFactorRequest unpublished;
+  factor::v1::DailyFactorRequest unpublished;
   unpublished.set_source_dataset_id(result.manifest_sha256());
-  EXPECT_THROW(store->prepare_daily_factor("unpublished", unpublished), std::invalid_argument);
-  research::v1::TaskFinish finish;
+  EXPECT_THROW(data_store->archive().get(unpublished.source_dataset_id()), std::invalid_argument);
+  task::v1::TaskFinish finish;
   finish.set_id("source");
   finish.set_token(attempt.token());
   *finish.mutable_daily() = result;
   auto completion = store->prepare_finish(finish);
-  completion.verify();
-  store->finish(std::move(completion));
+  completion.prepare_payload();
+  const auto prepared =
+      data_store->prepare(data_store->verify_download(completion.download_preparation()));
+  ASSERT_TRUE(
+      (store->commit(store->prepare_publication(std::move(completion), prepared)).task().state() ==
+       asterion::task::v1::PUBLISHING));
+  store->commit(store->confirm_publication(
+      data_store->publish(data_store->verify_publication(store->pending_publications().at(0)))));
   data::v1::HistoryRecord source;
   source.set_version(1);
   *source.mutable_daily() = request;
   *source.mutable_daily_result() = result;
-  const auto dataset = tasks::daily_factor_dataset(source);
+  const auto dataset = data::daily_factor_dataset(source);
   ASSERT_EQ(dataset.bars_size(), 80);
   EXPECT_EQ(dataset.source_dataset_id(), result.manifest_sha256());
   EXPECT_EQ(dataset.manifest_sha256(), result.manifest_sha256());
@@ -659,7 +580,7 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   EXPECT_FALSE(dataset.bars(0).has_previous_close());
   EXPECT_FALSE(dataset.bars(0).has_settlement());
   EXPECT_FALSE(dataset.bars(0).has_macd());
-  research::v1::DailyFactorInput input;
+  factor::v1::DailyFactorInput input;
   input.set_version(1);
   input.set_lookback(2);
   input.set_horizon(2);
@@ -668,16 +589,13 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   input.set_dataset_revision(protocol::daily_factor_revision(dataset));
   const auto analysis = factor::run_daily(input);
   EXPECT_EQ(analysis.samples_size(), 74);
-  research::v1::DailyFactorRequest parameters;
+  factor::v1::DailyFactorRequest parameters;
   parameters.set_source_dataset_id(result.manifest_sha256());
   parameters.set_lookback(2);
   parameters.set_horizon(2);
   parameters.set_holdout_start(40);
-  auto submission = store->prepare_daily_factor("analysis", parameters);
-  EXPECT_THROW(store->submit(submission), std::invalid_argument);
-  submission.verify();
-  EXPECT_EQ(store->submit(submission).kind(), research::v1::DAILY_FACTOR);
-  EXPECT_EQ(store->submit(submission).id(), "analysis");
+  EXPECT_EQ(store->submit("analysis", input).kind(), task::v1::DAILY_FACTOR);
+  EXPECT_EQ(store->submit("analysis", input).id(), "analysis");
   const auto usage = store->history_usage(result.manifest_sha256());
   ASSERT_EQ(usage.references_size(), 2);
   const auto factor_reference = std::ranges::find_if(
@@ -687,36 +605,40 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   ASSERT_EQ(factor_reference->roles_size(), 1);
   EXPECT_EQ(factor_reference->roles(0), data::v1::HISTORY_MARKET);
 
-  ASSERT_EQ(store->dispatch({}).launches_size(), 1);
-  EXPECT_TRUE(store->dispatch({}).launches(0).daily_factor());
-  EXPECT_EQ(store->dispatch({}).launches(0).program(), research::v1::FACTOR_PROGRAM);
+  task::v1::TaskDispatch allowance;
+  allowance.set_launch_slots(1);
+  const auto launches = store->dispatch(allowance);
+  ASSERT_EQ(launches.launches_size(), 1);
+  EXPECT_TRUE(launches.launches(0).daily_factor());
+  EXPECT_EQ(launches.launches(0).program(), task::v1::FACTOR_PROGRAM);
   EXPECT_FALSE(store->list().tasks(1).has_daily_factor());
-  const auto token = store->claim("analysis");
-  research::v1::TaskFinish finished;
+  const auto token = store->commit(store->claim("analysis")).token();
+  task::v1::TaskFinish finished;
   finished.set_id("analysis");
   finished.set_token(token);
   *finished.mutable_daily_factor() = analysis;
   auto tampered = finished;
-  tampered.mutable_daily_factor()->mutable_samples(0)->set_value(42);
+  tampered.mutable_daily_factor()->mutable_samples(0)->set_trading_day("2023-01-01");
   auto rejected = store->prepare_finish(tampered);
-  EXPECT_THROW(rejected.verify(), std::invalid_argument);
-  EXPECT_THROW(store->finish(std::move(rejected)), std::invalid_argument);
+  EXPECT_THROW(rejected.prepare_payload(), std::invalid_argument);
+  EXPECT_THROW(store->commit(store->finish(std::move(rejected))), std::invalid_argument);
   auto verified = store->prepare_finish(finished);
-  verified.verify();
-  store->cancel("analysis");
-  store->finish(std::move(verified));
-  EXPECT_EQ(store->get("analysis").state(), research::v1::CANCELLED);
-  store->retry("analysis");
-  const auto next_token = store->claim("analysis");
+  verified.prepare_payload();
+  store->commit(store->cancel("analysis")).task();
+  store->commit(store->finish(std::move(verified)));
+  EXPECT_EQ(store->get("analysis").state(), task::v1::CANCELLED);
+  store->commit(store->retry("analysis")).task();
+  const auto next_token = store->commit(store->claim("analysis")).token();
   EXPECT_THROW(store->prepare_finish(finished), std::invalid_argument);
   finished.set_token(next_token);
   verified = store->prepare_finish(finished);
-  verified.verify();
-  store->finish(std::move(verified));
+  verified.prepare_payload();
+  store->commit(store->finish(std::move(verified)));
   EXPECT_EQ(store->daily_factor_result("analysis").SerializeAsString(),
             analysis.SerializeAsString());
   store.reset();
-  store = std::make_unique<tasks::Store>(folder.path);
+  store = std::make_unique<tasks::Store>(folder.path,
+                                         tasks::Identity{"daily-factor-test", "fixture-data"});
   EXPECT_EQ(store->get("analysis").attempt(), 2);
   EXPECT_EQ(store->get("analysis").daily_factor().SerializeAsString(), input.SerializeAsString());
   EXPECT_EQ(store->daily_factor_result("analysis").SerializeAsString(),
@@ -737,16 +659,26 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
     } cleanup{socket_dir};
     const auto endpoint = (socket_dir / "task.sock").string();
     const auto workers = (socket_dir / "worker.sock").string();
+    data_store.reset();
+    const auto data_endpoint = (socket_dir / "data.sock").string();
+    const auto data_workers = (socket_dir / "data.workers").string();
+    auto data_process = std::make_unique<ChildProcess>(
+        ASTERION_DATA_SERVICE_PATH,
+        std::vector<std::string>{"--directory", warehouse.path.string(), "--session",
+                                 "fixture-data", "--task-instance", "daily-factor-test",
+                                 "--endpoint", data_endpoint, "--worker-endpoint", data_workers});
+    protocol::DataClient data(data_endpoint, "fixture-data");
     ChildProcess service(ASTERION_TASK_SERVICE_PATH,
                          {"--directory", folder.path.string(), "--endpoint", endpoint,
-                          "--worker-endpoint", workers, "--session", "daily-factor-test"});
-    auto call = [&](research::v1::TaskRequest request, bool worker = false) {
+                          "--worker-endpoint", workers, "--session", "daily-factor-test",
+                          "--data-instance", "fixture-data", "--data-endpoint", data_workers});
+    auto call = [&](task::v1::TaskRequest request, bool worker = false) {
       request.set_version(1);
       request.set_service_id("daily-factor-test");
       request.set_correlation_id(unique_process_id());
       auto channel = ipc::Channel::connect(worker ? workers : endpoint, 2s);
       channel.send(request.SerializeAsString(), 2s);
-      research::v1::TaskResponse reply;
+      task::v1::TaskResponse reply;
       if (!reply.ParseFromString(channel.receive(2s)))
         throw std::runtime_error("bad response");
       if (reply.has_error())
@@ -756,22 +688,28 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
     const auto deadline = std::chrono::steady_clock::now() + 10s;
     for (;;) {
       try {
-        research::v1::TaskRequest ping;
+        task::v1::TaskRequest ping;
         ping.mutable_heartbeat();
-        call(ping);
-        break;
+        const bool task_ready = call(ping).health().initialized();
+        data::v1::DataRequest data_ping;
+        data_ping.mutable_heartbeat();
+        if (task_ready && data.call(data_ping).health().initialized())
+          break;
       } catch (const std::exception&) {
-        if (service.exited() || std::chrono::steady_clock::now() > deadline)
+        if (service.exited())
           throw;
-        std::this_thread::sleep_for(20ms);
       }
+      if (std::chrono::steady_clock::now() > deadline)
+        throw std::runtime_error("task fixture did not initialize");
+      std::this_thread::sleep_for(20ms);
     }
-    research::v1::TaskRequest submit;
+    task::v1::TaskRequest submit;
     submit.mutable_submit()->set_id("worker-analysis");
     *submit.mutable_submit()->mutable_daily_factor() = parameters;
-    EXPECT_EQ(call(submit).task().kind(), research::v1::DAILY_FACTOR);
-    research::v1::TaskRequest dispatch;
-    dispatch.mutable_dispatch();
+    EXPECT_EQ(call(submit).task().kind(), task::v1::DAILY_FACTOR);
+    // The worker reads fixed versions from the paired Data service.
+    task::v1::TaskRequest dispatch;
+    dispatch.mutable_dispatch()->set_launch_slots(2);
     const auto launches = call(dispatch, true).launches();
     ASSERT_EQ(launches.launches_size(), 1);
     EXPECT_TRUE(launches.launches(0).daily_factor());
@@ -788,44 +726,52 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
       ASSERT_TRUE(worker.wait(10s));
       EXPECT_EQ(worker.exit_code(), 0);
     }
-    research::v1::TaskRequest outcome;
+    task::v1::TaskRequest outcome;
     outcome.mutable_result()->set_id("worker-analysis");
+    data_process.reset(); // Confirmed results retain their own experiment evidence.
     const auto reply = call(outcome);
     EXPECT_EQ(reply.daily_factor().SerializeAsString(), analysis.SerializeAsString());
-    EXPECT_EQ(reply.result_task().state(), research::v1::SUCCEEDED);
+    EXPECT_EQ(reply.result_task().state(), task::v1::SUCCEEDED);
     const auto evidence = protocol::decode_task_result(reply, "worker-analysis");
     EXPECT_EQ(evidence.at("kind"), "daily_factor");
     EXPECT_EQ(evidence.at("experiment").at("data").at("source_dataset_id"),
               result.manifest_sha256());
+    EXPECT_EQ(evidence.at("experiment").at("data").at("history_evidence"),
+              protocol::decode_history_evidence(input.dataset().history_evidence()));
+    EXPECT_EQ(input.dataset().history_evidence().acquired_at_ns(),
+              history_files::inspect_daily(attempt.output_directory()).acquired_at_ns);
   }
-  store = std::make_unique<tasks::Store>(folder.path);
+  store = std::make_unique<tasks::Store>(folder.path,
+                                         tasks::Identity{"daily-factor-test", "fixture-data"});
   EXPECT_EQ(store->daily_factor_result("worker-analysis").SerializeAsString(),
             analysis.SerializeAsString());
   auto wrong = source;
   wrong.mutable_daily_result()->set_manifest_sha256(std::string(64, 'a'));
-  EXPECT_THROW(tasks::daily_factor_dataset(wrong), std::invalid_argument);
+  EXPECT_THROW(data::daily_factor_dataset(wrong), std::invalid_argument);
   wrong = source;
   wrong.mutable_daily_result()->set_rows(result.rows() + 1);
-  EXPECT_THROW(tasks::daily_factor_dataset(wrong), std::invalid_argument);
+  EXPECT_THROW(data::daily_factor_dataset(wrong), std::invalid_argument);
   auto mismatched = source;
   mismatched.mutable_daily()->set_contract_id("SHFE/cu/2024-04");
-  EXPECT_THROW(tasks::daily_factor_dataset(mismatched), std::invalid_argument);
+  EXPECT_THROW(data::daily_factor_dataset(mismatched), std::invalid_argument);
   mismatched = source;
   mismatched.mutable_daily()->set_end_day("2023-04-02");
-  EXPECT_THROW(tasks::daily_factor_dataset(mismatched), std::invalid_argument);
+  EXPECT_THROW(data::daily_factor_dataset(mismatched), std::invalid_argument);
   auto manifest =
       Json::parse(contents(std::filesystem::path(attempt.output_directory()) / "daily.json"));
   manifest["complete"] = false;
+  manifest["acquired_at_ns"] = "0";
   replace_file_durably(std::filesystem::path(attempt.output_directory()) / "daily.json",
                        manifest.dump());
-  EXPECT_THROW(tasks::daily_factor_dataset(source), std::invalid_argument);
+  EXPECT_THROW(data::daily_factor_dataset(source), std::invalid_argument);
   replace_file_durably(std::filesystem::path(attempt.output_directory()) / "daily-0.parquet", "{}");
-  EXPECT_THROW(tasks::daily_factor_dataset(source), std::invalid_argument);
+  EXPECT_THROW(data::daily_factor_dataset(source), std::invalid_argument);
   // The accepted snapshot remains usable after its source is damaged; no lazy file references.
   EXPECT_EQ(factor::run_daily(input).SerializeAsString(), analysis.SerializeAsString());
 }
 TEST(DailyTasks, ProviderArtifactIsImmutableAcrossRetryAndStoreRestart) {
-  Folder folder;
+  Folder folder, warehouse;
+  data::Store data(warehouse.path, "fixture-data", "daily-test");
   const auto input = history_files::daily_request({{"version", 2},
                                                    {"contract_id", "SHFE/cu/2024-03"},
                                                    {"source", "tushare.fut_daily"},
@@ -835,15 +781,18 @@ TEST(DailyTasks, ProviderArtifactIsImmutableAcrossRetryAndStoreRestart) {
                                                    {"requests_per_minute", 60}});
   std::string artifact;
   {
-    tasks::Store store(folder.path);
-    artifact = store.submit("pinned", input, "fixture").provider_artifact();
+    tasks::Store store(folder.path, tasks::Identity{"daily-test", "fixture-data"});
+    artifact = store.submit(test::authorize_download(data, "daily-test", "pinned", input))
+                   .provider_artifact();
     ASSERT_EQ(artifact.size(), 64);
-    store.cancel("pinned");
+    store.commit(store.cancel("pinned")).task();
   }
   {
-    tasks::Store store(folder.path);
-    EXPECT_EQ(store.retry("pinned").provider_artifact(), artifact);
-    EXPECT_EQ(store.dispatch({}).launches(0).provider_artifact(), artifact);
+    tasks::Store store(folder.path, tasks::Identity{"daily-test", "fixture-data"});
+    EXPECT_EQ(store.commit(store.retry("pinned")).task().provider_artifact(), artifact);
+    task::v1::TaskDispatch allowance;
+    allowance.set_launch_slots(1);
+    EXPECT_EQ(store.dispatch(allowance).launches(0).provider_artifact(), artifact);
   }
   std::string evidence;
   {
@@ -857,7 +806,8 @@ TEST(DailyTasks, ProviderArtifactIsImmutableAcrossRetryAndStoreRestart) {
     sqlite::Database::Statement write(database, "UPDATE tasks SET manifest=? WHERE id='pinned'");
     write.bind(1, evidence).step();
   }
-  EXPECT_THROW(tasks::Store{folder.path}, std::invalid_argument);
+  EXPECT_THROW(tasks::Store(folder.path, tasks::Identity{"daily-test", "fixture-data"}),
+               std::invalid_argument);
   sqlite::Database database(folder.path / "tasks.sqlite");
   sqlite::Database::Statement read(database, "SELECT manifest FROM tasks WHERE id='pinned'");
   ASSERT_TRUE(read.step());

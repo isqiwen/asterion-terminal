@@ -39,6 +39,15 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
  except ValueError: pass
  else: raise AssertionError('unsupported Linux ARM64 accepted')
  target=root/'staged'; resources.stage(archives,target); resources.verify(target)
+ # Reused staging must reject and then remove obsolete resource trees.
+ (target/'x86_64/plugins/obsolete.so').write_bytes(b'obsolete')
+ (target/'retired-arch').mkdir()
+ try: resources.verify(target)
+ except ValueError: pass
+ else: raise AssertionError('obsolete bundled resource accepted')
+ resources.stage(archives,target); resources.verify(target)
+ assert not (target/'x86_64/plugins/obsolete.so').exists()
+ assert not (target/'retired-arch').exists()
  # A matching semantic version and valid file hashes do not permit older sources.
  for arch in resources.ARCHES:
   with zipfile.ZipFile(archives/f'asterion-services-linux-{arch}.zip') as archive:
@@ -77,8 +86,8 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
   except ValueError: pass
   else: raise AssertionError('checksum mismatch accepted')
   binary.write_bytes(data)
-  # Research executables are mandatory and independently integrity checked.
-  for name in ('asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'plugins/asterion-tushare.so', 'plugins/asterion-order-limits.so'):
+  # Data and task executables are mandatory and independently integrity checked.
+  for name in ('asterion-data-service', 'asterion-task-service', 'asterion-backtest', 'asterion-factor', 'asterion-data-pipeline', 'plugins/asterion-tushare.so', 'plugins/asterion-order-limits.so'):
    payload=target/'x86_64'/name; original_payload=payload.read_bytes()
    payload.unlink()
    assert 'error' in call(''), name

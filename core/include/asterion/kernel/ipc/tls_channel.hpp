@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 namespace asterion::ipc {
@@ -12,7 +13,7 @@ struct TlsIdentity {
 // OU=asterion:<role>. The node CA issues all roles at enrollment and discards
 // its key, so roles cannot be forged without that key.
 //   admin   - deploy, upload and run programs, maintenance, firewall
-//   client  - business calls only (trading, market data, research, strategy)
+//   client  - business calls only (trading, market data, task, strategy)
 //   service - calls between services
 // local marks same-user IPC peers; unknown means no recognised role.
 enum class PeerRole { unknown, admin, client, service, local };
@@ -47,7 +48,7 @@ private:
   friend class TlsPendingConnection;
 };
 // Accepted TCP transport with no application I/O capability. Move into a
-// bounded worker and consume it exactly once to complete mutual authentication.
+// an admission loop and consume it exactly once to complete mutual authentication.
 class TlsPendingConnection {
 public:
   TlsPendingConnection();
@@ -57,8 +58,14 @@ public:
   TlsPendingConnection(const TlsPendingConnection&) = delete;
   TlsPendingConnection& operator=(const TlsPendingConnection&) = delete;
   TlsChannel handshake(std::chrono::milliseconds timeout) &&;
+  // Single-owner nonblocking admission: start once, then poll from the listener
+  // thread. A silent peer consumes a bounded socket slot, never a business worker.
+  void start_handshake(std::chrono::milliseconds timeout);
+  std::optional<TlsChannel> poll_handshake();
 
 private:
+  struct Handshake;
+  std::shared_ptr<Handshake> handshake_;
   std::unique_ptr<TlsChannel::Impl> impl_;
   friend class TlsListener;
 };

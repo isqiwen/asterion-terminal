@@ -1,7 +1,9 @@
 #pragma once
+#include <asterion/domain/broker_send_gate.hpp>
 #include <asterion/domain/account.hpp>
-#include <asterion/kernel/plugin.hpp>
-#include <functional>
+#include <chrono>
+#include <future>
+#include <memory>
 #include <optional>
 #include <vector>
 namespace asterion {
@@ -58,6 +60,10 @@ struct BrokerQuote {
   InstrumentId instrument;
   std::optional<Decimal> last, pre_settlement, upper_limit, lower_limit;
   std::string trading_day, update_time;
+  std::uint64_t connection_generation = 0;
+  // Successful query completion on the account process's monotonic clock.
+  // Distinct from exchange trade time; never serialized as a remote timestamp.
+  std::chrono::steady_clock::time_point completed_at;
 };
 struct BrokerSnapshot {
   // disconnected, connecting, authenticating, logging_in, confirming,
@@ -69,6 +75,10 @@ struct BrokerSnapshot {
   std::uint64_t sequence = 0;
   // Changes whenever a connection ends; authorization is scoped to this value.
   std::uint64_t connection_generation = 0;
+  // Risk must use this revision when submitting. Opening orders require all
+  // observed fills to be included in a completed position query.
+  std::uint64_t exposure_revision = 0;
+  bool positions_reconciled = false;
   // Wall-clock ms of the last completed funds/positions/orders/trades query.
   std::int64_t synchronized_ms = 0;
   std::optional<BrokerFunds> funds;
@@ -77,25 +87,46 @@ struct BrokerSnapshot {
   std::vector<BrokerTrade> trades;
   std::vector<BrokerCosts> costs;
 };
-// Provider-neutral live execution. Credentials and configuration belong to
-// the provider. Pre-trade risk, authorization and journaling are the caller's
-// duty; the provider only routes and reports.
-class BrokerExecutionPort : public Plugin {
+// A provider-prepared order owns immutable identity and wire data. Preparation
+// has no broker side effects. Destroying it without dispatch sends nothing.
+// The originating execution port must outlive the preparation.
+class PreparedBrokerOrder {
 public:
-  // Rejects a connection_generation different from the caller's authorized
-  // snapshot before allocating or journaling; queued requests retain this fence.
-  // Allocates the broker key and calls `journal` with the pending order before
-  // anything is sent; the caller makes that record durable. If `journal`
-  // throws, nothing is sent. Throws Error(unavailable) unless ready. After a
-  // successful journal the order is always tracked: it is returned rejected
-  // when it could not be sent, and otherwise reflects the state at return;
-  // reports arrive later. Provider error codes are negative for local
-  // failures (-1003: session ended before sending).
-  virtual BrokerOrder submit(const LimitOrder& order, Offset offset,
-                             std::uint64_t connection_generation,
-                             const std::function<void(const BrokerOrder&)>& journal) = 0;
-  // Requests cancellation of a working order; the outcome arrives as a report.
-  virtual void cancel(const std::string& order_id) = 0;
+  virtual ~PreparedBrokerOrder() = default;
+  PreparedBrokerOrder(const PreparedBrokerOrder&) = delete;
+  PreparedBrokerOrder& operator=(const PreparedBrokerOrder&) = delete;
+  const BrokerOrder& order() const noexcept { return order_; }
+
+protected:
+  explicit PreparedBrokerOrder(BrokerOrder order) : order_(std::move(order)) {}
+
+private:
+  const BrokerOrder order_;
+};
+struct BrokerDispatchResult {
+  int code = 0;
+  // False is positive evidence that the SDK request was never invoked.
+  // True does not prove acceptance, execution, rejection or cancellation.
+  bool invoked = false;
+};
+// Provider-neutral preparation and dispatch. The account owns authorization,
+// risk and durable intent; a provider never invokes account persistence code.
+class BrokerExecutionPort {
+public:
+  virtual ~BrokerExecutionPort() = default;
+  virtual std::unique_ptr<PreparedBrokerOrder>
+  prepare(const LimitOrder& order, Offset offset, std::uint64_t connection_generation,
+          std::uint64_t exposure_revision, std::chrono::steady_clock::time_point deadline) = 0;
+  // Consume exactly one preparation after the account's durable barrier.
+  // The committed sequence orders identity restoration against later submissions.
+  // Returns immediately. Session/exposure/expiry fences can refuse dispatch;
+  // completion reports whether the SDK call began. Never retries an order.
+  virtual std::future<BrokerDispatchResult> dispatch(std::unique_ptr<PreparedBrokerOrder> prepared,
+                                                     BrokerSendPermit permit,
+                                                     std::uint64_t journal_sequence) = 0;
+  // Requests cancellation without waiting for the SDK call. Its completion is
+  // not exchange cancellation; broker reports own the order outcome.
+  virtual std::future<BrokerDispatchResult> cancel(const std::string& order_id) = 0;
   virtual BrokerSnapshot snapshot() const = 0;
   virtual void disconnect() = 0;
 };

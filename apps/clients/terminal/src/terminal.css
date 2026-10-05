@@ -350,13 +350,13 @@
 }
 
 .terminal-business > section > .panel-heading,
-.research-workspace > .panel-heading {
+.backtest-factor-workspace > .panel-heading {
   min-height: 64px;
   background: transparent;
   padding: 16px var(--space-page);
 }
 .terminal-business > section > .panel-heading h2,
-.research-workspace > .panel-heading h2 {
+.backtest-factor-workspace > .panel-heading h2 {
   font-size: 19px;
   font-weight: 500;
   color: var(--text-strong);
@@ -465,7 +465,7 @@
   max-width: 1080px;
 }
 .market-modes,
-.research-modes {
+.backtest-factor-modes {
   padding: 16px 24px;
   border-bottom: 1px solid var(--line);
 }
@@ -628,7 +628,7 @@
   overflow-wrap: anywhere;
 }
 
-.research-access {
+.data-task-access {
   display: flex;
   flex-wrap: wrap;
   align-items: center;

@@ -1,6 +1,5 @@
 #pragma once
 #include <asterion/domain/history_identity.hpp>
-#include <asterion/kernel/plugin.hpp>
 #include <chrono>
 #include <optional>
 #include <stop_token>
@@ -26,8 +25,9 @@ struct HistoricalDailyRange {
   std::string source;
   std::string source_instrument = {};
 };
-class HistoricalDailyPort : public Plugin {
+class HistoricalDailyPort {
 public:
+  virtual ~HistoricalDailyPort() = default;
   virtual HistorySemantics semantics() const = 0;
   virtual std::vector<HistoricalDailyBar> read(const HistoricalDailyRange&, std::stop_token) = 0;
 };

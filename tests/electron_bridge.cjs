@@ -65,7 +65,7 @@ async function isolatedPoolCheck() {
     });
   });
 
-  // Forced environment teardown must finalize callbacks and join native workers.
+  // Forced environment teardown must finalize callbacks and drain accepted Native operations.
   for (let attempt = 0; attempt < 5; attempt++) {
     const worker = new Worker(
       `const { parentPort, workerData } = require('node:worker_threads');

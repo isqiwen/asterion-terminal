@@ -5,11 +5,20 @@
 namespace asterion::sqlite {
 namespace {
 std::atomic<int> injected_failures{0};
+std::atomic<bool> held_commits{false}, commit_waiting{false};
+} // namespace
+void hold_commits_for_testing(bool hold) {
+  held_commits = hold;
+  held_commits.notify_all();
+}
+bool commit_waiting_for_testing() {
+  return commit_waiting.load();
 }
 void fail_next_commits_for_testing(int count) {
   injected_failures = count;
 }
-Database::Database(const std::filesystem::path& file, Access access) {
+Database::Database(const std::filesystem::path& file, Access access,
+                   std::function<void(Database&)> before_write) {
   if (!file.is_absolute() || std::filesystem::is_symlink(file))
     throw std::invalid_argument("database requires an absolute regular file path");
   // No shared cache, no URI parsing and no extension loading: the path is data.
@@ -34,6 +43,14 @@ Database::Database(const std::filesystem::path& file, Access access) {
     // One writer owns the file; WAL with exclusive locking keeps no shared
     // memory file, and FULL sync makes each commit durable before returning.
     execute("PRAGMA locking_mode=EXCLUSIVE");
+    if (before_write) {
+      // Lock the current database image before validating it. This transaction
+      // changes no rows or journal mode; exclusive mode retains ownership after
+      // COMMIT, so another writer cannot replace the validated image below.
+      execute("BEGIN EXCLUSIVE");
+      before_write(*this);
+      execute("COMMIT");
+    }
     execute("PRAGMA journal_mode=WAL");
     execute("PRAGMA synchronous=FULL");
     execute("PRAGMA foreign_keys=ON");
@@ -81,6 +98,18 @@ Database::Statement& Database::Statement::bind(int index, std::string_view text)
     database_.fail("bind");
   return *this;
 }
+Database::Statement& Database::Statement::bind_blob(int index, std::string_view bytes) {
+  if (sqlite3_bind_blob64(statement_, index, bytes.data(), bytes.size(), SQLITE_TRANSIENT) !=
+      SQLITE_OK)
+    database_.fail("bind");
+  return *this;
+}
+std::string Database::Statement::blob(int column) const {
+  const auto* data = static_cast<const char*>(sqlite3_column_blob(statement_, column));
+  return data
+             ? std::string(data, static_cast<std::size_t>(sqlite3_column_bytes(statement_, column)))
+             : std::string{};
+}
 bool Database::Statement::step() {
   const auto status = sqlite3_step(statement_);
   if (status == SQLITE_ROW)
@@ -106,6 +135,11 @@ Database::Transaction::~Transaction() {
     sqlite3_exec(database_.handle_, "ROLLBACK", nullptr, nullptr, nullptr);
 }
 void Database::Transaction::commit() {
+  if (held_commits.load()) {
+    commit_waiting = true;
+    held_commits.wait(true);
+    commit_waiting = false;
+  }
   if (injected_failures.load() > 0 && injected_failures.fetch_sub(1) > 0)
     throw std::runtime_error("database commit failed");
   database_.execute("COMMIT");

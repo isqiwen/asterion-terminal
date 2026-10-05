@@ -103,3 +103,112 @@ test("a service that has just started reads as starting, not as a fault", async 
   await expect(service).toHaveText("● 服务");
   await expect(service).toHaveClass(/good/);
 });
+
+test("log loss stays visible while a failed background refresh can recover", async ({ page }) => {
+  let refreshFailed = false;
+  let logFailures = 0;
+  await page.route("**/__asterion/api", async route => {
+    const request = route.request().postDataJSON();
+    if (request.method !== "runtime.snapshot") return route.continue();
+    const response = await route.fetch({ postData: JSON.stringify({ ...request, params: {} }) });
+    const body = await response.json();
+    if (body.result?.diagnostics) {
+      body.result.diagnostics.log_failures = logFailures;
+      body.result.diagnostics.refresh_failed = refreshFailed;
+      body.result.diagnostics.refresh_failures = refreshFailed ? 1 : 0;
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto("/");
+  const service = page.getByRole("button", { name: "查看服务连接", exact: true });
+  await expect(service).toHaveClass(/good/);
+  refreshFailed = true;
+  logFailures = 3;
+  await expect(service).toHaveText("● 服务待确认");
+  await service.click();
+  const panel = page.getByRole("region", { name: "服务连接详情" });
+  await expect(panel).toContainText("后台状态刷新失败");
+  await expect(panel).toContainText("本次运行有日志写入失败");
+  refreshFailed = false;
+  await expect(panel).not.toContainText("后台状态刷新失败");
+  await expect(panel).toContainText("本次运行有日志写入失败");
+  await expect(service).toHaveText("● 诊断不完整");
+  await expect(service).toHaveClass(/bad/);
+});
+
+test("old account progress stays uncertain even while transport responds", async ({ page }) => {
+  let stale = false;
+  let serviceId = "";
+  await page.route("**/__asterion/api", async route => {
+    const request = route.request().postDataJSON();
+    if (request.method !== "runtime.snapshot") return route.continue();
+    const response = await route.fetch({ postData: JSON.stringify({ ...request, params: {} }) });
+    const body = await response.json();
+    const service = body.result?.nodes[0]?.health?.services[0];
+    if (service) {
+      serviceId = service.id;
+      service.kind = "live";
+      service.health = stale ? "degraded" : "ready";
+      const idle = { observed: true, pending: false, age_ms: 0 };
+      service.execution = {
+        io: idle,
+        state: { ...idle, pending: stale, age_ms: stale ? 60000 : 0 },
+        persistence: { ...idle, age_ms: 60000 },
+        initialization: idle,
+        command: idle,
+        business_ready: true,
+      };
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "查看服务连接", exact: true }).click();
+  const panel = page.getByRole("region", { name: "服务连接详情" });
+  await panel.getByText("连接详情", { exact: true }).click();
+  const details = panel.locator(".service-connection-details > div").filter({
+    has: page.getByText(serviceId, { exact: true }),
+  });
+  const readiness = details.getByText("业务就绪", { exact: true }).locator("..");
+  const state = details.getByText("状态推进", { exact: true }).locator("..");
+  await expect(readiness).toContainText("已就绪");
+  await expect(details.getByText("持久化与准备", { exact: true }).locator("..")).toContainText(
+    "空闲",
+  );
+  stale = true;
+  await expect(state).toContainText("进展超时");
+  await expect(readiness).toContainText("待确认");
+  await expect(details.getByText("请求处理", { exact: true }).locator("..")).toContainText("正常");
+});
+
+test("a slow status read does not accumulate overlapping polls", async ({ page }) => {
+  let enabled = false,
+    polls = 0;
+  let release!: () => void;
+  const held = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  await page.route("**/__asterion/api", async route => {
+    const request = route.request().postDataJSON();
+    if (!enabled || request.method !== "runtime.snapshot" || !("since" in request.params))
+      return route.continue();
+    const index = polls++;
+    const response = await route.fetch();
+    if (index === 0) await held;
+    await route.fulfill({ response });
+  });
+  try {
+    await page.goto("/");
+    const service = page.getByRole("button", { name: "查看服务连接", exact: true });
+    await expect(service).toHaveText("● 服务", { timeout: 60000 });
+    enabled = true;
+    await expect.poll(() => polls).toBe(1);
+    // Hold a read across several live-state polling intervals.
+    await page.waitForTimeout(1600);
+    expect(polls).toBe(1);
+    release();
+    await expect.poll(() => polls).toBeGreaterThan(1);
+    await expect(service).toHaveText("● 服务");
+  } finally {
+    release();
+  }
+});

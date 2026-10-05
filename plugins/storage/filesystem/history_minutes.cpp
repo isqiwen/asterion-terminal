@@ -7,16 +7,60 @@
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
 #include <chrono>
-#include <condition_variable>
 #include <fstream>
 #include <mutex>
 #include <map>
 #include <optional>
+#include <list>
+#include <algorithm>
 namespace asterion::history_files {
 namespace {
 constexpr std::int64_t second = 1000000000;
 constexpr std::int64_t day = 86400 * second;
 constexpr std::size_t limit = 8 * 1024 * 1024;
+// Display-only state, bounded to sixteen immutable dataset revisions and one
+// checkpoint per source day (at most 7321 days each). Never persisted into user
+// data. A hit still verifies all source segment digests that built its prefix;
+// it saves Parquet decoding and EMA work without trusting file timestamps.
+class MinuteIndicatorCache {
+  using Key = std::pair<std::filesystem::path, std::string>;
+  struct Entry {
+    Key key;
+    std::map<unsigned, chart_indicators::Macd> checkpoints;
+  };
+  std::mutex mutex_;
+  std::list<Entry> entries_;
+
+public:
+  std::pair<unsigned, chart_indicators::Macd> find(const Key& key, unsigned page) {
+    std::lock_guard lock(mutex_);
+    for (auto it = entries_.begin(); it != entries_.end(); ++it) {
+      if (it->key != key)
+        continue;
+      const auto next = it->checkpoints.upper_bound(page);
+      if (next == it->checkpoints.begin())
+        return {};
+      const auto checkpoint = *std::prev(next);
+      entries_.splice(entries_.end(), entries_, it);
+      return checkpoint;
+    }
+    return {};
+  }
+  void remember(const Key& key, const std::map<unsigned, chart_indicators::Macd>& checkpoints) {
+    std::lock_guard lock(mutex_);
+    auto entry = std::find_if(entries_.begin(), entries_.end(),
+                              [&](const auto& value) { return value.key == key; });
+    if (entry == entries_.end()) {
+      if (entries_.size() == 16)
+        entries_.pop_front();
+      entries_.push_back({key, {}});
+      entry = std::prev(entries_.end());
+    }
+    entry->checkpoints.insert(checkpoints.begin(), checkpoints.end());
+    entries_.splice(entries_.end(), entries_, entry);
+  }
+};
+MinuteIndicatorCache indicator_cache;
 void validate_range(const HistoricalBarRange& range) {
   range.instrument.validate();
   validate_history_source(range.source);
@@ -109,6 +153,17 @@ std::uint64_t page_rows(const Json& manifest, unsigned page) {
     throw std::invalid_argument("minute dataset row count mismatch");
   return rows.get<std::uint64_t>();
 }
+std::filesystem::path verified_segment(const std::filesystem::path& dir, const Json& manifest,
+                                       unsigned index) {
+  const auto& segment = manifest.at("segments").at(index);
+  const auto first = segment.at("first_page").get<unsigned>();
+  const auto path = dir / segment_name(first);
+  if (segment.at("file") != segment_name(first) || std::filesystem::is_symlink(path) ||
+      !std::filesystem::is_regular_file(path) ||
+      sha256_file(path) != segment.at("sha256").get<std::string>())
+    throw std::invalid_argument("minute dataset digest mismatch");
+  return path;
+}
 // Verifies one segment's digest and splits its bars back into day pages.
 std::vector<std::vector<HistoricalBar>> load_segment(const std::filesystem::path& dir,
                                                      const Json& manifest, unsigned index,
@@ -116,11 +171,7 @@ std::vector<std::vector<HistoricalBar>> load_segment(const std::filesystem::path
   const auto& segment = manifest.at("segments").at(index);
   const auto first = segment.at("first_page").get<unsigned>();
   const auto count = segment.at("pages").get<unsigned>();
-  const auto path = dir / segment_name(first);
-  if (segment.at("file") != segment_name(first) || std::filesystem::is_symlink(path) ||
-      !std::filesystem::is_regular_file(path) ||
-      sha256_file(path) != segment.at("sha256").get<std::string>())
-    throw std::invalid_argument("minute dataset digest mismatch");
+  const auto path = verified_segment(dir, manifest, index);
   const auto bars = parquet::read_minute_bars(path);
   if (bars.size() != segment.at("rows").get<std::uint64_t>())
     throw std::invalid_argument("minute dataset row count mismatch");
@@ -128,22 +179,27 @@ std::vector<std::vector<HistoricalBar>> load_segment(const std::filesystem::path
   std::size_t offset = 0;
   for (unsigned page = first; page < first + count; ++page) {
     const auto rows = page_rows(manifest, page);
+    if (rows > bars.size() - offset)
+      throw std::invalid_argument("minute dataset row count mismatch");
     std::vector<HistoricalBar> part(bars.begin() + static_cast<std::ptrdiff_t>(offset),
                                     bars.begin() + static_cast<std::ptrdiff_t>(offset + rows));
     validate_page(part, page_range(range, page));
     offset += rows;
     pages.push_back(std::move(part));
   }
+  if (offset != bars.size())
+    throw std::invalid_argument("minute dataset row count mismatch");
   return pages;
 }
 Json verify(const std::filesystem::path& dir,
             const std::function<void(const HistoricalBar&)>& consume = {}) {
   const auto manifest = read_json(dir / manifest_name);
-  if (manifest.at("version") != 3 || manifest.at("source") != manifest.at("request").at("source") ||
+  if (manifest.at("version") != 4 || manifest.at("source") != manifest.at("request").at("source") ||
       manifest.at("timezone") != "Asia/Shanghai" || !valid_semantics(manifest.at("semantics")) ||
       manifest.at("semantics").at("source") != manifest.at("source") ||
       !manifest.at("pages").is_array() || !manifest.at("segments").is_array())
     throw std::invalid_argument("unsupported minute dataset format");
+  (void)acquired_at(manifest);
   const auto range = range_of(manifest.at("request"));
   const auto total = total_pages(range);
   if (manifest.at("pages").size() > total ||
@@ -237,15 +293,13 @@ void verify_minute_result(const data::v1::MinuteDownload& input,
     throw std::invalid_argument("minute dataset result does not match request");
 }
 Json download_minutes(HistoricalBarPort& provider, const HistoricalBarRange& range,
-                      const std::filesystem::path& directory, unsigned rpm, std::stop_token stop,
+                      const std::filesystem::path& directory, std::stop_token stop,
                       DownloadProgress progress) {
   const auto semantics = encode_semantics(provider.semantics());
   if (provider.semantics().source != range.source)
     throw std::invalid_argument("historical source mismatch");
   validate_range(range);
   const auto total = total_pages(range);
-  if (rpm == 0 || rpm > 500)
-    throw std::invalid_argument("Historical request rate must be 1..500 per minute");
   directory_check(directory);
   FileLock lock(directory, "minutes.lock");
   Json manifest;
@@ -257,7 +311,7 @@ Json download_minutes(HistoricalBarPort& provider, const HistoricalBarRange& ran
     for (const auto& file : std::filesystem::directory_iterator(directory))
       if (file.path().filename() != "minutes.lock")
         throw std::invalid_argument("minute dataset directory is not empty");
-    manifest = {{"version", 3},
+    manifest = {{"version", 4},
                 {"source", range.source},
                 {"timezone", "Asia/Shanghai"},
                 {"semantics", semantics},
@@ -265,11 +319,12 @@ Json download_minutes(HistoricalBarPort& provider, const HistoricalBarRange& ran
                 {"pages", Json::array()},
                 {"segments", Json::array()},
                 {"rows", 0},
-                {"complete", false}};
+                {"complete", false},
+                {"acquired_at_ns", "0"},
+                {"source_availability", "unknown"}};
     replace_file_durably(directory / manifest_name, manifest.dump());
   }
   std::uint64_t rows = manifest.at("rows").get<std::uint64_t>();
-  auto next_request = std::chrono::steady_clock::now();
   const auto committed = static_cast<unsigned>(manifest.at("pages").size());
   if (progress)
     progress(committed, total, rows);
@@ -294,7 +349,7 @@ Json download_minutes(HistoricalBarPort& provider, const HistoricalBarRange& ran
                                     {"rows", bars.size()},
                                     {"sha256", sha256_file(path)}});
     manifest["rows"] = rows;
-    manifest["complete"] = manifest.at("pages").size() == total;
+    complete_version(manifest, manifest.at("pages").size() == total);
     replace_file_durably(directory / manifest_name, manifest.dump());
     pending.clear();
   };
@@ -303,14 +358,6 @@ Json download_minutes(HistoricalBarPort& provider, const HistoricalBarRange& ran
       if (stop.stop_requested())
         throw std::runtime_error("Historical download cancelled");
       const auto request = page_range(range, i);
-      std::mutex mutex;
-      std::condition_variable_any changed;
-      std::unique_lock guard(mutex);
-      changed.wait_until(guard, stop, next_request, [] { return false; });
-      if (stop.stop_requested())
-        throw std::runtime_error("Historical download cancelled");
-      next_request =
-          std::chrono::steady_clock::now() + std::chrono::milliseconds((60000 + rpm - 1) / rpm);
       auto bars = provider.read(request, stop);
       // A page read while cancellation arrived is discarded, not published.
       if (stop.stop_requested())
@@ -341,7 +388,7 @@ std::vector<std::string> minute_trading_days(const std::filesystem::path& dir,
   if (sha256_file(dir / manifest_name) != expected_revision)
     throw std::invalid_argument("historical archive revision mismatch");
   const auto manifest = read_json(dir / manifest_name);
-  if (manifest.at("version") != 3 || !manifest.at("complete").get<bool>())
+  if (manifest.at("version") != 4 || !manifest.at("complete").get<bool>())
     throw std::invalid_argument("minute dataset is incomplete");
   std::vector<std::filesystem::path> files;
   for (const auto& segment : manifest.at("segments")) {
@@ -353,9 +400,6 @@ std::vector<std::string> minute_trading_days(const std::filesystem::path& dir,
     files.push_back(path);
   }
   return parquet::trading_days(files, true);
-}
-HistorySemantics minute_semantics(const std::filesystem::path& dir) {
-  return decode_semantics(inspect_minutes(dir).at("semantics"));
 }
 Json inspect_minutes(const std::filesystem::path& dir) {
   directory_check(dir);
@@ -375,7 +419,10 @@ void read_minutes(const std::filesystem::path& dir,
 
 data::v1::MinutePage read_minute_page(const data::v1::MinuteDownload& input,
                                       const data::v1::MinuteDownloadResult& result,
-                                      const data::v1::MinutePageQuery& query) {
+                                      const data::v1::MinutePageQuery& query,
+                                      MinutePageWork* work) {
+  if (work)
+    *work = {};
   if ((query.task_id().empty() && query.dataset_id().empty()) || query.limit() < 1 ||
       query.limit() > 200 || query.begin_ns() < 0 || query.end_ns() < 0)
     throw std::invalid_argument("invalid minute dataset page query");
@@ -390,7 +437,7 @@ data::v1::MinutePage read_minute_page(const data::v1::MinuteDownload& input,
   FileLock lock(dir, "minutes.lock", FileLock::Access::shared);
   const auto manifest = read_json(dir / manifest_name);
   if (result.version() != 2 || sha256_bytes(manifest.dump()) != result.manifest_sha256() ||
-      manifest.at("version") != 3 || manifest.at("request") != specification(range) ||
+      manifest.at("version") != 4 || manifest.at("request") != specification(range) ||
       !manifest.at("complete").get<bool>() || manifest.at("pages").size() != total_pages(range) ||
       manifest.at("rows") != result.rows())
     throw std::invalid_argument("minute dataset result does not match request");
@@ -465,27 +512,50 @@ data::v1::MinutePage read_minute_page(const data::v1::MinuteDownload& input,
   if (!matched)
     return output;
   chart_indicators::Macd macd;
+  const auto cache_key = std::pair{std::filesystem::canonical(dir), result.manifest_sha256()};
+  std::map<unsigned, chart_indicators::Macd> checkpoints;
   std::uint64_t skip = query.offset();
-  for (unsigned i = 0; i < counts.size() && output.bars_size() < static_cast<int>(query.limit());
-       ++i) {
+  unsigned start = 0;
+  if (query.include_macd()) {
+    auto remaining = skip;
+    unsigned target = 0;
+    while (target < counts.size() && remaining >= counts[target])
+      remaining -= counts[target++];
+    const auto cached = indicator_cache.find(cache_key, target);
+    start = cached.first;
+    macd = cached.second;
+    // A changed or missing prefix invalidates the response even on a cache hit.
+    if (start)
+      for (unsigned segment = 0; segment <= owner.at(start - 1); ++segment)
+        if (!loaded.contains(segment))
+          static_cast<void>(verified_segment(dir, manifest, segment));
+    for (unsigned i = 0; i < start; ++i)
+      skip -= counts[i];
+    if (work)
+      work->checkpoint_page = start;
+  }
+  for (unsigned i = start;
+       i < counts.size() && output.bars_size() < static_cast<int>(query.limit()); ++i) {
     if (page_range(range, i).begin_ns > end)
       break;
     if (!query.include_macd() && skip >= counts[i]) {
       skip -= counts[i];
       continue;
     }
+    if (query.include_macd())
+      checkpoints.emplace(i, macd);
     for (const auto& bar : load(i)) {
-      if (bar.timestamp_ns > end)
+      if (bar.timestamp_ns > end || output.bars_size() == static_cast<int>(query.limit()))
         break;
       const auto indicator = query.include_macd() ? macd.push(bar.close) : std::nullopt;
+      if (work && query.include_macd())
+        ++work->macd_rows;
       if (bar.timestamp_ns < begin || bar.timestamp_ns > end)
         continue;
       if (skip) {
         --skip;
         continue;
       }
-      if (output.bars_size() == static_cast<int>(query.limit()))
-        break;
       auto* row = output.add_bars();
       row->set_timestamp_ns(bar.timestamp_ns);
       row->mutable_open()->set_units(bar.open.raw());
@@ -505,6 +575,8 @@ data::v1::MinutePage read_minute_page(const data::v1::MinuteDownload& input,
     if (i + 1 < owner.size() && owner[i + 1] != owner[i])
       loaded.erase(owner[i]);
   }
+  if (query.include_macd())
+    indicator_cache.remember(cache_key, checkpoints);
   return output;
 }
 } // namespace asterion::history_files

@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import type { NativePluginInfo, Snapshot, TerminalCommand } from "../bridge/client";
 import { translate } from "../i18n";
 import {
-  availableResearchPlugins,
-  defaultResearchPlugins,
+  availableDataTaskPlugins,
+  defaultDataTaskPlugins,
   requiredPluginIds,
   selectPlugin,
 } from "../host/native-plugins";
@@ -67,7 +67,7 @@ function ServicePlugins({
   const stopped =
     service.state === "stopped" && !service.desired_running && service.active_workers === 0;
   const editable = stopped && online && !maintenance && !busy && !stale;
-  const options = availableResearchPlugins(items);
+  const options = availableDataTaskPlugins(items);
   const required = requiredPluginIds(items);
   const pinned = service.plugin_artifacts.filter(
     hash => !options.some(item => item.sha256 === hash),
@@ -115,7 +115,7 @@ function ServicePlugins({
       </button>
       {stale && <p role="alert">{t("服务配置已变化，请重新载入后选择插件。")}</p>}
       <fieldset disabled={!editable}>
-        <legend>{t("启用的研究插件")}</legend>
+        <legend>{t("启用的数据与任务插件")}</legend>
         {options.map(item => (
           <PluginChoice
             key={item.sha256}
@@ -198,9 +198,11 @@ export function NativePlugins({ snapshot, busy, trade }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const inventory = snapshot?.native_plugins;
-  const initialPlugins = chosenPlugins ?? defaultResearchPlugins(inventory?.items ?? []);
+  const initialPlugins = chosenPlugins ?? defaultDataTaskPlugins(inventory?.items ?? []);
   const node = snapshot?.nodes.find(item => item.id === "local");
-  const services = node?.health?.services.filter(service => service.kind === "research") ?? [];
+  const services =
+    node?.health?.services.filter(service => service.kind === "task" || service.kind === "data") ??
+    [];
   return (
     <section className="native-plugin-manager" aria-label={t("原生插件管理")}>
       <h2>{t("原生插件管理")}</h2>
@@ -382,9 +384,9 @@ export function NativePlugins({ snapshot, busy, trade }: Props) {
           ))}
           {services.length === 0 && (
             <fieldset disabled={busy || node?.state !== "online" || node?.health?.maintenance}>
-              <legend>{t("创建本机数据服务")}</legend>
+              <legend>{t("创建本机数据与任务服务")}</legend>
               <p>{t("应用自带的插件始终启用；自行安装的插件可以选择是否启用。")}</p>
-              {availableResearchPlugins(inventory.items).map(item => (
+              {availableDataTaskPlugins(inventory.items).map(item => (
                 <PluginChoice
                   key={item.sha256}
                   item={item}
@@ -406,20 +408,20 @@ export function NativePlugins({ snapshot, busy, trade }: Props) {
                 onClick={async () => {
                   setError("");
                   try {
-                    await trade("research.local.create", { plugins: initialPlugins });
+                    await trade("node.data_tasks.local.create", { plugins: initialPlugins });
                     setInitialPlugins([]);
                   } catch (reason) {
                     setError(asDisplayError(reason));
                   }
                 }}
               >
-                {t("创建数据服务")}
+                {t("创建数据与任务服务")}
               </button>
             </fieldset>
           )}
         </>
       )}
-      <p>{t("当前管理本机数据服务的原生插件；可复用凭据在连接页面配置。")}</p>
+      <p>{t("分别管理本机数据服务和任务服务的原生插件；可复用凭据在连接页面配置。")}</p>
     </section>
   );
 }

@@ -8,11 +8,13 @@ import tempfile
 import signal
 import time
 from bundle_fixture import make_bundle
+from keychain_fixture import install as install_keychain
 BUILD = Path(os.environ.get("ASTERION_CPP_BUILD", str(Path(__file__).resolve().parents[1] / "build/Debug")))
 with tempfile.TemporaryDirectory(prefix="asterion-ssh-ui-", ignore_cleanup_errors=True) as folder:
     root = Path(folder); tools = root / "tools"; tools.mkdir(); remote = root / "remote"; remote.mkdir()
     resources=make_bundle(root / "resources", BUILD)
-    env = dict(os.environ, ASTERION_REMOTE_RESOURCES=str(resources))
+    env = dict(os.environ, ASTERION_REMOTE_RESOURCES=str(resources),
+               ASTERION_KEYCHAIN_EXECUTABLE=install_keychain(root / "keychain"))
     # Editors such as VS Code export this; Electron would then start as plain Node.
     env.pop("ELECTRON_RUN_AS_NODE", None)
     sdk = "asterion_test_ctp.dll" if sys.platform == "win32" else "libasterion_test_ctp.dylib" if sys.platform == "darwin" else "libasterion_test_ctp.so"

@@ -26,23 +26,27 @@ static AstStatus catalog(void* self,const char* venue,const char* product,AstCan
   const AstListing row={{"SHFE","cu","2024-03"},"Fixture","2024-03-01","2024-03-02","vendor/cu2403",1,0,500000000,0,"tonnes",NULL};
   return emit(ctx,&row);
 }
-static AstStatus minutes(void* self,const AstHistoryQuery* q,AstCancellation cancel,void* ctx,AstStatus(*emit)(void*,const AstMinute*)) {
+static AstStatus minutes(void* self,const AstHistoryQuery* q,AstCancellation cancel,AstRequestBudget budget,void* ctx,AstStatus(*emit)(void*,const AstMinute*)) {
   if(!self || !q || !emit) return AST_INVALID;
   if(!((Instance*)self)->running) return AST_UNAVAILABLE;
   if(((Instance*)self)->daily) return AST_UNSUPPORTED;
   if(cancel.requested && cancel.requested(cancel.context)) return AST_CANCELLED;
+  if(!budget.acquire) return AST_INVALID;
+  AstStatus permit=budget.acquire(budget.context); if(permit!=AST_OK) return permit;
   const AstMinute row={q->begin_ns,100000000,200000000,100000000,200000000,300000000,400000000,500000000,NULL};
   return emit(ctx,&row);
 }
-static AstStatus daily(void* self,const AstHistoryQuery* q,AstCancellation cancel,void* ctx,AstStatus(*emit)(void*,const AstDaily*)) {
+static AstStatus daily(void* self,const AstHistoryQuery* q,AstCancellation cancel,AstRequestBudget budget,void* ctx,AstStatus(*emit)(void*,const AstDaily*)) {
   if(!self || !q || !q->begin_day || !emit) return AST_INVALID;
   if(!((Instance*)self)->running) return AST_UNAVAILABLE;
   if(!((Instance*)self)->daily) return AST_UNSUPPORTED;
   if(cancel.requested && cancel.requested(cancel.context)) return AST_CANCELLED;
+  if(!budget.acquire) return AST_INVALID;
+  AstStatus permit=budget.acquire(budget.context); if(permit!=AST_OK) return permit;
   const AstDaily row={q->begin_day,100000000,200000000,100000000,200000000,300000000,400000000,500000000,0,0,1,0,0,200000000};
   return emit(ctx,&row);
 }
-static const AstHistoryV1 history={sizeof(AstHistoryV1),1,sources,catalog,minutes,daily};
+static const AstHistoryV2 history={sizeof(AstHistoryV2),2,sources,catalog,minutes,daily};
 static AstStatus describe_connection(void* self,const char* source,void* ctx,AstStatus(*emit)(void*,const AstHistoryConnectionSchema*)) {
   (void)self; if(!source || !emit) return AST_INVALID;
   const AstHistoryConnectionSchema schema={"Test credential","测试凭据",0,256,1,30,60}; return emit(ctx,&schema);
@@ -57,7 +61,7 @@ static AstStatus verify_connection(void* self,const char* source,const char* cre
 static const AstHistoryConnectionV1 connection={sizeof(AstHistoryConnectionV1),1,describe_connection,verify_connection};
 static AstStatus create(const char* capability,const AstSetting* settings,uint32_t count,void** out) {
   if(!out) return AST_INVALID; *out=NULL;
-  if(!capability || (strcmp(capability,AST_TEST_LIFETIME) && strcmp(capability,AST_HISTORY_V1) && strcmp(capability,AST_HISTORY_CONNECTION_V1))) return AST_UNSUPPORTED;
+  if(!capability || (strcmp(capability,AST_TEST_LIFETIME) && strcmp(capability,AST_HISTORY_V2) && strcmp(capability,AST_HISTORY_CONNECTION_V1))) return AST_UNSUPPORTED;
   if(count>64 || (count && !settings)) return AST_INVALID;
   Instance* p=calloc(1,sizeof(Instance)); if(!p) return AST_LIMIT;
   for(uint32_t i=0;i<count;++i) {
@@ -76,16 +80,16 @@ static void stop(void* object) { if(object) { ((Instance*)object)->running=0;++s
 static void destroy(void* object) { if(object) {free(object);++destroyed_count;} }
 static AstStatus query(void* self,const char* id,uint32_t version,uint32_t size,const void** out) {
   if(!out) return AST_INVALID;*out=NULL;
-  if(!self || !id || version!=1) return AST_UNSUPPORTED;
+  if(!self || !id) return AST_UNSUPPORTED;
 #ifdef EMPTY_TABLE
   return AST_OK;
 #endif
-  if(!strcmp(id,AST_TEST_LIFETIME) && size==sizeof(TestLifetime)) {*out=&lifetime;return AST_OK;}
-  if(!strcmp(id,AST_HISTORY_V1) && size==sizeof(AstHistoryV1)) {*out=&history;return AST_OK;}
-  if(!strcmp(id,AST_HISTORY_CONNECTION_V1) && size==sizeof(AstHistoryConnectionV1)) {*out=&connection;return AST_OK;}
+  if(!strcmp(id,AST_TEST_LIFETIME) && version==1 && size==sizeof(TestLifetime)) {*out=&lifetime;return AST_OK;}
+  if(!strcmp(id,AST_HISTORY_V2) && version==2 && size==sizeof(AstHistoryV2)) {*out=&history;return AST_OK;}
+  if(!strcmp(id,AST_HISTORY_CONNECTION_V1) && version==1 && size==sizeof(AstHistoryConnectionV1)) {*out=&connection;return AST_OK;}
   return AST_UNSUPPORTED;
 }
-static const AstCapability capabilities[]={{AST_TEST_LIFETIME,1,"tool"},{AST_HISTORY_V1,1,"data"},{AST_HISTORY_CONNECTION_V1,1,"data"}};
+static const AstCapability capabilities[]={{AST_TEST_LIFETIME,1,"tool"},{AST_HISTORY_V2,2,"data"},{AST_HISTORY_CONNECTION_V1,1,"data"}};
 #ifndef BAD_ABI
 #define BAD_ABI ASTERION_PLUGIN_ABI_VERSION
 #endif

@@ -17,7 +17,9 @@ target_compile_definitions(plugin_fixture_empty_table PRIVATE EMPTY_TABLE=1)
 
 target_compile_definitions(plugin_fixture_newer PRIVATE FIXTURE_VERSION="2.0.0")
 
+find_package(Threads REQUIRED)
 add_library(plugin_fixture_risk MODULE risk_fixture.c)
+target_link_libraries(plugin_fixture_risk PRIVATE Threads::Threads)
 target_include_directories(plugin_fixture_risk PRIVATE "${ASTERION_PLUGIN_SDK}")
 set_target_properties(plugin_fixture_risk PROPERTIES PREFIX "" C_VISIBILITY_PRESET hidden
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/risk")

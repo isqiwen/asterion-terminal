@@ -1,0 +1,223 @@
+.backtest-factor-workspace {
+  height: 100%;
+  overflow: auto;
+}
+.backtest-factor-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 24px;
+  padding: 24px;
+}
+.backtest-factor-config {
+  background: var(--panel);
+  border: 1px solid var(--grid);
+  border-radius: var(--panel-radius);
+  padding: 20px;
+}
+.backtest-factor-config h3,
+.backtest-factor-main h3 {
+  margin: 0 0 16px;
+  font-size: 14px;
+}
+.backtest-factor-config form {
+  margin: 18px 0;
+}
+.backtest-factor-config fieldset {
+  display: grid;
+  gap: 14px;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.backtest-factor-config label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 0;
+}
+.backtest-factor-config input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.backtest-factor-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.backtest-factor-workspace details {
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.backtest-factor-workspace summary {
+  cursor: pointer;
+  margin-top: 8px;
+}
+.backtest-factor-main {
+  min-width: 0;
+}
+.backtest-factor-table {
+  overflow: auto;
+}
+.backtest-factor-table table {
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.backtest-factor-table th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 12px;
+}
+.backtest-factor-table th,
+.backtest-factor-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.backtest-factor-table td {
+  font-size: 12px;
+  vertical-align: top;
+}
+.backtest-factor-table td > .subtle {
+  display: block;
+  margin-top: 5px;
+}
+.backtest-factor-empty {
+  padding: 32px 0;
+  color: var(--muted);
+}
+.backtest-factor-result {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.backtest-factor-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.backtest-factor-metrics span,
+.backtest-factor-metrics strong {
+  display: block;
+}
+.backtest-factor-metrics span {
+  font-size: 11px;
+}
+.backtest-factor-metrics strong {
+  margin-top: 7px;
+  font-size: 24px;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+.backtest-factor-equity {
+  width: 100%;
+  max-height: 240px;
+  margin-top: 20px;
+  background: var(--panel);
+}
+.backtest-factor-range {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+@media (max-width: 1000px) {
+  .backtest-factor-layout {
+    grid-template-columns: 1fr;
+  }
+  .backtest-factor-config {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 0 0 20px;
+  }
+  .backtest-factor-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.backtest-factor-modes {
+  display: flex;
+  gap: 8px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.backtest-factor-modes button[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: transparent;
+  background: var(--accent-surface);
+}
+.backtest-factor-result > .backtest-factor-range {
+  margin: 18px 0;
+}
+
+.backtest-factor-experiment {
+  margin: 12px 0;
+}
+.experiment-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 12px;
+}
+.experiment-fields dt {
+  color: var(--muted);
+}
+.experiment-fields dd {
+  margin: 5px 0 0;
+  color: var(--text);
+}
+/* Full datetime values must remain readable in the narrow configuration rail. */
+.backtest-factor-sessions .backtest-factor-fields {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.backtest-factor-config .backtest-factor-day {
+  border: 1px solid var(--line);
+  padding: 10px;
+  margin: 12px 0;
+  min-width: 0;
+}
+.experiment-day {
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+}
+
+.backtest-factor-modes button {
+  border-color: transparent;
+  background: transparent;
+}
+.backtest-factor-main {
+  padding: 4px 0;
+}
+.backtest-factor-metrics {
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 20px;
+}
+.backtest-factor-empty {
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+}
+.backtest-factor-config .backtest-factor-day {
+  border-radius: 6px;
+}
+.backtest-factor-table {
+  border-radius: 8px;
+}
+.backtest-factor-modes button[aria-pressed="true"] {
+  background: var(--accent-surface);
+}
+@media (max-width: 1000px) {
+  .backtest-factor-config {
+    padding: 20px;
+  }
+  .backtest-factor-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

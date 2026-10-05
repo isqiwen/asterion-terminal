@@ -14,6 +14,8 @@
 #include <cstring>
 #include <deque>
 #include <functional>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <mutex>
 #include <string>
@@ -26,7 +28,15 @@
 #endif
 namespace {
 std::atomic<int> quote_rejection_code{0}, quote_rejection_count{0};
+std::atomic<int> quote_mode{0}, cancel_return_code{0};
 std::atomic<int> catalog_side_effects = 0, stale_batches = 0;
+std::atomic<bool> hold_positions = false, hold_trades = false;
+std::atomic<int> pending_positions = 0;
+std::atomic<bool> hold_release = false, hold_insert_return = false, hold_cancel_return = false;
+std::atomic<bool> hold_quote_return = false, quote_return_waiting = false;
+std::atomic<int> insert_return_code{0};
+std::atomic<bool> hold_insert_errors{false};
+std::atomic<int> sdk_creations{0}, sdk_releases{0}, sdk_thread_mismatches{0};
 template <std::size_t N> void put(char (&dest)[N], const std::string& value) {
   std::memset(dest, 0, N);
   std::memcpy(dest, value.data(), std::min(value.size(), N - 1));
@@ -51,11 +61,19 @@ class Fake;
 std::mutex live_mutex;
 std::vector<Fake*> live;
 class Fake final : public CThostFtdcTraderApi {
+  const std::thread::id sdk_thread = std::this_thread::get_id();
+  void check_sdk_thread() const {
+    if (std::this_thread::get_id() != sdk_thread)
+      ++sdk_thread_mismatches;
+  }
+  const std::filesystem::path flow;
   std::string catalog_mode;
   CThostFtdcTraderSpi* spi = nullptr;
   std::mutex mutex;
   std::condition_variable wake;
   std::deque<std::function<void(CThostFtdcTraderSpi*)>> events;
+  std::deque<std::function<void(CThostFtdcTraderSpi*)>> deferred_positions, deferred_trades;
+  std::deque<std::function<void(CThostFtdcTraderSpi*)>> deferred_insert_errors;
   std::jthread worker;
   int front = 1, session = 0;
   std::atomic<int> first_funds_request{0};
@@ -63,6 +81,18 @@ class Fake final : public CThostFtdcTraderApi {
     {
       std::lock_guard lock(mutex);
       events.push_back(std::move(event));
+    }
+    wake.notify_all();
+  }
+  void defer_or_emit(std::function<void(CThostFtdcTraderSpi*)> event, bool position) {
+    {
+      std::lock_guard lock(mutex);
+      if (position ? hold_positions.load() : hold_trades.load()) {
+        (position ? deferred_positions : deferred_trades).push_back(std::move(event));
+        if (position)
+          ++pending_positions;
+      } else
+        events.push_back(std::move(event));
     }
     wake.notify_all();
   }
@@ -119,18 +149,66 @@ class Fake final : public CThostFtdcTraderApi {
       position.today -= volume;
     auto copy = t;
     auto state = order;
-    emit([copy, state](CThostFtdcTraderSpi* s) mutable {
-      s->OnRtnOrder(&state);
-      s->OnRtnTrade(&copy);
-    });
+    emit([state](CThostFtdcTraderSpi* s) mutable { s->OnRtnOrder(&state); });
+    defer_or_emit([copy](CThostFtdcTraderSpi* s) mutable { s->OnRtnTrade(&copy); }, false);
   }
 
 public:
-  Fake() {
+  void release_deferred(bool position) {
+    {
+      std::lock_guard lock(mutex);
+      auto& deferred = position ? deferred_positions : deferred_trades;
+      if (position)
+        pending_positions -= static_cast<int>(deferred.size());
+      while (!deferred.empty()) {
+        events.push_back(std::move(deferred.front()));
+        deferred.pop_front();
+      }
+    }
+    wake.notify_all();
+  }
+  void fill(int index, int volume) {
+    auto& x = exchange();
+    std::lock_guard lock(x.mutex);
+    auto& order = x.orders.at(static_cast<std::size_t>(index));
+    trade(order, std::min(volume, order.VolumeTotal));
+  }
+  void replay_order(int index, int filled) {
+    auto& x = exchange();
+    std::lock_guard lock(x.mutex);
+    auto order = x.orders.at(static_cast<std::size_t>(index));
+    order.VolumeTraded = filled;
+    order.OrderStatus = THOST_FTDC_OST_NoTradeQueueing;
+    emit([order](CThostFtdcTraderSpi* s) mutable { s->OnRtnOrder(&order); });
+  }
+  void release_insert_errors() {
+    {
+      std::lock_guard lock(mutex);
+      while (!deferred_insert_errors.empty()) {
+        events.push_back(std::move(deferred_insert_errors.front()));
+        deferred_insert_errors.pop_front();
+      }
+    }
+    wake.notify_all();
+  }
+  void report_burst(int count) {
+    auto& x = exchange();
+    std::lock_guard lock(x.mutex);
+    auto order = x.orders.front();
+    emit([order, count](CThostFtdcTraderSpi* s) mutable {
+      for (int i = 0; i < count; ++i)
+        s->OnRtnOrder(&order);
+    });
+  }
+  explicit Fake(const char* path) : flow(path) {
+    ++sdk_creations;
     std::lock_guard lock(live_mutex);
     live.push_back(this);
   }
   void Release() override {
+    check_sdk_thread();
+    ++sdk_releases;
+    hold_release.wait(true);
     {
       std::lock_guard lock(live_mutex);
       std::erase(live, this);
@@ -142,6 +220,7 @@ public:
     delete this;
   }
   void Init() override {
+    check_sdk_thread();
     worker = std::jthread([this](std::stop_token stop) {
       while (!stop.stop_requested()) {
         std::function<void(CThostFtdcTraderSpi*)> event;
@@ -190,14 +269,16 @@ public:
     day = x.trading_day;
     return day.c_str();
   }
-  void RegisterFront(char*) override {}
+  void RegisterFront(char*) override { check_sdk_thread(); }
   void RegisterSpi(CThostFtdcTraderSpi* value) override {
+    check_sdk_thread();
     std::lock_guard lock(mutex);
     spi = value;
   }
-  void SubscribePrivateTopic(THOST_TE_RESUME_TYPE) override {}
-  void SubscribePublicTopic(THOST_TE_RESUME_TYPE) override {}
+  void SubscribePrivateTopic(THOST_TE_RESUME_TYPE) override { check_sdk_thread(); }
+  void SubscribePublicTopic(THOST_TE_RESUME_TYPE) override { check_sdk_thread(); }
   int ReqAuthenticate(CThostFtdcReqAuthenticateField* request, int id) override {
+    check_sdk_thread();
     const int code = std::string(request->AuthCode) == "bad-auth" ? 63 : 0;
     emit([code, id](CThostFtdcTraderSpi* s) {
       auto rsp = info(code);
@@ -212,6 +293,7 @@ public:
                    TThostFtdcSystemInfoLenType, TThostFtdcClientSystemInfoType
 #endif
                    ) override {
+    check_sdk_thread();
     catalog_mode = request->UserID;
     const int code = std::string(request->Password) == "bad" ? 3 : 0;
     CThostFtdcRspUserLoginField login{};
@@ -231,6 +313,7 @@ public:
     return 0;
   }
   int ReqSettlementInfoConfirm(CThostFtdcSettlementInfoConfirmField*, int id) override {
+    check_sdk_thread();
     ++catalog_side_effects;
     emit([id](CThostFtdcTraderSpi* s) {
       auto rsp = info(0);
@@ -240,6 +323,7 @@ public:
     return 0;
   }
   int ReqQryOrder(CThostFtdcQryOrderField*, int id) override {
+    check_sdk_thread();
     if (throttled())
       return -3;
     std::vector<CThostFtdcOrderField> rows;
@@ -257,6 +341,7 @@ public:
     return 0;
   }
   int ReqQryTrade(CThostFtdcQryTradeField*, int id) override {
+    check_sdk_thread();
     if (throttled())
       return -3;
     std::vector<CThostFtdcTradeField> rows;
@@ -274,6 +359,7 @@ public:
     return 0;
   }
   int ReqQryInvestorPosition(CThostFtdcQryInvestorPositionField*, int id) override {
+    check_sdk_thread();
     if (throttled())
       return -3;
     std::vector<CThostFtdcInvestorPositionField> rows;
@@ -301,15 +387,18 @@ public:
         }
       }
     }
-    emit([rows, id](CThostFtdcTraderSpi* s) mutable {
-      if (rows.empty())
-        s->OnRspQryInvestorPosition(nullptr, nullptr, id, true);
-      for (std::size_t i = 0; i < rows.size(); ++i)
-        s->OnRspQryInvestorPosition(&rows[i], nullptr, id, i + 1 == rows.size());
-    });
+    defer_or_emit(
+        [rows, id](CThostFtdcTraderSpi* s) mutable {
+          if (rows.empty())
+            s->OnRspQryInvestorPosition(nullptr, nullptr, id, true);
+          for (std::size_t i = 0; i < rows.size(); ++i)
+            s->OnRspQryInvestorPosition(&rows[i], nullptr, id, i + 1 == rows.size());
+        },
+        true);
     return 0;
   }
   int ReqQryTradingAccount(CThostFtdcQryTradingAccountField*, int id) override {
+    check_sdk_thread();
     int empty = 0;
     first_funds_request.compare_exchange_strong(empty, id);
     if (throttled())
@@ -325,7 +414,10 @@ public:
     return 0;
   }
   int ReqOrderInsert(CThostFtdcInputOrderField* input, int id) override {
+    check_sdk_thread();
     ++catalog_side_effects;
+    if (const int code = cancel_return_code.load())
+      return code;
     auto request = *input;
     if (request.LimitPrice <= 0) {
       emit([request, id](CThostFtdcTraderSpi* s) mutable {
@@ -335,6 +427,15 @@ public:
       return 0;
     }
     if (std::string(request.InstrumentID).starts_with("zz")) {
+      if (hold_insert_errors) {
+        std::lock_guard lock(mutex);
+        deferred_insert_errors.push_back([request, id](CThostFtdcTraderSpi* s) mutable {
+          auto rsp = info(16);
+          s->OnRspOrderInsert(nullptr, &rsp, id, true);
+          s->OnErrRtnOrderInsert(&request, &rsp);
+        });
+        return 0;
+      }
       emit([request](CThostFtdcTraderSpi* s) mutable {
         auto rsp = info(16);
         s->OnErrRtnOrderInsert(&request, &rsp);
@@ -353,6 +454,7 @@ public:
     order.CombOffsetFlag[0] = request.CombOffsetFlag[0];
     order.LimitPrice = request.LimitPrice;
     order.VolumeTotalOriginal = order.VolumeTotal = request.VolumeTotalOriginal;
+    put(order.TradingDay, x.trading_day);
     order.FrontID = front;
     order.SessionID = session;
     order.OrderSubmitStatus = THOST_FTDC_OSS_InsertSubmitted;
@@ -371,10 +473,14 @@ public:
     if (order.VolumeTotalOriginal <= 2)
       trade(order, order.VolumeTotalOriginal);
     x.orders.push_back(order);
-    return 0;
+    hold_insert_return.wait(true);
+    return insert_return_code;
   }
   int ReqOrderAction(CThostFtdcInputOrderActionField* input, int id) override {
+    check_sdk_thread();
     ++catalog_side_effects;
+    if (const int code = cancel_return_code.load())
+      return code;
     auto request = *input;
     auto& x = exchange();
     std::lock_guard lock(x.mutex);
@@ -394,6 +500,7 @@ public:
       order.OrderStatus = THOST_FTDC_OST_Canceled;
       auto state = order;
       emit([state](CThostFtdcTraderSpi* s) mutable { s->OnRtnOrder(&state); });
+      hold_cancel_return.wait(true);
       return 0;
     }
     emit([request, id](CThostFtdcTraderSpi* s) mutable {
@@ -440,6 +547,7 @@ public:
   int ReqQryTradingCode(CThostFtdcQryTradingCodeField*, int) override { return -1; }
   // Margin per contract; commission per product, as many brokers report it.
   int ReqQryInstrumentMarginRate(CThostFtdcQryInstrumentMarginRateField* request, int id) override {
+    check_sdk_thread();
     if (throttled())
       return -3;
     const std::string instrument = request->InstrumentID;
@@ -458,6 +566,7 @@ public:
   }
   int ReqQryInstrumentCommissionRate(CThostFtdcQryInstrumentCommissionRateField* request,
                                      int id) override {
+    check_sdk_thread();
     if (throttled())
       return -3;
     std::string product = request->InstrumentID;
@@ -480,8 +589,11 @@ public:
   int ReqQryProduct(CThostFtdcQryProductField*, int) override { return -1; }
   int ReqQryInstrument(CThostFtdcQryInstrumentField*, int id) override {
     const auto mode = catalog_mode;
-    if (mode == "catalog-stall")
+    check_sdk_thread();
+    if (mode == "catalog-stall") {
+      std::ofstream(flow / "catalog-query-started").put('1');
       return 0;
+    }
     emit([id, mode](CThostFtdcTraderSpi* spi) {
       auto status = info(0);
       if (mode != "catalog-empty") {
@@ -507,7 +619,15 @@ public:
         item.IsTrading = 1;
         item.ProductClass = THOST_FTDC_PC_Options;
         spi->OnRspQryInstrument(&item, &status, id, false);
+        if (mode == "catalog-stream") {
+          for (int i = 0; i < 16; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            spi->OnRspQryInstrument(&item, &status, id, false);
+          }
+        }
       }
+      if (mode == "catalog-partial")
+        return;
       if (mode == "catalog-error")
         status = info(7);
       spi->OnRspQryInstrument(nullptr, &status, id, true);
@@ -516,6 +636,7 @@ public:
   }
   // rb2610 trades at 3500 within 3300..3700; "zz..." has no market.
   int ReqQryDepthMarketData(CThostFtdcQryDepthMarketDataField* request, int id) override {
+    check_sdk_thread();
     if (quote_rejection_count.load() > 0 && quote_rejection_count.fetch_sub(1) > 0) {
       auto& x = exchange();
       std::lock_guard lock(x.mutex);
@@ -526,20 +647,29 @@ public:
       return -3;
     const std::string venue = request->ExchangeID, instrument = request->InstrumentID;
     const std::string day = GetTradingDay();
-    emit([venue, instrument, id, day](CThostFtdcTraderSpi* s) {
+    const int mode = quote_mode.load();
+    emit([venue, instrument, id, day, mode](CThostFtdcTraderSpi* s) {
       if (instrument.starts_with("zz"))
         return s->OnRspQryDepthMarketData(nullptr, nullptr, id, true);
       CThostFtdcDepthMarketDataField row{};
       put(row.ExchangeID, venue);
-      put(row.InstrumentID, instrument);
-      put(row.TradingDay, day);
+      put(row.InstrumentID, mode == 4 ? "rb2612" : instrument);
+      put(row.TradingDay, mode == 3 ? "20260925" : day);
       put(row.UpdateTime, "10:15:00");
       row.LastPrice = instrument == "rb2611" ? 1.7976931348623157e308 : 3500;
       row.PreSettlementPrice = 3490;
       row.UpperLimitPrice = 3700;
       row.LowerLimitPrice = 3300;
-      s->OnRspQryDepthMarketData(&row, nullptr, id, true);
+      s->OnRspQryDepthMarketData(&row, nullptr, id, mode == 0 || mode == 3 || mode == 4);
+      if (mode == 1) {
+        auto failure = info(7);
+        s->OnRspQryDepthMarketData(nullptr, &failure, id, true);
+      } else if (mode == 5)
+        s->OnRspQryDepthMarketData(nullptr, nullptr, id, true);
     });
+    quote_return_waiting = hold_quote_return.load();
+    hold_quote_return.wait(true);
+    quote_return_waiting = false;
     return 0;
   }
   int ReqQryTraderOffer(CThostFtdcQryTraderOfferField*, int) override { return -1; }
@@ -674,15 +804,57 @@ public:
   }
 };
 } // namespace
-CThostFtdcTraderApi* CThostFtdcTraderApi::CreateFtdcTraderApi(const char*) {
-  return new Fake;
+CThostFtdcTraderApi* CThostFtdcTraderApi::CreateFtdcTraderApi(const char* flow) {
+  return new Fake(flow);
 }
 const char* CThostFtdcTraderApi::GetApiVersion() {
   return "fake-trader";
 }
+FAKE_EXPORT void asterion_fake_trader_hold_insert_return(int hold, int code) {
+  insert_return_code = code;
+  hold_insert_return = hold != 0;
+  hold_insert_return.notify_all();
+}
+FAKE_EXPORT void asterion_fake_trader_hold_cancel_return(int hold) {
+  hold_cancel_return = hold != 0;
+  hold_cancel_return.notify_all();
+}
+FAKE_EXPORT void asterion_fake_trader_hold_insert_errors(int hold) {
+  hold_insert_errors = hold != 0;
+  if (!hold) {
+    std::lock_guard lock(live_mutex);
+    for (auto* fake : live)
+      fake->release_insert_errors();
+  }
+}
+FAKE_EXPORT void asterion_fake_trader_hold_quote_return(int hold) {
+  hold_quote_return = hold != 0;
+  hold_quote_return.notify_all();
+}
+FAKE_EXPORT int asterion_fake_trader_quote_return_waiting() {
+  return quote_return_waiting.load();
+}
+FAKE_EXPORT void asterion_fake_trader_hold_release(int hold) {
+  hold_release = hold != 0;
+  hold_release.notify_all();
+}
+FAKE_EXPORT int asterion_fake_trader_sdk_creations() {
+  return sdk_creations;
+}
+FAKE_EXPORT int asterion_fake_trader_sdk_releases() {
+  return sdk_releases;
+}
+FAKE_EXPORT int asterion_fake_trader_sdk_thread_mismatches() {
+  return sdk_thread_mismatches;
+}
 FAKE_EXPORT void asterion_fake_trader_reset() {
+  sdk_creations = sdk_releases = sdk_thread_mismatches = 0;
+  hold_positions = hold_trades = false;
+  pending_positions = 0;
   quote_rejection_code = 0;
   quote_rejection_count = 0;
+  quote_mode = cancel_return_code = 0;
+  hold_insert_errors = false;
   auto& x = exchange();
   std::lock_guard lock(x.mutex);
   x.orders.clear();
@@ -690,6 +862,44 @@ FAKE_EXPORT void asterion_fake_trader_reset() {
   x.positions.clear();
   x.trading_day = "20260928";
   x.query_rejections = 0;
+}
+FAKE_EXPORT int asterion_fake_trader_next_session() {
+  auto& x = exchange();
+  std::lock_guard lock(x.mutex);
+  return x.sessions + 1;
+}
+FAKE_EXPORT void asterion_fake_trader_hold_positions(int hold) {
+  hold_positions = hold != 0;
+  if (!hold) {
+    std::lock_guard lock(live_mutex);
+    for (auto* fake : live)
+      fake->release_deferred(true);
+  }
+}
+FAKE_EXPORT int asterion_fake_trader_pending_positions() {
+  return pending_positions.load();
+}
+FAKE_EXPORT void asterion_fake_trader_hold_trades(int hold) {
+  hold_trades = hold != 0;
+  if (!hold) {
+    std::lock_guard lock(live_mutex);
+    for (auto* fake : live)
+      fake->release_deferred(false);
+  }
+}
+FAKE_EXPORT void asterion_fake_trader_fill(int index, int volume) {
+  std::lock_guard lock(live_mutex);
+  if (!live.empty())
+    live.front()->fill(index, volume);
+}
+FAKE_EXPORT void asterion_fake_trader_replay_order(int index, int filled) {
+  std::lock_guard lock(live_mutex);
+  if (!live.empty())
+    live.front()->replay_order(index, filled);
+}
+FAKE_EXPORT void asterion_fake_trader_report_burst(int count) {
+  std::lock_guard lock(live_mutex);
+  live.front()->report_burst(count);
 }
 FAKE_EXPORT void asterion_fake_trader_reconnect() {
   std::lock_guard lock(live_mutex);
@@ -704,6 +914,13 @@ FAKE_EXPORT int asterion_fake_trader_query_rejections() {
 
 FAKE_EXPORT int asterion_fake_catalog_side_effects() {
   return catalog_side_effects.load();
+}
+
+FAKE_EXPORT void asterion_fake_trader_quote_mode(int mode) {
+  quote_mode = mode;
+}
+FAKE_EXPORT void asterion_fake_trader_cancel_code(int code) {
+  cancel_return_code = code;
 }
 
 FAKE_EXPORT void asterion_fake_trader_reject_quotes(int code, int count) {

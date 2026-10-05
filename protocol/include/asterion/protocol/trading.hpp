@@ -17,13 +17,16 @@ v1::Costs encode_costs(const FuturesCosts& costs);
 ContractTerms contract_terms(const v1::PaperContract& contract);
 // Identity of a portfolio's data; a single dataset's own revision.
 std::string dataset_revision(const v1::PaperInput& input);
+enum class DatasetView { full, metadata };
 v1::PaperInput encode_input(const Json& manifest);
-Json decode_input(const v1::PaperInput& input);
+Json decode_input(const v1::PaperInput& input, DatasetView view = DatasetView::full);
 v1::Command encode_command(const Json& command);
 Json decode_command(const v1::Command& command);
 v1::Snapshot encode_snapshot(const Json& snapshot);
 Json decode_snapshot(const v1::Snapshot& snapshot);
-// Live manifest version 1 ("live_ctp") and the broker-reported session state.
+// Live manifest version 5 ("live_ctp") and the broker-reported session state.
+v1::LivePolicy encode_live_policy(const Json& policy);
+Json decode_live_policy(const v1::LivePolicy& policy);
 v1::LiveInput encode_live_input(const Json& manifest);
 Json decode_live_input(const v1::LiveInput& input);
 v1::LiveSnapshot encode_live_snapshot(const Json& snapshot);

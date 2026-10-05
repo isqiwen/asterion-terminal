@@ -1,6 +1,10 @@
 import { test, expect } from "./test";
 import type { Snapshot, HistoryPage, LiveMarket } from "../src/bridge/client";
 
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "wait" });
+});
+
 test("dense market board links real dataset commands, sorting, pagination and contract boundaries", async ({
   page,
 }) => {
@@ -58,9 +62,9 @@ test("dense market board links real dataset commands, sorting, pagination and co
   );
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (!["runtime.snapshot", "research.minutes.page"].includes(request.method))
+    if (!["runtime.snapshot", "data.minutes.page", "data.datasets"].includes(request.method))
       return route.continue();
-    if (request.method === "research.minutes.page") {
+    if (request.method === "data.minutes.page") {
       expect(["linked-history-fixture", "history-15min"]).toContain(request.params.id);
       expect(request.params).not.toHaveProperty("directory");
       if (fail) {
@@ -131,11 +135,21 @@ test("dense market board links real dataset commands, sorting, pagination and co
           },
         ],
       };
+    // The fixture represents a continuing feed while online. Reusing its
+    // initial receipt time makes a slow layout run correctly look stale.
+    if (marketOnline) {
+      const observedAt = Date.now();
+      for (const row of subscriptions) {
+        if (!row.quote) continue;
+        row.quote.source_ms = observedAt;
+        row.quote.received_ms = observedAt;
+      }
+    }
     data.result.market = {
       remote: false,
       host: "localhost",
       port: 0,
-      service: "fixture-market",
+      service: data.result.market!.service,
       instance_id: "fixture",
       phase: "connected",
       error_code: 0,
@@ -177,36 +191,27 @@ test("dense market board links real dataset commands, sorting, pagination and co
         }),
       },
     };
-    if (historicalOnly) data.result.market = null;
+    if (historicalOnly) {
+      data.result.market = null;
+      // Historical versions remain available when Task is offline and has no visible history.
+      data.result.task_service = { ...data.result.task_service!, online: false, tasks: [] };
+    }
     data.result.history_page = requestedPage;
-    if (data.result.research)
-      data.result.research.tasks = [
-        {
-          kind: "minute_download",
-          id: "linked-history-fixture",
-          state: "succeeded",
-          attempt: 1,
-          completed: 1,
-          total: 1,
-          error: "",
-          result_digest: "b".repeat(64),
-          trading_day: "",
-          instrument: "SHFE/rb/2026-01",
-          source_name: "Tushare RB2601.SHF 5min",
-          minute_interval_minutes: 5,
-          submission_sequence: 2,
-          submitted_at_ms: 1,
-          updated_at_ms: 1,
-        },
-      ];
-    if (data.result.research)
-      data.result.research.tasks.push({
-        ...data.result.research.tasks[0],
-        id: "history-15min",
-        minute_interval_minutes: 15,
-        source_name: "Tushare RB2601.SHF 15min",
-        submission_sequence: 1,
-      });
+    if (request.method === "data.datasets")
+      data.result.history_datasets = [5, 15]
+        .map(interval => ({
+          id: interval === 5 ? "linked-history-fixture" : "history-15min",
+          revision: "b".repeat(64),
+          contract_id: "SHFE/rb/2026-01",
+          source: "tushare.ft_mins",
+          interval_minutes: interval,
+          begin: String(start),
+          end: String(start + 120n * 60000000000n),
+          rows: 120,
+        }))
+        .filter(
+          item => !request.params.contract_id || item.contract_id === request.params.contract_id,
+        );
     await route.fulfill({ response, json: data });
   });
   await page.goto("/");

@@ -38,8 +38,14 @@ message MinuteRequest { Instrument instrument = 1; }
 // day; interrupted means observations were lost after that point.
 message MinuteBar { int64 start_ms = 1; string open = 2; string high = 3; string low = 4; string close = 5; int64 volume = 6; optional string average_price = 7; optional string open_interest = 8; }
 message MinuteSeries { Instrument instrument = 1; string trading_day = 2; int64 first_observation_ms = 3; bool interrupted = 4; repeated MinuteBar bars = 5; optional string previous_settlement = 6; }
-message Snapshot { string instance_id = 1; string phase = 2; int32 error_code = 3; uint64 sequence = 4; uint64 out_of_order = 5; repeated Subscription subscriptions = 6; CatalogState catalog = 7; repeated Instrument watchlist = 8; }
-message Health { string instance_id = 1; string phase = 2; }
+// Watch sends its first catalog in full. Later frames may omit only the same
+// catalog revision within that watch connection and service instance.
+// The first watch frame and every membership reset carry all subscriptions.
+// Otherwise subscriptions_delta carries changed rows relative to base_sequence,
+// the previous frame on this connection. Unknown/missing baselines are rejected.
+// Snapshot and command responses always carry full subscriptions and catalog.
+message Snapshot { string instance_id = 1; string phase = 2; int32 error_code = 3; uint64 sequence = 4; uint64 out_of_order = 5; repeated Subscription subscriptions = 6; CatalogState catalog = 7; repeated Instrument watchlist = 8; uint64 catalog_revision = 9; bool catalog_omitted = 10; bool subscriptions_delta = 11; uint64 base_sequence = 12; }
+message Health { string instance_id = 1; string phase = 2; bool initialized = 3; }
 message Error { string code = 1; string message = 2; }
 message Response { uint32 version = 1; string service_id = 2; string correlation_id = 3; oneof result { Snapshot snapshot = 10; Health health = 11; Error error = 12; EventBatch events = 13; MinuteSeries minutes = 14; } }
 
@@ -47,7 +53,8 @@ message QuoteObservation { Quote quote = 1; bool out_of_order = 2; }
 message Event {
   uint64 sequence = 1;
   int64 received_ms = 2;
-  oneof observation { Snapshot status = 10; QuoteObservation quote = 11; }
+  // subscription is one acknowledgement, without a cached quote.
+  oneof observation { Snapshot status = 10; QuoteObservation quote = 11; Subscription subscription = 12; }
 }
 message EventBatch {
   string stream_id = 1;

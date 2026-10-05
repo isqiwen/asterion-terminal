@@ -20,6 +20,10 @@ ServicePrograms resolve_programs(node::v1::ServiceKind kind, Resolve resolve) {
     programs.provider = resolve("ASTERION_CTP_LIBRARY", "ctp-md", true);
     programs.catalog = resolve("ASTERION_CTP_CATALOG_LIBRARY", "ctp-trader", true);
     break;
+  case node::v1::DATA_SERVICE:
+    programs.executable =
+        resolve("ASTERION_DATA_SERVICE_EXECUTABLE", "asterion-data-service", false);
+    break;
   case node::v1::TASK_SERVICE:
     programs.executable = resolve("ASTERION_TASK_EXECUTABLE", "asterion-task-service", false);
     programs.worker = resolve("ASTERION_BACKTEST_EXECUTABLE", "asterion-backtest", false);

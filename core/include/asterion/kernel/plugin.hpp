@@ -28,29 +28,4 @@ public:
   virtual void stop() noexcept = 0;
 };
 
-// Single-threaded lifecycle owner. Plugins cannot be added while running.
-class PluginManager final {
-public:
-  PluginManager() = default;
-  ~PluginManager();
-  PluginManager(const PluginManager&) = delete;
-  PluginManager& operator=(const PluginManager&) = delete;
-
-  void add(std::unique_ptr<Plugin> plugin);
-  void start();
-  void stop() noexcept;
-  [[nodiscard]] bool running() const noexcept { return running_; }
-  [[nodiscard]] std::vector<PluginDescriptor> descriptors() const;
-
-private:
-  struct Entry {
-    PluginDescriptor descriptor;
-    std::unique_ptr<Plugin> plugin;
-  };
-  std::vector<Entry> entries_;
-  std::vector<std::size_t> started_;
-  bool running_ = false;
-  bool transitioning_ = false;
-};
-
 } // namespace asterion

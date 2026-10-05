@@ -10,16 +10,18 @@ test("daily source viewer and market chart preserve dates, missing settlement an
   const date = (i: number) => new Date(Date.UTC(2023, 0, 1 + i)).toISOString().slice(0, 10);
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (!["runtime.snapshot", "research.daily.page"].includes(request.method))
+    if (!["runtime.snapshot", "data.daily.page", "data.datasets"].includes(request.method))
       return route.continue();
     const response = await route.fetch({
       postData: { version: 1, method: "runtime.snapshot", params: {} },
     });
     const data = (await response.json()) as { result: Snapshot };
-    data.result.research = {
-      ...data.result.research!,
+    if (!data.result.task_service || !data.result.data)
+      return route.fulfill({ response, json: data });
+    data.result.data.connection_id = connection;
+    data.result.task_service = {
+      ...data.result.task_service!,
       connection_id: connection,
-      service: "daily-fixture",
       online: true,
       remote: false,
       tasks: [
@@ -33,6 +35,7 @@ test("daily source viewer and market chart preserve dates, missing settlement an
           submission_sequence: 1,
           source_name: "Explicit daily fixture",
           result_digest: "b".repeat(64),
+          history_dataset_id: "daily-fixture",
           completed: 1,
           total: 1,
           error: "",
@@ -69,8 +72,20 @@ test("daily source viewer and market chart preserve dates, missing settlement an
         { venue: "SHFE", symbol: "rb2610", state: "subscribed", error_code: 0, quote: null },
       ],
     };
+    data.result.history_datasets = [
+      {
+        id: "daily-fixture",
+        contract_id: "SHFE/rb/2026-10",
+        source: "tushare.fut_daily",
+        revision: "b".repeat(64),
+        begin: date(0),
+        end: date(119),
+        interval_minutes: 0,
+        rows: 120,
+      },
+    ];
     data.result.daily_page = null;
-    if (request.method === "research.daily.page") {
+    if (request.method === "data.daily.page") {
       expect(request.params.id).toBe("daily-fixture");
       calls.push(request.params);
       const filtered = !!request.params.start;

@@ -25,6 +25,14 @@ const errors: Record<string, string> = {
 // Keep that evidence in Details; do not expose service identifiers as UI copy.
 const prefixedDiagnostics = [
   [
+    "Agent initialization failed; inspect node logs: ",
+    "Agent initialization failed; inspect node logs",
+  ],
+  [
+    "Agent configuration commit failed; inspect node logs: ",
+    "Agent configuration commit failed; inspect node logs",
+  ],
+  [
     "Agent upgrade is waiting for a recoverable service boundary: ",
     "更新正在等待后台工作安全结束，请稍后重试",
   ],
@@ -33,6 +41,26 @@ const prefixedDiagnostics = [
     "正在运行的服务尚不支持自动更新，请保留当前工作并稍后重试",
   ],
   ["bundled plugin is required: ", "应用自带的插件必须保持启用"],
+  [
+    "no month contract of the series has data on ",
+    "主力连续在某个交易日没有任何月份的数据，请补齐该品种各月份的下载",
+  ],
+  [
+    "the outgoing month has no bars on the roll day: ",
+    "换月当天旧月份合约没有 K 线，无法平仓；请补齐该月份的数据",
+  ],
+  [
+    "the roll lacks both settlement prices on the previous day: ",
+    "换月前一交易日缺少新旧合约的结算价，无法计算复权系数",
+  ],
+  ["invalid roll adjustment ratio on ", "换月的复权系数无效"],
+  [
+    "a position remains in a contract on a day it has no settlement price: ",
+    "换月后旧月份合约的持仓未能平掉；该月份在换月日成交量不足",
+  ],
+  ["cannot validate owned regular file ", "durable file ownership or type is invalid"],
+  ["cannot prepare durable write ", "cannot prepare durable file contents"],
+  ["cannot verify publication identity ", "durable publication source changed"],
 ] as const;
 function diagnosticSummary(message: string) {
   const known = localizeText("diagnostics", message);

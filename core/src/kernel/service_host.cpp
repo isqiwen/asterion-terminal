@@ -3,6 +3,8 @@
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/process/owner.hpp>
 #include <asterion/kernel/service_host.hpp>
+#include <asterion/kernel/logger.hpp>
+#include <asterion/foundation/serialization.hpp>
 #include <asterion/kernel/thread_pool.hpp>
 #include <condition_variable>
 #include <cstdlib>
@@ -95,6 +97,11 @@ void install_stop_signals() {
   sigemptyset(&action.sa_mask);
   if (::sigaction(SIGINT, &action, nullptr) != 0 || ::sigaction(SIGTERM, &action, nullptr) != 0)
     throw std::runtime_error("cannot install stop signal handlers");
+  // Vendor libraries own sockets that our IPC wrappers cannot configure.
+  // A disconnected peer must produce EPIPE, not terminate the whole service.
+  action.sa_handler = SIG_IGN;
+  if (::sigaction(SIGPIPE, &action, nullptr) != 0)
+    throw std::runtime_error("cannot install stop signal handlers");
 #endif
 }
 void request_stop() noexcept {
@@ -143,19 +150,30 @@ HealthChannel::HealthChannel(std::string endpoint, Responder respond)
   if (!respond)
     throw std::invalid_argument("health channel requires a responder");
   impl_->listener = std::make_unique<ipc::Listener>(std::move(endpoint));
-  impl_->thread = std::jthread(
-      [listener = impl_->listener.get(), respond = std::move(respond)](std::stop_token stop) {
-        while (!stop.stop_requested()) {
-          try {
-            auto channel = listener->accept(Milliseconds{200});
-            const auto reply = respond(channel.receive(Milliseconds{1000}));
-            if (!reply.empty())
-              channel.send(reply, Milliseconds{1000});
-          } catch (const std::exception&) {
-            // Idle poll or one failed peer; the channel keeps serving.
-          }
+  impl_->thread = std::jthread([listener = impl_->listener.get(),
+                                respond = std::move(respond)](std::stop_token stop) {
+    std::uint64_t failures = 0;
+    while (!stop.stop_requested()) {
+      bool accepted = false;
+      const auto started = Clock::now();
+      try {
+        auto channel = listener->accept(Milliseconds{200});
+        accepted = true;
+        const auto reply = respond(channel.receive(Milliseconds{1000}));
+        if (!reply.empty())
+          channel.send(reply, Milliseconds{1000});
+      } catch (const std::exception& error) {
+        if (accepted || Clock::now() - started < Milliseconds{10}) {
+          log_process_failure("transport", "health.connection_failed", classify(error), ++failures);
+          if (!accepted)
+            pause(stop, Milliseconds{50});
         }
-      });
+      } catch (...) {
+        log_process_failure("transport", "health.connection_failed", ErrorCode::internal_error,
+                            ++failures);
+      }
+    }
+  });
 }
 HealthChannel::~HealthChannel() {
   // Join before the listener it borrows is destroyed.
@@ -174,10 +192,16 @@ struct ServiceHost::Impl {
   std::unique_ptr<ThreadPool> pool;
   std::unique_ptr<ipc::TlsListener> tcp;
   std::unique_ptr<ipc::Listener> local;
+  struct Admission {
+    ipc::TlsPendingConnection peer;
+    Clock::time_point accepted;
+  };
+  std::vector<Admission> handshakes;
+  std::atomic<std::uint64_t> handler_failures{0}, handshake_failures{0}, accept_failures{0},
+      admission_failures{0};
 
-  template <class Pending> void dispatch(Pending pending_connection) {
+  template <class Pending> void dispatch(Pending pending_connection, Clock::time_point accepted) {
     auto peer = std::make_shared<Pending>(std::move(pending_connection));
-    const auto accepted = Clock::now();
     // Only the accept thread admits, so this bound cannot be overshot; a
     // rejected connection closes when `peer` is destroyed.
     if (active.load() + pending.load() >= options.workers + options.queue)
@@ -196,18 +220,14 @@ struct ServiceHost::Impl {
         if (token.stop_requested())
           return;
         try {
-          if constexpr (std::is_same_v<Pending, ipc::TlsPendingConnection>) {
-            ChannelConnection<ipc::TlsChannel> connection(
-                std::move(*peer).handshake(options.handshake), accepted);
-            if (std::ranges::find(options.roles, connection.peer_role()) == options.roles.end())
-              return; // Authenticated but not authorized for this service.
-            handler(connection, token);
-          } else {
-            ChannelConnection<Pending> connection(std::move(*peer), accepted);
-            handler(connection, token);
-          }
-        } catch (const std::exception&) {
-          // Only this connection closes; requests are never replayed.
+          ChannelConnection<Pending> connection(std::move(*peer), accepted);
+          handler(connection, token);
+        } catch (const std::exception& error) {
+          log_process_failure("transport", "connection.handler_failed", classify(error),
+                              ++handler_failures);
+        } catch (...) {
+          log_process_failure("transport", "connection.handler_failed", ErrorCode::internal_error,
+                              ++handler_failures);
         }
       }));
     } catch (...) {
@@ -215,26 +235,53 @@ struct ServiceHost::Impl {
       throw;
     }
   }
+  void poll_handshakes() {
+    std::erase_if(handshakes, [&](Admission& admitted) {
+      try {
+        auto channel = admitted.peer.poll_handshake();
+        if (!channel)
+          return false;
+        if (std::ranges::find(options.roles, channel->peer_role()) == options.roles.end())
+          throw Error(ErrorCode::permission_denied, "service peer role is not admitted");
+        dispatch(std::move(*channel), admitted.accepted);
+      } catch (const std::exception& error) {
+        log_process_failure("transport", "connection.handshake_failed", classify(error),
+                            ++handshake_failures);
+      }
+      return true;
+    });
+  }
   template <class Accept> void serve(Accept accept) {
     while (!stop_requested()) {
       const auto started = Clock::now();
       std::optional<decltype(accept())> connection;
       try {
         connection.emplace(accept());
-      } catch (const std::exception&) {
-        // Idle poll ends after `poll`; an immediate failure is a transient
-        // accept error (for example descriptor exhaustion): never spin.
-        if (Clock::now() - started < Milliseconds{10})
+      } catch (const std::exception& error) {
+        // Idle poll ends after `poll`; immediate failures (for example
+        // descriptor exhaustion) must be visible and must never spin.
+        if (Clock::now() - started < Milliseconds{10}) {
+          log_process_failure("transport", "connection.accept_failed", classify(error),
+                              ++accept_failures);
           std::this_thread::sleep_for(Milliseconds{50});
+        }
       }
       if (connection) {
         try {
-          dispatch(std::move(*connection));
-        } catch (const std::exception&) {
-          // Overload: the unqueued connection closes at once, so excess peers
-          // are rejected as fast as they arrive.
+          const auto accepted = Clock::now();
+          if constexpr (std::is_same_v<decltype(*connection), ipc::TlsPendingConnection&>) {
+            if (handshakes.size() >= options.handshake_connections)
+              throw Error(ErrorCode::resource_exhausted, "TLS admission is at capacity");
+            connection->start_handshake(options.handshake);
+            handshakes.push_back({std::move(*connection), accepted});
+          } else
+            dispatch(std::move(*connection), accepted);
+        } catch (const std::exception& error) {
+          log_process_failure("transport", "connection.admission_failed", classify(error),
+                              ++admission_failures);
         }
       }
+      poll_handshakes();
       if (options.tick)
         options.tick();
     }
@@ -250,6 +297,9 @@ ServiceHost::ServiceHost(Transport transport, Handler handler, HostOptions optio
   impl_->options = std::move(options);
   if (!impl_->options.workers)
     throw std::invalid_argument("service host requires at least one worker");
+  if (!impl_->options.handshake_connections || impl_->options.handshake_connections > 256 ||
+      impl_->options.handshake.count() <= 0)
+    throw std::invalid_argument("service host requires bounded positive TLS admission");
   // Capacity for every admitted connection; admission enforces the bound.
   impl_->pool = std::make_unique<ThreadPool>(impl_->options.workers,
                                              impl_->options.workers + impl_->options.queue);
@@ -267,6 +317,7 @@ bool ServiceHost::run() {
   else
     impl.serve([&] { return impl.local->accept(impl.options.poll); });
   // Stop accepting first; destroying a local listener unlinks its socket.
+  impl.handshakes.clear();
   impl.tcp.reset();
   impl.local.reset();
   impl.stop.request_stop();

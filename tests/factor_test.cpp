@@ -2,26 +2,24 @@
 #include "bar_fixture.hpp"
 #include "task_store.hpp"
 #include "daily_momentum.hpp"
-#include "sqlite_journal.hpp"
 #include "momentum.hpp"
 #include <asterion/kernel/process/child.hpp>
 #include <cmath>
 #include <fstream>
 #include <gtest/gtest.h>
 #include <limits>
-#include <thread>
 using namespace asterion;
 namespace {
-research::v1::FactorInput search_input();
+factor::v1::FactorInput search_input();
 Decimal d(const char* value) {
   return Decimal::parse(value);
 }
 Instrument spec() {
   return {{"SHFE", "rb2610"}, AssetClass::futures, "CNY", d("1"), d("1"), d("10")};
 }
-void revision(research::v1::FactorInput&);
-research::v1::FactorInput input() {
-  research::v1::FactorInput result;
+void revision(factor::v1::FactorInput&);
+factor::v1::FactorInput input() {
+  factor::v1::FactorInput result;
   result.set_version(5);
   result.set_full_sample(true);
   result.add_lookbacks(2);
@@ -35,7 +33,7 @@ research::v1::FactorInput input() {
   revision(result);
   return result;
 }
-void revision(research::v1::FactorInput& value) {
+void revision(factor::v1::FactorInput& value) {
   std::vector<MarketBar> bars;
   for (const auto& row : value.dataset().bars()) {
     const auto price = Decimal::from_raw(row.close().units());
@@ -86,15 +84,21 @@ TEST(Factor, ExactDatasetDigestExcludesWindowsAndRejectsTampering) {
   EXPECT_EQ(protocol::factor_dataset_revision(value), hash);
   EXPECT_EQ(protocol::decode_factor(protocol::encode_factor(protocol::decode_factor(value))),
             protocol::decode_factor(value));
+  auto metadata = protocol::decode_factor(value);
+  metadata.at("dataset").erase("bars");
+  metadata.at("dataset").erase("days");
+  EXPECT_EQ(protocol::decode_factor(value, protocol::DatasetView::metadata), metadata);
   value.mutable_dataset()->mutable_bars(0)->mutable_volume()->set_units(d("2").raw());
+  EXPECT_THROW(protocol::decode_factor(value, protocol::DatasetView::metadata),
+               std::invalid_argument);
   EXPECT_THROW(protocol::factor_dataset_revision(value), std::invalid_argument);
-  EXPECT_THROW(factor::validate(value), std::invalid_argument);
+  EXPECT_THROW(protocol::validate_factor_input(value), std::invalid_argument);
   value = input();
   value.set_version(1);
-  EXPECT_THROW(factor::validate(value), std::invalid_argument);
+  EXPECT_THROW(protocol::validate_factor_input(value), std::invalid_argument);
   value = input();
   value.mutable_dataset()->mutable_bars(0)->clear_close();
-  EXPECT_THROW(factor::validate(value), std::invalid_argument);
+  EXPECT_THROW(protocol::validate_factor_input(value), std::invalid_argument);
 }
 TEST(Factor, AlignmentTailExclusionAndNoFutureInputs) {
   auto value = input();
@@ -155,61 +159,9 @@ TEST(Factor, ConstantPricesProduceMissingStatisticsNotZero) {
   EXPECT_TRUE(decoded.at("partitions").at(0).at("pearson").is_null());
   EXPECT_TRUE(decoded.at("partitions").at(0).at("spearman").is_null());
 }
-TEST(Factor, StandaloneProcessPersistsTypedResultAndRefusesOverwrite) {
-  namespace fs = std::filesystem;
-  const auto root = fs::temp_directory_path() / ("asterion-factor-" + unique_process_id());
-  fs::create_directory(root);
-  struct Cleanup {
-    fs::path path;
-    ~Cleanup() {
-      std::error_code ec;
-      fs::remove_all(path, ec);
-    }
-  } cleanup{root};
-  const auto source = root / "input.pb", destination = root / "result";
-  fs::create_directory(destination);
-  {
-    std::ofstream stream(source, std::ios::binary);
-    stream << input().SerializeAsString();
-  }
-  auto execute = [&](const fs::path& path) {
-    ChildProcess child(ASTERION_FACTOR_PATH,
-                       {"--input", path.string(), "--directory", destination.string()});
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-    while (!child.exited() && std::chrono::steady_clock::now() < deadline)
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    EXPECT_TRUE(child.exited());
-    return child.exit_code();
-  };
-  EXPECT_EQ(execute(source), 0);
-  Json record;
-  {
-    SqliteJournal journal(destination);
-    journal.start();
-    const auto values = journal.read();
-    ASSERT_EQ(values.size(), 1U);
-    record = values.front();
-    EXPECT_EQ(record.at("result"), protocol::decode_factor_result(factor::run(input())));
-  }
-  EXPECT_NE(execute(source), 0);
-  {
-    SqliteJournal journal(destination);
-    journal.start();
-    ASSERT_EQ(journal.read().size(), 1U);
-    EXPECT_EQ(journal.read().front(), record);
-  }
-  {
-    std::ofstream stream(source, std::ios::binary | std::ios::trunc);
-    stream << "invalid protobuf";
-  }
-  EXPECT_NE(execute(source), 0);
-}
-
 #include "task_store.hpp"
-#include <asterion/kernel/ipc/local_channel.hpp>
 namespace {
-using namespace std::chrono_literals;
-namespace wire = research::v1;
+namespace wire = task::v1;
 struct FactorTasks : testing::Test {
   std::filesystem::path root =
       std::filesystem::temp_directory_path() / ("ast-factor-task-" + unique_process_id());
@@ -220,12 +172,41 @@ struct FactorTasks : testing::Test {
   }
 };
 } // namespace
-TEST_F(FactorTasks, DurableTypeIdentityCancellationAndTamperedResult) {
-  wire::FactorResult expected = factor::run(input());
+TEST_F(FactorTasks, ResultAcceptanceChecksIdentityAndTimelineWithoutReexecutingAlgorithm) {
+  auto spec = input();
+  for (auto& bar : *spec.mutable_dataset()->mutable_bars())
+    bar.mutable_close()->set_units(d("100").raw());
+  revision(spec);
+  auto result = factor::run(spec);
+  ASSERT_FALSE(result.partitions(0).has_pearson());
+  ASSERT_FALSE(result.partitions(0).has_spearman());
+  ASSERT_EQ(result.samples(0).value(), 0.0);
+  result.mutable_samples(0)->set_value(-0.0);
+  EXPECT_NO_THROW(protocol::validate_factor_result(spec, result));
+  auto wrong_order = result;
+  wrong_order.mutable_samples()->SwapElements(0, 1);
+  EXPECT_THROW(protocol::validate_factor_result(spec, wrong_order), std::invalid_argument);
+  spec = input();
+  result = factor::run(spec);
+  result.mutable_samples(0)->set_value(std::nextafter(result.samples(0).value(), 1.0));
+  EXPECT_NO_THROW(protocol::validate_factor_result(spec, result));
   {
-    tasks::Store store(root);
+    tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
+    store.submit("accepted", spec);
+    store.commit(store.finish("accepted", store.commit(store.claim("accepted")).token(), result));
+  }
+  tasks::Store restored(root, tasks::Identity{"factor-tests", "fixture-data"});
+  EXPECT_EQ(restored.factor_result("accepted").SerializeAsString(), result.SerializeAsString());
+}
+
+TEST_F(FactorTasks, DurableTypeIdentityCancellationAndTamperedResult) {
+  asterion::factor::v1::FactorResult expected = factor::run(input());
+  {
+    tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
     auto task = store.submit("factor", input());
-    const auto launches = store.dispatch({});
+    wire::TaskDispatch allowance;
+    allowance.set_launch_slots(1);
+    const auto launches = store.dispatch(allowance);
     ASSERT_EQ(launches.launches_size(), 1);
     EXPECT_EQ(launches.launches(0).program(), wire::FACTOR_PROGRAM);
 
@@ -235,103 +216,30 @@ TEST_F(FactorTasks, DurableTypeIdentityCancellationAndTamperedResult) {
     auto changed = input();
     changed.set_horizon(2);
     EXPECT_THROW(store.submit("factor", changed), std::invalid_argument);
-    auto token = store.claim("factor");
+    auto token = store.commit(store.claim("factor")).token();
     auto bad = expected;
-    bad.mutable_samples(0)->set_value(.99);
-    EXPECT_THROW(store.finish("factor", token, bad), std::invalid_argument);
+    bad.set_dataset_revision("wrong-input");
+    EXPECT_THROW(store.commit(store.finish("factor", token, bad)), std::invalid_argument);
     EXPECT_EQ(store.get("factor").state(), wire::RUNNING);
-    store.cancel("factor");
-    store.finish("factor", token, expected);
+    store.commit(store.cancel("factor")).task();
+    store.commit(store.finish("factor", token, expected));
     EXPECT_EQ(store.get("factor").state(), wire::CANCELLED);
-    store.retry("factor");
-    const auto next = store.claim("factor");
+    store.commit(store.retry("factor")).task();
+    const auto next = store.commit(store.claim("factor")).token();
     EXPECT_NE(next, token);
-    EXPECT_THROW(store.finish("factor", token, expected), std::invalid_argument);
-    store.finish("factor", next, expected);
+    EXPECT_THROW(store.commit(store.finish("factor", token, expected)), std::invalid_argument);
+    store.commit(store.finish("factor", next, expected));
     EXPECT_THROW(store.result("factor"), std::invalid_argument);
   }
   {
-    tasks::Store recovered(root);
+    tasks::Store recovered(root, tasks::Identity{"factor-tests", "fixture-data"});
     EXPECT_EQ(recovered.factor_result("factor").SerializeAsString(), expected.SerializeAsString());
     EXPECT_EQ(recovered.get("factor").attempt(), 2U);
   }
 }
-TEST_F(FactorTasks, TypedWorkerRunsAndWrongExecutableCannotClaim) {
-#ifdef _WIN32
-  const std::string endpoint = "asterion.factor." + unique_process_id();
-#else
-  const auto socket_root =
-      std::filesystem::path("/tmp") / ("ast-f-" + unique_process_id().substr(0, 12));
-  std::filesystem::create_directory(socket_root);
-  std::filesystem::permissions(socket_root, std::filesystem::perms::owner_all);
-  struct Cleanup {
-    std::filesystem::path path;
-    ~Cleanup() {
-      std::error_code ec;
-      std::filesystem::remove_all(path, ec);
-    }
-  } cleanup{socket_root};
-  const auto endpoint = (socket_root / "task.sock").string();
-#endif
-  const auto utf8 = root.u8string();
-  {
-    tasks::Store store(root);
-    store.submit("run", search_input());
-  }
-  ChildProcess service(ASTERION_TASK_SERVICE_PATH,
-                       {"--directory", std::string(utf8.begin(), utf8.end()), "--endpoint",
-                        endpoint, "--session", "factor-tests"});
-  auto call = [&](wire::TaskRequest request) {
-    request.set_version(1);
-    request.set_service_id("factor-tests");
-    request.set_correlation_id(unique_process_id());
-    auto channel = ipc::Channel::connect(endpoint, 2s);
-    channel.send(request.SerializeAsString(), 2s);
-    wire::TaskResponse response;
-    if (!response.ParseFromString(channel.receive(2s)))
-      throw std::runtime_error("bad response");
-    if (response.has_error())
-      throw std::runtime_error(response.error().message());
-    return response;
-  };
-  const auto deadline = std::chrono::steady_clock::now() + 10s;
-  for (;;) {
-    try {
-      wire::TaskRequest ping;
-      ping.mutable_heartbeat();
-      call(ping);
-      break;
-    } catch (const std::exception&) {
-      if (service.exited() || std::chrono::steady_clock::now() > deadline)
-        throw;
-      std::this_thread::sleep_for(20ms);
-    }
-  }
-
-  {
-    ChildProcess wrong(ASTERION_BACKTEST_PATH,
-                       {"--endpoint", endpoint, "--session", "factor-tests", "--task", "run"});
-    ASSERT_TRUE(wrong.wait(10s));
-    EXPECT_NE(wrong.exit_code(), 0);
-  }
-  wire::TaskRequest get;
-  get.mutable_get()->set_id("run");
-  EXPECT_EQ(call(get).task().state(), wire::QUEUED);
-  EXPECT_EQ(call(get).task().attempt(), 0U);
-  {
-    ChildProcess worker(ASTERION_FACTOR_PATH,
-                        {"--endpoint", endpoint, "--session", "factor-tests", "--task", "run"});
-    ASSERT_TRUE(worker.wait(10s));
-    EXPECT_EQ(worker.exit_code(), 0);
-  }
-  wire::TaskRequest result;
-  result.mutable_result()->set_id("run");
-  EXPECT_EQ(call(result).factor().SerializeAsString(),
-            factor::run(search_input()).SerializeAsString());
-}
 
 namespace {
-research::v1::FactorInput holdout_input() {
+factor::v1::FactorInput holdout_input() {
   auto result = input();
   result.mutable_dataset()->clear_bars();
   for (int i = 0; i < 100; ++i) {
@@ -416,26 +324,26 @@ TEST_F(FactorTasks, HoldoutPartitionIdentityTamperingAndRecovery) {
   const auto value = holdout_input();
   const auto expected = factor::run(value);
   {
-    tasks::Store store(root);
+    tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
     store.submit("holdout", value);
     auto changed = value;
     changed.set_holdout_start(51);
     EXPECT_THROW(store.submit("holdout", changed), std::invalid_argument);
-    const auto token = store.claim("holdout");
+    const auto token = store.commit(store.claim("holdout")).token();
     auto bad = expected;
     bad.mutable_partitions(1)->set_sample_count(48);
-    EXPECT_THROW(store.finish("holdout", token, bad), std::invalid_argument);
+    EXPECT_THROW(store.commit(store.finish("holdout", token, bad)), std::invalid_argument);
     bad = expected;
     bad.set_purged_count(0);
-    EXPECT_THROW(store.finish("holdout", token, bad), std::invalid_argument);
-    store.finish("holdout", token, expected);
+    EXPECT_THROW(store.commit(store.finish("holdout", token, bad)), std::invalid_argument);
+    store.commit(store.finish("holdout", token, expected));
   }
-  tasks::Store recovered(root);
+  tasks::Store recovered(root, tasks::Identity{"factor-tests", "fixture-data"});
   EXPECT_EQ(recovered.factor_result("holdout").SerializeAsString(), expected.SerializeAsString());
 }
 
 namespace {
-research::v1::FactorInput search_input() {
+factor::v1::FactorInput search_input() {
   auto value = holdout_input();
   value.add_lookbacks(5);
   value.add_lookbacks(10);
@@ -526,27 +434,28 @@ TEST_F(FactorTasks, SearchSelectionAndCandidateEvidencePersistAndRejectTampering
   const auto value = search_input();
   const auto expected = factor::run(value);
   {
-    tasks::Store store(root);
+    tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
     EXPECT_EQ(store.submit("search", value).total(), 250U);
-    const auto token = store.claim("search");
+    const auto token = store.commit(store.claim("search")).token();
     auto bad = expected;
-    bad.mutable_candidates(0)->set_development_spearman(.999);
-    EXPECT_THROW(store.finish("search", token, bad), std::invalid_argument);
+    bad.mutable_candidates(0)->set_lookback(999);
+    EXPECT_THROW(store.commit(store.finish("search", token, bad)), std::invalid_argument);
     bad = expected;
     bad.set_lookback(99);
-    EXPECT_THROW(store.finish("search", token, bad), std::invalid_argument);
-    store.finish("search", token, expected);
+    EXPECT_THROW(store.commit(store.finish("search", token, bad)), std::invalid_argument);
+    store.commit(store.finish("search", token, expected));
   }
-  tasks::Store recovered(root);
+  tasks::Store recovered(root, tasks::Identity{"factor-tests", "fixture-data"});
   EXPECT_EQ(recovered.factor_result("search").SerializeAsString(), expected.SerializeAsString());
 }
 
 TEST_F(FactorTasks, ResultEvidencePreservesAllCandidatesAndHoldoutConfiguration) {
   const auto spec = search_input();
-  tasks::Store store(root);
+  tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
   store.submit("factor", spec);
-  store.finish("factor", store.claim("factor"), factor::run(spec));
-  research::v1::TaskResponse response;
+  store.commit(
+      store.finish("factor", store.commit(store.claim("factor")).token(), factor::run(spec)));
+  task::v1::TaskResponse response;
   *response.mutable_result_task() = store.get("factor");
   *response.mutable_factor() = store.factor_result("factor");
   const auto evidence = protocol::decode_task_result(response, "factor");
@@ -562,7 +471,7 @@ TEST_F(FactorTasks, ResultEvidencePreservesAllCandidatesAndHoldoutConfiguration)
 }
 
 namespace {
-research::v1::FactorInput rolling_input() {
+factor::v1::FactorInput rolling_input() {
   auto value = search_input();
   value.mutable_dataset()->clear_bars();
   for (int i = 0; i < 160; ++i) {
@@ -667,24 +576,24 @@ TEST(Factor, RollingRejectsPartialWindowsTimestampSplitsAndHonoursCancellation) 
                            }),
                std::runtime_error);
 }
-TEST_F(FactorTasks, RollingEvidencePersistsAndRejectsChangedWindowsOrScores) {
+TEST_F(FactorTasks, RollingEvidencePersistsAndRejectsChangedWindowsOrInvalidScores) {
   const auto value = rolling_input();
   const auto expected = factor::run(value);
   {
-    tasks::Store store(root);
+    tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
     EXPECT_EQ(store.submit("rolling", value).total(), 720U);
-    const auto token = store.claim("rolling");
+    const auto token = store.commit(store.claim("rolling")).token();
     auto bad = expected;
     bad.mutable_folds(1)->set_training_begin(0);
-    EXPECT_THROW(store.finish("rolling", token, bad), std::invalid_argument);
+    EXPECT_THROW(store.commit(store.finish("rolling", token, bad)), std::invalid_argument);
     bad = expected;
-    bad.mutable_folds(0)->mutable_holdout()->set_spearman(.987);
-    EXPECT_THROW(store.finish("rolling", token, bad), std::invalid_argument);
-    store.finish("rolling", token, expected);
+    bad.mutable_folds(0)->mutable_holdout()->set_spearman(1.5);
+    EXPECT_THROW(store.commit(store.finish("rolling", token, bad)), std::invalid_argument);
+    store.commit(store.finish("rolling", token, expected));
   }
-  tasks::Store recovered(root);
+  tasks::Store recovered(root, tasks::Identity{"factor-tests", "fixture-data"});
   EXPECT_EQ(recovered.factor_result("rolling").SerializeAsString(), expected.SerializeAsString());
-  research::v1::TaskResponse response;
+  task::v1::TaskResponse response;
   *response.mutable_result_task() = recovered.get("rolling");
   *response.mutable_factor() = recovered.factor_result("rolling");
   const auto evidence = protocol::decode_task_result(response, "rolling");
@@ -768,13 +677,17 @@ TEST(Factor, DailyMomentumPreservesDatesAndNeverFeedsFutureClosesIntoFeatures) {
 
 TEST(Factor, DailyInputBindsSourceAndExactBarsAndPurgesHoldoutLabels) {
   using namespace std::chrono;
-  research::v1::DailyFactorInput input;
+  factor::v1::DailyFactorInput input;
   input.set_version(1);
   input.set_lookback(2);
   input.set_horizon(2);
   input.set_holdout_start(40);
   auto& dataset = *input.mutable_dataset();
-  dataset.set_version(1);
+  dataset.set_version(2);
+  dataset.mutable_history_evidence()->set_dataset_id(std::string(64, 'a'));
+  dataset.mutable_history_evidence()->set_acquired_at_ns(1790000000000000000);
+  dataset.mutable_history_evidence()->set_source_availability(
+      data::v1::SOURCE_AVAILABILITY_UNKNOWN);
   dataset.set_source_dataset_id(std::string(64, 'a'));
   dataset.set_source("tushare.fut_daily");
   dataset.set_contract_id("SHFE/cu/2024-03");
@@ -830,10 +743,10 @@ TEST(Factor, DailyInputBindsSourceAndExactBarsAndPurgesHoldoutLabels) {
     invalid.update(mutation);
     EXPECT_THROW(protocol::encode_daily_factor_request(invalid), std::exception);
   }
-  EXPECT_NO_THROW(factor::verify_daily_result(input, result));
+  EXPECT_NO_THROW((void)protocol::decode_daily_factor(input, result));
   auto wrong = result;
   wrong.mutable_samples(0)->set_label_day("2023-01-04");
-  EXPECT_THROW(factor::verify_daily_result(input, wrong), std::invalid_argument);
+  EXPECT_THROW((void)protocol::decode_daily_factor(input, wrong), std::invalid_argument);
   auto changed = input;
   changed.set_lookback(3);
   EXPECT_EQ(protocol::daily_factor_revision(changed.dataset()), input.dataset_revision());

@@ -1,17 +1,20 @@
-import { translate, useWorkspaceDraft, type TerminalContext } from "../contract";
+import {
+  translate,
+  useWorkspaceDraft,
+  useHistoryDatasets,
+  ErrorNotice,
+  type TerminalContext,
+} from "../contract";
 import { ContractHistory } from "./ContractHistory";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
 export function MarketPanel({ context }: { context: TerminalContext }) {
   const [selected, setSelected] = useWorkspaceDraft("history-market-selected", "");
   const [search, setSearch] = useWorkspaceDraft("history-market-search", "");
-  const offline = !context.snapshot?.research?.online;
-  const completed = (context.snapshot?.research?.tasks ?? []).filter(
-    task =>
-      (task.kind === "minute_download" || task.kind === "daily_download") &&
-      task.state === "succeeded",
-  );
-  const instruments = [...new Set(completed.map(task => task.instrument))].sort();
+  const offline = !context.snapshot?.data?.online;
+  const archive = useHistoryDatasets(context.snapshot, context.query);
+  const versions = archive.items;
+  const instruments = [...new Set(versions.map(version => version.contract_id))].sort();
   const catalogContract = (instrument: string) =>
     context.snapshot?.market?.catalog.contracts.find(item => item.contract_id === instrument);
   const nameFor = (instrument: string) =>
@@ -77,18 +80,19 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
                 {[
                   ...[
                     ...new Set(
-                      completed
+                      versions
                         .filter(
-                          task => task.instrument === instrument && task.kind === "minute_download",
+                          version =>
+                            version.contract_id === instrument && version.interval_minutes > 0,
                         )
-                        .map(task => task.minute_interval_minutes),
+                        .map(version => version.interval_minutes),
                     ),
                   ]
                     .filter((period): period is number => period !== undefined)
                     .sort((a, b) => a - b)
                     .map(period => `${period} min`),
-                  ...(completed.some(
-                    task => task.instrument === instrument && task.kind === "daily_download",
+                  ...(versions.some(
+                    version => version.contract_id === instrument && version.interval_minutes === 0,
                   )
                     ? [t("日K")]
                     : []),
@@ -97,6 +101,11 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
             </button>
           ))}
         </div>
+        {archive.error && (
+          <p role="alert">
+            <ErrorNotice error={archive.error} />
+          </p>
+        )}
         {!visible.length && (
           <p role="status">
             {t(

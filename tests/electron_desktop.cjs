@@ -43,7 +43,8 @@ async function closeDesktop(application) {
   const launch = () =>
     electron.launch({
       chromiumSandbox: true,
-      executablePath: process.env.ASTERION_TEST_ELECTRON || require("electron"),
+      executablePath:
+        process.env.ASTERION_TEST_ELECTRON || require("../scripts/electron-path.cjs")(),
       args: [
         ...(process.env.ASTERION_TEST_ELECTRON
           ? []
@@ -145,7 +146,7 @@ async function closeDesktop(application) {
     await expect(columnButton).toBeFocused();
     await page
       .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
+      .getByRole("button", { name: "回测与因子", exact: true })
       .click();
     await page
       .getByRole("navigation", { name: "业务工作区" })
@@ -162,7 +163,12 @@ async function closeDesktop(application) {
     await expect(columnDialog).toHaveCount(0);
     await expect(columnButton).toBeFocused();
 
-    await require("./electron_history.cjs")(page, temp, capture);
+    await require("./electron_history.cjs")(
+      page,
+      temp,
+      capture,
+      await application.evaluate(() => process.env.ASTERION_PLUGIN_DIRECTORY),
+    );
     const call = async (method, params = {}) => {
       const response = await page.evaluate(
         async ({ method, params }) =>
@@ -174,13 +180,20 @@ async function closeDesktop(application) {
       assert.equal(response.error, undefined, JSON.stringify(response.error));
       return response.result;
     };
-    await call("research.local");
-    const stopped = await call("node.action", { id: "local", service: "research", action: "stop" });
+    await call("node.data_tasks.local.open");
+    const stopped = await call("node.action", {
+      id: "local",
+      service: "historical-data",
+      action: "stop",
+    });
     const service = stopped.nodes
       .find(n => n.id === "local")
-      .health.services.find(s => s.id === "research");
+      .health.services.find(s => s.id === "historical-data");
     const root = await fs.realpath(path.join(temp, "node"));
-    assert.equal(await fs.realpath(service.directory), path.join(root, "services/research/ledger"));
+    assert.equal(
+      await fs.realpath(service.directory),
+      path.join(root, "services/historical-data/ledger"),
+    );
     const seeded = await execFile(
       path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug", "asterion_test_history"),
       ["--directory", service.directory, "--id", "native-history", "--price", "100", "99", "110"],
@@ -189,10 +202,10 @@ async function closeDesktop(application) {
         timeout: 15000,
       },
     );
-    await call("research.local");
+    await call("node.data_tasks.local.open");
     const historySelection = JSON.parse(seeded.stdout);
     assert.ok(historySelection.source_dataset_ids[0]);
-    await call("research.dataset.clear");
+    await call("data.dataset.clear");
     // Fixtures change the native core outside React; establish a fresh snapshot before UI work.
     await page.reload();
     await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
@@ -209,7 +222,7 @@ async function closeDesktop(application) {
 
     await page
       .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
+      .getByRole("button", { name: "回测与因子", exact: true })
       .click();
     await page.getByRole("button", { name: "均线回测", exact: true }).click();
     await page.getByRole("button", { name: "新建回测", exact: true }).click();
@@ -242,7 +255,7 @@ async function closeDesktop(application) {
 
     await page
       .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
+      .getByRole("button", { name: "回测与因子", exact: true })
       .click();
     await expect(page.getByLabel("初始资金", { exact: true })).toHaveValue("25000");
     for (const [label, value] of [
@@ -353,9 +366,10 @@ async function closeDesktop(application) {
     await settings.getByRole("button", { name: "连接与部署", exact: true }).click();
     const locations = settings.getByRole("list", { name: "当前运行位置", exact: true });
     await expect(locations).toBeVisible();
-    await expect(locations.getByRole("listitem").filter({ hasText: "研究与计算" })).toContainText(
-      "本机",
-    );
+    for (const service of ["历史数据服务", "任务服务"])
+      await expect(locations.getByRole("listitem").filter({ hasText: service })).toContainText(
+        "本机",
+      );
     await capture(settings, "native-deployment-overview");
     const deploymentWindow = await application.browserWindow(settings);
     await deploymentWindow.evaluate(win => win.webContents.setZoomFactor(1.25));
@@ -419,7 +433,7 @@ async function closeDesktop(application) {
     await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
     await page
       .locator(".workspace-tabs")
-      .getByRole("button", { name: "研究", exact: true })
+      .getByRole("button", { name: "回测与因子", exact: true })
       .click();
     const ownedPid = Number(await fs.readFile(path.join(temp, "node", "agent.pid"), "utf8"));
     await closeDesktop(application);
@@ -434,7 +448,7 @@ async function closeDesktop(application) {
       restored.getByRole("navigation", { name: "业务工作区" }).getByRole("button"),
     ).toHaveCount(6);
     await expect(
-      restored.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }),
+      restored.locator(".workspace-tabs").getByRole("button", { name: "回测与因子", exact: true }),
     ).toHaveAttribute("aria-current", "page", { timeout: 60000 });
     await restored
       .locator(".workspace-tabs")

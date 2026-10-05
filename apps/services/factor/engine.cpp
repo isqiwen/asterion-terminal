@@ -7,7 +7,7 @@
 namespace asterion::factor {
 namespace {
 const google::protobuf::RepeatedPtrField<protocol::v1::Bar>&
-bars(const research::v1::FactorInput& input) {
+bars(const factor::v1::FactorInput& input) {
   return input.dataset().bars();
 }
 // A contiguous bar range as its own valid dataset, with matching trading days.
@@ -24,7 +24,7 @@ data::v1::BarDataset bar_slice(const data::v1::BarDataset& source, unsigned begi
   result.set_revision(protocol::bar_dataset_revision(result));
   return result;
 }
-std::vector<FactorFoldRange> folds(const research::v1::FactorInput& input) {
+std::vector<FactorFoldRange> folds(const factor::v1::FactorInput& input) {
   std::vector<std::int64_t> times;
   for (const auto& event : bars(input))
     times.push_back(event.timestamp_ns());
@@ -33,57 +33,11 @@ std::vector<FactorFoldRange> folds(const research::v1::FactorInput& input) {
                                   input.walk_forward().validation_events());
 }
 } // namespace
-void verify_result(const research::v1::FactorInput& input,
-                   const research::v1::FactorResult& result) {
-  protocol::validate_message(result);
-  // The bounded first model is deterministic. Validate the complete claimed
-  // output before committing it, not just its dataset label or summary.
-  const auto expected = run(input);
-  if (protocol::decode_factor_result(result) != protocol::decode_factor_result(expected))
-    throw std::invalid_argument("factor result does not match its input and algorithm");
-}
-void validate(const research::v1::FactorInput& input) {
-  static_cast<void>(protocol::decode_factor(input));
-  // Bar-count horizons, not exchange calendar sessions.
-  if (static_cast<unsigned>(bars(input).size()) <
-      input.lookbacks(input.lookbacks_size() - 1) + input.horizon() + 30)
-    throw std::invalid_argument("factor analysis requires at least 30 labelled "
-                                "observations after warmup and tail exclusion");
-  if (input.has_holdout_start()) {
-    const auto split = input.holdout_start();
-    const auto count = static_cast<unsigned>(bars(input).size());
-    if (split < input.lookbacks(input.lookbacks_size() - 1) + input.horizon() + 30 ||
-        count - split < input.horizon() + 30)
-      throw std::invalid_argument(
-          "each factor partition requires at least 30 labelled observations");
-    if (bars(input)[static_cast<int>(split - 1)].timestamp_ns() >=
-        bars(input)[static_cast<int>(split)].timestamp_ns())
-      throw std::invalid_argument("factor split must separate distinct timestamps");
-  }
-  if (input.has_walk_forward())
-    static_cast<void>(folds(input));
-  for (const auto& bar : bars(input))
-    if (bar.close().units() <= 0)
-      throw std::invalid_argument("factor analysis requires positive closes");
-}
-std::size_t work_units(const research::v1::FactorInput& input) {
-  // Callers validate the bounded input first.
+factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_token stop,
+                             const std::function<void(std::size_t, std::size_t)>& progress) {
+  protocol::validate_factor_input(input);
   if (input.has_walk_forward()) {
-    const auto plan = folds(input);
-    const auto training = input.walk_forward().training_events();
-    return plan.size() * (training + input.walk_forward().validation_events() +
-                          (input.lookbacks_size() > 1 ? input.lookbacks_size() * training : 0));
-  }
-  return static_cast<std::size_t>(bars(input).size()) +
-         (input.lookbacks_size() > 1
-              ? static_cast<std::size_t>(input.lookbacks_size()) * input.holdout_start()
-              : 0);
-}
-research::v1::FactorResult run(const research::v1::FactorInput& input, std::stop_token stop,
-                               const std::function<void(std::size_t, std::size_t)>& progress) {
-  validate(input);
-  if (input.has_walk_forward()) {
-    research::v1::FactorResult result;
+    factor::v1::FactorResult result;
     result.set_version(5);
     result.set_dataset_revision(input.dataset_revision());
     result.set_engine_version("asterion.factor.bar-momentum.v5");
@@ -92,7 +46,7 @@ research::v1::FactorResult run(const research::v1::FactorInput& input, std::stop
     result.set_evaluation_warmup(input.lookbacks(input.lookbacks_size() - 1));
     result.set_selection_rule(input.lookbacks_size() > 1 ? "rolling_development_abs_spearman"
                                                          : "rolling_fixed");
-    const auto total = work_units(input);
+    const auto total = protocol::factor_work_units(input);
     std::size_t completed = 0;
     for (const auto& range : folds(input)) {
       if (stop.stop_requested())
@@ -106,7 +60,7 @@ research::v1::FactorResult run(const research::v1::FactorInput& input, std::stop
         if (progress)
           progress(completed + done, total);
       });
-      completed += work_units(slice);
+      completed += protocol::factor_work_units(slice);
       auto* fold = result.add_folds();
       fold->set_training_begin(range.training_begin);
       fold->set_training_end(range.training_end);
@@ -134,7 +88,7 @@ research::v1::FactorResult run(const research::v1::FactorInput& input, std::stop
   }
   const auto spec = protocol::instrument(input.dataset().contract());
 
-  research::v1::FactorResult result;
+  factor::v1::FactorResult result;
   result.set_version(5);
   result.set_dataset_revision(input.dataset_revision());
   result.set_engine_version("asterion.factor.bar-momentum.v5");
@@ -148,7 +102,7 @@ research::v1::FactorResult run(const research::v1::FactorInput& input, std::stop
   unsigned selected = input.lookbacks(0);
   const bool search = input.lookbacks_size() > 1;
   result.set_selection_rule(search ? "development_abs_spearman" : "fixed");
-  const auto total = work_units(input);
+  const auto total = protocol::factor_work_units(input);
   std::size_t completed = 0;
   auto advance = [&] {
     if (progress)

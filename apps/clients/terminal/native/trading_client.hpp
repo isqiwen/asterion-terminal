@@ -1,39 +1,43 @@
 #pragma once
 #include <asterion/foundation/serialization.hpp>
 #include <memory>
-#include <mutex>
-#include <thread>
-#include <condition_variable>
 #include "service_endpoint.hpp"
-#include <filesystem>
+#include "service_io.hpp"
 namespace asterion::terminal {
-// Terminal owns the connection to one CTP account's service, never its record.
-class NodeClient;
+class Application;
+// All connection state and requests are advanced by the shared Native I/O owner.
 class TradingClient {
 public:
-  explicit TradingClient(const std::filesystem::path& directory, const Json& manifest = nullptr);
-  explicit TradingClient(const ServiceEndpoint& remote);
+  // Prepare transport resources on the calling management operation; initialization
+  // and every subsequent request run asynchronously on ServiceIo.
+  [[nodiscard]] static std::future<std::shared_ptr<TradingClient>> open(ServiceIo&, ServiceEndpoint,
+                                                                        Json manifest = nullptr);
   ~TradingClient();
-  void create(const Json& manifest);
-  // Credentials pass through to the service and are not kept.
-  void connect_broker(std::string password, std::string auth_code);
-  void disconnect_broker();
-  void query_costs();
-  void reconnect();
-  Json connection() const;
+  TradingClient(const TradingClient&) = delete;
+  TradingClient& operator=(const TradingClient&) = delete;
+  [[nodiscard]] std::future<void> connect_broker(std::string password, std::string auth_code);
+  [[nodiscard]] std::future<void> disconnect_broker();
+  [[nodiscard]] std::future<void> query_costs();
+  [[nodiscard]] std::future<Json> view() const;
   ServiceEndpoint endpoint() const;
-  void execute(const Json& command);
-  Json snapshot();
-  std::uint64_t process_id() const;
+  [[nodiscard]] std::future<void> execute(const Json& command);
+  [[nodiscard]] std::future<Json> snapshot() const;
 
 private:
-  std::unique_ptr<NodeClient> node_;
-  void monitor();
-  mutable std::mutex mutex_;
-  std::condition_variable wake_;
-  std::jthread heartbeat_;
-  unsigned int restarts_ = 0, reconnects_ = 0, reconnect_attempts_ = 0;
+  friend class Application;
+  struct Read {
+    std::shared_ptr<const Json> session;
+    Json connection;
+    bool failed = false;
+    Json snapshot() const;
+    Json render() const;
+    bool operator==(const Read&) const = default;
+  };
+  // Application captures selected service views in one I/O owner turn.
+  Read owner_view() const;
+  TradingClient(ServiceIo&, ServiceEndpoint);
+  ServiceIo& io_;
   struct Impl;
-  std::unique_ptr<Impl> impl_;
+  std::shared_ptr<Impl> impl_;
 };
 } // namespace asterion::terminal

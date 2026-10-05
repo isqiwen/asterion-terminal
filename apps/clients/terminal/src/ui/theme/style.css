@@ -1516,62 +1516,62 @@ button[aria-disabled="true"],
   overflow-wrap: anywhere;
 }
 
-.research {
+.backtest-factor {
   padding: 0 16px 24px;
   min-height: 0;
   overflow: auto;
 }
-.research-fields {
+.backtest-factor-fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 12px;
   margin: 16px 0;
 }
-.research label {
+.backtest-factor label {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.research label.research-ack {
+.backtest-factor label.backtest-factor-ack {
   flex-direction: row;
   align-items: center;
   margin: 12px 0;
 }
-.research input,
-.research select {
+.backtest-factor input,
+.backtest-factor select {
   min-width: 0;
 }
-.research p,
-.research figcaption {
+.backtest-factor p,
+.backtest-factor figcaption {
   color: var(--muted);
   font-size: 12px;
 }
-.research-hash {
+.backtest-factor-hash {
   overflow-wrap: anywhere;
 }
-.research details {
+.backtest-factor details {
   margin: 12px 0;
 }
-.research summary {
+.backtest-factor summary {
   cursor: pointer;
   padding: 8px;
 }
-.research summary:hover {
+.backtest-factor summary:hover {
   background: var(--hover);
 }
-.research-table {
+.backtest-factor-table {
   max-height: 300px;
   overflow: auto;
 }
-.research-equity {
+.backtest-factor-equity {
   margin: 16px 0;
 }
-.research-equity svg {
+.backtest-factor-equity svg {
   display: block;
   width: 100%;
   max-height: 200px;
 }
-.research fieldset {
+.backtest-factor fieldset {
   border: 0;
   padding: 0;
   margin: 0;
@@ -1593,7 +1593,7 @@ button[aria-disabled="true"],
 .sync-preparation-option small {
   flex-basis: 100%;
 }
-.research-preparations {
+.backtest-factor-preparations {
   padding: 0 16px 16px;
 }
 .preparation-batch {
@@ -1678,7 +1678,7 @@ code,
 pre,
 .paper-metrics dd,
 .account-summary dd,
-.research-metrics strong {
+.backtest-factor-metrics strong {
   font-family: var(--font-terminal);
   font-variant-numeric: tabular-nums;
 }

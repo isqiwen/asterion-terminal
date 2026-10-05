@@ -91,18 +91,19 @@ jobs:
       - run: python scripts/prepare_ctp.py
       - run: conan install . -s build_type=Release -s compiler.cppstd=20 -o with_tests=False -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
       - run: cmake --preset conan-release
-      - run: cmake --build --preset conan-release --target asterion-node-agent asterion-trading asterion-market-data asterion-task-service asterion-backtest asterion-factor asterion-data-pipeline
+      - run: python scripts/deployment_bundle.py build/Release
       - name: Verify native Linux executables
         run: |
           ./build/Release/asterion-node-agent --version
           ./build/Release/asterion-trading --version
+          ./build/Release/asterion-market-data --version
+          ./build/Release/asterion-data-service --version
           ./build/Release/asterion-task-service --version
           ./build/Release/asterion-backtest --version
           ./build/Release/asterion-factor --version
           ./build/Release/asterion-data-pipeline --version
           ldd build/Release/asterion-node-agent
           ldd build/Release/asterion-trading
-      - run: python scripts/deployment_bundle.py build/Release
       - uses: actions/upload-artifact@v4
         with:
           name: remote-linux-${{ matrix.arch }}
@@ -110,11 +111,11 @@ jobs:
           path: build/Release/deployment/*.zip
 
   terminal:
-    needs: remote-linux
+    needs: [style, core, core-sanitizers, remote-linux]
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest]
+        os: [macos-15, macos-15-intel]
     runs-on: ${{ matrix.os }}
     env:
       ASTERION_CPP_BUILD: ${{ github.workspace }}/build/Debug
@@ -133,6 +134,7 @@ jobs:
       - run: conan profile detect
       - run: python scripts/prepare_ctp.py
       - run: pnpm install --frozen-lockfile
+      - run: pnpm exec install-electron
       - uses: actions/download-artifact@v4
         with:
           pattern: remote-linux-*
@@ -145,12 +147,14 @@ jobs:
       - run: pnpm test:e2e
       - name: Exercise native Electron host
         run: pnpm test:desktop
-      - name: Build macOS DMG
-        run: python scripts/desktop.py build
+      - name: Build isolated acceptance DMG
+        run: python scripts/desktop.py package-test
       - run: ctest --preset conan-release --output-on-failure
+      - name: Validate complete recovery gate
+        run: python tests/recovery_gate.py --build build/Release
       - name: Exercise installed macOS desktop
         timeout-minutes: 8
-        run: python tests/electron_installer.py build/desktop/*.dmg
+        run: python tests/electron_installer.py build/desktop-test/*.dmg
       - name: Upload installed desktop evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -160,9 +164,9 @@ jobs:
           path: build/installed-desktop/
       - uses: actions/upload-artifact@v4
         with:
-          name: terminal-${{ matrix.os }}
+          name: terminal-test-${{ matrix.os }}
           if-no-files-found: error
-          path: build/desktop/*.dmg
+          path: build/desktop-test/*.dmg
 
   core-sanitizers:
     strategy:
@@ -188,7 +192,7 @@ jobs:
       # The full-budget and large-dataset tests measure capacity, not thread
       # safety; instrumented, they exceed the services' own request timeouts and
       # starve the rest of the run. The uninstrumented jobs run them.
-      - run: ctest --preset conan-debug --output-on-failure -E "FullResearchBarBudget|FullSessionBudget|LargeResearchDatasets"
+      - run: ctest --preset conan-debug --output-on-failure -E "^(Backtest\.FullBarBudgetRunsThroughFinalSettlement|TerminalApi\.LargeNamedDatasetsBacktest)$"
         env:
           ASTERION_TIMING_SCALE: "20"
           # Uninstrumented protobuf poisons its own arena memory and annotates

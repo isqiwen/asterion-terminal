@@ -1,4 +1,5 @@
 from conan import ConanFile
+from conan.errors import ConanInvalidConfiguration
 from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
 
 
@@ -12,9 +13,9 @@ class Asterion(ConanFile):
     default_options = {"with_tests": True, "cpp-httplib/*:with_openssl": True, "spdlog/*:header_only": True, "fmt/*:header_only": True, "gtest/*:with_gmock": False, "protobuf/*:with_zlib": False, "sqlite3/*:threadsafe": 2, "duckdb/*:with_threads": True}
 
     def validate(self):
-        if str(self.settings.os) == "Linux" and str(self.settings.arch) != "x86_64":
-            from conan.errors import ConanInvalidConfiguration
-            raise ConanInvalidConfiguration("Linux currently supports x86_64 only")
+        target = (str(self.settings.os), str(self.settings.arch))
+        if target not in (("Macos", "armv8"), ("Macos", "x86_64"), ("Linux", "x86_64")):
+            raise ConanInvalidConfiguration("Asterion supports macOS armv8/x86_64 and Linux x86_64 only")
 
     def build_requirements(self):
         if self.options.with_tests:

@@ -4,14 +4,14 @@
 #include <array>
 #include <stdexcept>
 namespace asterion::factor {
-research::v1::DailyFactorResult
-run_daily(const research::v1::DailyFactorInput& input, std::stop_token stop,
+factor::v1::DailyFactorResult
+run_daily(const factor::v1::DailyFactorInput& input, std::stop_token stop,
           const std::function<void(std::size_t, std::size_t)>& progress) {
   protocol::validate_daily_factor(input);
   const auto bars = protocol::daily_factor_bars(input.dataset());
   const auto samples =
       daily_momentum_samples(bars, input.lookback(), input.horizon(), stop, progress);
-  research::v1::DailyFactorResult result;
+  factor::v1::DailyFactorResult result;
   result.set_version(1);
   result.set_dataset_revision(input.dataset_revision());
   result.set_engine_version("asterion.factor.daily-close-momentum.v1");
@@ -53,11 +53,5 @@ run_daily(const research::v1::DailyFactorInput& input, std::stop_token stop,
   if (stop.stop_requested())
     throw std::runtime_error("daily momentum analysis cancelled");
   return result;
-}
-void verify_daily_result(const research::v1::DailyFactorInput& input,
-                         const research::v1::DailyFactorResult& result) {
-  protocol::validate_message(result);
-  if (run_daily(input).SerializeAsString() != result.SerializeAsString())
-    throw std::invalid_argument("daily factor result does not match its input and algorithm");
 }
 } // namespace asterion::factor

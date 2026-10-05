@@ -1,12 +1,14 @@
 #pragma once
 #include <asterion/foundation/serialization.hpp>
 #include <filesystem>
+#include <chrono>
 #include <map>
 #include <memory>
 #include <optional>
 namespace asterion::terminal {
 // What one data provider (a data source plugin) was given: a single
-// credential used by all of its sources, and the request budget for them.
+// credential used by all of its sources, and the local request-rate preference.
+// Applying a shared budget to a Data instance is a separate explicit command.
 struct DataCredential {
   std::string provider;
   unsigned requests_per_minute = 0;
@@ -30,7 +32,10 @@ public:
 };
 // The login keychain through the asterion-keychain helper; null when the
 // helper is unavailable, in which case credentials cannot be remembered.
-std::shared_ptr<CredentialStore> keychain_store(const std::filesystem::path& helper);
+// Pipe I/O and helper completion share a deadline of at most 30 seconds.
+std::shared_ptr<CredentialStore>
+keychain_store(const std::filesystem::path& helper,
+               std::chrono::milliseconds timeout = std::chrono::seconds(30));
 class DataCredentials {
 public:
   DataCredentials(std::filesystem::path directory, std::shared_ptr<CredentialStore> remembered)

@@ -1,4 +1,5 @@
 #include <asterion/kernel/logger.hpp>
+#include <asterion/kernel/trace.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/sinks/stdout_sinks.h>
@@ -7,8 +8,26 @@
 #include <chrono>
 #include <ctime>
 #include <regex>
+#include <cstdio>
+#include <map>
+#include <mutex>
 namespace asterion {
 namespace {
+std::atomic<std::uint64_t> log_failures{0};
+void record_log_failure() noexcept {
+  const auto count = log_failures.fetch_add(1, std::memory_order_relaxed) + 1;
+  if (!count || (count & (count - 1)))
+    return;
+  // Independent of spdlog, allocation and the failing sink. Never echo the
+  // original payload, path, exception text or credentials, even on failure.
+  char notice[160];
+  const int size =
+      std::snprintf(notice, sizeof notice,
+                    "{\"event\":\"logging.failed\",\"level\":\"error\",\"failures\":%llu}\n",
+                    static_cast<unsigned long long>(count));
+  if (size > 0 && static_cast<std::size_t>(size) < sizeof notice)
+    (void)std::fwrite(notice, 1, static_cast<std::size_t>(size), stderr);
+}
 spdlog::level::level_enum native_level(LogLevel level) {
   switch (level) {
   case LogLevel::debug:
@@ -81,15 +100,33 @@ void remove_expired(const std::filesystem::path& file, unsigned retention_days) 
   }
 }
 } // namespace
+std::uint64_t process_log_failures() noexcept {
+  return log_failures.load(std::memory_order_relaxed);
+}
 std::shared_ptr<Logger> process_logger(const std::string& name) {
   const auto directory = environment_path("ASTERION_LOG_DIRECTORY");
   if (!directory)
     return nullptr;
+  validate_id(name);
+  struct Cached {
+    std::filesystem::path directory;
+    std::shared_ptr<Logger> logger;
+  };
+  static std::mutex mutex;
+  static std::map<std::string, Cached> cache;
+  std::lock_guard lock(mutex);
+  const auto found = cache.find(name);
+  if (found != cache.end() && found->second.directory == *directory)
+    return found->second.logger;
+  if (found == cache.end() && cache.size() >= 32)
+    throw Error(ErrorCode::resource_exhausted, "process logger capacity exhausted");
   LoggerOptions options;
   options.name = name;
   options.stderr_sink = false;
   options.file = *directory / (name + ".log");
-  return std::make_shared<Logger>(options);
+  auto logger = std::make_shared<Logger>(options);
+  cache.insert_or_assign(name, Cached{*directory, logger});
+  return logger;
 }
 void log_process_event(const std::string& name, LogLevel level, std::string_view event,
                        Json fields) noexcept {
@@ -99,6 +136,39 @@ void log_process_event(const std::string& name, LogLevel level, std::string_view
       logger->flush();
     }
   } catch (...) {
+    record_log_failure();
+  }
+}
+void log_process_failure(const std::string& name, std::string_view event, ErrorCode code,
+                         std::uint64_t count) noexcept {
+  if (!count || (count & (count - 1)))
+    return;
+  try {
+    log_process_event(name, LogLevel::warning, event,
+                      {{"code", error_name(code)}, {"failures", count}});
+  } catch (...) {
+    record_log_failure();
+  }
+}
+void log_identity_event(
+    const std::string& name, std::string_view event,
+    std::initializer_list<std::pair<std::string_view, std::string_view>> ids) noexcept {
+  try {
+    Json fields = Json::object();
+    if (const auto trace = current_trace_id(); !trace.empty()) {
+      validate_id(trace);
+      fields["trace_id"] = trace;
+    }
+    for (const auto& [key, value] : ids) {
+      validate_id(key);
+      if (!value.empty()) {
+        validate_id(value);
+        fields[std::string(key)] = value;
+      }
+    }
+    log_process_event(name, LogLevel::info, event, std::move(fields));
+  } catch (...) {
+    record_log_failure();
   }
 }
 Logger::Logger(const LoggerOptions& options) {
@@ -131,7 +201,10 @@ Logger::Logger(std::shared_ptr<spdlog::logger> backend) : backend_(std::move(bac
   configure_errors();
 }
 void Logger::configure_errors() {
-  backend_->set_error_handler([failures = failures_](const std::string&) { ++*failures; });
+  backend_->set_error_handler([failures = failures_](const std::string&) {
+    ++*failures;
+    record_log_failure();
+  });
 }
 bool Logger::write(LogLevel level, std::string_view event, Json fields) noexcept {
   try {
@@ -156,6 +229,7 @@ bool Logger::write(LogLevel level, std::string_view event, Json fields) noexcept
     return failures_->load() == before;
   } catch (...) {
     ++*failures_;
+    record_log_failure();
     return false;
   }
 }
@@ -164,6 +238,7 @@ void Logger::flush() noexcept {
     backend_->flush();
   } catch (...) {
     ++*failures_;
+    record_log_failure();
   }
 }
 } // namespace asterion

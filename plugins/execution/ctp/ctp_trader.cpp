@@ -1,5 +1,6 @@
 #include <array>
 #include "ctp_trader.hpp"
+#include "ctp_reconciliation.hpp"
 #include "ctp_feed.hpp"
 #include "ctp_support.hpp"
 #include <ThostFtdcTraderApi.h>
@@ -15,13 +16,14 @@
 #include <sstream>
 #include <thread>
 #include <utility>
+#include <variant>
+#include <functional>
 namespace asterion::ctp {
 namespace {
 using namespace std::chrono_literals;
 // CTP allows one query per second per session; keep a margin.
 constexpr auto query_spacing = 1100ms;
 constexpr auto query_timeout = 10s;
-constexpr auto request_timeout = 5s;
 enum class Kind {
   authenticate,
   login,
@@ -44,11 +46,105 @@ bool is_query(Kind kind) {
 bool is_rate_query(Kind kind) {
   return kind == Kind::query_margin || kind == Kind::query_commission;
 }
+struct FrontConnectedEvent {};
+struct FrontDisconnectedEvent {
+  int reason;
+};
+struct RspAuthenticateEvent {
+  std::optional<CThostFtdcRspInfoField> info;
+};
+struct RspUserLoginEvent {
+  std::optional<CThostFtdcRspUserLoginField> login;
+  std::optional<CThostFtdcRspInfoField> info;
+};
+struct RspSettlementInfoConfirmEvent {
+  std::optional<CThostFtdcRspInfoField> info;
+};
+struct RspQryOrderEvent {
+  std::optional<CThostFtdcOrderField> order;
+  std::optional<CThostFtdcRspInfoField> info;
+  int request;
+  bool last;
+};
+struct RspQryTradeEvent {
+  std::optional<CThostFtdcTradeField> trade;
+  std::optional<CThostFtdcRspInfoField> info;
+  int request;
+  bool last;
+};
+struct RspQryInvestorPositionEvent {
+  std::optional<CThostFtdcInvestorPositionField> row;
+  std::optional<CThostFtdcRspInfoField> info;
+  int request;
+  bool last;
+};
+struct RspQryTradingAccountEvent {
+  std::optional<CThostFtdcTradingAccountField> account;
+  std::optional<CThostFtdcRspInfoField> info;
+  int request;
+  bool last;
+};
+struct RspQryInstrumentMarginRateEvent {
+  std::optional<CThostFtdcInstrumentMarginRateField> row;
+  std::optional<CThostFtdcRspInfoField> info;
+  int request;
+  bool last;
+};
+struct RspQryInstrumentCommissionRateEvent {
+  std::optional<CThostFtdcInstrumentCommissionRateField> row;
+  std::optional<CThostFtdcRspInfoField> info;
+  int request;
+  bool last;
+};
+struct RspQryDepthMarketDataEvent {
+  std::optional<CThostFtdcDepthMarketDataField> row;
+  std::optional<CThostFtdcRspInfoField> info;
+  int request;
+  bool last;
+};
+struct RtnOrderEvent {
+  std::optional<CThostFtdcOrderField> order;
+};
+struct RtnTradeEvent {
+  std::optional<CThostFtdcTradeField> trade;
+};
+struct RspOrderInsertEvent {
+  std::optional<CThostFtdcRspInfoField> info;
+  int request;
+};
+struct RspOrderActionEvent {
+  std::optional<CThostFtdcInputOrderActionField> input;
+  std::optional<CThostFtdcRspInfoField> info;
+};
+struct ErrRtnOrderActionEvent {
+  std::optional<CThostFtdcOrderActionField> input;
+  std::optional<CThostFtdcRspInfoField> info;
+};
+struct RspErrorEvent {
+  std::optional<CThostFtdcRspInfoField> info;
+};
+using CallbackData =
+    std::variant<FrontConnectedEvent, FrontDisconnectedEvent, RspAuthenticateEvent,
+                 RspUserLoginEvent, RspSettlementInfoConfirmEvent, RspQryOrderEvent,
+                 RspQryTradeEvent, RspQryInvestorPositionEvent, RspQryTradingAccountEvent,
+                 RspQryInstrumentMarginRateEvent, RspQryInstrumentCommissionRateEvent,
+                 RspQryDepthMarketDataEvent, RtnOrderEvent, RtnTradeEvent, RspOrderInsertEvent,
+                 RspOrderActionEvent, ErrRtnOrderActionEvent, RspErrorEvent>;
+struct CallbackEntry {
+  CallbackData data;
+  std::chrono::steady_clock::time_point observed_at;
+};
+template <class T> std::optional<T> copy_callback(const T* value) noexcept {
+  return value ? std::optional<T>(*value) : std::nullopt;
+}
+
 struct Command {
   Kind kind;
-  std::uint64_t generation = 0, query_generation = 0;
-  int query_request_id = 0;
-  Kind query_kind = Kind::query_orders;
+  std::string order_id;
+  BrokerSendPermit permit;
+  std::uint64_t generation = 0;
+  std::uint64_t exposure_revision = 0;
+  int request_id = 0;
   CThostFtdcInputOrderField order{};
   CThostFtdcInputOrderActionField action{};
   // Rate queries: the contract and its product code.
@@ -56,7 +152,7 @@ struct Command {
   std::string product;
   std::uint64_t serial = 0; // quote queries
   std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::time_point::max();
-  std::shared_ptr<std::promise<int>> result;
+  std::shared_ptr<std::promise<BrokerDispatchResult>> result;
 };
 Decimal rate(double value) {
   const auto parsed = price(value);
@@ -70,24 +166,6 @@ Decimal money(double value) {
     throw std::runtime_error("invalid CTP money value");
   return quantize(*parsed, Decimal::parse("0.01"), Rounding::half_up);
 }
-Decimal lots(int value) {
-  return Decimal::parse(std::to_string(std::max(0, value)));
-}
-Side side_of(char direction) {
-  return direction == THOST_FTDC_D_Sell ? Side::sell : Side::buy;
-}
-Offset offset_of(char flag) {
-  switch (flag) {
-  case THOST_FTDC_OF_Open:
-    return Offset::open;
-  case THOST_FTDC_OF_CloseToday:
-    return Offset::close_today;
-  case THOST_FTDC_OF_CloseYesterday:
-    return Offset::close_yesterday;
-  default:
-    return Offset::close;
-  }
-}
 char offset_flag(Offset offset) {
   switch (offset) {
   case Offset::open:
@@ -100,30 +178,6 @@ char offset_flag(Offset offset) {
     return THOST_FTDC_OF_Close;
   }
   return THOST_FTDC_OF_Open;
-}
-BrokerOrderStatus status_of(const CThostFtdcOrderField& order) {
-  if (order.OrderSubmitStatus == THOST_FTDC_OSS_InsertRejected)
-    return BrokerOrderStatus::rejected;
-  switch (order.OrderStatus) {
-  case THOST_FTDC_OST_AllTraded:
-    return BrokerOrderStatus::filled;
-  case THOST_FTDC_OST_PartTradedQueueing:
-    return BrokerOrderStatus::partially_filled;
-  case THOST_FTDC_OST_NoTradeQueueing:
-  case THOST_FTDC_OST_NotTouched:
-  case THOST_FTDC_OST_Touched:
-    return BrokerOrderStatus::accepted;
-  case THOST_FTDC_OST_PartTradedNotQueueing:
-  case THOST_FTDC_OST_NoTradeNotQueueing:
-  case THOST_FTDC_OST_Canceled:
-    return BrokerOrderStatus::cancelled;
-  default:
-    return BrokerOrderStatus::submitted;
-  }
-}
-bool terminal(BrokerOrderStatus status) {
-  return status == BrokerOrderStatus::filled || status == BrokerOrderStatus::cancelled ||
-         status == BrokerOrderStatus::rejected;
 }
 int whole_lots(Decimal quantity) {
   if (quantity <= Decimal{} || !quantity.multiple_of(Decimal::parse("1")) ||
@@ -144,6 +198,12 @@ double sdk_price(Decimal value) {
 }
 } // namespace
 struct Trader::Impl final : CThostFtdcTraderSpi {
+  struct Prepared final : PreparedBrokerOrder {
+    Impl* owner;
+    Command command;
+    Prepared(Impl* owner, Command command, BrokerOrder order)
+        : PreparedBrokerOrder(std::move(order)), owner(owner), command(std::move(command)) {}
+  };
   using Factory = CThostFtdcTraderApi* (*)(const char*);
   std::unique_ptr<SharedLibrary> library;
   Factory factory = nullptr;
@@ -153,14 +213,9 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
   std::condition_variable wake;
   TraderConfiguration config;
   BrokerSnapshot state;
-  std::map<std::string, std::string> known;    // broker key -> order ID
-  std::map<std::string, std::string> keys;     // order ID -> broker key
-  std::map<std::string, std::size_t> order_at; // broker key -> index
-  std::map<std::string, std::string> exchange; // exchange order ID -> key
-  // CTP cancellation must echo the SDK identity, including its leading spaces.
-  std::map<std::string, std::array<char, sizeof(TThostFtdcOrderSysIDType)>> raw_order_ids;
-  std::set<std::string> trade_ids;
-  std::map<std::pair<InstrumentId, Side>, BrokerPosition> positions_in_progress;
+  ReportReconciler reports{state};
+  std::uint64_t position_query_revision = 0;
+  bool position_refresh_again = false;
   // Rate answers per contract until both queries complete.
   struct Rates {
     std::string product;
@@ -170,9 +225,17 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
   };
   std::map<InstrumentId, Rates> rates;
   InstrumentId rate_instrument; // the outstanding rate query
-  // Quote answers by request serial; the waiting caller takes its own.
+  // Quote futures complete after both SDK acceptance and the final response.
   std::uint64_t quote_serial = 0, quote_outstanding = 0;
-  std::map<std::uint64_t, std::optional<BrokerQuote>> quotes;
+  struct QuoteAnswer {
+    std::optional<BrokerQuote> quote;
+    bool completed = false, dispatched = false;
+    InstrumentId instrument;
+    std::uint64_t generation = 0;
+    std::chrono::steady_clock::time_point deadline;
+    std::promise<std::optional<BrokerQuote>> result;
+  };
+  std::map<std::uint64_t, QuoteAnswer> quotes;
   std::deque<Command> queue;
   // Session identity from the latest login; generation changes on every
   // disconnect so requests prepared for an older session are never sent.
@@ -182,10 +245,24 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
   Kind query_kind = Kind::query_orders;
   bool closing = true, query_outstanding = false, refresh_queued = false;
   std::chrono::steady_clock::time_point query_started, next_query_at;
-  std::jthread commands, retiring;
+  struct Connection {
+    TraderConfiguration config;
+    KnownOrders known;
+  };
+  std::optional<Connection> connecting;
+  bool order_in_flight = false;
+  // Original requests awaiting their first broker fact. Both rejection and
+  // pre-report cancellation use this identity, never the latest login identity.
+  struct OrderRequest {
+    BrokerOrder order;
+    CThostFtdcInputOrderActionField cancel;
+  };
+  std::map<int, OrderRequest> order_requests;
+  std::jthread commands;
 
-  explicit Impl(const std::filesystem::path& path, const std::filesystem::path& directory)
-      : flow(directory) {
+  explicit Impl(const std::filesystem::path& path, const std::filesystem::path& directory,
+                BrokerSendGate& gate, std::function<void()> ready)
+      : flow(directory), send_gate(gate), events_ready(std::move(ready)) {
     library = std::make_unique<SharedLibrary>(
         path, "?CreateFtdcTraderApi@CThostFtdcTraderApi@@SAPEAV1@PEBD@Z",
         "_ZN19CThostFtdcTraderApi19CreateFtdcTraderApiEPKc");
@@ -194,32 +271,188 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       library.reset();
       throw Error(ErrorCode::unavailable, "CTP 6.7.7 trader SDK unavailable or incompatible");
     }
+    commands = std::jthread([this](std::stop_token stop) {
+      lifecycle(stop);
+      sdk_stopped = true;
+      wake.notify_all();
+      events_ready();
+    });
   }
   ~Impl() {
     close();
-    finish_release();
+    commands.request_stop();
+    wake.notify_all();
+    // Keep the sole state owner alive while Release stops callback producers.
+    // The SDK may still need its reserved owner operation to finish shutdown.
+    while (!sdk_stopped) {
+      std::unique_lock lock(mutex);
+      poll_owner();
+      wake.wait_for(lock, 25ms, [this] { return sdk_stopped.load(); });
+    }
+    commands.join();
+    {
+      std::lock_guard lock(mutex);
+      poll_owner(); // Every producer is stopped; consume the final accepted prefix.
+    }
     library.reset();
   }
   void changed() { ++state.sequence; }
   void fail(int code) {
+    send_gate.invalidate();
     state.phase = "error";
     state.error_code = code;
     changed();
   }
-  // Callbacks run on SDK threads; they only update state and queue work.
-  template <class F> void callback(F action) noexcept {
-    try {
-      std::lock_guard lock(mutex);
-      if (!closing)
-        action();
-    } catch (...) {
-      try {
-        std::lock_guard lock(mutex);
-        fail(-1000);
-      } catch (...) {
+  // A fixed ring owns callback bytes. Producers never take the state mutex.
+  // The ingress lock linearizes invalidation with publication and acknowledgement.
+  static constexpr std::size_t callback_capacity = 1024;
+  std::array<std::optional<CallbackEntry>, callback_capacity> callbacks;
+  std::mutex ingress_mutex;
+  std::size_t callback_head = 0, callback_size = 0;
+  int ingress_error = 0;
+  BrokerSendGate& send_gate;
+  std::function<void()> events_ready;
+  // The single SDK worker can have only one owner operation awaiting completion.
+  // This reserved slot is independent of callback and external request capacity.
+  std::function<void()> owner_work;
+  std::atomic<bool> sdk_stopped = false;
+  template <class F> auto on_owner(F action) {
+    using Result = std::invoke_result_t<F>;
+    auto task = std::make_shared<std::packaged_task<Result()>>(std::move(action));
+    auto result = task->get_future();
+    {
+      std::lock_guard lock(ingress_mutex);
+      owner_work = [task = std::move(task)] { (*task)(); };
+    }
+    events_ready();
+    wake.notify_all();
+    return result.get();
+  }
+  void poll_owner() {
+    drain_callbacks();
+    if (query_outstanding && std::chrono::steady_clock::now() - query_started >= query_timeout) {
+      query_outstanding = false;
+      fail(-1002);
+      finish_quotes();
+    }
+    std::function<void()> work;
+    {
+      std::lock_guard lock(ingress_mutex);
+      work = std::exchange(owner_work, {});
+    }
+    if (work)
+      work();
+  }
+  template <class T> void receive(T value, bool affects_permission) noexcept {
+    const auto observed_at = std::chrono::steady_clock::now();
+    {
+      std::lock_guard lock(ingress_mutex);
+      if (affects_permission)
+        send_gate.pending();
+      if (callback_size == callback_capacity) {
+        ingress_error = -1008;
+        if (!affects_permission)
+          send_gate.pending();
+      } else {
+        callbacks[(callback_head + callback_size) % callback_capacity].emplace(
+            CallbackEntry{std::move(value), observed_at});
+        ++callback_size;
       }
     }
-    wake.notify_all();
+    events_ready();
+  }
+  // Called only by the account owner, under the adapter state mutex.
+  void drain_callbacks() {
+    std::size_t count;
+    {
+      std::lock_guard lock(ingress_mutex);
+      count = callback_size;
+    }
+    for (std::size_t i = 0; i < count; ++i) {
+      CallbackEntry entry;
+      {
+        std::lock_guard lock(ingress_mutex);
+        auto& slot = callbacks[callback_head];
+        entry = std::move(*slot);
+        slot.reset();
+        callback_head = (callback_head + 1) % callback_capacity;
+        --callback_size;
+      }
+      {
+        bool malformed = false;
+        try {
+          std::visit(
+              [&](const auto& value) {
+                using Event = std::decay_t<decltype(value)>;
+                constexpr bool fact = std::is_same_v<Event, RtnOrderEvent> ||
+                                      std::is_same_v<Event, RtnTradeEvent> ||
+                                      std::is_same_v<Event, RspOrderInsertEvent> ||
+                                      std::is_same_v<Event, RspOrderActionEvent> ||
+                                      std::is_same_v<Event, ErrRtnOrderActionEvent>;
+                if (!closing || fact)
+                  apply(value, entry.observed_at);
+              },
+              entry.data);
+        } catch (const std::invalid_argument&) {
+          malformed = true;
+        } catch (const std::runtime_error&) {
+          malformed = true;
+        }
+        if (malformed) {
+          std::lock_guard lock(ingress_mutex);
+          ingress_error = -1000;
+          send_gate.pending();
+        }
+      }
+    }
+    {
+      std::lock_guard lock(ingress_mutex);
+      if (ingress_error) {
+        if (!closing && (state.phase != "error" || state.error_code != ingress_error ||
+                         state.positions_reconciled)) {
+          state.positions_reconciled = false;
+          fail(ingress_error);
+        }
+      } else if (!callback_size) {
+        send_gate.acknowledge(send_gate.revision());
+      }
+      if (callback_size)
+        events_ready();
+    }
+    finish_quotes();
+    wake.notify_one();
+  }
+  void finish_quotes() {
+    const auto now = std::chrono::steady_clock::now();
+    for (auto it = quotes.begin(); it != quotes.end();) {
+      auto& answer = it->second;
+      const bool valid = !closing && generation == answer.generation && state.phase == "ready" &&
+                         now < answer.deadline;
+      if (valid && !(answer.dispatched && answer.completed)) {
+        ++it;
+        continue;
+      }
+      if (!valid || (answer.quote && (answer.quote->instrument != answer.instrument ||
+                                      answer.quote->trading_day != state.trading_day)))
+        answer.quote.reset();
+      answer.result.set_value(std::move(answer.quote));
+      const auto serial = it->first;
+      std::erase_if(queue, [serial](const Command& command) {
+        return command.kind == Kind::query_quote && command.serial == serial;
+      });
+      it = quotes.erase(it);
+    }
+  }
+  void quote_dispatched(std::uint64_t serial, int code) {
+    if (const auto found = quotes.find(serial); found != quotes.end()) {
+      auto& answer = found->second;
+      answer.dispatched = true;
+      if (code) {
+        answer.completed = true;
+        answer.quote.reset();
+      }
+    }
+    finish_quotes();
   }
   void push(Kind kind) {
     Command command;
@@ -242,75 +475,6 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     refresh_queued = true;
     push(Kind::query_positions);
     push(Kind::query_funds);
-  }
-  std::string key(int front, int session, const std::string& ref) const {
-    return std::to_string(front) + ":" + std::to_string(session) + ":" + ref;
-  }
-  BrokerOrder& order_for(const std::string& broker_key) {
-    if (const auto found = order_at.find(broker_key); found != order_at.end())
-      return state.orders[found->second];
-    BrokerOrder order;
-    order.broker_key = broker_key;
-    if (const auto id = known.find(broker_key); id != known.end()) {
-      order.order_id = id->second;
-      keys[id->second] = broker_key;
-    }
-    order_at[broker_key] = state.orders.size();
-    state.orders.push_back(std::move(order));
-    return state.orders.back();
-  }
-  void apply(const CThostFtdcOrderField& report) {
-    auto& order = order_for(key(report.FrontID, report.SessionID, trimmed(report.OrderRef)));
-    order.instrument = {field(report.ExchangeID), field(report.InstrumentID)};
-    order.side = side_of(report.Direction);
-    order.offset = offset_of(report.CombOffsetFlag[0]);
-    order.quantity = lots(report.VolumeTotalOriginal);
-    order.filled = lots(report.VolumeTraded);
-    if (const auto limit = price(report.LimitPrice))
-      order.limit_price = *limit;
-    if (const auto id = trimmed(report.OrderSysID); !id.empty()) {
-      order.exchange_order_id = order.instrument.venue + ":" + id;
-      exchange[order.exchange_order_id] = order.broker_key;
-      auto& raw = raw_order_ids[order.broker_key];
-      std::copy(std::begin(report.OrderSysID), std::end(report.OrderSysID), raw.begin());
-    }
-    // A late report never moves a terminal order back to working.
-    const auto status = status_of(report);
-    if (!terminal(order.status) || terminal(status))
-      order.status = status;
-    changed();
-  }
-  bool apply(const CThostFtdcTradeField& report) {
-    const auto venue = field(report.ExchangeID);
-    BrokerTrade trade;
-    trade.trade_id = venue + ":" + trimmed(report.TradeID);
-    if (!trade_ids.insert(trade.trade_id).second)
-      return false;
-    trade.instrument = {venue, field(report.InstrumentID)};
-    trade.exchange_order_id = venue + ":" + trimmed(report.OrderSysID);
-    if (const auto found = exchange.find(trade.exchange_order_id); found != exchange.end())
-      trade.order_id = state.orders[order_at.at(found->second)].order_id;
-    trade.side = side_of(report.Direction);
-    trade.offset = offset_of(report.OffsetFlag);
-    trade.quantity = lots(report.Volume);
-    const auto fill = price(report.Price);
-    if (!fill)
-      throw std::runtime_error("invalid CTP trade price");
-    trade.price = *fill;
-    trade.trading_day = field(report.TradingDay);
-    trade.trade_time = field(report.TradeDate) + " " + field(report.TradeTime);
-    state.trades.push_back(std::move(trade));
-    changed();
-    return true;
-  }
-  void reject(const std::string& ref, int code) {
-    const auto found = order_at.find(key(front_id, session_id, ref));
-    if (found == order_at.end())
-      return;
-    auto& order = state.orders[found->second];
-    order.status = BrokerOrderStatus::rejected;
-    order.error_code = code;
-    changed();
   }
   void query_done() { query_outstanding = false; }
   bool accepts_query(int id, Kind kind) const {
@@ -369,284 +533,354 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     return text;
   }
 
-  // ---- SDK callbacks ----
-  void OnFrontConnected() override {
-    callback([&] {
-      state.phase = "authenticating";
-      state.error_code = 0;
-      changed();
-      push(Kind::authenticate);
-    });
+  // Callback producers only copy owned records. apply() runs in poll().
+  void OnFrontConnected() noexcept override { receive(FrontConnectedEvent{}, true); }
+  void apply(const FrontConnectedEvent&, std::chrono::steady_clock::time_point) {
+
+    state.phase = "authenticating";
+    state.error_code = 0;
+    changed();
+    push(Kind::authenticate);
   }
-  void OnFrontDisconnected(int reason) override {
-    callback([&] {
-      ++generation;
-      query_outstanding = refresh_queued = false;
-      std::erase_if(queue, [](const Command& c) { return !c.result; });
-      abandon_rates();
-      positions_in_progress.clear();
-      state.costs.clear();
-      state.phase = "connecting";
-      state.error_code = reason;
-      changed();
-    });
+  void OnFrontDisconnected(int reason) noexcept override {
+    receive(FrontDisconnectedEvent{reason}, true);
+  }
+  void apply(const FrontDisconnectedEvent& event, std::chrono::steady_clock::time_point) {
+    const auto& reason = event.reason;
+    ++generation;
+    query_outstanding = refresh_queued = false;
+    state.positions_reconciled = false;
+    std::erase_if(queue, [](const Command& c) { return !c.result; });
+    abandon_rates();
+    reports.abandon_positions();
+    state.costs.clear();
+    state.phase = "connecting";
+    state.error_code = reason;
+    changed();
   }
   void OnRspAuthenticate(CThostFtdcRspAuthenticateField*, CThostFtdcRspInfoField* info, int,
-                         bool) override {
-    callback([&] {
-      if (info && info->ErrorID) {
-        erase(config.password);
-        erase(config.auth_code);
-        return fail(info->ErrorID);
-      }
-      state.phase = "logging_in";
-      changed();
-      push(Kind::login);
-    });
+                         bool) noexcept override {
+    receive(RspAuthenticateEvent{copy_callback(info)}, true);
+  }
+  void apply(const RspAuthenticateEvent& event, std::chrono::steady_clock::time_point) {
+    const auto& info = event.info;
+    if (info && info->ErrorID) {
+      erase(config.password);
+      erase(config.auth_code);
+      return fail(info->ErrorID);
+    }
+    state.phase = "logging_in";
+    changed();
+    push(Kind::login);
   }
   void OnRspUserLogin(CThostFtdcRspUserLoginField* login, CThostFtdcRspInfoField* info, int,
-                      bool) override {
-    callback([&] {
-      if (info && info->ErrorID) {
-        erase(config.password);
-        erase(config.auth_code);
-        return fail(info->ErrorID);
-      }
-      if (!login)
-        return fail(-1001);
-      front_id = login->FrontID;
-      session_id = login->SessionID;
-      int max_ref = 0;
-      const auto ref = trimmed(login->MaxOrderRef);
-      std::from_chars(ref.data(), ref.data() + ref.size(), max_ref);
-      next_ref = max_ref;
-      // Login starts a new broker reconciliation, including automatic SDK
-      // reconnects. Historical journal identities survive in known, but cached
-      // reports cannot prove that the broker still confirms an order. Daily
-      // exchange IDs may be reused and yesterday's rates are not today's rates.
-      keys.clear();
-      order_at.clear();
-      exchange.clear();
-      raw_order_ids.clear();
-      trade_ids.clear();
-      positions_in_progress.clear();
-      rates.clear();
-      state.orders.clear();
-      state.trades.clear();
-      state.positions.clear();
-      state.funds.reset();
-      state.costs.clear();
-      state.synchronized_ms = 0;
-      state.trading_day = field(login->TradingDay);
-      state.phase = "confirming";
-      changed();
-      push(Kind::confirm);
-    });
+                      bool) noexcept override {
+    receive(RspUserLoginEvent{copy_callback(login), copy_callback(info)}, true);
+  }
+  void apply(const RspUserLoginEvent& event, std::chrono::steady_clock::time_point) {
+    const auto& login = event.login;
+    const auto& info = event.info;
+    if (info && info->ErrorID) {
+      erase(config.password);
+      erase(config.auth_code);
+      return fail(info->ErrorID);
+    }
+    if (!login)
+      return fail(-1001);
+    front_id = login->FrontID;
+    session_id = login->SessionID;
+    int max_ref = 0;
+    const auto ref = trimmed(login->MaxOrderRef);
+    std::from_chars(ref.data(), ref.data() + ref.size(), max_ref);
+    next_ref = max_ref;
+    // Login starts a new broker reconciliation, including automatic SDK
+    // reconnects. Historical journal identities survive in known, but cached
+    // reports cannot prove that the broker still confirms an order. Daily
+    // exchange IDs may be reused and yesterday's rates are not today's rates.
+    reports.begin_day(field(login->TradingDay));
+    order_requests.clear();
+    rates.clear();
+    state.funds.reset();
+    state.costs.clear();
+    state.synchronized_ms = 0;
+    state.positions_reconciled = false;
+    state.phase = "confirming";
+    changed();
+    push(Kind::confirm);
   }
   void OnRspSettlementInfoConfirm(CThostFtdcSettlementInfoConfirmField*,
-                                  CThostFtdcRspInfoField* info, int, bool) override {
-    callback([&] {
-      if (info && info->ErrorID)
-        return fail(info->ErrorID);
-      synchronize();
-    });
+                                  CThostFtdcRspInfoField* info, int, bool) noexcept override {
+    receive(RspSettlementInfoConfirmEvent{copy_callback(info)}, true);
+  }
+  void apply(const RspSettlementInfoConfirmEvent& event, std::chrono::steady_clock::time_point) {
+    const auto& info = event.info;
+    if (info && info->ErrorID)
+      return fail(info->ErrorID);
+    synchronize();
   }
   void OnRspQryOrder(CThostFtdcOrderField* order, CThostFtdcRspInfoField* info, int request,
-                     bool last) override {
-    callback([&] {
-      if (!accepts_query(request, Kind::query_orders))
-        return;
-      if (info && info->ErrorID)
-        return fail(info->ErrorID);
-      if (order)
-        apply(*order);
-      if (last)
-        query_done();
-    });
+                     bool last) noexcept override {
+    receive(RspQryOrderEvent{copy_callback(order), copy_callback(info), request, last}, true);
+  }
+  void apply(const RspQryOrderEvent& event, std::chrono::steady_clock::time_point) {
+    const auto& order = event.order;
+    const auto& info = event.info;
+    const auto& request = event.request;
+    const auto& last = event.last;
+    if (!accepts_query(request, Kind::query_orders))
+      return;
+    if (info && info->ErrorID)
+      return fail(info->ErrorID);
+    if (order)
+      apply_order(*order);
+    if (last)
+      query_done();
   }
   void OnRspQryTrade(CThostFtdcTradeField* trade, CThostFtdcRspInfoField* info, int request,
-                     bool last) override {
-    callback([&] {
-      if (!accepts_query(request, Kind::query_trades))
-        return;
-      if (info && info->ErrorID)
-        return fail(info->ErrorID);
-      if (trade)
-        apply(*trade);
-      if (last)
-        query_done();
-    });
+                     bool last) noexcept override {
+    receive(RspQryTradeEvent{copy_callback(trade), copy_callback(info), request, last}, true);
+  }
+  void apply(const RspQryTradeEvent& event, std::chrono::steady_clock::time_point) {
+    const auto& trade = event.trade;
+    const auto& info = event.info;
+    const auto& request = event.request;
+    const auto& last = event.last;
+    if (!accepts_query(request, Kind::query_trades))
+      return;
+    if (info && info->ErrorID)
+      return fail(info->ErrorID);
+    if (trade)
+      reports.apply(*trade);
+    if (last)
+      query_done();
   }
   void OnRspQryInvestorPosition(CThostFtdcInvestorPositionField* row, CThostFtdcRspInfoField* info,
-                                int request, bool last) override {
-    callback([&] {
-      if (!accepts_query(request, Kind::query_positions))
-        return;
-      if (info && info->ErrorID)
-        return fail(info->ErrorID);
-      if (row &&
-          (row->PosiDirection == THOST_FTDC_PD_Long || row->PosiDirection == THOST_FTDC_PD_Short)) {
-        const InstrumentId id{field(row->ExchangeID), field(row->InstrumentID)};
-        const auto side = row->PosiDirection == THOST_FTDC_PD_Long ? Side::buy : Side::sell;
-        auto& position = positions_in_progress[{id, side}];
-        position.instrument = id;
-        position.side = side;
-        // SHFE/INE report today and history rows separately; other venues
-        // report one row. TodayPosition covers both layouts.
-        position.today = position.today + lots(row->TodayPosition);
-        position.yesterday = position.yesterday + lots(row->Position - row->TodayPosition);
-      }
-      if (last) {
-        state.positions.clear();
-        for (auto& [_, position] : positions_in_progress)
-          if (position.today > Decimal{} || position.yesterday > Decimal{})
-            state.positions.push_back(std::move(position));
-        positions_in_progress.clear();
-        changed();
-        query_done();
-      }
-    });
+                                int request, bool last) noexcept override {
+    receive(RspQryInvestorPositionEvent{copy_callback(row), copy_callback(info), request, last},
+            true);
+  }
+  void apply(const RspQryInvestorPositionEvent& event, std::chrono::steady_clock::time_point) {
+    const auto& row = event.row;
+    const auto& info = event.info;
+    const auto& request = event.request;
+    const auto& last = event.last;
+    if (!accepts_query(request, Kind::query_positions))
+      return;
+    if (info && info->ErrorID)
+      return fail(info->ErrorID);
+    if (row)
+      reports.apply(*row);
+    if (last) {
+      position_refresh_again = reports.finish_positions(position_query_revision);
+      position_query_revision = state.exposure_revision;
+      query_done();
+    }
   }
   void OnRspQryTradingAccount(CThostFtdcTradingAccountField* account, CThostFtdcRspInfoField* info,
-                              int request, bool last) override {
-    callback([&] {
-      if (!accepts_query(request, Kind::query_funds))
-        return;
-      if (info && info->ErrorID)
-        return fail(info->ErrorID);
-      if (account)
-        state.funds = BrokerFunds{money(account->Balance),     money(account->Available),
-                                  money(account->CurrMargin),  money(account->Commission),
-                                  money(account->CloseProfit), money(account->PositionProfit)};
-      if (last) {
-        query_done();
-        refresh_queued = false;
-        state.synchronized_ms = now_ms();
-        if (state.phase == "synchronizing")
-          state.phase = "ready";
-        changed();
-      }
-    });
+                              int request, bool last) noexcept override {
+    receive(RspQryTradingAccountEvent{copy_callback(account), copy_callback(info), request, last},
+            true);
   }
-  void OnRspQryInstrumentMarginRate(CThostFtdcInstrumentMarginRateField* row,
-                                    CThostFtdcRspInfoField* info, int request, bool last) override {
-    callback([&] {
-      if (!accepts_query(request, Kind::query_margin))
-        return;
-      const int code = info ? info->ErrorID : 0;
-      if (!code && row && rate_row_matches(row->InstrumentID))
-        rates[rate_instrument].margin = std::pair{
-            std::max(rate(row->LongMarginRatioByVolume), rate(row->ShortMarginRatioByVolume)),
-            std::max(rate(row->LongMarginRatioByMoney), rate(row->ShortMarginRatioByMoney))};
-      if (last || code) {
-        query_done();
-        rate_answered(Kind::query_margin, code);
-      }
-    });
-  }
-  void OnRspQryInstrumentCommissionRate(CThostFtdcInstrumentCommissionRateField* row,
-                                        CThostFtdcRspInfoField* info, int request,
-                                        bool last) override {
-    callback([&] {
-      if (!accepts_query(request, Kind::query_commission))
-        return;
-      const int code = info ? info->ErrorID : 0;
-      // Fixed order: open, close (yesterday), close today; each per lot, by money.
-      if (!code && row && rate_row_matches(row->InstrumentID))
-        rates[rate_instrument].commission =
-            std::array{rate(row->OpenRatioByVolume),       rate(row->OpenRatioByMoney),
-                       rate(row->CloseRatioByVolume),      rate(row->CloseRatioByMoney),
-                       rate(row->CloseTodayRatioByVolume), rate(row->CloseTodayRatioByMoney)};
-      if (last || code) {
-        query_done();
-        rate_answered(Kind::query_commission, code);
-      }
-    });
-  }
-  void OnRspQryDepthMarketData(CThostFtdcDepthMarketDataField* row, CThostFtdcRspInfoField* info,
-                               int request, bool last) override {
-    callback([&] {
-      if (!accepts_query(request, Kind::query_quote))
-        return;
-      const int code = info ? info->ErrorID : 0;
-      const auto found = quotes.find(quote_outstanding);
-      if (found == quotes.end()) {
-        if (last || code)
-          query_done();
-        return; // A timed-out caller has retired this quote.
-      }
-      auto& answer = found->second;
-      if (!code && row && !answer) {
-        BrokerQuote quote;
-        quote.instrument = {field(row->ExchangeID), field(row->InstrumentID)};
-        quote.last = price(row->LastPrice);
-        quote.pre_settlement = price(row->PreSettlementPrice);
-        quote.upper_limit = price(row->UpperLimitPrice);
-        quote.lower_limit = price(row->LowerLimitPrice);
-        quote.trading_day = field(row->TradingDay);
-        quote.update_time = field(row->UpdateTime);
-        answer = std::move(quote);
-      }
-      if (last || code)
-        query_done();
-    });
-  }
-  void OnRtnOrder(CThostFtdcOrderField* order) override {
-    callback([&] {
-      if (order)
-        apply(*order);
-    });
-  }
-  void OnRtnTrade(CThostFtdcTradeField* trade) override {
-    callback([&] {
-      if (trade && apply(*trade))
+  void apply(const RspQryTradingAccountEvent& event, std::chrono::steady_clock::time_point) {
+    const auto& account = event.account;
+    const auto& info = event.info;
+    const auto& request = event.request;
+    const auto& last = event.last;
+    if (!accepts_query(request, Kind::query_funds))
+      return;
+    if (info && info->ErrorID)
+      return fail(info->ErrorID);
+    if (account)
+      state.funds = BrokerFunds{money(account->Balance),     money(account->Available),
+                                money(account->CurrMargin),  money(account->Commission),
+                                money(account->CloseProfit), money(account->PositionProfit)};
+    if (last) {
+      query_done();
+      refresh_queued = false;
+      state.synchronized_ms = now_ms();
+      if (state.phase == "synchronizing")
+        state.phase = "ready";
+      if (position_refresh_again || position_query_revision != state.exposure_revision)
         refresh();
-    });
-  }
-  void OnRspOrderInsert(CThostFtdcInputOrderField* input, CThostFtdcRspInfoField* info, int,
-                        bool) override {
-    callback([&] {
-      if (input && info && info->ErrorID)
-        reject(trimmed(input->OrderRef), info->ErrorID);
-    });
-  }
-  void OnErrRtnOrderInsert(CThostFtdcInputOrderField* input,
-                           CThostFtdcRspInfoField* info) override {
-    OnRspOrderInsert(input, info, 0, true);
-  }
-  void action_failed(const std::string& broker_key, int code) {
-    if (const auto found = order_at.find(broker_key); found != order_at.end()) {
-      state.orders[found->second].error_code = code;
       changed();
     }
   }
+  void OnRspQryInstrumentMarginRate(CThostFtdcInstrumentMarginRateField* row,
+                                    CThostFtdcRspInfoField* info, int request,
+                                    bool last) noexcept override {
+    receive(RspQryInstrumentMarginRateEvent{copy_callback(row), copy_callback(info), request, last},
+            false);
+  }
+  void apply(const RspQryInstrumentMarginRateEvent& event, std::chrono::steady_clock::time_point) {
+    const auto& row = event.row;
+    const auto& info = event.info;
+    const auto& request = event.request;
+    const auto& last = event.last;
+    if (!accepts_query(request, Kind::query_margin))
+      return;
+    const int code = info ? info->ErrorID : 0;
+    if (!code && row && rate_row_matches(row->InstrumentID))
+      rates[rate_instrument].margin = std::pair{
+          std::max(rate(row->LongMarginRatioByVolume), rate(row->ShortMarginRatioByVolume)),
+          std::max(rate(row->LongMarginRatioByMoney), rate(row->ShortMarginRatioByMoney))};
+    if (last || code) {
+      query_done();
+      rate_answered(Kind::query_margin, code);
+    }
+  }
+  void OnRspQryInstrumentCommissionRate(CThostFtdcInstrumentCommissionRateField* row,
+                                        CThostFtdcRspInfoField* info, int request,
+                                        bool last) noexcept override {
+    receive(
+        RspQryInstrumentCommissionRateEvent{copy_callback(row), copy_callback(info), request, last},
+        false);
+  }
+  void apply(const RspQryInstrumentCommissionRateEvent& event,
+             std::chrono::steady_clock::time_point) {
+    const auto& row = event.row;
+    const auto& info = event.info;
+    const auto& request = event.request;
+    const auto& last = event.last;
+    if (!accepts_query(request, Kind::query_commission))
+      return;
+    const int code = info ? info->ErrorID : 0;
+    // Fixed order: open, close (yesterday), close today; each per lot, by money.
+    if (!code && row && rate_row_matches(row->InstrumentID))
+      rates[rate_instrument].commission =
+          std::array{rate(row->OpenRatioByVolume),       rate(row->OpenRatioByMoney),
+                     rate(row->CloseRatioByVolume),      rate(row->CloseRatioByMoney),
+                     rate(row->CloseTodayRatioByVolume), rate(row->CloseTodayRatioByMoney)};
+    if (last || code) {
+      query_done();
+      rate_answered(Kind::query_commission, code);
+    }
+  }
+  void OnRspQryDepthMarketData(CThostFtdcDepthMarketDataField* row, CThostFtdcRspInfoField* info,
+                               int request, bool last) noexcept override {
+    receive(RspQryDepthMarketDataEvent{copy_callback(row), copy_callback(info), request, last},
+            false);
+  }
+  void apply(const RspQryDepthMarketDataEvent& event,
+             std::chrono::steady_clock::time_point observed_at) {
+    const auto& row = event.row;
+    const auto& info = event.info;
+    const auto& request = event.request;
+    const auto& last = event.last;
+    if (!accepts_query(request, Kind::query_quote))
+      return;
+    const int code = info ? info->ErrorID : 0;
+    const auto found = quotes.find(quote_outstanding);
+    if (found == quotes.end()) {
+      if (last || code)
+        query_done();
+      return; // A timed-out caller has retired this quote.
+    }
+    auto& answer = found->second;
+    if (!code && row && !answer.quote) {
+      BrokerQuote quote;
+      quote.instrument = {field(row->ExchangeID), field(row->InstrumentID)};
+      quote.last = price(row->LastPrice);
+      quote.pre_settlement = price(row->PreSettlementPrice);
+      quote.upper_limit = price(row->UpperLimitPrice);
+      quote.lower_limit = price(row->LowerLimitPrice);
+      quote.trading_day = field(row->TradingDay);
+      quote.update_time = field(row->UpdateTime);
+      answer.quote = std::move(quote);
+    }
+    if (last || code) {
+      answer.completed = true;
+      if (code)
+        answer.quote.reset();
+      else if (answer.quote) {
+        answer.quote->connection_generation = generation;
+        answer.quote->completed_at = observed_at;
+      }
+      query_done();
+    }
+  }
+  void OnRtnOrder(CThostFtdcOrderField* order) noexcept override {
+    receive(RtnOrderEvent{copy_callback(order)}, true);
+  }
+  void apply(const RtnOrderEvent& event, std::chrono::steady_clock::time_point) {
+    const auto& order = event.order;
+    if (order)
+      apply_order(*order);
+  }
+  void apply_order(const CThostFtdcOrderField& order) {
+    if (reports.apply(order))
+      refresh();
+    if (field(order.TradingDay) != state.trading_day)
+      return;
+    const auto key = ReportReconciler::key(order.FrontID, order.SessionID, trimmed(order.OrderRef));
+    if (reports.find(key)->status == BrokerOrderStatus::submitted)
+      return;
+    std::erase_if(order_requests,
+                  [&](const auto& entry) { return entry.second.order.broker_key == key; });
+  }
+  void OnRtnTrade(CThostFtdcTradeField* trade) noexcept override {
+    receive(RtnTradeEvent{copy_callback(trade)}, true);
+  }
+  void apply(const RtnTradeEvent& event, std::chrono::steady_clock::time_point) {
+    const auto& trade = event.trade;
+    if (trade && reports.apply(*trade))
+      refresh();
+  }
+  void OnRspOrderInsert(CThostFtdcInputOrderField*, CThostFtdcRspInfoField* info, int request,
+                        bool) noexcept override {
+    receive(RspOrderInsertEvent{copy_callback(info), request}, true);
+  }
+  void apply(const RspOrderInsertEvent& event, std::chrono::steady_clock::time_point) {
+    const auto& info = event.info;
+    if (!info || !info->ErrorID)
+      return;
+    const auto request = order_requests.find(event.request);
+    if (request == order_requests.end())
+      return;
+    reports.reject(request->second.order, info->ErrorID);
+    order_requests.erase(request);
+  }
   void OnRspOrderAction(CThostFtdcInputOrderActionField* input, CThostFtdcRspInfoField* info, int,
-                        bool) override {
-    callback([&] {
-      if (input && info && info->ErrorID)
-        action_failed(key(input->FrontID, input->SessionID, trimmed(input->OrderRef)),
-                      info->ErrorID);
-    });
+                        bool) noexcept override {
+    receive(RspOrderActionEvent{copy_callback(input), copy_callback(info)}, true);
+  }
+  void apply(const RspOrderActionEvent& event, std::chrono::steady_clock::time_point) {
+    const auto& input = event.input;
+    const auto& info = event.info;
+    if (input && info && info->ErrorID)
+      reports.action_failed(
+          ReportReconciler::key(input->FrontID, input->SessionID, trimmed(input->OrderRef)),
+          info->ErrorID);
   }
   void OnErrRtnOrderAction(CThostFtdcOrderActionField* input,
-                           CThostFtdcRspInfoField* info) override {
-    callback([&] {
-      if (input && info && info->ErrorID)
-        action_failed(key(input->FrontID, input->SessionID, trimmed(input->OrderRef)),
-                      info->ErrorID);
-    });
+                           CThostFtdcRspInfoField* info) noexcept override {
+    receive(ErrRtnOrderActionEvent{copy_callback(input), copy_callback(info)}, true);
   }
-  void OnRspError(CThostFtdcRspInfoField* info, int, bool) override {
-    callback([&] {
-      if (info && info->ErrorID)
-        fail(info->ErrorID);
-    });
+  void apply(const ErrRtnOrderActionEvent& event, std::chrono::steady_clock::time_point) {
+    const auto& input = event.input;
+    const auto& info = event.info;
+    if (input && info && info->ErrorID)
+      reports.action_failed(
+          ReportReconciler::key(input->FrontID, input->SessionID, trimmed(input->OrderRef)),
+          info->ErrorID);
+  }
+  void OnRspError(CThostFtdcRspInfoField* info, int, bool) noexcept override {
+    receive(RspErrorEvent{copy_callback(info)}, true);
+  }
+  void apply(const RspErrorEvent& event, std::chrono::steady_clock::time_point) {
+    const auto& info = event.info;
+    if (info && info->ErrorID)
+      fail(info->ErrorID);
+  }
+  void OnErrRtnOrderInsert(CThostFtdcInputOrderField* input,
+                           CThostFtdcRspInfoField* info) noexcept override {
+    if (input)
+      OnRspOrderInsert(input, info, input->RequestID, true);
   }
 
   // ---- worker ----
   // Session requests: authenticate, login and settlement confirmation.
   int send(const Command& command) {
-    const int id = ++request_id;
+    const int id = command.request_id;
     switch (command.kind) {
     case Kind::authenticate: {
       CThostFtdcReqAuthenticateField request{};
@@ -702,15 +936,11 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
     CThostFtdcQryTradeField trades{};
     CThostFtdcQryInvestorPositionField positions{};
     CThostFtdcQryTradingAccountField funds{};
-    int id;
+    const int id = command.request_id;
     {
       std::lock_guard lock(mutex);
       if (closing || command.generation != generation)
         return -1003;
-      id = ++request_id;
-      query_request_id = id;
-      query_kind = kind;
-      query_generation = command.generation;
       copy(orders.BrokerID, config.broker);
       copy(orders.InvestorID, config.user);
       copy(trades.BrokerID, config.broker);
@@ -752,141 +982,240 @@ struct Trader::Impl final : CThostFtdcTraderSpi {
       return api->ReqQryTradingAccount(&funds, id);
     }
   }
+  // All scheduling, query bookkeeping and completion projection runs on the owner.
+  std::optional<Command> next_command() {
+    if (closing)
+      return std::nullopt;
+    const auto now = std::chrono::steady_clock::now();
+    finish_quotes();
+    auto next = std::find_if(queue.begin(), queue.end(),
+                             [](const Command& c) { return !is_query(c.kind); });
+    if (next == queue.end() && !query_outstanding && now >= next_query_at) {
+      next = std::find_if(queue.begin(), queue.end(),
+                          [](const Command& c) { return c.kind == Kind::query_quote; });
+      if (next == queue.end())
+        next = queue.begin();
+    }
+    if (next == queue.end())
+      return std::nullopt;
+    auto command = std::move(*next);
+    queue.erase(next);
+    if (command.generation != generation || now >= command.deadline ||
+        (command.kind == Kind::query_quote && !quotes.contains(command.serial))) {
+      if (command.result)
+        complete(command, now >= command.deadline ? -1005 : -1003, false);
+      return std::nullopt;
+    }
+    if (command.kind != Kind::insert)
+      command.request_id = ++request_id;
+    if (is_query(command.kind)) {
+      query_outstanding = true;
+      query_started = now;
+      next_query_at = now + query_spacing;
+      query_request_id = command.request_id;
+      query_kind = command.kind;
+      query_generation = command.generation;
+    }
+    if (command.kind == Kind::query_positions) {
+      position_query_revision = state.exposure_revision;
+      position_refresh_again = false;
+      reports.abandon_positions();
+    }
+    if (is_rate_query(command.kind))
+      rate_instrument = command.instrument;
+    if (command.kind == Kind::query_quote)
+      quote_outstanding = command.serial;
+    return command;
+  }
+  void returned(Command& command, int code, bool invoked) {
+    if (is_query(command.kind) && (code == -2 || code == -3) && !closing &&
+        command.generation == generation) {
+      query_outstanding = false;
+      next_query_at = std::chrono::steady_clock::now() + query_spacing;
+      queue.push_front(std::move(command));
+      return;
+    }
+    if (command.kind == Kind::query_quote)
+      quote_dispatched(command.serial, code);
+    else if (command.result)
+      complete(command, code, invoked);
+    if (!code || closing || command.generation != generation)
+      return;
+    if (is_query(command.kind))
+      query_outstanding = false;
+    if (is_rate_query(command.kind))
+      rate_answered(command.kind, code);
+    else if (!command.result && command.kind != Kind::query_quote)
+      fail(code);
+  }
   void run(std::stop_token stop) {
     while (!stop.stop_requested()) {
-      Command command;
       {
         std::unique_lock lock(mutex);
         wake.wait_for(lock, 50ms);
         if (closing)
           return;
-        const auto now = std::chrono::steady_clock::now();
-        if (query_outstanding && now - query_started > query_timeout) {
-          query_outstanding = false;
-          fail(-1002);
-        }
-        // Orders and session requests first; queries one at a time. A quote
-        // gates a waiting order, so it goes before refreshes and rate queries.
-        auto next = std::find_if(queue.begin(), queue.end(),
-                                 [](const Command& c) { return !is_query(c.kind); });
-        if (next == queue.end() && !query_outstanding && now >= next_query_at) {
-          next = std::find_if(queue.begin(), queue.end(),
-                              [](const Command& c) { return c.kind == Kind::query_quote; });
-          if (next == queue.end())
-            next = queue.begin();
-        }
-        if (next == queue.end())
-          continue;
-        command = std::move(*next);
-        queue.erase(next);
-        if (command.generation != generation || now >= command.deadline ||
-            (command.kind == Kind::query_quote && !quotes.contains(command.serial))) {
-          // Prepared for a session that has since disconnected.
-          if (command.result)
-            command.result->set_value(-1003);
-          continue;
-        }
-        if (is_query(command.kind)) {
-          query_outstanding = true;
-          query_started = now;
-          next_query_at = now + query_spacing;
-        }
-        if (is_rate_query(command.kind))
-          rate_instrument = command.instrument;
-        if (command.kind == Kind::query_quote)
-          quote_outstanding = command.serial;
       }
-      int code = 0;
-      if (is_query(command.kind))
-        code = send_query(command);
-      else if (command.kind == Kind::insert)
-        code = api->ReqOrderInsert(&command.order, ++request_id);
-      else if (command.kind == Kind::cancel)
-        code = api->ReqOrderAction(&command.action, ++request_id);
-      else
-        code = send(command);
-      if (is_query(command.kind) && (code == -2 || code == -3)) {
-        std::lock_guard lock(mutex);
-        if (closing || command.generation != generation) {
-          if (command.result)
-            command.result->set_value(-1003);
-          continue;
-        }
-        // Flow control: retry the same query later.
-        query_outstanding = false;
-        next_query_at = std::chrono::steady_clock::now() + query_spacing;
-        queue.push_front(std::move(command));
-        continue; // Only complete the promise once, after retries finish.
-      }
-      if (command.result)
-        command.result->set_value(code);
-      if (!code)
+      auto next = on_owner([this] { return next_command(); });
+      if (!next)
         continue;
-      std::lock_guard lock(mutex);
-      if (is_query(command.kind))
-        query_outstanding = false;
-      if (is_rate_query(command.kind)) {
-        // A rate the broker cannot provide does not end the trading session.
-        query_outstanding = false;
-        rate_answered(command.kind, code);
-      } else if (!command.result) {
-        if (is_query(command.kind))
-          query_outstanding = false;
-        fail(code);
+      auto& command = *next;
+      int code = 0;
+      {
+        std::lock_guard lock(mutex);
+        const auto now = std::chrono::steady_clock::now();
+        if (closing || command.generation != generation)
+          code = -1003;
+        else if (now >= command.deadline)
+          code = -1005;
+        else if (command.kind == Kind::insert &&
+                 (command.exposure_revision != state.exposure_revision ||
+                  (command.order.CombOffsetFlag[0] == THOST_FTDC_OF_Open &&
+                   !state.positions_reconciled)))
+          code = -1004;
+        else if (command.kind == Kind::insert && !command.permit.consume(command.order_id))
+          code = -1007;
       }
+      const bool invoked = !code;
+      // No owner handoff, wait or queue after consuming an order permit.
+      if (invoked) {
+        if (is_query(command.kind))
+          code = send_query(command);
+        else if (command.kind == Kind::insert)
+          code = api->ReqOrderInsert(&command.order, command.request_id);
+        else if (command.kind == Kind::cancel)
+          code = api->ReqOrderAction(&command.action, command.request_id);
+        else
+          code = send(command);
+      }
+      on_owner([&] { returned(command, code, invoked); });
     }
   }
-  std::future<int> enqueue(Command command) {
-    command.result = std::make_shared<std::promise<int>>();
+  // Called under the adapter mutex. SDK returns cannot replace broker facts.
+  void complete(Command& command, int code, bool invoked) {
+    if (command.kind == Kind::insert) {
+      order_in_flight = false;
+      command.permit = {};
+      if (!invoked)
+        order_requests.erase(command.request_id);
+    }
+    command.result->set_value({code, invoked});
+  }
+  std::future<BrokerDispatchResult> enqueue(Command command) {
+    command.result = std::make_shared<std::promise<BrokerDispatchResult>>();
     auto future = command.result->get_future();
     queue.push_back(std::move(command));
     return future;
   }
-  void finish_release() {
-    if (retiring.joinable())
-      retiring.join();
+  // The sole SDK thread owns creation, initialization, requests and Release.
+  // A replacement connection waits in one slot while the old SDK retires;
+  // disconnect and snapshot never wait for a blocked vendor Release call.
+  void lifecycle(std::stop_token stop) {
+    while (!stop.stop_requested()) {
+      {
+        std::unique_lock lock(mutex);
+        wake.wait(lock, [&] { return stop.stop_requested() || connecting.has_value(); });
+        if (stop.stop_requested())
+          return;
+      }
+      const bool start = on_owner([this, stop] {
+        if (stop.stop_requested() || !connecting)
+          return false;
+        {
+          std::lock_guard ingress_lock(ingress_mutex);
+          // Release has ended every producer of the previous connection, and
+          // poll_owner applied its last callbacks before this owner operation.
+          ingress_error = 0;
+          send_gate.acknowledge(send_gate.revision());
+        }
+        config = std::move(connecting->config);
+        reports.reset(std::move(connecting->known));
+        connecting.reset();
+        rates.clear();
+        order_requests.clear();
+        order_in_flight = false;
+        state = {};
+        state.phase = "connecting";
+        closing = false;
+        changed();
+        return true;
+      });
+      if (!start)
+        continue;
+      try {
+        std::filesystem::create_directories(flow);
+        const auto raw = flow.u8string();
+        std::string path(raw.begin(), raw.end());
+        path += "/";
+        api = factory(path.c_str());
+        if (!api)
+          throw Error(ErrorCode::unavailable, "CTP trader factory failed");
+        api->RegisterSpi(this);
+        api->RegisterFront(config.front.data());
+        // QUICK: only new reports; orders and trades are queried after login.
+        api->SubscribePrivateTopic(THOST_TERT_QUICK);
+        api->SubscribePublicTopic(THOST_TERT_QUICK);
+        api->Init();
+        run(stop);
+      } catch (const std::runtime_error&) {
+        on_owner([this] {
+          close_locked();
+          fail(-1000);
+        });
+      }
+      // No state lock is held across a vendor call, including Release. A
+      // supervisor may terminate the whole process if this call never returns.
+      if (api) {
+        api->RegisterSpi(nullptr);
+        api->Release();
+        api = nullptr;
+      }
+    }
   }
-  // Releases the SDK in the background; Release() may block while the SDK
-  // retries an unreachable front.
-  void close() {
-    CThostFtdcTraderApi* old;
+  void close_locked() {
+    erase(config.password);
+    erase(config.auth_code);
+    if (closing)
+      return;
+    closing = true;
+    ++generation;
+    for (auto& command : queue)
+      if (command.result)
+        complete(command, -1003, false);
+    queue.clear();
+    query_outstanding = refresh_queued = false;
+    abandon_rates();
+    state.phase = "disconnected";
+    changed();
+    finish_quotes();
+  }
+  void close(std::optional<std::pair<std::uint64_t, std::uint64_t>> expected = {}) {
     {
       std::lock_guard lock(mutex);
-      erase(config.password);
-      erase(config.auth_code);
-      if (closing)
-        return;
-      closing = true;
-      ++generation;
-      old = api;
-      for (auto& command : queue)
-        if (command.result)
-          command.result->set_value(-1003);
-      queue.clear();
-      query_outstanding = refresh_queued = false;
-      abandon_rates();
-      state.phase = "disconnected";
-      changed();
+      std::unique_lock ingress(ingress_mutex, std::defer_lock);
+      if (expected) {
+        ingress.lock();
+        if (callback_size || ingress_error || closing || state.phase != "ready" ||
+            generation != expected->first || state.exposure_revision != expected->second ||
+            !state.positions_reconciled)
+          throw Error(ErrorCode::conflict, "broker state changed before account freeze");
+      }
+      if (connecting) {
+        erase(connecting->config.password);
+        erase(connecting->config.auth_code);
+        connecting.reset();
+        state.phase = "disconnected";
+        changed();
+      }
+      close_locked();
     }
     wake.notify_all();
-    finish_release();
-    retiring = std::jthread([this, old, runner = std::move(commands)]() mutable {
-      runner.request_stop();
-      if (runner.joinable())
-        runner.join();
-      if (old) {
-        old->RegisterSpi(nullptr);
-        old->Release();
-      }
-      std::lock_guard lock(mutex);
-      if (api == old)
-        api = nullptr;
-    });
   }
 };
 
-Trader::Trader(const std::filesystem::path& library, const std::filesystem::path& flow)
-    : impl_(std::make_unique<Impl>(library, flow)) {}
+Trader::Trader(const std::filesystem::path& library, const std::filesystem::path& flow,
+               BrokerSendGate& gate, std::function<void()> events_ready)
+    : impl_(std::make_unique<Impl>(library, flow, gate, std::move(events_ready))) {}
 Trader::~Trader() = default;
 PluginDescriptor Trader::descriptor() const {
   return {"asterion.execution.ctp", PluginKind::execution, plugin_contract_version, {}};
@@ -901,7 +1230,7 @@ void Trader::stop() noexcept {
   } catch (...) {
   }
 }
-void Trader::connect(TraderConfiguration config, std::map<std::string, std::string> known) {
+void Trader::connect(TraderConfiguration config, KnownOrders known) {
   if (!std::regex_match(config.front, std::regex("tcp://[A-Za-z0-9.-]+:[0-9]{1,5}")))
     throw std::invalid_argument("invalid CTP front address");
   const auto port = std::stoi(config.front.substr(config.front.rfind(':') + 1));
@@ -919,52 +1248,32 @@ void Trader::connect(TraderConfiguration config, std::map<std::string, std::stri
     erase(authenticate.AuthCode);
     erase(login.Password);
   }
-  impl_->close();
-  impl_->finish_release();
   {
     std::lock_guard lock(impl_->mutex);
-    impl_->config = std::move(config);
-    impl_->known = std::move(known);
-    impl_->keys.clear();
-    impl_->order_at.clear();
-    impl_->exchange.clear();
-    impl_->raw_order_ids.clear();
-    impl_->trade_ids.clear();
-    impl_->positions_in_progress.clear();
-    impl_->rates.clear();
-    impl_->state = {};
+    impl_->close_locked();
+    if (impl_->connecting) {
+      erase(impl_->connecting->config.password);
+      erase(impl_->connecting->config.auth_code);
+    }
+    impl_->connecting = Impl::Connection{std::move(config), std::move(known)};
     impl_->state.phase = "connecting";
-    impl_->closing = false;
+    impl_->state.error_code = 0;
     impl_->changed();
   }
-  std::filesystem::create_directories(impl_->flow);
-  const auto raw = impl_->flow.u8string();
-  std::string path(raw.begin(), raw.end());
-  path += "/";
-  auto* api = impl_->factory(path.c_str());
-  if (!api)
-    throw Error(ErrorCode::unavailable, "CTP trader factory failed");
-  {
-    std::lock_guard lock(impl_->mutex);
-    impl_->api = api;
-  }
-  api->RegisterSpi(impl_.get());
-  api->RegisterFront(impl_->config.front.data());
-  // QUICK: only reports after login; orders and trades are then queried.
-  api->SubscribePrivateTopic(THOST_TERT_QUICK);
-  api->SubscribePublicTopic(THOST_TERT_QUICK);
-  impl_->commands = std::jthread([this](std::stop_token stop) {
-    try {
-      impl_->run(stop);
-    } catch (...) {
-      impl_->callback([&] { impl_->fail(-1000); });
-    }
-  });
-  api->Init();
+  impl_->wake.notify_all();
 }
-BrokerOrder Trader::submit(const LimitOrder& order, Offset offset,
-                           std::uint64_t connection_generation,
-                           const std::function<void(const BrokerOrder&)>& journal) {
+bool Trader::restore_orders(std::string_view day, std::uint64_t generation,
+                            const KnownOrders& known) {
+  std::lock_guard lock(impl_->mutex);
+  if (impl_->generation != generation || impl_->state.trading_day != day)
+    return false;
+  for (const auto& [identity, order] : known)
+    impl_->reports.remember(identity, order);
+  return true;
+}
+std::unique_ptr<PreparedBrokerOrder>
+Trader::prepare(const LimitOrder& order, Offset offset, std::uint64_t connection_generation,
+                std::uint64_t exposure_revision, std::chrono::steady_clock::time_point deadline) {
   order.instrument.validate();
   if (order.id.empty())
     throw std::invalid_argument("order ID is required");
@@ -976,14 +1285,24 @@ BrokerOrder Trader::submit(const LimitOrder& order, Offset offset,
                                 " requires close_today or close_yesterday");
   Command command;
   command.kind = Kind::insert;
+  command.deadline = deadline;
+  if (std::chrono::steady_clock::now() >= deadline)
+    throw Error(ErrorCode::unavailable, "order dispatch deadline expired; the order was not sent");
   BrokerOrder pending;
   {
     std::lock_guard lock(impl_->mutex);
     if (impl_->closing || impl_->state.phase != "ready")
       throw Error(ErrorCode::unavailable, "CTP trading session is not ready");
+    if (impl_->order_in_flight)
+      throw Error(ErrorCode::resource_exhausted, "an order is awaiting SDK completion");
     if (connection_generation != impl_->generation)
       throw Error(ErrorCode::unavailable, "CTP trading session changed; the order was not sent");
-    if (impl_->keys.contains(order.id))
+    if (offset == Offset::open && !impl_->state.positions_reconciled)
+      throw Error(ErrorCode::unavailable,
+                  "broker fills are awaiting position reconciliation; opening orders are paused");
+    if (exposure_revision != impl_->state.exposure_revision)
+      throw Error(ErrorCode::unavailable, "broker exposure changed; evaluate pre-trade risk again");
+    if (impl_->reports.contains(order.id))
       throw Error(ErrorCode::conflict, "duplicate order ID");
     const auto ref = std::to_string(++impl_->next_ref);
     command.generation = impl_->generation;
@@ -1005,101 +1324,114 @@ BrokerOrder Trader::submit(const LimitOrder& order, Offset offset,
     input.MinVolume = 1;
     input.ContingentCondition = THOST_FTDC_CC_Immediately;
     input.ForceCloseReason = THOST_FTDC_FCC_NotForceClose;
+    auto& cancel = command.action;
+    copy(cancel.BrokerID, field(input.BrokerID));
+    copy(cancel.InvestorID, field(input.InvestorID));
+    copy(cancel.UserID, field(input.UserID));
+    copy(cancel.InstrumentID, order.instrument.symbol);
+    copy(cancel.ExchangeID, order.instrument.venue);
+    copy(cancel.OrderRef, ref);
+    cancel.FrontID = impl_->front_id;
+    cancel.SessionID = impl_->session_id;
+    cancel.ActionFlag = THOST_FTDC_AF_Delete;
     pending.order_id = order.id;
-    pending.broker_key = impl_->key(impl_->front_id, impl_->session_id, ref);
+    pending.broker_key = ReportReconciler::key(impl_->front_id, impl_->session_id, ref);
     pending.instrument = order.instrument;
     pending.side = order.side;
     pending.offset = offset;
     pending.quantity = order.quantity;
     pending.limit_price = order.limit_price;
   }
-  // The caller makes the intent durable before anything reaches the broker.
-  journal(pending);
-  std::future<int> result;
+  command.exposure_revision = exposure_revision;
+  return std::make_unique<Impl::Prepared>(impl_.get(), std::move(command), std::move(pending));
+}
+std::future<BrokerDispatchResult> Trader::dispatch(std::unique_ptr<PreparedBrokerOrder> prepared,
+                                                   BrokerSendPermit permit,
+                                                   std::uint64_t journal_sequence) {
+  auto* request = dynamic_cast<Impl::Prepared*>(prepared.get());
+  if (!request || request->owner != impl_.get())
+    throw std::logic_error("prepared order belongs to another execution port");
+  auto command = std::move(request->command);
+  const auto& pending = request->order();
+  command.order_id = pending.order_id;
+  command.permit = std::move(permit);
+  const auto refused = [](int code) {
+    std::promise<BrokerDispatchResult> result;
+    result.set_value({code, false});
+    return result.get_future();
+  };
+  std::future<BrokerDispatchResult> result;
   {
     std::lock_guard lock(impl_->mutex);
-    impl_->known[pending.broker_key] = order.id;
+    if (impl_->order_in_flight)
+      return refused(-1006);
     if (impl_->closing || command.generation != impl_->generation) {
       // Journaled but never sent: do not insert a local rejection into the
       // newly synchronized broker snapshot as if the broker had confirmed it.
-      pending.status = BrokerOrderStatus::rejected;
-      pending.error_code = -1003;
-      return pending;
+      return refused(-1003);
     }
-    impl_->keys[order.id] = pending.broker_key;
-    impl_->order_at[pending.broker_key] = impl_->state.orders.size();
-    impl_->state.orders.push_back(pending);
-    impl_->changed();
+    if (std::chrono::steady_clock::now() >= command.deadline) {
+      return refused(-1005);
+    }
+    if (command.exposure_revision != impl_->state.exposure_revision ||
+        (pending.offset == Offset::open && !impl_->state.positions_reconciled)) {
+      return refused(-1004);
+    }
+    impl_->reports.remember({impl_->state.trading_day, pending.broker_key},
+                            {pending.order_id, journal_sequence});
+    command.request_id = ++impl_->request_id;
+    command.order.RequestID = command.request_id;
+    impl_->order_requests.emplace(command.request_id, Impl::OrderRequest{pending, command.action});
     result = impl_->enqueue(std::move(command));
+    impl_->order_in_flight = true;
   }
   impl_->wake.notify_all();
-  const bool answered = result.wait_for(request_timeout) == std::future_status::ready;
-  std::lock_guard lock(impl_->mutex);
-  const auto found = impl_->order_at.find(pending.broker_key);
-  if (found == impl_->order_at.end()) {
-    // Reconciliation can replace the cache while this caller waits. Return
-    // the request outcome without republishing an unconfirmed cached order.
-    if (answered) {
-      if (const int code = result.get()) {
-        pending.status = BrokerOrderStatus::rejected;
-        pending.error_code = code;
-      }
-    }
-    return pending;
-  }
-  auto& stored = impl_->state.orders[found->second];
-  if (answered) {
-    if (const int code = result.get()) {
-      // Not sent (or refused by the SDK before reaching the broker).
-      stored.status = BrokerOrderStatus::rejected;
-      stored.error_code = code;
-      impl_->changed();
-    }
-  }
-  // Unanswered: status stays submitted until a report or reconciliation.
-  return stored;
+  return result;
 }
-void Trader::cancel(const std::string& order_id) {
+
+std::future<BrokerDispatchResult> Trader::cancel(const std::string& order_id) {
   Command command;
   command.kind = Kind::cancel;
-  std::future<int> result;
+  std::future<BrokerDispatchResult> result;
   {
     std::lock_guard lock(impl_->mutex);
-    if (impl_->closing || impl_->state.phase != "ready")
+    if (impl_->closing || (impl_->state.phase != "ready" && impl_->state.error_code != -1008))
       throw Error(ErrorCode::unavailable, "CTP trading session is not ready");
-    const auto key = impl_->keys.find(order_id);
-    if (key == impl_->keys.end())
-      throw Error(ErrorCode::not_found, "unknown order ID");
-    const auto& order = impl_->state.orders[impl_->order_at.at(key->second)];
-    if (terminal(order.status))
+    const auto* order = impl_->reports.find_order(order_id);
+    if (order && (order->status == BrokerOrderStatus::filled ||
+                  order->status == BrokerOrderStatus::cancelled ||
+                  order->status == BrokerOrderStatus::rejected))
       throw Error(ErrorCode::conflict, "order is no longer working");
     auto& action = command.action;
-    copy(action.BrokerID, impl_->config.broker);
-    copy(action.InvestorID, impl_->config.user);
-    copy(action.UserID, impl_->config.user);
-    action.ActionFlag = THOST_FTDC_AF_Delete;
-    copy(action.InstrumentID, order.instrument.symbol);
-    copy(action.ExchangeID, order.instrument.venue);
-    if (!order.exchange_order_id.empty()) {
-      const auto& raw = impl_->raw_order_ids.at(order.broker_key);
-      std::copy(raw.begin(), raw.end(), std::begin(action.OrderSysID));
-    } else {
-      // front:session:ref identifies an order before the exchange accepts it.
-      const auto& text = order.broker_key;
+    if (const auto pending = std::ranges::find_if(
+            impl_->order_requests,
+            [&](const auto& entry) { return entry.second.order.order_id == order_id; });
+        pending != impl_->order_requests.end())
+      action = pending->second.cancel;
+    else {
+      if (!order)
+        throw Error(ErrorCode::not_found, "unknown order ID");
+      copy(action.BrokerID, impl_->config.broker);
+      copy(action.InvestorID, impl_->config.user);
+      copy(action.UserID, impl_->config.user);
+      action.ActionFlag = THOST_FTDC_AF_Delete;
+      copy(action.InstrumentID, order->instrument.symbol);
+      copy(action.ExchangeID, order->instrument.venue);
+      const auto& text = order->broker_key;
       const auto first = text.find(':'), second = text.find(':', first + 1);
       action.FrontID = std::stoi(text.substr(0, first));
       action.SessionID = std::stoi(text.substr(first + 1, second - first - 1));
       copy(action.OrderRef, text.substr(second + 1));
     }
+    if (order && !order->exchange_order_id.empty()) {
+      const auto& raw = impl_->reports.raw_exchange_id(order->broker_key);
+      std::copy(raw.begin(), raw.end(), std::begin(action.OrderSysID));
+    }
     command.generation = impl_->generation;
     result = impl_->enqueue(std::move(command));
   }
   impl_->wake.notify_all();
-  if (result.wait_for(request_timeout) != std::future_status::ready)
-    throw Error(ErrorCode::unavailable, "CTP cancel request timed out");
-  if (const int code = result.get())
-    throw Error(ErrorCode::operation_failed,
-                "CTP cancel request failed with code " + std::to_string(code));
+  return result;
 }
 void Trader::query_costs(const std::vector<std::pair<InstrumentId, std::string>>& contracts) {
   {
@@ -1127,11 +1459,9 @@ void Trader::query_costs(const std::vector<std::pair<InstrumentId, std::string>>
   }
   impl_->wake.notify_all();
 }
-std::optional<BrokerQuote> Trader::quote(const InstrumentId& instrument) {
+std::future<std::optional<BrokerQuote>> Trader::quote(const InstrumentId& instrument) {
   instrument.validate();
-  std::future<int> sent;
-  std::uint64_t serial = 0, generation = 0;
-  const auto deadline = std::chrono::steady_clock::now() + query_timeout;
+  std::future<std::optional<BrokerQuote>> result;
   {
     std::lock_guard lock(impl_->mutex);
     if (impl_->closing || impl_->state.phase != "ready")
@@ -1140,38 +1470,33 @@ std::optional<BrokerQuote> Trader::quote(const InstrumentId& instrument) {
     command.kind = Kind::query_quote;
     command.generation = impl_->generation;
     command.instrument = instrument;
-    command.serial = serial = ++impl_->quote_serial;
-    command.deadline = deadline;
-    generation = command.generation;
-    impl_->quotes.emplace(serial, std::nullopt);
-    sent = impl_->enqueue(std::move(command));
+    command.serial = ++impl_->quote_serial;
+    command.deadline = std::chrono::steady_clock::now() + query_timeout;
+    auto& answer = impl_->quotes[command.serial];
+    answer.instrument = instrument;
+    answer.generation = command.generation;
+    answer.deadline = command.deadline;
+    result = answer.result.get_future();
+    impl_->queue.push_back(std::move(command));
   }
   impl_->wake.notify_all();
-  // Flow control spaces queries; allow for those already queued.
-  const bool accepted = sent.wait_until(deadline) == std::future_status::ready && sent.get() == 0;
-  std::unique_lock lock(impl_->mutex);
-  if (!accepted) {
-    impl_->quotes.erase(serial);
-    std::erase_if(impl_->queue, [&](const Command& c) {
-      return c.kind == Kind::query_quote && c.serial == serial;
-    });
-    return std::nullopt;
-  }
-  // Answered once a response for this serial arrived and its query completed.
-  const auto answered = [&] {
-    return impl_->closing || impl_->generation != generation || impl_->state.phase != "ready" ||
-           (impl_->quotes.contains(serial) &&
-            !(impl_->quote_outstanding == serial && impl_->query_outstanding));
-  };
-  impl_->wake.wait_until(lock, deadline, answered);
-  std::optional<BrokerQuote> result;
-  if (const auto found = impl_->quotes.find(serial); found != impl_->quotes.end()) {
-    if (impl_->generation == generation && impl_->state.phase == "ready" && found->second &&
-        found->second->instrument == instrument)
-      result = std::move(found->second);
-    impl_->quotes.erase(found);
-  }
   return result;
+}
+void Trader::poll() {
+  std::lock_guard lock(impl_->mutex);
+  impl_->poll_owner();
+}
+std::chrono::steady_clock::time_point Trader::next_deadline() const {
+  std::lock_guard lock(impl_->mutex);
+  auto deadline = impl_->query_outstanding ? impl_->query_started + query_timeout
+                                           : std::chrono::steady_clock::time_point::max();
+  for (const auto& [_, quote] : impl_->quotes)
+    deadline = std::min(deadline, quote.deadline);
+  return deadline;
+}
+bool Trader::ready() const {
+  std::lock_guard lock(impl_->mutex);
+  return impl_->state.phase == "ready" && impl_->state.positions_reconciled;
 }
 BrokerSnapshot Trader::snapshot() const {
   std::lock_guard lock(impl_->mutex);
@@ -1181,5 +1506,8 @@ BrokerSnapshot Trader::snapshot() const {
 }
 void Trader::disconnect() {
   impl_->close();
+}
+void Trader::disconnect_checked(std::uint64_t generation, std::uint64_t exposure_revision) {
+  impl_->close(std::pair{generation, exposure_revision});
 }
 } // namespace asterion::ctp

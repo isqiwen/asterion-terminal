@@ -1,4 +1,5 @@
 #pragma once
+#include <asterion/kernel/plugin.hpp>
 #include <asterion/domain/execution_port.hpp>
 #include <asterion/domain/risk_port.hpp>
 #include <optional>
@@ -21,7 +22,7 @@ struct ContractBars {
 // when the bar's low reaches its limit, at min(open, limit); a sell fills
 // when the high reaches it, at max(open, limit). Fills share at most
 // paper_bar_participation of that bar's volume.
-class PaperExecution final : public ExecutionPort {
+class PaperExecution final : public ExecutionPort, public Plugin {
 public:
   struct Event {
     std::size_t contract, bar;
@@ -33,12 +34,21 @@ public:
   void stop() noexcept override { running_ = false; }
   void submit(LimitOrder order, Offset offset) override;
   void cancel(const std::string& id) override;
-  void advance();
+  // A strategy target decided from a preceding bar. Apply after any new-day
+  // cost change and before matching the next bar of this contract.
+  struct LongTarget {
+    std::string order_id;
+    Decimal quantity, limit_price;
+  };
+  void advance(const std::optional<LongTarget>& target = {});
   // One price per contract, ordered as account().contracts().
   void settle(const std::vector<Decimal>& prices);
   // Scheduled replay only: settles after the last event of a trading day,
   // before the next day's first event. No outstanding orders; once per day.
   void settle_day_end(const std::vector<Decimal>& prices);
+  // Both of the above for a portfolio whose contracts do not all trade every
+  // day: a contract without a price that day must hold no position.
+  void settle_scheduled(const std::vector<std::optional<Decimal>>& prices, bool final);
   void cancel_open_orders();
   // Working orders of one contract only.
   void cancel_open_orders(const InstrumentId& instrument);

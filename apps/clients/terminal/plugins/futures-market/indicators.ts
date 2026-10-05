@@ -1,6 +1,6 @@
 import type { Candle } from "@asterion/client-ui/PriceChart";
 
-// Presentation indicators only. Research and execution do not consume these values.
+// Presentation indicators only. Task and execution do not consume these values.
 export const averagePeriods = [5, 10, 20, 30, 60] as const;
 export const historyLookback = Math.max(...averagePeriods) - 1;
 export function movingAverage(

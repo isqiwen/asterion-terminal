@@ -50,31 +50,5 @@
       "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_20240607_api_traderapi_se_linux64/thosttraderapi_se.so",
       "sha256": "54a231681ba68b0462a693a078251e9d12f98bf55a1569ed8f9c63de39c8bd22"
     }
-  },
-  "windows": {
-    "ThostFtdcMdApi.h": {
-      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_20240607_traderapi64_se_windows/ThostFtdcMdApi.h",
-      "sha256": "e767fb98a516ee7e5ad864f0bfae4a3d6c2032b10b4dee4f6e6f7922da61698a"
-    },
-    "ThostFtdcUserApiDataType.h": {
-      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_20240607_traderapi64_se_windows/ThostFtdcUserApiDataType.h",
-      "sha256": "eed3356e138b325bce7f5aa97bbd1564d3d76dc808c89912a465222415494e9f"
-    },
-    "ThostFtdcUserApiStruct.h": {
-      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_20240607_traderapi64_se_windows/ThostFtdcUserApiStruct.h",
-      "sha256": "380970fa5105a82c0e55317cf3764e0d3894fa35d63632d3bbb3e53a3caa9ae7"
-    },
-    "ctp-md.dll": {
-      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_20240607_traderapi64_se_windows/thostmduserapi_se.dll",
-      "sha256": "72a833786836ce6e6026bc0c19a06bd3c1b0279cb1ea9df0297b1c2916cad98b"
-    },
-    "ThostFtdcTraderApi.h": {
-      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_20240607_traderapi64_se_windows/ThostFtdcTraderApi.h",
-      "sha256": "68cac20f31c39b1d18796385fce28b64f5e55fd4ebe7f6fb1b2f3e883d166076"
-    },
-    "ctp-trader.dll": {
-      "url": "https://raw.githubusercontent.com/pseudocodes/ctp2rs/2bad971d48d30ee5923f75e82f39dd58b8fe0af9/ctp-dyn/api/ctp/v6.7.7/v6.7.7_20240607_traderapi64_se_windows/thosttraderapi_se.dll",
-      "sha256": "d79cc036fc90733a30cee8e8e30bdea17b346333c69413f33d44ebc7a96b1fad"
-    }
   }
 }

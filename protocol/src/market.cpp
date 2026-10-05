@@ -2,6 +2,7 @@
 namespace asterion::protocol {
 market::v1::Snapshot encode_market(const LiveMarketSnapshot& state, const std::string& instance) {
   market::v1::Snapshot out;
+  out.set_subscriptions_delta(state.subscriptions_delta);
   out.set_instance_id(instance);
   out.set_phase(state.phase);
   out.set_error_code(state.error_code);
@@ -81,6 +82,14 @@ market::v1::EventBatch encode_market_events(const MarketEventBatch& batch) {
     row->set_received_ms(event.received_ms);
     if (const auto* status = std::get_if<LiveMarketSnapshot>(&event.value)) {
       *row->mutable_status() = encode_market(*status, batch.stream_id);
+    } else if (const auto* subscription = std::get_if<MarketSubscription>(&event.value)) {
+      if (subscription->quote)
+        throw std::invalid_argument("subscription acknowledgement cannot carry a quote");
+      auto* state = row->mutable_subscription();
+      state->mutable_instrument()->set_venue(subscription->instrument.venue);
+      state->mutable_instrument()->set_symbol(subscription->instrument.symbol);
+      state->set_state(subscription->state);
+      state->set_error_code(subscription->error_code);
     } else {
       const auto& observation = std::get<MarketQuoteObservation>(event.value);
       LiveMarketSnapshot single;
@@ -152,7 +161,7 @@ Json decode_market(const market::v1::Snapshot& state) {
                     {"change_1m_percent", s.has_change_1m_percent()
                                               ? Json(Decimal::parse(s.change_1m_percent()).str())
                                               : Json(nullptr)},
-                    {"quote", quote}});
+                    {"quote", std::move(quote)}});
   }
   Json catalog_rows = Json::array(), watchlist = Json::array();
   for (const auto& row : state.catalog().contracts()) {
@@ -173,14 +182,14 @@ Json decode_market(const market::v1::Snapshot& state) {
             {"error_code", state.catalog().error_code()},
             {"diagnostic", state.catalog().diagnostic()},
             {"trading_day", state.catalog().trading_day()},
-            {"contracts", catalog_rows}}},
-          {"watchlist", watchlist},
+            {"contracts", std::move(catalog_rows)}}},
+          {"watchlist", std::move(watchlist)},
           {"instance_id", state.instance_id()},
           {"phase", state.phase()},
           {"error_code", state.error_code()},
           {"sequence", state.sequence()},
           {"out_of_order", state.out_of_order()},
-          {"subscriptions", rows}};
+          {"subscriptions", std::move(rows)}};
 }
 market::v1::MinuteSeries encode_minutes(const IntradaySeries& series) {
   market::v1::MinuteSeries out;

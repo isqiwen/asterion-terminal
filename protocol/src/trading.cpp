@@ -1,4 +1,5 @@
 #include <asterion/foundation/decimal.hpp>
+#include <asterion/domain/futures.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/trading.hpp>
@@ -194,16 +195,20 @@ void validate_message(const google::protobuf::Message& message) {
   const auto* reflection = message.GetReflection();
   if (reflection->GetUnknownFields(message).field_count())
     throw std::invalid_argument("unknown Protobuf field");
-  std::vector<const google::protobuf::FieldDescriptor*> fields;
-  reflection->ListFields(message, &fields);
-  for (const auto* field : fields)
+  // Our proto3 contracts have no extensions. Walk message fields directly;
+  // enumerating every populated scalar allocates a vector for each Decimal
+  // and bar in large immutable datasets, without contributing validation.
+  const auto* descriptor = message.GetDescriptor();
+  for (int index = 0; index < descriptor->field_count(); ++index) {
+    const auto* field = descriptor->field(index);
     if (field->cpp_type() == google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE) {
       if (field->is_repeated()) {
         for (int i = 0; i < reflection->FieldSize(message, field); ++i)
           validate_message(reflection->GetRepeatedMessage(message, field, i));
-      } else
+      } else if (reflection->HasField(message, field))
         validate_message(reflection->GetMessage(message, field));
     }
+  }
 }
 v1::Contract encode_contract(const Json& value) {
   return contract(value);
@@ -236,7 +241,6 @@ Json decode_risk(const v1::RiskLimits& value) {
           {"max_working_orders", value.max_working_orders()}};
 }
 namespace {
-constexpr unsigned max_events = 20000;
 Json instrument_fields(const std::string& venue, const std::string& symbol) {
   InstrumentId{venue, symbol}.validate();
   return {{"venue", venue}, {"symbol", symbol}};
@@ -276,10 +280,10 @@ v1::PaperInput encode_input(const Json& m) {
     *contract->mutable_dataset() = encode_bar_dataset(c.at("dataset"));
     *contract->mutable_cost_schedule() = encode_cost_schedule(c.at("cost_schedule"));
   }
-  static_cast<void>(decode_input(result));
+  static_cast<void>(decode_input(result, DatasetView::metadata));
   return result;
 }
-Json decode_input(const v1::PaperInput& input) {
+Json decode_input(const v1::PaperInput& input, DatasetView view) {
   if (!input.has_deposit() || !input.has_risk() || input.contracts().empty() ||
       static_cast<std::size_t>(input.contracts_size()) > max_portfolio_contracts)
     throw std::invalid_argument("paper input requires deposit, risk and 1 to 20 contracts");
@@ -291,7 +295,7 @@ Json decode_input(const v1::PaperInput& input) {
   for (const auto& c : input.contracts()) {
     if (!c.has_dataset() || !c.has_cost_schedule())
       throw std::invalid_argument("missing explicit paper costs or dataset");
-    contracts.push_back({{"dataset", decode_bar_dataset(c.dataset())},
+    contracts.push_back({{"dataset", decode_bar_dataset(c.dataset(), view)},
                          {"cost_schedule", decode_cost_schedule(c.cost_schedule())}});
     terms.push_back(contract_terms(c));
   }
@@ -328,6 +332,10 @@ v1::Command encode_command(const Json& c) {
   } else if (action == "live_revoke") {
     require_fields(c, {"request_id", "action"});
     result.mutable_live_revoke();
+  } else if (action == "live_policy") {
+    require_fields(c, {"request_id", "action", "policy", "risk_artifact"});
+    *result.mutable_live_policy()->mutable_policy() = encode_live_policy(c.at("policy"));
+    result.mutable_live_policy()->set_risk_artifact(c.at("risk_artifact").get<std::string>());
   } else if (action == "live_resolve") {
     require_fields(c, {"request_id", "action", "order_id"});
     result.mutable_live_resolve()->set_order_id(c.at("order_id").get<std::string>());
@@ -359,6 +367,11 @@ Json decode_command(const v1::Command& c) {
     break;
   case v1::Command::kLiveRevoke:
     result["action"] = "live_revoke";
+    break;
+  case v1::Command::kLivePolicy:
+    result.update({{"action", "live_policy"},
+                   {"policy", decode_live_policy(c.live_policy().policy())},
+                   {"risk_artifact", c.live_policy().risk_artifact()}});
     break;
   case v1::Command::kLiveResolve:
     result.update({{"action", "live_resolve"}, {"order_id", c.live_resolve().order_id()}});
@@ -430,7 +443,8 @@ Json decode_snapshot(const v1::Snapshot& s) {
       static_cast<std::size_t>(s.contracts_size()) > max_portfolio_contracts || !s.has_balance() ||
       !s.has_equity() || !s.has_available() || !s.has_margin() || !s.has_frozen() ||
       !s.has_fees() || !s.has_realized() || !s.has_unrealized() || s.total() == 0 ||
-      s.total() > max_events || s.cursor() > s.total() || (s.cursor() == 0) == s.has_timestamp_ns())
+      s.total() > max_dataset_bars || s.cursor() > s.total() ||
+      (s.cursor() == 0) == s.has_timestamp_ns())
     throw std::invalid_argument("incomplete trading snapshot");
   // Evaluated before the braced initializer: GCC < 13 leaks already-built
   // initializer_list elements when a later element throws (PR66139).
@@ -537,68 +551,97 @@ std::string live_status(const std::string& value) {
   return value;
 }
 } // namespace
-// Live manifest version 2: a CTP account, its risk limits, its price
-// deviation bound and the contracts it may trade.
+v1::LivePolicy encode_live_policy(const Json& policy) {
+  require_fields(policy, {"risk", "max_price_deviation", "contracts"});
+  if (!policy.at("contracts").is_array())
+    throw std::invalid_argument("live policy contracts must be an array");
+  v1::LivePolicy result;
+  *result.mutable_risk() = encode_risk(policy.at("risk"));
+  set(result.mutable_max_price_deviation(), policy.at("max_price_deviation"));
+  if (get(result.max_price_deviation()) != policy.at("max_price_deviation").get<std::string>())
+    throw std::invalid_argument("price deviation requires canonical decimal text");
+  for (const auto& c : policy.at("contracts"))
+    *result.add_contracts() = contract(c);
+  static_cast<void>(decode_live_policy(result));
+  return result;
+}
+Json decode_live_policy(const v1::LivePolicy& policy) {
+  if (!policy.has_risk() || policy.contracts().empty() ||
+      static_cast<std::size_t>(policy.contracts_size()) > max_portfolio_contracts)
+    throw std::invalid_argument("live policy requires risk and 1 to 20 contracts");
+  auto risk = decode_risk(policy.risk());
+  const auto deviation = Decimal::from_raw(policy.max_price_deviation().units());
+  if (!policy.has_max_price_deviation() || deviation <= Decimal{} ||
+      deviation >= Decimal::parse("1"))
+    throw std::invalid_argument("price deviation limit must be above 0 and below 1");
+  Json contracts = Json::array();
+  std::set<InstrumentId> seen;
+  for (const auto& c : policy.contracts()) {
+    const auto terms = instrument(c);
+    FuturesContract{terms, c.product(), c.delivery_month()}.validate();
+    if (!seen.insert(terms.id).second)
+      throw std::invalid_argument("duplicate live contract");
+    contracts.push_back(contract(c));
+  }
+  return {{"risk", std::move(risk)},
+          {"max_price_deviation", deviation.str()},
+          {"contracts", std::move(contracts)}};
+}
+// Version 5 identifies the owned account record using its stable Terminal ID.
 v1::LiveInput encode_live_input(const Json& m) {
-  require_fields(m, {"version", "type", "broker", "risk", "max_price_deviation", "contracts"});
-  if (m.at("version") != 2 || m.at("type") != "live_ctp" || !m.at("contracts").is_array())
+  require_fields(m, {"version", "type", "account_id", "broker", "policy"});
+  if (m.at("version") != 5 || m.at("type") != "live_ctp")
     throw std::invalid_argument("invalid live input");
+  validate_id(m.at("account_id").get<std::string>());
   v1::LiveInput result;
+  result.set_account_id(m.at("account_id"));
   const auto broker = live_broker(m.at("broker"));
   result.mutable_broker()->set_front(broker.at("front"));
   result.mutable_broker()->set_broker_id(broker.at("broker_id"));
   result.mutable_broker()->set_user_id(broker.at("user_id"));
   result.mutable_broker()->set_app_id(broker.at("app_id"));
-  *result.mutable_risk() = encode_risk(m.at("risk"));
-  set(result.mutable_max_price_deviation(), m.at("max_price_deviation"));
-  if (get(result.max_price_deviation()) != m.at("max_price_deviation").get<std::string>())
-    throw std::invalid_argument("price deviation requires canonical decimal text");
-  for (const auto& c : m.at("contracts"))
-    *result.add_contracts() = contract(c);
-  static_cast<void>(decode_live_input(result));
+  *result.mutable_policy() = encode_live_policy(m.at("policy"));
   return result;
 }
 Json decode_live_input(const v1::LiveInput& input) {
-  if (!input.has_broker() || !input.has_risk() || input.contracts().empty() ||
-      static_cast<std::size_t>(input.contracts_size()) > max_portfolio_contracts)
-    throw std::invalid_argument("live input requires a broker, risk and 1 to 20 contracts");
+  if (!input.has_broker() || !input.has_policy())
+    throw std::invalid_argument("live input requires a broker and policy");
+  validate_id(input.account_id());
   auto broker = live_broker({{"front", input.broker().front()},
                              {"broker_id", input.broker().broker_id()},
                              {"user_id", input.broker().user_id()},
                              {"app_id", input.broker().app_id()}});
-  auto risk = decode_risk(input.risk());
-  const auto deviation = Decimal::from_raw(input.max_price_deviation().units());
-  if (!input.has_max_price_deviation() || deviation <= Decimal{} ||
-      deviation >= Decimal::parse("1"))
-    throw std::invalid_argument("price deviation limit must be above 0 and below 1");
-  Json contracts = Json::array();
-  std::set<InstrumentId> seen;
-  for (const auto& c : input.contracts()) {
-    const auto terms = instrument(c);
-    terms.validate();
-    if (!seen.insert(terms.id).second)
-      throw std::invalid_argument("duplicate live contract");
-    contracts.push_back(contract(c));
-  }
-  return {{"version", 2},
+  auto policy = decode_live_policy(input.policy());
+  return {{"version", 5},
+          {"account_id", input.account_id()},
           {"type", "live_ctp"},
           {"broker", std::move(broker)},
-          {"risk", std::move(risk)},
-          {"max_price_deviation", deviation.str()},
-          {"contracts", std::move(contracts)}};
+          {"policy", std::move(policy)}};
 }
 v1::LiveSnapshot encode_live_snapshot(const Json& s) {
   v1::LiveSnapshot result;
-  const auto input = encode_live_input({{"version", 2},
+  result.set_account_id(s.at("account_id").get<std::string>());
+  result.set_segment_count(s.at("segment_count").get<std::uint64_t>());
+  const auto& capacity = s.at("capacity");
+  auto* stored = result.mutable_capacity();
+  stored->set_records_used(capacity.at("records_used").get<std::uint64_t>());
+  stored->set_records_limit(capacity.at("records_limit").get<std::uint64_t>());
+  stored->set_bytes_used(capacity.at("bytes_used").get<std::uint64_t>());
+  stored->set_bytes_limit(capacity.at("bytes_limit").get<std::uint64_t>());
+  const auto input = encode_live_input({{"version", 5},
+                                        {"account_id", s.at("account_id")},
                                         {"type", "live_ctp"},
                                         {"broker", s.at("broker")},
-                                        {"risk", s.at("risk")},
-                                        {"max_price_deviation", s.at("max_price_deviation")},
-                                        {"contracts", s.at("contracts")}});
+                                        {"policy",
+                                         {{"risk", s.at("risk")},
+                                          {"max_price_deviation", s.at("max_price_deviation")},
+                                          {"contracts", s.at("contracts")}}}});
   *result.mutable_broker() = input.broker();
-  *result.mutable_risk() = input.risk();
-  *result.mutable_max_price_deviation() = input.max_price_deviation();
-  *result.mutable_contracts() = input.contracts();
+  *result.mutable_risk() = input.policy().risk();
+  *result.mutable_max_price_deviation() = input.policy().max_price_deviation();
+  *result.mutable_contracts() = input.policy().contracts();
+  result.set_policy_revision(s.at("policy_revision").get<std::string>());
+  result.set_risk_artifact(s.at("risk_artifact").get<std::string>());
   result.set_phase(s.at("phase").get<std::string>());
   result.set_error_code(s.at("error_code").get<int>());
   result.set_trading_day(s.at("trading_day").get<std::string>());
@@ -675,12 +718,26 @@ v1::LiveSnapshot encode_live_snapshot(const Json& s) {
   return result;
 }
 Json decode_live_snapshot(const v1::LiveSnapshot& s) {
+  validate_id(s.account_id());
+  validate_id(s.policy_revision());
+  if (s.risk_artifact().size() != 64)
+    throw std::invalid_argument("invalid risk plugin artifact");
+  if (s.segment_count() > 9007199254740991ULL)
+    throw std::invalid_argument("invalid trading journal segment count");
+  const auto& capacity = s.capacity();
+  if (!s.has_capacity() || !capacity.records_limit() || !capacity.bytes_limit() ||
+      capacity.records_used() > capacity.records_limit() ||
+      capacity.bytes_used() > capacity.bytes_limit() ||
+      capacity.records_limit() > 9007199254740991ULL ||
+      capacity.bytes_limit() > 9007199254740991ULL)
+    throw std::invalid_argument("invalid journal capacity");
   auto input = decode_live_input([&] {
     v1::LiveInput value;
+    value.set_account_id(s.account_id());
     *value.mutable_broker() = s.broker();
-    *value.mutable_risk() = s.risk();
-    *value.mutable_max_price_deviation() = s.max_price_deviation();
-    *value.mutable_contracts() = s.contracts();
+    *value.mutable_policy()->mutable_risk() = s.risk();
+    *value.mutable_policy()->mutable_max_price_deviation() = s.max_price_deviation();
+    *value.mutable_policy()->mutable_contracts() = s.contracts();
     return value;
   }());
   static const std::set<std::string> phases{"disconnected", "connecting", "authenticating",
@@ -689,10 +746,14 @@ Json decode_live_snapshot(const v1::LiveSnapshot& s) {
   if (!phases.contains(s.phase()))
     throw std::invalid_argument("invalid live phase");
   Json result{{"mode", "live"},
+              {"account_id", s.account_id()},
+              {"policy_revision", s.policy_revision()},
+              {"risk_artifact", s.risk_artifact()},
+              {"segment_count", s.segment_count()},
               {"broker", input.at("broker")},
-              {"risk", input.at("risk")},
-              {"max_price_deviation", input.at("max_price_deviation")},
-              {"contracts", input.at("contracts")},
+              {"risk", input.at("policy").at("risk")},
+              {"max_price_deviation", input.at("policy").at("max_price_deviation")},
+              {"contracts", input.at("policy").at("contracts")},
               {"phase", s.phase()},
               {"error_code", s.error_code()},
               {"trading_day", s.trading_day()},
@@ -704,7 +765,12 @@ Json decode_live_snapshot(const v1::LiveSnapshot& s) {
               {"authorization", nullptr},
               {"unconfirmed", Json::array()},
               {"costs", Json::array()},
-              {"storage_state", s.recovery_required() ? "recovery_required" : "ready"}};
+              {"storage_state", s.recovery_required() ? "recovery_required" : "ready"},
+              {"capacity",
+               {{"records_used", capacity.records_used()},
+                {"records_limit", capacity.records_limit()},
+                {"bytes_used", capacity.bytes_used()},
+                {"bytes_limit", capacity.bytes_limit()}}}};
   for (const auto& c : s.costs()) {
     auto item = instrument_fields(c.venue(), c.symbol());
     const auto state = live_costs_state(c.state());

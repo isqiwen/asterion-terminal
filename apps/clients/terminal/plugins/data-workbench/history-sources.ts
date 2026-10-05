@@ -3,8 +3,8 @@ import type {
   HistoryContractCatalog,
   NativeHistorySource,
   Snapshot,
-  ResearchResult,
-  ResearchTask,
+  TaskResult,
+  TaskRecord,
   TerminalCommand,
 } from "../../src/bridge/client";
 
@@ -30,8 +30,8 @@ export type HistorySource = {
     credential: string,
     catalog: HistoryContractCatalog,
   ) => Record<string, unknown>;
-  ownsTask: (task: ResearchTask) => boolean;
-  dataset: (result: ResearchResult) => HistoryDataset | null;
+  ownsTask: (task: TaskRecord) => boolean;
+  dataset: (result: TaskResult) => HistoryDataset | null;
 };
 export type HistoryQuery = {
   code: string;
@@ -60,7 +60,7 @@ export function historySources(declared: readonly NativeHistorySource[]): Histor
       description: daily
         ? "选择具体月份合约，下载存续期内按交易日期记录的日线。需要合约资料与日线数据权限。"
         : "选择具体月份合约，自动下载整个存续期的分钟数据。需要合约资料与分钟数据权限。",
-      catalogCommand: "research.contracts.load",
+      catalogCommand: "data.contracts.load",
       exchanges: info.venues,
       intervals: daily ? ["day"] : info.intervals,
       timeAxis: daily ? "trading-day" : "instant",
@@ -83,7 +83,7 @@ export function historySources(declared: readonly NativeHistorySource[]): Histor
       },
       catalog: snapshot =>
         snapshot?.history_contracts?.source === info.id ? snapshot.history_contracts : null,
-      command: daily ? "research.daily.submit" : "research.minutes.submit",
+      command: daily ? "data.download.daily.submit" : "data.download.minutes.submit",
       parameters: (query, token, catalog) => ({
         source: info.id,
         contract_id: query.code,

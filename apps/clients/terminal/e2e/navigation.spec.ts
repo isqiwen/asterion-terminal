@@ -11,7 +11,7 @@ test("six workspaces restore the last destination without a dashboard", async ({
     "合约",
     "市场",
     "数据",
-    "研究",
+    "回测与因子",
     "交易",
   ]);
   await expect(nav.getByRole("button", { name: "自选", exact: true })).toHaveAttribute(
@@ -19,7 +19,7 @@ test("six workspaces restore the last destination without a dashboard", async ({
     "page",
   );
   await expect(page.getByRole("button", { name: "总览", exact: true })).toHaveCount(0);
-  for (const [index, name] of ["自选", "合约", "市场", "数据", "研究", "交易"].entries()) {
+  for (const [index, name] of ["自选", "合约", "市场", "数据", "回测与因子", "交易"].entries()) {
     await page.keyboard.press(`Control+${index + 1}`);
     await expect(nav.getByRole("button", { name, exact: true })).toHaveAttribute(
       "aria-current",
@@ -60,15 +60,16 @@ test("service and task failures remain visible from every workspace", async ({ p
       health: "unavailable",
       error: "Test-only service failure",
     };
-    data.result.research.tasks = [
+    data.result.task_service.failed_count = 1;
+    data.result.task_service.tasks = [
       {
         id: "failed-download",
         kind: "minute_download",
         state: "failed",
         attempt: 1,
-        data_source: "tushare.fut_min",
+        data_source: "tushare.ft_mins",
         source_name: "Test download",
-        instrument: "SHFE/rb2610",
+        instrument: "SHFE/rb/2026-10",
         completed: 0,
         total: 1,
         error: "Test-only download failure",
@@ -87,7 +88,10 @@ test("service and task failures remain visible from every workspace", async ({ p
   const footer = page.locator(".status-bar");
   await expect(footer).toContainText("服务异常");
   await expect(footer).toContainText("1 项任务异常");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await page
+    .locator(".workspace-tabs")
+    .getByRole("button", { name: "回测与因子", exact: true })
+    .click();
   await expect(footer).toContainText("服务异常");
   await footer.getByRole("button", { name: /1 项任务异常/ }).click();
   const tasks = page.getByRole("region", { name: "任务中心", exact: true });
@@ -100,5 +104,5 @@ test("service and task failures remain visible from every workspace", async ({ p
   await page.screenshot({ path: "apps/clients/terminal/test-results/navigation-issues.png" });
   issues = false;
   await expect(footer).not.toContainText("1 项任务异常");
-  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await page.unrouteAll({ behavior: "wait" });
 });

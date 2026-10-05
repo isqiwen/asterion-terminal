@@ -58,6 +58,12 @@ def session(state, account="account"):
 
 def trade(process, method, params=None, error=False, account="account"):
     """Every trading command names the CTP account it is for."""
+    if method == "live.act" and "account_id" not in (params or {}):
+        current = session(call(process, "runtime.snapshot"), account)
+        params = dict(params or {}, account_id=current["account_id"] if current else "missing")
+    if method == "live.act" and "policy_revision" not in (params or {}):
+        current = session(call(process, "runtime.snapshot"), account)
+        params = dict(params or {}, policy_revision=current["policy_revision"] if current else "missing")
     return call(process, method, dict(params or {}, account=account), error=error)
 
 
@@ -77,6 +83,7 @@ def stop(process):
 
 
 with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=True) as folder:
+    env["ASTERION_LOG_DIRECTORY"] = str(Path(folder) / "terminal-logs")
     process = launch()
     try:
         call(process, "market.local")
@@ -99,16 +106,33 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         state = trade(process, "live.create",
                      dict(create, contracts=[dict(venue="SHFE", symbol="rb2610")]))
         live = session(state)
+        assert live["account_id"] == "account"
         assert live["phase"] == "disconnected" and live["authorization"] is None
         assert live["contracts"][0]["price_increment"] == "0.5"
         assert live["contracts"][0]["multiplier"] == "10"
+        # Readiness is independent of process liveness and successful initialization.
+        state = wait(process, lambda s: s["live"]["account"]["connection"]["health"] is not None)
+        health = state["live"]["account"]["connection"]["health"]
+        assert health["phase"] == "awaiting_input", health
+        assert not health["execution"]["business_ready"], health
+        assert health["execution"]["state"]["observed"], health
+        # Opening the same account twice must not create another record.
+        duplicate = trade(process, "live.create",
+                          dict(create, contracts=[dict(venue="SHFE", symbol="rb2610")]), error=True)
+        assert "already open" in duplicate["message"], duplicate
         denied = trade(process, "live.act", submit("early", "1"), error=True)
         assert "authorize" in denied["message"], denied
 
         trade(process, "live.connect", dict(password="bad", auth_code=AUTH))
         wait(process, lambda s: session(s)["phase"] == "error")
         trade(process, "live.connect", dict(password=SECRET, auth_code=AUTH))
-        wait(process, lambda s: session(s)["phase"] == "ready")
+        state = wait(process, lambda s: any(
+            v["id"] == s["live"]["account"]["connection"]["session"] and v["health"] == "ready"
+            for n in s["nodes"] if n["health"] for v in n["health"]["services"]))
+        observed = next(v for n in state["nodes"] if n["health"] for v in n["health"]["services"]
+                        if v["id"] == state["live"]["account"]["connection"]["session"])
+        assert observed["execution"]["business_ready"], observed
+        assert all(observed["execution"][key]["observed"] for key in ("io", "state", "persistence"))
         trade(process, "live.act", dict(request_id="authorize", action="live_authorize",
                                        user_id="000001"))
         trade(process, "live.act", submit("tick", "1", "3500.25"), error=True)
@@ -151,7 +175,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
                        if s["id"] == state["live"]["account"]["connection"]["session"])
         os.kill(service["pid"], signal.SIGKILL)
         wait(process, lambda s: any(
-            v["id"] == service["id"] and v["pid"] != service["pid"] and v["health"] == "ready"
+            v["id"] == service["id"] and v["pid"] != service["pid"] and v["health"] == "awaiting_input"
             for n in s["nodes"] if n["health"] for v in n["health"]["services"]), 40)
         trade(process, "live.close")
         state = trade(process, "live.open")
@@ -160,10 +184,10 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         trade(process, "live.act", submit("after", "1"), error=True)
         trade(process, "live.connect", dict(password=SECRET, auth_code=AUTH))
         state = wait(process, lambda s: session(s)["phase"] == "ready")
-        # The SDK double keeps exchange state in the killed process, so the
-        # broker no longer reports the order: it is listed, never resent.
+        # The restarted SDK double has no exchange state. Durable terminal
+        # evidence still retires the filled intent; recovery never resends it.
         live = session(state)
-        assert [u["id"] for u in live["unconfirmed"]] == ["filled"], live
+        assert live["unconfirmed"] == [], live
         assert live["orders"] == [], live
         trade(process, "live.act", submit("filled", "2"))
         assert session(call(process, "runtime.snapshot"))["orders"] == []
@@ -171,6 +195,30 @@ with tempfile.TemporaryDirectory(prefix="asterion-live-", ignore_cleanup_errors=
         trade(process, "live.close")
     finally:
         stop(process)
+    records = []
+    for root in (Path(folder) / "terminal-logs", Path(os.environ["ASTERION_NODE_DIRECTORY"])):
+        for path in root.rglob("*.log"):
+            for line in path.read_text(errors="replace").splitlines():
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(record, dict) and "event" in record and "fields" in record:
+                    records.append(record)
+    committed = next(r["fields"] for r in records if r["event"] == "journal.committed"
+                     and r["fields"].get("request_id") == "submit.filled")
+    rpc = next(r["fields"] for r in records if r["event"] == "rpc.completed"
+               and r["fields"].get("correlation_id") == committed["trace_id"])
+    assert rpc["success"] and rpc["request_id"] == "submit.filled", rpc
+    link = next(r["fields"] for r in records if r["event"] == "rpc.started"
+                and r["fields"].get("correlation_id") == committed["trace_id"])
+    assert any(r["event"] == "live.act" and r["fields"].get("trace_id") == link["trace_id"]
+               for r in records), "RPC was not joined to its Terminal command"
+    assert any(r["event"] == "broker.order_observed" and
+               r["fields"].get("broker_key") == committed["broker_key"] and
+               r["fields"].get("order_id") == "filled" for r in records)
+    assert any(r["event"] == "broker.trade_observed" and
+               r["fields"].get("order_id") == "filled" for r in records)
     for path in Path(os.environ["ASTERION_NODE_DIRECTORY"]).rglob("*"):
         if path.is_file():
             data = path.read_bytes()

@@ -104,9 +104,7 @@ export function MarketBoard({
           { title: "金融期货", venues: ["CFFEX"], column: 1, row: 0 },
           { title: "广州商品期货", venues: ["GFEX"], column: 1, row: 0 },
           { title: "郑州商品期货", venues: ["CZCE"], column: 0, row: 1 },
-          { title: "境外商品期货", venues: [], column: 1, row: 1 },
           { title: "大连商品期货", venues: ["DCE"], column: 0, row: 2 },
-          { title: "境外金融期货", venues: [], column: 1, row: 2 },
           ...venues
             .filter(value => !venueOrder.includes(value))
             .map(value => ({ title: value, venues: [value], column: 1, row: 2 })),
@@ -240,9 +238,9 @@ export function MarketBoard({
       <div className="futures-market-board-list">
         {inlineToolbar && toolbar}
         {error && (
-          <p role="alert">
+          <div role="alert">
             <ErrorNotice error={error} />
-          </p>
+          </div>
         )}
         {!rows.length && (
           <p className="market-search-empty" role="status">
@@ -257,10 +255,7 @@ export function MarketBoard({
           {Array.from({ length: rowCount }).flatMap((_, row) =>
             [0, 1].map(column => {
               const cell = groups.filter(
-                group =>
-                  group.row === row &&
-                  group.column === column &&
-                  (group.rows.length || (!group.venues.length && !query)),
+                group => group.row === row && group.column === column && group.rows.length,
               );
               if (!cell.length) return null;
               return (
@@ -272,13 +267,7 @@ export function MarketBoard({
                   {cell.map(group => (
                     <section key={group.title} aria-label={t(group.title)}>
                       <h3>{t(group.title)}</h3>
-                      {group.venues.length ? (
-                        table(group.rows)
-                      ) : (
-                        <p className="market-group-unavailable" role="status">
-                          {t("境外行情源尚未接入")}
-                        </p>
-                      )}
+                      {table(group.rows)}
                     </section>
                   ))}
                 </div>

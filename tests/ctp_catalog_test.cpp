@@ -19,7 +19,12 @@ protected:
     std::filesystem::remove_all(flow, error);
   }
   ctp::Catalog read(std::stop_token stop = {}, std::chrono::milliseconds timeout = 2s) {
-    return ctp::read_catalog(ASTERION_TEST_CTP_TRADER, flow, config, stop, timeout);
+    ctp::CatalogQuery query(ASTERION_TEST_CTP_TRADER, flow, config, timeout);
+    for (;;) {
+      if (auto result = query.poll(stop))
+        return std::move(*result);
+      std::this_thread::sleep_for(1ms);
+    }
   }
 };
 } // namespace
@@ -61,8 +66,15 @@ TEST_F(CtpCatalog, RejectsPartialInvalidAndDuplicateResults) {
   EXPECT_TRUE(read().contracts.empty());
 }
 TEST_F(CtpCatalog, TimeoutAndCancellationDoNotReturnPartialResults) {
+  config.user = "catalog-partial";
+  try {
+    read({}, 150ms);
+    FAIL() << "expected query timeout";
+  } catch (const Error& error) {
+    EXPECT_EQ(error.code(), ErrorCode::unavailable);
+    EXPECT_STREQ(error.what(), "CTP catalog instrument query timed out");
+  }
   config.user = "catalog-stall";
-  EXPECT_THROW(read({}, 150ms), Error);
   std::stop_source stop;
   std::jthread cancel([&] {
     std::this_thread::sleep_for(120ms);
@@ -74,6 +86,12 @@ TEST_F(CtpCatalog, TimeoutAndCancellationDoNotReturnPartialResults) {
   } catch (const Error& error) {
     EXPECT_EQ(error.code(), ErrorCode::cancelled);
   }
+}
+TEST_F(CtpCatalog, FilteredResponsesKeepQueryAliveUntilFinalResponse) {
+  config.user = "catalog-stream";
+  const auto result = read({}, 300ms);
+  ASSERT_EQ(result.contracts.size(), 1U);
+  EXPECT_EQ(result.contracts.front().instrument.symbol, "rb2610");
 }
 
 TEST(CtpCatalogService, EmptyWatchlistLoadsMarketAndQueriesRemainResponsive) {
@@ -166,11 +184,30 @@ TEST(CtpCatalogService, EmptyWatchlistLoadsMarketAndQueriesRemainResponsive) {
   EXPECT_EQ(ready.subscriptions_size(), 1);
   catalog->set_user("catalog-stall");
   call(request);
+  wait([&](const auto& state) {
+    return state.catalog().phase() == "loading" &&
+           std::filesystem::exists(directory / "ctp-catalog-flow/catalog-query-started");
+  });
   const auto begin = std::chrono::steady_clock::now();
-  EXPECT_EQ(snapshot().catalog().phase(), "loading");
+  // Waiting for the catalog's last response must yield the shared SDK owner.
+  auto* added = watchlist.mutable_subscribe()->add_instruments();
+  added->set_venue("SHFE");
+  added->set_symbol("rb2710");
+  call(watchlist);
+  const auto while_waiting = wait([](const auto& state) {
+    return state.subscriptions_size() == 1 && state.subscriptions(0).has_quote() &&
+           state.subscriptions(0).instrument().symbol() == "rb2710";
+  });
+  EXPECT_EQ(while_waiting.catalog().phase(), "loading");
   wire::Request disconnect;
   disconnect.mutable_disconnect();
   // The catalog loaded earlier in this test remains available offline.
   EXPECT_EQ(call(disconnect).snapshot().catalog().phase(), "cached");
   EXPECT_LT(std::chrono::steady_clock::now() - begin, 1s);
+  // A cancelled query may finish releasing its SDK later; its result cannot
+  // replace the cached catalog or restart subscriptions after disconnect.
+  std::this_thread::sleep_for(200ms);
+  const auto disconnected = snapshot();
+  EXPECT_EQ(disconnected.phase(), "disconnected");
+  EXPECT_EQ(disconnected.catalog().phase(), "cached");
 }

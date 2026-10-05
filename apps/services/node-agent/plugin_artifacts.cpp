@@ -58,10 +58,10 @@ fs::path PluginArtifacts::materialize(const std::string& name,
                                       const std::vector<std::string>& artifacts) const {
   const auto parent = root_ / "services" / name / "plugins";
   require_managed_path(parent);
-  fs::create_directory(parent);
+  create_directories_durably(parent);
   const auto folder = parent / sha256_bytes(Json(artifacts).dump());
   require_managed_path(folder);
-  fs::create_directory(folder);
+  create_directories_durably(folder);
   verify(artifacts);
   std::set<fs::path> expected;
   for (const auto& hash : artifacts) {
@@ -87,6 +87,7 @@ fs::path PluginArtifacts::materialize(const std::string& name,
       throw std::invalid_argument("native plugin installation contains unexpected entries");
     fs::remove(entry.path());
   }
+  sync_directory(folder);
   return folder;
 }
 } // namespace asterion::agent

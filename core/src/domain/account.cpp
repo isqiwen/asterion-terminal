@@ -32,13 +32,21 @@ const FuturesCostVersion& costs_on(const std::vector<FuturesCostVersion>& schedu
 void FuturesAccount::update_costs(const std::vector<FuturesCosts>& costs) {
   if (costs.size() != contracts_.size() || has_working_orders())
     throw std::invalid_argument("cost changes require every contract and no working orders");
-  auto next = *this;
+  std::vector<FuturesCosts> previous;
+  previous.reserve(costs.size());
   for (std::size_t i = 0; i < costs.size(); ++i) {
     costs[i].validate();
-    next.contracts_[i].costs = costs[i];
+    previous.push_back(contracts_[i].costs);
   }
-  (void)next.available(); // Check arithmetic before publishing any new rate.
-  *this = std::move(next);
+  for (std::size_t i = 0; i < costs.size(); ++i)
+    contracts_[i].costs = costs[i];
+  try {
+    (void)available();
+  } catch (...) {
+    for (std::size_t i = 0; i < previous.size(); ++i)
+      contracts_[i].costs = previous[i];
+    throw;
+  }
 }
 namespace {
 const auto zero = Decimal{};
@@ -141,6 +149,65 @@ FuturesAccount::FuturesAccount(Decimal deposit, std::vector<ContractTerms> contr
         throw std::invalid_argument("duplicate portfolio contract");
   }
 }
+struct FuturesAccount::Transaction::State {
+  FuturesAccount* owner;
+  std::vector<Decimal> marks;
+  std::vector<FuturesCosts> costs;
+  std::vector<PositionLot> lots;
+  std::vector<std::pair<std::size_t, AccountOrder>> orders;
+  std::set<std::size_t> working;
+  std::size_t order_count, fill_count;
+  Decimal balance, fees, realized;
+  explicit State(FuturesAccount& account)
+      : owner(&account), marks(account.marks_), lots(account.lots_),
+        working(account.working_orders_), order_count(account.orders_.size()),
+        fill_count(account.fills_.size()), balance(account.balance_), fees(account.fees_),
+        realized(account.realized_) {
+    for (const auto& contract : account.contracts_)
+      costs.push_back(contract.costs);
+    orders.reserve(working.size());
+    for (const auto index : working)
+      orders.emplace_back(index, account.orders_[index]);
+  }
+  ~State() noexcept {
+    if (!owner)
+      return;
+    auto& account = *owner;
+    while (account.fills_.size() > fill_count) {
+      account.fill_index_.erase(account.fills_.back().execution_id);
+      account.fills_.pop_back();
+    }
+    while (account.orders_.size() > order_count) {
+      account.order_index_.erase(account.orders_.back().order.request().id);
+      account.orders_.pop_back();
+    }
+    for (auto& [index, order] : orders)
+      account.orders_[index] = std::move(order);
+    account.working_orders_.swap(working);
+    account.marks_.swap(marks);
+    account.lots_.swap(lots);
+    for (std::size_t i = 0; i < costs.size(); ++i)
+      account.contracts_[i].costs = costs[i];
+    account.balance_ = balance;
+    account.fees_ = fees;
+    account.realized_ = realized;
+  }
+};
+static_assert(std::is_nothrow_move_assignable_v<AccountOrder>);
+static_assert(std::is_nothrow_copy_assignable_v<FuturesCosts>);
+FuturesAccount::Transaction::Transaction(FuturesAccount& account)
+    : state_(std::make_unique<State>(account)) {}
+FuturesAccount::Transaction::Transaction(Transaction&&) noexcept = default;
+FuturesAccount::Transaction::~Transaction() = default;
+void FuturesAccount::Transaction::commit() noexcept {
+  if (state_) {
+    state_->owner = nullptr;
+    state_.reset();
+  }
+}
+FuturesAccount::Transaction FuturesAccount::transaction() {
+  return Transaction(*this);
+}
 std::size_t FuturesAccount::contract_index(const InstrumentId& instrument) const {
   for (std::size_t i = 0; i < contracts_.size(); ++i)
     if (contracts_[i].instrument.id == instrument)
@@ -160,7 +227,7 @@ std::size_t FuturesAccount::index_of(const std::string& id) const {
   return found->second;
 }
 bool FuturesAccount::has_working_orders() const noexcept {
-  return std::ranges::any_of(orders_, active);
+  return !working_orders_.empty();
 }
 // Positions are margined at their contract's latest mark (their basis before any mark).
 Decimal FuturesAccount::margin() const {
@@ -207,9 +274,8 @@ Decimal FuturesAccount::reserved(const AccountOrder& item) const {
 }
 Decimal FuturesAccount::frozen() const {
   Decimal result;
-  for (const auto& item : orders_)
-    if (active(item))
-      result = result + reserved(item);
+  for (const auto index : working_orders_)
+    result = result + reserved(orders_[index]);
   return result;
 }
 Decimal FuturesAccount::available() const {
@@ -221,11 +287,13 @@ Decimal FuturesAccount::closable(const InstrumentId& instrument, Side side,
   for (const auto& lot : lots_)
     if (lot.instrument == instrument && lot.side == side && (!today || lot.today == *today))
       result = result + lot.quantity;
-  for (const auto& item : orders_)
-    if (active(item) && item.order.request().instrument == instrument &&
-        item.offset != Offset::open && item.order.request().side != side &&
+  for (const auto index : working_orders_) {
+    const auto& item = orders_[index];
+    if (item.order.request().instrument == instrument && item.offset != Offset::open &&
+        item.order.request().side != side &&
         (!today || item.offset == Offset::close || (item.offset == Offset::close_today) == *today))
       result = result - item.order.remaining_quantity();
+  }
   return result;
 }
 // Every check and every value that can overflow is computed before the first
@@ -267,16 +335,25 @@ void FuturesAccount::submit(LimitOrder request, Offset offset) {
   (void)(before - required);
   order.accept();
   auto id = accepted.id;
-  orders_.push_back({std::move(order), offset});
+  const auto ordinal = orders_.size();
+  const auto working = working_orders_.insert(ordinal).first;
   try {
-    order_index_.emplace(std::move(id), orders_.size() - 1);
+    orders_.push_back({std::move(order), offset});
+    try {
+      order_index_.emplace(std::move(id), ordinal);
+    } catch (...) {
+      orders_.pop_back();
+      throw;
+    }
   } catch (...) {
-    orders_.pop_back();
+    working_orders_.erase(working);
     throw;
   }
 }
 void FuturesAccount::cancel(const std::string& id) {
-  orders_[index_of(id)].order.cancel();
+  const auto index = index_of(id);
+  orders_[index].order.cancel();
+  working_orders_.erase(index);
 }
 static_assert(std::is_nothrow_move_assignable_v<Order>);
 static_assert(std::is_nothrow_move_constructible_v<Fill>);
@@ -288,7 +365,8 @@ bool FuturesAccount::fill(const Fill& report) {
   }
   if (report.price <= zero)
     throw std::invalid_argument("futures paper model requires a positive fill price");
-  auto& item = orders_[index_of(report.order_id)];
+  const auto index = index_of(report.order_id);
+  auto& item = orders_[index];
   auto order = item.order;
   order.apply(report);
   const auto side = order.request().side;
@@ -345,10 +423,17 @@ bool FuturesAccount::fill(const Fill& report) {
     std::erase_if(lots, [](const auto& lot) { return lot.quantity == zero; });
   }
   auto recorded = report;
-  fills_.reserve(fills_.size() + 1);
+  // Prepare capacity before publishing ledger changes, with geometric growth.
+  // reserve(size + 1) reallocates the entire fill history on every execution.
+  if (fills_.size() == fills_.max_size())
+    throw std::length_error("futures account fill capacity exhausted");
+  if (fills_.size() == fills_.capacity())
+    fills_.reserve(std::min(fills_.max_size(), std::max<std::size_t>(1, fills_.capacity() * 2)));
   fill_index_.emplace(report.execution_id, fills_.size());
   // Commit: no operation below can throw.
   item.order = std::move(order);
+  if (!active(item))
+    working_orders_.erase(index);
   lots_ = std::move(lots);
   fees_ = fees;
   balance_ = balance;
@@ -370,15 +455,28 @@ void FuturesAccount::mark(const InstrumentId& instrument, Decimal price) {
   }
 }
 void FuturesAccount::settle(const std::vector<Decimal>& prices) {
+  settle_traded(std::vector<std::optional<Decimal>>(prices.begin(), prices.end()));
+}
+void FuturesAccount::settle_traded(const std::vector<std::optional<Decimal>>& prices) {
   if (has_working_orders())
     throw std::invalid_argument("cancel all working orders before settlement");
   if (prices.size() != contracts_.size())
     throw std::invalid_argument("settlement requires one price per contract");
-  for (std::size_t i = 0; i < prices.size(); ++i)
-    if (prices[i] <= zero || !prices[i].multiple_of(contracts_[i].instrument.price_increment))
-      throw std::invalid_argument("invalid settlement price");
   auto previous = marks_;
-  marks_ = prices;
+  auto next = marks_;
+  for (std::size_t i = 0; i < prices.size(); ++i) {
+    const auto& id = contracts_[i].instrument.id;
+    if (!prices[i]) {
+      if (std::ranges::any_of(lots_, [&](const auto& lot) { return lot.instrument == id; }))
+        throw std::invalid_argument(
+            "a position remains in a contract on a day it has no settlement price: " + id.symbol);
+      continue;
+    }
+    if (*prices[i] <= zero || !prices[i]->multiple_of(contracts_[i].instrument.price_increment))
+      throw std::invalid_argument("invalid settlement price");
+    next[i] = *prices[i];
+  }
+  marks_ = next;
   try {
     const auto pnl = unrealized();
     const auto balance = balance_ + pnl;
@@ -386,7 +484,7 @@ void FuturesAccount::settle(const std::vector<Decimal>& prices) {
     auto lots = lots_;
     for (auto& lot : lots) {
       lot.today = false;
-      lot.price = prices[contract_index(lot.instrument)];
+      lot.price = *prices[contract_index(lot.instrument)];
     }
     (void)available();
     lots_ = std::move(lots);

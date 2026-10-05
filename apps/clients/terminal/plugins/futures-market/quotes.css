@@ -346,6 +346,12 @@
   min-height: 22px;
   font-size: 10px;
 }
+.market-config label.market-remember {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
 .market-workspace .market-config {
   margin: 0;
   padding: 5px 10px;
@@ -972,13 +978,6 @@
 }
 .futures-market-board .market-quote-table td:first-child {
   width: 30%;
-}
-.market-group-unavailable {
-  margin: 0;
-  padding: 16px 8px;
-  color: var(--muted);
-  font-size: 11px;
-  text-align: center;
 }
 
 .futures-market-board .market-contract {

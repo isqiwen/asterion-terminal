@@ -1,59 +1,480 @@
-# 开发约束
+# Repository Instructions
 
-本文件适用于整个仓库，开始工作前阅读。只记录当前有效的规则。
+Read this file before working. It applies to the entire repository and contains
+only current rules. Project requirements below remain mandatory; the engineering
+philosophy guides implementation within those constraints.
 
-## 范围
+## Scope
 
-- 只开发、测试和交付 **macOS Terminal**，资产只做 **期货**。
-- 不新建其他客户端（Web、Mobile、Notebook、独立 CLI）或 Windows/Linux 桌面版本。
-- 远程服务部署只支持 Linux x86_64，只为 Terminal 服务。
-- 不为未来需求预建空接口、空目录或空实现；接口按实际用例建立。
+- Build, test, and ship **macOS Terminal for futures only**.
+- Do not add Web, Mobile, Notebook, standalone CLI, or Windows/Linux desktop clients.
+- Remote services support **Linux x86_64** only and exist to serve Terminal.
+- Build interfaces and implementations only for actual requirements.
 
-## 只保留当前实现
+## Current Implementation Only
 
-- 项目只保留当前有效的代码、契约、配置、脚本、测试和文档；替换实现时同步删除被替代的内容，不保留历史参考副本或备份实现。
-- 不保留旧接口、旧协议、兼容层、别名、双实现、迁移入口或降级路径；调用方、测试和文档同步更新到当前契约。
-- 不支持的输入和持久化格式明确拒绝；版本校验用于拒绝不支持的格式，不用于恢复旧实现。用户数据保护仍按下文执行。
+- Keep one current implementation. Remove superseded code, contracts, configuration,
+  scripts, tests, and documentation; do not retain reference or backup implementations.
+- No legacy interfaces, protocols, aliases, compatibility layers, parallel
+  implementations, migration entry points, or downgrade paths. Update callers,
+  tests, and documentation together.
+- Reject unsupported inputs and persisted formats. Version checks reject unsupported
+  formats; they do not restore old implementations. Preserve user data.
 
-## 架构
+## Architecture
 
-- Core 分层：`asterion_foundation` → `asterion_kernel` → `asterion_domain`，依赖只能向下。
-- 供应商、存储后端、具体策略和风险算法写成插件，放在 `plugins/`，不进 Core。
-- 每个服务是独立进程，由 Node Agent 托管；安装版关闭窗口不停止服务。开发环境随唯一开发入口退出自动停止本机服务与 Agent，保留业务数据；远程节点不随开发入口退出而停止。
-- 进程间通信使用 `protocol/proto/` 中的 Protobuf；本机 Unix Socket，远程 TCP + mTLS。
-- Terminal 专属 C++ 编排在 `apps/clients/terminal/native/`；UI 插件契约在 `apps/clients/terminal/plugins/contract.ts`。
-- 插件是可信的进程内代码，不是安全隔离。
+- Core layers, lowest to highest: `asterion_foundation`, `asterion_kernel`,
+  `asterion_domain`. Dependencies point downward only.
+- Core provides mechanisms. Providers, storage backends, strategies, and risk
+  algorithms belong in `plugins/`. Plugins are trusted in-process code, not a sandbox.
+- Each service is a separate process managed by Node Agent. Closing an installed
+  Terminal window leaves services running. Exiting the single development entry
+  point stops local services and Agent, preserves data, and leaves remote nodes running.
+- IPC uses Protobuf from `protocol/proto/`: Unix sockets locally, TCP + mTLS remotely.
+- Terminal C++ orchestration belongs in `apps/clients/terminal/native/`;
+  UI plugin contracts belong in `apps/clients/terminal/plugins/contract.ts`.
 
-## 编码
+## Implementation
 
-- C++20、RAII、明确所有权。异常不得跨越 C ABI 或 Node-API 边界。
-- 金额和价格使用 `Decimal`，不使用二进制浮点作为权威账本值。
-- 领域对象之间通过类型化接口交互；JSON 只用于协议边界和界面展示。
-- Core 与服务只输出英文诊断，跨进程错误携带 `ErrorCode`；面向用户的新诊断登记到 `apps/clients/terminal/src/i18n/locales/diagnostics.*.json`。
-- 持久状态与密钥通过 `kernel/durable_file.hpp` 写入。
-- 改变风控或交易命令语义时，提升 `apps/services/trading/live_session.cpp` 的日志引擎标识；改变撮合、费用或保证金时，提升回测引擎版本。恢复时拒绝不同标识。
-- 依赖由 Conan（C++）和 pnpm（前端）锁定，禁止隐式下载和全局 include/link 路径。日志用 spdlog，命令行用 CLI11，测试用 GoogleTest + CTest。
-- 格式：C++ 用 `.clang-format`，前端用 Prettier；提交前运行 `pnpm run format`。
+- Use C++20, RAII, and explicit ownership. Exceptions must not cross C ABI or Node-API boundaries.
+- Use `Decimal` for money and prices; binary floating point is not authoritative ledger data.
+- Use typed domain interfaces. Restrict JSON to protocol boundaries and UI presentation.
+- Core and services emit English diagnostics; cross-process errors carry `ErrorCode`.
+  Register new user-facing diagnostics in `apps/clients/terminal/src/i18n/locales/diagnostics.*.json`.
+- Write durable state and keys through `kernel/durable_file.hpp`.
+- Bump the log engine identifier in `apps/services/trading/live_session.cpp` when
+  risk or trading-command semantics change. Bump the backtest engine version when
+  matching, fees, or margin semantics change. Reject mismatched identifiers on recovery.
+- Lock dependencies with Conan and pnpm. No implicit downloads or global include/link
+  paths. Use spdlog, CLI11, and GoogleTest + CTest.
+- Follow `.clang-format` and Prettier. Run `pnpm run format` before committing.
 
-## 数据与交易安全
+## Data and Trading Safety
 
-- 行情、历史数据只来自数据源；不导入本地 CSV/JSON 代替数据源，不生成冒充真实行情的数据。测试夹具仅用于测试。
-- 实盘必须经过授权、账户风控和统一执行链；缺少任何一环就拒绝执行。
-- 风险配置是 CTP 交易账户与回测的必填输入，缺失或插件不可用一律拒绝，不默认放行。
-- 交易命令断线后不自动重发。
-- 凭据只在用户本机输入或生成，不写进源码、日志或聊天；密码不持久化。
-- 保护用户数据：不静默改写、迁移或删除账本、任务和数据集。
+- Market and historical data come from data providers. Do not substitute local
+  CSV/JSON imports or fabricate market data. Fixtures are for tests only.
+- Live trading requires authorization, account risk controls, and the unified
+  execution path. Reject execution if any part is missing.
+- CTP accounts and backtests require risk configuration. Missing configuration or
+  unavailable risk plugins must reject execution, never allow it by default.
+- Never automatically resend trading commands after a disconnect.
+- Enter or generate credentials locally. Never put them in source, logs, or chat.
+  Users may explicitly save market-data login passwords and authorization codes
+  in the macOS Keychain. Never put them in ordinary configuration files or UI
+  storage, and never reuse saved market credentials for trading login.
+- Never silently rewrite, migrate, or delete user ledgers, tasks, or datasets.
 
-## 界面
+## UI
 
-- 视觉风格：极简、科技感、未来感，规范见 [docs/terminal.md](docs/terminal.md)。
-- 行情页布局参照同花顺期货通；缺数据源的区域明确显示未接入，不伪造。
-- 界面文案走 `src/i18n`，中英文同步；缺 key 会直接报错。
+- Follow the minimal, technical, futuristic style in [Terminal design](docs/terminal.md).
+- Use Tonghuashun Futures as the market-layout reference. Clearly mark unavailable
+  data sources; do not fabricate content.
+- Localize UI text through `src/i18n`. Update English and Chinese together;
+  missing keys must fail explicitly.
 
-## 工作流程
+## Workflow
 
-- 日常开发直接在 `main` 分支进行；未经明确要求不创建其它开发分支。
-- 端到端测试只能用 `pnpm run test:e2e`（隔离的 Agent 与测试 CTP SDK），不要直接运行 `playwright test`，否则会操作真实的本机服务。
-- 修改 `core/`、`protocol/`、`plugins/`、`apps/services/`、`bindings/` 后，远程 Linux 服务包的源码指纹会变化；发布前按 [开发指南](docs/development.md) 重建。`pnpm desktop` 开发模式只警告。
-- 不经要求不推送代码。
-- 交付时说明实际实现、测试结果和未验证的范围。
+- Work directly on `main` in the primary checkout. Do not create development
+  branches unless requested. Do not push unless requested.
+- Keep audits and reviews in `docs/reviews/`. Before related work, read the
+  [technical audit](docs/reviews/technical-audit.md) and
+  [remediation progress](docs/reviews/audit-progress.md), compare their baselines
+  with current code, and update progress after completing work.
+- For running desktop issues, verify the actual launch directory, frontend source,
+  and native-module path. See [connection conflicts](docs/reviews/connection-conflict.md)
+  and [checkout integration](docs/reviews/worktree-gap.md). Never transfer test
+  conclusions between checkouts without verifying the inputs.
+- Run E2E only through `pnpm run test:e2e`, which isolates Agent and the test CTP SDK.
+  Never invoke `playwright test` directly; it can operate real local services.
+- Changes to `core/`, `protocol/`, `plugins/`, `apps/services/`, or `bindings/`
+  change the Linux service source fingerprint. Rebuild before release following
+  the [development guide](docs/development.md); `pnpm desktop` only warns in development.
+- Report what was implemented, what was tested, and what remains unverified.
+
+## Engineering Philosophy
+
+Optimize for correctness, simplicity, architectural coherence, and long-term
+maintainability.
+
+Do not optimize for maximum defensive coverage, maximum test count, or maximum
+abstraction.
+
+Prefer the smallest correct design that satisfies the actual requirements and
+preserves the system's intended invariants.
+
+A solution is not better merely because it handles more hypothetical cases.
+
+### Core Principles
+
+1. Prefer simple designs over defensive complexity.
+
+2. Fix problems at their architectural root rather than adding local patches.
+
+3. Enforce invariants at the correct boundary instead of repeatedly checking
+   them throughout the codebase.
+
+4. Prefer explicit failure over speculative recovery.
+
+5. Add fallback, retry, validation, compatibility, or recovery behavior only
+   when there is a concrete and justified failure mode.
+
+6. Do not design for hypothetical future requirements unless the current task
+   explicitly requires them.
+
+7. Prefer deleting, simplifying, or restructuring incorrect abstractions over
+   adding more code around them.
+
+8. Avoid abstractions that have only one real use case unless they materially
+   improve correctness or clarity.
+
+9. Minimize the number of concepts a developer must understand to reason about
+   the system.
+
+10. Preserve clear ownership of state and responsibility. Avoid duplicating
+    state or responsibility across layers.
+
+### Avoid Speculative Defensive Programming
+
+Do not add defensive behavior merely because a state is theoretically possible.
+
+Before adding any defensive branch, validation, fallback, retry, or recovery
+mechanism, identify:
+
+- the concrete failure mode,
+- whether that failure mode is actually reachable,
+- the architectural boundary responsible for preventing or handling it,
+- and why the proposed behavior is preferable to failing clearly.
+
+Do not add:
+
+- speculative validation,
+- speculative fallback paths,
+- retries without a demonstrated transient failure mode,
+- compatibility layers for hypothetical callers,
+- redundant null or state checks for invariants guaranteed elsewhere,
+- silent recovery from invariant violations,
+- catch-all exception handling that hides programming errors,
+- defensive copies without a demonstrated ownership or mutation problem,
+- generic infrastructure created solely for one narrow use case.
+
+If an invariant should never be violated, make that invariant explicit and fail
+clearly when it is violated.
+
+Do not silently turn programmer errors into recoverable runtime states unless
+the architecture explicitly requires that behavior.
+
+### Solve Root Causes, Not Symptoms
+
+When fixing a bug, first determine why the system allowed the bug to exist.
+
+Do not immediately patch the location where the symptom appears.
+
+Ask:
+
+- Is responsibility assigned to the wrong component?
+- Is the abstraction incorrect?
+- Is state represented in more than one place?
+- Is an invariant missing or enforced too late?
+- Is lifecycle ownership unclear?
+- Is the API permitting invalid states?
+- Is the current implementation fundamentally more complicated than necessary?
+
+Prefer a structural fix when it removes an entire class of failure.
+
+A slightly larger root-cause fix is preferable to a sequence of small patches
+when the patches preserve a flawed design.
+
+### Stop-and-Rethink Rule
+
+Stop incremental patching and reassess the design if any of the following
+occurs:
+
+- the same component requires more than two corrective iterations,
+- multiple special cases begin accumulating,
+- one fix repeatedly exposes adjacent edge cases,
+- several fallback paths are needed for a simple operation,
+- tests become substantially more complicated than the production behavior,
+- a small feature requires several new abstractions,
+- state must be synchronized between multiple owners,
+- correctness depends on many scattered defensive checks,
+- the implementation keeps growing without making the core model simpler,
+- a change is technically passing tests but becoming harder to explain.
+
+When this happens:
+
+1. Stop modifying code.
+2. Restate the underlying problem.
+3. Re-evaluate the relevant abstraction and ownership boundaries.
+4. Consider whether existing code should be removed or simplified.
+5. Compare at least two alternative designs.
+6. Resume implementation only after identifying the simplest coherent design.
+
+Do not continue a patch-test-patch loop indefinitely.
+
+### Design Before Implementation
+
+For non-trivial changes, reason about the design before editing production code.
+
+Before implementation, establish:
+
+- the root problem,
+- the relevant architectural boundary,
+- the invariants that must hold,
+- the minimal behavior required,
+- explicit non-goals,
+- the expected data/control flow,
+- failure semantics,
+- ownership and lifecycle,
+- and what existing code can be simplified or removed.
+
+For significant architectural changes, consider at least two viable designs and
+prefer the one with fewer concepts, fewer states, fewer special cases, and
+clearer ownership.
+
+Do not introduce a generalized framework when a direct implementation is
+sufficient.
+
+Do not expand task scope merely because adjacent improvements are possible.
+
+### Scope Discipline
+
+Implement only what is required for the current task plus changes necessary to
+preserve correctness and architectural consistency.
+
+Do not opportunistically:
+
+- redesign unrelated modules,
+- introduce generic infrastructure,
+- add future-facing extension points,
+- support hypothetical deployment modes,
+- add compatibility behavior without a current consumer,
+- refactor unrelated code solely because it could be cleaner,
+- or convert a local requirement into a system-wide framework.
+
+If an adjacent issue is important but not required, document it separately
+instead of expanding the current change.
+
+### Testing Philosophy
+
+Tests exist to establish confidence in meaningful behavior and important
+invariants.
+
+The goal is not maximum line coverage, branch coverage, test count, or exhaustive
+enumeration of theoretically possible states.
+
+Prefer a small number of high-value tests over a large number of low-value
+tests.
+
+Prioritize tests for:
+
+- primary externally observable behavior,
+- important system invariants,
+- meaningful boundary conditions,
+- previously observed regressions,
+- realistic failure modes,
+- state transitions that could corrupt or lose data,
+- concurrency behavior where concurrency actually exists.
+
+Avoid tests that:
+
+- assert private implementation details,
+- duplicate the same behavior through many parameter combinations without added
+  risk coverage,
+- test impossible states,
+- exist only to exercise a line or branch,
+- mock so much of the system that they no longer validate useful behavior,
+- lock in an implementation that should remain free to change,
+- test defensive code that should not exist in the first place.
+
+Do not add a regression test for every incidental implementation mistake.
+
+Add a regression test when the failure represents behavior that could plausibly
+recur and is important enough to protect.
+
+When tests fail after a change, first determine whether:
+
+- the implementation is wrong,
+- the test encodes an obsolete assumption,
+- or both reflect a deeper design problem.
+
+Do not automatically modify production code merely to satisfy an existing test.
+
+### Test Budget
+
+For ordinary changes, start with the minimum useful set:
+
+- the main success path,
+- important boundary behavior,
+- concrete regression cases,
+- and meaningful failure behavior.
+
+Expand coverage only when additional tests protect a distinct and realistic
+risk.
+
+Do not create exhaustive combinatorial coverage unless the domain genuinely
+requires it.
+
+If the test suite added for a simple feature becomes larger or conceptually more
+complex than the feature itself, reconsider both the design and the testing
+strategy.
+
+### Failure Handling
+
+Distinguish between:
+
+- expected runtime failures,
+- transient external failures,
+- invalid user input,
+- corrupted external data,
+- violated internal invariants,
+- and programmer errors.
+
+Handle each category deliberately.
+
+Expected runtime failures may require explicit handling.
+
+Transient failures may justify retry behavior when retry semantics are safe and
+well-defined.
+
+Invalid external input should be rejected at the appropriate boundary.
+
+Internal invariant violations should normally fail loudly rather than be hidden
+behind fallback behavior.
+
+Do not use broad exception handling as a substitute for understanding failure
+semantics.
+
+Never retry an operation unless it is known to be safe or idempotent, or the
+retry mechanism explicitly prevents duplicated effects.
+
+### Abstraction Discipline
+
+Introduce an abstraction when it removes meaningful duplication, establishes a
+real architectural boundary, or makes an important invariant easier to enforce.
+
+Do not introduce abstractions merely to make code appear extensible.
+
+Prefer:
+
+- concrete code over premature frameworks,
+- explicit control flow over excessive indirection,
+- composition over unnecessary hierarchy,
+- domain-specific interfaces over generic abstractions,
+- fewer layers when additional layers add no real boundary.
+
+Every new abstraction should answer:
+
+- What complexity does this remove?
+- What invariant does this protect?
+- What independent variation does this enable today?
+- Why is direct code insufficient?
+
+If those questions do not have convincing answers, prefer the simpler design.
+
+### Code Size and Deletion
+
+Treat deletion as a first-class engineering tool.
+
+When modifying a subsystem, actively look for:
+
+- obsolete branches,
+- redundant validation,
+- duplicated state,
+- superseded abstractions,
+- dead compatibility code,
+- unnecessary wrappers,
+- and tests that only protect removed behavior.
+
+Prefer:
+
+    +120 lines
+    -400 lines
+
+over:
+
+    +800 lines
+    -20 lines
+
+when both solve the same problem correctly.
+
+Do not preserve complexity merely because it already exists.
+
+### Local vs Global Optimization
+
+Do not optimize only for the current failing test, function, or call site.
+
+After identifying a local fix, ask whether it improves or harms the global
+system design.
+
+A locally convenient fix should be rejected if it:
+
+- weakens architectural boundaries,
+- duplicates responsibility,
+- creates another source of truth,
+- makes ownership less clear,
+- increases the number of possible states,
+- or creates future synchronization requirements.
+
+When repeated local fixes are necessary, assume the abstraction may be wrong
+until proven otherwise.
+
+### Implementation Review
+
+Before considering a non-trivial change complete, review the resulting design
+and ask:
+
+- Is there a simpler solution?
+- Did we solve the root cause?
+- Did we add speculative defensive behavior?
+- Are all fallbacks justified by concrete requirements?
+- Are retries justified and safe?
+- Did we introduce unnecessary abstractions?
+- Did we duplicate state or responsibility?
+- Are ownership and lifecycle clear?
+- Are tests focused on meaningful behavior?
+- Are tests coupled to implementation details?
+- Can any new production code be deleted while preserving correctness?
+- Can any old code now be removed?
+- Did the implementation remain within scope?
+- Does the resulting architecture become easier, rather than harder, to explain?
+
+Passing tests is necessary but not sufficient.
+
+A change is complete only when it is correct, appropriately tested, and
+architecturally simpler or at least no more complicated than necessary.
+
+### Decision Priority
+
+When engineering goals conflict, use this order of preference:
+
+1. Correctness
+2. Clear invariants and ownership
+3. Simplicity
+4. Architectural coherence
+5. Maintainability
+6. Observability and diagnosability
+7. Appropriate testing
+8. Performance where relevant
+9. Defensive behavior only where justified
+10. Generality and extensibility only when currently required
+
+Do not sacrifice the first six items merely to maximize the last four.
+
+### Default Bias
+
+When uncertain between two correct approaches, prefer the one with:
+
+- fewer states,
+- fewer branches,
+- fewer abstractions,
+- fewer dependencies,
+- fewer hidden side effects,
+- fewer recovery paths,
+- clearer ownership,
+- more explicit invariants,
+- and less code.
+
+Simple does not mean simplistic.
+
+The objective is the smallest design that correctly represents the actual
+problem.

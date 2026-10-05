@@ -3,6 +3,7 @@
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/child.hpp>
+#include <asterion/kernel/process/artifact.hpp>
 #include <cctype>
 #include <asterion/kernel/process/file_lock.hpp>
 #include <charconv>
@@ -47,8 +48,14 @@ void validate(const CtpConnection& c) {
   if (!front(c.market_front))
     throw std::invalid_argument("CTP market front must look like tcp://host:port");
 }
+void validate(const MarketCredentials& credentials) {
+  if (credentials.password.empty() || credentials.password.size() > 40 ||
+      credentials.password.find('\0') != std::string::npos || credentials.auth_code.empty() ||
+      credentials.auth_code.size() > 16 || credentials.auth_code.find('\0') != std::string::npos)
+    throw Error(ErrorCode::invalid_request, "enter the market password and authorization code");
+}
 Json encode(const CtpConnection& c) {
-  return {{"version", 1},
+  return {{"version", 3},
           {"id", c.id},
           {"name", c.name},
           {"broker_id", c.broker_id},
@@ -59,6 +66,50 @@ Json encode(const CtpConnection& c) {
           {"revision", c.revision}};
 }
 } // namespace
+std::string CtpConnections::credential_account(const CtpConnection& connection) const {
+  // Bind to both account and destinations. Renaming preserves the login, while
+  // edits to counter identity or either front cannot reuse its secrets.
+  const auto identity =
+      Json::array({connection.id, connection.broker_id, connection.user_id, connection.app_id,
+                   connection.trade_front, connection.market_front});
+  return sha256_bytes(directory_.string()).substr(0, 16) + "/" +
+         sha256_bytes(identity.dump()).substr(0, 32);
+}
+MarketCredentials CtpConnections::market_credentials(const CtpConnection& connection) const {
+  if (!remembered_)
+    throw Error(ErrorCode::unavailable, "credential store unavailable");
+  const auto saved = remembered_->load(credential_account(connection));
+  if (!saved)
+    throw Error(ErrorCode::not_found, "saved market credentials are unavailable; enter them again");
+  try {
+    const auto value = parse_json(*saved, 4096);
+    if (value.size() != 3 || value.at("version") != 1)
+      throw Error(ErrorCode::invalid_request, "invalid saved market credentials");
+    MarketCredentials credentials{value.at("password"), value.at("auth_code")};
+    validate(credentials);
+    return credentials;
+  } catch (const Json::exception&) {
+    // Parser diagnostics can quote input. Never expose keychain contents.
+    throw Error(ErrorCode::invalid_request, "invalid saved market credentials");
+  }
+}
+void CtpConnections::remember_market_credentials(const std::string& id,
+                                                 const MarketCredentials& credentials) {
+  validate(credentials);
+  if (!remembered_)
+    throw Error(ErrorCode::unavailable, "credential store unavailable");
+  FileLock lock(directory_, "connections.lock");
+  remembered_->store(
+      credential_account(get(id)),
+      Json{{"version", 1}, {"password", credentials.password}, {"auth_code", credentials.auth_code}}
+          .dump());
+}
+void CtpConnections::forget_market_credentials(const std::string& id) {
+  if (!remembered_)
+    throw Error(ErrorCode::unavailable, "credential store unavailable");
+  FileLock lock(directory_, "connections.lock");
+  remembered_->erase(credential_account(get(id)));
+}
 fs::path CtpConnections::path(const std::string& id) const {
   if (!std::regex_match(id, std::regex("[A-Za-z0-9][A-Za-z0-9_-]{0,63}")))
     throw std::invalid_argument("invalid CTP connection identity");
@@ -74,7 +125,7 @@ CtpConnection CtpConnections::get(const std::string& id) const {
   std::ifstream input(file);
   const std::string contents{std::istreambuf_iterator<char>(input), {}};
   const auto document = parse_json(contents, 8192);
-  if (document.size() != 9 || document.at("version") != 1 || document.at("id") != id)
+  if (document.size() != 9 || document.at("version") != 3 || document.at("id") != id)
     throw std::invalid_argument("invalid CTP connection storage");
   CtpConnection connection{document.at("id"),           document.at("name"),
                            document.at("broker_id"),    document.at("user_id"),
@@ -123,13 +174,16 @@ void CtpConnections::save(CtpConnection connection, const std::string& expected)
   const auto file = path(connection.id);
   validate(connection);
   safe(directory_.parent_path());
-  fs::create_directory(directory_);
+  create_directories_durably(directory_);
   fs::permissions(directory_, fs::perms::owner_all);
   FileLock lock(directory_, "connections.lock");
-  if ((fs::exists(file) ? get(connection.id).revision : std::string{}) != expected)
+  const auto current = fs::exists(file) ? std::optional{get(connection.id)} : std::nullopt;
+  if ((current ? current->revision : std::string{}) != expected)
     throw Error(ErrorCode::conflict, "CTP connection changed; inspect again");
   if (!fs::exists(file) && read_all().size() >= 64)
     throw std::invalid_argument("too many CTP connections");
+  if (current && remembered_ && credential_account(*current) != credential_account(connection))
+    remembered_->erase(credential_account(*current));
   connection.revision = unique_process_id();
   replace_file_durably(file, encode(connection).dump(), true);
   cached_.reset();
@@ -160,8 +214,11 @@ void CtpConnections::select_market(const std::string& id) {
 void CtpConnections::remove(const std::string& id, const std::string& expected) {
   const auto file = path(id);
   FileLock lock(directory_, "connections.lock");
-  if (get(id).revision != expected)
+  const auto connection = get(id);
+  if (connection.revision != expected)
     throw Error(ErrorCode::conflict, "CTP connection changed; inspect again");
+  if (remembered_)
+    remembered_->erase(credential_account(connection));
   fs::remove(file);
   sync_directory(directory_);
   cached_.reset();

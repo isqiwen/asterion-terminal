@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { translate, type MessageValues } from "../i18n";
-import type { CostVersion, DatasetSelection } from "../bridge/client";
+import type { CostVersion, DatasetSelection, DatasetSeries } from "../bridge/client";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 
 // Margin and fee inputs of backtests.
@@ -222,31 +222,56 @@ const labels: [(typeof costFields)[number], string][] = [
 ];
 const contractKey = (contract: { venue: string; symbol: string }) =>
   `${contract.venue}.${contract.symbol}`;
-// The "contracts" entries of research.submit, in selection order.
-export function contractCostRequest(datasets: DatasetSelection[], drafts: ContractCostDrafts) {
-  return datasets.map(dataset => ({
-    venue: dataset.venue,
-    symbol: dataset.symbol,
-    cost_schedule: drafts[contractKey(dataset)]?.cost_schedule ?? [
-      {
-        effective_from: dataset.first_day,
-        source: "User-entered fixed costs",
-        values: Object.fromEntries(
-          costFields.map(field => [field, (drafts[contractKey(dataset)] ?? blank)[field]]),
-        ),
-      },
-    ],
-  }));
+// The dataset whose costs a contract uses: itself, or the first month of the
+// dominant series it belongs to (one set of costs serves every month).
+function costOwner(
+  dataset: DatasetSelection,
+  datasets: DatasetSelection[],
+  series: DatasetSeries[],
+) {
+  const group = series.find(
+    item => item.venue === dataset.venue && item.symbols.includes(dataset.symbol),
+  );
+  return (
+    (group &&
+      datasets.find(item => item.venue === group.venue && item.symbol === group.symbols[0])) ||
+    dataset
+  );
+}
+// The "contracts" entries of backtest.submit, in selection order.
+export function contractCostRequest(
+  datasets: DatasetSelection[],
+  drafts: ContractCostDrafts,
+  series: DatasetSeries[] = [],
+) {
+  return datasets.map(dataset => {
+    const owner = costOwner(dataset, datasets, series);
+    return {
+      venue: dataset.venue,
+      symbol: dataset.symbol,
+      cost_schedule: drafts[contractKey(owner)]?.cost_schedule ?? [
+        {
+          effective_from: owner.first_day,
+          source: "User-entered fixed costs",
+          values: Object.fromEntries(
+            costFields.map(field => [field, (drafts[contractKey(owner)] ?? blank)[field]]),
+          ),
+        },
+      ],
+    };
+  });
 }
 
 // Margin and fee fields for every selected contract, each with its product's template.
 export function ContractCosts({
   datasets,
+  series = [],
   drafts,
   onChange,
   disabled = false,
 }: {
   datasets: DatasetSelection[];
+  series?: DatasetSeries[];
   drafts: ContractCostDrafts;
   onChange: (drafts: ContractCostDrafts) => void;
   disabled?: boolean;
@@ -254,13 +279,20 @@ export function ContractCosts({
   return (
     <>
       {datasets.map(dataset => {
+        // A dominant series has one editor, on its first month.
+        if (costOwner(dataset, datasets, series) !== dataset) return null;
+        const group = series.find(
+          item => item.venue === dataset.venue && item.symbols.includes(dataset.symbol),
+        );
         const key = contractKey(dataset);
         const schedule = drafts[key]?.cost_schedule;
         const active = schedule?.filter(row => row.effective_from <= dataset.first_day).at(-1);
         const values = schedule ? (active?.values ?? blank) : (drafts[key] ?? blank);
         const update = (next: CostValues & { cost_schedule?: CostVersion[] }) =>
           onChange({ ...drafts, [key]: next });
-        const name = `${dataset.venue} · ${dataset.symbol}`;
+        const name = group
+          ? `${group.venue} · ${group.product} ${t("主力连续")}`
+          : `${dataset.venue} · ${dataset.symbol}`;
         return (
           <section
             className="account-field-group contract-costs"

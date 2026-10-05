@@ -145,5 +145,17 @@
   "此账户的交易服务未在运行。启动只运行服务程序，不登录柜台。": "This account's trading service is not running. Starting it only runs the service program; it does not log in to the counter.",
   "重新连接交易服务": "Reconnect Trading Service",
   "断开账户会退出柜台连接，已有委托不会自动撤销。": "Disconnecting the account logs out of the counter; existing orders are not cancelled automatically.",
-  "交易服务连接或记录状态不确定。请重新连接交易服务；断线命令不会自动重发。": "The trading service connection or record state is uncertain. Reconnect the trading service; commands are never resent after a disconnect."
+  "交易服务连接或记录状态不确定。请重新连接交易服务；断线命令不会自动重发。": "The trading service connection or record state is uncertain. Reconnect the trading service; commands are never resent after a disconnect.",
+  "账户政策": "Account policy",
+  "政策版本": "Policy revision",
+  "风控算法摘要": "Risk algorithm SHA-256",
+  "保留历史政策与命令。现有持仓和在途委托仍计入风险；变更后断开连接，需重新登录、同步和授权。": "Historical policies and commands are retained. Existing positions and working orders still count as exposure. Applying a policy disconnects the account; sign in, synchronize and authorize again.",
+  "政策授权合约": "Policy contracts",
+  "政策新增合约": "Add policy contract",
+  "请选择合约": "Choose a contract",
+  "新增合约前，请在行情页取得合约目录；现有合约仍可调整风险限额。": "Load the contract catalog in Market before adding contracts. Risk limits for existing contracts can still be changed.",
+  "我确认应用上述政策并重新登录": "I confirm this policy and will sign in again",
+  "应用新政策": "Apply new policy",
+  "恢复当前政策": "Reset to current policy",
+  "柜台回报队列已满，新增报单已停止。请重新连接并核对账户；已有委托不会自动撤销。": "The broker report queue is full and new orders are blocked. Reconnect and reconcile the account; existing orders are not automatically cancelled."
 }

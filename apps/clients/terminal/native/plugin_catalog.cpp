@@ -12,7 +12,7 @@
 namespace asterion::terminal {
 bool PluginCatalogEntry::supports_history() const {
   return std::ranges::any_of(descriptor.capabilities, [](const NativeCapability& capability) {
-    return capability.id == "asterion.history.v1" && capability.version == 1;
+    return capability.id == "asterion.history.v2" && capability.version == 2;
   });
 }
 PluginCatalog PluginCatalog::inspect(const std::filesystem::path& directory) {
@@ -54,7 +54,7 @@ PluginCatalog PluginCatalog::inspect(const std::filesystem::path& directory) {
   return catalog;
 }
 namespace {
-bool research_capable(const PluginCatalogEntry& entry) {
+bool data_task_capable(const PluginCatalogEntry& entry) {
   return entry.supports_history() ||
          std::ranges::any_of(entry.descriptor.capabilities, [](const auto& item) {
            return item.id == "asterion.risk.pre-trade.v1" && item.version == 1 &&
@@ -62,8 +62,9 @@ bool research_capable(const PluginCatalogEntry& entry) {
          });
 }
 } // namespace
-PluginSelection PluginCatalog::select_research(std::span<const std::string> hashes,
-                                               std::span<const std::string> installed) const {
+PluginSelection
+PluginCatalog::select_data_task_plugins(std::span<const std::string> hashes,
+                                        std::span<const std::string> installed) const {
   if (hashes.size() > 128 ||
       std::set<std::string>(hashes.begin(), hashes.end()).size() != hashes.size())
     throw std::invalid_argument("invalid native plugin selection");
@@ -82,15 +83,15 @@ PluginSelection PluginCatalog::select_research(std::span<const std::string> hash
     });
     if (found == entries.end())
       throw std::invalid_argument("native plugin catalog changed; inspect again");
-    if (!research_capable(*found))
-      throw std::invalid_argument("plugin does not provide a supported research capability");
+    if (!data_task_capable(*found))
+      throw std::invalid_argument("plugin does not provide a supported data or task capability");
     selection.uploads.push_back(found->artifact);
   }
   // Plugins shipped with the application are part of the product: one version
   // of each stays enabled. Only user-installed plugins are optional.
   for (const auto& entry : entries)
     if (!entry.managed && entry.availability == PluginAvailability::available &&
-        research_capable(entry) && !selected_ids.contains(entry.descriptor.id))
+        data_task_capable(entry) && !selected_ids.contains(entry.descriptor.id))
       throw std::invalid_argument("bundled plugin is required: " + entry.descriptor.id);
   return selection;
 }
@@ -99,7 +100,7 @@ void prepare_managed(const std::filesystem::path& directory) {
   if (!directory.is_absolute() || std::filesystem::is_symlink(directory) ||
       std::filesystem::is_symlink(directory.parent_path()))
     throw std::invalid_argument("invalid native plugin directory");
-  std::filesystem::create_directories(directory);
+  create_directories_durably(directory);
   std::filesystem::permissions(directory, std::filesystem::perms::owner_all);
 }
 } // namespace
@@ -182,8 +183,7 @@ void install_plugin(const std::filesystem::path& bundled, const std::filesystem:
   const auto destination = managed / (hash + ".dylib");
   if (std::filesystem::exists(destination) || std::filesystem::is_symlink(destination))
     throw std::invalid_argument("native plugin version is already installed");
-  std::filesystem::rename(staged, destination);
-  sync_directory(managed);
+  publish_file_durably(staged, destination);
 }
 void uninstall_plugin(const std::filesystem::path& managed, const std::string& filename,
                       const std::string& hash) {

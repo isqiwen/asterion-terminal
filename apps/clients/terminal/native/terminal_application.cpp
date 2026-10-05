@@ -1,8 +1,46 @@
 #include "application_impl.hpp"
 #include <array>
 #include <stdexcept>
+#include <ostream>
+#include <streambuf>
 
 namespace asterion::terminal {
+namespace {
+// The single response worker bounds its temporary encoding before admission
+// to the retained-reply budget. No complete, unbounded dump is built first.
+class ResponseBuffer final : public std::streambuf {
+public:
+  std::string bytes;
+
+private:
+  static constexpr std::size_t limit = 128 * 1024 * 1024;
+  std::streamsize xsputn(const char* text, std::streamsize size) override {
+    if (static_cast<std::size_t>(size) > limit - bytes.size())
+      throw Error(ErrorCode::resource_exhausted,
+                  "Native response exceeds 128 MiB; command outcome may be unknown");
+    bytes.append(text, static_cast<std::size_t>(size));
+    return size;
+  }
+  int_type overflow(int_type value) override {
+    if (traits_type::eq_int_type(value, traits_type::eof()))
+      return traits_type::not_eof(value);
+    const auto character = traits_type::to_char_type(value);
+    xsputn(&character, 1);
+    return value;
+  }
+};
+Payload encode_response(const json& envelope, const PayloadBudget& budget) {
+  ResponseBuffer buffer;
+  std::ostream stream(&buffer);
+  stream.exceptions(std::ios::badbit | std::ios::failbit);
+  stream << envelope;
+  try {
+    return budget.retain(std::move(buffer.bytes));
+  } catch (const Error& error) {
+    throw Error(error.code(), "Native response capacity reached; command outcome may be unknown");
+  }
+}
+} // namespace
 
 void fields(const json& object, std::initializer_list<std::string_view> names) {
   if (!object.is_object() || object.size() != names.size())
@@ -49,57 +87,184 @@ unsigned short port_number(const json& p, const char* name) {
     throw std::invalid_argument("port must be between 1 and 65535");
   return static_cast<unsigned short>(port);
 }
-std::string next_runtime_scope() {
-  // Distinct runtime scope per Application instance within this process.
-  static IdSequence scopes{"terminal"};
-  return scopes.next();
+void Application::Impl::command(std::string name, Command handler) {
+  if (!commands.emplace(std::move(name), std::move(handler)).second)
+    throw std::logic_error("duplicate Terminal command registration");
+}
+PolledTask<Application::Impl::Response> Application::Impl::invoke(const std::string& method,
+                                                                  const json& params) {
+  const auto found = commands.find(method);
+  const auto operation = found == commands.end() ? "terminal.unknown" : method;
+  const auto trace = std::string(current_trace_id());
+  const SystemClock clock;
+  const auto start = clock.monotonic_now();
+  auto finish = [&](bool success) noexcept {
+    ++(success ? succeeded : failed);
+    // Telemetry allocation or sink failure must not change a business result.
+    try {
+      logger->write(success ? (method == "runtime.snapshot" ? LogLevel::debug : LogLevel::info)
+                            : LogLevel::warning,
+                    operation,
+                    {{"trace_id", trace},
+                     {"duration_ns", clock.monotonic_now() - start},
+                     {"success", success}});
+    } catch (...) {
+    }
+  };
+  try {
+    if (found == commands.end())
+      throw Error(ErrorCode::invalid_request, "unsupported command");
+    // Selection and credentials must remain bound to the same market operation
+    // while preparation suspends. Read-only minutes do not acquire this gate.
+    std::optional<ResetFlag> market_admission;
+    if ((method.starts_with("market.") && method != "market.minutes") ||
+        method == "ctp.connections.market") {
+      if (market_busy)
+        throw Error(ErrorCode::conflict,
+                    "another market operation is in progress; retry after it completes");
+      market_busy = true;
+      market_admission.emplace(market_busy);
+    }
+    auto result = co_await found->second(params);
+    finish(true);
+    co_return result;
+  } catch (...) {
+    finish(false);
+    throw;
+  }
 }
 Application::Impl::Impl() {
-  // Only reached before the first publication; later reads never lock.
-  core.command("runtime.snapshot", [this](const json&) { return snapshot(); });
+  // Registration precedes all accepted commands.
+  command("runtime.snapshot",
+          [this](const json&) -> PolledTask<Response> { co_return snapshot(); });
   register_live_commands();
   register_node_commands();
-  register_research_commands();
+  register_data_commands();
+  register_task_commands();
+  register_backtest_commands();
+  register_factor_commands();
+  register_data_task_connection_commands();
   register_connection_commands();
   register_market_commands();
-  core.start();
-  refresher = std::jthread([this](std::stop_token stop) { refresh_loop(stop); });
+  logger->write(LogLevel::info, "terminal.started");
+  initialization =
+      service_io.submit<void>([this](std::stop_token) { return settings<void>([] {}); }).share();
+  refresher = service_io.submit<void>([this](std::stop_token stop) { return refresh_loop(stop); },
+                                      ServiceIo::Lane::observation);
+  settings_refresher = service_io.submit<void>(
+      [this](std::stop_token stop) { return settings_loop(stop); }, ServiceIo::Lane::observation);
 }
 Application::Impl::~Impl() {
-  refresher.request_stop();
-  refresh_wake.notify_all();
-  refresher = {};
+  lifetime.request_stop();
+  initialization.wait();
+  refresher.get();
+  settings_refresher.get();
+  logger->write(LogLevel::info, "terminal.stopped");
+  logger->flush();
 }
-Application::Impl::Parts Application::Impl::gather_parts(bool hold_between_calls) {
-  // With hold_between_calls the caller already owns `operations`. Otherwise
-  // each client call takes it briefly, so a command waits for at most one RPC.
-  Parts parts;
-  auto step = [&](auto&& read) {
-    if (hold_between_calls) {
-      read();
-      return;
-    }
-    std::lock_guard lock(operations);
-    read();
-  };
-  step([&] {
-    for (const auto& [account, client] : live)
-      parts.live[account] = {{"session", client->snapshot()}, {"connection", client->connection()}};
-  });
-  step([&] { parts.research = research ? research->status() : json(nullptr); });
-  step([&] { parts.market = market ? market->snapshot() : json(nullptr); });
-  step([&] {
-    for (const auto& [id, node] : nodes) {
-      (void)id;
-      parts.nodes.push_back(node->status());
-    }
-  });
-  return parts;
+Application::Impl::Publication Application::Impl::capture() {
+  Publication next;
+  next.history = history_contracts;
+  next.task_result = task_result;
+  next.plugins = native_plugins;
+  next.settings = settings_view;
+  for (const auto& [id, account] : live)
+    next.live.emplace(id, account->client->owner_view());
+  if (task_client)
+    next.tasks = task_client->owner_view();
+  const auto data = data_client ? data_client->owner_status() : json(nullptr);
+  if (market)
+    next.market = market->owner_read();
+  for (const auto& [id, node] : nodes) {
+    (void)id;
+    next.nodes.push_back(node->owner_view());
+  }
+  next.metadata = {
+      {"history_contracts",
+       {{"source", history_source},
+        {"exchange", history_exchange},
+        {"product", history_product},
+        {"cutoff_ns", std::to_string(history_cutoff)},
+        {"items", json::array()}}},
+      {"task_service", nullptr},
+      {"data", data},
+      {"credential_verification", credential_verification},
+      {"history_page", nullptr},
+      {"daily_page", nullptr},
+      {"ssh_key", ssh_key},
+      {"agent_program", agent_program},
+      {"firewall_plan", firewall_plan},
+      {"protocol", 1},
+      {"product", "Asterion Terminal"},
+      {"core", "C++20"},
+      {"phase", "ready"},
+      {"asset", "futures"},
+      // How each exchange assigns closes to today's and yesterday's
+      // positions; the order forms follow the core's rule.
+      {"close_policies",
+       [] {
+         json policies = json::object();
+         for (const auto* venue : {"SHFE", "INE", "CFFEX", "DCE", "CZCE", "GFEX"})
+           switch (close_policy(venue)) {
+           case ClosePolicy::explicit_buckets:
+             policies[venue] = "explicit_buckets";
+             break;
+           case ClosePolicy::today_first:
+             policies[venue] = "today_first";
+             break;
+           case ClosePolicy::yesterday_first:
+             policies[venue] = "yesterday_first";
+             break;
+           }
+         return policies;
+       }()},
+      {"datasets",
+       [&] {
+         json summaries = json::array();
+         for (const auto& item : selections)
+           summaries.push_back(item.summary);
+         return summaries;
+       }()},
+      {"dataset_series",
+       [&] {
+         json summaries = json::array();
+         for (const auto& item : dataset_series)
+           summaries.push_back(item.summary);
+         return summaries;
+       }()},
+      {"diagnostics",
+       {{"succeeded", succeeded},
+        {"failed", failed},
+        {"log_failures", process_log_failures()},
+        {"refresh_failures", refresh_failures},
+        {"refresh_failed", refresh_failed}}},
+      {"plugins",
+       json::array(
+           {{{"id", "asterion.data.ctp"}, {"kind", "data"}, {"state", "available"}},
+            {{"id", "asterion.execution.ctp"}, {"kind", "execution"}, {"state", "available"}},
+            {{"id", "asterion.storage.sqlite-journal"},
+             {"kind", "storage"},
+             {"state", "available"}}})}};
+  return next;
 }
-json Application::Impl::compose(const Parts& parts) {
-  const auto metrics = core.observations().metrics();
-  json catalog = json::array();
-  for (const auto& item : history_contracts)
+
+bool Application::Impl::Publication::same_state(const Publication& other) const {
+  return metadata == other.metadata && live == other.live && tasks == other.tasks &&
+         nodes == other.nodes && settings == other.settings && history == other.history &&
+         task_result == other.task_result && plugins == other.plugins &&
+         market.header == other.market.header && market.catalog == other.market.catalog &&
+         market.rows == other.market.rows;
+}
+json Application::Impl::Publication::render(std::optional<MarketCursor> held) const {
+  auto result = metadata;
+  auto& nodes_view = result["nodes"] = json::array();
+  for (const auto& node : nodes)
+    nodes_view.push_back(node_snapshot_json(node));
+  result["data_credentials"] = settings->credentials;
+  result["ctp_connections"] = settings->accounts;
+  result["ctp_market"] = settings->market;
+  auto& catalog = result.at("history_contracts").at("items");
+  for (const auto& item : *history)
     catalog.push_back(
         {{"code", item.identity.key()},
          {"name", item.name},
@@ -109,240 +274,180 @@ json Application::Impl::compose(const Parts& parts) {
          {"per_unit", item.per_unit ? json(item.per_unit->str()) : json(nullptr)},
          {"trade_unit", item.trade_unit ? json(*item.trade_unit) : json(nullptr)},
          {"quote_unit", item.quote_unit ? json(*item.quote_unit) : json(nullptr)}});
-  return {{"history_contracts",
-           {{"source", history_source},
-            {"exchange", history_exchange},
-            {"product", history_product},
-            {"cutoff_ns", std::to_string(history_cutoff)},
-            {"items", catalog}}},
-          {"research", parts.research},
-          {"data_credentials", data_credentials.snapshot()},
-          {"ctp_connections", ctp_accounts()},
-          {"ctp_market",
-           [&] {
-             const auto account = ctp_connections.market();
-             return account ? json(account->id) : json(nullptr);
-           }()},
-          {"credential_verification", credential_verification},
-          {"research_result", research_result},
-          {"history_page", nullptr},
-          {"daily_page", nullptr},
-          {"market", parts.market},
-          {"ssh_key", ssh_key},
-          {"agent_program", agent_program},
-          {"firewall_plan", firewall_plan},
-          {"nodes", parts.nodes},
-          {"protocol", 1},
-          {"product", "Asterion Terminal"},
-          {"core", "C++20"},
-          {"phase", "ready"},
-          {"asset", "futures"},
-          // How each exchange assigns closes to today's and yesterday's
-          // positions; the order forms follow the core's rule.
-          {"close_policies",
-           [] {
-             json policies = json::object();
-             for (const auto* venue : {"SHFE", "INE", "CFFEX", "DCE", "CZCE", "GFEX"})
-               switch (close_policy(venue)) {
-               case ClosePolicy::explicit_buckets:
-                 policies[venue] = "explicit_buckets";
-                 break;
-               case ClosePolicy::today_first:
-                 policies[venue] = "today_first";
-                 break;
-               case ClosePolicy::yesterday_first:
-                 policies[venue] = "yesterday_first";
-                 break;
-               }
-             return policies;
-           }()},
-          {"live", parts.live},
-          {"datasets",
-           [&] {
-             json summaries = json::array();
-             for (const auto& item : selections)
-               summaries.push_back(item.summary);
-             return summaries;
-           }()},
-          {"diagnostics", {{"succeeded", metrics.succeeded}, {"failed", metrics.failed}}},
-          {"native_plugins", native_plugins},
-          {"plugins",
-           json::array(
-               {{{"id", "asterion.data.ctp"}, {"kind", "data"}, {"state", "available"}},
-                {{"id", "asterion.execution.ctp"}, {"kind", "execution"}, {"state", "available"}},
-                {{"id", "asterion.storage.sqlite-journal"},
-                 {"kind", "storage"},
-                 {"state", "available"}}})}};
-}
-json Application::Impl::snapshot() {
-  return compose(gather_parts(true));
-}
-void Application::Impl::publish(json next) {
-  // One-shot payloads belong to the requesting call, not to later reads.
-  next.erase("initializer");
-  const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
-                       std::chrono::system_clock::now().time_since_epoch())
-                       .count();
-  std::lock_guard lock(cache_mutex);
-  if (next != cache) {
-    cache = std::move(next);
-    ++revision;
+  auto& accounts = result["live"] = json::object();
+  for (const auto& [id, account] : live) {
+    accounts[id] = account.render();
+    auto& connection = accounts[id].at("connection");
+    for (const auto& node : nodes_view) {
+      if (connection.at("transport") != "local" || node.at("id") != "local" ||
+          node.at("health").is_null())
+        continue;
+      for (const auto& service : node.at("health").at("services"))
+        if (service.at("id") == connection.at("session"))
+          connection["restarts"] = service.at("restarts");
+    }
   }
-  refreshed_at_ms = now;
-}
-// A poll that states the market revisions it holds receives only quote rows
-// changed after them; an unchanged catalog is sent without its contracts.
-// Any mismatch in subscription set sends every row.
-void Application::Impl::trim_market(json& result, const json& params) {
-  if (!params.contains("market_rows") || !result.contains("market") ||
-      !result.at("market").is_object())
-    return;
-  auto& market = result["market"];
-  if (market.value("subscription_set", std::uint64_t{0}) ==
-      params.at("market_set").get<std::uint64_t>()) {
-    const auto held = params.at("market_rows").get<std::uint64_t>();
-    json changed = json::array();
-    for (const auto& row : market.at("subscriptions"))
-      if (row.value("revision", std::uint64_t{0}) > held)
-        changed.push_back(row);
-    market["subscriptions"] = std::move(changed);
-    market["delta"] = true;
-  }
-  auto& catalog = market["catalog"];
-  if (catalog.value("revision", std::uint64_t{0}) == params.at("catalog").get<std::uint64_t>()) {
-    catalog["contracts"] = json::array();
-    catalog["omitted"] = true;
-  }
-}
-json Application::Impl::read_published(const json& params) {
-  std::optional<std::uint64_t> since;
-  if (params.contains("since"))
-    since = params.at("since").get<std::uint64_t>();
-  std::lock_guard lock(cache_mutex);
-  if (cache.is_null())
-    return nullptr;
-  json result = since == revision ? json{{"unchanged", true}} : cache;
-  if (since != revision)
-    trim_market(result, params);
+  result["market"] = market.render(held);
+  result["task_service"] = tasks ? tasks->render() : json(nullptr);
+  result["task_result"] = task_result ? *task_result : json(nullptr);
+  result["native_plugins"] = plugins ? *plugins : json(nullptr);
   result["revision"] = revision;
   result["refreshed_at_ms"] = refreshed_at_ms;
   return result;
 }
-void Application::Impl::refresh_loop(std::stop_token stop) {
-  while (!stop.stop_requested()) {
-    bool live = false;
-    try {
-      std::uint64_t before = 0;
-      {
-        std::lock_guard lock(operations);
-        before = mutations;
-      }
-      auto parts = gather_parts(false);
-      live = !parts.market.is_null();
-      {
-        std::lock_guard lock(operations);
-        // Check and publish under the same lock as commands. Releasing it
-        // between these steps would let an old refresh overwrite a new command.
-        if (mutations == before)
-          publish(compose(parts));
-      }
-    } catch (const std::exception&) {
-      // Client failures surface through their own status fields next cycle.
+json Application::Impl::Response::render() && {
+  if (!publication)
+    return std::move(values);
+  auto result = publication->render(cursor);
+  for (auto& [key, value] : values.items())
+    result[key] = std::move(value);
+  return result;
+}
+void Application::Impl::publish() {
+  auto next = capture();
+  next.revision = cache ? cache->revision + !next.same_state(*cache) : 1;
+  next.refreshed_at_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+  cache = std::make_shared<const Publication>(std::move(next));
+}
+Application::Impl::Response Application::Impl::snapshot() {
+  publish();
+  return read_published(json::object());
+}
+Application::Impl::Response Application::Impl::read_published(const json& params) {
+  if (!cache)
+    publish();
+  const auto published = cache;
+  if (params.contains("since") && params.at("since") == published->revision)
+    return json{{"unchanged", true},
+                {"revision", published->revision},
+                {"refreshed_at_ms", published->refreshed_at_ms}};
+  std::optional<MarketCursor> held;
+  if (params.contains("market_rows"))
+    held = MarketCursor{params.at("market_set").get<std::uint64_t>(),
+                        params.at("market_rows").get<std::uint64_t>(),
+                        params.at("catalog").get<std::uint64_t>()};
+  return Response{published, held};
+}
+void Application::Impl::record_refresh_failure(ErrorCode code) noexcept {
+  refresh_failed = true;
+  const auto count = ++refresh_failures;
+  log_process_failure("terminal", "snapshot.refresh_failed", code, count);
+  try {
+    if (cache) {
+      auto next = std::make_shared<Publication>(*cache);
+      auto& diagnostics = next->metadata.at("diagnostics");
+      diagnostics["refresh_failed"] = true;
+      diagnostics["refresh_failures"] = count;
+      diagnostics["log_failures"] = process_log_failures();
+      ++next->revision;
+      cache = std::move(next);
     }
-    std::unique_lock lock(cache_mutex);
-    refresh_wake.wait_for(lock, stop,
-                          live ? std::chrono::milliseconds(500) : std::chrono::seconds(2),
-                          [] { return false; });
+  } catch (...) {
+    // Status allocation failure must not stop the I/O owner.
   }
 }
-bool Application::Impl::read_only_method(std::string_view method) {
-  static constexpr std::array<std::string_view, 8> reads{
-      "market.minutes",        "research.minutes.page", "research.daily.page",
-      "research.datasets",     "research.coverage",     "research.dataset.saved",
-      "research.history.plan", "research.history.usage"};
-  return std::ranges::find(reads, method) != reads.end();
+PolledTask<void> Application::Impl::initialized() {
+  co_await PollUntil{[this] {
+    return initialization.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+  }};
+  initialization.get();
 }
-json Application::Impl::dispatch(const json& request) {
+PolledTask<void> Application::Impl::refresh_loop(std::stop_token stop) {
+  try {
+    co_await initialized();
+  } catch (const std::exception& error) {
+    record_refresh_failure(classify(error));
+    co_return;
+  } catch (...) {
+    record_refresh_failure(ErrorCode::internal_error);
+    co_return;
+  }
+  while (!stop.stop_requested() && !lifetime.stop_requested()) {
+    try {
+      refresh_failed = settings_failed;
+      publish();
+    } catch (const std::exception& error) {
+      record_refresh_failure(classify(error));
+    } catch (...) {
+      record_refresh_failure(ErrorCode::internal_error);
+    }
+    const auto next = std::chrono::steady_clock::now() +
+                      (market ? std::chrono::milliseconds(500) : std::chrono::milliseconds(2000));
+    co_await PollUntil{[&] {
+      return stop.stop_requested() || lifetime.stop_requested() ||
+             std::chrono::steady_clock::now() >= next;
+    }};
+  }
+}
+PolledTask<void> Application::Impl::settings_loop(std::stop_token stop) {
+  try {
+    co_await initialized();
+  } catch (const std::exception& error) {
+    record_refresh_failure(classify(error));
+    co_return;
+  } catch (...) {
+    record_refresh_failure(ErrorCode::internal_error);
+    co_return;
+  }
+  while (!stop.stop_requested() && !lifetime.stop_requested()) {
+    const auto next = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    co_await PollUntil{[&] {
+      return stop.stop_requested() || lifetime.stop_requested() ||
+             std::chrono::steady_clock::now() >= next;
+    }};
+    if (stop.stop_requested() || lifetime.stop_requested())
+      co_return;
+    if (settings_busy)
+      continue;
+    try {
+      co_await settings<void>([] {});
+      settings_failed = false;
+    } catch (const std::exception& error) {
+      settings_failed = true;
+      record_refresh_failure(classify(error));
+    } catch (...) {
+      settings_failed = true;
+      record_refresh_failure(ErrorCode::internal_error);
+    }
+  }
+}
+PolledTask<Application::Impl::Response> Application::Impl::dispatch(const json& request) {
   fields(request, {"version", "method", "params"});
   if (request.at("version") != 1 || !request.at("version").is_number_integer())
     throw std::invalid_argument("unsupported API version");
   const auto method = text(request, "method");
-  const bool read_only = read_only_method(method);
   const auto& params = request.at("params");
-  // Polls pass `since` and always read the published snapshot. A plain read is
-  // an explicit probe: fresh, except while a command runs, when it returns the
-  // published snapshot marked stale. A probe may wait for one background
-  // refresher step (a single client call) but never behind a command.
-  // Commands that call services release the lock around that I/O
-  // (outside_lock), so other windows can keep reading and acting meanwhile.
-  std::unique_lock operation(operations, std::defer_lock);
   if (method == "runtime.snapshot") {
-    // Validate before choosing a fresh or cached read. Invalid input must not
-    // become accepted merely because no command currently owns the lock.
     const bool incremental = params.is_object() && params.contains("market_rows");
     if (!params.is_object() ||
         (incremental ? params.size() != 4 || !params.contains("since") ||
                            !params.contains("market_set") || !params.contains("catalog")
                      : params.size() > 1 || (params.size() == 1 && !params.contains("since"))))
       throw std::invalid_argument("request fields do not match the current contract");
-    const bool poll = params.contains("since");
     for (const auto* name : {"since", "market_rows", "market_set", "catalog"})
       if (params.contains(name) && !params.at(name).is_number_unsigned())
         throw std::invalid_argument("snapshot revisions must be unsigned integers");
-    auto published_read = [&]() -> json {
-      auto published = read_published(params);
-      if (!published.is_null() && !poll)
-        published["stale"] = true;
-      return published;
-    };
-    if (poll)
-      if (auto published = published_read(); !published.is_null())
-        return published;
-    while (!operation.try_lock()) {
-      if (command_running.load())
-        if (auto published = published_read(); !published.is_null())
-          return published;
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-  } else {
-    while (!operation.try_lock()) {
-      if (command_running.load())
-        throw Error(ErrorCode::conflict,
-                    "another Terminal operation is in progress; retry after it completes");
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    if (!read_only)
-      ++mutations;
-    command_running = !read_only;
+    if (params.contains("since") && cache)
+      co_return read_published(params);
   }
-  struct Clear {
-    std::atomic<bool>& flag;
-    bool active;
-    ~Clear() {
-      if (active)
-        flag = false;
-    }
-  } clear{command_running, method != "runtime.snapshot" && !read_only};
-  struct Active {
-    std::unique_lock<std::mutex>*& slot;
-    ~Active() { slot = nullptr; }
-  } active{operation_lock};
-  operation_lock = &operation;
-  auto result = core.dispatch(method, method == "runtime.snapshot" ? json::object() : params);
-  // A command's snapshot becomes the published state; a read's one-shot data
-  // (pages, listings, usage) never does.
-  if (!read_only && result.is_object() && result.contains("protocol")) {
-    publish(result);
-    std::lock_guard cached(cache_mutex);
-    result["revision"] = revision;
-    result["refreshed_at_ms"] = refreshed_at_ms;
-  }
-  return result;
+  co_await initialized();
+  co_return co_await invoke(method, method == "runtime.snapshot" ? json::object() : params);
 }
+
 const std::vector<DatasetSelection>& Application::Impl::selected() const {
   if (selections.empty())
     throw std::invalid_argument("select downloaded data and a contract specification first");
   return selections;
+}
+std::optional<std::size_t>
+Application::Impl::series_of(const protocol::v1::Contract& contract) const {
+  for (std::size_t i = 0; i < dataset_series.size(); ++i)
+    if (dataset_series[i].summary.at("venue") == contract.venue() &&
+        dataset_series[i].summary.at("product") == contract.product())
+      return i;
+  return std::nullopt;
 }
 std::vector<json> Application::Impl::selection_costs(const json& contracts) const {
   const auto& chosen = selected();
@@ -367,6 +472,64 @@ std::vector<json> Application::Impl::selection_costs(const json& contracts) cons
 Application::Application() : impl_(std::make_unique<Impl>()) {}
 Application::~Application() = default;
 json Application::dispatch(const json& request) {
-  return impl_->dispatch(request);
+  const auto trace = (request.contains("method") && request.at("method") == "runtime.snapshot")
+                         ? std::string{}
+                         : impl_->request_ids.next();
+  TraceScope context(trace);
+  return impl_->service_io
+      .submit<json>(
+          [this, request](std::stop_token) -> PolledTask<json> {
+            auto response = co_await impl_->dispatch(request);
+            co_return co_await impl_->service_io.read<json>(
+                [&] { return std::move(response).render(); }, ServiceIo::ReadLane::response);
+          },
+          ServiceIo::Lane::application)
+      .get();
+}
+std::future<void> Application::request(std::string wire, Completion complete) {
+  const auto trace = impl_->request_ids.next();
+  TraceScope context(trace);
+  return impl_->service_io.submit<void>(
+      [this, wire = std::move(wire),
+       complete = std::move(complete)](std::stop_token) -> PolledTask<void> {
+        Payload encoded;
+        std::exception_ptr failure;
+        try {
+          std::optional<Impl::Response> response;
+          std::exception_ptr command_error;
+          auto budget = impl_->command_payloads;
+          try {
+            if (wire.size() > 65536 || wire.find('\0') != std::string::npos)
+              throw std::invalid_argument("invalid native API request");
+            auto input = parse_json(wire);
+            if (input.is_object() && input.value("method", json{}) == "runtime.snapshot")
+              budget = impl_->snapshot_payloads;
+            response.emplace(co_await impl_->dispatch(input));
+          } catch (...) {
+            command_error = std::current_exception();
+          }
+          co_await impl_->service_io.read<void>(
+              [&] {
+                json envelope = json::object();
+                try {
+                  if (command_error)
+                    std::rethrow_exception(command_error);
+                  envelope["result"] = std::move(*response).render();
+                } catch (const std::exception& error) {
+                  envelope["error"] = {{"code", error_name(classify(error))},
+                                       {"message", error.what()}};
+                } catch (...) {
+                  envelope["error"] = {{"code", "internal_error"},
+                                       {"message", "native core call failed"}};
+                }
+                encoded = encode_response(envelope, budget);
+              },
+              ServiceIo::ReadLane::response);
+        } catch (...) {
+          failure = std::current_exception();
+        }
+        complete(std::move(encoded), failure);
+      },
+      ServiceIo::Lane::application);
 }
 } // namespace asterion::terminal

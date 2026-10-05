@@ -4,7 +4,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define AST_HISTORY_V1 "asterion.history.v1"
+#define AST_HISTORY_V2 "asterion.history.v2"
 /* Fixed-point Decimal uses signed int64 units, scale 10^8, never double.
  * Date YYYY-MM-DD; delivery month YYYY-MM; UTC nanoseconds for minute labels. */
 typedef struct {
@@ -43,6 +43,14 @@ typedef struct {
   int64_t begin_ns, end_ns;        /* inclusive */
   const char *begin_day, *end_day; /* daily only, inclusive */
 } AstHistoryQuery;
+/* Synchronous admission immediately before EACH external download request,
+ * including calendar/metadata requests needed by a read. Never retain this
+ * callback after minutes/daily returns or invoke it concurrently. A non-OK
+ * result aborts the read; it must not trigger a retry or an unbudgeted request. */
+typedef struct {
+  void* context;
+  AstStatus (*acquire)(void* context);
+} AstRequestBudget;
 typedef struct {
   uint32_t size, version;
   /* Sources are enumerable without credentials. Account access is checked when reading.
@@ -53,11 +61,11 @@ typedef struct {
                        AstStatus (*emit)(void*, const AstHistorySource*));
   AstStatus (*catalog)(void* instance, const char* venue, const char* product, AstCancellation,
                        void* context, AstStatus (*emit)(void*, const AstListing*));
-  AstStatus (*minutes)(void* instance, const AstHistoryQuery*, AstCancellation, void* context,
-                       AstStatus (*emit)(void*, const AstMinute*));
-  AstStatus (*daily)(void* instance, const AstHistoryQuery*, AstCancellation, void* context,
-                     AstStatus (*emit)(void*, const AstDaily*));
-} AstHistoryV1;
+  AstStatus (*minutes)(void* instance, const AstHistoryQuery*, AstCancellation, AstRequestBudget,
+                       void* context, AstStatus (*emit)(void*, const AstMinute*));
+  AstStatus (*daily)(void* instance, const AstHistoryQuery*, AstCancellation, AstRequestBudget,
+                     void* context, AstStatus (*emit)(void*, const AstDaily*));
+} AstHistoryV2;
 #ifdef __cplusplus
 }
 #endif

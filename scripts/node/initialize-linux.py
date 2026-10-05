@@ -6,6 +6,7 @@ The installed copy exposes a narrow sudo entry point; uploaded code never runs a
 """
 import argparse
 import base64
+import errno
 import grp
 import os
 from pathlib import Path
@@ -47,19 +48,56 @@ def protected_directory(path):
             raise ValueError(f'Unsafe administrative directory: {item}')
 
 
+def sync_directory(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def verify_existing(path, data, mode):
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            raise ValueError(f'Administrative configuration cannot be a symlink: {path}') from error
+        raise
+    with os.fdopen(fd, 'rb') as source:
+        info = os.fstat(source.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1
+                or stat.S_IMODE(info.st_mode) != mode or info.st_size != len(data)
+                or source.read() != data):
+            raise ValueError(f'Existing configuration differs; review it before retrying: {path}')
+        os.fsync(source.fileno())
+
+
 def put_once(path, content, mode):
     protected_directory(path.parent)
     data = content.encode() if isinstance(content, str) else content
-    if path.exists() or path.is_symlink():
-        info = path.lstat()
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) != mode or path.read_bytes() != data:
-            raise ValueError(f'Existing configuration differs; review it before retrying: {path}')
+    try:
+        verify_existing(path, data, mode)
+    except FileNotFoundError:
+        pass
+    else:
+        # A prior failed directory sync can leave the complete file visible.
+        sync_directory(path.parent)
         return
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
-    with os.fdopen(fd, 'wb') as output:
-        output.write(data)
-        output.flush()
-        os.fsync(output.fileno())
+    fd, temporary = tempfile.mkstemp(prefix='.asterion-publish-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as output:
+            os.fchmod(output.fileno(), mode)
+            output.write(data)
+            output.flush()
+            os.fsync(output.fileno())
+        try:
+            # Exclusive publication never replaces an unrelated concurrent writer.
+            os.link(temporary, path, follow_symlinks=False)
+        except FileExistsError:
+            verify_existing(path, data, mode)
+    finally:
+        os.unlink(temporary)
+    sync_directory(path.parent)
 
 
 def account():
@@ -89,7 +127,7 @@ def service_text(identity, port, bind):
 def manage(arguments):
     account()
     if arguments == ['check']:
-        print('asterion-host-v1')
+        print('asterion-host-v2')
         return
     if len(arguments) != 4 or arguments[0] != 'install':
         raise ValueError('Only check and install NODE PORT BIND are supported')
@@ -150,6 +188,7 @@ def initialize(arguments):
     except Exception:
         if not existed:
             ssh_file.unlink()
+            sync_directory(ssh_file.parent)
         raise
     put_once(Path('/etc/sudoers.d/asterion-host'), policy, 0o440)
     run('/usr/sbin/visudo', '-c', stdout=subprocess.DEVNULL)

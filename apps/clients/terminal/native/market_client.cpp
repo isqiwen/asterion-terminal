@@ -1,117 +1,57 @@
 #include "market_client.hpp"
 #include "market_history.hpp"
-#include <asterion/kernel/ipc/local_channel.hpp>
+#include "market_snapshot.hpp"
+#include <asterion/kernel/ipc/rpc_client.hpp>
+#include <asterion/kernel/trace.hpp>
 #include <asterion/protocol/market.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <atomic>
-#include <condition_variable>
-#include <algorithm>
-#include <map>
-#include <mutex>
-#include <thread>
+#include <array>
 namespace asterion::terminal {
 namespace wire = asterion::market::v1;
 using namespace std::chrono_literals;
-namespace {
-// Process-wide so a replaced market client never reuses a revision a
-// Terminal window already holds; polls then receive complete state.
-std::atomic<std::uint64_t> sync_revision{0};
-} // namespace
-struct MarketClient::Impl {
-  ServiceEndpoint endpoint;
-  mutable std::mutex mutex;
-  std::mutex commands;
-  std::condition_variable wake;
-  std::jthread worker;
-  Json cached = nullptr;
+struct MarketClient::Impl : std::enable_shared_from_this<Impl> {
+  ServiceIo& io;
+  const ServiceEndpoint endpoint;
+  // Controls, minute reads, ordered event reads and watch have separate capacity.
+  enum Channel : std::size_t { control, minutes, events, watch, channel_count };
+  std::array<std::unique_ptr<ipc::RpcClient>, channel_count> transports;
+  std::stop_source lifetime;
+  MarketSnapshot view;
   MarketHistory history;
-  bool online = false;
-  std::atomic<std::uint64_t> sequence{0};
+  bool online = false, events_due = false, command_busy = false;
+  std::uint64_t history_epoch = 0;
   std::chrono::steady_clock::time_point seen{};
-  // Change tracking for incremental Terminal polls (see annotate()).
-  std::map<std::string, std::pair<Json, std::uint64_t>> rows;
-  std::vector<std::string> keys;
-  Json catalog = nullptr;
-  std::uint64_t set_revision = 0, catalog_revision = 0;
-  explicit Impl(ServiceEndpoint value) : endpoint(std::move(value)) {
-    const auto deadline = std::chrono::steady_clock::now() + 10s;
-    for (;;) {
-      try {
-        wire::Request request;
-        request.mutable_snapshot();
-        publish(call(request).snapshot());
-        break;
-      } catch (const Error&) {
-        if (std::chrono::steady_clock::now() >= deadline)
-          throw;
-        std::this_thread::sleep_for(100ms);
-      }
+  Impl(ServiceIo& owner, ServiceEndpoint value) : io(owner), endpoint(std::move(value)) {
+    validate_id(endpoint.session);
+    constexpr std::array<std::size_t, channel_count> capacity{1, 8, 1, 1};
+    for (std::size_t i = 0; i < transports.size(); ++i) {
+      auto budget = io.payload_budget(i != control ? ServiceIo::PayloadLane::data
+                                                   : ServiceIo::PayloadLane::control);
+      transports[i] =
+          endpoint.endpoint.empty()
+              ? std::make_unique<ipc::RpcClient>(endpoint.host, endpoint.port, endpoint.tls,
+                                                 capacity[i], budget)
+              : std::make_unique<ipc::RpcClient>(endpoint.endpoint, capacity[i], budget);
     }
-    worker = std::jthread([this](std::stop_token stop) {
-      while (!stop.stop_requested()) {
-        try {
-          wire::Request request;
-          request.mutable_watch();
-          identify(request);
-          auto stream = [&](auto channel) {
-            channel.send(request.SerializeAsString(), 2s);
-            while (!stop.stop_requested()) {
-              auto response = decode(channel.receive(2s), request);
-              publish(response.snapshot());
-              if (response.snapshot().phase() != "connected") {
-                std::lock_guard lock(mutex);
-                if (!history.stream.empty())
-                  history.interrupt();
-                continue;
-              }
-              try {
-                wire::Request events;
-                {
-                  std::lock_guard lock(mutex);
-                  events.mutable_events()->set_stream_id(history.stream);
-                  events.mutable_events()->set_after_sequence(history.cursor);
-                  events.mutable_events()->set_limit(1024);
-                }
-                const auto batch = call(events);
-                std::lock_guard lock(mutex);
-                history.append(batch.events());
-              } catch (const std::exception&) {
-                // A history error must not stop quote/status delivery.
-                std::lock_guard lock(mutex);
-                history.interrupt();
-              }
-            }
-          };
-          if (endpoint.endpoint.empty())
-            stream(ipc::TlsChannel::connect(endpoint.host, endpoint.port, endpoint.tls, 2s));
-          else
-            stream(ipc::Channel::connect(endpoint.endpoint, 2s));
-        } catch (const std::exception&) {
-          std::unique_lock lock(mutex);
-          online = false;
-          history.interrupt();
-          wake.wait_for(lock, 2s, [&] { return stop.stop_requested(); });
-        }
-      }
-    });
   }
-  ~Impl() {
-    worker.request_stop();
-    wake.notify_all();
-    if (worker.joinable())
-      worker.join();
+  bool stopped(std::stop_token stop) const {
+    return stop.stop_requested() || lifetime.stop_requested();
   }
   void identify(wire::Request& request) {
     request.set_version(1);
     request.set_service_id(endpoint.session);
-    request.set_correlation_id("market." + std::to_string(++sequence));
+    request.set_correlation_id(next_correlation_id());
   }
-  wire::Response decode(const std::string& raw, const wire::Request& request) {
+  struct Decoded {
+    wire::Response response;
+    std::optional<MarketUpdate> snapshot;
+  };
+  static Decoded decode(const std::string& raw, const wire::Request& request) {
     wire::Response response;
     if (!response.ParseFromString(raw))
       throw Error(ErrorCode::unavailable, "invalid market response");
     protocol::validate_message(response);
-    if (response.version() != 1 || response.service_id() != endpoint.session ||
+    if (response.version() != 1 || response.service_id() != request.service_id() ||
         response.correlation_id() != request.correlation_id())
       throw Error(ErrorCode::unavailable, "market response identity mismatch");
     if (response.has_error())
@@ -121,71 +61,207 @@ struct MarketClient::Impl {
           response.minutes().instrument().venue() != request.minutes().instrument().venue() ||
           response.minutes().instrument().symbol() != request.minutes().instrument().symbol())
         throw Error(ErrorCode::unavailable, "missing market minutes");
-      return response;
+      return {std::move(response), {}};
     }
     if (request.has_events()) {
       if (!response.has_events())
         throw Error(ErrorCode::unavailable, "missing market events");
-      return response;
+      return {std::move(response), {}};
     }
     if (!response.has_snapshot() || response.snapshot().instance_id().empty())
       throw Error(ErrorCode::unavailable, "missing market snapshot");
-    return response;
+    if (!request.has_watch() &&
+        (response.snapshot().catalog_omitted() || response.snapshot().subscriptions_delta()))
+      throw Error(ErrorCode::unavailable, "market catalog revision is unavailable");
+    MarketUpdate snapshot(response.snapshot());
+    response.clear_snapshot();
+    return {std::move(response), std::move(snapshot)};
   }
-  wire::Response call(wire::Request request) {
-    std::lock_guard lock(commands);
-    identify(request);
-    auto exchange = [&](auto channel) {
-      channel.send(request.SerializeAsString(), 3s);
-      return decode(channel.receive(3s), request);
-    };
-    return endpoint.endpoint.empty()
-               ? exchange(ipc::TlsChannel::connect(endpoint.host, endpoint.port, endpoint.tls, 3s))
-               : exchange(ipc::Channel::connect(endpoint.endpoint, 3s));
+  void interrupt_history() {
+    history.interrupt();
+    ++history_epoch;
+    events_due = false;
   }
-  // Stamps each quote row with the revision of its last change, and the
-  // subscription set and catalog with their own revisions.
-  void annotate() {
-    auto& subscriptions = cached.at("subscriptions");
-    std::vector<std::string> next;
-    next.reserve(subscriptions.size());
-    for (auto& row : subscriptions) {
-      auto key = row.at("venue").get<std::string>() + "." + row.at("symbol").get<std::string>();
-      auto found = rows.find(key);
-      if (found == rows.end() || found->second.first != row)
-        found = rows.insert_or_assign(key, std::pair{row, ++sync_revision}).first;
-      row["revision"] = found->second.second;
-      next.push_back(std::move(key));
-    }
-    if (next != keys || !set_revision) {
-      keys = std::move(next);
-      set_revision = ++sync_revision;
-      std::erase_if(rows, [&](const auto& item) {
-        return std::ranges::find(keys, item.first) == keys.end();
-      });
-    }
-    if (cached.at("catalog") != catalog || !catalog_revision) {
-      catalog = cached.at("catalog");
-      catalog_revision = ++sync_revision;
-    }
-    cached["subscription_set"] = set_revision;
-    cached["catalog"]["revision"] = catalog_revision;
-  }
-  void publish(const wire::Snapshot& state) {
-    std::lock_guard lock(mutex);
-    if (cached.is_null() || cached.at("instance_id") != state.instance_id() ||
-        cached.at("sequence").get<std::uint64_t>() <= state.sequence()) {
-      cached = protocol::decode_market(state);
-      annotate();
-    }
+  void publish(MarketUpdate update, std::uint64_t generation, bool from_watch = false) {
+    const auto& previous = view.metadata();
+    const bool changed_instance =
+        !previous.is_null() && previous.at("instance_id") != update.value.at("instance_id");
+    const bool was_connected = !previous.is_null() && previous.at("phase") == "connected";
+    if (!view.apply(std::move(update), generation))
+      return;
+    if (changed_instance && !from_watch)
+      transports[watch]->cancel();
+    const bool connected = view.metadata().at("phase") == "connected";
+    if (changed_instance || (was_connected && !connected))
+      interrupt_history();
+    events_due = connected;
     online = true;
     seen = std::chrono::steady_clock::now();
   }
+  PolledTask<wire::Response> exchange(wire::Request request, std::stop_token stop) {
+    const bool command = !request.has_events() && !request.has_minutes();
+    if (command)
+      co_await PollUntil{[&] { return !command_busy || stopped(stop); }};
+    if (stopped(stop))
+      throw Error(ErrorCode::cancelled, "market connection closed");
+    if (command)
+      command_busy = true;
+    struct Release {
+      bool& busy;
+      bool command;
+      ~Release() {
+        if (command)
+          busy = false;
+      }
+    } release{command_busy, command};
+    identify(request);
+    auto& transport = transports[request.has_events()    ? events
+                                 : request.has_minutes() ? minutes
+                                                         : control];
+    const auto generation = view.generation();
+    auto reply = transport->request(request.SerializeAsString(), 3s);
+    while (reply.wait_for(0ms) != std::future_status::ready) {
+      if (stopped(stop))
+        transport->cancel();
+      else
+        transport->poll();
+      co_await std::suspend_always{};
+    }
+    auto response = co_await io.read<Decoded>(
+        [raw = reply.get(), &request] { return decode(*raw, request); },
+        request.has_events() || request.has_minutes() ? ServiceIo::ReadLane::data
+                                                      : ServiceIo::ReadLane::response);
+    if (response.snapshot)
+      publish(std::move(*response.snapshot), generation);
+    co_return std::move(response.response);
+  }
+  std::future<void> command(wire::Request request) {
+    return io.submit<void>([state = shared_from_this(), request = std::move(request)](
+                               std::stop_token stop) mutable -> PolledTask<void> {
+      co_await state->exchange(std::move(request), stop);
+    });
+  }
+  PolledTask<void> initialize(std::stop_token stop) {
+    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    for (;;) {
+      try {
+        wire::Request request;
+        request.mutable_snapshot();
+        co_await exchange(std::move(request), stop);
+        co_return;
+      } catch (const Error&) {
+        if (stopped(stop) || std::chrono::steady_clock::now() >= deadline)
+          throw;
+      }
+      const auto next = std::chrono::steady_clock::now() + 100ms;
+      co_await PollUntil{[&] { return stopped(stop) || std::chrono::steady_clock::now() >= next; }};
+    }
+  }
+  PolledTask<void> observe(std::stop_token stop) {
+    auto& transport = transports[watch];
+    while (!stopped(stop)) {
+      try {
+        wire::Request request;
+        request.mutable_watch();
+        identify(request);
+        MarketWatchCursor cursor;
+        std::optional<Payload> frame;
+        auto watching = transport->watch(request.SerializeAsString(), 2s,
+                                         [&](Payload bytes) { frame = std::move(bytes); });
+        while (watching.wait_for(0ms) != std::future_status::ready) {
+          if (stopped(stop))
+            transport->cancel();
+          else
+            transport->poll();
+          if (frame) {
+            const auto generation = view.generation();
+            // RpcClient yields one frame per poll. Do not poll this stream again
+            // until its frame is prepared and applied: order and memory stay bounded.
+            auto response = co_await io.read<Decoded>(
+                [raw = std::move(*frame), &request] { return decode(*raw, request); });
+            frame.reset();
+            cursor.accept(*response.snapshot);
+            publish(std::move(*response.snapshot), generation, true);
+          }
+          co_await std::suspend_always{};
+        }
+        watching.get();
+      } catch (const std::exception&) {
+        transport->cancel();
+        online = false;
+        interrupt_history();
+      }
+      const auto next = std::chrono::steady_clock::now() + 2s;
+      co_await PollUntil{[&] { return stopped(stop) || std::chrono::steady_clock::now() >= next; }};
+    }
+  }
+  PolledTask<void> observe_events(std::stop_token stop) {
+    while (!stopped(stop)) {
+      co_await PollUntil{[&] { return stopped(stop) || (online && events_due); }};
+      if (stopped(stop))
+        break;
+      events_due = false;
+      const auto epoch = history_epoch;
+      try {
+        wire::Request request;
+        request.mutable_events()->set_stream_id(history.stream);
+        request.mutable_events()->set_after_sequence(history.cursor);
+        request.mutable_events()->set_limit(1024);
+        const auto response = co_await exchange(std::move(request), stop);
+        if (epoch == history_epoch && online)
+          history.append(response.events());
+      } catch (const std::exception&) {
+        if (epoch == history_epoch)
+          interrupt_history();
+      }
+    }
+  }
+  PolledTask<void> monitor(std::stop_token stop) {
+    auto quotes = observe(stop);
+    auto events = observe_events(stop);
+    for (;;) {
+      const bool quotes_done = quotes.poll();
+      const bool events_done = events.poll();
+      if (quotes_done && events_done)
+        break;
+      co_await std::suspend_always{};
+    }
+    quotes.take();
+    events.take();
+  }
+  MarketProjection read() const {
+    auto out = view.capture();
+    out.header["transport_online"] = online && std::chrono::steady_clock::now() - seen < 5s;
+    out.header["service"] = endpoint.session;
+    out.header["remote"] = endpoint.endpoint.empty();
+    out.header["host"] = endpoint.endpoint.empty() ? endpoint.host : "localhost";
+    out.header["port"] = endpoint.port;
+    out.header["history"] = history.snapshot();
+    return out;
+  }
 };
-MarketClient::MarketClient(ServiceEndpoint endpoint)
-    : impl_(std::make_unique<Impl>(std::move(endpoint))) {}
-MarketClient::~MarketClient() = default;
-void MarketClient::connect(const Json& params) {
+MarketClient::MarketClient(ServiceIo& io, ServiceEndpoint endpoint)
+    : impl_(std::make_shared<Impl>(io, std::move(endpoint))) {}
+std::future<std::shared_ptr<MarketClient>> MarketClient::open(ServiceIo& io,
+                                                              ServiceEndpoint endpoint) {
+  return io.submit<std::shared_ptr<MarketClient>>(
+      [&io, endpoint = std::move(endpoint)](
+          std::stop_token stop) mutable -> PolledTask<std::shared_ptr<MarketClient>> {
+        auto client = co_await io.admin<std::shared_ptr<MarketClient>>([&] {
+          return std::shared_ptr<MarketClient>(new MarketClient(io, std::move(endpoint)));
+        });
+        co_await client->impl_->initialize(stop);
+        (void)client->impl_->io.submit<void>(
+            [state = client->impl_](std::stop_token stop) { return state->monitor(stop); },
+            ServiceIo::Lane::observation);
+        co_return client;
+      });
+}
+MarketClient::~MarketClient() {
+  impl_->lifetime.request_stop();
+}
+
+std::future<void> MarketClient::connect(const Json& params) {
   wire::Request request;
   auto* c = request.mutable_connect();
   c->set_front(params.at("front").get<std::string>());
@@ -197,9 +273,9 @@ void MarketClient::connect(const Json& params) {
     i->set_venue(id.at("venue").get<std::string>());
     i->set_symbol(id.at("symbol").get<std::string>());
   }
-  impl_->publish(impl_->call(std::move(request)).snapshot());
+  return impl_->command(std::move(request));
 }
-void MarketClient::catalog(const Json& params) {
+std::future<void> MarketClient::catalog(const Json& params) {
   wire::Request request;
   auto* c = request.mutable_catalog();
   c->set_front(params.at("front").get<std::string>());
@@ -208,9 +284,9 @@ void MarketClient::catalog(const Json& params) {
   c->set_password(params.at("password").get<std::string>());
   c->set_app_id(params.at("app_id").get<std::string>());
   c->set_auth_code(params.at("auth_code").get<std::string>());
-  impl_->publish(impl_->call(std::move(request)).snapshot());
+  return impl_->command(std::move(request));
 }
-void MarketClient::subscribe(const Json& ids) {
+std::future<void> MarketClient::subscribe(const Json& ids) {
   wire::Request request;
   for (const auto& id : ids) {
     auto* i = request.mutable_subscribe()->add_instruments();
@@ -219,30 +295,34 @@ void MarketClient::subscribe(const Json& ids) {
   }
   if (ids.empty())
     request.mutable_subscribe();
-  impl_->publish(impl_->call(request).snapshot());
+  return impl_->command(std::move(request));
 }
-void MarketClient::disconnect() {
+std::future<void> MarketClient::disconnect() {
   wire::Request request;
   request.mutable_disconnect();
-  impl_->publish(impl_->call(request).snapshot());
+  return impl_->command(std::move(request));
 }
-Json MarketClient::minutes(const std::string& venue, const std::string& symbol) {
+std::future<Json> MarketClient::minutes(const std::string& venue, const std::string& symbol) {
   const InstrumentId id{venue, symbol};
   id.validate();
   wire::Request request;
   request.mutable_minutes()->mutable_instrument()->set_venue(venue);
   request.mutable_minutes()->mutable_instrument()->set_symbol(symbol);
-  return protocol::decode_minutes(impl_->call(std::move(request)).minutes());
+  return impl_->io.submit<Json>([state = impl_, request = std::move(request)](
+                                    std::stop_token stop) mutable -> PolledTask<Json> {
+    auto response = co_await state->exchange(std::move(request), stop);
+    co_return co_await state->io.read<Json>(
+        [response = std::move(response)] { return protocol::decode_minutes(response.minutes()); });
+  });
 }
-Json MarketClient::snapshot() const {
-  std::lock_guard lock(impl_->mutex);
-  auto out = impl_->cached;
-  out["transport_online"] = impl_->online && std::chrono::steady_clock::now() - impl_->seen < 5s;
-  out["service"] = impl_->endpoint.session;
-  out["remote"] = impl_->endpoint.endpoint.empty();
-  out["host"] = impl_->endpoint.endpoint.empty() ? impl_->endpoint.host : "localhost";
-  out["port"] = impl_->endpoint.port;
-  out["history"] = impl_->history.snapshot();
-  return out;
+std::future<Json> MarketClient::snapshot() const {
+  return impl_->io.submit<Json>([state = impl_](std::stop_token) -> PolledTask<Json> {
+    co_return co_await state->io.read<Json>(
+        [projection = state->read()] { return projection.render(); },
+        ServiceIo::ReadLane::response);
+  });
+}
+MarketProjection MarketClient::owner_read() const {
+  return impl_->read();
 }
 } // namespace asterion::terminal

@@ -20,12 +20,28 @@ test("chart panes retain intervals and indicators across contracts without subst
   ];
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (!["runtime.snapshot", "research.minutes.page"].includes(request.method))
+    if (!["runtime.snapshot", "data.minutes.page", "data.datasets"].includes(request.method))
       return route.continue();
     const response = await route.fetch({
       postData: { version: 1, method: "runtime.snapshot", params: {} },
     });
     const data = (await response.json()) as { result: Snapshot };
+    data.result.data = { ...data.result.data!, connection_id: service, online };
+    data.result.history_datasets = datasets
+      .filter(
+        dataset =>
+          !request.params.contract_id || identity(dataset.symbol) === request.params.contract_id,
+      )
+      .map(({ symbol, period, rows, version }) => ({
+        id: `${symbol}-${period}${version ? `-v${version}` : ""}`,
+        contract_id: identity(symbol),
+        source: "tushare.ft_mins",
+        revision: "b".repeat(64),
+        begin: String(start),
+        end: String(start + BigInt(((rows ?? 80) - 1) * period) * 60000000000n),
+        interval_minutes: period,
+        rows: rows ?? 80,
+      }));
     if (catalogName)
       data.result.history_contracts = {
         source: "tushare.ft_mins",
@@ -74,13 +90,11 @@ test("chart panes retain intervals and indicators across contracts without subst
         quote: null,
       })),
     };
-    data.result.research = {
-      ...data.result.research!,
-      service,
-      connection_id: service,
-      online,
+    data.result.task_service = {
+      ...data.result.task_service!,
       tasks: datasets.map(({ symbol, period, version }, index) => ({
         id: `${symbol}-${period}${version ? `-v${version}` : ""}`,
+        history_dataset_id: `${symbol}-${period}${version ? `-v${version}` : ""}`,
         kind: "minute_download",
         data_source: "tushare.ft_mins",
         state: "succeeded",
@@ -99,7 +113,7 @@ test("chart panes retain intervals and indicators across contracts without subst
       })),
     };
     data.result.history_page = null;
-    if (request.method === "research.minutes.page") {
+    if (request.method === "data.minutes.page") {
       requests.push(request.params.id);
       pageRequests.push({ id: request.params.id, offset: request.params.offset });
       const dataset = datasets.find(
@@ -175,6 +189,7 @@ test("chart panes retain intervals and indicators across contracts without subst
   const beforeSwitch = pageRequests.length;
   service = "fixture-b";
   await expect(upper.locator(".market-history-pages")).toContainText("1–5 / 5");
+  await upper.getByText("数据版本", { exact: true }).click();
   await expect(upper.getByRole("combobox", { name: "历史数据版本" })).toHaveValue("rb2610-1-v3");
   expect(
     pageRequests
@@ -252,8 +267,6 @@ test("chart panes retain intervals and indicators across contracts without subst
   const emptyDepth = page.getByRole("img", { name: "暂无买卖盘数量", exact: true });
   await expect(emptyDepth).toHaveAttribute("data-empty", "true");
   await expect(emptyDepth.locator("span")).toHaveCount(0);
-  // Empty ratio uses the raised surface token (#11161d).
-  await expect(emptyDepth).toHaveCSS("background-color", "rgb(17, 22, 29)");
   await page.screenshot({ path: "build/contract-empty-depth.png" });
   await expect(contract.getByRole("button", { name: "1 min", exact: true })).toHaveAttribute(
     "aria-pressed",

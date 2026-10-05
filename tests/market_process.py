@@ -8,6 +8,10 @@ import time
 build=Path(sys.argv[1]).resolve()
 env=dict(os.environ,ASTERION_CTP_LIBRARY=str(build/('asterion_test_ctp.dll' if sys.platform=='win32' else 'libasterion_test_ctp.dylib' if sys.platform=='darwin' else 'libasterion_test_ctp.so')))
 env['ASTERION_CTP_CATALOG_LIBRARY']=str(build/('asterion_test_ctp_trader.dll' if sys.platform=='win32' else 'libasterion_test_ctp_trader.dylib' if sys.platform=='darwin' else 'libasterion_test_ctp_trader.so'))
+remembered = sys.platform == 'darwin'
+if remembered:
+    from keychain_fixture import install
+    env['ASTERION_KEYCHAIN_EXECUTABLE'] = install(Path(os.environ['ASTERION_NODE_DIRECTORY']) / 'market-test-keychain')
 process=subprocess.Popen([str(build/('asterion_terminal_dev_bridge.exe' if sys.platform=='win32' else 'asterion_terminal_dev_bridge'))],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
 def call(method,params=None):
     process.stdin.write(json.dumps(dict(version=1,method=method,params=params or {}))+'\n');process.stdin.flush()
@@ -23,7 +27,9 @@ try:
     state=call('market.local');assert state['market']['phase']=='disconnected'
     call('ctp.connections.save',dict(id='fixture',name='Fixture',revision='',broker_id='test',user_id='fixture',app_id='app',trade_front='tcp://127.0.0.1:1',market_front='tcp://127.0.0.1:1'))
     call('ctp.connections.save',dict(id='other',name='Other',revision='',broker_id='test',user_id='other',app_id='app',trade_front='tcp://127.0.0.1:1',market_front='tcp://127.0.0.1:1'))
-    state=call('market.connect',dict(password='fixture-only-secret',instruments=[dict(venue='SHFE',symbol='rb2610'),dict(venue='SHFE',symbol='bad2601')]))
+    if remembered:
+        call('market.credentials.save',dict(account='fixture',password='fixture-only-secret',auth_code='fixture-auth'))
+    state=call('market.connect',dict(password='' if remembered else 'fixture-only-secret',instruments=[dict(venue='SHFE',symbol='rb2610'),dict(venue='SHFE',symbol='bad2601')]))
     state=wait(lambda s:s['market']['phase']=='connected' and s['market']['subscriptions'][0]['quote'])
     market=state['market'];quote=market['subscriptions'][0]['quote'];assert quote['last']=='3510' and quote['bid']=='3509' and quote['ask']=='3511'
     assert quote['previous_settlement'] is None and market['out_of_order']>=1 and market['subscriptions'][1]['state']=='error'
@@ -39,7 +45,7 @@ try:
     refused=json.loads(process.stdout.readline());assert 'disconnect market data' in refused['error']['message'],refused
     call('market.subscribe',dict(instruments=[dict(venue='SHFE',symbol='rb2610')]))
     assert len(wait(lambda s:len(s['market']['subscriptions'])==1)['market']['subscriptions'])==1
-    call('market.catalog',dict(account='fixture',password='fixture-only-secret',auth_code='fixture-auth'))
+    call('market.catalog',dict(account='fixture',password='' if remembered else 'fixture-only-secret',auth_code='' if remembered else 'fixture-auth'))
     state=wait(lambda s:s['market']['catalog']['phase']=='ready')
     assert state['market']['catalog']['contracts'][0]['symbol']=='rb2610'
     call('market.subscribe',dict(instruments=[]))
@@ -48,6 +54,19 @@ try:
     state=call('market.disconnect');state=wait(lambda s:s['market']['phase']=='disconnected')
     # The last ready catalog stays available offline, marked as a cached copy.
     catalog=state['market']['catalog'];assert catalog['phase']=='cached' and catalog['contracts'][0]['symbol']=='rb2610',catalog
+    if remembered:
+        # A new Terminal process can reuse credentials, without returning them to UI.
+        process.stdin.close(); process.wait(timeout=8)
+        assert 'fixture-only-secret' not in process.stderr.read()
+        process=subprocess.Popen([str(build/'asterion_terminal_dev_bridge')],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        call('market.local')
+        state=call('market.connect',dict(password='',instruments=[]))
+        wait(lambda s:s['market']['phase']=='connected')
+        call('market.disconnect')
+        call('market.credentials.clear',dict(account='fixture'))
+        process.stdin.write(json.dumps(dict(version=1,method='market.connect',params=dict(password='',instruments=[])))+'\n');process.stdin.flush()
+        refused=json.loads(process.stdout.readline())
+        assert refused['error']['code']=='not_found',refused
     call('market.connect',dict(password='reject-test-only',instruments=[]))
     wait(lambda s:s['market']['phase']=='error' and s['market']['error_code']==3)
     call('market.disconnect')

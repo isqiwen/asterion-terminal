@@ -1,6 +1,5 @@
 #pragma once
 #include <asterion/domain/account.hpp>
-#include <asterion/kernel/plugin.hpp>
 #include <cstddef>
 #include <string_view>
 namespace asterion {
@@ -45,8 +44,9 @@ struct RiskDecision {
 };
 // Risk implementations own algorithms and parameters; execution owns routing
 // and atomic account mutation. Plugin failure must never imply acceptance.
-class RiskPort : public Plugin {
+class RiskPort {
 public:
+  virtual ~RiskPort() = default;
   virtual RiskDecision evaluate(const PreTradeRiskContext& context) const = 0;
 };
 // Reads authoritative typed ledger state. Caller serializes this check with

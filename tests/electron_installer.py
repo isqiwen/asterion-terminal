@@ -89,8 +89,6 @@ def main():
                    "daily download to factor analysis navigation",
                    "Agent-dispatched daily factor holdout results and restart recovery",
                    "backtest data, rules, review, execution and fixed results",
-                   "named account creation and account-list restoration",
-                   "risk rejection", "fills", "desktop restart and ledger restoration",
                    "Agent survives desktop exit"],
         "limits": ["disposable test profile", "no live market credentials",
                    "dialog adapter mocked; not manual native picker acceptance"],

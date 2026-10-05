@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -13,7 +14,10 @@ namespace asterion::sqlite {
 class Database {
 public:
   enum class Access { writer, read_only };
-  explicit Database(const std::filesystem::path& file, Access access = Access::writer);
+  // Existing-store validation runs before enabling writer pragmas or creating
+  // a journal. Callers also perform read-only preflight before taking ownership.
+  explicit Database(const std::filesystem::path& file, Access access = Access::writer,
+                    std::function<void(Database&)> before_write = {});
   ~Database();
   Database(const Database&) = delete;
   Database& operator=(const Database&) = delete;
@@ -27,6 +31,8 @@ public:
     Statement& bind(int index, std::int64_t value);
     Statement& bind(int index, std::string_view text);
     // True while a row is available.
+    Statement& bind_blob(int index, std::string_view bytes);
+    std::string blob(int column) const;
     bool step();
     std::int64_t integer(int column) const;
     std::string text(int column) const;
@@ -54,5 +60,8 @@ private:
 };
 // Test hook: the next `count` transaction commits in this process fail and roll
 // back, as an I/O error before acknowledgement would.
+// Deterministic durability barrier used by account-thread integration tests.
+void hold_commits_for_testing(bool hold);
+bool commit_waiting_for_testing();
 void fail_next_commits_for_testing(int count);
 } // namespace asterion::sqlite

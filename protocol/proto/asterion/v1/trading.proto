@@ -1,4 +1,5 @@
 syntax = "proto3";
+import "asterion/v1/health.proto";
 package asterion.protocol.v1;
 
 import "asterion/v1/domain.proto";
@@ -17,15 +18,13 @@ message PaperContract { asterion.data.v1.BarDataset dataset = 1; reserved 2; Cos
 message PaperInput { Decimal deposit = 1; RiskLimits risk = 2; repeated PaperContract contracts = 3; }
 // A CTP futures account. Non-secret identities only: the password and the
 // authentication code are entered at every connection and never stored.
-message LiveBroker { string front = 1; string broker_id = 2; string user_id = 3; string app_id = 4; }
-// A live session: the account, its pre-trade risk limits and the contracts
-// the owner allows it to trade, with their exchange terms.
-// max_price_deviation bounds a limit price's distance from the broker's
-// latest price (pre-settlement before the first trade) as a fraction, e.g. 0.02.
-message LiveInput {
-  LiveBroker broker = 1; RiskLimits risk = 2; repeated Contract contracts = 3;
-  Decimal max_price_deviation = 4;
+message LiveBroker { string front = 1; string broker_id = 2; string user_id = 3; string app_id = 4; reserved 5; }
+// A policy is independent of the account and of physical journal segments.
+message LivePolicy {
+  RiskLimits risk = 1; repeated Contract contracts = 2; Decimal max_price_deviation = 3;
 }
+message LivePolicyChange { LivePolicy policy = 1; string risk_artifact = 2; }
+message LiveInput { LiveBroker broker = 1; reserved 2, 3, 4; LivePolicy policy = 5; string account_id = 6; }
 message LiveCredentials { string password = 1; string auth_code = 2; }
 // The owner confirms the account by its user ID; valid for the current
 // connection and trading day only.
@@ -42,13 +41,19 @@ message Submit { string order_id = 1; string venue = 2; string symbol = 3; Side 
 message Cancel { string order_id = 1; }
 message Command {
   string request_id = 1;
-  oneof operation { Submit submit = 3; Cancel cancel = 4; LiveAuthorize live_authorize = 9; Empty live_revoke = 10; LiveResolve live_resolve = 11; }
+  oneof operation { Submit submit = 3; Cancel cancel = 4; LiveAuthorize live_authorize = 9; Empty live_revoke = 10; LiveResolve live_resolve = 11; LivePolicyChange live_policy = 12; }
 }
 // A connection is bound to one immutable process session.
 message Request {
   uint32 version = 1;
   string session_id = 2;
   string correlation_id = 4;
+  // Stable account identity, required for commands.
+  reserved 5, 21;
+  reserved "record_id", "live_continue";
+  string account_id = 7;
+  // The policy reviewed by the caller; required for every command.
+  string policy_revision = 6;
   oneof operation { Empty snapshot = 10; Empty recover = 12; Command command = 13; Empty shutdown = 14; Empty attach = 15; Empty heartbeat = 16;
     LiveInput live_create = 17; LiveCredentials live_connect = 18; Empty live_disconnect = 19;
     Empty live_costs = 20; }
@@ -93,6 +98,10 @@ message LiveCosts {
   int64 queried_ms = 5; Costs costs = 6;
 }
 message LiveAuthorization { string trading_day = 1; int64 authorized_at_ms = 2; }
+message JournalCapacity {
+  uint64 records_used = 1; uint64 records_limit = 2;
+  uint64 bytes_used = 3; uint64 bytes_limit = 4;
+}
 message LiveSnapshot {
   LiveBroker broker = 1; RiskLimits risk = 2; repeated Contract contracts = 3;
   // disconnected, connecting, authenticating, logging_in, confirming,
@@ -105,9 +114,16 @@ message LiveSnapshot {
   bool recovery_required = 14;
   repeated LiveCosts costs = 15;
   Decimal max_price_deviation = 16;
+  JournalCapacity capacity = 17;
+  reserved 18, 19, 20;
+  reserved "record_id", "archived_count", "continuation_ready";
+  string account_id = 23;
+  // Immutable event segments; excludes the active journal file.
+  uint64 segment_count = 24;
+  string policy_revision = 21; string risk_artifact = 22;
 }
 message Error { string code = 1; string message = 2; }
-message Health { string instance_id = 1; string version = 2; uint64 uptime_ms = 3; bool initialized = 4; bool recovery_required = 5; }
+message Health { string instance_id = 1; string version = 2; uint64 uptime_ms = 3; bool initialized = 4; bool recovery_required = 5; asterion.runtime.v1.ExecutionHealth execution = 6; }
 message Response {
   uint32 version = 1; string session_id = 2; string correlation_id = 4;
   oneof result { Error error = 11; Empty closed = 12; Empty uninitialized = 13; Health health = 14; LiveSnapshot live = 15; }

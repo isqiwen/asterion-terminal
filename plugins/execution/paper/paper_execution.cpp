@@ -33,11 +33,6 @@ PaperExecution::PaperExecution(Decimal deposit, std::vector<ContractBars> contra
   std::size_t total = 0;
   for (std::size_t c = 0; c < data->contracts.size(); ++c) {
     const auto& contract = data->contracts[c];
-    if (!contract.cost_schedule.empty()) {
-      validate_cost_schedule(contract.cost_schedule);
-      if (!contract.bars.empty())
-        (void)costs_on(contract.cost_schedule, contract.bars.front().trading_day);
-    }
     const MarketBar* previous = nullptr;
     for (std::size_t b = 0; b < contract.bars.size(); ++b) {
       const auto& bar = contract.bars[b];
@@ -51,7 +46,7 @@ PaperExecution::PaperExecution(Decimal deposit, std::vector<ContractBars> contra
     }
     total += contract.bars.size();
   }
-  // In-memory replay shares the research protocol budget. Durable sessions
+  // In-memory replay shares the task protocol budget. Durable sessions
   // enforce their smaller bar budget before constructing the engine.
   if (!total || total > protocol::max_dataset_bars)
     throw std::invalid_argument("paper replay requires 1 to 200000 historical bars");
@@ -92,14 +87,8 @@ void PaperExecution::cancel(const std::string& id) {
   ++revision_;
 }
 namespace {
-bool working_order(const AccountOrder& item) {
-  return item.order.state() == OrderState::accepted ||
-         item.order.state() == OrderState::partially_filled;
-}
-// Conservative fill price on a bar, or none when the bar never reached the limit.
+// Called only for FuturesAccount::working_orders(). A bar must reach the limit.
 std::optional<Decimal> fill_price(const AccountOrder& item, const MarketBar& bar) {
-  if (!working_order(item))
-    return std::nullopt;
   const auto& request = item.order.request();
   if (request.side == Side::buy)
     return bar.low <= request.limit_price ? std::optional(std::min(bar.open, request.limit_price))
@@ -108,7 +97,7 @@ std::optional<Decimal> fill_price(const AccountOrder& item, const MarketBar& bar
                                          : std::nullopt;
 }
 } // namespace
-void PaperExecution::advance() {
+void PaperExecution::advance(const std::optional<LongTarget>& target) {
   require_running();
   if (cursor_ == size())
     throw std::invalid_argument("replay has finished");
@@ -123,80 +112,103 @@ void PaperExecution::advance() {
   const bool changes_costs =
       changes_day &&
       std::ranges::any_of(data_->contracts, [](const auto& c) { return !c.cost_schedule.empty(); });
-  if (!changes_costs && std::ranges::none_of(account_.orders(), fills)) {
+  if (!target && !changes_costs &&
+      std::ranges::none_of(account_.working_orders(),
+                           [&](const auto index) { return fills(account_.orders()[index]); })) {
     // Nothing can fill: marking alone has a strong guarantee, no ledger copy.
     account_.mark(instrument, bar.close);
     ++cursor_;
     ++revision_;
     return;
   }
-  auto next = account_;
-  if (changes_costs) {
-    std::vector<FuturesCosts> costs;
-    for (const auto& contract : data_->contracts)
-      costs.push_back(contract.cost_schedule.empty()
-                          ? contract.terms.costs
-                          : costs_on(contract.cost_schedule, bar.trading_day).values);
-    next.update_costs(costs);
-  }
-  auto sequence = execution_sequence_;
-  auto liquidity = quantize(multiply(bar.volume, paper_bar_participation, Rounding::floor),
-                            terms.instrument.quantity_increment, Rounding::floor);
-  // Arrival order shares the bar's participation volume. Fills and cancels
-  // never append orders, so indexes stay stable during the pass.
-  for (std::size_t i = 0; i < next.orders().size() && liquidity != Decimal{}; ++i) {
-    const auto& item = next.orders()[i];
-    if (!fills(item))
-      continue;
-    const auto price = fill_price(item, bar);
-    const auto id = item.order.request().id;
-    if (item.offset == Offset::open && next.available() < Decimal{}) {
-      next.cancel(id);
-      continue;
+  const auto previous_revision = revision_;
+  auto batch = account_.transaction();
+  try {
+    auto& next = account_;
+    if (changes_costs) {
+      std::vector<FuturesCosts> costs;
+      for (const auto& contract : data_->contracts)
+        costs.push_back(contract.cost_schedule.empty()
+                            ? contract.terms.costs
+                            : costs_on(contract.cost_schedule, bar.trading_day).values);
+      next.update_costs(costs);
     }
-    const auto quantity = std::min(liquidity, item.order.remaining_quantity());
-    next.fill({"paper.fill." + std::to_string(++sequence), id, quantity, *price});
-    liquidity = liquidity - quantity;
+    if (target)
+      reconcile_long_target(target->order_id, instrument, target->quantity, target->limit_price);
+    auto sequence = execution_sequence_;
+    auto liquidity = quantize(multiply(bar.volume, paper_bar_participation, Rounding::floor),
+                              terms.instrument.quantity_increment, Rounding::floor);
+    // Arrival order shares the bar's participation volume. Fills and cancels
+    // never append orders, so indexes stay stable during the pass.
+    for (auto pending = next.working_orders().begin();
+         pending != next.working_orders().end() && liquidity != Decimal{};) {
+      // Advance before filling/cancelling: completion removes just this index.
+      const auto i = *pending++;
+      const auto& item = next.orders()[i];
+      if (item.order.request().instrument != instrument)
+        continue;
+      const auto price = fill_price(item, bar);
+      if (!price)
+        continue;
+      const auto id = item.order.request().id;
+      if (item.offset == Offset::open && next.available() < Decimal{}) {
+        next.cancel(id);
+        continue;
+      }
+      const auto quantity = std::min(liquidity, item.order.remaining_quantity());
+      next.fill({"paper.fill." + std::to_string(++sequence), id, quantity, *price});
+      liquidity = liquidity - quantity;
+    }
+    next.mark(instrument, bar.close);
+    batch.commit();
+    execution_sequence_ = sequence;
+    ++cursor_;
+    ++revision_;
+  } catch (...) {
+    revision_ = previous_revision;
+    throw;
   }
-  next.mark(instrument, bar.close);
-  account_ = std::move(next);
-  execution_sequence_ = sequence;
-  ++cursor_;
-  ++revision_;
 }
 void PaperExecution::settle(const std::vector<Decimal>& prices) {
-  require_running();
-  if (cursor_ != size())
-    throw std::invalid_argument("final settlement is allowed only after the replay finishes");
-  account_.settle(prices);
-  ++revision_;
+  settle_scheduled({prices.begin(), prices.end()}, true);
 }
 void PaperExecution::settle_day_end(const std::vector<Decimal>& prices) {
+  settle_scheduled({prices.begin(), prices.end()}, false);
+}
+void PaperExecution::settle_scheduled(const std::vector<std::optional<Decimal>>& prices,
+                                      bool final) {
   require_running();
+  if (final) {
+    if (cursor_ != size())
+      throw std::invalid_argument("final settlement is allowed only after the replay finishes");
+    account_.settle_traded(prices);
+    ++revision_;
+    return;
+  }
   if (cursor_ == 0 || cursor_ == size())
     throw std::invalid_argument("day-end settlement must fall between replay days");
   const auto& day = bar(event(cursor_ - 1)).trading_day;
   if (day == bar(event(cursor_)).trading_day || day == last_settled_day_)
     throw std::invalid_argument("settlement must follow the last bar of an unsettled day");
-  account_.settle(prices);
+  account_.settle_traded(prices);
   last_settled_day_ = day;
   ++revision_;
 }
 void PaperExecution::cancel_open_orders() {
   require_running();
   // Cancelling a working order cannot fail, so the loop is all-or-nothing.
-  for (std::size_t i = 0; i < account_.orders().size(); ++i)
-    if (working_order(account_.orders()[i])) {
-      account_.cancel(account_.orders()[i].order.request().id);
-      ++revision_;
-    }
+  while (!account_.working_orders().empty()) {
+    account_.cancel(account_.orders()[*account_.working_orders().begin()].order.request().id);
+    ++revision_;
+  }
 }
 void PaperExecution::cancel_open_orders(const InstrumentId& instrument) {
   require_running();
   (void)account_.contract_index(instrument);
-  for (std::size_t i = 0; i < account_.orders().size(); ++i) {
-    const auto& item = account_.orders()[i];
-    if (working_order(item) && item.order.request().instrument == instrument) {
+  for (auto pending = account_.working_orders().begin();
+       pending != account_.working_orders().end();) {
+    const auto& item = account_.orders()[*pending++];
+    if (item.order.request().instrument == instrument) {
       account_.cancel(item.order.request().id);
       ++revision_;
     }
@@ -221,39 +233,49 @@ void PaperExecution::reconcile_long_target(const std::string& order_id,
     bucket = bucket + lot.quantity;
   }
   const auto current = today + yesterday;
-  const auto working = std::ranges::any_of(account_.orders(), [&](const auto& item) {
-    return working_order(item) && item.order.request().instrument == instrument;
+  const auto working = std::ranges::any_of(account_.working_orders(), [&](const auto index) {
+    return account_.orders()[index].order.request().instrument == instrument;
   });
   if (target == current && !working)
     return;
-  // All child orders are checked against one candidate account. Rejection of
-  // the second close must not cancel or partially replace existing orders.
-  auto candidate = *this;
-  for (const auto& item : account_.orders())
-    if (working_order(item) && item.order.request().instrument == instrument)
-      candidate.account_.cancel(item.order.request().id);
-  if (target > current) {
-    candidate.submit({order_id, instrument, Side::buy, target - current, price}, Offset::open);
-  } else if (target < current &&
-             account_.close_policy(instrument) != ClosePolicy::explicit_buckets) {
-    // The exchange assigns buckets (and their fees) itself.
-    candidate.submit({order_id, instrument, Side::sell, current - target, price}, Offset::close);
-  } else if (target < current) {
-    // Explicit-bucket venues: yesterday first, then today. A simulator policy,
-    // not a fee optimization. Each bucket retains its fee.
-    const auto old_quantity = std::min(current - target, yesterday);
-    const auto new_quantity = current - target - old_quantity;
-    const bool split = old_quantity > Decimal{} && new_quantity > Decimal{};
-    if (old_quantity > Decimal{})
-      candidate.submit(
-          {split ? order_id + ".yesterday" : order_id, instrument, Side::sell, old_quantity, price},
-          Offset::close_yesterday);
-    if (new_quantity > Decimal{})
-      candidate.submit(
-          {split ? order_id + ".today" : order_id, instrument, Side::sell, new_quantity, price},
-          Offset::close_today);
+  // Keep account and revision changes atomic across both close buckets without
+  // copying the completed order/fill history. Risk checks keep the same order.
+  auto batch = account_.transaction();
+  const auto previous_revision = revision_;
+  try {
+    for (auto pending = account_.working_orders().begin();
+         pending != account_.working_orders().end();) {
+      const auto index = *pending++;
+      const auto& item = account_.orders()[index];
+      if (item.order.request().instrument == instrument)
+        account_.cancel(item.order.request().id);
+    }
+    if (target > current) {
+      submit({order_id, instrument, Side::buy, target - current, price}, Offset::open);
+    } else if (target < current &&
+               account_.close_policy(instrument) != ClosePolicy::explicit_buckets) {
+      // The exchange assigns buckets (and their fees) itself.
+      submit({order_id, instrument, Side::sell, current - target, price}, Offset::close);
+    } else if (target < current) {
+      // Explicit-bucket venues: yesterday first, then today. A simulator policy,
+      // not a fee optimization. Each bucket retains its fee.
+      const auto old_quantity = std::min(current - target, yesterday);
+      const auto new_quantity = current - target - old_quantity;
+      const bool split = old_quantity > Decimal{} && new_quantity > Decimal{};
+      if (old_quantity > Decimal{})
+        submit({split ? order_id + ".yesterday" : order_id, instrument, Side::sell, old_quantity,
+                price},
+               Offset::close_yesterday);
+      if (new_quantity > Decimal{})
+        submit(
+            {split ? order_id + ".today" : order_id, instrument, Side::sell, new_quantity, price},
+            Offset::close_today);
+    }
+  } catch (...) {
+    revision_ = previous_revision;
+    throw;
   }
-  *this = std::move(candidate);
+  batch.commit();
   ++revision_;
 }
 std::optional<std::int64_t> PaperExecution::timestamp_ns() const {

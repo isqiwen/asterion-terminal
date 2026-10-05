@@ -3,6 +3,8 @@
 #include <gtest/gtest.h>
 #include <asterion/domain/account.hpp>
 #include <asterion/kernel/process/child.hpp>
+#include <asterion/kernel/process/artifact.hpp>
+#include <asterion/kernel/durable_file.hpp>
 #include "paper_execution.hpp"
 #include "order_limits.hpp"
 #include "sqlite_journal.hpp"
@@ -97,30 +99,144 @@ TEST(FuturesAccount, RejectsWithoutMutationAndSettlesShortPositions) {
   EXPECT_EQ(account.snapshot()["balance"], "1208");
   EXPECT_EQ(account.snapshot()["fees"], "12");
 }
-TEST(PaperExecution, UsesOnlyFollowingBarsAndSharesParticipationInArrivalOrder) {
-  auto spec = instrument();
-  PaperExecution engine(
-      d("1000"),
-      {{{spec, costs()},
-        {test::flat("2026-09-28", 100, "100", "20"), test::flat("2026-09-28", 200, "99", "10"),
-         test::flat("2026-09-28", 300, "101", "30")}}},
-      risk());
-  EXPECT_THROW(engine.advance(), std::logic_error);
-  engine.start();
-  engine.advance();
-  engine.submit(order("a", Side::buy, "2", "101"), Offset::open);
-  engine.submit(order("b", Side::buy, "2", "101"), Offset::open);
-  EXPECT_TRUE(engine.snapshot()["fills"].empty());
-  engine.advance();
-  EXPECT_EQ(engine.snapshot()["orders"][0]["filled"], "1");
-  EXPECT_EQ(engine.snapshot()["orders"][1]["filled"], "0");
-  engine.advance();
-  EXPECT_EQ(engine.snapshot()["orders"][0]["filled"], "2");
-  EXPECT_EQ(engine.snapshot()["orders"][1]["filled"], "2");
-  EXPECT_EQ(engine.snapshot()["fills"].size(), 3);
-  auto state = engine.snapshot();
-  EXPECT_THROW(engine.advance(), std::invalid_argument);
-  EXPECT_EQ(engine.snapshot(), state);
+TEST(SqliteJournal, RecoveryReadsConsecutiveBoundedPagesAndRejectsGaps) {
+  Directory directory;
+  const auto count = JournalPort::page_size * 2 + 3;
+  {
+    SqliteJournal journal(directory.path);
+    journal.start();
+    journal.append({{"sequence", 0}});
+    for (std::size_t i = 1; i < count; ++i)
+      journal.append({{"sequence", i},
+                      {"trading_day", "20260928"},
+                      {"broker_key", "1:1:" + std::to_string(i)}},
+                     "command." + std::to_string(i), "order." + std::to_string(i));
+  }
+  {
+    SqliteJournal recovered(directory.path);
+    recovered.start();
+    std::size_t next = 0;
+    while (next < count) {
+      const auto page = recovered.read(next);
+      ASSERT_FALSE(page.empty());
+      EXPECT_LE(page.size(), JournalPort::page_size);
+      for (const auto& record : page)
+        EXPECT_EQ(record.at("sequence"), next++);
+    }
+    EXPECT_TRUE(recovered.read(next).empty());
+    std::uint64_t after = 0;
+    while (after < count - 1) {
+      const auto identities = recovered.order_identities("20260928", after);
+      ASSERT_FALSE(identities.empty());
+      EXPECT_LE(identities.size(), JournalPort::page_size);
+      for (const auto& order : identities) {
+        EXPECT_EQ(order.sequence, ++after);
+        EXPECT_EQ(order.order_id, "order." + std::to_string(after));
+      }
+    }
+    EXPECT_TRUE(recovered.order_identities("20260928", after).empty());
+    EXPECT_TRUE(recovered.order_identities("20260929", 0).empty());
+  }
+  {
+    sqlite::Database database(directory.path / "journal.sqlite");
+    database.execute("DELETE FROM records WHERE sequence=64");
+  }
+  SqliteJournal broken(directory.path);
+  EXPECT_THROW(broken.start(), std::invalid_argument);
+}
+TEST(SqliteJournal, AutomaticSegmentsPreserveOrderedHistoryAndCommandIdentity) {
+  Directory directory;
+  test::SmallJournalSegments budget(2);
+  const Json header{{"account", "one"}};
+  {
+    SqliteJournal journal(directory.path);
+    journal.start();
+    journal.append(header);
+    for (int i = 1; i <= 5; ++i)
+      journal.append(
+          {{"event", i}, {"trading_day", "20260928"}, {"broker_key", "1:1:" + std::to_string(i)}},
+          "command." + std::to_string(i), "order." + std::to_string(i));
+    EXPECT_EQ(journal.capacity().segment_count, 2U);
+    EXPECT_EQ(journal.capacity().records_used, 2U);
+    EXPECT_EQ(journal.capacity().total_records, 6U);
+  }
+  SqliteJournal recovered(directory.path);
+  recovered.start();
+  EXPECT_EQ(recovered.read(0), std::vector<Json>{header});
+  std::uint64_t sequence = 1;
+  while (sequence < recovered.capacity().total_records)
+    for (const auto& event : recovered.read(sequence)) {
+      EXPECT_EQ(event.at("event"), sequence);
+      EXPECT_EQ(recovered.command("command." + std::to_string(sequence)), event);
+      EXPECT_EQ(recovered.order_sequence("order." + std::to_string(sequence)), sequence);
+      EXPECT_EQ(recovered.order("order." + std::to_string(sequence)), event);
+      ++sequence;
+    }
+  EXPECT_TRUE(recovered.read(sequence).empty());
+  recovered.append({{"order_not_sent", "order.1"}, {"error_code", -1005}}, {}, {}, "order.1");
+  EXPECT_EQ(recovered.order_identities("20260928", 0).size(), 4U);
+  ASSERT_TRUE(recovered.order_index("order.1"));
+  EXPECT_EQ(recovered.order_index("order.1")->excluded_by, 6U);
+  EXPECT_THROW(
+      recovered.append({{"event", 6}, {"trading_day", "20260928"}, {"broker_key", "1:1:6"}},
+                       "command.6", "order.1"),
+      std::runtime_error);
+  EXPECT_FALSE(recovered.command_sequence("command.6"));
+  EXPECT_EQ(recovered.capacity().total_records, 7U);
+}
+TEST(SqliteJournal, FailedSegmentSwitchPreservesOriginalEventsAndUnreferencedExports) {
+  Directory directory;
+  test::SmallJournalSegments budget(1);
+  const Json event{{"event", 1}};
+  {
+    SqliteJournal journal(directory.path);
+    journal.start();
+    journal.append({{"account", "one"}});
+    journal.append(event, "one");
+    // Export succeeds; duplicate identity rejects the transaction that registers
+    // the segment, retires active rows and appends the new command.
+    EXPECT_THROW(journal.append({{"event", 2}}, "one"), std::runtime_error);
+    EXPECT_EQ(journal.capacity().segment_count, 0U);
+    EXPECT_EQ(journal.read(1), std::vector<Json>{event});
+    EXPECT_EQ(journal.command("one"), event);
+    EXPECT_THROW(journal.append({{"event", 3}}, "three"), std::runtime_error);
+  }
+  EXPECT_FALSE(std::filesystem::is_empty(directory.path / "archives"));
+  SqliteJournal recovered(directory.path);
+  recovered.start();
+  EXPECT_EQ(recovered.capacity().total_records, 2U);
+  EXPECT_EQ(recovered.command("one"), event);
+  recovered.append({{"event", 3}}, "three");
+  EXPECT_EQ(recovered.capacity().segment_count, 1U);
+  EXPECT_EQ(recovered.capacity().total_records, 3U);
+}
+TEST(SqliteJournal, MissingOrModifiedSegmentRejectsRecovery) {
+  Directory directory;
+  test::SmallJournalSegments budget(1);
+  {
+    SqliteJournal journal(directory.path);
+    journal.start();
+    journal.append({{"account", "one"}});
+    journal.append({{"event", 1}});
+    journal.append({{"event", 2}});
+  }
+  const auto segment = std::filesystem::directory_iterator(directory.path / "archives")->path();
+  const auto held = segment.string() + ".held";
+  const auto active_digest = sha256_file(directory.path / "journal.sqlite");
+  std::filesystem::rename(segment, held);
+  {
+    SqliteJournal missing(directory.path);
+    EXPECT_THROW(missing.start(), std::invalid_argument);
+    EXPECT_EQ(sha256_file(directory.path / "journal.sqlite"), active_digest);
+  }
+  std::filesystem::rename(held, segment);
+  {
+    sqlite::Database database(segment);
+    database.execute("UPDATE records SET body='{}'");
+  }
+  SqliteJournal changed(directory.path);
+  EXPECT_THROW(changed.start(), std::invalid_argument);
+  EXPECT_EQ(sha256_file(directory.path / "journal.sqlite"), active_digest);
 }
 TEST(SqliteJournal, ExclusiveWriterRecoveryAndCorruptionRejection) {
   Directory directory;
@@ -131,13 +247,13 @@ TEST(SqliteJournal, ExclusiveWriterRecoveryAndCorruptionRejection) {
     SqliteJournal other(directory.path);
     EXPECT_THROW(other.start(), std::runtime_error);
     journal.append({{"test", 2}});
-    EXPECT_EQ(journal.read().size(), 2);
+    EXPECT_EQ(journal.capacity().total_records, 2U);
   }
   {
     SqliteJournal recovered(directory.path);
     recovered.start();
-    EXPECT_EQ(recovered.read().size(), 2);
-    EXPECT_EQ(recovered.read().back(), (Json{{"test", 2}}));
+    EXPECT_EQ(recovered.capacity().total_records, 2U);
+    EXPECT_EQ(recovered.read(1).back(), (Json{{"test", 2}}));
   }
   // Unknown files are never adopted or removed.
   std::ofstream(directory.path / "notes.txt") << "user file";
@@ -357,6 +473,65 @@ TEST(FuturesAccount, TypedQueriesMatchSnapshotAndRejectedFillsLeaveLedgerUntouch
   EXPECT_EQ(account.snapshot(), before);
   EXPECT_FALSE(account.fill({"e1", "o1", d("1"), d("100")}));
 }
+TEST(FuturesAccount, WorkingIndexesSurviveCopiesPartialFillsAndRejectedMutations) {
+  FuturesAccount account(d("10000"), {{instrument(), costs()}});
+  account.mark(instrument().id, d("100"));
+  account.submit(order("first", Side::buy, "2", "100"), Offset::open);
+  account.submit(order("second", Side::buy, "1", "100"), Offset::open);
+  EXPECT_EQ(account.working_orders(), (std::set<std::size_t>{0, 1}));
+  const auto before = account.snapshot();
+  EXPECT_THROW(account.submit(order("first", Side::buy, "1", "100"), Offset::open),
+               std::invalid_argument);
+  EXPECT_THROW(account.fill({"oversized", "first", d("3"), d("100")}), std::invalid_argument);
+  EXPECT_EQ(account.snapshot(), before);
+  EXPECT_EQ(account.working_orders(), (std::set<std::size_t>{0, 1}));
+  auto copy = account;
+  copy.cancel("first");
+  EXPECT_EQ(copy.working_orders(), (std::set<std::size_t>{1}));
+  EXPECT_EQ(account.working_orders(), (std::set<std::size_t>{0, 1}));
+  const Fill partial{"partial", "first", d("1"), d("100")};
+  EXPECT_TRUE(account.fill(partial));
+  EXPECT_FALSE(account.fill(partial));
+  EXPECT_EQ(account.working_orders(), (std::set<std::size_t>{0, 1}));
+  account.fill({"complete", "first", d("1"), d("100")});
+  EXPECT_EQ(account.working_orders(), (std::set<std::size_t>{1}));
+  account.cancel("second");
+  EXPECT_TRUE(account.working_orders().empty());
+  EXPECT_FALSE(account.has_working_orders());
+  EXPECT_EQ(account.frozen(), Decimal{});
+  EXPECT_THROW(account.fill({"late", "second", d("1"), d("100")}), std::logic_error);
+  EXPECT_TRUE(account.working_orders().empty());
+  EXPECT_EQ(account.orders().size(), 2U);
+}
+TEST(PaperExecution, CompletedOrderHistoryDoesNotParticipateInLaterBars) {
+  std::vector<MarketBar> bars;
+  for (std::int64_t i = 1; i <= 10000; ++i)
+    bars.push_back(test::flat("2026-09-28", i, "100", "10"));
+  PaperExecution execution(d("10000"), {{{instrument(), costs()}, std::move(bars)}}, risk());
+  execution.start();
+  execution.advance();
+  for (std::size_t i = 0; i < 8000; ++i) {
+    const auto id = "cancelled." + std::to_string(i);
+    execution.submit(order(id, Side::buy, "1", "90"), Offset::open);
+    execution.cancel(id);
+  }
+  execution.submit(order("partial", Side::buy, "2", "100"), Offset::open);
+  const auto started = std::chrono::steady_clock::now();
+  execution.advance();
+  EXPECT_EQ(execution.account().working_orders(), (std::set<std::size_t>{8000}));
+  execution.advance();
+  EXPECT_TRUE(execution.account().working_orders().empty());
+  while (execution.cursor() < execution.size())
+    execution.advance();
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  RecordProperty(
+      "completed_8000_orders_10000_bars_us",
+      std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count()));
+  EXPECT_LT(elapsed, testing_support::bound(std::chrono::seconds(10)));
+  EXPECT_EQ(execution.account().orders().size(), 8001U);
+  EXPECT_EQ(execution.account().fills().size(), 2U);
+  EXPECT_EQ(execution.account().orders().back().order.state(), OrderState::filled);
+}
 TEST(PaperExecution, RestingOrdersDoNotMakeReplayQuadratic) {
   // Smaller under sanitizers: the point is linear scaling, not absolute size.
 #ifdef ASTERION_SANITIZED
@@ -460,7 +635,7 @@ TEST(FuturesAccount, ExchangeClosePoliciesAssignBucketsAndFees) {
       std::invalid_argument)
       << "SHFE requires an explicit bucket";
 }
-TEST(PaperExecution, NextBarFillsAreConservativeAndCappedByParticipation) {
+TEST(PaperExecution, NextBarFillsRespectPriceParticipationAndArrivalOrder) {
   // Buy limit 101: a gap down fills at the open; later at the limit itself.
   // Sell limit 105 fills only when the high reaches it. 10% of bar volume.
   PaperExecution execution(d("100000"),
@@ -471,25 +646,35 @@ TEST(PaperExecution, NextBarFillsAreConservativeAndCappedByParticipation) {
                               test::bar("2026-09-28", 4, "103", "104", "102", "104", "50"),
                               test::bar("2026-09-28", 5, "104", "106", "103", "105", "50")}}},
                            risk());
+  EXPECT_THROW(execution.advance(), std::logic_error);
   execution.start();
   execution.advance();
-  execution.submit(order("buy", Side::buy, "5", "101"), Offset::open);
+  execution.submit(order("first", Side::buy, "2", "101"), Offset::open);
+  execution.submit(order("second", Side::buy, "3", "101"), Offset::open);
   EXPECT_TRUE(execution.account().fills().empty()) << "never on the bar it was placed after";
   execution.advance(); // participation 3 lots at min(open 99, limit 101)
-  ASSERT_EQ(execution.account().fills().size(), 1U);
-  EXPECT_EQ(execution.account().fills()[0].quantity.str(), "3");
-  EXPECT_EQ(execution.account().fills()[0].price.str(), "99");
-  execution.advance(); // low 100 reaches 101: the rest at the limit, not the better open
   ASSERT_EQ(execution.account().fills().size(), 2U);
-  EXPECT_EQ(execution.account().fills()[1].quantity.str(), "2");
-  EXPECT_EQ(execution.account().fills()[1].price.str(), "101");
+  EXPECT_EQ(execution.account().fills()[0].order_id, "first");
+  EXPECT_EQ(execution.account().fills()[0].quantity.str(), "2");
+  EXPECT_EQ(execution.account().fills()[0].price.str(), "99");
+  EXPECT_EQ(execution.account().fills()[1].order_id, "second");
+  EXPECT_EQ(execution.account().fills()[1].quantity.str(), "1");
+  EXPECT_EQ(execution.account().fills()[1].price.str(), "99");
+  execution.advance(); // low 100 reaches 101: the rest at the limit, not the better open
+  ASSERT_EQ(execution.account().fills().size(), 3U);
+  EXPECT_EQ(execution.account().fills()[2].order_id, "second");
+  EXPECT_EQ(execution.account().fills()[2].quantity.str(), "2");
+  EXPECT_EQ(execution.account().fills()[2].price.str(), "101");
   execution.submit(order("sell", Side::sell, "5", "105"), Offset::close_today);
   execution.advance(); // high 104 never reaches 105
-  EXPECT_EQ(execution.account().fills().size(), 2U);
+  EXPECT_EQ(execution.account().fills().size(), 3U);
   execution.advance(); // high 106 reaches it: max(open 104, limit 105)
-  ASSERT_EQ(execution.account().fills().size(), 3U);
-  EXPECT_EQ(execution.account().fills()[2].price.str(), "105");
+  ASSERT_EQ(execution.account().fills().size(), 4U);
+  EXPECT_EQ(execution.account().fills()[3].price.str(), "105");
   EXPECT_TRUE(execution.account().positions().empty());
+  const auto state = execution.snapshot();
+  EXPECT_THROW(execution.advance(), std::invalid_argument);
+  EXPECT_EQ(execution.snapshot(), state);
 }
 
 TEST(SqliteJournal, OnlyDeclaredRealSidecarDirectoriesAreAccepted) {
@@ -521,7 +706,61 @@ TEST(SqliteJournal, OnlyDeclaredRealSidecarDirectoriesAreAccepted) {
   EXPECT_THROW((SqliteJournal(directory.path, {"journal.sqlite"})), std::invalid_argument);
 }
 
-TEST(BarDataset, ResearchLimitIsTwoHundredThousandBars) {
+TEST(BarDataset, RevisionRetainsExactCanonicalBytesAndExcludesProvenance) {
+  std::vector<MarketBar> bars{test::flat("2026-09-25", 1790384400000000000LL, "100", "0"),
+                              test::flat("2026-09-28", 1790643600000000000LL, "105", "7")};
+  auto dataset = test::dataset(bars);
+  auto canonical = Json{{"version", 1},
+                        {"interval_minutes", dataset.interval_minutes()},
+                        {"contract", protocol::decode_contract(dataset.contract())},
+                        {"bars", Json::array()},
+                        {"days", Json::array()}};
+  for (const auto& bar : bars)
+    canonical["bars"].push_back({{"trading_day", bar.trading_day},
+                                 {"timestamp_ns", std::to_string(bar.timestamp_ns)},
+                                 {"open", bar.open.str()},
+                                 {"high", bar.high.str()},
+                                 {"low", bar.low.str()},
+                                 {"close", bar.close.str()},
+                                 {"volume", bar.volume.str()}});
+  for (const auto& day : dataset.days())
+    canonical["days"].push_back(
+        {{"trading_day", day.trading_day()},
+         {"settlement_price", Decimal::from_raw(day.settlement_price().units()).str()}});
+  EXPECT_EQ(protocol::bar_dataset_revision(dataset), sha256_bytes(canonical.dump()));
+  dataset.set_source("another-provider");
+  dataset.set_source_dataset_ids(0, std::string(64, 'a'));
+  EXPECT_EQ(protocol::bar_dataset_revision(dataset), sha256_bytes(canonical.dump()));
+  // Canonical identity is also used while constructing a dataset, before
+  // semantic validation. Escapes and exact signed decimals remain unambiguous.
+  dataset.mutable_bars(0)->set_trading_day("quote\"\\\n中");
+  dataset.mutable_bars(0)->mutable_close()->set_units(-123456789);
+  canonical["bars"][0]["trading_day"] = "quote\"\\\n中";
+  canonical["bars"][0]["close"] = Decimal::from_raw(-123456789).str();
+  EXPECT_EQ(protocol::bar_dataset_revision(dataset), sha256_bytes(canonical.dump()));
+}
+TEST(BarDataset, FixedAvailabilityEvidenceIsRequiredButSeparateFromContentIdentity) {
+  auto dataset = test::dataset(test::series(4));
+  const auto original = dataset.SerializeAsString();
+  const auto revision = dataset.revision();
+  const auto decoded = protocol::decode_bar_dataset(dataset);
+  EXPECT_EQ(protocol::encode_bar_dataset(decoded).SerializeAsString(), original);
+  EXPECT_EQ(decoded.at("history_evidence")[0].at("source_availability"), "unknown");
+  dataset.mutable_history_evidence(0)->set_acquired_at_ns(1800000000000000000);
+  EXPECT_NO_THROW(protocol::validate_bar_dataset(dataset));
+  EXPECT_EQ(protocol::bar_dataset_revision(dataset), revision);
+  EXPECT_NE(dataset.SerializeAsString(), original);
+  dataset.mutable_history_evidence(0)->set_source_availability(
+      data::v1::SOURCE_AVAILABILITY_UNSPECIFIED);
+  EXPECT_THROW(protocol::validate_bar_dataset(dataset), std::invalid_argument);
+  dataset = protocol::encode_bar_dataset(decoded);
+  dataset.mutable_history_evidence(0)->set_dataset_id(std::string(64, 'c'));
+  EXPECT_THROW(protocol::validate_bar_dataset(dataset), std::invalid_argument);
+  dataset.set_version(1);
+  dataset.clear_history_evidence();
+  EXPECT_THROW(protocol::validate_bar_dataset(dataset), std::invalid_argument);
+}
+TEST(BarDataset, TaskLimitIsTwoHundredThousandBars) {
   std::vector<MarketBar> bars;
   for (std::int64_t i = 0; i < 200000; ++i)
     bars.push_back(test::flat("2026-09-25", 1790384400000000000LL + i * 60000000000LL, "100"));
@@ -571,4 +810,103 @@ TEST(FuturesAccount, CostChangePreservesLedgerAndRejectsWorkingOrdersAtomically)
   EXPECT_THROW(account.update_costs({invalid}), std::invalid_argument);
   EXPECT_EQ(account.snapshot(), before);
   EXPECT_EQ(account.contracts()[0].costs.margin_per_lot, d("2000"));
+}
+
+TEST(FuturesAccount, TransactionFailureRestoresCostsFundsHistoryAndReusableIdentities) {
+  FuturesAccount account(d("100000"), {{instrument(), costs()}});
+  account.mark(instrument().id, d("100"));
+  account.submit(order("old", Side::buy, "1", "100"), Offset::open);
+  account.fill({"old-fill", "old", d("1"), d("100")});
+  const auto before = account.snapshot();
+  const auto original = account.contracts()[0].costs;
+  EXPECT_THROW(
+      {
+        auto batch = account.transaction();
+        auto changed = costs();
+        changed.open_fee = d("7");
+        account.update_costs({changed});
+        account.submit(order("new", Side::buy, "2", "100"), Offset::open);
+        account.fill({"new-fill", "new", d("1"), d("100")});
+        account.cancel("new");
+        account.mark(instrument().id, d("90000000000"));
+        batch.commit();
+      },
+      std::overflow_error);
+  EXPECT_EQ(account.snapshot(), before);
+  EXPECT_EQ(account.contracts()[0].costs.open_fee, original.open_fee);
+  EXPECT_EQ(account.contracts()[0].costs.margin_per_lot, original.margin_per_lot);
+  EXPECT_TRUE(account.working_orders().empty());
+  account.submit(order("new", Side::buy, "2", "100"), Offset::open);
+  EXPECT_TRUE(account.fill({"new-fill", "new", d("1"), d("100")}));
+  EXPECT_EQ(account.working_orders(), (std::set<std::size_t>{1}));
+  EXPECT_EQ(account.fees(), d("4"));
+  const auto after = account.snapshot();
+  EXPECT_FALSE(account.fill({"new-fill", "new", d("1"), d("100")}));
+  EXPECT_EQ(account.snapshot(), after);
+}
+TEST(FuturesAccount, CostArithmeticFailureRestoresAllPreviousRates) {
+  FuturesAccount account(d("100000"), {{instrument(), costs()}});
+  account.mark(instrument().id, d("100"));
+  account.submit(order("open", Side::buy, "2", "100"), Offset::open);
+  account.fill({"fill", "open", d("2"), d("100")});
+  const auto before = account.snapshot();
+  auto invalid = costs();
+  invalid.margin_per_lot = d("90000000000");
+  EXPECT_THROW(account.update_costs({invalid}), std::overflow_error);
+  EXPECT_EQ(account.snapshot(), before);
+  EXPECT_EQ(account.contracts()[0].costs.margin_per_lot, costs().margin_per_lot);
+}
+TEST(PaperExecution, LateMarkFailureRollsBackBothFillsAndExecutionSequence) {
+  auto high = test::flat("2026-09-28", 2, "100", "20");
+  high.high = high.close = d("90000000000");
+  std::vector<MarketBar> bars{test::flat("2026-09-28", 1, "100", "20"), high,
+                              test::flat("2026-09-28", 3, "100", "20")};
+  PaperExecution execution(d("100000"), {{{instrument(), costs()}, std::move(bars)}}, risk());
+  execution.start();
+  execution.advance();
+  execution.submit(order("first", Side::buy, "1", "100"), Offset::open);
+  execution.submit(order("second", Side::buy, "1", "100"), Offset::open);
+  const auto before = execution.snapshot();
+  const auto revision = execution.revision();
+  EXPECT_THROW(execution.advance(), std::overflow_error);
+  EXPECT_EQ(execution.snapshot(), before);
+  EXPECT_EQ(execution.revision(), revision);
+  EXPECT_EQ(execution.account().working_orders(), (std::set<std::size_t>{0, 1}));
+  execution.cancel_open_orders();
+  execution.advance();
+  execution.submit(order("after", Side::buy, "1", "100"), Offset::open);
+  execution.advance();
+  ASSERT_EQ(execution.account().fills().size(), 1U);
+  EXPECT_EQ(execution.account().fills()[0].execution_id, "paper.fill.1");
+  EXPECT_EQ(execution.account().balance(), d("99998"));
+}
+TEST(PaperExecution, FrequentFillsWithRetainedHistoryWorkSample) {
+  std::vector<MarketBar> bars;
+  for (std::int64_t i = 1; i <= 2001; ++i)
+    bars.push_back(test::flat("2026-09-28", i, "100", "10"));
+  PaperExecution execution(d("100000"), {{{instrument(), costs()}, std::move(bars)}}, risk());
+  execution.start();
+  execution.advance();
+  for (unsigned i = 0; i < 8000; ++i) {
+    const auto id = "cancelled." + std::to_string(i);
+    execution.submit(order(id, Side::buy, "1", "90"), Offset::open);
+    execution.cancel(id);
+  }
+  const auto started = std::chrono::steady_clock::now();
+  for (unsigned i = 0; i < 2000; ++i) {
+    const bool open = i % 2 == 0;
+    execution.submit(order("fill." + std::to_string(i), open ? Side::buy : Side::sell, "1", "100"),
+                     open ? Offset::open : Offset::close_today);
+    execution.advance();
+  }
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  RecordProperty(
+      "frequent_2000_fills_with_8000_prior_orders_ms",
+      std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count()));
+  EXPECT_LT(elapsed, testing_support::bound(std::chrono::seconds(5)));
+  EXPECT_EQ(execution.account().orders().size(), 10000U);
+  EXPECT_EQ(execution.account().fills().size(), 2000U);
+  EXPECT_TRUE(execution.account().positions().empty());
+  EXPECT_TRUE(execution.account().working_orders().empty());
+  EXPECT_EQ(execution.account().balance(), d("95000"));
 }

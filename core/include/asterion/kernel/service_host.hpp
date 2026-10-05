@@ -46,7 +46,8 @@ public:
 
 // Process-wide cooperative stop request. install_stop_signals() routes
 // SIGINT/SIGTERM (console control events on Windows) to it; owner loss and
-// applications may request it too.
+// applications may request it too. POSIX services ignore SIGPIPE so broken
+// writes (including inside vendor libraries) report EPIPE instead of exit.
 void install_stop_signals();
 void request_stop() noexcept;
 bool stop_requested() noexcept;
@@ -92,7 +93,11 @@ struct HostOptions {
   // idle workers have not yet picked up queued connections. queue may be 0.
   std::size_t workers = 8;
   std::size_t queue = 8;
-  // Mutual TLS must complete within this bound, inside the pool.
+  // Unauthenticated sockets are polled separately from business workers.
+  // Admission beyond this bound closes immediately; new connections may retry
+  // explicitly after capacity recovers. No trading command is replayed.
+  std::size_t handshake_connections = 16;
+  // Mutual TLS must complete within this bound, measured from TCP admission.
   Milliseconds handshake{10000};
   // Accept poll interval; bounds stop latency and the tick period.
   Milliseconds poll{200};
@@ -109,8 +114,9 @@ struct HostOptions {
 };
 
 // Binds the listener on construction, so a process can claim its endpoint
-// before starting anything else. The accept thread only accepts transports; mutual TLS and
-// the handler run in the bounded pool, and overload drops the new connection.
+// before starting anything else. The accept thread progresses bounded nonblocking
+// TLS handshakes; only authenticated connections consume the business pool.
+// Overload drops the new connection without holding a worker.
 // The handler owns framing and must bound every receive; its exceptions close
 // only that connection.
 class ServiceHost {

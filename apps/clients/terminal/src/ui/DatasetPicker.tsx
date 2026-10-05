@@ -5,6 +5,7 @@ import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import type { HistoryDatasetRecord, Snapshot, TerminalCommand } from "../bridge/client";
 import { useHistoryDatasets, type HistoryQuery } from "./useHistoryDatasets";
 import { useWorkspaceDraft } from "../host/workspace/drafts";
+import { DominantSeriesPicker } from "./DominantSeriesPicker";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 
 const label = (item: HistoryDatasetRecord) =>
@@ -37,10 +38,15 @@ export function DatasetPicker({
   onDownload?: () => void;
   onSelected?: () => void;
 }) {
-  const selected = snapshot?.datasets ?? [];
+  const series = snapshot?.dataset_series ?? [];
+  // Months of a dominant series are shown with their series, not one by one.
+  const inSeries = (item: { venue: string; symbol: string }) =>
+    series.some(group => group.venue === item.venue && group.symbols.includes(item.symbol));
+  const all = snapshot?.datasets ?? [];
+  const selected = all.filter(item => !inSeries(item));
   const { items: versions, error: loadError, loading } = useHistoryDatasets(snapshot, query);
   const [draft, setDraft] = useWorkspaceDraft(
-    `dataset-picker:composition:${snapshot?.research?.connection_id}`,
+    `dataset-picker:composition:${snapshot?.data?.connection_id}`,
     {
       source: "",
       settlement: "",
@@ -122,12 +128,12 @@ export function DatasetPicker({
     if (
       loading ||
       !sourceRequest ||
-      !snapshot?.research?.online ||
+      !snapshot?.data?.online ||
       draft.consumed === sourceRequest.request
     )
       return;
     const valid =
-      sourceRequest.connection === snapshot.research.connection_id &&
+      sourceRequest.connection === snapshot.data.connection_id &&
       versions.some(item => item.id === sourceRequest.id);
     setDraft(previous => ({
       ...previous,
@@ -140,15 +146,15 @@ export function DatasetPicker({
   }, [
     loading,
     sourceRequest?.request,
-    snapshot?.research?.connection_id,
-    snapshot?.research?.online,
+    snapshot?.data?.connection_id,
+    snapshot?.data?.online,
     draft.consumed,
   ]);
   async function run(method: TerminalCommand, params: Record<string, unknown> = {}) {
     setError("");
     try {
       await trade(method, params);
-      if (method === "research.dataset.select") onSelected?.();
+      if (method === "data.dataset.select" || method === "data.dataset.series") onSelected?.();
     } catch (reason) {
       setError(asDisplayError(reason));
     }
@@ -196,7 +202,7 @@ export function DatasetPicker({
                 disabled={busy}
                 aria-label={t("移除 {contract}", { contract: `${item.venue} · ${item.symbol}` })}
                 onClick={() =>
-                  void run("research.dataset.remove", { venue: item.venue, symbol: item.symbol })
+                  void run("data.dataset.remove", { venue: item.venue, symbol: item.symbol })
                 }
               >
                 {t("移除")}
@@ -205,6 +211,70 @@ export function DatasetPicker({
           )}
         </li>
       ))}
+      {series.map(group => {
+        const months = all.filter(item => item.venue === group.venue && inSeries(item));
+        const name = `${group.venue} · ${group.product} ${t("主力连续")}`;
+        return (
+          <li key={`${group.venue}.${group.product}`}>
+            <p>
+              <strong>{name}</strong> ·{" "}
+              {months[0]?.interval_minutes === 0
+                ? t("日线")
+                : t("{n} 分钟", { n: months[0]?.interval_minutes ?? 0 })}{" "}
+              ·{" "}
+              {t("{count} 根 · {months} 个月份", {
+                count: months.reduce((sum, item) => sum + item.count, 0),
+                months: group.symbols.length,
+              })}
+            </p>
+            <p className="subtle">
+              {group.rolls[0]?.trading_day} → {months.at(-1)?.last_day} · {months[0]?.source} ·{" "}
+              {t("最小变动价位 {tick} · 合约乘数 {multiplier}", {
+                tick: months[0]?.contract.price_increment ?? "",
+                multiplier: months[0]?.contract.multiplier ?? "",
+              })}
+            </p>
+            <details>
+              <summary>{t("换月日程（{n} 次换月）", { n: group.rolls.length - 1 })}</summary>
+              <table className="data-table" aria-label={t("{name} 换月日程", { name })}>
+                <thead>
+                  <tr>
+                    <th>{t("起始交易日")}</th>
+                    <th>{t("主力合约")}</th>
+                    <th>{t("复权系数")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.rolls.map(roll => (
+                    <tr key={roll.trading_day}>
+                      <td>{roll.trading_day}</td>
+                      <td>{roll.symbol}</td>
+                      <td>{roll.factor}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+            {!locked && (
+              <div className="source-actions">
+                <button
+                  type="button"
+                  disabled={busy}
+                  aria-label={t("移除 {contract}", { contract: name })}
+                  onClick={() =>
+                    void run("data.dataset.remove", {
+                      venue: group.venue,
+                      symbol: group.symbols[0],
+                    })
+                  }
+                >
+                  {t("移除")}
+                </button>
+              </div>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
   if (locked)
@@ -225,7 +295,7 @@ export function DatasetPicker({
       aria-label={t("历史数据集")}
       onSubmit={event => {
         event.preventDefault();
-        void run("research.dataset.select", {
+        void run("data.dataset.select", {
           source_dataset_ids: [source, ...extraSources].sort(),
           settlement_dataset_ids: [settlement, ...extraSettlements].sort(),
           begin_day,
@@ -237,7 +307,7 @@ export function DatasetPicker({
     >
       <h3>{t("历史数据集")}</h3>
       <SavedDatasets
-        key={snapshot?.research?.connection_id}
+        key={snapshot?.data?.connection_id}
         snapshot={snapshot}
         busy={busy}
         query={query}
@@ -245,7 +315,7 @@ export function DatasetPicker({
         onSelected={onSelected}
       />
       {list}
-      {selected.length >= maxContracts && (
+      {all.length >= maxContracts && (
         <p className="subtle">{t("组合最多 {n} 个合约。", { n: maxContracts })}</p>
       )}
       {loadError && (
@@ -254,12 +324,12 @@ export function DatasetPicker({
         </p>
       )}
       {loading && <p role="status">{t("正在读取历史仓库…")}</p>}
-      {!snapshot?.research ? (
+      {!snapshot?.data ? (
         <p className="subtle">{t("数据服务未连接，无法读取已下载的历史数据。")}</p>
       ) : !versions.length ? (
         <p className="subtle">{t("历史仓库还没有数据。请先在数据页下载分钟线或日线。")}</p>
       ) : (
-        <fieldset disabled={busy || !snapshot?.research?.online || loading}>
+        <fieldset disabled={busy || !snapshot?.data?.online || loading}>
           <div className="futures-fields">
             <label className="dataset-version-field">
               {t("K 线来源")}
@@ -402,16 +472,25 @@ export function DatasetPicker({
               disabled={
                 !chosen ||
                 !settlements.some(item => item.id === settlement) ||
-                (!replacing && selected.length >= maxContracts)
+                (!replacing && all.length >= maxContracts)
               }
             >
-              {replacing ? t("更新此合约") : selected.length ? t("加入组合") : t("使用此数据集")}
+              {replacing ? t("更新此合约") : all.length ? t("加入组合") : t("使用此数据集")}
             </button>
             <span className="subtle">
               {t("交易日区间留空表示全部；组合内合约须覆盖相同交易日；合约单位以交易所公布为准。")}
             </span>
           </div>
         </fieldset>
+      )}
+      {!!versions.length && (
+        <DominantSeriesPicker
+          key={snapshot?.data?.connection_id}
+          snapshot={snapshot}
+          versions={versions}
+          disabled={busy || !snapshot?.data?.online || loading}
+          select={params => void run("data.dataset.series", params)}
+        />
       )}
       {onDownload && (
         <div className="source-actions">

@@ -37,13 +37,18 @@ public:
   // Percent change of last price versus the latest observation at least 60 s
   // older in the same trading day, rounded half-even to 8 places.
   std::optional<Decimal> change_1m_percent(const InstrumentId& instrument) const;
+  // Independent of the provider snapshot cursor: aggregation can finish later.
+  std::uint64_t revision() const { return revision_; }
+  std::vector<InstrumentId> changed_after(std::uint64_t revision) const;
 
 private:
   struct State {
     IntradaySeries series;
     std::int64_t cumulative_volume = 0;
     std::deque<std::pair<std::int64_t, Decimal>> recent;
+    std::uint64_t revision = 0;
   };
   std::map<InstrumentId, State> states_;
+  std::uint64_t revision_ = 0;
 };
 } // namespace asterion

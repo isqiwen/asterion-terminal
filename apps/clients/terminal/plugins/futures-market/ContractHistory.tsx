@@ -7,7 +7,7 @@ import {
   timestamp,
   type HistoryPage,
   type DailyPage,
-  type ResearchTask,
+  type HistoryDatasetRecord,
 } from "../../src/bridge/client";
 import {
   translate,
@@ -17,8 +17,8 @@ import {
   type DisplayError,
   type TerminalContext,
 } from "../contract";
-const taskPeriod = (task: ResearchTask): number | "day" | undefined =>
-  task.kind === "daily_download" ? "day" : task.minute_interval_minutes;
+const datasetPeriod = (dataset: HistoryDatasetRecord): number | "day" =>
+  dataset.interval_minutes || "day";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
 export function ContractHistory({
@@ -45,25 +45,45 @@ export function ContractHistory({
     snapshot?.market?.catalog.contracts.find(
       item => item.venue === venue && item.symbol.toUpperCase() === symbol.toUpperCase(),
     )?.contract_id;
-  const datasets = (snapshot?.research?.tasks ?? [])
-    .filter(
-      task =>
-        (task.kind === "minute_download" || task.kind === "daily_download") &&
-        task.state === "succeeded" &&
-        !!contractId &&
-        task.instrument === contractId,
-    )
-    .sort((a, b) => b.submission_sequence - a.submission_sequence);
+  const connection = snapshot?.data?.connection_id;
+  const online = !!snapshot?.data?.online;
+  const publications = (snapshot?.task_service?.tasks ?? [])
+    .filter(task => task.history_dataset_id)
+    .map(task => task.history_dataset_id)
+    .join(",");
+  const [catalog, setCatalog] = useState<{ key: string; items: HistoryDatasetRecord[] }>({
+    key: "",
+    items: [],
+  });
+  const [retry, setRetry] = useState(0);
+  const [catalogError, setCatalogError] = useState<DisplayError>("");
+  const catalogKey = JSON.stringify([connection, contractId]);
+  const queryCatalog = useRef(query);
+  queryCatalog.current = query;
+  useEffect(() => {
+    let current = true;
+    if (!contractId || !online) return;
+    setCatalogError("");
+    void queryCatalog
+      .current("data.datasets", { venue: "", product: "", contract_id: contractId, source: "" })
+      .then(result => {
+        if (current) setCatalog({ key: catalogKey, items: result.history_datasets! });
+      })
+      .catch(reason => {
+        if (current) setCatalogError(asDisplayError(reason));
+      });
+    return () => {
+      current = false;
+    };
+  }, [catalogKey, contractId, online, publications, retry]);
+  const datasets = catalog.key === catalogKey ? catalog.items : [];
   const periods = [
     ...new Set(
       datasets.flatMap(task =>
-        task.kind === "minute_download" && task.minute_interval_minutes
-          ? [task.minute_interval_minutes]
-          : [],
+        task.interval_minutes > 0 && task.interval_minutes ? [task.interval_minutes] : [],
       ),
     ),
   ].sort((a, b) => a - b);
-  const connection = snapshot?.research?.connection_id;
   const [selection, setSelection] = useState<{ connection: string | undefined; id: string }>({
     connection,
     id: "",
@@ -77,11 +97,11 @@ export function ContractHistory({
   >(`${preferenceKey}.period`, null);
   const initialDataset =
     (preferLongest
-      ? (datasets.find(task => task.kind === "daily_download") ??
-        datasets.find(task => task.minute_interval_minutes === periods.at(-1)))
+      ? (datasets.find(task => task.interval_minutes === 0) ??
+        datasets.find(task => task.interval_minutes === periods.at(-1)))
       : undefined) ?? datasets[0];
   const activePeriod =
-    fixedPeriod ?? period ?? (initialDataset ? taskPeriod(initialDataset) : undefined);
+    fixedPeriod ?? period ?? (initialDataset ? datasetPeriod(initialDataset) : undefined);
   useEffect(() => {
     // A tab-imposed period is not this chart's own remembered choice.
     if (fixedPeriod === undefined && period === null && activePeriod !== undefined)
@@ -90,8 +110,8 @@ export function ContractHistory({
   const daily = typeof activePeriod === "string";
   const sourcePeriod = daily ? "day" : activePeriod;
   const id =
-    datasets.find(task => task.id === selected && taskPeriod(task) === sourcePeriod)?.id ??
-    datasets.find(task => taskPeriod(task) === sourcePeriod)?.id ??
+    datasets.find(task => task.id === selected && datasetPeriod(task) === sourcePeriod)?.id ??
+    datasets.find(task => datasetPeriod(task) === sourcePeriod)?.id ??
     "";
   const datasetKey = JSON.stringify([connection, id, activePeriod]);
   const [paging, setPaging] = useState({ key: "", offset: 0 });
@@ -102,7 +122,6 @@ export function ContractHistory({
   const setOffset = (offset: number) => setPaging({ key: datasetKey, offset });
   const [showMacd, setShowMacd] = useWorkspaceDraft(`${preferenceKey}.macd`, true);
   const [showAverages, setShowAverages] = useWorkspaceDraft(`${preferenceKey}.averages`, true);
-  const [retry, setRetry] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<DisplayError>("");
   const [response, setResponse] = useState<{ key: string; page: HistoryPage | DailyPage } | null>(
@@ -112,7 +131,6 @@ export function ContractHistory({
   useEffect(() => {
     invoke.current = query;
   }, [query]);
-  const online = !!snapshot?.research?.online;
   useEffect(() => {
     let current = true;
     setError("");
@@ -122,7 +140,7 @@ export function ContractHistory({
     }
     setLoading(true);
     void invoke
-      .current(daily ? "research.daily.page" : "research.minutes.page", {
+      .current(daily ? "data.daily.page" : "data.minutes.page", {
         ...(daily ? { period: activePeriod } : {}),
         include_macd: true,
         id,
@@ -185,7 +203,15 @@ export function ContractHistory({
           <span>{t("历史 K 线")}</span>
         </header>
       )}
-      {!online && !page ? (
+      {(catalogError || error) && (
+        <div role="alert">
+          <ErrorNotice error={catalogError || error} namespace="asterion.terminal.futures-market" />
+          <button disabled={disabled} onClick={() => setRetry(value => value + 1)}>
+            {t("重试")}
+          </button>
+        </div>
+      )}
+      {catalogError ? null : !online && !page ? (
         <div className="market-chart-empty" role="status">
           <p>{t("历史数据服务未连接")}</p>
           <button onClick={() => navigate("workspace.data", { page: "history" })}>
@@ -220,9 +246,7 @@ export function ContractHistory({
                     disabled={disabled || !periods.includes(period)}
                     onClick={() => {
                       setPeriod(period);
-                      setSelected(
-                        datasets.find(task => task.minute_interval_minutes === period)!.id,
-                      );
+                      setSelected(datasets.find(task => task.interval_minutes === period)!.id);
                       setOffset(0);
                     }}
                   >
@@ -243,15 +267,15 @@ export function ContractHistory({
                   key={value}
                   aria-label={t(label)}
                   aria-pressed={activePeriod === value}
-                  disabled={disabled || !datasets.some(task => task.kind === "daily_download")}
+                  disabled={disabled || !datasets.some(task => task.interval_minutes === 0)}
                   title={
-                    datasets.some(task => task.kind === "daily_download")
+                    datasets.some(task => task.interval_minutes === 0)
                       ? undefined
                       : t("尚无该周期的数据")
                   }
                   onClick={() => {
                     setPeriod(value);
-                    setSelected(datasets.find(task => task.kind === "daily_download")!.id);
+                    setSelected(datasets.find(task => task.interval_minutes === 0)!.id);
                     setOffset(0);
                   }}
                 >
@@ -291,9 +315,9 @@ export function ContractHistory({
                     const chosen = datasets.find(task => task.id === event.target.value);
                     setPeriod(
                       chosen
-                        ? chosen.kind === "daily_download" && daily
+                        ? chosen.interval_minutes === 0 && daily
                           ? activePeriod
-                          : (taskPeriod(chosen) ?? null)
+                          : (datasetPeriod(chosen) ?? null)
                         : null,
                     );
                     setOffset(0);
@@ -302,7 +326,7 @@ export function ContractHistory({
                 >
                   {datasets.map(task => (
                     <option key={task.id} value={task.id}>
-                      {task.source_name} · #{task.submission_sequence}
+                      {task.source} · {task.begin} — {task.end} · {task.id.slice(0, 8)}
                     </option>
                   ))}
                 </select>
@@ -319,14 +343,6 @@ export function ContractHistory({
               </details>
             )}
           </div>
-          {error && (
-            <div role="alert">
-              <ErrorNotice error={error} namespace="asterion.terminal.futures-market" />
-              <button disabled={disabled} onClick={() => setRetry(value => value + 1)}>
-                {t("重试")}
-              </button>
-            </div>
-          )}
           {!online && <p className="subtle">{t("历史数据服务未连接")}</p>}
           {!id ? (
             <div className="market-chart-empty" role="status">

@@ -12,7 +12,10 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
     day: "2026-09-23",
   });
   await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await page
+    .locator(".workspace-tabs")
+    .getByRole("button", { name: "回测与因子", exact: true })
+    .click();
   await page.getByRole("button", { name: "新建回测", exact: true }).click();
   const picker = page.getByRole("form", { name: "历史数据集" });
   await picker.getByLabel("K 线来源", { exact: true }).selectOption(first.source_dataset_ids[0]);
@@ -53,7 +56,7 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
   await expect(
     page.getByText("数据集已保存，可在当前数据服务中重复使用。", { exact: true }),
   ).toBeVisible();
-  const saved = (await rpc(page.request, "research.dataset.saved")).saved_datasets.find(
+  const saved = (await rpc(page.request, "data.dataset.saved")).saved_datasets.find(
     (item: { name: string }) => item.name === "跨下载研究",
   );
   await picker.locator(".dataset-composition").scrollIntoViewIfNeeded();
@@ -73,13 +76,16 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
     path: "build/audit-review/composed-datasets/selection.png",
     fullPage: true,
   });
-  await rpc(page.request, "research.dataset.clear");
+  await rpc(page.request, "data.dataset.clear");
   await page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }).click();
-  await rpc(page.request, "node.action", { id: "local", service: "research", action: "stop" });
-  await rpc(page.request, "research.local");
-  await rpc(page.request, "research.dataset.use", { id: saved.id });
+  await rpc(page.request, "node.action", { id: "local", service: "task", action: "stop" });
+  await rpc(page.request, "node.data_tasks.local.open");
+  await rpc(page.request, "data.dataset.use", { id: saved.id });
   expect((await rpc(page.request, "runtime.snapshot")).datasets).toEqual(selected);
-  await rpc(page.request, "research.submit", {
+  await expect
+    .poll(async () => (await rpc(page.request, "runtime.snapshot")).task_service?.online)
+    .toBe(true);
+  await rpc(page.request, "backtest.submit", {
     id: "composed-backtest",
     fast: 1,
     slow: 3,
@@ -114,13 +120,13 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
   await expect
     .poll(
       async () =>
-        (await rpc(page.request, "runtime.snapshot")).research.tasks.find(
+        (await rpc(page.request, "runtime.snapshot")).task_service.tasks.find(
           (item: { id: string }) => item.id === "composed-backtest",
         )?.state,
     )
     .toBe("succeeded");
-  const evidence = (await rpc(page.request, "research.result", { id: "composed-backtest" }))
-    .research_result;
+  const evidence = (await rpc(page.request, "task.result", { id: "composed-backtest" }))
+    .task_result;
   expect(evidence.experiment.paper.contracts[0].dataset.source_dataset_ids).toEqual(
     selected[0].source_dataset_ids,
   );

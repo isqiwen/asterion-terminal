@@ -1,6 +1,5 @@
-#include <asterion/terminal.h>
+#include "terminal_application.hpp"
 #include <asterion/foundation/serialization.hpp>
-#include <asterion/kernel/thread_pool.hpp>
 #include <atomic>
 #include <node_api.h>
 #include <memory>
@@ -12,16 +11,8 @@ namespace {
 constexpr unsigned request_limit = 16;
 constexpr unsigned snapshot_limit = 8;
 struct Runtime {
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> handle{asterion_terminal_create(),
-                                                                     asterion_terminal_destroy};
-  // Status reads must not wait for either application I/O or Node's shared pool.
-  asterion::ThreadPool requests{4, request_limit};
-  asterion::ThreadPool snapshots{1, snapshot_limit};
+  asterion::terminal::Application application;
   std::atomic<unsigned> pending_requests{0}, pending_snapshots{0};
-  Runtime() {
-    if (!handle)
-      throw std::runtime_error("Cannot initialize the C++ runtime");
-  }
 };
 using Owner = std::shared_ptr<Runtime>;
 void check(napi_status status) {
@@ -34,13 +25,15 @@ bool is_snapshot(const std::string& request) {
     return value.is_object() && value.contains("method") &&
            value.at("method") == "runtime.snapshot";
   } catch (...) {
-    // This only selects a queue. The C ABI remains the protocol validator.
+    // This only selects an admission counter. Native validates the request.
     return false;
   }
 }
 struct Work {
   Owner runtime;
-  std::string request, response, error;
+  std::string request, error;
+  asterion::Payload response;
+  asterion::ErrorCode error_code = asterion::ErrorCode::internal_error;
   napi_deferred deferred{};
   napi_threadsafe_function completion{};
   std::future<void> finished;
@@ -62,16 +55,19 @@ void complete(napi_env env, napi_value, void*, void* data) noexcept {
     return; // Environment teardown still drains the queue and finalizes Work.
   napi_value value;
   const bool success = job.error.empty();
-  const auto& text = success ? job.response : job.error;
+  const auto& text = success ? *job.response : job.error;
   if (napi_create_string_utf8(env, text.data(), text.size(), &value) == napi_ok) {
     if (success)
       napi_resolve_deferred(env, job.deferred, value);
     else {
-      napi_value error;
-      if (napi_create_error(env, nullptr, value, &error) == napi_ok)
+      napi_value error, code;
+      const auto name = asterion::error_name(job.error_code);
+      if (napi_create_string_utf8(env, name.data(), name.size(), &code) == napi_ok &&
+          napi_create_error(env, code, value, &error) == napi_ok)
         napi_reject_deferred(env, job.deferred, error);
     }
   }
+  job.response.reset();
 }
 void finalize(napi_env, void* data, void*) noexcept {
   std::unique_ptr<Work> job(static_cast<Work*>(data));
@@ -85,20 +81,13 @@ void finalize(napi_env, void* data, void*) noexcept {
   if (job->finished.valid())
     job->finished.wait();
 }
-void execute(Work* job) noexcept {
-  {
-    std::lock_guard lock(job->completion_mutex);
-    if (job->closing)
-      return;
-  }
+void deliver(Work* job, asterion::Payload response, std::exception_ptr failure) noexcept {
   try {
-    std::unique_ptr<char, decltype(&asterion_terminal_free)> response(
-        asterion_terminal_call(job->runtime->handle.get(), job->request.c_str()),
-        asterion_terminal_free);
-    if (!response)
-      throw std::runtime_error("Cannot allocate the C++ response");
-    job->response = response.get();
+    if (failure)
+      std::rethrow_exception(failure);
+    job->response = std::move(response);
   } catch (const std::exception& error) {
+    job->error_code = asterion::classify(error);
     job->error = error.what();
   } catch (...) {
     job->error = "Native request failed";
@@ -107,11 +96,11 @@ void execute(Work* job) noexcept {
   if (job->closing)
     return;
   const auto completion = job->completion;
-  // Each function receives exactly one item, so its one-slot queue cannot fill.
-  // After napi_closing Node owns teardown; the handle must not be used again.
+  // One native completion produces one queued JS notification.
   if (napi_call_threadsafe_function(completion, job, napi_tsfn_nonblocking) != napi_closing)
     napi_release_threadsafe_function(completion, napi_tsfn_release);
 }
+
 napi_value call(napi_env env, napi_callback_info info) noexcept {
   try {
     size_t count = 1, length = 0;
@@ -151,15 +140,18 @@ napi_value call(napi_env env, napi_callback_info info) noexcept {
                                           nullptr, complete, &task->completion));
     auto* job = task.release(); // The main-thread TSFN finalizer owns Work from here.
     try {
-      auto& pool = job->snapshot ? job->runtime->snapshots : job->runtime->requests;
-      job->finished = pool.submit([job](std::stop_token) { execute(job); });
+      job->finished = job->runtime->application.request(
+          std::move(job->request),
+          [job](asterion::Payload response, std::exception_ptr failure) noexcept {
+            deliver(job, std::move(response), failure);
+          });
     } catch (...) {
       napi_release_threadsafe_function(job->completion, napi_tsfn_release);
       throw;
     }
     return promise;
   } catch (const std::exception& error) {
-    napi_throw_error(env, nullptr, error.what());
+    napi_throw_error(env, asterion::error_name(asterion::classify(error)).data(), error.what());
   } catch (...) {
     napi_throw_error(env, nullptr, "Native bridge failed");
   }
@@ -177,7 +169,7 @@ napi_value init(napi_env env, napi_value exports) noexcept {
     check(napi_set_named_property(env, exports, "request", function));
     return exports;
   } catch (const std::exception& error) {
-    napi_throw_error(env, nullptr, error.what());
+    napi_throw_error(env, asterion::error_name(asterion::classify(error)).data(), error.what());
   } catch (...) {
     napi_throw_error(env, nullptr, "Cannot initialize the native bridge");
   }

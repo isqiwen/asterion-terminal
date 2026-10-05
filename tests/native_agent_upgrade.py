@@ -1,11 +1,9 @@
-"""Opt-in cross-platform OS-managed Agent upgrade acceptance.
+"""Opt-in macOS/Linux OS-managed Agent upgrade acceptance.
 
-Uses a unique service/task name and test-owned state. Linux requires a working
-systemd user manager; macOS requires a GUI launchd domain; Windows requires
-Task Scheduler access for the current account. Missing prerequisites fail.
+Uses a unique service name and test-owned state. Linux requires a working
+systemd user manager; macOS requires a GUI launchd domain. Missing prerequisites fail.
 """
 import argparse
-import ctypes
 from concurrent.futures import ThreadPoolExecutor
 import threading
 import hashlib
@@ -25,14 +23,12 @@ parser.add_argument("--allow-user-service", action="store_true", required=True)
 args = parser.parse_args()
 build = args.build.resolve()
 name = "me.asterion.acceptance." + uuid.uuid4().hex[:12]
-windows = sys.platform == "win32"
 mac = sys.platform == "darwin"
-if not windows and not mac and not sys.platform.startswith("linux"):
+if not mac and not sys.platform.startswith("linux"):
     raise SystemExit("Unsupported native service platform")
-suffix = ".exe" if windows else ""
-fixture = build / ("asterion_test_node_service_control" + suffix)
-source = build / ("asterion-node-agent" + suffix)
-revision = build / ("asterion_test_agent_revision" + suffix)
+fixture = build / "asterion_test_node_service_control"
+source = build / "asterion-node-agent"
+revision = build / "asterion_test_agent_revision"
 def command(argv, **kwargs):
     return subprocess.run(argv, capture_output=True, text=True, timeout=40, **kwargs)
 def wait(check):
@@ -45,25 +41,6 @@ def wait(check):
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 def alive(pid):
-    if windows:
-        api = ctypes.WinDLL("kernel32", use_last_error=True)
-        api.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
-        api.OpenProcess.restype = ctypes.c_void_p
-        api.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
-        api.WaitForSingleObject.restype = ctypes.c_uint32
-        api.CloseHandle.argtypes = [ctypes.c_void_p]
-        handle = api.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
-        if not handle:
-            if ctypes.get_last_error() == 87:
-                return False
-            raise OSError(ctypes.get_last_error(), "Cannot observe acceptance Agent")
-        try:
-            result = api.WaitForSingleObject(handle, 0)
-            if result not in (0, 258):
-                raise RuntimeError("Cannot observe acceptance Agent exit")
-            return result == 258
-        finally:
-            api.CloseHandle(handle)
     try:
         os.kill(pid, 0)
         return True
@@ -74,7 +51,7 @@ assert digest(source) != digest(revision)
 if mac:
     domain = f"gui/{os.getuid()}"
     assert command(["/bin/launchctl", "print", domain]).returncode == 0
-elif not windows:
+else:
     check = command(["/usr/bin/systemctl", "--user", "show-environment"])
     assert check.returncode == 0, "A working systemd user manager is required: " + check.stderr
 
@@ -83,16 +60,13 @@ with tempfile.TemporaryDirectory(prefix="ast-native-", ignore_cleanup_errors=Tru
     state = root / "state"
     (state / "bin").mkdir(parents=True)
     binary = state / "bin" / source.name
-    shutil.copy2(source, binary)
-    endpoint = "asterion.acceptance." + uuid.uuid4().hex if windows else str(root / "agent.sock")
+    endpoint = str(root / "agent.sock")
     env = dict(os.environ)
     if mac:
         home = root / "home"
         home.mkdir()
         env["HOME"] = str(home)
         definition = home / "Library/LaunchAgents" / (name + ".plist")
-    elif windows:
-        definition = state / "scheduled-task.xml"
     else:
         # systemd resolves installed units in the real user's search path.
         # The unique test-owned unit is removed in finally.
@@ -108,8 +82,11 @@ with tempfile.TemporaryDirectory(prefix="ast-native-", ignore_cleanup_errors=Tru
     def pid():
         return int((state / "agent.pid").read_text())
     try:
-        result = invoke("install")
+        assert not binary.exists()
+        result = invoke("bootstrap", source=source)
         assert result.returncode == 0, result.stderr
+        assert digest(binary) == digest(source)
+        assert not list((state / "bin").glob("install-*"))
         wait(lambda: (state / "agent.pid").exists() and alive(pid()))
         first = pid()
         original = definition.read_bytes()
@@ -119,8 +96,8 @@ with tempfile.TemporaryDirectory(prefix="ast-native-", ignore_cleanup_errors=Tru
         assert invoke("stop", os.getpid()).returncode != 0
         assert alive(first)
         before = digest(binary)
-        deployed = invoke("deploy-market", source=build / ("asterion-market-data" + suffix),
-                          provider=build / ("asterion_test_ctp.dll" if windows else "libasterion_test_ctp.dylib" if mac else "libasterion_test_ctp.so"))
+        deployed = invoke("deploy-market", source=build / "asterion-market-data",
+                          provider=build / ("libasterion_test_ctp.dylib" if mac else "libasterion_test_ctp.so"))
         assert deployed.returncode == 0, deployed.stderr
         wait(lambda: json.loads(invoke("market-status").stdout)["phase"] == "connected")
         initial_status = json.loads(invoke("status").stdout)["health"]
@@ -201,12 +178,9 @@ with tempfile.TemporaryDirectory(prefix="ast-native-", ignore_cleanup_errors=Tru
     finally:
         if mac:
             command(["/bin/launchctl", "bootout", domain + "/" + name])
-        elif windows:
-            command(["schtasks.exe", "/End", "/TN", name])
-            command(["schtasks.exe", "/Delete", "/TN", name, "/F"])
         else:
             command(["/usr/bin/systemctl", "--user", "disable", "--now", name + ".service"])
             if definition.exists():
                 definition.unlink()
             command(["/usr/bin/systemctl", "--user", "daemon-reload"])
-print("PASS:", sys.platform, "native Agent no-op and concurrent upgrade, retained publication rejection, checkpoint recovery and data preservation")
+print("PASS:", sys.platform, "native Agent durable first install, no-op and concurrent upgrade, retained publication rejection, checkpoint recovery and data preservation")

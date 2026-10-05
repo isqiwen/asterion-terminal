@@ -8,7 +8,7 @@ namespace asterion::ipc {
 // independent.
 class Channel {
 public:
-  // Research datasets of up to 200000 bars travel as one message.
+  // Task datasets of up to 200000 bars travel as one message.
   static constexpr std::size_t max_frame = 64 * 1024 * 1024;
   Channel();
   ~Channel();
@@ -30,7 +30,7 @@ private:
 };
 class Listener {
 public:
-  explicit Listener(std::string endpoint);
+  explicit Listener(std::string endpoint, int pending_connections = 1);
   ~Listener();
   Listener(const Listener&) = delete;
   Listener& operator=(const Listener&) = delete;

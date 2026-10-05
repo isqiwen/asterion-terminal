@@ -8,12 +8,6 @@
 #include <optional>
 #include <algorithm>
 #include <asterion/kernel/process/artifact.hpp>
-#ifdef __APPLE__
-#include <cerrno>
-#include <spawn.h>
-#include <sys/wait.h>
-#include <unistd.h>
-#endif
 namespace asterion::terminal {
 namespace fs = std::filesystem;
 namespace {
@@ -21,100 +15,7 @@ void safe(const fs::path& path) {
   if (!path.is_absolute() || fs::is_symlink(path))
     throw std::invalid_argument("invalid data source credential storage");
 }
-#ifdef __APPLE__
-struct Output {
-  int status = 1;
-  std::string text;
-};
-// Runs the helper with an optional stdin payload; no shell, bounded output.
-Output run(const fs::path& helper, const std::vector<std::string>& arguments,
-           const std::string& input) {
-  int in[2], out[2];
-  if (::pipe(in) != 0)
-    throw std::runtime_error("credential store unavailable");
-  if (::pipe(out) != 0) {
-    ::close(in[0]);
-    ::close(in[1]);
-    throw std::runtime_error("credential store unavailable");
-  }
-  posix_spawn_file_actions_t actions;
-  posix_spawn_file_actions_init(&actions);
-  posix_spawn_file_actions_adddup2(&actions, in[0], 0);
-  posix_spawn_file_actions_adddup2(&actions, out[1], 1);
-  for (const int fd : {in[0], in[1], out[0], out[1]})
-    posix_spawn_file_actions_addclose(&actions, fd);
-  std::vector<std::string> owned{helper.string()};
-  owned.insert(owned.end(), arguments.begin(), arguments.end());
-  std::vector<char*> argv;
-  for (auto& item : owned)
-    argv.push_back(item.data());
-  argv.push_back(nullptr);
-  char* environment[] = {nullptr};
-  pid_t pid = 0;
-  const auto spawned =
-      posix_spawn(&pid, helper.c_str(), &actions, nullptr, argv.data(), environment);
-  posix_spawn_file_actions_destroy(&actions);
-  ::close(in[0]);
-  ::close(out[1]);
-  Output result;
-  if (spawned == 0) {
-    for (std::size_t offset = 0; offset < input.size();) {
-      const auto n = ::write(in[1], input.data() + offset, input.size() - offset);
-      if (n <= 0)
-        break;
-      offset += static_cast<std::size_t>(n);
-    }
-  }
-  ::close(in[1]);
-  if (spawned == 0) {
-    char buffer[1024];
-    for (ssize_t n; (n = ::read(out[0], buffer, sizeof buffer)) > 0;)
-      if (result.text.size() < 8192)
-        result.text.append(buffer, static_cast<std::size_t>(n));
-    int status = 0;
-    while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {
-    }
-    result.status = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
-  }
-  ::close(out[0]);
-  if (spawned != 0)
-    throw std::runtime_error("credential store unavailable");
-  return result;
-}
-class Keychain final : public CredentialStore {
-public:
-  explicit Keychain(fs::path helper) : helper_(std::move(helper)) {}
-  std::optional<std::string> load(const std::string& account) override {
-    const auto output = run(helper_, {"get", account}, {});
-    if (output.status == 3)
-      return std::nullopt;
-    if (output.status != 0)
-      throw Error(ErrorCode::unavailable, "keychain credential is unavailable");
-    return output.text;
-  }
-  void store(const std::string& account, const std::string& secret) override {
-    if (run(helper_, {"set", account}, secret).status != 0)
-      throw Error(ErrorCode::unavailable, "cannot save credential to the keychain");
-  }
-  void erase(const std::string& account) override {
-    if (run(helper_, {"delete", account}, {}).status != 0)
-      throw Error(ErrorCode::unavailable, "cannot remove credential from the keychain");
-  }
-
-private:
-  fs::path helper_;
-};
-#endif
 } // namespace
-std::shared_ptr<CredentialStore> keychain_store(const fs::path& helper) {
-#ifdef __APPLE__
-  if (helper.is_absolute() && fs::is_regular_file(helper) && !fs::is_symlink(helper))
-    return std::make_shared<Keychain>(helper);
-#else
-  (void)helper;
-#endif
-  return nullptr;
-}
 std::string DataCredentials::account(const std::string& provider) const {
   // Isolated nodes (tests, development) never share keychain entries. The
   // keychain helper takes a restricted character set, so the provider is
@@ -193,7 +94,7 @@ Json DataCredentials::read_all() const {
 void DataCredentials::save(DataCredential value, const DataCredentialLimits& limits) {
   const auto file = path(value.provider);
   safe(directory_.parent_path());
-  fs::create_directory(directory_);
+  create_directories_durably(directory_);
   fs::permissions(directory_, fs::perms::owner_all);
   FileLock lock(directory_, "credentials.lock");
   if (!value.requests_per_minute || value.requests_per_minute > limits.requests_per_minute_max ||

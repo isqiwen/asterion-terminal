@@ -33,8 +33,8 @@ export function DataSources({
   trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
 }) {
   const { locale } = useLocale();
-  const online = !!snapshot?.research?.online;
-  const sources = snapshot?.research?.sources.filter(source => source.connection) ?? [];
+  const online = !!snapshot?.data?.online;
+  const sources = snapshot?.data?.sources.filter(source => source.connection) ?? [];
   const entries = snapshot?.data_credentials ?? [];
   const providers = [...new Set(sources.map(source => source.plugin_id))];
   const [editing, setEditing] = useState("");
@@ -91,7 +91,7 @@ export function DataSources({
         <div className="settings-card">
           <p role="status">{t("数据服务未连接，无法读取数据源。")}</p>
           <footer>
-            <button disabled={busy} onClick={() => void run("research.local")}>
+            <button disabled={busy} onClick={() => void run("node.data_tasks.local.open")}>
               {t("重新连接")}
             </button>
           </footer>
@@ -145,6 +145,9 @@ export function DataSources({
                 );
               })}
             </dl>
+            <p className="subtle">
+              {t("同一账号的下载共享当前数据服务的额度；多节点请分别分配份额。")}
+            </p>
             {unreadable && <p role="alert">{t("已保留原文件供检查；重新设置会覆盖它。")}</p>}
             <footer>
               <button
@@ -157,9 +160,23 @@ export function DataSources({
               {ready && (
                 <button
                   disabled={busy}
-                  onClick={() => void run("research.credentials.verify", { provider })}
+                  onClick={() => void run("data.credentials.verify", { provider })}
                 >
                   {t("验证")}
+                </button>
+              )}
+              {saved && ready && (
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    void run("data.download.budget.configure", {
+                      source: own[0]!.id,
+                      token: "",
+                      requests_per_minute: saved.requests_per_minute,
+                    })
+                  }
+                >
+                  {t("应用共享额度")}
                 </button>
               )}
               {(saved || unreadable) && (
@@ -167,7 +184,7 @@ export function DataSources({
                   busy={busy}
                   confirming={clearing === provider}
                   ask={() => setClearing(provider)}
-                  clear={() => void run("research.credentials.clear", { provider })}
+                  clear={() => void run("data.credentials.clear", { provider })}
                 />
               )}
             </footer>
@@ -185,7 +202,7 @@ export function DataSources({
               busy={busy}
               confirming={clearing === entry.provider}
               ask={() => setClearing(entry.provider)}
-              clear={() => void run("research.credentials.clear", { provider: entry.provider })}
+              clear={() => void run("data.credentials.clear", { provider: entry.provider })}
             />
           </footer>
         </section>
@@ -203,7 +220,7 @@ export function DataSources({
           onSubmit={async event => {
             event.preventDefault();
             const provider = editing;
-            const saved = await run("research.credentials.save", {
+            const saved = await run("data.credentials.save", {
               provider,
               credential,
               remember,
@@ -212,7 +229,7 @@ export function DataSources({
             setCredential("");
             if (!saved) return;
             setEditing("");
-            await run("research.credentials.verify", { provider });
+            await run("data.credentials.verify", { provider });
           }}
         >
           <fieldset disabled={busy} className="futures-fields">

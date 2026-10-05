@@ -1,0 +1,118 @@
+syntax = "proto3";
+package asterion.data.v1;
+import "asterion/v1/data.proto";
+import "asterion/v1/backtest.proto";
+import "asterion/v1/factor.proto";
+import "asterion/v1/trading.proto";
+import "asterion/v1/node.proto";
+
+message DataId { string id = 1; }
+message DataSources { repeated HistorySource sources = 1; }
+// Stable instance identity belongs to the warehouse, not to an OS process.
+message DataHealth {
+  string instance_id = 1; string process_id = 2; string version = 3;
+  uint64 uptime_ms = 4; bool initialized = 5; bool recovery_required = 6; string task_instance = 7;
+}
+// Configured share for this Data instance, not an inferred provider entitlement.
+message DownloadBudgetPolicy { uint32 version = 1; string provider_id = 2; uint32 requests_per_minute = 3; }
+message DownloadBudgetConfiguration { string source = 1; string credential = 2; uint32 requests_per_minute = 3; }
+message DownloadPermit { bool granted = 1; uint32 retry_after_ms = 2; }
+// Captured by Data before a download is submitted to Task. Secrets never form
+// part of the public authorization or immutable task definition.
+message DownloadAuthorizationRequest {
+  string task_instance = 1; string task_id = 2; string credential = 3;
+  oneof definition { MinuteDownload minutes = 4; DailyDownload daily = 5; }
+}
+message DownloadAuthorization {
+  uint32 version = 1; string id = 2; string data_instance = 3;
+  string task_instance = 4; string task_id = 5; string provider_artifact = 6; string provider_id = 9;
+  oneof definition { MinuteDownload minutes = 7; DailyDownload daily = 8; }
+}
+// Private on-disk representation. Never returned through DataResponse.
+message StoredDownloadAuthorization {
+  DownloadAuthorization authorization = 1; string credential = 2;
+}
+// A candidate has one task coordinator and one attempt. This identity survives
+// response loss; callers may confirm this same operation, never invent another.
+message DownloadIdentity {
+  string data_instance = 1; string task_instance = 2; string task_id = 3;
+  uint32 attempt = 4;
+}
+message DownloadCredentials { DownloadIdentity identity = 1; string authorization_id = 2; string credential = 3; }
+message DownloadAllocation {
+  string authorization_id = 4;
+  DownloadIdentity identity = 1;
+  oneof definition { MinuteDownload minutes = 2; DailyDownload daily = 3; }
+}
+message DownloadDirectory { string directory = 1; }
+message AllocatedDownload { DownloadAllocation request = 1; string directory = 2; }
+message DownloadPreparation { DownloadIdentity identity = 1; HistoryRecord record = 2; }
+message PreparedDownload {
+  DownloadIdentity identity = 1; string candidate_digest = 2; string dataset_id = 3;
+}
+// The task coordinator persists this decision before requesting publication.
+message DownloadPublication {
+  DownloadIdentity identity = 1; string candidate_digest = 2; string publication_id = 3;
+}
+message PublishedDownload { DownloadPublication decision = 1; HistoryRecord record = 2; }
+message DataRequest {
+  uint32 version = 1; string service_id = 2; string correlation_id = 3;
+  oneof operation {
+    asterion.protocol.v1.Empty heartbeat = 10;
+    asterion.node.v1.Quiesce quiesce = 11;
+    asterion.protocol.v1.Empty sources = 12;
+    HistoryCatalogQuery catalog = 13;
+    HistoryConnectionVerify verify_connection = 14;
+    HistoryFilter datasets = 15;
+    DataId record = 16;
+    MinutePageQuery minute_page = 17;
+    DailyPageQuery daily_page = 18;
+    BarDatasetRequest bar_dataset = 19;
+    HistoryFilter coverage = 20;
+    NamedDataset save_dataset = 21;
+    DataId saved_dataset = 22;
+    asterion.protocol.v1.Empty saved_datasets = 23;
+    HistoryUpdateQuery update_plan = 24;
+    asterion.backtest.v1.DominantSeriesRequest dominant_series = 25;
+    DataId daily_factor_dataset = 26;
+    DataId history_usage = 27;
+    DownloadAuthorizationRequest authorize_download = 28;
+    DataId download_authorization = 29;
+    DownloadAllocation allocate_download = 30;
+    DownloadPreparation prepare_download = 31;
+    DownloadPublication publish_download = 32;
+    DownloadIdentity published_download = 33;
+    DownloadIdentity download_credentials = 34;
+    DownloadBudgetConfiguration configure_download_budget = 35;
+    DownloadIdentity acquire_download_permit = 36;
+  }
+}
+message DataResponse {
+  uint32 version = 1; string service_id = 2; string correlation_id = 3;
+  oneof result {
+    asterion.protocol.v1.Error error = 10;
+    DataHealth health = 11;
+    DataSources sources = 12;
+    HistoryCatalog catalog = 13;
+    HistoryConnectionVerification connection_verification = 14;
+    HistoryDatasets datasets = 15;
+    HistoryRecord record = 16;
+    MinutePage minute_page = 17;
+    DailyPage daily_page = 18;
+    BarDataset bar_dataset = 19;
+    HistoryCoverages coverage = 20;
+    NamedDataset saved_dataset = 21;
+    NamedDatasets saved_datasets = 22;
+    HistoryUpdatePlan update_plan = 23;
+    asterion.backtest.v1.DominantSeriesPreview dominant_series = 24;
+    asterion.factor.v1.DailyFactorDataset daily_factor_dataset = 25;
+    HistoryUsage history_usage = 26;
+    DownloadAuthorization download_authorization = 28;
+    DownloadDirectory download_directory = 30;
+    PreparedDownload prepared_download = 31;
+    PublishedDownload published_download = 32;
+    DownloadCredentials download_credentials = 33;
+    DownloadBudgetPolicy download_budget = 34;
+    DownloadPermit download_permit = 35;
+  }
+}

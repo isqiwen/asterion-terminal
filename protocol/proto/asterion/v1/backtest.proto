@@ -1,0 +1,85 @@
+syntax = "proto3";
+package asterion.backtest.v1;
+import "asterion/v1/domain.proto";
+import "asterion/v1/trading.proto";
+import "asterion/v1/data.proto";
+
+message SmaStrategy { uint32 fast = 1; uint32 slow = 2; asterion.protocol.v1.Decimal quantity = 3; }
+// Immutable data resolved by Data and captured with calculation parameters by Task. paper.contracts hold the bars
+// and trading days of each contract; the SMA strategy runs on every contract.
+message BacktestInput {
+  uint32 version = 1; // 8
+  string dataset_revision = 2;
+  asterion.protocol.v1.PaperInput paper = 3;
+  SmaStrategy sma = 4;
+  repeated DominantSchedule series = 5;
+}
+// Month contracts of one product traded as its dominant series: on each
+// trading day only the dominant month is traded, and one strategy runs on the
+// series. Indexes refer to the contracts of the request.
+message DominantSeries { repeated uint32 contracts = 1; }
+// From trading_day on, the contract (an index into paper.contracts) is the
+// dominant month. factor multiplies its raw prices for the strategy's signal:
+// ratio back-adjustment, 1 for the last segment. Orders, fills, margin and
+// profit always use the raw prices of the real contract.
+message DominantRoll {
+  string trading_day = 1;
+  uint32 contract = 2;
+  asterion.protocol.v1.Decimal factor = 3;
+}
+// The resolved schedule of one series; rolls ascend by trading day and by
+// delivery month.
+message DominantSchedule { repeated DominantRoll rolls = 1; }
+// Resolves month contracts as a dominant series without submitting anything.
+message DominantSeriesRequest { repeated asterion.data.v1.BarDatasetRequest months = 1; }
+// months: indexes of the request's months that are dominant at some point,
+// in delivery-month order; datasets and schedule contracts follow that order.
+message DominantSeriesPreview {
+  repeated uint32 months = 1;
+  repeated asterion.data.v1.BarDataset datasets = 2;
+  DominantSchedule schedule = 3;
+}
+// One contract of a backtest submission: Data resolves its bars before Task captures the input.
+message BacktestContract {
+  asterion.data.v1.BarDatasetRequest data = 1;
+  reserved 2;
+  asterion.protocol.v1.CostSchedule cost_schedule = 3;
+}
+message BacktestRequest {
+  repeated BacktestContract contracts = 1;
+  asterion.protocol.v1.Decimal deposit = 2;
+  asterion.protocol.v1.RiskLimits risk = 3;
+  SmaStrategy sma = 4;
+  repeated DominantSeries series = 5;
+}
+enum EquityEvent { EQUITY_EVENT_UNSPECIFIED = 0; TRADE_MARK = 1; DAILY_SETTLEMENT = 2; }
+message EquityPoint {
+  int64 timestamp_ns = 1;
+  asterion.protocol.v1.Decimal equity = 2;
+  EquityEvent event = 3;
+}
+message ContractSettlement {
+  string venue = 1;
+  string symbol = 2;
+  asterion.protocol.v1.Decimal price = 3;
+  asterion.protocol.v1.Decimal position_quantity = 4;
+}
+message DaySettlement {
+  string trading_day = 1;
+  int64 timestamp_ns = 2;
+  asterion.protocol.v1.Decimal balance = 3;
+  asterion.protocol.v1.Decimal equity = 4;
+  asterion.protocol.v1.Decimal realized = 5;
+  asterion.protocol.v1.Decimal fees = 6;
+  repeated ContractSettlement contracts = 7;
+}
+message BacktestResult {
+  uint32 version = 1;
+  string dataset_revision = 2;
+  string engine_version = 3;
+  asterion.protocol.v1.Snapshot account = 4;
+  repeated EquityPoint equity = 5;
+  asterion.protocol.v1.Decimal max_drawdown = 6;
+  repeated DaySettlement settlements = 7;
+}
+

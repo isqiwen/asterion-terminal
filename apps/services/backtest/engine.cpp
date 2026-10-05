@@ -13,11 +13,45 @@ namespace {
 Decimal decimal(const protocol::v1::Decimal& value) {
   return Decimal::from_raw(value.units());
 }
+constexpr std::size_t none = static_cast<std::size_t>(-1);
+// For each contract, the dominant series it is a month of, or none.
+std::vector<std::size_t> series_of(const backtest::v1::BacktestInput& input) {
+  std::vector<std::size_t> result(static_cast<std::size_t>(input.paper().contracts_size()), none);
+  for (int s = 0; s < input.series_size(); ++s)
+    for (const auto& roll : input.series(s).rolls())
+      result.at(roll.contract()) = static_cast<std::size_t>(s);
+  return result;
+}
+std::vector<bool> sparse(const std::vector<std::size_t>& series) {
+  std::vector<bool> result;
+  for (const auto item : series)
+    result.push_back(item != none);
+  return result;
+}
+// The roll in force on a trading day; the first roll before the series begins.
+const backtest::v1::DominantRoll& dominant(const backtest::v1::DominantSchedule& series,
+                                           const std::string& trading_day) {
+  const auto* current = &series.rolls(0);
+  for (const auto& roll : series.rolls())
+    if (roll.trading_day() <= trading_day)
+      current = &roll;
+  return *current;
+}
+// The bar a series strategy sees: prices scaled to the level of the latest
+// month and put back on the price grid. Never used for orders or fills.
+MarketBar adjusted(MarketBar bar, Decimal factor, Decimal increment) {
+  for (auto* price : {&bar.open, &bar.high, &bar.low, &bar.close})
+    *price = quantize(multiply(*price, factor, Rounding::half_up), increment, Rounding::half_up);
+  return bar;
+}
 } // namespace
-void validate(const research::v1::BacktestInput& input) {
-  static_cast<void>(protocol::decode_backtest(input));
+void validate(const backtest::v1::BacktestInput& input) {
+  static_cast<void>(protocol::decode_backtest(input, protocol::DatasetView::metadata));
   const auto& p = input.paper();
-  for (const auto& item : p.contracts()) {
+  const auto series = series_of(input);
+  std::vector<int> series_bars(static_cast<std::size_t>(input.series_size()));
+  for (int index = 0; index < p.contracts_size(); ++index) {
+    const auto& item = p.contracts(index);
     const auto& c = item.dataset().contract();
     FuturesContract contract{protocol::instrument(c), c.product(), c.delivery_month()};
     contract.validate();
@@ -25,25 +59,34 @@ void validate(const research::v1::BacktestInput& input) {
     const MovingAverage strategy(contract.instrument, input.sma().fast(), input.sma().slow(),
                                  decimal(input.sma().quantity()));
     (void)strategy;
-    if (item.dataset().bars_size() < static_cast<int>(input.sma().slow()))
+    // A series is one strategy over all of its months.
+    if (series[static_cast<std::size_t>(index)] != none)
+      series_bars[series[static_cast<std::size_t>(index)]] += item.dataset().bars_size();
+    else if (item.dataset().bars_size() < static_cast<int>(input.sma().slow()))
       throw std::invalid_argument("backtest requires at least slow bars for every contract");
   }
+  for (const auto bars : series_bars)
+    if (bars < static_cast<int>(input.sma().slow()))
+      throw std::invalid_argument("backtest requires at least slow bars for every contract");
   decode_order_limits(protocol::decode_risk(p.risk()));
   if (decimal(p.deposit()) <= Decimal{})
     throw std::invalid_argument("backtest requires positive capital");
-  static_cast<void>(replay_schedule(paper_portfolio(p)));
+  static_cast<void>(replay_schedule(paper_portfolio(p), sparse(series)));
 }
-research::v1::BacktestResult run(const research::v1::BacktestInput& input, std::stop_token stop,
+backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::stop_token stop,
                                  const std::function<void(std::size_t, std::size_t)>& progress,
                                  const risk_providers::Module* pinned) {
   validate(input);
   const auto& p = input.paper();
   auto portfolio = paper_portfolio(p);
-  const auto schedule = replay_schedule(portfolio);
+  const auto series = series_of(input);
+  const auto schedule = replay_schedule(portfolio, sparse(series));
   const auto module = pinned ? *pinned : risk_providers::Module::selected();
   auto risk = module.create(decode_order_limits(protocol::decode_risk(p.risk())));
   risk->start();
-  // One SMA per contract on that contract's bars; all share the account.
+  // One SMA per contract on that contract's bars; all share the account. The
+  // months of a dominant series share the strategy of its first month, which
+  // sees the back-adjusted bars of whichever month is dominant.
   std::vector<MovingAverage> strategies;
   for (const auto& contract : portfolio.contracts)
     strategies.emplace_back(contract.terms.instrument, input.sma().fast(), input.sma().slow(),
@@ -52,13 +95,20 @@ research::v1::BacktestResult run(const research::v1::BacktestInput& input, std::
   execution.start();
   for (auto& strategy : strategies)
     strategy.start();
-  research::v1::BacktestResult result;
+  // The last target each series' strategy asked for.
+  std::vector<std::optional<Decimal>> wanted(static_cast<std::size_t>(input.series_size()));
+  const auto holds = [&](std::size_t contract) {
+    const auto& id = execution.contract(contract).terms.instrument.id;
+    return std::ranges::any_of(execution.account().positions(),
+                               [&](const auto& lot) { return lot.instrument == id; });
+  };
+  backtest::v1::BacktestResult result;
   result.set_version(5);
   result.set_dataset_revision(input.dataset_revision());
   result.set_engine_version(protocol::backtest_engine_version);
   auto peak = decimal(p.deposit());
   Decimal drawdown;
-  const auto add_equity = [&](std::int64_t time, research::v1::EquityEvent event,
+  const auto add_equity = [&](std::int64_t time, backtest::v1::EquityEvent event,
                               const FuturesAccount& account) {
     const auto equity = account.balance() + account.unrealized();
     peak = std::max(peak, equity);
@@ -68,6 +118,7 @@ research::v1::BacktestResult run(const research::v1::BacktestInput& input, std::
     point->set_event(event);
     point->mutable_equity()->set_units(equity.raw());
   };
+  std::vector<std::optional<PaperExecution::LongTarget>> pending(strategies.size());
   const auto total = execution.size();
   for (std::size_t index = 0; index < total; ++index) {
     if (stop.stop_requested())
@@ -77,23 +128,52 @@ research::v1::BacktestResult run(const research::v1::BacktestInput& input, std::
     const auto& instrument = execution.contract(current.contract).terms.instrument.id;
     // Orders placed after a contract's bar N can only fill on its bar N+1;
     // unfilled remainders expire before its strategy decides again.
-    execution.advance();
+    auto& intent = pending[current.contract];
+    if (const auto member = series[current.contract]; member != none && intent) {
+      const auto& rolls = input.series(static_cast<int>(member));
+      if (dominant(rolls, bar.trading_day).contract() != current.contract)
+        intent->quantity = Decimal{};
+      // Apply the roll and the no-overlapping-months rule at submission.
+      else if (intent->quantity > Decimal{} &&
+               std::ranges::any_of(rolls.rolls(), [&](const auto& other) {
+                 return other.contract() != current.contract && holds(other.contract());
+               }))
+        intent.reset();
+    }
+    execution.advance(intent);
+    intent.reset();
     execution.cancel_open_orders(instrument);
     const auto& account = execution.account();
-    const auto target = strategies[current.contract].on_bar(bar);
     const auto& event = schedule.event(index);
-    if (target && !event.day_end)
-      execution.reconcile_long_target("sma." + std::to_string(index), instrument, *target,
-                                      bar.close);
-    add_equity(bar.timestamp_ns, research::v1::TRADE_MARK, account);
+    const auto order = "sma." + std::to_string(index);
+    const auto decide = [&](Decimal target) {
+      intent = PaperExecution::LongTarget{order, target, bar.close};
+    };
+    if (const auto member = series[current.contract]; member == none) {
+      const auto target = strategies[current.contract].on_bar(bar);
+      if (target)
+        decide(*target);
+    } else {
+      const auto& rolls = input.series(static_cast<int>(member));
+      const auto& roll = dominant(rolls, bar.trading_day);
+      if (roll.contract() != current.contract) {
+        // A month that is no longer dominant only closes what it still holds.
+        decide(Decimal{});
+      } else {
+        const auto& spec = execution.contract(current.contract).terms.instrument;
+        if (const auto target = strategies[rolls.rolls(0).contract()].on_bar(
+                adjusted(bar, decimal(roll.factor()), spec.price_increment)))
+          wanted[member] = target;
+        if (wanted[member])
+          decide(*wanted[member]);
+      }
+    }
+    add_equity(bar.timestamp_ns, backtest::v1::TRADE_MARK, account);
     if (event.day_end) {
       const auto& day = schedule.day(event.day);
       execution.cancel_open_orders();
-      if (index + 1 == total)
-        execution.settle(day.prices);
-      else
-        execution.settle_day_end(day.prices);
-      add_equity(bar.timestamp_ns, research::v1::DAILY_SETTLEMENT, account);
+      execution.settle_scheduled(day.prices, index + 1 == total);
+      add_equity(bar.timestamp_ns, backtest::v1::DAILY_SETTLEMENT, account);
       auto* settled = result.add_settlements();
       settled->set_trading_day(day.trading_day);
       settled->set_timestamp_ns(bar.timestamp_ns);
@@ -102,6 +182,9 @@ research::v1::BacktestResult run(const research::v1::BacktestInput& input, std::
       settled->mutable_realized()->set_units(account.realized().raw());
       settled->mutable_fees()->set_units(account.fees().raw());
       for (std::size_t c = 0; c < account.contracts().size(); ++c) {
+        // A month of a series has no row on the days it does not trade.
+        if (!day.prices[c])
+          continue;
         const auto& id = account.contracts()[c].instrument.id;
         Decimal quantity;
         for (const auto& lot : account.positions())
@@ -110,7 +193,7 @@ research::v1::BacktestResult run(const research::v1::BacktestInput& input, std::
         auto* row = settled->add_contracts();
         row->set_venue(id.venue);
         row->set_symbol(id.symbol);
-        row->mutable_price()->set_units(day.prices[c].raw());
+        row->mutable_price()->set_units(day.prices[c]->raw());
         row->mutable_position_quantity()->set_units(quantity.raw());
       }
     }
@@ -118,7 +201,7 @@ research::v1::BacktestResult run(const research::v1::BacktestInput& input, std::
       progress(index + 1, total);
   }
   auto account = execution.snapshot();
-  const auto manifest = protocol::decode_input(p);
+  const auto manifest = protocol::decode_input(p, protocol::DatasetView::metadata);
   Json contracts = Json::array();
   for (std::size_t c = 0; c < manifest.at("contracts").size(); ++c) {
     const auto& item = manifest.at("contracts").at(c);
@@ -139,7 +222,7 @@ research::v1::BacktestResult run(const research::v1::BacktestInput& input, std::
   execution.stop();
   return result;
 }
-Json result_json(const research::v1::BacktestResult& result) {
+Json result_json(const backtest::v1::BacktestResult& result) {
   return protocol::decode_backtest_result(result);
 }
 

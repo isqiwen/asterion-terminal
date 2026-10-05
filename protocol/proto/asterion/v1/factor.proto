@@ -1,10 +1,10 @@
 syntax = "proto3";
 import "asterion/v1/domain.proto";
 import "asterion/v1/data.proto";
-package asterion.research.v1;
+package asterion.factor.v1;
 import "asterion/v1/trading.proto";
 
-// Immutable bars resolved by the task service; no account or execution assumptions.
+// Immutable bars resolved by the data service; no account or execution assumptions.
 message FactorInput {
   uint32 version = 1; // 5
   string dataset_revision = 2;
@@ -19,7 +19,7 @@ message FactorInput {
     uint32 holdout_start = 8; // Zero-based first holdout bar.
   }
 }
-// Client submission: the task service resolves the dataset itself.
+// Client submission: Task obtains the fixed dataset from Data before persisting input.
 message FactorRequest {
   asterion.data.v1.BarDatasetRequest data = 1;
   repeated uint32 lookbacks = 2;
@@ -82,15 +82,16 @@ message FactorFold {
   FactorPartition holdout = 7;
 }
 
-// Daily close research retains provider trading dates. No trade timestamps,
+// Daily close task retains provider trading dates. No trade timestamps,
 // synthetic quantities, contract multiplier or execution assumptions.
 message DailyFactorDataset {
-  uint32 version = 1;
+  uint32 version = 1; // 2
   reserved 2; string source_dataset_id = 7;
   string source = 3;
   reserved 4; string contract_id = 20;
   string manifest_sha256 = 5;
   repeated asterion.data.v1.DailyBar bars = 6;
+  asterion.data.v1.HistoryVersionEvidence history_evidence = 8;
 }
 message DailyFactorInput {
   uint32 version = 1;

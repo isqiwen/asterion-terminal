@@ -1,3 +1,4 @@
+import { TaskPagination } from "./ui/TaskPagination";
 import { createPortal } from "react-dom";
 import { Icon } from "./ui/Icon";
 import { openSettings, closeSettings, settingsPage, type SettingsPage } from "./settings/window";
@@ -36,7 +37,7 @@ function liveSummary(snapshot: Snapshot | null) {
     ready = 0,
     other = 0;
   for (const { session, connection } of entries) {
-    if (snapshot?.stale || connection.state !== "connected" || session?.phase !== "ready") other++;
+    if (connection.state !== "connected" || session?.phase !== "ready") other++;
     else if (session.authorization?.trading_day === session.trading_day) authorized++;
     else ready++;
   }
@@ -95,13 +96,14 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   const revision = useRef<number | undefined>(undefined);
   const held = useRef<Snapshot | null>(null);
   // Every full snapshot carries the core's revision and the time the core last
-  // refreshed it; stale probes keep the previous "checked at" time.
+  // refreshed it.
   const accept = useCallback((next: Snapshot) => {
+    if (next.revision < (revision.current ?? 0)) return;
     held.current = next;
     setSnapshot(next);
     setError("");
     revision.current = next.revision;
-    if (!next.stale) setCheckedAt(next.refreshed_at_ms ?? Date.now());
+    setCheckedAt(next.refreshed_at_ms ?? Date.now());
   }, []);
   const refresh = useCallback(async () => {
     const current = ++generation.current;
@@ -156,6 +158,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   }, []);
   const polling = !!snapshot && (Object.keys(snapshot.live).length > 0 || !!snapshot.nodes?.length);
   const live = !!snapshot?.market;
+  const pollInFlight = useRef(false);
   useEffect(() => {
     // Polls read the core's published snapshot by revision; an unchanged
     // revision returns no state. Hidden windows stop polling.
@@ -163,16 +166,26 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     let cancelled = false;
     const timer = window.setInterval(
       async () => {
+        // Keep one read per window, including across visibility and busy changes.
+        if (pollInFlight.current) return;
+        pollInFlight.current = true;
         const current = generation.current;
         try {
           const next = await pollSnapshot(revision.current ?? 0, held.current);
-          if (cancelled || current !== generation.current) return;
+          if (
+            cancelled ||
+            current !== generation.current ||
+            next.revision < (revision.current ?? 0)
+          )
+            return;
           if ("unchanged" in next) {
             setError("");
             setCheckedAt(next.refreshed_at_ms);
           } else accept(next);
         } catch (reason) {
           if (!cancelled && current === generation.current) setError(asDisplayError(reason));
+        } finally {
+          pollInFlight.current = false;
         }
       },
       live ? 500 : 2000,
@@ -193,10 +206,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
       // before showing the error; never automatically repeat a trading command.
       try {
         const next = await request("runtime.snapshot");
-        if (current === generation.current) {
-          held.current = next;
-          setSnapshot(next);
-        }
+        if (current === generation.current) accept(next);
       } catch {
         /* Keep the original command error. */
       }
@@ -234,8 +244,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
     plugin => plugin.tasks?.(scopedContext(plugin, context)) ?? [],
   );
   const failedTasks =
-    snapshot?.research?.tasks.filter(task => ["failed", "interrupted"].includes(task.state))
-      .length ?? 0;
+    (snapshot?.task_service?.failed_count ?? 0) + (snapshot?.task_service?.interrupted_count ?? 0);
   return (
     <WindowFrame
       title={settingsWindow ? t("设置") + " — Asterion Terminal" : t("星枢 · Asterion Terminal")}
@@ -323,6 +332,11 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
                     <Icon name="close" size={14} />
                   </button>
                 </div>
+                <TaskPagination
+                  taskService={snapshot?.task_service}
+                  busy={busy}
+                  trade={context.trade}
+                />
                 {backgroundTasks.length ? (
                   <div className="terminal-task-list">
                     {backgroundTasks.map(task => (
@@ -366,15 +380,15 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
               >
                 {t("{p0} 项任务执行中", {
                   p0:
-                    snapshot?.research?.tasks.filter(task =>
-                      ["running", "queued", "cancel_requested"].includes(task.state),
+                    snapshot?.task_service?.tasks.filter(task =>
+                      ["running", "queued", "cancel_requested", "publishing"].includes(task.state),
                     ).length ?? 0,
                 })}
                 {failedTasks > 0 && ` · ${t("{p0} 项任务异常", { p0: failedTasks })}`}
               </button>
               <span className="panel-spacer" />
               <span className="status-updated">
-                {error || snapshot?.stale
+                {error
                   ? t("状态待确认")
                   : checkedAt
                     ? t("状态读取于 {p0}", { p0: new Date(checkedAt).toLocaleTimeString(locale) })

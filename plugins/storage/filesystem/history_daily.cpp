@@ -7,9 +7,7 @@
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
-#include <condition_variable>
 #include <fstream>
-#include <mutex>
 namespace asterion::history_files {
 namespace {
 using namespace std::chrono;
@@ -85,15 +83,17 @@ void validate_page(const std::vector<HistoricalDailyBar>& bars, const Historical
 }
 Json verify(const std::filesystem::path& dir, std::vector<HistoricalDailyBar>* output = nullptr) {
   const auto manifest = read_json(dir / manifest_name);
+  if (!manifest.at("version").is_number_integer() || manifest.at("version") != 4)
+    throw std::invalid_argument("unsupported daily dataset format");
   require_fields(manifest, {"version", "source", "semantics", "amount_unit", "request", "pages",
-                            "rows", "complete"});
-  if (!manifest.at("version").is_number_integer() || manifest.at("version") != 3 ||
-      manifest.at("source") != manifest.at("request").at("source") ||
+                            "rows", "complete", "acquired_at_ns", "source_availability"});
+  if (manifest.at("source") != manifest.at("request").at("source") ||
       !valid_semantics(manifest.at("semantics")) ||
       manifest.at("semantics").at("source") != manifest.at("source") ||
       manifest.at("amount_unit") != "quote_currency" || !manifest.at("pages").is_array() ||
       !manifest.at("complete").is_boolean() || !manifest.at("rows").is_number_unsigned())
     throw std::invalid_argument("unsupported daily dataset format");
+  (void)acquired_at(manifest);
   const auto range = range_of(manifest.at("request"));
   const auto count = page_count(range);
   if (manifest.at("pages").size() > count ||
@@ -121,9 +121,12 @@ Json verify(const std::filesystem::path& dir, std::vector<HistoricalDailyBar>* o
   return manifest;
 }
 DailyDatasetInfo info(const Json& manifest) {
-  return {range_of(manifest.at("request")), manifest.at("rows").get<std::uint64_t>(),
-          static_cast<unsigned>(manifest.at("pages").size()), manifest.at("complete").get<bool>(),
-          sha256_bytes(manifest.dump())};
+  return {range_of(manifest.at("request")),
+          manifest.at("rows").get<std::uint64_t>(),
+          static_cast<unsigned>(manifest.at("pages").size()),
+          manifest.at("complete").get<bool>(),
+          sha256_bytes(manifest.dump()),
+          acquired_at(manifest)};
 }
 } // namespace
 HistoricalDailyRange daily_range(const data::v1::DailyDownload& input) {
@@ -186,14 +189,12 @@ void verify_daily_result(const data::v1::DailyDownload& input,
     throw std::invalid_argument("daily dataset result does not match request");
 }
 DailyDatasetInfo download_daily(HistoricalDailyPort& provider, const HistoricalDailyRange& range,
-                                const std::filesystem::path& dir, unsigned rpm,
-                                std::stop_token stop, DailyProgress progress) {
+                                const std::filesystem::path& dir, std::stop_token stop,
+                                DailyProgress progress) {
   const auto semantics = encode_semantics(provider.semantics());
   if (provider.semantics().source != range.source)
     throw std::invalid_argument("historical source mismatch");
   const auto total = page_count(range);
-  if (!rpm || rpm > 500)
-    throw std::invalid_argument("Historical request rate must be 1..500 per minute");
   directory_check(dir);
   FileLock lock(dir, "daily.lock");
   Json manifest;
@@ -205,18 +206,19 @@ DailyDatasetInfo download_daily(HistoricalDailyPort& provider, const HistoricalD
     for (const auto& file : std::filesystem::directory_iterator(dir))
       if (file.path().filename() != "daily.lock")
         throw std::invalid_argument("daily dataset directory is not empty");
-    manifest = {{"version", 3},
+    manifest = {{"version", 4},
                 {"source", range.source},
                 {"semantics", semantics},
                 {"amount_unit", "quote_currency"},
                 {"request", specification(range)},
                 {"pages", Json::array()},
                 {"rows", 0},
-                {"complete", false}};
+                {"complete", false},
+                {"acquired_at_ns", "0"},
+                {"source_availability", "unknown"}};
     replace_file_durably(dir / manifest_name, manifest.dump());
   }
   auto rows = manifest.at("rows").get<std::uint64_t>();
-  auto next_request = steady_clock::now();
   if (progress)
     progress(static_cast<unsigned>(manifest.at("pages").size()), total, rows);
   for (unsigned i = static_cast<unsigned>(manifest.at("pages").size()); i < total; ++i) {
@@ -230,13 +232,6 @@ DailyDatasetInfo download_daily(HistoricalDailyPort& provider, const HistoricalD
       page = parquet::read_daily_bars(path);
       validate_page(page, request);
     } else {
-      std::mutex mutex;
-      std::condition_variable_any wake;
-      std::unique_lock guard(mutex);
-      wake.wait_until(guard, stop, next_request, [] { return false; });
-      if (stop.stop_requested())
-        throw std::runtime_error("Historical download cancelled");
-      next_request = steady_clock::now() + milliseconds((60000 + rpm - 1) / rpm);
       page = provider.read(request, stop);
       validate_page(page, request);
       parquet::write_daily_bars(path, page);
@@ -244,7 +239,7 @@ DailyDatasetInfo download_daily(HistoricalDailyPort& provider, const HistoricalD
     rows += page.size();
     manifest["pages"].push_back({{"rows", page.size()}, {"sha256", sha256_file(path)}});
     manifest["rows"] = rows;
-    manifest["complete"] = i + 1 == total;
+    complete_version(manifest, i + 1 == total);
     replace_file_durably(dir / manifest_name, manifest.dump());
     if (progress)
       progress(i + 1, total, rows);
@@ -258,7 +253,7 @@ std::vector<std::string> daily_trading_days(const std::filesystem::path& dir,
   if (sha256_file(dir / manifest_name) != expected_revision)
     throw std::invalid_argument("historical archive revision mismatch");
   const auto manifest = read_json(dir / manifest_name);
-  if (manifest.at("version") != 3 || !manifest.at("complete").get<bool>())
+  if (manifest.at("version") != 4 || !manifest.at("complete").get<bool>())
     throw std::invalid_argument("daily dataset is incomplete");
   std::vector<std::filesystem::path> files;
   for (unsigned i = 0; i < manifest.at("pages").size(); ++i) {

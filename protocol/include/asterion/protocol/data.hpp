@@ -13,7 +13,12 @@ Json decode_history_usage(const data::v1::HistoryUsage&);
 Json decode_history_update_plan(const data::v1::HistoryUpdatePlan&);
 Json decode_minute_page(const data::v1::MinutePage&);
 
-// Research datasets run in memory inside one task.
+// Evidence is fixed with task inputs, independently of bar content identity.
+void validate_history_evidence(const data::v1::HistoryVersionEvidence&);
+Json decode_history_evidence(const data::v1::HistoryVersionEvidence&);
+data::v1::HistoryVersionEvidence encode_history_evidence(const Json&);
+
+// Task datasets run in memory inside one task.
 inline constexpr int max_dataset_sources = 32;
 inline constexpr std::size_t max_dataset_bars = 200000;
 Instrument instrument(const v1::Contract&);
@@ -25,11 +30,12 @@ std::string bar_dataset_revision(const data::v1::BarDataset&);
 void validate_bar_dataset(const data::v1::BarDataset&);
 std::vector<MarketBar> dataset_bars(const data::v1::BarDataset&);
 std::vector<DaySettlement> dataset_days(const data::v1::BarDataset&);
-Json decode_bar_dataset(const data::v1::BarDataset&);
+// Both views validate the entire dataset; metadata omits bars and settlements.
+Json decode_bar_dataset(const data::v1::BarDataset&, DatasetView view = DatasetView::full);
 data::v1::BarDataset encode_bar_dataset(const Json&);
 data::v1::BarDatasetRequest encode_bar_dataset_request(const Json&);
 Json decode_bar_dataset_request(const data::v1::BarDatasetRequest&);
-std::string research_dataset_revision(const data::v1::ResearchDataset&);
-void validate_research_dataset(const data::v1::ResearchDataset&);
-Json decode_research_dataset(const data::v1::ResearchDataset&);
+std::string named_dataset_revision(const data::v1::NamedDataset&);
+void validate_named_dataset(const data::v1::NamedDataset&);
+Json decode_named_dataset(const data::v1::NamedDataset&);
 } // namespace asterion::protocol

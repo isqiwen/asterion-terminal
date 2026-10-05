@@ -1,20 +1,26 @@
 #pragma once
 #include <memory>
+#include <future>
+#include <functional>
+#include <exception>
+#include <string>
+#include <asterion/kernel/payload_budget.hpp>
 #include <nlohmann/json.hpp>
 namespace asterion::terminal {
-// Thread-safe facade. Operations touching services are serialized internally.
-// While one is in progress, runtime.snapshot returns the most recent snapshot
-// with "stale": true instead of queueing behind it, so status polling never
-// blocks on a slow service or a long deployment.
-// Historical minute queries capture a client, release the operation lock for I/O,
-// and reject results when the selected research service changed in the meantime.
-// Other commands are rejected with conflict while a command is active; they
-// never sit in a queue and execute later against a changed workspace.
+// Native request boundary over one I/O state owner. Commands suspend for service
+// or management work; other requests and background publications keep advancing.
+// Each account and the node-management workflow have explicit admission gates.
+// Callers retain Application until their requests finish.
 class Application {
 public:
   Application();
   ~Application();
   nlohmann::json dispatch(const nlohmann::json& request);
+  // Encoded response or encoding failure, exactly once after successful admission.
+  // Completion runs on the owner and must not throw or destroy Application.
+  // The future completes after the callback returns; retain Application until then.
+  using Completion = std::function<void(Payload, std::exception_ptr)>;
+  std::future<void> request(std::string wire, Completion complete);
 
 private:
   friend struct ApplicationTestAccess;

@@ -14,8 +14,7 @@ struct PaperPortfolio {
 };
 PaperPortfolio paper_portfolio(const protocol::v1::PaperInput& input);
 // Day-end schedule of a portfolio in replay order.
-PaperReplaySchedule replay_schedule(const std::vector<Instrument>& contracts,
-                                    const std::vector<std::vector<MarketBar>>& bars,
-                                    const std::vector<std::vector<DaySettlement>>& days);
-PaperReplaySchedule replay_schedule(const PaperPortfolio& portfolio);
+// sparse: empty, or one flag per contract for months of a dominant series.
+PaperReplaySchedule replay_schedule(const PaperPortfolio& portfolio,
+                                    const std::vector<bool>& sparse = {});
 } // namespace asterion

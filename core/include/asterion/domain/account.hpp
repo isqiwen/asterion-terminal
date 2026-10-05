@@ -2,6 +2,8 @@
 #include <asterion/domain/order.hpp>
 #include <asterion/foundation/serialization.hpp>
 #include <optional>
+#include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -60,6 +62,23 @@ struct AccountOrder {
 class FuturesAccount {
 public:
   FuturesAccount(Decimal deposit, std::vector<ContractTerms> contracts);
+  // Roll back a group of mutations unless committed. Captures mutable positions,
+  // marks, costs and working orders; immutable completed history stays in place.
+  // The account must outlive its transaction and remain at the same address.
+  class Transaction {
+  public:
+    Transaction(Transaction&&) noexcept;
+    Transaction(const Transaction&) = delete;
+    ~Transaction();
+    void commit() noexcept;
+
+  private:
+    friend class FuturesAccount;
+    explicit Transaction(FuturesAccount&);
+    struct State;
+    std::unique_ptr<State> state_;
+  };
+  Transaction transaction();
   void submit(LimitOrder request, Offset offset);
   void cancel(const std::string& id);
   bool fill(const Fill& report);
@@ -67,6 +86,9 @@ public:
   // Settles every contract at its price, ordered as contracts(). Only with no
   // outstanding orders; the caller owns the calendar.
   void settle(const std::vector<Decimal>& prices);
+  // As above for a portfolio whose contracts do not all trade every day: a
+  // contract without a price keeps its mark and must hold no position.
+  void settle_traded(const std::vector<std::optional<Decimal>>& prices);
   // At a trading-day boundary, after cancelling orders. Revalues margin on
   // existing positions without changing balances or past fees.
   void update_costs(const std::vector<FuturesCosts>& costs);
@@ -75,6 +97,9 @@ public:
   // Index of a contract in contracts(); throws for a contract outside the account.
   std::size_t contract_index(const InstrumentId& instrument) const;
   const std::vector<AccountOrder>& orders() const noexcept { return orders_; }
+  // Stable indexes into orders(), in arrival order. Completed orders remain in
+  // the ledger but do not participate in matching, reservations or risk scans.
+  const std::set<std::size_t>& working_orders() const noexcept { return working_orders_; }
   const std::vector<PositionLot>& positions() const noexcept { return lots_; }
   const std::vector<Fill>& fills() const noexcept { return fills_; }
   Decimal balance() const noexcept { return balance_; }
@@ -102,6 +127,7 @@ private:
   Decimal balance_, fees_, realized_;
   std::vector<PositionLot> lots_;
   std::vector<AccountOrder> orders_;
+  std::set<std::size_t> working_orders_;
   std::vector<Fill> fills_;
   // Identity indexes into orders_ and fills_; both vectors only grow.
   std::unordered_map<std::string, std::size_t> order_index_;

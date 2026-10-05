@@ -1,6 +1,7 @@
 #include <asterion/kernel/process/file_lock.hpp>
 #ifndef _WIN32
 #include <sys/wait.h>
+#include <sys/stat.h>
 #endif
 #include <asterion/kernel/environment.hpp>
 #ifdef _WIN32
@@ -13,10 +14,12 @@
 #include <fstream>
 #include <asterion/kernel/durable_file.hpp>
 #include <gtest/gtest.h>
-#include <asterion/kernel/runtime.hpp>
 #include <asterion/kernel/thread_pool.hpp>
+#include <asterion/kernel/polled_task.hpp>
 #include <condition_variable>
 #include <future>
+#include <barrier>
+#include <asterion/kernel/process/child.hpp>
 #include <iostream>
 using namespace asterion;
 TEST(Kernel, worker_shutdown) {
@@ -44,74 +47,6 @@ TEST(Kernel, worker_shutdown) {
   EXPECT_THROW(([&] { failed.get(); })(), std::runtime_error);
   next.get();
 }
-struct LifecyclePlugin final : Plugin {
-  std::vector<std::string>& events;
-  std::string name;
-  bool fail;
-  LifecyclePlugin(std::vector<std::string>& events_, std::string name_, bool fail_ = false)
-      : events(events_), name(std::move(name_)), fail(fail_) {}
-  PluginDescriptor descriptor() const override {
-    return {name, PluginKind::tool, plugin_contract_version, {}};
-  }
-  void start() override {
-    events.push_back(name + ".start");
-    if (fail)
-      throw std::runtime_error("start failure");
-  }
-  void stop() noexcept override { events.push_back(name + ".stop"); }
-};
-TEST(Kernel, runtime_integration) {
-  auto clock = std::make_shared<ManualClock>(123);
-  Runtime runtime("test.runtime", clock);
-  std::vector<std::string> lifecycle;
-  runtime.add_plugin(std::make_unique<LifecyclePlugin>(lifecycle, "first"));
-  runtime.add_plugin(std::make_unique<LifecyclePlugin>(lifecycle, "second"));
-  runtime.command("service.read", [&](const Json&) {
-    clock->advance(5);
-    return Json(7);
-  });
-  runtime.command("service.stop", [&](const Json&) {
-    runtime.stop();
-    return Json();
-  });
-  EXPECT_THROW(([&] { runtime.command("service.read", [](const Json&) { return Json(); }); })(),
-               Error)
-      << "duplicate command";
-  EXPECT_THROW(([&] { runtime.dispatch("service.read", {}); })(), Error) << "not started";
-  runtime.start();
-  EXPECT_THROW(([&] { runtime.command("late", [](const Json&) { return Json(); }); })(), Error)
-      << "composition is sealed once started";
-  EXPECT_TRUE((runtime.dispatch("service.read", {}) == 7));
-  EXPECT_THROW(([&] { runtime.dispatch("service.unknown", {}); })(), Error);
-  EXPECT_THROW(([&] { runtime.dispatch("service.stop", {}); })(), Error);
-  EXPECT_TRUE((runtime.state() == RuntimeState::running))
-      << "callback cannot tear down running command";
-  EXPECT_TRUE((runtime.observations().metrics().succeeded == 1 &&
-               runtime.observations().metrics().failed == 2))
-      << "runtime traces successes and failed or unknown commands";
-  EXPECT_TRUE((runtime.observations().recent().front().duration_ns == 5))
-      << "monotonic trace timing";
-  runtime.stop();
-  EXPECT_TRUE((lifecycle == std::vector<std::string>(
-                                {"first.start", "second.start", "second.stop", "first.stop"})))
-      << "runtime owns reverse teardown";
-  EXPECT_THROW(([&] { runtime.start(); })(), Error);
-  Observability bounded(2);
-  bounded.record({"t:1", "request", 1, 0, true});
-  bounded.record({"t:2", "request", 2, 1, false});
-  bounded.record({"t:3", "request", 3, 2, true});
-  EXPECT_TRUE(
-      (bounded.recent().size() == 2 && bounded.dropped() == 1 && bounded.metrics().succeeded == 2))
-      << "bounded traces and cumulative metrics";
-  std::vector<std::string> failed_lifecycle;
-  Runtime failed("test.failed");
-  failed.add_plugin(std::make_unique<LifecyclePlugin>(failed_lifecycle, "first"));
-  failed.add_plugin(std::make_unique<LifecyclePlugin>(failed_lifecycle, "second", true));
-  EXPECT_THROW(([&] { failed.start(); })(), std::runtime_error);
-  EXPECT_TRUE((failed.state() == RuntimeState::failed && failed_lifecycle.back() == "first.stop"))
-      << "startup rollback exposes failed state";
-}
-
 TEST(ThreadPool, WorkersRunConcurrentlyAndShutdownCancelsQueue) {
   std::mutex mutex;
   std::condition_variable_any condition;
@@ -289,4 +224,175 @@ TEST(Kernel, FileLockReadersShareWhileWritersRemainExclusive) {
 #endif
   }
   EXPECT_NO_THROW(FileLock(root, "dataset.lock"));
+}
+
+#ifndef _WIN32
+namespace {
+class DurableFiles : public testing::Test {
+protected:
+  std::filesystem::path root;
+  void SetUp() override {
+    root = std::filesystem::temp_directory_path() / ("ast-durable-" + unique_process_id());
+    std::filesystem::create_directory(root);
+  }
+  void TearDown() override {
+    fail_next_directory_syncs_for_testing(0);
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+  }
+  static std::string read(const std::filesystem::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file)
+      throw std::runtime_error("fixture file is missing");
+    return {std::istreambuf_iterator<char>(file), {}};
+  }
+};
+} // namespace
+TEST_F(DurableFiles, LinksAndSpecialFilesAreRejectedBeforeChangingTargetBytesOrPermissions) {
+  const auto original = root / "original";
+  write_file_durably(original, "preserved");
+  using std::filesystem::perms;
+  std::filesystem::permissions(original,
+                               perms::owner_read | perms::owner_write | perms::group_read);
+  const auto mode = std::filesystem::status(original).permissions();
+  std::filesystem::create_symlink(original, root / "symbolic");
+  EXPECT_THROW(write_file_durably(root / "symbolic", "wrong"), std::runtime_error);
+  std::filesystem::create_hard_link(original, root / "hard");
+  EXPECT_THROW(write_file_durably(root / "hard", "wrong"), std::runtime_error);
+  EXPECT_EQ(read(original), "preserved");
+  EXPECT_EQ(std::filesystem::status(original).permissions(), mode);
+  std::filesystem::create_symlink(root / "not-created", root / "dangling");
+  EXPECT_THROW(write_file_durably(root / "dangling", "wrong"), std::runtime_error);
+  EXPECT_FALSE(std::filesystem::exists(root / "not-created"));
+  ASSERT_EQ(::mkfifo((root / "fifo").c_str(), 0600), 0);
+  EXPECT_THROW(write_file_durably(root / "fifo", "wrong"), std::runtime_error);
+  EXPECT_THROW(publish_file_durably(root / "fifo", root / "published"), std::runtime_error);
+  EXPECT_FALSE(std::filesystem::exists(root / "published"));
+}
+TEST_F(DurableFiles, ExternalFileSyncPreservesIdentityAndRejectsUnsafeObjects) {
+  const auto file = root / "external-key";
+  std::ofstream(file) << "externally-generated-test-key";
+  std::filesystem::permissions(file, std::filesystem::perms::owner_read |
+                                         std::filesystem::perms::owner_write);
+  struct stat before{};
+  ASSERT_EQ(::lstat(file.c_str(), &before), 0);
+  const auto modified = std::filesystem::last_write_time(file).time_since_epoch().count();
+  fail_next_directory_syncs_for_testing(1);
+  EXPECT_THROW(sync_file_durably(file), std::runtime_error);
+  EXPECT_NO_THROW(sync_file_durably(file));
+  struct stat after{};
+  ASSERT_EQ(::lstat(file.c_str(), &after), 0);
+  EXPECT_EQ(before.st_ino, after.st_ino);
+  EXPECT_EQ(before.st_mode, after.st_mode);
+  EXPECT_EQ(std::filesystem::last_write_time(file).time_since_epoch().count(), modified);
+  EXPECT_EQ(read(file), "externally-generated-test-key");
+  std::filesystem::create_symlink(file, root / "symbolic");
+  EXPECT_THROW(sync_file_durably(root / "symbolic"), std::runtime_error);
+  std::filesystem::create_hard_link(file, root / "hard");
+  EXPECT_THROW(sync_file_durably(root / "hard"), std::runtime_error);
+  ASSERT_EQ(::mkfifo((root / "fifo").c_str(), 0600), 0);
+  EXPECT_THROW(sync_file_durably(root / "fifo"), std::runtime_error);
+  EXPECT_THROW(sync_file_durably(root / "missing"), std::runtime_error);
+  EXPECT_EQ(read(file), "externally-generated-test-key");
+}
+TEST_F(DurableFiles, UniqueReplacementPreservesUnrelatedTemporaryFilesAndCleansFailures) {
+  const auto file = root / "state";
+  write_file_durably(file, "old");
+  write_file_durably(root / "state.tmp", "user-owned-pending-data");
+  replace_file_durably(file, "new");
+  EXPECT_EQ(read(file), "new");
+  EXPECT_EQ(read(root / "state.tmp"), "user-owned-pending-data");
+  fail_next_directory_syncs_for_testing(1);
+  EXPECT_THROW(replace_file_durably(file, "published-before-sync-error"), std::runtime_error);
+  fail_next_directory_syncs_for_testing(0);
+  EXPECT_EQ(read(file), "published-before-sync-error");
+  std::filesystem::create_directory(root / "directory-target");
+  EXPECT_THROW(replace_file_durably(root / "directory-target", "wrong"),
+               std::filesystem::filesystem_error);
+  for (const auto& entry : std::filesystem::directory_iterator(root))
+    EXPECT_TRUE(entry.path().filename() == "state" || entry.path().filename() == "state.tmp" ||
+                entry.path().filename() == "directory-target");
+}
+TEST_F(DurableFiles, ConcurrentReplacementsPublishOnlyCompletePayloads) {
+  const auto file = root / "shared";
+  constexpr std::size_t count = 32768;
+  write_file_durably(file, std::string(count, 'A'));
+  std::atomic<bool> corrupted{false};
+  std::jthread reader([&](std::stop_token stop) {
+    while (!stop.stop_requested()) {
+      try {
+        const auto bytes = read(file);
+        if (bytes.size() != count || bytes.front() < 'A' || bytes.front() > 'D' ||
+            bytes.find_first_not_of(bytes.front()) != std::string::npos)
+          corrupted = true;
+      } catch (...) {
+        corrupted = true;
+        break;
+      }
+    }
+  });
+  std::barrier begin(4);
+  std::vector<std::future<void>> writers;
+  for (int writer = 0; writer < 4; ++writer)
+    writers.push_back(std::async(std::launch::async, [&, writer] {
+      const std::string bytes(count, static_cast<char>('A' + writer));
+      begin.arrive_and_wait();
+      for (int i = 0; i < 8; ++i)
+        replace_file_durably(file, bytes);
+    }));
+  for (auto& writer : writers)
+    EXPECT_NO_THROW(writer.get());
+  reader.request_stop();
+  reader.join();
+  EXPECT_FALSE(corrupted);
+  EXPECT_EQ(std::distance(std::filesystem::directory_iterator(root),
+                          std::filesystem::directory_iterator()),
+            1);
+}
+TEST_F(DurableFiles, PublicationChecksTheOpenedSourceAndSyncsBothDirectories) {
+  std::filesystem::create_directory(root / "incoming");
+  std::filesystem::create_directory(root / "published");
+  const auto source = root / "incoming/payload";
+  const auto target = root / "published/payload";
+  write_file_durably(source, "complete");
+  std::filesystem::create_symlink(source, root / "alias");
+  EXPECT_THROW(publish_file_durably(root / "alias", target), std::runtime_error);
+  EXPECT_FALSE(std::filesystem::exists(target));
+  publish_file_durably(source, target);
+  EXPECT_EQ(read(target), "complete");
+  EXPECT_FALSE(std::filesystem::exists(source));
+}
+#endif
+
+TEST(Kernel, PolledOperationsApplyResultsOnlyOnTheOwnerAndPropagateFailure) {
+  std::promise<int> completion;
+  int observed = 0;
+  auto nested = [&](std::future<int> future) -> PolledTask<int> {
+    co_return co_await PollFuture{std::move(future)};
+  };
+  auto apply = [&](std::future<int> future) -> PolledTask<> {
+    observed = co_await nested(std::move(future));
+  };
+  auto waiting = apply(completion.get_future());
+  EXPECT_FALSE(waiting.poll());
+  ThreadPool worker(1, 1);
+  worker.submit([&](std::stop_token) { completion.set_value(7); }).get();
+  EXPECT_EQ(observed, 0);
+  std::promise<int> other;
+  other.set_value(3);
+  auto available = apply(other.get_future());
+  ASSERT_TRUE(available.poll());
+  available.take();
+  EXPECT_EQ(observed, 3);
+  ASSERT_TRUE(waiting.poll());
+  waiting.take();
+  EXPECT_EQ(observed, 7);
+
+  std::promise<int> failed;
+  auto rejected = apply(failed.get_future());
+  EXPECT_FALSE(rejected.poll());
+  failed.set_exception(std::make_exception_ptr(std::runtime_error("file failure")));
+  ASSERT_TRUE(rejected.poll());
+  EXPECT_THROW(rejected.take(), std::runtime_error);
+  EXPECT_EQ(observed, 7);
 }

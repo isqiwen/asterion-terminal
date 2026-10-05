@@ -236,6 +236,15 @@ void ChildProcess::release() {
 #endif
   impl_->finished = true;
 }
+void ChildProcess::request_stop() noexcept {
+#ifdef _WIN32
+  if (impl_->handle)
+    TerminateProcess(impl_->handle, 1);
+#else
+  if (!impl_->finished && impl_->pid > 0)
+    ::kill(impl_->pid, SIGTERM);
+#endif
+}
 ChildProcess::~ChildProcess() {
   if (wait(std::chrono::milliseconds(500)))
     return;

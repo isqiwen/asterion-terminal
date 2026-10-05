@@ -82,9 +82,9 @@ TEST(NativePlugin, SdkContainsExceptionsWithoutLeakingProviderText) {
 }
 TEST(NativePlugin, TushareIsDiscoveredWithoutCredentialsOrNetwork) {
   NativeLibrary library(PLUGIN_TUSHARE);
-  auto instance = library.create(AST_HISTORY_V1, {});
+  auto instance = library.create(AST_HISTORY_V2, {});
   auto* api =
-      static_cast<const AstHistoryV1*>(instance->query(AST_HISTORY_V1, 1, sizeof(AstHistoryV1)));
+      static_cast<const AstHistoryV2*>(instance->query(AST_HISTORY_V2, 2, sizeof(AstHistoryV2)));
   std::vector<std::string> sources;
   EXPECT_EQ(api->sources(instance->handle(), &sources,
                          [](void* context, const AstHistorySource* source) noexcept -> AstStatus {
@@ -96,8 +96,30 @@ TEST(NativePlugin, TushareIsDiscoveredWithoutCredentialsOrNetwork) {
             AST_OK);
   EXPECT_EQ(sources, (std::vector<std::string>{"tushare.ft_mins", "tushare.fut_daily"}));
   EXPECT_EQ(api->sources(instance->handle(), nullptr, nullptr), AST_INVALID);
-  EXPECT_THROW(library.create(AST_HISTORY_V1, {{"unknown", "x"}}), Error);
+  EXPECT_THROW(library.create(AST_HISTORY_V2, {{"unknown", "x"}}), Error);
   instance->start();
-  EXPECT_EQ(api->minutes(instance->handle(), nullptr, {}, nullptr, nullptr), AST_INVALID);
+  EXPECT_EQ(api->minutes(instance->handle(), nullptr, {}, {}, nullptr, nullptr), AST_INVALID);
+}
+TEST(NativePlugin, TushareRequiresAdmissionBeforeSendingDownloadRequests) {
+  NativeLibrary library(PLUGIN_TUSHARE);
+  auto instance =
+      library.create(AST_HISTORY_V2, {{"source", "tushare.fut_daily"}, {"credential", "fixture"}});
+  instance->start();
+  const auto* api =
+      static_cast<const AstHistoryV2*>(instance->query(AST_HISTORY_V2, 2, sizeof(AstHistoryV2)));
+  const AstHistoryQuery query{
+      {"SHFE", "cu", "2024-03"}, "CU2403.SHF", 0, 0, 0, "2024-03-01", "2024-03-01"};
+  unsigned requests = 0, emitted = 0;
+  const AstRequestBudget budget{&requests, [](void* value) noexcept -> AstStatus {
+                                  ++*static_cast<unsigned*>(value);
+                                  return AST_LIMIT;
+                                }};
+  const auto emit = [](void* value, const AstDaily*) noexcept -> AstStatus {
+    ++*static_cast<unsigned*>(value);
+    return AST_OK;
+  };
+  EXPECT_EQ(api->daily(instance->handle(), &query, {}, budget, &emitted, emit), AST_LIMIT);
+  EXPECT_EQ(requests, 1);
+  EXPECT_EQ(emitted, 0);
 }
 } // namespace

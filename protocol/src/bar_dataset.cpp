@@ -5,6 +5,7 @@
 #include <asterion/protocol/data.hpp>
 #include <algorithm>
 #include <charconv>
+#include <optional>
 #include <stdexcept>
 namespace asterion::protocol {
 namespace {
@@ -54,7 +55,13 @@ Json bar_json(const MarketBar& bar) {
           {"volume", bar.volume.str()}};
 }
 // Canonical content: the fields that define what the bars are, not where they came from.
-Json contents(const data::v1::BarDataset& dataset) {
+Json contents(const data::v1::BarDataset& dataset, DatasetView view) {
+  auto contract = decode_contract(dataset.contract());
+  Json result{{"version", 1},
+              {"contract", std::move(contract)},
+              {"interval_minutes", dataset.interval_minutes()}};
+  if (view == DatasetView::metadata)
+    return result;
   auto bars = Json::array();
   for (const auto& bar : dataset.bars())
     bars.push_back(bar_json(market_bar(bar)));
@@ -62,15 +69,34 @@ Json contents(const data::v1::BarDataset& dataset) {
   for (const auto& day : dataset.days())
     days.push_back({{"trading_day", day.trading_day()},
                     {"settlement_price", value(day.settlement_price()).str()}});
-  // Evaluated before the braced initializer (GCC < 13 PR66139 leak).
-  auto contract = decode_contract(dataset.contract());
-  return {{"version", 1},
-          {"contract", std::move(contract)},
-          {"interval_minutes", dataset.interval_minutes()},
-          {"bars", std::move(bars)},
-          {"days", std::move(days)}};
+  result["bars"] = std::move(bars);
+  result["days"] = std::move(days);
+  return result;
 }
 } // namespace
+void validate_history_evidence(const data::v1::HistoryVersionEvidence& evidence) {
+  validate_message(evidence);
+  if (!digest(evidence.dataset_id()) || evidence.acquired_at_ns() <= 0 ||
+      evidence.source_availability() != data::v1::SOURCE_AVAILABILITY_UNKNOWN)
+    throw std::invalid_argument("invalid historical availability evidence");
+}
+Json decode_history_evidence(const data::v1::HistoryVersionEvidence& evidence) {
+  validate_history_evidence(evidence);
+  return {{"dataset_id", evidence.dataset_id()},
+          {"acquired_at_ns", std::to_string(evidence.acquired_at_ns())},
+          {"source_availability", "unknown"}};
+}
+data::v1::HistoryVersionEvidence encode_history_evidence(const Json& json) {
+  require_fields(json, {"dataset_id", "acquired_at_ns", "source_availability"});
+  if (json.at("source_availability") != "unknown")
+    throw std::invalid_argument("invalid historical availability evidence");
+  data::v1::HistoryVersionEvidence result;
+  result.set_dataset_id(json.at("dataset_id").get<std::string>());
+  result.set_acquired_at_ns(nanoseconds(json.at("acquired_at_ns")));
+  result.set_source_availability(data::v1::SOURCE_AVAILABILITY_UNKNOWN);
+  validate_history_evidence(result);
+  return result;
+}
 Instrument instrument(const v1::Contract& c) {
   if (!c.has_price_increment() || !c.has_quantity_increment() || !c.has_multiplier())
     throw std::invalid_argument("incomplete contract specification");
@@ -98,14 +124,61 @@ MarketBar market_bar(const v1::Bar& bar) {
           value(bar.low()),  value(bar.close()), value(bar.volume())};
 }
 std::string bar_dataset_revision(const data::v1::BarDataset& dataset) {
-  return sha256_bytes(contents(dataset).dump());
+  // Preserve the exact sorted-key JSON digest without constructing a JSON
+  // object for every bar. Only the canonical byte buffer grows with the input.
+  std::string canonical = "{\"bars\":[";
+  std::string previous_day, encoded_day;
+  bool first = true;
+  for (const auto& row : dataset.bars()) {
+    const auto bar = market_bar(row);
+    if (!first)
+      canonical += ',';
+    if (first || previous_day != bar.trading_day) {
+      previous_day = bar.trading_day;
+      encoded_day = Json(previous_day).dump();
+    }
+    first = false;
+    canonical += "{\"close\":\"";
+    canonical += bar.close.str();
+    canonical += "\",\"high\":\"";
+    canonical += bar.high.str();
+    canonical += "\",\"low\":\"";
+    canonical += bar.low.str();
+    canonical += "\",\"open\":\"";
+    canonical += bar.open.str();
+    canonical += "\",\"timestamp_ns\":\"";
+    canonical += std::to_string(bar.timestamp_ns);
+    canonical += "\",\"trading_day\":";
+    canonical += encoded_day;
+    canonical += ",\"volume\":\"";
+    canonical += bar.volume.str();
+    canonical += "\"}";
+  }
+  canonical += "],\"contract\":";
+  canonical += decode_contract(dataset.contract()).dump();
+  canonical += ",\"days\":[";
+  first = true;
+  for (const auto& day : dataset.days()) {
+    if (!first)
+      canonical += ',';
+    first = false;
+    canonical += "{\"settlement_price\":\"";
+    canonical += value(day.settlement_price()).str();
+    canonical += "\",\"trading_day\":";
+    canonical += Json(day.trading_day()).dump();
+    canonical += '}';
+  }
+  canonical += "],\"interval_minutes\":";
+  canonical += std::to_string(dataset.interval_minutes());
+  canonical += ",\"version\":1}";
+  return sha256_bytes(canonical);
 }
 void validate_bar_dataset(const data::v1::BarDataset& dataset) {
   validate_message(dataset);
-  if (dataset.version() != 1 || !dataset.has_contract() || dataset.bars_size() < 1 ||
+  if (dataset.version() != 2 || !dataset.has_contract() || dataset.bars_size() < 1 ||
       static_cast<std::size_t>(dataset.bars_size()) > max_dataset_bars || dataset.days_size() < 1 ||
       dataset.days_size() > dataset.bars_size())
-    throw std::invalid_argument("bar dataset requires version 1, 1..200000 bars and trading days");
+    throw std::invalid_argument("bar dataset requires version 2, 1..200000 bars and trading days");
   const auto interval = dataset.interval_minutes();
   if (interval > 1440)
     throw std::invalid_argument("unsupported bar interval");
@@ -120,21 +193,29 @@ void validate_bar_dataset(const data::v1::BarDataset& dataset) {
     throw std::invalid_argument("invalid bar dataset provenance");
   validate_versions(dataset.source_dataset_ids());
   validate_versions(dataset.settlement_dataset_ids());
+  std::set<std::string> versions(dataset.source_dataset_ids().begin(),
+                                 dataset.source_dataset_ids().end());
+  versions.insert(dataset.settlement_dataset_ids().begin(), dataset.settlement_dataset_ids().end());
+  if (dataset.history_evidence_size() != static_cast<int>(versions.size()))
+    throw std::invalid_argument("historical evidence does not match dataset versions");
+  auto expected = versions.begin();
+  for (const auto& evidence : dataset.history_evidence()) {
+    validate_history_evidence(evidence);
+    if (evidence.dataset_id() != *expected++)
+      throw std::invalid_argument("historical evidence does not match dataset versions");
+  }
   const auto spec = instrument(dataset.contract());
-  const MarketBar* previous = nullptr;
+  std::optional<MarketBar> previous;
   std::vector<std::string> bar_days;
-  std::vector<MarketBar> bars;
-  bars.reserve(static_cast<std::size_t>(dataset.bars_size()));
   for (const auto& row : dataset.bars()) {
-    bars.push_back(market_bar(row));
-    const auto& bar = bars.back();
+    auto bar = market_bar(row);
     bar.validate(spec);
     if (previous &&
         (bar.timestamp_ns <= previous->timestamp_ns || bar.trading_day < previous->trading_day))
       throw std::invalid_argument("dataset bars must be strictly ascending");
     if (bar_days.empty() || bar_days.back() != bar.trading_day)
       bar_days.push_back(bar.trading_day);
-    previous = &bar;
+    previous = std::move(bar);
   }
   std::vector<std::string> days;
   for (const auto& day : dataset.days()) {
@@ -166,9 +247,13 @@ std::vector<DaySettlement> dataset_days(const data::v1::BarDataset& dataset) {
     result.push_back({day.trading_day(), value(day.settlement_price())});
   return result;
 }
-Json decode_bar_dataset(const data::v1::BarDataset& dataset) {
+Json decode_bar_dataset(const data::v1::BarDataset& dataset, DatasetView view) {
   validate_bar_dataset(dataset);
-  auto result = contents(dataset);
+  auto result = contents(dataset, view);
+  result["version"] = dataset.version();
+  result["history_evidence"] = Json::array();
+  for (const auto& evidence : dataset.history_evidence())
+    result["history_evidence"].push_back(decode_history_evidence(evidence));
   result.update({{"revision", dataset.revision()},
                  {"source", dataset.source()},
                  {"source_dataset_ids", versions(dataset.source_dataset_ids())},
@@ -176,14 +261,15 @@ Json decode_bar_dataset(const data::v1::BarDataset& dataset) {
   return result;
 }
 data::v1::BarDataset encode_bar_dataset(const Json& json) {
-  require_fields(json, {"version", "revision", "contract", "interval_minutes", "bars", "days",
-                        "source", "source_dataset_ids", "settlement_dataset_ids"});
-  if (!json.at("version").is_number_integer() || json.at("version") != 1 ||
+  require_fields(json,
+                 {"version", "revision", "contract", "interval_minutes", "bars", "days", "source",
+                  "source_dataset_ids", "settlement_dataset_ids", "history_evidence"});
+  if (!json.at("version").is_number_integer() || json.at("version") != 2 ||
       !json.at("interval_minutes").is_number_unsigned() || !json.at("bars").is_array() ||
       !json.at("days").is_array() || json.at("bars").size() > max_dataset_bars)
     throw std::invalid_argument("unsupported bar dataset format");
   data::v1::BarDataset result;
-  result.set_version(1);
+  result.set_version(2);
   result.set_revision(json.at("revision").get<std::string>());
   *result.mutable_contract() = encode_contract(json.at("contract"));
   result.set_interval_minutes(json.at("interval_minutes").get<std::uint32_t>());
@@ -203,6 +289,11 @@ data::v1::BarDataset encode_bar_dataset(const Json& json) {
   result.set_source(json.at("source").get<std::string>());
   encode_versions(json.at("source_dataset_ids"), result.mutable_source_dataset_ids());
   encode_versions(json.at("settlement_dataset_ids"), result.mutable_settlement_dataset_ids());
+  if (!json.at("history_evidence").is_array() ||
+      json.at("history_evidence").size() > 2 * max_dataset_sources)
+    throw std::invalid_argument("historical evidence does not match dataset versions");
+  for (const auto& evidence : json.at("history_evidence"))
+    *result.add_history_evidence() = encode_history_evidence(evidence);
   validate_bar_dataset(result);
   return result;
 }
@@ -237,12 +328,12 @@ Json decode_bar_dataset_request(const data::v1::BarDatasetRequest& request) {
           {"end_day", request.end_day()},
           {"contract", std::move(contract)}};
 }
-std::string research_dataset_revision(const data::v1::ResearchDataset& value) {
+std::string named_dataset_revision(const data::v1::NamedDataset& value) {
   auto canonical = value;
   canonical.clear_id();
   return sha256_bytes(canonical.SerializeAsString());
 }
-void validate_research_dataset(const data::v1::ResearchDataset& value) {
+void validate_named_dataset(const data::v1::NamedDataset& value) {
   validate_message(value);
   if (value.version() != 1 || value.name().empty() || value.name().size() > 120 ||
       value.name().front() == ' ' || value.name().back() == ' ' ||
@@ -250,20 +341,20 @@ void validate_research_dataset(const data::v1::ResearchDataset& value) {
                   [](unsigned char c) { return c < 32 || c == 127; }) ||
       value.selections_size() < 1 || value.selections_size() > 20 ||
       value.content_revisions_size() != value.selections_size())
-    throw std::invalid_argument("invalid saved research dataset");
+    throw std::invalid_argument("invalid saved dataset");
   std::set<std::string> contracts;
   for (int i = 0; i < value.selections_size(); ++i) {
     const auto& request = value.selections(i);
     (void)decode_bar_dataset_request(request);
     if (!contracts.insert(request.contract().venue() + "/" + request.contract().symbol()).second ||
         !digest(value.content_revisions(i)))
-      throw std::invalid_argument("invalid saved research dataset");
+      throw std::invalid_argument("invalid saved dataset");
   }
-  if (!digest(value.id()) || value.id() != research_dataset_revision(value))
-    throw std::invalid_argument("saved research dataset revision mismatch");
+  if (!digest(value.id()) || value.id() != named_dataset_revision(value))
+    throw std::invalid_argument("saved dataset revision mismatch");
 }
-Json decode_research_dataset(const data::v1::ResearchDataset& value) {
-  validate_research_dataset(value);
+Json decode_named_dataset(const data::v1::NamedDataset& value) {
+  validate_named_dataset(value);
   Json inputs = Json::array();
   for (int i = 0; i < value.selections_size(); ++i) {
     auto input = decode_bar_dataset_request(value.selections(i));

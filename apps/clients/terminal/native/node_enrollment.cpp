@@ -62,7 +62,7 @@ std::string batch_quote(const std::string& s) {
 void write(const fs::path& p, const std::string& content) {
   if (fs::is_symlink(p))
     throw std::invalid_argument("enrollment path cannot be a symlink");
-  write_file_durably(p, content);
+  replace_file_durably(p, content);
 }
 fs::path tool(const char* name) {
   if (const auto test = environment_path("ASTERION_SSH_TOOL_DIRECTORY")) {
@@ -402,12 +402,13 @@ Json prepare_ssh_key(const std::string& id) {
   const auto root = node_enrollment_directory();
   if (fs::is_symlink(root))
     throw std::invalid_argument("invalid enrollment root");
-  fs::create_directories(root);
+  create_directories_durably(root);
   FileLock lock(root, "ssh-keys.lock");
   const auto base = root / ".ssh-keys";
   if (!fs::exists(base) && !fs::is_symlink(base))
     private_directory(base);
   validate_key_path(base, true);
+  create_directories_durably(base);
   const auto directory = base / id;
   if (!fs::exists(directory) && !fs::is_symlink(directory)) {
     if (fs::exists(root / id / "enrollment.json"))
@@ -430,6 +431,7 @@ Json prepare_ssh_key(const std::string& id) {
     }
   }
   const auto checked = key_directory(id);
+  create_directories_durably(checked);
   validate_key_path(checked / "identity", false);
   const auto public_key = read_key_file(checked / "identity.pub");
   if (!public_key.starts_with("ssh-ed25519 ") || public_key.find("PRIVATE") != std::string::npos)
@@ -452,6 +454,10 @@ Json prepare_ssh_key(const std::string& id) {
   std::istringstream(actual) >> actual_type >> actual_body;
   if (type != actual_type || body != actual_body)
     throw std::invalid_argument("managed public/private key mismatch; original files preserved");
+  // OpenSSH owns generation. Flush its existing files without rewriting keys,
+  // including on an explicit retry after a failed durability barrier.
+  sync_file_durably(checked / "identity");
+  sync_file_durably(checked / "identity.pub");
   return {{"id", id}, {"public_key", public_key}};
 }
 Json inspect_node_firewall(const Json& p) {
@@ -504,7 +510,7 @@ Json change_node_firewall(const Json& p, const Json& plan) {
   const bool remove = plan.at("action") == "remove";
   if (fs::is_symlink(node_enrollment_directory()) || fs::is_symlink(file.parent_path()))
     throw std::invalid_argument("invalid firewall state directory");
-  fs::create_directories(file.parent_path());
+  create_directories_durably(file.parent_path());
 #ifndef _WIN32
   fs::permissions(file.parent_path(), fs::perms::owner_all);
 #endif
@@ -521,7 +527,7 @@ Json change_node_firewall(const Json& p, const Json& plan) {
   } else {
     if (fs::is_symlink(node_enrollment_directory()) || fs::is_symlink(file.parent_path()))
       throw std::invalid_argument("invalid firewall state directory");
-    fs::create_directories(file.parent_path());
+    create_directories_durably(file.parent_path());
 #ifndef _WIN32
     fs::permissions(file.parent_path(), fs::perms::owner_all);
 #endif
@@ -538,8 +544,10 @@ Json change_node_firewall(const Json& p, const Json& plan) {
                  os);
   if (result != Json{{"changed", true}})
     throw std::runtime_error("unexpected firewall change response");
-  if (remove)
+  if (remove) {
     fs::remove(file);
+    sync_directory(file.parent_path());
+  }
   Json completed = plan;
   completed["can_apply"] = false;
   completed["state"] = remove ? "removed" : "applied";
@@ -575,7 +583,7 @@ NodeEndpoint enrolled_node(const std::string& id) {
     throw std::invalid_argument("invalid enrollment");
   return endpoint(root, j);
 }
-NodeEndpoint enroll_node(const Json& p) {
+NodeEndpoint enroll_node(ServiceIo& io, const Json& p) {
   const auto id = p.at("id").get<std::string>();
   valid_id(id);
   const auto agent_port = port(p, "agent_port");
@@ -596,14 +604,15 @@ NodeEndpoint enroll_node(const Json& p) {
   const auto digest = sha256_file(binary);
   const auto probe =
       "test \"$(uname -s)\" = Linux && test \"$(uname -m)\" = " + quote("x86_64") +
-      " && test \"$(id -un)\" = asterion && sudo -n /usr/local/sbin/asterion-host --manage check";
+      " && test \"$(id -un)\" = asterion && test \"$(sudo -n /usr/local/sbin/asterion-host "
+      "--manage check)\" = asterion-host-v2";
   if (!ssh.command(probe))
     throw std::runtime_error("SSH verification failed; check host identity, authentication, Linux "
                              "platform and host initialization");
   const auto base = node_enrollment_directory();
   if (fs::is_symlink(base))
     throw std::invalid_argument("invalid enrollment root");
-  fs::create_directories(base);
+  create_directories_durably(base);
 #ifndef _WIN32
   fs::permissions(base, fs::perms::owner_all);
 #endif
@@ -621,12 +630,12 @@ NodeEndpoint enroll_node(const Json& p) {
       throw std::invalid_argument(
           "node name is used by another installation; its identity and services are not replaced");
     try {
-      NodeClient existing(endpoint(root, config));
+      auto existing = NodeClient::open(io, endpoint(root, config)).get();
       return endpoint(root, config);
     } catch (const std::exception&) {
     }
   } else {
-    fs::create_directory(root);
+    create_directories_durably(root);
 #ifndef _WIN32
     fs::permissions(root, fs::perms::owner_all);
 #endif
@@ -641,17 +650,100 @@ NodeEndpoint enroll_node(const Json& p) {
   write(root / "install.json", config.dump());
   std::string script =
       "#!/bin/sh\nset -eu\numask 077\nstage=" + quote(stage) + "\nroot=" + quote(destination) +
-      "\nif test -e \"$root\"; then cmp \"$stage/install.json\" \"$root/install.json\"; fi\n";
-  script += "actual=$(" + std::string("sha256sum") +
-            " \"$stage/agent\" | cut -d ' ' -f 1)\ntest \"$actual\" = " + quote(digest) +
-            "\nmkdir -p \"$root/state\"\nchmod 700 \"$root\"\ncp \"$stage/install.json\" "
-            "\"$root/install.json\"\nif test -e \"$root/asterion-node-agent\"; then cmp "
-            "\"$stage/agent\" \"$root/asterion-node-agent\"; else cp \"$stage/agent\" "
-            "\"$root/asterion-node-agent\"; fi\nchmod 700 \"$root/asterion-node-agent\"\n";
-  for (const auto* name : {"ca.crt", "server.crt", "server.key"})
-    script += "if test -e \"$root/" + std::string(name) + "\"; then cmp \"$stage/" + name +
-              "\" \"$root/" + name + "\"; else cp \"$stage/" + name + "\" \"$root/" + name +
-              "\"; fi\nchmod 600 \"$root/" + name + "\"\n";
+      "\n/usr/bin/python3 - \"$stage\" \"$root\" " + quote(digest) + " <<'ASTERION_PUBLISH'\n";
+  // This runs as the dedicated unprivileged SSH account. Only after every
+  // immutable prerequisite and install record is durable may sudo enable a unit.
+  script += R"PY(import hashlib
+import os
+from pathlib import Path
+import stat
+import sys
+import tempfile
+
+stage, root, expected_agent = Path(sys.argv[1]).absolute(), Path(sys.argv[2]), sys.argv[3]
+
+def sync_directory(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+def directory(path):
+    if path.is_symlink():
+        raise ValueError('Installation directory cannot be a symlink')
+    if not path.exists():
+        directory(path.parent)
+        path.mkdir(mode=0o700)
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode):
+        raise ValueError('Installation path is not a directory')
+    if path == root.parent or root in path.parents or path == root:
+        if info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise ValueError('Installation directory must be private to this user')
+    sync_directory(path)
+    sync_directory(path.parent)
+
+def open_owned(path):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    source = os.fdopen(fd, 'rb')
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_nlink != 1:
+        source.close()
+        raise ValueError('Installation file must be an owned regular file')
+    return source
+
+def verify(path, digest, mode):
+    with open_owned(path) as source:
+        if stat.S_IMODE(os.fstat(source.fileno()).st_mode) != mode or hashlib.file_digest(source, 'sha256').hexdigest() != digest:
+            raise ValueError('Existing installation differs; original files preserved')
+        os.fsync(source.fileno())
+    sync_directory(path.parent)
+
+def publish(source_path, target, mode, expected=None):
+    with open_owned(source_path) as source:
+        digest = hashlib.file_digest(source, 'sha256').hexdigest()
+        if expected is not None and digest != expected:
+            raise ValueError('Uploaded Agent integrity check failed')
+        try:
+            verify(target, digest, mode)
+        except FileNotFoundError:
+            pass
+        else:
+            return
+        source.seek(0)
+        fd, temporary = tempfile.mkstemp(prefix='.asterion-publish-', dir=target.parent)
+        try:
+            with os.fdopen(fd, 'wb') as output:
+                os.fchmod(output.fileno(), mode)
+                copied = hashlib.sha256()
+                while block := source.read(1024 * 1024):
+                    output.write(block)
+                    copied.update(block)
+                if copied.hexdigest() != digest:
+                    raise ValueError('Uploaded file changed during publication')
+                output.flush()
+                os.fsync(output.fileno())
+            try:
+                os.link(temporary, target, follow_symlinks=False)
+            except FileExistsError:
+                verify(target, digest, mode)
+        finally:
+            os.unlink(temporary)
+        sync_directory(target.parent)
+
+directory(root)
+# Reject another installation before publishing any prerequisite.
+if (root / 'install.json').exists() or (root / 'install.json').is_symlink():
+    with open_owned(stage / 'install.json') as source:
+        verify(root / 'install.json', hashlib.file_digest(source, 'sha256').hexdigest(), 0o600)
+directory(root / 'state')
+publish(stage / 'agent', root / 'asterion-node-agent', 0o700, expected_agent)
+for name in ('ca.crt', 'server.crt', 'server.key'):
+    publish(stage / name, root / name, 0o600)
+publish(stage / 'install.json', root / 'install.json', 0o600)
+)PY";
+  script += "ASTERION_PUBLISH\n";
   script += "sudo -n /usr/local/sbin/asterion-host --manage install " + quote(id) + " " +
             std::to_string(agent_port) + " " + quote(bind) + "\n";
   write(root / "install", script);
@@ -676,8 +768,8 @@ NodeEndpoint enroll_node(const Json& p) {
   const auto deadline = std::chrono::steady_clock::now() + 30s;
   for (;;) {
     try {
-      NodeClient node(config_endpoint);
-      const auto status = node.status();
+      auto node = NodeClient::open(io, config_endpoint).get();
+      const auto status = node->status().get();
       if (status.at("health").at("os") != platform.os ||
           status.at("health").at("arch") != platform.arch)
         throw std::invalid_argument("installed Agent platform mismatch");

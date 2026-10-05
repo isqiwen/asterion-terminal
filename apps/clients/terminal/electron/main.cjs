@@ -31,6 +31,7 @@ const variables = {
   ASTERION_NODE_AGENT_EXECUTABLE: "asterion-node-agent",
   ASTERION_MARKET_EXECUTABLE: "asterion-market-data",
   ASTERION_TASK_EXECUTABLE: "asterion-task-service",
+  ASTERION_DATA_SERVICE_EXECUTABLE: "asterion-data-service",
   ASTERION_BACKTEST_EXECUTABLE: "asterion-backtest",
   ASTERION_FACTOR_EXECUTABLE: "asterion-factor",
   ASTERION_DATA_PIPELINE_EXECUTABLE: "asterion-data-pipeline",

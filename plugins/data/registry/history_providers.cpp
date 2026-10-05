@@ -14,10 +14,10 @@ std::string text(const char* s) {
     throw std::invalid_argument("invalid native history text");
   return s;
 }
-const AstHistoryV1& table(const NativeInstance& instance) {
+const AstHistoryV2& table(const NativeInstance& instance) {
   const auto* t =
-      static_cast<const AstHistoryV1*>(instance.query(AST_HISTORY_V1, 1, sizeof(AstHistoryV1)));
-  if (t->size != sizeof(AstHistoryV1) || t->version != 1 || !t->sources || !t->catalog ||
+      static_cast<const AstHistoryV2*>(instance.query(AST_HISTORY_V2, 2, sizeof(AstHistoryV2)));
+  if (t->size != sizeof(AstHistoryV2) || t->version != 2 || !t->sources || !t->catalog ||
       !t->minutes || !t->daily)
     throw std::invalid_argument("invalid native history capability");
   return *t;
@@ -90,10 +90,10 @@ const std::vector<Installed>& registry() {
     for (auto& library : discover_native_plugins(native_plugin_directory())) {
       const auto& descriptor = library.descriptor();
       if (std::ranges::none_of(descriptor.capabilities, [](const auto& c) {
-            return c.id == AST_HISTORY_V1 && c.version == 1;
+            return c.id == AST_HISTORY_V2 && c.version == 2;
           }))
         continue;
-      auto instance = library.create(AST_HISTORY_V1, {});
+      auto instance = library.create(AST_HISTORY_V2, {});
       Output<Source> out;
       const auto status = table(*instance).sources(
           instance->handle(), &out,
@@ -169,13 +169,10 @@ struct Provider {
             throw std::invalid_argument("invalid native plugin credential");
           source = item;
           instance = installed.library.create(
-              AST_HISTORY_V1, {{"source", id.c_str()}, {"credential", credential.c_str()}});
+              AST_HISTORY_V2, {{"source", id.c_str()}, {"credential", credential.c_str()}});
           return;
         }
     throw std::invalid_argument("historical data source is unavailable");
-  }
-  PluginDescriptor descriptor() const {
-    return {source.plugin_id, PluginKind::data, plugin_contract_version, {}};
   }
   void interval(unsigned value) const {
     if (std::ranges::find(source.intervals, value) == source.intervals.end())
@@ -190,19 +187,45 @@ AstCancellation cancellation(std::stop_token& stop) {
 AstContract contract(const HistoryIdentity& value) {
   return {value.venue.c_str(), value.product.c_str(), value.delivery_month.c_str()};
 }
+struct Admission {
+  const RequestBudget& acquire;
+  std::stop_token stop;
+  std::exception_ptr error;
+  AstRequestBudget callback() {
+    return {this, [](void* context) noexcept -> AstStatus {
+              auto& self = *static_cast<Admission*>(context);
+              if (self.error)
+                return AST_FAILED;
+              try {
+                if (self.stop.stop_requested())
+                  check_plugin_status(AST_CANCELLED);
+                if (!self.acquire)
+                  throw std::invalid_argument("download request budget is not configured");
+                self.acquire(self.stop);
+                return AST_OK;
+              } catch (...) {
+                self.error = std::current_exception();
+                return AST_FAILED;
+              }
+            }};
+  }
+  void finish() const {
+    if (error)
+      std::rethrow_exception(error);
+  }
+};
 class Minutes final : public HistoricalBarPort {
   Provider provider_;
+  RequestBudget budget_;
 
 public:
-  Minutes(const std::string& source, const std::string& credential)
-      : provider_(source, credential) {
+  Minutes(const std::string& source, const std::string& credential, RequestBudget budget)
+      : provider_(source, credential), budget_(std::move(budget)) {
     if (provider_.source.intervals.front() == 0)
       throw std::invalid_argument("historical source interval is unavailable");
+    provider_.instance->start();
   }
-  PluginDescriptor descriptor() const override { return provider_.descriptor(); }
   HistorySemantics semantics() const override { return provider_.source.semantics; }
-  void start() override { provider_.instance->start(); }
-  void stop() noexcept override { provider_.instance->stop(); }
   std::vector<HistoricalBar> read(const HistoricalBarRange& range, std::stop_token stop) override {
     range.instrument.validate();
     provider_.interval(range.interval_minutes);
@@ -219,9 +242,10 @@ public:
                           nullptr};
     Output<HistoricalBar> out;
     const auto& instance = *provider_.instance;
+    Admission admission{budget_, stop, {}};
     const auto status =
-        table(instance).minutes(instance.handle(), &query, cancellation(stop), &out,
-                                [](void* c, const AstMinute* row) noexcept -> AstStatus {
+        table(instance).minutes(instance.handle(), &query, cancellation(stop), admission.callback(),
+                                &out, [](void* c, const AstMinute* row) noexcept -> AstStatus {
                                   return static_cast<Output<HistoricalBar>*>(c)->emit([&] {
                                     if (!row)
                                       throw std::invalid_argument("invalid native history row");
@@ -238,6 +262,7 @@ public:
                                     return b;
                                   });
                                 });
+    admission.finish();
     auto rows = out.finish(status, stop);
     int64_t previous = 0;
     for (const auto& row : rows) {
@@ -251,15 +276,15 @@ public:
 };
 class Daily final : public HistoricalDailyPort {
   Provider provider_;
+  RequestBudget budget_;
 
 public:
-  Daily(const std::string& source, const std::string& credential) : provider_(source, credential) {
+  Daily(const std::string& source, const std::string& credential, RequestBudget budget)
+      : provider_(source, credential), budget_(std::move(budget)) {
     provider_.interval(0);
+    provider_.instance->start();
   }
-  PluginDescriptor descriptor() const override { return provider_.descriptor(); }
   HistorySemantics semantics() const override { return provider_.source.semantics; }
-  void start() override { provider_.instance->start(); }
-  void stop() noexcept override { provider_.instance->stop(); }
   std::vector<HistoricalDailyBar> read(const HistoricalDailyRange& range,
                                        std::stop_token stop) override {
     range.instrument.validate();
@@ -277,8 +302,9 @@ public:
                           end.c_str()};
     Output<HistoricalDailyBar> out;
     const auto& instance = *provider_.instance;
+    Admission admission{budget_, stop, {}};
     const auto status = table(instance).daily(
-        instance.handle(), &query, cancellation(stop), &out,
+        instance.handle(), &query, cancellation(stop), admission.callback(), &out,
         [](void* c, const AstDaily* row) noexcept -> AstStatus {
           return static_cast<Output<HistoricalDailyBar>*>(c)->emit([&] {
             if (!row || row->has_previous_close > 1 || row->has_previous_settlement > 1 ||
@@ -302,6 +328,7 @@ public:
             return b;
           });
         });
+    admission.finish();
     auto rows = out.finish(status, stop);
     std::optional<std::chrono::year_month_day> previous;
     for (const auto& row : rows) {
@@ -373,13 +400,13 @@ void validate_request(const std::string& source, const HistoryIdentity& identity
       }
   throw std::invalid_argument("historical data source is unavailable");
 }
-std::unique_ptr<HistoricalBarPort> minutes(const std::string& source,
-                                           const std::string& credential) {
-  return std::make_unique<Minutes>(source, credential);
+std::unique_ptr<HistoricalBarPort> minutes(const std::string& source, const std::string& credential,
+                                           RequestBudget budget) {
+  return std::make_unique<Minutes>(source, credential, std::move(budget));
 }
-std::unique_ptr<HistoricalDailyPort> daily(const std::string& source,
-                                           const std::string& credential) {
-  return std::make_unique<Daily>(source, credential);
+std::unique_ptr<HistoricalDailyPort> daily(const std::string& source, const std::string& credential,
+                                           RequestBudget budget) {
+  return std::make_unique<Daily>(source, credential, std::move(budget));
 }
 std::vector<HistoryListing> catalog(const std::string& source, const std::string& credential,
                                     const std::string& venue, const std::string& product,

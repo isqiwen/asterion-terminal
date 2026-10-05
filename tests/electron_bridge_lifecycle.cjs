@@ -2,22 +2,45 @@
 delete process.env.ELECTRON_RUN_AS_NODE;
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 const { Worker } = require("node:worker_threads");
 const addon = path.resolve(process.argv[2]);
 const bridge = require(addon);
 const request = method => bridge.request(JSON.stringify({ version: 1, method, params: {} }));
 (async () => {
+  const failed = spawnSync(
+    process.execPath,
+    [
+      "-e",
+      `
+    const assert = require('node:assert/strict');
+    assert.throws(() => require(process.argv[1]), error =>
+      error.code === 'recovery_required' && error.message === 'Fixture initialization requires recovery');
+  `,
+      addon,
+    ],
+    { env: { ...process.env, ASTERION_TEST_BRIDGE_INIT_FAILURE: "1" }, encoding: "utf8" },
+  );
+  assert.equal(failed.status, 0, failed.stderr);
+
   const pending = Array.from({ length: 16 }, () => request("fixture.slow"));
   let running = 0;
-  for (let attempt = 0; attempt < 100 && running !== 4; attempt++) {
+  for (let attempt = 0; attempt < 100 && running !== 16; attempt++) {
     running = JSON.parse(await request("runtime.snapshot")).running;
-    if (running !== 4) await new Promise(resolve => setTimeout(resolve, 1));
+    if (running !== 16) await new Promise(resolve => setTimeout(resolve, 1));
   }
-  assert.equal(running, 4, "status lane did not respond while every request worker was busy");
+  assert.equal(
+    running,
+    16,
+    "status lane did not respond while all admitted requests were suspended",
+  );
   assert.throws(() => request("fixture.slow"), /Too many pending/);
   await Promise.all(pending);
   assert.equal(JSON.parse(await request("runtime.snapshot")).running, 0);
-  await assert.rejects(request("fixture.fail"), /Cannot allocate the C\+\+ response/);
+  await assert.rejects(
+    request("fixture.fail"),
+    error => error.code === "resource_exhausted" && error.message === "Fixture response failure",
+  );
   assert.equal(JSON.parse(await request("runtime.snapshot")).running, 0);
 
   for (let attempt = 0; attempt < 3; attempt++) {

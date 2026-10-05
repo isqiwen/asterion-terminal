@@ -11,9 +11,11 @@
   border-right: 1px solid var(--line);
   padding: 0 4px;
 }
-.activity-rail.expanded,
+.activity-rail.expanded {
+  width: 40px;
+}
 html[lang="en-US"] .activity-rail.expanded {
-  width: 48px;
+  width: 64px;
 }
 .rail-brand {
   color: var(--accent);
@@ -30,7 +32,7 @@ html[lang="en-US"] .activity-rail.expanded {
   flex-direction: column;
   justify-content: center;
   gap: 3px;
-  height: 44px;
+  height: 56px;
   padding: 4px 0;
   border: 0;
   border-radius: 2px;
@@ -40,8 +42,11 @@ html[lang="en-US"] .activity-rail.expanded {
   display: flex;
 }
 .activity-rail .workspace-tabs button .nav-label {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
   font-size: 10px;
-  line-height: 16px;
+  line-height: 12px;
 }
 .activity-rail .workspace-tabs button.active {
   background: var(--accent-surface);
@@ -174,15 +179,6 @@ html[lang="en-US"] .activity-rail.expanded {
 .rail-brand {
   display: none;
 }
-.activity-rail.expanded,
-html[lang="en-US"] .activity-rail.expanded {
-  width: 40px;
-}
-
-html[lang="en-US"] .activity-rail.expanded {
-  width: 64px;
-}
-
 /* Rail: icon column with a luminous active marker. */
 .activity-rail .workspace-tabs button {
   color: var(--subtle);

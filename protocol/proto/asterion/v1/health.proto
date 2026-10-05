@@ -1,0 +1,15 @@
+syntax = "proto3";
+package asterion.runtime.v1;
+// Ages are local monotonic durations, never wall-clock timestamps. Only the
+// executor publishes progress. Idle persistence does not require periodic work.
+message Progress { bool observed = 1; bool pending = 2; uint64 age_ms = 3; }
+message ExecutionHealth {
+  Progress io = 1;
+  Progress state = 2;
+  Progress persistence = 3;
+  // Last state-owner observation; stale progress invalidates its freshness.
+  // This is not trading authorization or permission to dispatch an order.
+  bool business_ready = 4;
+  Progress initialization = 5;
+  Progress command = 6;
+}

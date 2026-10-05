@@ -2,11 +2,20 @@ syntax = "proto3";
 package asterion.data.v1;
 import "asterion/v1/domain.proto";
 
-// Bars resolved by the task service from immutable archive versions.
+// Current providers do not prove historical publication/knowable times.
+// Unspecified is invalid: absence must not imply historical availability.
+enum SourceAvailability { SOURCE_AVAILABILITY_UNSPECIFIED = 0; SOURCE_AVAILABILITY_UNKNOWN = 1; }
+message HistoryVersionEvidence {
+  string dataset_id = 1; // immutable manifest identity
+  int64 acquired_at_ns = 2; // first complete local version publication, UTC
+  SourceAvailability source_availability = 3;
+}
+
+// Bars resolved by the data service from immutable archive versions.
 // revision is the SHA-256 of contract, interval, bars and days; provenance
 // fields identify the source downloads and are not part of content identity.
 message BarDataset {
-  uint32 version = 1;
+  uint32 version = 1; // 2
   string revision = 2;
   asterion.protocol.v1.Contract contract = 3;
   uint32 interval_minutes = 4; // 0 for daily bars
@@ -16,6 +25,8 @@ message BarDataset {
   reserved 8, 9, 10, 11, 13, 14;
   repeated string source_dataset_ids = 15;
   repeated string settlement_dataset_ids = 16;
+  // Sorted union of source and settlement versions, exactly once per identity.
+  repeated HistoryVersionEvidence history_evidence = 17;
   // Trading days of the settlement download, inside the dataset's first and
   // last bar days, that have no bars. Informational; not part of the revision.
   repeated string uncovered_days = 12;
@@ -23,12 +34,12 @@ message BarDataset {
 // Clients select published archive versions and a contract specification; they
 // cannot upload bars. Days are inclusive; empty means the dataset bounds.
 // A named immutable portfolio of exact archive inputs; no market rows are copied.
-message ResearchDataset {
+message NamedDataset {
   uint32 version = 1; string id = 2; string name = 3;
   repeated BarDatasetRequest selections = 4;
   repeated string content_revisions = 5;
 }
-message ResearchDatasets { repeated ResearchDataset items = 1; }
+message NamedDatasets { repeated NamedDataset items = 1; }
 message BarDatasetRequest {
   reserved 1, 2, 6, 7;
   // Sorted unique immutable versions, 1..32 per role. Same contract and semantics.
@@ -64,7 +75,7 @@ message MinutePageQuery {
   uint32 limit = 3;
   int64 begin_ns = 4; // zero means the dataset's requested boundary
   int64 end_ns = 5;
-  bool include_macd = 6; // dataset-origin display indicator, not a research/ledger value
+  bool include_macd = 6; // dataset-origin display indicator, not a task/ledger value
 }
 message ChartMacd {
   double diff = 1;
@@ -188,9 +199,8 @@ message HistoryUpdatePlan {
   oneof download { MinuteDownload minutes = 3; DailyDownload daily = 4; }
   repeated string missing_days = 5;
 }
-message HistoryUpdateSubmit { HistoryUpdateQuery query = 1; string plan_id = 2; }
 
-// Observed references in one research service only. This is not a deletion
+// Observed references from one owner only. This is not a deletion
 // permit: independent replay ledgers, other services and clients are not scanned.
 enum HistoryReferenceKind {
   HISTORY_REFERENCE_UNSPECIFIED = 0;

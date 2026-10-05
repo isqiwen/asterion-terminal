@@ -1,7 +1,11 @@
 """Permission-boundary tests; never alter host accounts, sudoers or services."""
 import base64
+import contextlib
 import importlib.util
+import io
+import os
 from pathlib import Path
+import stat
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -12,6 +16,46 @@ spec.loader.exec_module(host)
 
 
 class HostInitialization(unittest.TestCase):
+    def test_check_reports_the_current_durable_publication_contract(self):
+        output = io.StringIO()
+        with patch.object(host, 'account'), contextlib.redirect_stdout(output), patch.object(host, 'run') as run:
+            host.manage(['check'])
+        self.assertEqual(output.getvalue(), 'asterion-host-v2\n')
+        run.assert_not_called()
+
+    def test_failed_file_flush_does_not_publish_partial_administrative_configuration(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as root, patch.object(host, 'protected_directory'):
+            path = Path(root) / 'configuration'
+            with patch.object(host.os, 'fsync', side_effect=OSError('injected file flush failure')):
+                with self.assertRaisesRegex(OSError, 'injected'):
+                    host.put_once(path, 'complete configuration', 0o644)
+            self.assertFalse(path.exists())
+            self.assertEqual(list(Path(root).iterdir()), [])
+
+    def test_matching_configuration_retry_requires_directory_sync_without_rewriting(self):
+        # Emulate root ownership only; all I/O is confined to the disposable folder.
+        original_stat, original_lstat, original_fstat, original_sync = os.stat, os.lstat, os.fstat, os.fsync
+        def root_owned(info):
+            values = list(info); values[4] = 0
+            return os.stat_result(values)
+        def fail_directory(fd):
+            if stat.S_ISDIR(original_fstat(fd).st_mode):
+                raise OSError('injected directory flush failure')
+            original_sync(fd)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as root, patch.object(host, 'protected_directory'):
+            path = Path(root) / 'configuration'
+            path.write_text('complete configuration'); path.chmod(0o644)
+            before = original_stat(path)
+            with patch.object(host.os, 'stat', side_effect=lambda *a, **kw: root_owned(original_stat(*a, **kw))), patch.object(host.os, 'lstat', side_effect=lambda *a, **kw: root_owned(original_lstat(*a, **kw))), patch.object(host.os, 'fstat', side_effect=lambda fd: root_owned(original_fstat(fd))):
+                with patch.object(host.os, 'fsync', side_effect=fail_directory):
+                    with self.assertRaisesRegex(OSError, 'directory flush'):
+                        host.put_once(path, 'complete configuration', 0o644)
+                host.put_once(path, 'complete configuration', 0o644)
+            after = original_stat(path)
+            self.assertEqual((before.st_ino, before.st_mtime_ns, before.st_mode),
+                             (after.st_ino, after.st_mtime_ns, after.st_mode))
+            self.assertEqual(path.read_text(), 'complete configuration')
+
     def test_only_public_key_without_options(self):
         kind = b'ssh-ed25519'
         encoded = base64.b64encode(len(kind).to_bytes(4, 'big') + kind + b'\0' * 36).decode()

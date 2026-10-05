@@ -1,9 +1,10 @@
 #pragma once
+#include <asterion/kernel/plugin.hpp>
 #include <asterion/domain/strategy_port.hpp>
 #include <deque>
 namespace asterion {
 // Long/flat SMA trend strategy on bar closes. No clock, data source or execution ownership.
-class MovingAverage final : public StrategyPort {
+class MovingAverage final : public StrategyPort, public Plugin {
 public:
   MovingAverage(Instrument instrument, std::size_t fast, std::size_t slow, Decimal quantity);
   PluginDescriptor descriptor() const override;

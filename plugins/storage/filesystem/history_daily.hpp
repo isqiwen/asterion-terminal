@@ -20,6 +20,7 @@ struct DailyDatasetInfo {
   unsigned pages = 0;
   bool complete = false;
   std::string manifest_sha256;
+  std::int64_t acquired_at_ns = 0;
 };
 struct DailyDataset {
   DailyDatasetInfo info;
@@ -30,8 +31,8 @@ using DailyProgress = std::function<void(unsigned completed, unsigned total, std
 // Immutable source-date chunks; resume only identical requests. No credentials
 // are stored here. A single writer excludes readers; completed readers coexist.
 DailyDatasetInfo download_daily(HistoricalDailyPort&, const HistoricalDailyRange&,
-                                const std::filesystem::path&, unsigned requests_per_minute,
-                                std::stop_token = {}, DailyProgress = {});
+                                const std::filesystem::path&, std::stop_token = {},
+                                DailyProgress = {});
 DailyDatasetInfo inspect_daily(const std::filesystem::path&);
 // At most twenty years of one bar per date. Verify all hashes before returning.
 DailyDataset read_daily(const std::filesystem::path&);

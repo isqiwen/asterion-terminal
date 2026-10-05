@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { SavedResearchDataset, Snapshot, TerminalCommand } from "../bridge/client";
+import type { SavedNamedDataset, Snapshot, TerminalCommand } from "../bridge/client";
 import { translate } from "../i18n";
 import { asDisplayError, ErrorNotice, type DisplayError } from "../i18n/errors";
 import type { HistoryQuery } from "./useHistoryDatasets";
@@ -17,7 +17,7 @@ export function SavedDatasets({
   trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
   onSelected?: () => void;
 }) {
-  const [items, setItems] = useState<SavedResearchDataset[]>([]);
+  const [items, setItems] = useState<SavedNamedDataset[]>([]);
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [working, setWorking] = useState(false);
@@ -26,7 +26,7 @@ export function SavedDatasets({
   const reads = useRef({ sequence: 0 });
   const api = useRef(query);
   api.current = query;
-  const online = !!snapshot?.research?.online;
+  const online = !!snapshot?.data?.online;
   const selected = items.find(item => item.id === id);
   useEffect(() => {
     let active = true;
@@ -37,7 +37,7 @@ export function SavedDatasets({
     setError("");
     if (online)
       void api
-        .current("research.dataset.saved", {})
+        .current("data.dataset.saved", {})
         .then(result => {
           if (active && request === reads.current.sequence) setItems(result.saved_datasets ?? []);
         })
@@ -56,11 +56,11 @@ export function SavedDatasets({
     setSaved(false);
     try {
       if (kind === "use") {
-        await trade("research.dataset.use", { id });
+        await trade("data.dataset.use", { id });
         onSelected?.();
       } else {
-        if (kind === "save") await trade("research.dataset.save", { name: name.trim() });
-        const result = await query("research.dataset.saved", {});
+        if (kind === "save") await trade("data.dataset.save", { name: name.trim() });
+        const result = await query("data.dataset.saved", {});
         if (request !== reads.current.sequence) return;
         setItems(result.saved_datasets ?? []);
         if (kind === "save") {

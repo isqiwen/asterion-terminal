@@ -5,6 +5,12 @@
 #include <asterion/foundation/serialization.hpp>
 #include <filesystem>
 namespace asterion::test {
+struct SmallJournalSegments {
+  explicit SmallJournalSegments(std::size_t records) {
+    journal_segment_records_for_testing(records);
+  }
+  ~SmallJournalSegments() { journal_segment_records_for_testing(0); }
+};
 struct JournalRecord {
   std::filesystem::path directory;
   std::int64_t index;

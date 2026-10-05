@@ -152,7 +152,7 @@ export function RemoteMachine({
                     required
                     pattern="[A-Za-z0-9_-]+"
                     maxLength={40}
-                    placeholder="research-1"
+                    placeholder="backtest-factor-1"
                     value={profile.id}
                     disabled={!!initial}
                     onChange={e => editMachine({ ...profile, id: e.target.value })}
