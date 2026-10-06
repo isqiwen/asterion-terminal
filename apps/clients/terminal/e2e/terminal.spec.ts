@@ -21,7 +21,9 @@ test("workbench with source-only navigation and existing C++ data", async ({ pag
   page = await openSettingsWindow(page);
   await page.getByRole("button", { name: "插件", exact: true }).click();
   await expect(
-    page.getByRole("cell", { name: "asterion.risk.order-limits", exact: true }),
+    page
+      .getByRole("table", { name: "原生插件目录" })
+      .getByText("asterion.risk.order-limits", { exact: true }),
   ).toBeVisible();
   page = await closeSettingsWindow(page);
   await page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }).click();

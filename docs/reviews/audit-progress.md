@@ -1347,3 +1347,63 @@ Linux 服务包指纹不受本轮影响）。
   标题旁的错误提示没有触发过；启动“有提示时等待”只用注入的插件/任务提示验证，没有用真实的
   交易服务启动失败验证；英文界面与窄窗口下的版面；DMG 安装包；GitHub CI（未推送）。
   本轮未改 C++，未重跑 CTest。
+
+## 2026-10-06（CI 与插件页）
+
+### CI 失败的原因与修复
+
+推送 `edc497a0` 后的 CI（run 37409196565）在四个 core job 的 `ctest` 步骤失败，`terminal`
+因此被跳过。原因不在本轮的界面改动：`0217a915` 引入的节点资源准入按宿主机逻辑 CPU 数
+计算上限（macOS 为线程数 − 2），而测试直接使用宿主机容量。
+
+- macOS CI 机器是 3 线程，上限为 1 个 CPU 额度；行情、Data、Task 各占 1 个，后两个停在
+  “等待节点容量”，表现为 `service process is not running`、`test IPC timeout`，共 10 项失败。
+- Linux CI 是 4 线程，只有同时部署两对 Task/Data 的
+  `NodeSupervision.WorkerAllowanceRotatesAcrossServicesAndWaitsForChildrenToExit` 排不上。
+- 本机 10 线程，所以一直通过。用声明容量 `3,7168` 和 `4,16384` 分别在本机复现了两类失败。
+
+修复：测试节点声明自己的容量。Agent 读取 `ASTERION_TEST_HOST_CAPACITY`（逻辑 CPU 数、
+内存 MiB），未设置时仍读取宿主机；格式错误按既有的初始化失败处理（进入需要恢复状态并
+给出诊断）。CTest 给全部 502 个用例设置 `10,16384`，`tests/isolated_node.py` 给 E2E 设置
+相同的值。准入规则本身未改。`docs/services.md` 写明了规则隐含的最低机器规格，
+`docs/development.md` 说明了这个变量。
+
+此改动涉及 `apps/services/`，Linux 服务包指纹随之变化，发布前需重建。
+
+### 插件设置页
+
+- 顺序改为先“服务启用的插件”，再“插件目录”（含刷新、目录位置与安装），最后“当前发行版
+  内置能力”。原来是先安装、再目录、再各服务，说明文字散在各处。
+- 每个服务一个面板：服务名、状态与停止/启动在同一行，下面是插件清单；只有服务已停止时
+  才显示保存与重新载入，运行中改为一句说明。
+- 插件目录每行的“详情”折叠项改为一行灰字（文件名与摘要，摘要单行省略、可整段选中复制），
+  行高恢复正常。两张表使用同一套样式。
+
+### 原生 Electron 测试
+
+完整 E2E 在容量修复后是 92 通过、2 失败，两项都由前两轮界面改动造成，此前未被发现：
+
+- `tests/electron_*.cjs` 仍等待“进入工作台”按钮，而启动在无提示时已自动进入。新增
+  `tests/electron_startup.cjs`：`enterWorkbench` 兼容自动进入与有提示时点击两种情况，
+  `testNode` 是原生测试声明隔离节点与容量的同一份环境；五个原生测试改用它。
+  CI 直接运行的 `pnpm test:desktop` 不经过 `tests/isolated_node.py`，因此容量必须由这些
+  测试自己声明。
+- `terminal.spec.ts` 按单元格全文匹配插件名；插件名现在是单元格里的独立元素，断言改为
+  在“原生插件目录”表内按文字匹配。
+
+上一节记录的“94 项全部通过”对原生测试不成立：它们加载的是 `apps/clients/terminal/dist`，
+当时仍是改动前构建的版本。`dist` 只由 `pnpm build` / `pnpm desktop*` 重建。
+
+### 验证
+
+- CTest 502 项全部通过（`-j 6`，396 秒），全部用例带有声明容量。
+- 用声明容量 `3,7168`、`4,16384` 在本机分别复现 macOS 与 Linux CI 的失败；按 CTest 设置的
+  `10,16384` 运行时通过。
+- 完整 `pnpm run test:e2e`：92 通过、2 失败（见上）。修复后单独重跑
+  `history-archive-native.spec.ts`（2 项）与 `terminal.spec.ts`（2 项）全部通过；
+  `pnpm test:desktop` 通过。修复后没有再跑一遍完整 E2E。
+- Linux x86_64 服务包已重建并替换；`pnpm desktop:check` 退出 0（前端与原生资源随之重建）。
+- Prettier、clang-format、`tsc --noEmit`、ESLint 通过。
+- 未验证：GitHub CI（见下一次运行）；macOS ThreadSanitizer job 上次报告的 `ServiceIo`
+  数据竞争与 `CtpPublication` 一项失败是否仍在；插件页的保存/安装流程只由原生插件用例
+  间接经过；GCC 下未重新编译测试代码（本轮 C++ 改动只有一个头文件内联函数）。

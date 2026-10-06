@@ -161,39 +161,43 @@ export function Settings({
         {page === "plugins" && (
           <>
             <NativePlugins snapshot={snapshot} busy={busy} trade={trade} />
-            <h2>{t("当前发行版内置能力")}</h2>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>{t("插件")}</th>
-                  <th>{t("类型")}</th>
-                  <th>{t("状态")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {snapshot?.plugins.map(plugin => (
-                  <tr key={plugin.id}>
-                    <td>{plugin.id}</td>
-                    <td>
-                      {{
-                        data: t("数据"),
-                        execution: t("执行"),
-                        storage: t("存储"),
-                        tool: t("工具"),
-                      }[plugin.kind] ?? plugin.kind}
-                    </td>
-                    <td>{t("可用")}</td>
-                  </tr>
-                ))}
-                {plugins.map(plugin => (
-                  <tr key={plugin.id}>
-                    <td>{plugin.workspace.title}</td>
-                    <td>{t("用户界面")}</td>
-                    <td>{t("已注册 · 按需加载")}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <section className="native-plugin-manager" aria-label={t("当前发行版内置能力")}>
+              <section>
+                <h2>{t("当前发行版内置能力")}</h2>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>{t("插件")}</th>
+                      <th>{t("类型")}</th>
+                      <th>{t("状态")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {snapshot?.plugins.map(plugin => (
+                      <tr key={plugin.id}>
+                        <td>{plugin.id}</td>
+                        <td>
+                          {{
+                            data: t("数据"),
+                            execution: t("执行"),
+                            storage: t("存储"),
+                            tool: t("工具"),
+                          }[plugin.kind] ?? plugin.kind}
+                        </td>
+                        <td>{t("可用")}</td>
+                      </tr>
+                    ))}
+                    {plugins.map(plugin => (
+                      <tr key={plugin.id}>
+                        <td>{plugin.workspace.title}</td>
+                        <td>{t("用户界面")}</td>
+                        <td>{t("已注册 · 按需加载")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            </section>
           </>
         )}
         {page === "about" && (

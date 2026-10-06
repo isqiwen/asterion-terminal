@@ -507,5 +507,8 @@
   "尚未选择数据。用下面任一方式添加。": "No data chosen yet. Add it with any of the ways below.",
   "添加数据的方式": "Ways to add data",
   "单个合约": "Single contract",
-  "主力连续需要同一品种至少两个月份的 K 线，且每个月份都有日线数据。": "A dominant series needs bars for at least two months of one product, each with daily data."
+  "主力连续需要同一品种至少两个月份的 K 线，且每个月份都有日线数据。": "A dominant series needs bars for at least two months of one product, each with daily data.",
+  "服务启用的插件": "Plugins each service runs",
+  "目录位置": "Directory locations",
+  "运行中": "Running"
 }

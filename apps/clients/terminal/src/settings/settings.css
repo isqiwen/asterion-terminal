@@ -118,84 +118,119 @@
 .settings-table td button {
   margin: 2px;
 }
-.settings-content > .data-table {
-  width: 100%;
-  table-layout: fixed;
-  margin-top: 20px;
-}
-.settings-content > .data-table th,
-.settings-content > .data-table td {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  padding: 12px 8px;
-  vertical-align: top;
-}
 
-.native-plugin-service {
-  margin-block: 1.25rem;
-  padding-block: 0.75rem;
-  border-top: 1px solid var(--line);
-}
-.native-plugin-choice {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-block: 0.5rem;
-}
-/* Plugin manager: titled blocks separated by hairlines. */
-.native-plugin-manager h2,
-.native-plugin-manager h3 {
-  margin: 0 0 6px;
-  color: var(--text-strong);
-  font-size: 13px;
-  font-weight: 500;
-}
-.native-plugin-manager p {
-  margin: 0 0 10px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
+/* Plugins: the plugins each service runs, the catalog they come from, and
+   what the release builds in. Sections are separated by hairlines; every
+   table on the page looks the same. */
 .native-plugin-manager > section {
   margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid var(--line);
 }
-.native-plugin-manager > section > button {
-  margin-bottom: 10px;
+.native-plugin-manager > section:first-child,
+.native-plugin-manager > [role="alert"] + section {
+  margin-top: 4px;
+  padding-top: 0;
+  border-top: 0;
 }
-.native-plugin-service code,
-.settings-table code {
+.native-plugin-manager + .native-plugin-manager > section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.native-plugin-manager header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.native-plugin-manager h2,
+.native-plugin-manager h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 500;
+}
+.native-plugin-manager p {
+  margin: 6px 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.native-plugin-manager code {
+  color: var(--muted);
+  font-size: 11px;
   overflow-wrap: anywhere;
 }
-
+/* One service: name, state and controls on a line, its plugins below. */
+.native-plugin-service {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  background: var(--panel);
+}
+.native-plugin-service fieldset {
+  margin: 10px 0;
+}
+.native-plugin-service .source-actions {
+  padding: 0;
+}
+.native-plugin-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--row-height);
+  font-size: 12px;
+}
 .native-plugin-manager .data-table {
   width: 100%;
   min-width: 0;
+  margin: 4px 0 10px;
   table-layout: fixed;
 }
 .native-plugin-manager .data-table th,
 .native-plugin-manager .data-table td {
+  padding: 8px 10px;
   white-space: normal;
   overflow-wrap: anywhere;
   vertical-align: top;
 }
-.native-plugin-manager .data-table th:nth-child(1) {
-  width: 29%;
+.native-plugin-manager .data-table td small {
+  display: block;
+  margin-top: 2px;
+  color: var(--subtle);
+  font-size: 11px;
 }
-.native-plugin-manager .data-table th:nth-child(2) {
-  width: 13%;
+/* The digest stays on one line; selecting it still copies all of it. */
+.native-plugin-manager .data-table td small code {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.native-plugin-manager .data-table th:nth-child(3) {
-  width: 31%;
+.native-plugin-manager .data-table td button {
+  margin: 0 6px 4px 0;
 }
-.native-plugin-manager fieldset,
-.native-plugin-service fieldset {
-  min-width: 0;
-  margin-block: 12px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--panel-radius);
+.native-plugin-catalog th:nth-child(1) {
+  width: 40%;
+}
+.native-plugin-catalog th:nth-child(2) {
+  width: 10%;
+}
+.native-plugin-catalog th:nth-child(4) {
+  width: 10%;
+}
+.native-plugin-catalog th:nth-child(5) {
+  width: 14%;
+}
+.native-plugin-install {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.native-plugin-install > button {
+  margin: 8px 0 2px;
 }
 
 .deployment-center h2 {
