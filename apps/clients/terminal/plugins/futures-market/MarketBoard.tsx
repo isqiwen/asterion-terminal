@@ -3,17 +3,11 @@ import { recordQuoteVisit, useRecentQuotes } from "./recent-quotes";
 import { productOverview } from "./product-overview";
 import { contractName, productLabel } from "./contract-name";
 import { QuotePane } from "./QuotePane";
+import { WatchlistToggle } from "./WatchlistToggle";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { LiveMarket } from "../../src/bridge/client";
-import {
-  translate,
-  useWorkspaceDraft,
-  ErrorNotice,
-  asDisplayError,
-  type DisplayError,
-  type TerminalContext,
-} from "../contract";
+import { translate, useWorkspaceDraft, type TerminalContext } from "../contract";
 import { QuoteTable, quoteChange } from "./QuoteTable";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 const venueNames: Record<string, string> = {
@@ -34,7 +28,6 @@ export function MarketBoard({
   context: TerminalContext;
   toolbar?: ReactNode;
 }) {
-  const [error, setError] = useState<DisplayError>("");
   const [columns, setColumns] = useWorkspaceDraft("market-columns", defaultQuoteColumns);
   const [editingColumns, setEditingColumns] = useState(false);
   const visibleColumns = columns.filter(item => item.visible).map(item => item.column);
@@ -138,36 +131,6 @@ export function MarketBoard({
         {t(query ? "搜索全部月份" : overview ? "每品种一行 · 按持仓量" : "全部实际月份合约")}
         {overview && ` · ${t("主连行显示同品种持仓量最大的实际月份合约，不是拼接的连续合约。")}`}
       </p>
-      {active && (
-        <button
-          title={active.symbol}
-          disabled={context.busy || !market.transport_online || market.phase !== "connected"}
-          onClick={() => {
-            void (async () => {
-              setError("");
-              const ids = market.watchlist ?? [];
-              const present = ids.some(
-                id => id.venue === active.venue && id.symbol === active.symbol,
-              );
-              try {
-                await context.trade("market.subscribe", {
-                  instruments: present
-                    ? ids.filter(id => id.venue !== active.venue || id.symbol !== active.symbol)
-                    : [...ids, { venue: active.venue, symbol: active.symbol }],
-                });
-              } catch (reason) {
-                setError(asDisplayError(reason));
-              }
-            })();
-          }}
-        >
-          {t(
-            market.watchlist?.some(id => id.venue === active.venue && id.symbol === active.symbol)
-              ? "移出自选"
-              : "加入自选",
-          )}
-        </button>
-      )}
       <button onClick={() => setEditingColumns(true)}>{t("行情表头设置")}</button>
       <span className="subtle">
         {rows.length} / {market.subscriptions.length} {t("合约")}
@@ -237,11 +200,6 @@ export function MarketBoard({
         )}
       <div className="futures-market-board-list">
         {inlineToolbar && toolbar}
-        {error && (
-          <div role="alert">
-            <ErrorNotice error={error} />
-          </div>
-        )}
         {!rows.length && (
           <p className="market-search-empty" role="status">
             {t(market.subscriptions.length ? "没有匹配的市场合约" : "尚无订阅行情")}
@@ -285,6 +243,7 @@ export function MarketBoard({
             name={displayName(active) ?? active.symbol}
             pane="market-pane-upper"
             initial="分时"
+            actions={<WatchlistToggle context={context} market={market} row={active} />}
           />
           <QuotePane
             context={context}

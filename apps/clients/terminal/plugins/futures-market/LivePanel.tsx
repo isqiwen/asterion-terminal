@@ -115,6 +115,38 @@ export function LivePanel({ context }: { context: TerminalContext }) {
     sdk_unavailable: t("当前平台缺少 CTP 行情组件"),
     unreachable: t("行情服务失联"),
   };
+  const source = (
+    <p role="status" aria-label={t("行情来源")} className="market-source">
+      {connection
+        ? t("行情来源：{name}（{broker} · {user}）", {
+            name: connection.name,
+            broker: connection.broker_id,
+            user: connection.user_id,
+          })
+        : t("尚未选择行情账户")}{" "}
+      <button type="button" onClick={() => context.openSettings("ctp")}>
+        {t("更换")}
+      </button>
+    </p>
+  );
+  const clearCredentials = (
+    <button
+      type="button"
+      disabled={busy || !connection}
+      onClick={() =>
+        void run(async () => {
+          await context.trade("market.credentials.clear", { account: connection!.id });
+          setPassword("");
+          setAuthCode("");
+          setCatalogPassword("");
+          setRemember(false);
+          setNotice(t("已清除保存的登录凭据。"));
+        })
+      }
+    >
+      {t("清除已保存的登录凭据")}
+    </button>
+  );
   const toolbar = (
     <div className="market-toolbar">
       <div className="market-session">
@@ -163,148 +195,137 @@ export function LivePanel({ context }: { context: TerminalContext }) {
             />
           </div>
         )}
-        <details className="market-config" open={idle || !market?.subscriptions.length}>
-          <summary>{t("CTP 连接与自选")}</summary>
-          <form
-            onSubmit={event => {
-              event.preventDefault();
-              if (!canConnect || !connection) return;
-              const secret = password;
-              const auth = authCode;
-              setPassword("");
-              setAuthCode("");
-              void run(async () => {
-                save(profile);
-                if (remember && (secret || auth)) {
-                  await context.trade("market.credentials.save", {
-                    account: connection.id,
-                    password: secret,
-                    auth_code: auth,
-                  });
-                  setNotice(t("登录凭据已保存到本机钥匙串。"));
-                }
-                await context.trade("market.connect", {
-                  password: secret,
-                  instruments: profile.instruments,
-                });
-                await loadCatalog(secret, auth);
-              });
-            }}
-          >
-            <p role="status" aria-label={t("行情来源")}>
-              {connection
-                ? t("行情来源：{name}（{broker} · {user}）", {
-                    name: connection.name,
-                    broker: connection.broker_id,
-                    user: connection.user_id,
-                  })
-                : t("尚未选择行情账户")}{" "}
-              <button type="button" onClick={() => context.openSettings("ctp")}>
-                {t("更换")}
-              </button>
-            </p>
-            <fieldset disabled={!canEdit}>
-              <div className="futures-fields">
-                <label>
-                  {t("密码")}
-                  <input
-                    aria-label={t("密码")}
-                    type="password"
-                    autoComplete="off"
-                    required={remember && !!authCode}
-                    placeholder={t("留空使用已保存的凭据")}
-                    maxLength={40}
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                  />
-                </label>
-                {connection && (
-                  <label>
-                    {t("授权码")}
-                    <input
-                      aria-label={t("授权码")}
-                      maxLength={16}
-                      type="password"
-                      autoComplete="off"
-                      required={remember && !!password}
-                      placeholder={t("留空使用已保存的凭据")}
-                      value={authCode}
-                      onChange={e => setAuthCode(e.target.value)}
-                    />
-                  </label>
-                )}
-              </div>
-              <label className="market-remember">
-                <input
-                  type="checkbox"
-                  checked={remember}
-                  onChange={event => setRemember(event.target.checked)}
-                />
-                {t("保存密码和授权码到本机钥匙串")}
-              </label>
-              <button type="submit" disabled={!canConnect || !connection}>
-                {t("连接行情")}
-              </button>
-            </fieldset>
-            <button
-              type="button"
-              disabled={busy || !connection}
-              onClick={() =>
-                void run(async () => {
-                  await context.trade("market.credentials.clear", { account: connection!.id });
-                  setPassword("");
-                  setAuthCode("");
-                  setCatalogPassword("");
-                  setRemember(false);
-                  setNotice(t("已清除保存的登录凭据。"));
-                })
-              }
-            >
-              {t("清除已保存的登录凭据")}
-            </button>
-            <p className="subtle">
-              {t("连接行情后用行情账户的交易前置加载完整合约目录；仅查询合约，不开通交易。")}
-            </p>
-          </form>
-          {!idle && connection && (
+        {idle ? (
+          <div className="market-connect">
             <form
               onSubmit={event => {
                 event.preventDefault();
-                void run(() => loadCatalog(catalogPassword));
+                if (!canConnect || !connection) return;
+                const secret = password;
+                const auth = authCode;
+                setPassword("");
+                setAuthCode("");
+                void run(async () => {
+                  save(profile);
+                  if (remember && (secret || auth)) {
+                    await context.trade("market.credentials.save", {
+                      account: connection.id,
+                      password: secret,
+                      auth_code: auth,
+                    });
+                    setNotice(t("登录凭据已保存到本机钥匙串。"));
+                  }
+                  await context.trade("market.connect", {
+                    password: secret,
+                    instruments: profile.instruments,
+                  });
+                  await loadCatalog(secret, auth);
+                });
               }}
             >
-              <fieldset disabled={busy}>
+              {source}
+              <fieldset disabled={!canEdit}>
                 <div className="futures-fields">
                   <label>
-                    {t("目录查询密码")}
+                    {t("密码")}
                     <input
-                      aria-label={t("目录查询密码")}
+                      aria-label={t("密码")}
                       type="password"
                       autoComplete="off"
-                      value={catalogPassword}
-                      onChange={e => setCatalogPassword(e.target.value)}
+                      required={remember && !!authCode}
                       placeholder={t("留空使用已保存的凭据")}
+                      maxLength={40}
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
                     />
                   </label>
-                  <label>
-                    {t("授权码")}
-                    <input
-                      aria-label={t("授权码")}
-                      maxLength={16}
-                      type="password"
-                      autoComplete="off"
-                      placeholder={t("留空使用已保存的凭据")}
-                      value={authCode}
-                      onChange={e => setAuthCode(e.target.value)}
-                    />
-                  </label>
+                  {connection && (
+                    <label>
+                      {t("授权码")}
+                      <input
+                        aria-label={t("授权码")}
+                        maxLength={16}
+                        type="password"
+                        autoComplete="off"
+                        required={remember && !!password}
+                        placeholder={t("留空使用已保存的凭据")}
+                        value={authCode}
+                        onChange={e => setAuthCode(e.target.value)}
+                      />
+                    </label>
+                  )}
                 </div>
-                <button disabled={!online || market?.catalog?.phase === "loading"}>
-                  {t("加载完整市场")}
-                </button>
+                <label className="market-remember">
+                  <input
+                    type="checkbox"
+                    checked={remember}
+                    onChange={event => setRemember(event.target.checked)}
+                  />
+                  {t("保存密码和授权码到本机钥匙串")}
+                </label>
               </fieldset>
+              <div className="source-actions">
+                <button type="submit" className="primary" disabled={!canConnect || !connection}>
+                  {t("连接行情")}
+                </button>
+                {clearCredentials}
+              </div>
+              <p className="subtle">
+                {t("连接行情后用行情账户的交易前置加载完整合约目录；仅查询合约，不开通交易。")}
+              </p>
             </form>
-          )}
+          </div>
+        ) : (
+          <details className="market-config" open={!market?.subscriptions.length}>
+            <summary>{t("行情连接")}</summary>
+            {source}
+            <div className="source-actions">{clearCredentials}</div>
+            {connection && (
+              <form
+                onSubmit={event => {
+                  event.preventDefault();
+                  void run(() => loadCatalog(catalogPassword));
+                }}
+              >
+                <fieldset disabled={busy}>
+                  <div className="futures-fields">
+                    <label>
+                      {t("目录查询密码")}
+                      <input
+                        aria-label={t("目录查询密码")}
+                        type="password"
+                        autoComplete="off"
+                        value={catalogPassword}
+                        onChange={e => setCatalogPassword(e.target.value)}
+                        placeholder={t("留空使用已保存的凭据")}
+                      />
+                    </label>
+                    <label>
+                      {t("授权码")}
+                      <input
+                        aria-label={t("授权码")}
+                        maxLength={16}
+                        type="password"
+                        autoComplete="off"
+                        placeholder={t("留空使用已保存的凭据")}
+                        value={authCode}
+                        onChange={e => setAuthCode(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <button disabled={!online || market?.catalog?.phase === "loading"}>
+                    {t("加载完整市场")}
+                  </button>
+                </fieldset>
+              </form>
+            )}
+          </details>
+        )}
+        <details
+          className="market-config"
+          open={phase === "connected" && !market?.subscriptions.length}
+        >
+          <summary>{t("按代码添加自选")}</summary>
           <form
             className="market-watchlist"
             onSubmit={event => {
@@ -359,17 +380,17 @@ export function LivePanel({ context }: { context: TerminalContext }) {
               </span>
             ))}
           </div>
-          {market && (
-            <details className="market-config">
-              <summary>{t("连接详情")}</summary>
-              <p>
-                {market.service} · {market.instance_id}
-              </p>
-              <p>{t("忽略乱序报价：{count}", { count: market.out_of_order })}</p>
-            </details>
-          )}
-          <p className="subtle">{t("只读行情 · 使用服务方提供的实际月份合约")}</p>
         </details>
+        {market && (
+          <details className="market-config">
+            <summary>{t("连接详情")}</summary>
+            <p>
+              {market.service} · {market.instance_id}
+            </p>
+            <p>{t("忽略乱序报价：{count}", { count: market.out_of_order })}</p>
+          </details>
+        )}
+        <p className="subtle market-note">{t("只读行情 · 使用服务方提供的实际月份合约")}</p>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { IntradayChart } from "@asterion/client-ui/IntradayChart";
 import { PriceChart, type Candle } from "@asterion/client-ui/PriceChart";
 import {
@@ -227,6 +227,7 @@ export function QuotePane({
   name,
   pane,
   initial,
+  actions,
 }: {
   context: TerminalContext;
   market: LiveMarket;
@@ -234,6 +235,7 @@ export function QuotePane({
   name: string;
   pane: string;
   initial: PanePeriod;
+  actions?: ReactNode;
 }) {
   const [period, setPeriod] = useWorkspaceDraft<PanePeriod>(`${pane}.period`, initial);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -268,6 +270,7 @@ export function QuotePane({
         )}
         {status !== t("实时") && <small className="quote-pane-status">{status}</small>}
         <span className="panel-spacer" />
+        {actions}
         <small className="quote-pane-symbol">{row.symbol}</small>
       </header>
       <nav className="quote-pane-periods" aria-label={t("图表周期")}>

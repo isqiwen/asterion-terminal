@@ -1,6 +1,11 @@
 import { test, expect, type Page } from "./test";
 
 test.use({ enterWorkbench: false });
+
+// The workbench opens by itself once every step has passed and there is
+// nothing to point out.
+const workbench = (page: Page) =>
+  page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true });
 // The one step whose row reports a failure.
 const failedStep = (page: Page) => page.locator(".setup-step").filter({ hasText: "失败" });
 
@@ -68,6 +73,12 @@ test("startup lists unloadable plugins and interrupted tasks without blocking en
   await expect(notices).toContainText("插件 broken.dylib 无法加载");
   await expect(notices).toContainText("1 项任务上次被中断");
   await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
+  // With something to point out, the screen waits for the user.
+  await expect(workbench(page)).toHaveCount(0);
+  // The workbench polls; let it reach the services without this route.
+  await page.unrouteAll({ behavior: "wait" });
+  await page.getByRole("button", { name: "进入工作台", exact: true }).click();
+  await expect(workbench(page)).toBeVisible();
 });
 
 test("startup restores the Data/Task pair after the initial Agent inventory is still loading", async ({
@@ -98,9 +109,7 @@ test("startup restores the Data/Task pair after the initial Agent inventory is s
       .health.services.find((service: { id: string }) => service.id === "task");
   await expect.poll(async () => (await taskService()).desired_running).toBe(false);
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled({
-    timeout: 30000,
-  });
+  await expect(workbench(page)).toBeVisible({ timeout: 30000 });
   expect((await taskService()).health).toBe("ready");
   const restored = await call("runtime.snapshot");
   expect(restored.task_service.online).toBe(true);
@@ -139,10 +148,9 @@ for (const [kind, label] of [
         "完成",
       );
     await expect(page.locator(".setup-step").filter({ hasText: "行情服务" })).toContainText("完成");
-    await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toHaveCount(0);
+    await expect(workbench(page)).toHaveCount(0);
     health = "ready";
-    await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
-    await expect(taskService).toContainText("完成");
+    await expect(workbench(page)).toBeVisible();
     // A service that failed to start fails its own step at once.
     health = "failed";
     await page.reload();
@@ -150,7 +158,7 @@ for (const [kind, label] of [
     await expect(failedStep(page)).toHaveText(new RegExp(`^${label}`));
   });
 
-test("startup reports the failing step, retries and waits for the user on every launch", async ({
+test("startup reports the failing step, retries and opens the workbench once every step passes", async ({
   page,
 }) => {
   let starts = 0;
@@ -191,7 +199,7 @@ test("startup reports the failing step, retries and waits for the user on every 
     return route.continue();
   });
   await page.goto("/");
-  // Startup runs by itself and stays on this screen whatever the outcome.
+  // Startup runs by itself and stays on this screen while a step fails.
   await expect(page.getByRole("alert")).toContainText("操作失败");
   await page.getByRole("alert").getByRole("button", { name: "详情" }).click();
   await expect(page.getByRole("alert")).toContainText("Agent start failed");
@@ -215,28 +223,13 @@ test("startup reports the failing step, retries and waits for the user on every 
   await expect(failedStep(page)).toHaveText(/^数据服务/);
   failPair = false;
   await page.getByRole("button", { name: "重试启动", exact: true }).click();
-  await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
+  await expect(workbench(page)).toBeVisible();
   expect(starts).toBe(4);
   expect(marketStarts).toBe(3);
   expect(dataTaskStarts).toBe(2);
-  await expect(page.getByRole("progressbar", { name: "任务服务", exact: true })).toHaveAttribute(
-    "aria-valuenow",
-    "100",
-  );
-  await page.getByRole("button", { name: "进入工作台", exact: true }).click();
-  await expect(
-    page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
-  ).toBeVisible();
-  // A later launch checks the services by itself, then still waits for the user.
+  // A later launch checks the services again before it opens the workbench.
   await page.reload();
-  await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
-  await expect(
-    page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
-  ).toHaveCount(0);
-  await page.getByRole("button", { name: "进入工作台", exact: true }).click();
-  await expect(
-    page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }),
-  ).toBeVisible();
+  await expect(workbench(page)).toBeVisible();
   expect(starts).toBe(5);
   expect(marketStarts).toBe(4);
   expect(dataTaskStarts).toBe(3);
@@ -291,7 +284,7 @@ for (const updateState of ["update_available", "recovery_required"])
       return route.continue();
     });
     await page.goto("/");
-    await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
+    await expect(workbench(page)).toBeVisible();
     expect(upgradeCalls).toBe(1);
     expect(serviceStarts).toBe(3);
     await expect(page.getByRole("button", { name: "升级服务管理器", exact: true })).toHaveCount(0);
@@ -320,11 +313,11 @@ for (const failure of ["market", "task"] as const)
     await expect(page.getByRole("button", { name: "重试启动", exact: true })).toBeVisible({
       timeout: 25000,
     });
-    await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toHaveCount(0);
+    await expect(workbench(page)).toHaveCount(0);
     await expect(failedStep(page)).toHaveText({ market: /^行情服务/, task: /^任务服务/ }[failure]);
     fail = false;
     await page.getByRole("button", { name: "重试启动", exact: true }).click();
-    await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeEnabled();
+    await expect(workbench(page)).toBeVisible();
   });
 
 for (const [diagnostic, summary, english] of [

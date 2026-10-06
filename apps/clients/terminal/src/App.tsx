@@ -93,6 +93,8 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   const [error, setError] = useState<DisplayError>("");
   const [checkedAt, setCheckedAt] = useState<number | null>(null);
   const generation = useRef(0);
+  // Commands in flight. A cancel may run beside another command.
+  const commands = useRef(0);
   const revision = useRef<number | undefined>(undefined);
   const held = useRef<Snapshot | null>(null);
   // Every full snapshot carries the core's revision and the time the core last
@@ -197,6 +199,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   }, [busy, visible, polling, live, accept]);
   async function trade(method: TerminalCommand, params: Record<string, unknown> = {}) {
     const current = ++generation.current;
+    commands.current += 1;
     setBusy(true);
     try {
       const next = await request(method, params);
@@ -212,7 +215,8 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
       }
       throw reason;
     } finally {
-      if (current === generation.current) setBusy(false);
+      commands.current -= 1;
+      if (!commands.current) setBusy(false);
     }
   }
   const context: TerminalContext = {

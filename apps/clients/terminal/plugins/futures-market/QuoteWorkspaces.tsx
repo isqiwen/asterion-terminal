@@ -1,11 +1,12 @@
 import { recordQuoteVisit, useRecentQuotes } from "./recent-quotes";
 import { contractName } from "./contract-name";
 import type { LiveMarket } from "../../src/bridge/client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { translate, useWorkspaceDraft, type TerminalContext } from "../contract";
 import { quoteChange, quoteStatus } from "./QuoteTable";
 import { ContractHistory } from "./ContractHistory";
 import { QuoteChart, quoteId, type QuoteRow } from "./QuoteChart";
+import { WatchlistToggle } from "./WatchlistToggle";
 import "./quote-workspaces.css";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 const fields = [
@@ -66,7 +67,15 @@ function cell(row: QuoteRow, name: string) {
     return `${(((Number(q.high) - Number(q.low)) / Number(q.previous_settlement)) * 100).toFixed(2)}%`;
   return "—";
 }
-function QuoteHeader({ row, market }: { row: QuoteRow; market: LiveMarket }) {
+function QuoteHeader({
+  row,
+  market,
+  actions,
+}: {
+  row: QuoteRow;
+  market: LiveMarket;
+  actions?: ReactNode;
+}) {
   const status = quoteStatus(market, row);
   return (
     <header className="quote-pane-title">
@@ -77,6 +86,7 @@ function QuoteHeader({ row, market }: { row: QuoteRow; market: LiveMarket }) {
       <span data-tone={tone(row)}>
         {cell(row, "涨跌")} · {cell(row, "涨幅%")}
       </span>
+      {actions}
       <small>{row.venue}</small>
       {status !== t("实时") && (
         <span className="quote-freshness" role="status">
@@ -176,7 +186,7 @@ export function WatchlistWorkspace(context: TerminalContext) {
             className="quote-settings"
             onClick={() => context.navigate("workspace.market", { marketMode: "live" })}
           >
-            {t("管理自选")}
+            {t("去市场添加自选")}
           </button>
         </nav>
         <div className="quote-group-strip">{t("期货自选")}</div>
@@ -281,9 +291,25 @@ export function WatchlistWorkspace(context: TerminalContext) {
         {!visible.length && (
           <div className="quote-empty" role="status">
             <p>
-              {t(filtering ? "没有匹配的自选合约" : recent ? "尚无最近浏览合约" : "尚无订阅行情")}
+              {t(
+                filtering
+                  ? "没有匹配的自选合约"
+                  : recent
+                    ? "尚无最近浏览合约"
+                    : market?.phase !== "connected"
+                      ? "实时行情未连接，自选合约没有报价。"
+                      : "自选为空。在市场页选中合约，点图表标题旁的“加入自选”。",
+              )}
             </p>
             {filtering && <button onClick={clearSearch}>{t("清除搜索")}</button>}
+            {!filtering && !recent && (
+              <button
+                className="primary"
+                onClick={() => context.navigate("workspace.market", { marketMode: "live" })}
+              >
+                {t(market?.phase !== "connected" ? "连接行情" : "去市场添加自选")}
+              </button>
+            )}
           </div>
         )}
         <div className="quote-sheet-note">
@@ -294,7 +320,11 @@ export function WatchlistWorkspace(context: TerminalContext) {
         {active && market ? (
           <>
             <div className="watchlist-chart-pane">
-              <QuoteHeader row={active} market={market} />
+              <QuoteHeader
+                row={active}
+                market={market}
+                actions={<WatchlistToggle context={context} market={market} row={active} />}
+              />
               <ContractHistory
                 key={`upper:${quoteId(active)}`}
                 venue={active.venue}
@@ -481,7 +511,11 @@ export function ContractWorkspace(context: TerminalContext) {
         {active && market ? (
           <>
             <section className="contract-summary">
-              <QuoteHeader row={active} market={market} />
+              <QuoteHeader
+                row={active}
+                market={market}
+                actions={<WatchlistToggle context={context} market={market} row={active} />}
+              />
               <strong className="contract-last" data-tone={tone(active)}>
                 {q?.last ?? "—"}
               </strong>
@@ -566,17 +600,6 @@ export function ContractWorkspace(context: TerminalContext) {
                 {t("合约")}
                 <input readOnly value={active.symbol} />
               </label>
-              <div
-                className="contract-order-fields"
-                title={t("此处只展示行情；委托在交易页的 CTP 账户中发送。")}
-              >
-                {["价格", "手数", "指令", "账户"].map(label => (
-                  <label key={label}>
-                    {t(label)}
-                    <input disabled readOnly value="—" />
-                  </label>
-                ))}
-              </div>
               <button className="primary" onClick={() => context.navigate("workspace.trading")}>
                 {t("前往 CTP 交易")}
               </button>

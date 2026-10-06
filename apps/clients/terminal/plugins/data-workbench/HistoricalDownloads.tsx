@@ -131,172 +131,182 @@ function SourceDownloads({
           }}
         >
           <fieldset disabled={busy || !taskService?.online || !snapshot?.data?.online}>
-            <div className="futures-fields">
-              <label>
-                {t("交易所")}
-                <select
-                  aria-label={t("交易所")}
-                  value={form.exchange}
-                  onChange={event =>
-                    setForm(previous => ({ ...previous, exchange: event.target.value, code: "" }))
-                  }
-                >
-                  {source.exchanges.map(exchange => (
-                    <option key={exchange}>{exchange}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t("品种代码")}
-                <input
-                  required
-                  placeholder="CU"
-                  value={form.product}
-                  onChange={event =>
-                    setForm(previous => ({ ...previous, product: event.target.value, code: "" }))
-                  }
-                />
-              </label>
-              {saved ? (
-                <div className="history-credential">
-                  <span>{t("使用已保存的 {label}", { label: source.credential.label })}</span>
-                  <button type="button" onClick={() => openSettings("sources")}>
-                    {t("更改")}
-                  </button>
-                </div>
-              ) : (
+            <section className="history-step" aria-label={t("数据源账号")}>
+              <h4>{t("数据源账号")}</h4>
+              <div className="futures-fields">
+                {saved ? (
+                  <div className="history-credential">
+                    <span>{t("使用已保存的 {label}", { label: source.credential.label })}</span>
+                    <button type="button" onClick={() => openSettings("sources")}>
+                      {t("更改")}
+                    </button>
+                  </div>
+                ) : (
+                  <label>
+                    {source.credential.label}
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      required={source.credential.required}
+                      maxLength={source.credential.maxLength}
+                      value={token}
+                      onChange={event => setToken(event.target.value)}
+                    />
+                  </label>
+                )}
                 <label>
-                  {source.credential.label}
+                  {t("每分钟请求上限")}
                   <input
-                    type="password"
-                    autoComplete="off"
-                    required={source.credential.required}
-                    maxLength={source.credential.maxLength}
-                    value={token}
-                    onChange={event => setToken(event.target.value)}
+                    type="number"
+                    min="1"
+                    max={source.rate.max}
+                    required
+                    disabled={!!saved}
+                    value={saved ? String(saved.requests_per_minute) : form.rate}
+                    onChange={event => update("rate", event.target.value)}
                   />
                 </label>
-              )}
-              <div className="history-catalog-action">
-                <button
-                  type="button"
-                  disabled={(source.credential.required && !saved && !token) || !form.product}
-                  onClick={() =>
-                    void run(source.catalogCommand, {
-                      source: source.id,
-                      exchange: form.exchange,
-                      product: form.product,
-                      token: saved ? "" : token,
-                    })
-                  }
-                >
-                  {t("查询月份合约")}
-                </button>
+                <div className="history-catalog-action">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void run("data.download.budget.configure", {
+                        source: source.id,
+                        token: saved ? "" : token,
+                        requests_per_minute: Number(saved?.requests_per_minute ?? form.rate),
+                      })
+                    }
+                  >
+                    {t("应用共享额度")}
+                  </button>
+                </div>
               </div>
-              <label>
-                {t("月份合约")}
-                <select
-                  aria-label={t("月份合约")}
-                  required
-                  value={selected || all ? form.code : ""}
-                  onChange={event => update("code", event.target.value)}
-                >
-                  <option value="">{t("选择具体月份合约")}</option>
-                  {contracts.length > 1 && (
-                    <option value="*">
-                      {t("全部月份合约（{n} 个）", { n: contracts.length })}
-                    </option>
-                  )}
-                  {[...contracts].reverse().map(item => (
-                    <option key={item.code} value={item.code}>
-                      {item.code} · {item.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t(source.timeAxis === "trading-day" ? "数据周期" : "分钟周期")}
-                <select
-                  aria-label={t(source.timeAxis === "trading-day" ? "数据周期" : "分钟周期")}
-                  value={form.frequency}
-                  onChange={event => update("frequency", event.target.value)}
-                >
-                  {source.intervals.map(value => (
-                    <option key={value} value={value}>
-                      {value === "day" ? t("日K") : `${value} min`}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t("每分钟请求上限")}
-                <input
-                  type="number"
-                  min="1"
-                  max={source.rate.max}
-                  required
-                  disabled={!!saved}
-                  value={saved ? String(saved.requests_per_minute) : form.rate}
-                  onChange={event => update("rate", event.target.value)}
-                />
-              </label>
-            </div>
-            <p className="subtle">
-              {t("同一账号的下载共享当前数据服务的额度；多节点请分别分配份额。")}
-            </p>
-            <button
-              type="button"
-              onClick={() =>
-                void run("data.download.budget.configure", {
-                  source: source.id,
-                  token: saved ? "" : token,
-                  requests_per_minute: Number(saved?.requests_per_minute ?? form.rate),
-                })
-              }
-            >
-              {t("应用共享额度")}
-            </button>
-            {selected && (
-              <p className="history-lifetime">
-                {t("上市日期")} {selected.list_date} — {t("最后交易日")} {selected.delist_date}
-                <br />
-                {t("自动下载该合约完整存续期；未到期合约截至本次查询时刻。")}
-                <br />
-                {t("本次截止")} {timestamp(cutoff)}
+              <p className="subtle">
+                {t("同一账号的下载共享当前数据服务的额度；多节点请分别分配份额。")}
               </p>
-            )}
-            {selected && (
-              <details className="history-notes">
-                <summary>{t("合约计量信息")}</summary>
-                <dl className="history-metrics">
-                  {[
-                    ["供应商合约乘数", selected.multiplier],
-                    ["每手交易单位", selected.per_unit],
-                    ["交易计量单位", selected.trade_unit],
-                    ["报价单位", selected.quote_unit],
-                  ].map(([label, value]) => (
-                    <div key={label}>
-                      <dt>{t(label!)}</dt>
-                      <dd>{value ?? "—"}</dd>
-                    </div>
-                  ))}
-                </dl>
-                <p className="subtle">
-                  {t("保留数据源原始字段；合约乘数与每手交易单位不自动互换，缺失值不推算。")}
-                </p>
-              </details>
-            )}
-            {matchingCatalog && !contracts.length && (
-              <p role="status">{t("没有找到月份合约，请检查交易所和品种代码。")}</p>
-            )}
-            {!saved && (
-              <div className="history-credential">
-                <span className="subtle">{t(source.credential.help)}</span>
-                <button type="button" onClick={() => openSettings("sources")}>
-                  {t("在设置中保存")}
-                </button>
+              {!saved && (
+                <div className="history-credential">
+                  <span className="subtle">{t(source.credential.help)}</span>
+                  <button type="button" onClick={() => openSettings("sources")}>
+                    {t("在设置中保存")}
+                  </button>
+                </div>
+              )}
+            </section>
+            <section className="history-step" aria-label={t("选择合约")}>
+              <h4>{t("选择合约")}</h4>
+              <div className="futures-fields">
+                <label>
+                  {t("交易所")}
+                  <select
+                    aria-label={t("交易所")}
+                    value={form.exchange}
+                    onChange={event =>
+                      setForm(previous => ({ ...previous, exchange: event.target.value, code: "" }))
+                    }
+                  >
+                    {source.exchanges.map(exchange => (
+                      <option key={exchange}>{exchange}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t("品种代码")}
+                  <input
+                    required
+                    placeholder="CU"
+                    value={form.product}
+                    onChange={event =>
+                      setForm(previous => ({ ...previous, product: event.target.value, code: "" }))
+                    }
+                  />
+                </label>
+                <div className="history-catalog-action">
+                  <button
+                    type="button"
+                    disabled={(source.credential.required && !saved && !token) || !form.product}
+                    onClick={() =>
+                      void run(source.catalogCommand, {
+                        source: source.id,
+                        exchange: form.exchange,
+                        product: form.product,
+                        token: saved ? "" : token,
+                      })
+                    }
+                  >
+                    {t("查询月份合约")}
+                  </button>
+                </div>
+                <label>
+                  {t("月份合约")}
+                  <select
+                    aria-label={t("月份合约")}
+                    required
+                    value={selected || all ? form.code : ""}
+                    onChange={event => update("code", event.target.value)}
+                  >
+                    <option value="">{t("选择具体月份合约")}</option>
+                    {contracts.length > 1 && (
+                      <option value="*">
+                        {t("全部月份合约（{n} 个）", { n: contracts.length })}
+                      </option>
+                    )}
+                    {[...contracts].reverse().map(item => (
+                      <option key={item.code} value={item.code}>
+                        {item.code} · {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t(source.timeAxis === "trading-day" ? "数据周期" : "分钟周期")}
+                  <select
+                    aria-label={t(source.timeAxis === "trading-day" ? "数据周期" : "分钟周期")}
+                    value={form.frequency}
+                    onChange={event => update("frequency", event.target.value)}
+                  >
+                    {source.intervals.map(value => (
+                      <option key={value} value={value}>
+                        {value === "day" ? t("日K") : `${value} min`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
-            )}
+              {selected && (
+                <p className="history-lifetime">
+                  {t("上市日期")} {selected.list_date} — {t("最后交易日")} {selected.delist_date}
+                  <br />
+                  {t("自动下载该合约完整存续期；未到期合约截至本次查询时刻。")}
+                  <br />
+                  {t("本次截止")} {timestamp(cutoff)}
+                </p>
+              )}
+              {selected && (
+                <details className="history-notes">
+                  <summary>{t("合约计量信息")}</summary>
+                  <dl className="history-metrics">
+                    {[
+                      ["供应商合约乘数", selected.multiplier],
+                      ["每手交易单位", selected.per_unit],
+                      ["交易计量单位", selected.trade_unit],
+                      ["报价单位", selected.quote_unit],
+                    ].map(([label, value]) => (
+                      <div key={label}>
+                        <dt>{t(label!)}</dt>
+                        <dd>{value ?? "—"}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <p className="subtle">
+                    {t("保留数据源原始字段；合约乘数与每手交易单位不自动互换，缺失值不推算。")}
+                  </p>
+                </details>
+              )}
+              {matchingCatalog && !contracts.length && (
+                <p role="status">{t("没有找到月份合约，请检查交易所和品种代码。")}</p>
+              )}
+            </section>
             {all && (
               <p className="subtle">
                 {t(
@@ -312,12 +322,14 @@ function SourceDownloads({
                 })}
               </p>
             )}
-            <button className="primary" type="submit" disabled={!targets.length}>
-              {t(
-                pending ? "确认下载提交" : all ? "下载全部 {n} 个合约" : "下载整个合约",
-                all ? { n: targets.length } : undefined,
-              )}
-            </button>
+            <div className="source-actions">
+              <button className="primary" type="submit" disabled={!targets.length}>
+                {t(
+                  pending ? "确认下载提交" : all ? "下载全部 {n} 个合约" : "下载整个合约",
+                  all ? { n: targets.length } : undefined,
+                )}
+              </button>
+            </div>
           </fieldset>
         </form>
         <details className="history-notes">

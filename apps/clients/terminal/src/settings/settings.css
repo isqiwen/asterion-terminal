@@ -27,7 +27,7 @@
   gap: 10px;
   padding: 12px 10px;
   min-height: 42px;
-  border-radius: 6px;
+  border-radius: var(--panel-radius);
   white-space: normal;
 }
 .settings-sidebar nav button.active {
@@ -56,7 +56,7 @@
 }
 .service-connections fieldset {
   border-color: var(--line);
-  border-radius: 8px;
+  border-radius: var(--panel-radius);
   background: var(--panel);
 }
 .service-connections .futures-fields {
@@ -102,7 +102,7 @@
   max-width: 100%;
   margin-block: 20px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--panel-radius);
 }
 .settings-table table {
   min-width: 620px;
@@ -142,8 +142,27 @@
   gap: 0.5rem;
   margin-block: 0.5rem;
 }
-.native-plugin-choice input {
-  width: auto;
+/* Plugin manager: titled blocks separated by hairlines. */
+.native-plugin-manager h2,
+.native-plugin-manager h3 {
+  margin: 0 0 6px;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 500;
+}
+.native-plugin-manager p {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.native-plugin-manager > section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.native-plugin-manager > section > button {
+  margin-bottom: 10px;
 }
 .native-plugin-service code,
 .settings-table code {
@@ -176,7 +195,7 @@
   margin-block: 12px;
   padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--panel-radius);
 }
 
 .deployment-center h2 {
@@ -360,7 +379,7 @@
   background: var(--panel);
   color: var(--text);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--panel-radius);
   width: min(480px, calc(100vw - 48px));
   padding: 24px;
   max-height: calc(100vh - 48px);
@@ -428,7 +447,7 @@
   gap: 14px;
   padding: 18px 20px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--panel-radius);
   min-width: 0;
 }
 .settings-card header {

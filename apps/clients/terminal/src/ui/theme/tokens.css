@@ -11,8 +11,11 @@
   --hover: #161d26;
   --pressed: #1c2531;
 
-  /* Structure: 1px hairlines only. */
+  /* Structure: 1px hairlines only. Controls use the stronger line so a
+     button or field reads as one without a filled surface. */
   --line: #1a212b;
+  --line-strong: #2a3543;
+  --field: #0a0d12;
   --grid: #121821;
   --row-alt: rgb(255 255 255 / 1.8%);
   --overlay: rgb(2 4 8 / 72%);

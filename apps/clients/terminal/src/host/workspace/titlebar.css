@@ -37,7 +37,7 @@
   min-height: 22px;
   box-sizing: border-box;
   border: 1px solid var(--line);
-  border-radius: 3px;
+  border-radius: var(--control-radius);
   padding: 2px 8px;
   background: var(--panel);
   color: var(--text-strong);
@@ -88,7 +88,7 @@
   flex-shrink: 0;
   color: var(--accent);
   border: 1px solid currentColor;
-  border-radius: 3px;
+  border-radius: var(--control-radius);
   font-size: 10px;
   line-height: 16px;
 }

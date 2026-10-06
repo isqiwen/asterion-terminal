@@ -385,9 +385,9 @@ test("dense market board links real dataset commands, sorting, pagination and co
   const chartTop = await page.locator(".market-contract").boundingBox();
   expect(Math.abs(boardTop!.y - chartTop!.y)).toBeLessThan(2);
   await page.getByRole("button", { name: "行情设置" }).click();
-  await menu.getByText("CTP 连接与自选", { exact: true }).click();
+  await menu.getByText("行情连接", { exact: true }).click();
   expect((await page.locator(".market-contract").boundingBox())!.y).toBe(chartTop!.y);
-  await menu.getByText("CTP 连接与自选", { exact: true }).click();
+  await menu.getByText("行情连接", { exact: true }).click();
   await page.keyboard.press("Escape");
   const largePlot = await history.getByRole("img").boundingBox();
   expect(largePlot!.height).toBeGreaterThan(candle!.height);

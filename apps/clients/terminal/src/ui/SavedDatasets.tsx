@@ -9,20 +9,21 @@ export function SavedDatasets({
   busy,
   query,
   trade,
+  revision,
   onSelected,
 }: {
   snapshot: Snapshot | null;
   busy: boolean;
   query: HistoryQuery;
   trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
+  // Changes whenever a dataset was saved elsewhere on the page.
+  revision: number;
   onSelected?: () => void;
 }) {
   const [items, setItems] = useState<SavedNamedDataset[]>([]);
   const [id, setId] = useState("");
-  const [name, setName] = useState("");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<DisplayError>("");
-  const [saved, setSaved] = useState(false);
   const reads = useRef({ sequence: 0 });
   const api = useRef(query);
   api.current = query;
@@ -48,25 +49,19 @@ export function SavedDatasets({
       active = false;
       ++counter.sequence;
     };
-  }, [online]);
-  async function action(kind: "refresh" | "save" | "use") {
+  }, [online, revision]);
+  async function action(kind: "refresh" | "use") {
     const request = ++reads.current.sequence;
     setWorking(true);
     setError("");
-    setSaved(false);
     try {
       if (kind === "use") {
         await trade("data.dataset.use", { id });
         onSelected?.();
       } else {
-        if (kind === "save") await trade("data.dataset.save", { name: name.trim() });
         const result = await query("data.dataset.saved", {});
         if (request !== reads.current.sequence) return;
         setItems(result.saved_datasets ?? []);
-        if (kind === "save") {
-          setSaved(true);
-          setName("");
-        }
       }
     } catch (reason) {
       setError(asDisplayError(reason));
@@ -113,44 +108,85 @@ export function SavedDatasets({
         {selected && !!snapshot?.datasets.length && (
           <p className="subtle">{t("使用后替换当前选择，已有任务不受影响。")}</p>
         )}
-        {!!snapshot?.datasets.length && (
-          <details>
-            <summary>{t("保存当前选择")}</summary>
-            <div className="saved-dataset-row">
-              <label>
-                {t("数据集名称")}
-                <input
-                  aria-label={t("数据集名称")}
-                  value={name}
-                  maxLength={40}
-                  onKeyDown={event => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      if (name.trim() && !busy && !working && online) void action("save");
-                    }
-                  }}
-                  onChange={event => {
-                    setName(event.target.value);
-                    setSaved(false);
-                  }}
-                />
-              </label>
-              <button type="button" disabled={!name.trim()} onClick={() => void action("save")}>
-                {t("保存数据集")}
-              </button>
-            </div>
-            <p className="subtle">
-              {t("保存合约、区间、计量参数和固定数据版本；同名不同输入另存为独立版本。")}
-            </p>
-          </details>
-        )}
       </fieldset>
-      {saved && <p role="status">{t("数据集已保存，可在当前数据服务中重复使用。")}</p>}
       {error && (
         <p role="alert">
           <ErrorNotice error={error} />
         </p>
       )}
     </section>
+  );
+}
+
+// Saves what is currently chosen as a named dataset of the data service.
+export function SaveSelection({
+  snapshot,
+  busy,
+  trade,
+  onSaved,
+}: {
+  snapshot: Snapshot | null;
+  busy: boolean;
+  trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [working, setWorking] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<DisplayError>("");
+  const disabled = busy || working || !snapshot?.data?.online;
+  async function save() {
+    setWorking(true);
+    setError("");
+    setSaved(false);
+    try {
+      await trade("data.dataset.save", { name: name.trim() });
+      setSaved(true);
+      setName("");
+      onSaved();
+    } catch (reason) {
+      setError(asDisplayError(reason));
+    } finally {
+      setWorking(false);
+    }
+  }
+  return (
+    <details className="saved-datasets">
+      <summary>{t("保存当前选择")}</summary>
+      <fieldset disabled={disabled}>
+        <div className="saved-dataset-row">
+          <label>
+            {t("数据集名称")}
+            <input
+              aria-label={t("数据集名称")}
+              value={name}
+              maxLength={40}
+              onKeyDown={event => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  if (name.trim() && !disabled) void save();
+                }
+              }}
+              onChange={event => {
+                setName(event.target.value);
+                setSaved(false);
+              }}
+            />
+          </label>
+          <button type="button" disabled={!name.trim()} onClick={() => void save()}>
+            {t("保存数据集")}
+          </button>
+        </div>
+      </fieldset>
+      <p className="subtle">
+        {t("保存合约、区间、计量参数和固定数据版本；同名不同输入另存为独立版本。")}
+      </p>
+      {saved && <p role="status">{t("数据集已保存，可在当前数据服务中重复使用。")}</p>}
+      {error && (
+        <p role="alert">
+          <ErrorNotice error={error} />
+        </p>
+      )}
+    </details>
   );
 }

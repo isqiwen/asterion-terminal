@@ -114,13 +114,12 @@ test.describe("startup language", () => {
     await page.getByRole("alert").getByRole("button", { name: "Details", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("permission_denied: 原始诊断信息");
     await page.unroute("**/__asterion/api");
+    // With every step passed and nothing to point out, the workbench opens.
     await page.getByRole("button", { name: "RETRY", exact: true }).click();
-    await page.getByRole("button", { name: "ENTER WORKBENCH", exact: true }).click();
     await expect(
       page.locator(".workspace-tabs").getByRole("button", { name: "Watchlist", exact: true }),
     ).toBeVisible();
     await page.reload();
-    await page.getByRole("button", { name: "ENTER WORKBENCH", exact: true }).click();
     await expect(
       page.locator(".workspace-tabs").getByRole("button", { name: "Watchlist", exact: true }),
     ).toBeVisible();

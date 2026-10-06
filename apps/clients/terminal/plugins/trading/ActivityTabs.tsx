@@ -1,5 +1,5 @@
 import { translate } from "../contract";
-export type Activity = "positions" | "orders" | "fills";
+export type Activity = "positions" | "orders" | "fills" | "rates" | "policy";
 const t = (key: string) => translate("asterion.terminal.trading", key);
 export function ActivityTabs({
   value,
@@ -12,6 +12,8 @@ export function ActivityTabs({
     ["positions", "持仓"],
     ["orders", "委托"],
     ["fills", "成交"],
+    ["rates", "费率"],
+    ["policy", "风控"],
   ];
   return (
     <div className="activity-tabs" role="group" aria-label={t("账户明细")}>

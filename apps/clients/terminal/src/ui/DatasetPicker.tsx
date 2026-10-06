@@ -1,4 +1,4 @@
-import { SavedDatasets } from "./SavedDatasets";
+import { SaveSelection, SavedDatasets } from "./SavedDatasets";
 import { useEffect, useState } from "react";
 import { translate, type MessageValues } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
@@ -69,6 +69,13 @@ export function DatasetPicker({
     price_increment,
     multiplier,
   } = draft;
+  // One way of adding data is shown at a time; what is already chosen stays
+  // above all of them.
+  const [method, setMethod] = useWorkspaceDraft<"contract" | "series" | "saved">(
+    "dataset-picker:method",
+    "contract",
+  );
+  const [savedRevision, setSavedRevision] = useState(0);
   const [error, setError] = useState<DisplayError>("");
   const chosen = versions.find(item => item.id === source);
   const replacing = selected.some(
@@ -306,15 +313,19 @@ export function DatasetPicker({
       }}
     >
       <h3>{t("历史数据集")}</h3>
-      <SavedDatasets
-        key={snapshot?.data?.connection_id}
-        snapshot={snapshot}
-        busy={busy}
-        query={query}
-        trade={trade}
-        onSelected={onSelected}
-      />
+      <h4>{t("本次使用的数据")}</h4>
       {list}
+      {all.length ? (
+        <SaveSelection
+          key={snapshot?.data?.connection_id}
+          snapshot={snapshot}
+          busy={busy}
+          trade={trade}
+          onSaved={() => setSavedRevision(value => value + 1)}
+        />
+      ) : (
+        <p className="subtle">{t("尚未选择数据。用下面任一方式添加。")}</p>
+      )}
       {all.length >= maxContracts && (
         <p className="subtle">{t("组合最多 {n} 个合约。", { n: maxContracts })}</p>
       )}
@@ -324,174 +335,211 @@ export function DatasetPicker({
         </p>
       )}
       {loading && <p role="status">{t("正在读取历史仓库…")}</p>}
-      {!snapshot?.data ? (
-        <p className="subtle">{t("数据服务未连接，无法读取已下载的历史数据。")}</p>
-      ) : !versions.length ? (
-        <p className="subtle">{t("历史仓库还没有数据。请先在数据页下载分钟线或日线。")}</p>
-      ) : (
-        <fieldset disabled={busy || !snapshot?.data?.online || loading}>
-          <div className="futures-fields">
-            <label className="dataset-version-field">
-              {t("K 线来源")}
-              <select
-                aria-label={t("K 线来源")}
-                value={source}
-                onChange={event => choose(event.target.value)}
-                required
+      <div className="activity-tabs" role="group" aria-label={t("添加数据的方式")}>
+        {(
+          [
+            ["contract", "单个合约"],
+            ["series", "主力连续"],
+            ["saved", "已保存数据集"],
+          ] as const
+        ).map(([value, name]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={method === value}
+            onClick={() => setMethod(value)}
+          >
+            {t(name)}
+          </button>
+        ))}
+      </div>
+      <div hidden={method !== "contract"}>
+        {!snapshot?.data ? (
+          <p className="subtle">{t("数据服务未连接，无法读取已下载的历史数据。")}</p>
+        ) : !versions.length ? (
+          <p className="subtle">{t("历史仓库还没有数据。请先在数据页下载分钟线或日线。")}</p>
+        ) : (
+          <fieldset disabled={busy || !snapshot?.data?.online || loading}>
+            <div className="futures-fields">
+              <label className="dataset-version-field">
+                {t("K 线来源")}
+                <select
+                  aria-label={t("K 线来源")}
+                  value={source}
+                  onChange={event => choose(event.target.value)}
+                  required
+                >
+                  <option value="">{t("选择历史数据版本")}</option>
+                  {versions.map(item => (
+                    <option key={item.id} value={item.id}>
+                      {label(item)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label
+                className="dataset-version-field"
+                hidden={!!settlement && settlements.length === 1}
               >
-                <option value="">{t("选择历史数据版本")}</option>
-                {versions.map(item => (
-                  <option key={item.id} value={item.id}>
-                    {label(item)}
+                {t("结算价来源")}
+                <select
+                  aria-label={t("结算价来源")}
+                  value={settlement}
+                  onChange={event =>
+                    setDraft({ ...draft, settlement: event.target.value, extraSettlements: [] })
+                  }
+                  required
+                >
+                  <option value="">
+                    {chosen && !settlements.length
+                      ? t("需要同一合约的日线数据")
+                      : t("选择日线版本")}
                   </option>
-                ))}
-              </select>
-            </label>
-            <label
-              className="dataset-version-field"
-              hidden={!!settlement && settlements.length === 1}
-            >
-              {t("结算价来源")}
-              <select
-                aria-label={t("结算价来源")}
-                value={settlement}
-                onChange={event =>
-                  setDraft({ ...draft, settlement: event.target.value, extraSettlements: [] })
-                }
-                required
-              >
-                <option value="">
-                  {chosen && !settlements.length ? t("需要同一合约的日线数据") : t("选择日线版本")}
-                </option>
-                {settlements.map(item => (
-                  <option key={item.id} value={item.id}>
-                    {label(item)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {t("开始交易日")}
-              <input
-                aria-label={t("开始交易日")}
-                type="date"
-                value={begin_day}
-                onChange={event => setDraft({ ...draft, begin_day: event.target.value })}
-              />
-            </label>
-            <label>
-              {t("结束交易日")}
-              <input
-                aria-label={t("结束交易日")}
-                type="date"
-                value={end_day}
-                onChange={event => setDraft({ ...draft, end_day: event.target.value })}
-              />
-            </label>
-            <label>
-              {t("最小变动价位")}
-              <input
-                aria-label={t("最小变动价位")}
-                inputMode="decimal"
-                value={price_increment}
-                onChange={event => setDraft({ ...draft, price_increment: event.target.value })}
-                required
-              />
-            </label>
-            <label>
-              {t("合约乘数")}
-              <input
-                aria-label={t("合约乘数")}
-                inputMode="decimal"
-                value={multiplier}
-                onChange={event => setDraft({ ...draft, multiplier: event.target.value })}
-                required
-              />
-            </label>
-          </div>
-          {chosen && (additionalSources.length > 0 || additionalSettlements.length > 0) && (
-            <details className="dataset-composition">
-              <summary>
-                {t("拼接更多下载")} ·{" "}
-                {t("K 线 {bars} 份 · 结算 {settlements} 份", {
-                  bars: 1 + extraSources.length,
-                  settlements: (settlement ? 1 : 0) + extraSettlements.length,
-                })}
-              </summary>
-              <p className="subtle">
-                {t(
-                  "选择同合约、同周期的其他下载；相同记录去重，冲突记录拒绝使用。每类最多 32 份。",
+                  {settlements.map(item => (
+                    <option key={item.id} value={item.id}>
+                      {label(item)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {t("开始交易日")}
+                <input
+                  aria-label={t("开始交易日")}
+                  type="date"
+                  value={begin_day}
+                  onChange={event => setDraft({ ...draft, begin_day: event.target.value })}
+                />
+              </label>
+              <label>
+                {t("结束交易日")}
+                <input
+                  aria-label={t("结束交易日")}
+                  type="date"
+                  value={end_day}
+                  onChange={event => setDraft({ ...draft, end_day: event.target.value })}
+                />
+              </label>
+              <label>
+                {t("最小变动价位")}
+                <input
+                  aria-label={t("最小变动价位")}
+                  inputMode="decimal"
+                  value={price_increment}
+                  onChange={event => setDraft({ ...draft, price_increment: event.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                {t("合约乘数")}
+                <input
+                  aria-label={t("合约乘数")}
+                  inputMode="decimal"
+                  value={multiplier}
+                  onChange={event => setDraft({ ...draft, multiplier: event.target.value })}
+                  required
+                />
+              </label>
+            </div>
+            {chosen && (additionalSources.length > 0 || additionalSettlements.length > 0) && (
+              <details className="dataset-composition">
+                <summary>
+                  {t("拼接更多下载")} ·{" "}
+                  {t("K 线 {bars} 份 · 结算 {settlements} 份", {
+                    bars: 1 + extraSources.length,
+                    settlements: (settlement ? 1 : 0) + extraSettlements.length,
+                  })}
+                </summary>
+                <p className="subtle">
+                  {t(
+                    "选择同合约、同周期的其他下载；相同记录去重，冲突记录拒绝使用。每类最多 32 份。",
+                  )}
+                </p>
+                {additionalSources.length > 0 && (
+                  <fieldset>
+                    <legend>{t("补充 K 线")}</legend>
+                    {additionalSources.map(item => (
+                      <label className="dataset-segment" key={item.id}>
+                        <input
+                          type="checkbox"
+                          checked={extraSources.includes(item.id)}
+                          disabled={!extraSources.includes(item.id) && extraSources.length >= 31}
+                          onChange={() => toggle("extraSources", item.id)}
+                        />
+                        <span>{label(item)}</span>
+                      </label>
+                    ))}
+                  </fieldset>
                 )}
-              </p>
-              {additionalSources.length > 0 && (
-                <fieldset>
-                  <legend>{t("补充 K 线")}</legend>
-                  {additionalSources.map(item => (
-                    <label className="dataset-segment" key={item.id}>
-                      <input
-                        type="checkbox"
-                        checked={extraSources.includes(item.id)}
-                        disabled={!extraSources.includes(item.id) && extraSources.length >= 31}
-                        onChange={() => toggle("extraSources", item.id)}
-                      />
-                      <span>{label(item)}</span>
-                    </label>
-                  ))}
-                </fieldset>
-              )}
-              {additionalSettlements.length > 0 && (
-                <fieldset>
-                  <legend>{t("补充结算价")}</legend>
-                  {additionalSettlements.map(item => (
-                    <label className="dataset-segment" key={item.id}>
-                      <input
-                        type="checkbox"
-                        checked={extraSettlements.includes(item.id)}
-                        disabled={
-                          !extraSettlements.includes(item.id) && extraSettlements.length >= 31
-                        }
-                        onChange={() => toggle("extraSettlements", item.id)}
-                      />
-                      <span>{label(item)}</span>
-                    </label>
-                  ))}
-                </fieldset>
-              )}
-            </details>
-          )}
-          {settlement && settlements.length === 1 && (
-            <p className="subtle">{t("已匹配同一合约的日线结算版本。")}</p>
-          )}
-          {chosen && settlements.length > 1 && !settlement && (
-            <p role="status">{t("存在多个日线版本，请明确选择本次使用的结算来源。")}</p>
-          )}
-          <div className="source-actions">
-            <button
-              type="submit"
-              className="primary"
-              disabled={
-                !chosen ||
-                !settlements.some(item => item.id === settlement) ||
-                (!replacing && all.length >= maxContracts)
-              }
-            >
-              {replacing ? t("更新此合约") : all.length ? t("加入组合") : t("使用此数据集")}
-            </button>
-            <span className="subtle">
-              {t("交易日区间留空表示全部；组合内合约须覆盖相同交易日；合约单位以交易所公布为准。")}
-            </span>
-          </div>
-        </fieldset>
-      )}
-      {!!versions.length && (
-        <DominantSeriesPicker
+                {additionalSettlements.length > 0 && (
+                  <fieldset>
+                    <legend>{t("补充结算价")}</legend>
+                    {additionalSettlements.map(item => (
+                      <label className="dataset-segment" key={item.id}>
+                        <input
+                          type="checkbox"
+                          checked={extraSettlements.includes(item.id)}
+                          disabled={
+                            !extraSettlements.includes(item.id) && extraSettlements.length >= 31
+                          }
+                          onChange={() => toggle("extraSettlements", item.id)}
+                        />
+                        <span>{label(item)}</span>
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
+              </details>
+            )}
+            {settlement && settlements.length === 1 && (
+              <p className="subtle">{t("已匹配同一合约的日线结算版本。")}</p>
+            )}
+            {chosen && settlements.length > 1 && !settlement && (
+              <p role="status">{t("存在多个日线版本，请明确选择本次使用的结算来源。")}</p>
+            )}
+            <div className="source-actions">
+              <button
+                type="submit"
+                className="primary"
+                disabled={
+                  !chosen ||
+                  !settlements.some(item => item.id === settlement) ||
+                  (!replacing && all.length >= maxContracts)
+                }
+              >
+                {replacing ? t("更新此合约") : all.length ? t("加入组合") : t("使用此数据集")}
+              </button>
+              <span className="subtle">
+                {t(
+                  "交易日区间留空表示全部；组合内合约须覆盖相同交易日；合约单位以交易所公布为准。",
+                )}
+              </span>
+            </div>
+          </fieldset>
+        )}
+      </div>
+      <div hidden={method !== "series"}>
+        {!!versions.length && (
+          <DominantSeriesPicker
+            key={snapshot?.data?.connection_id}
+            snapshot={snapshot}
+            versions={versions}
+            disabled={busy || !snapshot?.data?.online || loading}
+            select={params => void run("data.dataset.series", params)}
+          />
+        )}
+      </div>
+      <div hidden={method !== "saved"}>
+        <SavedDatasets
           key={snapshot?.data?.connection_id}
           snapshot={snapshot}
-          versions={versions}
-          disabled={busy || !snapshot?.data?.online || loading}
-          select={params => void run("data.dataset.series", params)}
+          busy={busy}
+          query={query}
+          revision={savedRevision}
+          trade={trade}
+          onSelected={onSelected}
         />
-      )}
+      </div>
       {onDownload && (
         <div className="source-actions">
           {chosen && !settlements.length && (

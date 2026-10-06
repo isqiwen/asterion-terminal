@@ -44,10 +44,8 @@ test("account policy changes retain the record, reject stale commands and recove
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "交易", exact: true }).click();
   const panel = page.getByRole("region", { name: "CTP 交易账户", exact: true });
-  await panel.getByText("账户政策", { exact: true }).click();
-  const editor = panel
-    .locator("details")
-    .filter({ has: page.getByText("账户政策", { exact: true }) });
+  await panel.getByRole("button", { name: "风控", exact: true }).click();
+  const editor = panel.getByRole("region", { name: "账户政策", exact: true });
   await expect(editor).toContainText(original.policy_revision);
   await editor.getByLabel("总持仓量上限", { exact: true }).fill("8");
   await editor.getByLabel("我确认应用上述政策并重新登录", { exact: true }).check();

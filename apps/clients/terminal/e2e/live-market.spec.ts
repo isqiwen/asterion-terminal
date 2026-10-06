@@ -38,11 +38,11 @@ test("full market loads automatically and watchlist membership stays independent
   await page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }).click();
   await expect(page.locator(".watchlist-table tbody tr")).toHaveCount(0);
   await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
-  await (await marketMenu(page)).getByRole("button", { name: "加入自选", exact: true }).click();
+  await panel.getByRole("button", { name: "加入自选", exact: true }).click();
   await page.locator(".workspace-tabs").getByRole("button", { name: "自选", exact: true }).click();
   await expect(page.locator(".watchlist-table tbody tr")).toHaveCount(1);
   await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
-  await (await marketMenu(page)).getByRole("button", { name: "移出自选", exact: true }).click();
+  await panel.getByRole("button", { name: "移出自选", exact: true }).click();
   await expect(panel.getByRole("cell", { name: "3510", exact: true })).toBeVisible();
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain(
     "ui-fixture-secret",
@@ -59,6 +59,7 @@ test("read-only market workspace receives C++ test SDK quotes without storing cr
   await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await page.getByRole("tab", { name: "实时行情", exact: true }).click();
   const panel = page.getByRole("region", { name: "实时期货行情" });
+  await panel.getByText("按代码添加自选", { exact: true }).click();
   await panel.getByLabel("实际合约", { exact: true }).fill("rb2610");
   await panel.getByRole("button", { name: "添加自选" }).click();
   await expect(panel.getByRole("status", { name: "行情来源" })).toContainText("market-account");
@@ -107,8 +108,10 @@ test("read-only market workspace receives C++ test SDK quotes without storing cr
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain(
     "ui-fixture-secret",
   );
-  // Once connected, the connection controls move into the market settings portal.
-  await expect((await marketMenu(page)).getByLabel("密码", { exact: true })).toHaveValue("");
+  // Once connected, the connection controls move into the market settings
+  // portal and the login form is gone until the session ends.
+  await expect(panel.getByLabel("密码", { exact: true })).toHaveCount(0);
+  await expect((await marketMenu(page)).getByText("行情连接", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "行情设置" }).click();
   await page.screenshot({ path: "apps/clients/terminal/test-results/live-market.png" });
   await (await marketMenu(page)).getByRole("button", { name: "断开行情", exact: true }).click();
@@ -146,7 +149,7 @@ test("remembered market login is reused with blank fields and can be cleared", a
   expect(stored).not.toContain("remember-fixture");
   expect(stored).not.toContain("fixture-auth");
   const settings = await marketMenu(page);
-  await settings.getByText("CTP 连接与自选", { exact: true }).click();
+  await settings.getByText("行情连接", { exact: true }).click();
   await settings.getByRole("button", { name: "清除已保存的登录凭据" }).click();
   await (await marketMenu(page)).getByRole("button", { name: "断开行情", exact: true }).click();
   await page.reload();

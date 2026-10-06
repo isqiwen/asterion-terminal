@@ -19,7 +19,6 @@
   "断开行情": "Disconnect Feed",
   "行情连接异常，请检查配置或服务时段。": "Market connection failed. Check configuration or service hours.",
   "详情": "Details",
-  "CTP 连接与自选": "CTP Connection and Watchlist",
   "密码": "Password",
   "连接行情": "Connect Feed",
   "交易所": "Exchange",
@@ -49,7 +48,6 @@
   "行情来源": "Quote Source",
   "历史行情": "Historical Quotes",
   "自选行情": "Watchlist",
-  "管理自选": "Manage watchlist",
   "行情未连接": "Feed disconnected",
   "自选行情表": "Watchlist quotes",
   "全部自选": "All watchlist",
@@ -161,9 +159,6 @@
   "均价": "Average",
   "买": "Bid",
   "卖": "Ask",
-  "手数": "Quantity",
-  "指令": "Instruction",
-  "账户": "Account",
   "分": "m",
   "日K": "Day",
   "周线": "Week",
@@ -273,5 +268,10 @@
   "登录凭据已保存到本机钥匙串。": "Login credentials saved in Keychain.",
   "清除已保存的登录凭据": "Clear saved login credentials",
   "已清除保存的登录凭据。": "Saved login credentials cleared.",
-  "只读行情 · 使用服务方提供的实际月份合约": "Read-only market data · Use actual contract months provided by your broker"
+  "只读行情 · 使用服务方提供的实际月份合约": "Read-only market data · Use actual contract months provided by your broker",
+  "实时行情未连接，自选合约没有报价。": "Live quotes are not connected, so watchlist contracts have no quotes.",
+  "去市场添加自选": "Add from Market",
+  "自选为空。在市场页选中合约，点图表标题旁的“加入自选”。": "The watchlist is empty. Select a contract on the Market page and use “Add to watchlist” next to the chart title.",
+  "行情连接": "Market connection",
+  "按代码添加自选": "Add to watchlist by code"
 }

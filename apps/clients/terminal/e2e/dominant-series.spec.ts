@@ -34,7 +34,7 @@ test("a product's months backtest as its dominant series and roll at real prices
     .click();
   const workspace = page.getByRole("region", { name: "期货回测与因子", exact: true });
   await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
-  await workspace.getByText("主力连续", { exact: true }).click();
+  await workspace.getByRole("button", { name: "主力连续", exact: true }).click();
   const product = workspace.getByLabel("品种", { exact: true });
   // Daily downloads form a series of their own.
   await expect(product.locator("option")).toHaveCount(3);
@@ -45,7 +45,7 @@ test("a product's months backtest as its dominant series and roll at real prices
   ])
     await expect(product.getByRole("option", { name, exact: true })).toHaveCount(1);
   await product.selectOption({ label: "SHFE/rb · 1 分钟 · tushare.ft_mins · 2 个月份" });
-  const series = workspace.locator("details").filter({ hasText: "使用主力连续" });
+  const series = workspace.getByRole("region", { name: "主力连续", exact: true });
   await series.getByLabel("最小变动价位").fill("1");
   await series.getByLabel("合约乘数").fill("10");
   await series.getByRole("button", { name: "使用主力连续（2 个月份）", exact: true }).click();

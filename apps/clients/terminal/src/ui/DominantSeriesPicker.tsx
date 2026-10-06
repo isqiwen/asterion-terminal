@@ -57,7 +57,12 @@ export function DominantSeriesPicker({
   const [end, setEnd] = useState("");
   const [tick, setTick] = useState("");
   const [multiplier, setMultiplier] = useState("");
-  if (!available.length) return null;
+  if (!available.length)
+    return (
+      <p className="subtle">
+        {t("主力连续需要同一品种至少两个月份的 K 线，且每个月份都有日线数据。")}
+      </p>
+    );
   const group = available.find(item => item.key === key);
   // Months whose bars reach into the chosen trading days.
   const months = (group?.months ?? []).filter(
@@ -76,8 +81,7 @@ export function DominantSeriesPicker({
     setMultiplier(listed ? String(listed.multiplier) : "");
   };
   return (
-    <details className="dataset-composition">
-      <summary>{t("主力连续")}</summary>
+    <section className="dataset-composition" aria-label={t("主力连续")}>
       <p className="subtle">
         {t(
           "把一个品种的各月份合约作为主力连续回测：每个交易日的主力是前一交易日持仓量最大的月份，只向更远的月份切换。策略信号使用等比前复权价格，成交和盈亏使用真实合约的真实价格。",
@@ -151,6 +155,6 @@ export function DominantSeriesPicker({
           </button>
         </div>
       </fieldset>
-    </details>
+    </section>
   );
 }

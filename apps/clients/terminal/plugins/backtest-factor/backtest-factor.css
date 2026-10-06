@@ -193,7 +193,7 @@
 }
 .backtest-factor-metrics {
   background: var(--panel);
-  border-radius: 8px;
+  border-radius: var(--panel-radius);
   padding: 20px;
 }
 .backtest-factor-empty {
@@ -202,13 +202,13 @@
   align-items: center;
   justify-content: center;
   border: 1px dashed var(--line);
-  border-radius: 10px;
+  border-radius: var(--panel-radius);
 }
 .backtest-factor-config .backtest-factor-day {
-  border-radius: 6px;
+  border-radius: var(--panel-radius);
 }
 .backtest-factor-table {
-  border-radius: 8px;
+  border-radius: var(--panel-radius);
 }
 .backtest-factor-modes button[aria-pressed="true"] {
   background: var(--accent-surface);

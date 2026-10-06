@@ -10,8 +10,9 @@ export const test = base.extend<{
   enterWorkbench: boolean;
   startupEntry: void;
 }>({
-  // The startup screen waits for the user on every launch. Specs about the
-  // workbench pass through it; specs about startup itself set this to false.
+  // The startup screen waits for the user while it has something to point
+  // out. Specs about the workbench pass through it; specs about startup
+  // itself set this to false.
   enterWorkbench: [true, { option: true }],
   startupEntry: [
     async ({ context, enterWorkbench }, use) => {

@@ -117,7 +117,7 @@ html[lang="en-US"] .activity-rail.expanded {
 }
 .service-status-panel {
   background: var(--raised);
-  border-radius: 8px;
+  border-radius: var(--panel-radius);
   padding: 16px;
   box-shadow: 0 16px 48px #0006;
 }

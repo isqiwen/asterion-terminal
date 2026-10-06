@@ -205,5 +205,7 @@
   "正在发布": "Publishing",
   "应用共享额度": "Apply shared budget",
   "同一账号的下载共享当前数据服务的额度；多节点请分别分配份额。": "Downloads for this account share the current data service budget. Allocate a separate share for each node.",
-  "为每个月份合约各建一个下载任务，每个合约下载完整存续期。所有下载共用已配置的账号额度。": "Create one full-lifetime download per delivery contract. All downloads share the configured account budget."
+  "为每个月份合约各建一个下载任务，每个合约下载完整存续期。所有下载共用已配置的账号额度。": "Create one full-lifetime download per delivery contract. All downloads share the configured account budget.",
+  "数据源账号": "Data source account",
+  "选择合约": "Choose contract"
 }

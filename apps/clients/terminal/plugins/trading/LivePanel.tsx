@@ -108,7 +108,9 @@ export function LivePanel(context: TerminalContext) {
                 <span className="subtle">{t(state(item))}</span>
               </button>
             ))}
-            <button onClick={() => context.openSettings("ctp")}>{t("管理 CTP 账户")}</button>
+            <button className="ctp-account-manage" onClick={() => context.openSettings("ctp")}>
+              {t("管理 CTP 账户")}
+            </button>
           </nav>
           {account && (
             <div className="ctp-account-panel" key={account.id}>
@@ -175,7 +177,7 @@ function CreateLive({
 }) {
   // The record keeps its own copy of the account's counter details.
   const connection = account;
-  const [step, setStep] = useWorkspaceDraft(`live-step:${account.id}`, 0);
+  const [step, setStep] = useWorkspaceDraft(`live-create-step:${account.id}`, 0);
   const [catalogCredentials, setCatalogCredentials] = useState({ password: "", auth_code: "" });
   const [limits, setLimits] = useWorkspaceDraft(`live-risk:${account.id}`, {
     max_order_quantity: "",
@@ -189,12 +191,26 @@ function CreateLive({
   const listed = catalog?.phase === "ready" ? catalog.contracts : [];
   return (
     <>
-      <FlowSteps labels={[t("账户信息"), t("合约与风控"), t("确认创建")]} current={step} />
+      <div className="inline-row">
+        <p role="status" aria-label={t("CTP 账户")}>
+          {`${connection.name} · ${connection.broker_id} · ${connection.user_id} · ${
+            connection.trade_front
+          }`}
+        </p>
+        <button type="button" onClick={() => openSettings("ctp")}>
+          {t("管理 CTP 账户")}
+        </button>
+      </div>
+      <p className="subtle">
+        {t("开通后柜台信息固定在此账户的交易记录中，不能再修改。")}
+        {t("密码与授权码在每次连接时输入，不保存。")}
+      </p>
+      <FlowSteps labels={[t("合约与风控"), t("确认创建")]} current={step} />
       <form
         onSubmit={event => {
           event.preventDefault();
-          if (step < 2) {
-            setStep(step + 1);
+          if (step === 0) {
+            setStep(1);
             return;
           }
           void run("live.create", {
@@ -210,21 +226,6 @@ function CreateLive({
       >
         <fieldset disabled={busy}>
           <fieldset hidden={step !== 0} disabled={step !== 0}>
-            <section className="account-field-group" aria-label={t("CTP 账户")}>
-              <h3>{t("CTP 账户")}</h3>
-              <p role="status" aria-label={t("CTP 账户")}>
-                {`${connection.name} · ${connection.broker_id} · ${connection.user_id} · ${
-                  connection.trade_front
-                }`}
-              </p>
-              <button type="button" onClick={() => openSettings("ctp")}>
-                {t("管理 CTP 账户")}
-              </button>
-              <p className="subtle">{t("开通后柜台信息固定在此账户的交易记录中，不能再修改。")}</p>
-              <p className="subtle">{t("密码与授权码在每次连接时输入，不保存。")}</p>
-            </section>
-          </fieldset>
-          <fieldset hidden={step !== 1} disabled={step !== 1}>
             <section className="account-field-group" aria-label={t("可交易合约")}>
               <h3>{t("可交易合约")}</h3>
               {catalog?.phase !== "ready" ? (
@@ -370,29 +371,39 @@ function CreateLive({
               </p>
             </section>
           </fieldset>
-          {step === 2 && (
+          {step === 1 && (
             <section className="creation-review">
-              <h3>{connection.name}</h3>
-              <p>
-                {connection.broker_id} · {connection.user_id}
+              <dl>
+                <dt>{t("CTP 账户")}</dt>
+                <dd>
+                  <strong>{connection.name}</strong>
+                  <span>
+                    {connection.broker_id} · {connection.user_id}
+                  </span>
+                  <span>{connection.trade_front}</span>
+                </dd>
+                <dt>{t("可交易合约")}</dt>
+                <dd>{contracts.join(" + ")}</dd>
+                <dt>{t("委托与持仓限制")}</dt>
+                <dd>
+                  {t("单笔数量上限")}：{limits.max_order_quantity} · {t("总持仓量上限")}：
+                  {limits.max_gross_quantity} · {t("在途委托数上限")}：{limits.max_working_orders} ·{" "}
+                  {t("价格偏离上限")}：{limits.max_price_deviation}
+                </dd>
+              </dl>
+              <p className="subtle">
+                {t("创建账户不会登录或发送委托。下一步确认环境、连接并授权。")}
               </p>
-              <p>{connection.trade_front}</p>
-              <p>{contracts.join(" + ")}</p>
-              <p>
-                {t("单笔数量上限")}：{limits.max_order_quantity} · {t("总持仓量上限")}：
-                {limits.max_gross_quantity}
-              </p>
-              <p>{t("创建账户不会登录或发送委托。下一步确认环境、连接并授权。")}</p>
             </section>
           )}
           <div className="workflow-actions">
-            {step > 0 && (
-              <button type="button" onClick={() => setStep(step - 1)}>
+            {step === 1 && (
+              <button type="button" onClick={() => setStep(0)}>
                 {t("上一步")}
               </button>
             )}
-            <button className="primary" type="submit" disabled={step > 0 && !contracts.length}>
-              {t(step === 2 ? "创建 CTP 账户" : "下一步")}
+            <button className="primary" type="submit" disabled={!contracts.length}>
+              {t(step === 1 ? "创建 CTP 账户" : "下一步")}
             </button>
           </div>
         </fieldset>
@@ -438,7 +449,6 @@ function LiveAccount({
   const confirmed = confirmedPolicy === live.policy_revision;
   const [order, setOrder] = useState({
     contract: "",
-    side: "buy",
     offset: "open",
     quantity: "1",
     price: "",
@@ -463,16 +473,85 @@ function LiveAccount({
       policy_revision: live.policy_revision,
       ...params,
     });
+  // A cancel is never held back by another command of this account; only a
+  // second click on the same order is.
+  // One step is offered at a time: the counter connection, then permission to
+  // send, then the order ticket. A window that has not confirmed the
+  // environment of an already connected account confirms it first.
+  const stage = stale
+    ? "stale"
+    : live.phase === "disconnected" || live.phase === "error"
+      ? "connect"
+      : !ready
+        ? "connecting"
+        : !environmentReady
+          ? "environment"
+          : !authorized
+            ? "authorize"
+            : "trade";
+  const quote = snapshot?.market?.subscriptions.find(
+    row => row.venue === traded?.venue && row.symbol === traded?.symbol,
+  )?.quote;
+  // Buying and selling are separate buttons that name the account, so
+  // pressing Enter in a field never sends an order.
+  const submit = (side: "buy" | "sell", form: HTMLFormElement | null) => {
+    if (!traded || !form?.reportValidity()) return;
+    void act({
+      action: "submit",
+      order_id: crypto.randomUUID(),
+      venue: traded.venue,
+      symbol: traded.symbol,
+      side,
+      offset,
+      quantity: order.quantity,
+      price: order.price,
+    }).then(sent => sent && setActivity("orders"));
+  };
+  const environmentFields = (
+    <div className="environment-check">
+      <label>
+        {t("柜台环境")}
+        <select
+          aria-label={t("柜台环境")}
+          required
+          value={environment === "unknown" ? "" : environment}
+          onChange={e => {
+            setEnvironment((e.target.value || "unknown") as typeof environment);
+            setEnvironmentConfirmed(false);
+          }}
+        >
+          <option value="">{t("请选择并核对")}</option>
+          <option value="simulation">{t("CTP 仿真")}</option>
+          <option value="real">{t("真实资金")}</option>
+        </select>
+      </label>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          required
+          checked={environmentConfirmed}
+          disabled={environment === "unknown"}
+          onChange={e => setEnvironmentConfirmed(e.target.checked)}
+        />
+        {t("我已核对账户与柜台环境")}
+      </label>
+      <p className="subtle">
+        {t("请向开户机构核对账号及前置地址。环境由你确认，系统无法自动验证资金性质。")}
+      </p>
+    </div>
+  );
+  const [cancelling, setCancelling] = useState<readonly string[]>([]);
+  const cancel = async (id: string) => {
+    setCancelling(current => [...current, id]);
+    try {
+      await act({ action: "cancel", order_id: id });
+    } finally {
+      setCancelling(current => current.filter(item => item !== id));
+    }
+  };
   return (
     <>
-      <AccountPolicyEditor
-        key={live.policy_revision}
-        live={live}
-        snapshot={snapshot}
-        disabled={busy || stale}
-        run={run}
-      />
-      <div className="paper-toolbar ctp-identity">
+      <div className="ctp-identity">
         <strong>
           {account.name} · {live.broker.broker_id} · {live.broker.user_id}
         </strong>
@@ -486,16 +565,30 @@ function LiveAccount({
           )}
         </strong>
         <span data-testid="live-phase">{t(stale ? "服务失联" : phases[live.phase])}</span>
-        <span>{t(authorized ? "已允许发送委托" : "尚未允许发送委托")}</span>
+        <span>
+          {authorized
+            ? t("已授权 · 交易日 {day}", { day: live.authorization!.trading_day })
+            : t("尚未允许发送委托")}
+        </span>
         <span>{live.broker.front}</span>
         <span className="panel-spacer" />
+        {authorized && (
+          <button disabled={busy} onClick={() => void act({ action: "live_revoke" })}>
+            {t("撤销授权")}
+          </button>
+        )}
         {live.phase !== "disconnected" && (
-          <button disabled={busy} onClick={() => void run("live.disconnect")}>
+          <button
+            disabled={busy}
+            title={t("断开账户会退出柜台连接，已有委托不会自动撤销。")}
+            onClick={() => void run("live.disconnect")}
+          >
             {t("断开账户")}
           </button>
         )}
         {stale && (
           <button
+            className="primary"
             disabled={busy}
             onClick={() => void run("live.close").then(closed => closed && run("live.open"))}
           >
@@ -503,37 +596,6 @@ function LiveAccount({
           </button>
         )}
       </div>
-      {(!environmentReady || live.phase === "disconnected" || live.phase === "error") && (
-        <section className="environment-check">
-          <label>
-            {t("柜台环境")}
-            <select
-              aria-label={t("柜台环境")}
-              value={environment}
-              onChange={e => {
-                setEnvironment(e.target.value as typeof environment);
-                setEnvironmentConfirmed(false);
-              }}
-            >
-              <option value="unknown">{t("请选择并核对")}</option>
-              <option value="simulation">{t("CTP 仿真")}</option>
-              <option value="real">{t("真实资金")}</option>
-            </select>
-          </label>
-          <p className="subtle">
-            {t("请向开户机构核对账号及前置地址。环境由你确认，系统无法自动验证资金性质。")}
-          </p>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={environmentConfirmed}
-              disabled={environment === "unknown"}
-              onChange={e => setEnvironmentConfirmed(e.target.checked)}
-            />
-            {t("我已核对账户与柜台环境")}
-          </label>
-        </section>
-      )}
       {environmentReady && (
         <p className={environment === "real" ? "alert" : "subtle"}>
           {t(
@@ -543,10 +605,6 @@ function LiveAccount({
           )}
         </p>
       )}
-      <details className="lifecycle-help">
-        <summary>{t("连接说明")}</summary>
-        <p>{t("断开账户会退出柜台连接，已有委托不会自动撤销。")}</p>
-      </details>
       {stale && (
         <p className="alert" role="alert">
           {t("交易服务连接或记录状态不确定。请重新连接交易服务；断线命令不会自动重发。")}
@@ -581,17 +639,44 @@ function LiveAccount({
           </div>
         </section>
       )}
-      {(live.phase === "disconnected" || live.phase === "error") && (
+      {live.funds && (
+        <dl className="paper-metrics">
+          {(
+            [
+              ["balance", "动态权益"],
+              ["available", "可用资金"],
+              ["margin", "占用保证金"],
+              ["position_profit", "持仓盈亏"],
+              ["close_profit", "平仓盈亏"],
+              ["commission", "手续费"],
+            ] as const
+          ).map(([field, label]) => (
+            <div key={field}>
+              <dt>{t(label)}</dt>
+              <dd data-testid={`live-${field}`}>{live.funds![field]}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {stage !== "stale" && stage !== "trade" && (
+        <FlowSteps
+          labels={[t("核对并连接"), t("允许发送委托"), t("下单")]}
+          current={stage === "authorize" ? 1 : 0}
+        />
+      )}
+      {stage === "connect" && (
         <form
           aria-label={t("连接账户")}
           onSubmit={event => {
             event.preventDefault();
+            if (!environmentReady) return;
             const sent = credentials;
             setCredentials({ password: "", auth_code: "" });
             void run("live.connect", sent);
           }}
         >
-          <fieldset disabled={busy || stale || !environmentReady}>
+          <fieldset disabled={busy}>
+            {environmentFields}
             <div className="futures-fields">
               <label>
                 {t("交易密码")}
@@ -630,164 +715,142 @@ function LiveAccount({
           </fieldset>
         </form>
       )}
-      {ready && (
-        <section className="trading-permission" aria-label={t("交易授权")}>
-          {authorized ? (
-            <div className="source-actions">
-              <span>{t("已授权 · 交易日 {day}", { day: live.authorization!.trading_day })}</span>
-              <button disabled={busy} onClick={() => void act({ action: "live_revoke" })}>
-                {t("撤销授权")}
-              </button>
-            </div>
-          ) : (
-            <>
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={confirmed}
-                  onChange={event =>
-                    setConfirmedPolicy(event.target.checked ? live.policy_revision : null)
-                  }
-                />
-                {t("我确认使用账户 {user} 向上方柜台发送委托", { user: live.broker.user_id })}
-              </label>
-              <div className="source-actions">
-                <button
-                  className="primary"
-                  disabled={busy || !confirmed || stale || !environmentReady}
-                  onClick={() => {
-                    setConfirmedPolicy(null);
-                    void act({ action: "live_authorize", user_id: live.broker.user_id });
-                  }}
-                >
-                  {t("允许发送委托")}
-                </button>
-                <span className="subtle">{t("授权只在本次连接和当前交易日有效。")}</span>
-              </div>
-            </>
-          )}
+      {stage === "connecting" && (
+        <p role="status">{t("正在连接柜台：{phase}", { phase: t(phases[live.phase]) })}</p>
+      )}
+      {stage === "environment" && (
+        <section aria-label={t("柜台环境")}>
+          <p>{t("账户已连接。此窗口尚未核对柜台环境，核对后才能授权和下单。")}</p>
+          {environmentFields}
         </section>
       )}
-      {ready && (
-        <details className="account-rates-details">
-          <summary>{t("账户费率与模板")}</summary>
-          <AccountRates live={live} busy={busy} run={run} />
-        </details>
-      )}
-      {live.funds && (
-        <dl className="paper-metrics">
-          {(
-            [
-              ["balance", "动态权益"],
-              ["available", "可用资金"],
-              ["margin", "占用保证金"],
-              ["position_profit", "持仓盈亏"],
-              ["close_profit", "平仓盈亏"],
-              ["commission", "手续费"],
-            ] as const
-          ).map(([field, label]) => (
-            <div key={field}>
-              <dt>{t(label)}</dt>
-              <dd data-testid={`live-${field}`}>{live.funds![field]}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-      <form
-        aria-label={t("CTP 委托")}
-        onSubmit={event => {
-          event.preventDefault();
-          if (!traded) return;
-          void act({
-            action: "submit",
-            order_id: crypto.randomUUID(),
-            venue: traded.venue,
-            symbol: traded.symbol,
-            side: order.side,
-            offset,
-            quantity: order.quantity,
-            price: order.price,
-          });
-        }}
-      >
-        <fieldset disabled={busy || !ready || !authorized || stale || !environmentReady}>
-          <div className="futures-fields">
-            <label>
-              {t("合约")}
-              <select
-                aria-label={t("委托合约")}
-                value={traded ? key(traded) : ""}
-                onChange={event => setOrder({ ...order, contract: event.target.value })}
-              >
-                {live.contracts.map(item => (
-                  <option key={key(item)} value={key(item)}>
-                    {item.venue} · {item.symbol}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {t("买卖方向")}
-              <select
-                aria-label={t("买卖方向")}
-                value={order.side}
-                onChange={event => setOrder({ ...order, side: event.target.value })}
-              >
-                <option value="buy">{t("买入")}</option>
-                <option value="sell">{t("卖出")}</option>
-              </select>
-            </label>
-            <label>
-              {t("开平仓")}
-              <select
-                aria-label={t("开平仓")}
-                value={offset}
-                onChange={event => setOrder({ ...order, offset: event.target.value })}
-              >
-                <option value="open">{t("开仓")}</option>
-                {explicitBuckets ? (
-                  <>
-                    <option value="close_today">{t("平今")}</option>
-                    <option value="close_yesterday">{t("平昨")}</option>
-                  </>
-                ) : (
-                  <option value="close">{t("平仓")}</option>
-                )}
-              </select>
-            </label>
-            <label>
-              {t("委托手数")}
-              <input
-                aria-label={t("委托手数")}
-                value={order.quantity}
-                onChange={event => setOrder({ ...order, quantity: event.target.value })}
-                required
-              />
-            </label>
-            <label>
-              {t("限价")}
-              <input
-                aria-label={t("限价")}
-                value={order.price}
-                placeholder={traded ? t("最小变动 {tick}", { tick: traded.price_increment }) : ""}
-                onChange={event => setOrder({ ...order, price: event.target.value })}
-                required
-              />
-            </label>
-          </div>
+      {stage === "authorize" && (
+        <section className="trading-permission" aria-label={t("交易授权")}>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              onChange={event =>
+                setConfirmedPolicy(event.target.checked ? live.policy_revision : null)
+              }
+            />
+            {t("我确认使用账户 {user} 向上方柜台发送委托", { user: live.broker.user_id })}
+          </label>
           <div className="source-actions">
-            <button className="primary" type="submit">
-              {t("向 {name} 提交委托", { name: account.name })}
+            <button
+              className="primary"
+              disabled={busy || !confirmed}
+              onClick={() => {
+                setConfirmedPolicy(null);
+                void act({ action: "live_authorize", user_id: live.broker.user_id });
+              }}
+            >
+              {t("允许发送委托")}
             </button>
-            <span className="subtle">
-              {t("委托先写入本机交易记录再发送；断线后不会自动重发。")}
-            </span>
+            <span className="subtle">{t("授权只在本次连接和当前交易日有效。")}</span>
           </div>
-        </fieldset>
-      </form>
+        </section>
+      )}
+      {stage === "trade" && (
+        <form aria-label={t("CTP 委托")} onSubmit={event => event.preventDefault()}>
+          <fieldset disabled={busy}>
+            <div className="futures-fields">
+              <label>
+                {t("合约")}
+                <select
+                  aria-label={t("委托合约")}
+                  value={traded ? key(traded) : ""}
+                  onChange={event => setOrder({ ...order, contract: event.target.value })}
+                >
+                  {live.contracts.map(item => (
+                    <option key={key(item)} value={key(item)}>
+                      {item.venue} · {item.symbol}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {t("开平仓")}
+                <select
+                  aria-label={t("开平仓")}
+                  value={offset}
+                  onChange={event => setOrder({ ...order, offset: event.target.value })}
+                >
+                  <option value="open">{t("开仓")}</option>
+                  {explicitBuckets ? (
+                    <>
+                      <option value="close_today">{t("平今")}</option>
+                      <option value="close_yesterday">{t("平昨")}</option>
+                    </>
+                  ) : (
+                    <option value="close">{t("平仓")}</option>
+                  )}
+                </select>
+              </label>
+              <label>
+                {t("委托手数")}
+                <input
+                  aria-label={t("委托手数")}
+                  inputMode="numeric"
+                  value={order.quantity}
+                  onChange={event => setOrder({ ...order, quantity: event.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                {t("限价")}
+                <input
+                  aria-label={t("限价")}
+                  inputMode="decimal"
+                  value={order.price}
+                  placeholder={traded ? t("最小变动 {tick}", { tick: traded.price_increment }) : ""}
+                  onChange={event => setOrder({ ...order, price: event.target.value })}
+                  required
+                />
+              </label>
+            </div>
+            {quote && (
+              <div className="order-quotes" role="group" aria-label={t("按行情填入限价")}>
+                {(
+                  [
+                    ["last", "最新 {price}"],
+                    ["bid", "买一 {price}"],
+                    ["ask", "卖一 {price}"],
+                  ] as const
+                ).map(
+                  ([field, label]) =>
+                    quote[field] && (
+                      <button
+                        key={field}
+                        type="button"
+                        onClick={() => setOrder({ ...order, price: quote[field]! })}
+                      >
+                        {t(label, { price: quote[field]! })}
+                      </button>
+                    ),
+                )}
+              </div>
+            )}
+            <div className="source-actions">
+              {(["buy", "sell"] as const).map(side => (
+                <button
+                  key={side}
+                  type="button"
+                  className="primary"
+                  onClick={event => submit(side, event.currentTarget.form)}
+                >
+                  {t(side === "buy" ? "买入" : "卖出")} <small>{account.name}</small>
+                </button>
+              ))}
+              <span className="subtle">
+                {t("委托先写入本机交易记录再发送；断线后不会自动重发。")}
+              </span>
+            </div>
+          </fieldset>
+        </form>
+      )}
       <ActivityTabs value={activity} onChange={setActivity} />
       <div hidden={activity !== "positions"}>
-        <h3 className="paper-heading">{t("持仓")}</h3>
         <div className="paper-table" role="region" aria-label={t("CTP 持仓")} tabIndex={0}>
           <table aria-label={t("CTP 持仓")}>
             <thead>
@@ -809,10 +872,10 @@ function LiveAccount({
               ))}
             </tbody>
           </table>
+          {!live.positions.length && <p className="subtle">{t("暂无持仓")}</p>}
         </div>
       </div>
       <div hidden={activity !== "orders"}>
-        <h3 className="paper-heading">{t("委托")}</h3>
         <div className="paper-table" role="region" aria-label={t("CTP 委托记录")} tabIndex={0}>
           <table aria-label={t("CTP 委托记录")}>
             <thead>
@@ -847,11 +910,11 @@ function LiveAccount({
                       {o.id && ["submitted", "accepted", "partially_filled"].includes(o.status) && (
                         <button
                           disabled={
-                            busy ||
+                            cancelling.includes(o.id) ||
                             stale ||
                             !(ready || (live.phase === "error" && live.error_code === -1008))
                           }
-                          onClick={() => void act({ action: "cancel", order_id: o.id })}
+                          onClick={() => void cancel(o.id)}
                         >
                           {t("撤单")}
                         </button>
@@ -861,10 +924,10 @@ function LiveAccount({
                 ))}
             </tbody>
           </table>
+          {!live.orders.length && <p className="subtle">{t("暂无委托")}</p>}
         </div>
       </div>
       <div hidden={activity !== "fills"}>
-        <h3 className="paper-heading">{t("成交")}</h3>
         <div className="paper-table" role="region" aria-label={t("CTP 成交")} tabIndex={0}>
           <table aria-label={t("CTP 成交")}>
             <thead>
@@ -889,19 +952,36 @@ function LiveAccount({
                 ))}
             </tbody>
           </table>
+          {!live.trades.length && <p className="subtle">{t("暂无成交")}</p>}
         </div>
       </div>
-      <details>
-        <summary>{t("风险限制")}</summary>
-        <p>
-          {t("单笔数量上限")}: {live.risk.max_order_quantity} · {t("总持仓量上限")}:{" "}
-          {live.risk.max_gross_quantity} · {t("在途委托数上限")}: {live.risk.max_working_orders} ·{" "}
-          {t("价格偏离上限")}: {live.max_price_deviation}
-        </p>
-        <p>
-          {t("可交易合约")}: {live.contracts.map(item => key(item)).join("、")}
-        </p>
-      </details>
+      <div hidden={activity !== "rates"}>
+        {ready ? (
+          <AccountRates live={live} busy={busy} run={run} />
+        ) : (
+          <p className="subtle">{t("连接柜台后可查询账户费率。")}</p>
+        )}
+      </div>
+      <div hidden={activity !== "policy"}>
+        <section aria-label={t("风险限制")}>
+          <h3>{t("风险限制")}</h3>
+          <p>
+            {t("单笔数量上限")}: {live.risk.max_order_quantity} · {t("总持仓量上限")}:{" "}
+            {live.risk.max_gross_quantity} · {t("在途委托数上限")}: {live.risk.max_working_orders} ·{" "}
+            {t("价格偏离上限")}: {live.max_price_deviation}
+          </p>
+          <p>
+            {t("可交易合约")}: {live.contracts.map(item => key(item)).join("、")}
+          </p>
+        </section>
+        <AccountPolicyEditor
+          key={live.policy_revision}
+          live={live}
+          snapshot={snapshot}
+          disabled={busy || stale}
+          run={run}
+        />
+      </div>
     </>
   );
 }
@@ -918,8 +998,7 @@ function AccountRates({ live, busy, run }: { live: LiveSession; busy: boolean; r
     unavailable: "券商未提供",
   };
   return (
-    <section className="account-field-group live-authorization" aria-label={t("账户费率")}>
-      <h3>{t("账户费率")}</h3>
+    <section className="account-rates" aria-label={t("账户费率")}>
       {error && (
         <p role="alert">
           <ErrorNotice error={error} />

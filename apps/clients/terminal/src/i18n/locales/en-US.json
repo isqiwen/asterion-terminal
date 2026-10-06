@@ -502,5 +502,10 @@
   "验证失败": "Verification Failed",
   "高级连接选项": "Advanced connection options",
   "默认在本机运行。仅在需要时添加远程 Linux。": "Runs locally by default. Add a remote Linux machine only when needed.",
-  "（单台主机）": "(single host)"
+  "（单台主机）": "(single host)",
+  "本次使用的数据": "Data used for this run",
+  "尚未选择数据。用下面任一方式添加。": "No data chosen yet. Add it with any of the ways below.",
+  "添加数据的方式": "Ways to add data",
+  "单个合约": "Single contract",
+  "主力连续需要同一品种至少两个月份的 K 线，且每个月份都有日线数据。": "A dominant series needs bars for at least two months of one product, each with daily data."
 }

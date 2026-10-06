@@ -27,8 +27,8 @@ export function AccountPolicyEditor({
   const catalog = snapshot?.market?.catalog;
   const available = catalog?.phase === "ready" ? catalog.contracts : [];
   return (
-    <details>
-      <summary>{t("账户政策")}</summary>
+    <section aria-label={t("账户政策")}>
+      <h3>{t("账户政策")}</h3>
       <p>
         {t("政策版本")}：<code>{live.policy_revision}</code>
       </p>
@@ -153,6 +153,6 @@ export function AccountPolicyEditor({
           </button>
         </fieldset>
       </form>
-    </details>
+    </section>
   );
 }

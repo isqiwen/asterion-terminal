@@ -41,7 +41,6 @@ test("live CTP session connects, authorizes and trades through the execution cha
     await expect(list.getByRole("button", { name: /^other-account/ })).toContainText("未开通交易");
     await list.getByRole("button", { name: /^live-account/ }).click();
     await expect(panel.getByRole("status", { name: "CTP 账户" })).toContainText("live-account");
-    await panel.getByRole("button", { name: "下一步", exact: true }).click();
     if (await panel.getByLabel("目录查询密码", { exact: true }).isVisible()) {
       await panel.getByLabel("目录查询密码", { exact: true }).fill("catalog-only");
       await panel.getByLabel("目录查询授权码", { exact: true }).fill("auth-code");
@@ -67,9 +66,10 @@ test("live CTP session connects, authorizes and trades through the execution cha
     expect(capacity.records_used).toBeGreaterThan(0);
     expect(capacity.bytes_used).toBeGreaterThan(0);
     const order = panel.getByRole("form", { name: "CTP 委托" });
-    await expect(order.getByRole("button", { name: "向 live-account 提交委托" })).toBeDisabled();
-
-    await expect(panel.getByRole("button", { name: "连接账户", exact: true })).toBeDisabled();
+    // Only the current step is offered: no order ticket before the counter
+    // connection and the permission to send.
+    await expect(order).toHaveCount(0);
+    await expect(panel.getByLabel("我已核对账户与柜台环境", { exact: true })).toBeDisabled();
     await panel.getByLabel("柜台环境", { exact: true }).selectOption("simulation");
     await panel.getByLabel("我已核对账户与柜台环境", { exact: true }).check();
     await panel.getByLabel("交易密码", { exact: true }).fill(password);
@@ -92,12 +92,12 @@ test("live CTP session connects, authorizes and trades through the execution cha
       { timeout: 15000 },
     );
     await page.keyboard.press("Escape");
-    await expect(order.getByRole("button", { name: "向 live-account 提交委托" })).toBeDisabled();
+    await expect(order).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "CTP：0 个已授权 · 1 个只读 · 0 个未就绪", exact: true }),
     ).toBeVisible();
     // The account's own rates become the product's fee template.
-    await panel.getByText("账户费率与模板", { exact: true }).click();
+    await panel.getByRole("button", { name: "费率", exact: true }).click();
     await panel.getByRole("button", { name: "查询账户费率", exact: true }).click();
     const rates = panel.getByRole("table", { name: "账户费率表" });
     await expect(rates.locator("tbody tr")).toContainText("已返回", { timeout: 15000 });
@@ -115,18 +115,18 @@ test("live CTP session connects, authorizes and trades through the execution cha
 
     await order.getByLabel("委托手数", { exact: true }).fill("1");
     await order.getByLabel("限价", { exact: true }).fill("3500.3");
-    await order.getByRole("button", { name: "向 live-account 提交委托" }).click();
+    await order.getByRole("button", { name: "买入 live-account", exact: true }).click();
     await expect(panel.getByRole("alert")).toBeVisible();
     await expect(
       panel.getByRole("table", { includeHidden: true, name: "CTP 委托记录" }).locator("tbody tr"),
     ).toHaveCount(0);
     await order.getByLabel("限价", { exact: true }).fill("3600");
-    await order.getByRole("button", { name: "向 live-account 提交委托" }).click();
+    await order.getByRole("button", { name: "买入 live-account", exact: true }).click();
     await expect(panel.getByRole("alert")).toContainText(
       "限价偏离最新价超过本会话的上限，委托未发送。",
     );
     await order.getByLabel("限价", { exact: true }).fill("3500.5");
-    await order.getByRole("button", { name: "向 live-account 提交委托" }).click();
+    await order.getByRole("button", { name: "买入 live-account", exact: true }).click();
     await expect(
       panel.getByRole("table", { includeHidden: true, name: "CTP 成交" }).locator("tbody tr"),
     ).toHaveCount(1, {
@@ -153,13 +153,12 @@ test("live CTP session connects, authorizes and trades through the execution cha
 
     await panel.getByRole("button", { name: "委托", exact: true }).click();
     await expect(panel.getByRole("table", { name: "CTP 委托记录" })).toBeVisible();
-    await panel.getByText("账户费率与模板", { exact: true }).click();
     await page.screenshot({ path: join(__dirname, "../test-results/live-trading.png") });
     const state = await rpc(page.request, "runtime.snapshot");
     expect(JSON.stringify(state)).not.toContain(password);
 
     await panel.getByRole("button", { name: "撤销授权", exact: true }).click();
-    await expect(order.getByRole("button", { name: "向 live-account 提交委托" })).toBeDisabled();
+    await expect(order).toHaveCount(0);
     await panel.getByRole("button", { name: "断开账户", exact: true }).click();
     await expect(panel.getByTestId("live-phase")).toHaveText("未连接");
     await checked("authorization revoked and broker disconnected");

@@ -62,6 +62,7 @@ test("named portfolio survives service restart and restores exact inputs atomica
     .getByRole("button", { name: "回测与因子", exact: true })
     .click();
   await page.getByRole("button", { name: "新建回测", exact: true }).click();
+  await page.getByRole("button", { name: "已保存数据集", exact: true }).click();
   await page.getByRole("combobox", { name: "已保存数据集", exact: true }).selectOption(original.id);
   await page.getByRole("button", { name: "使用已保存数据集", exact: true }).click();
   await expect(page.getByRole("list", { name: "已选合约" }).locator("li")).toHaveCount(2);

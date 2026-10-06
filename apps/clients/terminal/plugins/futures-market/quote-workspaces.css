@@ -224,6 +224,14 @@
   padding: 10px;
   margin: 0;
 }
+.watchlist-sheet .quote-empty {
+  padding: 24px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.watchlist-sheet .quote-empty p {
+  margin: 0 0 10px;
+}
 .contract-live-chart {
   display: flex;
   flex-direction: column;
@@ -355,9 +363,10 @@
   font-size: 10px;
   margin: 6px 10px;
 }
+/* Quote facts, book and ticket take their content; the trade list flexes. */
 .contract-right {
   display: grid;
-  grid-template-rows: 1fr 1fr 1fr 1.65fr;
+  grid-template-rows: auto auto minmax(80px, 1fr) auto;
   gap: 4px;
   min-height: 0;
   min-width: 0;
@@ -429,14 +438,9 @@
   width: 0;
 }
 .contract-order > .primary {
-  display: block;
   width: calc(100% - 18px);
   margin: 4px 9px;
   font-size: 11px;
-  min-height: 26px;
-  background: var(--accent);
-  color: white;
-  border: 0;
 }
 .watchlist-chart-pane .market-history-chart,
 .contract-chart-panel .market-history-chart {
@@ -516,22 +520,6 @@
     minmax(0, 0.65fr) minmax(0, 0.85fr);
   gap: 3px;
 }
-.contract-order-fields {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  padding: 0 9px;
-  gap: 4px;
-}
-.contract-order .contract-order-fields label {
-  padding: 3px 5px;
-  border: 1px solid var(--raised);
-}
-.contract-order .contract-order-fields input {
-  border: 0;
-  background: transparent;
-  min-height: 20px;
-}
-
 .watchlist-sheet .quote-tabs {
   min-height: 21px;
   padding: 1px 8px;
@@ -542,9 +530,6 @@
 }
 .watchlist-table th {
   height: 21px;
-}
-.contract-right {
-  grid-template-rows: 0.9fr 1fr 1fr 1.65fr;
 }
 .depth-level {
   padding: 2px 8px;

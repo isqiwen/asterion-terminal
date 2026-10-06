@@ -19,7 +19,8 @@ export function SetupGate({ children }: { children: ReactNode }) {
     }
   };
   const steps = [t("服务管理器"), t("行情服务"), t("数据服务"), t("任务服务"), t("交易服务")];
-  // Things the user should know before entering; none of them blocks entry.
+  // Things the user should know before entering; none of them blocks entry,
+  // but the screen waits for the user while there are any.
   const [notices, setNotices] = useState<string[]>([]);
   const [step, setStep] = useState(0);
   const [running, setRunning] = useState(false);
@@ -153,7 +154,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
         }
         await new Promise(resolve => setTimeout(resolve, 300));
       }
-      setNotices([
+      const pending = [
         ...unopened.map(name =>
           t("账户 {p0} 的交易服务未能启动，可在交易页查看原因并重试", { p0: name }),
         ),
@@ -162,9 +163,13 @@ export function SetupGate({ children }: { children: ReactNode }) {
           t("插件 {p0} 无法加载，可在设置的插件页查看原因", { p0: plugin.id || plugin.file }),
         ),
         ...(interrupted ? [t("{p0} 项任务上次被中断，可在任务中心重试", { p0: interrupted })] : []),
-      ]);
+      ];
+      setNotices(pending);
       setStep(5);
       setReady(true);
+      // With nothing to point out, the workbench opens by itself; otherwise
+      // the notices stay up until the user enters.
+      if (!pending.length) setEntered(true);
     } catch (reason) {
       setError(asDisplayError(reason));
     } finally {
@@ -237,7 +242,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
             </p>
           )}
           <button
-            className="setup-begin"
+            className="setup-begin primary"
             disabled={running}
             onClick={() => (ready ? setEntered(true) : void start())}
           >

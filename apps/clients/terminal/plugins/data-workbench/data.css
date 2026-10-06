@@ -165,8 +165,13 @@
   font-size: 14px;
   font-weight: 500;
 }
+.history-config form {
+  padding: 0;
+}
 .history-config .futures-fields {
-  padding: 12px 0;
+  margin: 0;
+  padding: 16px 0 12px;
+  gap: 14px 16px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .history-config fieldset {
@@ -183,8 +188,32 @@
   min-width: 0;
   width: 100%;
 }
-.history-config .primary {
-  margin-top: 8px;
+.history-config .source-actions {
+  padding: 14px 0 0;
+}
+/* The download form reads top to bottom: the account and its quota, then
+   the contract. */
+.history-step {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.history-step h4 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 500;
+}
+.history-step .futures-fields {
+  padding: 10px 0;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+.history-step > p {
+  margin: 0 0 8px;
+}
+.history-step .history-credential {
+  align-self: end;
+  min-height: var(--control-height);
 }
 .history-activity .publication-row {
   grid-template-columns: minmax(0, 1fr) auto;
