@@ -2,6 +2,7 @@
 delete process.env.ELECTRON_RUN_AS_NODE;
 const { _electron: electron, expect } = require("@playwright/test");
 const assert = require("node:assert/strict");
+const { enterWorkbench, testNode } = require("./electron_startup.cjs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
@@ -21,7 +22,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
       env: {
         ...process.env,
         ASTERION_NODE_DIRECTORY: `${temp}/node`,
-        ASTERION_TEST_NODE_ISOLATED: "1",
+        ...testNode,
         ASTERION_PLUGIN_DIRECTORY: pluginDirectory,
       },
       timeout: 30000,
@@ -45,7 +46,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
       assert.equal(response.error, undefined, JSON.stringify(response.error));
       return response.result;
     };
-    await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
+    await enterWorkbench(page);
     await call("node.data_tasks.local.open");
     const stopped = await call("node.action", { id: "local", service: "task", action: "stop" });
     await call("node.action", { id: "local", service: "historical-data", action: "stop" });
@@ -64,7 +65,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
         env: {
           ...process.env,
           ASTERION_NODE_DIRECTORY: root,
-          ASTERION_TEST_NODE_ISOLATED: "1",
+          ...testNode,
           ASTERION_PLUGIN_DIRECTORY: pluginDirectory,
         },
         timeout: 15000,

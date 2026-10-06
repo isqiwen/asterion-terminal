@@ -2,6 +2,7 @@
 delete process.env.ELECTRON_RUN_AS_NODE;
 const { _electron: electron, expect } = require("@playwright/test");
 const assert = require("node:assert/strict");
+const { enterWorkbench, testNode } = require("./electron_startup.cjs");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -54,7 +55,7 @@ async function closeDesktop(application) {
       env: {
         ...process.env,
         ASTERION_NODE_DIRECTORY: `${temp}/node`,
-        ASTERION_TEST_NODE_ISOLATED: "1",
+        ...testNode,
       },
       timeout: 30000,
     });
@@ -98,12 +99,9 @@ async function closeDesktop(application) {
       ),
     );
     assert.equal(reply.result.protocol, 1);
-    // Startup runs by itself and waits for the user before entering.
-    await expect(page.getByRole("button", { name: "进入工作台", exact: true })).toBeVisible({
-      timeout: 60000,
-    });
+    // Startup runs by itself and opens the workbench once every step passes.
+    await enterWorkbench(page);
     await capture(page, "native-startup");
-    await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
     for (const [name, selector] of [
       ["自选", ".watchlist-workspace"],
       ["合约", ".contract-workspace"],
@@ -198,7 +196,7 @@ async function closeDesktop(application) {
       path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug", "asterion_test_history"),
       ["--directory", service.directory, "--id", "native-history", "--price", "100", "99", "110"],
       {
-        env: { ...process.env, ASTERION_NODE_DIRECTORY: root, ASTERION_TEST_NODE_ISOLATED: "1" },
+        env: { ...process.env, ASTERION_NODE_DIRECTORY: root, ...testNode },
         timeout: 15000,
       },
     );
@@ -208,7 +206,7 @@ async function closeDesktop(application) {
     await call("data.dataset.clear");
     // Fixtures change the native core outside React; establish a fresh snapshot before UI work.
     await page.reload();
-    await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
+    await enterWorkbench(page);
     await page
       .locator(".workspace-tabs")
       .getByRole("button", { name: "数据", exact: true })
@@ -430,7 +428,7 @@ async function closeDesktop(application) {
     await settings.evaluate(() => window.asterionDesktop.close());
 
     await page.reload();
-    await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
+    await enterWorkbench(page);
     await page
       .locator(".workspace-tabs")
       .getByRole("button", { name: "回测与因子", exact: true })
@@ -441,9 +439,7 @@ async function closeDesktop(application) {
     process.kill(ownedPid, 0); // Closing the desktop must not stop its managed Agent.
     application = await launch();
     const restored = await application.firstWindow();
-    await restored
-      .getByRole("button", { name: "进入工作台", exact: true })
-      .click({ timeout: 60000 });
+    await enterWorkbench(restored);
     await expect(
       restored.getByRole("navigation", { name: "业务工作区" }).getByRole("button"),
     ).toHaveCount(6);

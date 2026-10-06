@@ -3,6 +3,7 @@ delete process.env.ELECTRON_RUN_AS_NODE;
 // Exercise the unchanged production host with an isolated resource tree and explicit SDK fixture.
 const { _electron: electron, expect } = require("@playwright/test");
 const assert = require("node:assert/strict");
+const { enterWorkbench, testNode } = require("./electron_startup.cjs");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -49,7 +50,7 @@ const path = require("node:path");
       env: {
         ...process.env,
         ASTERION_NODE_DIRECTORY: path.join(temp, "node"),
-        ASTERION_TEST_NODE_ISOLATED: "1",
+        ...testNode,
       },
       timeout: 30000,
     });
@@ -58,7 +59,7 @@ const path = require("node:path");
     try {
       // First launch in a fresh node: the task programs are verified and
       // deployed, then each service must answer its first heartbeat.
-      await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
+      await enterWorkbench(page);
     } catch (error) {
       console.error("Isolated startup UI:", await page.locator("body").innerText());
       const state = JSON.parse(

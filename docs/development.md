@@ -43,6 +43,8 @@ Conan 与 CTP SDK 只接受 macOS armv8/x86_64 和 Linux x86_64；CMake 拒绝�
 | `pnpm run format:check` / `python3 scripts/format_cpp.py --check` | 格式检查 |
 | `npx tsc --noEmit -p apps/clients/terminal/tsconfig.json` | 类型检查 |
 
+测试节点自己声明容量：CTest 和 `tests/isolated_node.py` 给每个用例设置 `ASTERION_TEST_HOST_CAPACITY=10,16384`（逻辑 CPU 数、内存 MiB），Agent 据此计算[资源准入](services.md#node-agent)而不读取宿主机，所以 3 核的 CI 机器和本机得到相同的准入结果。绕过 CTest 直接运行测试程序时需要自己设置这个变量，否则在小机器上服务会停在“等待节点容量”。它只用于测试，生产节点不设置。
+
 端到端测试必须用 `pnpm run test:e2e`。它通过 `tests/ssh_e2e.py` 启动临时目录中的隔离 Agent，并使用测试 CTP SDK；直接运行 `playwright test` 会连接并修改你本机正在使用的服务。运行前确认没有其他进程占用 1423 端口。
 
 `ctp_sdk_smoke` 要求真实行情和交易 SDK 同时存在，缺失明确失败。交易 SDK 检查版本与 ABI，通过本机临时回环监听器验证连接、断开、重新创建和释放；安装包验证显式使用包内的两套库。测试只使用临时状态，不提供柜台协议应答，不等于真实认证、成交、跨日或流文件验收。 Linux CTP 库的模块级状态随服务进程保留，避免 SDK 卸载时遗失分配；每个 API 连接仍单独 `Release`，SDK 更新通过停止并重启服务生效。

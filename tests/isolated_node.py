@@ -10,8 +10,10 @@ import time
 with tempfile.TemporaryDirectory(prefix="ast-node-test-", ignore_cleanup_errors=True) as folder:
     # The Agent exits when this process disappears, even if CTest kills it on
     # timeout before the cleanup below runs.
+    # The node states its capacity, so admission does not depend on this machine.
     env = dict(os.environ, ASTERION_NODE_DIRECTORY=folder, ASTERION_TEST_NODE_ISOLATED="1",
-               ASTERION_TEST_OWNER_PID=str(os.getpid()))
+               ASTERION_TEST_OWNER_PID=str(os.getpid()),
+               ASTERION_TEST_HOST_CAPACITY="10,16384")
     try:
         result = subprocess.run([shutil.which(sys.argv[1]) or sys.argv[1], *sys.argv[2:]], env=env)
     finally:

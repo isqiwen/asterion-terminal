@@ -1,9 +1,27 @@
 #pragma once
+#include <asterion/kernel/environment.hpp>
 #include <asterion/kernel/process/capacity.hpp>
 #include <asterion/v1/node.pb.h>
 #include <algorithm>
+#include <sstream>
 #include <stdexcept>
 namespace asterion::agent {
+// The capacity admission is computed from. A test node states its own as
+// "<cpu threads>,<memory MiB>", so that what a test may start does not depend
+// on the machine running it; every other node reads the host.
+inline HostCapacity node_capacity() {
+  const auto stated = environment_variable("ASTERION_TEST_HOST_CAPACITY");
+  if (!stated)
+    return host_capacity();
+  std::istringstream input(*stated);
+  unsigned cpu = 0;
+  std::uint64_t memory_mib = 0;
+  char separator = 0;
+  if (!(input >> cpu >> separator >> memory_mib) || separator != ',' || !cpu || !memory_mib ||
+      input.peek() != std::char_traits<char>::eof())
+    throw std::invalid_argument("invalid test host capacity");
+  return {cpu, memory_mib * 1024 * 1024};
+}
 // Admission reservations, not CPU affinity, an RSS ceiling or disk bandwidth.
 struct Resources {
   unsigned cpu = 0;

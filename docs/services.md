@@ -34,6 +34,7 @@ Agent 启动时读取节点容量；macOS 使用在线逻辑 CPU 和物理内存
 在线 CPU、进程 affinity 及统一 cgroup v2 的当前组和父组 CPU/内存上限。Linux 节点须提供
 可读取的 `/proc/self/cgroup` 和 `/sys/fs/cgroup`；不能确定容量时初始化失败。CPU 配额
 按完整核额度向下取整。容量在 Agent 本次运行期固定，不随系统空闲内存或短时负载扩缩。
+测试节点用 `ASTERION_TEST_HOST_CAPACITY` 声明容量，见[开发指南](development.md)。
 
 macOS 为 Terminal、Agent 和系统预留 2 个 CPU 额度，Linux 预留 1 个；内存预留
 物理/容器容量的四分之一且至少 2 GiB。剩余部分用于下表的准入承诺；磁盘工作额度为 10。
@@ -45,6 +46,10 @@ Data/Task 文件线程数 P 在节点可用逻辑 CPU 至少 10 时为 2，否�
 | Data | P | 1,024 MiB | P + 1 |
 | Task | P | 2,048 MiB | P + 1 |
 | 每个下载 / 回测 / 因子 worker | 1 | 1,024 MiB | 1 |
+
+按上表，一台 macOS 机器要同时运行行情、Data 和 Task 至少需要 5 个逻辑 CPU（3 个额度加
+2 个预留），再运行一个 worker 需要 6 个；Linux 节点运行一对 Data/Task 至少需要 3 个。
+低于这个数时，排不上的服务停在“等待节点容量”。
 
 CPU 额度代表持续计算预算，不按所有 I/O、SDK 和控制线程逐一计核；磁盘额度包含文件池
 和短持久提交的并发工作，不能换算成带宽。内存预留是准入估算，包含已限制的载荷和存储

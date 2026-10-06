@@ -234,6 +234,10 @@ foreach(target asterion_order_limits_config asterion_risk_providers asterion_ord
 endforeach()
 
 if(BUILD_TESTING)
+  # Every test node states the capacity its Agent admits services against, so
+  # a small machine does not leave services waiting. tests/isolated_node.py
+  # states the same value for the e2e suite.
+  set(asterion_test_node_capacity "ASTERION_TEST_HOST_CAPACITY=set:10,16384")
   # Test-only history fixtures used by the process and e2e tests on every platform.
   add_executable(asterion_test_history tests/history_dataset_fixture.cpp)
   target_link_libraries(asterion_test_history PRIVATE asterion_data_store CLI11::CLI11)
@@ -308,7 +312,8 @@ if(BUILD_TESTING)
     # Instrumented binaries can need more than CMake's five-second default to
     # start while other targets run. This changes discovery, not case budgets.
     gtest_discover_tests(${target} DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30
-      PROPERTIES TIMEOUT ${test_timeout} RUN_SERIAL ${run_serial})
+      PROPERTIES TIMEOUT ${test_timeout} RUN_SERIAL ${run_serial}
+        ENVIRONMENT_MODIFICATION "${asterion_test_node_capacity}")
   endfunction()
   asterion_unit_tests(asterion_data_service_tests tests/data_service_test.cpp "asterion_data_store;asterion_data_client;asterion_task_store" 45)
   target_compile_definitions(asterion_data_service_tests PRIVATE ASTERION_DATA_SERVICE_PATH="$<TARGET_FILE:asterion-data-service>" ASTERION_TASK_SERVICE_PATH="$<TARGET_FILE:asterion-task-service>" ASTERION_BACKTEST_PATH="$<TARGET_FILE:asterion-backtest>" ASTERION_FACTOR_PATH="$<TARGET_FILE:asterion-factor>")
@@ -431,7 +436,8 @@ if(BUILD_TESTING)
   endif()
   gtest_discover_tests(asterion_terminal_tests EXTRA_ARGS --isolated-node DISCOVERY_MODE PRE_TEST
     DISCOVERY_TIMEOUT 30
-    PROPERTIES TIMEOUT ${asterion_terminal_test_timeout})
+    PROPERTIES TIMEOUT ${asterion_terminal_test_timeout}
+      ENVIRONMENT_MODIFICATION "${asterion_test_node_capacity}")
   enable_language(C)
   add_subdirectory(tests/native-plugin)
   target_compile_definitions(asterion_node_maintenance_tests PRIVATE PLUGIN_GOOD="$<TARGET_FILE:plugin_fixture_good>" PLUGIN_NEWER="$<TARGET_FILE:plugin_fixture_newer>" PLUGIN_CUSTOM="$<TARGET_FILE:plugin_fixture_risk>")
@@ -461,9 +467,11 @@ if(BUILD_TESTING)
   add_dependencies(asterion_tushare_tests asterion-data-service asterion-task-service asterion-data-pipeline asterion-factor)
   asterion_unit_tests(asterion_logging_tests tests/logger_test.cpp Asterion::Kernel)
   target_link_libraries(asterion_logging_tests PRIVATE spdlog::spdlog_header_only asio::asio OpenSSL::SSL)
+  get_property(asterion_tests DIRECTORY PROPERTY TESTS)
+  set_tests_properties(${asterion_tests} PROPERTIES
+    ENVIRONMENT_MODIFICATION "${asterion_test_node_capacity}")
   # Instrumented builds run several times slower: scale every explicit limit.
   if(ASTERION_SANITIZERS)
-    get_property(asterion_tests DIRECTORY PROPERTY TESTS)
     foreach(test IN LISTS asterion_tests)
       get_test_property(${test} TIMEOUT limit)
       if(limit)

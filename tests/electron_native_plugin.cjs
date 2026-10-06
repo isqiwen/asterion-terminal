@@ -2,6 +2,7 @@
 delete process.env.ELECTRON_RUN_AS_NODE;
 const { _electron: electron, expect } = require("@playwright/test");
 const assert = require("node:assert/strict");
+const { enterWorkbench, testNode } = require("./electron_startup.cjs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
@@ -31,7 +32,7 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
         env: {
           ...process.env,
           ASTERION_NODE_DIRECTORY: `${temp}/node`,
-          ASTERION_TEST_NODE_ISOLATED: "1",
+          ...testNode,
           ASTERION_PLUGIN_DIRECTORY: plugins,
         },
         timeout: 30000,
@@ -51,7 +52,7 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
       assert.equal(response.error, undefined, `${method}: ${JSON.stringify(response.error)}`);
       return response.result;
     };
-    await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
+    await enterWorkbench(page);
     const opened = application.waitForEvent("window");
     await page.getByRole("button", { name: "设置", exact: true }).click();
     const settings = await opened;
@@ -169,7 +170,7 @@ const build = path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug");
     page = await application.firstWindow();
     page.on("pageerror", error => errors.push(String(error)));
     try {
-      await page.getByRole("button", { name: "进入工作台", exact: true }).click({ timeout: 60000 });
+      await enterWorkbench(page);
     } catch (error) {
       console.error("Restored startup:", await page.locator("body").innerText());
       console.error("Restored services:", JSON.stringify((await call("runtime.snapshot")).nodes));

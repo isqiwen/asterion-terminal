@@ -2,6 +2,7 @@
 // to providers or create trades. Verifies automatic cleanup of the local services.
 delete process.env.ELECTRON_RUN_AS_NODE;
 const assert = require("node:assert/strict");
+const { enterWorkbench } = require("./electron_startup.cjs");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const os = require("node:os");
@@ -85,9 +86,7 @@ async function main() {
     );
     assert.equal(await application.evaluate(() => process.env.ASTERION_ENVIRONMENT), "development");
     await expect(page.locator(".environment-label")).toBeVisible();
-    await page
-      .getByRole("button", { name: /^(进入工作台|ENTER WORKBENCH)$/ })
-      .click({ timeout: 60000 });
+    await enterWorkbench(page);
     await expect(page.locator(".workspace-tabs button")).toHaveCount(6, { timeout: 60000 });
     await expect(page.locator(".service-status > button")).toHaveClass("good", { timeout: 30000 });
     const plist = await fs.readFile(
@@ -142,9 +141,7 @@ async function main() {
     });
     application = await launch();
     page = await application.firstWindow();
-    await page
-      .getByRole("button", { name: /^(进入工作台|ENTER WORKBENCH)$/ })
-      .click({ timeout: 60000 });
+    await enterWorkbench(page);
     await expect(page.locator(".workspace-tabs button").last()).toHaveAttribute(
       "aria-current",
       "page",

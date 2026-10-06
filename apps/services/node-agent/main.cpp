@@ -767,7 +767,7 @@ class Agent {
   };
   Loaded load() {
     Loaded loaded;
-    loaded.capacity = host_capacity();
+    loaded.capacity = node_capacity();
     if (!root_.is_absolute() || !fs::is_directory(root_))
       throw std::invalid_argument("agent requires an existing absolute directory");
     require_managed_path(root_);

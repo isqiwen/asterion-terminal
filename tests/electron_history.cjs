@@ -2,6 +2,7 @@
 delete process.env.ELECTRON_RUN_AS_NODE;
 const { expect } = require("@playwright/test");
 const assert = require("node:assert/strict");
+const { testNode } = require("./electron_startup.cjs");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const { promisify } = require("node:util");
@@ -43,7 +44,7 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
       env: {
         ...process.env,
         ASTERION_NODE_DIRECTORY: root,
-        ASTERION_TEST_NODE_ISOLATED: "1",
+        ...testNode,
         // Authorization pins the actual desktop plugin bytes, including staging/signing.
         ASTERION_PLUGIN_DIRECTORY: pluginDirectory,
       },
