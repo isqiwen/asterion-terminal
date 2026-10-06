@@ -1,4 +1,6 @@
 #include <asterion/protocol/data_client.hpp>
+#include "paper_input.hpp"
+#include "local_listener.hpp"
 #include <asterion/protocol/factor.hpp>
 #include "history_update.hpp"
 #include "sqlite_database.hpp"
@@ -56,7 +58,7 @@ backtest::v1::BacktestInput input() {
                                                      {"close_yesterday_fee_rate", "0"}})}}}}};
   backtest::v1::BacktestInput result;
   result.set_version(8);
-  *result.mutable_paper() = protocol::encode_input(manifest);
+  *result.mutable_paper() = testing_support::paper_input(manifest);
   result.mutable_sma()->set_fast(1);
   result.mutable_sma()->set_slow(3);
   result.mutable_sma()->mutable_quantity()->set_units(d("1").raw());
@@ -193,10 +195,9 @@ TEST(Backtest, SmaWarmupAndLifecycleUseSamePluginOutsideBacktest) {
   strategy.start();
   EXPECT_FALSE(strategy.on_bar(tick));
 }
-TEST(Backtest, InputRoundTripRejectsUnknownOrMissingFields) {
+TEST(Backtest, InputDecodingRejectsCorruptOldOrIncompleteInputs) {
   const auto spec = input();
   const auto json = protocol::decode_backtest(spec);
-  EXPECT_EQ(protocol::encode_backtest(json).SerializeAsString(), spec.SerializeAsString());
   auto metadata = json;
   for (auto& contract : metadata.at("paper").at("contracts")) {
     contract.at("dataset").erase("bars");
@@ -207,9 +208,6 @@ TEST(Backtest, InputRoundTripRejectsUnknownOrMissingFields) {
   corrupt.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_bars(0)->clear_close();
   EXPECT_THROW(protocol::decode_backtest(corrupt, protocol::DatasetView::metadata),
                std::invalid_argument);
-  auto bad = json;
-  bad["unknown"] = true;
-  EXPECT_THROW(protocol::encode_backtest(bad), Error);
   auto old = spec;
   old.set_version(1);
   EXPECT_THROW(protocol::decode_backtest(old), std::invalid_argument);
@@ -1043,7 +1041,7 @@ TEST_F(TaskProcess, ListenerServesRepeatedConnectionsAndRetainsOwnership) {
     request.mutable_heartbeat();
     EXPECT_TRUE(call(request).has_health());
   }
-  EXPECT_THROW(ipc::Listener duplicate(endpoint), Error);
+  EXPECT_THROW(testing_support::LocalListener duplicate(endpoint), Error);
 }
 
 TEST_F(TaskProcess, WorkerLeaseExpiryInterruptsWithoutAutomaticRetry) {
@@ -1896,8 +1894,6 @@ TEST(Backtest, FinalSettlementRevaluesOpenPositionAndParticipatesInDrawdown) {
 }
 TEST(Backtest, MultidayRequiresExplicitValidCompleteEvidence) {
   const auto original = multiday_input();
-  EXPECT_EQ(protocol::encode_backtest(protocol::decode_backtest(original)).SerializeAsString(),
-            original.SerializeAsString());
   auto spec = original;
   spec.mutable_paper()
       ->mutable_contracts(0)
@@ -1937,9 +1933,6 @@ TEST(Backtest, MultidayRequiresExplicitValidCompleteEvidence) {
   spec = original;
   spec.set_version(3);
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
-  auto json = protocol::decode_backtest(original);
-  json["paper"]["contracts"][0]["dataset"]["days"][0]["settlement_price"] = "106";
-  EXPECT_THROW(protocol::encode_backtest(json), std::invalid_argument);
 }
 TEST(TaskStore, MultidayEvidenceRestoresAndForgedSettlementCannotCommit) {
   TaskDirectory root;

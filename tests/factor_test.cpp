@@ -81,9 +81,7 @@ TEST(Factor, ExactDatasetDigestExcludesWindowsAndRejectsTampering) {
   auto value = input();
   const auto hash = value.dataset_revision();
   value.set_lookbacks(0, 3);
-  EXPECT_EQ(protocol::factor_dataset_revision(value), hash);
-  EXPECT_EQ(protocol::decode_factor(protocol::encode_factor(protocol::decode_factor(value))),
-            protocol::decode_factor(value));
+  EXPECT_EQ(protocol::bar_dataset_revision(value.dataset()), hash);
   auto metadata = protocol::decode_factor(value);
   metadata.at("dataset").erase("bars");
   metadata.at("dataset").erase("days");
@@ -91,7 +89,6 @@ TEST(Factor, ExactDatasetDigestExcludesWindowsAndRejectsTampering) {
   value.mutable_dataset()->mutable_bars(0)->mutable_volume()->set_units(d("2").raw());
   EXPECT_THROW(protocol::decode_factor(value, protocol::DatasetView::metadata),
                std::invalid_argument);
-  EXPECT_THROW(protocol::factor_dataset_revision(value), std::invalid_argument);
   EXPECT_THROW(protocol::validate_factor_input(value), std::invalid_argument);
   value = input();
   value.set_version(1);
@@ -300,10 +297,8 @@ TEST(Factor, HoldoutPurgesBoundaryLabelsAndReportsIndependentStatistics) {
 TEST(Factor, ExplicitEvaluationAndSplitValidationRejectMissingOrLeakingInputs) {
   auto value = holdout_input();
   const auto digest = value.dataset_revision();
-  EXPECT_EQ(protocol::decode_factor(protocol::encode_factor(protocol::decode_factor(value))),
-            protocol::decode_factor(value));
   value.set_holdout_start(51);
-  EXPECT_EQ(protocol::factor_dataset_revision(value), digest);
+  EXPECT_EQ(protocol::bar_dataset_revision(value.dataset()), digest);
   value.clear_evaluation();
   EXPECT_THROW(factor::run(value), std::invalid_argument);
   value.set_full_sample(false);
@@ -317,12 +312,6 @@ TEST(Factor, ExplicitEvaluationAndSplitValidationRejectMissingOrLeakingInputs) {
       value.dataset().bars(49).timestamp_ns());
   EXPECT_THROW(revision(value), std::invalid_argument);
   EXPECT_THROW(factor::run(value), std::invalid_argument);
-  auto json = protocol::decode_factor(holdout_input());
-  json["evaluation"]["split_index"] = 50.5;
-  EXPECT_THROW(protocol::encode_factor(json), std::invalid_argument);
-  json = protocol::decode_factor(holdout_input());
-  json.erase("evaluation");
-  EXPECT_THROW(protocol::encode_factor(json), Error);
 }
 TEST_F(FactorTasks, HoldoutPartitionIdentityTamperingAndRecovery) {
   const auto value = holdout_input();
@@ -525,8 +514,6 @@ TEST(Factor, RollingValidationCoversWindowsAndPurgesLabelsWithMonotoneProgress) 
   const auto decoded = protocol::decode_factor_result(result);
   EXPECT_EQ(decoded.at("folds").size(), 2U);
   EXPECT_TRUE(decoded.at("partitions").empty());
-  EXPECT_EQ(protocol::decode_factor(protocol::encode_factor(protocol::decode_factor(value))),
-            protocol::decode_factor(value));
 }
 TEST(Factor, RollingSelectionNeverReadsValidationOrLaterFolds) {
   auto original = rolling_input();

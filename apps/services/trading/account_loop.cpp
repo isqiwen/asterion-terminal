@@ -19,6 +19,8 @@ struct LiveSession::Loop {
     std::promise<void> result;
     std::string trace;
     std::uint64_t control = 0;
+    // The order a cancel names; empty for every other command.
+    std::string request_id, cancel_order;
   };
   struct Active {
     std::shared_ptr<Mutation> request;
@@ -34,6 +36,10 @@ struct LiveSession::Loop {
   bool accepting = true, stopping = false, broker_pending = false;
   std::deque<std::shared_ptr<Mutation>> mutations;
   std::optional<Active> active;
+  // A cancel running in front of the active command while that command is
+  // parked on its broker quote. The account still advances one durable command
+  // at a time: the parked command has recorded nothing and resumes afterwards.
+  std::optional<Active> interposed;
   std::atomic<bool> failed{false};
   Progress state_progress, persistence_progress, command_progress;
   std::atomic<bool> business_ready{false};
@@ -83,12 +89,59 @@ struct LiveSession::Loop {
       release_request();
     }
   }
+  // A cancel of an order this account has already recorded depends on no
+  // command queued before it.
+  std::shared_ptr<Mutation> take_cancel(const LiveAccountState& account) {
+    if (!active->request || !account.yields_to_cancel())
+      return nullptr;
+    for (auto it = mutations.begin(); it != mutations.end(); ++it) {
+      const auto& request = **it;
+      if (request.cancel_order.empty() || request.request_id == active->request->request_id ||
+          !account.holds_intent(request.cancel_order))
+        continue;
+      auto found = std::move(*it);
+      mutations.erase(it);
+      return found;
+    }
+    return nullptr;
+  }
+  void interpose(LiveAccountState& account, std::shared_ptr<Mutation> request) {
+    TraceScope context(request->trace);
+    account.park();
+    try {
+      interposed.emplace(Active{request, request->begin(account, request->control)});
+      interposed->command.start();
+    } catch (...) {
+      request->result.set_exception(std::current_exception());
+      interposed.reset();
+      account.unpark();
+      release_request();
+    }
+  }
   void finish(LiveAccountState& account) {
     for (;;) {
       bool completed_storage = false;
-      if (active) {
-        if (!active->command.done())
+      if (interposed) {
+        if (!interposed->command.done())
           return;
+        try {
+          interposed->command.result();
+          interposed->request->result.set_value();
+        } catch (...) {
+          interposed->request->result.set_exception(std::current_exception());
+        }
+        interposed.reset();
+        account.unpark();
+        release_request();
+      }
+      if (active) {
+        if (!active->command.done()) {
+          if (auto cancel = take_cancel(account)) {
+            interpose(account, std::move(cancel));
+            continue;
+          }
+          return;
+        }
         failed = account.recovery_required();
         try {
           active->command.result();
@@ -177,7 +230,7 @@ struct LiveSession::Loop {
         if (event)
           event(*account);
         if (account->waiting_for_sdk()) {
-          TraceScope context(active->request->trace);
+          TraceScope context((interposed ? interposed : active)->request->trace);
           account->poll_sdk();
         }
         finish(*account);
@@ -237,11 +290,14 @@ struct LiveSession::Loop {
   }
   std::future<void> mutate(std::function<AccountCommand(LiveAccountState&, std::uint64_t)> begin,
                            std::function<void(LiveAccountState&)> admit = {},
-                           Admission admission = Admission::command) {
+                           Admission admission = Admission::command, std::string request_id = {},
+                           std::string cancel_order = {}) {
     auto request = std::make_shared<Mutation>();
     request->begin = std::move(begin);
     request->admit = std::move(admit);
     request->trace = current_trace_id();
+    request->request_id = std::move(request_id);
+    request->cancel_order = std::move(cancel_order);
     auto result = request->result.get_future();
     enqueue(
         [this, request](LiveAccountState& account) {
@@ -304,7 +360,11 @@ std::future<void> LiveSession::execute(std::string_view account_id,
     rejected.set_exception(std::current_exception());
     return rejected.get_future();
   }
-  const bool revoke = request->as<Revoke>(), cancel = request->as<CancelOrder>();
+  const bool revoke = request->as<Revoke>();
+  const auto* cancel = request->as<CancelOrder>();
+  const bool cancels = cancel != nullptr;
+  auto id = request->id;
+  auto cancel_order = cancels ? cancel->order_id : std::string{};
   auto begin = [record = std::string(account_id), policy = std::string(policy_revision),
                 request = std::move(*request)](LiveAccountState& account, std::uint64_t control) {
     return account.execute(record, policy, request, control);
@@ -314,9 +374,10 @@ std::future<void> LiveSession::execute(std::string_view account_id,
         std::move(begin),
         [record = std::string(account_id), policy = std::string(policy_revision)](
             LiveAccountState& account) { account.admit_revoke(record, policy); },
-        Loop::Admission::stop_sends);
+        Loop::Admission::stop_sends, std::move(id));
   return loop_->mutate(std::move(begin), {},
-                       cancel ? Loop::Admission::control : Loop::Admission::command);
+                       cancels ? Loop::Admission::control : Loop::Admission::command, std::move(id),
+                       std::move(cancel_order));
 }
 
 std::future<Json> LiveSession::snapshot() const {

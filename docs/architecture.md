@@ -128,7 +128,9 @@ Node-API 直接接纳异步请求并将完成交回 JS，不再建请求线程�
 | Node Agent | 管理与 I/O、一条配置写入线程、固定管理池；监督与资源准入属于同一 owner |
 
 任务服务和数据服务的状态拥有者分别是 `TaskHost` 与 `DataHost`，`main()` 只解析参数并把端点
-接到它们；Node Agent 的请求路由按操作拆成成员函数。
+接到它们。Node Agent 的请求路由按操作拆成成员函数；制品上传（`ArtifactUploads`）、防火墙计划
+（`FirewallControl`）和升级计划（`UpgradePlan`）各有自己的类型，`Agent` 保留服务登记、监督与
+升级协调。
 | 下载 / 回测 / 因子 worker | 主控制线程与执行线程各一条；I/O、心跳、取消和父进程检查在主线程推进 |
 
 固定池大小来自节点预算，不随请求数增加；当前 Data/Task 文件池由 Agent 分配一或两条线程。

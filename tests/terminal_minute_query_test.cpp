@@ -1073,7 +1073,10 @@ struct LiveService {
             } else {
               {
                 std::unique_lock lock(mutex);
-                if (!message.has_attach() || block_observations) {
+                // A cancel is answered at once, as the account service answers
+                // one while another command waits.
+                if (!message.command().has_cancel() &&
+                    (!message.has_attach() || block_observations)) {
                   entered = true;
                   condition.notify_all();
                   if (!condition.wait_for(lock, 10s, [&] { return released; }))
@@ -1358,6 +1361,38 @@ TEST(TerminalLive, BackgroundPollDoesNotRejectAnAccountCommandAsConflicting) {
   const auto started = std::chrono::steady_clock::now();
   EXPECT_NO_THROW(app.dispatch(request("live.disconnect", {{"account", "other"}})));
   EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(1s));
+  slow.release();
+  ASSERT_EQ(pending.wait_for(3s), std::future_status::ready);
+  EXPECT_NO_THROW((void)pending.get());
+}
+
+TEST(TerminalLive, CancelIsNotHeldBackByAnAccountCommandInFlight) {
+  LiveService slow(false);
+  terminal::Application app;
+  terminal::ApplicationTestAccess::attach_live(app, "slow", slow.address());
+  slow.hold_observations();
+  const Json identity{
+      {"account", "slow"}, {"account_id", "fixture-record"}, {"policy_revision", "fixture-policy"}};
+  auto order = identity;
+  order.update({{"request_id", "submit.held"},
+                {"action", "submit"},
+                {"order_id", "held"},
+                {"venue", "SHFE"},
+                {"symbol", "rb2610"},
+                {"side", "buy"},
+                {"offset", "open"},
+                {"quantity", "1"},
+                {"price", "3500"}});
+  auto pending = std::async(std::launch::async,
+                            [&] { return app.dispatch(request("live.act", std::move(order))); });
+  ASSERT_TRUE(slow.wait());
+  EXPECT_EQ(pending.wait_for(100ms), std::future_status::timeout);
+  auto cancel = identity;
+  cancel.update({{"request_id", "cancel.resting"}, {"action", "cancel"}, {"order_id", "resting"}});
+  const auto started = std::chrono::steady_clock::now();
+  EXPECT_NO_THROW(app.dispatch(request("live.act", cancel)));
+  EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(1s));
+  EXPECT_EQ(pending.wait_for(0ms), std::future_status::timeout);
   slow.release();
   ASSERT_EQ(pending.wait_for(3s), std::future_status::ready);
   EXPECT_NO_THROW((void)pending.get());

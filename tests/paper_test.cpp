@@ -361,7 +361,7 @@ void mixed_longs(PaperExecution& engine) {
   engine.advance();
   engine.submit(order("old.open", Side::buy, "2", "100"), Offset::open);
   engine.advance();
-  engine.settle_day_end({d("105")});
+  engine.settle_scheduled({d("105")}, false);
   engine.advance();
   engine.submit(order("new.open", Side::buy, "1", "106"), Offset::open);
   engine.advance();
@@ -413,28 +413,29 @@ TEST(PaperExecution, DayEndSettlementRejectsWrongPositionAndPendingOrdersAtomica
   PaperExecution engine(d("1000"), {{{instrument(), costs()}, settlement_bars()}}, risk());
   engine.start();
   const auto empty = engine.snapshot();
-  EXPECT_THROW(engine.settle_day_end({d("105")}), std::invalid_argument);
+  EXPECT_THROW(engine.settle_scheduled({d("105")}, false), std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), empty);
   engine.advance();
   engine.submit(order("open", Side::buy, "1", "100"), Offset::open);
   const auto pending = engine.snapshot();
   // The first bar is not the last of its day.
-  EXPECT_THROW(engine.settle_day_end({d("105")}), std::invalid_argument);
+  EXPECT_THROW(engine.settle_scheduled({d("105")}, false), std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), pending);
   engine.advance();
   const auto filled = engine.snapshot();
-  EXPECT_THROW(engine.settle_day_end({d("105.5")}), std::invalid_argument);
+  EXPECT_THROW(engine.settle_scheduled({d("105.5")}, false), std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), filled);
-  engine.settle_day_end({d("105")});
+  engine.settle_scheduled({d("105")}, false);
   const auto settled = engine.snapshot();
-  EXPECT_THROW(engine.settle_day_end({d("106")}), std::invalid_argument) << "settled once per day";
+  EXPECT_THROW(engine.settle_scheduled({d("106")}, false), std::invalid_argument)
+      << "settled once per day";
   EXPECT_EQ(engine.snapshot(), settled);
   engine.advance();
   EXPECT_EQ(engine.snapshot().at("unrealized"), "10");
   for (int i = 0; i < 4; ++i)
     engine.advance();
   const auto finished = engine.snapshot();
-  EXPECT_THROW(engine.settle_day_end({d("105")}), std::invalid_argument);
+  EXPECT_THROW(engine.settle_scheduled({d("105")}, false), std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), finished);
 }
 
@@ -462,7 +463,6 @@ TEST(FuturesAccount, TypedQueriesMatchSnapshotAndRejectedFillsLeaveLedgerUntouch
   EXPECT_EQ(before.at("frozen"), account.frozen().str());
   EXPECT_EQ(before.at("margin"), account.margin().str());
   EXPECT_EQ(before.at("unrealized"), account.unrealized().str());
-  EXPECT_EQ(before.at("marks").at(0).at("mark"), account.last_mark(instrument().id).str());
   EXPECT_TRUE(account.has_working_orders());
   // Limit violation, conflicting duplicate and unknown order all fail atomically.
   EXPECT_THROW(account.fill({"e2", "o1", d("1"), d("101")}), std::invalid_argument);

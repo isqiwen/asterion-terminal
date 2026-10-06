@@ -7,7 +7,6 @@
 namespace asterion::history_files {
 HistoricalDailyRange daily_range(const data::v1::DailyDownload&);
 unsigned daily_work_units(const data::v1::DailyDownload&);
-data::v1::DailyDownload daily_request(const Json&);
 data::v1::DailyDownloadResult daily_result(const std::filesystem::path&);
 void verify_daily_result(const data::v1::DailyDownload&, const data::v1::DailyDownloadResult&);
 data::v1::DailyPage read_daily_page(const data::v1::DailyDownload&,

@@ -34,7 +34,16 @@ public:
   AccountCommand execute(std::string account_id, std::string policy_revision,
                          AccountRequest request, std::uint64_t admitted_control);
   Json snapshot() const;
-  bool waiting_for_sdk() const { return bool(sdk_ready_); }
+  bool waiting_for_sdk() const { return sdk_waits_.size() > parked_; }
+  // The only command is parked on its broker quote and has recorded nothing
+  // yet: a cancel may run to completion before that command resumes.
+  bool yields_to_cancel() const {
+    return !parked_ && sdk_waits_.size() == 1 && sdk_waits_.back().yields;
+  }
+  bool holds_intent(const std::string& order_id) const { return intents_.contains(order_id); }
+  // Keeps the yielding command suspended, whatever its quote does, until unpark().
+  void park() { parked_ = sdk_waits_.size(); }
+  void unpark() { parked_ = 0; }
   void poll_broker();
   bool storage_work_pending() const;
   AccountCommand advance_storage();
@@ -47,23 +56,30 @@ private:
   template <class T> struct BrokerWait {
     LiveAccountState& account;
     std::future<T> result;
+    bool yields;
     bool await_ready() const {
       return result.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
     }
     void await_suspend(std::coroutine_handle<> command) {
-      account.sdk_ready_ = [this] { return await_ready(); };
-      account.sdk_continuation_ = command;
+      account.sdk_waits_.push_back({[this] { return await_ready(); }, command, yields});
     }
     T await_resume() {
       account.poll_broker();
       return result.get();
     }
   };
-  template <class T> BrokerWait<T> wait_sdk(std::future<T> result) {
-    return {*this, std::move(result)};
+  template <class T> BrokerWait<T> wait_sdk(std::future<T> result, bool yields = false) {
+    return {*this, std::move(result), yields};
   }
-  std::function<bool()> sdk_ready_;
-  std::coroutine_handle<> sdk_continuation_;
+  // Commands suspended on an SDK result, innermost last. There is one, or two
+  // while a cancel runs in front of a command parked on its quote.
+  struct SdkWait {
+    std::function<bool()> ready;
+    std::coroutine_handle<> command;
+    bool yields;
+  };
+  std::vector<SdkWait> sdk_waits_;
+  std::size_t parked_ = 0;
   struct Intent {
     std::string broker_key, trading_day;
     InstrumentId instrument;

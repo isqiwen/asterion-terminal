@@ -166,12 +166,6 @@ void PaperExecution::advance(const std::optional<LongTarget>& target) {
     throw;
   }
 }
-void PaperExecution::settle(const std::vector<Decimal>& prices) {
-  settle_scheduled({prices.begin(), prices.end()}, true);
-}
-void PaperExecution::settle_day_end(const std::vector<Decimal>& prices) {
-  settle_scheduled({prices.begin(), prices.end()}, false);
-}
 void PaperExecution::settle_scheduled(const std::vector<std::optional<Decimal>>& prices,
                                       bool final) {
   require_running();

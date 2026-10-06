@@ -121,6 +121,8 @@ struct Application::Impl {
     std::shared_ptr<TradingClient> client;
     // Commands for the same account conflict; observation uses the I/O owner.
     bool busy = false;
+    // Cancels do not conflict with that command: the account service orders them.
+    unsigned cancels = 0;
     explicit LiveAccount(std::shared_ptr<TradingClient> connection)
         : client(std::move(connection)) {}
   };
@@ -138,6 +140,15 @@ struct Application::Impl {
           "another operation for this CTP account is in progress; retry after it completes");
     account->busy = true;
     ResetFlag reset{account->busy};
+    co_await io(*account->client);
+  }
+  template <class F> PolledTask<void> cancel_on_live_account(const json& params, F io) {
+    const auto account = live_account(params);
+    ++account->cancels;
+    struct Done {
+      unsigned& cancels;
+      ~Done() { --cancels; }
+    } done{account->cancels};
     co_await io(*account->client);
   }
   // Shared so long node I/O can keep its client while the map changes.

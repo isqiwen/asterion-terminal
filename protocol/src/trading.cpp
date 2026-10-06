@@ -266,23 +266,6 @@ ContractTerms contract_terms(const v1::PaperContract& contract) {
           .values};
 }
 // Manifest version 4: each contract pins a complete dated cost schedule.
-v1::PaperInput encode_input(const Json& m) {
-  require_fields(m, {"version", "type", "deposit", "risk", "contracts"});
-  if (m.at("version") != 4 || m.at("type") != "historical_paper" || !m.at("contracts").is_array() ||
-      m.at("contracts").empty() || m.at("contracts").size() > max_portfolio_contracts)
-    throw std::invalid_argument("invalid paper input");
-  v1::PaperInput result;
-  set(result.mutable_deposit(), m.at("deposit"));
-  *result.mutable_risk() = encode_risk(m.at("risk"));
-  for (const auto& c : m.at("contracts")) {
-    require_fields(c, {"dataset", "cost_schedule"});
-    auto* contract = result.add_contracts();
-    *contract->mutable_dataset() = encode_bar_dataset(c.at("dataset"));
-    *contract->mutable_cost_schedule() = encode_cost_schedule(c.at("cost_schedule"));
-  }
-  static_cast<void>(decode_input(result, DatasetView::metadata));
-  return result;
-}
 Json decode_input(const v1::PaperInput& input, DatasetView view) {
   if (!input.has_deposit() || !input.has_risk() || input.contracts().empty() ||
       static_cast<std::size_t>(input.contracts_size()) > max_portfolio_contracts)

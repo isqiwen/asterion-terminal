@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/kernel/ipc/local_channel.hpp>
+#include "local_listener.hpp"
 #include <asterion/kernel/rpc_host.hpp>
 #include <functional>
 #include <list>
@@ -10,14 +10,14 @@
 namespace asterion::testing_support {
 class Connection {
 public:
-  explicit Connection(ipc::Channel channel) : channel_(std::move(channel)) {}
+  explicit Connection(LocalPeer channel) : channel_(std::move(channel)) {}
   std::string receive(std::chrono::milliseconds timeout) { return channel_.receive(timeout); }
   void send(const std::string& payload, std::chrono::milliseconds timeout) {
     channel_.send(payload, timeout);
   }
 
 private:
-  ipc::Channel channel_;
+  LocalPeer channel_;
 };
 class BlockingService {
 public:
@@ -48,7 +48,7 @@ public:
   }
 
 private:
-  ipc::Listener listener_;
+  LocalListener listener_;
   Handler handler_;
 };
 } // namespace asterion::testing_support

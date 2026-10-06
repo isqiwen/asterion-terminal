@@ -6,6 +6,8 @@
 #include "resource_budget.hpp"
 #include "supervision_rpc.hpp"
 #include "upgrade_plan.hpp"
+#include "artifact_uploads.hpp"
+#include "firewall_control.hpp"
 #include <asterion/v1/data_service.pb.h>
 #include "managed_paths.hpp"
 #include "firewall.hpp"
@@ -55,7 +57,8 @@ struct Service {
   std::string worker_endpoint;
   std::map<std::string, std::unique_ptr<ChildProcess>> workers;
   std::chrono::steady_clock::time_point dispatch_at{};
-  std::string error, health_endpoint, health = "starting";
+  std::string error, health_endpoint;
+  protocol::ServiceHealth health = protocol::ServiceHealth::starting;
   std::optional<runtime::v1::ExecutionHealth> execution;
   std::chrono::steady_clock::time_point execution_observed{};
   std::int64_t last_heartbeat = 0;
@@ -72,8 +75,6 @@ struct Service {
   std::chrono::steady_clock::time_point retry{};
 };
 class Agent {
-  Json firewall_plan_ = nullptr;
-  std::chrono::steady_clock::time_point firewall_expiry_{};
   fs::path root_;
   PluginArtifacts plugins_{root_, current_executable()};
   ipc::TlsIdentity tls_;
@@ -82,10 +83,6 @@ class Agent {
   bool local_;
   unsigned short control_port_;
   std::map<std::string, Service> services_;
-  struct Upload {
-    std::uint64_t size, offset = 0;
-  };
-  std::map<std::string, Upload> uploads_;
   std::string maintenance_;
   std::optional<agent::UpgradePlan> upgrade_;
   std::string upgrade_error_;
@@ -136,6 +133,11 @@ class Agent {
     service.retiring_workers = 0;
   }
   const std::string instance_ = unique_process_id();
+  agent::BlockingWork blocking_ = [this](std::function<void()> work) {
+    return prepare(std::move(work));
+  };
+  agent::ArtifactUploads uploads_{root_, blocking_};
+  agent::FirewallControl firewall_{root_, blocking_};
   const std::chrono::steady_clock::time_point started_ = std::chrono::steady_clock::now();
   fs::path binary(const std::string& hash) const { return root_ / "artifacts" / (hash + ".bin"); }
   std::string revision(const ServiceConfiguration& configuration) const {
@@ -234,7 +236,7 @@ class Agent {
     current.process.reset();
     current.restarts = 0;
     current.error.clear();
-    current.health = "offline";
+    current.health = protocol::ServiceHealth::offline;
     current.last_heartbeat = 0;
     current.execution.reset();
   }
@@ -350,7 +352,7 @@ class Agent {
       s.process = std::move(result.process);
       log_process_event("agent", LogLevel::info, "service.started",
                         {{"service", name}, {"pid", s.process->id()}});
-      s.health = "starting";
+      s.health = protocol::ServiceHealth::starting;
       s.last_heartbeat = 0;
       s.execution.reset();
       s.failures = 0;
@@ -423,7 +425,7 @@ class Agent {
           continue;
         }
         s.process.reset();
-        s.health = "offline";
+        s.health = protocol::ServiceHealth::offline;
       }
       if (!s.process) {
         if (!s.workers.empty())
@@ -502,7 +504,8 @@ class Agent {
         throw std::runtime_error("upgrade services have not resumed");
       for (const auto& [name, s] : services_)
         if (s.configuration.desired &&
-            (!s.process || (s.health != "ready" && s.health != "awaiting_input")))
+            (!s.process || (s.health != protocol::ServiceHealth::ready &&
+                            s.health != protocol::ServiceHealth::awaiting_input)))
           throw std::runtime_error("upgrade is waiting for restored service health");
       auto next = *upgrade_;
       next.phase = Phase::complete;
@@ -542,7 +545,8 @@ class Agent {
   }
   bool dispatch_ready(const std::string& name, const Service& service) const {
     return name != mutating_service_ && service.configuration.kind == wire::TASK_SERVICE &&
-           service.process && service.configuration.desired && service.health == "ready" &&
+           service.process && service.configuration.desired &&
+           service.health == protocol::ServiceHealth::ready &&
            std::chrono::steady_clock::now() >= service.dispatch_at;
   }
   bool dispatch_turn(const std::string& name) const {
@@ -682,10 +686,10 @@ class Agent {
       if (!service)
         co_return;
       if (error.empty()) {
-        service->health = std::move(health.status);
+        service->health = health.status;
         service->execution = std::move(health.execution);
         service->execution_observed = std::chrono::steady_clock::now();
-        if (service->health == "starting")
+        if (service->health == protocol::ServiceHealth::starting)
           service->probe = std::chrono::steady_clock::now() + 250ms;
         service->last_heartbeat = std::chrono::duration_cast<std::chrono::milliseconds>(
                                       std::chrono::system_clock::now().time_since_epoch())
@@ -698,7 +702,7 @@ class Agent {
         service->error = "waiting for the first heartbeat: " + error;
         co_return;
       } else {
-        service->health = "unresponsive";
+        service->health = protocol::ServiceHealth::unresponsive;
         service->error = "service heartbeat unavailable";
         log_process_event("agent", LogLevel::warning, "service.heartbeat_failed",
                           {{"service", name},
@@ -897,95 +901,10 @@ class Agent {
       throw std::invalid_argument("firewall management requires a remote TLS node");
     const auto& operation = r.firewall();
     validate_service_id(operation.service_id());
-    const auto& service = services_.at(operation.service_id());
-    const auto os = current_platform().os;
-    const auto file = root_ / "firewall" / (operation.service_id() + ".json");
-    Json owned = nullptr;
-    co_await prepare([&] {
-      require_managed_path(file.parent_path());
-      require_managed_path(file);
-      if (fs::exists(file)) {
-        if (fs::file_size(file) > 65536)
-          throw std::invalid_argument("invalid firewall record");
-        std::ifstream input(file);
-        owned = Json::parse(input);
-      }
-    });
-    if (operation.action() == "allow" || operation.action() == "remove") {
-      if (!operation.token().empty())
-        throw std::invalid_argument("inspection does not accept a confirmation token");
-      firewall_plan_ = nullptr;
-      Json observed;
-      co_await prepare([&] {
-        observed =
-            asterion::node::run_firewall_script(asterion::node::firewall_inspection(os, peer));
-      });
-      const bool remove = operation.action() == "remove";
-      if (!remove && !owned.is_null() && owned.at("source") != peer)
-        throw std::invalid_argument("remove previous source rule before changing source");
-      firewall_plan_ = {
-          {"token", unique_process_id()},
-          {"service", operation.service_id()},
-          {"source", remove && !owned.is_null() ? owned.at("source").get<std::string>() : peer},
-          {"peer", peer},
-          {"port", service.configuration.port},
-          {"backend", observed.at("backend")},
-          {"state", observed.at("state")},
-          {"can_apply", observed.at("state") == "active" && observed.at("backend") == "ufw" &&
-                            (!remove || !owned.is_null())},
-          {"rule", owned.is_null() ? "asterion-" + unique_process_id()
-                                   : owned.at("rule").get<std::string>()},
-          {"action", operation.action()},
-          {"verification", "not_checked"}};
-      firewall_expiry_ = std::chrono::steady_clock::now() + 5min;
-    } else if (operation.action() == "apply") {
-      if (firewall_plan_.is_null() || firewall_plan_.at("token") != operation.token() ||
-          firewall_plan_.at("service") != operation.service_id() ||
-          firewall_plan_.at("peer") != peer || std::chrono::steady_clock::now() > firewall_expiry_)
-        throw std::invalid_argument("firewall confirmation expired; inspect again");
-      auto plan = firewall_plan_;
-      firewall_plan_ = nullptr;
-      Json observed;
-      co_await prepare([&] {
-        observed =
-            asterion::node::run_firewall_script(asterion::node::firewall_inspection(os, peer));
-      });
-      if (!plan.at("can_apply").get<bool>() || observed.at("state") != "active" ||
-          observed.at("backend") != plan.at("backend"))
-        throw std::invalid_argument("firewall state changed; inspect again");
-      const bool remove = plan.at("action") == "remove";
-      if (remove && (owned.is_null() || owned.at("rule") != plan.at("rule") ||
-                     owned.at("source") != plan.at("source")))
-        throw std::invalid_argument("no owned firewall rule");
-      const auto port = service.configuration.port;
-      co_await prepare([&] {
-        if (!remove) {
-          fs::create_directory(file.parent_path());
-          replace_file_durably(file, plan.dump());
-        }
-        const auto changed = asterion::node::run_firewall_script(
-            asterion::node::firewall_change(os, plan.at("source"), port, plan.at("rule"), remove));
-        if (changed != Json{{"changed", true}})
-          throw std::runtime_error("invalid firewall result");
-        if (remove)
-          fs::remove(file);
-      });
-      plan["can_apply"] = false;
-      plan["state"] = remove ? "removed" : "applied";
-      firewall_plan_ = std::move(plan);
-    } else
-      throw std::invalid_argument("unsupported firewall action");
-    auto* report = response.mutable_firewall();
-    const auto& plan = firewall_plan_;
-    report->set_token(plan.at("token").get<std::string>());
-    report->set_source(plan.at("source").get<std::string>());
-    report->set_port(plan.at("port").get<std::uint32_t>());
-    report->set_backend(plan.at("backend").get<std::string>());
-    report->set_state(plan.at("state").get<std::string>());
-    report->set_can_apply(plan.at("can_apply").get<bool>());
-    report->set_rule(plan.at("rule").get<std::string>());
-    report->set_action(plan.at("action").get<std::string>());
-    report->set_verification(plan.at("verification").get<std::string>());
+    const auto port = services_.at(operation.service_id()).configuration.port;
+    wire::FirewallPlan report;
+    co_await firewall_.manage(operation, peer, port, report);
+    *response.mutable_firewall() = std::move(report);
   }
   void report_status(wire::Response& response) {
     auto* status = response.mutable_status();
@@ -1048,7 +967,8 @@ class Agent {
                          : s.restarts >= 3                    ? "failed"
                                                               : "restarting");
       service->set_pid(running ? s.process->id() : s.retiring_pid);
-      service->set_health(running ? s.health : "offline");
+      service->set_health(std::string(
+          protocol::service_health_name(running ? s.health : protocol::ServiceHealth::offline)));
       service->set_last_heartbeat_ms(s.last_heartbeat);
       if (running && s.execution) {
         *service->mutable_execution() = *s.execution;
@@ -1056,80 +976,16 @@ class Agent {
                                        std::chrono::duration_cast<std::chrono::milliseconds>(
                                            std::chrono::steady_clock::now() - s.execution_observed)
                                            .count());
-        if (s.health != "unresponsive" && protocol::execution_health_stalled(service->execution()))
-          service->set_health("degraded");
+        if (s.health != protocol::ServiceHealth::unresponsive &&
+            protocol::execution_health_stalled(service->execution()))
+          service->set_health(
+              std::string(protocol::service_health_name(protocol::ServiceHealth::degraded)));
       }
       if (local_) {
         service->set_endpoint(service_endpoint(name));
         service->set_directory(s.configuration.directory);
       }
     }
-  }
-  PolledTask<void> begin_upload(const wire::Request& r) {
-    const auto& u = r.upload();
-    validate_artifact_digest(u.sha256());
-    const auto platform = current_platform();
-    if (u.os() != platform.os || u.arch() != platform.arch || !u.size() ||
-        u.size() > max_artifact_bytes)
-      throw std::invalid_argument("artifact platform or size mismatch");
-    const auto path = root_ / "uploads" / u.sha256();
-    co_await prepare([&] {
-      require_managed_path(path);
-      std::ofstream out(path, std::ios::binary | std::ios::trunc);
-      if (!out)
-        throw std::runtime_error("cannot create upload");
-    });
-    uploads_[u.sha256()] = {u.size(), 0};
-  }
-  PolledTask<void> append_upload(const wire::Request& r) {
-    const auto& c = r.chunk();
-    validate_artifact_digest(c.sha256());
-    auto& u = uploads_.at(c.sha256());
-    if (c.offset() != u.offset || c.data().empty() || c.data().size() > 1024 * 1024 ||
-        c.data().size() > u.size - u.offset)
-      throw std::invalid_argument("invalid upload chunk");
-    const auto path = root_ / "uploads" / c.sha256();
-    co_await prepare([&] {
-      require_managed_path(path);
-      std::ofstream out(path, std::ios::binary | std::ios::app);
-      out.write(c.data().data(), static_cast<std::streamsize>(c.data().size()));
-      out.flush();
-      if (!out)
-        throw std::runtime_error("upload write failed");
-    });
-    u.offset += c.data().size();
-  }
-  PolledTask<void> finish_upload(const wire::Request& r) {
-    const auto hash = r.finish().sha256();
-    validate_artifact_digest(hash);
-    const auto u = uploads_.at(hash);
-    const auto path = root_ / "uploads" / hash;
-    const auto target = binary(hash);
-    co_await prepare([&] {
-      require_managed_path(path);
-      require_managed_path(target);
-      // A failed directory sync may leave the renamed target in place.
-      // Revalidate and durably acknowledge it on an explicit finish retry.
-      const auto source = fs::exists(path) ? path : target;
-      if (u.offset != u.size || sha256_file(source) != hash)
-        throw std::invalid_argument("artifact size or checksum mismatch");
-      const auto actual = artifact_platform(source);
-      const auto platform = current_platform();
-      if (actual.os != platform.os || actual.arch != platform.arch)
-        throw std::invalid_argument("uploaded executable platform mismatch");
-      if (fs::exists(target)) {
-        if (sha256_file(target) != hash)
-          throw std::runtime_error("existing artifact corrupted");
-        sync_directory(target.parent_path());
-        if (fs::exists(path))
-          fs::remove(path);
-      } else {
-        fs::permissions(path, fs::perms::owner_all);
-        publish_file_durably(path, target);
-      }
-      sync_directory(path.parent_path());
-    });
-    uploads_.erase(hash);
   }
   PolledTask<void> deploy_service(const wire::Request& r) {
     const auto& d = r.deploy();
@@ -1291,7 +1147,7 @@ class Agent {
     current.configuration = std::move(next);
     current.restarts = 0;
     current.error.clear();
-    current.health = "offline";
+    current.health = protocol::ServiceHealth::offline;
     current.last_heartbeat = 0;
     current.execution.reset();
   }
@@ -1434,11 +1290,11 @@ public:
         co_return response;
       }
       if (r.has_upload())
-        co_await begin_upload(r);
+        co_await uploads_.begin(r.upload());
       else if (r.has_chunk())
-        co_await append_upload(r);
+        co_await uploads_.append(r.chunk());
       else if (r.has_finish())
-        co_await finish_upload(r);
+        co_await uploads_.finish(r.finish());
       else if (r.has_deploy())
         co_await deploy_service(r);
       else if (r.has_configure_plugins())

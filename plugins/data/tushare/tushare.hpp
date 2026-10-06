@@ -48,7 +48,6 @@ using CalendarLookup = std::function<std::optional<bool>(std::chrono::year_month
 // which the session started, and that evening must itself be an open day.
 std::string minute_trading_day(std::int64_t bar_end_ns, const CalendarLookup& open);
 HistoricalBarRange contract_range(const FuturesListing&, unsigned interval, std::int64_t cutoff_ns);
-HistoricalDailyRange daily_contract_range(const FuturesListing&, std::int64_t cutoff_ns);
 class Minutes final : public HistoricalBarPort {
 public:
   explicit Minutes(std::string token, Post post = https_transport());

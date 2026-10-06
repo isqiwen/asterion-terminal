@@ -141,24 +141,6 @@ HistoricalDailyRange daily_range(const data::v1::DailyDownload& input) {
 unsigned daily_work_units(const data::v1::DailyDownload& input) {
   return page_count(daily_range(input));
 }
-data::v1::DailyDownload daily_request(const Json& value) {
-  require_fields(value, {"version", "contract_id", "source", "source_instrument", "begin_day",
-                         "end_day", "requests_per_minute"});
-  if (!value.at("version").is_number_integer() || value.at("version") != 2 ||
-      !value.at("requests_per_minute").is_number_integer() || value.at("requests_per_minute") < 1 ||
-      value.at("requests_per_minute") > 500)
-    throw std::invalid_argument("invalid daily download definition");
-  data::v1::DailyDownload input;
-  input.set_version(2);
-  input.set_contract_id(value.at("contract_id").get<std::string>());
-  input.set_source(value.at("source").get<std::string>());
-  input.set_source_instrument(value.at("source_instrument").get<std::string>());
-  input.set_begin_day(value.at("begin_day").get<std::string>());
-  input.set_end_day(value.at("end_day").get<std::string>());
-  input.set_requests_per_minute(value.at("requests_per_minute").get<unsigned>());
-  (void)daily_range(input);
-  return input;
-}
 data::v1::DailyDownloadResult daily_result(const std::filesystem::path& dir) {
   const auto info = inspect_daily(dir);
   if (!info.complete)

@@ -191,48 +191,4 @@ void Channel::send(const std::string& payload, std::chrono::milliseconds timeout
     throw;
   }
 }
-struct Listener::Impl {
-  Handle handle = invalid;
-  std::string endpoint;
-  bool bound = false;
-  ~Impl() {
-    release(handle);
-    if (bound) {
-      std::error_code error;
-      std::filesystem::remove(endpoint, error);
-    }
-  }
-};
-Listener::Listener(std::string endpoint, int pending_connections)
-    : impl_(std::make_unique<Impl>()) {
-  impl_->endpoint = std::move(endpoint);
-  const auto addr = address(impl_->endpoint);
-  impl_->handle = ::socket(AF_UNIX, SOCK_STREAM, 0);
-  if (impl_->handle < 0)
-    failed("cannot create IPC listener");
-  configure(impl_->handle);
-  if (::bind(impl_->handle, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) < 0)
-    failed("IPC endpoint already exists or is inaccessible");
-  impl_->bound = true;
-  if (::chmod(impl_->endpoint.c_str(), 0600) < 0)
-    failed("cannot secure IPC endpoint");
-  if (::listen(impl_->handle, pending_connections) < 0)
-    failed("cannot listen on IPC socket");
-}
-Listener::~Listener() = default;
-Channel Listener::accept(std::chrono::milliseconds timeout) {
-  Channel result;
-  const auto end = deadline(timeout);
-  for (;;) {
-    ready(impl_->handle, POLLIN, end);
-    result.impl_->handle = ::accept(impl_->handle, nullptr, nullptr);
-    if (result.impl_->handle >= 0)
-      break;
-    if (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)
-      failed("IPC accept failed");
-  }
-  configure(result.impl_->handle);
-  detail::verify_local_peer(result.impl_->handle);
-  return result;
-}
 } // namespace asterion::ipc

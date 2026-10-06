@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "local_listener.hpp"
 #include <asterion/protocol/trading.hpp>
 #include <asterion/protocol/health.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
@@ -65,7 +66,7 @@ TEST(Protobuf, UnknownFieldsInsideOneofAndRepeatedMessagesAreRejected) {
 }
 TEST(LocalIpc, BoundedBinaryFramesAndDisconnect) {
   Endpoint endpoint;
-  ipc::Listener listener(endpoint.path);
+  testing_support::LocalListener listener(endpoint.path);
   auto server = std::async(std::launch::async, [&] {
     auto peer = listener.accept(2s);
     auto bytes = peer.receive(2s);
@@ -81,7 +82,7 @@ TEST(LocalIpc, BoundedBinaryFramesAndDisconnect) {
 }
 TEST(LocalIpc, DeadlineClosesTheChannel) {
   Endpoint endpoint;
-  ipc::Listener listener(endpoint.path);
+  testing_support::LocalListener listener(endpoint.path);
   auto client = ipc::Channel::connect(endpoint.path, 2s);
   auto server = listener.accept(2s);
   EXPECT_THROW(client.receive(20ms), Error);
@@ -137,20 +138,20 @@ TEST(Protobuf, TradingHealthSeparatesReadinessProgressAndRecovery) {
   wire::Health h;
   EXPECT_THROW(protocol::trading_health_phase(h), std::invalid_argument);
   auto* e = h.mutable_execution();
-  EXPECT_EQ(protocol::trading_health_phase(h), "awaiting_input");
+  EXPECT_EQ(protocol::trading_health_phase(h), protocol::ServiceHealth::awaiting_input);
   e->mutable_initialization()->set_observed(true);
   e->mutable_initialization()->set_pending(true);
-  EXPECT_EQ(protocol::trading_health_phase(h), "starting");
+  EXPECT_EQ(protocol::trading_health_phase(h), protocol::ServiceHealth::starting);
   e->mutable_initialization()->set_pending(false);
   h.set_initialized(true);
   for (auto* p : {e->mutable_io(), e->mutable_state(), e->mutable_persistence()})
     p->set_observed(true);
-  EXPECT_EQ(protocol::trading_health_phase(h), "awaiting_input");
+  EXPECT_EQ(protocol::trading_health_phase(h), protocol::ServiceHealth::awaiting_input);
   e->set_business_ready(true);
   e->mutable_persistence()->set_age_ms(60000); // Idle writer needs no artificial work.
-  EXPECT_EQ(protocol::trading_health_phase(h), "ready");
+  EXPECT_EQ(protocol::trading_health_phase(h), protocol::ServiceHealth::ready);
   e->mutable_persistence()->set_pending(true);
-  EXPECT_EQ(protocol::trading_health_phase(h), "degraded");
+  EXPECT_EQ(protocol::trading_health_phase(h), protocol::ServiceHealth::degraded);
   EXPECT_FALSE(h.recovery_required());
   e->mutable_persistence()->set_pending(false);
   protocol::age_execution_health(*e, 31000); // Agent cannot renew executor progress.
@@ -158,9 +159,9 @@ TEST(Protobuf, TradingHealthSeparatesReadinessProgressAndRecovery) {
   EXPECT_EQ(e->persistence().age_ms(), 91000U);
   EXPECT_FALSE(e->command().observed());
   EXPECT_EQ(e->command().age_ms(), 0U);
-  EXPECT_EQ(protocol::trading_health_phase(h), "degraded");
+  EXPECT_EQ(protocol::trading_health_phase(h), protocol::ServiceHealth::degraded);
   e->mutable_io()->set_age_ms(0);
   e->mutable_state()->set_age_ms(0);
   h.set_recovery_required(true);
-  EXPECT_EQ(protocol::trading_health_phase(h), "degraded");
+  EXPECT_EQ(protocol::trading_health_phase(h), protocol::ServiceHealth::degraded);
 }

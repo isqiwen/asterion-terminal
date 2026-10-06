@@ -8,8 +8,6 @@ Json decode_daily_factor(const factor::v1::DailyFactorInput&, const factor::v1::
 std::vector<HistoricalDailyBar> daily_factor_bars(const factor::v1::DailyFactorDataset&);
 std::string daily_factor_revision(const factor::v1::DailyFactorDataset&);
 void validate_daily_factor(const factor::v1::DailyFactorInput&);
-std::string factor_dataset_revision(const factor::v1::FactorInput& input);
-factor::v1::FactorInput encode_factor(const Json& input);
 factor::v1::FactorRequest encode_factor_request(const Json& input);
 void validate_factor_input(const factor::v1::FactorInput& input);
 // Input is validated before admission. Progress units are part of the task contract.

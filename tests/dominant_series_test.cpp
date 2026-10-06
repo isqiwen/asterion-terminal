@@ -1,4 +1,6 @@
 #include "bar_dataset_source.hpp"
+#include "paper_input.hpp"
+#include "history_requests.hpp"
 #include "bar_fixture.hpp"
 #include "engine.hpp"
 #include "history_daily.hpp"
@@ -55,7 +57,7 @@ backtest::v1::BacktestInput rolling(const char* outgoing_volume = "10") {
                                           {"close_yesterday_fee_rate", "0"}});
   backtest::v1::BacktestInput input;
   input.set_version(8);
-  *input.mutable_paper() = protocol::encode_input(
+  *input.mutable_paper() = testing_support::paper_input(
       {{"version", 4},
        {"type", "historical_paper"},
        {"risk",
@@ -109,8 +111,6 @@ TEST(DominantSeries, RollClosesTheOldMonthThenOpensTheNewOneAtRealPrices) {
   EXPECT_EQ(result.settlements(2).contracts_size(), 2);
   EXPECT_EQ(result.settlements(4).contracts_size(), 1);
   EXPECT_EQ(result.settlements(4).contracts(0).symbol(), "rb2701");
-  const auto json = protocol::decode_backtest(input);
-  EXPECT_EQ(protocol::encode_backtest(json).SerializeAsString(), input.SerializeAsString());
 }
 TEST(DominantSeries, WithoutAdjustmentTheSameBarsWouldSellAtTheRoll) {
   auto input = rolling();
@@ -189,7 +189,7 @@ data::BarDatasetSources month(data::Store& store, const std::string& delivery,
   provider.rows = rows;
   const auto symbol = "rb" + delivery.substr(2, 2) + delivery.substr(5);
   const auto task = "daily-" + symbol;
-  const auto input = history_files::daily_request(
+  const auto input = asterion::testing_support::daily_request(
       {{"version", 2},
        {"contract_id", "SHFE/rb/" + delivery},
        {"source", "tushare.fut_daily"},

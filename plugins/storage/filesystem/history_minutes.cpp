@@ -241,29 +241,6 @@ HistoricalBarRange minute_range(const data::v1::MinuteDownload& input) {
   (void)total_pages(range);
   return range;
 }
-data::v1::MinuteDownload minute_request(const Json& value) {
-  require_fields(value, {"version", "contract_id", "source", "source_instrument",
-                         "interval_minutes", "begin_ns", "end_ns", "requests_per_minute"});
-  if (!value.at("version").is_number_integer() || value.at("version") != 2 ||
-      !value.at("requests_per_minute").is_number_integer() || value.at("requests_per_minute") < 1 ||
-      value.at("requests_per_minute") > 500)
-    throw std::invalid_argument("invalid minute download definition");
-  auto spec = value;
-  spec.erase("version");
-  spec.erase("requests_per_minute");
-  const auto range = range_of(spec);
-  data::v1::MinuteDownload input;
-  input.set_version(value.at("version").get<unsigned>());
-  input.set_contract_id(value.at("contract_id").get<std::string>());
-  input.set_source(value.at("source").get<std::string>());
-  input.set_source_instrument(value.at("source_instrument").get<std::string>());
-  input.set_interval_minutes(range.interval_minutes);
-  input.set_begin_ns(range.begin_ns);
-  input.set_end_ns(range.end_ns);
-  input.set_requests_per_minute(value.at("requests_per_minute").get<unsigned>());
-  (void)minute_range(input);
-  return input;
-}
 data::v1::MinuteDownloadResult minute_result(const std::filesystem::path& dir) {
   auto manifest = inspect_minutes(dir);
   if (!manifest.at("complete").get<bool>())

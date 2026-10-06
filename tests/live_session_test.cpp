@@ -707,6 +707,57 @@ TEST_F(Live, ThrottledQuoteWaitAllowsControlAndDisconnectRetiresItWithoutAnOrder
   EXPECT_EQ(after.at("capacity").at("records_used").get<int>(),
             identity.at("capacity").at("records_used").get<int>() + 1);
 }
+// A submission waiting for its broker quote has recorded nothing, so a cancel of
+// an order the account already holds does not wait behind it. A cancel of the
+// order that submission is about to place keeps its place in the queue.
+TEST_F(Live, CancelOfARecordedOrderRunsWhileASubmissionWaitsForItsQuote) {
+  LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+  ASSERT_EQ(ready(session).at("phase"), "ready");
+  act(session, authorize());
+  act(session, submit("resting", "4"));
+  const auto identity = wait_for(
+      session, [](const Json& state) { return order_has_status(state, "resting", "accepted"); });
+  const auto record = identity.at("account_id").get<std::string>();
+  const auto policy = identity.at("policy_revision").get<std::string>();
+  const auto cancel = [](const char* request, const char* order) {
+    return Json{{"request_id", request}, {"action", "cancel"}, {"order_id", order}};
+  };
+  std::future<void> placed, premature, cancelled;
+  struct Release {
+    FakeExchange& exchange;
+    ~Release() { exchange.call<void (*)(int, int)>("asterion_fake_trader_reject_quotes", 0, 0); }
+  } release{exchange};
+  exchange.call<void (*)(int, int)>("asterion_fake_trader_reject_quotes", -2, 100000);
+  placed = session.execute(record, policy, submit("waiting", "3"));
+  const auto deadline = std::chrono::steady_clock::now() + 3s;
+  while (!exchange.call<int (*)()>("asterion_fake_trader_query_rejections") &&
+         std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(10ms);
+  ASSERT_GT(exchange.call<int (*)()>("asterion_fake_trader_query_rejections"), 0);
+  premature = session.execute(record, policy, cancel("cancel.waiting", "waiting"));
+  cancelled = session.execute(record, policy, cancel("cancel.resting", "resting"));
+  ASSERT_EQ(cancelled.wait_for(3s), std::future_status::ready);
+  EXPECT_NO_THROW(cancelled.get());
+  EXPECT_EQ(placed.wait_for(0s), std::future_status::timeout);
+  EXPECT_EQ(premature.wait_for(0s), std::future_status::timeout);
+  EXPECT_EQ(find_order(wait_for(session,
+                                [](const Json& state) {
+                                  return order_has_status(state, "resting", "cancelled");
+                                }),
+                       "resting")
+                .at("status"),
+            "cancelled");
+  // The cancellation report changed the basis the waiting submission was
+  // admitted on. It is refused as any submission overtaken by a broker report
+  // is, and its own cancel then finds nothing to cancel.
+  exchange.call<void (*)(int, int)>("asterion_fake_trader_reject_quotes", 0, 0);
+  EXPECT_THROW(placed.get(), Error);
+  EXPECT_THROW(premature.get(), Error);
+  const auto after = session.snapshot();
+  EXPECT_TRUE(after.at("unconfirmed").empty());
+  EXPECT_EQ(after.at("orders").size(), 1U);
+  EXPECT_NO_THROW(act(session, submit("next", "3"))) << "the account keeps trading";
+}
 TEST_F(Live, QuoteDeadlineAdvancesWithoutPollingWhileTheSdkCallIsBlocked) {
   LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
   ASSERT_EQ(ready(session).at("phase"), "ready");

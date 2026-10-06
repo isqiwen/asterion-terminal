@@ -26,18 +26,5 @@ public:
 private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
-  friend class Listener;
-};
-class Listener {
-public:
-  explicit Listener(std::string endpoint, int pending_connections = 1);
-  ~Listener();
-  Listener(const Listener&) = delete;
-  Listener& operator=(const Listener&) = delete;
-  Channel accept(std::chrono::milliseconds timeout);
-
-private:
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
 };
 } // namespace asterion::ipc

@@ -482,8 +482,9 @@ AccountCommand LiveAccountState::submit(const AccountRequest& request,
     throw std::invalid_argument("order quantity must be a positive multiple of the lot size");
   if (order.limit_price <= Decimal{} || !order.limit_price.multiple_of(terms.price_increment))
     throw std::invalid_argument("limit price must be a positive multiple of the price tick");
-  const auto quote = co_await wait_sdk(trader_->quote(id));
-  // The quote waits for the CTP query limit; risk reads the account after it.
+  // The quote waits for the CTP query limit. Nothing is recorded yet and every
+  // basis is read again afterwards, so a cancel may run during this wait.
+  const auto quote = co_await wait_sdk(trader_->quote(id), true);
   const auto state = trader_->snapshot();
   if (!authorized(state))
     throw Error(ErrorCode::unavailable, "CTP trading session changed; the order was not sent");
@@ -640,9 +641,9 @@ std::chrono::steady_clock::time_point LiveAccountState::next_broker_deadline() c
   return trader_->next_deadline();
 }
 void LiveAccountState::poll_sdk() {
-  if (sdk_ready_ && sdk_ready_()) {
-    sdk_ready_ = {};
-    const auto command = std::exchange(sdk_continuation_, {});
+  if (waiting_for_sdk() && sdk_waits_.back().ready()) {
+    const auto command = sdk_waits_.back().command;
+    sdk_waits_.pop_back();
     command.resume();
   }
 }

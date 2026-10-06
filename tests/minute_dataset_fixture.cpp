@@ -1,4 +1,5 @@
 #include <chrono>
+#include "history_requests.hpp"
 #include <cstdio>
 // Seed only an isolated, stopped Data/Task pair through their persistence APIs.
 #include "history_minutes.hpp"
@@ -113,13 +114,14 @@ int main(int argc, char** argv) {
     store.commit(store.confirm_publication(
         warehouse.publish(warehouse.verify_publication(store.pending_publications().front()))));
 
-    const auto daily = history_files::daily_request({{"version", 2},
-                                                     {"contract_id", "SHFE/cu/2023-10"},
-                                                     {"source", "tushare.fut_daily"},
-                                                     {"source_instrument", "CU2310.SHF"},
-                                                     {"begin_day", "2023-01-01"},
-                                                     {"end_day", "2023-04-30"},
-                                                     {"requests_per_minute", 500}});
+    const auto daily =
+        asterion::testing_support::daily_request({{"version", 2},
+                                                  {"contract_id", "SHFE/cu/2023-10"},
+                                                  {"source", "tushare.fut_daily"},
+                                                  {"source_instrument", "CU2310.SHF"},
+                                                  {"begin_day", "2023-01-01"},
+                                                  {"end_day", "2023-04-30"},
+                                                  {"requests_per_minute", 500}});
     const std::string daily_id = "native-daily-fixture";
     tasks::submit(store, test::authorize_download(warehouse, "task", daily_id, daily));
     // Leave the task QUEUED. Only the real Agent-dispatched worker may claim

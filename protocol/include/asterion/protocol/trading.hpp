@@ -18,7 +18,6 @@ ContractTerms contract_terms(const v1::PaperContract& contract);
 // Identity of a portfolio's data; a single dataset's own revision.
 std::string dataset_revision(const v1::PaperInput& input);
 enum class DatasetView { full, metadata };
-v1::PaperInput encode_input(const Json& manifest);
 Json decode_input(const v1::PaperInput& input, DatasetView view = DatasetView::full);
 v1::Command encode_command(const Json& command);
 Json decode_command(const v1::Command& command);

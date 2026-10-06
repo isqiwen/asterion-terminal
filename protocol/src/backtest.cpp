@@ -62,41 +62,6 @@ void validate_series(const backtest::v1::BacktestInput& input) {
   }
 }
 } // namespace
-backtest::v1::BacktestInput encode_backtest(const Json& input) {
-  // "series" is present only for inputs that trade a dominant series.
-  if (input.is_object() && input.contains("series"))
-    require_fields(input, {"version", "dataset_revision", "paper", "sma", "series"});
-  else
-    require_fields(input, {"version", "dataset_revision", "paper", "sma"});
-  if (!input.at("version").is_number_integer() || input.at("version") != 8)
-    throw std::invalid_argument("unsupported backtest input version");
-  backtest::v1::BacktestInput result;
-  result.set_version(8);
-  result.set_dataset_revision(input.at("dataset_revision").get<std::string>());
-  *result.mutable_paper() = encode_input(input.at("paper"));
-  *result.mutable_sma() = sma(input.at("sma"));
-  if (input.contains("series")) {
-    if (!input.at("series").is_array() || input.at("series").empty())
-      throw std::invalid_argument("invalid dominant series schedule");
-    for (const auto& rolls : input.at("series")) {
-      if (!rolls.is_array())
-        throw std::invalid_argument("invalid dominant series schedule");
-      auto* series = result.add_series();
-      for (const auto& roll : rolls) {
-        require_fields(roll, {"trading_day", "contract", "factor"});
-        if (!roll.at("contract").is_number_unsigned())
-          throw std::invalid_argument("invalid dominant series schedule");
-        auto* item = series->add_rolls();
-        item->set_trading_day(roll.at("trading_day").get<std::string>());
-        item->set_contract(roll.at("contract").get<unsigned>());
-        item->mutable_factor()->set_units(
-            Decimal::parse(roll.at("factor").get<std::string>()).raw());
-      }
-    }
-  }
-  static_cast<void>(decode_backtest(result, DatasetView::metadata));
-  return result;
-}
 backtest::v1::BacktestRequest encode_backtest_request(const Json& input) {
   require_fields(input, {"contracts", "deposit", "risk", "sma", "series"});
   if (!input.at("series").is_array() || !input.at("contracts").is_array() ||

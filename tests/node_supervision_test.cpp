@@ -1,4 +1,5 @@
 #include "node_client.hpp"
+#include "local_listener.hpp"
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -60,8 +61,8 @@ protected:
         return service;
     throw std::runtime_error("fixture service not found");
   }
-  std::unique_ptr<ipc::Listener> intercept(bool dispatch, bool task_health = false,
-                                           const std::string& name = "observed") {
+  std::unique_ptr<testing_support::LocalListener> intercept(bool dispatch, bool task_health = false,
+                                                            const std::string& name = "observed") {
     const auto kind = dispatch || task_health ? node::v1::TASK_SERVICE : node::v1::MARKET_DATA;
     client
         ->deploy({.service = name,
@@ -93,7 +94,7 @@ protected:
     // stays in this test even when Agent restarts the actual managed process.
     fs::remove(path);
     // Two workers may connect together before this test accepts either claim.
-    return std::make_unique<ipc::Listener>(path.string(), dispatch ? 2 : 1);
+    return std::make_unique<testing_support::LocalListener>(path.string(), dispatch ? 2 : 1);
   }
   Json capacity() { return health().at("worker_capacity"); }
   void expect_status_while_held() {
@@ -115,7 +116,7 @@ protected:
     ASSERT_NE(current.at("pid").get<std::uint64_t>(), old);
     ASSERT_EQ(current.at("health"), "starting");
   }
-  void complete_stale_probe(ipc::Channel& held, const std::string& reply,
+  void complete_stale_probe(testing_support::LocalPeer& held, const std::string& reply,
                             std::chrono::steady_clock::time_point received) {
     try {
       held.send(reply, 1s);
@@ -126,7 +127,6 @@ protected:
       // relax production deadlines to accommodate sanitizer startup cost.
       EXPECT_GE(std::chrono::steady_clock::now() - received, 1s);
       EXPECT_EQ(error.code(), ErrorCode::unavailable);
-      EXPECT_STREQ(error.what(), "IPC peer disconnected");
       RecordProperty("stale_reply_sent", "false: probe deadline expired during restart");
     }
   }
@@ -209,7 +209,7 @@ TEST_F(NodeSupervision, WorkerAllowanceRotatesAcrossServicesAndWaitsForChildrenT
   }
   dispatch.send(response.SerializeAsString(), 1s);
   // Real worker processes are held before claim; no fabricated market input runs.
-  std::vector<ipc::Channel> workers;
+  std::vector<testing_support::LocalPeer> workers;
   for (int i = 0; i < 2; ++i) {
     auto worker = first->accept(5s);
     task::v1::TaskRequest claim;

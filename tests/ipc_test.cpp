@@ -1,4 +1,5 @@
 #include <asterion/foundation/error.hpp>
+#include "local_listener.hpp"
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <filesystem>
@@ -35,7 +36,7 @@ struct LocalIpc : testing::Test {
 };
 } // namespace
 TEST_F(LocalIpc, BusyConnectionWaitsForCapacityWithoutResendingPayload) {
-  ipc::Listener listener(endpoint);
+  testing_support::LocalListener listener(endpoint);
   auto pending = fill();
   ASSERT_FALSE(pending.empty());
   std::promise<void> started;
@@ -55,7 +56,7 @@ TEST_F(LocalIpc, BusyConnectionWaitsForCapacityWithoutResendingPayload) {
   EXPECT_THROW(listener.accept(30ms), Error);
 }
 TEST_F(LocalIpc, BusyConnectionRespectsSingleDeadline) {
-  ipc::Listener listener(endpoint);
+  testing_support::LocalListener listener(endpoint);
   auto pending = fill();
   ASSERT_FALSE(pending.empty());
   const auto start = std::chrono::steady_clock::now();
@@ -68,7 +69,7 @@ TEST_F(LocalIpc, BusyConnectionRespectsSingleDeadline) {
   EXPECT_THROW(listener.accept(30ms), Error);
 }
 TEST_F(LocalIpc, ConcurrentConnectionBurstDeliversEachFrameOnce) {
-  ipc::Listener listener(endpoint);
+  testing_support::LocalListener listener(endpoint);
   constexpr unsigned count = 12;
   std::latch ready(count), start(1);
   std::vector<std::future<void>> clients;

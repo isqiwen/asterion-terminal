@@ -31,18 +31,35 @@ bool execution_health_stalled(const runtime::v1::ExecutionHealth& e) {
   return stalled(e.io(), true) || stalled(e.state(), true) || stalled(e.persistence(), false) ||
          stalled(e.initialization(), false) || stalled(e.command(), false);
 }
-std::string trading_health_phase(const v1::Health& health) {
+std::string_view service_health_name(ServiceHealth health) noexcept {
+  switch (health) {
+  case ServiceHealth::starting:
+    return "starting";
+  case ServiceHealth::awaiting_input:
+    return "awaiting_input";
+  case ServiceHealth::ready:
+    return "ready";
+  case ServiceHealth::degraded:
+    return "degraded";
+  case ServiceHealth::offline:
+    return "offline";
+  case ServiceHealth::unresponsive:
+    return "unresponsive";
+  }
+  return "degraded";
+}
+ServiceHealth trading_health_phase(const v1::Health& health) {
   if (!health.has_execution())
     throw std::invalid_argument("invalid service health");
   const auto& e = health.execution();
   if (health.recovery_required() || execution_health_stalled(e))
-    return "degraded";
+    return ServiceHealth::degraded;
   if (e.initialization().pending())
-    return "starting";
+    return ServiceHealth::starting;
   if (!health.initialized())
-    return "awaiting_input";
+    return ServiceHealth::awaiting_input;
   if (!e.io().observed() || !e.state().observed() || !e.persistence().observed())
-    return "starting";
-  return e.business_ready() ? "ready" : "awaiting_input";
+    return ServiceHealth::starting;
+  return e.business_ready() ? ServiceHealth::ready : ServiceHealth::awaiting_input;
 }
 } // namespace asterion::protocol

@@ -35,10 +35,12 @@ PolledTask<HealthObservation> probe_service_health(node::v1::ServiceKind kind,
         reply.health().instance_id().empty())
       throw std::runtime_error("market health identity mismatch");
     const auto phase = reply.health().phase();
-    co_return HealthObservation{!reply.health().initialized()                    ? "starting"
-                                : phase == "connected"                           ? "ready"
-                                : phase == "error" || phase == "sdk_unavailable" ? "degraded"
-                                                                                 : "awaiting_input",
+    using protocol::ServiceHealth;
+    co_return HealthObservation{!reply.health().initialized() ? ServiceHealth::starting
+                                : phase == "connected"        ? ServiceHealth::ready
+                                : phase == "error" || phase == "sdk_unavailable"
+                                    ? ServiceHealth::degraded
+                                    : ServiceHealth::awaiting_input,
                                 {}};
   }
   if (kind == node::v1::DATA_SERVICE) {
@@ -60,9 +62,10 @@ PolledTask<HealthObservation> probe_service_health(node::v1::ServiceKind kind,
         reply.correlation_id() != correlation || !reply.has_health() ||
         reply.health().instance_id() != name || reply.health().task_instance() != peer)
       throw std::runtime_error("data health identity mismatch");
-    co_return HealthObservation{reply.health().recovery_required() ? "degraded"
-                                : reply.health().initialized()     ? "ready"
-                                                                   : "starting",
+    using protocol::ServiceHealth;
+    co_return HealthObservation{reply.health().recovery_required() ? ServiceHealth::degraded
+                                : reply.health().initialized()     ? ServiceHealth::ready
+                                                                   : ServiceHealth::starting,
                                 {}};
   }
   if (kind == node::v1::TASK_SERVICE) {
@@ -84,9 +87,10 @@ PolledTask<HealthObservation> probe_service_health(node::v1::ServiceKind kind,
         reply.correlation_id() != correlation || !reply.has_health() ||
         reply.health().instance_id() != name || reply.health().data_instance() != peer)
       throw std::runtime_error("task health identity mismatch");
-    co_return HealthObservation{reply.health().recovery_required() ? "degraded"
-                                : reply.health().initialized()     ? "ready"
-                                                                   : "starting",
+    using protocol::ServiceHealth;
+    co_return HealthObservation{reply.health().recovery_required() ? ServiceHealth::degraded
+                                : reply.health().initialized()     ? ServiceHealth::ready
+                                                                   : ServiceHealth::starting,
                                 {}};
   }
   protocol::v1::Request ping;

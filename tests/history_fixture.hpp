@@ -1,6 +1,7 @@
 #pragma once
 // Test-only providers and persistence fixtures. Never linked into product targets.
 #include "bar_fixture.hpp"
+#include "history_requests.hpp"
 #include "history_minutes.hpp"
 #include "history_daily.hpp"
 #include "data_fixture.hpp"
@@ -96,21 +97,23 @@ inline Json seed_history(
   const auto begin = parse_shanghai_time(minute_days.front() + " 09:00:00");
   const auto end =
       parse_shanghai_time(minute_days.back() + " 09:00:00") + (per_day - 1) * 60000000000LL;
-  const auto minute = history_files::minute_request({{"version", 2},
-                                                     {"contract_id", contract_id},
-                                                     {"source", "tushare.ft_mins"},
-                                                     {"source_instrument", source_instrument},
-                                                     {"interval_minutes", interval},
-                                                     {"begin_ns", std::to_string(begin)},
-                                                     {"end_ns", std::to_string(end)},
-                                                     {"requests_per_minute", 500}});
-  const auto day = history_files::daily_request({{"version", 2},
+  const auto minute =
+      asterion::testing_support::minute_request({{"version", 2},
                                                  {"contract_id", contract_id},
-                                                 {"source", "tushare.fut_daily"},
+                                                 {"source", "tushare.ft_mins"},
                                                  {"source_instrument", source_instrument},
-                                                 {"begin_day", daily_days.front()},
-                                                 {"end_day", daily_days.back()},
+                                                 {"interval_minutes", interval},
+                                                 {"begin_ns", std::to_string(begin)},
+                                                 {"end_ns", std::to_string(end)},
                                                  {"requests_per_minute", 500}});
+  const auto day =
+      asterion::testing_support::daily_request({{"version", 2},
+                                                {"contract_id", contract_id},
+                                                {"source", "tushare.fut_daily"},
+                                                {"source_instrument", source_instrument},
+                                                {"begin_day", daily_days.front()},
+                                                {"end_day", daily_days.back()},
+                                                {"requests_per_minute", 500}});
   const auto minute_result = publish_download(store, id + "-bars", minute, minutes).minute_result();
   const auto daily_result = publish_download(store, id + "-settlement", day, daily).daily_result();
   return {{"source_dataset_ids", Json::array({minute_result.manifest_sha256()})},

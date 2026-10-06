@@ -6,7 +6,6 @@
 #include <functional>
 namespace asterion::history_files {
 HistoricalBarRange minute_range(const data::v1::MinuteDownload&);
-data::v1::MinuteDownload minute_request(const Json&);
 data::v1::MinuteDownloadResult minute_result(const std::filesystem::path&);
 void verify_minute_result(const data::v1::MinuteDownload&, const data::v1::MinuteDownloadResult&);
 struct MinutePageWork {

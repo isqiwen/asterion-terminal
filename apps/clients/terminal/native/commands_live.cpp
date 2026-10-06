@@ -153,9 +153,14 @@ void Application::Impl::register_live_commands() {
   command("live.act", [this](const json& p) -> PolledTask<Response> {
     auto command = p;
     command.erase("account");
-    co_await with_live_account(p, [&](TradingClient& client) -> PolledTask<void> {
+    const auto execute = [&](TradingClient& client) -> PolledTask<void> {
       (co_await PollFuture{client.execute(command)});
-    });
+    };
+    // A cancel must not wait for, or be refused because of, an order in flight.
+    if (command.value("action", "") == "cancel")
+      co_await cancel_on_live_account(p, execute);
+    else
+      co_await with_live_account(p, execute);
     co_return snapshot();
   });
   command("live.policy.configure", [this](const json& p) -> PolledTask<Response> {
@@ -186,7 +191,7 @@ void Application::Impl::register_live_commands() {
     if (found == live.end())
       co_return snapshot();
     auto account = found->second;
-    if (account->busy)
+    if (account->busy || account->cancels)
       throw Error(
           ErrorCode::conflict,
           "another operation for this CTP account is in progress; retry after it completes");

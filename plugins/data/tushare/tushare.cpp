@@ -399,15 +399,6 @@ HistoricalBarRange contract_range(const FuturesListing& item, unsigned interval,
   validate(range);
   return range;
 }
-HistoricalDailyRange daily_contract_range(const FuturesListing& item, std::int64_t cutoff_ns) {
-  const auto begin = listing_date(item.list_date);
-  const auto last = listing_date(item.delist_date);
-  if (last < begin || cutoff_ns < begin)
-    throw std::invalid_argument("invalid Tushare contract lifetime");
-  return {item.identity, parse_trading_date(format_time(begin).substr(0, 10)),
-          parse_trading_date(format_time(std::min(last, cutoff_ns)).substr(0, 10)),
-          "tushare.fut_daily", item.ts_code};
-}
 std::vector<FuturesListing> contracts(const std::string& token, const std::string& exchange,
                                       const std::string& product, std::stop_token stop, Post post) {
   if (token.empty() || token.size() > 256 || token.find_first_of("\r\n\t ") != std::string::npos)

@@ -12,7 +12,9 @@ struct TradingClient::Impl {
   const ServiceEndpoint endpoint;
   std::unique_ptr<ipc::RpcClient> transport;
   std::stop_source lifetime;
-  bool busy = false, failed = false;
+  // One request at a time, and beside it one cancel: the account service runs
+  // a cancel of a recorded order while a submission waits for its quote.
+  bool busy = false, cancelling = false, failed = false;
   std::shared_ptr<const Json> last_snapshot;
   Json health = nullptr;
   std::int64_t last_heartbeat_ms = 0, latency_ms = 0;
@@ -21,26 +23,27 @@ struct TradingClient::Impl {
     validate_id(endpoint.session);
     transport =
         endpoint.endpoint.empty()
-            ? std::make_unique<ipc::RpcClient>(endpoint.host, endpoint.port, endpoint.tls, 1,
+            ? std::make_unique<ipc::RpcClient>(endpoint.host, endpoint.port, endpoint.tls, 2,
                                                io.payload_budget(ServiceIo::PayloadLane::control))
-            : std::make_unique<ipc::RpcClient>(endpoint.endpoint, 1,
+            : std::make_unique<ipc::RpcClient>(endpoint.endpoint, 2,
                                                io.payload_budget(ServiceIo::PayloadLane::control));
   }
   bool stopped(std::stop_token stop) const {
     return stop.stop_requested() || lifetime.stop_requested();
   }
   PolledTask<void> call(wire::Request request, std::stop_token stop) {
-    co_await PollUntil{[&] { return !busy || stopped(stop); }};
+    auto& lane = request.command().has_cancel() ? cancelling : busy;
+    co_await PollUntil{[&] { return !lane || stopped(stop); }};
     if (stopped(stop))
       throw Error(ErrorCode::cancelled, "trading connection closed");
     if (failed)
       throw Error(ErrorCode::unavailable, "trading connection lost; reconnect remote sessions in "
                                           "Settings, recover local sessions from their directory");
-    busy = true;
+    lane = true;
     struct Release {
-      bool& busy;
-      ~Release() { busy = false; }
-    } release{busy};
+      bool& lane;
+      ~Release() { lane = false; }
+    } release{lane};
     request.set_version(1);
     request.set_session_id(endpoint.session);
     request.set_correlation_id(next_correlation_id());
@@ -97,7 +100,7 @@ struct TradingClient::Impl {
                   {"version", h.version()},
                   {"uptime_ms", h.uptime_ms()},
                   {"execution", protocol::execution_health_json(h.execution())},
-                  {"phase", protocol::trading_health_phase(h)}};
+                  {"phase", protocol::service_health_name(protocol::trading_health_phase(h))}};
       } else if (response.has_uninitialized()) {
         if (last_snapshot)
           throw Error(ErrorCode::unavailable, "remote ledger is no longer initialized");

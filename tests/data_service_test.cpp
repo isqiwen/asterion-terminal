@@ -1,4 +1,5 @@
 #include "data_store.hpp"
+#include "history_requests.hpp"
 #include "download_budget.hpp"
 #include "data_fixture.hpp"
 #include "task_store.hpp"
@@ -59,13 +60,14 @@ data::v1::DownloadAllocation allocation() {
   identity->set_task_instance("tasks-one");
   identity->set_task_id("download-one");
   identity->set_attempt(1);
-  *request.mutable_daily() = history_files::daily_request({{"version", 2},
-                                                           {"contract_id", "SHFE/rb/2026-10"},
-                                                           {"source", "tushare.fut_daily"},
-                                                           {"source_instrument", "rb2610"},
-                                                           {"begin_day", "2026-09-25"},
-                                                           {"end_day", "2026-09-25"},
-                                                           {"requests_per_minute", 60}});
+  *request.mutable_daily() =
+      asterion::testing_support::daily_request({{"version", 2},
+                                                {"contract_id", "SHFE/rb/2026-10"},
+                                                {"source", "tushare.fut_daily"},
+                                                {"source_instrument", "rb2610"},
+                                                {"begin_day", "2026-09-25"},
+                                                {"end_day", "2026-09-25"},
+                                                {"requests_per_minute", 60}});
   return request;
 }
 data::v1::DownloadPreparation download(const data::v1::DownloadAllocation& request,

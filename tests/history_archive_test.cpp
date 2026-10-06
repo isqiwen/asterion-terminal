@@ -1,4 +1,5 @@
 #include "history_archive.hpp"
+#include "history_requests.hpp"
 #include "history_daily.hpp"
 #include "history_minutes.hpp"
 #include "bar_dataset_source.hpp"
@@ -43,13 +44,14 @@ public:
 };
 data::v1::HistoryRecord publish(history_files::Archive& archive, AlternateDaily& provider,
                                 const HistoryIdentity& identity, const std::string& acquisition) {
-  const auto input = history_files::daily_request({{"version", 2},
-                                                   {"contract_id", identity.key()},
-                                                   {"source", provider.source},
-                                                   {"source_instrument", identity.key()},
-                                                   {"begin_day", "2024-01-02"},
-                                                   {"end_day", "2024-01-02"},
-                                                   {"requests_per_minute", 500}});
+  const auto input =
+      asterion::testing_support::daily_request({{"version", 2},
+                                                {"contract_id", identity.key()},
+                                                {"source", provider.source},
+                                                {"source_instrument", identity.key()},
+                                                {"begin_day", "2024-01-02"},
+                                                {"end_day", "2024-01-02"},
+                                                {"requests_per_minute", 500}});
   const auto path = archive.directory(identity, provider.source, 0, acquisition);
   history_files::download_daily(provider, history_files::daily_range(input), path);
   data::v1::HistoryRecord record;

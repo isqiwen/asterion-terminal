@@ -1,6 +1,7 @@
 #pragma once
 #include <asterion/v1/node.pb.h>
 #include <asterion/v1/task.pb.h>
+#include <asterion/protocol/health.hpp>
 #include <asterion/kernel/polled_task.hpp>
 #include <optional>
 #include <string>
@@ -10,7 +11,7 @@ namespace asterion::agent {
 // The owner polls these bounded RPCs and keeps their inputs alive while suspended.
 // Revalidate process incarnation and configuration before applying observations.
 struct HealthObservation {
-  std::string status;
+  protocol::ServiceHealth status = protocol::ServiceHealth::starting;
   std::optional<runtime::v1::ExecutionHealth> execution;
 };
 PolledTask<HealthObservation> probe_service_health(node::v1::ServiceKind kind,

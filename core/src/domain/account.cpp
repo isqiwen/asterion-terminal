@@ -213,9 +213,6 @@ std::size_t FuturesAccount::contract_index(const InstrumentId& instrument) const
       return i;
   throw std::invalid_argument("contract is not part of this account");
 }
-Decimal FuturesAccount::last_mark(const InstrumentId& instrument) const {
-  return marks_[contract_index(instrument)];
-}
 ClosePolicy FuturesAccount::close_policy(const InstrumentId& instrument) const {
   return asterion::close_policy(contracts_[contract_index(instrument)].instrument.id.venue);
 }

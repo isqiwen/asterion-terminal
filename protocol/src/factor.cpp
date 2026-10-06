@@ -46,22 +46,6 @@ template <class Target> void parameters(const Json& input, Target& result) {
   }
 }
 } // namespace
-std::string factor_dataset_revision(const factor::v1::FactorInput& input) {
-  validate_bar_dataset(input.dataset());
-  return input.dataset().revision();
-}
-factor::v1::FactorInput encode_factor(const Json& input) {
-  require_fields(input,
-                 {"version", "dataset_revision", "dataset", "lookbacks", "horizon", "evaluation"});
-  if (!input.at("version").is_number_integer() || input.at("version") != 5)
-    throw std::invalid_argument("unsupported factor input version");
-  factor::v1::FactorInput result;
-  result.set_version(5);
-  result.set_dataset_revision(input.at("dataset_revision").get<std::string>());
-  parameters(input, result);
-  *result.mutable_dataset() = encode_bar_dataset(input.at("dataset"));
-  return result;
-}
 factor::v1::FactorRequest encode_factor_request(const Json& input) {
   require_fields(input, {"data", "lookbacks", "horizon", "evaluation"});
   factor::v1::FactorRequest result;

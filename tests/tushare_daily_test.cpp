@@ -123,15 +123,3 @@ TEST(TushareDaily, BoundsQueriesResponsesAndLifecycleWithoutLeakingProviderText)
   interrupted.start();
   EXPECT_THROW(interrupted.read(daily_range(), after.get_token()), std::runtime_error);
 }
-
-TEST(TerminalDailyQueries, CatalogLifetimeUsesShanghaiDateAndStopsAtDelisting) {
-  const tushare::FuturesListing item{
-      "CU2403.SHF", "copper", "SHFE", "CU", "20230101", "20240315", {"SHFE", "cu", "2024-03"}};
-  auto range = tushare::daily_contract_range(item, tushare::parse_time("2023-06-01 00:00:00"));
-  EXPECT_EQ(format_trading_date(range.begin), "2023-01-01");
-  EXPECT_EQ(format_trading_date(range.end), "2023-06-01");
-  range = tushare::daily_contract_range(item, tushare::parse_time("2024-04-01 08:00:00"));
-  EXPECT_EQ(format_trading_date(range.end), "2024-03-15");
-  EXPECT_THROW(tushare::daily_contract_range(item, tushare::parse_time("2022-12-31 23:59:59")),
-               std::invalid_argument);
-}

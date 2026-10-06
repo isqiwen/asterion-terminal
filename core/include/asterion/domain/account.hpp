@@ -105,8 +105,6 @@ public:
   Decimal balance() const noexcept { return balance_; }
   Decimal fees() const noexcept { return fees_; }
   Decimal realized() const noexcept { return realized_; }
-  // Zero until the contract's first mark; its orders are rejected before that.
-  Decimal last_mark(const InstrumentId& instrument) const;
   Decimal available() const;
   Decimal unrealized() const;
   Decimal margin() const;

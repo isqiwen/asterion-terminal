@@ -173,8 +173,11 @@ add_library(asterion_node_supervision STATIC apps/services/node-agent/supervisio
 target_include_directories(asterion_node_supervision PUBLIC apps/services/node-agent)
 target_link_libraries(asterion_node_supervision PUBLIC Asterion::Kernel asterion_protocol)
 
+add_library(asterion_node_operations STATIC apps/services/node-agent/artifact_uploads.cpp apps/services/node-agent/firewall_control.cpp)
+target_include_directories(asterion_node_operations PUBLIC apps/services/node-agent)
+target_link_libraries(asterion_node_operations PUBLIC Asterion::Kernel asterion_protocol PRIVATE asterion_node_firewall)
 add_executable(asterion-node-agent apps/services/node-agent/main.cpp)
-target_link_libraries(asterion-node-agent PRIVATE asterion_node_supervision asterion_node_storage asterion_node_firewall Asterion::Kernel asterion_protocol OpenSSL::Crypto CLI11::CLI11)
+target_link_libraries(asterion-node-agent PRIVATE asterion_node_operations asterion_node_supervision asterion_node_storage asterion_node_firewall Asterion::Kernel asterion_protocol OpenSSL::Crypto CLI11::CLI11)
 
 add_library(asterion_terminal_api STATIC bindings/c/src/terminal.cpp apps/clients/terminal/native/service_io.cpp apps/clients/terminal/native/market_client.cpp apps/clients/terminal/native/market_snapshot.cpp apps/clients/terminal/native/task_client.cpp apps/clients/terminal/native/data_client.cpp apps/clients/terminal/native/terminal_application.cpp apps/clients/terminal/native/commands_live.cpp apps/clients/terminal/native/commands_node.cpp apps/clients/terminal/native/commands_data.cpp apps/clients/terminal/native/commands_task.cpp apps/clients/terminal/native/commands_backtest.cpp apps/clients/terminal/native/commands_factor.cpp apps/clients/terminal/native/commands_node_data_tasks.cpp apps/clients/terminal/native/commands_history_usage.cpp apps/clients/terminal/native/commands_connections.cpp apps/clients/terminal/native/data_credentials.cpp apps/clients/terminal/native/keychain_store.cpp apps/clients/terminal/native/ctp_connections.cpp apps/clients/terminal/native/commands_market.cpp apps/clients/terminal/native/trading_client.cpp apps/clients/terminal/native/node_client.cpp apps/clients/terminal/native/plugin_catalog.cpp apps/clients/terminal/native/node_snapshot.cpp apps/clients/terminal/native/service_programs.cpp apps/clients/terminal/native/local_node.cpp apps/clients/terminal/native/node_service.cpp apps/clients/terminal/native/node_program.cpp apps/clients/terminal/native/node_identity.cpp apps/clients/terminal/native/node_enrollment.cpp apps/clients/terminal/native/remote_bundle.cpp)
 target_compile_definitions(asterion_terminal_api PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
@@ -223,7 +226,7 @@ foreach(application IN LISTS ASTERION_SERVICE_APPS)
 endforeach()
 add_dependencies(asterion_terminal_api ${ASTERION_SERVICE_TARGETS})
 
-foreach(target asterion_order_limits_config asterion_risk_providers asterion_order_limits_plugin asterion_tushare asterion_order_limits asterion_ctp_trader asterion_history_files asterion_history_providers asterion_task_client asterion_factor_engine asterion_factor_analysis asterion_task_store asterion_task_events asterion_sma asterion_backtest_engine ${ASTERION_SERVICE_TARGETS} asterion_ctp asterion-market-data asterion_node_firewall asterion_node_storage asterion_node_supervision asterion-node-agent asterion-trading asterion_trading_session asterion_terminal_dev_bridge asterion_paper asterion_sqlite asterion_foundation asterion_kernel asterion_domain asterion_terminal_api)
+foreach(target asterion_order_limits_config asterion_risk_providers asterion_order_limits_plugin asterion_tushare asterion_order_limits asterion_ctp_trader asterion_history_files asterion_history_providers asterion_task_client asterion_factor_engine asterion_factor_analysis asterion_task_store asterion_task_events asterion_sma asterion_backtest_engine ${ASTERION_SERVICE_TARGETS} asterion_ctp asterion-market-data asterion_node_firewall asterion_node_storage asterion_node_supervision asterion_node_operations asterion-node-agent asterion-trading asterion_trading_session asterion_terminal_dev_bridge asterion_paper asterion_sqlite asterion_foundation asterion_kernel asterion_domain asterion_terminal_api)
   # Designated initializers omit members on purpose; Clang accepts that and
   # GCC's -Wextra would reject it.
   target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror
@@ -342,7 +345,7 @@ if(BUILD_TESTING)
   add_executable(asterion_test_agent_revision apps/services/node-agent/main.cpp tests/strategy_revision_marker.cpp)
   target_compile_features(asterion_test_agent_revision PRIVATE cxx_std_20)
   target_compile_definitions(asterion_test_agent_revision PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
-  target_link_libraries(asterion_test_agent_revision PRIVATE asterion_node_supervision asterion_node_storage asterion_node_firewall Asterion::Kernel asterion_protocol OpenSSL::Crypto CLI11::CLI11)
+  target_link_libraries(asterion_test_agent_revision PRIVATE asterion_node_operations asterion_node_supervision asterion_node_storage asterion_node_firewall Asterion::Kernel asterion_protocol OpenSSL::Crypto CLI11::CLI11)
   add_test(NAME agent_program_update COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/node_program_update.py $<TARGET_FILE:asterion_test_node_service_control> $<TARGET_FILE:asterion-node-agent> $<TARGET_FILE:asterion_test_agent_revision>)
   set_tests_properties(agent_program_update PROPERTIES TIMEOUT 60)
   asterion_unit_tests(asterion_factor_tests tests/factor_test.cpp asterion_factor_engine)

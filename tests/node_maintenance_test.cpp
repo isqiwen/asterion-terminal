@@ -1,4 +1,5 @@
 #include "node_client.hpp"
+#include "local_listener.hpp"
 #include "service_configuration.hpp"
 #include <asterion/kernel/process/file_lock.hpp>
 #include "timing.hpp"
@@ -240,7 +241,7 @@ TEST(NodeMaintenance, AcknowledgedMutationIsNotReportedFailedWhenStatusReadFails
       }
     } cleanup{root};
     const auto endpoint = (root / "test.sock").string();
-    ipc::Listener listener(endpoint);
+    testing_support::LocalListener listener(endpoint);
     auto server = std::async(std::launch::async, [&] {
       for (int i = 0; i < 3; ++i) {
         auto channel = listener.accept(3s);

@@ -39,13 +39,11 @@ public:
     Decimal quantity, limit_price;
   };
   void advance(const std::optional<LongTarget>& target = {});
-  // One price per contract, ordered as account().contracts().
-  void settle(const std::vector<Decimal>& prices);
-  // Scheduled replay only: settles after the last event of a trading day,
-  // before the next day's first event. No outstanding orders; once per day.
-  void settle_day_end(const std::vector<Decimal>& prices);
-  // Both of the above for a portfolio whose contracts do not all trade every
-  // day: a contract without a price that day must hold no position.
+  // One price per contract, ordered as account().contracts(); a contract that
+  // did not trade that day has none and must hold no position. A day-end
+  // settlement follows the last event of a trading day, before the next day's
+  // first event, once per day; the final one follows the last event of the
+  // replay. No outstanding orders.
   void settle_scheduled(const std::vector<std::optional<Decimal>>& prices, bool final);
   void cancel_open_orders();
   // Working orders of one contract only.

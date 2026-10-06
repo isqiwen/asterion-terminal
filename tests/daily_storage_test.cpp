@@ -1,4 +1,5 @@
 #include "sqlite_database.hpp"
+#include "history_requests.hpp"
 #include "data_store.hpp"
 #include "data_fixture.hpp"
 #include <asterion/protocol/data_client.hpp>
@@ -154,13 +155,13 @@ TEST(DailyStorage, SharedReadersExcludeWritersAndRejectForeignDirectories) {
 TEST(DailyTasks, RealServiceDispatchAndManagedWorkerResumeCompletedSourceData) {
   using namespace std::chrono_literals;
   Folder folder, warehouse;
-  const auto input = history_files::daily_request({{"version", 2},
-                                                   {"contract_id", "SHFE/cu/2024-03"},
-                                                   {"source", "tushare.fut_daily"},
-                                                   {"source_instrument", "CU2403.SHF"},
-                                                   {"begin_day", "2024-01-02"},
-                                                   {"end_day", "2024-01-03"},
-                                                   {"requests_per_minute", 500}});
+  const auto input = asterion::testing_support::daily_request({{"version", 2},
+                                                               {"contract_id", "SHFE/cu/2024-03"},
+                                                               {"source", "tushare.fut_daily"},
+                                                               {"source_instrument", "CU2403.SHF"},
+                                                               {"begin_day", "2024-01-02"},
+                                                               {"end_day", "2024-01-03"},
+                                                               {"requests_per_minute", 500}});
   {
     tasks::Store store(folder.path, tasks::Identity{"daily-test", "fixture-data"});
     data::Store data(warehouse.path, "fixture-data", "daily-test");
@@ -297,13 +298,13 @@ TEST(DailyTasks, RealServiceDispatchAndManagedWorkerResumeCompletedSourceData) {
 TEST(DailyPages, DatePagingKeepsExactPricesMissingSettlementAndDatasetOriginMacd) {
   using namespace std::chrono;
   Folder folder;
-  const auto input = history_files::daily_request({{"version", 2},
-                                                   {"contract_id", "SHFE/cu/2024-03"},
-                                                   {"source", "tushare.fut_daily"},
-                                                   {"source_instrument", "CU2403.SHF"},
-                                                   {"begin_day", "2023-01-01"},
-                                                   {"end_day", "2023-06-01"},
-                                                   {"requests_per_minute", 500}});
+  const auto input = asterion::testing_support::daily_request({{"version", 2},
+                                                               {"contract_id", "SHFE/cu/2024-03"},
+                                                               {"source", "tushare.fut_daily"},
+                                                               {"source_instrument", "CU2403.SHF"},
+                                                               {"begin_day", "2023-01-01"},
+                                                               {"end_day", "2023-06-01"},
+                                                               {"requests_per_minute", 500}});
   tushare::Daily provider("fixture", [](const auto& body, auto) {
     auto data = Json::parse(response(body));
     auto& rows = data["data"]["items"];
@@ -396,13 +397,13 @@ TEST(DailyPages, DatePagingKeepsExactPricesMissingSettlementAndDatasetOriginMacd
 }
 TEST(DailyPages, EmptyDatasetRetainsRequestedDatesWithoutInventedCoverage) {
   Folder folder;
-  const auto input = history_files::daily_request({{"version", 2},
-                                                   {"contract_id", "SHFE/cu/2024-03"},
-                                                   {"source", "tushare.fut_daily"},
-                                                   {"source_instrument", "CU2403.SHF"},
-                                                   {"begin_day", "2023-01-01"},
-                                                   {"end_day", "2023-01-03"},
-                                                   {"requests_per_minute", 500}});
+  const auto input = asterion::testing_support::daily_request({{"version", 2},
+                                                               {"contract_id", "SHFE/cu/2024-03"},
+                                                               {"source", "tushare.fut_daily"},
+                                                               {"source_instrument", "CU2403.SHF"},
+                                                               {"begin_day", "2023-01-01"},
+                                                               {"end_day", "2023-01-03"},
+                                                               {"requests_per_minute", 500}});
   tushare::Daily provider("fixture", [](const auto& body, auto) {
     auto data = Json::parse(response(body));
     data["data"]["items"] = Json::array();
@@ -427,13 +428,13 @@ TEST(DailyPages, EmptyDatasetRetainsRequestedDatesWithoutInventedCoverage) {
 TEST(DailyPages, WeeklyAndMonthlyAggregateBeforeFilteringPagingAndMacd) {
   using namespace std::chrono;
   Folder folder;
-  const auto input = history_files::daily_request({{"version", 2},
-                                                   {"contract_id", "SHFE/cu/2024-03"},
-                                                   {"source", "tushare.fut_daily"},
-                                                   {"source_instrument", "CU2403.SHF"},
-                                                   {"begin_day", "2023-01-01"},
-                                                   {"end_day", "2023-12-31"},
-                                                   {"requests_per_minute", 500}});
+  const auto input = asterion::testing_support::daily_request({{"version", 2},
+                                                               {"contract_id", "SHFE/cu/2024-03"},
+                                                               {"source", "tushare.fut_daily"},
+                                                               {"source_instrument", "CU2403.SHF"},
+                                                               {"begin_day", "2023-01-01"},
+                                                               {"end_day", "2023-12-31"},
+                                                               {"requests_per_minute", 500}});
   tushare::Daily provider("fixture", [](const auto& body, auto) {
     auto data = Json::parse(response(body));
     auto& rows = data["data"]["items"];
@@ -516,13 +517,14 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
       std::make_unique<data::Store>(warehouse.path, "fixture-data", "daily-factor-test");
   auto store = std::make_unique<tasks::Store>(folder.path,
                                               tasks::Identity{"daily-factor-test", "fixture-data"});
-  const auto request = history_files::daily_request({{"version", 2},
-                                                     {"contract_id", "SHFE/cu/2024-03"},
-                                                     {"source", "tushare.fut_daily"},
-                                                     {"source_instrument", "CU2403.SHF"},
-                                                     {"begin_day", "2023-01-01"},
-                                                     {"end_day", "2023-04-01"},
-                                                     {"requests_per_minute", 500}});
+  const auto request =
+      asterion::testing_support::daily_request({{"version", 2},
+                                                {"contract_id", "SHFE/cu/2024-03"},
+                                                {"source", "tushare.fut_daily"},
+                                                {"source_instrument", "CU2403.SHF"},
+                                                {"begin_day", "2023-01-01"},
+                                                {"end_day", "2023-04-01"},
+                                                {"requests_per_minute", 500}});
   tasks::submit(*store,
                 test::authorize_download(*data_store, "daily-factor-test", "source", request));
   task::v1::TaskAttempt attempt;
@@ -774,13 +776,13 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
 TEST(DailyTasks, ProviderArtifactIsImmutableAcrossRetryAndStoreRestart) {
   Folder folder, warehouse;
   data::Store data(warehouse.path, "fixture-data", "daily-test");
-  const auto input = history_files::daily_request({{"version", 2},
-                                                   {"contract_id", "SHFE/cu/2024-03"},
-                                                   {"source", "tushare.fut_daily"},
-                                                   {"source_instrument", "CU2403.SHF"},
-                                                   {"begin_day", "2024-01-02"},
-                                                   {"end_day", "2024-01-03"},
-                                                   {"requests_per_minute", 60}});
+  const auto input = asterion::testing_support::daily_request({{"version", 2},
+                                                               {"contract_id", "SHFE/cu/2024-03"},
+                                                               {"source", "tushare.fut_daily"},
+                                                               {"source_instrument", "CU2403.SHF"},
+                                                               {"begin_day", "2024-01-02"},
+                                                               {"end_day", "2024-01-03"},
+                                                               {"requests_per_minute", 60}});
   std::string artifact;
   {
     tasks::Store store(folder.path, tasks::Identity{"daily-test", "fixture-data"});
