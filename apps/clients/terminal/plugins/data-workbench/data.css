@@ -373,9 +373,32 @@
   border-top: 1px solid var(--line);
 }
 
+/* History archive: the title, filters, notes and rows share one gutter. */
+.data-archive > * {
+  margin-inline: 24px;
+}
+.data-archive > h2 {
+  margin-block: 16px 12px;
+  color: var(--text-strong);
+  font-size: 14px;
+  font-weight: 500;
+}
+.data-archive > .source-actions {
+  padding: 0 0 12px;
+}
 .archive-row {
   grid-template-columns: minmax(0, 1fr) auto;
-  margin-inline: 24px;
+}
+.archive-detail {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.archive-detail > * {
+  margin-inline: 0;
+}
+.archive-actions button[aria-pressed="true"] {
+  border-color: var(--accent-line);
+  color: var(--accent);
 }
 .archive-actions {
   display: flex;

@@ -25,6 +25,13 @@ export function ArchivedDataPanel(context: TerminalContext) {
   const [error, setError] = useState<DisplayError>("");
   const [loading, setLoading] = useState(false);
   const [coverage, setCoverage] = useState<HistoryCoverage[] | null>(null);
+  // The opened detail is brought into view once; later redraws leave the
+  // scroll position to the user.
+  const detail = useRef<HTMLDivElement>(null);
+  const opened = usage?.id ?? update?.item.id ?? selected?.id;
+  useEffect(() => {
+    detail.current?.scrollIntoView({ block: "nearest" });
+  }, [opened, update?.calendar]);
   const query = useRef(context.query);
   query.current = context.query;
   const online = !!context.snapshot?.data?.online;
@@ -83,7 +90,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
     return cancel;
   }, [online, connection, load, cancel]);
   return (
-    <section className="futures-data" aria-label={t("历史数据仓库")}>
+    <section className="futures-data data-archive" aria-label={t("历史数据仓库")}>
       <h2>{t("历史数据仓库")}</h2>
       {!online && (
         <button
@@ -195,6 +202,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
                             if (item) {
                               setUpdate({ item, calendar: row.daily_dataset_id });
                               setUsage(null);
+                              setSelected(null);
                             }
                           }}
                         >
@@ -208,23 +216,6 @@ export function ArchivedDataPanel(context: TerminalContext) {
             </table>
           )}
         </section>
-      )}
-      {usage && (
-        <HistoryUsagePanel
-          key={`${connection}:${usage.id}`}
-          context={context}
-          item={usage}
-          onClose={() => setUsage(null)}
-        />
-      )}
-      {update && (
-        <HistoryUpdatePanel
-          key={`${connection}:${update.item.id}:${update.calendar ?? ""}`}
-          context={context}
-          item={update.item}
-          calendar={update.calendar}
-          onClose={() => setUpdate(null)}
-        />
       )}
       {error && (
         <p role="alert">
@@ -247,6 +238,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
             </div>
             <div className="archive-actions">
               <button
+                aria-pressed={usage?.id === item.id}
                 disabled={!online || context.busy}
                 onClick={() => {
                   setUsage(item);
@@ -257,19 +249,23 @@ export function ArchivedDataPanel(context: TerminalContext) {
                 {t("使用情况")}
               </button>
               <button
+                aria-pressed={selected?.id === item.id}
                 disabled={!online || context.busy}
                 onClick={() => {
                   setSelected(item);
                   setUsage(null);
+                  setUpdate(null);
                 }}
               >
                 {t("查看数据")}
               </button>
               <button
+                aria-pressed={update?.item.id === item.id}
                 disabled={!online || context.busy || context.snapshot?.task_service?.remote}
                 onClick={() => {
                   setUpdate({ item });
                   setUsage(null);
+                  setSelected(null);
                 }}
               >
                 {t("下载后续数据")}
@@ -307,19 +303,41 @@ export function ArchivedDataPanel(context: TerminalContext) {
               <summary>{t("内容版本")}</summary>
               <code>{item.revision}</code>
             </details>
+            {/* What was asked of this version opens under its own row. */}
+            {(usage?.id === item.id || update?.item.id === item.id || selected?.id === item.id) && (
+              <div className="archive-detail" ref={detail}>
+                {usage?.id === item.id && (
+                  <HistoryUsagePanel
+                    key={`${connection}:${usage.id}`}
+                    context={context}
+                    item={usage}
+                    onClose={() => setUsage(null)}
+                  />
+                )}
+                {update?.item.id === item.id && (
+                  <HistoryUpdatePanel
+                    key={`${connection}:${update.item.id}:${update.calendar ?? ""}`}
+                    context={context}
+                    item={update.item}
+                    calendar={update.calendar}
+                    onClose={() => setUpdate(null)}
+                  />
+                )}
+                {selected?.id === item.id && (
+                  <HistoryDatasetViewer
+                    {...context}
+                    id={selected.id}
+                    source={selected.source}
+                    sourceLabel={selected.source}
+                    timeAxis={selected.interval_minutes ? "instant" : "trading-day"}
+                    onClose={() => setSelected(null)}
+                  />
+                )}
+              </div>
+            )}
           </article>
         ))}
       </div>
-      {selected && (
-        <HistoryDatasetViewer
-          {...context}
-          id={selected.id}
-          source={selected.source}
-          sourceLabel={selected.source}
-          timeAxis={selected.interval_minutes ? "instant" : "trading-day"}
-          onClose={() => setSelected(null)}
-        />
-      )}
     </section>
   );
 }

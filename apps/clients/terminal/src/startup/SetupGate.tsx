@@ -220,9 +220,13 @@ export function SetupGate({ children }: { children: ReactNode }) {
                     aria-valuemax={100}
                     aria-valuenow={done ? 100 : active ? undefined : 0}
                   >
-                    <i style={done ? { width: "100%" } : undefined} />
+                    <i style={done || (active && error) ? { width: "100%" } : undefined} />
                   </div>
-                  <span className={done ? "setup-status-done" : ""}>
+                  <span
+                    className={
+                      done ? "setup-status-done" : active && error ? "setup-status-failed" : ""
+                    }
+                  >
                     {done ? t("完成") : active ? (error ? t("失败") : t("进行中")) : t("等待")}
                   </span>
                 </div>

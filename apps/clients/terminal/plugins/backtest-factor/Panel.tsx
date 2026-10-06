@@ -1,5 +1,5 @@
 import { FlowSteps } from "../../src/ui/FlowSteps";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   TaskPagination,
   useWorkspaceDraft,
@@ -60,6 +60,15 @@ export function Panel({
     "",
   );
   const activeTask = taskService?.tasks.find(task => task.id === selectedTask);
+  // A factor result opens below its records; asking for one scrolls to it.
+  const results = useRef<HTMLDivElement>(null);
+  const [shown, setShown] = useState(false);
+  const shownResult = snapshot?.task_result?.id;
+  useEffect(() => {
+    if (!shown) return;
+    results.current?.scrollIntoView({ block: "start" });
+    setShown(false);
+  }, [shown, shownResult]);
   async function showResult(id: string) {
     if (await run("task.result", { id })) {
       setSelectedTask(id);
@@ -190,16 +199,29 @@ export function Panel({
       setError(asDisplayError(reason));
     }
   }
+  // Each mode lists the tasks it starts.
+  const listed = (task: { kind: string }) =>
+    task.kind === (mode === "daily_factor" ? "daily_factor" : mode);
   const result = snapshot?.task_result?.kind === "backtest" ? snapshot.task_result : null;
   const factorResult = snapshot?.task_result?.kind === "factor" ? snapshot.task_result : null;
   const values = result?.result.equity.map(p => Number(p.equity)) ?? [];
-  // Full task results can exceed the JavaScript argument-count limit.
+  // Full task results can exceed the JavaScript argument-count limit. The
+  // axis shows the extremes as the result states them, not as recomputed
+  // numbers.
   let low = values[0] ?? 0;
   let high = low;
-  for (const value of values) {
-    low = Math.min(low, value);
-    high = Math.max(high, value);
-  }
+  let lowText = result?.result.equity[0]?.equity ?? "";
+  let highText = lowText;
+  values.forEach((value, index) => {
+    if (value < low) {
+      low = value;
+      lowText = result!.result.equity[index].equity;
+    }
+    if (value > high) {
+      high = value;
+      highText = result!.result.equity[index].equity;
+    }
+  });
   const points = values
     .map(
       (value, index) =>
@@ -501,46 +523,56 @@ export function Panel({
                         </p>
                       </>
                     )}
-                    {mode === "backtest" && (
-                      <button type="button" onClick={() => setStep(0)}>
-                        {t("上一步")}
+                    <div className="workflow-actions">
+                      {mode === "backtest" && (
+                        <button type="button" onClick={() => setStep(0)}>
+                          {t("上一步")}
+                        </button>
+                      )}
+                      <button
+                        className="primary"
+                        type="submit"
+                        disabled={
+                          !taskService?.online ||
+                          !snapshot?.data?.online ||
+                          (mode === "backtest" ? !datasets.length : !data)
+                        }
+                      >
+                        {mode === "backtest"
+                          ? t("下一步")
+                          : pendingId
+                            ? t("确认提交状态")
+                            : t("开始分析")}
                       </button>
-                    )}
-                    <button
-                      className="primary"
-                      type="submit"
-                      disabled={
-                        !taskService?.online ||
-                        !snapshot?.data?.online ||
-                        (mode === "backtest" ? !datasets.length : !data)
-                      }
-                    >
-                      {mode === "backtest"
-                        ? t("下一步")
-                        : pendingId
-                          ? t("确认提交状态")
-                          : t("开始分析")}
-                    </button>
+                    </div>
                   </fieldset>
                 </form>
                 {mode === "backtest" && step === 2 && (
-                  <form className="creation-review" onSubmit={event => void submit(event)}>
+                  <form onSubmit={event => void submit(event)}>
                     <h3>{t("运行摘要")}</h3>
-                    <p>{datasets.map(d => `${d.venue} · ${d.symbol}`).join(" + ")}</p>
-                    <p>
-                      {t("均线参数")}：{parameters.fast} / {parameters.slow} · {t("目标手数")}：
-                      {parameters.quantity}
-                    </p>
-                    <p>
-                      {t("初始资金")}：{parameters.deposit} · {t("单笔数量上限")}：
-                      {parameters.max_order_quantity}
-                    </p>
-                    <p>
-                      {t("运行位置")}：
-                      {taskService?.remote
-                        ? `${taskService.host} · ${taskService.service}`
-                        : t("本机")}
-                    </p>
+                    <dl className="backtest-factor-summary">
+                      <dt>{t("合约")}</dt>
+                      <dd>{datasets.map(d => `${d.venue} · ${d.symbol}`).join(" + ")}</dd>
+                      <dt>{t("均线参数")}</dt>
+                      <dd>
+                        {parameters.fast} / {parameters.slow} · {t("目标手数")}{" "}
+                        {parameters.quantity}
+                      </dd>
+                      <dt>{t("初始资金")}</dt>
+                      <dd>{parameters.deposit}</dd>
+                      <dt>{t("风险限制")}</dt>
+                      <dd>
+                        {t("单笔数量上限")} {parameters.max_order_quantity} · {t("总持仓量上限")}{" "}
+                        {parameters.max_gross_quantity} · {t("在途委托数上限")}{" "}
+                        {parameters.max_working_orders}
+                      </dd>
+                      <dt>{t("运行位置")}</dt>
+                      <dd>
+                        {taskService?.remote
+                          ? `${taskService.host} · ${taskService.service}`
+                          : t("本机")}
+                      </dd>
+                    </dl>
                     <p className="subtle">
                       {t("回测只使用历史数据，不向柜台发送委托。提交后可离开此页面。")}
                     </p>
@@ -657,15 +689,9 @@ export function Panel({
             )}
             {(mode !== "backtest" || view === "records") && (
               <section aria-label={t("回测与因子任务")}>
-                <h3>{t("回测与因子任务")}</h3>
+                {mode !== "backtest" && <h3>{t("分析记录")}</h3>}
                 <TaskPagination taskService={taskService} busy={busy} trade={trade} />
-                {!taskService?.tasks.some(task =>
-                  mode === "backtest"
-                    ? task.kind === "backtest"
-                    : task.kind === "backtest" ||
-                      task.kind === "factor" ||
-                      task.kind === "daily_factor",
-                ) ? (
+                {!taskService?.tasks.some(listed) ? (
                   <p className="backtest-factor-empty">{t("暂无回测或因子任务")}</p>
                 ) : (
                   <div className="backtest-factor-table">
@@ -681,13 +707,7 @@ export function Panel({
                       </thead>
                       <tbody>
                         {[...taskService.tasks]
-                          .filter(task =>
-                            mode === "backtest"
-                              ? task.kind === "backtest"
-                              : task.kind === "backtest" ||
-                                task.kind === "factor" ||
-                                task.kind === "daily_factor",
-                          )
+                          .filter(listed)
                           .reverse()
                           .map(task => (
                             <tr key={task.id}>
@@ -752,7 +772,7 @@ export function Panel({
                                               : "backtest",
                                       });
                                       if (task.kind === "backtest") void showResult(task.id);
-                                      else void run("task.result", { id: task.id });
+                                      else void run("task.result", { id: task.id }).then(setShown);
                                     }}
                                   >
                                     {t("查看结果")}
@@ -787,10 +807,12 @@ export function Panel({
                 )}
               </section>
             )}
-            {mode !== "backtest" && snapshot?.task_result?.kind === "daily_factor" && (
-              <DailyFactorResults key={snapshot.task_result.id} evidence={snapshot.task_result} />
-            )}
-            {mode !== "backtest" && factorResult && <FactorResults evidence={factorResult} />}
+            <div ref={results}>
+              {mode !== "backtest" && snapshot?.task_result?.kind === "daily_factor" && (
+                <DailyFactorResults key={snapshot.task_result.id} evidence={snapshot.task_result} />
+              )}
+              {mode !== "backtest" && factorResult && <FactorResults evidence={factorResult} />}
+            </div>
             {mode === "backtest" && view === "result" && result && result.id === selectedTask && (
               <section className="backtest-factor-result" aria-label={t("回测结果")}>
                 <h3>
@@ -802,6 +824,7 @@ export function Panel({
                 </p>
                 <div className="backtest-factor-metrics">
                   {[
+                    [t("初始资金"), result.experiment.paper.deposit],
                     [t("期末权益"), result.result.account.equity],
                     [t("手续费"), result.result.account.fees],
                     [t("最大回撤金额"), result.result.max_drawdown],
@@ -813,17 +836,30 @@ export function Panel({
                     </div>
                   ))}
                 </div>
-                <svg
-                  className="backtest-factor-equity"
-                  viewBox="0 0 640 160"
-                  role="img"
-                  aria-label={t("权益曲线")}
-                >
-                  <polyline points={points} fill="none" stroke="var(--accent)" strokeWidth="2" />
-                </svg>
-                <div className="backtest-factor-range">
-                  <span>{timestamp(result.result.equity[0]?.timestamp_ns ?? null)}</span>
-                  <span>{timestamp(result.result.equity.at(-1)?.timestamp_ns ?? null)}</span>
+                <div className="backtest-factor-chart">
+                  <div className="backtest-factor-axis" aria-hidden>
+                    <span>{highText}</span>
+                    <span>{lowText}</span>
+                  </div>
+                  <svg
+                    className="backtest-factor-equity"
+                    viewBox="0 0 640 160"
+                    preserveAspectRatio="none"
+                    role="img"
+                    aria-label={t("权益曲线")}
+                  >
+                    <polyline
+                      points={points}
+                      fill="none"
+                      stroke="var(--accent)"
+                      strokeWidth="2"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </svg>
+                  <div className="backtest-factor-range">
+                    <span>{timestamp(result.result.equity[0]?.timestamp_ns ?? null)}</span>
+                    <span>{timestamp(result.result.equity.at(-1)?.timestamp_ns ?? null)}</span>
+                  </div>
                 </div>
                 <details className="backtest-factor-settlements">
                   <summary>{t("逐日结算")}</summary>

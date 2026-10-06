@@ -74,7 +74,10 @@ test("Agent runs a bar backtest and restores its evidence", async ({ page }) => 
   await expect(workspace.getByLabel("初始资金", { exact: true })).toHaveValue("");
   await workspace.getByLabel("快均线", { exact: true }).fill("9");
   await workspace.getByRole("button", { name: "返回回测记录", exact: true }).click();
+  // Each mode lists its own tasks; the factor pages do not show this one.
   await page.getByRole("button", { name: "因子分析", exact: true }).click();
+  await expect(row).toHaveCount(0);
+  await page.getByRole("button", { name: "均线回测", exact: true }).click();
   await row.getByRole("button", { name: "查看结果", exact: true }).click();
   await expect(page.getByRole("button", { name: "均线回测", exact: true })).toHaveAttribute(
     "aria-pressed",

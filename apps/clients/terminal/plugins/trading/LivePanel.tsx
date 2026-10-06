@@ -82,7 +82,7 @@ export function LivePanel(context: TerminalContext) {
         <small>{t("柜台仿真 / 真实资金")}</small>
       </div>
 
-      {error && (
+      {error && !account && (
         <p className="alert" role="alert">
           <ErrorNotice error={error} namespace="asterion.terminal.trading" />
         </p>
@@ -114,6 +114,12 @@ export function LivePanel(context: TerminalContext) {
           </nav>
           {account && (
             <div className="ctp-account-panel" key={account.id}>
+              {/* A refused command is reported in the panel of its account. */}
+              {error && (
+                <p className="alert" role="alert">
+                  <ErrorNotice error={error} namespace="asterion.terminal.trading" />
+                </p>
+              )}
               {entry?.session ? (
                 <LiveAccount
                   account={account}
@@ -201,10 +207,8 @@ function CreateLive({
           {t("管理 CTP 账户")}
         </button>
       </div>
-      <p className="subtle">
-        {t("开通后柜台信息固定在此账户的交易记录中，不能再修改。")}
-        {t("密码与授权码在每次连接时输入，不保存。")}
-      </p>
+      <p className="subtle">{t("开通后柜台信息固定在此账户的交易记录中，不能再修改。")}</p>
+      <p className="subtle">{t("密码与授权码在每次连接时输入，不保存。")}</p>
       <FlowSteps labels={[t("合约与风控"), t("确认创建")]} current={step} />
       <form
         onSubmit={event => {
@@ -386,9 +390,9 @@ function CreateLive({
                 <dd>{contracts.join(" + ")}</dd>
                 <dt>{t("委托与持仓限制")}</dt>
                 <dd>
-                  {t("单笔数量上限")}：{limits.max_order_quantity} · {t("总持仓量上限")}：
-                  {limits.max_gross_quantity} · {t("在途委托数上限")}：{limits.max_working_orders} ·{" "}
-                  {t("价格偏离上限")}：{limits.max_price_deviation}
+                  {t("单笔数量上限")} {limits.max_order_quantity} · {t("总持仓量上限")}{" "}
+                  {limits.max_gross_quantity} · {t("在途委托数上限")} {limits.max_working_orders} ·{" "}
+                  {t("价格偏离上限")} {limits.max_price_deviation}
                 </dd>
               </dl>
               <p className="subtle">
@@ -571,30 +575,32 @@ function LiveAccount({
             : t("尚未允许发送委托")}
         </span>
         <span>{live.broker.front}</span>
-        <span className="panel-spacer" />
-        {authorized && (
-          <button disabled={busy} onClick={() => void act({ action: "live_revoke" })}>
-            {t("撤销授权")}
-          </button>
-        )}
-        {live.phase !== "disconnected" && (
-          <button
-            disabled={busy}
-            title={t("断开账户会退出柜台连接，已有委托不会自动撤销。")}
-            onClick={() => void run("live.disconnect")}
-          >
-            {t("断开账户")}
-          </button>
-        )}
-        {stale && (
-          <button
-            className="primary"
-            disabled={busy}
-            onClick={() => void run("live.close").then(closed => closed && run("live.open"))}
-          >
-            {t("重新连接交易服务")}
-          </button>
-        )}
+        {/* The account's actions stay together when the line wraps. */}
+        <div className="ctp-identity-actions">
+          {authorized && (
+            <button disabled={busy} onClick={() => void act({ action: "live_revoke" })}>
+              {t("撤销授权")}
+            </button>
+          )}
+          {live.phase !== "disconnected" && (
+            <button
+              disabled={busy}
+              title={t("断开账户会退出柜台连接，已有委托不会自动撤销。")}
+              onClick={() => void run("live.disconnect")}
+            >
+              {t("断开账户")}
+            </button>
+          )}
+          {stale && (
+            <button
+              className="primary"
+              disabled={busy}
+              onClick={() => void run("live.close").then(closed => closed && run("live.open"))}
+            >
+              {t("重新连接交易服务")}
+            </button>
+          )}
+        </div>
       </div>
       {environmentReady && (
         <p className={environment === "real" ? "alert" : "subtle"}>

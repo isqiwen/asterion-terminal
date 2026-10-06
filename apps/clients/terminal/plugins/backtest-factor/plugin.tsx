@@ -34,7 +34,7 @@ export const plugin: TerminalPlugin = {
       )
       .map(task => ({
         id: task.id,
-        title: `${task.instrument} · ${task.kind === "daily_factor" ? t("日线因子") : task.kind === "factor" ? t("动量因子") : task.trading_day}`,
+        title: `${task.instrument} · ${task.kind === "daily_factor" ? t("日线因子") : task.kind === "factor" ? t("动量因子") : `${t("均线回测")} · ${task.trading_day}`}`,
         status: t(
           {
             queued: "排队中",

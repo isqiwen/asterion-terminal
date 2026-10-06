@@ -72,6 +72,9 @@
 .setup-step > .setup-status-done {
   color: var(--success);
 }
+.setup-step > .setup-status-failed {
+  color: var(--danger);
+}
 .setup-track {
   height: 2px;
   overflow: hidden;

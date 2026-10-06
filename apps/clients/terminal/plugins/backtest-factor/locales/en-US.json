@@ -212,5 +212,6 @@
   "来源公布时间未知。结果用于事后统计与模型回放，不能证明历史当时可交易。": "Source publication times are unknown. Results support retrospective statistics and model replay, not verified historical tradability.",
   "版本取得证据": "Version acquisition evidence",
   "取得时间是系统首次发布完整版本的时间，不是行情发生或来源公布时间。": "Acquisition time records the first complete version published locally, not the market event or source publication time.",
-  "完整版本取得时间": "Complete version acquired at"
+  "完整版本取得时间": "Complete version acquired at",
+  "分析记录": "Analysis records"
 }

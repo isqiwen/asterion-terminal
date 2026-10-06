@@ -347,9 +347,10 @@
   width: 100%;
   height: 24px;
 }
+/* The chart takes the column; the other months of the product are one strip. */
 .contract-center {
   display: grid;
-  grid-template-rows: minmax(300px, 3fr) minmax(120px, 1fr);
+  grid-template-rows: minmax(300px, 1fr) auto;
   gap: 4px;
   min-height: 0;
   min-width: 0;
@@ -358,10 +359,26 @@
   display: flex;
   flex-direction: column;
 }
+.contract-information {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+}
+.contract-information > header {
+  margin-right: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
 .contract-information > button {
-  display: block;
+  min-height: 22px;
+  padding: 0 8px;
   font-size: 10px;
-  margin: 6px 10px;
+}
+.contract-information > button[aria-pressed="true"] {
+  border-color: var(--accent-line);
+  color: var(--accent);
 }
 /* Quote facts, book and ticket take their content; the trade list flexes. */
 .contract-right {

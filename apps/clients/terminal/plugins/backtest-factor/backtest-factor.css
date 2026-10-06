@@ -1,24 +1,71 @@
+/* Backtest and factor workspace. Every mode reads top to bottom: a compact
+   header, the form, then its records and results. */
 .backtest-factor-workspace {
   height: 100%;
   overflow: auto;
 }
+
+/* Header: the mode tabs, the task capacity line and the service status are
+   three slim rows, not three page titles. */
+nav.backtest-factor-modes {
+  display: flex;
+  gap: 8px;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.backtest-factor-modes button {
+  border-color: transparent;
+  background: transparent;
+}
+.backtest-factor-modes button[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: transparent;
+  background: var(--accent-surface);
+}
+.backtest-factor-modes + .data-task-access {
+  padding-block: 6px;
+  font-size: 12px;
+}
+.terminal-business section.backtest-factor-workspace > .panel-heading {
+  min-height: 40px;
+  padding-block: 6px;
+}
+.terminal-business section.backtest-factor-workspace > .panel-heading h2 {
+  font-size: 14px;
+}
+.backtest-factor-navigation {
+  margin: 14px 24px 0;
+}
+
 .backtest-factor-layout {
-  display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
-  gap: 24px;
-  padding: 24px;
+  padding: 16px 24px 24px;
 }
 .backtest-factor-config {
+  max-width: 980px;
+  margin: 0 auto 24px;
+  padding: 20px;
   background: var(--panel);
   border: 1px solid var(--grid);
   border-radius: var(--panel-radius);
-  padding: 20px;
+}
+.backtest-factor-main {
+  max-width: 1300px;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 4px 0;
 }
 .backtest-factor-config h3,
 .backtest-factor-main h3 {
   margin: 0 0 16px;
   font-size: 14px;
 }
+/* The backtest names its step in the page heading instead. */
+.backtest-layout .backtest-factor-config > h3 {
+  display: none;
+}
+
+/* Forms: fields in four columns; a lone field keeps a readable width and
+   buttons keep their own. */
 .backtest-factor-config form {
   margin: 18px 0;
 }
@@ -36,6 +83,12 @@
   color: var(--muted);
   min-width: 0;
 }
+.backtest-factor-config fieldset > label {
+  max-width: 460px;
+}
+.backtest-factor-config fieldset > button {
+  justify-self: start;
+}
 .backtest-factor-config input {
   width: 100%;
   min-width: 0;
@@ -43,8 +96,23 @@
 }
 .backtest-factor-fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+}
+/* The fee form lines up with the fields above it. */
+.backtest-factor-config .contract-costs .futures-fields {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.backtest-factor-sessions .backtest-factor-fields {
+  grid-template-columns: minmax(0, 1fr);
+}
+.backtest-factor-config .backtest-factor-day {
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  padding: 10px;
+  margin: 12px 0;
+  min-width: 0;
 }
 .backtest-factor-workspace details {
   font-size: 11px;
@@ -55,11 +123,34 @@
   cursor: pointer;
   margin-top: 8px;
 }
-.backtest-factor-main {
-  min-width: 0;
+
+/* What is about to run, as a list of name and value. */
+.backtest-factor-summary {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  margin: 0 0 12px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
 }
+.backtest-factor-summary dt,
+.backtest-factor-summary dd {
+  margin: 0;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  line-height: 1.6;
+}
+.backtest-factor-summary dt {
+  color: var(--muted);
+}
+.backtest-factor-summary dd {
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+
+/* Records. */
 .backtest-factor-table {
   overflow: auto;
+  border-radius: var(--panel-radius);
 }
 .backtest-factor-table table {
   width: 100%;
@@ -73,30 +164,71 @@
 }
 .backtest-factor-table th,
 .backtest-factor-table td {
-  padding: 12px 10px;
+  padding: 10px;
   border-bottom: 1px solid var(--line);
 }
 .backtest-factor-table td {
   font-size: 12px;
   vertical-align: top;
 }
-.backtest-factor-table td > .subtle {
+/* A record is two lines: its name, then what it is with the details
+   disclosure beside it. */
+.backtest-factor-table td > strong {
   display: block;
-  margin-top: 5px;
+}
+.backtest-factor-table td > .subtle {
+  display: inline-block;
+  margin: 3px 10px 0 0;
+  vertical-align: top;
+}
+.backtest-factor-table td > details {
+  display: inline-block;
+  vertical-align: top;
+}
+.backtest-factor-table td summary {
+  margin-top: 1px;
+  padding: 2px 0;
 }
 .backtest-factor-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
   padding: 32px 0;
   color: var(--muted);
+  border: 1px dashed var(--line);
+  border-radius: var(--panel-radius);
+}
+
+/* Progress and results. */
+.backtest-factor-progress {
+  max-width: 800px;
+  margin: 20px auto;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+}
+.backtest-factor-progress progress {
+  width: 100%;
+  margin: 16px 0;
 }
 .backtest-factor-result {
   margin-top: 28px;
   padding-top: 20px;
   border-top: 1px solid var(--line);
 }
+.backtest-layout .backtest-factor-result {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
 .backtest-factor-metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
+  padding: 20px;
+  background: var(--panel);
+  border-radius: var(--panel-radius);
   font-variant-numeric: tabular-nums;
 }
 .backtest-factor-metrics span,
@@ -112,10 +244,28 @@
   color: var(--text-strong);
   overflow-wrap: anywhere;
 }
+/* The curve with its highest and lowest equity on the left edge. */
+.backtest-factor-chart {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 20px;
+}
+.backtest-factor-axis {
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding-block: 8px;
+  color: var(--muted);
+  font-family: var(--font-terminal);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
 .backtest-factor-equity {
   width: 100%;
-  max-height: 240px;
-  margin-top: 20px;
+  height: 240px;
   background: var(--panel);
 }
 .backtest-factor-range {
@@ -125,34 +275,14 @@
   color: var(--muted);
   font-size: 11px;
 }
-@media (max-width: 1000px) {
-  .backtest-factor-layout {
-    grid-template-columns: 1fr;
-  }
-  .backtest-factor-config {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-    padding: 0 0 20px;
-  }
-  .backtest-factor-fields {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-.backtest-factor-modes {
-  display: flex;
-  gap: 8px;
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--line);
-}
-.backtest-factor-modes button[aria-pressed="true"] {
-  color: var(--accent);
-  border-color: transparent;
-  background: var(--accent-surface);
-}
 .backtest-factor-result > .backtest-factor-range {
   margin: 18px 0;
 }
-
+/* The time range sits under the curve, not under the axis. */
+.backtest-factor-chart > .backtest-factor-range {
+  grid-column: 2;
+  margin-bottom: 12px;
+}
 .backtest-factor-experiment {
   margin: 12px 0;
 }
@@ -168,56 +298,14 @@
   margin: 5px 0 0;
   color: var(--text);
 }
-/* Full datetime values must remain readable in the narrow configuration rail. */
-.backtest-factor-sessions .backtest-factor-fields {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.backtest-factor-config .backtest-factor-day {
-  border: 1px solid var(--line);
-  padding: 10px;
-  margin: 12px 0;
-  min-width: 0;
-}
 .experiment-day {
   border-top: 1px solid var(--line);
   margin-top: 12px;
 }
 
-.backtest-factor-modes button {
-  border-color: transparent;
-  background: transparent;
-}
-.backtest-factor-main {
-  padding: 4px 0;
-}
-.backtest-factor-metrics {
-  background: var(--panel);
-  border-radius: var(--panel-radius);
-  padding: 20px;
-}
-.backtest-factor-empty {
-  min-height: 160px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed var(--line);
-  border-radius: var(--panel-radius);
-}
-.backtest-factor-config .backtest-factor-day {
-  border-radius: var(--panel-radius);
-}
-.backtest-factor-table {
-  border-radius: var(--panel-radius);
-}
-.backtest-factor-modes button[aria-pressed="true"] {
-  background: var(--accent-surface);
-}
-@media (max-width: 1000px) {
-  .backtest-factor-config {
-    padding: 20px;
-  }
-  .backtest-factor-fields {
+@media (max-width: 900px) {
+  .backtest-factor-fields,
+  .backtest-factor-config .contract-costs .futures-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

@@ -429,6 +429,12 @@ export function NodeServices({
                   const active = matches(binding(snapshot, service.kind), node, service);
                   const unavailable =
                     disabled || node.state !== "online" || !!node.health?.maintenance;
+                  // A trading service is named after the account it serves,
+                  // when this Terminal has that account open.
+                  const owner = Object.entries(snapshot?.live ?? {}).find(
+                    ([, entry]) => entry.connection.session === service.id,
+                  )?.[0];
+                  const account = snapshot?.ctp_connections?.find(item => item.id === owner)?.name;
                   return (
                     <section
                       className="managed-service"
@@ -438,56 +444,70 @@ export function NodeServices({
                     >
                       <div className="deployment-heading">
                         <div>
-                          <strong>{service.id}</strong>
+                          <strong>{account ?? service.id}</strong>
                           <p className="subtle">
                             {t(kindLabels[service.kind])} · {serviceStatus(node, service)}
+                            {account && (
+                              <>
+                                {" · "}
+                                <code>{service.id}</code>
+                              </>
+                            )}
                           </p>
                         </div>
-                        {service.kind === "live" ? null : active ? (
-                          <span className="deployment-badge">{t("当前使用")}</span>
-                        ) : (
-                          <button
-                            disabled={unavailable || service.state !== "running"}
-                            onClick={() => propose("use", node, service)}
-                          >
-                            {t("使用此服务")}
-                          </button>
-                        )}
+                        {/* Only what applies now: a stopped service starts, a wanted
+                            one stops, a running one restarts. */}
+                        <div className="managed-service-actions">
+                          {!service.desired_running && (
+                            <button
+                              disabled={
+                                unavailable ||
+                                service.state === "running" ||
+                                service.state === "waiting_capacity" ||
+                                service.state === "starting"
+                              }
+                              onClick={() =>
+                                void run("node.action", {
+                                  id: node.id,
+                                  service: service.id,
+                                  action: "start",
+                                })
+                              }
+                            >
+                              {t("启动")}
+                            </button>
+                          )}
+                          {service.desired_running && (
+                            <button
+                              disabled={unavailable || !service.desired_running}
+                              onClick={() => propose("stop", node, service)}
+                            >
+                              {t("停止")}
+                            </button>
+                          )}
+                          {service.state === "running" && (
+                            <button
+                              disabled={unavailable || service.state !== "running"}
+                              onClick={() => propose("restart", node, service)}
+                            >
+                              {t("重启")}
+                            </button>
+                          )}
+                          {service.kind === "live" ? null : active ? (
+                            <span className="deployment-badge">{t("当前使用")}</span>
+                          ) : (
+                            <button
+                              disabled={unavailable || service.state !== "running"}
+                              onClick={() => propose("use", node, service)}
+                            >
+                              {t("使用此服务")}
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <details>
                         <summary>{t("管理服务")}</summary>
                         <p>{t("运行中的工作进程：{count}", { count: service.active_workers })}</p>
-                        <div className="source-actions">
-                          <button
-                            disabled={
-                              unavailable ||
-                              service.state === "running" ||
-                              service.state === "waiting_capacity" ||
-                              service.state === "starting"
-                            }
-                            onClick={() =>
-                              void run("node.action", {
-                                id: node.id,
-                                service: service.id,
-                                action: "start",
-                              })
-                            }
-                          >
-                            {t("启动")}
-                          </button>
-                          <button
-                            disabled={unavailable || !service.desired_running}
-                            onClick={() => propose("stop", node, service)}
-                          >
-                            {t("停止")}
-                          </button>
-                          <button
-                            disabled={unavailable || service.state !== "running"}
-                            onClick={() => propose("restart", node, service)}
-                          >
-                            {t("重启")}
-                          </button>
-                        </div>
                         <details>
                           <summary>{t("程序更新")}</summary>
                           <p>

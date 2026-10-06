@@ -19,13 +19,8 @@ const fields = [
   "主力净量",
   "量比",
   "1分钟涨速",
-  "总市值",
-  "流通市值",
-  "净利润",
   "成交额",
-  "换手%",
   "振幅%",
-  "市盈(动)",
   "最高",
   "最低",
   "开盘",
@@ -353,7 +348,6 @@ export function WatchlistWorkspace(context: TerminalContext) {
 export function ContractWorkspace(context: TerminalContext) {
   const { market, rows, active, select, filtering, clearSearch } = useQuotes(context);
   const [chart, setChart] = useWorkspaceDraft("contract-chart", "live");
-  const [info, setInfo] = useState("资讯");
   const historyAvailable =
     market?.transport_online && market.phase === "connected" && market.history?.available;
   const q = active?.quote;
@@ -451,11 +445,6 @@ export function ContractWorkspace(context: TerminalContext) {
       </aside>
       <div className="contract-center">
         <section className="contract-chart-panel">
-          <nav className="quote-tabs">
-            <button aria-pressed>{t("图表")}</button>
-            <button disabled>{t("T形报价表")}</button>
-            <button disabled>F10</button>
-          </nav>
           {active && market ? (
             <>
               <QuoteHeader row={active} market={market} />
@@ -482,15 +471,9 @@ export function ContractWorkspace(context: TerminalContext) {
             <p className="quote-empty">{t("选择合约查看图表")}</p>
           )}
         </section>
-        <section className="contract-information">
-          <nav className="quote-tabs" aria-label={t("合约信息")}>
-            {["资讯", "相关合约", "外盘合约", "关联品种", "社区"].map(name => (
-              <button key={name} aria-pressed={info === name} onClick={() => setInfo(name)}>
-                {t(name)}
-              </button>
-            ))}
-          </nav>
-          {info === "相关合约" && active ? (
+        <section className="contract-information" aria-label={t("相关合约")}>
+          <header>{t("相关合约")}</header>
+          {active &&
             rows
               .filter(
                 row =>
@@ -498,13 +481,14 @@ export function ContractWorkspace(context: TerminalContext) {
                   active.symbol.replace(/\d/g, "").toLowerCase(),
               )
               .map(row => (
-                <button key={quoteId(row)} onClick={() => select(quoteId(row))}>
+                <button
+                  key={quoteId(row)}
+                  aria-pressed={quoteId(row) === quoteId(active)}
+                  onClick={() => select(quoteId(row))}
+                >
                   {row.symbol}
                 </button>
-              ))
-          ) : (
-            <p className="quote-empty">{t("该信息源尚未接入")}</p>
-          )}
+              ))}
         </section>
       </div>
       <aside className="contract-right" aria-label={t("合约详情")}>
