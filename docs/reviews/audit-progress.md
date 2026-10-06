@@ -1407,3 +1407,40 @@ Linux 服务包指纹不受本轮影响）。
 - 未验证：GitHub CI（见下一次运行）；macOS ThreadSanitizer job 上次报告的 `ServiceIo`
   数据竞争与 `CtpPublication` 一项失败是否仍在；插件页的保存/安装流程只由原生插件用例
   间接经过；GCC 下未重新编译测试代码（本轮 C++ 改动只有一个头文件内联函数）。
+
+## 2026-10-06（CI 第二轮）
+
+`c591bc27` 的 CI（run 37451608563）：`style`、`remote-linux`、`core-sanitizers (ubuntu)` 通过；
+其余三个 core job 仍在 `ctest` 失败，但每个 job 只剩 1–3 项（上一轮 macOS 为 10 项）。
+
+### 一个真实缺陷
+
+- **`ServiceIo` 的关闭顺序。** `~ServiceIo() = default` 先清空 `impl_` 再析构 `Impl`，而 `Impl`
+  析构时要等 I/O 线程把在途操作跑完；这些操作通过外层对象提交读取工作，此时 `impl_` 已为空。
+  TSan job 的 `TerminalApi.Contracts` 因此在 `ServiceIo::read_work` 处空指针崩溃，上一轮报告的
+  `unique_ptr<ServiceIo::Impl>::reset` 数据竞争是同一问题。现在析构函数先调用 `Impl::stop()`
+  停止并等待线程，再释放。代码来自 `0217a915`，正式环境关闭 Terminal 时也可能触发。
+
+### 慢机器上的时限
+
+- **`NodeSupervision.WorkerAllowanceRotatesAcrossServicesAndWaitsForChildrenToExit`**（三个 job）。
+  用例握着两个 worker 认领的同时部署第二个 Task 服务；部署要上传并校验程序，CI 上很慢：
+  TSan 下超过 35 秒认领超时（worker 自行退出，派发额度变成 2），macOS 上超过 45 秒用例时限；
+  Linux 上则是在 worker 已连接、Agent 尚未把启动预留记为已占用的瞬间读取了容量。
+  改为：先部署第二个服务并停止，握住认领后只启动它（`intercept` 拆成 `deploy_fixture` 与
+  `attach`）；容量断言改为读到稳定值（`expect_capacity`）；该套件时限 45 → 90 秒。
+- **`CtpCatalog.TimeoutAndCancellationDoNotReturnPartialResults`**（macOS）。150 毫秒期限在
+  慢机器上落在前置连接阶段而不是查询阶段。期限改为 1 秒；夹具的查询永不结束，超时必然
+  发生在查询阶段。
+- **`CtpPublication.WatchStreams…`**（TSan）。31 条观察连接在插桩构建下排空超过 400 毫秒，
+  服务按设计以 `_Exit(0)` 结束并留下套接字文件。沿用已有做法（`ASTERION_SANITIZED` 下放宽
+  时限），插桩构建的默认排空期限为 8 秒；正式构建仍为 400 毫秒。
+
+### 验证
+
+- 本机 Debug：上述相关 20 项通过；本机 ThreadSanitizer 构建：相关 21 项通过，无竞争报告。
+- 全量 CTest 502 项通过（`-j 6`，406 秒）。
+- Linux x86_64 服务包重建并替换（本轮改了 `core/`）；`pnpm desktop:check` 退出 0；
+  `pnpm test:desktop` 通过。
+- 未验证：本轮没有重跑 E2E（改动只涉及 C++ 测试、一个内核头文件的插桩专用默认值和原生层
+  析构顺序）；3 线程 CI 机器上的实际耗时只能由下一次 CI 确认，本机无法模拟其负载。

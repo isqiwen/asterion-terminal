@@ -67,7 +67,9 @@ TEST_F(CtpCatalog, RejectsPartialInvalidAndDuplicateResults) {
 TEST_F(CtpCatalog, TimeoutAndCancellationDoNotReturnPartialResults) {
   config.user = "catalog-partial";
   try {
-    read({}, 150ms);
+    // Long enough to connect and log in on a loaded machine; the query itself
+    // never completes, so the deadline always expires inside it.
+    read({}, 1s);
     FAIL() << "expected query timeout";
   } catch (const Error& error) {
     EXPECT_EQ(error.code(), ErrorCode::unavailable);

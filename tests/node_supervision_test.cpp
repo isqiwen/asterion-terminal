@@ -1,5 +1,6 @@
 #include "node_client.hpp"
 #include "local_listener.hpp"
+#include "timing.hpp"
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -63,7 +64,11 @@ protected:
   }
   std::unique_ptr<testing_support::LocalListener> intercept(bool dispatch, bool task_health = false,
                                                             const std::string& name = "observed") {
-    const auto kind = dispatch || task_health ? node::v1::TASK_SERVICE : node::v1::MARKET_DATA;
+    deploy_fixture(dispatch || task_health, name);
+    return attach(dispatch, task_health, name);
+  }
+  void deploy_fixture(bool task, const std::string& name) {
+    const auto kind = task ? node::v1::TASK_SERVICE : node::v1::MARKET_DATA;
     client
         ->deploy({.service = name,
                   .kind = kind,
@@ -72,6 +77,10 @@ protected:
                   .plugins = std::vector<PluginArtifact>{},
                   .data_service = kind == node::v1::TASK_SERVICE ? name + "-data" : ""})
         .get();
+  }
+  // Takes over the running fixture service's worker or health socket.
+  std::unique_ptr<testing_support::LocalListener> attach(bool dispatch, bool task_health,
+                                                         const std::string& name) {
     if (task_health) {
       // The private recovery listener is replaced once initialization finishes.
       // Intercept the steady-state listener, after that handoff has completed.
@@ -97,6 +106,17 @@ protected:
     return std::make_unique<testing_support::LocalListener>(path.string(), dispatch ? 2 : 1);
   }
   Json capacity() { return health().at("worker_capacity"); }
+  // Agent records a launch as owned a moment after the worker has started, so
+  // the counts are read until they settle.
+  void expect_capacity(const Json& expected) {
+    const auto deadline = std::chrono::steady_clock::now() + testing_support::bound(2s);
+    auto actual = capacity();
+    while (actual != expected && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(20ms);
+      actual = capacity();
+    }
+    EXPECT_EQ(actual, expected);
+  }
   void expect_status_while_held() {
     auto read = std::async(std::launch::async, [&] {
       static_cast<void>(client->history_inventory().get());
@@ -170,7 +190,7 @@ TEST_F(NodeSupervision, SlowTaskDispatchLeavesAdministrationAvailableAndOldLaunc
   const auto received = std::chrono::steady_clock::now();
   ASSERT_TRUE(request.has_dispatch());
   ASSERT_EQ(request.dispatch().launch_slots(), 2);
-  EXPECT_EQ(capacity(), (Json{{"limit", 2}, {"owned", 0}, {"reserved", 2}}));
+  expect_capacity(Json{{"limit", 2}, {"owned", 0}, {"reserved", 2}});
   expect_status_while_held();
   restart_held_process();
   task::v1::TaskResponse reply;
@@ -192,6 +212,23 @@ TEST_F(NodeSupervision, SlowTaskDispatchLeavesAdministrationAvailableAndOldLaunc
 }
 
 TEST_F(NodeSupervision, WorkerAllowanceRotatesAcrossServicesAndWaitsForChildrenToExit) {
+  // Deploying a service uploads and verifies its programs, which takes long
+  // on a loaded machine, and a held worker gives up after its claim timeout.
+  // So the second service is deployed before any claim is held and only
+  // started while they are.
+  deploy_fixture(true, "other");
+  client->action("other", "stop").get();
+  const auto workers_of_other = [&] {
+    auto path = fs::path(state("other").at("endpoint").get<std::string>());
+    return path.replace_extension(".workers");
+  }();
+  for (const auto stopped = std::chrono::steady_clock::now() + testing_support::bound(10s);
+       state("other").at("pid") != 0;) {
+    ASSERT_LT(std::chrono::steady_clock::now(), stopped) << "fixture service did not stop";
+    std::this_thread::sleep_for(20ms);
+  }
+  // attach() must meet the socket of the instance started below.
+  fs::remove(workers_of_other);
   auto first = intercept(true);
   auto dispatch = first->accept(5s);
   task::v1::TaskRequest request;
@@ -217,8 +254,9 @@ TEST_F(NodeSupervision, WorkerAllowanceRotatesAcrossServicesAndWaitsForChildrenT
     ASSERT_TRUE(claim.has_claim()) << claim.DebugString() << state().dump();
     workers.push_back(std::move(worker));
   }
-  auto second = intercept(true, false, "other");
-  EXPECT_EQ(capacity(), (Json{{"limit", 2}, {"owned", 2}, {"reserved", 0}}));
+  client->action("other", "start").get();
+  auto second = attach(true, false, "other");
+  expect_capacity(Json{{"limit", 2}, {"owned", 2}, {"reserved", 0}});
   EXPECT_EQ(state("other").at("active_workers"), 0);
   // More than one supervision cycle passes; a second service receives no offer.
   EXPECT_THROW(second->accept(1200ms), std::exception);
@@ -232,7 +270,7 @@ TEST_F(NodeSupervision, WorkerAllowanceRotatesAcrossServicesAndWaitsForChildrenT
   ASSERT_TRUE(offered.ParseFromString(next.receive(1s)));
   ASSERT_TRUE(offered.has_dispatch());
   ASSERT_EQ(offered.dispatch().launch_slots(), 1);
-  EXPECT_EQ(capacity(), (Json{{"limit", 2}, {"owned", 1}, {"reserved", 1}}));
+  expect_capacity(Json{{"limit", 2}, {"owned", 1}, {"reserved", 1}});
   EXPECT_THROW(first->accept(200ms), std::exception);
   response.set_service_id(offered.service_id());
   response.set_correlation_id(offered.correlation_id());
@@ -248,19 +286,19 @@ TEST_F(NodeSupervision, WorkerAllowanceRotatesAcrossServicesAndWaitsForChildrenT
     ASSERT_TRUE(claim.has_claim()) << claim.DebugString() << state("other").dump();
     workers.push_back(std::move(worker));
   }
-  EXPECT_EQ(capacity(), (Json{{"limit", 2}, {"owned", 2}, {"reserved", 0}}));
+  expect_capacity(Json{{"limit", 2}, {"owned", 2}, {"reserved", 0}});
   client->action("other", "stop").get();
   auto returned = first->accept(5s);
   ASSERT_TRUE(offered.ParseFromString(returned.receive(1s)));
   ASSERT_TRUE(offered.has_dispatch());
   EXPECT_EQ(offered.dispatch().launch_slots(), 1);
-  EXPECT_EQ(capacity(), (Json{{"limit", 2}, {"owned", 1}, {"reserved", 1}}));
+  expect_capacity(Json{{"limit", 2}, {"owned", 1}, {"reserved", 1}});
   response.set_service_id(offered.service_id());
   response.set_correlation_id(offered.correlation_id());
   response.mutable_launches()->clear_launches();
   returned.send(response.SerializeAsString(), 1s);
   client->action("observed", "stop").get();
-  EXPECT_EQ(capacity(), (Json{{"limit", 2}, {"owned", 0}, {"reserved", 0}}));
+  expect_capacity(Json{{"limit", 2}, {"owned", 0}, {"reserved", 0}});
 }
 
 TEST_F(NodeSupervision, InitializingTaskServiceKeepsHeartbeatAndBecomesReadyWithoutRestart) {

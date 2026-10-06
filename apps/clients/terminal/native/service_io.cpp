@@ -35,7 +35,8 @@ struct ServiceIo::Impl {
   ThreadPool administrators{2, 8};
   std::jthread owner;
   Impl() : owner([this](std::stop_token stop) { run(stop); }) {}
-  ~Impl() {
+  // Returns once every admitted operation has finished on the owner.
+  void stop() {
     {
       std::lock_guard lock(mutex);
       closing = true;
@@ -84,7 +85,12 @@ struct ServiceIo::Impl {
   }
 };
 ServiceIo::ServiceIo() : impl_(std::make_unique<Impl>()) {}
-ServiceIo::~ServiceIo() = default;
+// Operations still running on the owner submit work through this object, so
+// the owner is stopped while impl_ still points at its pools. Destroying
+// impl_ first would clear the pointer before the owner had finished.
+ServiceIo::~ServiceIo() {
+  impl_->stop();
+}
 PayloadBudget ServiceIo::payload_budget(PayloadLane lane) const {
   return impl_->payloads[static_cast<std::size_t>(lane)];
 }

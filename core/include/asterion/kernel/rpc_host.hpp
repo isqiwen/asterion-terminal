@@ -75,7 +75,13 @@ public:
     // Private endpoints have independent allowances so bulk traffic cannot use
     // their control/completion capacity. Parsed domain objects are additional.
     std::size_t payload_bytes = 64 * 1024 * 1024;
+    // Instrumented builds run several times slower; draining gets the same
+    // margin there, so a clean stop is not cut short by the instrumentation.
+#ifdef ASTERION_SANITIZED
+    Milliseconds handshake{10000}, receive{30000}, send{10000}, drain{8000};
+#else
     Milliseconds handshake{10000}, receive{30000}, send{10000}, drain{400};
+#endif
     std::vector<ipc::PeerRole> roles{ipc::PeerRole::admin, ipc::PeerRole::client,
                                      ipc::PeerRole::service};
   };
