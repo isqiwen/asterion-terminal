@@ -156,11 +156,32 @@ void Application::Impl::register_live_commands() {
     const auto execute = [&](TradingClient& client) -> PolledTask<void> {
       (co_await PollFuture{client.execute(command)});
     };
-    // A cancel must not wait for, or be refused because of, an order in flight.
-    if (command.value("action", "") == "cancel")
+    // A cancel or a strategy stop must not wait for, or be refused because
+    // of, an order in flight.
+    if (const auto action = command.value("action", "");
+        action == "cancel" || action == "strategy_stop")
       co_await cancel_on_live_account(p, execute);
     else
       co_await with_live_account(p, execute);
+    co_return snapshot();
+  });
+  // The run reads minute bars from the market service on this machine; its
+  // address comes from the attached service, never from the page.
+  command("live.strategy.start", [this](const json& p) -> PolledTask<Response> {
+    fields(p, {"account", "request_id", "account_id", "policy_revision", "venue", "symbol", "fast",
+               "slow", "quantity"});
+    const auto source = market ? market->endpoint() : ServiceEndpoint{};
+    if (source.endpoint.empty())
+      throw Error(ErrorCode::unavailable,
+                  "a strategy reads the market service on this machine; attach it first");
+    auto command = p;
+    command.erase("account");
+    command["action"] = "strategy_start";
+    command["market_endpoint"] = source.endpoint;
+    command["market_service"] = source.session;
+    co_await with_live_account(p, [&](TradingClient& client) -> PolledTask<void> {
+      (co_await PollFuture{client.execute(command)});
+    });
     co_return snapshot();
   });
   command("live.policy.configure", [this](const json& p) -> PolledTask<Response> {

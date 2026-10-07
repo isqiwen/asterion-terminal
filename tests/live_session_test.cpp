@@ -1,4 +1,5 @@
 #include "ctp_support.hpp"
+#include "local_listener.hpp"
 #include "journal_fixture.hpp"
 #include "live_session.hpp"
 #include "risk_module.hpp"
@@ -9,6 +10,7 @@
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/protocol/trading.hpp>
+#include <asterion/v1/market.pb.h>
 #include <fstream>
 #include <gtest/gtest.h>
 #include <iterator>
@@ -168,6 +170,94 @@ struct HeldRiskPlugin {
     return waiting_library.symbol<int (*)()>()() == stage;
   }
 };
+// The market service of the account's machine as a strategy run reads it: the
+// minute series of one contract, set by the test. The last bar is the one
+// still forming.
+class FakeMarket {
+public:
+  FakeMarket()
+      : endpoint_("/tmp/ast-market-" + unique_process_id().substr(0, 12) + ".sock"),
+        listener_(endpoint_, 8), thread_([this](std::stop_token stop) { serve(stop); }) {}
+  // The series of one trading day, beginning at this minute of the test's clock.
+  void set(const std::string& trading_day, std::initializer_list<const char*> closes,
+           bool interrupted = false, int minute = 0) {
+    market::v1::MinuteSeries series;
+    series.set_trading_day(trading_day);
+    std::int64_t start = base + minute * 60000;
+    series.set_first_observation_ms(start - 1);
+    series.set_interrupted(interrupted);
+    for (const auto* close : closes) {
+      auto* bar = series.add_bars();
+      bar->set_start_ms(start);
+      for (auto* price :
+           {bar->mutable_open(), bar->mutable_high(), bar->mutable_low(), bar->mutable_close()})
+        *price = close;
+      bar->set_volume(1);
+      start += 60000;
+    }
+    std::lock_guard lock(mutex_);
+    series_ = std::move(series);
+  }
+  Json start(std::string run, const char* quantity) const {
+    return {{"request_id", std::move(run)},
+            {"action", "strategy_start"},
+            {"venue", "SHFE"},
+            {"symbol", "rb2610"},
+            {"fast", 1},
+            {"slow", 2},
+            {"quantity", quantity},
+            {"market_endpoint", endpoint_},
+            {"market_service", "market"}};
+  }
+  // The order a run places for the bar at this position of the series.
+  static std::string order(const std::string& run, int bar, const char* suffix = "") {
+    return run + "." + std::to_string(base + bar * 60000) + suffix;
+  }
+
+private:
+  static constexpr std::int64_t base = 1'790'000'040'000;
+  void serve(const std::stop_token& stop) {
+    while (!stop.stop_requested()) {
+      try {
+        auto peer = listener_.accept(20ms);
+        market::v1::Request request;
+        if (!request.ParseFromString(peer.receive(1s)))
+          continue;
+        market::v1::Response response;
+        response.set_version(1);
+        response.set_service_id(request.service_id());
+        response.set_correlation_id(request.correlation_id());
+        {
+          std::lock_guard lock(mutex_);
+          *response.mutable_minutes() = series_;
+        }
+        *response.mutable_minutes()->mutable_instrument() = request.minutes().instrument();
+        peer.send(response.SerializeAsString(), 1s);
+      } catch (const std::exception&) {
+        // Idle accept deadline, or a reader that went away.
+      }
+    }
+  }
+  std::string endpoint_;
+  testing_support::LocalListener listener_;
+  std::mutex mutex_;
+  market::v1::MinuteSeries series_;
+  std::jthread thread_;
+};
+Decimal long_position(const Json& state) {
+  Decimal held;
+  for (const auto& position : state.at("positions"))
+    if (position.at("side") == "buy")
+      held = held + Decimal::parse(position.at("today").get<std::string>()) +
+             Decimal::parse(position.at("yesterday").get<std::string>());
+  return held;
+}
+Json stop_strategy(std::string id) {
+  return {{"request_id", std::move(id)}, {"action", "strategy_stop"}};
+}
+bool strategy_stopped(const Json& state) {
+  return state.at("strategy").is_object() && state.at("strategy").at("state") == "stopped";
+}
 class Live : public ::testing::Test {
 protected:
   FakeExchange exchange;
@@ -827,7 +917,7 @@ TEST_F(Live, OrdersPassAuthorizationAllowlistUnitsAndRiskBeforeReachingTheBroker
   EXPECT_THROW(act(session, submit("unauthorized", "1")), std::invalid_argument);
   EXPECT_THROW(act(session, authorize("other", "000002")), std::invalid_argument);
   act(session, authorize());
-  EXPECT_EQ(session.snapshot().at("authorization").at("trading_day"), "20260928");
+  EXPECT_FALSE(session.snapshot().at("authorization").is_null());
   EXPECT_THROW(act(session, submit("listed", "1", "3500", "rb2611")), std::invalid_argument);
   EXPECT_THROW(act(session, submit("tick", "1", "3500.5")), std::invalid_argument);
   EXPECT_THROW(act(session, submit("lot", "0.5")), std::invalid_argument);
@@ -888,7 +978,14 @@ TEST_F(Live, OrdersPassAuthorizationAllowlistUnitsAndRiskBeforeReachingTheBroker
   EXPECT_THROW(act(session, authorize()), Error) << "authorization IDs are never reused";
   act(session, authorize("authorize.again"));
   session.disconnect();
-  EXPECT_TRUE(session.snapshot().at("authorization").is_null());
+  EXPECT_FALSE(session.snapshot().at("authorization").is_null())
+      << "a disconnect ends the connection, not the owner's permission";
+  try {
+    act(session, submit("disconnected", "1"));
+    FAIL() << "an order was accepted without a broker connection";
+  } catch (const Error& error) {
+    EXPECT_EQ(error.code(), ErrorCode::unavailable);
+  }
 }
 TEST_F(Live, LimitPricesStayWithinExchangeLimitsAndTheMarketReference) {
   auto wide = manifest(2, "0.1");
@@ -1142,7 +1239,7 @@ TEST_F(Live, CredentialsAreNeverWrittenAndHeadersPinTheEngine) {
   }
   const auto header_file = test::journal_record(directory.path, 0);
   auto header = test::read_record(header_file);
-  EXPECT_EQ(header.at("engine"), "asterion.live-futures.v25");
+  EXPECT_EQ(header.at("engine"), "asterion.live-futures.v26");
   EXPECT_EQ(header.at("manifest"), manifest());
   header["engine"] = "asterion.live-futures.v4";
   test::write_record(header_file, header);
@@ -1165,6 +1262,163 @@ TEST_F(Live, InvalidInputsAndMissingSdkWriteNothing) {
       Error);
   EXPECT_EQ(test::journal_size(directory.path), 0U);
   EXPECT_FALSE(fs::exists(directory.path / "plugins"));
+}
+TEST_F(Live, StrategyRunOwnsTheAccountAndItsTargetsTakeTheOrderPath) {
+  FakeMarket market;
+  LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+  const auto day = ready(session).at("trading_day").get<std::string>();
+  // A rising close asks for the position; the bar after it is still forming.
+  market.set(day, {"3500", "3501", "3501"});
+  EXPECT_THROW(act(session, market.start("early", "1")), std::invalid_argument)
+      << "a run lives inside the owner's authorization";
+  act(session, authorize());
+  auto wrong = market.start("wrong", "1");
+  wrong["symbol"] = "rb2611";
+  EXPECT_THROW(act(session, wrong), std::invalid_argument) << "only an allowed contract";
+  act(session, market.start("run", "1"));
+  EXPECT_THROW(act(session, market.start("second", "1")), Error);
+  const auto bought = FakeMarket::order("run", 1);
+  auto state =
+      wait_for(session, [&](const Json& s) { return order_has_status(s, bought, "filled"); });
+  const auto order = find_order(state, bought);
+  ASSERT_TRUE(order.is_object()) << state.at("strategy").dump();
+  EXPECT_EQ(order.at("side"), "buy");
+  EXPECT_EQ(order.at("offset"), "open");
+  EXPECT_EQ(order.at("quantity"), "1");
+  EXPECT_EQ(order.at("limit_price"), "3501") << "the deciding bar's close";
+  EXPECT_EQ(state.at("strategy").at("state"), "running");
+  EXPECT_EQ(state.at("strategy").at("target"), "1");
+  try {
+    act(session, submit("manual", "1"));
+    FAIL() << "a manual order was accepted while a strategy controls the account";
+  } catch (const Error& error) {
+    EXPECT_EQ(error.code(), ErrorCode::conflict);
+  }
+  EXPECT_TRUE(find_order(session.snapshot(), "manual").is_null());
+  // The run and the authorization outlive a reconnect: nobody confirms again.
+  exchange.call<void (*)()>("asterion_fake_trader_reconnect");
+  ASSERT_NE(wait_for(session, [](const Json& s) { return s.at("phase") != "ready"; }).at("phase"),
+            "ready");
+  state = wait_for(session, [](const Json& s) { return s.at("phase") == "ready"; });
+  ASSERT_EQ(state.at("phase"), "ready");
+  EXPECT_EQ(state.at("strategy").at("state"), "running");
+  // A falling close asks for no position: today's lot is closed.
+  market.set(day, {"3500", "3501", "3499", "3499"});
+  const auto sold = FakeMarket::order("run", 2, ".today");
+  state = wait_for(session, [&](const Json& s) {
+    return order_has_status(s, sold, "filled") && long_position(s) == Decimal{};
+  });
+  ASSERT_TRUE(order_has_status(state, sold, "filled")) << state.at("strategy").dump();
+  EXPECT_EQ(find_order(state, sold).at("offset"), "close_today");
+  EXPECT_EQ(long_position(state), Decimal{});
+  act(session, stop_strategy("stop"));
+  state = session.snapshot();
+  EXPECT_TRUE(strategy_stopped(state));
+  EXPECT_FALSE(state.at("authorization").is_null()) << "stopping a strategy is not a revoke";
+  act(session, submit("manual", "1"));
+  EXPECT_TRUE(find_order(session.snapshot(), "manual").is_object());
+}
+TEST_F(Live, StrategyReplacesItsWorkingOrderAndStoppingRequestsItsCancellation) {
+  FakeMarket market;
+  LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+  const auto day = ready(session).at("trading_day").get<std::string>();
+  act(session, authorize());
+  // Three lots rest at the fake exchange.
+  market.set(day, {"3500", "3501", "3501"});
+  act(session, market.start("run", "3"));
+  const auto first = FakeMarket::order("run", 1), second = FakeMarket::order("run", 2);
+  auto state =
+      wait_for(session, [&](const Json& s) { return order_has_status(s, first, "accepted"); });
+  ASSERT_TRUE(order_has_status(state, first, "accepted")) << state.at("strategy").dump();
+  // The next bar asks again: the unfilled order leaves before its successor
+  // enters, so the run never holds two orders.
+  market.set(day, {"3500", "3501", "3502", "3502"});
+  state = wait_for(session, [&](const Json& s) { return order_has_status(s, second, "accepted"); });
+  ASSERT_TRUE(order_has_status(state, second, "accepted")) << state.at("strategy").dump();
+  EXPECT_TRUE(order_has_status(state, first, "cancelled"));
+  EXPECT_EQ(find_order(state, second).at("limit_price"), "3502");
+  EXPECT_EQ(state.at("strategy").at("orders"), Json::array({second}));
+  act(session, stop_strategy("stop"));
+  state =
+      wait_for(session, [&](const Json& s) { return order_has_status(s, second, "cancelled"); });
+  EXPECT_TRUE(order_has_status(state, second, "cancelled"));
+  EXPECT_TRUE(strategy_stopped(state));
+  EXPECT_EQ(long_position(state), Decimal{}) << "stopping cancels orders, never trades";
+}
+TEST_F(Live, StrategyContinuesIntoTheNextTradingDayAndClosesYesterdaysLot) {
+  FakeMarket market;
+  LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+  const auto day = ready(session).at("trading_day").get<std::string>();
+  act(session, authorize());
+  market.set(day, {"3500", "3501", "3501"});
+  act(session, market.start("run", "1"));
+  auto state =
+      wait_for(session, [](const Json& s) { return long_position(s) == Decimal::parse("1"); });
+  ASSERT_EQ(long_position(state), Decimal::parse("1")) << state.at("strategy").dump();
+  // The account enters the next trading day before the market's first bar of
+  // it: the run waits, and nobody authorizes or starts anything again.
+  exchange.call<void (*)(const char*)>("asterion_fake_trader_next_day", "20260929");
+  state = wait_for(session, [](const Json& s) {
+    return s.at("phase") == "ready" && s.at("trading_day") == "20260929";
+  });
+  ASSERT_EQ(state.at("trading_day"), "20260929");
+  EXPECT_EQ(state.at("strategy").at("state"), "running");
+  EXPECT_TRUE(state.at("orders").empty());
+  // The new day's first whole bar closes lower: the lot bought yesterday is closed.
+  market.set("20260929", {"3499", "3499"}, false, 10);
+  const auto sold = FakeMarket::order("run", 10, ".yesterday");
+  state = wait_for(session, [&](const Json& s) {
+    return order_has_status(s, sold, "filled") && long_position(s) == Decimal{};
+  });
+  ASSERT_TRUE(order_has_status(state, sold, "filled")) << state.at("strategy").dump();
+  EXPECT_EQ(find_order(state, sold).at("offset"), "close_yesterday");
+  EXPECT_EQ(state.at("strategy").at("state"), "running");
+}
+TEST_F(Live, StrategyRunEndsWithARevokeOrAFailedStepAndIsNeverRestored) {
+  FakeMarket market;
+  {
+    LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+    const auto day = ready(session).at("trading_day").get<std::string>();
+    act(session, authorize());
+    market.set(day, {"3500", "3501", "3501"});
+    act(session, market.start("resting", "3"));
+    const auto resting = FakeMarket::order("resting", 1);
+    wait_for(session, [&](const Json& s) { return order_has_status(s, resting, "accepted"); });
+    // A revoke ends the run and requests nothing: cancelling stays the owner's.
+    act(session, Json{{"request_id", "revoke"}, {"action", "live_revoke"}});
+    auto state = session.snapshot();
+    EXPECT_TRUE(strategy_stopped(state));
+    EXPECT_TRUE(order_has_status(state, resting, "accepted"));
+    act(session, authorize("again"));
+    EXPECT_THROW(act(session, market.start("blocked", "1")), Error)
+        << "a run starts without working orders";
+    act(session, Json{{"request_id", "cancel"}, {"action", "cancel"}, {"order_id", resting}});
+    wait_for(session, [&](const Json& s) { return order_has_status(s, resting, "cancelled"); });
+    // Six lots exceed the order limit: the step fails and the run ends.
+    act(session, market.start("refused", "6"));
+    state = wait_for(session, strategy_stopped);
+    ASSERT_TRUE(strategy_stopped(state));
+    EXPECT_NE(state.at("strategy").at("reason").get<std::string>().find("risk"), std::string::npos);
+    EXPECT_TRUE(find_order(state, FakeMarket::order("refused", 1)).is_null());
+    // So does an order the exchange refuses: the next bar does not try again.
+    exchange.call<void (*)(int)>("asterion_fake_trader_reject_inserts", 1);
+    act(session, market.start("unwanted", "1"));
+    state = wait_for(session, strategy_stopped);
+    exchange.call<void (*)(int)>("asterion_fake_trader_reject_inserts", 0);
+    EXPECT_NE(state.at("strategy").at("reason").get<std::string>().find("rejected a strategy"),
+              std::string::npos)
+        << state.at("strategy").dump();
+    EXPECT_EQ(long_position(state), Decimal{});
+    // Lost observations end the run as well; bars are never invented.
+    market.set(day, {"3500", "3501", "3501"}, true);
+    act(session, market.start("blind", "1"));
+    state = wait_for(session, strategy_stopped);
+    EXPECT_NE(state.at("strategy").at("reason").get<std::string>().find("interrupted"),
+              std::string::npos);
+    EXPECT_EQ(long_position(state), Decimal{});
+  }
+  LiveSession recovered(directory.path, ASTERION_TEST_CTP_TRADER, owners.path);
+  EXPECT_TRUE(recovered.snapshot().at("strategy").is_null());
 }
 TEST(LiveProtocol, SnapshotAndCommandsRoundTrip) {
   Json snapshot{
@@ -1214,7 +1468,21 @@ TEST(LiveProtocol, SnapshotAndCommandsRoundTrip) {
                                {"price", "3500"},
                                {"trading_day", "20260928"},
                                {"trade_time", "09:01:02"}}})},
-      {"authorization", {{"trading_day", "20260928"}, {"authorized_at_ms", 7}}},
+      {"authorization", {{"authorized_at_ms", 7}}},
+      {"strategy",
+       {{"id", "run"},
+        {"venue", "SHFE"},
+        {"symbol", "rb2610"},
+        {"fast", 5},
+        {"slow", 20},
+        {"quantity", "1"},
+        {"state", "running"},
+        {"reason", ""},
+        {"started_ms", 8},
+        {"bars", 21},
+        {"bar_ms", 1790000040000},
+        {"target", "1"},
+        {"orders", Json::array({"run.1790000040000"})}}},
       {"unconfirmed",
        Json::array({{{"id", "o2"}, {"broker_key", "1:2:4"}, {"trading_day", "20260928"}}})},
       {"costs", Json::array({{{"venue", "SHFE"},
@@ -1248,7 +1516,8 @@ TEST(LiveProtocol, SnapshotAndCommandsRoundTrip) {
   EXPECT_THROW(protocol::decode_live_snapshot(invalid_capacity), std::invalid_argument);
   for (const auto& command :
        {authorize(), Json{{"request_id", "r"}, {"action", "live_revoke"}},
-        Json{{"request_id", "s"}, {"action", "live_resolve"}, {"order_id", "o"}}})
+        Json{{"request_id", "s"}, {"action", "live_resolve"}, {"order_id", "o"}},
+        FakeMarket().start("run", "1"), stop_strategy("stop")})
     EXPECT_EQ(protocol::decode_command(protocol::encode_command(command)), command);
   auto wrong = snapshot;
   wrong["orders"][0]["status"] = "lost";
@@ -1262,21 +1531,28 @@ TEST(LiveProtocol, SnapshotAndCommandsRoundTrip) {
   EXPECT_THROW(protocol::encode_live_input(spaced), std::invalid_argument);
 }
 
-TEST_F(Live, AutomaticReconnectRequiresNewAuthorizationEvenOnTheSameTradingDay) {
+TEST_F(Live, AuthorizationOutlivesAReconnectAndEndsOnlyWhenRevoked) {
   LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
   ASSERT_EQ(ready(session).at("phase"), "ready");
   act(session, authorize());
   ctp::SharedLibrary reconnect(ASTERION_TEST_CTP_TRADER, "asterion_fake_trader_reconnect");
   reconnect.symbol<void (*)()>()();
-  ASSERT_TRUE(wait_for(session, [](const Json& s) { return s.at("authorization").is_null(); })
-                  .at("authorization")
-                  .is_null());
+  // Nothing is sent while the new connection synchronizes; the permission stays.
+  auto state = wait_for(session, [](const Json& s) { return s.at("phase") != "ready"; });
+  ASSERT_NE(state.at("phase"), "ready");
+  EXPECT_FALSE(state.at("authorization").is_null());
+  try {
+    act(session, submit("unsynchronized", "1"));
+    FAIL() << "an order was accepted before the new connection synchronized";
+  } catch (const Error& error) {
+    EXPECT_EQ(error.code(), ErrorCode::unavailable);
+  }
   ASSERT_EQ(wait_for(session, [](const Json& s) { return s.at("phase") == "ready"; }).at("phase"),
             "ready");
-  EXPECT_THROW(act(session, submit("old.authorization", "1")), std::invalid_argument);
-  EXPECT_TRUE(session.snapshot().at("orders").empty());
-  act(session, authorize("new.connection"));
-  EXPECT_NO_THROW(act(session, submit("new.authorization", "1")));
+  EXPECT_NO_THROW(act(session, submit("same.authorization", "1")));
+  act(session, Json{{"request_id", "revoke"}, {"action", "live_revoke"}});
+  EXPECT_TRUE(session.snapshot().at("authorization").is_null());
+  EXPECT_THROW(act(session, submit("revoked", "1")), std::invalid_argument);
 }
 
 TEST_F(Live, TradingDayRolloverRebuildsReportsAndRatesWithoutResending) {
@@ -1307,7 +1583,8 @@ TEST_F(Live, TradingDayRolloverRebuildsReportsAndRatesWithoutResending) {
     });
     ASSERT_EQ(state.at("trading_day"), day);
     ASSERT_EQ(state.at("phase"), "ready");
-    EXPECT_TRUE(state.at("authorization").is_null());
+    EXPECT_FALSE(state.at("authorization").is_null())
+        << "a new trading day asks for no new authorization";
     EXPECT_TRUE(state.at("orders").empty());
     EXPECT_TRUE(state.at("trades").empty());
     EXPECT_TRUE(state.at("costs").empty());
@@ -1318,11 +1595,9 @@ TEST_F(Live, TradingDayRolloverRebuildsReportsAndRatesWithoutResending) {
     ASSERT_EQ(state.at("positions").size(), 1U);
     EXPECT_EQ(state.at("positions")[0].at("today"), "0");
     EXPECT_EQ(state.at("positions")[0].at("yesterday"), std::to_string(index + 1));
-    EXPECT_THROW(act(session, submit("not.authorized", "1")), std::invalid_argument);
     act(session, submit("day0.filled", "1")); // historical request: acknowledge only
     EXPECT_TRUE(session.snapshot().at("orders").empty());
-    act(session, authorize("authorize." + std::to_string(++index)));
-    if (index == 1) {
+    if (++index == 1) {
       EXPECT_THROW(act(session, submit("still.unknown", "1")), std::invalid_argument);
       act(session, {{"request_id", "resolve.yesterday"},
                     {"action", "live_resolve"},

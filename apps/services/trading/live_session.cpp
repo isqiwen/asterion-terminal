@@ -1,6 +1,8 @@
 #include <asterion/kernel/logger.hpp>
 #include "live_account_state.hpp"
+#include "moving_average.hpp"
 #include <algorithm>
+#include <asterion/domain/account.hpp>
 #include <asterion/domain/futures.hpp>
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/durable_file.hpp>
@@ -16,8 +18,8 @@ namespace asterion::trading {
 namespace {
 // Record 0 carries this identity. Bump it whenever authorization, allowlist,
 // risk or order-recording semantics change; recovery refuses other identities.
-// v25: execution ownership follows the stable account record ID.
-const std::string journal_engine = "asterion.live-futures.v25";
+// v26: the authorization lasts until revoked; one strategy run may control the account.
+const std::string journal_engine = "asterion.live-futures.v26";
 constexpr int journal_format = 1;
 constexpr auto quote_validity = std::chrono::seconds(10);
 std::string text(const Json& value, const char* key) {
@@ -62,7 +64,7 @@ LiveAccountState::LiveAccountState(std::filesystem::path directory,
                                    const Json& create_manifest, AccountJournal::Post post,
                                    std::function<void()> broker_ready, BrokerSendGate& send_gate,
                                    Progress& persistence)
-    : directory_(directory), send_gate_(send_gate) {
+    : post_(post), directory_(directory), send_gate_(send_gate) {
   Json manifest;
   if (!create_manifest.is_null()) {
     manifest = protocol::decode_live_input(protocol::encode_live_input(create_manifest));
@@ -175,6 +177,8 @@ LiveAccountState::LiveAccountState(std::filesystem::path directory,
           intents_[submit->order.id] = {command.broker_key, command.trading_day,
                                         submit->order.instrument, submit->offset,
                                         submit->order.quantity};
+        // A strategy run is recorded and never restored: like the authorization
+        // it lives in, it ends with the process.
       });
   auto algorithm = create_manifest.is_null()
                        ? risk_providers::Module::pinned(directory / "plugins" / artifact, artifact)
@@ -196,6 +200,8 @@ LiveAccountState::LiveAccountState(std::filesystem::path directory,
   finish_initialization();
 }
 LiveAccountState::~LiveAccountState() {
+  // The host thread reports into this object.
+  run_.reset();
   if (trader_)
     trader_->disconnect();
 }
@@ -263,7 +269,6 @@ void LiveAccountState::connect(std::string password, std::string auth_code) {
     throw std::invalid_argument("live trading record needs recovery; reopen the session");
   if (password.empty() || auth_code.empty())
     throw std::invalid_argument("enter the CTP password and authentication code");
-  authorization_.reset();
   send_gate_.invalidate();
   trader_->connect(
       {trade_front_, broker_id_, investor_id_, std::move(password), app_id_, std::move(auth_code)});
@@ -275,7 +280,6 @@ void LiveAccountState::query_costs() {
   trader_->query_costs(contracts);
 }
 void LiveAccountState::disconnect() {
-  authorization_.reset();
   send_gate_.invalidate();
   trader_->disconnect();
 }
@@ -327,7 +331,7 @@ AccountCommand LiveAccountState::revise_policy(const AccountRequest& request,
       if (working(order.status))
         next->preserve_exposure(*policy_, order.instrument);
     trader_->disconnect_checked(state.connection_generation, state.exposure_revision);
-    authorization_.reset();
+    end_authorization();
     send_gate_.invalidate();
     co_await append(
         policy_entry(request, policy_->revision, next->revision, next->algorithm.artifact()));
@@ -346,7 +350,7 @@ void LiveAccountState::admit_revoke(std::string_view account_id, std::string_vie
     throw Error(ErrorCode::conflict,
                 "account policy changed; review the current revision before acting");
   // The entry point already closed permission. Only the owner changes authorization.
-  authorization_.reset();
+  end_authorization();
 }
 AccountCommand LiveAccountState::execute(std::string account_id, std::string policy_revision,
                                          AccountRequest request, std::uint64_t admitted_control) {
@@ -372,7 +376,7 @@ AccountCommand LiveAccountState::execute(std::string account_id, std::string pol
   if (policy_revision != policy_->revision)
     throw Error(ErrorCode::conflict,
                 "account policy changed; review the current revision before acting");
-  if ((request.as<Authorize>() || request.as<SubmitOrder>()) &&
+  if ((request.as<Authorize>() || request.as<SubmitOrder>() || request.as<StartStrategy>()) &&
       admitted_control != send_gate_.revision())
     throw Error(ErrorCode::conflict,
                 "account control changed after command admission; submit a new request");
@@ -384,14 +388,11 @@ AccountCommand LiveAccountState::execute(std::string account_id, std::string pol
     const auto state = trader_->snapshot();
     if (state.phase != BrokerPhase::ready || !identities_ready(state))
       throw Error(ErrorCode::unavailable, "connect and synchronize the account before authorizing");
-    Authorization authorization{state.trading_day, now_ms()};
+    Authorization authorization{now_ms()};
     co_await append(authorization_entry(request, policy_->revision, authorization));
-    if (admitted_control != send_gate_.revision() ||
-        state.connection_generation !=
-            observed([](const BrokerSnapshot& now) { return now.connection_generation; }))
+    if (admitted_control != send_gate_.revision())
       throw Error(ErrorCode::conflict, "account state changed before durable grant completed");
-    authorization_ = std::move(authorization);
-    authorization_generation_ = state.connection_generation;
+    authorization_ = authorization;
   } else if (request.as<Revoke>()) {
     co_await append(command_entry(request, policy_->revision));
   } else if (const auto* resolve = request.as<ResolveOrder>()) {
@@ -405,25 +406,260 @@ AccountCommand LiveAccountState::execute(std::string account_id, std::string pol
     co_await append(command_entry(request, policy_->revision));
     intents_.erase(resolve->order_id);
   } else if (const auto* order = request.as<SubmitOrder>()) {
+    if (running())
+      throw Error(ErrorCode::conflict,
+                  "a strategy controls this account; stop it before placing manual orders");
     co_await submit(request, *order, admitted_control);
-  } else {
-    const auto& order_id = std::get<CancelOrder>(request.operation).order_id;
-    if (!observed([&](const BrokerSnapshot& state) { return identities_ready(state); }))
-      throw Error(ErrorCode::unavailable, "account identity reconciliation is not complete");
-    if (!intents_.contains(order_id))
-      throw Error(ErrorCode::conflict, "order is not active in this account");
+  } else if (const auto* start = request.as<StartStrategy>()) {
+    co_await start_strategy(request, *start, admitted_control);
+  } else if (request.as<StopStrategy>()) {
+    if (!run_)
+      throw Error(ErrorCode::conflict, "no strategy has run on this account");
     co_await append(command_entry(request, policy_->revision));
+    if (running())
+      end_run("stopped by the account owner", false);
+    // Whatever ended the run, its owner asks for the run's orders to be cancelled.
+    run_->cancel_due = false;
+    std::erase_if(run_->orders, [&](const auto& order) { return !intents_.contains(order.first); });
+    co_await cancel_run_orders();
+  } else {
+    co_await cancel(request, std::get<CancelOrder>(request.operation).order_id);
+  }
+}
+AccountCommand LiveAccountState::cancel(const AccountRequest& request,
+                                        const std::string& order_id) {
+  if (!observed([&](const BrokerSnapshot& state) { return identities_ready(state); }))
+    throw Error(ErrorCode::unavailable, "account identity reconciliation is not complete");
+  if (!intents_.contains(order_id))
+    throw Error(ErrorCode::conflict, "order is not active in this account");
+  co_await append(command_entry(request, policy_->revision));
+  std::exception_ptr failure;
+  try {
+    const auto result = co_await wait_sdk(trader_->cancel(order_id));
+    if (!result.invoked || result.code)
+      throw Error(ErrorCode::operation_failed,
+                  "CTP cancel request failed with code " + std::to_string(result.code));
+  } catch (...) {
+    failure = std::current_exception();
+  }
+  // SDK acceptance is not exchange cancellation. Broker reports own status.
+  co_await append(entry(CancelResult{request.id, !failure}));
+  if (failure)
+    std::rethrow_exception(failure);
+}
+void LiveAccountState::end_authorization() {
+  authorization_.reset();
+  if (running())
+    end_run("the account authorization ended", false);
+}
+// The run gives up the account. Nothing it began may still be sent; its orders
+// at the broker stay until a cancel is requested for them.
+void LiveAccountState::end_run(std::string reason, bool cancel) {
+  send_gate_.invalidate();
+  run_->host.reset();
+  run_->ended = std::move(reason);
+  run_->cancel_due = cancel;
+  log_identity_event("trading", "strategy.ended",
+                     {{"account_id", account_id_}, {"run_id", run_->id}});
+}
+AccountCommand LiveAccountState::start_strategy(const AccountRequest& request,
+                                                const StartStrategy& start, std::uint64_t control) {
+  if (running())
+    throw Error(ErrorCode::conflict, "a strategy already controls this account");
+  const auto& terms = allowed(start.instrument);
+  const auto state = trader_->snapshot();
+  if (!authorization_)
+    throw std::invalid_argument("authorize live trading for this account first");
+  if (!authorized(state))
+    throw Error(ErrorCode::unavailable,
+                "connect and synchronize the account before sending orders");
+  if (!state.positions_reconciled || !unconfirmed(state).empty() ||
+      std::ranges::any_of(state.orders,
+                          [](const BrokerOrder& order) { return working(order.status); }))
+    throw Error(ErrorCode::conflict,
+                "a strategy starts on a reconciled account without working orders");
+  if (std::ranges::any_of(state.positions, [&](const BrokerPosition& position) {
+        return position.instrument == start.instrument && position.side == Side::sell &&
+               position.today + position.yesterday > Decimal{};
+      }))
+    throw Error(ErrorCode::conflict, "a long/flat strategy cannot start on a short position");
+  // Parameters the strategy rejects are refused before anything is recorded.
+  static_cast<void>(MovingAverage(terms, start.fast, start.slow, start.quantity));
+  co_await append(command_entry(request, policy_->revision));
+  if (control != send_gate_.revision() || !authorization_)
+    throw Error(ErrorCode::conflict, "account state changed before the strategy started");
+  run_.emplace();
+  run_->id = request.id;
+  run_->instrument = terms;
+  run_->fast = start.fast;
+  run_->slow = start.slow;
+  run_->quantity = start.quantity;
+  run_->started_ms = now_ms();
+  try {
+    run_->host = std::make_unique<StrategyHost>(
+        StrategyHost::Definition{start.market_endpoint, start.market_service, terms, start.fast,
+                                 start.slow, start.quantity},
+        [this, post = post_, run = request.id](auto event) {
+          post([this, run, event = std::move(event)] { report(run, event); });
+        });
+  } catch (...) {
+    run_.reset();
+    throw;
+  }
+  log_identity_event("trading", "strategy.started",
+                     {{"account_id", account_id_}, {"run_id", run_->id}});
+}
+void LiveAccountState::report(const std::string& run,
+                              const std::variant<StrategyHost::Bar, StrategyHost::Failure>& event) {
+  if (!running() || run_->id != run)
+    return;
+  if (const auto* failure = std::get_if<StrategyHost::Failure>(&event)) {
+    end_run(failure->reason, true);
+    return;
+  }
+  ++run_->bars;
+  run_->bar = std::get<StrategyHost::Bar>(event);
+}
+bool LiveAccountState::strategy_work_pending() const {
+  if (!run_ || failed_)
+    return false;
+  if (!running())
+    return run_->cancel_due;
+  if (!run_->bar || !run_->bar->target || run_->bar->start_ms == run_->placed_bar)
+    return false;
+  // The run waits while the account is not connected and synchronized, and
+  // acts only on a bar of the trading day the account is in.
+  const auto [ready, reconciled] = observed([&](const BrokerSnapshot& state) {
+    return std::pair{authorized(state) && state.trading_day == run_->bar->trading_day,
+                     state.positions_reconciled};
+  });
+  if (!ready)
+    return false;
+  // The previous target's orders leave first; the new one follows their retirement.
+  bool live = false;
+  for (const auto& [id, requested] : run_->orders)
+    if (intents_.contains(id)) {
+      if (!requested)
+        return true;
+      live = true;
+    }
+  return !live && reconciled;
+}
+// One bounded step of the run. A step that fails ends the run: the strategy
+// does not retry, and what it left at the broker is asked to be cancelled.
+AccountCommand LiveAccountState::advance_strategy(std::uint64_t control) {
+  auto& run = *run_;
+  std::erase_if(run.orders, [&](const auto& order) { return !intents_.contains(order.first); });
+  std::string failure;
+  try {
+    if (!running()) {
+      run.cancel_due = false;
+      co_await cancel_run_orders();
+    } else if (!run.orders.empty()) {
+      // An order of the run that the synchronized broker does not report, for
+      // example after a reconnect or a new trading day, is the owner's to
+      // verify: the run neither cancels nor replaces what it cannot see.
+      bool unknown = false;
+      for (const auto& missing :
+           observed([&](const BrokerSnapshot& state) { return unconfirmed(state); }))
+        if (const auto order = run.orders.find(missing.first); order != run.orders.end())
+          unknown = order->second = true;
+      if (unknown)
+        throw Error(
+            ErrorCode::conflict,
+            "a strategy order is unconfirmed at the broker; verify it before starting again");
+      co_await cancel_run_orders();
+    } else
+      co_await place_target(control);
+  } catch (const std::exception& error) {
+    failure = error.what();
+  }
+  if (failure.empty())
+    co_return;
+  if (running())
+    end_run(std::move(failure), true);
+  else
+    run.ended += "; " + failure;
+}
+AccountCommand LiveAccountState::cancel_run_orders() {
+  std::vector<std::string> due;
+  for (auto& [id, requested] : run_->orders)
+    if (!requested && intents_.contains(id)) {
+      requested = true;
+      due.push_back(id);
+    }
+  std::exception_ptr failure;
+  for (const auto& id : due) {
+    const auto request = AccountRequest::parse(
+        {{"request_id", "cancel." + id}, {"action", "cancel"}, {"order_id", id}});
+    try {
+      co_await cancel(request, id);
+    } catch (...) {
+      if (!failure)
+        failure = std::current_exception();
+    }
+  }
+  if (failure)
+    std::rethrow_exception(failure);
+}
+// Moves the contract's long position to the target with limit orders at the
+// deciding bar's close, as the backtest does. Each order takes the same path
+// as a manual one: authorization, allowlist, broker quote, risk, record, send.
+AccountCommand LiveAccountState::place_target(std::uint64_t control) {
+  auto& run = *run_;
+  const auto bar = *run.bar;
+  const auto& id = run.instrument.id;
+  const auto [today, yesterday, opposite] = observed([&](const BrokerSnapshot& state) {
+    std::tuple<Decimal, Decimal, bool> held;
+    for (const auto& position : state.positions) {
+      if (position.instrument != id)
+        continue;
+      if (position.side == Side::sell)
+        std::get<2>(held) = position.today + position.yesterday > Decimal{};
+      else
+        held = {position.today, position.yesterday, std::get<2>(held)};
+    }
+    return held;
+  });
+  if (opposite)
+    throw std::invalid_argument("a long/flat strategy found a short position");
+  // Each bar's target is acted on once, whatever becomes of its orders.
+  run.placed_bar = bar.start_ms;
+  const auto current = today + yesterday;
+  const auto target = *bar.target;
+  std::vector<std::tuple<std::string, Side, Offset, Decimal>> orders;
+  if (target > current)
+    orders.emplace_back("", Side::buy, Offset::open, target - current);
+  else if (target < current && close_policy(id.venue) != ClosePolicy::explicit_buckets)
+    orders.emplace_back("", Side::sell, Offset::close, current - target);
+  else if (target < current) {
+    // Explicit-bucket venues: yesterday's lots first, then today's.
+    const auto old = std::min(current - target, yesterday);
+    if (old > Decimal{})
+      orders.emplace_back(".yesterday", Side::sell, Offset::close_yesterday, old);
+    if (current - target > old)
+      orders.emplace_back(".today", Side::sell, Offset::close_today, current - target - old);
+  }
+  for (const auto& [suffix, side, offset, quantity] : orders) {
+    const auto order_id = run.id + "." + std::to_string(bar.start_ms) + suffix;
+    const auto request = AccountRequest::parse({{"request_id", order_id},
+                                                {"action", "submit"},
+                                                {"order_id", order_id},
+                                                {"venue", id.venue},
+                                                {"symbol", id.symbol},
+                                                {"side", side_name(side)},
+                                                {"offset", offset_name(offset)},
+                                                {"quantity", quantity.str()},
+                                                {"price", bar.close.str()}});
     std::exception_ptr failure;
     try {
-      const auto result = co_await wait_sdk(trader_->cancel(order_id));
-      if (!result.invoked || result.code)
-        throw Error(ErrorCode::operation_failed,
-                    "CTP cancel request failed with code " + std::to_string(result.code));
+      co_await submit(request, *request.as<SubmitOrder>(), control);
     } catch (...) {
       failure = std::current_exception();
     }
-    // SDK acceptance is not exchange cancellation. Broker reports own status.
-    co_await append(entry(CancelResult{request.id, !failure}));
+    // Recorded and not positively unsent: the order may be at the broker.
+    if (intents_.contains(order_id))
+      run.orders.emplace(order_id, false);
     if (failure)
       std::rethrow_exception(failure);
   }
@@ -469,11 +705,14 @@ AccountCommand LiveAccountState::submit(const AccountRequest& request,
   }
   if (known)
     throw Error(ErrorCode::conflict, "order ID was already used");
+  if (!authorization_)
+    throw std::invalid_argument("authorize live trading for this account first");
   const auto [permitted, reconciled] = observed([&](const BrokerSnapshot& state) {
     return std::pair{authorized(state), state.positions_reconciled};
   });
   if (!permitted)
-    throw std::invalid_argument("authorize live trading for this account first");
+    throw Error(ErrorCode::unavailable,
+                "connect and synchronize the account before sending orders");
   const auto& terms = allowed(id);
   if (offset == Offset::open && !reconciled)
     throw Error(ErrorCode::unavailable,
@@ -519,8 +758,8 @@ AccountCommand LiveAccountState::submit(const AccountRequest& request,
                                 std::string(risk_reason_name(decision.reason)));
   // The order is recorded durably before the trader sends anything.
   const auto deadline = quote->completed_at + quote_validity;
-  auto prepared =
-      trader_->prepare(order, offset, authorization_generation_, state.exposure_revision, deadline);
+  auto prepared = trader_->prepare(order, offset, state.connection_generation,
+                                   state.exposure_revision, deadline);
   const auto& prepared_order = prepared->order();
   trader_->observe([&](const BrokerSnapshot& now) { check_price(order, quote, now); });
   co_await append(
@@ -587,6 +826,15 @@ void LiveAccountState::poll_broker() {
         intent->second.terminal = order;
     }
   });
+  if (running() && failed_)
+    end_run("the trading record needs recovery; the strategy stopped", false);
+  // The broker refusing an order is a failed step: the run does not try again.
+  if (running() && std::ranges::any_of(run_->orders, [&](const auto& order) {
+        const auto intent = intents_.find(order.first);
+        return intent != intents_.end() && intent->second.terminal &&
+               intent->second.terminal->status == BrokerOrderStatus::rejected;
+      }))
+    end_run("the broker rejected a strategy order", true);
 }
 void LiveAccountState::check_terminal(const TerminalOrder& order, const Intent& intent) {
   const bool final = order.status == BrokerOrderStatus::filled ||
@@ -657,9 +905,7 @@ bool LiveAccountState::identities_ready(const BrokerSnapshot& state) const {
          attribution_.day == state.trading_day;
 }
 bool LiveAccountState::authorized(const BrokerSnapshot& state) const {
-  return authorization_ && state.phase == BrokerPhase::ready && identities_ready(state) &&
-         authorization_generation_ == state.connection_generation &&
-         authorization_->trading_day == state.trading_day;
+  return authorization_ && !failed_ && state.phase == BrokerPhase::ready && identities_ready(state);
 }
 Json LiveAccountState::snapshot() const {
   const auto state = trader_->snapshot();
@@ -689,7 +935,8 @@ Json LiveAccountState::snapshot() const {
       {"positions", Json::array()},
       {"orders", Json::array()},
       {"trades", Json::array()},
-      {"authorization", authorized(state) ? authorization_->json() : Json(nullptr)},
+      {"authorization", authorization_ && !failed_ ? authorization_->json() : Json(nullptr)},
+      {"strategy", nullptr},
       {"unconfirmed", Json::array()},
       {"costs", Json::array()},
       {"storage_state", failed_ ? "recovery_required" : "ready"},
@@ -698,6 +945,26 @@ Json LiveAccountState::snapshot() const {
         {"records_limit", capacity.records_limit},
         {"bytes_used", capacity.bytes_used},
         {"bytes_limit", capacity.bytes_limit}}}};
+  if (run_) {
+    Json orders = Json::array();
+    for (const auto& order : run_->orders)
+      if (intents_.contains(order.first))
+        orders.push_back(order.first);
+    result["strategy"] = {
+        {"id", run_->id},
+        {"venue", run_->instrument.id.venue},
+        {"symbol", run_->instrument.id.symbol},
+        {"fast", run_->fast},
+        {"slow", run_->slow},
+        {"quantity", run_->quantity.str()},
+        {"state", running() ? "running" : "stopped"},
+        {"reason", run_->ended},
+        {"started_ms", run_->started_ms},
+        {"bars", run_->bars},
+        {"bar_ms", run_->bar ? run_->bar->start_ms : 0},
+        {"target", run_->bar && run_->bar->target ? Json(run_->bar->target->str()) : Json(nullptr)},
+        {"orders", std::move(orders)}};
+  }
   for (const auto& c : state.costs) {
     Json costs = nullptr;
     if (c.costs)

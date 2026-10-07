@@ -155,9 +155,9 @@ add_executable(asterion-market-data apps/services/market-data/main.cpp apps/serv
 target_link_libraries(asterion-market-data PRIVATE asterion_ctp asterion_protocol CLI11::CLI11)
 
 
-add_library(asterion_trading_session STATIC apps/services/trading/live_session.cpp apps/services/trading/account_loop.cpp apps/services/trading/account_journal.cpp apps/services/trading/account_policy.cpp apps/services/trading/account_records.cpp)
+add_library(asterion_trading_session STATIC apps/services/trading/live_session.cpp apps/services/trading/account_loop.cpp apps/services/trading/account_journal.cpp apps/services/trading/account_policy.cpp apps/services/trading/account_records.cpp apps/services/trading/strategy_host.cpp)
 target_include_directories(asterion_trading_session PUBLIC apps/services/trading)
-target_link_libraries(asterion_trading_session PUBLIC asterion_risk_providers asterion_sqlite asterion_protocol asterion_ctp_trader)
+target_link_libraries(asterion_trading_session PUBLIC asterion_risk_providers asterion_sqlite asterion_protocol asterion_ctp_trader asterion_sma)
 add_executable(asterion-trading apps/services/trading/main.cpp)
 target_link_libraries(asterion-trading PRIVATE asterion_trading_session asterion_protocol CLI11::CLI11)
 

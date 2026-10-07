@@ -322,6 +322,21 @@ v1::Command encode_command(const Json& c) {
   } else if (action == "live_resolve") {
     require_fields(c, {"request_id", "action", "order_id"});
     result.mutable_live_resolve()->set_order_id(c.at("order_id").get<std::string>());
+  } else if (action == "strategy_start") {
+    require_fields(c, {"request_id", "action", "venue", "symbol", "fast", "slow", "quantity",
+                       "market_endpoint", "market_service"});
+    auto* start = result.mutable_strategy_start();
+    start->set_venue(c.at("venue").get<std::string>());
+    start->set_symbol(c.at("symbol").get<std::string>());
+    InstrumentId{start->venue(), start->symbol()}.validate();
+    start->set_fast(c.at("fast").get<std::uint32_t>());
+    start->set_slow(c.at("slow").get<std::uint32_t>());
+    set(start->mutable_quantity(), c.at("quantity"));
+    start->set_market_endpoint(c.at("market_endpoint").get<std::string>());
+    start->set_market_service(c.at("market_service").get<std::string>());
+  } else if (action == "strategy_stop") {
+    require_fields(c, {"request_id", "action"});
+    result.mutable_strategy_stop();
   } else
     throw std::invalid_argument("unsupported trading operation");
   return result;
@@ -358,6 +373,20 @@ Json decode_command(const v1::Command& c) {
     break;
   case v1::Command::kLiveResolve:
     result.update({{"action", "live_resolve"}, {"order_id", c.live_resolve().order_id()}});
+    break;
+  case v1::Command::kStrategyStart: {
+    const auto& start = c.strategy_start();
+    result.update({{"action", "strategy_start"},
+                   {"fast", start.fast()},
+                   {"slow", start.slow()},
+                   {"quantity", get(start.quantity())},
+                   {"market_endpoint", start.market_endpoint()},
+                   {"market_service", start.market_service()}});
+    result.update(instrument_fields(start.venue(), start.symbol()));
+    break;
+  }
+  case v1::Command::kStrategyStop:
+    result["action"] = "strategy_stop";
     break;
   default:
     throw std::invalid_argument("missing trading operation");
@@ -677,9 +706,27 @@ v1::LiveSnapshot encode_live_snapshot(const Json& s) {
   }
   if (!s.at("authorization").is_null()) {
     const auto& a = s.at("authorization");
-    result.mutable_authorization()->set_trading_day(a.at("trading_day"));
     result.mutable_authorization()->set_authorized_at_ms(
         a.at("authorized_at_ms").get<std::int64_t>());
+  }
+  if (!s.at("strategy").is_null()) {
+    const auto& run = s.at("strategy");
+    auto* item = result.mutable_strategy();
+    item->set_id(run.at("id"));
+    item->set_venue(run.at("venue"));
+    item->set_symbol(run.at("symbol"));
+    item->set_fast(run.at("fast"));
+    item->set_slow(run.at("slow"));
+    set(item->mutable_quantity(), run.at("quantity"));
+    item->set_state(run.at("state"));
+    item->set_reason(run.at("reason"));
+    item->set_started_ms(run.at("started_ms"));
+    item->set_bars(run.at("bars"));
+    item->set_bar_ms(run.at("bar_ms"));
+    if (!run.at("target").is_null())
+      set(item->mutable_target(), run.at("target"));
+    for (const auto& order : run.at("orders"))
+      item->add_orders(order);
   }
   for (const auto& u : s.at("unconfirmed")) {
     auto* item = result.add_unconfirmed();
@@ -746,6 +793,7 @@ Json decode_live_snapshot(const v1::LiveSnapshot& s) {
               {"orders", Json::array()},
               {"trades", Json::array()},
               {"authorization", nullptr},
+              {"strategy", nullptr},
               {"unconfirmed", Json::array()},
               {"costs", Json::array()},
               {"storage_state", s.recovery_required() ? "recovery_required" : "ready"},
@@ -807,8 +855,27 @@ Json decode_live_snapshot(const v1::LiveSnapshot& s) {
     result["trades"].push_back(std::move(item));
   }
   if (s.has_authorization())
-    result["authorization"] = {{"trading_day", s.authorization().trading_day()},
-                               {"authorized_at_ms", s.authorization().authorized_at_ms()}};
+    result["authorization"] = {{"authorized_at_ms", s.authorization().authorized_at_ms()}};
+  if (s.has_strategy()) {
+    const auto& run = s.strategy();
+    if (run.state() != "running" && run.state() != "stopped")
+      throw std::invalid_argument("invalid strategy run state");
+    auto item = instrument_fields(run.venue(), run.symbol());
+    item.update({{"id", run.id()},
+                 {"fast", run.fast()},
+                 {"slow", run.slow()},
+                 {"quantity", get(run.quantity())},
+                 {"state", run.state()},
+                 {"reason", run.reason()},
+                 {"started_ms", run.started_ms()},
+                 {"bars", run.bars()},
+                 {"bar_ms", run.bar_ms()},
+                 {"target", run.has_target() ? Json(get(run.target())) : Json(nullptr)},
+                 {"orders", Json::array()}});
+    for (const auto& order : run.orders())
+      item["orders"].push_back(order);
+    result["strategy"] = std::move(item);
+  }
   for (const auto& u : s.unconfirmed())
     result["unconfirmed"].push_back(
         {{"id", u.id()}, {"broker_key", u.broker_key()}, {"trading_day", u.trading_day()}});

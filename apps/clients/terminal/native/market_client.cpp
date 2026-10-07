@@ -240,6 +240,9 @@ struct MarketClient::Impl : std::enable_shared_from_this<Impl> {
     return out;
   }
 };
+ServiceEndpoint MarketClient::endpoint() const {
+  return impl_->endpoint;
+}
 MarketClient::MarketClient(ServiceIo& io, ServiceEndpoint endpoint)
     : impl_(std::make_shared<Impl>(io, std::move(endpoint))) {}
 std::future<std::shared_ptr<MarketClient>> MarketClient::open(ServiceIo& io,

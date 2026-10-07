@@ -129,6 +129,23 @@ AccountRequest AccountRequest::parse(const Json& command) {
   } else if (action == "live_policy") {
     require_fields(command, {"request_id", "action", "policy", "risk_artifact"});
     result.operation = ChangePolicy{command.at("policy"), text(command, "risk_artifact")};
+  } else if (action == "strategy_start") {
+    require_fields(command, {"request_id", "action", "venue", "symbol", "fast", "slow", "quantity",
+                             "market_endpoint", "market_service"});
+    // Order IDs derived from the run stay within the identity length.
+    if (result.id.size() > 64)
+      throw std::invalid_argument("strategy run identity is too long");
+    auto service = text(command, "market_service");
+    validate_id(service);
+    result.operation = StartStrategy{{text(command, "venue"), text(command, "symbol")},
+                                     command.at("fast").get<std::uint32_t>(),
+                                     command.at("slow").get<std::uint32_t>(),
+                                     Decimal::parse(text(command, "quantity")),
+                                     text(command, "market_endpoint"),
+                                     std::move(service)};
+  } else if (action == "strategy_stop") {
+    require_fields(command, {"request_id", "action"});
+    result.operation = StopStrategy{};
   } else
     throw std::invalid_argument("unsupported live trading operation");
   result.command = command;
@@ -142,6 +159,8 @@ std::string_view AccountRequest::action() const noexcept {
     std::string_view operator()(const Revoke&) const { return "live_revoke"; }
     std::string_view operator()(const ResolveOrder&) const { return "live_resolve"; }
     std::string_view operator()(const ChangePolicy&) const { return "live_policy"; }
+    std::string_view operator()(const StartStrategy&) const { return "strategy_start"; }
+    std::string_view operator()(const StopStrategy&) const { return "strategy_stop"; }
   };
   return std::visit(Name{}, operation);
 }
@@ -155,7 +174,7 @@ std::string_view AccountRequest::order_id() const noexcept {
   return {};
 }
 Json Authorization::json() const {
-  return {{"trading_day", trading_day}, {"authorized_at_ms", authorized_at_ms}};
+  return {{"authorized_at_ms", authorized_at_ms}};
 }
 JournalRecord parse_record(const Json& record) {
   if (record.is_object() && record.contains("orders_terminal")) {

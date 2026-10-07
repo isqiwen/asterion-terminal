@@ -38,7 +38,7 @@ function liveSummary(snapshot: Snapshot | null) {
     other = 0;
   for (const { session, connection } of entries) {
     if (connection.state !== "connected" || session?.phase !== "ready") other++;
-    else if (session.authorization?.trading_day === session.trading_day) authorized++;
+    else if (session.authorization) authorized++;
     else ready++;
   }
   return t("CTP：{authorized} 个已授权 · {ready} 个只读 · {other} 个未就绪", {

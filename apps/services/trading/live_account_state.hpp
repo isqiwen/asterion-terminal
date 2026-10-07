@@ -4,6 +4,7 @@
 #include "account_journal.hpp"
 #include "account_command.hpp"
 #include "account_records.hpp"
+#include "strategy_host.hpp"
 #include <asterion/kernel/progress.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
 #include <map>
@@ -15,7 +16,8 @@ namespace asterion::trading {
 // authorization, the contract allowlist and exchange units, the pinned
 // pre-trade risk plugin, and a durable record of every order before it is
 // sent. Orders are never resent: after a crash or disconnect the recorded
-// broker keys only attribute broker reports.
+// broker keys only attribute broker reports. The authorization and a strategy
+// run outlive a connection; what was recorded for sending never does.
 class LiveAccountState {
 public:
   // create_manifest absent means recover an existing session without rewriting it.
@@ -41,6 +43,11 @@ public:
     return !parked_ && sdk_waits_.size() == 1 && sdk_waits_.back().yields;
   }
   bool holds_intent(const std::string& order_id) const { return intents_.contains(order_id); }
+  // The run owes a step: cancel requests for its orders, or the order that
+  // moves the contract's position to the latest target.
+  bool strategy_work_pending() const;
+  AccountCommand advance_strategy(std::uint64_t control);
+  std::string_view strategy_run() const { return run_ ? std::string_view(run_->id) : ""; }
   // Keeps the yielding command suspended, whatever its quote does, until unpark().
   void park() { parked_ = sdk_waits_.size(); }
   void unpark() { parked_ = 0; }
@@ -110,6 +117,39 @@ private:
   const Instrument& allowed(const InstrumentId& id) const;
   AccountCommand submit(const AccountRequest& request, const SubmitOrder& submission,
                         std::uint64_t control);
+  AccountCommand cancel(const AccountRequest& request, const std::string& order_id);
+  // One strategy run: the only originator of new orders while it runs. It
+  // lives inside the authorization, continues across connections and trading
+  // days, and is never restored. An ended run stays for display until the
+  // next one starts.
+  struct Run {
+    std::string id;
+    Instrument instrument;
+    std::uint32_t fast = 0, slow = 0;
+    Decimal quantity;
+    std::int64_t started_ms = 0;
+    std::unique_ptr<StrategyHost> host;
+    std::uint64_t bars = 0;
+    std::optional<StrategyHost::Bar> bar;
+    // The bar whose target already produced its orders.
+    std::int64_t placed_bar = 0;
+    // Recorded orders of this run that are not retired, and whether a cancel
+    // was requested for each. Pruned only between steps.
+    std::map<std::string, bool> orders;
+    // Empty while running.
+    std::string ended;
+    bool cancel_due = false;
+  };
+  std::optional<Run> run_;
+  bool running() const { return run_ && run_->ended.empty(); }
+  AccountCommand start_strategy(const AccountRequest& request, const StartStrategy& start,
+                                std::uint64_t control);
+  void end_run(std::string reason, bool cancel);
+  void end_authorization();
+  void report(const std::string& run,
+              const std::variant<StrategyHost::Bar, StrategyHost::Failure>& event);
+  AccountCommand place_target(std::uint64_t control);
+  AccountCommand cancel_run_orders();
   void check_account(std::string_view account_id) const;
   void check_price(const LimitOrder& order, const std::optional<BrokerQuote>& quote,
                    const BrokerSnapshot& state) const;
@@ -123,6 +163,8 @@ private:
   }
   // Declared first: ownership outlives the SDK, risk plugin and journal.
   std::unique_ptr<FileLock> account_owner_;
+  // Delivers a completion to the account loop from another thread.
+  AccountJournal::Post post_;
   std::unique_ptr<AccountJournal> journal_;
   SqliteJournal::Capacity capacity_{};
   std::filesystem::path directory_;
@@ -134,9 +176,9 @@ private:
   Json header_;
   // Order ID -> what was recorded before sending it.
   std::map<std::string, Intent> intents_;
-  // Valid for this connection and its trading day; never restored.
+  // Lasts across connections and trading days; never restored.
   std::optional<Authorization> authorization_;
-  std::uint64_t authorization_generation_ = 0;
+  // Authorized, and connected to a synchronized broker: orders may be sent.
   bool authorized(const BrokerSnapshot& state) const;
   bool identities_ready(const BrokerSnapshot& state) const;
   bool failed_ = false;

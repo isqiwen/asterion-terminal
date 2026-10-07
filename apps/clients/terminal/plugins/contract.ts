@@ -14,7 +14,7 @@ export {
   type ContractCostDrafts,
 } from "../src/ui/CostTemplate";
 import type { DisplayError } from "../src/i18n/errors";
-export { BackendError, ErrorNotice, asDisplayError } from "../src/i18n/errors";
+export { BackendError, ErrorNotice, asDisplayError, diagnosticSummary } from "../src/i18n/errors";
 export type { DisplayError } from "../src/i18n/errors";
 import type { LanguageResources } from "../src/i18n";
 export { translate, getLocale } from "../src/i18n";

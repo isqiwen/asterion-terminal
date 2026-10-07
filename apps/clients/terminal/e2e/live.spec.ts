@@ -110,8 +110,29 @@ test("live CTP session connects, authorizes and trades through the execution cha
     await panel.screenshot({ path: join(__dirname, "../test-results/live-authorize.png") });
     await panel.getByLabel("我确认使用账户 000001 向上方柜台发送委托", { exact: true }).check();
     await authorize.click();
-    await expect(panel.getByText("已授权 · 交易日 20260928", { exact: true })).toBeVisible();
-    await checked("current trading day authorized");
+    await expect(panel.getByText("已授权", { exact: true })).toBeVisible();
+    await checked("account authorized");
+
+    // The authorized account can hand its orders to a strategy run instead.
+    // This market service observes nothing, so the run ends at once, says why
+    // and returns the account to its owner; it never invents bars.
+    await panel.getByRole("button", { name: "策略运行", exact: true }).click();
+    await expect(order).toHaveCount(0);
+    const strategy = panel.getByRole("form", { name: "启动策略" });
+    await strategy.getByLabel("快线周期", { exact: true }).fill("1");
+    await strategy.getByLabel("慢线周期", { exact: true }).fill("2");
+    await strategy.getByRole("button", { name: "启动策略", exact: true }).click();
+    await expect(strategy.getByTestId("strategy-ended")).toContainText(
+      "行情服务还没有该合约的行情",
+      { timeout: 15000 },
+    );
+    const ended = await checked("strategy run ended without market observations");
+    expect(ended.live["live-account"].session!.strategy).toMatchObject({
+      state: "stopped",
+      symbol: "rb2610",
+      orders: [],
+    });
+    await panel.getByRole("button", { name: "手动下单", exact: true }).click();
 
     await order.getByLabel("委托手数", { exact: true }).fill("1");
     await order.getByLabel("限价", { exact: true }).fill("3500.3");

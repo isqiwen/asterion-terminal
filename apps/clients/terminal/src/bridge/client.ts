@@ -208,8 +208,25 @@ export type LiveSession = {
     trading_day: string;
     trade_time: string;
   }[];
-  // Valid for the current connection and trading day.
-  authorization: null | { trading_day: string; authorized_at_ms: number };
+  // Lasts until revoked, a policy change or a service restart.
+  authorization: null | { authorized_at_ms: number };
+  // The current or last strategy run; while running it alone places orders.
+  // It continues across connections and trading days.
+  strategy: null | {
+    id: string;
+    venue: string;
+    symbol: string;
+    fast: number;
+    slow: number;
+    quantity: string;
+    state: "running" | "stopped";
+    reason: string;
+    started_ms: number;
+    bars: number;
+    bar_ms: number;
+    target: string | null;
+    orders: string[];
+  };
   // Recorded orders the broker does not report; never resent.
   unconfirmed: { id: string; broker_key: string; trading_day: string }[];
   // The account's rates from the broker; costs only when ready.
@@ -307,6 +324,7 @@ export type TerminalCommand =
   | "live.disconnect"
   | "live.costs"
   | "live.act"
+  | "live.strategy.start"
   | "live.close"
   | "node.bootstrap"
   | "node.connect"

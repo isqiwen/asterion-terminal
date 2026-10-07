@@ -19,6 +19,7 @@ public:
   // Current trading-day minute bars observed by the market service.
   [[nodiscard]] std::future<Json> minutes(const std::string& venue, const std::string& symbol);
   [[nodiscard]] std::future<Json> snapshot() const;
+  ServiceEndpoint endpoint() const;
 
 private:
   friend class Application;

@@ -1,5 +1,6 @@
 import { AccountPolicyEditor } from "./AccountPolicyEditor";
 import { ActivityTabs, type Activity } from "./ActivityTabs";
+import { StrategyStart, StrategyStatus } from "./StrategyRun";
 import { FlowSteps } from "../../src/ui/FlowSteps";
 import { useState } from "react";
 import {
@@ -71,7 +72,7 @@ export function LivePanel(context: TerminalContext) {
     const session = snapshot?.live[item.id]?.session;
     if (!session) return item.trading_record ? "服务未启动" : "未开通交易";
     if (session.phase !== "ready") return phases[session.phase];
-    return session.authorization?.trading_day === session.trading_day ? "已允许发送委托" : "已就绪";
+    return session.authorization ? "已允许发送委托" : "已就绪";
   };
   const entry = account ? snapshot?.live[account.id] : undefined;
   return (
@@ -459,7 +460,7 @@ function LiveAccount({
   });
   const ready = live.phase === "ready";
   const stale = live.storage_state === "recovery_required" || connection.state === "disconnected";
-  const authorized = !!live.authorization && live.authorization.trading_day === live.trading_day;
+  const authorized = !!live.authorization;
   const traded = live.contracts.find(item => key(item) === order.contract) ?? live.contracts[0];
   const explicitBuckets = explicitCloseBuckets(snapshot, traded?.venue ?? "");
   const offset =
@@ -545,6 +546,10 @@ function LiveAccount({
     </div>
   );
   const [cancelling, setCancelling] = useState<readonly string[]>([]);
+  // New orders come from the owner or from one strategy run, never both.
+  const [origin, setOrigin] = useState<"manual" | "strategy">("manual");
+  const [stopping, setStopping] = useState(false);
+  const controlled = live.strategy?.state === "running";
   const cancel = async (id: string) => {
     setCancelling(current => [...current, id]);
     try {
@@ -569,11 +574,7 @@ function LiveAccount({
           )}
         </strong>
         <span data-testid="live-phase">{t(stale ? "服务失联" : phases[live.phase])}</span>
-        <span>
-          {authorized
-            ? t("已授权 · 交易日 {day}", { day: live.authorization!.trading_day })
-            : t("尚未允许发送委托")}
-        </span>
+        <span>{authorized ? t("已授权") : t("尚未允许发送委托")}</span>
         <span>{live.broker.front}</span>
         {/* The account's actions stay together when the line wraps. */}
         <div className="ctp-identity-actions">
@@ -753,11 +754,50 @@ function LiveAccount({
             >
               {t("允许发送委托")}
             </button>
-            <span className="subtle">{t("授权只在本次连接和当前交易日有效。")}</span>
+            <span className="subtle">
+              {t(
+                "授权长期有效，断线重连和换交易日后不需要再次授权；撤销授权、修改风控政策或交易服务重启后失效。",
+              )}
+            </span>
           </div>
         </section>
       )}
-      {stage === "trade" && (
+      {/* A run outlives the connection: it is shown, and can be stopped, at every step. */}
+      {controlled && (
+        <StrategyStatus
+          live={live}
+          stopping={stopping}
+          onStop={() => {
+            setStopping(true);
+            void act({ action: "strategy_stop" }).finally(() => setStopping(false));
+          }}
+        />
+      )}
+      {stage === "trade" && !controlled && (
+        <div className="activity-tabs" role="group" aria-label={t("下单方式")}>
+          <button aria-pressed={origin === "manual"} onClick={() => setOrigin("manual")}>
+            {t("手动下单")}
+          </button>
+          <button aria-pressed={origin === "strategy"} onClick={() => setOrigin("strategy")}>
+            {t("策略运行")}
+          </button>
+        </div>
+      )}
+      {stage === "trade" && !controlled && origin === "strategy" && (
+        <StrategyStart
+          live={live}
+          busy={busy}
+          onStart={params =>
+            void run("live.strategy.start", {
+              request_id: crypto.randomUUID(),
+              account_id: live.account_id,
+              policy_revision: live.policy_revision,
+              ...params,
+            })
+          }
+        />
+      )}
+      {stage === "trade" && !controlled && origin === "manual" && (
         <form aria-label={t("CTP 委托")} onSubmit={event => event.preventDefault()}>
           <fieldset disabled={busy}>
             <div className="futures-fields">

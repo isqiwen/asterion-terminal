@@ -24,6 +24,8 @@
 #define FAKE_EXPORT extern "C" __attribute__((visibility("default")))
 namespace {
 std::atomic<int> quote_rejection_code{0}, quote_rejection_count{0};
+// The exchange refuses every order, as it does outside trading hours.
+std::atomic<bool> reject_inserts{false};
 std::atomic<int> quote_mode{0}, cancel_return_code{0};
 std::atomic<int> catalog_side_effects = 0, stale_batches = 0;
 std::atomic<bool> hold_positions = false, hold_trades = false;
@@ -422,7 +424,7 @@ public:
       });
       return 0;
     }
-    if (std::string(request.InstrumentID).starts_with("zz")) {
+    if (reject_inserts || std::string(request.InstrumentID).starts_with("zz")) {
       if (hold_insert_errors) {
         std::lock_guard lock(mutex);
         deferred_insert_errors.push_back([request, id](CThostFtdcTraderSpi* s) mutable {
@@ -849,6 +851,7 @@ FAKE_EXPORT void asterion_fake_trader_reset() {
   pending_positions = 0;
   quote_rejection_code = 0;
   quote_rejection_count = 0;
+  reject_inserts = false;
   quote_mode = cancel_return_code = 0;
   hold_insert_errors = false;
   auto& x = exchange();
@@ -914,6 +917,9 @@ FAKE_EXPORT int asterion_fake_catalog_side_effects() {
 
 FAKE_EXPORT void asterion_fake_trader_quote_mode(int mode) {
   quote_mode = mode;
+}
+FAKE_EXPORT void asterion_fake_trader_reject_inserts(int reject) {
+  reject_inserts = reject != 0;
 }
 FAKE_EXPORT void asterion_fake_trader_cancel_code(int code) {
   cancel_return_code = code;

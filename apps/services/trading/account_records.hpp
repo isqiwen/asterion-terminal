@@ -30,9 +30,19 @@ struct ChangePolicy {
   Json definition;
   std::string risk_artifact;
 };
+// One long/flat moving-average run on one allowed contract. The request ID is
+// the run's identity and prefixes the ID of every order it places.
+struct StartStrategy {
+  InstrumentId instrument;
+  std::uint32_t fast = 0, slow = 0;
+  Decimal quantity;
+  // The market service on this machine whose minute bars the run reads.
+  std::string market_endpoint, market_service;
+};
+struct StopStrategy {};
 struct AccountRequest {
-  using Operation =
-      std::variant<SubmitOrder, CancelOrder, Authorize, Revoke, ResolveOrder, ChangePolicy>;
+  using Operation = std::variant<SubmitOrder, CancelOrder, Authorize, Revoke, ResolveOrder,
+                                 ChangePolicy, StartStrategy, StopStrategy>;
   std::string id;
   Operation operation;
   // Durable form. A request ID seen again must carry exactly this content.
@@ -43,9 +53,9 @@ struct AccountRequest {
   // The order a submission, cancellation or resolution names; otherwise empty.
   std::string_view order_id() const noexcept;
 };
-// Valid for one connection and its trading day; recorded, never restored.
+// The owner's permission to send orders. It lasts until the owner revokes it,
+// the policy changes or the process ends; recorded, never restored.
 struct Authorization {
-  std::string trading_day;
   std::int64_t authorized_at_ms = 0;
   Json json() const;
 };

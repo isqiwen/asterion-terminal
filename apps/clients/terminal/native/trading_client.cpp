@@ -12,8 +12,9 @@ struct TradingClient::Impl {
   const ServiceEndpoint endpoint;
   std::unique_ptr<ipc::RpcClient> transport;
   std::stop_source lifetime;
-  // One request at a time, and beside it one cancel: the account service runs
-  // a cancel of a recorded order while a submission waits for its quote.
+  // One request at a time, and beside it one cancel or strategy stop: neither
+  // waits for a command in flight. The account service runs a cancel of a
+  // recorded order while a submission waits for its quote.
   bool busy = false, cancelling = false, failed = false;
   std::shared_ptr<const Json> last_snapshot;
   Json health = nullptr;
@@ -32,7 +33,8 @@ struct TradingClient::Impl {
     return stop.stop_requested() || lifetime.stop_requested();
   }
   PolledTask<void> call(wire::Request request, std::stop_token stop) {
-    auto& lane = request.command().has_cancel() ? cancelling : busy;
+    auto& lane =
+        request.command().has_cancel() || request.command().has_strategy_stop() ? cancelling : busy;
     co_await PollUntil{[&] { return !lane || stopped(stop); }};
     if (stopped(stop))
       throw Error(ErrorCode::cancelled, "trading connection closed");

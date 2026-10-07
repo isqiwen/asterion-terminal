@@ -26,8 +26,8 @@ message LivePolicy {
 message LivePolicyChange { LivePolicy policy = 1; string risk_artifact = 2; }
 message LiveInput { LiveBroker broker = 1; reserved 2, 3, 4; LivePolicy policy = 5; string account_id = 6; }
 message LiveCredentials { string password = 1; string auth_code = 2; }
-// The owner confirms the account by its user ID; valid for the current
-// connection and trading day only.
+// The owner confirms the account by its user ID. The permission lasts across
+// connections and trading days.
 message LiveAuthorize { string user_id = 1; }
 // The owner verified at the broker that an unconfirmed order does not exist;
 // it stops counting as working exposure. It is never resent either way.
@@ -39,9 +39,18 @@ enum OrderState { ORDER_STATE_UNSPECIFIED = 0; ACCEPTED = 1; PARTIALLY_FILLED = 
 message Empty {}
 message Submit { string order_id = 1; string venue = 2; string symbol = 3; Side side = 4; Offset offset = 5; Decimal quantity = 6; Decimal price = 7; }
 message Cancel { string order_id = 1; }
+// Hands the authorized account to one long/flat moving-average run on one
+// allowed contract. The run reads minute bars from the market service on the
+// account's machine, continues across connections and trading days, and ends
+// with the authorization.
+message StrategyStart {
+  string venue = 1; string symbol = 2; uint32 fast = 3; uint32 slow = 4; Decimal quantity = 5;
+  string market_endpoint = 6; string market_service = 7;
+}
 message Command {
   string request_id = 1;
-  oneof operation { Submit submit = 3; Cancel cancel = 4; LiveAuthorize live_authorize = 9; Empty live_revoke = 10; LiveResolve live_resolve = 11; LivePolicyChange live_policy = 12; }
+  oneof operation { Submit submit = 3; Cancel cancel = 4; LiveAuthorize live_authorize = 9; Empty live_revoke = 10; LiveResolve live_resolve = 11; LivePolicyChange live_policy = 12;
+    StrategyStart strategy_start = 13; Empty strategy_stop = 14; }
 }
 // A connection is bound to one immutable process session.
 message Request {
@@ -97,7 +106,15 @@ message LiveCosts {
   string venue = 1; string symbol = 2; string state = 3; int32 error_code = 4;
   int64 queried_ms = 5; Costs costs = 6;
 }
-message LiveAuthorization { string trading_day = 1; int64 authorized_at_ms = 2; }
+// Lasts until the owner revokes it, the policy changes or the service restarts.
+message LiveAuthorization { reserved 1; reserved "trading_day"; int64 authorized_at_ms = 2; }
+// The account's current or last strategy run. state: running or stopped; a
+// stopped run states why. target is absent until the strategy has enough bars.
+message LiveStrategy {
+  string id = 1; string venue = 2; string symbol = 3; uint32 fast = 4; uint32 slow = 5; Decimal quantity = 6;
+  string state = 7; string reason = 8; int64 started_ms = 9;
+  uint64 bars = 10; int64 bar_ms = 11; optional Decimal target = 12; repeated string orders = 13;
+}
 message JournalCapacity {
   uint64 records_used = 1; uint64 records_limit = 2;
   uint64 bytes_used = 3; uint64 bytes_limit = 4;
@@ -121,6 +138,7 @@ message LiveSnapshot {
   // Immutable event segments; excludes the active journal file.
   uint64 segment_count = 24;
   string policy_revision = 21; string risk_artifact = 22;
+  LiveStrategy strategy = 25;
 }
 message Error { string code = 1; string message = 2; }
 message Health { string instance_id = 1; string version = 2; uint64 uptime_ms = 3; bool initialized = 4; bool recovery_required = 5; asterion.runtime.v1.ExecutionHealth execution = 6; }

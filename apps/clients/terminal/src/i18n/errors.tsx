@@ -62,7 +62,8 @@ const prefixedDiagnostics = [
   ["cannot prepare durable write ", "cannot prepare durable file contents"],
   ["cannot verify publication identity ", "durable publication source changed"],
 ] as const;
-function diagnosticSummary(message: string) {
+// The localized form of a known English service diagnostic.
+export function diagnosticSummary(message: string) {
   const known = localizeText("diagnostics", message);
   if (known) return known;
   const match = prefixedDiagnostics.find(([prefix]) => message.startsWith(prefix));

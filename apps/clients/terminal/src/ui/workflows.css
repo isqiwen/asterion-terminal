@@ -219,6 +219,38 @@
 .ctp-account-panel > form .futures-fields {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
+/* A running strategy takes the ticket's place: what runs, the stop button on
+   the same line, then what it has seen and asked for. */
+.strategy-run-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.strategy-run-heading strong {
+  color: var(--accent);
+}
+.strategy-run-heading button {
+  margin-left: auto;
+  color: var(--danger);
+  background: var(--danger-surface);
+  border-color: var(--danger);
+}
+.strategy-run-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 14px 0;
+}
+.strategy-run-facts dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+.strategy-run-facts dd {
+  margin: 4px 0 0;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
 /* Order ticket: quote shortcuts under the fields, then one button per side. */
 .order-quotes {
   display: flex;
