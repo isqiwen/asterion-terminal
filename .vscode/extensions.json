@@ -1,0 +1,13 @@
+{
+  "recommendations": [
+    "llvm-vs-code-extensions.vscode-clangd",
+    "ms-vscode.cpptools",
+    "ms-vscode.cmake-tools",
+    "esbenp.prettier-vscode",
+    "dbaeumer.vscode-eslint",
+    "editorconfig.editorconfig"
+  ],
+  // Its test runner calls `playwright test` directly, which can operate real
+  // local services. End-to-end tests run only through `pnpm run test:e2e`.
+  "unwantedRecommendations": ["ms-playwright.playwright"]
+}

@@ -1,0 +1,110 @@
+{
+  // The same commands on macOS and Linux; see docs/development.md.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Prepare dependencies",
+      "type": "shell",
+      "command": "python3 scripts/prepare_ctp.py && pnpm install --frozen-lockfile && pnpm exec install-electron",
+      "problemMatcher": []
+    },
+    {
+      "label": "Desktop: run",
+      "type": "shell",
+      "command": "pnpm desktop",
+      "problemMatcher": ["$gcc"],
+      "presentation": { "panel": "dedicated" }
+    },
+    {
+      "label": "Desktop: check",
+      "type": "shell",
+      "command": "pnpm desktop:check",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Desktop: build installer",
+      "type": "shell",
+      "command": "pnpm desktop:build",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "C++: build",
+      "type": "shell",
+      "command": "cmake --build --preset conan-debug",
+      "problemMatcher": ["$gcc"],
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "C++: test",
+      "type": "shell",
+      "command": "ctest --preset conan-debug --output-on-failure -j 8",
+      "problemMatcher": [],
+      "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      // Unit and component tests of the UI; no build or service needed.
+      "label": "UI: unit tests",
+      "type": "shell",
+      "command": "pnpm test:unit",
+      "problemMatcher": [],
+      "group": "test"
+    },
+    {
+      // The complete paths a user depends on; the everyday end-to-end run.
+      "label": "E2E: key journeys",
+      "type": "shell",
+      "command": "pnpm run test:e2e:journeys",
+      "problemMatcher": []
+    },
+    {
+      // Every end-to-end test. Both run only this way: an isolated Agent and the test CTP SDK.
+      "label": "E2E: all",
+      "type": "shell",
+      "command": "pnpm run test:e2e ${input:e2eSpecs}",
+      "problemMatcher": []
+    },
+    {
+      "label": "Electron host tests",
+      "type": "shell",
+      "command": "pnpm test:desktop",
+      "options": { "env": { "ASTERION_CPP_BUILD": "${workspaceFolder}/build/Debug" } },
+      "problemMatcher": []
+    },
+    {
+      // Browser entry on http://127.0.0.1:1423; uses the development environment.
+      "label": "UI: dev server",
+      "type": "shell",
+      "command": "pnpm dev",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "panel": "dedicated" }
+    },
+    {
+      "label": "Check: types, lint, format",
+      "type": "shell",
+      "command": "pnpm exec tsc --noEmit -p apps/clients/terminal/tsconfig.json && pnpm run lint && pnpm run format:check && python3 scripts/format_cpp.py --check",
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Format",
+      "type": "shell",
+      "command": "pnpm run format",
+      "problemMatcher": []
+    },
+    {
+      // Needs Docker or OrbStack; required after service sources change.
+      "label": "Linux service bundle",
+      "type": "shell",
+      "command": "scripts/services/build_linux_services.sh",
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "e2eSpecs",
+      "type": "promptString",
+      "description": "Spec files to run, separated by spaces; empty runs all",
+      "default": ""
+    }
+  ]
+}

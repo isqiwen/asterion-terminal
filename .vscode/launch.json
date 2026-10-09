@@ -1,0 +1,69 @@
+{
+  // Native debugging uses gdb on Linux and lldb on macOS through the C/C++
+  // extension. Choose the program with CMake Tools' launch target.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "C++: debug test",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${command:cmake.launchTargetPath}",
+      "args": ["--gtest_filter=${input:gtestFilter}"],
+      "cwd": "${workspaceFolder}",
+      // Outside CTest a test node states its own capacity.
+      "environment": [{ "name": "ASTERION_TEST_HOST_CAPACITY", "value": "10,16384" }],
+      "linux": { "MIMode": "gdb" },
+      "osx": { "MIMode": "lldb" }
+    },
+    {
+      "name": "C++: debug program",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${command:cmake.launchTargetPath}",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "linux": { "MIMode": "gdb" },
+      "osx": { "MIMode": "lldb" }
+    },
+    {
+      // A running service or Agent. On Linux, attaching to a process the
+      // debugger did not start needs kernel.yama.ptrace_scope=0.
+      "name": "C++: attach to process",
+      "type": "cppdbg",
+      "request": "attach",
+      "program": "${command:cmake.launchTargetPath}",
+      "processId": "${command:pickProcess}",
+      "linux": { "MIMode": "gdb" },
+      "osx": { "MIMode": "lldb" }
+    },
+    {
+      // The native module inside the Electron main process of `pnpm desktop`.
+      "name": "C++: attach to Electron",
+      "type": "cppdbg",
+      "request": "attach",
+      "program": "${workspaceFolder}/node_modules/electron/dist/electron",
+      "processId": "${command:pickProcess}",
+      "linux": { "MIMode": "gdb" },
+      "osx": {
+        "MIMode": "lldb",
+        "program": "${workspaceFolder}/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+      }
+    },
+    {
+      // Start the "UI: dev server" task first.
+      "name": "UI: debug in Chrome",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://127.0.0.1:1423",
+      "webRoot": "${workspaceFolder}/apps/clients/terminal"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "gtestFilter",
+      "type": "promptString",
+      "description": "GoogleTest filter, for example Live.*",
+      "default": "*"
+    }
+  ]
+}
