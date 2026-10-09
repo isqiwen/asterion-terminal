@@ -72,7 +72,7 @@
   min-height: 0;
   border: 0;
   background: transparent;
-  font-size: 10px;
+  font-size: 12px;
 }
 .status-bar .good {
   color: var(--success);
@@ -192,7 +192,7 @@
 .service-status-row small {
   display: block;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   margin-top: 3px;
 }
 .service-status-node {
@@ -210,7 +210,7 @@
 }
 .service-connection-details summary {
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
 }
 .service-connection-details code {
   overflow-wrap: anywhere;
@@ -254,13 +254,13 @@
 }
 
 .terminal-business > section > .panel-heading,
-.backtest-factor-workspace > .panel-heading {
+.research-workspace > .panel-heading {
   min-height: 64px;
   background: transparent;
   padding: 16px var(--space-page);
 }
 .terminal-business > section > .panel-heading h2,
-.backtest-factor-workspace > .panel-heading h2 {
+.research-workspace > .panel-heading h2 {
   font-size: 19px;
   font-weight: 500;
   color: var(--text-strong);
@@ -326,7 +326,7 @@
   max-width: 1080px;
 }
 .market-modes,
-.backtest-factor-modes {
+.research-modes {
   padding: 16px 24px;
   border-bottom: 1px solid var(--line);
 }
@@ -446,7 +446,7 @@
   margin: 0;
   padding: 8px 10px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.7;
   overflow-wrap: anywhere;
 }

@@ -5,14 +5,16 @@
   "scripts": {
     "dev": "vite --config apps/clients/terminal/vite.config.ts",
     "build": "tsc --noEmit -p apps/clients/terminal/tsconfig.json && vite build --config apps/clients/terminal/vite.config.ts",
-    "test:e2e": "python3 tests/ssh_e2e.py pnpm exec playwright test --config apps/clients/terminal/playwright.config.ts",
-    "desktop": "node scripts/desktop.mjs dev",
-    "desktop:build": "node scripts/desktop.mjs build",
-    "desktop:check": "node scripts/desktop.mjs check",
-    "format": "prettier --write \"apps/clients/terminal/**/*.{ts,tsx,css,json,cjs}\" scripts/desktop.mjs scripts/electron-dev.cjs scripts/electron-path.cjs scripts/stop-development.cjs tests/electron*.cjs \"packages/client-ui/**/*.{ts,tsx,css,json}\" && python3 scripts/format_cpp.py",
-    "format:check": "prettier --check \"apps/clients/terminal/**/*.{ts,tsx,css,json,cjs}\" scripts/desktop.mjs scripts/electron-dev.cjs scripts/electron-path.cjs scripts/stop-development.cjs tests/electron*.cjs \"packages/client-ui/**/*.{ts,tsx,css,json}\"",
+    "test:unit": "vitest run --config apps/clients/terminal/vitest.config.ts",
+    "test:e2e": "python3 tests/support/ssh_e2e.py pnpm exec playwright test --config apps/clients/terminal/playwright.config.ts",
+    "test:e2e:journeys": "pnpm run test:e2e --grep @journey",
+    "desktop": "node scripts/desktop/desktop.mjs dev",
+    "desktop:build": "node scripts/desktop/desktop.mjs build",
+    "desktop:check": "node scripts/desktop/desktop.mjs check",
+    "format": "prettier --write \"apps/clients/terminal/**/*.{ts,tsx,css,json,cjs}\" \"scripts/desktop/*.{mjs,cjs}\" \"tests/desktop/*.cjs\" \"packages/client-ui/**/*.{ts,tsx,css,json}\" && python3 scripts/format_cpp.py",
+    "format:check": "prettier --check \"apps/clients/terminal/**/*.{ts,tsx,css,json,cjs}\" \"scripts/desktop/*.{mjs,cjs}\" \"tests/desktop/*.cjs\" \"packages/client-ui/**/*.{ts,tsx,css,json}\"",
     "lint": "eslint \"apps/clients/**/*.{ts,tsx}\" \"packages/client-ui/**/*.{ts,tsx}\" --max-warnings 0",
-    "test:desktop": "node tests/electron_desktop.cjs && node tests/electron_depth.cjs"
+    "test:desktop": "node tests/desktop/electron_desktop.cjs && node tests/desktop/electron_depth.cjs"
   },
   "dependencies": {
     "react": "^19.0.0",
@@ -21,6 +23,8 @@
   "devDependencies": {
     "@eslint/js": "^9.39.5",
     "@playwright/test": "^1.51.0",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -31,11 +35,13 @@
     "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^5.2.0",
     "globals": "^17.12.0",
+    "jsdom": "^30.1.2",
     "node-gyp": "13.0.2",
     "prettier": "^3.9.9",
     "ts-json-schema-generator": "^2.9.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.70.1",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^5.0.3"
   }
 }

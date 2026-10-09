@@ -22,6 +22,13 @@ struct DataCredentialLimits {
   bool remember_allowed = false;
   unsigned requests_per_minute_max = 0;
 };
+// Whether a settings directory read now may be kept until its modification
+// time changes. File systems stamp changes with a coarse clock, so another
+// change in the same tick as the read would go unseen; a directory that has
+// been still for a second cannot hide one.
+inline bool directory_settled(std::filesystem::file_time_type changed) {
+  return std::filesystem::file_time_type::clock::now() - changed > std::chrono::seconds(1);
+}
 // Where remembered credentials live. Never a settings file.
 class CredentialStore {
 public:
@@ -30,8 +37,9 @@ public:
   virtual void store(const std::string& account, const std::string& secret) = 0;
   virtual void erase(const std::string& account) = 0;
 };
-// The login keychain through the asterion-keychain helper; null when the
-// helper is unavailable, in which case credentials cannot be remembered.
+// The login keychain (macOS) or Secret Service keyring (Linux) through the
+// asterion-keychain helper. Null when the helper is missing or the Linux
+// session has no Secret Service; credentials then cannot be remembered.
 // Pipe I/O and helper completion share a deadline of at most 30 seconds.
 std::shared_ptr<CredentialStore>
 keychain_store(const std::filesystem::path& helper,
@@ -40,9 +48,9 @@ class DataCredentials {
 public:
   DataCredentials(std::filesystem::path directory, std::shared_ptr<CredentialStore> remembered)
       : directory_(std::move(directory)), remembered_(std::move(remembered)) {}
-  // Cached until this object changes an entry or the directory's modification
-  // time changes. Unreadable files are listed with an error instead of
-  // failing the whole snapshot.
+  // Cached, once the directory has settled, until this object changes an
+  // entry or the directory's modification time changes. Unreadable files are
+  // listed with an error instead of failing the whole snapshot.
   Json snapshot() const;
   // Empty when nothing was saved for the provider.
   std::optional<DataCredential> find(const std::string& provider) const;

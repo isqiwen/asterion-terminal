@@ -113,10 +113,7 @@ test("a fresh local task store preserves the original tasks and requires an expl
     active_limit: 1000,
   });
   await closeSettingsWindow(settings);
-  await page
-    .locator(".workspace-tabs")
-    .getByRole("button", { name: "回测与因子", exact: true })
-    .click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   await expect(page.getByLabel("活动任务容量")).toBeVisible();
   await rpc(page.request, "node.action", { id: "local", service: name, action: "stop" });
   await page.getByRole("button", { name: "重试准备", exact: true }).click();

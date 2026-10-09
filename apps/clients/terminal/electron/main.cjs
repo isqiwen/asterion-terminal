@@ -38,8 +38,9 @@ const variables = {
 };
 for (const [key, name] of Object.entries(variables))
   process.env[key] = path.join(resources, "native", name);
-process.env.ASTERION_CTP_LIBRARY = path.join(resources, "native", "ctp-md" + ".dylib");
-process.env.ASTERION_CTP_CATALOG_LIBRARY = path.join(resources, "native", "ctp-trader" + ".dylib");
+const library = process.platform === "darwin" ? ".dylib" : ".so";
+process.env.ASTERION_CTP_LIBRARY = path.join(resources, "native", "ctp-md" + library);
+process.env.ASTERION_CTP_CATALOG_LIBRARY = path.join(resources, "native", "ctp-trader" + library);
 process.env.ASTERION_REMOTE_RESOURCES = path.join(resources, "remote-linux");
 protocol.registerSchemesAsPrivileged([
   { scheme: "asterion", privileges: { standard: true, secure: true, supportFetchAPI: true } },
@@ -138,6 +139,19 @@ function configure(win) {
     if (win === main) app.quit();
   });
 }
+// The page draws the title bar. macOS keeps the main window's buttons inset in
+// it. Linux's own title bar follows the desktop's theme, not the Terminal's, so
+// there every window drops it and has its buttons drawn over the page's right
+// edge, in the theme's --canvas and --text colours and one pixel short of the
+// bar's height so that its bottom rule stays whole.
+function chrome(primary) {
+  if (process.platform === "darwin")
+    return primary ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 12, y: 10 } } : {};
+  return {
+    titleBarStyle: "hidden",
+    titleBarOverlay: { color: "#06080b", symbolColor: "#c5ccd6", height: 33 },
+  };
+}
 function preferences() {
   return {
     preload: path.join(__dirname, "preload.cjs"),
@@ -194,6 +208,7 @@ async function openSettings(category) {
     return;
   }
   settings = new BrowserWindow({
+    ...chrome(false),
     parent: main,
     modal: false,
     width: 760,
@@ -346,9 +361,7 @@ app
       ]),
     );
     main = new BrowserWindow({
-      ...(process.platform === "darwin"
-        ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 12, y: 10 } }
-        : {}),
+      ...chrome(true),
       width: 1440,
       height: 940,
       minWidth: 800,

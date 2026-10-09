@@ -166,7 +166,7 @@ flowchart TB
 | `research.proto`、协议层 `research.hpp` | 当前混合任务生命周期与多种业务载荷；分别归入任务、数据、回测和因子契约，任务协议引用必要业务输入 |
 | `commands_research.cpp`、`research.*` 命令 | 按数据操作、任务控制、回测提交与因子分析归属，分别使用相应职责名称 |
 | `NamedDataset` | 表示固定数据选择，采用具名数据集 `NamedDataset` 等准确名称；它不属于某次任务 |
-| `workspace.research`、“研究”页面 | 依内容称“回测与因子”或分别呈现“回测”“因子分析”；数据管理与任务管理使用各自名称，页面数量由交互需要决定 |
+| `workspace.research`、“研究”页面 | 依内容称“回测与因子”或分别呈现“回测”“因子分析”；数据管理与任务管理使用各自名称，页面数量由交互需要决定。2026-10-09 用户决定：工作区重新定名为“研究”（`workspace.research`），内含“回测”“因子”两页；这个词现在只指回测和因子，数据管理与任务管理仍用各自的名称和入口 |
 | 文档入口 | 已按职责整理为任务管理、回测、因子分析、行情与数据四份说明，原综合文档已移除 |
 
 当前职责混合的证据见 [research_client.hpp](../../apps/clients/terminal/native/research_client.hpp)、[task.proto](../../protocol/proto/asterion/v1/task.proto) 和 [plugin.tsx](../../apps/clients/terminal/plugins/research/plugin.tsx)。不能把所有 `research` 统一替换为 `data` 或 `task`，否则只是将同一混合边界换名；也不引入 `analytics`、`compute` 等新的笼统上层所有者。

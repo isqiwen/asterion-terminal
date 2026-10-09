@@ -20,11 +20,11 @@
   --row-alt: rgb(255 255 255 / 1.8%);
   --overlay: rgb(2 4 8 / 72%);
 
-  /* Text. */
+  /* Text. The dimmest level still meets 4.5:1 against the canvas. */
   --text: #c5ccd6;
   --text-strong: #eef4fb;
   --muted: #7c8796;
-  --subtle: #5c6776;
+  --subtle: #6e7989;
 
   /* The single interactive signal. */
   --accent: #38d6f2;

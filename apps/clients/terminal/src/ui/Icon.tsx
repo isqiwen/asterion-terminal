@@ -7,12 +7,6 @@ const shapes = {
       <path d="M14 3v5h4M9 12h6M9 16h6" />
     </>
   ),
-  asterion: (
-    <>
-      <path d="m12 2 2.8 7.2L22 12l-7.2 2.8L12 22l-2.8-7.2L2 12l7.2-2.8Z" />
-      <path d="M12 8v8M8 12h8" />
-    </>
-  ),
   market: (
     <>
       <path d="M3 18h18M4 13l5-5 4 4 7-8M15 4h5v5" />

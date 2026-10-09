@@ -25,10 +25,10 @@ test("durable task order and dates survive reload independently of task IDs", as
     await page.reload();
     await page
       .locator(".workspace-tabs")
-      .getByRole("button", { name: "回测与因子", exact: true })
+      .getByRole("button", { name: "研究", exact: true })
       .click();
-    await page.getByRole("button", { name: "因子分析", exact: true }).click();
-    const tasks = page.getByRole("region", { name: "回测与因子任务", exact: true });
+    await page.getByRole("button", { name: "因子", exact: true }).click();
+    const tasks = page.getByRole("region", { name: "研究任务", exact: true });
     const ids = tasks.locator("tbody tr code");
     await expect(ids.first()).toHaveText(newer);
     await expect(ids.nth(1)).toHaveText(older);
@@ -47,21 +47,18 @@ test("durable task order and dates survive reload independently of task IDs", as
     })
     .toBe("succeeded");
   await call("task.page", { before_sequence: metadata.submission_sequence });
-  const records = page.getByRole("region", { name: "回测与因子任务", exact: true });
+  const records = page.getByRole("region", { name: "研究任务", exact: true });
   await expect(records.locator("tbody tr code").first()).toHaveText(older);
   await records.getByRole("button", { name: "最新记录", exact: true }).click();
   await expect(records.locator("tbody tr code").first()).toHaveText(newer);
-  await page
-    .locator(".workspace-tabs")
-    .getByRole("button", { name: "回测与因子", exact: true })
-    .click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   await page.screenshot({ path: join(__dirname, "../test-results/task-chronology.png") });
   page = await openSettingsWindow(page);
   await page.getByLabel("语言", { exact: true }).selectOption("en-US");
   page = await closeSettingsWindow(page);
   await page
     .locator(".workspace-tabs")
-    .getByRole("button", { name: "Backtest & Factors", exact: true })
+    .getByRole("button", { name: "Research", exact: true })
     .click();
   await expect(page.getByRole("columnheader", { name: "Submitted", exact: true })).toBeVisible();
   await page.setViewportSize({ width: 800, height: 900 });

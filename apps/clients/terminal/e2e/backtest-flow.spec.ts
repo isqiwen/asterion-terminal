@@ -1,75 +1,83 @@
 import { test, expect } from "./test";
 import { seedHistory, rpc } from "./dataset-fixture";
 
-test("a downloaded dataset reaches a fixed backtest result without reselecting its source", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await expect(page.locator(".workspace-tabs")).toBeVisible();
-  const selected = await seedHistory(
-    page.request,
-    [100, 101, 102, 101, 104, 103, 102, 103],
-    "flow-source",
-  );
-  await page.reload();
-  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
-  await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
-  await page
-    .locator(`[data-dataset-id="${selected.source_dataset_ids[0]}"]`)
-    .getByRole("button", { name: "用于回测" })
-    .click();
-  await expect(page.getByRole("heading", { name: "新建回测", exact: true })).toBeVisible();
-  await expect(page.getByLabel("K 线来源", { exact: true })).toHaveValue(
-    selected.source_dataset_ids[0],
-  );
-  if (await page.getByLabel("结算价来源", { exact: true }).isVisible())
+test(
+  "a downloaded dataset reaches a fixed backtest result without reselecting its source",
+  { tag: "@journey" },
+  async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator(".workspace-tabs")).toBeVisible();
+    const selected = await seedHistory(
+      page.request,
+      [100, 101, 102, 101, 104, 103, 102, 103],
+      "flow-source",
+    );
+    await page.reload();
     await page
-      .getByLabel("结算价来源", { exact: true })
-      .selectOption(selected.settlement_dataset_ids[0]);
-  await expect(page.getByLabel("结算价来源", { exact: true })).toHaveValue(
-    selected.settlement_dataset_ids[0],
-  );
-  await page.getByLabel("最小变动价位", { exact: true }).fill(selected.price_increment);
-  await page.getByLabel("合约乘数", { exact: true }).fill(selected.multiplier);
-  await page.getByLabel("开始交易日", { exact: true }).fill("2026-09-25");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
-  await page
-    .locator(".workspace-tabs")
-    .getByRole("button", { name: "回测与因子", exact: true })
-    .click();
-  await expect(page.getByLabel("K 线来源", { exact: true })).toHaveValue(
-    selected.source_dataset_ids[0],
-  );
-  await expect(page.getByLabel("开始交易日", { exact: true })).toHaveValue("2026-09-25");
-  await page.getByRole("button", { name: "使用此数据集", exact: true }).click();
-  await expect(page.getByRole("list", { name: "已选合约" })).toContainText("8 根 · 1 个交易日");
-  await page.getByRole("button", { name: "下一步", exact: true }).click();
-  for (const [label, value] of [
-    ["快均线", "1"],
-    ["慢均线", "3"],
-    ["目标手数", "1"],
-    ["初始资金", "10000"],
-    ["每手保证金", "100"],
-    ["每手开仓费", "2"],
-    ["每手平今费", "3"],
-    ["每手平昨费", "4"],
-    ["单笔数量上限", "100"],
-    ["总持仓量上限", "100"],
-    ["在途委托数上限", "100"],
-  ])
-    await page.getByLabel(label, { exact: true }).fill(value);
-  await page.getByRole("button", { name: "下一步", exact: true }).click();
-  await page.getByRole("button", { name: "开始回测", exact: true }).click();
-  const progress = page.getByRole("region", { name: "回测进度", exact: true });
-  await progress.getByRole("button", { name: "查看结果" }).click({ timeout: 20000 });
-  const result = page.getByRole("region", { name: "回测结果", exact: true });
-  await expect(result.getByRole("img", { name: "权益曲线" })).toBeVisible();
-  await result.getByText("实验参数", { exact: true }).click();
-  await expect(result).toContainText(selected.source_dataset_ids[0]);
-  await page.screenshot({
-    path: "apps/clients/terminal/test-results/download-backtest-result.png",
-  });
-});
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "数据", exact: true })
+      .click();
+    await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
+    await page
+      .locator(`[data-dataset-id="${selected.source_dataset_ids[0]}"]`)
+      .getByRole("button", { name: "用于回测" })
+      .click();
+    await expect(page.getByRole("heading", { name: "新建回测", exact: true })).toBeVisible();
+    await expect(page.getByLabel("K 线来源", { exact: true })).toHaveValue(
+      selected.source_dataset_ids[0],
+    );
+    if (await page.getByLabel("结算价来源", { exact: true }).isVisible())
+      await page
+        .getByLabel("结算价来源", { exact: true })
+        .selectOption(selected.settlement_dataset_ids[0]);
+    await expect(page.getByLabel("结算价来源", { exact: true })).toHaveValue(
+      selected.settlement_dataset_ids[0],
+    );
+    await page.getByLabel("最小变动价位", { exact: true }).fill(selected.price_increment);
+    await page.getByLabel("合约乘数", { exact: true }).fill(selected.multiplier);
+    await page.getByLabel("开始交易日", { exact: true }).fill("2026-09-25");
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "数据", exact: true })
+      .click();
+    await page
+      .locator(".workspace-tabs")
+      .getByRole("button", { name: "研究", exact: true })
+      .click();
+    await expect(page.getByLabel("K 线来源", { exact: true })).toHaveValue(
+      selected.source_dataset_ids[0],
+    );
+    await expect(page.getByLabel("开始交易日", { exact: true })).toHaveValue("2026-09-25");
+    await page.getByRole("button", { name: "使用此数据集", exact: true }).click();
+    await expect(page.getByRole("list", { name: "已选合约" })).toContainText("8 根 · 1 个交易日");
+    await page.getByRole("button", { name: "下一步", exact: true }).click();
+    for (const [label, value] of [
+      ["快均线", "1"],
+      ["慢均线", "3"],
+      ["目标手数", "1"],
+      ["初始资金", "10000"],
+      ["每手保证金", "100"],
+      ["每手开仓费", "2"],
+      ["每手平今费", "3"],
+      ["每手平昨费", "4"],
+      ["单笔数量上限", "100"],
+      ["总持仓量上限", "100"],
+      ["在途委托数上限", "100"],
+    ])
+      await page.getByLabel(label, { exact: true }).fill(value);
+    await page.getByRole("button", { name: "下一步", exact: true }).click();
+    await page.getByRole("button", { name: "开始回测", exact: true }).click();
+    const progress = page.getByRole("region", { name: "回测进度", exact: true });
+    await progress.getByRole("button", { name: "查看结果" }).click({ timeout: 20000 });
+    const result = page.getByRole("region", { name: "回测结果", exact: true });
+    await expect(result.getByRole("img", { name: "权益曲线" })).toBeVisible();
+    await result.getByText("实验参数", { exact: true }).click();
+    await expect(result).toContainText(selected.source_dataset_ids[0]);
+    await page.screenshot({
+      path: "apps/clients/terminal/test-results/download-backtest-result.png",
+    });
+  },
+);
 
 test("data handoff stays bound to its service and never reuses another contract's units", async ({
   page,
@@ -145,20 +153,14 @@ test("data/task access prepares a stopped local service once and does not replac
     await route.fulfill({ response, json: body });
   });
   await expect.poll(() => reads).toBeGreaterThan(0);
-  await page
-    .locator(".workspace-tabs")
-    .getByRole("button", { name: "回测与因子", exact: true })
-    .click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   await expect.poll(() => starts).toBe(1);
   await expect(page.getByRole("button", { name: "新建回测", exact: true })).toBeEnabled();
   await page.locator(".workspace-tabs").getByRole("button", { name: "交易", exact: true }).click();
   remote = true;
   offline = true;
   await expect.poll(() => reads).toBeGreaterThan(0);
-  await page
-    .locator(".workspace-tabs")
-    .getByRole("button", { name: "回测与因子", exact: true })
-    .click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   await expect(
     page.getByText("远程数据或任务连接已断开，当前运行位置保持不变。", { exact: true }),
   ).toBeVisible();
@@ -199,10 +201,7 @@ test("a failed preparation waits for explicit retry instead of restarting in a l
     await route.fulfill({ response, json: body });
   });
   await expect.poll(() => reads).toBeGreaterThan(0);
-  await page
-    .locator(".workspace-tabs")
-    .getByRole("button", { name: "回测与因子", exact: true })
-    .click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   await expect(page.getByRole("button", { name: "重试准备", exact: true })).toBeVisible();
   const afterFailure = reads;
   await expect.poll(() => reads).toBeGreaterThan(afterFailure + 1);

@@ -1,4 +1,4 @@
-import { Icon } from "../ui/Icon";
+import { BrandMark } from "../ui/BrandMark";
 import { BackendError, ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import { translate, type MessageValues } from "../i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
@@ -200,7 +200,7 @@ export function SetupGate({ children }: { children: ReactNode }) {
         <section className="setup-content">
           <header>
             <div className="setup-mark">
-              <Icon name="asterion" size={48} />
+              <BrandMark size={48} />
             </div>
             <h1>ASTERION TERMINAL</h1>
             <p>{ready ? t("工作区已就绪") : t("正在准备你的工作台")}</p>

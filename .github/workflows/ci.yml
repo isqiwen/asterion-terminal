@@ -1,4 +1,4 @@
-name: Core services and macOS Terminal
+name: Core services and Terminal
 on: [push, pull_request]
 jobs:
   style:
@@ -23,6 +23,8 @@ jobs:
         run: pnpm exec tsc --noEmit -p apps/clients/terminal/tsconfig.json
       - name: TypeScript lint
         run: pnpm lint
+      - name: TypeScript unit and component tests
+        run: pnpm test:unit
   core:
     strategy:
       fail-fast: false
@@ -56,7 +58,7 @@ jobs:
           echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus" >> "$GITHUB_ENV"
       - name: Native Agent upgrade and recovery
         timeout-minutes: 5
-        run: python tests/native_agent_upgrade.py --build build/Debug --allow-user-service
+        run: python tests/acceptance/native_agent_upgrade.py --build build/Debug --allow-user-service
       - name: Install SSH acceptance prerequisites
         if: runner.os == 'Linux'
         run: |
@@ -72,7 +74,7 @@ jobs:
       - name: Real SSH and native system service acceptance
         if: runner.os == 'Linux'
         timeout-minutes: 8
-        run: python tests/ssh_system_service.py --build build/Debug --allow-system-service
+        run: python tests/acceptance/ssh_system_service.py --build build/Debug --allow-system-service
   remote-linux:
     strategy:
       fail-fast: false
@@ -91,7 +93,7 @@ jobs:
       - run: python scripts/prepare_ctp.py
       - run: conan install . -s build_type=Release -s compiler.cppstd=20 -o with_tests=False -c tools.cmake.cmaketoolchain:generator=Ninja --build=missing
       - run: cmake --preset conan-release
-      - run: python scripts/deployment_bundle.py build/Release
+      - run: python scripts/services/deployment_bundle.py build/Release
       - name: Verify native Linux executables
         run: |
           ./build/Release/asterion-node-agent --version
@@ -141,20 +143,20 @@ jobs:
           merge-multiple: true
           path: build/linux-bundles
       - name: Build and link native desktop
-        run: python scripts/desktop.py check
+        run: python scripts/desktop/desktop.py check
       - run: ctest --preset conan-debug --output-on-failure
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
       - name: Exercise native Electron host
         run: pnpm test:desktop
       - name: Build isolated acceptance DMG
-        run: python scripts/desktop.py package-test
+        run: python scripts/desktop/desktop.py package-test
       - run: ctest --preset conan-release --output-on-failure
       - name: Validate complete recovery gate
-        run: python tests/recovery_gate.py --build build/Release
+        run: python tests/support/recovery_gate.py --build build/Release
       - name: Exercise installed macOS desktop
         timeout-minutes: 8
-        run: python tests/electron_installer.py build/desktop-test/*.dmg
+        run: python tests/desktop/electron_installer.py build/desktop-test/*.dmg
       - name: Upload installed desktop evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -167,6 +169,66 @@ jobs:
           name: terminal-test-${{ matrix.os }}
           if-no-files-found: error
           path: build/desktop-test/*.dmg
+
+  # The browser suite is platform-neutral and stays on the macOS job: each of
+  # its spec files copies the service programs, which with embedded Linux
+  # debug information takes tens of gigabytes of temporary space.
+  terminal-linux:
+    needs: [style, core, core-sanitizers, remote-linux]
+    runs-on: ubuntu-24.04
+    env:
+      ASTERION_CPP_BUILD: ${{ github.workspace }}/build/Debug
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10.32.1"
+      - run: python -m pip install conan==2.32.0 ninja
+      - run: conan profile detect
+      - run: python scripts/prepare_ctp.py
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec install-electron
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: remote-linux-*
+          merge-multiple: true
+          path: build/linux-bundles
+      - name: Prepare a display and the Electron sandbox
+        # Ubuntu 24.04 restricts the unprivileged user namespaces that the
+        # Chromium sandbox uses; the Terminal never runs with --no-sandbox.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Build and link native desktop
+        run: python scripts/desktop/desktop.py check
+      - run: ctest --preset conan-debug --output-on-failure
+      - name: Exercise native Electron host
+        run: xvfb-run -a pnpm test:desktop
+      - name: Build isolated acceptance package
+        run: python scripts/desktop/desktop.py package-test
+      - run: ctest --preset conan-release --output-on-failure
+      - name: Exercise unpacked Linux desktop
+        timeout-minutes: 8
+        run: xvfb-run -a python tests/desktop/electron_installer.py build/desktop-test/*.deb
+      - name: Upload unpacked desktop evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installed-desktop-linux
+          if-no-files-found: warn
+          path: build/installed-desktop/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terminal-test-linux
+          if-no-files-found: error
+          path: build/desktop-test/*.deb
 
   core-sanitizers:
     strategy:

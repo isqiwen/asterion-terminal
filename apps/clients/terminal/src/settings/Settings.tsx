@@ -1,3 +1,4 @@
+import { BrandMark } from "../ui/BrandMark";
 import { Icon, type IconName } from "../ui/Icon";
 import { version } from "../../electron/package.json";
 import { categoryKey, selectedPageKey, settingsPage, type SettingsPage } from "./window";
@@ -53,7 +54,7 @@ export function Settings({
     <section className="settings-window" aria-label={t("终端设置")}>
       <aside className="settings-sidebar">
         <div className="settings-brand">
-          <Icon name="asterion" size={24} />
+          <BrandMark size={24} />
           <span>ASTERION</span>
         </div>
         <nav>

@@ -200,7 +200,7 @@
   display: block;
   margin-top: 2px;
   color: var(--subtle);
-  font-size: 11px;
+  font-size: 12px;
 }
 /* The digest stays on one line; selecting it still copies all of it. */
 .native-plugin-manager .data-table td small code {
@@ -292,7 +292,7 @@
 }
 .runtime-row p {
   margin: 5px 0 0;
-  font-size: 11px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 .runtime-location {
@@ -317,7 +317,7 @@
 }
 .machine-choice span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .saved-machine {
   display: flex;
@@ -341,7 +341,7 @@
 }
 .deployment-badge {
   color: var(--accent);
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .deployment-steps {

@@ -28,11 +28,8 @@ test("a product's months backtest as its dominant series and roll at real prices
     settlement: 220,
   });
   await page.reload();
-  await page
-    .locator(".workspace-tabs")
-    .getByRole("button", { name: "回测与因子", exact: true })
-    .click();
-  const workspace = page.getByRole("region", { name: "期货回测与因子", exact: true });
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
   await workspace.getByRole("button", { name: "主力连续", exact: true }).click();
   const product = workspace.getByLabel("品种", { exact: true });
@@ -92,9 +89,7 @@ test("a product's months backtest as its dominant series and roll at real prices
     workspace.getByText("任务已提交，可在任务中心查看进度。", { exact: true }),
   ).toBeVisible();
   await workspace.getByRole("button", { name: "返回回测记录", exact: true }).click();
-  const row = workspace
-    .getByRole("region", { name: "回测与因子任务", exact: true })
-    .locator("tbody tr");
+  const row = workspace.getByRole("region", { name: "研究任务", exact: true }).locator("tbody tr");
   await expect(row.first().getByText("已完成", { exact: true })).toBeVisible({ timeout: 20000 });
   // Bought rb2610 at 105, sold it at 110 on the roll day, then bought rb2701
   // at 223 and settled at 220. The day's last bar asks to go flat; a target

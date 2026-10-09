@@ -1657,3 +1657,302 @@ Linux 服务包指纹不受本轮影响）。
   两个替身的交易日不同，所以相应三步按预期报未通过，策略阶段没有 K 线。
 - 未验证：没有对真实仿真柜台运行过；这需要账户持有人在本机输入凭据。
 
+
+## 2026-10-09（Linux 桌面）
+
+用户决定：Terminal 在 Linux x86_64 上受支持。基线：主 checkout `main`，HEAD
+`f41b211`，开始时工作树干净。此前（`c671dd6`，2026-10-01）桌面入口、Node-API 构建和若干
+原生代码被限定为 macOS；核心与服务层一直在 Linux 上构建和回归。本轮在 Debian 13
+（GCC 14.2、glibc 2.41、systemd 257、GNOME/X11）上逐项打通并验证。安装包起初只在 macOS
+生成；同日按用户要求补上了 Linux 的 Debian 包，见文末“Linux 安装包”。
+
+### 修复的问题
+
+- **入口与构建。** `scripts/desktop.mjs`、`scripts/desktop.py` 接受 Linux：使用 Conan profile
+  的编译器，依赖按 Release、项目按 Debug 构建（与 CI 的 Linux 配置一致）。CMake 不再拒绝在
+  Linux 上构建 Node-API 模块；模块以 `-Bsymbolic` 链接，否则它内置的 zlib 会被 Electron 进程
+  已加载的系统 zlib 顶替（实测 53 个同名符号，其它依赖无重名）。原生资源清单改为程序名加
+  不带后缀的库名，由各平台取 `.dylib` 或 `.so`。`build_linux_services.sh` 不再向 GNU tar
+  传 macOS 专用参数。
+- **本机节点目录。** Linux 上开发与安装环境原先共用 `~/.local/share/asterion/node`；开发环境
+  现在使用 `~/.local/share/asterion-development/node`。
+- **用户服务。** 服务定义的位置和移除收归 `node_service.cpp`（`node_service_definition`、
+  `remove_node_service`），`local_node.cpp` 不再写死 launchd 路径；Linux 上停止开发环境时
+  `systemctl --user disable` 并删除单元。两个平台的默认标识统一为 `me.asterion.node-agent`。
+  systemd 单元去掉了启动频率限制：systemd 把 Terminal 主动发起的启动也计入，60 秒内第四次
+  启动被拒绝（真实验收中复现），现在与 launchd 一样每 10 秒重试。单元在启动 Agent 前创建
+  `/tmp` 下的套接字目录：重启后该目录不存在，登录时启动的 Agent 会绑定失败（已复现）。
+- **资源预留。** Agent 以“是否本机节点”而不是“是否 macOS”决定为 Terminal 预留 2 个 CPU；
+  远程 Linux 节点仍预留 1 个。这改变了服务源码指纹。
+- **凭据。** 钥匙串助手的传输层移植到 Linux（`socketpair` 加 `MSG_NOSIGNAL` 代替
+  `F_SETNOSIGPIPE`，`addclosefrom_np` 代替 `POSIX_SPAWN_CLOEXEC_DEFAULT`，只把会话总线地址
+  传给助手）。新增 Linux 助手 `keychain/secret_service.cpp`：运行时加载桌面的
+  `libsecret-1.so.0`，把凭据存入 Secret Service 登录密钥环，命令约定与 macOS 助手相同，
+  不增加构建依赖。没有 Secret Service 的会话在启动时被判定为“凭据存储不可用”（与缺少
+  助手是同一个已有状态）。两个设置对象共用一个凭据存储实例。
+- **设置目录缓存。** 数据源凭据和 CTP 账户列表按目录修改时间缓存。Linux 的文件时间戳按
+  时钟节拍更新，同一节拍内的外部修改不会改变时间，缓存因此看不到（`/tmp` 为 tmpfs 的机器
+  上必现）。现在目录静止超过 1 秒后才保留缓存。
+- **插件。** 安装、预览、卸载插件按本机扩展名（Linux `.so`），文件选择框同步。
+- **窗口标题栏。** Linux 的系统标题栏跟随桌面主题（GNOME 浅色主题下是一条白边），并与界面
+  自己的标题栏叠成两层；带系统边框时设置窗口每次关闭再打开还会上移一个标题栏的高度。
+  现在 Linux 上主窗口和设置窗口都不使用系统标题栏（`titleBarStyle: "hidden"` 加
+  `titleBarOverlay`），窗口按钮画在界面标题栏的右端，颜色取主题色；界面标题栏为按钮让出
+  右侧空间并可拖动窗口。没有系统边框后设置窗口的位置不再漂移。macOS 的行为不变。
+- **界面文字。** “macOS Terminal…”、“this Mac's keychain” 等改为与平台无关的说法，中英文
+  同步。
+
+### 测试的修改
+
+- 原先只在 macOS 运行的用例改为两个平台都运行：环境路径与服务标识、钥匙串助手传输、
+  插件安装与卸载、行情凭据记忆、停止状态下的 Agent 升级、两个原生 Electron E2E 用例；
+  Electron 宿主测试不再断言 `darwin`。新增 `tests/electron_local.cjs` 集中各平台的目录与
+  服务查询。
+- 三处与平台无关的陈旧或竞态断言一并修正：`Live.AuthorizationOutlivesAReconnect…` 在重连
+  窗口内可能得到 `unavailable` 或“控制代次已变化”的 `conflict`，两者都不发送委托，Linux 上
+  约三成概率走后者；`electron_depth.cjs` 的“昨收”列位置落后于 10 月 7 日删除五个列的界面
+  修改；`electron_desktop.cjs` 在窗口显示前读取位置。
+
+### 验证（均在上述 Debian 13 机器，最终源码）
+
+- 完整 Debug 构建通过；`ctest` 506 项全部通过（含 macOS 上跳过的 `node_deployment`）。
+- `tests/native_agent_upgrade.py --allow-user-service`：在真实 systemd 用户管理器上通过首次
+  安装、无变化升级、并发升级、检查点恢复和停止状态升级。
+- `pnpm desktop:check` 通过（服务包指纹
+  `de790cb5dc0cd43d38db64d73fc1f4bc45e0ecf5635afd4efa89bb21cf6c9676`）。
+- `tests/electron_desktop.cjs`、`tests/electron_depth.cjs`（即 `pnpm test:desktop`）通过。
+- `tests/electron_environment.cjs --managed-development`：真实开发环境的目录与配置隔离、
+  单元注册、关闭窗口后 Agent 与服务停止且单元移除、重启恢复，通过。
+- `tests/electron_development_shutdown.cjs --managed-development`：中断、Electron 崩溃、
+  浏览器入口三种场景通过。
+- Linux 助手在独立会话总线和临时密钥环上验证读取、写入、覆盖、删除、缺失（退出码 3）和
+  无会话总线（退出码 1）；没有使用用户的真实密钥环。
+- 服务包在 `ubuntu:24.04` 容器内重建（GCC 13）。按用户要求核对它能在 Ubuntu 26 上运行：
+  在 `ubuntu:26.04` 容器（26.04.1、glibc 2.43）中依赖全部可解析、8 个程序启动、Agent 加载
+  两个插件，并用包内程序通过 `task_agent.py` 与 `ctp_sdk_smoke.py`。
+- 完整 `pnpm run test:e2e` 94 项全部通过（18.2 分钟），包括两个启动真实 Electron 的用例。
+  首次运行因本机缓存的是旧版 Playwright 浏览器而全部失败，执行
+  `pnpm exec playwright install chromium` 后通过；这一步已写入开发指南。
+- TypeScript 类型检查、ESLint、Prettier 与 clang-format 23.1.1 检查通过。
+
+### 未验证与遗留
+
+- **macOS 未重新验证。** 本轮修改了两个平台共用的代码：钥匙串助手传输、服务定义与移除、
+  设置目录缓存、设置窗口位置、桌面构建脚本、原生资源清单和若干测试。这台机器不能编译或
+  运行 macOS，macOS 分支只经过代码审读；需要在 macOS 上重跑 `pnpm desktop:check`、
+  `ctest`、`pnpm test:desktop` 和打包验收。
+- **CI 未运行。** 新增的 `terminal-linux` 任务没有在 GitHub 上执行过。
+- **安装版环境。** 见下文“Linux 安装包”；真实桌面会话里的安装版（生产目录、默认用户服务）
+  没有运行过，其目录和默认服务标识只由单元测试核对。
+- **桌面环境。** 只在 GNOME/X11 上运行过。Wayland、KDE/KWallet、其它发行版未验证。
+  Ubuntu 24.04 默认限制非特权用户命名空间，Electron 沙箱需要按开发指南放开，未实测。
+- **凭据存储。** Linux 助手只在隔离的会话总线和临时密钥环上验证；没有在真实登录密钥环上
+  保存或读取过凭据，也没有在界面上走过“保存到本机钥匙串”。没有 Secret Service 时界面仍
+  显示该选项，勾选后以“凭据存储不可用”失败，没有做成隐藏或置灰。
+- **登录自启动。** 单元在启动前创建套接字目录的行为没有经过真实重启验证，只确认了缺少目录
+  时 Agent 绑定失败和单元定义的内容。
+- **远程节点。** 服务包在 Ubuntu 26.04 上的验证限于容器内的运行库、程序启动和两项进程回归；
+  真实 26.04 主机上的 SSH 初始化、systemd 系统服务、sudo 与防火墙流程未验证。
+- **E2E 的临时空间。** Linux 的 Debug 程序内嵌调试信息，隔离节点每个用例文件复制一整套，
+  每个隔离节点约 650 MB；运行到 42 个用例文件中的第 18 个时 `/tmp` 已占用 13 GB，峰值没有
+  测到，按比例估计接近 30 GB。`/tmp` 是内存盘的机器（Debian 13 默认）会占用等量内存。
+  设置 `TMPDIR` 可以把这些目录放到磁盘（用两个用例文件实测可行）。把调试信息移出可执行
+  文件（`-gsplit-dwarf`）估计可以减半，本轮没有做。
+
+### Linux 安装包（同日，用户要求）
+
+- **格式。** Debian 包，沿用 10 月 1 日之前的做法，由 electron-builder 生成
+  （首次使用时它下载自带的 fpm 1.17.0 和 7zip）。`pnpm desktop:build` 在 Linux 上输出
+  `build/desktop/Asterion-Terminal-<版本>-linux-amd64.deb`，`package-test` 输出带 `TEST` 的包；
+  安装到 `/opt/Asterion Terminal`。包没有签名。
+- **依赖由实际链接决定。** 打包前用 `dpkg-shlibdeps` 分析 Electron 运行时和全部原生程序，
+  结果写入 `Depends`；`libsecret-1-0` 为 `Recommends`。没有手写的依赖列表。包能安装在哪些
+  系统因此取决于构建机。
+- **校验与验收。** `scripts/desktop.py` 新增 `verify_linux_package`：解包而不安装，核对包名、
+  版本、架构、原生资源清单、随包远程服务、重新分析得到的依赖均已声明、各程序可启动，
+  并用包内程序跑任务恢复和 CTP SDK 回环。两个平台共用的包内程序回归收进
+  `exercise_packaged_programs`，取代 macOS 校验里对全局环境变量的保存与恢复（行为不变，
+  macOS 未重新运行）。`tests/electron_installer.py` 在 Linux 上解包后运行同一套安装验收。
+  `builder.cjs` 的 Developer ID 要求只对 macOS 生效。
+- **验证（Debian 13）。** Release 构建通过，Release 模式 `ctest` 506 项全部通过。
+  `package-test`、`verify-test`、`pnpm desktop:build`、`verify` 通过；发行包
+  SHA-256 `3fa6d662dcd0b72959c199f7c36a7d3ca0c544f8f00f5a716de85be69123ffe8`，
+  284 MB，`Depends` 含 `libc6 (>= 2.38)`、`libstdc++6 (>= 14)`，验收记录在
+  `build/desktop/distribution-acceptance.json`。解包后的应用通过 `electron_installer.py`。
+  把测试包的 `Depends` 删去 `libnss3` 后校验按预期拒绝。改动后 `pnpm desktop:check` 仍通过。
+- **真实安装（容器）。** 在 `ubuntu:26.04`（26.04.1）容器中 `apt install` 成功：依赖满足，
+  安装脚本建立 `/usr/bin/asterion-terminal`，运行库全部可解析，8 个程序启动；在 Xvfb 上启动
+  已安装的应用后 12 秒内 Agent 运行并带起行情、数据、任务三个服务；`apt remove` 移除命令
+  链接。容器以 root 运行且没有用户命名空间，这次启动使用了 `--no-sandbox`，使用隔离节点
+  目录，没有 systemd 用户管理器。在 `ubuntu:24.04` 容器中 `apt` 因
+  `libxcomposite1 (>= 1:0.4.6)`（24.04 为 0.4.5）拒绝安装：Debian 13 上构建的包不能装在
+  24.04 上，面向 24.04 的包要在 24.04 上构建。
+- **未验证。** 真实桌面会话中的 `dpkg` 安装与启动（Chromium 沙箱、AppArmor 配置、菜单项、
+  生产目录和默认用户服务）；在 Ubuntu 24.04 上构建的包；CI 中新增的打包与解包验收步骤；
+  macOS 打包流程在本次重构后的运行。本机已装有旧一代产品的同名同版本包
+  `asterion-terminal 0.1.0`（2026-09-22，`/usr/bin/asterion-terminal`），新包没有在本机安装：
+  安装会替换旧包的文件，旧版的用户服务 `me.asterion.terminal.backend.service` 和
+  `~/.local/share/me.asterion.terminal` 不会被处理，需要用户决定。
+
+### 旧版清理与编辑器配置（同日，用户要求）
+
+- **旧一代产品的清理。** 按用户“旧版的所有服务、配置和数据都删掉”的要求，在本机停止并移除
+  了用户服务 `me.asterion.terminal.backend.service`（含它的监督、serve、worker 和自带
+  Postgres 进程），删除了数据目录 `~/.local/share/me.asterion.terminal`（1.2 GB）。密钥环和
+  `~/.config` 下没有旧版条目。没有处理的三项：系统软件包 `asterion-terminal 0.1.0` 需要
+  root 权限卸载；一个遗留的迁移测试用临时 Postgres（`/tmp/asterion-kernel-migration-pg-*`）
+  因为终止它的命令被安全检查拦截而保留；工作区内被忽略的旧开发目录当时没有动，随后按用户
+  “清理项目多余的文件和文件夹”的要求删除，见下一条。这些不属于本仓库的当前产品。
+- **工作区清理。** 删除了被 git 忽略的旧一代遗留：`.state`（3.9 GB）、`.venv`、`products`、
+  `presentation`（后两者只剩 `node_modules`，没有源码）和 mypy/pytest/ruff 缓存；以及本轮
+  验证的中间产物：`build/` 根下 49 张 E2E 截图、`build/desktop-test`、
+  `build/desktop/linux-unpacked`、`build/linux-service-work`、`build/installed-desktop`、
+  `build/audit-review`、`build/native-depth-check`、`build/history-archive`、Playwright 结果
+  和 Python 字节码缓存。工作区从约 14.7 GB 降到 8.1 GB。保留了两个构建目录、已暂存资源、
+  Linux 服务包、SDK、`node_modules` 和发行包及其验收记录。没有删除任何被跟踪的文件。
+  两个构建目录的 CMake 缓存原先指向 `.venv` 里的 Python，重新配置后使用系统 Python；
+  之后 `ctest` 506 项、`pnpm desktop:check` 和发行包 `verify` 重新通过，包的 SHA-256 与
+  验收记录一致。四个测试脚本的文件名在仓库里没有任何引用（`tests/local_service.py`、
+  `tests/node_service_control.py`、`tests/ssh_host_identity.py`、`tests/tushare_agent.py`），
+  它们是按需手动运行的验收探针，近期仍随重构更新，没有删除。
+- **`.vscode/`。** 新增 `settings.json`、`extensions.json`、`tasks.json`、`launch.json`，在
+  macOS 和 Linux 上通用，说明见开发指南的“编辑器（VS Code）”。`scripts/desktop.py` 的配置
+  步骤增加 `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`，生成 clangd 使用的编译数据库；它不在
+  服务源码指纹内，构建产物不变。
+- **验证。** 四个文件按带注释的 JSON 解析通过，引用的路径和 preset 存在；`clangd --check`
+  经编译数据库解析终端原生层、内核和 Node 绑定各一个文件无诊断；gdb 能在 Debug 测试程序
+  上按源码断点停下；各任务对应的命令本轮都实际运行过。没有在 VS Code 界面里逐项点过任务
+  和调试配置，macOS 上也没有试过。
+
+### 界面字体与标志（同日，用户要求）
+
+用户反馈中文字体在 macOS 和 Linux 上都“发虚或粗细不对”，品牌标志线条不清晰。先出对比图
+（`build/preview/`），用户确认后按下面的方案实施；没有新增字体或其它依赖。
+
+- **字号下限。** 中文在 9–11 px 时笔画挤在一起，是发虚的主要来源。13 个样式表里 143 处
+  9/10/11 px 的 `font-size`/`font` 声明提到 12 px；保留小字号的只有不含中文的位置：标题栏
+  品牌字样、设置页品牌副标、图表坐标轴（`svg text`）以及 `code`/`pre`。
+- **对比度与渲染。** 最暗一档文字色 `--subtle` 调到 `#6e7989`（对背景 4.5:1）；`:root` 加
+  `-webkit-font-smoothing: antialiased`，macOS 深色背景上不再发胖。
+- **随字号调整的布局。** 侧栏展开宽度 48 px、导航文字行高 14 px；行情图光标读数行高
+  16 px（字号提高后图表底边曾超出页脚 0.5 px，`market-layout.spec.ts` 查出）。
+- **品牌标志。** 新增 `src/ui/BrandMark.tsx`：四角星，描边不随缩放变细
+  （`vector-effect="non-scaling-stroke"`），内部十字只在 32 px 以上出现；启动页（48）、设置
+  （24）和侧栏（20）共用，`Icon` 里的旧图形已删除。
+- **验证。** 改后全量 E2E 93/94，失败的一条即上面的图表底边，修正后该用例通过；截图逐页
+  看过。macOS 上没有实机看过。
+
+### “研究”工作区（同日，用户决定）
+
+“回测与因子”把两种任务和三种表单放在一个页面里，按“方式”切换。用户同意重排并改名为
+**研究**，页面分为**回测**和**因子**。
+
+- `plugins/backtest-factor/` 改为 `plugins/research/`（插件标识 `asterion.terminal.research`，
+  工作区标识 `workspace.research`）。回测页只有均线回测；因子页用“K 线/日线”切换输入，两种
+  因子任务列在同一份记录里，结果显示在下方。原来的总面板 `Panel.tsx` 删除，共用部分在
+  `shared.tsx`。
+- 数据工作台“用于回测/用于因子”的入口直接进入对应页面；样式类、语言资源键和文档
+  （`docs/terminal.md`、`docs/factors.md`）一并改名，旧键和无引用的样式已删除。
+- 没有兼容旧标识：界面记住的上次工作区如果是旧的 `workspace.backtest-factor`，按既有规则
+  回到“自选”一次；页面草稿键随之更换。任务、数据集和账本不受影响，C++ 没有改动。
+- **验证。** 涉及的 19 个用例文件 45 条 E2E 通过，中英文截图看过。
+
+### 测试分层（同日，用户决定）
+
+用户指出 E2E 过重、占用大量时间，量化项目应以单元测试为主。盘点结果：E2E 94 条 / 42 个
+文件 / 6,900 行，全量 17 分钟；界面约 1.5 万行代码没有任何单元测试，“界面拿到某个回复后
+怎么做”这类逻辑全部靠起真实服务再改写回复来验证。
+
+- **新增界面单元与组件测试层。** 开发依赖 Vitest、jsdom、@testing-library/react（及其配套
+  的 @testing-library/dom）。`apps/clients/terminal/vitest.config.ts` 复用应用的模块别名，
+  不加载开发服务器的 C++ 核心插件；用例放在源码旁（`*.test.ts(x)`），`pnpm test:unit` 运行，
+  CI 的 style 任务里执行。组件测试用 `src/testing/core.ts` 顶替界面访问核心的唯一通道，
+  回复由用例给出；`readySnapshot()` 是带类型的“全部就绪”快照，契约变化由类型检查指出，
+  真实核心的输出是否符合同一类型仍由 `snapshot-contract.spec.ts` 保证。
+- **从 E2E 迁出 21 条。** 不需要浏览器的 6 条（语言资源校验、插件注册规则 2 条、依赖方向
+  检查、均线预热、坐标轴交易日）；启动页 12 条（`e2e/startup.spec.ts` 整个删除，对应
+  `src/startup/SetupGate.test.tsx`）；状态栏 3 条（`ServiceStatus.test.tsx`）。启动页那组在
+  E2E 里约 50 秒，现在 1.2 秒。“Agent 清单未加载完时重新打开数据/任务服务”在 E2E 里
+  真的停掉了服务，迁移后只验证界面发出的是 `open` 而不是 `create`；`open` 对真实服务的
+  效果由 `terminal_api_test.cpp`、`task_agent.py` 和 `backtest-flow.spec.ts` 覆盖。“服务始终
+  不上线则等待期满后失败”用假时钟验证，不再真等 20 秒。
+- **E2E 分两档。** 标记 `@journey` 的 9 条是每项能力一条的完整链路：行情接收、下单与
+  授权、交易恢复不恢复授权、下载到回测、回测、因子、数据集跨重启、远程部署、C++ 与界面
+  的类型契约。`pnpm run test:e2e:journeys` 只跑这一档，日常使用；`pnpm run test:e2e` 仍是
+  全部，发布前和 CI 使用。规则写入 `AGENTS.md` 和开发指南。
+- **验证。** 单元/组件测试 21 条通过（1.6 秒）；把启动流程和状态指示各改坏三四处后，
+  对应用例分别失败 8 条和 3 条，恢复后通过。关键链路一档 9 条通过，3 分 43 秒；全量 E2E
+  73 条 / 40 个文件通过，16.8 分钟。类型、Lint、格式检查和 `pnpm build` 通过。CI 的新步骤
+  没有在 GitHub 上跑过；macOS 上没有跑过。
+- **全量 E2E 没有明显变快，原因在每个文件的隔离部署。** 73 条用例自身只用 6.3 分钟，其余
+  约 10.5 分钟是 40 次“全新节点 + 重新部署服务”，其中 `node.data_tasks.local.create` 每次
+  12.9 秒。这一步把服务程序（Debug 约 470 MB，Release 约 213 MB：数据服务、任务服务和数据
+  管线各自内嵌 DuckDB，每个 50 MB 以上）经 Agent 的上传协议传一遍：每 1 MB 一块、每块一条
+  新连接，终端一侧的 I/O 所有者以 2 毫秒为周期轮询，每块约 15 个周期，吞吐约 35 MB/s，
+  期间两端 CPU 基本空闲。同一条路径也决定了新安装首次启动和每次升级后的等待（按同样的吞吐
+  估算，Release 约 6 秒，没有单独测量）。本轮没有改动：它属于 `ServiceIo`/`RpcClient` 的轮询模型，是单独的设计问题。可选
+  方向是让 I/O 所有者由套接字就绪和后台任务完成来唤醒（只动终端原生层，不改变服务源码
+  指纹），预计每个文件的部署降到 4–5 秒，全量 E2E 降到 10 分钟左右。
+- **尚未迁移、适合改成组件测试的 E2E。** 都是“改写回复后看界面”的用例：
+  `settings-window.spec.ts`（3 条）、`history-usage.spec.ts`（3 条）、
+  `minute-downloads.spec.ts`（5 条）、`backtest-flow.spec.ts`（第 2–4 条）、
+  `navigation.spec.ts`（后 2 条）、`terminal.spec.ts`（连接失败重试）、`i18n.spec.ts`（英文
+  启动与错误本地化）、`status-bar.spec.ts`（慢读取不叠加轮询）。它们需要先能在 jsdom 里渲染
+  整个工作台或单个工作区。依赖真实排版的用例（`market-layout`、`visual-layout`、
+  `workbench-structure`、`trading-workflows`、图表与行情板的尺寸断言）留在 E2E 全量一档。
+- **收尾验证中发现的一处既有测试时序问题。** `ctest -j 8` 第一次 505/506：
+  `Live.StrategyRunOwnsTheAccountAndItsTargetsTakeTheOrderPath` 最后一步在手动下单返回后
+  立刻读快照找这笔委托。快照里的委托来自柜台回报（`OnRtnOrder`，在 SDK 线程上异步到达），
+  下单命令返回只说明请求已发出，所以负载高时会先读到没有这笔委托的快照；单独重跑 5 次都
+  通过。产品行为没有问题，改的是测试：和同文件其它用例一样等回报到达再断言。之后
+  `ctest` 506/506，`Live.` 44 项以 `-j 16` 连跑 3 轮通过。`pnpm desktop:check` 和
+  `pnpm test:desktop` 在最终源码上通过。
+
+### 发行包重建（同日）
+
+上面“Linux 安装包”一节记录的发行包早于标题栏、字体、标志和“研究”工作区的改动。界面定稿后
+重新执行 `pnpm desktop:build`：校验、解包安装验收和证据记录通过，新的发行包 SHA-256 为
+`a8f03650ae17bb2afea0f47de8ece5eb090057a0b85a81b00bb7156a3e313123`（284 MB），
+`build/desktop/distribution-acceptance.json` 与之一致。C++ 没有改动，服务源码指纹仍是
+`de790cb5dc0cd43d38db64d73fc1f4bc45e0ecf5635afd4efa89bb21cf6c9676`，包内程序和 `Depends`
+与之前相同。新包没有再放进 `ubuntu:26.04` 容器里实际安装；本机也没有安装。
+
+### `tests/` 与 `scripts/` 重新分类（同日，用户要求）
+
+`tests/` 平铺着 106 个文件（C++ 测试、夹具、CTest 运行的 Python 进程测试、Electron 脚本和
+手动探针混在一起），`scripts/` 里桌面构建、Linux 服务包和开发工具混放。先给出两种分法的
+目录预览，用户选定“tests 按模块、scripts 按用途”。只移动文件和修正引用，没有改动任何
+测试或脚本的行为。
+
+- **`tests/` 按被测模块分 10 个目录**：`core`、`market`、`trading`、`data`、`tasks`、`node`、
+  `terminal`、`desktop`、`support`（跨模块公用：隔离节点运行器、E2E 包装器、计时与监听
+  辅助、示例 C 插件）和 `acceptance`（手动运行、接触真实系统的验收探针；原
+  `scripts/acceptance` 的两个 CTP 仿真验收脚本并入）。夹具跟着它所替代的东西所在的模块放，
+  C++ 按路径引用（`#include "data/bar_fixture.hpp"`），Python 跨目录引用时把夹具所在目录
+  加入搜索路径。目录说明写入开发指南，规则写入 `AGENTS.md`。
+- **测试登记移到 `tests/CMakeLists.txt`**，按同样的模块分节；根 `CMakeLists.txt` 从 493 行
+  减到 248 行，只在 `BUILD_TESTING` 时 `add_subdirectory(tests)`。测试程序仍生成在构建目录
+  根下，进程测试和 E2E 的查找方式不变。登记的测试名单与整理前逐项相同（506 项）。由于
+  服务包本来就不带测试构建，此后新增或调整测试不再改变服务源码指纹，不必为此重建服务包。
+- **`scripts/` 按用途分组**：`desktop/`（构建与开发入口、打包校验、原生资源清单）、
+  `services/`（服务包构建脚本与源码指纹）、`node/`（随包分发的主机初始化脚本，未动）；
+  `prepare_ctp.py` 和 `format_cpp.py` 留在顶层。`pnpm` 命令不变；直接调用的路径变为
+  `scripts/desktop/desktop.py` 和 `scripts/services/build_linux_services.sh`，CI、VS Code
+  任务、`package.json`、`builder.cjs` 和文档已同步。`docs/reviews/` 里的历史记录保留当时的
+  路径，没有改写。
+- **VS Code 不再显示 `__pycache__`**（用户要求）：`.vscode/settings.json` 的 `files.exclude`。
+- **服务源码指纹与发行物。** 根 `CMakeLists.txt` 和指纹脚本自身的路径都在指纹内，指纹变为
+  `80b9cb5917f4dcba7a6c1ff7643822bc355f78112fae8ce787ab87dbac6b319c`。在 `ubuntu:24.04`
+  容器里重建了服务包（9 分 41 秒，SHA-256
+  `a0154ef31ab55a44fd08c34ac0f4581407238626bee82796385522268a122fbd`，清单中的指纹与源码
+  一致）；在 `ubuntu:26.04`（26.04.1，glibc 2.43）容器里包内全部程序和动态库的依赖都能
+  解析，8 个程序能启动。随后 `pnpm desktop:build` 通过校验和解包安装验收，新的发行包
+  SHA-256 为 `3701c332600ff66dafec1d1333c67853e407b279454ed0783bb8301b597c2cfd`，取代上一节
+  的记录。
+- **验证。** Debug `ctest` 第一次 505/506：`remote_resources` 按文件路径加载打包校验脚本，
+  缺少其同目录模块的搜索路径，补上后通过；Release `ctest` 在最终目录上 506/506。全量 E2E
+  73/73（17.5 分钟，含启动真实 Electron 的两条和使用示例 C 插件的一条）、`pnpm test:unit`
+  21 条、`pnpm test:desktop`、`pnpm desktop:check`、类型、Lint、格式检查通过。手动验收
+  脚本只确认了能启动并解析参数（`ssh_host_identity.py` 没有参数解析，因此实际跑了一遍
+  本机回环 sshd 校验并通过），没有逐个按其用途运行；CI 的路径改动没有在 GitHub 上跑过；
+  macOS 上没有验证，那里已有的构建目录需要重新配置一次。

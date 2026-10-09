@@ -429,7 +429,7 @@ function SourceDownloads({
                 disabled={busy || !taskService?.online || !task.history_dataset_id}
                 onClick={() => {
                   setToken("");
-                  navigate("workspace.backtest-factor", {
+                  navigate("workspace.research", {
                     page: "backtest",
                     params: {
                       source_dataset_id: task.history_dataset_id!,
@@ -446,8 +446,8 @@ function SourceDownloads({
                   disabled={busy || !taskService?.online || !task.history_dataset_id}
                   onClick={() => {
                     setToken("");
-                    navigate("workspace.backtest-factor", {
-                      page: "daily_factor",
+                    navigate("workspace.research", {
+                      page: "factor",
                       params: {
                         source_dataset_id: task.history_dataset_id!,
                         connection_id: snapshot?.data?.connection_id ?? "",

@@ -230,7 +230,7 @@ export function NodeServices({
             <summary>{t("本机运行说明")}</summary>
             <p>
               {t(
-                "macOS Terminal 使用当前系统账户自动运行服务管理器，无需 SSH、密钥或机器初始化脚本。打开 CTP 交易账户时，交易服务由本机服务管理器按需启动。",
+                "本机 Terminal 使用当前系统账户自动运行服务管理器，无需 SSH、密钥或机器初始化脚本。打开 CTP 交易账户时，交易服务由本机服务管理器按需启动。",
               )}
             </p>
             <button disabled={disabled} onClick={() => void run("node.local")}>

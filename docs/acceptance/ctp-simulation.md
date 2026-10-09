@@ -8,7 +8,7 @@
 - 在本机界面输入仿真账户密码和授权码，不写进报告、截图、终端命令或源码。报告中的账户、前置地址和委托编号脱敏。
 - 创建一个命名的专用测试账户，系统自动管理记录目录；保留全部原有账户。选定可交易的实际月份合约；核对最小变动价位、乘数、价格限制和一手风险限额。
 - 从 **交易 → CTP 交易** 添加账户，可直接查询合约目录。连接前手动选择 **CTP 仿真** 并核对账号及前置地址；系统无法自动验证资金性质。
-- 可先运行 `python3 scripts/acceptance/ctp_market.py --help`，按参数连接只读行情；该工具使用隔离节点，密码在本机交互输入，不报单。工具成功不能代替下列交易验收。
+- 可先运行 `python3 tests/acceptance/ctp_market.py --help`，按参数连接只读行情；该工具使用隔离节点，密码在本机交互输入，不报单。工具成功不能代替下列交易验收。
 - 交易与策略的自动验收见下文“自动验收脚本”。它会向你指定的柜台发送真实委托，只能用于仿真环境。
 
 ## 首次配置
@@ -48,10 +48,10 @@
 
 ## 自动验收脚本
 
-`scripts/acceptance/ctp_trading.py` 在隔离节点里用随包的厂商 SDK 依次执行：行情报价、账户同步、未授权拒单、一笔远离市价的限价单挂出并撤销、断开重连后授权保留、启动策略并观察若干分钟（手动报单被拒、分钟线、目标、策略委托价格与 K 线收盘价核对）、停止策略。三项凭据分别在本机提示输入，不写入磁盘、日志或报告；必须显式加 `--simulation` 表示已核对前置属于仿真环境。
+`tests/acceptance/ctp_trading.py` 在隔离节点里用随包的厂商 SDK 依次执行：行情报价、账户同步、未授权拒单、一笔远离市价的限价单挂出并撤销、断开重连后授权保留、启动策略并观察若干分钟（手动报单被拒、分钟线、目标、策略委托价格与 K 线收盘价核对）、停止策略。三项凭据分别在本机提示输入，不写入磁盘、日志或报告；必须显式加 `--simulation` 表示已核对前置属于仿真环境。
 
 ```sh
-python3 scripts/acceptance/ctp_trading.py --simulation \
+python3 tests/acceptance/ctp_trading.py --simulation \
   --market-front tcp://<行情前置> --trade-front tcp://<交易前置> \
   --broker <经纪商代码> --user <投资者账号> --app-id <AppID> \
   --instrument SHFE:rb2610 --minutes 8 --report ctp-trading-report.json
@@ -73,7 +73,7 @@ python3 scripts/acceptance/ctp_trading.py --simulation \
 真实柜台验收前，先在已构建的 macOS 工作区重复运行以下检查。所有进程测试经 CTest 注册的隔离包装器运行；CTP 使用测试 SDK，临时账本不接触正常 Agent。该测试覆盖三日柜台模型、重连丢失委托、迟到查询回报、服务崩溃与无客户端监督，不代表真实交易时间跨度或真实柜台规则。
 
 ```sh
-python3 tests/recovery_gate.py --build build/Release
+python3 tests/support/recovery_gate.py --build build/Release
 ```
 
 脚本先从当前构建的 CTest 清单逐项核对八个完整测试名，缺失或重复注册立即失败；随后每项重复三次，任何失败都使命令失败，跳过也不能算通过。覆盖交易日/重连授权、迟到查询、任务固定费率与结果校验、交易服务恢复、Agent 任务恢复及独立健康通道。完整输出保存在构建目录的 `recovery-repeat.log`，JUnit 保存在 `recovery-repeat.xml`；JUnit 汇总不能单独代替三轮执行记录。长时柜台运行还需按上表完成实际时段、重连和跨交易日对账。

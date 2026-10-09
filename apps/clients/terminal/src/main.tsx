@@ -4,8 +4,11 @@ import { translate, useLocale } from "./i18n";
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Terminal } from "@asterion/terminal/App";
-if (nativeDesktop && desktop().platform === "darwin") {
-  document.documentElement.dataset.integratedTitlebar = "macos";
+// The page's title bar is the window's: macOS insets the window buttons at its
+// left, Linux overlays them at its right.
+if (nativeDesktop) {
+  document.documentElement.dataset.integratedTitlebar =
+    desktop().platform === "darwin" ? "macos" : "overlay";
 }
 function EnvironmentLabel() {
   useLocale();

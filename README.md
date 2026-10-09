@@ -1,8 +1,8 @@
 # Asterion Terminal
 
-面向中国期货的 macOS 量化交易终端。C++20 核心与独立服务进程，Electron + React 桌面界面。
+面向中国期货的桌面量化交易终端，运行于 macOS 与 Linux x86_64。C++20 核心与独立服务进程，Electron + React 桌面界面。
 
-当前范围：**只开发 macOS Terminal，只做期货。**
+当前范围：**只开发 macOS 与 Linux x86_64 上的 Terminal，只做期货。**
 
 行情、数据、任务、账户交易分别运行于独立服务进程，由 Node Agent 管理；
 下载、回测和因子计算使用按需工作进程。见[架构与状态所有权](docs/architecture.md)。
@@ -16,7 +16,7 @@
 
 ## 快速开始
 
-依赖：Node.js 22+、pnpm 10、Python 3、Conan 2、CMake 3.25+、Ninja、Xcode Command Line Tools（Apple Clang）。
+依赖：Node.js 22+、pnpm 10、Python 3、Conan 2、CMake 3.25+、Ninja；macOS 用 Xcode Command Line Tools（Apple Clang），Linux 用 GCC 13 及以上。
 
 ```sh
 python3 scripts/prepare_ctp.py      # 下载并校验 CTP SDK
@@ -28,9 +28,11 @@ pnpm desktop                        # 构建并启动桌面开发窗口
 | --- | --- |
 | `pnpm desktop` | 构建 Debug C++、Node-API、界面，启动 Electron |
 | `pnpm desktop:check` | 构建并验证桌面链路，不打开窗口 |
-| `pnpm desktop:build` | 生成 Release `.dmg` 到 `build/desktop/` |
-| `pnpm run test:e2e` | 隔离环境下的界面端到端测试 |
+| `pnpm desktop:build` | 生成 Release 安装包到 `build/desktop/`：macOS 为 `.dmg`，Linux 为 `.deb` |
 | `ctest --test-dir build/Debug` | C++ 测试 |
+| `pnpm test:unit` | 界面的单元测试与组件测试 |
+| `pnpm run test:e2e:journeys` | 隔离环境下的端到端关键链路，日常使用 |
+| `pnpm run test:e2e` | 全部端到端测试，发布前使用 |
 
 构建、测试和发布细节见 [开发指南](docs/development.md)。
 

@@ -84,11 +84,10 @@ struct Application::Impl {
   std::shared_ptr<const json> native_plugins;
   // Remembered credentials live in the keychain; the helper is found next to
   // the Terminal programs or through ASTERION_KEYCHAIN_EXECUTABLE.
-  DataCredentials data_credentials{local_node_directory() / "data-providers",
-                                   keychain_store(keychain_helper())};
+  std::shared_ptr<CredentialStore> credential_store = keychain_store(keychain_helper());
+  DataCredentials data_credentials{local_node_directory() / "data-providers", credential_store};
   json credential_verification = nullptr;
-  CtpConnections ctp_connections{local_node_directory() / "ctp-connections",
-                                 keychain_store(keychain_helper())};
+  CtpConnections ctp_connections{local_node_directory() / "ctp-connections", credential_store};
   // The one CTP account that supplies market data.
   PolledTask<CtpConnection> market_ctp();
   // Where a CTP account keeps its trading record; one record per account.

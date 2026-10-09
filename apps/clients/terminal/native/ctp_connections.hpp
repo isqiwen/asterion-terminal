@@ -22,8 +22,9 @@ public:
   MarketCredentials market_credentials(const CtpConnection& connection) const;
   void remember_market_credentials(const std::string& id, const MarketCredentials& credentials);
   void forget_market_credentials(const std::string& id);
-  // Cached until this object changes a connection or the directory's
-  // modification time changes. Unreadable files are listed with an error.
+  // Cached, once the directory has settled, until this object changes a
+  // connection or the directory's modification time changes. Unreadable files
+  // are listed with an error.
   Json snapshot() const;
   CtpConnection get(const std::string& id) const;
   void save(CtpConnection connection, const std::string& expected_revision);

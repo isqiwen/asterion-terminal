@@ -1,6 +1,12 @@
 import { test as base } from "@playwright/test";
 export * from "@playwright/test";
 
+// End-to-end tests drive the real core, Agent and services through the UI.
+// What a screen does with a given reply belongs in a component test beside
+// its source (*.test.tsx), which needs none of this. The tests tagged
+// @journey are the complete paths a user depends on, one per capability;
+// `pnpm test:e2e:journeys` runs only those.
+//
 // Every spec file starts with a fresh C++ core, Agent and node directory, so
 // services and data left by one file never affect the next. Specs import
 // `test` from here instead of @playwright/test.

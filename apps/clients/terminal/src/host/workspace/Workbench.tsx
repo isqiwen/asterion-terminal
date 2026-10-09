@@ -1,4 +1,4 @@
-import { Icon } from "../../ui/Icon";
+import { BrandMark } from "../../ui/BrandMark";
 import { translate, type MessageValues } from "../../i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 import { useState, useEffect, type ReactNode } from "react";
@@ -61,7 +61,7 @@ export function Workbench({
         aria-keyshortcuts="Meta+B Control+B"
       >
         <div className="rail-brand" title={`Asterion Terminal · ${t("切换导航")} · ⌘B / Ctrl+B`}>
-          <Icon name="asterion" size={28} />
+          <BrandMark size={20} />
         </div>
         <nav aria-label={t("业务工作区")} className="workspace-tabs">
           {navigation.map(item => (

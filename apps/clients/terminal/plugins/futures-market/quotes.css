@@ -20,7 +20,7 @@
   position: sticky;
   top: 0;
   z-index: 1;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   color: var(--muted);
 }
@@ -38,7 +38,7 @@
 .market-quote-table .quote-venue {
   display: block;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 .market-quote-table:focus-visible {
   outline: 1px solid var(--accent);
@@ -74,12 +74,12 @@
   min-width: 0;
   width: 185px;
   padding: 3px 8px;
-  font-size: 11px;
+  font-size: 12px;
   min-height: 24px;
 }
 .market-board-tools span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   white-space: nowrap;
   margin-left: auto;
 }
@@ -95,7 +95,7 @@
   min-height: 23px;
   border: 0;
   border-radius: 0;
-  font-size: 11px;
+  font-size: 12px;
   background: transparent;
 }
 .market-exchanges button[aria-pressed="true"] {
@@ -117,7 +117,7 @@
   border-right: 1px solid var(--grid);
 }
 .market-exchange-groups h3 {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--muted);
   margin: 0;
@@ -141,7 +141,7 @@
 .futures-market-board .market-quote-table th {
   padding: 1px 6px;
   height: 20px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .futures-market-board .quote-venue {
   display: none;
@@ -190,13 +190,13 @@
   align-items: baseline;
   gap: 8px;
   padding: 4px 10px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .market-contract > header span,
 .market-contract-price span {
   margin-left: auto;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 .market-contract-price > strong {
   font-size: 14px;
@@ -213,16 +213,16 @@
 }
 .market-chart-unavailable h3 {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 .market-chart-unavailable p,
 .market-history-chart .subtle {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.5;
 }
 .market-series-notes {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 .market-contract .price-chart {
@@ -233,7 +233,8 @@
 }
 .market-contract .price-chart-cursor {
   min-height: 16px;
-  font-size: 10px;
+  font-size: 12px;
+  line-height: 16px;
   margin: 0 0 4px;
 }
 .market-contract .price-chart svg {
@@ -248,7 +249,7 @@
 .market-contract .price-chart-controls button {
   min-height: 20px;
   padding: 1px 5px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .market-chart-title,
 .market-chart-toolbar {
@@ -256,7 +257,7 @@
   align-items: center;
   gap: 4px;
   min-width: 0;
-  font-size: 10px;
+  font-size: 12px;
 }
 .market-chart-title {
   padding-bottom: 6px;
@@ -270,12 +271,12 @@
   flex: 1;
   padding: 2px 4px;
   min-height: 23px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .market-chart-toolbar button {
   min-height: 18px;
   padding: 0 4px;
-  font-size: 9px;
+  font-size: 12px;
 }
 .market-history-pages > span {
   margin-right: auto;
@@ -283,7 +284,7 @@
 }
 .market-chart-source {
   margin-top: 5px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 .market-chart-empty {
@@ -293,17 +294,17 @@
   justify-content: center;
   flex-direction: column;
   gap: 8px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .market-chart-empty button {
-  font-size: 11px;
+  font-size: 12px;
 }
 .market-quote-details {
   padding: 4px 6px;
   border-top: 1px solid var(--grid);
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 .market-contract-fields {
   display: grid;
@@ -311,17 +312,17 @@
   gap: 8px 10px;
 }
 .market-contract-fields dt {
-  font-size: 10px;
+  font-size: 12px;
 }
 .market-contract-fields dd {
   margin: 2px 0 0;
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 .market-contract-time {
-  font-size: 10px;
+  font-size: 12px;
 }
 .market-workspace .market-modes {
   gap: 2px;
@@ -330,21 +331,21 @@
 .market-workspace .market-modes button {
   min-height: 25px;
   border-radius: 0;
-  font-size: 11px;
+  font-size: 12px;
   padding: 2px 10px;
 }
 .market-workspace .market-session > .panel-heading {
   min-height: 26px;
   padding: 2px 10px;
   background: transparent;
-  font-size: 10px;
+  font-size: 12px;
 }
 .market-workspace .market-session > .panel-heading h2 {
-  font-size: 10px;
+  font-size: 12px;
 }
 .market-workspace .market-session > .panel-heading button {
   min-height: 22px;
-  font-size: 10px;
+  font-size: 12px;
 }
 @media (max-width: 1250px) {
   .market-exchange-groups {
@@ -398,7 +399,7 @@
 }
 .market-contract > header small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 :root[data-density="comfortable"] .futures-market-board .market-quote-table td {
   height: 34px;
@@ -436,7 +437,7 @@
 .watchlist-toggle {
   min-height: 20px;
   padding: 0 7px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .watchlist-toggle[aria-pressed="true"] {
   border-color: var(--accent-line);
@@ -453,7 +454,7 @@
 .market-dataset-choice {
   margin-left: auto;
   min-width: 0;
-  font-size: 10px;
+  font-size: 12px;
 }
 .market-dataset-choice summary {
   padding: 2px 0;
@@ -568,17 +569,17 @@
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .history-market-contracts header button {
-  font-size: 10px;
+  font-size: 12px;
   padding: 3px 6px;
 }
 .history-market-contracts > input {
   width: 100%;
   min-width: 0;
   margin-block: 8px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .history-market-contracts [role="group"] > button {
   display: flex;
@@ -590,7 +591,7 @@
   border-bottom: 1px solid var(--grid);
   border-radius: 0;
   padding: 8px;
-  font-size: 11px;
+  font-size: 12px;
   background: transparent;
 }
 .history-market-contracts [role="group"] > button[aria-pressed="true"] {
@@ -600,7 +601,7 @@
 }
 .history-market-contracts small,
 .history-market-contracts p {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 .history-market-detail {
@@ -654,7 +655,7 @@
   display: inline-block;
   margin-left: 6px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .market-board-nav .market-exchanges {
@@ -680,7 +681,7 @@
 .workbench-context .market-modes button {
   min-height: 24px;
   padding: 2px 8px;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .market-chart-unavailable {
@@ -735,7 +736,7 @@
   justify-content: flex-end;
 }
 .market-board-tools button {
-  font-size: 11px;
+  font-size: 12px;
   min-height: 24px;
   padding: 2px 8px;
 }
@@ -842,7 +843,7 @@
   border-bottom: 1px solid var(--grid);
 }
 .market-navigation .market-assets button {
-  font-size: 11px;
+  font-size: 12px;
   padding: 2px 10px;
   min-height: 21px;
   border-radius: 0;
@@ -913,7 +914,7 @@
 .market-menu .market-board-tools p {
   flex-basis: 100%;
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 .market-menu .market-board-tools span {
   margin-left: 0;
@@ -965,7 +966,7 @@
 }
 .futures-market-board .market-quote-table th {
   height: 22px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 400;
   color: var(--muted);
 }
@@ -1010,7 +1011,7 @@
 }
 .quote-pane-header small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 .quote-pane-periods {
   display: flex;
@@ -1023,7 +1024,7 @@
   border: 1px solid transparent;
   background: transparent;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   min-height: 20px;
   padding: 0 7px;
   border-radius: 2px;
@@ -1071,7 +1072,7 @@
 .quote-pane-body .market-chart-empty {
   margin: auto;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   text-align: center;
 }
 .intraday-legend {
@@ -1089,7 +1090,7 @@
 .intraday-note {
   margin: 2px 4px 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 @media (max-width: 1250px) {
   .futures-market-board .market-exchange-groups {
@@ -1110,7 +1111,7 @@
   border: 0;
 }
 .market-navigation .market-assets .market-modes button {
-  font-size: 11px;
+  font-size: 12px;
   min-height: 21px;
   padding: 1px 10px;
   border: 0;
@@ -1132,7 +1133,7 @@
 .market-config > summary {
   padding: 5px 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .market-config[open] {
   padding-bottom: 14px;
@@ -1161,7 +1162,7 @@
   flex-direction: column;
   gap: 5px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 :is(.market-config, .market-connect) label.market-remember {
   flex-direction: row;
@@ -1199,7 +1200,7 @@
   border: 1px solid var(--line-strong);
   border-radius: var(--control-radius);
   font-family: var(--font-terminal);
-  font-size: 11px;
+  font-size: 12px;
 }
 .market-symbols button {
   min-height: 20px;

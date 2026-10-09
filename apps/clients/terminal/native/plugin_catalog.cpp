@@ -96,6 +96,10 @@ PluginCatalog::select_data_task_plugins(std::span<const std::string> hashes,
   return selection;
 }
 namespace {
+// What a native plugin file is called on this machine.
+std::string plugin_extension() {
+  return current_platform().os == "macos" ? ".dylib" : ".so";
+}
 void prepare_managed(const std::filesystem::path& directory) {
   if (!directory.is_absolute() || std::filesystem::is_symlink(directory) ||
       std::filesystem::is_symlink(directory.parent_path()))
@@ -105,8 +109,8 @@ void prepare_managed(const std::filesystem::path& directory) {
 }
 } // namespace
 PluginCatalogEntry preview_plugin(const std::filesystem::path& path) {
-  if (!path.is_absolute() || path.extension() != ".dylib" || std::filesystem::is_symlink(path) ||
-      !std::filesystem::is_regular_file(path) ||
+  if (!path.is_absolute() || path.extension() != plugin_extension() ||
+      std::filesystem::is_symlink(path) || !std::filesystem::is_regular_file(path) ||
       std::filesystem::file_size(path) > 128 * 1024 * 1024)
     throw std::invalid_argument("invalid native plugin installation file");
   const auto hash = sha256_file(path);
@@ -171,7 +175,7 @@ void install_plugin(const std::filesystem::path& bundled, const std::filesystem:
       std::filesystem::remove_all(path, error);
     }
   } cleanup{temporary};
-  const auto staged = temporary / (hash + ".dylib");
+  const auto staged = temporary / (hash + plugin_extension());
   std::ifstream stream(source, std::ios::binary);
   const std::string contents{std::istreambuf_iterator<char>(stream), {}};
   if (contents.size() > 128 * 1024 * 1024)
@@ -180,7 +184,7 @@ void install_plugin(const std::filesystem::path& bundled, const std::filesystem:
   if (sha256_file(staged) != hash)
     throw std::invalid_argument("native plugin catalog changed; inspect again");
   (void)preview_plugin(staged);
-  const auto destination = managed / (hash + ".dylib");
+  const auto destination = managed / (hash + plugin_extension());
   if (std::filesystem::exists(destination) || std::filesystem::is_symlink(destination))
     throw std::invalid_argument("native plugin version is already installed");
   publish_file_durably(staged, destination);
@@ -192,7 +196,8 @@ void uninstall_plugin(const std::filesystem::path& managed, const std::string& f
   prepare_managed(managed);
   FileLock lock(managed, "catalog.lock");
   const std::filesystem::path relative(filename);
-  if (relative.empty() || relative.filename() != relative || relative.extension() != ".dylib")
+  if (relative.empty() || relative.filename() != relative ||
+      relative.extension() != plugin_extension())
     throw std::invalid_argument("invalid native plugin installation file");
   const auto file = managed / relative;
   if (std::filesystem::is_symlink(file) || !std::filesystem::is_regular_file(file) ||

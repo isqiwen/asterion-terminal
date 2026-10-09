@@ -16,7 +16,7 @@ std::string utf8(const fs::path& p) {
   const auto s = p.u8string();
   return {s.begin(), s.end()};
 }
-// Used by the launchd and Task Scheduler paths; systemd uses require_command only.
+// Used by the launchd path; systemd uses require_command only.
 [[maybe_unused]] bool command(const fs::path& binary, const std::vector<std::string>& args) {
   ChildProcess child(binary, args, true);
   if (!child.wait(std::chrono::seconds(15)))
@@ -63,7 +63,20 @@ void write(const fs::path& file, const std::string& text, bool require_existing)
   // Service definitions are read by the OS service manager, not only this user.
   replace_file_durably(file, text, false);
 }
+#ifdef __APPLE__
+constexpr auto definitions = "Library/LaunchAgents";
+constexpr auto extension = ".plist";
+#else
+constexpr auto definitions = ".config/systemd/user";
+constexpr auto extension = ".service";
+#endif
 } // namespace
+fs::path node_service_definition(const std::string& name) {
+  const auto home = environment_path("HOME");
+  if (!home)
+    throw std::runtime_error("HOME is unavailable");
+  return *home / definitions / ((name.empty() ? "me.asterion.node-agent" : name) + extension);
+}
 void manage_node_service(const fs::path& executable, const fs::path& root,
                          const std::string& endpoint, bool stopping, std::uint64_t expected_pid,
                          std::string name, bool verifying = false) {
@@ -99,16 +112,12 @@ void manage_node_service(const fs::path& executable, const fs::path& root,
     }
     return result;
   };
-#ifdef __APPLE__
-  const auto home = environment_path("HOME");
-  if (!home)
-    throw std::runtime_error("HOME is unavailable");
-  const auto directory = *home / "Library/LaunchAgents";
-  if (!stopping)
-    create_directories_durably(directory);
   if (name.empty())
     name = "me.asterion.node-agent";
-  const auto file = directory / (name + ".plist");
+  const auto file = node_service_definition(name);
+  if (!stopping)
+    create_directories_durably(file.parent_path());
+#ifdef __APPLE__
   std::string plist = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist "
                       "version=\"1.0\"><dict><key>Label</key><string>" +
                       name + "</string><key>ProgramArguments</key><array>";
@@ -138,9 +147,6 @@ void manage_node_service(const fs::path& executable, const fs::path& root,
     require_command("/bin/launchctl", {"kickstart", domain + "/" + name});
   }
 #else
-  const auto home = environment_path("HOME");
-  if (!home)
-    throw std::runtime_error("HOME is unavailable");
   auto quote = [](const std::string& value) {
     std::string out = "\"";
     for (const auto c : value) {
@@ -154,20 +160,18 @@ void manage_node_service(const fs::path& executable, const fs::path& root,
     }
     return out + "\"";
   };
-  const auto folder = *home / ".config/systemd/user";
-  if (!stopping)
-    create_directories_durably(folder);
-  if (name.empty())
-    name = "asterion-node-agent";
-  const auto file = folder / (name + ".service");
+  // systemd counts the Terminal's own starts against a start limit and would
+  // refuse the next one, so there is none: a failing Agent is retried every
+  // ten seconds, as under launchd. The socket directory is under /tmp, which a
+  // reboot empties: the Agent started at login needs it before a Terminal
+  // opens to create it.
   write(file,
-        "[Unit]\nDescription=Asterion Node "
-        "Agent\nStartLimitIntervalSec=60\nStartLimitBurst=3\n[Service]"
-        "\nExecStart=" +
-            quote(utf8(executable)) + " --directory " + quote(utf8(root)) + " --endpoint " +
-            quote(endpoint) +
-            "\nRestart=on-failure\nRestartSec=5\n[Install]\nWantedBy=default."
-            "target\n",
+        "[Unit]\nDescription=Asterion Node Agent\nStartLimitIntervalSec=0\n[Service]"
+        "\nExecStartPre=/usr/bin/mkdir -p -m 0700 " +
+            quote(utf8(fs::path(endpoint).parent_path())) +
+            "\nExecStart=" + quote(utf8(executable)) + " --directory " + quote(utf8(root)) +
+            " --endpoint " + quote(endpoint) +
+            "\nRestart=on-failure\nRestartSec=10\n[Install]\nWantedBy=default.target\n",
         stopping);
   if (verifying) {
     const std::string check =
@@ -213,5 +217,14 @@ void stop_node_service(const fs::path& executable, const fs::path& root,
 void verify_node_service_stopped(const fs::path& executable, const fs::path& root,
                                  const std::string& endpoint, const std::string& name) {
   manage_node_service(executable, root, endpoint, true, 0, name, true);
+}
+void remove_node_service(const std::string& name) {
+  const auto file = node_service_definition(name);
+#ifndef __APPLE__
+  // The login registration is a link systemd keeps beside the definition.
+  require_command("/usr/bin/systemctl", {"--user", "disable", utf8(file.filename())});
+#endif
+  fs::remove(file);
+  sync_directory(file.parent_path());
 }
 } // namespace asterion::terminal

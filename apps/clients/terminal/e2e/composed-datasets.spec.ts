@@ -12,10 +12,7 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
     day: "2026-09-23",
   });
   await page.goto("/");
-  await page
-    .locator(".workspace-tabs")
-    .getByRole("button", { name: "回测与因子", exact: true })
-    .click();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   await page.getByRole("button", { name: "新建回测", exact: true }).click();
   const picker = page.getByRole("form", { name: "历史数据集" });
   await picker.getByLabel("K 线来源", { exact: true }).selectOption(first.source_dataset_ids[0]);

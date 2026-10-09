@@ -820,7 +820,8 @@ class Agent {
         loaded = load();
       });
       services_ = std::move(loaded.services);
-      resource_budget_.emplace(loaded.capacity, current_platform().os == "macos");
+      // A local node shares its machine with the Terminal that manages it.
+      resource_budget_.emplace(loaded.capacity, local_);
       upgrade_ = std::move(loaded.upgrade);
       recovering_drain_ =
           upgrade_active() && upgrade_->phase == agent::UpgradePlan::Phase::draining;

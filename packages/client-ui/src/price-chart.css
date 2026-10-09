@@ -38,7 +38,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 3px 8px;
-  font-size: 10px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   margin-bottom: 4px;
 }
@@ -50,7 +50,7 @@
 }
 .intraday-chart .price-chart-cursor {
   min-height: 18px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .intraday-chart-frame {
   flex: 1;

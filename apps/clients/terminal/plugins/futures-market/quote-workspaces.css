@@ -7,7 +7,7 @@
   gap: 4px;
   background: var(--canvas);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   height: 100%;
 }
 .watchlist-workspace {
@@ -38,7 +38,7 @@
 }
 .quote-tabs button,
 .quote-group-strip {
-  font-size: 10px;
+  font-size: 12px;
 }
 .quote-tabs button {
   min-height: 19px;
@@ -68,7 +68,7 @@
   border-collapse: collapse;
   width: 100%;
   min-width: 1150px;
-  font-size: 10px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 .watchlist-table th,
@@ -86,7 +86,7 @@
   top: 0;
   z-index: 1;
   background: var(--canvas);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 400;
   color: var(--muted);
   height: 25px;
@@ -174,7 +174,7 @@
 .quote-sheet-note {
   margin-top: auto;
   padding: 5px 9px;
-  font-size: 9px;
+  font-size: 12px;
   color: var(--subtle);
 }
 .watchlist-charts {
@@ -196,7 +196,7 @@
   padding: 5px 8px;
   min-height: 25px;
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: 12px;
 }
 .quote-pane-title > strong {
   color: var(--accent);
@@ -216,11 +216,11 @@
 }
 .quote-pane-title .quote-freshness {
   color: var(--chart-average);
-  font-size: 9px;
+  font-size: 12px;
 }
 .quote-empty {
   color: var(--subtle);
-  font-size: 10px;
+  font-size: 12px;
   padding: 10px;
   margin: 0;
 }
@@ -240,7 +240,7 @@
   position: relative;
 }
 .quote-data-note {
-  font-size: 9px;
+  font-size: 12px;
   padding: 2px 8px;
   color: var(--subtle);
 }
@@ -264,7 +264,7 @@
 .contract-watchlist > header,
 .contract-right section > header {
   min-height: 27px;
-  font-size: 11px;
+  font-size: 12px;
   padding: 6px 9px;
   font-weight: 400;
 }
@@ -279,7 +279,7 @@
   justify-content: space-between;
 }
 .contract-watchlist header button {
-  font-size: 9px;
+  font-size: 12px;
   border: 0;
   background: transparent;
   padding: 0;
@@ -292,7 +292,7 @@
   align-items: center;
   gap: 5px;
   padding: 4px 8px;
-  font-size: 10px;
+  font-size: 12px;
   text-align: right;
 }
 .contract-list-heading > span:first-child,
@@ -338,7 +338,7 @@
 }
 .contract-list-row small {
   display: block;
-  font-size: 9px;
+  font-size: 12px;
 }
 .contract-list-row > span:first-child small {
   color: var(--subtle);
@@ -369,12 +369,12 @@
 .contract-information > header {
   margin-right: 6px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .contract-information > button {
   min-height: 22px;
   padding: 0 8px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .contract-information > button[aria-pressed="true"] {
   border-color: var(--accent-line);
@@ -403,7 +403,7 @@
 .contract-summary dl > div {
   display: flex;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: 12px;
 }
 .contract-summary dd {
   margin: 0;
@@ -431,14 +431,14 @@
   display: grid;
   grid-template-columns: 1fr 1.2fr 0.7fr 0.7fr 1.2fr 1fr;
   text-align: center;
-  font-size: 10px;
+  font-size: 12px;
   padding: 8px;
 }
 .tick-heading {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   padding: 4px 9px;
-  font-size: 9px;
+  font-size: 12px;
   color: var(--subtle);
 }
 .contract-order label {
@@ -446,10 +446,10 @@
   align-items: center;
   gap: 12px;
   padding: 5px 9px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .contract-order input {
-  font-size: 10px;
+  font-size: 12px;
   min-height: 24px;
   flex: 1;
   width: 0;
@@ -457,7 +457,7 @@
 .contract-order > .primary {
   width: calc(100% - 18px);
   margin: 4px 9px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .watchlist-chart-pane .market-history-chart,
 .contract-chart-panel .market-history-chart {
@@ -492,17 +492,18 @@
 }
 .watchlist-chart-pane .price-chart-cursor,
 .contract-chart-panel .price-chart-cursor {
-  font-size: 9px;
+  font-size: 12px;
+  line-height: 16px;
   min-height: 16px;
   margin: 0 8px;
 }
 .watchlist-chart-pane .price-chart-controls,
 .contract-chart-panel .price-chart-controls {
-  font-size: 9px;
+  font-size: 12px;
 }
 .watchlist-chart-pane .price-chart-controls button,
 .contract-chart-panel .price-chart-controls button {
-  font-size: 9px;
+  font-size: 12px;
   padding: 1px 4px;
   min-height: 17px;
 }

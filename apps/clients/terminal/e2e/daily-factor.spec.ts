@@ -4,10 +4,9 @@ for (const locale of ["zh-CN", "en-US"]) {
     const en = locale === "en-US";
     await page.addInitScript(value => localStorage.setItem("asterion.locale", value), locale);
     await page.goto("/");
-    await page
-      .getByRole("button", { name: en ? "Backtest & Factors" : "回测与因子", exact: true })
-      .click();
-    await page.getByRole("button", { name: en ? "Daily factor" : "日线因子", exact: true }).click();
+    await page.getByRole("button", { name: en ? "Research" : "研究", exact: true }).click();
+    await page.getByRole("button", { name: en ? "Factors" : "因子", exact: true }).click();
+    await page.getByRole("button", { name: en ? "Daily" : "日线", exact: true }).click();
     await expect(
       page.getByRole("button", { name: en ? "Analyze daily bars" : "开始日线分析", exact: true }),
     ).toBeDisabled();
@@ -15,16 +14,14 @@ for (const locale of ["zh-CN", "en-US"]) {
     await lookback.fill("17");
     await page.getByLabel(en ? "Evaluation" : "评价方式", { exact: true }).selectOption("holdout");
     await page.getByLabel(en ? "Development bars" : "前段日线数", { exact: true }).fill("60");
-    await page
-      .getByRole("button", { name: en ? "Factor Analysis" : "因子分析", exact: true })
-      .click();
-    await page.getByRole("button", { name: en ? "Daily factor" : "日线因子", exact: true }).click();
+    await page.getByRole("button", { name: en ? "Bars" : "K 线", exact: true }).click();
+    await page.getByRole("button", { name: en ? "Daily" : "日线", exact: true }).click();
     await expect(lookback).toHaveValue("17");
     for (const width of [1440, 800]) {
       await page.setViewportSize({ width, height: 900 });
       expect(
         await page
-          .locator(".backtest-factor-workspace")
+          .locator(".research-workspace")
           .evaluate(el => el.scrollWidth <= el.clientWidth + 1),
       ).toBe(true);
       await page.screenshot({

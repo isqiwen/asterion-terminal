@@ -18,7 +18,7 @@
 - `risk.h`：期货交易前风险上下文、明确拒绝原因与同步评估函数表。
 - `sdk.hpp`：可选的 C++ 异常屏障和配置读取助手。使用纯 C 时不需要它。
 
-第三方只需要这些头文件和自身供应商依赖，不需要链接 Asterion Core、Protobuf、Node 或 UI。使用本机工具链编译为 `.dylib`，远程服务编译为 Linux x86_64 `.so`。一个动态库可以发布多个来源或多个能力；每种能力只声明确实实现的版本。
+第三方只需要这些头文件和自身供应商依赖，不需要链接 Asterion Core、Protobuf、Node 或 UI。使用本机工具链编译为 macOS 的 `.dylib` 或 Linux x86_64 的 `.so`，远程服务使用 Linux x86_64 `.so`。一个动态库可以发布多个来源或多个能力；每种能力只声明确实实现的版本。
 
 导出 `asterion_plugin_entry_v1(uint32_t host_abi, uint32_t host_struct_size)`，检查两个参数后返回只读 `AstPluginV1`。入口之外的符号应隐藏。描述信息必须包含稳定且唯一的插件 ID、实现版本、匹配的平台，以及非空能力目录。每个能力有稳定 ID、版本号和种类。
 
@@ -62,10 +62,10 @@ ABI v1 精确匹配结构大小和版本，不兼容未知布局。新增能力�
 
 Terminal 开发构建将插件放在 `build/Debug/plugins/`，桌面构建复制到 `build/electron-resources/native/plugins/`。通过设置页创建数据与任务服务时，NodeClient 只上传勾选的插件。Node Agent 将 SHA-256 集合写入服务配置，在子进程（`asterion-node-agent --inspect-plugin`）中读取插件描述，校验 ABI、平台和重复标识后安装到服务自己的版本目录；Agent 进程本身不加载插件。程序更新保留当前插件集合；插件变更通过独立命令保存。数据服务和任务服务分别使用保存的集合，新下载及回测任务固定各自需要的动态库摘要。替换插件不会自动改写已有历史数据或正在运行的服务。发行包的 Linux 清单包含 Tushare 和订单限额风控动态库，打包校验覆盖其 SHA-256 和目标架构。
 
-纯 C 契约夹具位于 `tests/native-plugin/`，仅用于测试，不能安装到生产目录。它独立编译，不链接 Core，可用于确认第三方编译流程和回调生命周期：
+纯 C 契约夹具位于 `tests/support/native-plugin/`，仅用于测试，不能安装到生产目录。它独立编译，不链接 Core，可用于确认第三方编译流程和回调生命周期：
 
 ```sh
-cmake -S tests/native-plugin -B build/plugin-sdk-check
+cmake -S tests/support/native-plugin -B build/plugin-sdk-check
 cmake --build build/plugin-sdk-check
 cmake --build build/Debug
 ctest --test-dir build/Debug -R 'NativePlugin|NativeHistoryPlugin' --output-on-failure
@@ -103,14 +103,14 @@ Agent 的 `plugin_artifacts.*` 负责摘要验证、重复身份检查和服务�
 
 下载页不选择凭据：供应商已设置凭据时直接使用，并采用其请求上限；未设置时为本次查询和下载临时输入，提交后清空。
 
-设置保存在本机 Agent 目录的 `data-providers/<插件 ID>.json`，只含请求上限和是否记住。默认凭据只驻留当前 Terminal 进程内存，关闭应用后需重新输入。用户勾选保存且插件允许时，令牌保存在 macOS 登录钥匙串（服务名 `me.asterion.terminal.data-connection`，仅本机、解锁时可用），由签名稳定的辅助程序 `asterion-keychain` 读写。清除会同时删除钥匙串条目。界面快照不返回凭据。
+设置保存在本机 Agent 目录的 `data-providers/<插件 ID>.json`，只含请求上限和是否记住。默认凭据只驻留当前 Terminal 进程内存，关闭应用后需重新输入。用户勾选保存且插件允许时，令牌保存在 macOS 登录钥匙串（服务名 `me.asterion.terminal.data-connection`，仅本机、解锁时可用）或 Linux Secret Service 的登录密钥环（同名 schema），由辅助程序 `asterion-keychain` 读写；macOS 的辅助程序签名保持稳定。Linux 会话没有 Secret Service 时不能保存。清除会同时删除钥匙串条目。界面快照不返回凭据。
 
 提交下载时，数据服务保存当时的授权快照和供应商令牌，任务服务只持有非秘密授权引用；工作进程按有效尝试从数据服务取得固定凭据与预算。更改或清除 Terminal 的供应商默认凭据不影响已提交授权；同一提交身份不能替换原凭据。令牌过期后的旧任务不会自动改用新凭据，应显式建立新任务。Terminal 默认设置和数据服务保管的已提交授权具有不同生命周期。
 
 
 ### 安装、版本选择与卸载
 
-设置页的「安装原生插件」先说明动态库会执行本机代码，用户确认信任后选择 `.dylib` 文件。预览显示 ID、实现版本、能力及 SHA-256；确认安装时再次验证摘要、ABI 和当前平台，然后原子发布到本机 Agent 目录的 `plugins/`。不修改应用包内自带插件，也不覆盖同 ID 同版本。并存版本必须使用不同实现版本号。
+设置页的「安装原生插件」先说明动态库会执行本机代码，用户确认信任后选择本机格式的动态库（macOS `.dylib`，Linux `.so`）。预览显示 ID、实现版本、能力及 SHA-256；确认安装时再次验证摘要、ABI 和当前平台，然后原子发布到本机 Agent 目录的 `plugins/`。不修改应用包内自带插件，也不覆盖同 ID 同版本。并存版本必须使用不同实现版本号。
 
 插件目录合并显示应用自带版本和用户安装版本。勾选同 ID 的另一个可用版本会替换本次编辑中的选择，保存仍要求服务停止且修订号一致。同一自带插件另有用户安装的版本时，默认启用自带版本，用户可改选另一版本，但不能两个都不选。无原始文件的已部署版本仍显示其摘要；切换时应显式取消保留它。
 

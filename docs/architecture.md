@@ -1,6 +1,6 @@
 # 架构
 
-当前产品为 macOS 期货 Terminal，本机服务运行于 macOS，远程节点服务仅支持 Linux x86_64。
+当前产品为运行于 macOS 与 Linux x86_64 的期货 Terminal，本机服务与 Terminal 运行在同一台机器，远程节点服务仅支持 Linux x86_64。
 本文描述当前代码；架构改造的逐项实现、验收证据及运行限制见[实施记录](reviews/architecture-implementation.md)。
 
 ## 分层
@@ -47,7 +47,7 @@ Terminal 的 JSON 命令注册与分派属于 Native 应用边界，核心库不
 
 ```mermaid
 flowchart TB
-  Terminal[macOS Terminal] --> Market[行情服务]
+  Terminal[Terminal] --> Market[行情服务]
   Terminal --> Trading[每账户交易服务]
   Terminal --> Data[数据服务]
   Terminal --> Task[任务服务]
@@ -101,7 +101,7 @@ Domain 只为确有多个实现的能力保留端口：交易前风控（`RiskPo
 | `bindings/node/`、`bindings/c/` | Node-API 与 C ABI |
 | `apps/clients/terminal/native/` | C++ 编排：服务客户端、命令、状态快照 |
 | `apps/clients/terminal/src/` | React 宿主：工作台、设置、启动、多语言、桥接 |
-| `apps/clients/terminal/plugins/` | 工作区插件：自选、合约、市场、数据、回测与因子、交易 |
+| `apps/clients/terminal/plugins/` | 工作区插件：自选、合约、市场、数据、研究、交易 |
 | `apps/clients/terminal/dev/` | 浏览器开发桥（`pnpm dev` 与 e2e 使用） |
 
 ### 状态同步

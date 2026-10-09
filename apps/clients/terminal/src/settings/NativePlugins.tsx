@@ -1,5 +1,5 @@
 import { request } from "../bridge/client";
-import { open } from "../bridge/desktop";
+import { desktop, open } from "../bridge/desktop";
 import { useEffect, useState } from "react";
 import type { NativePluginInfo, Snapshot, TerminalCommand } from "../bridge/client";
 import { translate } from "../i18n";
@@ -386,7 +386,12 @@ export function NativePlugins({ snapshot, busy, trade }: Props) {
               try {
                 const path = await open({
                   title: t("选择插件动态库"),
-                  filters: [{ name: t("原生插件"), extensions: ["dylib"] }],
+                  filters: [
+                    {
+                      name: t("原生插件"),
+                      extensions: [desktop().platform === "darwin" ? "dylib" : "so"],
+                    },
+                  ],
                 });
                 if (typeof path === "string") {
                   const preview = await request("native.plugins.preview", { path });

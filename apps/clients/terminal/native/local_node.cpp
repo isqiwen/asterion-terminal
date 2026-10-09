@@ -43,7 +43,7 @@ std::string utf8(const fs::path& p) {
   return {s.begin(), s.end()};
 }
 fs::path local_root() {
-  [[maybe_unused]] const bool development = development_environment();
+  const bool development = development_environment();
   auto root = environment("ASTERION_NODE_DIRECTORY");
   if (root.empty()) {
 #if defined(__APPLE__)
@@ -53,7 +53,7 @@ fs::path local_root() {
     root = environment("XDG_DATA_HOME");
     if (root.empty())
       root = environment("HOME") / ".local" / "share";
-    root /= "asterion/node";
+    root /= development ? "asterion-development/node" : "asterion/node";
 #endif
   }
   return root;
@@ -205,12 +205,9 @@ void shutdown_development_node(ServiceIo& io, bool recover) {
     {
       FileLock stopped(root, "agent.lock");
     }
-    const auto definition =
-        environment("HOME") / "Library/LaunchAgents/me.asterion.node-agent.dev.plist";
-    if (fs::exists(definition))
-      verify_node_service_stopped(installed, root, endpoint, local_node_service_name());
-    else
+    if (!fs::exists(node_service_definition(local_node_service_name())))
       return;
+    verify_node_service_stopped(installed, root, endpoint, local_node_service_name());
   }
   if (control) {
     const auto status = control->inspect_status().get();
@@ -223,10 +220,7 @@ void shutdown_development_node(ServiceIo& io, bool recover) {
   }
   // A stopped development environment must not be launched again at login.
   // stop/verify above checks the exact owned definition before removal.
-  const auto definition =
-      environment("HOME") / "Library/LaunchAgents/me.asterion.node-agent.dev.plist";
-  fs::remove(definition);
-  sync_directory(definition.parent_path());
+  remove_node_service(local_node_service_name());
 }
 NodeEndpoint local_node(ServiceIo& io) {
   static std::mutex bootstrap;

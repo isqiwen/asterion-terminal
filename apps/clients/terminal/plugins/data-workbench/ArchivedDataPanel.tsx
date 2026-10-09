@@ -273,7 +273,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
               <button
                 disabled={!online || context.busy}
                 onClick={() =>
-                  context.navigate("workspace.backtest-factor", {
+                  context.navigate("workspace.research", {
                     page: "backtest",
                     params: {
                       source_dataset_id: item.id,
@@ -289,8 +289,8 @@ export function ArchivedDataPanel(context: TerminalContext) {
                 <button
                   disabled={!online || context.busy}
                   onClick={() =>
-                    context.navigate("workspace.backtest-factor", {
-                      page: "daily_factor",
+                    context.navigate("workspace.research", {
+                      page: "factor",
                       params: { source_dataset_id: item.id, connection_id: connection ?? "" },
                     })
                   }

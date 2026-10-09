@@ -145,7 +145,8 @@ Json CtpConnections::snapshot() const {
   // Saves and removals replace files by rename, which updates the directory time.
   if (!cached_ || time != cached_time_) {
     cached_ = read_all();
-    cached_time_ = time;
+    // A directory changed this recently is read again next time.
+    cached_time_ = directory_settled(time) ? time : fs::file_time_type::min();
   }
   return *cached_;
 }

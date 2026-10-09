@@ -22,6 +22,12 @@
   padding-left: 90px;
   -webkit-app-region: drag;
 }
+/* The window buttons cover the bar's right end; its content stops before them. */
+:root[data-integrated-titlebar="overlay"] .terminal-titlebar {
+  flex-basis: 34px;
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 16px);
+  -webkit-app-region: drag;
+}
 .terminal-titlebar > * {
   -webkit-app-region: no-drag;
 }
@@ -41,7 +47,7 @@
   padding: 2px 8px;
   background: var(--panel);
   color: var(--text-strong);
-  font-size: 11px;
+  font-size: 12px;
   -webkit-app-region: no-drag;
 }
 .terminal-titlebar::before {
@@ -89,6 +95,6 @@
   color: var(--accent);
   border: 1px solid currentColor;
   border-radius: var(--control-radius);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 16px;
 }

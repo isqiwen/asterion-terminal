@@ -209,7 +209,7 @@
 }
 .paper-metrics dt {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .paper-metrics dd {
   margin: 4px 0 0;
@@ -244,7 +244,7 @@
 }
 .strategy-run-facts dt {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .strategy-run-facts dd {
   margin: 4px 0 0;
@@ -262,7 +262,7 @@
   min-height: 22px;
   padding: 0 8px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 .ctp-account-panel > form[aria-label] .source-actions .primary {
@@ -270,7 +270,7 @@
 }
 .ctp-account-panel > form[aria-label] .source-actions .primary small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 .activity-tabs {
   display: flex;

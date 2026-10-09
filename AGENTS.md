@@ -6,8 +6,8 @@ philosophy guides implementation within those constraints.
 
 ## Scope
 
-- Build, test, and ship **macOS Terminal for futures only**.
-- Do not add Web, Mobile, Notebook, standalone CLI, or Windows/Linux desktop clients.
+- Build, test, and ship **Terminal for futures only**, on **macOS** and **Linux x86_64**.
+- Do not add Web, Mobile, Notebook, standalone CLI, or Windows desktop clients.
 - Remote services support **Linux x86_64** only and exist to serve Terminal.
 - Build interfaces and implementations only for actual requirements.
 
@@ -60,8 +60,9 @@ philosophy guides implementation within those constraints.
 - Never automatically resend trading commands after a disconnect.
 - Enter or generate credentials locally. Never put them in source, logs, or chat.
   Users may explicitly save market-data login passwords and authorization codes
-  in the macOS Keychain. Never put them in ordinary configuration files or UI
-  storage, and never reuse saved market credentials for trading login.
+  in the macOS Keychain or the Linux Secret Service keyring. Never put them in
+  ordinary configuration files or UI storage, and never reuse saved market
+  credentials for trading login.
 - Never silently rewrite, migrate, or delete user ledgers, tasks, or datasets.
 
 ## UI
@@ -84,8 +85,18 @@ philosophy guides implementation within those constraints.
 - For running desktop issues, verify the actual launch directory, frontend source,
   and native-module path as described in the [development guide](docs/development.md).
   Never transfer test conclusions between checkouts without verifying the inputs.
-- Run E2E only through `pnpm run test:e2e`, which isolates Agent and the test CTP SDK.
-  Never invoke `playwright test` directly; it can operate real local services.
+- Test at the lowest layer that proves the behavior: C++ tests for trading, data
+  and service logic; Vitest unit and component tests beside the source
+  (`pnpm test:unit`) for what the UI does with a reply; E2E only for behavior
+  that needs the real core, Agent and services.
+- C++ and process tests live in `tests/<module>/` with that module's fixtures,
+  registered in `tests/CMakeLists.txt`; probes run by hand against real systems
+  live in `tests/acceptance/`. The [development guide](docs/development.md)
+  lists the modules.
+- Run E2E only through `pnpm run test:e2e` (everything) or
+  `pnpm run test:e2e:journeys` (the key journeys), which isolate Agent and the
+  test CTP SDK. Never invoke `playwright test` directly; it can operate real
+  local services.
 - Changes to `core/`, `protocol/`, `plugins/`, `apps/services/`, or `bindings/`
   change the Linux service source fingerprint. Rebuild before release following
   the [development guide](docs/development.md); `pnpm desktop` only warns in development.

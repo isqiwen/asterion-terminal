@@ -1,0 +1,20 @@
+{
+  "programs": [
+    "asterion-trading",
+    "asterion-node-agent",
+    "asterion-market-data",
+    "asterion-data-service",
+    "asterion-task-service",
+    "asterion-backtest",
+    "asterion-factor",
+    "asterion-data-pipeline",
+    "asterion-keychain",
+    "asterion_terminal.node"
+  ],
+  "libraries": [
+    "ctp-md",
+    "ctp-trader",
+    "plugins/asterion-tushare",
+    "plugins/asterion-order-limits"
+  ]
+}

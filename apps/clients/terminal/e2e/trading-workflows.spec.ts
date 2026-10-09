@@ -26,15 +26,15 @@ for (const locale of ["zh-CN", "en-US"]) {
     ).toBeVisible();
     await fits();
     await page.screenshot({ path: `apps/clients/terminal/test-results/ctp-setup-${locale}.png` });
-    await button("回测与因子", "Backtest & Factors").click();
-    await button("均线回测", "Moving Average Backtest").click();
+    await button("研究", "Research").click();
+    await button("回测", "Backtest").click();
     await button("新建回测", "New backtest").click();
     await button("下一步", "Next").click();
     await page.getByLabel(en ? "Initial Capital" : "初始资金", { exact: true }).fill("25000");
     await fits();
     // A draft survives leaving the workspace and coming back.
     await button("交易", "Trading").click();
-    await button("回测与因子", "Backtest & Factors").click();
+    await button("研究", "Research").click();
     await expect(page.getByLabel(en ? "Initial Capital" : "初始资金", { exact: true })).toHaveValue(
       "25000",
     );

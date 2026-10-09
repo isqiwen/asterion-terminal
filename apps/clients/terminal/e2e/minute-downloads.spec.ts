@@ -73,11 +73,8 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
   await page.screenshot({ path: "build/contract-units-browser.png" });
   await section.getByLabel("分钟周期", { exact: true }).selectOption("5");
   await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");
-  await page
-    .locator(".workspace-tabs")
-    .getByRole("button", { name: "回测与因子", exact: true })
-    .click();
-  await expect(page.getByRole("region", { name: "期货回测与因子", exact: true })).toBeVisible();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  await expect(page.getByRole("region", { name: "期货研究", exact: true })).toBeVisible();
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await expect(section.getByLabel("月份合约", { exact: true })).toHaveValue("SHFE/cu/2023-10");
   await expect(section.getByLabel("分钟周期", { exact: true })).toHaveValue("5");

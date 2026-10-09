@@ -11,8 +11,9 @@
   border-right: 1px solid var(--line);
   padding: 0 4px;
 }
+/* Three 12px characters to a line: 回测与 / 因子. */
 .activity-rail.expanded {
-  width: 40px;
+  width: 48px;
 }
 html[lang="en-US"] .activity-rail.expanded {
   width: 64px;
@@ -45,8 +46,8 @@ html[lang="en-US"] .activity-rail.expanded {
   max-width: 100%;
   white-space: normal;
   overflow-wrap: anywhere;
-  font-size: 10px;
-  line-height: 12px;
+  font-size: 12px;
+  line-height: 14px;
 }
 .activity-rail .workspace-tabs button.active {
   background: var(--accent-surface);
@@ -96,7 +97,7 @@ html[lang="en-US"] .activity-rail.expanded {
   gap: 16px;
 }
 .environment {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   background: var(--panel);
   border-color: var(--line);
@@ -109,7 +110,7 @@ html[lang="en-US"] .activity-rail.expanded {
   height: 24px;
   padding: 0 16px;
   background: var(--canvas);
-  font-size: 10px;
+  font-size: 12px;
   gap: 4px;
 }
 .status-bar button {
