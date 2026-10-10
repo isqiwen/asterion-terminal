@@ -214,6 +214,9 @@ DominantSeries resolve_dominant_series(const std::vector<BarDatasetSources>& inp
   struct Segment {
     std::size_t month;
     std::string begin;
+    // The trading day before `begin`, on which the month that takes over
+    // already settled: its bars of that day give it a price to take over at.
+    std::string before;
     Decimal ratio; // New over old settlement on the day before the roll.
   };
   std::vector<Segment> segments;
@@ -267,7 +270,7 @@ DominantSeries resolve_dominant_series(const std::vector<BarDatasetSources>& inp
       if (ratio <= Decimal{})
         throw std::invalid_argument("invalid roll adjustment ratio on " + day);
     }
-    segments.push_back({*chosen, day, ratio});
+    segments.push_back({*chosen, day, previous, ratio});
   }
   DominantSeries result;
   // Back-adjustment: the last month keeps its prices; each earlier month is
@@ -287,7 +290,8 @@ DominantSeries resolve_dominant_series(const std::vector<BarDatasetSources>& inp
         end = next->first;
     }
     auto selected = inputs[month.input];
-    selected.request.set_begin_day(segments[i].begin);
+    // The first month starts the series; a later one begins a day early.
+    selected.request.set_begin_day(i ? segments[i].before : segments[i].begin);
     selected.request.set_end_day(end);
     auto dataset = resolve_bar_dataset(selected);
     total_bars += static_cast<std::size_t>(dataset.bars_size());

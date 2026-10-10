@@ -48,7 +48,8 @@ test("a product's months backtest as its dominant series and roll at real prices
   await series.getByRole("button", { name: "使用主力连续（2 个月份）", exact: true }).click();
   const selected = workspace.getByRole("list", { name: "已选合约" });
   await expect(selected).toContainText("SHFE · rb 主力连续");
-  await expect(selected).toContainText("18 根 · 2 个月份");
+  // rb2701 comes with the bars of the day before it takes over.
+  await expect(selected).toContainText("21 根 · 2 个月份");
   // The series begins on the second day; each month is listed from the day
   // it becomes dominant, with the factor that scales its prices for signals.
   await selected.getByText("换月日程（1 次换月）", { exact: true }).click();

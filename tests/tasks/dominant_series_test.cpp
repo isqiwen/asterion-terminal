@@ -110,6 +110,40 @@ TEST(DominantSeries, RollClosesTheOldMonthThenOpensTheNewOneAtRealPrices) {
   EXPECT_EQ(result.settlements(4).contracts_size(), 1);
   EXPECT_EQ(result.settlements(4).contracts(0).symbol(), "rb2701");
 }
+TEST(DominantSeries, AMonthWithAnEarlierBarTakesOverOnTheBarTheOldOneIsClosedOn) {
+  auto input = rolling();
+  // rb2701 also has the bars of the day before it becomes dominant, closing
+  // at 103, 104 and 105. Nothing is traded in it that day.
+  auto* far = input.mutable_paper()->mutable_contracts(1)->mutable_dataset();
+  *far = test::dataset(
+      join({day_bars(1, 103, 1), day_bars(2, 106, 1), day_bars(3, 109, 1), day_bars(4, 112, 1)}),
+      {}, test::contract("SHFE", "rb2701", "rb", "2027-01"));
+  input.set_dataset_revision(protocol::dataset_revision(input.paper()));
+  const auto result = backtest::run(input);
+  // rb2610 is sold on the first bar of the roll day as before. rb2701 no
+  // longer waits a bar: its order rests at its own last close of 105 and
+  // fills on that same bar, whose low is 104, instead of at 106 a bar later.
+  ASSERT_EQ(result.account().fills_size(), 3);
+  EXPECT_EQ(result.account().fills(1).symbol(), "rb2610");
+  EXPECT_EQ(result.account().fills(1).price().units(), d("212").raw());
+  EXPECT_EQ(result.account().fills(2).symbol(), "rb2701");
+  EXPECT_EQ(result.account().fills(2).price().units(), d("105").raw());
+  // Both fills carry the equity mark of that one bar: the account was never
+  // flat at a bar's end between the two months.
+  const auto& sold = result.account().fills(1);
+  const auto& bought = result.account().fills(2);
+  const auto order = [&](const std::string& id) {
+    return *std::ranges::find(result.account().orders(), id,
+                              [](const auto& item) { return item.id(); });
+  };
+  EXPECT_EQ(order(sold.order_id()).side(), protocol::v1::SELL);
+  EXPECT_EQ(order(bought.order_id()).side(), protocol::v1::BUY);
+  EXPECT_EQ(order(bought.order_id()).limit_price().units(), d("105").raw());
+  // (212 - 206) * 10 on rb2610, rb2701 from 105 to its last settlement 112.
+  EXPECT_EQ(result.account().equity().units(), d("100122").raw());
+  // The gross limit of one lot holds: the old month is closed first.
+  EXPECT_EQ(result.account().fees().units(), d("8").raw());
+}
 TEST(DominantSeries, WithoutAdjustmentTheSameBarsWouldSellAtTheRoll) {
   auto input = rolling();
   input.mutable_series(0)->mutable_rolls(0)->mutable_factor()->set_units(d("1").raw());
@@ -360,8 +394,9 @@ TEST(DominantSeries, ScheduleFollowsThePreviousDaysOpenInterestAndNeverMovesBack
   ASSERT_EQ(series.datasets[0].days_size(), 4);
   EXPECT_EQ(series.datasets[0].days(0).trading_day(), days[1]);
   EXPECT_EQ(series.datasets[0].days(3).trading_day(), days[4]);
-  ASSERT_EQ(series.datasets[1].days_size(), 3);
-  EXPECT_EQ(series.datasets[1].days(0).trading_day(), days[3]);
+  // rb2701: from the day before it takes over, for a price to take over at.
+  ASSERT_EQ(series.datasets[1].days_size(), 4);
+  EXPECT_EQ(series.datasets[1].days(0).trading_day(), days[2]);
   for (const auto& dataset : series.datasets)
     EXPECT_EQ(dataset.revision(), protocol::bar_dataset_revision(dataset));
   // While rb2610 is dominant each day begins knowing how it settled against

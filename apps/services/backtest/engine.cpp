@@ -194,6 +194,8 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     point->mutable_equity()->set_units(equity.raw());
   };
   std::vector<std::optional<PaperExecution::Target>> pending(series.size());
+  // For a roll: whether a month has traded as its series' dominant one yet.
+  std::vector<bool> led(series.size());
   const auto total = execution.size();
   for (std::size_t index = 0; index < total; ++index) {
     if (stop.stop_requested())
@@ -204,12 +206,32 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     // Orders placed after a contract's bar N can only fill on its bar N+1;
     // unfilled remainders expire before its strategy decides again.
     auto& intent = pending[current.contract];
-    if (const auto member = series[current.contract]; member != none && intent) {
+    const auto& event = schedule.event(index);
+    const auto& whom = followed[event.day];
+    const auto member = series[current.contract];
+    const auto* roll =
+        member == none
+            ? nullptr
+            : &protocol::dominant_roll(input.series(static_cast<int>(member)), bar.trading_day);
+    // The contract its unit trades now: an ordinary one, or the dominant
+    // month. A month that is no longer dominant only closes what it holds.
+    const bool leading = !roll || roll->contract() == current.contract;
+    if (roll) {
       const auto& rolls = input.series(static_cast<int>(member));
-      if (protocol::dominant_roll(rolls, bar.trading_day).contract() != current.contract)
+      // A month takes over on its first bar as the dominant one what its
+      // series wanted after the bars before it: the order rests at the
+      // month's own last close and can fill on this bar, the same one the
+      // month before it is closed on, so the series is not left flat for a
+      // bar between the two. A month without an earlier bar has no price to
+      // rest at and opens after this bar, as any contract does after its first.
+      if (leading && !led[current.contract] && current.bar)
+        if (const auto quantity = target(whom, current.contract, true))
+          intent = PaperExecution::Target{"roll." + std::to_string(index), *quantity,
+                                          execution.bar({current.contract, current.bar - 1}).close};
+      if (intent && !leading)
         intent->quantity = Decimal{};
       // Apply the roll and the no-overlapping-months rule at submission.
-      else if (intent->quantity != Decimal{} &&
+      else if (intent && intent->quantity != Decimal{} &&
                std::ranges::any_of(rolls.rolls(), [&](const auto& other) {
                  return other.contract() != current.contract && holds(other.contract());
                }))
@@ -219,17 +241,7 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     intent.reset();
     execution.cancel_open_orders(instrument);
     const auto& account = execution.account();
-    const auto& event = schedule.event(index);
     const auto order = "strategy." + std::to_string(index);
-    const auto member = series[current.contract];
-    const auto* roll =
-        member == none
-            ? nullptr
-            : &protocol::dominant_roll(input.series(static_cast<int>(member)), bar.trading_day);
-    // The contract its unit trades now: an ordinary one, or the dominant
-    // month. A month that is no longer dominant only closes what it holds.
-    const bool leading = !roll || roll->contract() == current.contract;
-    const auto& whom = followed[event.day];
     if (leading) {
       const auto u = unit[current.contract];
       const auto observe = [&](const MarketBar& seen) {
@@ -246,10 +258,13 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
           }
         }
       };
-      if (roll)
-        observe(adjusted(bar, decimal(roll->factor()),
-                         execution.contract(current.contract).terms.instrument.price_increment));
-      else
+      if (roll) {
+        const auto seen =
+            adjusted(bar, decimal(roll->factor()),
+                     execution.contract(current.contract).terms.instrument.price_increment);
+        observe(seen);
+        led[current.contract] = true;
+      } else
         observe(bar);
     }
     const Decided decided{current.contract, order, bar.close, leading};
