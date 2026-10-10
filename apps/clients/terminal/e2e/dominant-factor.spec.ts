@@ -174,3 +174,119 @@ test("the term structure of a dominant series is evaluated as a factor", async (
   expect(evidence.result.samples[0].value).toBeCloseTo(0.4, 12);
   await page.screenshot({ path: join(__dirname, "../test-results/factor-term-structure.png") });
 });
+
+test("a backtest ranks dominant series by their term structure", async ({ page }) => {
+  test.setTimeout(90000);
+  await page.goto("/");
+  await expect(page.locator(".workspace-tabs")).toBeVisible();
+  // Two products whose near month keeps the open interest. hc2610 settles
+  // above its later month and al2610 below: a year's worth of 0.4 against
+  // one of a third below zero.
+  const days = ["2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25"];
+  // The later month trades on `later` days with this open interest and
+  // settlement; the near month has 100 and 110 on all five.
+  const pair = async (
+    product: string,
+    later: string[],
+    openInterest: number,
+    settlement: number,
+    keep = true,
+  ) => {
+    await seedHistory(
+      page.request,
+      Array.from({ length: 40 }, (_, i) => 100 + i + (i % 3)),
+      `ranked-${product}-near`,
+      { product, minuteDays: days, keep },
+    );
+    await seedHistory(
+      page.request,
+      Array.from({ length: 8 * later.length }, (_, i) => 90 + i),
+      `ranked-${product}-far`,
+      { product, keep: true, month: "2027-01", minuteDays: later, openInterest, settlement },
+    );
+  };
+  await pair("zn", days, 50, 100, false);
+  await pair("al", days, 50, 120);
+  // sn2701 appears on the fourth day with more open interest and takes over
+  // on the fifth: no day of this series can compare two months.
+  await pair("sn", days.slice(3), 200, 220);
+  await page.reload();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  const workspace = page.getByRole("region", { name: "期货研究", exact: true });
+  await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
+  await workspace.getByRole("button", { name: "主力连续", exact: true }).click();
+  const choose = async (product: string) => {
+    await workspace
+      .getByLabel("品种", { exact: true })
+      .selectOption({ label: `SHFE/${product} · 1 分钟 · tushare.ft_mins · 2 个月份` });
+    const series = workspace.getByRole("region", { name: "主力连续", exact: true });
+    await series.getByLabel("最小变动价位").fill("1");
+    await series.getByLabel("合约乘数").fill("10");
+    await series.getByRole("button", { name: "使用主力连续（2 个月份）", exact: true }).click();
+    await expect(workspace.getByRole("list", { name: "已选合约" })).toContainText(
+      `SHFE · ${product} 主力连续`,
+    );
+  };
+  await choose("zn");
+  await choose("al");
+  await choose("sn");
+  await workspace.getByRole("button", { name: "下一步", exact: true }).click();
+  await workspace.getByLabel("策略", { exact: true }).selectOption("cross_term_structure");
+  await expect(workspace.getByText(/价差最高（近月相对最贵）的“每侧合约数”个做多/)).toBeVisible();
+  for (const [label, value] of [
+    ["均值窗口", "1"],
+    ["调仓间隔", "1"],
+    ["每侧合约数", "1"],
+    ["每个合约的名义金额", "1000"],
+    ["初始资金", "100000"],
+    ["单笔数量上限", "100"],
+    ["总持仓量上限", "100"],
+    ["在途委托数上限", "100"],
+  ])
+    await workspace.getByLabel(label, { exact: true }).fill(value);
+  await expect(workspace.getByText(/所选主力连续里有的没有期限结构数据/)).toBeVisible();
+  await expect(workspace.getByRole("button", { name: "下一步", exact: true })).toBeDisabled();
+  await workspace.getByRole("button", { name: "上一步", exact: true }).click();
+  await workspace.getByRole("button", { name: "移除 SHFE · sn 主力连续", exact: true }).click();
+  await workspace.getByRole("button", { name: "下一步", exact: true }).click();
+  await expect(workspace.getByText(/所选主力连续里有的没有期限结构数据/)).toHaveCount(0);
+  for (const product of ["zn", "al"]) {
+    const costs = workspace.getByRole("region", {
+      name: `SHFE · ${product} 主力连续 保证金与手续费`,
+    });
+    for (const [label, value] of [
+      ["每手保证金", "100"],
+      ["每手开仓费", "2"],
+      ["每手平今费", "3"],
+      ["每手平昨费", "4"],
+    ])
+      await costs.getByLabel(label, { exact: true }).fill(value);
+  }
+  await workspace.getByRole("button", { name: "下一步", exact: true }).click();
+  await workspace.getByRole("button", { name: "开始回测", exact: true }).click();
+  await workspace.getByRole("button", { name: "返回回测记录", exact: true }).click();
+  const row = workspace
+    .getByRole("region", { name: "研究任务", exact: true })
+    .getByRole("row")
+    .filter({ hasText: "SHFE/zn2610 + SHFE/al2610" });
+  await expect(row.getByText("已完成", { exact: true })).toBeVisible({ timeout: 20000 });
+  await row.getByRole("button", { name: "查看结果", exact: true }).click();
+  const result = workspace.getByRole("region", { name: "回测结果", exact: true });
+  await expect(result.getByRole("heading", { name: /截面期限结构 1\/1\/1/ })).toBeVisible();
+  // Ranked at the first bar that knows a term structure: zn is bought and al
+  // sold at the next, and both are held to the end.
+  await result.getByText("逐日结算", { exact: true }).click();
+  const settlements = result.locator(".research-settlements tbody tr");
+  await expect(settlements.last()).toContainText("al2610");
+  await expect(settlements.last()).toContainText("-1");
+  const state = await rpc(page.request, "runtime.snapshot");
+  const evidence = state.task_result;
+  checkSnapshot("term structure ranking", state);
+  expect(evidence.result.account.fills).toHaveLength(2);
+  expect(evidence.result.account.fills.map((fill: { symbol: string }) => fill.symbol)).toEqual([
+    "zn2610",
+    "al2610",
+  ]);
+  expect(evidence.experiment.strategies[0].rule.kind).toBe("cross_term_structure");
+  await page.screenshot({ path: join(__dirname, "../test-results/backtest-term-structure.png") });
+});

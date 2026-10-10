@@ -689,6 +689,9 @@ export type BacktestExperiment = {
   };
   // One range per contract, in contract order.
   data: ExperimentData[];
+  // Present when contracts are traded as dominant series: the rolls of each,
+  // naming contracts by index.
+  series?: { trading_day: string; contract: number; factor: string }[][];
 };
 // One series a factor read: a contract's bars, a product's dominant series
 // (the months it was read from, when each took over, and how many bars that
@@ -745,12 +748,13 @@ export type StrategyDefinition =
         | { kind: "momentum"; lookback: number }
         | { kind: "reversion"; window: number; width: string };
     }
-  // Ranks several contracts, holds `count` a side and sizes each to the lots
-  // nearest `notional` instead of a quantity; backtests only.
+  // Ranks several contracts by price momentum or by their term structure,
+  // holds `count` a side and sizes each to the lots nearest `notional` instead
+  // of a quantity; backtests only.
   | {
       sides: PositionSides;
       rule: {
-        kind: "cross_momentum";
+        kind: "cross_momentum" | "cross_term_structure";
         lookback: number;
         rebalance: number;
         count: number;

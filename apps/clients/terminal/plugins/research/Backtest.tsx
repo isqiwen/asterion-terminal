@@ -106,11 +106,20 @@ export function Backtest({
   const candidates = strategiesOf(strategy);
   // A rule that ranks contracts holds some long and as many short: it needs
   // twice as many as the most any candidate holds a side.
-  const ranked = selectedSeries(snapshot).count;
-  const held = Math.max(
-    0,
-    ...candidates.map(item => (item.rule.kind === "cross_momentum" ? item.rule.count : 0)),
-  );
+  const selection = selectedSeries(snapshot);
+  const ranked = selection.count;
+  const held = Math.max(0, ...candidates.map(item => ("count" in item.rule ? item.rule.count : 0)));
+  // Ranking by the term structure compares a dominant month with a later one:
+  // every unit must be a dominant series with days that allow it.
+  const unranked = !candidates.some(item => item.rule.kind === "cross_term_structure")
+    ? null
+    : selection.alone.length
+      ? t("期限结构只在主力连续上评价：请去掉单个合约，只保留主力连续。")
+      : selection.dominant.some(series => !series.terms)
+        ? t(
+            "所选主力连续里有的没有期限结构数据：主力月份之后还需要有已下载日线的月份，才能比较近远月。",
+          )
+        : null;
   const [parameters, setParameters] = useWorkspaceDraft("backtest-account", {
     deposit: "",
     max_order_quantity: "",
@@ -273,9 +282,14 @@ export function Backtest({
                 {ranked < 2 * held && (
                   <p role="alert" className="alert">
                     {t(
-                      "截面动量每侧持有 {held} 个，至少需要 {need} 个合约或主力连续；当前选了 {have} 个。",
+                      "排序规则每侧持有 {held} 个，至少需要 {need} 个合约或主力连续；当前选了 {have} 个。",
                       { held, need: 2 * held, have: ranked },
                     )}
+                  </p>
+                )}
+                {unranked && (
+                  <p role="alert" className="alert">
+                    {unranked}
                   </p>
                 )}
                 <p className="subtle">
@@ -349,7 +363,8 @@ export function Backtest({
                       !datasets.length ||
                       candidates.length < 1 ||
                       candidates.length > 32 ||
-                      ranked < 2 * held
+                      ranked < 2 * held ||
+                      !!unranked
                     }
                   >
                     {t("下一步")}

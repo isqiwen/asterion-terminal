@@ -70,8 +70,13 @@ void validate(const backtest::v1::BacktestInput& input) {
   const auto units = static_cast<std::size_t>(std::ranges::count(series, none)) +
                      static_cast<std::size_t>(input.series_size());
   for (const auto& strategy : input.strategies())
-    if (CrossSection::defines(strategy))
+    if (CrossSection::defines(strategy)) {
       static_cast<void>(CrossSection(strategy, units));
+      // Only a series has a later month to stand against.
+      if (strategy.cross().factor() == protocol::v1::TERM_STRUCTURE &&
+          std::ranges::count(series, none))
+        throw std::invalid_argument("ranking by the term structure needs dominant series");
+    }
   decode_order_limits(protocol::decode_risk(p.risk()));
   if (decimal(p.deposit()) <= Decimal{})
     throw std::invalid_argument("backtest requires positive capital");
@@ -112,9 +117,19 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
   // they share the account.
   std::unique_ptr<CrossSection> cross;
   std::vector<std::unique_ptr<Strategy>> strategies;
-  if (CrossSection::defines(definition))
+  // What a ranking by the term structure reads: the carry each trading day
+  // of each series begins with, where it has a term point.
+  std::vector<std::map<std::string, Decimal>> carry;
+  if (CrossSection::defines(definition)) {
     cross = std::make_unique<CrossSection>(definition, units.size());
-  else
+    if (definition.cross().factor() == protocol::v1::TERM_STRUCTURE) {
+      std::vector<const protocol::v1::Contract*> contracts;
+      for (const auto& contract : p.contracts())
+        contracts.push_back(&contract.dataset().contract());
+      for (const auto& rolls : input.series())
+        carry.push_back(protocol::term_carries(rolls, contracts));
+    }
+  } else
     for (auto& instrument : units)
       strategies.push_back(make_strategy(definition, std::move(instrument)));
   PaperExecution execution(decimal(p.deposit()), std::move(portfolio.contracts), risk);
@@ -195,10 +210,16 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     if (leading) {
       const auto u = unit[current.contract];
       const auto observe = [&](const MarketBar& seen) {
-        if (cross)
+        if (!cross) {
+          if (const auto target = strategies[u]->on_bar(seen))
+            wanted[u] = target;
+        } else if (carry.empty()) {
           cross->on_bar(u, seen.timestamp_ns, seen.close);
-        else if (const auto target = strategies[u]->on_bar(seen))
-          wanted[u] = target;
+        } else if (const auto term = carry[member].find(bar.trading_day);
+                   term != carry[member].end()) {
+          // A day without a term point is no bar of this unit for the ranking.
+          cross->on_bar(u, seen.timestamp_ns, term->second);
+        }
       };
       if (roll)
         observe(adjusted(bar, decimal(roll->factor()),
@@ -217,7 +238,7 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
         if (const auto sides = cross->rank()) {
           // A unit holds the lots of the month it trades now whose value at
           // this close is nearest the rule's notional.
-          const auto notional = decimal(definition.cross_momentum().notional());
+          const auto notional = decimal(definition.cross().notional());
           for (const auto& item : together) {
             const auto u = unit[item.contract];
             if (item.leading) {

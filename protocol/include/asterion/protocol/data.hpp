@@ -3,6 +3,7 @@
 #include <asterion/domain/market.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/v1/data.pb.h>
+#include <map>
 #include <span>
 namespace asterion::protocol {
 data::v1::DailyBar encode_daily_bar(const HistoricalDailyBar&);
@@ -55,6 +56,10 @@ Json decode_dominant_schedule(const data::v1::DominantSchedule& schedule);
 // year's worth: near over far less one, times twelve over the delivery
 // months between them. Positive when the nearer month is the dearer.
 Decimal term_carry(const data::v1::TermPoint& point, const std::string& near_month);
+// The carry each trading day of a valid schedule begins with, where it has a
+// term point; `contracts` are those its rolls name by index.
+std::map<std::string, Decimal> term_carries(const data::v1::DominantSchedule& schedule,
+                                            std::span<const v1::Contract* const> contracts);
 Json decode_term_points(const data::v1::DominantSchedule& schedule);
 std::string named_dataset_revision(const data::v1::NamedDataset&);
 void validate_named_dataset(const data::v1::NamedDataset&);

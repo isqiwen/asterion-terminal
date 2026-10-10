@@ -413,6 +413,17 @@ Decimal term_carry(const data::v1::TermPoint& point, const std::string& near_mon
   return divide(multiply(spread, Decimal::parse("12"), Rounding::half_up),
                 Decimal::parse(std::to_string(apart)), Rounding::half_up);
 }
+std::map<std::string, Decimal> term_carries(const data::v1::DominantSchedule& schedule,
+                                            std::span<const v1::Contract* const> contracts) {
+  std::map<std::string, Decimal> result;
+  for (const auto& term : schedule.terms())
+    result.emplace(
+        term.trading_day(),
+        term_carry(
+            term,
+            contracts[dominant_roll(schedule, term.trading_day()).contract()]->delivery_month()));
+  return result;
+}
 Json decode_term_points(const data::v1::DominantSchedule& schedule) {
   Json terms = Json::array();
   for (const auto& term : schedule.terms())

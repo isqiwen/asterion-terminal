@@ -470,7 +470,7 @@ test("a ranking rule holds the strongest contract long and the weakest short", a
   }
   // Three a side would need six contracts.
   await expect(
-    workspace.getByText("截面动量每侧持有 3 个，至少需要 6 个合约或主力连续；当前选了 4 个。", {
+    workspace.getByText("排序规则每侧持有 3 个，至少需要 6 个合约或主力连续；当前选了 4 个。", {
       exact: true,
     }),
   ).toBeVisible();

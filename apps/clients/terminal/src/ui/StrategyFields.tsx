@@ -46,10 +46,20 @@ const rules = {
     about:
       "在所有合约都有的 K 线上，每隔“调仓间隔”根按“收盘价 ÷ 动量回看根之前的收盘价”给各合约排序，最强的“每侧合约数”个做多、最弱的做空，其余空仓，持有到下一次排序。入选的合约各持有市值最接近“每个合约的名义金额”的手数，按排序那根 K 线的收盘价和合约乘数计算。一条主力连续算一个合约。",
   },
+  cross_term_structure: {
+    name: "截面期限结构",
+    fields: [
+      ["lookback", "均值窗口"],
+      ["rebalance", "调仓间隔"],
+      ["count", "每侧合约数"],
+    ],
+    about:
+      "在所有品种都有期限结构的 K 线上，每隔“调仓间隔”根按最近“均值窗口”根 K 线上年化近远月价差的均值给各品种排序：价差最高（近月相对最贵）的“每侧合约数”个做多、最低的做空，其余空仓，持有到下一次排序。只用于主力连续。入选的品种各持有市值最接近“每个合约的名义金额”的手数，按排序那根 K 线的收盘价和合约乘数计算。",
+  },
 } as const;
 type Kind = keyof typeof rules;
 // Rules that rank several contracts; a run on one contract cannot use them.
-const ranking: readonly Kind[] = ["cross_momentum"];
+const ranking: readonly Kind[] = ["cross_momentum", "cross_term_structure"];
 const sides = { both: "多空", long: "只做多", short: "只做空" } as const;
 
 // A strategy as a form holds it: every rule keeps its own windows, so
@@ -110,11 +120,12 @@ function combinations(draft: StrategyDraft): StrategyDefinition["rule"][] {
     );
   if (draft.kind === "momentum")
     return values("lookback").map(lookback => ({ kind: "momentum" as const, lookback }));
-  if (draft.kind === "cross_momentum")
+  if (draft.kind === "cross_momentum" || draft.kind === "cross_term_structure") {
+    const kind = draft.kind;
     return values("lookback").flatMap(lookback =>
       values("rebalance").flatMap(rebalance =>
         values("count").map(count => ({
-          kind: "cross_momentum" as const,
+          kind,
           lookback,
           rebalance,
           count,
@@ -122,6 +133,7 @@ function combinations(draft: StrategyDraft): StrategyDefinition["rule"][] {
         })),
       ),
     );
+  }
   return values("window").flatMap(window =>
     several(draft.width).map(width => ({ kind: "reversion" as const, window, width })),
   );
@@ -131,7 +143,7 @@ function combinations(draft: StrategyDraft): StrategyDefinition["rule"][] {
 export function strategiesOf(draft: StrategyDraft): StrategyDefinition[] {
   // A rule that ranks contracts carries its own size and takes no quantity.
   return combinations(draft).map(rule =>
-    rule.kind === "cross_momentum"
+    "notional" in rule
       ? { sides: draft.sides, rule }
       : { quantity: draft.quantity, sides: draft.sides, rule },
   );
@@ -145,14 +157,14 @@ export function strategyOf(draft: StrategyDraft): StrategyDefinition {
 export function strategyRule(definition: StrategyDefinition): string {
   const rule = definition.rule;
   const windows =
-    rule.kind === "moving_average"
-      ? `${rule.fast}/${rule.slow}`
-      : rule.kind === "breakout"
-        ? `${rule.entry}/${rule.exit}`
-        : rule.kind === "momentum"
-          ? `${rule.lookback}`
-          : rule.kind === "cross_momentum"
-            ? `${rule.lookback}/${rule.rebalance}/${rule.count}`
+    "rebalance" in rule
+      ? `${rule.lookback}/${rule.rebalance}/${rule.count}`
+      : rule.kind === "moving_average"
+        ? `${rule.fast}/${rule.slow}`
+        : rule.kind === "breakout"
+          ? `${rule.entry}/${rule.exit}`
+          : rule.kind === "momentum"
+            ? `${rule.lookback}`
             : `${rule.window} · ${rule.width}σ`;
   return `${t(rules[rule.kind].name)} ${windows}`;
 }

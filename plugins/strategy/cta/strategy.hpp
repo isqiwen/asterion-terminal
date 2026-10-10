@@ -49,22 +49,27 @@ public:
   static bool defines(const protocol::v1::Strategy& definition);
   // The definition ranks `units` units or this throws.
   CrossSection(const protocol::v1::Strategy& definition, std::size_t units);
-  // One completed bar of one unit. Timestamps never go back; a unit has one
-  // bar at a timestamp.
-  void on_bar(std::size_t unit, std::int64_t timestamp_ns, Decimal close);
+  // One completed bar of one unit, with what the rule's factor reads of it:
+  // its close for momentum, the carry its day began with for the term
+  // structure. Timestamps never go back; a unit has one bar at a timestamp.
+  void on_bar(std::size_t unit, std::int64_t timestamp_ns, Decimal value);
   // Called when no more bars of the last timestamp will come. Where every
   // unit had a bar and the rule rebalances, the side wanted of each unit from
   // now on: 1 long, -1 short, 0 none. Absent otherwise.
   std::optional<std::vector<int>> rank();
 
 private:
-  std::size_t lookback_, rebalance_, count_;
+  // Momentum compares a value with the one a lookback earlier; the term
+  // structure averages the lookback's values. `window_` is how many of the
+  // bars every unit had are kept for that.
+  bool momentum_;
+  std::size_t window_, rebalance_, count_;
   PositionSides sides_;
   std::int64_t time_ = -1;
-  // The bars of the current timestamp, and the closes of the last bars every
-  // unit had: one more than the lookback.
+  // The bars of the current timestamp, and the values of the last bars every
+  // unit had.
   std::vector<std::optional<Decimal>> latest_;
-  std::vector<std::deque<Decimal>> closes_;
+  std::vector<std::deque<Decimal>> values_;
   std::size_t shared_ = 0;
 };
 } // namespace asterion

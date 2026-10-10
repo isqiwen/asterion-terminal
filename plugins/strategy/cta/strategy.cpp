@@ -203,7 +203,7 @@ std::unique_ptr<Strategy> make_strategy(const protocol::v1::Strategy& definition
     return std::make_unique<BandReversion>(
         std::move(instrument), quantity, sides, definition.reversion().window(),
         Decimal::from_raw(definition.reversion().width().units()));
-  case protocol::v1::Strategy::kCrossMomentum:
+  case protocol::v1::Strategy::kCross:
     throw std::invalid_argument("a rule over several contracts runs in backtests only");
   case protocol::v1::Strategy::RULE_NOT_SET:
     break;
@@ -211,56 +211,64 @@ std::unique_ptr<Strategy> make_strategy(const protocol::v1::Strategy& definition
   throw std::invalid_argument("unknown strategy rule");
 }
 bool CrossSection::defines(const protocol::v1::Strategy& definition) {
-  return definition.has_cross_momentum();
+  return definition.has_cross();
 }
 CrossSection::CrossSection(const protocol::v1::Strategy& definition, std::size_t units)
-    : lookback_(definition.cross_momentum().lookback()),
-      rebalance_(definition.cross_momentum().rebalance()),
-      count_(definition.cross_momentum().count()),
-      sides_(protocol::position_sides(definition.sides())), latest_(units), closes_(units) {
+    : momentum_(definition.cross().factor() == protocol::v1::PRICE_MOMENTUM),
+      window_(definition.cross().lookback() + (momentum_ ? 1 : 0)),
+      rebalance_(definition.cross().rebalance()), count_(definition.cross().count()),
+      sides_(protocol::position_sides(definition.sides())), latest_(units), values_(units) {
   if (!defines(definition))
     throw std::invalid_argument("unknown strategy rule");
   // A unit is never wanted on both sides.
   if (units < 2 * count_)
     throw std::invalid_argument(
-        "cross momentum requires at least twice as many contracts as it holds a side");
+        "a ranking rule requires at least twice as many contracts as it holds a side");
 }
-void CrossSection::on_bar(std::size_t unit, std::int64_t timestamp_ns, Decimal close) {
+void CrossSection::on_bar(std::size_t unit, std::int64_t timestamp_ns, Decimal value) {
   if (timestamp_ns < time_ || (timestamp_ns == time_ && latest_.at(unit)))
     throw std::invalid_argument("strategy events are out of order");
-  if (close <= Decimal{})
-    throw std::invalid_argument("cross momentum requires positive closes");
+  if (momentum_ && value <= Decimal{})
+    throw std::invalid_argument("ranking by momentum requires positive closes");
   if (timestamp_ns > time_)
     std::ranges::fill(latest_, std::nullopt);
   time_ = timestamp_ns;
-  latest_.at(unit) = close;
+  latest_.at(unit) = value;
 }
 std::optional<std::vector<int>> CrossSection::rank() {
   const bool everywhere =
-      std::ranges::all_of(latest_, [](const auto& close) { return close.has_value(); });
+      std::ranges::all_of(latest_, [](const auto& value) { return value.has_value(); });
   if (everywhere)
-    for (std::size_t unit = 0; unit < closes_.size(); ++unit) {
-      closes_[unit].push_back(*latest_[unit]);
-      if (closes_[unit].size() > lookback_ + 1)
-        closes_[unit].pop_front();
+    for (std::size_t unit = 0; unit < values_.size(); ++unit) {
+      values_[unit].push_back(*latest_[unit]);
+      if (values_[unit].size() > window_)
+        values_[unit].pop_front();
     }
   std::ranges::fill(latest_, std::nullopt);
-  // The first ranking needs the lookback behind it; later ones follow at
-  // every `rebalance`-th shared bar.
-  if (!everywhere || ++shared_ <= lookback_ || (shared_ - lookback_ - 1) % rebalance_ != 0)
+  // The first ranking needs its window behind it; later ones follow at every
+  // `rebalance`-th shared bar.
+  if (!everywhere || ++shared_ < window_ || (shared_ - window_) % rebalance_ != 0)
     return std::nullopt;
   // A statistic, like a factor: binary floating point, not ledger arithmetic.
-  std::vector<double> momentum;
-  for (const auto& closes : closes_)
-    momentum.push_back(static_cast<double>(closes.back().raw()) /
-                       static_cast<double>(closes.front().raw()));
-  std::vector<std::size_t> order(closes_.size());
+  std::vector<double> score;
+  for (const auto& values : values_) {
+    if (momentum_) {
+      score.push_back(static_cast<double>(values.back().raw()) /
+                      static_cast<double>(values.front().raw()));
+      continue;
+    }
+    long double sum = 0;
+    for (const auto value : values)
+      sum += static_cast<long double>(value.raw());
+    score.push_back(static_cast<double>(sum / static_cast<long double>(values.size())));
+  }
+  std::vector<std::size_t> order(values_.size());
   for (std::size_t unit = 0; unit < order.size(); ++unit)
     order[unit] = unit;
-  // Strongest first; equal units keep the order they were given in.
+  // Highest first; equal units keep the order they were given in.
   std::ranges::stable_sort(order,
-                           [&](auto left, auto right) { return momentum[left] > momentum[right]; });
-  std::vector<int> wanted(closes_.size());
+                           [&](auto left, auto right) { return score[left] > score[right]; });
+  std::vector<int> wanted(values_.size());
   for (std::size_t i = 0; i < count_; ++i) {
     if (sides_ != PositionSides::short_only)
       wanted[order[i]] = 1;

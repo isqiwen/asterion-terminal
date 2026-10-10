@@ -347,14 +347,13 @@ TEST(Backtest, ARankingRuleTradesTheStrongestAndWeakestOfSeveralContracts) {
   // A contract whose one lot is worth more than twice the notional is ranked
   // and not held: 400 against lots of about 1000.
   auto small = spec;
-  small.mutable_strategies(0)->mutable_cross_momentum()->mutable_notional()->set_units(
-      d("400").raw());
+  small.mutable_strategies(0)->mutable_cross()->mutable_notional()->set_units(d("400").raw());
   EXPECT_EQ(backtest::run(small).account().fills_size(), 0);
   // One contract a side of four leaves two flat; two a side needs them all,
   // and three a side has no one to hold.
-  spec.mutable_strategies(0)->mutable_cross_momentum()->set_count(2);
+  spec.mutable_strategies(0)->mutable_cross()->set_count(2);
   EXPECT_NO_THROW(backtest::validate(spec));
-  spec.mutable_strategies(0)->mutable_cross_momentum()->set_count(3);
+  spec.mutable_strategies(0)->mutable_cross()->set_count(3);
   EXPECT_THROW(backtest::validate(spec), std::invalid_argument);
 }
 TEST(Backtest, SeveralStrategiesAreComparedOnTheDaysBeforeTheHoldoutAlone) {

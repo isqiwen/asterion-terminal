@@ -197,3 +197,30 @@ TEST(Strategy, ARankingRuleHoldsTheStrongestLongAndTheWeakestShortOnBarsAllUnits
   EXPECT_THROW(protocol::validate_strategy(sized, d("1")), std::invalid_argument);
   EXPECT_THROW(ranking(average), Error);
 }
+TEST(Strategy, ARankingByTheTermStructureAveragesTheCarryOverItsWindow) {
+  const Json rule{{"kind", "cross_term_structure"},
+                  {"lookback", 2},
+                  {"rebalance", 1},
+                  {"count", 1},
+                  {"notional", "1000"}};
+  CrossSection ranked(ranking(rule), 2);
+  using Wanted = std::optional<std::vector<int>>;
+  const auto bars = [&](std::int64_t time, const char* first, const char* second) {
+    ranked.on_bar(0, time, d(first));
+    ranked.on_bar(1, time, d(second));
+    return ranked.rank();
+  };
+  // A window of two has nothing to rank by after one bar.
+  EXPECT_EQ(bars(1, "0.4", "0.1"), Wanted());
+  // Means of 0.2 and 0.15: the first is the higher.
+  EXPECT_EQ(bars(2, "0", "0.2"), Wanted({1, -1}));
+  // A carry may be negative; means of -0.2 and 0.2.
+  EXPECT_EQ(bars(3, "-0.4", "0.2"), Wanted({-1, 1}));
+  EXPECT_EQ(protocol::strategy_warmup(ranking(rule)), 2U);
+  EXPECT_EQ(protocol::decode_strategy(ranking(rule)).at("rule"), rule);
+  EXPECT_EQ(ranking(rule).cross().factor(), protocol::v1::TERM_STRUCTURE);
+  // A ranking names what it ranks by.
+  auto unnamed = ranking(rule);
+  unnamed.mutable_cross()->clear_factor();
+  EXPECT_THROW(protocol::validate_strategy(unnamed, d("1")), std::invalid_argument);
+}

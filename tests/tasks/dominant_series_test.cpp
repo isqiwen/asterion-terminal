@@ -153,6 +153,63 @@ TEST(DominantSeries, ARankingRuleTakesASeriesAsOneOfTheContractsItRanks) {
   // (212 - 202) * 10 on rb2610, rb2701 from 106 to 112, and fees of 8.
   EXPECT_EQ(result.account().equity().units(), d("100152").raw());
 }
+TEST(DominantSeries, ARankingByTheTermStructureHoldsTheSeriesWithTheHigherCarry) {
+  auto input = rolling();
+  // A second series of one month, hc2610, steady at 150.
+  auto* flat = input.mutable_paper()->add_contracts();
+  *flat = input.paper().contracts(0);
+  *flat->mutable_dataset() =
+      test::dataset(join({day_bars(0, 150, 0), day_bars(1, 150, 0), day_bars(2, 150, 0),
+                          day_bars(3, 150, 0), day_bars(4, 150, 0)}),
+                    {}, test::contract("SHFE", "hc2610", "hc", "2026-10"));
+  input.set_dataset_revision(protocol::dataset_revision(input.paper()));
+  auto* only = input.add_series()->add_rolls();
+  only->set_trading_day(days[0]);
+  only->set_contract(2);
+  only->mutable_factor()->set_units(d("1").raw());
+  // No day begins knowing a term structure before the second. On it rb2610
+  // settled above rb2701 and hc level with its later month; from the roll day
+  // rb2701 stands below its later month and hc above.
+  const auto term = [&](int series, std::size_t day, const char* near, const char* far,
+                        const char* month) {
+    auto* point = input.mutable_series(series)->add_terms();
+    point->set_trading_day(days[day]);
+    point->mutable_near()->set_units(d(near).raw());
+    point->mutable_far()->set_units(d(far).raw());
+    point->set_far_month(month);
+  };
+  term(0, 1, "204", "200", "2027-01");
+  for (const std::size_t day : {2, 3, 4})
+    term(0, day, "108", "110", "2027-05");
+  term(1, 1, "150", "150", "2027-01");
+  for (const std::size_t day : {2, 3, 4})
+    term(1, day, "150", "148", "2027-01");
+  const Json rule{{"kind", "cross_term_structure"},
+                  {"lookback", 1},
+                  {"rebalance", 1},
+                  {"count", 1},
+                  {"notional", "1500"}};
+  *input.mutable_strategies(0) = protocol::encode_strategy({{"sides", "long"}, {"rule", rule}});
+  const auto result = backtest::run(input);
+  // Ranked from the first bar of the second day: rb2610 is bought at that
+  // bar's 206. On the roll day hc ranks higher: rb2610 is sold as it leaves
+  // the series, rb2701 is never bought, and hc2610 is bought at 150.
+  ASSERT_EQ(result.account().fills_size(), 3);
+  const auto fill = [&](int index) {
+    const auto& value = result.account().fills(index);
+    return value.symbol() + " at " + Decimal::from_raw(value.price().units()).str();
+  };
+  EXPECT_EQ(fill(0), "rb2610 at 206");
+  EXPECT_EQ(fill(1), "rb2610 at 212");
+  EXPECT_EQ(fill(2), "hc2610 at 150");
+  ASSERT_EQ(result.account().positions_size(), 1);
+  EXPECT_EQ(result.account().positions(0).symbol(), "hc2610");
+  // (212 - 206) * 10 on rb2610, and fees of 2 + 4 + 2.
+  EXPECT_EQ(result.account().equity().units(), d("100052").raw());
+  // A contract outside any series has no later month to stand against.
+  input.mutable_series()->RemoveLast();
+  EXPECT_THROW(backtest::validate(input), std::invalid_argument);
+}
 TEST(DominantSeries, APositionThatCannotBeClosedFailsInsteadOfBeingDropped) {
   // No volume in the outgoing month on and after the roll day.
   EXPECT_THROW(backtest::run(rolling("0")), std::invalid_argument);

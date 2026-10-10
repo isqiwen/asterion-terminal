@@ -64,7 +64,7 @@ v1::Strategy encode_strategy(const Json& value) {
   const auto& rule = value.at("rule");
   const auto kind = rule.at("kind").get<std::string>();
   // A rule over several contracts carries its own size and takes no quantity.
-  const bool ranks = kind == "cross_momentum";
+  const bool ranks = kind == "cross_momentum" || kind == "cross_term_structure";
   if (ranks)
     require_fields(value, {"sides", "rule"});
   else
@@ -98,12 +98,14 @@ v1::Strategy encode_strategy(const Json& value) {
     require_fields(rule, {"kind", "window", "width"});
     result.mutable_reversion()->set_window(window("window"));
     result.mutable_reversion()->mutable_width()->set_units(amount(rule.at("width")));
-  } else if (kind == "cross_momentum") {
+  } else if (ranks) {
     require_fields(rule, {"kind", "lookback", "rebalance", "count", "notional"});
-    result.mutable_cross_momentum()->set_lookback(window("lookback"));
-    result.mutable_cross_momentum()->set_rebalance(window("rebalance"));
-    result.mutable_cross_momentum()->set_count(window("count"));
-    result.mutable_cross_momentum()->mutable_notional()->set_units(amount(rule.at("notional")));
+    auto* cross = result.mutable_cross();
+    cross->set_factor(kind == "cross_momentum" ? v1::PRICE_MOMENTUM : v1::TERM_STRUCTURE);
+    cross->set_lookback(window("lookback"));
+    cross->set_rebalance(window("rebalance"));
+    cross->set_count(window("count"));
+    cross->mutable_notional()->set_units(amount(rule.at("notional")));
   } else
     throw std::invalid_argument("unknown strategy rule");
   return result;
@@ -129,32 +131,35 @@ Json decode_strategy(const v1::Strategy& strategy) {
             {"window", strategy.reversion().window()},
             {"width", Decimal::from_raw(strategy.reversion().width().units()).str()}};
     break;
-  case v1::Strategy::kCrossMomentum:
-    rule = {{"kind", "cross_momentum"},
-            {"lookback", strategy.cross_momentum().lookback()},
-            {"rebalance", strategy.cross_momentum().rebalance()},
-            {"count", strategy.cross_momentum().count()},
-            {"notional", Decimal::from_raw(strategy.cross_momentum().notional().units()).str()}};
+  case v1::Strategy::kCross:
+    rule = {{"kind", strategy.cross().factor() == v1::TERM_STRUCTURE ? "cross_term_structure"
+                                                                     : "cross_momentum"},
+            {"lookback", strategy.cross().lookback()},
+            {"rebalance", strategy.cross().rebalance()},
+            {"count", strategy.cross().count()},
+            {"notional", Decimal::from_raw(strategy.cross().notional().units()).str()}};
     break;
   case v1::Strategy::RULE_NOT_SET:
     throw std::invalid_argument("unknown strategy rule");
   }
   Json result{{"sides", position_sides_name(position_sides(strategy.sides()))},
               {"rule", std::move(rule)}};
-  if (!strategy.has_cross_momentum())
+  if (!strategy.has_cross())
     result["quantity"] = Decimal::from_raw(strategy.quantity().units()).str();
   return result;
 }
 void validate_strategy(const v1::Strategy& strategy, Decimal quantity_increment) {
   static_cast<void>(position_sides(strategy.sides()));
-  if (strategy.has_cross_momentum()) {
-    const auto& rule = strategy.cross_momentum();
-    if (strategy.has_quantity() || !rule.lookback() || rule.lookback() > 10000 ||
-        !rule.rebalance() || rule.rebalance() > 10000 || !rule.count() || rule.count() > 10 ||
+  if (strategy.has_cross()) {
+    const auto& rule = strategy.cross();
+    if (strategy.has_quantity() ||
+        (rule.factor() != v1::PRICE_MOMENTUM && rule.factor() != v1::TERM_STRUCTURE) ||
+        !rule.lookback() || rule.lookback() > 10000 || !rule.rebalance() ||
+        rule.rebalance() > 10000 || !rule.count() || rule.count() > 10 ||
         rule.notional().units() <= 0)
       throw std::invalid_argument(
-          "cross momentum requires a lookback and a rebalance of 1..10000 bars, 1..10 contracts "
-          "a side and a positive notional in place of a quantity");
+          "a ranking rule requires a factor, a lookback and a rebalance of 1..10000 bars, 1..10 "
+          "contracts a side and a positive notional in place of a quantity");
     return;
   }
   const auto quantity = Decimal::from_raw(strategy.quantity().units());
@@ -185,7 +190,7 @@ void validate_strategy(const v1::Strategy& strategy, Decimal quantity_increment)
           "reversion requires a window of 2..10000 bars and a width above 0 up to 10");
     return;
   }
-  case v1::Strategy::kCrossMomentum:
+  case v1::Strategy::kCross:
   case v1::Strategy::RULE_NOT_SET:
     break;
   }
@@ -201,8 +206,10 @@ std::size_t strategy_warmup(const v1::Strategy& strategy) {
     return strategy.momentum().lookback() + 1;
   case v1::Strategy::kReversion:
     return strategy.reversion().window();
-  case v1::Strategy::kCrossMomentum:
-    return strategy.cross_momentum().lookback() + 1;
+  case v1::Strategy::kCross:
+    // Momentum compares with the bar a lookback earlier; the term structure
+    // averages over the lookback itself.
+    return strategy.cross().lookback() + (strategy.cross().factor() == v1::PRICE_MOMENTUM ? 1 : 0);
   case v1::Strategy::RULE_NOT_SET:
     break;
   }

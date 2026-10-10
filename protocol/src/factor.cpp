@@ -86,15 +86,12 @@ Observed observed(const factor::v1::FactorSeries& data, v1::Factor factor) {
     const auto& rolls = schedule.rolls();
     // The carry each trading day begins with, where it has a term point.
     std::map<std::string, Decimal> carry;
-    if (factor == v1::TERM_STRUCTURE)
-      for (const auto& term : schedule.terms())
-        carry.emplace(
-            term.trading_day(),
-            term_carry(term, data.dominant()
-                                 .months(static_cast<int>(
-                                     dominant_roll(schedule, term.trading_day()).contract()))
-                                 .contract()
-                                 .delivery_month()));
+    if (factor == v1::TERM_STRUCTURE) {
+      std::vector<const v1::Contract*> months;
+      for (const auto& month : data.dominant().months())
+        months.push_back(&month.contract());
+      carry = term_carries(schedule, months);
+    }
     for (int i = 0; i < rolls.size(); ++i) {
       const auto& month = data.dominant().months(static_cast<int>(rolls[i].contract()));
       const auto scale = Decimal::from_raw(rolls[i].factor().units());
