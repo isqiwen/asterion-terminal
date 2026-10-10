@@ -59,10 +59,11 @@ test(
       // Task: a queued, running and finished backtest, then its result.
       await call(page.request, "backtest.submit", {
         id: "contract-backtest",
-        fast: 1,
-        slow: 2,
-        quantity: "1",
-        sides: "long",
+        strategy: {
+          quantity: "1",
+          sides: "long",
+          rule: { kind: "moving_average", fast: 1, slow: 2 },
+        },
         deposit: "10000",
         contracts: [
           {

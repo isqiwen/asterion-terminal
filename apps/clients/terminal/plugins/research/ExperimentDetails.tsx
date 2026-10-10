@@ -1,5 +1,5 @@
 import { HistoryAvailability } from "./HistoryAvailability";
-import { CostScheduleDetails, getLocale, translate } from "../contract";
+import { CostScheduleDetails, getLocale, strategyRows, translate } from "../contract";
 import {
   timestamp,
   type CostVersion,
@@ -7,7 +7,7 @@ import {
   type ExperimentData,
   type TaskResult,
 } from "../../src/bridge/client";
-import { factorWords, positionSides } from "./shared";
+import { factorWords } from "./shared";
 const t = (key: string) => translate("asterion.terminal.research", key);
 type Evidence = Extract<TaskResult, { kind: "backtest" | "factor" }>;
 type Rows = [string, string | number][];
@@ -62,17 +62,16 @@ function Fields({ rows }: { rows: Rows }) {
 export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
   const experiment = evidence.experiment;
   const rows: Rows = [];
+  // Already in the reader's language: the strategy names its own fields.
+  let strategyFacts: Rows = [];
   let contracts;
   if (evidence.kind === "backtest") {
-    const { paper, sma, data } = evidence.experiment;
+    const { paper, strategy, data } = evidence.experiment;
     contracts = paper.contracts.map((item, index) =>
       contractRows(item.dataset, data[index], item.cost_schedule),
     );
+    strategyFacts = strategyRows(strategy);
     rows.push(
-      ["快均线", sma.fast],
-      ["慢均线", sma.slow],
-      ["目标手数", sma.quantity],
-      ["持仓方向", t(positionSides[sma.sides])],
       ["初始资金", paper.deposit],
       ["单笔数量上限", paper.risk.max_order_quantity],
       ["总持仓量上限", paper.risk.max_gross_quantity],
@@ -131,6 +130,16 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
       <details className="research-experiment">
         <summary>{t("实验参数")}</summary>
         <p className="subtle">{t("任务提交时的配置")}</p>
+        {strategyFacts.length > 0 && (
+          <dl className="experiment-fields">
+            {strategyFacts.map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
         <Fields rows={rows} />
         {contracts.map(contract => (
           <section key={contract.name} aria-label={contract.name}>

@@ -10,17 +10,22 @@ import {
   type ContractCostDrafts,
   ErrorNotice,
   asDisplayError,
+  StrategyFields,
+  strategyDefaults,
+  strategyOf,
+  strategyRule,
+  strategySides,
   type TerminalContext,
 } from "../contract";
 import { timestamp } from "../../src/bridge/client";
 import { ExperimentDetails } from "./ExperimentDetails";
-import { namespace, ResearchPage, states, t, TaskRecords, useRun, positionSides } from "./shared";
+import { namespace, ResearchPage, states, t, TaskRecords, useRun } from "./shared";
 
 // Performance figures are statistics; an absent one was not computed.
 const percent = (value: number | null) => (value === null ? "—" : `${(value * 100).toFixed(2)}%`);
 const ratio = (value: number | null) => (value === null ? "—" : value.toFixed(2));
 
-/** SMA backtests: their records, a three-step form, one task's progress and its fixed result. */
+/** Strategy backtests: their records, a three-step form, one task's progress and its fixed result. */
 export function Backtest({
   snapshot,
   busy,
@@ -71,11 +76,8 @@ export function Backtest({
   }, [workspacePage, workspaceParams, setSelectedTask, setView]);
 
   const destination = JSON.stringify([snapshot?.data?.connection_id, taskService?.connection_id]);
-  const [parameters, setParameters] = useWorkspaceDraft("backtest-parameters", {
-    fast: "5",
-    slow: "20",
-    quantity: "1",
-    sides: "both",
+  const [strategy, setStrategy] = useWorkspaceDraft("backtest-strategy", strategyDefaults);
+  const [parameters, setParameters] = useWorkspaceDraft("backtest-account", {
     deposit: "",
     max_order_quantity: "",
     max_gross_quantity: "",
@@ -103,9 +105,8 @@ export function Backtest({
       const payload = {
         id,
         ...parameters,
+        strategy: strategyOf(strategy),
         contracts: contractCostRequest(datasets, costs, snapshot?.dataset_series ?? []),
-        fast: Number(parameters.fast),
-        slow: Number(parameters.slow),
       };
       if (await run("backtest.submit", payload)) {
         setSubmitted(id);
@@ -143,7 +144,7 @@ export function Backtest({
     )
     .join(" ");
   return (
-    <ResearchPage title={t("均线回测")} taskService={taskService} error={error}>
+    <ResearchPage title={t("策略回测")} taskService={taskService} error={error}>
       <div className="workflow-heading research-navigation">
         <h3>
           {t(
@@ -220,48 +221,11 @@ export function Backtest({
             </p>
             <form hidden={step !== 1} onSubmit={event => void submit(event)}>
               <fieldset disabled={busy || !dataReady || step !== 1}>
-                <div className="research-fields">
-                  {(
-                    [
-                      ["fast", "快均线"],
-                      ["slow", "慢均线"],
-                      ["quantity", "目标手数"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <label key={key}>
-                      {t(label)}
-                      <input
-                        aria-label={t(label)}
-                        type="number"
-                        min={key === "slow" ? 2 : 1}
-                        max={key === "quantity" ? undefined : 10000}
-                        step="1"
-                        required
-                        value={parameters[key]}
-                        onChange={e => setParameters({ ...parameters, [key]: e.target.value })}
-                      />
-                    </label>
-                  ))}
-                  <label>
-                    {t("持仓方向")}
-                    <select
-                      aria-label={t("持仓方向")}
-                      value={parameters.sides}
-                      onChange={e => setParameters({ ...parameters, sides: e.target.value })}
-                    >
-                      {Object.entries(positionSides).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {t(label)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                <p className="subtle">
-                  {t(
-                    "快线高于慢线时持有目标手数的多单，低于时持有空单；不允许的方向空仓。反手时先平仓，平掉之后的下一根 K 线再开仓。",
-                  )}
-                </p>
+                <StrategyFields
+                  className="research-fields"
+                  value={strategy}
+                  onChange={setStrategy}
+                />
                 <div className="research-fields">
                   {(
                     [
@@ -309,9 +273,10 @@ export function Backtest({
                 <dl className="research-summary">
                   <dt>{t("合约")}</dt>
                   <dd>{datasets.map(d => `${d.venue} · ${d.symbol}`).join(" + ")}</dd>
-                  <dt>{t("均线参数")}</dt>
+                  <dt>{t("策略")}</dt>
                   <dd>
-                    {parameters.fast} / {parameters.slow} · {t("目标手数")} {parameters.quantity}
+                    {strategyRule(strategyOf(strategy))} · {t("{n} 手", { n: strategy.quantity })} ·{" "}
+                    {strategySides(strategy.sides)}
                   </dd>
                   <dt>{t("初始资金")}</dt>
                   <dd>{parameters.deposit}</dd>
@@ -446,7 +411,7 @@ export function Backtest({
             {view === "result" && result && result.id === selectedTask && (
               <section className="research-result" aria-label={t("回测结果")}>
                 <h3>
-                  {activeTask?.instrument} · {t("均线回测")}
+                  {activeTask?.instrument} · {strategyRule(result.experiment.strategy)}
                 </h3>
                 <p className="subtle">
                   {activeTask && new Date(activeTask.submitted_at_ms).toLocaleString(getLocale())} ·{" "}

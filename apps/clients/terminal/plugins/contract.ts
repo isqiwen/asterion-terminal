@@ -1,4 +1,13 @@
 export { TaskPagination } from "../src/ui/TaskPagination";
+export {
+  StrategyFields,
+  strategyDefaults,
+  strategyOf,
+  strategyRows,
+  strategyRule,
+  strategySides,
+  type StrategyDraft,
+} from "../src/ui/StrategyFields";
 export { useWorkspaceDraft, useWorkspaceRequestId } from "../src/host/workspace/drafts";
 export { Icon } from "../src/ui/Icon";
 export { useHistoryDatasets } from "../src/ui/useHistoryDatasets";

@@ -1,5 +1,5 @@
 #include "strategy_host.hpp"
-#include "moving_average.hpp"
+#include "strategy.hpp"
 #include <asterion/kernel/ipc/rpc_client.hpp>
 #include <asterion/v1/market.pb.h>
 #include <condition_variable>
@@ -38,7 +38,7 @@ market::v1::MinuteSeries read(ipc::RpcClient& client, const StrategyHost::Defini
   return response.minutes();
 }
 void run(const std::stop_token& stop, const StrategyHost::Definition& definition,
-         MovingAverage& strategy, const StrategyHost::Report& report) {
+         Strategy& strategy, const StrategyHost::Report& report) {
   ipc::RpcClient client(definition.market_endpoint, 1, PayloadBudget{1 << 20}, 1 << 20);
   // The trading day being read and where its observation began.
   std::string day;
@@ -96,13 +96,12 @@ void run(const std::stop_token& stop, const StrategyHost::Definition& definition
 }
 } // namespace
 StrategyHost::StrategyHost(Definition definition, Report report) {
-  MovingAverage strategy(definition.instrument, definition.fast, definition.slow,
-                         definition.quantity, definition.sides);
-  strategy.start();
+  auto strategy = make_strategy(definition.strategy, definition.instrument);
+  strategy->start();
   thread_ = std::jthread([definition = std::move(definition), report = std::move(report),
                           strategy = std::move(strategy)](std::stop_token stop) mutable {
     try {
-      run(stop, definition, strategy, report);
+      run(stop, definition, *strategy, report);
     } catch (const std::exception& error) {
       if (!stop.stop_requested())
         report(Failure{error.what()});

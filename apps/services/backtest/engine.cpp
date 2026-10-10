@@ -1,6 +1,6 @@
 #include "engine.hpp"
 #include <asterion/protocol/data.hpp>
-#include "moving_average.hpp"
+#include "strategy.hpp"
 #include "order_limits.hpp"
 #include "risk_module.hpp"
 #include "paper_execution.hpp"
@@ -50,25 +50,25 @@ void validate(const backtest::v1::BacktestInput& input) {
   const auto& p = input.paper();
   const auto series = series_of(input);
   std::vector<int> series_bars(static_cast<std::size_t>(input.series_size()));
+  const auto warmup = protocol::strategy_warmup(input.strategy());
   for (int index = 0; index < p.contracts_size(); ++index) {
     const auto& item = p.contracts(index);
     const auto& c = item.dataset().contract();
     FuturesContract contract{protocol::instrument(c), c.product(), c.delivery_month()};
     contract.validate();
     (void)protocol::cost_schedule(item.cost_schedule());
-    const MovingAverage strategy(contract.instrument, input.sma().fast(), input.sma().slow(),
-                                 decimal(input.sma().quantity()),
-                                 protocol::position_sides(input.sma().sides()));
-    (void)strategy;
+    static_cast<void>(make_strategy(input.strategy(), contract.instrument));
     // A series is one strategy over all of its months.
     if (series[static_cast<std::size_t>(index)] != none)
       series_bars[series[static_cast<std::size_t>(index)]] += item.dataset().bars_size();
-    else if (item.dataset().bars_size() < static_cast<int>(input.sma().slow()))
-      throw std::invalid_argument("backtest requires at least slow bars for every contract");
+    else if (static_cast<std::size_t>(item.dataset().bars_size()) < warmup)
+      throw std::invalid_argument(
+          "backtest requires enough bars for the strategy to take a side on every contract");
   }
   for (const auto bars : series_bars)
-    if (bars < static_cast<int>(input.sma().slow()))
-      throw std::invalid_argument("backtest requires at least slow bars for every contract");
+    if (static_cast<std::size_t>(bars) < warmup)
+      throw std::invalid_argument(
+          "backtest requires enough bars for the strategy to take a side on every contract");
   decode_order_limits(protocol::decode_risk(p.risk()));
   if (decimal(p.deposit()) <= Decimal{})
     throw std::invalid_argument("backtest requires positive capital");
@@ -85,18 +85,16 @@ backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::
   const auto module = pinned ? *pinned : risk_providers::Module::selected();
   auto risk = module.create(decode_order_limits(protocol::decode_risk(p.risk())));
   risk->start();
-  // One SMA per contract on that contract's bars; all share the account. The
-  // months of a dominant series share the strategy of its first month, which
-  // sees the back-adjusted bars of whichever month is dominant.
-  std::vector<MovingAverage> strategies;
+  // One strategy per contract on that contract's bars; all share the account.
+  // The months of a dominant series share the strategy of its first month,
+  // which sees the back-adjusted bars of whichever month is dominant.
+  std::vector<std::unique_ptr<Strategy>> strategies;
   for (const auto& contract : portfolio.contracts)
-    strategies.emplace_back(contract.terms.instrument, input.sma().fast(), input.sma().slow(),
-                            decimal(input.sma().quantity()),
-                            protocol::position_sides(input.sma().sides()));
+    strategies.push_back(make_strategy(input.strategy(), contract.terms.instrument));
   PaperExecution execution(decimal(p.deposit()), std::move(portfolio.contracts), risk);
   execution.start();
   for (auto& strategy : strategies)
-    strategy.start();
+    strategy->start();
   // The last target each series' strategy asked for.
   std::vector<std::optional<Decimal>> wanted(static_cast<std::size_t>(input.series_size()));
   const auto holds = [&](std::size_t contract) {
@@ -147,12 +145,12 @@ backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::
     execution.cancel_open_orders(instrument);
     const auto& account = execution.account();
     const auto& event = schedule.event(index);
-    const auto order = "sma." + std::to_string(index);
+    const auto order = "strategy." + std::to_string(index);
     const auto decide = [&](Decimal target) {
       intent = PaperExecution::Target{order, target, bar.close};
     };
     if (const auto member = series[current.contract]; member == none) {
-      const auto target = strategies[current.contract].on_bar(bar);
+      const auto target = strategies[current.contract]->on_bar(bar);
       if (target)
         decide(*target);
     } else {
@@ -163,7 +161,7 @@ backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::
         decide(Decimal{});
       } else {
         const auto& spec = execution.contract(current.contract).terms.instrument;
-        if (const auto target = strategies[rolls.rolls(0).contract()].on_bar(
+        if (const auto target = strategies[rolls.rolls(0).contract()]->on_bar(
                 adjusted(bar, decimal(roll.factor()), spec.price_increment)))
           wanted[member] = target;
         if (wanted[member])
@@ -221,7 +219,7 @@ backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::
   *result.mutable_account() = protocol::encode_snapshot(account);
   result.mutable_max_drawdown()->set_units(drawdown.raw());
   for (auto& strategy : strategies)
-    strategy.stop();
+    strategy->stop();
   execution.stop();
   return result;
 }

@@ -1,6 +1,6 @@
 add_library(asterion_backtest_engine STATIC engine.cpp)
 target_include_directories(asterion_backtest_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(asterion_backtest_engine PUBLIC asterion_protocol PRIVATE asterion_risk_providers asterion_sma asterion_paper)
+target_link_libraries(asterion_backtest_engine PUBLIC asterion_protocol PRIVATE asterion_risk_providers asterion_strategies asterion_paper)
 add_executable(asterion-backtest main.cpp)
 target_compile_features(asterion-backtest PRIVATE cxx_std_20)
 target_compile_definitions(asterion-backtest PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")

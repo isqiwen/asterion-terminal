@@ -363,7 +363,7 @@ PolledTask<> TaskHost::submit_backtest(Call& call) {
   }
   for (auto& schedule : schedules)
     *input.add_series() = std::move(schedule);
-  *input.mutable_sma() = b.sma();
+  *input.mutable_strategy() = b.strategy();
   co_await ready(call);
   call.input_in_time();
   refuse_during_upgrade(quiescing_);

@@ -38,7 +38,7 @@ void resolve_task_input(task::v1::TaskAttempt& attempt, std::stop_token stop) {
       throw std::invalid_argument("calculation requires fixed dominant schedules");
     auto* input = task.mutable_input();
     input->set_version(8);
-    *input->mutable_sma() = parameters.sma();
+    *input->mutable_strategy() = parameters.strategy();
     *input->mutable_series() = execution.schedules();
     auto* paper = input->mutable_paper();
     *paper->mutable_deposit() = parameters.deposit();

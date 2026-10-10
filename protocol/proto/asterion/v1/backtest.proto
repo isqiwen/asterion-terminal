@@ -4,17 +4,13 @@ import "asterion/v1/domain.proto";
 import "asterion/v1/trading.proto";
 import "asterion/v1/data.proto";
 
-message SmaStrategy {
-  uint32 fast = 1; uint32 slow = 2; asterion.protocol.v1.Decimal quantity = 3;
-  asterion.protocol.v1.PositionSides sides = 4;
-}
 // Immutable data resolved by Data and captured with calculation parameters by Task. paper.contracts hold the bars
-// and trading days of each contract; the SMA strategy runs on every contract.
+// and trading days of each contract; the strategy runs on every contract.
 message BacktestInput {
   uint32 version = 1; // 8
   string dataset_revision = 2;
   asterion.protocol.v1.PaperInput paper = 3;
-  SmaStrategy sma = 4;
+  asterion.protocol.v1.Strategy strategy = 4;
   repeated DominantSchedule series = 5;
 }
 // Month contracts of one product traded as its dominant series: on each
@@ -51,7 +47,7 @@ message BacktestRequest {
   repeated BacktestContract contracts = 1;
   asterion.protocol.v1.Decimal deposit = 2;
   asterion.protocol.v1.RiskLimits risk = 3;
-  SmaStrategy sma = 4;
+  asterion.protocol.v1.Strategy strategy = 4;
   repeated DominantSeries series = 5;
 }
 enum EquityEvent { EQUITY_EVENT_UNSPECIFIED = 0; TRADE_MARK = 1; DAILY_SETTLEMENT = 2; }

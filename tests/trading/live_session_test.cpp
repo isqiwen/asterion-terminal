@@ -198,15 +198,13 @@ public:
     std::lock_guard lock(mutex_);
     series_ = std::move(series);
   }
-  Json start(std::string run, const char* quantity, const char* sides = "long") const {
+  Json start(std::string run, const char* quantity, const char* sides = "long",
+             Json rule = {{"kind", "moving_average"}, {"fast", 1}, {"slow", 2}}) const {
     return {{"request_id", std::move(run)},
             {"action", "strategy_start"},
             {"venue", "SHFE"},
             {"symbol", "rb2610"},
-            {"fast", 1},
-            {"slow", 2},
-            {"quantity", quantity},
-            {"sides", sides},
+            {"strategy", {{"quantity", quantity}, {"sides", sides}, {"rule", std::move(rule)}}},
             {"market_endpoint", endpoint_},
             {"market_service", "market"}};
   }
@@ -1248,7 +1246,7 @@ TEST_F(Live, CredentialsAreNeverWrittenAndHeadersPinTheEngine) {
   }
   const auto header_file = test::journal_record(directory.path, 0);
   auto header = test::read_record(header_file);
-  EXPECT_EQ(header.at("engine"), "asterion.live-futures.v27");
+  EXPECT_EQ(header.at("engine"), "asterion.live-futures.v28");
   EXPECT_EQ(header.at("manifest"), manifest());
   header["engine"] = "asterion.live-futures.v4";
   test::write_record(header_file, header);
@@ -1345,7 +1343,7 @@ TEST_F(Live, StrategyRunSellsShortAndReversesByClosingBeforeOpening) {
   EXPECT_EQ(find_order(state, sold).at("offset"), "open");
   EXPECT_EQ(find_order(state, sold).at("limit_price"), "3499");
   EXPECT_EQ(state.at("strategy").at("target"), "-1");
-  EXPECT_EQ(state.at("strategy").at("sides"), "both");
+  EXPECT_EQ(state.at("strategy").at("strategy").at("sides"), "both");
   state = wait_for(session, [](const Json& s) { return short_position(s) == Decimal::parse("1"); });
   EXPECT_EQ(short_position(state), Decimal::parse("1"));
   // A rising close asks for a long one. That bar only buys the short back.
@@ -1412,6 +1410,30 @@ TEST_F(Live, StrategyTakesOverOneSideAndRefusesAContractHeldOnBoth) {
   } catch (const Error& error) {
     EXPECT_EQ(error.code(), ErrorCode::conflict);
   }
+}
+TEST_F(Live, ARunTradesByTheRuleItWasStartedWith) {
+  FakeMarket market;
+  LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+  const auto day = ready(session).at("trading_day").get<std::string>();
+  act(session, authorize());
+  market.set(day, {"3500", "3501", "3501"});
+  // Windows that make no strategy are refused before a run exists.
+  EXPECT_THROW(act(session, market.start("bad", "1", "both",
+                                         {{"kind", "breakout"}, {"entry", 1}, {"exit", 2}})),
+               std::invalid_argument);
+  EXPECT_TRUE(session.snapshot().at("strategy").is_null());
+  // Momentum over one bar: 3501 is above the close before it.
+  const Json rule{{"kind", "momentum"}, {"lookback", 1}};
+  act(session, market.start("run", "1", "both", rule));
+  const auto bought = FakeMarket::order("run", 1);
+  const auto state =
+      wait_for(session, [&](const Json& s) { return order_has_status(s, bought, "filled"); });
+  ASSERT_TRUE(order_has_status(state, bought, "filled")) << state.at("strategy").dump();
+  EXPECT_EQ(find_order(state, bought).at("side"), "buy");
+  EXPECT_EQ(find_order(state, bought).at("offset"), "open");
+  EXPECT_EQ(state.at("strategy").at("strategy").at("rule"), rule);
+  EXPECT_EQ(state.at("strategy").at("warmup"), 2);
+  act(session, stop_strategy("stop"));
 }
 TEST_F(Live, StrategyReplacesItsWorkingOrderAndStoppingRequestsItsCancellation) {
   FakeMarket market;
@@ -1568,10 +1590,11 @@ TEST(LiveProtocol, SnapshotAndCommandsRoundTrip) {
        {{"id", "run"},
         {"venue", "SHFE"},
         {"symbol", "rb2610"},
-        {"fast", 5},
-        {"slow", 20},
-        {"quantity", "1"},
-        {"sides", "both"},
+        {"strategy",
+         {{"quantity", "1"},
+          {"sides", "both"},
+          {"rule", {{"kind", "moving_average"}, {"fast", 5}, {"slow", 20}}}}},
+        {"warmup", 20},
         {"state", "running"},
         {"reason", ""},
         {"started_ms", 8},

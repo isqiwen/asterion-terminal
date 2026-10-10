@@ -670,10 +670,10 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData) {
   backtest->mutable_risk()->mutable_max_order_quantity()->set_units(Decimal::parse("100").raw());
   backtest->mutable_risk()->mutable_max_gross_quantity()->set_units(Decimal::parse("100").raw());
   backtest->mutable_risk()->set_max_working_orders(100);
-  backtest->mutable_sma()->set_fast(1);
-  backtest->mutable_sma()->set_slow(3);
-  backtest->mutable_sma()->mutable_quantity()->set_units(Decimal::parse("1").raw());
-  backtest->mutable_sma()->set_sides(protocol::v1::LONG_ONLY);
+  *backtest->mutable_strategy() =
+      protocol::encode_strategy({{"quantity", "1"},
+                                 {"sides", "long"},
+                                 {"rule", {{"kind", "moving_average"}, {"fast", 1}, {"slow", 3}}}});
   ASSERT_EQ(call(submit).task().kind(), task::v1::BACKTEST);
   submit.mutable_submit()->set_id("factor");
   auto* factor = submit.mutable_submit()->mutable_factor_request();

@@ -1,10 +1,18 @@
 import { useState } from "react";
-import { diagnosticSummary, translate, type MessageValues } from "../contract";
+import {
+  diagnosticSummary,
+  StrategyFields,
+  strategyDefaults,
+  strategyOf,
+  strategyRule,
+  strategySides,
+  translate,
+  type MessageValues,
+} from "../contract";
 import type { LiveSession } from "../../src/bridge/client";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.trading", key, values);
 type Contract = LiveSession["contracts"][number];
-const positionSides = { both: "多空", long: "只做多", short: "只做空" } as const;
 // A signed target in lots, said the way a position is: long, short or flat.
 const position = (target: string) =>
   target === "0"
@@ -26,19 +34,18 @@ export function StrategyStatus({
   onStop: () => void;
 }) {
   const run = live.strategy!;
-  const missing = Math.max(run.slow - run.bars, 0);
+  const missing = Math.max(run.warmup - run.bars, 0);
   return (
     <section className="strategy-run" aria-label={t("策略运行")}>
       <div className="strategy-run-heading">
         <strong>{t("策略运行中")}</strong>
         <span>
-          {t("{venue} · {symbol} · 均线 {fast}/{slow} · {quantity} 手 · {sides}", {
+          {t("{venue} · {symbol} · {rule} · {quantity} 手 · {sides}", {
             venue: run.venue,
             symbol: run.symbol,
-            fast: run.fast,
-            slow: run.slow,
-            quantity: run.quantity,
-            sides: t(positionSides[run.sides]),
+            rule: strategyRule(run.strategy),
+            quantity: run.strategy.quantity,
+            sides: strategySides(run.strategy.sides),
           })}
         </span>
         <button disabled={stopping} onClick={onStop}>
@@ -72,7 +79,7 @@ export function StrategyStatus({
   );
 }
 
-// Hands the authorized account to one moving-average run on an allowed contract.
+// Hands the authorized account to one strategy run on an allowed contract.
 export function StrategyStart({
   live,
   busy,
@@ -82,14 +89,9 @@ export function StrategyStart({
   busy: boolean;
   onStart: (params: Record<string, unknown>) => void;
 }) {
-  const [form, setForm] = useState({
-    contract: "",
-    fast: "5",
-    slow: "20",
-    quantity: "1",
-    sides: "both",
-  });
-  const chosen = live.contracts.find(item => key(item) === form.contract) ?? live.contracts[0];
+  const [contract, setContract] = useState("");
+  const [strategy, setStrategy] = useState(strategyDefaults);
+  const chosen = live.contracts.find(item => key(item) === contract) ?? live.contracts[0];
   const last = live.strategy;
   return (
     <form
@@ -97,14 +99,7 @@ export function StrategyStart({
       onSubmit={event => {
         event.preventDefault();
         if (!chosen) return;
-        onStart({
-          venue: chosen.venue,
-          symbol: chosen.symbol,
-          fast: Number(form.fast),
-          slow: Number(form.slow),
-          quantity: form.quantity,
-          sides: form.sides,
-        });
+        onStart({ venue: chosen.venue, symbol: chosen.symbol, strategy: strategyOf(strategy) });
       }}
     >
       <fieldset disabled={busy}>
@@ -121,7 +116,7 @@ export function StrategyStart({
             <select
               aria-label={t("策略合约")}
               value={chosen ? key(chosen) : ""}
-              onChange={event => setForm({ ...form, contract: event.target.value })}
+              onChange={event => setContract(event.target.value)}
             >
               {live.contracts.map(item => (
                 <option key={key(item)} value={key(item)}>
@@ -130,47 +125,15 @@ export function StrategyStart({
               ))}
             </select>
           </label>
-          {(
-            [
-              ["fast", "快线周期"],
-              ["slow", "慢线周期"],
-              ["quantity", "持仓手数"],
-            ] as const
-          ).map(([field, label]) => (
-            <label key={field}>
-              {t(label)}
-              <input
-                aria-label={t(label)}
-                inputMode="numeric"
-                pattern="[1-9][0-9]*"
-                value={form[field]}
-                onChange={event => setForm({ ...form, [field]: event.target.value })}
-                required
-              />
-            </label>
-          ))}
-          <label>
-            {t("持仓方向")}
-            <select
-              aria-label={t("持仓方向")}
-              value={form.sides}
-              onChange={event => setForm({ ...form, sides: event.target.value })}
-            >
-              {Object.entries(positionSides).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {t(label)}
-                </option>
-              ))}
-            </select>
-          </label>
         </div>
+        <StrategyFields className="futures-fields" value={strategy} onChange={setStrategy} />
         <div className="source-actions">
           <button className="primary" type="submit">
             {t("启动策略")}
           </button>
           <span className="subtle">
             {t(
-              "均线策略：快线高于慢线时持有上面手数的多单，低于时持有空单，不允许的方向空仓；反手时先平仓，下一根 K 线再开仓。该合约已有的单边持仓由策略接管。使用本机行情服务的 1 分钟线，按 K 线收盘价挂限价单。启动后由策略独占下单，断线重连和换交易日后自动继续，直到你停止它、撤销授权、修改风控政策或交易服务重启。",
+              "该合约已有的单边持仓由策略接管。策略使用本机行情服务的 1 分钟线，按 K 线收盘价挂限价单。启动后由策略独占下单，断线重连和换交易日后自动继续，直到你停止它、撤销授权、修改风控政策或交易服务重启。",
             )}
           </span>
         </div>

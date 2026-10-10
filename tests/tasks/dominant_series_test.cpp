@@ -68,10 +68,7 @@ backtest::v1::BacktestInput rolling(const char* outgoing_volume = "10") {
        {"contracts",
         {{{"dataset", protocol::decode_bar_dataset(near)}, {"cost_schedule", costs}},
          {{"dataset", protocol::decode_bar_dataset(far)}, {"cost_schedule", costs}}}}});
-  input.mutable_sma()->set_fast(1);
-  input.mutable_sma()->set_slow(4);
-  input.mutable_sma()->mutable_quantity()->set_units(d("1").raw());
-  input.mutable_sma()->set_sides(protocol::v1::LONG_ONLY);
+  *input.mutable_strategy() = testing_support::moving_average(1, 4);
   input.set_dataset_revision(protocol::dataset_revision(input.paper()));
   auto* series = input.add_series();
   for (const auto& [day, contract, factor] :
@@ -225,7 +222,7 @@ TEST(DominantSeries, PersistedRollingResultRejectsPreviousEngineAndSurvivesResta
     tasks::submit(store, "rolling", input);
     const auto token = store.commit(store.claim("rolling")).token();
     auto old = expected;
-    old.set_engine_version("asterion.backtest.sma.v10");
+    old.set_engine_version("asterion.backtest.v11");
     EXPECT_THROW(store.commit(tasks::finish(store, "rolling", token, old)), std::invalid_argument);
     EXPECT_EQ(store.get("rolling").state(), task::v1::RUNNING);
     store.commit(tasks::finish(store, "rolling", token, expected));

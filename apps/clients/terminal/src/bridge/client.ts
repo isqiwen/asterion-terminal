@@ -216,10 +216,9 @@ export type LiveSession = {
     id: string;
     venue: string;
     symbol: string;
-    fast: number;
-    slow: number;
-    quantity: string;
-    sides: PositionSides;
+    strategy: StrategyDefinition;
+    // Completed bars the rule needs before it gives a target.
+    warmup: number;
     state: "running" | "stopped";
     reason: string;
     started_ms: number;
@@ -672,7 +671,7 @@ export type ExperimentData = {
 export type BacktestExperiment = {
   version: number;
   dataset_revision: string;
-  sma: { fast: number; slow: number; quantity: string; sides: PositionSides };
+  strategy: StrategyDefinition;
   paper: {
     version: number;
     type: "historical_paper";
@@ -716,6 +715,17 @@ export type FactorExperiment = {
 // time the days span and are null with fewer than 20 trading days.
 // Which sides of a contract a strategy may hold.
 export type PositionSides = "both" | "long" | "short";
+// What a strategy trades by: a rule over completed bars, the lots it holds
+// while the rule takes a side, and the sides it may hold.
+export type StrategyDefinition = {
+  quantity: string;
+  sides: PositionSides;
+  rule:
+    | { kind: "moving_average"; fast: number; slow: number }
+    | { kind: "breakout"; entry: number; exit: number }
+    | { kind: "momentum"; lookback: number }
+    | { kind: "reversion"; window: number; width: string };
+};
 export type BacktestPerformance = {
   trading_days: number;
   total_return: number;

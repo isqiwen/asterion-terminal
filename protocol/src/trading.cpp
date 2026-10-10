@@ -57,6 +57,124 @@ v1::PositionSides encode_position_sides(const Json& value) {
   }
   return v1::LONG_AND_SHORT;
 }
+v1::Strategy encode_strategy(const Json& value) {
+  if (!value.is_object())
+    throw std::invalid_argument("invalid strategy");
+  require_fields(value, {"quantity", "sides", "rule"});
+  const auto& rule = value.at("rule");
+  if (!rule.is_object() || !rule.contains("kind") || !rule.at("kind").is_string() ||
+      !value.at("quantity").is_string())
+    throw std::invalid_argument("invalid strategy");
+  v1::Strategy result;
+  result.mutable_quantity()->set_units(
+      Decimal::parse(value.at("quantity").get<std::string>()).raw());
+  result.set_sides(encode_position_sides(value.at("sides")));
+  const auto window = [&](const char* name) {
+    if (!rule.at(name).is_number_integer() || rule.at(name) < 0 || rule.at(name) > 10000)
+      throw std::invalid_argument("strategy windows are whole bars up to 10000");
+    return rule.at(name).get<unsigned>();
+  };
+  const auto kind = rule.at("kind").get<std::string>();
+  if (kind == "moving_average") {
+    require_fields(rule, {"kind", "fast", "slow"});
+    result.mutable_moving_average()->set_fast(window("fast"));
+    result.mutable_moving_average()->set_slow(window("slow"));
+  } else if (kind == "breakout") {
+    require_fields(rule, {"kind", "entry", "exit"});
+    result.mutable_breakout()->set_entry(window("entry"));
+    result.mutable_breakout()->set_exit(window("exit"));
+  } else if (kind == "momentum") {
+    require_fields(rule, {"kind", "lookback"});
+    result.mutable_momentum()->set_lookback(window("lookback"));
+  } else if (kind == "reversion") {
+    require_fields(rule, {"kind", "window", "width"});
+    if (!rule.at("width").is_string())
+      throw std::invalid_argument("invalid strategy");
+    result.mutable_reversion()->set_window(window("window"));
+    result.mutable_reversion()->mutable_width()->set_units(
+        Decimal::parse(rule.at("width").get<std::string>()).raw());
+  } else
+    throw std::invalid_argument("unknown strategy rule");
+  return result;
+}
+Json decode_strategy(const v1::Strategy& strategy) {
+  Json rule;
+  switch (strategy.rule_case()) {
+  case v1::Strategy::kMovingAverage:
+    rule = {{"kind", "moving_average"},
+            {"fast", strategy.moving_average().fast()},
+            {"slow", strategy.moving_average().slow()}};
+    break;
+  case v1::Strategy::kBreakout:
+    rule = {{"kind", "breakout"},
+            {"entry", strategy.breakout().entry()},
+            {"exit", strategy.breakout().exit()}};
+    break;
+  case v1::Strategy::kMomentum:
+    rule = {{"kind", "momentum"}, {"lookback", strategy.momentum().lookback()}};
+    break;
+  case v1::Strategy::kReversion:
+    rule = {{"kind", "reversion"},
+            {"window", strategy.reversion().window()},
+            {"width", Decimal::from_raw(strategy.reversion().width().units()).str()}};
+    break;
+  case v1::Strategy::RULE_NOT_SET:
+    throw std::invalid_argument("unknown strategy rule");
+  }
+  return {{"quantity", Decimal::from_raw(strategy.quantity().units()).str()},
+          {"sides", position_sides_name(position_sides(strategy.sides()))},
+          {"rule", std::move(rule)}};
+}
+void validate_strategy(const v1::Strategy& strategy, Decimal quantity_increment) {
+  static_cast<void>(position_sides(strategy.sides()));
+  const auto quantity = Decimal::from_raw(strategy.quantity().units());
+  if (!strategy.has_quantity() || quantity <= Decimal{} ||
+      !quantity.multiple_of(quantity_increment))
+    throw std::invalid_argument("strategy requires a positive lot-aligned quantity");
+  switch (strategy.rule_case()) {
+  case v1::Strategy::kMovingAverage:
+    if (const auto& rule = strategy.moving_average();
+        !rule.fast() || rule.fast() >= rule.slow() || rule.slow() > 10000)
+      throw std::invalid_argument("moving average requires 0 < fast < slow <= 10000");
+    return;
+  case v1::Strategy::kBreakout:
+    if (const auto& rule = strategy.breakout();
+        !rule.exit() || rule.exit() > rule.entry() || rule.entry() > 10000)
+      throw std::invalid_argument("breakout requires 1 <= exit <= entry <= 10000");
+    return;
+  case v1::Strategy::kMomentum:
+    if (!strategy.momentum().lookback() || strategy.momentum().lookback() > 10000)
+      throw std::invalid_argument("momentum requires a lookback of 1..10000 bars");
+    return;
+  case v1::Strategy::kReversion: {
+    const auto& rule = strategy.reversion();
+    const auto width = Decimal::from_raw(rule.width().units());
+    if (rule.window() < 2 || rule.window() > 10000 || !rule.has_width() || width <= Decimal{} ||
+        width > Decimal::parse("10"))
+      throw std::invalid_argument(
+          "reversion requires a window of 2..10000 bars and a width above 0 up to 10");
+    return;
+  }
+  case v1::Strategy::RULE_NOT_SET:
+    break;
+  }
+  throw std::invalid_argument("unknown strategy rule");
+}
+std::size_t strategy_warmup(const v1::Strategy& strategy) {
+  switch (strategy.rule_case()) {
+  case v1::Strategy::kMovingAverage:
+    return strategy.moving_average().slow();
+  case v1::Strategy::kBreakout:
+    return strategy.breakout().entry() + 1;
+  case v1::Strategy::kMomentum:
+    return strategy.momentum().lookback() + 1;
+  case v1::Strategy::kReversion:
+    return strategy.reversion().window();
+  case v1::Strategy::RULE_NOT_SET:
+    break;
+  }
+  throw std::invalid_argument("unknown strategy rule");
+}
 namespace {
 v1::Offset offset(const std::string& value) {
   if (value == "open")
@@ -350,16 +468,13 @@ v1::Command encode_command(const Json& c) {
     require_fields(c, {"request_id", "action", "order_id"});
     result.mutable_live_resolve()->set_order_id(c.at("order_id").get<std::string>());
   } else if (action == "strategy_start") {
-    require_fields(c, {"request_id", "action", "venue", "symbol", "fast", "slow", "quantity",
-                       "sides", "market_endpoint", "market_service"});
+    require_fields(c, {"request_id", "action", "venue", "symbol", "strategy", "market_endpoint",
+                       "market_service"});
     auto* start = result.mutable_strategy_start();
     start->set_venue(c.at("venue").get<std::string>());
     start->set_symbol(c.at("symbol").get<std::string>());
     InstrumentId{start->venue(), start->symbol()}.validate();
-    start->set_fast(c.at("fast").get<std::uint32_t>());
-    start->set_slow(c.at("slow").get<std::uint32_t>());
-    set(start->mutable_quantity(), c.at("quantity"));
-    start->set_sides(encode_position_sides(c.at("sides")));
+    *start->mutable_strategy() = encode_strategy(c.at("strategy"));
     start->set_market_endpoint(c.at("market_endpoint").get<std::string>());
     start->set_market_service(c.at("market_service").get<std::string>());
   } else if (action == "strategy_stop") {
@@ -405,10 +520,7 @@ Json decode_command(const v1::Command& c) {
   case v1::Command::kStrategyStart: {
     const auto& start = c.strategy_start();
     result.update({{"action", "strategy_start"},
-                   {"fast", start.fast()},
-                   {"slow", start.slow()},
-                   {"quantity", get(start.quantity())},
-                   {"sides", position_sides_name(position_sides(start.sides()))},
+                   {"strategy", decode_strategy(start.strategy())},
                    {"market_endpoint", start.market_endpoint()},
                    {"market_service", start.market_service()}});
     result.update(instrument_fields(start.venue(), start.symbol()));
@@ -744,10 +856,8 @@ v1::LiveSnapshot encode_live_snapshot(const Json& s) {
     item->set_id(run.at("id"));
     item->set_venue(run.at("venue"));
     item->set_symbol(run.at("symbol"));
-    item->set_fast(run.at("fast"));
-    item->set_slow(run.at("slow"));
-    set(item->mutable_quantity(), run.at("quantity"));
-    item->set_sides(encode_position_sides(run.at("sides")));
+    *item->mutable_strategy() = encode_strategy(run.at("strategy"));
+    item->set_warmup(run.at("warmup"));
     item->set_state(run.at("state"));
     item->set_reason(run.at("reason"));
     item->set_started_ms(run.at("started_ms"));
@@ -892,10 +1002,8 @@ Json decode_live_snapshot(const v1::LiveSnapshot& s) {
       throw std::invalid_argument("invalid strategy run state");
     auto item = instrument_fields(run.venue(), run.symbol());
     item.update({{"id", run.id()},
-                 {"fast", run.fast()},
-                 {"slow", run.slow()},
-                 {"quantity", get(run.quantity())},
-                 {"sides", position_sides_name(position_sides(run.sides()))},
+                 {"strategy", decode_strategy(run.strategy())},
+                 {"warmup", run.warmup()},
                  {"state", run.state()},
                  {"reason", run.reason()},
                  {"started_ms", run.started_ms()},

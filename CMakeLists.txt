@@ -75,9 +75,9 @@ if(APPLE)
 endif()
 add_dependencies(asterion_history_providers asterion_tushare_plugin)
 
-add_library(asterion_sma STATIC plugins/strategy/cta/moving_average.cpp)
-target_include_directories(asterion_sma PUBLIC plugins/strategy/cta)
-target_link_libraries(asterion_sma PUBLIC Asterion::Domain)
+add_library(asterion_strategies STATIC plugins/strategy/cta/strategy.cpp)
+target_include_directories(asterion_strategies PUBLIC plugins/strategy/cta)
+target_link_libraries(asterion_strategies PUBLIC asterion_protocol)
 
 add_library(asterion_chart_indicators STATIC plugins/tools/chart_indicators/macd.cpp plugins/tools/chart_indicators/calendar_bars.cpp)
 target_include_directories(asterion_chart_indicators PUBLIC plugins/tools/chart_indicators)
@@ -161,7 +161,7 @@ target_link_libraries(asterion-market-data PRIVATE asterion_ctp asterion_protoco
 
 add_library(asterion_trading_session STATIC apps/services/trading/live_session.cpp apps/services/trading/account_loop.cpp apps/services/trading/account_journal.cpp apps/services/trading/account_policy.cpp apps/services/trading/account_records.cpp apps/services/trading/strategy_host.cpp)
 target_include_directories(asterion_trading_session PUBLIC apps/services/trading)
-target_link_libraries(asterion_trading_session PUBLIC asterion_risk_providers asterion_sqlite asterion_protocol asterion_ctp_trader asterion_sma)
+target_link_libraries(asterion_trading_session PUBLIC asterion_risk_providers asterion_sqlite asterion_protocol asterion_ctp_trader asterion_strategies)
 add_executable(asterion-trading apps/services/trading/main.cpp)
 target_link_libraries(asterion-trading PRIVATE asterion_trading_session asterion_protocol CLI11::CLI11)
 
@@ -240,7 +240,7 @@ foreach(application IN LISTS ASTERION_SERVICE_APPS)
 endforeach()
 add_dependencies(asterion_terminal_api ${ASTERION_SERVICE_TARGETS})
 
-foreach(target asterion_order_limits_config asterion_risk_providers asterion_order_limits_plugin asterion_tushare asterion_order_limits asterion_ctp_trader asterion_history_files asterion_history_providers asterion_task_client asterion_factor_engine asterion_factor_analysis asterion_performance asterion_task_store asterion_task_events asterion_sma asterion_backtest_engine ${ASTERION_SERVICE_TARGETS} asterion_ctp asterion-market-data asterion_node_firewall asterion_node_storage asterion_node_supervision asterion_node_operations asterion-node-agent asterion-trading asterion_trading_session asterion_terminal_dev_bridge asterion_paper asterion_sqlite asterion_foundation asterion_kernel asterion_domain asterion_terminal_api)
+foreach(target asterion_order_limits_config asterion_risk_providers asterion_order_limits_plugin asterion_tushare asterion_order_limits asterion_ctp_trader asterion_history_files asterion_history_providers asterion_task_client asterion_factor_engine asterion_factor_analysis asterion_performance asterion_task_store asterion_task_events asterion_strategies asterion_backtest_engine ${ASTERION_SERVICE_TARGETS} asterion_ctp asterion-market-data asterion_node_firewall asterion_node_storage asterion_node_supervision asterion_node_operations asterion-node-agent asterion-trading asterion_trading_session asterion_terminal_dev_bridge asterion_paper asterion_sqlite asterion_foundation asterion_kernel asterion_domain asterion_terminal_api)
   # Designated initializers omit members on purpose; Clang accepts that and
   # GCC's -Wextra would reject it.
   target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror

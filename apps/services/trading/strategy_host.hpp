@@ -1,13 +1,13 @@
 #pragma once
 #include <asterion/domain/market.hpp>
-#include <asterion/domain/position_target.hpp>
+#include <asterion/v1/trading.pb.h>
 #include <functional>
 #include <optional>
 #include <string>
 #include <thread>
 #include <variant>
 namespace asterion::trading {
-// Runs one moving-average strategy on the completed minute bars of one
+// Runs one strategy on the completed minute bars of one
 // contract, read from the market service on this machine, across trading
 // days. It owns the data source and the strategy and has no access to the
 // account: it reports each bar with the target the strategy asked for, or the
@@ -17,9 +17,7 @@ public:
   struct Definition {
     std::string market_endpoint, market_service;
     Instrument instrument;
-    std::size_t fast = 0, slow = 0;
-    Decimal quantity;
-    PositionSides sides = PositionSides::both;
+    protocol::v1::Strategy strategy;
   };
   struct Bar {
     // As the market service states it (YYYYMMDD).

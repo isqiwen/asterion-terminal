@@ -29,7 +29,7 @@ task::v1::TaskExecution task_execution(const task::v1::Task& task,
     auto* parameters = result.mutable_backtest();
     *parameters->mutable_deposit() = input.paper().deposit();
     *parameters->mutable_risk() = input.paper().risk();
-    *parameters->mutable_sma() = input.sma();
+    *parameters->mutable_strategy() = input.strategy();
     for (const auto& contract : input.paper().contracts()) {
       auto* item = parameters->add_contracts();
       *item->mutable_data() = selection(contract.dataset());

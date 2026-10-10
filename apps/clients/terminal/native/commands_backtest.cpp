@@ -4,7 +4,7 @@
 namespace asterion::terminal {
 void Application::Impl::register_backtest_commands() {
   command("backtest.submit", [this](const json& p) -> PolledTask<Response> {
-    fields_with_risk(p, {"id", "fast", "slow", "quantity", "sides", "deposit", "contracts"});
+    fields_with_risk(p, {"id", "strategy", "deposit", "contracts"});
     if (!task_client)
       throw std::invalid_argument("task service is not connected");
     const auto generation = data_task_generation;
@@ -41,11 +41,7 @@ void Application::Impl::register_backtest_commands() {
     auto request = protocol::encode_backtest_request({{"contracts", std::move(contracts)},
                                                       {"deposit", text(p, "deposit")},
                                                       {"risk", risk_parameters(p)},
-                                                      {"sma",
-                                                       {{"fast", p.at("fast")},
-                                                        {"slow", p.at("slow")},
-                                                        {"quantity", text(p, "quantity")},
-                                                        {"sides", p.at("sides")}}},
+                                                      {"strategy", p.at("strategy")},
                                                       {"series", std::move(series)}});
     (co_await PollFuture{task_client->submit(text(p, "id"), request)});
     if (generation != data_task_generation)

@@ -1,6 +1,6 @@
 #include <asterion/kernel/logger.hpp>
 #include "live_account_state.hpp"
-#include "moving_average.hpp"
+#include "strategy.hpp"
 #include <algorithm>
 #include <asterion/domain/account.hpp>
 #include <asterion/domain/futures.hpp>
@@ -18,8 +18,8 @@ namespace asterion::trading {
 namespace {
 // Record 0 carries this identity. Bump it whenever authorization, allowlist,
 // risk or order-recording semantics change; recovery refuses other identities.
-// v27: a strategy run's target is signed; it may hold a contract short.
-const std::string journal_engine = "asterion.live-futures.v27";
+// v28: a strategy run names its rule; its target is signed and may be short.
+const std::string journal_engine = "asterion.live-futures.v28";
 constexpr int journal_format = 1;
 constexpr auto quote_validity = std::chrono::seconds(10);
 std::string text(const Json& value, const char* key) {
@@ -485,23 +485,20 @@ AccountCommand LiveAccountState::start_strategy(const AccountRequest& request,
                position.today + position.yesterday > Decimal{};
       }) > 1)
     throw Error(ErrorCode::conflict, "a strategy cannot start on a contract held on both sides");
-  // Parameters the strategy rejects are refused before anything is recorded.
-  static_cast<void>(MovingAverage(terms, start.fast, start.slow, start.quantity, start.sides));
+  // A definition that makes no strategy is refused before anything is recorded.
+  static_cast<void>(make_strategy(start.strategy, terms));
   co_await append(command_entry(request, policy_->revision));
   if (control != send_gate_.revision() || !authorization_)
     throw Error(ErrorCode::conflict, "account state changed before the strategy started");
   run_.emplace();
   run_->id = request.id;
   run_->instrument = terms;
-  run_->fast = start.fast;
-  run_->slow = start.slow;
-  run_->quantity = start.quantity;
-  run_->sides = start.sides;
+  run_->strategy = start.strategy;
   run_->started_ms = now_ms();
   try {
     run_->host = std::make_unique<StrategyHost>(
-        StrategyHost::Definition{start.market_endpoint, start.market_service, terms, start.fast,
-                                 start.slow, start.quantity, start.sides},
+        StrategyHost::Definition{start.market_endpoint, start.market_service, terms,
+                                 start.strategy},
         [this, post = post_, run = request.id](auto event) {
           post([this, run, event = std::move(event)] { report(run, event); });
         });
@@ -943,10 +940,8 @@ Json LiveAccountState::snapshot() const {
         {"id", run_->id},
         {"venue", run_->instrument.id.venue},
         {"symbol", run_->instrument.id.symbol},
-        {"fast", run_->fast},
-        {"slow", run_->slow},
-        {"quantity", run_->quantity.str()},
-        {"sides", position_sides_name(run_->sides)},
+        {"strategy", protocol::decode_strategy(run_->strategy)},
+        {"warmup", protocol::strategy_warmup(run_->strategy)},
         {"state", running() ? "running" : "stopped"},
         {"reason", run_->ended},
         {"started_ms", run_->started_ms},

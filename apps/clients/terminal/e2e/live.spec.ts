@@ -121,8 +121,8 @@ test(
       await panel.getByRole("button", { name: "策略运行", exact: true }).click();
       await expect(order).toHaveCount(0);
       const strategy = panel.getByRole("form", { name: "启动策略" });
-      await strategy.getByLabel("快线周期", { exact: true }).fill("1");
-      await strategy.getByLabel("慢线周期", { exact: true }).fill("2");
+      await strategy.getByLabel("快均线", { exact: true }).fill("1");
+      await strategy.getByLabel("慢均线", { exact: true }).fill("2");
       await strategy.getByRole("button", { name: "启动策略", exact: true }).click();
       await expect(strategy.getByTestId("strategy-ended")).toContainText(
         "行情服务还没有该合约的行情",

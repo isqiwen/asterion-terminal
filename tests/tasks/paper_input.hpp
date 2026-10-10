@@ -21,4 +21,13 @@ inline protocol::v1::PaperInput paper_input(const Json& manifest) {
   static_cast<void>(protocol::decode_input(result, protocol::DatasetView::metadata));
   return result;
 }
+// A moving-average strategy, as most tests trade.
+inline protocol::v1::Strategy moving_average(unsigned fast, unsigned slow,
+                                             const char* quantity = "1",
+                                             const char* sides = "long") {
+  return protocol::encode_strategy(
+      {{"quantity", quantity},
+       {"sides", sides},
+       {"rule", {{"kind", "moving_average"}, {"fast", fast}, {"slow", slow}}}});
+}
 } // namespace asterion::testing_support

@@ -35,21 +35,47 @@ message LiveResolve { string order_id = 1; }
 enum Side { SIDE_UNSPECIFIED = 0; BUY = 1; SELL = 2; }
 // Which sides of a contract a strategy may hold. Unspecified is invalid.
 enum PositionSides { POSITION_SIDES_UNSPECIFIED = 0; LONG_AND_SHORT = 1; LONG_ONLY = 2; SHORT_ONLY = 3; }
+// The rules a strategy takes its side by. Windows count completed bars.
+// Long while the average of the last `fast` closes is above that of the last
+// `slow`, short while it is below.
+message MovingAverageCross { uint32 fast = 1; uint32 slow = 2; }
+// Long from a close above the highest high of the `entry` bars before it,
+// short from one below their lowest low. The side is given up when a close
+// passes the opposite extreme of the `exit` bars before it.
+message ChannelBreakout { uint32 entry = 1; uint32 exit = 2; }
+// Long while the close is above the close `lookback` bars earlier, short
+// while it is below.
+message Momentum { uint32 lookback = 1; }
+// Short from a close more than `width` standard deviations above the mean of
+// the last `window` closes, long from one as far below it. The side is given
+// up when a close returns to that mean.
+message BandReversion { uint32 window = 1; Decimal width = 2; }
+// What a strategy trades by: one rule, the lots it holds while the rule takes
+// a side, and the sides it may hold; it is flat on a side it may not hold and
+// while the rule takes none.
+message Strategy {
+  Decimal quantity = 1;
+  PositionSides sides = 2;
+  oneof rule {
+    MovingAverageCross moving_average = 3;
+    ChannelBreakout breakout = 4;
+    Momentum momentum = 5;
+    BandReversion reversion = 6;
+  }
+}
 // CLOSE leaves bucket assignment to the exchange rule (see ClosePolicy).
 enum Offset { OFFSET_UNSPECIFIED = 0; OPEN = 1; CLOSE_TODAY = 2; CLOSE_YESTERDAY = 3; CLOSE = 4; }
 enum OrderState { ORDER_STATE_UNSPECIFIED = 0; ACCEPTED = 1; PARTIALLY_FILLED = 2; FILLED = 3; CANCELLED = 4; REJECTED = 5; }
 message Empty {}
 message Submit { string order_id = 1; string venue = 2; string symbol = 3; Side side = 4; Offset offset = 5; Decimal quantity = 6; Decimal price = 7; }
 message Cancel { string order_id = 1; }
-// Hands the authorized account to one moving-average run on one allowed
-// contract: long above the slow average, short below it, on the sides it may
-// hold. The run reads minute bars from the market service on the account's
-// machine, continues across connections and trading days, and ends with the
+// Hands the authorized account to one strategy run on one allowed contract.
+// The run reads minute bars from the market service on the account's machine,
+// continues across connections and trading days, and ends with the
 // authorization.
 message StrategyStart {
-  string venue = 1; string symbol = 2; uint32 fast = 3; uint32 slow = 4; Decimal quantity = 5;
-  PositionSides sides = 6;
-  string market_endpoint = 7; string market_service = 8;
+  string venue = 1; string symbol = 2; Strategy strategy = 3;
+  string market_endpoint = 4; string market_service = 5;
 }
 message Command {
   string request_id = 1;
@@ -112,12 +138,11 @@ message LiveCosts {
 message LiveAuthorization { int64 authorized_at_ms = 1; }
 // The account's current or last strategy run. state: running or stopped; a
 // stopped run states why. target is the position wanted in lots, positive
-// long and negative short; absent until the strategy has enough bars.
+// long and negative short; absent until the rule has seen `warmup` bars.
 message LiveStrategy {
-  string id = 1; string venue = 2; string symbol = 3; uint32 fast = 4; uint32 slow = 5; Decimal quantity = 6;
-  PositionSides sides = 7;
-  string state = 8; string reason = 9; int64 started_ms = 10;
-  uint64 bars = 11; int64 bar_ms = 12; optional Decimal target = 13; repeated string orders = 14;
+  string id = 1; string venue = 2; string symbol = 3; Strategy strategy = 4; uint32 warmup = 5;
+  string state = 6; string reason = 7; int64 started_ms = 8;
+  uint64 bars = 9; int64 bar_ms = 10; optional Decimal target = 11; repeated string orders = 12;
 }
 message JournalCapacity {
   uint64 records_used = 1; uint64 records_limit = 2;

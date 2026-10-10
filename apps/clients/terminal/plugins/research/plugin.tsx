@@ -31,7 +31,7 @@ export const plugin: TerminalPlugin = {
       .filter(task => task.kind === "backtest" || task.kind === "factor")
       .map(task => ({
         id: task.id,
-        title: `${task.instrument} · ${task.kind === "factor" ? t("动量因子") : `${t("均线回测")} · ${task.trading_day}`}`,
+        title: `${task.instrument} · ${task.kind === "factor" ? t("动量因子") : `${t("策略回测")} · ${task.trading_day}`}`,
         status: t(
           {
             queued: "排队中",

@@ -8,19 +8,6 @@
 #include <stdexcept>
 namespace asterion::protocol {
 namespace {
-backtest::v1::SmaStrategy sma(const Json& value) {
-  require_fields(value, {"fast", "slow", "quantity", "sides"});
-  for (auto name : {"fast", "slow"})
-    if (!value.at(name).is_number_integer() || value.at(name) < 1 || value.at(name) > 10000)
-      throw std::invalid_argument("invalid SMA period");
-  backtest::v1::SmaStrategy result;
-  result.set_fast(value.at("fast").get<unsigned>());
-  result.set_slow(value.at("slow").get<unsigned>());
-  result.mutable_quantity()->set_units(
-      Decimal::parse(value.at("quantity").get<std::string>()).raw());
-  result.set_sides(encode_position_sides(value.at("sides")));
-  return result;
-}
 // Index lists: every index names a contract, none twice across all lists.
 template <class Lists, class Indexes>
 void distinct_contracts(const Lists& lists, std::size_t contracts, Indexes indexes) {
@@ -64,7 +51,7 @@ void validate_series(const backtest::v1::BacktestInput& input) {
 }
 } // namespace
 backtest::v1::BacktestRequest encode_backtest_request(const Json& input) {
-  require_fields(input, {"contracts", "deposit", "risk", "sma", "series"});
+  require_fields(input, {"contracts", "deposit", "risk", "strategy", "series"});
   if (!input.at("series").is_array() || !input.at("contracts").is_array() ||
       input.at("contracts").empty() || input.at("contracts").size() > max_portfolio_contracts)
     throw std::invalid_argument("backtest requires 1 to 20 contracts");
@@ -89,35 +76,27 @@ backtest::v1::BacktestRequest encode_backtest_request(const Json& input) {
                      [](const auto& series) { return series.contracts(); });
   result.mutable_deposit()->set_units(Decimal::parse(input.at("deposit").get<std::string>()).raw());
   *result.mutable_risk() = encode_risk(input.at("risk"));
-  *result.mutable_sma() = sma(input.at("sma"));
+  *result.mutable_strategy() = encode_strategy(input.at("strategy"));
   return result;
 }
 Json decode_backtest(const backtest::v1::BacktestInput& input, DatasetView view) {
   validate_message(input);
-  if (input.version() != 8 || !input.has_paper() || !input.has_sma() || !input.sma().has_quantity())
+  if (input.version() != 8 || !input.has_paper() || !input.has_strategy())
     throw std::invalid_argument("incomplete backtest input");
   if (input.dataset_revision() != dataset_revision(input.paper()))
     throw std::invalid_argument("dataset revision does not match input snapshot");
   // Evaluated before the braced initializer: GCC < 13 leaks already-built
   // initializer_list elements when a later element throws (PR66139).
   auto paper = decode_input(input.paper(), view);
-  const auto quantity = Decimal::from_raw(input.sma().quantity().units());
   for (const auto& contract : input.paper().contracts())
-    if (!input.sma().fast() || input.sma().fast() >= input.sma().slow() ||
-        input.sma().slow() > 10000 || quantity <= Decimal{} ||
-        !quantity.multiple_of(
-            Decimal::from_raw(contract.dataset().contract().quantity_increment().units())))
-      throw std::invalid_argument(
-          "SMA requires 0 < fast < slow <= 10000 and a positive lot-aligned quantity");
+    validate_strategy(
+        input.strategy(),
+        Decimal::from_raw(contract.dataset().contract().quantity_increment().units()));
   validate_series(input);
   Json result{{"version", 8},
               {"dataset_revision", input.dataset_revision()},
               {"paper", std::move(paper)},
-              {"sma",
-               {{"fast", input.sma().fast()},
-                {"slow", input.sma().slow()},
-                {"quantity", Decimal::from_raw(input.sma().quantity().units()).str()},
-                {"sides", position_sides_name(position_sides(input.sma().sides()))}}}};
+              {"strategy", decode_strategy(input.strategy())}};
   if (input.series_size()) {
     Json all = Json::array();
     for (const auto& series : input.series()) {

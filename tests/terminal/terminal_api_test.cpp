@@ -502,8 +502,11 @@ TEST(TerminalApi, LargeNamedDatasetsBacktest) {
                    {"max_gross_quantity", "10"},
                    {"max_working_orders", "10"}};
   auto backtest = costs;
-  backtest.update(
-      {{"id", "large-backtest"}, {"fast", 5}, {"slow", 20}, {"quantity", "1"}, {"sides", "long"}});
+  backtest.update({{"id", "large-backtest"},
+                   {"strategy",
+                    {{"quantity", "1"},
+                     {"sides", "long"},
+                     {"rule", {{"kind", "moving_average"}, {"fast", 5}, {"slow", 20}}}}}});
   const auto submitted = invoke("backtest.submit", backtest);
   ASSERT_TRUE(submitted.contains("result")) << submitted.dump().substr(0, 400);
 }

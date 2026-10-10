@@ -168,8 +168,8 @@ void Application::Impl::register_live_commands() {
   // The run reads minute bars from the market service on this machine; its
   // address comes from the attached service, never from the page.
   command("live.strategy.start", [this](const json& p) -> PolledTask<Response> {
-    fields(p, {"account", "request_id", "account_id", "policy_revision", "venue", "symbol", "fast",
-               "slow", "quantity", "sides"});
+    fields(p, {"account", "request_id", "account_id", "policy_revision", "venue", "symbol",
+               "strategy"});
     const auto source = market ? market->endpoint() : ServiceEndpoint{};
     if (source.endpoint.empty())
       throw Error(ErrorCode::unavailable,

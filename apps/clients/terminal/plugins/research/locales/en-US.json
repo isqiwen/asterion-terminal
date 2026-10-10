@@ -1,10 +1,6 @@
 {
-  "均线回测": "Moving Average Backtest",
   "回测设置": "Backtest Setup",
   "交易日": "Trading Day",
-  "快均线": "Fast Window",
-  "慢均线": "Slow Window",
-  "目标手数": "Target Lots",
   "初始资金": "Initial Capital",
   "每手保证金": "Margin per Lot",
   "开仓手续费": "Opening Fee",
@@ -130,7 +126,6 @@
   "运行位置": "Run location",
   "确认运行": "Review and run",
   "回测进度": "Backtest progress",
-  "均线参数": "Moving averages",
   "上一步": "Back",
   "下一步": "Next",
   "回测记录": "Backtest records",
@@ -239,9 +234,7 @@
   "盈利交易日占比": "Winning days",
   "交易日数": "Trading days",
   "按逐日结算权益计算，是统计值而不是账本数值。年化按这些交易日跨越的日历时间折算，无风险利率取 0；不足 20 个交易日时不计算年化指标。": "Computed from day-end settlement equity; statistics, not ledger values. Yearly figures are scaled by the calendar time these trading days span, with a zero risk-free rate, and are not computed for fewer than 20 trading days.",
-  "持仓方向": "Position sides",
-  "多空": "Long and short",
-  "只做多": "Long only",
-  "只做空": "Short only",
-  "快线高于慢线时持有目标手数的多单，低于时持有空单；不允许的方向空仓。反手时先平仓，平掉之后的下一根 K 线再开仓。": "Long the target lots while the fast average is above the slow one, short while it is below; flat on a side that is not allowed. A reversal closes first and opens on the bar after the close has filled."
+  "策略回测": "Strategy Backtest",
+  "策略": "Strategy",
+  "{n} 手": "{n} lots"
 }

@@ -125,9 +125,7 @@ private:
   struct Run {
     std::string id;
     Instrument instrument;
-    std::uint32_t fast = 0, slow = 0;
-    Decimal quantity;
-    PositionSides sides = PositionSides::both;
+    protocol::v1::Strategy strategy;
     std::int64_t started_ms = 0;
     std::unique_ptr<StrategyHost> host;
     std::uint64_t bars = 0;

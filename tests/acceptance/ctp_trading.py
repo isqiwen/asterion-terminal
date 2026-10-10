@@ -255,8 +255,10 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", ignore_cleanup_errors=T
         call("live.strategy.start", {"account": ACCOUNT, "request_id": str(uuid.uuid4()),
                                      "account_id": live["account_id"],
                                      "policy_revision": live["policy_revision"],
-                                     "venue": venue, "symbol": symbol, "fast": args.fast,
-                                     "slow": args.slow, "quantity": "1", "sides": args.sides})
+                                     "venue": venue, "symbol": symbol,
+                                     "strategy": {"quantity": "1", "sides": args.sides,
+                                                  "rule": {"kind": "moving_average",
+                                                           "fast": args.fast, "slow": args.slow}}})
         run = session()["strategy"]
         step("strategy started", run and run["state"] == "running", f"run={run and run['id']}")
         refused("manual order refused while the strategy runs", "strategy controls",

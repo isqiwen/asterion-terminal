@@ -177,21 +177,14 @@
   "启动策略": "Start strategy",
   "上次运行已停止：{reason}": "The last run stopped: {reason}",
   "策略合约": "Strategy contract",
-  "快线周期": "Fast period",
-  "慢线周期": "Slow period",
-  "持仓手数": "Position lots",
   "下单方式": "Order origin",
   "手动下单": "Manual orders",
   "策略运行期间不能手动下单；撤单、撤销授权和停止策略始终可用。账户未连接或未同步时策略等待，不发送委托。停止只撤销策略的挂单，持仓保留。": "Manual orders are refused while a strategy runs; cancelling, revoking and stopping are always available. While the account is not connected and synchronized the strategy waits and sends nothing. Stopping only cancels the strategy's working orders and keeps positions.",
   "授权长期有效，断线重连和换交易日后不需要再次授权；撤销授权、修改风控政策或交易服务重启后失效。": "The authorization lasts across reconnects and trading days; it ends when you revoke it, change the risk policy or the trading service restarts.",
   "已授权": "Authorized",
-  "持仓方向": "Position sides",
-  "多空": "Long and short",
-  "只做多": "Long only",
-  "只做空": "Short only",
-  "{venue} · {symbol} · 均线 {fast}/{slow} · {quantity} 手 · {sides}": "{venue} · {symbol} · SMA {fast}/{slow} · {quantity} lots · {sides}",
   "空仓": "Flat",
   "空 {n} 手": "Short {n} lots",
   "多 {n} 手": "Long {n} lots",
-  "均线策略：快线高于慢线时持有上面手数的多单，低于时持有空单，不允许的方向空仓；反手时先平仓，下一根 K 线再开仓。该合约已有的单边持仓由策略接管。使用本机行情服务的 1 分钟线，按 K 线收盘价挂限价单。启动后由策略独占下单，断线重连和换交易日后自动继续，直到你停止它、撤销授权、修改风控政策或交易服务重启。": "SMA strategy: long the lots above while the fast average is above the slow one, short while it is below, flat on a side that is not allowed; a reversal closes first and opens on the next bar. A position the contract already holds on one side is taken over. It reads 1-minute bars from the market service on this computer and places limit orders at the bar's close. Once started it alone places orders and continues across reconnects and trading days until you stop it, revoke the authorization, change the risk policy or the trading service restarts."
+  "{venue} · {symbol} · {rule} · {quantity} 手 · {sides}": "{venue} · {symbol} · {rule} · {quantity} lots · {sides}",
+  "该合约已有的单边持仓由策略接管。策略使用本机行情服务的 1 分钟线，按 K 线收盘价挂限价单。启动后由策略独占下单，断线重连和换交易日后自动继续，直到你停止它、撤销授权、修改风控政策或交易服务重启。": "A position the contract already holds on one side is taken over. The strategy reads 1-minute bars from the market service on this computer and places limit orders at the bar's close. Once started it alone places orders and continues across reconnects and trading days until you stop it, revoke the authorization, change the risk policy or the trading service restarts."
 }
