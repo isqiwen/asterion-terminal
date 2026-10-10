@@ -2246,7 +2246,13 @@ terminal 的任务才第一次真正运行。
   以上。依据是 Xcode 26 的发行说明（`std::jthread` 和 `<stop_token>` 不再需要
   `-fexperimental-library`）；Xcode 26.3 下能否编过要等下一次 CI 运行才知道，本机没有
   macOS，没有验证。
-- `terminal (macos-15-intel)` 和 `terminal-linux` 写这段时还在运行，结果没有核对。
+- **`terminal (macos-15-intel)`** 在同一处编译失败，原因相同。
+- **`terminal-linux` 打包失败。** 编译、509 项测试和原生 Electron 宿主测试都通过；构建验收
+  包时 electron-builder 检测到 CI 环境后自动尝试发布，因为没有 GitHub 令牌而失败
+  （`GitHub Personal Access Token is not set`）。这是我加 Linux 打包时留下的缺陷：打包脚本
+  从不发布，却没有明说。`scripts/desktop/desktop.py` 现在给 electron-builder 传
+  `--publish never`（macOS 与 Linux 共用）。本机设置 `CI=true GITHUB_ACTIONS=true` 后
+  `pnpm desktop:build` 通过；没有先在不加参数的情况下复现失败，CI 上也还没有验证。
 
 ### 修改
 

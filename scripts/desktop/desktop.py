@@ -350,7 +350,10 @@ def main():
     if mode == "dev":
         run_development()
         return
-    builder = ["pnpm", "exec", "electron-builder", "--mac" if MACOS else "--linux",
+    # Packages are built for acceptance and handed over by hand. On CI the
+    # builder would otherwise try to publish them and fail without a token.
+    builder = ["pnpm", "exec", "electron-builder", "--publish", "never",
+               "--mac" if MACOS else "--linux",
                "--config", "apps/clients/terminal/electron/builder.cjs"]
     env["ASTERION_PACKAGE_MODE"] = "release" if mode == "build" else "test"
     if not MACOS:
