@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useWorkspaceDraft, type TerminalContext } from "../contract";
-import { BarFactorForm } from "./BarFactor";
-import { DailyFactorForm, DailyFactorResults } from "./DailyFactor";
+import { BarFactorForm, DailyFactorForm } from "./FactorForm";
 import { FactorResults } from "./FactorResults";
 import { ResearchPage, t, TaskRecords, useRun } from "./shared";
 
 const inputs = { bars: "K 线", daily: "日线" };
 
 /**
- * Momentum factor evaluation. The data comes either from a dataset of one
- * contract's bars or from a daily version published in the archive; both kinds
- * of task share the records and the result area.
+ * Momentum factor evaluation. The series comes either from a dataset of one
+ * contract's bars or from a daily version published in the archive; the task,
+ * its parameters and its result are the same either way.
  */
 export function Factor({
   snapshot,
@@ -22,7 +21,7 @@ export function Factor({
   workspaceParams,
 }: TerminalContext) {
   const taskService = snapshot?.task_service;
-  const { error, setError, run } = useRun(trade);
+  const { error, run } = useRun(trade);
   const [input, setInput] = useWorkspaceDraft<keyof typeof inputs>("factor-input", "bars");
   // A daily version handed over from the data page selects the daily input once.
   const handed =
@@ -77,7 +76,6 @@ export function Factor({
               trade={trade}
               navigate={navigate}
               run={run}
-              setError={setError}
             />
           )}
         </section>
@@ -88,16 +86,12 @@ export function Factor({
             busy={busy}
             trade={trade}
             run={run}
-            listed={task => task.kind === "factor" || task.kind === "daily_factor"}
-            describe={task => t(task.kind === "daily_factor" ? "日线" : "K 线")}
+            listed={task => task.kind === "factor"}
             onResult={task => void run("task.result", { id: task.id }).then(setShown)}
           />
           <div ref={results}>
-            {snapshot?.task_result?.kind === "daily_factor" && (
-              <DailyFactorResults key={snapshot.task_result.id} evidence={snapshot.task_result} />
-            )}
             {snapshot?.task_result?.kind === "factor" && (
-              <FactorResults evidence={snapshot.task_result} />
+              <FactorResults key={snapshot.task_result.id} evidence={snapshot.task_result} />
             )}
           </div>
         </div>

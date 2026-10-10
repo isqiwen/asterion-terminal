@@ -25,8 +25,8 @@ message DownloadAuthorizationRequest {
 }
 message DownloadAuthorization {
   uint32 version = 1; string id = 2; string data_instance = 3;
-  string task_instance = 4; string task_id = 5; string provider_artifact = 6; string provider_id = 9;
-  oneof definition { MinuteDownload minutes = 7; DailyDownload daily = 8; }
+  string task_instance = 4; string task_id = 5; string provider_artifact = 6; string provider_id = 7;
+  oneof definition { MinuteDownload minutes = 8; DailyDownload daily = 9; }
 }
 // Private on-disk representation. Never returned through DataResponse.
 message StoredDownloadAuthorization {
@@ -40,9 +40,9 @@ message DownloadIdentity {
 }
 message DownloadCredentials { DownloadIdentity identity = 1; string authorization_id = 2; string credential = 3; }
 message DownloadAllocation {
-  string authorization_id = 4;
-  DownloadIdentity identity = 1;
-  oneof definition { MinuteDownload minutes = 2; DailyDownload daily = 3; }
+  string authorization_id = 1;
+  DownloadIdentity identity = 2;
+  oneof definition { MinuteDownload minutes = 3; DailyDownload daily = 4; }
 }
 message DownloadDirectory { string directory = 1; }
 message AllocatedDownload { DownloadAllocation request = 1; string directory = 2; }
@@ -107,12 +107,12 @@ message DataResponse {
     asterion.backtest.v1.DominantSeriesPreview dominant_series = 24;
     asterion.factor.v1.DailyFactorDataset daily_factor_dataset = 25;
     HistoryUsage history_usage = 26;
-    DownloadAuthorization download_authorization = 28;
-    DownloadDirectory download_directory = 30;
-    PreparedDownload prepared_download = 31;
-    PublishedDownload published_download = 32;
-    DownloadCredentials download_credentials = 33;
-    DownloadBudgetPolicy download_budget = 34;
-    DownloadPermit download_permit = 35;
+    DownloadAuthorization download_authorization = 27;
+    DownloadDirectory download_directory = 28;
+    PreparedDownload prepared_download = 29;
+    PublishedDownload published_download = 30;
+    DownloadCredentials download_credentials = 31;
+    DownloadBudgetPolicy download_budget = 32;
+    DownloadPermit download_permit = 33;
   }
 }

@@ -58,8 +58,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
         select(process,"short")
         call(process,"backtest.submit",{"id":"agent-recovery","fast":1,"slow":3,"quantity":"1","deposit":"10000","contracts": contracts(),"max_order_quantity":"100","max_gross_quantity":"100","max_working_orders":"100"})
         select(process,"long")
-        call(process,"factor.submit",{"id":"factor-recovery","lookbacks":[2],"horizon":1,"evaluation":{"mode":"full_sample"}})
-        call(process,"factor.submit",{"id":"rolling-recovery","lookbacks":[2,5,10],"horizon":1,"evaluation":{"mode":"walk_forward","training_events":80,"validation_events":40}})
+        call(process,"factor.submit",{"id":"factor-recovery","series":{"kind":"bars"},"lookbacks":[2],"horizon":1,"evaluation":{"mode":"full_sample"}})
+        call(process,"factor.submit",{"id":"rolling-recovery","series":{"kind":"bars"},"lookbacks":[2,5,10],"horizon":1,"evaluation":{"mode":"walk_forward","training_events":80,"validation_events":40}})
     finally:close(process)
     # Service-owned immutable history and admitted tasks survive the submitting process.
     process=launch()
@@ -71,13 +71,15 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
             assert task["attempt"]==1,task
             result=call(process,"task.result",{"id":identity})["task_result"]
             assert result["task"]==task,result
-            data=result["experiment"]["data"]  # backtests list one range per contract
-            assert (data[0] if isinstance(data,list) else data)["count"]==count,result
+            # A backtest lists one range per contract; a factor describes its one series.
+            experiment=result["experiment"]
+            data=experiment["data"][0] if "data" in experiment else experiment["series"][0]["data"]
+            assert data["count"]==count,result
             saved[identity]=(task,result)
         factor=saved["factor-recovery"][1]
         assert len(factor["result"]["samples"])==157,factor
         rolling=saved["rolling-recovery"][1]
-        assert rolling["result"]["version"]==4,rolling
+        assert rolling["result"]["version"]==6 and rolling["experiment"]["series"][0]["kind"]=="bars",rolling
         assert len(rolling["result"]["folds"])==2 and len(rolling["result"]["samples"])==78,rolling
         call(process,"node.action",{"id":"local","service":"task","action":"stop"})
     finally:close(process)
@@ -89,7 +91,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
             assert call(process,"task.result",{"id":identity})["task_result"]==result
         selected,=select(process,"long")["datasets"]
         assert selected["count"]==160 and selected["revision"]==factor["experiment"]["dataset_revision"]
-        call(process,"factor.submit",{"id":"repeated-factor","lookbacks":[2],"horizon":1,"evaluation":{"mode":"full_sample"}})
+        call(process,"factor.submit",{"id":"repeated-factor","series":{"kind":"bars"},"lookbacks":[2],"horizon":1,"evaluation":{"mode":"full_sample"}})
         completed(process,"repeated-factor")
         assert call(process,"task.result",{"id":"repeated-factor"})["task_result"]["result"]==factor["result"]
         call(process,"node.action",{"id":"local","service":"task","action":"stop"})

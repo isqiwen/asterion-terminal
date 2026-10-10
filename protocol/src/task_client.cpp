@@ -19,8 +19,8 @@ int run_task_worker(const std::string& endpoint, const std::string& host, unsign
                     const ipc::TlsIdentity& tls, const std::string& service,
                     const std::string& task, task::v1::TaskKind kind, const TaskRunner& runner,
                     std::uint64_t owner_pid) {
-  if (kind != task::v1::BACKTEST && kind != task::v1::FACTOR && kind != task::v1::DAILY_FACTOR &&
-      kind != task::v1::MINUTE_DOWNLOAD && kind != task::v1::DAILY_DOWNLOAD)
+  if (kind != task::v1::BACKTEST && kind != task::v1::FACTOR && kind != task::v1::MINUTE_DOWNLOAD &&
+      kind != task::v1::DAILY_DOWNLOAD)
     throw std::invalid_argument("unsupported worker kind");
   validate_id(service);
   validate_id(task);

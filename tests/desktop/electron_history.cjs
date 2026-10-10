@@ -291,30 +291,30 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
   await page.getByLabel("未来日线数", { exact: true }).fill("1");
   await page.getByLabel("评价方式", { exact: true }).selectOption("holdout");
   await page.getByLabel("前段日线数", { exact: true }).fill("60");
-  await page.getByRole("button", { name: "开始日线分析", exact: true }).click();
+  await page.getByRole("button", { name: "开始分析", exact: true }).click();
   await expect
     .poll(
       async () =>
-        (await call("runtime.snapshot")).task_service.tasks.find(
-          task => task.kind === "daily_factor",
-        )?.state,
+        (await call("runtime.snapshot")).task_service.tasks.find(task => task.kind === "factor")
+          ?.state,
       { timeout: 20000 },
     )
     .toBe("succeeded");
   const factorTask = (await call("runtime.snapshot")).task_service.tasks.find(
-    task => task.kind === "daily_factor",
+    task => task.kind === "factor",
   );
   assert.equal(factorTask.attempt, 1);
   const taskTable = page.getByRole("region", { name: "研究任务", exact: true });
   await taskTable.getByRole("button", { name: "查看结果", exact: true }).click();
-  const factorView = page.getByRole("region", { name: "日线因子结果", exact: true });
+  const factorView = page.getByRole("region", { name: "因子结果", exact: true });
+  await expect(factorView).toContainText("按日线计算 · 时间留出评价");
+  await factorView.getByText("结果详情", { exact: true }).click();
   await expect(factorView).toContainText("有效样本: 113");
-  await expect(factorView).toContainText("跨界剔除: 1");
-  const parts = factorView.getByRole("table", { name: "日线分区评价", exact: true });
-  await expect(parts.locator("tbody tr").first()).toContainText("54");
-  await expect(parts.locator("tbody tr").last()).toContainText("59");
-  await factorView.getByText("逐日样本", { exact: true }).click();
-  const rows = factorView.locator("details table tbody tr");
+  await expect(factorView).toContainText("剔除跨界标签: 1");
+  await expect(factorView.getByRole("region", { name: "前段", exact: true })).toContainText("54");
+  await expect(factorView.getByRole("region", { name: "留出段", exact: true })).toContainText("59");
+  await factorView.getByText("样本明细", { exact: true }).click();
+  const rows = factorView.getByRole("table", { name: "样本明细" }).locator("tbody tr");
   await expect(rows).toHaveCount(50);
   await expect(rows.first()).toContainText("2023-01-06");
   await factorView.getByRole("button", { name: "下一页", exact: true }).click();

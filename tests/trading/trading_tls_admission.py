@@ -20,8 +20,8 @@ executable, certificates, trader_sdk = sys.argv[1:]
 def heartbeat(channel, correlation):
     assert len(correlation) == 3
     # Request(version=1, session_id=adm, correlation_id, heartbeat={}).
-    prefix = b"\x08\x01\x12\x03adm\x22\x03" + correlation
-    request = prefix + b"\x82\x01\x00"
+    prefix = b"\x08\x01\x12\x03adm\x1a\x03" + correlation
+    request = prefix + b"\x7a\x00"
     channel.sendall(struct.pack("!I", len(request)) + request)
 
     def receive(size):
@@ -35,7 +35,7 @@ def heartbeat(channel, correlation):
     size = struct.unpack("!I", receive(4))[0]
     assert 0 < size <= 4096
     response = receive(size)
-    assert response.startswith(prefix + b"\x72"), response
+    assert response.startswith(prefix + b"\x6a"), response
 
 
 def authenticated_client(context, port):

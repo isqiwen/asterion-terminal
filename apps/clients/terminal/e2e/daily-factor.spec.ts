@@ -8,12 +8,12 @@ for (const locale of ["zh-CN", "en-US"]) {
     await page.getByRole("button", { name: en ? "Factors" : "因子", exact: true }).click();
     await page.getByRole("button", { name: en ? "Daily" : "日线", exact: true }).click();
     await expect(
-      page.getByRole("button", { name: en ? "Analyze daily bars" : "开始日线分析", exact: true }),
+      page.getByRole("button", { name: en ? "Analyze" : "开始分析", exact: true }),
     ).toBeDisabled();
-    const lookback = page.getByLabel(en ? "Lookback bars" : "回看日线数", { exact: true });
+    const lookback = page.getByLabel(en ? "Lookback daily bars" : "回看日线数", { exact: true });
     await lookback.fill("17");
     await page.getByLabel(en ? "Evaluation" : "评价方式", { exact: true }).selectOption("holdout");
-    await page.getByLabel(en ? "Development bars" : "前段日线数", { exact: true }).fill("60");
+    await page.getByLabel(en ? "Leading daily bars" : "前段日线数", { exact: true }).fill("60");
     await page.getByRole("button", { name: en ? "Bars" : "K 线", exact: true }).click();
     await page.getByRole("button", { name: en ? "Daily" : "日线", exact: true }).click();
     await expect(lookback).toHaveValue("17");
@@ -41,7 +41,7 @@ test("download factor entry binds the selected source to its service", async ({ 
   let service = "source-service";
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (!["runtime.snapshot", "factor.daily.submit", "data.datasets"].includes(request.method))
+    if (!["runtime.snapshot", "factor.submit", "data.datasets"].includes(request.method))
       return route.continue();
     const response = await route.fetch({
       postData: { ...request, method: "runtime.snapshot", params: {} },
@@ -102,11 +102,11 @@ test("download factor entry binds the selected source to its service", async ({ 
     page.getByText("数据连接已改变，请重新选择当前服务中的日线。", { exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel("日线来源", { exact: true })).toHaveValue("");
-  await expect(page.getByRole("button", { name: "开始日线分析", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "开始分析", exact: true })).toBeDisabled();
   // The other service has the same task ID; only an explicit selection may use it.
   await page.getByLabel("日线来源", { exact: true }).selectOption("a".repeat(64));
-  await expect(page.getByRole("button", { name: "开始日线分析", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "开始日线分析", exact: true }).click();
+  await expect(page.getByRole("button", { name: "开始分析", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "开始分析", exact: true }).click();
   const submitted = page.getByText("任务已提交，可在任务中心查看进度。", { exact: true });
   await expect(submitted).toBeVisible();
   service = "third-service";

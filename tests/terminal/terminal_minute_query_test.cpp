@@ -195,7 +195,7 @@ struct MinuteService {
             response.mutable_task()->set_state(task::v1::CANCEL_REQUESTED);
           } else if (request.has_submit()) {
             std::unique_lock lock(mutex);
-            if (request.submit().has_daily_factor()) {
+            if (request.submit().has_factor_request()) {
               ++entered;
               condition.notify_all();
               if (!condition.wait_for(lock, 4s, [&] { return released; }))
@@ -720,11 +720,12 @@ TEST(TerminalDailyFactor, SubmissionDoesNotBlockOtherWindowsAndRejectsChangedSer
   EXPECT_FALSE(first_id.get<std::string>().empty());
   EXPECT_EQ(app.dispatch(request("runtime.snapshot")).at("task_service").at("connection_id"),
             first_id);
-  const auto submit = request("factor.daily.submit", {{"id", "analysis"},
-                                                      {"source_dataset_id", std::string(64, 'a')},
-                                                      {"lookback", 20},
-                                                      {"horizon", 5},
-                                                      {"evaluation", {{"mode", "full_sample"}}}});
+  const auto submit = request(
+      "factor.submit", {{"id", "analysis"},
+                        {"series", {{"kind", "daily"}, {"dataset_id", std::string(64, 'a')}}},
+                        {"lookbacks", {20}},
+                        {"horizon", 5},
+                        {"evaluation", {{"mode", "full_sample"}}}});
   auto pending = std::async(std::launch::async, [&] { return app.dispatch(submit); });
   ASSERT_TRUE(source.wait(1));
   EXPECT_TRUE(app.dispatch(request("market.disconnect")).contains("protocol"));
@@ -742,13 +743,19 @@ TEST(TerminalDailyFactor, SubmissionDoesNotBlockOtherWindowsAndRejectsChangedSer
   }
   replacement.release();
   EXPECT_TRUE(app.dispatch(submit).contains("protocol"));
-  EXPECT_EQ(replacement.submitted.daily_factor().source_dataset_id(), std::string(64, 'a'));
-  EXPECT_EQ(replacement.submitted.daily_factor().lookback(), 20);
+  const auto& accepted = replacement.submitted.factor_request();
+  ASSERT_EQ(accepted.series_size(), 1);
+  EXPECT_EQ(accepted.series(0).daily_dataset_id(), std::string(64, 'a'));
+  EXPECT_EQ(accepted.lookbacks(0), 20U);
   auto bad = submit;
-  bad["params"]["lookback"] = 1.5;
+  bad["params"]["lookbacks"] = {1.5};
+  EXPECT_THROW(app.dispatch(bad), std::invalid_argument);
+  // A client names a published version; it cannot hand in observations.
+  bad = submit;
+  bad["params"]["series"]["bars"] = Json::array();
   EXPECT_THROW(app.dispatch(bad), std::invalid_argument);
   bad = submit;
-  bad["params"]["bars"] = Json::array();
+  bad["params"]["series"] = {{"kind", "uploaded"}};
   EXPECT_THROW(app.dispatch(bad), std::invalid_argument);
 }
 

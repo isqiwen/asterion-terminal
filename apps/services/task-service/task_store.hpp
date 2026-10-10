@@ -65,7 +65,6 @@ public:
     bool admitted_ = false, created_ = false, prepared_ = false;
   };
   // Definition validation may be expensive; construct submissions on the file worker.
-  Submission submission(const std::string&, factor::v1::DailyFactorInput) const;
   Submission submission(const std::string&, backtest::v1::BacktestInput) const;
   Submission submission(const std::string&, factor::v1::FactorInput) const;
   Submission submission(const data::v1::DownloadAuthorization&) const;

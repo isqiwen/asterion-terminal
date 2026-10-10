@@ -283,7 +283,6 @@ export type TerminalCommand =
   | "node.data_tasks.attach"
   | "backtest.submit"
   | "factor.submit"
-  | "factor.daily.submit"
   | "data.daily.page"
   | "data.download.daily.submit"
   | "data.minutes.page"
@@ -524,10 +523,12 @@ export type FactorResult = {
     pearson: number | null;
     spearman: number | null;
   }[];
+  // When a sample and its label were observed: a nanosecond timestamp for
+  // bars, the provider's trading date for daily closes.
   samples: {
     event_index: number;
-    timestamp_ns: string;
-    label_timestamp_ns: string;
+    observed: string;
+    label: string;
     value: number;
     forward_return: number;
   }[];
@@ -603,7 +604,7 @@ export type TaskRecord = {
   risk_artifact?: string;
   data_source?: string;
   history_dataset_id?: string;
-  kind: "backtest" | "factor" | "daily_factor" | "minute_download" | "daily_download";
+  kind: "backtest" | "factor" | "minute_download" | "daily_download";
   id: string;
   state:
     | "queued"
@@ -668,65 +669,35 @@ export type BacktestExperiment = {
   // One range per contract, in contract order.
   data: ExperimentData[];
 };
+// The one series a factor read: a contract's bars, or the daily closes of a
+// published version.
+export type FactorSeriesEvidence =
+  | { kind: "bars"; dataset: DatasetEvidence; data: ExperimentData }
+  | {
+      kind: "daily";
+      data: {
+        history_evidence: HistoryVersionEvidence;
+        source_dataset_id: string;
+        source: string;
+        contract_id: string;
+        manifest_sha256: string;
+        count: number;
+        first_day: string;
+        last_day: string;
+      };
+    };
 export type FactorExperiment = {
   version: number;
   dataset_revision: string;
-  dataset: DatasetEvidence;
+  series: FactorSeriesEvidence[];
   lookbacks: number[];
   horizon: number;
   evaluation:
     | { mode: "full_sample" }
     | { mode: "holdout"; split_index: number }
     | { mode: "walk_forward"; training_events: number; validation_events: number };
-  data: ExperimentData;
-};
-export type DailyFactorExperiment = {
-  version: number;
-  dataset_revision: string;
-  lookback: number;
-  horizon: number;
-  evaluation: { mode: "full_sample" } | { mode: "holdout"; split_index: number };
-  data: {
-    history_evidence: HistoryVersionEvidence;
-    source_dataset_id: string;
-    source: string;
-    contract_id: string;
-    manifest_sha256: string;
-    count: number;
-    first_day: string;
-    last_day: string;
-  };
-};
-export type DailyFactorResult = {
-  version: number;
-  engine_version: string;
-  dataset_revision: string;
-  input_count: number;
-  purged_count: number;
-  samples: {
-    observation_index: number;
-    trading_day: string;
-    label_day: string;
-    value: number;
-    forward_return: number;
-  }[];
-  partitions: {
-    name: "full_sample" | "development" | "holdout";
-    begin_index: number;
-    end_index: number;
-    sample_count: number;
-    pearson: number | null;
-    spearman: number | null;
-  }[];
 };
 export type TaskResult =
-  | {
-      id: string;
-      kind: "daily_factor";
-      task: TaskRecord;
-      experiment: DailyFactorExperiment;
-      result: DailyFactorResult;
-    }
   | {
       id: string;
       kind: "backtest";
@@ -791,7 +762,7 @@ export type SavedNamedDataset = {
   >[];
 };
 export type HistoryReference = {
-  kind: "download" | "backtest" | "bar_factor" | "daily_factor" | "saved_dataset";
+  kind: "download" | "backtest" | "factor" | "saved_dataset";
   id: string;
   name: string;
   roles: ("market" | "settlement" | "output")[];

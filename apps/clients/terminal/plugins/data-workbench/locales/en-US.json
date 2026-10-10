@@ -164,8 +164,6 @@
   "使用情况": "Usage",
   "来源下载": "Source download",
   "回测任务": "Backtest task",
-  "K 线因子任务": "Bar factor task",
-  "日线因子任务": "Daily factor task",
   "行情输入": "Market input",
   "结算输入": "Settlement input",
   "下载产物": "Download output",
@@ -207,5 +205,6 @@
   "同一账号的下载共享当前数据服务的额度；多节点请分别分配份额。": "Downloads for this account share the current data service budget. Allocate a separate share for each node.",
   "为每个月份合约各建一个下载任务，每个合约下载完整存续期。所有下载共用已配置的账号额度。": "Create one full-lifetime download per delivery contract. All downloads share the configured account budget.",
   "数据源账号": "Data source account",
-  "选择合约": "Choose contract"
+  "选择合约": "Choose contract",
+  "因子任务": "Factor task"
 }

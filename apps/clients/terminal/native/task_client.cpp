@@ -22,10 +22,9 @@ wire::TaskResponse decode_task_response(const wire::TaskRequest& request, const 
     throw_remote_error(response.error().code(), response.error().message());
   if (request.has_history_usage() ? !response.has_history_usage()
       : request.has_list()        ? !response.has_tasks()
-      : request.has_result()
-          ? (!response.has_backtest() && !response.has_factor() && !response.has_minutes() &&
-             !response.has_daily() && !response.has_daily_factor())
-          : !response.has_task())
+      : request.has_result()      ? (!response.has_backtest() && !response.has_factor() &&
+                                     !response.has_minutes() && !response.has_daily())
+                                  : !response.has_task())
     throw Error(ErrorCode::unavailable, "unexpected task response");
   return response;
 }
@@ -292,13 +291,6 @@ std::future<void> TaskClient::submit(const std::string& id,
   wire::TaskRequest request;
   request.mutable_submit()->set_id(id);
   *request.mutable_submit()->mutable_factor_request() = input;
-  return impl_->mutate(std::move(request));
-}
-std::future<void> TaskClient::submit(const std::string& id,
-                                     const asterion::factor::v1::DailyFactorRequest& input) {
-  wire::TaskRequest request;
-  request.mutable_submit()->set_id(id);
-  *request.mutable_submit()->mutable_daily_factor() = input;
   return impl_->mutate(std::move(request));
 }
 std::future<void> TaskClient::submit_download(const std::string& id,

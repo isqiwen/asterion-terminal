@@ -40,11 +40,9 @@ Json decode_task(const task::v1::Task& task) {
     throw std::invalid_argument("invalid task state");
   }
   if (task.kind() != task::v1::BACKTEST && task.kind() != task::v1::FACTOR &&
-      task.kind() != task::v1::DAILY_FACTOR && task.kind() != task::v1::MINUTE_DOWNLOAD &&
-      task.kind() != task::v1::DAILY_DOWNLOAD)
+      task.kind() != task::v1::MINUTE_DOWNLOAD && task.kind() != task::v1::DAILY_DOWNLOAD)
     throw std::invalid_argument("invalid task kind");
-  Json output = {{"kind", task.kind() == task::v1::DAILY_FACTOR      ? "daily_factor"
-                          : task.kind() == task::v1::DAILY_DOWNLOAD  ? "daily_download"
+  Json output = {{"kind", task.kind() == task::v1::DAILY_DOWNLOAD    ? "daily_download"
                           : task.kind() == task::v1::MINUTE_DOWNLOAD ? "minute_download"
                           : task.kind() == task::v1::FACTOR          ? "factor"
                                                                      : "backtest"},
@@ -89,26 +87,7 @@ Json decode_task_result(const task::v1::TaskResponse& response, const std::strin
     throw std::invalid_argument("task result task identity or completion mismatch");
   const auto kind = metadata.at("kind");
   Json envelope = {{"id", id}, {"kind", kind}, {"task", metadata}};
-  // Summarizes bars instead of echoing them.
-  auto range = [](const data::v1::BarDataset& dataset) -> Json {
-    const auto& first = dataset.bars(0);
-    const auto& last = dataset.bars(dataset.bars_size() - 1);
-    return {{"count", dataset.bars_size()},
-            {"first_timestamp_ns", std::to_string(first.timestamp_ns())},
-            {"last_timestamp_ns", std::to_string(last.timestamp_ns())},
-            {"first_day", first.trading_day()},
-            {"last_day", last.trading_day()},
-            {"interval_minutes", dataset.interval_minutes()},
-            {"source", dataset.source()},
-            {"source_dataset_ids", std::vector<std::string>(dataset.source_dataset_ids().begin(),
-                                                            dataset.source_dataset_ids().end())}};
-  };
-  if (task.kind() == task::v1::DAILY_FACTOR && task.has_daily_factor() &&
-      response.has_daily_factor()) {
-    const auto decoded = decode_daily_factor(task.daily_factor(), response.daily_factor());
-    envelope["experiment"] = decoded.at("experiment");
-    envelope["result"] = decoded.at("result");
-  } else if (task.kind() == task::v1::DAILY_DOWNLOAD && task.has_daily() && response.has_daily()) {
+  if (task.kind() == task::v1::DAILY_DOWNLOAD && task.has_daily() && response.has_daily()) {
     const auto& result = response.daily();
     const auto& input = task.daily();
     const auto begin = parse_trading_date(input.begin_day());
@@ -150,17 +129,13 @@ Json decode_task_result(const task::v1::TaskResponse& response, const std::strin
       throw std::invalid_argument("backtest result does not belong to input data");
     Json data = Json::array();
     for (const auto& contract : task.input().paper().contracts())
-      data.push_back(range(contract.dataset()));
+      data.push_back(decode_bar_dataset_range(contract.dataset()));
     experiment["data"] = std::move(data);
     envelope["experiment"] = std::move(experiment);
     envelope["result"] = decode_backtest_result(response.backtest());
   } else if (task.kind() == task::v1::FACTOR && task.has_factor() && response.has_factor()) {
-    auto experiment = decode_factor(task.factor(), DatasetView::metadata);
-    if (response.factor().dataset_revision() != task.factor().dataset_revision())
-      throw std::invalid_argument("factor result does not belong to input data");
-    experiment["data"] = range(task.factor().dataset());
-    envelope["experiment"] = std::move(experiment);
-    envelope["result"] = decode_factor_result(response.factor());
+    envelope["experiment"] = decode_factor(task.factor(), DatasetView::metadata);
+    envelope["result"] = decode_factor_result(task.factor(), response.factor());
   } else {
     throw std::invalid_argument("task input and result kind mismatch");
   }

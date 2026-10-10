@@ -106,8 +106,8 @@ for (const mode of ["full", "holdout", "search", "rolling"])
       await result.getByText("结果详情", { exact: true }).click();
       await expect(result).toContainText(`输入 K 线: ${rolling ? 160 : holdout ? 100 : 40}`);
       await expect(result).toContainText(`剔除跨界标签: ${rolling ? 2 : holdout ? 1 : 0}`);
-      await result.getByText("样本明细（前 100 条）", { exact: true }).click();
-      const firstSample = result.getByRole("row").nth(1);
+      await result.getByText("样本明细", { exact: true }).click();
+      const firstSample = result.getByRole("table", { name: "样本明细" }).getByRole("row").nth(1);
       if (rolling) {
         await result.getByText("逐轮选参证据", { exact: true }).click();
         await expect(result).toContainText("共同预热 K 线数: 10");

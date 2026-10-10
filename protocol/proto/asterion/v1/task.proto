@@ -19,48 +19,46 @@ enum TaskState {
   INTERRUPTED = 7;
   PUBLISHING = 8;
 }
-enum TaskKind { TASK_KIND_UNSPECIFIED = 0; BACKTEST = 1; FACTOR = 2; reserved 3, 4; MINUTE_DOWNLOAD = 5; DAILY_DOWNLOAD = 6; DAILY_FACTOR = 7; }
+enum TaskKind { TASK_KIND_UNSPECIFIED = 0; BACKTEST = 1; FACTOR = 2; MINUTE_DOWNLOAD = 3; DAILY_DOWNLOAD = 4; }
 message Task {
   string id = 1;
-  reserved 13, 18;
-  oneof definition { asterion.backtest.v1.BacktestInput input = 2; asterion.factor.v1.FactorInput factor = 11; asterion.data.v1.MinuteDownload minutes = 19; asterion.data.v1.DailyDownload daily = 21; asterion.factor.v1.DailyFactorInput daily_factor = 22; }
-  TaskKind kind = 12;
-  TaskState state = 3;
-  uint32 attempt = 4;
-  uint32 completed = 5;
-  uint32 total = 6;
-  string error = 7;
-  string result_digest = 8;
-  string trading_day = 9;
-  string instrument = 10;
-  string source_name = 14;
-  string data_source = 23;
-  asterion.data.v1.DownloadPublication publication = 27;
-  string history_dataset_id = 26; // Projection of the verified published download result.
-  string risk_artifact = 25; // Immutable native risk SHA-256 for backtests.
-  string download_authorization = 28;
-  string provider_artifact = 24; // Immutable native provider SHA-256 for downloads.
-  uint32 minute_interval_minutes = 20; // summary projection; zero for other task kinds
+  oneof definition { asterion.backtest.v1.BacktestInput input = 2; asterion.factor.v1.FactorInput factor = 3; asterion.data.v1.MinuteDownload minutes = 4; asterion.data.v1.DailyDownload daily = 5; }
+  TaskKind kind = 6;
+  TaskState state = 7;
+  uint32 attempt = 8;
+  uint32 completed = 9;
+  uint32 total = 10;
+  string error = 11;
+  string result_digest = 12;
+  string trading_day = 13;
+  string instrument = 14;
+  string source_name = 15;
+  string data_source = 16;
+  asterion.data.v1.DownloadPublication publication = 17;
+  string history_dataset_id = 18; // Projection of the verified published download result.
+  string risk_artifact = 19; // Immutable native risk SHA-256 for backtests.
+  string download_authorization = 20;
+  string provider_artifact = 21; // Immutable native provider SHA-256 for downloads.
+  uint32 minute_interval_minutes = 22; // summary projection; zero for other task kinds
   // Service-owned durable order, independent of task ID and wall-clock changes.
-  uint32 submission_sequence = 15;
+  uint32 submission_sequence = 23;
   // UTC wall-clock observations in milliseconds; not used for durations/order.
-  int64 submitted_at_ms = 16;
-  int64 updated_at_ms = 17;
+  int64 submitted_at_ms = 24;
+  int64 updated_at_ms = 25;
 }
-message TaskCapacity { reserved 1, 3; uint32 uncommitted = 2; uint32 retained_tasks = 4; uint32 active_used = 5; uint32 active_limit = 6; uint32 active_reserved = 7; }
+message TaskCapacity { uint32 uncommitted = 1; uint32 retained_tasks = 2; uint32 active_used = 3; uint32 active_limit = 4; uint32 active_reserved = 5; }
 message TaskListQuery { uint32 limit = 1; uint32 before_sequence = 2; }
 message TaskList {
-  reserved 2;
   repeated Task tasks = 1; // One bounded page, in submission order.
-  TaskCapacity capacity = 3;
-  repeated Task active_tasks = 4; // Scheduling state is independent of the history page.
-  uint32 next_before_sequence = 5;
-  uint32 failed_count = 6;
-  uint32 interrupted_count = 7;
+  TaskCapacity capacity = 2;
+  repeated Task active_tasks = 3; // Scheduling state is independent of the history page.
+  uint32 next_before_sequence = 4;
+  uint32 failed_count = 5;
+  uint32 interrupted_count = 6;
 }
 message TaskClaim { string id = 1; TaskKind kind = 2; }
 message TaskId { string id = 1; }
-message TaskSubmit { reserved 2 to 8, 12; string id = 1; oneof definition { asterion.backtest.v1.BacktestRequest backtest = 10; asterion.factor.v1.FactorRequest factor_request = 11; asterion.factor.v1.DailyFactorRequest daily_factor = 9; string download_authorization = 13; } }
+message TaskSubmit { string id = 1; oneof definition { asterion.backtest.v1.BacktestRequest backtest = 2; asterion.factor.v1.FactorRequest factor_request = 3; string download_authorization = 4; } }
 // Small execution definition, projected from Task-owned immutable evidence.
 // Backtest contracts already follow the resolved month order. The fixed schedules
 // below replace request.series: workers never select dominant months again.
@@ -69,21 +67,19 @@ message TaskExecution {
   oneof parameters {
     asterion.backtest.v1.BacktestRequest backtest = 2;
     asterion.factor.v1.FactorRequest factor = 3;
-    asterion.factor.v1.DailyFactorRequest daily_factor = 4;
   }
-  repeated asterion.backtest.v1.DominantSchedule schedules = 5;
+  repeated asterion.backtest.v1.DominantSchedule schedules = 4;
 }
 message TaskAttempt {
-  reserved 3;
   Task task = 1; // Calculation summary only; downloads retain their definition.
   string token = 2;
-  string output_directory = 4;
-  string data_endpoint = 5;
-  string data_instance = 6;
-  TaskExecution execution = 7;
+  string output_directory = 3;
+  string data_endpoint = 4;
+  string data_instance = 5;
+  TaskExecution execution = 6;
 }
 message TaskProgress { string id = 1; string token = 2; uint32 completed = 3; }
-message TaskFinish { reserved 5, 6; string id = 1; string token = 2; oneof output { asterion.backtest.v1.BacktestResult result = 3; asterion.factor.v1.FactorResult factor = 4; asterion.data.v1.MinuteDownloadResult minutes = 7; asterion.data.v1.DailyDownloadResult daily = 8; asterion.factor.v1.DailyFactorResult daily_factor = 9; } }
+message TaskFinish { string id = 1; string token = 2; oneof output { asterion.backtest.v1.BacktestResult result = 3; asterion.factor.v1.FactorResult factor = 4; asterion.data.v1.MinuteDownloadResult minutes = 5; asterion.data.v1.DailyDownloadResult daily = 6; } }
 message TaskFailure { string id = 1; string token = 2; string error = 3; string error_code = 4; }
 message TaskCancelAck { string id = 1; string token = 2; }
 // Private Task Service -> Agent dispatch contract. The Agent reports processes;
@@ -95,16 +91,13 @@ message TaskDispatch { repeated string running = 1; optional uint32 launch_slots
 message TaskLaunch {
   string task_id = 1;
   WorkerProgram program = 2;
-  reserved 3;
-  bool minute_download = 4;
-  bool daily_download = 5;
-  bool daily_factor = 6;
-  string provider_artifact = 7;
-  string risk_artifact = 8;
+  bool minute_download = 3;
+  bool daily_download = 4;
+  string provider_artifact = 5;
+  string risk_artifact = 6;
 }
 message TaskLaunches { repeated TaskLaunch launches = 1; }
 message TaskRequest {
-  reserved 23 to 29, 31 to 34, 36;
   uint32 version = 1;
   string service_id = 2;
   string correlation_id = 3;
@@ -121,18 +114,18 @@ message TaskRequest {
     TaskFinish finish = 19;
     TaskFailure fail = 20;
     TaskCancelAck cancel_ack = 21;
-    TaskId history_usage = 35;
-    TaskDispatch dispatch = 22; asterion.node.v1.Quiesce quiesce = 30;
+    TaskDispatch dispatch = 22;
+    asterion.node.v1.Quiesce quiesce = 23;
+    TaskId history_usage = 24;
   }
 }
 message TaskHealth { string instance_id = 1; string version = 2; uint64 uptime_ms = 3; bool recovery_required = 4; bool initialized = 5; string process_id = 6; string data_instance = 7; }
 message TaskResponse {
-  reserved 17, 19, 22, 24, 26 to 32, 34, 36;
-  // Present only with a completed result, captured under the same store lock.
-  Task result_task = 18;
   uint32 version = 1;
   string service_id = 2;
   string correlation_id = 3;
+  // Present only with a completed result, captured under the same store lock.
+  Task result_task = 4;
   oneof result {
     Task task = 10;
     TaskList tasks = 11;
@@ -141,11 +134,10 @@ message TaskResponse {
     asterion.protocol.v1.Error error = 14;
     TaskAttempt attempt = 15;
     asterion.factor.v1.FactorResult factor = 16;
-    TaskLaunches launches = 20;
-    asterion.data.v1.MinuteDownloadResult minutes = 21;
-    asterion.data.v1.DailyDownloadResult daily = 23;
-    asterion.factor.v1.DailyFactorResult daily_factor = 25;
-    asterion.data.v1.HistoryUsage history_usage = 35;
+    TaskLaunches launches = 17;
+    asterion.data.v1.MinuteDownloadResult minutes = 18;
+    asterion.data.v1.DailyDownloadResult daily = 19;
+    asterion.data.v1.HistoryUsage history_usage = 20;
   }
 }
 

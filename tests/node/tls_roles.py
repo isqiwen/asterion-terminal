@@ -134,10 +134,10 @@ with tempfile.TemporaryDirectory(prefix="ast-roles-", ignore_cleanup_errors=True
         # No role: authenticated by the CA but authorized for nothing.
         assert exchange(agent_port, root, "unroled", status) is None
         # Trading service: heartbeat for a client certificate, nothing for none.
-        heartbeat = (varint(1 << 3) + varint(1) + field(2, b"roles") + field(4, b"hb") +
-                     field(16, b""))
+        heartbeat = (varint(1 << 3) + varint(1) + field(2, b"roles") + field(3, b"hb") +
+                     field(15, b""))
         reply = exchange(trading_port, root, "trading-client", heartbeat)
-        assert reply and 14 in reply, reply
+        assert reply and 13 in reply, reply
         assert exchange(trading_port, root, "unroled", heartbeat) is None
     finally:
         for process in processes:

@@ -297,30 +297,6 @@ PolledTask<> TaskHost::submit_download(Call& call) {
                                     return storage_->submission(prepared.download_authorization());
                                   })).task();
 }
-PolledTask<> TaskHost::submit_daily_factor(Call& call) {
-  const auto& p = call.request.submit();
-  const auto& parameters = p.daily_factor();
-  data::v1::DataRequest query;
-  query.mutable_daily_factor_dataset()->set_id(parameters.source_dataset_id());
-  auto prepared = co_await data_input(call, std::move(query));
-  factor::v1::DailyFactorInput input;
-  input.set_version(1);
-  input.set_lookback(parameters.lookback());
-  input.set_horizon(parameters.horizon());
-  if (parameters.has_full_sample())
-    input.set_full_sample(parameters.full_sample());
-  else if (parameters.has_holdout_start())
-    input.set_holdout_start(parameters.holdout_start());
-  *input.mutable_dataset() = std::move(*prepared.mutable_daily_factor_dataset());
-  co_await ready(call);
-  call.input_in_time();
-  refuse_during_upgrade(quiescing_);
-  *call.response.mutable_task() =
-      (co_await submit(call, [&] {
-        input.set_dataset_revision(protocol::daily_factor_revision(input.dataset()));
-        return storage_->submission(p.id(), std::move(input));
-      })).task();
-}
 // Data owns historical resolution; Task owns this exact calculation definition
 // and its copied immutable input after acceptance.
 PolledTask<> TaskHost::submit_backtest(Call& call) {
@@ -400,14 +376,12 @@ PolledTask<> TaskHost::submit_backtest(Call& call) {
 PolledTask<> TaskHost::submit_factor(Call& call) {
   const auto& p = call.request.submit();
   const auto& f = p.factor_request();
-  data::v1::DataRequest query;
-  *query.mutable_bar_dataset() = f.data();
-  auto prepared = co_await data_input(call, std::move(query));
-  auto dataset = std::move(*prepared.mutable_bar_dataset());
+  if (f.series_size() != 1)
+    throw std::invalid_argument("factor analysis studies exactly one series");
+  auto prepared = co_await data_input(call, protocol::factor_series_query(f.series(0)));
   factor::v1::FactorInput input;
-  input.set_version(5);
-  input.set_dataset_revision(dataset.revision());
-  *input.mutable_dataset() = std::move(dataset);
+  input.set_version(6);
+  *input.add_series() = protocol::factor_series(f.series(0), std::move(prepared));
   *input.mutable_lookbacks() = f.lookbacks();
   input.set_horizon(f.horizon());
   if (f.has_full_sample())
@@ -419,9 +393,12 @@ PolledTask<> TaskHost::submit_factor(Call& call) {
   co_await ready(call);
   call.input_in_time();
   refuse_during_upgrade(quiescing_);
-  *call.response.mutable_task() = (co_await submit(call, [&] {
-                                    return storage_->submission(p.id(), std::move(input));
-                                  })).task();
+  *call.response.mutable_task() =
+      (co_await submit(call, [&] {
+        // Hashing a daily series is file-worker work, like the rest of the submission.
+        input.set_dataset_revision(protocol::factor_series_revision(input.series(0)));
+        return storage_->submission(p.id(), std::move(input));
+      })).task();
 }
 PolledTask<> TaskHost::claim(Call& call) {
   const auto& request = call.request;
@@ -562,7 +539,7 @@ PolledTask<> TaskHost::handle(Call& call, std::string frame) {
   std::optional<VerificationSlots::Lease> preparation;
   if (request.has_submit() &&
       (request.submit().has_backtest() || request.submit().has_factor_request() ||
-       request.submit().has_daily_factor() || request.submit().has_download_authorization()))
+       request.submit().has_download_authorization()))
     preparation.emplace(input_slots_.acquire(false, request.correlation_id()));
   if (request.has_history_usage())
     co_await history_usage(call);
@@ -572,8 +549,6 @@ PolledTask<> TaskHost::handle(Call& call, std::string frame) {
     const auto& p = request.submit();
     if (p.has_download_authorization())
       co_await submit_download(call);
-    else if (p.has_daily_factor())
-      co_await submit_daily_factor(call);
     else if (p.has_backtest())
       co_await submit_backtest(call);
     else if (p.has_factor_request())

@@ -56,11 +56,4 @@ inline factor::v1::FactorResult factor_result(const Store& store, const std::str
     throw std::invalid_argument("factor result is not confirmed");
   return response.factor();
 }
-inline factor::v1::DailyFactorResult daily_factor_result(const Store& store,
-                                                         const std::string& id) {
-  const auto response = verified_result(store, id);
-  if (!response.has_daily_factor())
-    throw std::invalid_argument("daily factor result is not confirmed");
-  return response.daily_factor();
-}
 } // namespace asterion::tasks

@@ -39,7 +39,12 @@ task::v1::TaskExecution task_execution(const task::v1::Task& task,
   } else if (task.has_factor()) {
     const auto& input = task.factor();
     auto* parameters = result.mutable_factor();
-    *parameters->mutable_data() = selection(input.dataset());
+    for (const auto& series : input.series()) {
+      if (series.has_bars())
+        *parameters->add_series()->mutable_bars() = selection(series.bars());
+      else
+        parameters->add_series()->set_daily_dataset_id(series.daily().source_dataset_id());
+    }
     *parameters->mutable_lookbacks() = input.lookbacks();
     parameters->set_horizon(input.horizon());
     if (input.has_full_sample())
@@ -48,16 +53,6 @@ task::v1::TaskExecution task_execution(const task::v1::Task& task,
       parameters->set_holdout_start(input.holdout_start());
     else
       *parameters->mutable_walk_forward() = input.walk_forward();
-  } else if (task.has_daily_factor()) {
-    const auto& input = task.daily_factor();
-    auto* parameters = result.mutable_daily_factor();
-    parameters->set_source_dataset_id(input.dataset().source_dataset_id());
-    parameters->set_lookback(input.lookback());
-    parameters->set_horizon(input.horizon());
-    if (input.has_full_sample())
-      parameters->set_full_sample(input.full_sample());
-    else
-      parameters->set_holdout_start(input.holdout_start());
   } else {
     throw std::invalid_argument("missing calculation input");
   }

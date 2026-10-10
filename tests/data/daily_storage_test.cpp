@@ -555,9 +555,8 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   history_files::download_daily(provider, history_files::daily_range(request),
                                 attempt.output_directory());
   const auto result = history_files::daily_result(attempt.output_directory());
-  factor::v1::DailyFactorRequest unpublished;
-  unpublished.set_source_dataset_id(result.manifest_sha256());
-  EXPECT_THROW(data_store->archive().get(unpublished.source_dataset_id()), std::invalid_argument);
+  // A download is not a version until it has been published.
+  EXPECT_THROW(data_store->archive().get(result.manifest_sha256()), std::invalid_argument);
   task::v1::TaskFinish finish;
   finish.set_id("source");
   finish.set_token(attempt.token());
@@ -584,28 +583,28 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   EXPECT_FALSE(dataset.bars(0).has_previous_close());
   EXPECT_FALSE(dataset.bars(0).has_settlement());
   EXPECT_FALSE(dataset.bars(0).has_macd());
-  factor::v1::DailyFactorInput input;
-  input.set_version(1);
-  input.set_lookback(2);
+  factor::v1::FactorInput input;
+  input.set_version(6);
+  input.add_lookbacks(2);
   input.set_horizon(2);
   input.set_holdout_start(40);
-  *input.mutable_dataset() = dataset;
-  input.set_dataset_revision(protocol::daily_factor_revision(dataset));
-  const auto analysis = factor::run_daily(input);
+  *input.add_series()->mutable_daily() = dataset;
+  input.set_dataset_revision(protocol::factor_series_revision(input.series(0)));
+  const auto analysis = factor::run(input);
   EXPECT_EQ(analysis.samples_size(), 74);
-  factor::v1::DailyFactorRequest parameters;
-  parameters.set_source_dataset_id(result.manifest_sha256());
-  parameters.set_lookback(2);
+  factor::v1::FactorRequest parameters;
+  parameters.add_series()->set_daily_dataset_id(result.manifest_sha256());
+  parameters.add_lookbacks(2);
   parameters.set_horizon(2);
   parameters.set_holdout_start(40);
-  EXPECT_EQ(tasks::submit(*store, "analysis", input).kind(), task::v1::DAILY_FACTOR);
+  EXPECT_EQ(tasks::submit(*store, "analysis", input).kind(), task::v1::FACTOR);
   EXPECT_EQ(tasks::submit(*store, "analysis", input).id(), "analysis");
   const auto usage = store->history_usage(result.manifest_sha256());
   ASSERT_EQ(usage.references_size(), 2);
   const auto factor_reference = std::ranges::find_if(
       usage.references(), [](const auto& row) { return row.id() == "analysis"; });
   ASSERT_NE(factor_reference, usage.references().end());
-  EXPECT_EQ(factor_reference->kind(), data::v1::HISTORY_DAILY_FACTOR);
+  EXPECT_EQ(factor_reference->kind(), data::v1::HISTORY_FACTOR);
   ASSERT_EQ(factor_reference->roles_size(), 1);
   EXPECT_EQ(factor_reference->roles(0), data::v1::HISTORY_MARKET);
 
@@ -613,16 +612,15 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   allowance.set_launch_slots(1);
   const auto launches = store->dispatch(allowance);
   ASSERT_EQ(launches.launches_size(), 1);
-  EXPECT_TRUE(launches.launches(0).daily_factor());
   EXPECT_EQ(launches.launches(0).program(), task::v1::FACTOR_PROGRAM);
-  EXPECT_FALSE(store->list().tasks(1).has_daily_factor());
+  EXPECT_FALSE(store->list().tasks(1).has_factor());
   const auto token = store->commit(store->claim("analysis")).token();
   task::v1::TaskFinish finished;
   finished.set_id("analysis");
   finished.set_token(token);
-  *finished.mutable_daily_factor() = analysis;
+  *finished.mutable_factor() = analysis;
   auto tampered = finished;
-  tampered.mutable_daily_factor()->mutable_samples(0)->set_trading_day("2023-01-01");
+  tampered.mutable_factor()->mutable_samples(0)->set_event_index(3);
   auto rejected = store->prepare_finish(tampered);
   EXPECT_THROW(rejected.prepare_payload(), std::invalid_argument);
   EXPECT_THROW(store->commit(store->finish(std::move(rejected))), std::invalid_argument);
@@ -638,14 +636,14 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   verified = store->prepare_finish(finished);
   verified.prepare_payload();
   store->commit(store->finish(std::move(verified)));
-  EXPECT_EQ(tasks::daily_factor_result(*store, "analysis").SerializeAsString(),
+  EXPECT_EQ(tasks::factor_result(*store, "analysis").SerializeAsString(),
             analysis.SerializeAsString());
   store.reset();
   store = std::make_unique<tasks::Store>(folder.path,
                                          tasks::Identity{"daily-factor-test", "fixture-data"});
   EXPECT_EQ(store->get("analysis").attempt(), 2);
-  EXPECT_EQ(store->get("analysis").daily_factor().SerializeAsString(), input.SerializeAsString());
-  EXPECT_EQ(tasks::daily_factor_result(*store, "analysis").SerializeAsString(),
+  EXPECT_EQ(store->get("analysis").factor().SerializeAsString(), input.SerializeAsString());
+  EXPECT_EQ(tasks::factor_result(*store, "analysis").SerializeAsString(),
             analysis.SerializeAsString());
   store.reset();
   {
@@ -709,24 +707,17 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
     }
     task::v1::TaskRequest submit;
     submit.mutable_submit()->set_id("worker-analysis");
-    *submit.mutable_submit()->mutable_daily_factor() = parameters;
-    EXPECT_EQ(call(submit).task().kind(), task::v1::DAILY_FACTOR);
+    *submit.mutable_submit()->mutable_factor_request() = parameters;
+    EXPECT_EQ(call(submit).task().kind(), task::v1::FACTOR);
     // The worker reads fixed versions from the paired Data service.
     task::v1::TaskRequest dispatch;
     dispatch.mutable_dispatch()->set_launch_slots(2);
     const auto launches = call(dispatch, true).launches();
     ASSERT_EQ(launches.launches_size(), 1);
-    EXPECT_TRUE(launches.launches(0).daily_factor());
+    EXPECT_EQ(launches.launches(0).program(), task::v1::FACTOR_PROGRAM);
     {
-      ChildProcess wrong(ASTERION_FACTOR_PATH, {"--endpoint", workers, "--session",
-                                                "daily-factor-test", "--task", "worker-analysis"});
-      ASSERT_TRUE(wrong.wait(10s));
-      EXPECT_NE(wrong.exit_code(), 0);
-    }
-    {
-      ChildProcess worker(ASTERION_FACTOR_PATH,
-                          {"--endpoint", workers, "--session", "daily-factor-test", "--task",
-                           "worker-analysis", "--daily-factor"});
+      ChildProcess worker(ASTERION_FACTOR_PATH, {"--endpoint", workers, "--session",
+                                                 "daily-factor-test", "--task", "worker-analysis"});
       ASSERT_TRUE(worker.wait(10s));
       EXPECT_EQ(worker.exit_code(), 0);
     }
@@ -734,20 +725,23 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
     outcome.mutable_result()->set_id("worker-analysis");
     data_process.reset(); // Confirmed results retain their own experiment evidence.
     const auto reply = call(outcome);
-    EXPECT_EQ(reply.daily_factor().SerializeAsString(), analysis.SerializeAsString());
+    EXPECT_EQ(reply.factor().SerializeAsString(), analysis.SerializeAsString());
     EXPECT_EQ(reply.result_task().state(), task::v1::SUCCEEDED);
     const auto evidence = protocol::decode_task_result(reply, "worker-analysis");
-    EXPECT_EQ(evidence.at("kind"), "daily_factor");
-    EXPECT_EQ(evidence.at("experiment").at("data").at("source_dataset_id"),
-              result.manifest_sha256());
-    EXPECT_EQ(evidence.at("experiment").at("data").at("history_evidence"),
-              protocol::decode_history_evidence(input.dataset().history_evidence()));
-    EXPECT_EQ(input.dataset().history_evidence().acquired_at_ns(),
+    EXPECT_EQ(evidence.at("kind"), "factor");
+    const auto& series = evidence.at("experiment").at("series").at(0);
+    EXPECT_EQ(series.at("kind"), "daily");
+    EXPECT_EQ(series.at("data").at("source_dataset_id"), result.manifest_sha256());
+    const auto& acquired = input.series(0).daily().history_evidence();
+    EXPECT_EQ(series.at("data").at("history_evidence"),
+              protocol::decode_history_evidence(acquired));
+    EXPECT_EQ(acquired.acquired_at_ns(),
               history_files::inspect_daily(attempt.output_directory()).acquired_at_ns);
+    EXPECT_EQ(evidence.at("result").at("samples").at(0).at("observed"), "2023-01-03");
   }
   store = std::make_unique<tasks::Store>(folder.path,
                                          tasks::Identity{"daily-factor-test", "fixture-data"});
-  EXPECT_EQ(tasks::daily_factor_result(*store, "worker-analysis").SerializeAsString(),
+  EXPECT_EQ(tasks::factor_result(*store, "worker-analysis").SerializeAsString(),
             analysis.SerializeAsString());
   auto wrong = source;
   wrong.mutable_daily_result()->set_manifest_sha256(std::string(64, 'a'));
@@ -771,7 +765,7 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   replace_file_durably(std::filesystem::path(attempt.output_directory()) / "daily-0.parquet", "{}");
   EXPECT_THROW(data::daily_factor_dataset(source), std::invalid_argument);
   // The accepted snapshot remains usable after its source is damaged; no lazy file references.
-  EXPECT_EQ(factor::run_daily(input).SerializeAsString(), analysis.SerializeAsString());
+  EXPECT_EQ(factor::run(input).SerializeAsString(), analysis.SerializeAsString());
 }
 TEST(DailyTasks, ProviderArtifactIsImmutableAcrossRetryAndStoreRestart) {
   Folder folder, warehouse;

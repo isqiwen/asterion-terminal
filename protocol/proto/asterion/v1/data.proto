@@ -22,14 +22,13 @@ message BarDataset {
   repeated asterion.protocol.v1.Bar bars = 5;
   repeated asterion.protocol.v1.TradingDay days = 6;
   string source = 7;
-  reserved 8, 9, 10, 11, 13, 14;
-  repeated string source_dataset_ids = 15;
-  repeated string settlement_dataset_ids = 16;
+  repeated string source_dataset_ids = 8;
+  repeated string settlement_dataset_ids = 9;
   // Sorted union of source and settlement versions, exactly once per identity.
-  repeated HistoryVersionEvidence history_evidence = 17;
+  repeated HistoryVersionEvidence history_evidence = 10;
   // Trading days of the settlement download, inside the dataset's first and
   // last bar days, that have no bars. Informational; not part of the revision.
-  repeated string uncovered_days = 12;
+  repeated string uncovered_days = 11;
 }
 // Clients select published archive versions and a contract specification; they
 // cannot upload bars. Days are inclusive; empty means the dataset bounds.
@@ -41,10 +40,9 @@ message NamedDataset {
 }
 message NamedDatasets { repeated NamedDataset items = 1; }
 message BarDatasetRequest {
-  reserved 1, 2, 6, 7;
   // Sorted unique immutable versions, 1..32 per role. Same contract and semantics.
-  repeated string source_dataset_ids = 8;
-  repeated string settlement_dataset_ids = 9;
+  repeated string source_dataset_ids = 1;
+  repeated string settlement_dataset_ids = 2;
   string begin_day = 3;
   string end_day = 4;
   asterion.protocol.v1.Contract contract = 5;
@@ -53,11 +51,11 @@ message BarDatasetRequest {
 // Credentials are not part of this durable task definition.
 message MinuteDownload {
   uint32 version = 1;
-  reserved 2; string contract_id = 20; string source = 21; string source_instrument = 22;
-  uint32 interval_minutes = 3;
-  int64 begin_ns = 4;
-  int64 end_ns = 5;
-  uint32 requests_per_minute = 6;
+  string contract_id = 2; string source = 3; string source_instrument = 4;
+  uint32 interval_minutes = 5;
+  int64 begin_ns = 6;
+  int64 end_ns = 7;
+  uint32 requests_per_minute = 8;
 }
 message MinuteDownloadResult {
   uint32 version = 1;
@@ -69,13 +67,13 @@ message MinuteDownloadResult {
 
 // Bounded read of a completed service-owned dataset. No filesystem paths accepted.
 message MinutePageQuery {
-  string dataset_id = 20; // Alternative to task_id; never both.
-  string task_id = 1;
-  uint64 offset = 2;
-  uint32 limit = 3;
-  int64 begin_ns = 4; // zero means the dataset's requested boundary
-  int64 end_ns = 5;
-  bool include_macd = 6; // dataset-origin display indicator, not a task/ledger value
+  string dataset_id = 1; // Alternative to task_id; never both.
+  string task_id = 2;
+  uint64 offset = 3;
+  uint32 limit = 4;
+  int64 begin_ns = 5; // zero means the dataset's requested boundary
+  int64 end_ns = 6;
+  bool include_macd = 7; // dataset-origin display indicator, not a task/ledger value
 }
 message ChartMacd {
   double diff = 1;
@@ -97,7 +95,7 @@ message MinutePage {
   uint32 version = 1;
   string task_id = 2;
   string source = 3;
-  reserved 4; string contract_id = 20;
+  string contract_id = 4;
   uint32 interval_minutes = 5;
   string manifest_sha256 = 6;
   uint64 total_rows = 7;
@@ -112,11 +110,11 @@ message MinutePage {
 }
 
 // Daily bars retain provider trading dates; no synthetic intraday timestamps.
-message DailyDownload { uint32 version = 1; reserved 2; string contract_id = 20; string source = 21; string source_instrument = 22; string begin_day = 3; string end_day = 4; uint32 requests_per_minute = 5; }
+message DailyDownload { uint32 version = 1; string contract_id = 2; string source = 3; string source_instrument = 4; string begin_day = 5; string end_day = 6; uint32 requests_per_minute = 7; }
 message DailyDownloadResult { uint32 version = 1; string directory = 2; string manifest_sha256 = 3; uint64 rows = 4; uint32 pages = 5; }
 
 enum DailyPeriod { DAY = 0; WEEK = 1; MONTH = 2; QUARTER = 3; YEAR = 4; }
-message DailyPageQuery { string dataset_id = 20; string task_id = 1; uint64 offset = 2; uint32 limit = 3; string begin_day = 4; string end_day = 5; bool include_macd = 6; DailyPeriod period = 7; }
+message DailyPageQuery { string dataset_id = 1; string task_id = 2; uint64 offset = 3; uint32 limit = 4; string begin_day = 5; string end_day = 6; bool include_macd = 7; DailyPeriod period = 8; }
 message DailyBar {
   string trading_day = 1;
   asterion.protocol.v1.Decimal open = 2;
@@ -135,7 +133,7 @@ message DailyPage {
   uint32 version = 1;
   string task_id = 2;
   string source = 3;
-  reserved 4; string contract_id = 20;
+  string contract_id = 4;
   string manifest_sha256 = 5;
   uint64 total_rows = 6;
   uint64 matched_rows = 7;
@@ -150,7 +148,7 @@ message DailyPage {
 }
 
 message HistoryCatalogQuery { string source = 1; string venue = 2; string product = 3; string credential = 4; }
-message HistoryListing { string source_instrument = 9; string contract_id = 1; string name = 2; string list_date = 3; string delist_date = 4; asterion.protocol.v1.Decimal multiplier = 5; asterion.protocol.v1.Decimal per_unit = 6; optional string trade_unit = 7; optional string quote_unit = 8; }
+message HistoryListing { string source_instrument = 1; string contract_id = 2; string name = 3; string list_date = 4; string delist_date = 5; asterion.protocol.v1.Decimal multiplier = 6; asterion.protocol.v1.Decimal per_unit = 7; optional string trade_unit = 8; optional string quote_unit = 9; }
 message HistoryCatalog { string source = 1; repeated HistoryListing items = 2; }
 
 // Service-owned archive record. Definitions and verified immutable results contain no credentials.
@@ -204,8 +202,8 @@ message HistoryUpdatePlan {
 // permit: independent replay ledgers, other services and clients are not scanned.
 enum HistoryReferenceKind {
   HISTORY_REFERENCE_UNSPECIFIED = 0;
-  HISTORY_DOWNLOAD = 1; HISTORY_BACKTEST = 2; HISTORY_BAR_FACTOR = 3;
-  HISTORY_DAILY_FACTOR = 4; HISTORY_SAVED_DATASET = 5;
+  HISTORY_DOWNLOAD = 1; HISTORY_BACKTEST = 2; HISTORY_FACTOR = 3;
+  HISTORY_SAVED_DATASET = 4;
 }
 enum HistoryReferenceRole {
   HISTORY_ROLE_UNSPECIFIED = 0;

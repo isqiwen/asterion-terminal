@@ -283,11 +283,8 @@ Json decode_history_usage(const data::v1::HistoryUsage& value) {
     case data::v1::HISTORY_BACKTEST:
       kind = "backtest";
       break;
-    case data::v1::HISTORY_BAR_FACTOR:
-      kind = "bar_factor";
-      break;
-    case data::v1::HISTORY_DAILY_FACTOR:
-      kind = "daily_factor";
+    case data::v1::HISTORY_FACTOR:
+      kind = "factor";
       break;
     case data::v1::HISTORY_SAVED_DATASET:
       kind = "saved_dataset";

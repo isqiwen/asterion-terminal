@@ -83,7 +83,7 @@ add_library(asterion_chart_indicators STATIC plugins/tools/chart_indicators/macd
 target_include_directories(asterion_chart_indicators PUBLIC plugins/tools/chart_indicators)
 target_link_libraries(asterion_chart_indicators PUBLIC Asterion::Domain)
 
-add_library(asterion_factor_analysis STATIC plugins/tools/factor_analysis/momentum.cpp plugins/tools/factor_analysis/walk_forward.cpp plugins/tools/factor_analysis/daily_momentum.cpp)
+add_library(asterion_factor_analysis STATIC plugins/tools/factor_analysis/momentum.cpp plugins/tools/factor_analysis/walk_forward.cpp)
 target_include_directories(asterion_factor_analysis PUBLIC plugins/tools/factor_analysis)
 target_link_libraries(asterion_factor_analysis PUBLIC Asterion::Domain)
 
@@ -127,7 +127,7 @@ foreach(schema health domain trading node market task backtest factor data data_
     DEPENDS ${ASTERION_PROTO_FILES} protobuf::protoc VERBATIM)
   list(APPEND ASTERION_PROTO_SOURCES ${ASTERION_PROTO_GEN}/asterion/v1/${schema}.pb.cc)
 endforeach()
-add_library(asterion_protocol STATIC ${ASTERION_PROTO_SOURCES} protocol/src/trading.cpp protocol/src/health.cpp protocol/src/market.cpp protocol/src/bar_dataset.cpp protocol/src/task.cpp protocol/src/task_execution.cpp protocol/src/backtest.cpp protocol/src/factor.cpp protocol/src/daily_factor.cpp protocol/src/data.cpp)
+add_library(asterion_protocol STATIC ${ASTERION_PROTO_SOURCES} protocol/src/trading.cpp protocol/src/health.cpp protocol/src/market.cpp protocol/src/bar_dataset.cpp protocol/src/task.cpp protocol/src/task_execution.cpp protocol/src/backtest.cpp protocol/src/factor.cpp protocol/src/data.cpp)
 target_include_directories(asterion_protocol PUBLIC protocol/include ${ASTERION_PROTO_GEN})
 target_link_libraries(asterion_protocol PUBLIC Asterion::Domain protobuf::libprotobuf)
 

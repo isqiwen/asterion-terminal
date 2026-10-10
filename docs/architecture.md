@@ -22,7 +22,7 @@ flowchart TB
 | --- | --- | --- |
 | 基础 | `asterion_foundation` | `Decimal`（8 位小数定点）、ID、时钟、错误码、序列化 |
 | 内核 | `asterion_kernel` | 原生插件装载、本机 IPC 与 TCP+mTLS 通道、RPC 服务宿主与客户端、子进程与文件锁、持久文件写入、线程池、日志与追踪 |
-| 领域 | `asterion_domain` | 合约与订单、组合期货账本、交易时段、当日分钟线、执行/风险/策略/因子端口 |
+| 领域 | `asterion_domain` | 合约与订单、组合期货账本、交易时段、当日分钟线、执行/风险/策略端口 |
 
 领域依赖内核，内核依赖基础，不能反向依赖。
 Terminal 的 JSON 命令注册与分派属于 Native 应用边界，核心库不提供 UI 命令宿主。
@@ -41,6 +41,8 @@ Terminal 的 JSON 命令注册与分派属于 Native 应用边界，核心库不
 | `asterion-backtest` / `asterion-factor` / `asterion-data-pipeline` | 按任务启动的工作程序 |
 
 本机通信使用 Unix Socket，远程使用 TCP + 双向 TLS，消息都是 `protocol/proto/asterion/v1/` 中的 Protobuf。
+
+消息的字段和枚举值按声明顺序连续编号，没有 `reserved`：项目处于初始开发阶段，删除字段后直接重新编号，不为以前的构建保留编号。各服务的请求与响应例外地分成两段：头部字段从 1 开始，`oneof` 里的操作或结果从 10 开始，各自连续。
 
 一个运行中的服务实例对应一个独立进程；停止保留实例与数据，重启只改变运行代次。
 交易服务按账户隔离，Task 与 Data 在同一节点固定配对；worker 各执行一次尝试后退出。

@@ -18,7 +18,6 @@ public:
   ServiceEndpoint endpoint() const;
   [[nodiscard]] std::future<void> submit(const std::string&, const backtest::v1::BacktestRequest&);
   [[nodiscard]] std::future<void> submit(const std::string&, const factor::v1::FactorRequest&);
-  [[nodiscard]] std::future<void> submit(const std::string&, const factor::v1::DailyFactorRequest&);
   [[nodiscard]] std::future<void> submit_download(const std::string& id,
                                                   const std::string& authorization);
   [[nodiscard]] std::future<Json> history_usage(const std::string&);

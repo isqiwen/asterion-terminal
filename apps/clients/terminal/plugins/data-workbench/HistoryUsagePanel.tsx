@@ -13,8 +13,7 @@ const t = (key: string, values?: MessageValues) =>
 const kinds = {
   download: "来源下载",
   backtest: "回测任务",
-  bar_factor: "K 线因子任务",
-  daily_factor: "日线因子任务",
+  factor: "因子任务",
   saved_dataset: "已保存数据集",
 };
 const roles = { market: "行情输入", settlement: "结算输入", output: "下载产物" };

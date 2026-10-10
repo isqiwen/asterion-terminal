@@ -82,7 +82,6 @@ private:
   PolledTask<> history_usage(Call& call);
   PolledTask<> dispatch(Call& call);
   PolledTask<> submit_download(Call& call);
-  PolledTask<> submit_daily_factor(Call& call);
   PolledTask<> submit_backtest(Call& call);
   PolledTask<> submit_factor(Call& call);
   PolledTask<> claim(Call& call);

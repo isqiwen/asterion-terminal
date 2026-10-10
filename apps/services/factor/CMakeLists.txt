@@ -1,4 +1,4 @@
-add_library(asterion_factor_engine STATIC engine.cpp daily_engine.cpp)
+add_library(asterion_factor_engine STATIC engine.cpp)
 target_include_directories(asterion_factor_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(asterion_factor_engine PUBLIC asterion_protocol PRIVATE asterion_factor_analysis)
 add_executable(asterion-factor main.cpp)

@@ -13,7 +13,7 @@ message Watch {}
 // Initial read: empty stream_id and after_sequence=0. Subsequent reads must
 // retain stream identity; this bounded volatile stream is not a durable archive.
 message ReadEvents { string stream_id = 1; uint64 after_sequence = 2; uint32 limit = 3; }
-message Request { uint32 version = 1; string service_id = 2; string correlation_id = 3; oneof operation { Connect connect = 10; Subscribe subscribe = 11; Empty disconnect = 12; Empty snapshot = 13; Watch watch = 14; Empty heartbeat = 15; ReadEvents events = 16; CatalogRequest catalog = 17; MinuteRequest minutes = 18; asterion.node.v1.Quiesce quiesce = 30; } }
+message Request { uint32 version = 1; string service_id = 2; string correlation_id = 3; oneof operation { Connect connect = 10; Subscribe subscribe = 11; Empty disconnect = 12; Empty snapshot = 13; Watch watch = 14; Empty heartbeat = 15; ReadEvents events = 16; CatalogRequest catalog = 17; MinuteRequest minutes = 18; asterion.node.v1.Quiesce quiesce = 19; } }
 message DepthLevel { optional string price = 1; optional int64 quantity = 2; }
 message Quote {
   Instrument instrument = 1;

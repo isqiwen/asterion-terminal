@@ -32,6 +32,8 @@ std::vector<MarketBar> dataset_bars(const data::v1::BarDataset&);
 std::vector<DaySettlement> dataset_days(const data::v1::BarDataset&);
 // Both views validate the entire dataset; metadata omits bars and settlements.
 Json decode_bar_dataset(const data::v1::BarDataset&, DatasetView view = DatasetView::full);
+// What a dataset covers, instead of its bars: count, first and last bar, interval and sources.
+Json decode_bar_dataset_range(const data::v1::BarDataset&);
 data::v1::BarDataset encode_bar_dataset(const Json&);
 data::v1::BarDatasetRequest encode_bar_dataset_request(const Json&);
 Json decode_bar_dataset_request(const data::v1::BarDatasetRequest&);

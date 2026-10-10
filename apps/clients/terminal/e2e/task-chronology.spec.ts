@@ -16,7 +16,12 @@ test("durable task order and dates survive reload independently of task IDs", as
     Array.from({ length: 40 }, (_, i) => 100 + i + (i % 3)),
     "chronology",
   );
-  const spec = { lookbacks: [2], horizon: 1, evaluation: { mode: "full_sample" } };
+  const spec = {
+    series: { kind: "bars" },
+    lookbacks: [2],
+    horizon: 1,
+    evaluation: { mode: "full_sample" },
+  };
   await call("factor.submit", { ...spec, id: older });
   const submitted = await call("factor.submit", { ...spec, id: newer });
   const metadata = submitted.task_service.tasks.find((task: { id: string }) => task.id === newer);

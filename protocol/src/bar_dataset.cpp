@@ -249,6 +249,21 @@ std::vector<DaySettlement> dataset_days(const data::v1::BarDataset& dataset) {
     result.push_back({day.trading_day(), value(day.settlement_price())});
   return result;
 }
+Json decode_bar_dataset_range(const data::v1::BarDataset& dataset) {
+  if (dataset.bars().empty())
+    throw std::invalid_argument("bar dataset requires version 2, 1..200000 bars and trading days");
+  const auto& first = dataset.bars(0);
+  const auto& last = dataset.bars(dataset.bars_size() - 1);
+  return {{"count", dataset.bars_size()},
+          {"first_timestamp_ns", std::to_string(first.timestamp_ns())},
+          {"last_timestamp_ns", std::to_string(last.timestamp_ns())},
+          {"first_day", first.trading_day()},
+          {"last_day", last.trading_day()},
+          {"interval_minutes", dataset.interval_minutes()},
+          {"source", dataset.source()},
+          {"source_dataset_ids", std::vector<std::string>(dataset.source_dataset_ids().begin(),
+                                                          dataset.source_dataset_ids().end())}};
+}
 Json decode_bar_dataset(const data::v1::BarDataset& dataset, DatasetView view) {
   validate_bar_dataset(dataset);
   auto result = contents(dataset, view);

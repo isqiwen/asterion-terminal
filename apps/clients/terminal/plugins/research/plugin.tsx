@@ -22,19 +22,16 @@ export const plugin: TerminalPlugin = {
     "data.dataset.remove",
     "backtest.submit",
     "factor.submit",
-    "factor.daily.submit",
     "task.action",
     "task.result",
   ],
   languageResources: { "zh-CN": zh, "en-US": en },
   tasks: context =>
     (context.snapshot?.task_service?.tasks ?? [])
-      .filter(
-        task => task.kind === "backtest" || task.kind === "factor" || task.kind === "daily_factor",
-      )
+      .filter(task => task.kind === "backtest" || task.kind === "factor")
       .map(task => ({
         id: task.id,
-        title: `${task.instrument} · ${task.kind === "daily_factor" ? t("日线因子") : task.kind === "factor" ? t("动量因子") : `${t("均线回测")} · ${task.trading_day}`}`,
+        title: `${task.instrument} · ${task.kind === "factor" ? t("动量因子") : `${t("均线回测")} · ${task.trading_day}`}`,
         status: t(
           {
             queued: "排队中",

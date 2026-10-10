@@ -17,6 +17,7 @@ test("a fresh local task store preserves the original tasks and requires an expl
   );
   await rpc(page.request, "factor.submit", {
     id: "retained-factor",
+    series: { kind: "bars" },
     lookbacks: [2],
     horizon: 1,
     evaluation: { mode: "full_sample" },

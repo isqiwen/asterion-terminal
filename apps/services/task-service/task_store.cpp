@@ -30,13 +30,7 @@ void safe(const fs::path& path) {
     throw std::invalid_argument("task store rejects symbolic links");
 }
 void prepare(wire::Task& task) {
-  if (task.has_daily_factor()) {
-    protocol::validate_daily_factor(task.daily_factor());
-    task.set_kind(wire::DAILY_FACTOR);
-    task.set_source_name(task.daily_factor().dataset().source_dataset_id());
-    task.set_instrument(task.daily_factor().dataset().contract_id());
-    task.set_total(static_cast<unsigned>(task.daily_factor().dataset().bars_size()));
-  } else if (task.has_daily()) {
+  if (task.has_daily()) {
     const auto range = history_files::daily_range(task.daily());
     task.set_kind(wire::DAILY_DOWNLOAD);
     task.set_source_name(task.daily().source() + " " + task.daily().contract_id());
@@ -51,9 +45,15 @@ void prepare(wire::Task& task) {
   } else if (task.has_factor()) {
     protocol::validate_factor_input(task.factor());
     task.set_kind(wire::FACTOR);
-    const auto& c = task.factor().dataset().contract();
-    task.set_instrument(c.venue() + "/" + c.symbol());
-    task.set_source_name(task.factor().dataset().revision());
+    const auto& series = task.factor().series(0);
+    if (series.has_bars()) {
+      const auto& c = series.bars().contract();
+      task.set_instrument(c.venue() + "/" + c.symbol());
+      task.set_source_name(series.bars().revision());
+    } else {
+      task.set_instrument(series.daily().contract_id());
+      task.set_source_name(series.daily().source_dataset_id());
+    }
     task.set_total(static_cast<unsigned>(protocol::factor_work_units(task.factor())));
     task.clear_trading_day();
   } else if (task.has_input()) {
@@ -85,8 +85,6 @@ void prepare(wire::Task& task) {
   task.set_state(wire::QUEUED);
 }
 const google::protobuf::Message& definition(const wire::Task& task) {
-  if (task.kind() == wire::DAILY_FACTOR && task.has_daily_factor())
-    return task.daily_factor();
   if (task.kind() == wire::DAILY_DOWNLOAD && task.has_daily())
     return task.daily();
   if (task.kind() == wire::MINUTE_DOWNLOAD && task.has_minutes())
@@ -301,9 +299,6 @@ wire::Task read_input(wire::Task task, const fs::path& path, const std::string& 
                       std::uint64_t bytes) {
   const auto raw = payload::read(path, digest, payload::max_input_bytes, bytes);
   switch (task.kind()) {
-  case wire::DAILY_FACTOR:
-    payload::parse(raw, *task.mutable_daily_factor());
-    break;
   case wire::DAILY_DOWNLOAD:
     payload::parse(raw, *task.mutable_daily());
     break;
@@ -323,9 +318,6 @@ wire::Task read_input(wire::Task task, const fs::path& path, const std::string& 
 }
 wire::Task attach_definition(wire::Task task, wire::Task source) {
   switch (task.kind()) {
-  case wire::DAILY_FACTOR:
-    *task.mutable_daily_factor() = std::move(*source.mutable_daily_factor());
-    break;
   case wire::DAILY_DOWNLOAD:
     *task.mutable_daily() = std::move(*source.mutable_daily());
     break;
@@ -557,9 +549,7 @@ struct Store::Impl {
       if (entry.task.submission_sequence() != ++last_sequence || tasks.integer(3) != last_sequence)
         throw std::invalid_argument("task submission sequence has missing records");
       entry.task.set_id(id);
-      if (manifest.at("type") == "daily-factor.task")
-        entry.task.set_kind(wire::DAILY_FACTOR);
-      else if (manifest.at("type") == "daily.task")
+      if (manifest.at("type") == "daily.task")
         entry.task.set_kind(wire::DAILY_DOWNLOAD);
       else if (manifest.at("type") == "minutes.task")
         entry.task.set_kind(wire::MINUTE_DOWNLOAD);
@@ -950,11 +940,7 @@ void Store::ResultRead::verify() {
                   : wire::Task{};
   if (!verify && !include_input_)
     payload::check(directory_ / "input.pb", input_digest_, payload::max_input_bytes, input_bytes_);
-  if (task_.kind() == wire::DAILY_FACTOR) {
-    payload::parse(raw, *result.mutable_daily_factor());
-    if (verify)
-      (void)protocol::decode_daily_factor(task.daily_factor(), result.daily_factor());
-  } else if (task_.kind() == wire::DAILY_DOWNLOAD) {
+  if (task_.kind() == wire::DAILY_DOWNLOAD) {
     payload::parse(raw, *result.mutable_daily());
 
   } else if (task_.kind() == wire::MINUTE_DOWNLOAD) {
@@ -1003,13 +989,6 @@ Store::Submission::Submission(Impl* owner, fs::path root, wire::Task task)
   if (id == "history" || id == "event-segments")
     throw std::invalid_argument("reserved task identifier");
   prepare(task_);
-}
-Store::Submission Store::submission(const std::string& id,
-                                    factor::v1::DailyFactorInput input) const {
-  wire::Task task;
-  task.set_id(id);
-  *task.mutable_daily_factor() = std::move(input);
-  return Submission(impl_.get(), impl_->root, std::move(task));
 }
 Store::Submission Store::submission(const std::string& id,
                                     backtest::v1::BacktestInput input) const {
@@ -1122,8 +1101,7 @@ Store::Change Store::register_submission(Submission& input) {
   change.next = {summary(task), input.digest_, input.bytes_, "", 0};
   change.record = Impl::encode(change.next);
   change.active_entry = Impl::active_entry(change.next);
-  change.kind = task.kind() == wire::DAILY_FACTOR      ? "daily-factor.task"
-                : task.kind() == wire::DAILY_DOWNLOAD  ? "daily.task"
+  change.kind = task.kind() == wire::DAILY_DOWNLOAD    ? "daily.task"
                 : task.kind() == wire::MINUTE_DOWNLOAD ? "minutes.task"
                 : task.kind() == wire::FACTOR          ? "factor.task"
                                                        : "backtest.task";
@@ -1169,7 +1147,7 @@ void Store::InputRead::load() {
 }
 void Store::InputRead::load_for_claim() {
   load();
-  if (task_.has_input() || task_.has_factor() || task_.has_daily_factor()) {
+  if (task_.has_input() || task_.has_factor()) {
     execution_ = protocol::task_execution(task_, digest_);
     task_.clear_definition(); // Release full evidence on this file worker.
   }
@@ -1257,11 +1235,13 @@ void Store::HistoryRead::load_page() {
       for (const auto& contract : task.input().paper().contracts())
         inspect(contract.dataset());
     } else if (task.has_factor()) {
-      kind = data::v1::HISTORY_BAR_FACTOR;
-      inspect(task.factor().dataset());
-    } else if (task.has_daily_factor()) {
-      kind = data::v1::HISTORY_DAILY_FACTOR;
-      market = task.daily_factor().dataset().source_dataset_id() == dataset_id;
+      kind = data::v1::HISTORY_FACTOR;
+      for (const auto& series : task.factor().series()) {
+        if (series.has_bars())
+          inspect(series.bars());
+        else
+          market |= series.daily().source_dataset_id() == dataset_id;
+      }
     }
     const bool output =
         task.history_dataset_id() == dataset_id && (task.has_minutes() || task.has_daily());
@@ -1347,10 +1327,6 @@ wire::TaskLaunches Store::dispatch(const wire::TaskDispatch& processes, bool dat
       launch->set_program(wire::BACKTEST_PROGRAM);
       launch->set_risk_artifact(task.risk_artifact());
       break;
-    case wire::DAILY_FACTOR:
-      launch->set_daily_factor(true);
-      launch->set_program(wire::FACTOR_PROGRAM);
-      break;
     case wire::FACTOR:
       launch->set_program(wire::FACTOR_PROGRAM);
       break;
@@ -1432,10 +1408,7 @@ void Store::Completion::prepare_payload() {
   prepared_ = false;
   if (task_.state() != wire::CANCEL_REQUESTED) {
     task_ = read_input(std::move(task_), directory_ / "input.pb", input_digest_, input_bytes_);
-    if (result_.has_daily_factor() && task_.kind() == wire::DAILY_FACTOR &&
-        task_.has_daily_factor())
-      (void)protocol::decode_daily_factor(task_.daily_factor(), result_.daily_factor());
-    else if (result_.has_daily() && task_.kind() == wire::DAILY_DOWNLOAD && task_.has_daily())
+    if (result_.has_daily() && task_.kind() == wire::DAILY_DOWNLOAD && task_.has_daily())
       protocol::validate_message(result_.daily());
     else if (result_.has_minutes() && task_.kind() == wire::MINUTE_DOWNLOAD && task_.has_minutes())
       protocol::validate_message(result_.minutes());
@@ -1447,9 +1420,6 @@ void Store::Completion::prepare_payload() {
       throw std::invalid_argument("task result kind does not match its input");
     const google::protobuf::Message* output = nullptr;
     switch (result_.output_case()) {
-    case wire::TaskFinish::kDailyFactor:
-      output = &result_.daily_factor();
-      break;
     case wire::TaskFinish::kDaily:
       output = &result_.daily();
       break;

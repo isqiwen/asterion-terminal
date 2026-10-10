@@ -16,9 +16,7 @@ void resolve_task_input(task::v1::TaskAttempt& attempt, std::stop_token stop) {
   const auto& execution = attempt.execution();
   if (task.definition_case() != task::v1::Task::DEFINITION_NOT_SET ||
       execution.input_sha256().size() != 64 ||
-      (task.kind() == task::v1::BACKTEST ? !execution.has_backtest()
-       : task.kind() == task::v1::FACTOR ? !execution.has_factor()
-                                         : !execution.has_daily_factor()))
+      (task.kind() == task::v1::BACKTEST ? !execution.has_backtest() : !execution.has_factor()))
     throw std::invalid_argument("invalid calculation execution definition");
   DataClient data(attempt.data_endpoint(), attempt.data_instance());
   const auto check_stop = [&] {
@@ -57,12 +55,19 @@ void resolve_task_input(task::v1::TaskAttempt& attempt, std::stop_token stop) {
     }
     input->set_dataset_revision(dataset_revision(*paper));
     digest = sha256_bytes(input->SerializeAsString());
-  } else if (execution.has_factor()) {
+  } else {
     const auto& parameters = execution.factor();
     auto* input = task.mutable_factor();
-    input->set_version(5);
-    *input->mutable_dataset() = bars(parameters.data());
-    input->set_dataset_revision(input->dataset().revision());
+    input->set_version(6);
+    for (const auto& source : parameters.series()) {
+      check_stop();
+      auto reply = data.call(factor_series_query(source));
+      check_stop();
+      *input->add_series() = factor_series(source, std::move(reply));
+    }
+    if (input->series_size() != 1)
+      throw std::invalid_argument("factor analysis studies exactly one series");
+    input->set_dataset_revision(factor_series_revision(input->series(0)));
     *input->mutable_lookbacks() = parameters.lookbacks();
     input->set_horizon(parameters.horizon());
     if (parameters.has_full_sample())
@@ -71,24 +76,6 @@ void resolve_task_input(task::v1::TaskAttempt& attempt, std::stop_token stop) {
       input->set_holdout_start(parameters.holdout_start());
     else if (parameters.has_walk_forward())
       *input->mutable_walk_forward() = parameters.walk_forward();
-    digest = sha256_bytes(input->SerializeAsString());
-  } else {
-    const auto& parameters = execution.daily_factor();
-    check_stop();
-    data::v1::DataRequest request;
-    request.mutable_daily_factor_dataset()->set_id(parameters.source_dataset_id());
-    auto reply = data.call(std::move(request));
-    check_stop();
-    auto* input = task.mutable_daily_factor();
-    input->set_version(1);
-    *input->mutable_dataset() = std::move(*reply.mutable_daily_factor_dataset());
-    input->set_dataset_revision(daily_factor_revision(input->dataset()));
-    input->set_lookback(parameters.lookback());
-    input->set_horizon(parameters.horizon());
-    if (parameters.has_full_sample())
-      input->set_full_sample(parameters.full_sample());
-    else if (parameters.has_holdout_start())
-      input->set_holdout_start(parameters.holdout_start());
     digest = sha256_bytes(input->SerializeAsString());
   }
   if (digest != execution.input_sha256())

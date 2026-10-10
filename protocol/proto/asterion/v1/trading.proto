@@ -12,19 +12,19 @@ message CostSchedule { repeated CostVersion versions = 1; }
 message RiskLimits { Decimal max_order_quantity = 1; Decimal max_gross_quantity = 2; uint64 max_working_orders = 3; }
 // One contract of a backtest portfolio: its bars, trading days and costs. The
 // contract is the dataset's contract.
-message PaperContract { asterion.data.v1.BarDataset dataset = 1; reserved 2; CostSchedule cost_schedule = 3; }
+message PaperContract { asterion.data.v1.BarDataset dataset = 1; CostSchedule cost_schedule = 2; }
 // Every contract shares the same trading days; each day ends with the
 // dataset settlement prices.
 message PaperInput { Decimal deposit = 1; RiskLimits risk = 2; repeated PaperContract contracts = 3; }
 // A CTP futures account. Non-secret identities only: the password and the
 // authentication code are entered at every connection and never stored.
-message LiveBroker { string front = 1; string broker_id = 2; string user_id = 3; string app_id = 4; reserved 5; }
+message LiveBroker { string front = 1; string broker_id = 2; string user_id = 3; string app_id = 4; }
 // A policy is independent of the account and of physical journal segments.
 message LivePolicy {
   RiskLimits risk = 1; repeated Contract contracts = 2; Decimal max_price_deviation = 3;
 }
 message LivePolicyChange { LivePolicy policy = 1; string risk_artifact = 2; }
-message LiveInput { LiveBroker broker = 1; reserved 2, 3, 4; LivePolicy policy = 5; string account_id = 6; }
+message LiveInput { LiveBroker broker = 1; LivePolicy policy = 2; string account_id = 3; }
 message LiveCredentials { string password = 1; string auth_code = 2; }
 // The owner confirms the account by its user ID. The permission lasts across
 // connections and trading days.
@@ -49,23 +49,21 @@ message StrategyStart {
 }
 message Command {
   string request_id = 1;
-  oneof operation { Submit submit = 3; Cancel cancel = 4; LiveAuthorize live_authorize = 9; Empty live_revoke = 10; LiveResolve live_resolve = 11; LivePolicyChange live_policy = 12;
-    StrategyStart strategy_start = 13; Empty strategy_stop = 14; }
+  oneof operation { Submit submit = 2; Cancel cancel = 3; LiveAuthorize live_authorize = 4; Empty live_revoke = 5; LiveResolve live_resolve = 6; LivePolicyChange live_policy = 7;
+    StrategyStart strategy_start = 8; Empty strategy_stop = 9; }
 }
 // A connection is bound to one immutable process session.
 message Request {
   uint32 version = 1;
   string session_id = 2;
-  string correlation_id = 4;
+  string correlation_id = 3;
   // Stable account identity, required for commands.
-  reserved 5, 21;
-  reserved "record_id", "live_continue";
-  string account_id = 7;
+  string account_id = 4;
   // The policy reviewed by the caller; required for every command.
-  string policy_revision = 6;
-  oneof operation { Empty snapshot = 10; Empty recover = 12; Command command = 13; Empty shutdown = 14; Empty attach = 15; Empty heartbeat = 16;
-    LiveInput live_create = 17; LiveCredentials live_connect = 18; Empty live_disconnect = 19;
-    Empty live_costs = 20; }
+  string policy_revision = 5;
+  oneof operation { Empty snapshot = 10; Empty recover = 11; Command command = 12; Empty shutdown = 13; Empty attach = 14; Empty heartbeat = 15;
+    LiveInput live_create = 16; LiveCredentials live_connect = 17; Empty live_disconnect = 18;
+    Empty live_costs = 19; }
 }
 message ContractState { Contract contract = 1; Costs costs = 2; Decimal mark = 3; CostSchedule cost_schedule = 4; }
 message Position { string venue = 1; string symbol = 2; Side side = 3; bool today = 4; Decimal quantity = 5; Decimal basis = 6; }
@@ -79,7 +77,7 @@ message Snapshot {
   uint32 cursor = 10; uint32 total = 11; optional int64 timestamp_ns = 12;
   bool recovery_required = 13;
   repeated Position positions = 14; repeated Order orders = 15; repeated Fill fills = 16;
-  RiskLimits risk = 18;
+  RiskLimits risk = 17;
 }
 // Broker-reported account state; the broker owns the live ledger.
 message LiveFunds {
@@ -107,7 +105,7 @@ message LiveCosts {
   int64 queried_ms = 5; Costs costs = 6;
 }
 // Lasts until the owner revokes it, the policy changes or the service restarts.
-message LiveAuthorization { reserved 1; reserved "trading_day"; int64 authorized_at_ms = 2; }
+message LiveAuthorization { int64 authorized_at_ms = 1; }
 // The account's current or last strategy run. state: running or stopped; a
 // stopped run states why. target is absent until the strategy has enough bars.
 message LiveStrategy {
@@ -132,17 +130,15 @@ message LiveSnapshot {
   repeated LiveCosts costs = 15;
   Decimal max_price_deviation = 16;
   JournalCapacity capacity = 17;
-  reserved 18, 19, 20;
-  reserved "record_id", "archived_count", "continuation_ready";
-  string account_id = 23;
+  string account_id = 18;
   // Immutable event segments; excludes the active journal file.
-  uint64 segment_count = 24;
-  string policy_revision = 21; string risk_artifact = 22;
-  LiveStrategy strategy = 25;
+  uint64 segment_count = 19;
+  string policy_revision = 20; string risk_artifact = 21;
+  LiveStrategy strategy = 22;
 }
 message Error { string code = 1; string message = 2; }
 message Health { string instance_id = 1; string version = 2; uint64 uptime_ms = 3; bool initialized = 4; bool recovery_required = 5; asterion.runtime.v1.ExecutionHealth execution = 6; }
 message Response {
-  uint32 version = 1; string session_id = 2; string correlation_id = 4;
-  oneof result { Error error = 11; Empty closed = 12; Empty uninitialized = 13; Health health = 14; LiveSnapshot live = 15; }
+  uint32 version = 1; string session_id = 2; string correlation_id = 3;
+  oneof result { Error error = 10; Empty closed = 11; Empty uninitialized = 12; Health health = 13; LiveSnapshot live = 14; }
 }

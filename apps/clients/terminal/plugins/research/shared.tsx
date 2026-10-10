@@ -23,6 +23,38 @@ export const states: Record<string, string> = {
   cancelled: "已取消",
   interrupted: "已中断",
 };
+// A factor counts in observations of its series: the same parameters read as
+// bars or as trading days, by what the series is made of.
+export const factorWords = {
+  bars: {
+    computed: "按 K 线计算",
+    lookback: "回看 K 线数",
+    horizon: "未来收益 K 线数",
+    split: "前段 K 线数",
+    training: "训练 K 线数",
+    validation: "每轮验证 K 线数",
+    candidates: "候选回看 K 线数",
+    selected: "选中回看 K 线数",
+    warmup: "共同预热 K 线数",
+    input: "输入 K 线",
+    observed: "因子时间",
+    label: "标签结束时间",
+  },
+  daily: {
+    computed: "按日线计算",
+    lookback: "回看日线数",
+    horizon: "未来日线数",
+    split: "前段日线数",
+    training: "训练日线数",
+    validation: "每轮验证日线数",
+    candidates: "候选回看日线数",
+    selected: "选中回看日线数",
+    warmup: "共同预热日线数",
+    input: "输入日线",
+    observed: "交易日",
+    label: "标签日期",
+  },
+} as const;
 type TaskService = NonNullable<NonNullable<TerminalContext["snapshot"]>["task_service"]>;
 export type ResearchTask = TaskService["tasks"][number];
 export type Run = (method: TerminalCommand, params?: Record<string, unknown>) => Promise<boolean>;
@@ -93,7 +125,7 @@ export function TaskRecords({
   taskService: TaskService | null | undefined;
   run: Run;
   listed: (task: ResearchTask) => boolean;
-  describe: (task: ResearchTask) => string;
+  describe?: (task: ResearchTask) => string;
   onProgress?: (task: ResearchTask) => void;
   onResult: (task: ResearchTask) => void;
 }) {
@@ -123,7 +155,7 @@ export function TaskRecords({
                   <tr key={task.id}>
                     <td>
                       <strong>{task.instrument}</strong>
-                      <span className="subtle">{describe(task)}</span>
+                      {describe && <span className="subtle">{describe(task)}</span>}
                       <details>
                         <summary>{t("详情")}</summary>
                         <code>{task.id}</code>

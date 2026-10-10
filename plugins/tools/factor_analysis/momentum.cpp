@@ -92,46 +92,92 @@ std::vector<double> ranks(std::span<const double> values) {
 std::optional<double> rank_correlation(std::span<const double> x, std::span<const double> y) {
   return correlation(ranks(x), ranks(y));
 }
-PriceMomentum::PriceMomentum(std::size_t lookback) : lookback_(lookback) {
+std::vector<std::optional<double>> momentum(std::span<const Decimal> closes, std::size_t lookback) {
   if (!lookback || lookback > 10000)
     throw std::invalid_argument("momentum lookback must be 1..10000 observations");
-}
-void PriceMomentum::reset() noexcept {
-  history_.clear();
-}
-std::optional<double> PriceMomentum::push(Decimal price) {
-  if (price <= Decimal{})
-    throw std::invalid_argument("return requires positive prices");
-  const auto result = history_.size() == lookback_
-                          ? std::optional<double>(price_return(history_.front(), price))
-                          : std::nullopt;
-  history_.push_back(price);
-  if (history_.size() > lookback_)
-    history_.pop_front();
+  std::vector<std::optional<double>> result(closes.size());
+  for (std::size_t i = lookback; i < closes.size(); ++i)
+    result[i] = price_return(closes[i - lookback], closes[i]);
   return result;
 }
-MomentumFactor::MomentumFactor(Instrument instrument, std::size_t lookback)
-    : instrument_(std::move(instrument)), prices_(lookback) {
-  instrument_.validate();
+std::vector<std::optional<double>> forward_returns(std::span<const Decimal> closes,
+                                                   std::size_t horizon) {
+  if (!horizon || horizon > 10000)
+    throw std::invalid_argument("forward return horizon must be 1..10000 observations");
+  std::vector<std::optional<double>> result(closes.size());
+  for (std::size_t i = 0; i + horizon < closes.size(); ++i)
+    result[i] = price_return(closes[i], closes[i + horizon]);
+  return result;
 }
-void MomentumFactor::start() {
-  if (running_)
-    throw std::logic_error("factor already started");
-  prices_.reset();
-  last_time_ = -1;
-  running_ = true;
-}
-void MomentumFactor::stop() noexcept {
-  running_ = false;
-}
-std::optional<double> MomentumFactor::on_bar(const MarketBar& bar) {
-  if (!running_)
-    throw std::logic_error("factor is stopped");
-  bar.validate(instrument_);
-  if (bar.close <= Decimal{} || bar.timestamp_ns <= last_time_)
-    throw std::invalid_argument("invalid factor price or event order");
-  const auto result = prices_.push(bar.close);
-  last_time_ = bar.timestamp_ns;
+MomentumEvaluation
+evaluate_momentum(std::span<const Decimal> closes, std::span<const unsigned> lookbacks,
+                  std::size_t horizon, std::optional<std::size_t> split, std::stop_token stop,
+                  const std::function<void(std::size_t, std::size_t)>& progress) {
+  const auto count = closes.size();
+  if (lookbacks.empty() || (lookbacks.size() > 1 && !split) || (split && *split >= count))
+    throw std::invalid_argument("momentum evaluation needs windows and, to compare them, a "
+                                "boundary inside the series");
+  for (const auto close : closes)
+    if (close <= Decimal{})
+      throw std::invalid_argument("return requires positive prices");
+  const std::size_t warmup = lookbacks.back();
+  const auto boundary = split.value_or(count);
+  const auto total = count + (lookbacks.size() > 1 ? lookbacks.size() * boundary : 0);
+  std::size_t completed = 0;
+  const auto advance = [&](std::size_t units) {
+    completed += units;
+    if (progress)
+      progress(completed, total);
+    if (stop.stop_requested())
+      throw std::runtime_error("factor analysis cancelled");
+  };
+  advance(0);
+  MomentumEvaluation result;
+  result.lookback = lookbacks.front();
+  if (lookbacks.size() > 1) {
+    // Selection sees the development observations and nothing else.
+    const auto development = closes.first(boundary);
+    const auto labels = forward_returns(development, horizon);
+    std::vector<MomentumCandidateScore> scores;
+    for (const auto window : lookbacks) {
+      const auto features = momentum(development, window);
+      std::vector<double> values, outcomes;
+      for (auto i = warmup; i < boundary; ++i)
+        if (features[i] && labels[i]) {
+          values.push_back(*features[i]);
+          outcomes.push_back(*labels[i]);
+        }
+      const auto score = rank_correlation(values, outcomes);
+      result.candidates.push_back({window, values.size(), score});
+      scores.push_back({window, score});
+      advance(boundary);
+    }
+    const auto selection = select_momentum_lookback(scores);
+    if (!selection)
+      throw std::invalid_argument("no candidate has a defined development correlation");
+    result.lookback = *selection;
+  }
+  const auto features = momentum(closes, result.lookback);
+  const auto labels = forward_returns(closes, horizon);
+  std::vector<double> values[2], outcomes[2];
+  for (auto i = warmup; i < count; ++i) {
+    if (!features[i] || !labels[i])
+      continue;
+    // A development label that ends in the holdout would let the two overlap.
+    if (i < boundary && i + horizon >= boundary) {
+      ++result.purged;
+      continue;
+    }
+    const auto partition = i < boundary ? 0 : 1;
+    result.samples.push_back({i, *features[i], *labels[i]});
+    values[partition].push_back(*features[i]);
+    outcomes[partition].push_back(*labels[i]);
+  }
+  for (std::size_t index = 0; index < (split ? 2U : 1U); ++index)
+    result.partitions.push_back({index ? boundary : 0, index || !split ? count : boundary,
+                                 values[index].size(), correlation(values[index], outcomes[index]),
+                                 rank_correlation(values[index], outcomes[index])});
+  advance(count);
   return result;
 }
 } // namespace asterion

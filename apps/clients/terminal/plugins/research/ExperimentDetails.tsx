@@ -7,6 +7,7 @@ import {
   type ExperimentData,
   type TaskResult,
 } from "../../src/bridge/client";
+import { factorWords } from "./shared";
 const t = (key: string) => translate("asterion.terminal.research", key);
 type Evidence = Extract<TaskResult, { kind: "backtest" | "factor" }>;
 type Rows = [string, string | number][];
@@ -39,7 +40,12 @@ function contractRows(dataset: DatasetEvidence, data: ExperimentData, schedule?:
       ["平今费率", costs.close_today_fee_rate],
       ["平昨费率", costs.close_yesterday_fee_rate],
     );
-  return { name: `${contract.venue} · ${contract.symbol}`, rows, data, schedule };
+  return {
+    name: `${contract.venue} · ${contract.symbol}`,
+    rows,
+    schedule,
+    range: [data.first_timestamp_ns, data.last_timestamp_ns],
+  };
 }
 function Fields({ rows }: { rows: Rows }) {
   return (
@@ -72,11 +78,27 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
       ["在途委托数上限", paper.risk.max_working_orders],
     );
   } else {
-    const { dataset, data, lookbacks, horizon, evaluation } = evidence.experiment;
-    contracts = [contractRows(dataset, data)];
+    const { series, lookbacks, horizon, evaluation } = evidence.experiment;
+    const input = series[0];
+    const words = factorWords[input.kind];
+    contracts =
+      input.kind === "bars"
+        ? [contractRows(input.dataset, input.data)]
+        : [
+            {
+              name: input.data.contract_id,
+              rows: [
+                ["交易日范围", `${input.data.first_day} – ${input.data.last_day}`],
+                [words.input, input.data.count],
+                ["数据源", input.data.source],
+                ["来源数据版本", input.data.source_dataset_id],
+                ["来源摘要", input.data.manifest_sha256],
+              ] as Rows,
+            },
+          ];
     rows.push(
-      ["候选回看 K 线数", lookbacks.join(", ")],
-      ["未来收益 K 线数", horizon],
+      [words.candidates, lookbacks.join(", ")],
+      [words.horizon, horizon],
       [
         "评价方式",
         t(
@@ -90,15 +112,19 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
     );
     if (evaluation.mode === "walk_forward")
       rows.push(
-        ["训练 K 线数", evaluation.training_events],
-        ["每轮验证 K 线数", evaluation.validation_events],
+        [words.training, evaluation.training_events],
+        [words.validation, evaluation.validation_events],
       );
-    if (evaluation.mode === "holdout") rows.push(["前段 K 线数", evaluation.split_index]);
+    if (evaluation.mode === "holdout") rows.push([words.split, evaluation.split_index]);
   }
-  const versions =
-    evidence.kind === "backtest"
-      ? evidence.experiment.paper.contracts.flatMap(item => item.dataset.history_evidence)
-      : evidence.experiment.dataset.history_evidence;
+  let versions;
+  if (evidence.kind === "backtest")
+    versions = evidence.experiment.paper.contracts.flatMap(item => item.dataset.history_evidence);
+  else {
+    const input = evidence.experiment.series[0];
+    versions =
+      input.kind === "bars" ? input.dataset.history_evidence : [input.data.history_evidence];
+  }
   return (
     <>
       <HistoryAvailability
@@ -112,11 +138,15 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
           <section key={contract.name} aria-label={contract.name}>
             <h4>{contract.name}</h4>
             <Fields rows={contract.rows} />
-            {contract.schedule && <CostScheduleDetails versions={contract.schedule} />}
-            <p>
-              {t("输入时间范围（北京时间）")}: {timestamp(contract.data.first_timestamp_ns)} –{" "}
-              {timestamp(contract.data.last_timestamp_ns)}
-            </p>
+            {"schedule" in contract && contract.schedule && (
+              <CostScheduleDetails versions={contract.schedule} />
+            )}
+            {"range" in contract && (
+              <p>
+                {t("输入时间范围（北京时间）")}: {timestamp(contract.range[0])} –{" "}
+                {timestamp(contract.range[1])}
+              </p>
+            )}
           </section>
         ))}
         <p>

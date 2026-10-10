@@ -676,7 +676,7 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData) {
   ASSERT_EQ(call(submit).task().kind(), task::v1::BACKTEST);
   submit.mutable_submit()->set_id("factor");
   auto* factor = submit.mutable_submit()->mutable_factor_request();
-  *factor->mutable_data() = selection;
+  *factor->add_series()->mutable_bars() = selection;
   factor->add_lookbacks(1);
   factor->set_horizon(1);
   factor->set_full_sample(true);
@@ -707,7 +707,8 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData) {
   EXPECT_EQ(call(get).task().input().paper().contracts(0).dataset().SerializeAsString(),
             expected.SerializeAsString());
   get.mutable_get()->set_id("factor");
-  EXPECT_EQ(call(get).task().factor().dataset().SerializeAsString(), expected.SerializeAsString());
+  EXPECT_EQ(call(get).task().factor().series(0).bars().SerializeAsString(),
+            expected.SerializeAsString());
   task::v1::TaskRequest result;
   for (const auto* id : {"backtest", "factor"}) {
     result.mutable_result()->set_id(id);

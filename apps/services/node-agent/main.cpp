@@ -587,9 +587,6 @@ class Agent {
       validate_id(launch.task_id());
       if (service.workers.contains(launch.task_id()))
         throw std::runtime_error("dispatch repeated a running task");
-      if (launch.daily_factor() && (launch.program() != task::v1::FACTOR_PROGRAM ||
-                                    launch.daily_download() || launch.minute_download()))
-        throw std::invalid_argument("invalid daily factor worker launch");
       // The data pipeline only runs data-source downloads.
       if ((launch.program() == task::v1::DATA_PIPELINE_PROGRAM) !=
               (launch.daily_download() || launch.minute_download()) ||
@@ -629,8 +626,6 @@ class Agent {
           args.push_back("--minute-download");
         if (launch.daily_download())
           args.push_back("--daily-download");
-        if (launch.daily_factor())
-          args.push_back("--daily-factor");
         child = std::make_unique<ChildProcess>(worker, args);
       });
       service.workers.emplace(launch.task_id(), std::move(child));

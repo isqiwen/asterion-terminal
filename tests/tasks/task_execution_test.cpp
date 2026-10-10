@@ -65,13 +65,19 @@ backtest::v1::BacktestInput input() {
   result.set_dataset_revision(protocol::dataset_revision(result.paper()));
   return result;
 }
+// The bars of a factor input's one series, which is added when there is none yet.
+data::v1::BarDataset* factor_bars(factor::v1::FactorInput& input) {
+  if (input.series().empty())
+    input.add_series();
+  return input.mutable_series(0)->mutable_bars();
+}
 factor::v1::FactorInput maximum_factor_input() {
   factor::v1::FactorInput spec;
-  spec.set_version(5);
+  spec.set_version(6);
   spec.set_full_sample(true);
   spec.add_lookbacks(2);
   spec.set_horizon(1);
-  auto* dataset = spec.mutable_dataset();
+  auto* dataset = factor_bars(spec);
   *dataset = input().paper().contracts(0).dataset();
   const auto first = dataset->bars(0);
   dataset->clear_bars();
@@ -1132,9 +1138,9 @@ TEST_F(TaskProcess, WorkerLivenessFailureDoesNotPretendToBeUserCancellation) {
 TEST_F(TaskProcess, MaximumFactorInputCompletesAndRestartedResultReadKeepsControlsAvailable) {
   service.reset();
   auto spec = maximum_factor_input();
-  *spec.mutable_dataset() =
+  *factor_bars(spec) =
       published_dataset(std::vector<int>(protocol::max_dataset_bars, 100), "maximum");
-  spec.set_dataset_revision(spec.dataset().revision());
+  spec.set_dataset_revision(spec.series(0).bars().revision());
   {
     tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
     tasks::submit(store, "maximum", spec);
@@ -1200,7 +1206,7 @@ TEST_F(TaskProcess, MaximumFactorInputCompletesAndRestartedResultReadKeepsContro
   EXPECT_EQ(response.factor().samples_size(), static_cast<int>(protocol::max_dataset_bars) - 3);
   EXPECT_EQ(response.result_task().factor().SerializeAsString(), spec.SerializeAsString());
   RecordProperty("factor_json_bytes",
-                 protocol::decode_factor_result(response.factor()).dump().size());
+                 protocol::decode_factor_result(spec, response.factor()).dump().size());
   task_wire::TaskRequest cancel;
   cancel.mutable_cancel()->set_id("other");
   EXPECT_EQ(call(cancel).task().state(), task::v1::CANCELLED);
@@ -1491,7 +1497,7 @@ TEST_F(TaskProcess, DistinctMaximumInputsExposeRecoveryHealthBeforeAdmissions) {
   {
     tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
     for (int i = 0; i < count; ++i) {
-      auto* dataset = spec.mutable_dataset();
+      auto* dataset = factor_bars(spec);
       auto* last = dataset->mutable_bars(dataset->bars_size() - 1);
       const auto units = d("100").raw() + static_cast<std::int64_t>(i) * d("1").raw();
       for (auto* price :
@@ -2253,17 +2259,18 @@ TEST(NamedDatasets, RequestedWindowReportsMissingBoundaryDays) {
   EXPECT_EQ(dataset.uncovered_days(0), "2026-09-23");
   EXPECT_EQ(dataset.uncovered_days(1), "2026-09-25");
   task::v1::Task calculation;
-  *calculation.mutable_factor()->mutable_dataset() = dataset;
-  calculation.mutable_factor()->set_version(5);
+  *factor_bars(*calculation.mutable_factor()) = dataset;
+  calculation.mutable_factor()->set_version(6);
   calculation.mutable_factor()->set_dataset_revision(dataset.revision());
   calculation.mutable_factor()->add_lookbacks(1);
   calculation.mutable_factor()->set_horizon(1);
   calculation.mutable_factor()->set_full_sample(true);
   const auto execution =
       protocol::task_execution(calculation, sha256_bytes(calculation.factor().SerializeAsString()));
-  EXPECT_EQ(execution.factor().data().begin_day(), "2026-09-23");
-  EXPECT_EQ(execution.factor().data().end_day(), "2026-09-25");
-  EXPECT_EQ(data::resolve_bar_dataset(store.sources(execution.factor().data())).SerializeAsString(),
+  EXPECT_EQ(execution.factor().series(0).bars().begin_day(), "2026-09-23");
+  EXPECT_EQ(execution.factor().series(0).bars().end_day(), "2026-09-25");
+  EXPECT_EQ(data::resolve_bar_dataset(store.sources(execution.factor().series(0).bars()))
+                .SerializeAsString(),
             dataset.SerializeAsString());
 }
 
@@ -2535,8 +2542,8 @@ TEST_F(TaskProcess, HistoryUsageKeepsTaskReferencesAfterCancellationAndRestart) 
     tasks::submit(store, "usage-backtest", backtest);
     store.commit(store.cancel("usage-backtest")).task();
     factor::v1::FactorInput factor;
-    factor.set_version(5);
-    *factor.mutable_dataset() = data;
+    factor.set_version(6);
+    *factor_bars(factor) = data;
     factor.set_dataset_revision(data.revision());
     factor.add_lookbacks(1);
     factor.set_horizon(1);
@@ -2555,7 +2562,7 @@ TEST_F(TaskProcess, HistoryUsageKeepsTaskReferencesAfterCancellationAndRestart) 
     ASSERT_EQ(row.roles_size(), 1);
     EXPECT_EQ(row.roles(0), data::v1::HISTORY_MARKET);
   }
-  EXPECT_EQ(kinds, (std::set<int>{data::v1::HISTORY_BACKTEST, data::v1::HISTORY_BAR_FACTOR}));
+  EXPECT_EQ(kinds, (std::set<int>{data::v1::HISTORY_BACKTEST, data::v1::HISTORY_FACTOR}));
   EXPECT_EQ(protocol::decode_history_usage(first).at("references").size(), 2);
   service.reset();
   start();
@@ -2800,8 +2807,8 @@ TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTa
   data::Store data_store(warehouse.path, "historical-data", "task");
   const auto source = data::resolve_bar_dataset(data_store.sources(composed_request({selection})));
   factor::v1::FactorInput spec;
-  spec.set_version(5);
-  *spec.mutable_dataset() = source;
+  spec.set_version(6);
+  *factor_bars(spec) = source;
   spec.set_dataset_revision(source.revision());
   spec.add_lookbacks(1);
   spec.set_horizon(1);
@@ -2874,9 +2881,9 @@ TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTa
 TEST(TaskStore, ActiveCapacityAppliesToNewAdmissionsAndExplicitRetries) {
   TaskDirectory directory;
   factor::v1::FactorInput spec;
-  spec.set_version(5);
-  *spec.mutable_dataset() = input().paper().contracts(0).dataset();
-  auto* data = spec.mutable_dataset();
+  spec.set_version(6);
+  *factor_bars(spec) = input().paper().contracts(0).dataset();
+  auto* data = factor_bars(spec);
   const auto first = data->bars(0);
   data->clear_bars();
   for (std::int64_t i = 0; i < 40; ++i) {
@@ -2885,7 +2892,7 @@ TEST(TaskStore, ActiveCapacityAppliesToNewAdmissionsAndExplicitRetries) {
     bar->set_timestamp_ns(first.timestamp_ns() + i * 1000000000);
   }
   data->set_revision(protocol::bar_dataset_revision(*data));
-  spec.set_dataset_revision(spec.dataset().revision());
+  spec.set_dataset_revision(spec.series(0).bars().revision());
   spec.add_lookbacks(1);
   spec.set_horizon(1);
   spec.set_full_sample(true);

@@ -42,8 +42,7 @@ message DominantSeriesPreview {
 // One contract of a backtest submission: Data resolves its bars before Task captures the input.
 message BacktestContract {
   asterion.data.v1.BarDatasetRequest data = 1;
-  reserved 2;
-  asterion.protocol.v1.CostSchedule cost_schedule = 3;
+  asterion.protocol.v1.CostSchedule cost_schedule = 2;
 }
 message BacktestRequest {
   repeated BacktestContract contracts = 1;

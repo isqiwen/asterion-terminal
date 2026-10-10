@@ -4,24 +4,40 @@ import "asterion/v1/data.proto";
 package asterion.factor.v1;
 import "asterion/v1/trading.proto";
 
-// Immutable bars resolved by the data service; no account or execution assumptions.
-message FactorInput {
-  uint32 version = 1; // 5
-  string dataset_revision = 2;
-  reserved 3, 4, 5;
-  asterion.data.v1.BarDataset dataset = 11;
-  repeated uint32 lookbacks = 9; // Strictly ascending, unique; 1..32 candidates.
-  uint32 horizon = 6;
-  // Required explicit evaluation; full_sample must be true.
-  oneof evaluation {
-    bool full_sample = 7;
-    WalkForwardEvaluation walk_forward = 10;
-    uint32 holdout_start = 8; // Zero-based first holdout bar.
+// One instrument's ordered closes, fixed by the data service. Bars keep their
+// label timestamps; daily closes keep provider trading dates. Neither carries
+// account or execution assumptions into a factor.
+message FactorSeries {
+  oneof source {
+    asterion.data.v1.BarDataset bars = 1;
+    DailyFactorDataset daily = 2;
   }
 }
-// Client submission: Task obtains the fixed dataset from Data before persisting input.
+message FactorInput {
+  uint32 version = 1; // 6
+  string dataset_revision = 2; // The revision of the series.
+  // Exactly one: a factor is evaluated on one instrument's observations.
+  repeated FactorSeries series = 3;
+  repeated uint32 lookbacks = 4; // Strictly ascending, unique; 1..32 candidates.
+  uint32 horizon = 5;
+  // Required explicit evaluation; full_sample must be true.
+  oneof evaluation {
+    bool full_sample = 6;
+    WalkForwardEvaluation walk_forward = 7;
+    uint32 holdout_start = 8; // Zero-based first holdout observation.
+  }
+}
+// What Data resolves into one fixed series: a bar selection, or a published
+// daily version. Clients cannot upload observations or provenance.
+message FactorSeriesRequest {
+  oneof source {
+    asterion.data.v1.BarDatasetRequest bars = 1;
+    string daily_dataset_id = 2;
+  }
+}
+// Client submission: Task obtains the fixed series from Data before persisting input.
 message FactorRequest {
-  asterion.data.v1.BarDatasetRequest data = 1;
+  repeated FactorSeriesRequest series = 1;
   repeated uint32 lookbacks = 2;
   uint32 horizon = 3;
   oneof evaluation {
@@ -34,12 +50,12 @@ message WalkForwardEvaluation {
   uint32 training_events = 1;
   uint32 validation_events = 2;
 }
+// A feature and its label, by observation index. When they were observed is
+// read from the fixed input, not repeated here.
 message FactorSample {
   uint32 event_index = 1;
-  int64 timestamp_ns = 2;
-  int64 label_timestamp_ns = 3;
-  double value = 4;
-  double forward_return = 5;
+  double value = 2;
+  double forward_return = 3;
 }
 message FactorResult {
   uint32 version = 1;
@@ -49,13 +65,12 @@ message FactorResult {
   uint32 horizon = 5;
   uint32 input_count = 6;
   repeated FactorSample samples = 7;
-  reserved 8, 9;
-  repeated FactorPartition partitions = 10;
-  uint32 purged_count = 11;
-  string selection_rule = 12;
-  repeated FactorCandidate candidates = 13; // Development scores only.
-  uint32 evaluation_warmup = 14;
-  repeated FactorFold folds = 15;
+  repeated FactorPartition partitions = 8;
+  uint32 purged_count = 9;
+  string selection_rule = 10;
+  repeated FactorCandidate candidates = 11; // Development scores only.
+  uint32 evaluation_warmup = 12;
+  repeated FactorFold folds = 13;
 }
 message FactorCandidate {
   uint32 lookback = 1;
@@ -82,51 +97,15 @@ message FactorFold {
   FactorPartition holdout = 7;
 }
 
-// Daily close task retains provider trading dates. No trade timestamps,
-// synthetic quantities, contract multiplier or execution assumptions.
+// Daily closes of one published version, with provider trading dates. No
+// trade timestamps, synthetic quantities, contract multiplier or execution
+// assumptions.
 message DailyFactorDataset {
   uint32 version = 1; // 2
-  reserved 2; string source_dataset_id = 7;
+  string source_dataset_id = 2;
   string source = 3;
-  reserved 4; string contract_id = 20;
+  string contract_id = 4;
   string manifest_sha256 = 5;
   repeated asterion.data.v1.DailyBar bars = 6;
-  asterion.data.v1.HistoryVersionEvidence history_evidence = 8;
-}
-message DailyFactorInput {
-  uint32 version = 1;
-  string dataset_revision = 2;
-  DailyFactorDataset dataset = 3;
-  uint32 lookback = 4;
-  uint32 horizon = 5;
-  oneof evaluation {
-    bool full_sample = 6;
-    uint32 holdout_start = 7;
-  }
-}
-message DailyFactorSample {
-  uint32 observation_index = 1;
-  string trading_day = 2;
-  string label_day = 3;
-  double value = 4;
-  double forward_return = 5;
-}
-message DailyFactorResult {
-  uint32 version = 1;
-  string dataset_revision = 2;
-  string engine_version = 3;
-  uint32 lookback = 4;
-  uint32 horizon = 5;
-  uint32 input_count = 6;
-  repeated DailyFactorSample samples = 7;
-  repeated FactorPartition partitions = 8;
-  uint32 purged_count = 9;
-}
-
-// Clients select a service-owned completed download; they cannot upload bars or provenance.
-message DailyFactorRequest {
-  reserved 1; string source_dataset_id = 6;
-  uint32 lookback = 2;
-  uint32 horizon = 3;
-  oneof evaluation { bool full_sample = 4; uint32 holdout_start = 5; }
+  asterion.data.v1.HistoryVersionEvidence history_evidence = 7;
 }
