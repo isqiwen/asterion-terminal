@@ -1,4 +1,5 @@
 #include "task_client.hpp"
+#include "performance.hpp"
 #include <asterion/kernel/ipc/rpc_client.hpp>
 #include <asterion/kernel/trace.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -10,6 +11,29 @@ namespace asterion::terminal {
 using namespace std::chrono_literals;
 namespace wire = task::v1;
 namespace {
+// How a backtest's fixed result performed. Derived on every read, never stored.
+Json backtest_performance(const backtest::v1::BacktestInput& input,
+                          const backtest::v1::BacktestResult& result) {
+  std::vector<EquityDay> days;
+  for (const auto& day : result.settlements())
+    days.push_back({std::chrono::sys_days(parse_trading_date(day.trading_day())),
+                    Decimal::from_raw(day.equity().units())});
+  std::vector<Decimal> marks;
+  for (const auto& point : result.equity())
+    marks.push_back(Decimal::from_raw(point.equity().units()));
+  const auto value = performance(Decimal::from_raw(input.paper().deposit().units()), days, marks);
+  const auto optional = [](const std::optional<double>& statistic) {
+    return statistic ? Json(*statistic) : Json(nullptr);
+  };
+  return {{"trading_days", value.trading_days},
+          {"total_return", value.total_return},
+          {"max_drawdown", value.max_drawdown},
+          {"winning_days", value.winning_days},
+          {"annual_return", optional(value.annual_return)},
+          {"annual_volatility", optional(value.annual_volatility)},
+          {"sharpe", optional(value.sharpe)},
+          {"calmar", optional(value.calmar)}};
+}
 wire::TaskResponse decode_task_response(const wire::TaskRequest& request, const std::string& raw) {
   wire::TaskResponse response;
   if (!response.ParseFromString(raw))
@@ -174,8 +198,13 @@ struct TaskClient::Impl : std::enable_shared_from_this<Impl> {
     auto raw = co_await request_bytes(request, stop, deadline);
     co_return co_await io.read<Json>([request = std::move(request), raw = std::move(raw)] {
       const auto response = decode_task_response(request, *raw);
-      if (request.has_result())
-        return protocol::decode_task_result(response, request.result().id());
+      if (request.has_result()) {
+        auto evidence = protocol::decode_task_result(response, request.result().id());
+        if (response.has_backtest())
+          evidence["performance"] =
+              backtest_performance(response.result_task().input(), response.backtest());
+        return evidence;
+      }
       if (response.history_usage().dataset_id() != request.history_usage().id())
         throw Error(ErrorCode::unavailable, "invalid historical usage response");
       return protocol::decode_history_usage(response.history_usage());

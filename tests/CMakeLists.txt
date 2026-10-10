@@ -154,6 +154,7 @@ add_test(NAME worker_parent_loss COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_S
 set_tests_properties(worker_parent_loss PROPERTIES TIMEOUT 15)
 add_test(NAME task_tls_admission COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tasks/task_tls_admission.py $<TARGET_FILE:asterion-task-service> $<TARGET_FILE:asterion_test_certificates>)
 set_tests_properties(task_tls_admission PROPERTIES TIMEOUT 30)
+asterion_unit_tests(asterion_performance_tests tasks/performance_test.cpp asterion_performance)
 asterion_unit_tests(asterion_factor_tests tasks/factor_test.cpp asterion_factor_engine)
 target_link_libraries(asterion_factor_tests PRIVATE asterion_factor_analysis asterion_sqlite asterion_task_store)
 asterion_unit_tests(asterion_task_execution_tests tasks/task_execution_test.cpp asterion_backtest_engine 180)

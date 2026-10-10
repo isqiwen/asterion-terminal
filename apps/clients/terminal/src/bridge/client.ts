@@ -709,6 +709,19 @@ export type FactorExperiment = {
     | { mode: "holdout"; split_index: number }
     | { mode: "walk_forward"; training_events: number; validation_events: number };
 };
+// How a backtest's result performed, from its day-end equity. The drawdown is
+// a share of the peak it fell from. Yearly figures are scaled by the calendar
+// time the days span and are null with fewer than 20 trading days.
+export type BacktestPerformance = {
+  trading_days: number;
+  total_return: number;
+  max_drawdown: number;
+  winning_days: number;
+  annual_return: number | null;
+  annual_volatility: number | null;
+  sharpe: number | null;
+  calmar: number | null;
+};
 export type TaskResult =
   | {
       id: string;
@@ -716,6 +729,7 @@ export type TaskResult =
       task: TaskRecord;
       experiment: BacktestExperiment;
       result: BacktestResult;
+      performance: BacktestPerformance;
     }
   | {
       id: string;

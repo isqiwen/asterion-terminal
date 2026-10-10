@@ -94,6 +94,20 @@ test(
       "true",
     );
     const result = workspace.getByRole("region", { name: "回测结果", exact: true });
+    // One trading day has a return and a drawdown, and too little for yearly figures.
+    const performance = result.getByRole("region", { name: "绩效", exact: true });
+    await expect(performance).toBeVisible();
+    const figure = (label: string) =>
+      performance
+        .locator("div")
+        .filter({ has: page.getByText(label, { exact: true }) })
+        .last();
+    await expect(figure("交易日数")).toContainText("1");
+    await expect(figure("总收益率")).toContainText(/^总收益率-?\d+\.\d{2}%$/);
+    await expect(figure("夏普比率")).toContainText("—");
+    await performance.screenshot({
+      path: join(__dirname, "../test-results/backtest-performance.png"),
+    });
     await expect(result.getByRole("img", { name: "权益曲线" })).toBeVisible();
     const availability = result.getByRole("region", { name: "历史可知性", exact: true });
     await expect(availability).toContainText("来源公布时间未知");

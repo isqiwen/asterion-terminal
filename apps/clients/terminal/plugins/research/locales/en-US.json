@@ -228,5 +228,15 @@
   "仅按前段秩 IC 均值的绝对值选择；完全相同时取较小窗口。": "Select by development absolute mean rank IC only; exact ties prefer the smaller window.",
   "各合约共有的观测": "Observations all contracts have",
   "Pearson": "Pearson",
-  "Spearman": "Spearman"
+  "Spearman": "Spearman",
+  "绩效": "Performance",
+  "总收益率": "Total return",
+  "年化收益率": "Annual return",
+  "年化波动率": "Annual volatility",
+  "夏普比率": "Sharpe ratio",
+  "最大回撤": "Max drawdown",
+  "卡玛比率": "Calmar ratio",
+  "盈利交易日占比": "Winning days",
+  "交易日数": "Trading days",
+  "按逐日结算权益计算，是统计值而不是账本数值。年化按这些交易日跨越的日历时间折算，无风险利率取 0；不足 20 个交易日时不计算年化指标。": "Computed from day-end settlement equity; statistics, not ledger values. Yearly figures are scaled by the calendar time these trading days span, with a zero risk-free rate, and are not computed for fewer than 20 trading days."
 }

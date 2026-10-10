@@ -83,6 +83,10 @@ add_library(asterion_chart_indicators STATIC plugins/tools/chart_indicators/macd
 target_include_directories(asterion_chart_indicators PUBLIC plugins/tools/chart_indicators)
 target_link_libraries(asterion_chart_indicators PUBLIC Asterion::Domain)
 
+add_library(asterion_performance STATIC plugins/tools/performance/performance.cpp)
+target_include_directories(asterion_performance PUBLIC plugins/tools/performance)
+target_link_libraries(asterion_performance PUBLIC Asterion::Foundation)
+
 add_library(asterion_factor_analysis STATIC plugins/tools/factor_analysis/momentum.cpp plugins/tools/factor_analysis/walk_forward.cpp)
 target_include_directories(asterion_factor_analysis PUBLIC plugins/tools/factor_analysis)
 target_link_libraries(asterion_factor_analysis PUBLIC Asterion::Domain)
@@ -183,7 +187,7 @@ add_library(asterion_terminal_api STATIC bindings/c/src/terminal.cpp apps/client
 target_compile_definitions(asterion_terminal_api PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
 set_source_files_properties(apps/clients/terminal/native/remote_bundle.cpp PROPERTIES COMPILE_DEFINITIONS ASTERION_SERVICE_SOURCE_SHA256="${ASTERION_SERVICE_SOURCE_SHA256}")
 target_include_directories(asterion_terminal_api PUBLIC bindings/c/include PRIVATE apps/clients/terminal/native)
-target_link_libraries(asterion_terminal_api PUBLIC asterion_chart_indicators asterion_node_firewall asterion_protocol PRIVATE asterion_data_client asterion_task_store asterion_sqlite nlohmann_json::nlohmann_json OpenSSL::Crypto)
+target_link_libraries(asterion_terminal_api PUBLIC asterion_chart_indicators asterion_node_firewall asterion_protocol PRIVATE asterion_performance asterion_data_client asterion_task_store asterion_sqlite nlohmann_json::nlohmann_json OpenSSL::Crypto)
 add_dependencies(asterion_terminal_api asterion-trading asterion-node-agent asterion-market-data)
 
 # Node-API is the desktop SDK boundary. Headers are explicitly prepared from
@@ -236,7 +240,7 @@ foreach(application IN LISTS ASTERION_SERVICE_APPS)
 endforeach()
 add_dependencies(asterion_terminal_api ${ASTERION_SERVICE_TARGETS})
 
-foreach(target asterion_order_limits_config asterion_risk_providers asterion_order_limits_plugin asterion_tushare asterion_order_limits asterion_ctp_trader asterion_history_files asterion_history_providers asterion_task_client asterion_factor_engine asterion_factor_analysis asterion_task_store asterion_task_events asterion_sma asterion_backtest_engine ${ASTERION_SERVICE_TARGETS} asterion_ctp asterion-market-data asterion_node_firewall asterion_node_storage asterion_node_supervision asterion_node_operations asterion-node-agent asterion-trading asterion_trading_session asterion_terminal_dev_bridge asterion_paper asterion_sqlite asterion_foundation asterion_kernel asterion_domain asterion_terminal_api)
+foreach(target asterion_order_limits_config asterion_risk_providers asterion_order_limits_plugin asterion_tushare asterion_order_limits asterion_ctp_trader asterion_history_files asterion_history_providers asterion_task_client asterion_factor_engine asterion_factor_analysis asterion_performance asterion_task_store asterion_task_events asterion_sma asterion_backtest_engine ${ASTERION_SERVICE_TARGETS} asterion_ctp asterion-market-data asterion_node_firewall asterion_node_storage asterion_node_supervision asterion_node_operations asterion-node-agent asterion-trading asterion_trading_session asterion_terminal_dev_bridge asterion_paper asterion_sqlite asterion_foundation asterion_kernel asterion_domain asterion_terminal_api)
   # Designated initializers omit members on purpose; Clang accepts that and
   # GCC's -Wextra would reject it.
   target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror

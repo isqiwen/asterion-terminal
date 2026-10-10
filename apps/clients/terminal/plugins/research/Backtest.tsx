@@ -16,6 +16,10 @@ import { timestamp } from "../../src/bridge/client";
 import { ExperimentDetails } from "./ExperimentDetails";
 import { namespace, ResearchPage, states, t, TaskRecords, useRun } from "./shared";
 
+// Performance figures are statistics; an absent one was not computed.
+const percent = (value: number | null) => (value === null ? "—" : `${(value * 100).toFixed(2)}%`);
+const ratio = (value: number | null) => (value === null ? "—" : value.toFixed(2));
+
 /** SMA backtests: their records, a three-step form, one task's progress and its fixed result. */
 export function Backtest({
   snapshot,
@@ -442,6 +446,30 @@ export function Backtest({
                     </div>
                   ))}
                 </div>
+                <section aria-label={t("绩效")}>
+                  <div className="research-metrics">
+                    {[
+                      [t("总收益率"), percent(result.performance.total_return)],
+                      [t("年化收益率"), percent(result.performance.annual_return)],
+                      [t("年化波动率"), percent(result.performance.annual_volatility)],
+                      [t("夏普比率"), ratio(result.performance.sharpe)],
+                      [t("最大回撤"), percent(result.performance.max_drawdown)],
+                      [t("卡玛比率"), ratio(result.performance.calmar)],
+                      [t("盈利交易日占比"), percent(result.performance.winning_days)],
+                      [t("交易日数"), result.performance.trading_days],
+                    ].map(([label, value]) => (
+                      <div key={label}>
+                        <span className="subtle">{label}</span>
+                        <strong>{value}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="subtle">
+                    {t(
+                      "按逐日结算权益计算，是统计值而不是账本数值。年化按这些交易日跨越的日历时间折算，无风险利率取 0；不足 20 个交易日时不计算年化指标。",
+                    )}
+                  </p>
+                </section>
                 <div className="research-chart">
                   <div className="research-axis" aria-hidden>
                     <span>{highText}</span>
