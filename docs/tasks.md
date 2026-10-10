@@ -20,7 +20,7 @@
 | 任务 | 工作程序 | 内容 |
 | --- | --- | --- |
 | [回测](backtest.md) | `asterion-backtest` | SMA 策略回测 |
-| [因子分析](factors.md) | `asterion-factor` | 收盘价动量因子；一个合约的 K 线或一个日线版本 |
+| [因子分析](factors.md) | `asterion-factor` | 收盘价动量因子；一个合约，或 3–20 个合约的截面 |
 | [历史下载](market-data.md) | `asterion-data-pipeline` | 统一历史格式的分钟线、日线（当前生产插件为 Tushare） |
 
 ## 节点执行额度

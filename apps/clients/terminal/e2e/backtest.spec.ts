@@ -240,10 +240,12 @@ test("a portfolio backtest settles every contract on one account", async ({ page
   await expect(settlements.nth(1)).toContainText("hc2610");
   await result.getByText("实验参数", { exact: true }).click();
   await expect(result.getByRole("region", { name: "SHFE · hc2610" })).toContainText("100");
-  // Factor analysis studies one contract and says so instead of submitting.
+  // Two contracts are neither one series nor a cross-section; the factor page says so.
   await page.getByRole("button", { name: "因子", exact: true }).click();
   await expect(
-    workspace.getByText("因子分析只分析一个合约，请只保留一个数据集。", { exact: true }),
+    workspace.getByText("比较合约至少需要 3 个；只分析一个合约时请只保留一个数据集。", {
+      exact: true,
+    }),
   ).toBeVisible();
   await workspace.getByRole("button", { name: "移除 SHFE · hc2610", exact: true }).click();
   await expect(selected.getByRole("listitem")).toHaveCount(1);

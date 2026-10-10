@@ -16,7 +16,10 @@ message FactorSeries {
 message FactorInput {
   uint32 version = 1; // 6
   string dataset_revision = 2; // The revision of the series.
-  // Exactly one: a factor is evaluated on one instrument's observations.
+  // One series is evaluated over its own observations. Three to twenty of the
+  // same kind and period, each a different contract, are evaluated across
+  // contracts on the observations they all have; nothing is filled in. Windows,
+  // horizon and boundaries count those shared observations.
   repeated FactorSeries series = 3;
   repeated uint32 lookbacks = 4; // Strictly ascending, unique; 1..32 candidates.
   uint32 horizon = 5;
@@ -57,20 +60,30 @@ message FactorSample {
   double value = 2;
   double forward_return = 3;
 }
+// Across several contracts at one shared observation: how their features
+// relate to their labels. Absent where either does not vary across contracts.
+message FactorCrossSection {
+  uint32 event_index = 1;
+  optional double pearson = 2;
+  optional double spearman = 3;
+}
 message FactorResult {
   uint32 version = 1;
   string dataset_revision = 2;
   string engine_version = 3;
   uint32 lookback = 4;
   uint32 horizon = 5;
-  uint32 input_count = 6;
+  uint32 input_count = 6; // Observations the series share.
+  // One row per evaluated observation: samples for one series, cross-sections
+  // for several. The other list is empty.
   repeated FactorSample samples = 7;
-  repeated FactorPartition partitions = 8;
-  uint32 purged_count = 9;
-  string selection_rule = 10;
-  repeated FactorCandidate candidates = 11; // Development scores only.
-  uint32 evaluation_warmup = 12;
-  repeated FactorFold folds = 13;
+  repeated FactorCrossSection cross_sections = 8;
+  repeated FactorPartition partitions = 9;
+  uint32 purged_count = 10;
+  string selection_rule = 11;
+  repeated FactorCandidate candidates = 12; // Development scores only.
+  uint32 evaluation_warmup = 13;
+  repeated FactorFold folds = 14;
 }
 message FactorCandidate {
   uint32 lookback = 1;
@@ -81,10 +94,16 @@ message FactorPartition {
   string name = 1;
   uint32 begin_index = 2;
   uint32 end_index = 3; // Exclusive event boundary, labels stay inside.
-  uint32 sample_count = 4;
-  // Absence means zero variance, never an invented zero correlation.
+  uint32 sample_count = 4; // Evaluated observations.
+  // One series: the correlation over its samples. Several: the mean of the
+  // cross-sections that are defined. Absence means no defined value, never an
+  // invented zero correlation.
   optional double pearson = 5;
   optional double spearman = 6;
+  // Several series only: that mean over the standard deviation of the
+  // cross-sections; absent with fewer than two or when they do not vary.
+  optional double pearson_ratio = 7;
+  optional double spearman_ratio = 8;
 }
 
 message FactorFold {

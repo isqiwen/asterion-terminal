@@ -109,17 +109,91 @@ std::vector<std::optional<double>> forward_returns(std::span<const Decimal> clos
     result[i] = price_return(closes[i], closes[i + horizon]);
   return result;
 }
+namespace {
+using Column = std::vector<std::optional<double>>;
+struct Statistics {
+  std::optional<double> pearson, spearman, pearson_ratio, spearman_ratio;
+};
+// The mean of the defined values, and that mean over their standard deviation.
+std::pair<std::optional<double>, std::optional<double>>
+summary(std::span<const MomentumCrossSection> sections,
+        std::optional<double> MomentumCrossSection::* value) {
+  long double sum = 0, squares = 0;
+  std::size_t count = 0;
+  for (const auto& section : sections)
+    if (section.*value) {
+      sum += *(section.*value);
+      ++count;
+    }
+  if (!count)
+    return {};
+  const auto mean = sum / static_cast<long double>(count);
+  for (const auto& section : sections)
+    if (section.*value)
+      squares += (*(section.*value) - mean) * (*(section.*value) - mean);
+  std::optional<double> ratio;
+  if (count > 1 && squares > 0)
+    ratio = static_cast<double>(mean / std::sqrt(squares / static_cast<long double>(count - 1)));
+  return {static_cast<double>(mean), ratio};
+}
+Statistics statistics(std::span<const MomentumCrossSection> sections) {
+  const auto [pearson, pearson_ratio] = summary(sections, &MomentumCrossSection::pearson);
+  const auto [spearman, spearman_ratio] = summary(sections, &MomentumCrossSection::spearman);
+  return {pearson, spearman, pearson_ratio, spearman_ratio};
+}
+// Rows where every series has its feature and its label; the series share
+// their observations, so one of them decides.
+std::vector<std::size_t> evaluated(const Column& feature, const Column& label, std::size_t begin,
+                                   std::size_t end) {
+  std::vector<std::size_t> rows;
+  for (auto i = begin; i < end; ++i)
+    if (feature[i] && label[i])
+      rows.push_back(i);
+  return rows;
+}
+std::pair<std::vector<double>, std::vector<double>>
+over_time(const Column& feature, const Column& label, std::span<const std::size_t> rows) {
+  std::vector<double> values, outcomes;
+  for (const auto row : rows) {
+    values.push_back(*feature[row]);
+    outcomes.push_back(*label[row]);
+  }
+  return {std::move(values), std::move(outcomes)};
+}
+std::vector<MomentumCrossSection> across_series(std::span<const Column> features,
+                                                std::span<const Column> labels,
+                                                std::span<const std::size_t> rows) {
+  std::vector<MomentumCrossSection> sections;
+  std::vector<double> values(features.size()), outcomes(features.size());
+  for (const auto row : rows) {
+    for (std::size_t s = 0; s < features.size(); ++s) {
+      values[s] = *features[s][row];
+      outcomes[s] = *labels[s][row];
+    }
+    sections.push_back({row, correlation(values, outcomes), rank_correlation(values, outcomes)});
+  }
+  return sections;
+}
+} // namespace
 MomentumEvaluation
-evaluate_momentum(std::span<const Decimal> closes, std::span<const unsigned> lookbacks,
-                  std::size_t horizon, std::optional<std::size_t> split, std::stop_token stop,
+evaluate_momentum(std::span<const std::span<const Decimal>> series,
+                  std::span<const unsigned> lookbacks, std::size_t horizon,
+                  std::optional<std::size_t> split, std::stop_token stop,
                   const std::function<void(std::size_t, std::size_t)>& progress) {
-  const auto count = closes.size();
+  if (series.empty())
+    throw std::invalid_argument("momentum evaluation needs a series");
+  const auto count = series.front().size();
   if (lookbacks.empty() || (lookbacks.size() > 1 && !split) || (split && *split >= count))
     throw std::invalid_argument("momentum evaluation needs windows and, to compare them, a "
                                 "boundary inside the series");
-  for (const auto close : closes)
-    if (close <= Decimal{})
-      throw std::invalid_argument("return requires positive prices");
+  for (const auto closes : series) {
+    if (closes.size() != count)
+      throw std::invalid_argument("momentum series must share their observations");
+    for (const auto close : closes)
+      if (close <= Decimal{})
+        throw std::invalid_argument("return requires positive prices");
+  }
+  const bool cross = series.size() > 1;
   const std::size_t warmup = lookbacks.back();
   const auto boundary = split.value_or(count);
   const auto total = count + (lookbacks.size() > 1 ? lookbacks.size() * boundary : 0);
@@ -132,23 +206,31 @@ evaluate_momentum(std::span<const Decimal> closes, std::span<const unsigned> loo
       throw std::runtime_error("factor analysis cancelled");
   };
   advance(0);
+  const auto columns = [&](std::size_t end, const auto& compute) {
+    std::vector<Column> result;
+    for (const auto closes : series)
+      result.push_back(compute(closes.first(end)));
+    return result;
+  };
   MomentumEvaluation result;
   result.lookback = lookbacks.front();
   if (lookbacks.size() > 1) {
     // Selection sees the development observations and nothing else.
-    const auto development = closes.first(boundary);
-    const auto labels = forward_returns(development, horizon);
+    const auto labels =
+        columns(boundary, [&](auto closes) { return forward_returns(closes, horizon); });
     std::vector<MomentumCandidateScore> scores;
     for (const auto window : lookbacks) {
-      const auto features = momentum(development, window);
-      std::vector<double> values, outcomes;
-      for (auto i = warmup; i < boundary; ++i)
-        if (features[i] && labels[i]) {
-          values.push_back(*features[i]);
-          outcomes.push_back(*labels[i]);
-        }
-      const auto score = rank_correlation(values, outcomes);
-      result.candidates.push_back({window, values.size(), score});
+      const auto features =
+          columns(boundary, [&](auto closes) { return momentum(closes, window); });
+      const auto rows = evaluated(features.front(), labels.front(), warmup, boundary);
+      std::optional<double> score;
+      if (cross) {
+        score = statistics(across_series(features, labels, rows)).spearman;
+      } else {
+        const auto [values, outcomes] = over_time(features.front(), labels.front(), rows);
+        score = rank_correlation(values, outcomes);
+      }
+      result.candidates.push_back({window, rows.size(), score});
       scores.push_back({window, score});
       advance(boundary);
     }
@@ -157,26 +239,38 @@ evaluate_momentum(std::span<const Decimal> closes, std::span<const unsigned> loo
       throw std::invalid_argument("no candidate has a defined development correlation");
     result.lookback = *selection;
   }
-  const auto features = momentum(closes, result.lookback);
-  const auto labels = forward_returns(closes, horizon);
-  std::vector<double> values[2], outcomes[2];
-  for (auto i = warmup; i < count; ++i) {
-    if (!features[i] || !labels[i])
-      continue;
-    // A development label that ends in the holdout would let the two overlap.
-    if (i < boundary && i + horizon >= boundary) {
-      ++result.purged;
-      continue;
+  const auto features =
+      columns(count, [&](auto closes) { return momentum(closes, result.lookback); });
+  const auto labels = columns(count, [&](auto closes) { return forward_returns(closes, horizon); });
+  for (std::size_t index = 0; index < (split ? 2U : 1U); ++index) {
+    const auto begin = index ? boundary : 0, end = index || !split ? count : boundary;
+    auto rows = evaluated(features.front(), labels.front(), std::max(begin, warmup), end);
+    if (end < count) {
+      // A development label that ends in the holdout would let the two overlap.
+      const auto crossing =
+          std::ranges::remove_if(rows, [&](auto row) { return row + horizon >= end; });
+      result.purged += crossing.size();
+      rows.erase(crossing.begin(), crossing.end());
     }
-    const auto partition = i < boundary ? 0 : 1;
-    result.samples.push_back({i, *features[i], *labels[i]});
-    values[partition].push_back(*features[i]);
-    outcomes[partition].push_back(*labels[i]);
+    if (cross) {
+      const auto sections = across_series(features, labels, rows);
+      const auto summary = statistics(sections);
+      result.partitions.push_back({begin, end, rows.size(), summary.pearson, summary.spearman,
+                                   summary.pearson_ratio, summary.spearman_ratio});
+      result.cross_sections.insert(result.cross_sections.end(), sections.begin(), sections.end());
+    } else {
+      const auto [values, outcomes] = over_time(features.front(), labels.front(), rows);
+      result.partitions.push_back({begin,
+                                   end,
+                                   rows.size(),
+                                   correlation(values, outcomes),
+                                   rank_correlation(values, outcomes),
+                                   {},
+                                   {}});
+      for (std::size_t i = 0; i < rows.size(); ++i)
+        result.samples.push_back({rows[i], values[i], outcomes[i]});
+    }
   }
-  for (std::size_t index = 0; index < (split ? 2U : 1U); ++index)
-    result.partitions.push_back({index ? boundary : 0, index || !split ? count : boundary,
-                                 values[index].size(), correlation(values[index], outcomes[index]),
-                                 rank_correlation(values[index], outcomes[index])});
   advance(count);
   return result;
 }

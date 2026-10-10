@@ -10,13 +10,13 @@
 ## 能做什么
 
 - **行情**：CTP 实时行情（全市场合约目录、期货全景、自选、五档、分时、分钟 K 线）；Tushare 历史分钟线与日线下载及图表查看。
-- **回测与因子分析**：持久化任务服务，K 线数据集驱动的 SMA 组合回测和单合约因子评价，独立历史版本仓库。
+- **回测与因子分析**：持久化任务服务，K 线数据集驱动的 SMA 组合回测，单合约与多合约截面的因子评价，独立历史版本仓库。
 - **交易**：CTP 交易（柜台仿真或实盘：授权、合约白名单、价格与限额风控、先记录后发送、断线不重发）；可保存多个 CTP 账户并同时交易，行情使用其中一个。
 - **服务管理**：随桌面提供的 Node Agent 托管本机服务；可通过 SSH 引导部署到远程 Linux x86_64。
 
 ## 快速开始
 
-依赖：Node.js 22+、pnpm 10、Python 3、Conan 2、CMake 3.25+、Ninja；macOS 用 Xcode Command Line Tools（Apple Clang），Linux 用 GCC 13 及以上。
+依赖：Node.js 22+、pnpm 10、Python 3、Conan 2、CMake 3.25+、Ninja；macOS 用 Xcode 26 及以上的 Command Line Tools（Apple Clang），Linux 用 GCC 13 及以上。
 
 ```sh
 python3 scripts/prepare_ctp.py      # 下载并校验 CTP SDK

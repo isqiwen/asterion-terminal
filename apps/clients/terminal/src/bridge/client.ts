@@ -520,17 +520,29 @@ export type FactorResult = {
     begin_index: number;
     end_index: number;
     sample_count: number;
+    // One series: its correlation over time. Several: the mean of their
+    // cross-sections, and that mean over the cross-sections' deviation.
     pearson: number | null;
     spearman: number | null;
+    pearson_ratio: number | null;
+    spearman_ratio: number | null;
   }[];
-  // When a sample and its label were observed: a nanosecond timestamp for
-  // bars, the provider's trading date for daily closes.
+  // One row per evaluated observation: samples for one series, cross-sections
+  // for several; the other list is empty. `observed` and `label` are a
+  // nanosecond timestamp for bars, the provider's trading date for daily closes.
   samples: {
     event_index: number;
     observed: string;
     label: string;
     value: number;
     forward_return: number;
+  }[];
+  cross_sections: {
+    event_index: number;
+    observed: string;
+    label: string;
+    pearson: number | null;
+    spearman: number | null;
   }[];
 };
 export type HistoryConnectionSchema = {
@@ -669,7 +681,7 @@ export type BacktestExperiment = {
   // One range per contract, in contract order.
   data: ExperimentData[];
 };
-// The one series a factor read: a contract's bars, or the daily closes of a
+// One series a factor read: a contract's bars, or the daily closes of a
 // published version.
 export type FactorSeriesEvidence =
   | { kind: "bars"; dataset: DatasetEvidence; data: ExperimentData }

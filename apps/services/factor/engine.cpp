@@ -14,6 +14,10 @@ void fill(factor::v1::FactorPartition& target, const MomentumPartition& source, 
     target.set_pearson(*source.pearson);
   if (source.spearman)
     target.set_spearman(*source.spearman);
+  if (source.pearson_ratio)
+    target.set_pearson_ratio(*source.pearson_ratio);
+  if (source.spearman_ratio)
+    target.set_spearman_ratio(*source.spearman_ratio);
 }
 template <class Candidates>
 void fill(Candidates& target, const std::vector<MomentumCandidate>& source) {
@@ -32,7 +36,8 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
   // From here on the factor sees ordered closes; what the series is made of
   // no longer matters.
   const auto observations = protocol::factor_observations(input);
-  const std::span<const Decimal> closes(observations.closes);
+  std::vector<std::span<const Decimal>> closes(observations.closes.begin(),
+                                               observations.closes.end());
   const std::vector<unsigned> lookbacks(input.lookbacks().begin(), input.lookbacks().end());
   const bool search = lookbacks.size() > 1;
   factor::v1::FactorResult result;
@@ -40,13 +45,29 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
   result.set_dataset_revision(input.dataset_revision());
   result.set_engine_version(protocol::factor_engine_version);
   result.set_horizon(input.horizon());
-  result.set_input_count(static_cast<unsigned>(closes.size()));
+  result.set_input_count(static_cast<unsigned>(observations.order.size()));
   result.set_evaluation_warmup(lookbacks.back());
-  const auto sample = [&](const MomentumSample& row, std::size_t offset) {
-    auto* target = result.add_samples();
-    target->set_event_index(static_cast<unsigned>(row.index + offset));
-    target->set_value(row.value);
-    target->set_forward_return(row.forward_return);
+  // Rows from `first` on, as observations of the whole input.
+  const auto rows = [&](const MomentumEvaluation& evaluation, std::size_t first,
+                        std::size_t offset) {
+    for (const auto& row : evaluation.samples) {
+      if (row.index < first)
+        continue;
+      auto* target = result.add_samples();
+      target->set_event_index(static_cast<unsigned>(row.index + offset));
+      target->set_value(row.value);
+      target->set_forward_return(row.forward_return);
+    }
+    for (const auto& row : evaluation.cross_sections) {
+      if (row.index < first)
+        continue;
+      auto* target = result.add_cross_sections();
+      target->set_event_index(static_cast<unsigned>(row.index + offset));
+      if (row.pearson)
+        target->set_pearson(*row.pearson);
+      if (row.spearman)
+        target->set_spearman(*row.spearman);
+    }
   };
   if (!input.has_walk_forward()) {
     const auto evaluation = evaluate_momentum(
@@ -63,8 +84,7 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
     if (holdout)
       fill(*result.add_partitions(), evaluation.partitions[1], "holdout", 0);
     result.set_purged_count(static_cast<unsigned>(evaluation.purged));
-    for (const auto& row : evaluation.samples)
-      sample(row, 0);
+    rows(evaluation, 0, 0);
     return result;
   }
   // Each fold is an evaluation of its own window: training observations
@@ -77,13 +97,15 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
            input.walk_forward().training_events(), input.walk_forward().validation_events())) {
     const auto training = range.training_end - range.training_begin;
     std::size_t units = 0;
-    const auto evaluation = evaluate_momentum(
-        closes.subspan(range.training_begin, range.validation_end - range.training_begin),
-        lookbacks, input.horizon(), training, stop, [&](std::size_t done, std::size_t all) {
-          units = all;
-          if (progress)
-            progress(completed + done, total);
-        });
+    auto window = closes;
+    for (auto& series : window)
+      series = series.subspan(range.training_begin, range.validation_end - range.training_begin);
+    const auto evaluation = evaluate_momentum(window, lookbacks, input.horizon(), training, stop,
+                                              [&](std::size_t done, std::size_t all) {
+                                                units = all;
+                                                if (progress)
+                                                  progress(completed + done, total);
+                                              });
     completed += units;
     auto* fold = result.add_folds();
     fold->set_training_begin(range.training_begin);
@@ -95,9 +117,7 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
          range.training_begin);
     fill(*fold->mutable_holdout(), evaluation.partitions[1], "holdout", range.training_begin);
     result.set_purged_count(result.purged_count() + static_cast<unsigned>(evaluation.purged));
-    for (const auto& row : evaluation.samples)
-      if (row.index >= training)
-        sample(row, range.training_begin);
+    rows(evaluation, training, range.training_begin);
   }
   return result;
 }

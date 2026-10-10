@@ -376,27 +376,18 @@ PolledTask<> TaskHost::submit_backtest(Call& call) {
 PolledTask<> TaskHost::submit_factor(Call& call) {
   const auto& p = call.request.submit();
   const auto& f = p.factor_request();
-  if (f.series_size() != 1)
-    throw std::invalid_argument("factor analysis studies exactly one series");
-  auto prepared = co_await data_input(call, protocol::factor_series_query(f.series(0)));
-  factor::v1::FactorInput input;
-  input.set_version(6);
-  *input.add_series() = protocol::factor_series(f.series(0), std::move(prepared));
-  *input.mutable_lookbacks() = f.lookbacks();
-  input.set_horizon(f.horizon());
-  if (f.has_full_sample())
-    input.set_full_sample(f.full_sample());
-  else if (f.has_walk_forward())
-    *input.mutable_walk_forward() = f.walk_forward();
-  else if (f.has_holdout_start())
-    input.set_holdout_start(f.holdout_start());
+  auto input = protocol::factor_input(f);
+  for (const auto& source : f.series()) {
+    auto prepared = co_await data_input(call, protocol::factor_series_query(source));
+    protocol::add_factor_series(input, protocol::factor_series(source, std::move(prepared)));
+  }
   co_await ready(call);
   call.input_in_time();
   refuse_during_upgrade(quiescing_);
   *call.response.mutable_task() =
       (co_await submit(call, [&] {
         // Hashing a daily series is file-worker work, like the rest of the submission.
-        input.set_dataset_revision(protocol::factor_series_revision(input.series(0)));
+        input.set_dataset_revision(protocol::factor_revision(input.series()));
         return storage_->submission(p.id(), std::move(input));
       })).task();
 }

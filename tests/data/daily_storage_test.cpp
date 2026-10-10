@@ -589,7 +589,7 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   input.set_horizon(2);
   input.set_holdout_start(40);
   *input.add_series()->mutable_daily() = dataset;
-  input.set_dataset_revision(protocol::factor_series_revision(input.series(0)));
+  input.set_dataset_revision(protocol::factor_revision(input.series()));
   const auto analysis = factor::run(input);
   EXPECT_EQ(analysis.samples_size(), 74);
   factor::v1::FactorRequest parameters;

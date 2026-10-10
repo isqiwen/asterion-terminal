@@ -160,3 +160,62 @@ for (const mode of ["full", "holdout", "search", "rolling"])
       }
     },
   );
+
+test("three contracts are compared with each other at every bar they share", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".workspace-tabs")).toBeVisible();
+  // Each contract moves by its own pattern, so they differ at every bar.
+  const prices = (step: number) =>
+    Array.from({ length: 40 }, (_, i) => 100 * step + step * i + (i % (step + 2)));
+  await seedDataset(page.request, prices(1), "cross-rb");
+  await seedDataset(page.request, prices(2), "cross-hc", { product: "hc", keep: true });
+  await seedDataset(page.request, prices(3), "cross-al", { product: "al", keep: true });
+  await page.reload();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  const workspace = page.getByRole("region", { name: "期货研究", exact: true });
+  await expect(workspace.getByText("任务服务已连接", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "因子", exact: true }).click();
+  await expect(
+    workspace.getByText("多个合约 · 在各合约共有的 K 线上比较它们的动量与未来收益", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await workspace.getByLabel("回看 K 线数", { exact: true }).fill("2");
+  await workspace.getByLabel("未来收益 K 线数", { exact: true }).fill("1");
+  await workspace.getByRole("button", { name: "开始分析", exact: true }).click();
+  const row = workspace
+    .getByRole("region", { name: "研究任务", exact: true })
+    .getByRole("row")
+    .filter({ hasText: "SHFE/rb2610 + SHFE/hc2610 + SHFE/al2610" });
+  await expect(row.getByText("已完成", { exact: true })).toBeVisible({ timeout: 20000 });
+  await row.getByRole("button", { name: "查看结果", exact: true }).click();
+  const result = workspace.getByRole("region", { name: "因子结果", exact: true });
+  await expect(result).toContainText("3 个合约的截面");
+  const whole = result.getByRole("region", { name: "全样本", exact: true });
+  // 40 shared bars less the window of 2 and the horizon of 1.
+  await expect(whole.getByText("37", { exact: true })).toBeVisible();
+  for (const name of ["IC 均值", "秩 IC 均值", "IC 信息比率", "秩 IC 信息比率"])
+    await expect(whole.getByText(name, { exact: true })).toBeVisible();
+  await whole.screenshot({ path: join(__dirname, "../test-results/factor-cross-metrics.png") });
+  await result.getByText("截面明细", { exact: true }).click();
+  const sections = result.getByRole("table", { name: "截面明细" });
+  await expect(sections.locator("tbody tr")).toHaveCount(37);
+  await expect(sections.getByRole("columnheader", { name: "秩 IC", exact: true })).toBeVisible();
+  await result.getByText("实验参数", { exact: true }).click();
+  for (const symbol of ["rb2610", "hc2610", "al2610"])
+    await expect(result.getByRole("region", { name: `SHFE · ${symbol}` })).toContainText("40");
+  await result.getByText("结果详情", { exact: true }).click();
+  await expect(result).toContainText("各合约共有的观测: 40 · 有效截面: 37");
+  await page.screenshot({ path: join(__dirname, "../test-results/factor-cross-result.png") });
+  // The result reads the same in English, with nothing left untranslated.
+  page = await openSettingsWindow(page);
+  await page.getByLabel("语言", { exact: true }).selectOption("en-US");
+  page = await closeSettingsWindow(page);
+  await page
+    .locator(".workspace-tabs")
+    .getByRole("button", { name: "Research", exact: true })
+    .click();
+  const english = page.getByRole("region", { name: "Factor Results", exact: true });
+  await expect(english).toContainText("cross-section of 3 contracts");
+  await expect(english).not.toContainText(/\p{Script=Han}/u);
+});

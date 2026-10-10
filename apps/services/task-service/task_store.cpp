@@ -45,15 +45,20 @@ void prepare(wire::Task& task) {
   } else if (task.has_factor()) {
     protocol::validate_factor_input(task.factor());
     task.set_kind(wire::FACTOR);
-    const auto& series = task.factor().series(0);
-    if (series.has_bars()) {
-      const auto& c = series.bars().contract();
-      task.set_instrument(c.venue() + "/" + c.symbol());
-      task.set_source_name(series.bars().revision());
-    } else {
-      task.set_instrument(series.daily().contract_id());
-      task.set_source_name(series.daily().source_dataset_id());
+    std::string instruments, sources;
+    for (const auto& series : task.factor().series()) {
+      const auto separator = instruments.empty() ? "" : " + ";
+      if (series.has_bars()) {
+        const auto& c = series.bars().contract();
+        instruments += separator + c.venue() + "/" + c.symbol();
+        sources += separator + series.bars().revision();
+      } else {
+        instruments += separator + series.daily().contract_id();
+        sources += separator + series.daily().source_dataset_id();
+      }
     }
+    task.set_instrument(instruments);
+    task.set_source_name(sources);
     task.set_total(static_cast<unsigned>(protocol::factor_work_units(task.factor())));
     task.clear_trading_day();
   } else if (task.has_input()) {

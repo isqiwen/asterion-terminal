@@ -13,12 +13,19 @@ factor::v1::FactorRequest encode_factor_request(const Json& input);
 data::v1::DataRequest factor_series_query(const factor::v1::FactorSeriesRequest& source);
 factor::v1::FactorSeries factor_series(const factor::v1::FactorSeriesRequest& source,
                                        data::v1::DataResponse reply);
-std::string factor_series_revision(const factor::v1::FactorSeries& series);
-// What a factor reads from the series of a valid input, in order: one positive
-// close per observation, and when it was observed as a number that never
-// decreases along the series.
+// The fixed input of a request, before its series: Task and the worker each
+// resolve them from Data, add them in request order and then set the revision.
+factor::v1::FactorInput factor_input(const factor::v1::FactorRequest& request);
+// Refuses more observations than one input may hold.
+void add_factor_series(factor::v1::FactorInput& input, factor::v1::FactorSeries series);
+// The revision of an input's data: of its only series, or of all of them in order.
+std::string
+factor_revision(const google::protobuf::RepeatedPtrField<factor::v1::FactorSeries>& series);
+// What a factor reads from the series of a valid input: the observations they
+// all have, in order. `closes` holds one positive close per observation for
+// each series; `order` says when it was observed, as a number that increases.
 struct FactorObservations {
-  std::vector<Decimal> closes;
+  std::vector<std::vector<Decimal>> closes;
   std::vector<std::int64_t> order;
 };
 FactorObservations factor_observations(const factor::v1::FactorInput& input);

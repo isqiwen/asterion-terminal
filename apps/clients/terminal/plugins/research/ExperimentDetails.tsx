@@ -79,23 +79,21 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
     );
   } else {
     const { series, lookbacks, horizon, evaluation } = evidence.experiment;
-    const input = series[0];
-    const words = factorWords[input.kind];
-    contracts =
+    const words = factorWords[series[0].kind];
+    contracts = series.map(input =>
       input.kind === "bars"
-        ? [contractRows(input.dataset, input.data)]
-        : [
-            {
-              name: input.data.contract_id,
-              rows: [
-                ["交易日范围", `${input.data.first_day} – ${input.data.last_day}`],
-                [words.input, input.data.count],
-                ["数据源", input.data.source],
-                ["来源数据版本", input.data.source_dataset_id],
-                ["来源摘要", input.data.manifest_sha256],
-              ] as Rows,
-            },
-          ];
+        ? contractRows(input.dataset, input.data)
+        : {
+            name: input.data.contract_id,
+            rows: [
+              ["交易日范围", `${input.data.first_day} – ${input.data.last_day}`],
+              [words.input, input.data.count],
+              ["数据源", input.data.source],
+              ["来源数据版本", input.data.source_dataset_id],
+              ["来源摘要", input.data.manifest_sha256],
+            ] as Rows,
+          },
+    );
     rows.push(
       [words.candidates, lookbacks.join(", ")],
       [words.horizon, horizon],
@@ -120,11 +118,10 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
   let versions;
   if (evidence.kind === "backtest")
     versions = evidence.experiment.paper.contracts.flatMap(item => item.dataset.history_evidence);
-  else {
-    const input = evidence.experiment.series[0];
-    versions =
-      input.kind === "bars" ? input.dataset.history_evidence : [input.data.history_evidence];
-  }
+  else
+    versions = evidence.experiment.series.flatMap(input =>
+      input.kind === "bars" ? input.dataset.history_evidence : [input.data.history_evidence],
+    );
   return (
     <>
       <HistoryAvailability

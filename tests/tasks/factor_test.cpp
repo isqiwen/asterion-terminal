@@ -75,7 +75,8 @@ TEST(Factor, FeaturesReadOnlyThePastAndLabelsOnlyTheFuture) {
   }
   closes[1] = d("0");
   EXPECT_THROW(momentum(closes, 1), std::invalid_argument);
-  EXPECT_THROW(evaluate_momentum(closes, std::vector<unsigned>{1}, 1, std::nullopt),
+  const std::vector<std::span<const Decimal>> series{closes};
+  EXPECT_THROW(evaluate_momentum(series, std::vector<unsigned>{1}, 1, std::nullopt),
                std::invalid_argument);
 }
 TEST(Factor, PearsonTiedRanksUndefinedVarianceAndSmallPriceChanges) {
@@ -690,10 +691,10 @@ TEST(Factor, DailySeriesKeepsProviderDatesBindsItsVersionAndPurgesHoldoutLabels)
   // The revision covers every stored value of the version, not the windows.
   auto changed = input;
   changed.set_lookbacks(0, 3);
-  EXPECT_EQ(protocol::factor_series_revision(changed.series(0)), input.dataset_revision());
+  EXPECT_EQ(protocol::factor_revision(changed.series()), input.dataset_revision());
   auto& bars = *changed.mutable_series(0)->mutable_daily();
   bars.mutable_bars(0)->mutable_amount()->set_units(d("100.00000002").raw());
-  EXPECT_NE(protocol::factor_series_revision(changed.series(0)), input.dataset_revision());
+  EXPECT_NE(protocol::factor_revision(changed.series()), input.dataset_revision());
   EXPECT_THROW(factor::run(changed), std::invalid_argument);
   changed = input;
   changed.mutable_series(0)->mutable_daily()->set_source_dataset_id("another-source");
@@ -721,7 +722,7 @@ TEST(Factor, DailySeriesComparesWindowsAndRollsLikeBars) {
   search.set_holdout_start(50);
   search.add_lookbacks(5);
   search.add_lookbacks(10);
-  search.set_dataset_revision(protocol::factor_series_revision(search.series(0)));
+  search.set_dataset_revision(protocol::factor_revision(search.series()));
   // The same closes as bars: what the series is made of does not change the evaluation.
   const auto as_days = factor::run(search);
   const auto as_bars = factor::run(search_input());
@@ -773,4 +774,209 @@ TEST(Factor, RequestNamesOneSeriesOfBarsOrOneDailyVersion) {
   data::v1::DataResponse reply;
   reply.mutable_bar_dataset();
   EXPECT_THROW(protocol::factor_series(encoded.series(0), reply), std::invalid_argument);
+}
+namespace {
+// Three contracts on one-second bars, each moving by its own pattern. The
+// second lacks the bar at `missing`.
+factor::v1::FactorInput cross_input(int count = 41, int missing = 10) {
+  factor::v1::FactorInput result;
+  result.set_version(6);
+  result.set_full_sample(true);
+  result.add_lookbacks(2);
+  result.set_horizon(1);
+  for (int k = 0; k < 3; ++k) {
+    std::vector<MarketBar> rows;
+    for (int i = 0; i < count; ++i) {
+      if (k == 1 && i == missing)
+        continue;
+      const auto price = Decimal::parse(std::to_string(1000 + (k + 3) * i + i % (k + 3) * 4));
+      rows.push_back({"2026-09-25", 1790298000000000000LL + i * 1000000000LL, price, price, price,
+                      price, d("1")});
+    }
+    const auto symbol = "rb26" + std::to_string(10 + k);
+    const auto month = "2026-" + std::to_string(10 + k);
+    *result.add_series()->mutable_bars() =
+        test::dataset(rows, {}, test::contract("SHFE", symbol.c_str(), "rb", month.c_str()));
+  }
+  result.set_dataset_revision(protocol::factor_revision(result.series()));
+  return result;
+}
+} // namespace
+TEST(Factor, SeveralSeriesAreJudgedAcrossContractsAtEachObservation) {
+  // Per step, the first rises 10% three times and then falls 10%, the second
+  // rises 5% throughout, the third stays and then rises 10%.
+  const std::vector<Decimal> a{d("1000"), d("1100"), d("1210"), d("1331"), d("1197.9")},
+      b{d("1000"), d("1050"), d("1102.5"), d("1157.625"), d("1215.50625")},
+      c{d("1000"), d("1000"), d("1000"), d("1000"), d("1100")};
+  const std::vector<std::span<const Decimal>> series{a, b, c};
+  const auto result = evaluate_momentum(series, std::vector<unsigned>{1}, 1, std::nullopt);
+  EXPECT_TRUE(result.samples.empty());
+  // The contracts keep their order at two observations and reverse it at the third.
+  ASSERT_EQ(result.cross_sections.size(), 3U);
+  for (std::size_t i = 0; i < 3; ++i) {
+    EXPECT_EQ(result.cross_sections[i].index, i + 1);
+    EXPECT_DOUBLE_EQ(*result.cross_sections[i].spearman, i < 2 ? 1 : -1);
+  }
+  EXPECT_NEAR(*result.cross_sections[0].pearson, 1, 1e-12);
+  ASSERT_EQ(result.partitions.size(), 1U);
+  EXPECT_EQ(result.partitions[0].samples, 3U);
+  EXPECT_NEAR(*result.partitions[0].spearman, 1.0 / 3, 1e-12);
+  EXPECT_NEAR(*result.partitions[0].spearman_ratio, std::sqrt(3.0) / 6, 1e-12);
+  // The same relation everywhere has a mean and nothing to divide it by.
+  const std::vector<std::span<const Decimal>> steady{std::span(a).first(4), std::span(b).first(4),
+                                                     std::span(c).first(4)};
+  const auto same = evaluate_momentum(steady, std::vector<unsigned>{1}, 1, std::nullopt);
+  EXPECT_DOUBLE_EQ(*same.partitions[0].spearman, 1);
+  EXPECT_FALSE(same.partitions[0].spearman_ratio);
+  // Contracts that do not differ leave their observations undefined, not zero.
+  const std::vector<std::span<const Decimal>> identical{c, c, c};
+  const auto undefined = evaluate_momentum(identical, std::vector<unsigned>{1}, 1, std::nullopt);
+  EXPECT_EQ(undefined.partitions[0].samples, 3U);
+  EXPECT_FALSE(undefined.cross_sections[0].spearman || undefined.partitions[0].spearman ||
+               undefined.partitions[0].pearson);
+  const std::vector<std::span<const Decimal>> uneven{a, std::span(b).first(4), c};
+  EXPECT_THROW(evaluate_momentum(uneven, std::vector<unsigned>{1}, 1, std::nullopt),
+               std::invalid_argument);
+}
+TEST(Factor, SeveralSeriesChooseTheirWindowFromDevelopmentObservationsAlone) {
+  std::vector<std::vector<Decimal>> closes(3);
+  for (int k = 0; k < 3; ++k)
+    for (int i = 0; i < 80; ++i)
+      closes[k].push_back(Decimal::parse(std::to_string(1000 + (k + 3) * i + i % (k + 3) * 4)));
+  const std::vector<unsigned> windows{1, 2, 5};
+  const auto evaluate = [&] {
+    return evaluate_momentum(std::vector<std::span<const Decimal>>(closes.begin(), closes.end()),
+                             windows, 2, 40);
+  };
+  const auto before = evaluate();
+  for (auto& series : closes)
+    for (std::size_t i = 40; i < series.size(); ++i)
+      series[i] = Decimal::parse(std::to_string(5000 - 17 * static_cast<int>(i) % 900));
+  const auto after = evaluate();
+  ASSERT_EQ(before.candidates.size(), 3U);
+  EXPECT_EQ(after.lookback, before.lookback);
+  for (std::size_t i = 0; i < 3; ++i) {
+    EXPECT_EQ(before.candidates[i].samples, 33U); // 40 - warmup 5 - horizon 2
+    EXPECT_EQ(after.candidates[i].development_spearman, before.candidates[i].development_spearman);
+  }
+  // Development rows whose label would end in the holdout are left out.
+  EXPECT_EQ(before.purged, 2U);
+  EXPECT_EQ(before.partitions[0].samples, 33U);
+  EXPECT_EQ(after.partitions[0].spearman, before.partitions[0].spearman);
+  EXPECT_NE(after.partitions[1].spearman, before.partitions[1].spearman);
+}
+TEST(Factor, CrossSectionUsesOnlyObservationsEveryContractHas) {
+  const auto value = cross_input();
+  EXPECT_NO_THROW(protocol::validate_factor_input(value));
+  const auto observations = protocol::factor_observations(value);
+  ASSERT_EQ(observations.closes.size(), 3U);
+  // 41 bars, one of which the second contract lacks.
+  ASSERT_EQ(observations.order.size(), 40U);
+  EXPECT_EQ(observations.closes[0][10], Decimal::parse(std::to_string(1000 + 3 * 11 + 11 % 3 * 4)));
+  const auto result = factor::run(value);
+  EXPECT_EQ(result.input_count(), 40U);
+  EXPECT_TRUE(result.samples().empty());
+  ASSERT_EQ(result.cross_sections_size(), 37); // 40 - warmup 2 - horizon 1
+  EXPECT_EQ(result.partitions(0).sample_count(), 37U);
+  EXPECT_TRUE(result.partitions(0).has_spearman());
+  EXPECT_TRUE(result.partitions(0).has_spearman_ratio());
+  const auto decoded = protocol::decode_factor_result(value, result);
+  EXPECT_TRUE(decoded.at("samples").empty());
+  // Shared observation 10 is the first contract's bar 11; its label is the next one.
+  const auto& row = decoded.at("cross_sections").at(8);
+  EXPECT_EQ(row.at("event_index"), 10);
+  EXPECT_EQ(row.at("observed"), std::to_string(1790298000000000000LL + 11 * 1000000000LL));
+  EXPECT_EQ(row.at("label"), std::to_string(1790298000000000000LL + 12 * 1000000000LL));
+  EXPECT_EQ(protocol::decode_factor(value, protocol::DatasetView::metadata).at("series").size(),
+            3U);
+
+  // A result of the other shape, or one that skips an observation, is not this input's.
+  auto wrong = result;
+  wrong.add_samples()->set_event_index(2);
+  EXPECT_THROW(protocol::validate_factor_result(value, wrong), std::invalid_argument);
+  wrong = result;
+  wrong.mutable_cross_sections()->DeleteSubrange(5, 1);
+  EXPECT_THROW(protocol::validate_factor_result(value, wrong), std::invalid_argument);
+  auto single = input();
+  auto ratio = factor::run(single);
+  ratio.mutable_partitions(0)->set_spearman_ratio(1);
+  EXPECT_THROW(protocol::validate_factor_result(single, ratio), std::invalid_argument);
+
+  // Two contracts are no cross-section; neither is one contract twice, a
+  // mixed period, or data other than what the revision names.
+  auto two = value;
+  two.mutable_series()->RemoveLast();
+  two.set_dataset_revision("");
+  EXPECT_THROW(protocol::factor_revision(two.series()), std::invalid_argument);
+  EXPECT_THROW(protocol::validate_factor_input(two), std::invalid_argument);
+  auto twice = value;
+  *twice.mutable_series(2) = twice.series(0);
+  twice.set_dataset_revision(protocol::factor_revision(twice.series()));
+  EXPECT_THROW(protocol::validate_factor_input(twice), std::invalid_argument);
+  auto mixed = value;
+  mixed.mutable_series(2)->mutable_bars()->set_interval_minutes(5);
+  EXPECT_THROW(protocol::validate_factor_input(mixed), std::invalid_argument);
+  auto renamed = value;
+  renamed.set_dataset_revision(value.series(0).bars().revision());
+  EXPECT_THROW(protocol::validate_factor_input(renamed), std::invalid_argument);
+}
+TEST_F(FactorTasks, CrossSectionHoldoutAndRollingResultsSurviveTheStore) {
+  auto holdout = cross_input(131, 200);
+  holdout.clear_lookbacks();
+  for (const unsigned window : {2U, 5U})
+    holdout.add_lookbacks(window);
+  holdout.set_holdout_start(70);
+  const auto selected = factor::run(holdout);
+  ASSERT_EQ(selected.partitions_size(), 2);
+  EXPECT_EQ(selected.candidates_size(), 2);
+  EXPECT_EQ(selected.selection_rule(), "development_abs_spearman");
+  EXPECT_EQ(selected.purged_count(), 1U);
+  auto rolling = cross_input(130, 200);
+  rolling.mutable_walk_forward()->set_training_events(60);
+  rolling.mutable_walk_forward()->set_validation_events(35);
+  const auto folds = factor::run(rolling);
+  ASSERT_EQ(folds.folds_size(), 2);
+  EXPECT_EQ(folds.cross_sections_size(), 68); // two validation windows of 35 - horizon 1
+  EXPECT_TRUE(folds.folds(1).holdout().has_spearman());
+  {
+    tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
+    const auto task = tasks::submit(store, "selected", holdout);
+    EXPECT_EQ(task.instrument(), "SHFE/rb2610 + SHFE/rb2611 + SHFE/rb2612");
+    store.commit(
+        tasks::finish(store, "selected", store.commit(store.claim("selected")).token(), selected));
+    tasks::submit(store, "rolling", rolling);
+    store.commit(
+        tasks::finish(store, "rolling", store.commit(store.claim("rolling")).token(), folds));
+  }
+  tasks::Store restored(root, tasks::Identity{"factor-tests", "fixture-data"});
+  EXPECT_EQ(tasks::factor_result(restored, "selected").SerializeAsString(),
+            selected.SerializeAsString());
+  EXPECT_EQ(tasks::factor_result(restored, "rolling").SerializeAsString(),
+            folds.SerializeAsString());
+}
+TEST(Factor, DailyCrossSectionSharesTradingDays) {
+  factor::v1::FactorInput value;
+  value.set_version(6);
+  value.set_full_sample(true);
+  value.add_lookbacks(2);
+  value.set_horizon(2);
+  for (int k = 0; k < 3; ++k) {
+    auto one = daily_input(60, [k](int i) { return 100 * (k + 1) + (k + 2) * i + i % (k + 3); });
+    auto& daily = *one.mutable_series(0)->mutable_daily();
+    daily.set_contract_id("SHFE/cu/2024-0" + std::to_string(3 + k));
+    if (k == 2) // The third contract has no bar on 2023-01-21.
+      daily.mutable_bars()->DeleteSubrange(20, 1);
+    *value.add_series() = one.series(0);
+  }
+  value.set_dataset_revision(protocol::factor_revision(value.series()));
+  EXPECT_NO_THROW(protocol::validate_factor_input(value));
+  const auto result = factor::run(value);
+  EXPECT_EQ(result.input_count(), 59U);
+  ASSERT_EQ(result.cross_sections_size(), 55); // 59 - warmup 2 - horizon 2
+  const auto decoded = protocol::decode_factor_result(value, result);
+  // The shared day after 2023-01-20 is the 22nd; its label ends two shared days later.
+  const auto& row = decoded.at("cross_sections").at(18);
+  EXPECT_EQ(row.at("event_index"), 20);
+  EXPECT_EQ(row.at("observed"), "2023-01-22");
+  EXPECT_EQ(row.at("label"), "2023-01-24");
 }

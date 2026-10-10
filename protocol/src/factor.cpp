@@ -3,29 +3,76 @@
 #include <asterion/protocol/factor.hpp>
 #include <cmath>
 #include <algorithm>
+#include <set>
 #include <stdexcept>
 namespace asterion::protocol {
 namespace {
 bool digest(const std::string& value) {
   return value.size() == 64 && value.find_first_not_of("0123456789abcdef") == std::string::npos;
 }
-const factor::v1::FactorSeries& series(const factor::v1::FactorInput& input) {
-  if (input.series_size() != 1 ||
-      input.series(0).source_case() == factor::v1::FactorSeries::SOURCE_NOT_SET)
-    throw std::invalid_argument("factor analysis studies exactly one series");
-  return input.series(0);
+// One series, or a cross-section of contracts observed the same way.
+void validate_series(const google::protobuf::RepeatedPtrField<factor::v1::FactorSeries>& series) {
+  if (series.size() != 1 && (series.size() < 3 || series.size() > 20))
+    throw std::invalid_argument("factor analysis studies one series or 3..20 contracts");
+  const auto& first = series.Get(0);
+  for (const auto& data : series)
+    if (data.source_case() == factor::v1::FactorSeries::SOURCE_NOT_SET ||
+        data.source_case() != first.source_case() ||
+        (data.has_bars() && data.bars().interval_minutes() != first.bars().interval_minutes()))
+      throw std::invalid_argument("factor series must be of one kind and one period");
+}
+// When each observation of a series was made, as a number that increases
+// along it: the bar's label timestamp, or the provider's trading date.
+std::vector<std::int64_t> observation_order(const factor::v1::FactorSeries& data) {
+  std::vector<std::int64_t> result;
+  if (data.has_bars()) {
+    for (const auto& bar : data.bars().bars())
+      result.push_back(bar.timestamp_ns());
+  } else {
+    for (const auto& bar : daily_factor_bars(data.daily()))
+      result.push_back(std::chrono::sys_days(bar.trading_day).time_since_epoch().count());
+  }
+  return result;
+}
+// The observations every series has, in order, and where each sits in each
+// series. One series shares all of its own.
+struct SharedObservations {
+  std::vector<std::int64_t> order;
+  std::vector<std::vector<int>> positions;
+};
+SharedObservations shared_observations(const factor::v1::FactorInput& input) {
+  validate_series(input.series());
+  std::vector<std::vector<std::int64_t>> orders;
+  for (const auto& data : input.series())
+    orders.push_back(observation_order(data));
+  SharedObservations result;
+  result.positions.resize(orders.size());
+  std::vector<std::size_t> cursor(orders.size());
+  for (std::size_t i = 0; i < orders.front().size(); ++i) {
+    cursor.front() = i;
+    bool everywhere = true;
+    for (std::size_t s = 1; s < orders.size() && everywhere; ++s) {
+      auto& at = cursor[s];
+      while (at < orders[s].size() && orders[s][at] < orders.front()[i])
+        ++at;
+      everywhere = at < orders[s].size() && orders[s][at] == orders.front()[i];
+    }
+    if (!everywhere)
+      continue;
+    result.order.push_back(orders.front()[i]);
+    for (std::size_t s = 0; s < orders.size(); ++s)
+      result.positions[s].push_back(static_cast<int>(cursor[s]));
+  }
+  return result;
 }
 unsigned observation_count(const factor::v1::FactorInput& input) {
-  const auto& data = series(input);
-  return static_cast<unsigned>(data.has_bars() ? data.bars().bars_size()
-                                               : data.daily().bars_size());
+  return static_cast<unsigned>(shared_observations(input).order.size());
 }
 // When an observation was made, as the interface shows it: the bar's label
 // timestamp, or the provider's trading date.
-std::string observed(const factor::v1::FactorSeries& data, unsigned index) {
-  const auto i = static_cast<int>(index);
-  return data.has_bars() ? std::to_string(data.bars().bars(i).timestamp_ns())
-                         : data.daily().bars(i).trading_day();
+std::string observed(const factor::v1::FactorSeries& data, int index) {
+  return data.has_bars() ? std::to_string(data.bars().bars(index).timestamp_ns())
+                         : data.daily().bars(index).trading_day();
 }
 } // namespace
 std::vector<HistoricalDailyBar> daily_factor_bars(const factor::v1::DailyFactorDataset& input) {
@@ -85,17 +132,22 @@ std::string daily_factor_revision(const factor::v1::DailyFactorDataset& input) {
 factor::v1::FactorRequest encode_factor_request(const Json& input) {
   require_fields(input, {"series", "lookbacks", "horizon", "evaluation"});
   factor::v1::FactorRequest result;
-  if (!input.at("series").is_array() || input.at("series").size() != 1 ||
-      !input.at("series").at(0).is_object() || input.at("series").at(0).size() != 1)
-    throw std::invalid_argument("factor analysis studies exactly one series");
-  const auto& source = input.at("series").at(0);
-  if (source.contains("bars"))
-    *result.add_series()->mutable_bars() = encode_bar_dataset_request(source.at("bars"));
-  else if (source.contains("daily_dataset_id") && source.at("daily_dataset_id").is_string() &&
-           digest(source.at("daily_dataset_id").get<std::string>()))
-    result.add_series()->set_daily_dataset_id(source.at("daily_dataset_id").get<std::string>());
-  else
-    throw std::invalid_argument("invalid factor series");
+  const auto& series = input.at("series");
+  if (!series.is_array() || (series.size() != 1 && (series.size() < 3 || series.size() > 20)))
+    throw std::invalid_argument("factor analysis studies one series or 3..20 contracts");
+  for (const auto& source : series) {
+    if (!source.is_object() || source.size() != 1)
+      throw std::invalid_argument("invalid factor series");
+    if (source.contains("bars"))
+      *result.add_series()->mutable_bars() = encode_bar_dataset_request(source.at("bars"));
+    else if (source.contains("daily_dataset_id") && source.at("daily_dataset_id").is_string() &&
+             digest(source.at("daily_dataset_id").get<std::string>()))
+      result.add_series()->set_daily_dataset_id(source.at("daily_dataset_id").get<std::string>());
+    else
+      throw std::invalid_argument("invalid factor series");
+    if (result.series(result.series_size() - 1).source_case() != result.series(0).source_case())
+      throw std::invalid_argument("factor series must be of one kind and one period");
+  }
   const auto& windows = input.at("lookbacks");
   if (!windows.is_array() || windows.empty() || windows.size() > 32)
     throw std::invalid_argument("factor requires 1..32 explicit lookback windows");
@@ -157,25 +209,55 @@ factor::v1::FactorSeries factor_series(const factor::v1::FactorSeriesRequest& so
     throw std::invalid_argument("data reply does not match the requested factor series");
   return result;
 }
-std::string factor_series_revision(const factor::v1::FactorSeries& data) {
-  if (data.has_bars())
-    return data.bars().revision();
-  if (data.has_daily())
-    return daily_factor_revision(data.daily());
-  throw std::invalid_argument("factor analysis studies exactly one series");
+factor::v1::FactorInput factor_input(const factor::v1::FactorRequest& request) {
+  if (request.series_size() != 1 && (request.series_size() < 3 || request.series_size() > 20))
+    throw std::invalid_argument("factor analysis studies one series or 3..20 contracts");
+  factor::v1::FactorInput input;
+  input.set_version(6);
+  *input.mutable_lookbacks() = request.lookbacks();
+  input.set_horizon(request.horizon());
+  if (request.has_full_sample())
+    input.set_full_sample(request.full_sample());
+  else if (request.has_walk_forward())
+    *input.mutable_walk_forward() = request.walk_forward();
+  else if (request.has_holdout_start())
+    input.set_holdout_start(request.holdout_start());
+  return input;
+}
+void add_factor_series(factor::v1::FactorInput& input, factor::v1::FactorSeries series) {
+  std::size_t bars = 0;
+  *input.add_series() = std::move(series);
+  for (const auto& data : input.series())
+    bars += static_cast<std::size_t>(data.has_bars() ? data.bars().bars_size()
+                                                     : data.daily().bars_size());
+  if (bars > max_dataset_bars)
+    throw std::invalid_argument("dataset exceeds 200000 bars; narrow the date range");
+}
+std::string
+factor_revision(const google::protobuf::RepeatedPtrField<factor::v1::FactorSeries>& series) {
+  validate_series(series);
+  Json revisions = Json::array();
+  for (const auto& data : series)
+    revisions.push_back(data.has_bars() ? data.bars().revision()
+                                        : daily_factor_revision(data.daily()));
+  // One series is identified by its own data; several by all of theirs, in order.
+  return revisions.size() == 1 ? revisions.at(0).get<std::string>()
+                               : sha256_bytes(revisions.dump());
 }
 FactorObservations factor_observations(const factor::v1::FactorInput& input) {
-  const auto& data = series(input);
+  auto shared = shared_observations(input);
   FactorObservations result;
-  if (data.has_bars()) {
-    for (const auto& bar : data.bars().bars()) {
-      result.closes.push_back(Decimal::from_raw(bar.close().units()));
-      result.order.push_back(bar.timestamp_ns());
-    }
-  } else {
-    for (const auto& bar : daily_factor_bars(data.daily())) {
-      result.closes.push_back(bar.close);
-      result.order.push_back(std::chrono::sys_days(bar.trading_day).time_since_epoch().count());
+  result.order = std::move(shared.order);
+  for (int s = 0; s < input.series_size(); ++s) {
+    const auto& data = input.series(s);
+    auto& closes = result.closes.emplace_back();
+    if (data.has_bars()) {
+      for (const auto position : shared.positions[static_cast<std::size_t>(s)])
+        closes.push_back(Decimal::from_raw(data.bars().bars(position).close().units()));
+    } else {
+      const auto bars = daily_factor_bars(data.daily());
+      for (const auto position : shared.positions[static_cast<std::size_t>(s)])
+        closes.push_back(bars[static_cast<std::size_t>(position)].close);
     }
   }
   return result;
@@ -233,6 +315,17 @@ Json result_structure(const factor::v1::FactorResult& result) {
       throw std::invalid_argument("invalid correlation result");
     return value;
   };
+  auto ratio = [](bool present, double value) -> Json {
+    if (!present)
+      return nullptr;
+    if (!std::isfinite(value))
+      throw std::invalid_argument("invalid correlation result");
+    return value;
+  };
+  for (const auto& row : result.cross_sections()) {
+    (void)statistic(row.has_pearson(), row.pearson());
+    (void)statistic(row.has_spearman(), row.spearman());
+  }
   Json partitions = Json::array();
   for (const auto& p : result.partitions()) {
     if (p.name() != "full_sample" && p.name() != "development" && p.name() != "holdout")
@@ -245,7 +338,9 @@ Json result_structure(const factor::v1::FactorResult& result) {
                           {"end_index", p.end_index()},
                           {"sample_count", p.sample_count()},
                           {"pearson", statistic(p.has_pearson(), p.pearson())},
-                          {"spearman", statistic(p.has_spearman(), p.spearman())}});
+                          {"spearman", statistic(p.has_spearman(), p.spearman())},
+                          {"pearson_ratio", ratio(p.has_pearson_ratio(), p.pearson_ratio())},
+                          {"spearman_ratio", ratio(p.has_spearman_ratio(), p.spearman_ratio())}});
   }
   if ((partitions.empty() && result.folds().empty()) || partitions.size() > 2)
     throw std::invalid_argument("missing factor evaluation partitions");
@@ -316,15 +411,27 @@ Json result_structure(const factor::v1::FactorResult& result) {
 } // namespace
 void validate_factor_input(const factor::v1::FactorInput& input) {
   static_cast<void>(factor_definition(input));
-  const auto& data = series(input);
-  if (data.has_bars()) {
-    validate_bar_dataset(data.bars());
-    for (const auto& bar : data.bars().bars())
-      if (bar.close().units() <= 0)
-        throw std::invalid_argument("factor analysis requires positive closes");
+  std::size_t bars = 0;
+  std::set<std::string> contracts;
+  for (const auto& data : input.series()) {
+    if (data.has_bars()) {
+      validate_bar_dataset(data.bars());
+      for (const auto& bar : data.bars().bars())
+        if (bar.close().units() <= 0)
+          throw std::invalid_argument("factor analysis requires positive closes");
+      bars += static_cast<std::size_t>(data.bars().bars_size());
+      contracts.insert(data.bars().contract().venue() + '\n' + data.bars().contract().symbol());
+    } else {
+      bars += static_cast<std::size_t>(data.daily().bars_size());
+      contracts.insert(data.daily().contract_id());
+    }
   }
+  if (bars > max_dataset_bars)
+    throw std::invalid_argument("dataset exceeds 200000 bars; narrow the date range");
+  if (contracts.size() != static_cast<std::size_t>(input.series_size()))
+    throw std::invalid_argument("factor series must be different contracts");
   // Recomputing a daily revision validates its observations too.
-  if (input.dataset_revision() != factor_series_revision(data))
+  if (input.dataset_revision() != factor_revision(input.series()))
     throw std::invalid_argument("factor dataset revision mismatch");
   const auto count = observation_count(input);
   const auto warmup = input.lookbacks(input.lookbacks_size() - 1);
@@ -388,14 +495,22 @@ void validate_factor_result(const factor::v1::FactorInput& input,
   const auto partition = [&](const auto& part, const char* name, unsigned begin, unsigned end,
                              unsigned samples) {
     if (part.name() != name || part.begin_index() != begin || part.end_index() != end ||
-        part.sample_count() != samples)
+        part.sample_count() != samples ||
+        (input.series_size() == 1 && (part.has_pearson_ratio() || part.has_spearman_ratio())))
       reject();
   };
+  const bool cross = input.series_size() > 1;
+  if (cross ? !result.samples().empty() : !result.cross_sections().empty())
+    reject();
+  const int rows = cross ? result.cross_sections_size() : result.samples_size();
   int cursor = 0;
   const auto samples = [&](unsigned begin, unsigned end) {
     for (unsigned i = begin; i + horizon < end; ++i)
-      if (cursor == result.samples_size() || result.samples(cursor++).event_index() != i)
+      if (cursor == rows || (cross ? result.cross_sections(cursor).event_index()
+                                   : result.samples(cursor).event_index()) != i)
         reject();
+      else
+        ++cursor;
   };
   if (input.has_walk_forward()) {
     const auto training = input.walk_forward().training_events();
@@ -433,49 +548,62 @@ void validate_factor_result(const factor::v1::FactorInput& input,
       samples(split, count);
     }
   }
-  if (cursor != result.samples_size())
+  if (cursor != rows)
     reject();
 }
 Json decode_factor(const factor::v1::FactorInput& input, DatasetView view) {
   auto result = factor_definition(input);
-  const auto& data = series(input);
-  Json evidence;
-  if (data.has_bars()) {
-    evidence = {{"kind", "bars"},
-                {"dataset", decode_bar_dataset(data.bars(), view)},
-                {"data", decode_bar_dataset_range(data.bars())}};
-  } else {
+  result["series"] = Json::array();
+  for (const auto& data : input.series()) {
+    if (data.has_bars()) {
+      result["series"].push_back({{"kind", "bars"},
+                                  {"dataset", decode_bar_dataset(data.bars(), view)},
+                                  {"data", decode_bar_dataset_range(data.bars())}});
+      continue;
+    }
     const auto& daily = data.daily();
     const auto count = daily.bars_size();
     if (count < 1)
       throw std::invalid_argument("invalid daily factor dataset identity");
-    evidence = {{"kind", "daily"},
-                {"data",
-                 {{"source_dataset_id", daily.source_dataset_id()},
-                  {"history_evidence", decode_history_evidence(daily.history_evidence())},
-                  {"source", daily.source()},
-                  {"contract_id", daily.contract_id()},
-                  {"manifest_sha256", daily.manifest_sha256()},
-                  {"count", count},
-                  {"first_day", daily.bars(0).trading_day()},
-                  {"last_day", daily.bars(count - 1).trading_day()}}}};
+    result["series"].push_back(
+        {{"kind", "daily"},
+         {"data",
+          {{"source_dataset_id", daily.source_dataset_id()},
+           {"history_evidence", decode_history_evidence(daily.history_evidence())},
+           {"source", daily.source()},
+           {"contract_id", daily.contract_id()},
+           {"manifest_sha256", daily.manifest_sha256()},
+           {"count", count},
+           {"first_day", daily.bars(0).trading_day()},
+           {"last_day", daily.bars(count - 1).trading_day()}}}});
   }
-  result["series"] = Json::array({std::move(evidence)});
   return result;
 }
 Json decode_factor_result(const factor::v1::FactorInput& input,
                           const factor::v1::FactorResult& result) {
   validate_factor_result(input, result);
   auto decoded = result_structure(result);
-  const auto& data = series(input);
-  Json rows = Json::array();
+  // Every series was observed at the shared observations; the first tells when.
+  const auto& data = input.series(0);
+  const auto positions = std::move(shared_observations(input).positions.front());
+  const auto when = [&](unsigned index) {
+    return observed(data, positions[static_cast<std::size_t>(index)]);
+  };
+  Json samples = Json::array(), sections = Json::array();
   for (const auto& row : result.samples())
-    rows.push_back({{"event_index", row.event_index()},
-                    {"observed", observed(data, row.event_index())},
-                    {"label", observed(data, row.event_index() + input.horizon())},
-                    {"value", row.value()},
-                    {"forward_return", row.forward_return()}});
-  decoded["samples"] = std::move(rows);
+    samples.push_back({{"event_index", row.event_index()},
+                       {"observed", when(row.event_index())},
+                       {"label", when(row.event_index() + input.horizon())},
+                       {"value", row.value()},
+                       {"forward_return", row.forward_return()}});
+  for (const auto& row : result.cross_sections())
+    sections.push_back({{"event_index", row.event_index()},
+                        {"observed", when(row.event_index())},
+                        {"label", when(row.event_index() + input.horizon())},
+                        {"pearson", row.has_pearson() ? Json(row.pearson()) : Json(nullptr)},
+                        {"spearman", row.has_spearman() ? Json(row.spearman()) : Json(nullptr)}});
+  decoded["samples"] = std::move(samples);
+  decoded["cross_sections"] = std::move(sections);
   return decoded;
 }
 } // namespace asterion::protocol

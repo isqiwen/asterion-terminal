@@ -194,8 +194,8 @@ export function BarFactorForm({
   run,
 }: Pick<TerminalContext, "snapshot" | "query" | "busy" | "trade" | "navigate"> & { run: Run }) {
   const datasets = snapshot?.datasets ?? [];
-  // A factor studies exactly one contract.
-  const data = datasets.length === 1 ? datasets[0] : undefined;
+  // One contract is studied over time, three or more against each other.
+  const cross = datasets.length > 1;
   return (
     <>
       <h3>{t("因子设置")}</h3>
@@ -206,17 +206,23 @@ export function BarFactorForm({
         trade={trade}
         onDownload={() => navigate("workspace.data", { page: "history" })}
       />
-      <p className="subtle">{t("单合约 · 按 K 线收盘价计算")}</p>
-      {datasets.length > 1 && (
+      <p className="subtle">
+        {t(
+          cross
+            ? "多个合约 · 在各合约共有的 K 线上比较它们的动量与未来收益"
+            : "单合约 · 按 K 线收盘价计算",
+        )}
+      </p>
+      {datasets.length === 2 && (
         <p role="alert" className="alert">
-          {t("因子分析只分析一个合约，请只保留一个数据集。")}
+          {t("比较合约至少需要 3 个；只分析一个合约时请只保留一个数据集。")}
         </p>
       )}
       <FactorParameters
         kind="bars"
-        series={data ? { kind: "bars" } : null}
+        series={datasets.length === 1 || datasets.length > 2 ? { kind: "bars" } : null}
         identity={JSON.stringify(datasets.map(item => item.revision))}
-        observations={data?.count}
+        observations={cross ? undefined : datasets[0]?.count}
         snapshot={snapshot}
         busy={busy}
         run={run}

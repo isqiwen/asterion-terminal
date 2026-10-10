@@ -58,24 +58,14 @@ void resolve_task_input(task::v1::TaskAttempt& attempt, std::stop_token stop) {
   } else {
     const auto& parameters = execution.factor();
     auto* input = task.mutable_factor();
-    input->set_version(6);
+    *input = factor_input(parameters);
     for (const auto& source : parameters.series()) {
       check_stop();
       auto reply = data.call(factor_series_query(source));
       check_stop();
-      *input->add_series() = factor_series(source, std::move(reply));
+      add_factor_series(*input, factor_series(source, std::move(reply)));
     }
-    if (input->series_size() != 1)
-      throw std::invalid_argument("factor analysis studies exactly one series");
-    input->set_dataset_revision(factor_series_revision(input->series(0)));
-    *input->mutable_lookbacks() = parameters.lookbacks();
-    input->set_horizon(parameters.horizon());
-    if (parameters.has_full_sample())
-      input->set_full_sample(parameters.full_sample());
-    else if (parameters.has_holdout_start())
-      input->set_holdout_start(parameters.holdout_start());
-    else if (parameters.has_walk_forward())
-      *input->mutable_walk_forward() = parameters.walk_forward();
+    input->set_dataset_revision(factor_revision(input->series()));
     digest = sha256_bytes(input->SerializeAsString());
   }
   if (digest != execution.input_sha256())
