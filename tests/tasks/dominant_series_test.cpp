@@ -120,6 +120,34 @@ TEST(DominantSeries, WithoutAdjustmentTheSameBarsWouldSellAtTheRoll) {
   ASSERT_EQ(result.account().fills_size(), 3);
   EXPECT_EQ(result.account().fills(2).price().units(), d("109").raw());
 }
+TEST(DominantSeries, ARankingRuleTakesASeriesAsOneOfTheContractsItRanks) {
+  auto input = rolling();
+  // hc2610 stays at 100 on the same bars; rb, read back-adjusted, rises by
+  // one a bar and is the stronger of the two at every bar.
+  auto* flat = input.mutable_paper()->add_contracts();
+  *flat = input.paper().contracts(0);
+  *flat->mutable_dataset() =
+      test::dataset(join({day_bars(0, 100, 0), day_bars(1, 100, 0), day_bars(2, 100, 0),
+                          day_bars(3, 100, 0), day_bars(4, 100, 0)}),
+                    {}, test::contract("SHFE", "hc2610", "hc", "2026-10"));
+  input.set_dataset_revision(protocol::dataset_revision(input.paper()));
+  *input.mutable_strategies(0) = protocol::encode_strategy(
+      {{"quantity", "1"},
+       {"sides", "long"},
+       {"rule", {{"kind", "cross_momentum"}, {"lookback", 1}, {"rebalance", 1}, {"count", 1}}}});
+  const auto result = backtest::run(input);
+  // Ranked from the second bar: rb2610 is bought at that bar's real close of
+  // 202, sold on the roll day, and rb2701 bought once it is. hc never trades.
+  ASSERT_EQ(result.account().fills_size(), 3);
+  EXPECT_EQ(result.account().fills(0).symbol(), "rb2610");
+  EXPECT_EQ(result.account().fills(0).price().units(), d("202").raw());
+  EXPECT_EQ(result.account().fills(1).symbol(), "rb2610");
+  EXPECT_EQ(result.account().fills(1).price().units(), d("212").raw());
+  EXPECT_EQ(result.account().fills(2).symbol(), "rb2701");
+  EXPECT_EQ(result.account().fills(2).price().units(), d("106").raw());
+  // (212 - 202) * 10 on rb2610, rb2701 from 106 to 112, and fees of 8.
+  EXPECT_EQ(result.account().equity().units(), d("100152").raw());
+}
 TEST(DominantSeries, APositionThatCannotBeClosedFailsInsteadOfBeingDropped) {
   // No volume in the outgoing month on and after the roll day.
   EXPECT_THROW(backtest::run(rolling("0")), std::invalid_argument);

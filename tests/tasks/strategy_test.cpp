@@ -132,3 +132,52 @@ TEST(Strategy, ADefinitionStatesWindowsItsRuleCanWorkWith) {
                                             {{"kind", "reversion"}, {"window", 20}, {"width", 2}}})
     EXPECT_THROW(strategy(rule), std::exception) << rule.dump();
 }
+TEST(Strategy, ARankingRuleHoldsTheStrongestLongAndTheWeakestShortOnBarsAllUnitsHave) {
+  const Json rule{{"kind", "cross_momentum"}, {"lookback", 1}, {"rebalance", 2}, {"count", 1}};
+  CrossSection ranking(strategy(rule, "both", "2"), 4);
+  using Wanted = std::optional<std::vector<Decimal>>;
+  const auto bars = [](CrossSection& run, std::int64_t time,
+                       std::initializer_list<const char*> closes) {
+    std::size_t unit = 0;
+    for (const auto* close : closes) {
+      if (*close)
+        run.on_bar(unit, time, d(close));
+      ++unit;
+    }
+    return run.rank();
+  };
+  // One shared bar has nothing a lookback of 1 can compare it with.
+  EXPECT_EQ(bars(ranking, 1, {"100", "100", "100", "100"}), Wanted());
+  // 1.10, 1.05, 1.00, 0.95 of the bar before: the first long, the last short.
+  EXPECT_EQ(bars(ranking, 2, {"110", "105", "100", "95"}),
+            Wanted({d("2"), d("0"), d("0"), d("-2")}));
+  // A bar the fourth unit lacks is no bar of them all, and the next shared
+  // one is not the second since the ranking.
+  EXPECT_EQ(bars(ranking, 3, {"1", "1", "1", ""}), Wanted());
+  EXPECT_EQ(bars(ranking, 4, {"110", "126", "90", "95"}), Wanted());
+  // 0.9, 1.0, 1.1, 1.1 of the shared bar before, at time 4: of the equal
+  // strongest the one named first is held.
+  EXPECT_EQ(bars(ranking, 5, {"99", "126", "99", "104.5"}),
+            Wanted({d("-2"), d("0"), d("2"), d("0")}));
+
+  CrossSection longs(strategy(rule, "long"), 2);
+  EXPECT_EQ(bars(longs, 1, {"100", "100"}), Wanted());
+  EXPECT_EQ(bars(longs, 2, {"99", "101"}), Wanted({d("0"), d("1")}));
+
+  // A unit is never wanted on both sides; bars keep their order; a rule over
+  // several contracts is no strategy for one.
+  EXPECT_THROW(CrossSection(strategy(rule), 1), std::invalid_argument);
+  EXPECT_THROW(longs.on_bar(0, 1, d("100")), std::invalid_argument);
+  longs.on_bar(0, 3, d("100"));
+  EXPECT_THROW(longs.on_bar(0, 3, d("100")), std::invalid_argument);
+  EXPECT_THROW(make_strategy(strategy(rule), instrument()), std::invalid_argument);
+  EXPECT_THROW(CrossSection(strategy(average), 4), std::invalid_argument);
+  EXPECT_EQ(protocol::strategy_warmup(strategy(rule)), 2U);
+  EXPECT_EQ(protocol::decode_strategy(strategy(rule)).at("rule"), rule);
+  for (const auto* field : {"lookback", "rebalance", "count"}) {
+    auto invalid = rule;
+    invalid[field] = 0;
+    EXPECT_THROW(protocol::validate_strategy(strategy(invalid), d("1")), std::invalid_argument)
+        << field;
+  }
+}

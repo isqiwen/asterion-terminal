@@ -93,6 +93,11 @@ v1::Strategy encode_strategy(const Json& value) {
     result.mutable_reversion()->set_window(window("window"));
     result.mutable_reversion()->mutable_width()->set_units(
         Decimal::parse(rule.at("width").get<std::string>()).raw());
+  } else if (kind == "cross_momentum") {
+    require_fields(rule, {"kind", "lookback", "rebalance", "count"});
+    result.mutable_cross_momentum()->set_lookback(window("lookback"));
+    result.mutable_cross_momentum()->set_rebalance(window("rebalance"));
+    result.mutable_cross_momentum()->set_count(window("count"));
   } else
     throw std::invalid_argument("unknown strategy rule");
   return result;
@@ -117,6 +122,12 @@ Json decode_strategy(const v1::Strategy& strategy) {
     rule = {{"kind", "reversion"},
             {"window", strategy.reversion().window()},
             {"width", Decimal::from_raw(strategy.reversion().width().units()).str()}};
+    break;
+  case v1::Strategy::kCrossMomentum:
+    rule = {{"kind", "cross_momentum"},
+            {"lookback", strategy.cross_momentum().lookback()},
+            {"rebalance", strategy.cross_momentum().rebalance()},
+            {"count", strategy.cross_momentum().count()}};
     break;
   case v1::Strategy::RULE_NOT_SET:
     throw std::invalid_argument("unknown strategy rule");
@@ -155,6 +166,13 @@ void validate_strategy(const v1::Strategy& strategy, Decimal quantity_increment)
           "reversion requires a window of 2..10000 bars and a width above 0 up to 10");
     return;
   }
+  case v1::Strategy::kCrossMomentum:
+    if (const auto& rule = strategy.cross_momentum();
+        !rule.lookback() || rule.lookback() > 10000 || !rule.rebalance() ||
+        rule.rebalance() > 10000 || !rule.count() || rule.count() > 10)
+      throw std::invalid_argument("cross momentum requires a lookback and a rebalance of "
+                                  "1..10000 bars and 1..10 contracts a side");
+    return;
   case v1::Strategy::RULE_NOT_SET:
     break;
   }
@@ -170,6 +188,8 @@ std::size_t strategy_warmup(const v1::Strategy& strategy) {
     return strategy.momentum().lookback() + 1;
   case v1::Strategy::kReversion:
     return strategy.reversion().window();
+  case v1::Strategy::kCrossMomentum:
+    return strategy.cross_momentum().lookback() + 1;
   case v1::Strategy::RULE_NOT_SET:
     break;
   }

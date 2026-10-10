@@ -734,7 +734,9 @@ export type StrategyDefinition = {
     | { kind: "moving_average"; fast: number; slow: number }
     | { kind: "breakout"; entry: number; exit: number }
     | { kind: "momentum"; lookback: number }
-    | { kind: "reversion"; window: number; width: string };
+    | { kind: "reversion"; window: number; width: string }
+    // Ranks several contracts and holds `count` a side; backtests only.
+    | { kind: "cross_momentum"; lookback: number; rebalance: number; count: number };
 };
 // How a backtest's result performed, from its day-end equity. The drawdown is
 // a share of the peak it fell from. Yearly figures are scaled by the calendar

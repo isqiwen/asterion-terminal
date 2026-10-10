@@ -203,9 +203,71 @@ std::unique_ptr<Strategy> make_strategy(const protocol::v1::Strategy& definition
     return std::make_unique<BandReversion>(
         std::move(instrument), quantity, sides, definition.reversion().window(),
         Decimal::from_raw(definition.reversion().width().units()));
+  case protocol::v1::Strategy::kCrossMomentum:
+    throw std::invalid_argument("a rule over several contracts runs in backtests only");
   case protocol::v1::Strategy::RULE_NOT_SET:
     break;
   }
   throw std::invalid_argument("unknown strategy rule");
+}
+bool CrossSection::defines(const protocol::v1::Strategy& definition) {
+  return definition.has_cross_momentum();
+}
+CrossSection::CrossSection(const protocol::v1::Strategy& definition, std::size_t units)
+    : lookback_(definition.cross_momentum().lookback()),
+      rebalance_(definition.cross_momentum().rebalance()),
+      count_(definition.cross_momentum().count()),
+      quantity_(Decimal::from_raw(definition.quantity().units())),
+      sides_(protocol::position_sides(definition.sides())), latest_(units), closes_(units) {
+  if (!defines(definition))
+    throw std::invalid_argument("unknown strategy rule");
+  // A unit is never wanted on both sides.
+  if (units < 2 * count_)
+    throw std::invalid_argument(
+        "cross momentum requires at least twice as many contracts as it holds a side");
+}
+void CrossSection::on_bar(std::size_t unit, std::int64_t timestamp_ns, Decimal close) {
+  if (timestamp_ns < time_ || (timestamp_ns == time_ && latest_.at(unit)))
+    throw std::invalid_argument("strategy events are out of order");
+  if (close <= Decimal{})
+    throw std::invalid_argument("cross momentum requires positive closes");
+  if (timestamp_ns > time_)
+    std::ranges::fill(latest_, std::nullopt);
+  time_ = timestamp_ns;
+  latest_.at(unit) = close;
+}
+std::optional<std::vector<Decimal>> CrossSection::rank() {
+  const bool everywhere =
+      std::ranges::all_of(latest_, [](const auto& close) { return close.has_value(); });
+  if (everywhere)
+    for (std::size_t unit = 0; unit < closes_.size(); ++unit) {
+      closes_[unit].push_back(*latest_[unit]);
+      if (closes_[unit].size() > lookback_ + 1)
+        closes_[unit].pop_front();
+    }
+  std::ranges::fill(latest_, std::nullopt);
+  // The first ranking needs the lookback behind it; later ones follow at
+  // every `rebalance`-th shared bar.
+  if (!everywhere || ++shared_ <= lookback_ || (shared_ - lookback_ - 1) % rebalance_ != 0)
+    return std::nullopt;
+  // A statistic, like a factor: binary floating point, not ledger arithmetic.
+  std::vector<double> momentum;
+  for (const auto& closes : closes_)
+    momentum.push_back(static_cast<double>(closes.back().raw()) /
+                       static_cast<double>(closes.front().raw()));
+  std::vector<std::size_t> order(closes_.size());
+  for (std::size_t unit = 0; unit < order.size(); ++unit)
+    order[unit] = unit;
+  // Strongest first; equal units keep the order they were given in.
+  std::ranges::stable_sort(order,
+                           [&](auto left, auto right) { return momentum[left] > momentum[right]; });
+  std::vector<Decimal> targets(closes_.size());
+  for (std::size_t i = 0; i < count_; ++i) {
+    if (sides_ != PositionSides::short_only)
+      targets[order[i]] = quantity_;
+    if (sides_ != PositionSides::long_only)
+      targets[order[order.size() - 1 - i]] = Decimal{} - quantity_;
+  }
+  return targets;
 }
 } // namespace asterion

@@ -7,7 +7,7 @@ import {
   ErrorNotice,
   type TerminalContext,
 } from "../contract";
-import { factorWords, t, type Run } from "./shared";
+import { factorWords, t, type Run, selectedSeries } from "./shared";
 
 type Kind = keyof typeof factorWords;
 const defaults = {
@@ -194,13 +194,7 @@ export function BarFactorForm({
   run,
 }: Pick<TerminalContext, "snapshot" | "query" | "busy" | "trade" | "navigate"> & { run: Run }) {
   const datasets = snapshot?.datasets ?? [];
-  // A dominant series is one series, whatever months it is read from.
-  const dominant = snapshot?.dataset_series ?? [];
-  const alone = datasets.filter(
-    item =>
-      !dominant.some(series => series.venue === item.venue && series.symbols.includes(item.symbol)),
-  );
-  const count = alone.length + dominant.length;
+  const { alone, dominant, count } = selectedSeries(snapshot);
   // One series is studied over time, three or more against each other.
   const cross = count > 1;
   return (

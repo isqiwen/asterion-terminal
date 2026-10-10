@@ -414,3 +414,103 @@ test("several strategies are compared before a holdout and one is replayed", asy
   await expect(parameter("候选策略数")).toHaveText("2");
   await expect(parameter("留出起始日")).toHaveText("2026-09-21");
 });
+
+test("a ranking rule holds the strongest contract long and the weakest short", async ({ page }) => {
+  test.setTimeout(60000);
+  await page.goto("/");
+  await expect(page.locator(".workspace-tabs")).toBeVisible();
+  // Six bars each. At the second bar rb leads and zn trails; by the fourth
+  // they have changed places. hc and al are never at either end.
+  const contracts: [string, number[]][] = [
+    ["rb", [100, 110, 110, 99, 99, 99]],
+    ["hc", [100, 102, 102, 102, 102, 102]],
+    ["al", [100, 100, 100, 100, 100, 100]],
+    ["zn", [100, 90, 90, 99, 99, 99]],
+  ];
+  for (const [product, prices] of contracts)
+    await seedDataset(page.request, prices, `ranked-${product}`, {
+      product,
+      keep: product !== "rb",
+    });
+  await page.reload();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  const workspace = page.getByRole("region", { name: "期货研究", exact: true });
+  await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
+  await expect(workspace.getByRole("list", { name: "已选合约" }).getByRole("listitem")).toHaveCount(
+    4,
+  );
+  await workspace.getByRole("button", { name: "下一步", exact: true }).click();
+  await workspace.getByLabel("策略", { exact: true }).selectOption("cross_momentum");
+  await expect(workspace.getByText(/最强的“每侧合约数”个做多、最弱的做空/)).toBeVisible();
+  for (const [label, value] of [
+    ["动量回看", "1"],
+    ["调仓间隔", "2"],
+    ["每侧合约数", "3"],
+    ["目标手数", "1"],
+    ["初始资金", "100000"],
+    ["单笔数量上限", "100"],
+    ["总持仓量上限", "100"],
+    ["在途委托数上限", "100"],
+  ])
+    await workspace.getByLabel(label, { exact: true }).fill(value);
+  for (const [product] of contracts) {
+    const costs = workspace.getByRole("region", {
+      name: `SHFE · ${product}2610 保证金与手续费`,
+    });
+    for (const [label, value] of [
+      ["每手保证金", "100"],
+      ["每手开仓费", "2"],
+      ["每手平今费", "3"],
+      ["每手平昨费", "4"],
+    ])
+      await costs.getByLabel(label, { exact: true }).fill(value);
+  }
+  // Three a side would need six contracts.
+  await expect(
+    workspace.getByText("截面动量每侧持有 3 个，至少需要 6 个合约或主力连续；当前选了 4 个。", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(workspace.getByRole("button", { name: "下一步", exact: true })).toBeDisabled();
+  await workspace.getByLabel("每侧合约数", { exact: true }).fill("1");
+  await workspace.getByRole("button", { name: "下一步", exact: true }).click();
+  await workspace.getByRole("button", { name: "开始回测", exact: true }).click();
+  await workspace.getByRole("button", { name: "返回回测记录", exact: true }).click();
+  const row = workspace
+    .getByRole("region", { name: "研究任务", exact: true })
+    .getByRole("row")
+    .filter({ hasText: "SHFE/rb2610 + SHFE/hc2610 + SHFE/al2610 + SHFE/zn2610" });
+  await expect(row.getByText("已完成", { exact: true })).toBeVisible({ timeout: 20000 });
+  await row.getByRole("button", { name: "查看结果", exact: true }).click();
+  const result = workspace.getByRole("region", { name: "回测结果", exact: true });
+  await expect(result.getByRole("heading", { name: /截面动量 1\/2\/1/ })).toBeVisible();
+  const figure = (name: string) =>
+    result
+      .locator(".research-metrics > div")
+      .filter({ has: page.getByText(name, { exact: true }) })
+      .locator("strong")
+      .first();
+  // rb bought at 110 and zn sold at 90, both closed at 99 and opened the
+  // other way at 99: 200 lost, 14 in fees, and nothing at the settlement of
+  // 110 that the two open positions do not cancel.
+  await expect(figure("成交笔数")).toHaveText("6");
+  await expect(figure("手续费")).toHaveText("14");
+  await expect(figure("期末权益")).toHaveText("99786");
+  await result.getByText("逐日结算", { exact: true }).click();
+  const settlements = result.locator(".research-settlements tbody tr");
+  await expect(settlements).toHaveCount(4);
+  await expect(settlements.nth(0)).toContainText("rb2610");
+  await expect(settlements.nth(0)).toContainText("-1");
+  await expect(settlements.nth(3)).toContainText("zn2610");
+  await result.getByText("实验参数", { exact: true }).click();
+  const parameter = (label: string) =>
+    result
+      .locator(".experiment-fields > div")
+      .filter({ has: page.getByText(label, { exact: true }) })
+      .locator("dd")
+      .first();
+  await expect(parameter("策略")).toHaveText("截面动量");
+  await expect(parameter("调仓间隔")).toHaveText("2");
+  await expect(parameter("每侧合约数")).toHaveText("1");
+  await page.screenshot({ path: join(__dirname, "../test-results/backtest-ranked.png") });
+});

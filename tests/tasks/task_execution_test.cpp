@@ -280,6 +280,72 @@ TEST(Backtest, ARuleOtherThanAveragesRunsThroughTheSameEngine) {
   spec.mutable_strategies(0)->mutable_momentum()->set_lookback(7);
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
 }
+TEST(Backtest, ARankingRuleTradesTheStrongestAndWeakestOfSeveralContracts) {
+  // Four contracts on the same six bars of one day, each settled at its last
+  // price. A lookback of 1 ranks them at the second bar and again at the
+  // fourth: first rb leads and zn trails, then the two change places.
+  const auto contract = [](const char* symbol, const char* product,
+                           std::initializer_list<const char*> prices) {
+    std::vector<MarketBar> bars;
+    std::int64_t time = 1790298000000000000LL;
+    for (const auto* price : prices) {
+      bars.push_back(test::flat("2026-09-25", time, price, "10"));
+      time += 1000000000;
+    }
+    return test::dataset(bars, {{"2026-09-25", bars.back().close}},
+                         test::contract("SHFE", symbol, product, "2026-10"));
+  };
+  auto spec = input_of(contract("rb2610", "rb", {"100", "110", "110", "99", "99", "99"}));
+  for (const auto& dataset : {contract("hc2610", "hc", {"100", "102", "102", "102", "102", "102"}),
+                              contract("al2610", "al", {"100", "100", "100", "100", "100", "100"}),
+                              contract("zn2610", "zn", {"100", "90", "90", "99", "99", "99"})}) {
+    auto* added = spec.mutable_paper()->add_contracts();
+    *added = spec.paper().contracts(0);
+    *added->mutable_dataset() = dataset;
+  }
+  spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
+  const Json rule{{"kind", "cross_momentum"}, {"lookback", 1}, {"rebalance", 2}, {"count", 1}};
+  *spec.mutable_strategies(0) =
+      protocol::encode_strategy({{"quantity", "1"}, {"sides", "both"}, {"rule", rule}});
+  const auto result = backtest::run(spec);
+  // Decided at the second bar and filled at the third: rb bought at 110, zn
+  // sold at 90. Decided again at the fourth: both are closed at the fifth
+  // bar's 99 and opened the other way at the sixth's. hc and al never trade.
+  ASSERT_EQ(result.account().fills_size(), 6);
+  const auto fill = [&](int index) {
+    const auto& value = result.account().fills(index);
+    const auto order = std::ranges::find(result.account().orders(), value.order_id(),
+                                         [](const auto& item) { return item.id(); });
+    return value.symbol() + (order->side() == protocol::v1::BUY ? " buy " : " sell ") +
+           Decimal::from_raw(value.price().units()).str();
+  };
+  EXPECT_EQ(fill(0), "rb2610 buy 110");
+  EXPECT_EQ(fill(1), "zn2610 sell 90");
+  EXPECT_EQ(fill(2), "rb2610 sell 99");
+  EXPECT_EQ(fill(3), "zn2610 buy 99");
+  EXPECT_EQ(fill(4), "rb2610 sell 99");
+  EXPECT_EQ(fill(5), "zn2610 buy 99");
+  // Lost 11 a unit on rb and 9 on zn at a multiplier of 10; four opens at 2
+  // and two closes of the day at 3.
+  EXPECT_EQ(result.account().realized().units(), d("-200").raw());
+  EXPECT_EQ(result.account().fees().units(), d("14").raw());
+  EXPECT_EQ(result.account().equity().units(), d("9786").raw());
+  ASSERT_EQ(result.settlements(0).contracts_size(), 4);
+  EXPECT_EQ(result.settlements(0).contracts(0).position_quantity().units(), d("-1").raw());
+  EXPECT_EQ(result.settlements(0).contracts(1).position_quantity().units(), 0);
+  EXPECT_EQ(result.settlements(0).contracts(3).position_quantity().units(), d("1").raw());
+  EXPECT_EQ(protocol::decode_backtest(spec, protocol::DatasetView::metadata)
+                .at("strategies")
+                .at(0)
+                .at("rule"),
+            rule);
+  // One contract a side of four leaves two flat; two a side needs them all,
+  // and three a side has no one to hold.
+  spec.mutable_strategies(0)->mutable_cross_momentum()->set_count(2);
+  EXPECT_NO_THROW(backtest::validate(spec));
+  spec.mutable_strategies(0)->mutable_cross_momentum()->set_count(3);
+  EXPECT_THROW(backtest::validate(spec), std::invalid_argument);
+}
 TEST(Backtest, SeveralStrategiesAreComparedOnTheDaysBeforeTheHoldoutAlone) {
   const auto spec = comparison();
   EXPECT_EQ(spec.holdout_day(), "2026-10-20");

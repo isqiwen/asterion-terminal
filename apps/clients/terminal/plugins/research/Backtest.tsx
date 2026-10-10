@@ -19,7 +19,7 @@ import {
 } from "../contract";
 import { timestamp, type PerformanceFigures } from "../../src/bridge/client";
 import { ExperimentDetails } from "./ExperimentDetails";
-import { namespace, ResearchPage, states, t, TaskRecords, useRun } from "./shared";
+import { namespace, ResearchPage, states, t, TaskRecords, useRun, selectedSeries } from "./shared";
 
 // Performance figures are statistics; an absent one was not computed.
 const percent = (value: number | null) => (value === null ? "—" : `${(value * 100).toFixed(2)}%`);
@@ -103,6 +103,13 @@ export function Backtest({
   // Several values in a window make several strategies, compared before a holdout.
   const [holdoutFrom, setHoldoutFrom] = useWorkspaceDraft("backtest-holdout", "");
   const candidates = strategiesOf(strategy);
+  // A rule that ranks contracts holds some long and as many short: it needs
+  // twice as many as the most any candidate holds a side.
+  const ranked = selectedSeries(snapshot).count;
+  const held = Math.max(
+    0,
+    ...candidates.map(item => (item.rule.kind === "cross_momentum" ? item.rule.count : 0)),
+  );
   const [parameters, setParameters] = useWorkspaceDraft("backtest-account", {
     deposit: "",
     max_order_quantity: "",
@@ -260,7 +267,16 @@ export function Backtest({
                   value={strategy}
                   onChange={setStrategy}
                   compare
+                  portfolio
                 />
+                {ranked < 2 * held && (
+                  <p role="alert" className="alert">
+                    {t(
+                      "截面动量每侧持有 {held} 个，至少需要 {need} 个合约或主力连续；当前选了 {have} 个。",
+                      { held, need: 2 * held, have: ranked },
+                    )}
+                  </p>
+                )}
                 <p className="subtle">
                   {t(
                     "窗口里可以用逗号填多个值，所有组合各成一个候选策略，最多 32 个；规则用不了的组合不算。多个候选时只用留出起始日之前的交易日比较，取夏普比率最高的一个回放全部交易日。",
@@ -331,7 +347,8 @@ export function Backtest({
                       !snapshot?.data?.online ||
                       !datasets.length ||
                       candidates.length < 1 ||
-                      candidates.length > 32
+                      candidates.length > 32 ||
+                      ranked < 2 * held
                     }
                   >
                     {t("下一步")}

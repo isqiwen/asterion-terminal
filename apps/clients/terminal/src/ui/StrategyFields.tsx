@@ -36,8 +36,20 @@ const rules = {
     about:
       "收盘价高于最近“均值窗口”根收盘价的均值加“带宽”倍标准差时做空，低于均值减“带宽”倍标准差时做多；收盘价回到均值时平仓。",
   },
+  cross_momentum: {
+    name: "截面动量",
+    fields: [
+      ["lookback", "动量回看"],
+      ["rebalance", "调仓间隔"],
+      ["count", "每侧合约数"],
+    ],
+    about:
+      "在所有合约都有的 K 线上，每隔“调仓间隔”根按“收盘价 ÷ 动量回看根之前的收盘价”给各合约排序，最强的“每侧合约数”个做多、最弱的做空，其余空仓，持有到下一次排序。一条主力连续算一个合约。",
+  },
 } as const;
 type Kind = keyof typeof rules;
+// Rules that rank several contracts; a run on one contract cannot use them.
+const ranking: readonly Kind[] = ["cross_momentum"];
 const sides = { both: "多空", long: "只做多", short: "只做空" } as const;
 
 // A strategy as a form holds it: every rule keeps its own windows, so
@@ -53,6 +65,8 @@ export type StrategyDraft = {
   lookback: string;
   window: string;
   width: string;
+  rebalance: string;
+  count: string;
 };
 export const strategyDefaults: StrategyDraft = {
   kind: "moving_average",
@@ -65,6 +79,8 @@ export const strategyDefaults: StrategyDraft = {
   lookback: "20",
   window: "20",
   width: "2",
+  rebalance: "5",
+  count: "1",
 };
 
 const several = (text: string) =>
@@ -75,8 +91,9 @@ const several = (text: string) =>
 // Every combination of the values a draft gives its rule's windows, in the
 // order written; combinations the rule cannot work with are left out.
 function combinations(draft: StrategyDraft): StrategyDefinition["rule"][] {
-  const values = (name: "fast" | "slow" | "entry" | "exit" | "lookback" | "window") =>
-    several(draft[name]).map(Number);
+  const values = (
+    name: "fast" | "slow" | "entry" | "exit" | "lookback" | "window" | "rebalance" | "count",
+  ) => several(draft[name]).map(Number);
   if (draft.kind === "moving_average")
     return values("fast").flatMap(fast =>
       values("slow")
@@ -91,6 +108,17 @@ function combinations(draft: StrategyDraft): StrategyDefinition["rule"][] {
     );
   if (draft.kind === "momentum")
     return values("lookback").map(lookback => ({ kind: "momentum" as const, lookback }));
+  if (draft.kind === "cross_momentum")
+    return values("lookback").flatMap(lookback =>
+      values("rebalance").flatMap(rebalance =>
+        values("count").map(count => ({
+          kind: "cross_momentum" as const,
+          lookback,
+          rebalance,
+          count,
+        })),
+      ),
+    );
   return values("window").flatMap(window =>
     several(draft.width).map(width => ({ kind: "reversion" as const, window, width })),
   );
@@ -115,7 +143,9 @@ export function strategyRule(definition: StrategyDefinition): string {
         ? `${rule.entry}/${rule.exit}`
         : rule.kind === "momentum"
           ? `${rule.lookback}`
-          : `${rule.window} · ${rule.width}σ`;
+          : rule.kind === "cross_momentum"
+            ? `${rule.lookback}/${rule.rebalance}/${rule.count}`
+            : `${rule.window} · ${rule.width}σ`;
   return `${t(rules[rule.kind].name)} ${windows}`;
 }
 export const strategySides = (value: PositionSides) => t(sides[value]);
@@ -137,17 +167,20 @@ export function strategyRows(definition: StrategyDefinition): [string, string | 
 /**
  * The form fields of one strategy; `className` is the host's field grid. With
  * `compare` a window takes several comma-separated values to be compared.
+ * With `portfolio` the rules that rank several contracts are offered too.
  */
 export function StrategyFields({
   value,
   onChange,
   className,
   compare = false,
+  portfolio = false,
 }: {
   value: StrategyDraft;
   onChange: (next: StrategyDraft) => void;
   className: string;
   compare?: boolean;
+  portfolio?: boolean;
 }) {
   const rule = rules[value.kind];
   return (
@@ -160,11 +193,13 @@ export function StrategyFields({
             value={value.kind}
             onChange={event => onChange({ ...value, kind: event.target.value as Kind })}
           >
-            {Object.entries(rules).map(([kind, item]) => (
-              <option key={kind} value={kind}>
-                {t(item.name)}
-              </option>
-            ))}
+            {Object.entries(rules)
+              .filter(([kind]) => portfolio || !ranking.includes(kind as Kind))
+              .map(([kind, item]) => (
+                <option key={kind} value={kind}>
+                  {t(item.name)}
+                </option>
+              ))}
           </select>
         </label>
         {rule.fields.map(([name, label]) => (

@@ -531,5 +531,9 @@
   "收盘价高于此前“入场通道”根 K 线的最高价时做多，低于其最低价时做空；收盘价反向越过此前“离场通道”根 K 线的极值时平仓。离场通道不长于入场通道。": "Long from a close above the highest high of the Entry channel bars before it, short from one below their lowest low; flat when a close passes the opposite extreme of the Exit channel bars before it. The exit channel is no longer than the entry channel.",
   "收盘价高于“动量回看”根 K 线之前的收盘价时做多，低于时做空，相等时空仓。": "Long while the close is above the close Momentum lookback bars earlier, short while it is below, flat when they are equal.",
   "收盘价高于最近“均值窗口”根收盘价的均值加“带宽”倍标准差时做空，低于均值减“带宽”倍标准差时做多；收盘价回到均值时平仓。": "Short from a close more than Band width standard deviations above the mean of the last Mean window closes, long from one as far below it; flat when a close returns to the mean.",
-  "窗口按已完成的 K 线根数计。做多或做空时持有目标手数，不允许的方向空仓；反手时先平仓，平掉之后的下一根 K 线再开仓。": "Windows count completed bars. A side holds the target lots and a side that is not allowed stays flat; a reversal closes first and opens on the bar after the close has filled."
+  "窗口按已完成的 K 线根数计。做多或做空时持有目标手数，不允许的方向空仓；反手时先平仓，平掉之后的下一根 K 线再开仓。": "Windows count completed bars. A side holds the target lots and a side that is not allowed stays flat; a reversal closes first and opens on the bar after the close has filled.",
+  "截面动量": "Cross-sectional momentum",
+  "调仓间隔": "Rebalance every",
+  "每侧合约数": "Contracts a side",
+  "在所有合约都有的 K 线上，每隔“调仓间隔”根按“收盘价 ÷ 动量回看根之前的收盘价”给各合约排序，最强的“每侧合约数”个做多、最弱的做空，其余空仓，持有到下一次排序。一条主力连续算一个合约。": "On the bars every contract has, at every “Rebalance every”-th one the contracts are ranked by their close over the close “Momentum lookback” such bars earlier. The strongest “Contracts a side” are held long and the weakest short, the rest flat, until the next ranking. A dominant series counts as one contract."
 }

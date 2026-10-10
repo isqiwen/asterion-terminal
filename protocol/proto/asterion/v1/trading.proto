@@ -50,6 +50,11 @@ message Momentum { uint32 lookback = 1; }
 // the last `window` closes, long from one as far below it. The side is given
 // up when a close returns to that mean.
 message BandReversion { uint32 window = 1; Decimal width = 2; }
+// A rule over several contracts at once, for backtests: on every
+// `rebalance`-th bar that all of them have, each is ranked by its close over
+// its close `lookback` such bars earlier. The `count` strongest are held long
+// and the `count` weakest short until the next ranking; the rest are flat.
+message CrossMomentum { uint32 lookback = 1; uint32 rebalance = 2; uint32 count = 3; }
 // What a strategy trades by: one rule, the lots it holds while the rule takes
 // a side, and the sides it may hold; it is flat on a side it may not hold and
 // while the rule takes none.
@@ -61,6 +66,7 @@ message Strategy {
     ChannelBreakout breakout = 4;
     Momentum momentum = 5;
     BandReversion reversion = 6;
+    CrossMomentum cross_momentum = 7;
   }
 }
 // CLOSE leaves bucket assignment to the exchange rule (see ClosePolicy).

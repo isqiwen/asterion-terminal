@@ -10,7 +10,7 @@ Json decode_contract(const v1::Contract& input);
 PositionSides position_sides(v1::PositionSides value);
 v1::PositionSides encode_position_sides(const Json& value);
 // {"quantity", "sides", "rule": {"kind": "moving_average" | "breakout" |
-// "momentum" | "reversion", ...its windows}}. Shapes only: whether the windows
+// "momentum" | "reversion" | "cross_momentum", ...its windows}}. Shapes only: whether the windows
 // make a strategy is the strategy's to say.
 v1::Strategy encode_strategy(const Json& value);
 Json decode_strategy(const v1::Strategy& strategy);

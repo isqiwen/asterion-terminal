@@ -53,7 +53,8 @@ void validate(const backtest::v1::BacktestInput& input) {
     contract.validate();
     (void)protocol::cost_schedule(item.cost_schedule());
     for (const auto& strategy : input.strategies())
-      static_cast<void>(make_strategy(strategy, contract.instrument));
+      if (!CrossSection::defines(strategy))
+        static_cast<void>(make_strategy(strategy, contract.instrument));
     // A series is one strategy over all of its months.
     if (series[static_cast<std::size_t>(index)] != none)
       series_bars[series[static_cast<std::size_t>(index)]] += item.dataset().bars_size();
@@ -65,6 +66,12 @@ void validate(const backtest::v1::BacktestInput& input) {
     if (static_cast<std::size_t>(bars) < warmup)
       throw std::invalid_argument(
           "backtest requires enough bars for the strategy to take a side on every contract");
+  // A rule that ranks takes each ordinary contract and each series as one.
+  const auto units = static_cast<std::size_t>(std::ranges::count(series, none)) +
+                     static_cast<std::size_t>(input.series_size());
+  for (const auto& strategy : input.strategies())
+    if (CrossSection::defines(strategy))
+      static_cast<void>(CrossSection(strategy, units));
   decode_order_limits(protocol::decode_risk(p.risk()));
   if (decimal(p.deposit()) <= Decimal{})
     throw std::invalid_argument("backtest requires positive capital");
@@ -86,18 +93,45 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
   const auto module = pinned ? *pinned : risk_providers::Module::selected();
   auto risk = module.create(decode_order_limits(protocol::decode_risk(p.risk())));
   risk->start();
-  // One strategy per contract on that contract's bars; all share the account.
-  // The months of a dominant series share the strategy of its first month,
-  // which sees the back-adjusted bars of whichever month is dominant.
+  // What a rule takes a side on is a unit: each ordinary contract, and each
+  // dominant series as one, read from the back-adjusted bars of whichever
+  // month is dominant. `unit` says which one a contract belongs to.
+  std::vector<std::size_t> unit(series.size());
+  std::vector<Instrument> units;
+  for (std::size_t c = 0; c < series.size(); ++c)
+    if (series[c] == none) {
+      unit[c] = units.size();
+      units.push_back(portfolio.contracts[c].terms.instrument);
+    }
+  for (std::size_t c = 0; c < series.size(); ++c)
+    if (series[c] != none)
+      unit[c] = units.size() + series[c];
+  for (const auto& rolls : input.series())
+    units.push_back(portfolio.contracts[rolls.rolls(0).contract()].terms.instrument);
+  // One strategy for each unit, or one rule that ranks them all; either way
+  // they share the account.
+  std::unique_ptr<CrossSection> cross;
   std::vector<std::unique_ptr<Strategy>> strategies;
-  for (const auto& contract : portfolio.contracts)
-    strategies.push_back(make_strategy(definition, contract.terms.instrument));
+  if (CrossSection::defines(definition))
+    cross = std::make_unique<CrossSection>(definition, units.size());
+  else
+    for (auto& instrument : units)
+      strategies.push_back(make_strategy(definition, std::move(instrument)));
   PaperExecution execution(decimal(p.deposit()), std::move(portfolio.contracts), risk);
   execution.start();
   for (auto& strategy : strategies)
     strategy->start();
-  // The last target each series' strategy asked for.
-  std::vector<std::optional<Decimal>> wanted(static_cast<std::size_t>(input.series_size()));
+  // The last target asked for each unit.
+  std::vector<std::optional<Decimal>> wanted(units.size());
+  // The contracts that had a bar at the current timestamp and what each
+  // decided on: a ranking made once all of them are in decides them again.
+  struct Decided {
+    std::size_t contract;
+    std::string order;
+    Decimal close;
+    bool leading;
+  };
+  std::vector<Decided> together;
   const auto holds = [&](std::size_t contract) {
     const auto& id = execution.contract(contract).terms.instrument.id;
     return std::ranges::any_of(execution.account().positions(),
@@ -119,7 +153,7 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     point->set_event(event);
     point->mutable_equity()->set_units(equity.raw());
   };
-  std::vector<std::optional<PaperExecution::Target>> pending(strategies.size());
+  std::vector<std::optional<PaperExecution::Target>> pending(series.size());
   const auto total = execution.size();
   for (std::size_t index = 0; index < total; ++index) {
     if (stop.stop_requested())
@@ -150,23 +184,44 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     const auto decide = [&](Decimal target) {
       intent = PaperExecution::Target{order, target, bar.close};
     };
-    if (const auto member = series[current.contract]; member == none) {
-      const auto target = strategies[current.contract]->on_bar(bar);
-      if (target)
-        decide(*target);
+    const auto member = series[current.contract];
+    const auto* roll =
+        member == none
+            ? nullptr
+            : &protocol::dominant_roll(input.series(static_cast<int>(member)), bar.trading_day);
+    // The contract its unit trades now: an ordinary one, or the dominant
+    // month. A month that is no longer dominant only closes what it holds.
+    const bool leading = !roll || roll->contract() == current.contract;
+    if (leading) {
+      const auto u = unit[current.contract];
+      const auto observe = [&](const MarketBar& seen) {
+        if (cross)
+          cross->on_bar(u, seen.timestamp_ns, seen.close);
+        else if (const auto target = strategies[u]->on_bar(seen))
+          wanted[u] = target;
+      };
+      if (roll)
+        observe(adjusted(bar, decimal(roll->factor()),
+                         execution.contract(current.contract).terms.instrument.price_increment));
+      else
+        observe(bar);
+      if (wanted[u])
+        decide(*wanted[u]);
     } else {
-      const auto& rolls = input.series(static_cast<int>(member));
-      const auto& roll = protocol::dominant_roll(rolls, bar.trading_day);
-      if (roll.contract() != current.contract) {
-        // A month that is no longer dominant only closes what it still holds.
-        decide(Decimal{});
-      } else {
-        const auto& spec = execution.contract(current.contract).terms.instrument;
-        if (const auto target = strategies[rolls.rolls(0).contract()]->on_bar(
-                adjusted(bar, decimal(roll.factor()), spec.price_increment)))
-          wanted[member] = target;
-        if (wanted[member])
-          decide(*wanted[member]);
+      decide(Decimal{});
+    }
+    if (cross) {
+      together.push_back({current.contract, order, bar.close, leading});
+      if (index + 1 == total ||
+          execution.bar(execution.event(index + 1)).timestamp_ns != bar.timestamp_ns) {
+        if (const auto targets = cross->rank()) {
+          for (std::size_t u = 0; u < wanted.size(); ++u)
+            wanted[u] = (*targets)[u];
+          for (const auto& item : together)
+            pending[item.contract] = PaperExecution::Target{
+                item.order, item.leading ? *wanted[unit[item.contract]] : Decimal{}, item.close};
+        }
+        together.clear();
       }
     }
     add_equity(bar.timestamp_ns, backtest::v1::TRADE_MARK, account);

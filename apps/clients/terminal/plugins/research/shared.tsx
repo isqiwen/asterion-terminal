@@ -23,6 +23,19 @@ export const states: Record<string, string> = {
   cancelled: "已取消",
   interrupted: "已中断",
 };
+/**
+ * What a selection is studied as: each contract outside a dominant series is
+ * a series (`alone`), and each dominant series is one, whatever months it is
+ * read from.
+ */
+export function selectedSeries(snapshot: TerminalContext["snapshot"]) {
+  const dominant = snapshot?.dataset_series ?? [];
+  const alone = (snapshot?.datasets ?? []).filter(
+    item =>
+      !dominant.some(series => series.venue === item.venue && series.symbols.includes(item.symbol)),
+  );
+  return { alone, dominant, count: alone.length + dominant.length };
+}
 // A factor counts in observations of its series: the same parameters read as
 // bars or as trading days, by what the series is made of.
 export const factorWords = {
