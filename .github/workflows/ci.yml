@@ -123,6 +123,10 @@ jobs:
       ASTERION_CPP_BUILD: ${{ github.workspace }}/build/Debug
     steps:
       - uses: actions/checkout@v4
+      # The image defaults to Xcode 16.4, whose standard library has no
+      # std::stop_token or std::jthread; they arrived with Xcode 26.
+      - name: Select Xcode 26
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

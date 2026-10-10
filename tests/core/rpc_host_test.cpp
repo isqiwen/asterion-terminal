@@ -1,3 +1,4 @@
+#include "support/timing.hpp"
 #include <asterion/kernel/rpc_host.hpp>
 #include <asterion/foundation/error.hpp>
 #include <asterion/kernel/ipc/rpc_client.hpp>
@@ -279,7 +280,9 @@ TEST(RpcHost, IncompleteDrainRetainsAdmittedReplyUntilProcessExit) {
 
 // A reply that waits for pool work leaves when the work is done, and a client
 // on its owner's reactor receives it there. Neither side waits for a periodic
-// check: the host's comes every 10 ms and would alone take 400 ms here.
+// check: the host's comes every 10 ms and would alone take 400 ms here. Under
+// a sanitizer the bound only catches a stall; the instrumentation itself costs
+// more than the periodic check would.
 TEST(RpcHost, FinishedPoolWorkIsAnsweredWithoutWaitingForAPeriodicCheck) {
   service::reset_stop_request();
   service::Transport transport;
@@ -313,7 +316,7 @@ TEST(RpcHost, FinishedPoolWorkIsAnsweredWithoutWaitingForAPeriodicCheck) {
       reactor.wait(1s);
     ASSERT_EQ(*reply.get(), std::to_string(round));
   }
-  EXPECT_LT(std::chrono::steady_clock::now() - started, rounds * 5ms);
+  EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(rounds * 5ms));
 }
 
 TEST(Reactor, AWakeUpEndsTheNextWaitOrTheOneInProgress) {

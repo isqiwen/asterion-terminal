@@ -60,11 +60,18 @@ with tempfile.TemporaryDirectory(prefix="ast-backtest-factor-admission-", ignore
         with socket.create_connection(("127.0.0.1", port), timeout=3) as raw:
             with context.wrap_socket(raw, server_hostname="localhost") as channel:
                 # Authenticated public clients must not request worker dispatch.
+                # The service checks that once it has recovered its store;
+                # until then it answers every business request as unavailable.
                 request = b"\x08\x01\x12\x09admission\x1a\x07blocked\xb2\x01\x00"
-                channel.sendall(struct.pack("!I", len(request)) + request)
-                size = struct.unpack("!I", receive(4))[0]
-                assert 0 < size <= 4096
-                response = receive(size)
+                deadline = time.monotonic() + 20
+                while True:
+                    channel.sendall(struct.pack("!I", len(request)) + request)
+                    size = struct.unpack("!I", receive(4))[0]
+                    assert 0 < size <= 4096
+                    response = receive(size)
+                    if b"task service is initializing" not in response or time.monotonic() >= deadline:
+                        break
+                    time.sleep(.05)
                 assert b"task dispatch requires the private worker channel" in response, response
 
     finally:

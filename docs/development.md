@@ -2,7 +2,7 @@
 
 ## 环境
 
-- macOS（Apple Silicon 或 Intel），Xcode Command Line Tools（Apple Clang）；或 Linux x86_64，GCC 13 及以上
+- macOS（Apple Silicon 或 Intel），Xcode 26 及以上的 Command Line Tools（Apple Clang；Xcode 16 的标准库没有 `std::stop_token` 和 `std::jthread`，编译不过）；或 Linux x86_64，GCC 13 及以上
 - Node.js 22+、pnpm 10、Python 3、Conan 2、CMake 3.25+、Ninja
 - 可选：OrbStack 或 Docker（重建远程 Linux 服务包）
 
