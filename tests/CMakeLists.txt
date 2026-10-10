@@ -163,7 +163,7 @@ target_link_libraries(asterion_task_execution_tests PRIVATE asterion_performance
 target_compile_definitions(asterion_task_execution_tests PRIVATE ASTERION_DATA_SERVICE_PATH="$<TARGET_FILE:asterion-data-service>" ASTERION_TASK_SERVICE_PATH="$<TARGET_FILE:asterion-task-service>" ASTERION_BACKTEST_PATH="$<TARGET_FILE:asterion-backtest>" ASTERION_FACTOR_PATH="$<TARGET_FILE:asterion-factor>")
 add_dependencies(asterion_task_execution_tests asterion-data-service asterion-task-service asterion-backtest asterion-factor)
 asterion_unit_tests(asterion_dominant_series_tests tasks/dominant_series_test.cpp asterion_backtest_engine)
-target_link_libraries(asterion_dominant_series_tests PRIVATE asterion_data_store asterion_strategies asterion_task_store asterion_risk_providers asterion_sqlite)
+target_link_libraries(asterion_dominant_series_tests PRIVATE asterion_data_store asterion_factor_engine asterion_strategies asterion_task_store asterion_risk_providers asterion_sqlite)
 asterion_unit_tests(asterion_paper_tests tasks/paper_test.cpp asterion_paper 180)
 target_link_libraries(asterion_paper_tests PRIVATE asterion_order_limits asterion_sqlite)
 
