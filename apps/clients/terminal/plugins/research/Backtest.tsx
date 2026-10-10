@@ -580,6 +580,33 @@ export function Backtest({
                     "按逐日结算权益计算，是统计值而不是账本数值。年化按这些交易日跨越的日历时间折算，无风险利率取 0；不足 20 个交易日时不计算年化指标。",
                   )}
                 </p>
+                <h4>{t("按笔统计")}</h4>
+                <section aria-label={t("按笔统计")}>
+                  <div className="research-metrics">
+                    {[
+                      [t("平仓笔数"), result.trades.count],
+                      [
+                        t("盈利笔数占比"),
+                        percent(
+                          result.trades.count ? result.trades.winning / result.trades.count : null,
+                        ),
+                      ],
+                      [t("平均盈利"), ratio(result.trades.average_win)],
+                      [t("平均亏损"), ratio(result.trades.average_loss)],
+                      [t("盈亏比"), ratio(result.trades.payoff)],
+                    ].map(([name, figure]) => (
+                      <div key={name}>
+                        <span className="subtle">{name}</span>
+                        <strong>{figure}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+                <p className="subtle">
+                  {t(
+                    "一笔是一个合约从开仓到全部平掉的一次持仓，不论分几次成交；盈亏是卖出所得减买入所付再乘合约乘数，未扣手续费。期末还没平掉的持仓不算一笔，主力连续换月时新旧月份各算一笔。",
+                  )}
+                </p>
                 <div className="research-chart">
                   <div className="research-axis" aria-hidden>
                     <span>{highText}</span>

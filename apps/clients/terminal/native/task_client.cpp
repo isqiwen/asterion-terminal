@@ -64,6 +64,39 @@ Json backtest_performance(const backtest::v1::BacktestInput& input,
   }
   return value;
 }
+// What a backtest's closed positions say, from its fixed fills. Derived on
+// every read like the figures above.
+Json backtest_trades(const backtest::v1::BacktestInput& input,
+                     const backtest::v1::BacktestResult& result) {
+  const auto& contracts = input.paper().contracts();
+  std::vector<Decimal> multipliers;
+  for (const auto& contract : contracts)
+    multipliers.push_back(Decimal::from_raw(contract.dataset().contract().multiplier().units()));
+  // A fill says which order it filled; the order says which way.
+  std::map<std::string, bool> buys;
+  for (const auto& order : result.account().orders())
+    buys[order.id()] = order.side() == protocol::v1::BUY;
+  std::vector<TradedFill> fills;
+  for (const auto& fill : result.account().fills()) {
+    const auto contract = std::ranges::find_if(contracts, [&](const auto& item) {
+      return item.dataset().contract().venue() == fill.venue() &&
+             item.dataset().contract().symbol() == fill.symbol();
+    });
+    fills.push_back({static_cast<std::size_t>(contract - contracts.begin()),
+                     buys.at(fill.order_id()), Decimal::from_raw(fill.quantity().units()),
+                     Decimal::from_raw(fill.price().units())});
+  }
+  const auto value = trades(fills, multipliers);
+  const auto optional = [](const std::optional<double>& statistic) {
+    return statistic ? Json(*statistic) : Json(nullptr);
+  };
+  return {{"count", value.count},
+          {"winning", value.winning},
+          {"losing", value.losing},
+          {"average_win", optional(value.average_win)},
+          {"average_loss", optional(value.average_loss)},
+          {"payoff", optional(value.payoff)}};
+}
 wire::TaskResponse decode_task_response(const wire::TaskRequest& request, const std::string& raw) {
   wire::TaskResponse response;
   if (!response.ParseFromString(raw))
@@ -230,9 +263,11 @@ struct TaskClient::Impl : std::enable_shared_from_this<Impl> {
       const auto response = decode_task_response(request, *raw);
       if (request.has_result()) {
         auto evidence = protocol::decode_task_result(response, request.result().id());
-        if (response.has_backtest())
+        if (response.has_backtest()) {
           evidence["performance"] =
               backtest_performance(response.result_task().input(), response.backtest());
+          evidence["trades"] = backtest_trades(response.result_task().input(), response.backtest());
+        }
         return evidence;
       }
       if (response.history_usage().dataset_id() != request.history_usage().id())

@@ -74,3 +74,48 @@ TEST(Performance, UndefinedFiguresStayAbsentAndInvalidRecordsAreRefused) {
   std::swap(record[3].day, record[4].day);
   EXPECT_THROW(performance(d("100000"), record, marks), std::invalid_argument);
 }
+TEST(Trades, ATradeIsOneContractsPositionFromFlatToFlatAgain) {
+  const std::vector<Decimal> multipliers{d("10"), d("5")};
+  const std::vector<TradedFill> fills{
+      // The first contract: two lots bought and sold in two fills, a profit
+      // of (110 + 120 - 200) x 10.
+      {0, true, d("2"), d("100")},
+      // The second contract opens meanwhile and never closes: no trade.
+      {1, true, d("1"), d("50")},
+      {0, false, d("1"), d("110")},
+      {0, false, d("1"), d("120")},
+      // Short one lot at 120 and covered at 125: a loss of 5 x 10.
+      {0, false, d("1"), d("120")},
+      {0, true, d("1"), d("125")},
+      // In and out at one price: a trade that is neither a win nor a loss.
+      {0, true, d("3"), d("130")},
+      {0, false, d("3"), d("130")},
+  };
+  const auto result = trades(fills, multipliers);
+  EXPECT_EQ(result.count, 3U);
+  EXPECT_EQ(result.winning, 1U);
+  EXPECT_EQ(result.losing, 1U);
+  EXPECT_DOUBLE_EQ(*result.average_win, 300);
+  EXPECT_DOUBLE_EQ(*result.average_loss, -50);
+  EXPECT_DOUBLE_EQ(*result.payoff, 6);
+}
+TEST(Trades, AveragesNeedTradesOfTheirKindAndAFillNeverCrossesFlat) {
+  const std::vector<Decimal> multipliers{d("10")};
+  // Nothing closed: no trade and nothing to average.
+  const std::vector<TradedFill> open{{0, true, d("1"), d("100")}};
+  auto result = trades(open, multipliers);
+  EXPECT_EQ(result.count, 0U);
+  EXPECT_FALSE(result.average_win || result.average_loss || result.payoff);
+  // Two wins, of 10 and of 30: an average, and no ratio without a loss.
+  const std::vector<TradedFill> wins{{0, true, d("1"), d("100")},
+                                     {0, false, d("1"), d("101")},
+                                     {0, false, d("2"), d("103")},
+                                     {0, true, d("2"), d("101.5")}};
+  result = trades(wins, multipliers);
+  EXPECT_EQ(result.winning, 2U);
+  EXPECT_DOUBLE_EQ(*result.average_win, 20);
+  EXPECT_FALSE(result.average_loss || result.payoff);
+  // Selling two while holding one would close and open in one fill.
+  const std::vector<TradedFill> crossing{{0, true, d("1"), d("100")}, {0, false, d("2"), d("101")}};
+  EXPECT_THROW(trades(crossing, multipliers), std::invalid_argument);
+}

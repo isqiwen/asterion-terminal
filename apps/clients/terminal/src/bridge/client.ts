@@ -749,6 +749,17 @@ export type StrategyDefinition =
         notional: string;
       };
     };
+// What a backtest's closed positions say. A trade is one contract's position
+// from flat to flat again; profits are before fees. The averages are null
+// without a trade of their kind, the ratio of the two unless there are both.
+export type BacktestTrades = {
+  count: number;
+  winning: number;
+  losing: number;
+  average_win: number | null;
+  average_loss: number | null;
+  payoff: number | null;
+};
 // How a backtest's result performed, from its day-end equity. The drawdown is
 // a share of the peak it fell from. Yearly figures are scaled by the calendar
 // time the days span and are null with fewer than 20 trading days.
@@ -777,6 +788,7 @@ export type TaskResult =
       experiment: BacktestExperiment;
       result: BacktestResult;
       performance: BacktestPerformance;
+      trades: BacktestTrades;
     }
   | {
       id: string;

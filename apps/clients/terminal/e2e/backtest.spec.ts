@@ -499,6 +499,19 @@ test("a ranking rule holds the strongest contract long and the weakest short", a
   await expect(figure("成交笔数")).toHaveText("6");
   await expect(figure("手续费")).toHaveText("14");
   await expect(figure("期末权益")).toHaveText("99786");
+  // Two positions were opened and closed, both at a loss: 110 on rb and 90
+  // on zn. The two opened afterwards are still held and are no trades yet.
+  const trade = (name: string) =>
+    result
+      .getByRole("region", { name: "按笔统计", exact: true })
+      .locator(".research-metrics > div")
+      .filter({ has: page.getByText(name, { exact: true }) })
+      .locator("strong");
+  await expect(trade("平仓笔数")).toHaveText("2");
+  await expect(trade("盈利笔数占比")).toHaveText("0.00%");
+  await expect(trade("平均亏损")).toHaveText("-100.00");
+  await expect(trade("平均盈利")).toHaveText("—");
+  await expect(trade("盈亏比")).toHaveText("—");
   await result.getByText("逐日结算", { exact: true }).click();
   const settlements = result.locator(".research-settlements tbody tr");
   await expect(settlements).toHaveCount(4);

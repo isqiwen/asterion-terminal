@@ -255,5 +255,12 @@
   "换月": "Rolls",
   "主力连续": "Dominant series",
   "主力连续 · 每个交易日取当时主力月份的 K 线，收盘价按换月比例调整到最新月份的水平": "Dominant series · each trading day reads the bars of the month that is dominant then, with closes scaled by the roll ratios to the level of the latest month",
-  "截面动量每侧持有 {held} 个，至少需要 {need} 个合约或主力连续；当前选了 {have} 个。": "Cross-sectional momentum holds {held} a side and needs at least {need} contracts or dominant series; {have} selected."
+  "截面动量每侧持有 {held} 个，至少需要 {need} 个合约或主力连续；当前选了 {have} 个。": "Cross-sectional momentum holds {held} a side and needs at least {need} contracts or dominant series; {have} selected.",
+  "按笔统计": "Trades",
+  "平仓笔数": "Closed trades",
+  "盈利笔数占比": "Winning trades",
+  "平均盈利": "Average win",
+  "平均亏损": "Average loss",
+  "盈亏比": "Payoff ratio",
+  "一笔是一个合约从开仓到全部平掉的一次持仓，不论分几次成交；盈亏是卖出所得减买入所付再乘合约乘数，未扣手续费。期末还没平掉的持仓不算一笔，主力连续换月时新旧月份各算一笔。": "A trade is one contract's position from its opening until all of it is closed, in however many fills; its profit is what the sells brought in less what the buys cost, times the contract multiplier, before fees. A position still open at the end is no trade, and when a dominant series rolls, the old month and the new are a trade each."
 }

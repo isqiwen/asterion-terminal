@@ -28,4 +28,29 @@ struct EquityDay {
 // observation in order, settlements included, and decides the drawdown.
 Performance performance(Decimal deposit, std::span<const EquityDay> days,
                         std::span<const Decimal> marks);
+// What the closed positions of a result say. A trade is one contract's
+// position from flat to flat again, however many fills built and closed it.
+// Its profit is what its sells brought in less what its buys cost, times the
+// contract multiplier: before fees, and the same however lots are paired. A
+// position still open at the end is no trade.
+struct Trades {
+  // Closed trades, and those with a profit and with a loss; one that broke
+  // even is neither.
+  std::size_t count, winning, losing;
+  // The average profit of the winning trades and the average loss, a negative
+  // amount, of the losing ones; absent without any.
+  std::optional<double> average_win, average_loss;
+  // The average win over the size of the average loss; absent unless there
+  // are both.
+  std::optional<double> payoff;
+};
+struct TradedFill {
+  std::size_t contract; // An index into the multipliers.
+  bool buy;
+  Decimal quantity, price;
+};
+// `fills` are in the order they happened. A fill that takes a position
+// through flat to the other side is refused: closing and opening are
+// separate orders.
+Trades trades(std::span<const TradedFill> fills, std::span<const Decimal> multipliers);
 } // namespace asterion

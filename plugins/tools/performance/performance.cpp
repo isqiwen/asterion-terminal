@@ -60,4 +60,40 @@ Performance performance(Decimal deposit, std::span<const EquityDay> days,
     result.calmar = *result.annual_return / result.max_drawdown;
   return result;
 }
+Trades trades(std::span<const TradedFill> fills, std::span<const Decimal> multipliers) {
+  // What each contract holds now, and what its open trade has paid and received.
+  std::vector<Decimal> position(multipliers.size()), cash(multipliers.size());
+  Trades result{};
+  long double won = 0, lost = 0;
+  for (const auto& fill : fills) {
+    auto& held = position.at(fill.contract);
+    auto& paid = cash[fill.contract];
+    const auto after = fill.buy ? held + fill.quantity : held - fill.quantity;
+    if ((held > Decimal{} && after < Decimal{}) || (held < Decimal{} && after > Decimal{}))
+      throw std::invalid_argument("a fill takes a position through flat to the other side");
+    const auto amount = fill.price * fill.quantity;
+    paid = fill.buy ? paid - amount : paid + amount;
+    held = after;
+    if (held != Decimal{})
+      continue;
+    const auto profit = static_cast<long double>((paid * multipliers[fill.contract]).raw());
+    paid = {};
+    ++result.count;
+    if (profit > 0) {
+      ++result.winning;
+      won += profit;
+    } else if (profit < 0) {
+      ++result.losing;
+      lost += profit;
+    }
+  }
+  // Raw decimals carry eight places.
+  if (result.winning)
+    result.average_win = static_cast<double>(won / result.winning / 100000000);
+  if (result.losing)
+    result.average_loss = static_cast<double>(lost / result.losing / 100000000);
+  if (result.winning && result.losing)
+    result.payoff = *result.average_win / -*result.average_loss;
+  return result;
+}
 } // namespace asterion
