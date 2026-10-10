@@ -1,5 +1,6 @@
 #pragma once
 #include <asterion/domain/market.hpp>
+#include <asterion/domain/position_target.hpp>
 #include <functional>
 #include <optional>
 #include <string>
@@ -18,12 +19,14 @@ public:
     Instrument instrument;
     std::size_t fast = 0, slow = 0;
     Decimal quantity;
+    PositionSides sides = PositionSides::both;
   };
   struct Bar {
     // As the market service states it (YYYYMMDD).
     std::string trading_day;
     std::int64_t start_ms = 0;
     Decimal close;
+    // The position wanted in lots: positive long, negative short.
     std::optional<Decimal> target;
   };
   struct Failure {

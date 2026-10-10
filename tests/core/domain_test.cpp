@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <asterion/domain/order.hpp>
+#include <asterion/domain/position_target.hpp>
 
 #include <iostream>
 #include <limits>
@@ -120,3 +121,53 @@ TEST(Domain, order_contract) {
   EXPECT_THROW(([&] { sell_order.apply(first); })(), std::invalid_argument);
 }
 } // namespace
+
+TEST(Domain, position_target_contract) {
+  using asterion::ClosePolicy;
+  using asterion::Decimal;
+  using asterion::HeldPosition;
+  using asterion::Offset;
+  using asterion::Side;
+  const auto d = [](const char* value) { return Decimal::parse(value); };
+  const auto orders = [&](const char* target, HeldPosition held,
+                          ClosePolicy policy = ClosePolicy::yesterday_first) {
+    std::vector<std::tuple<Side, Offset, std::string, std::string>> result;
+    for (const auto& order : asterion::target_orders(d(target), held, policy))
+      result.emplace_back(order.side, order.offset, order.quantity.str(),
+                          std::string(order.suffix));
+    return result;
+  };
+  using Orders = std::vector<std::tuple<Side, Offset, std::string, std::string>>;
+  const HeldPosition flat{}, long3{Side::buy, d("1"), d("2")}, short3{Side::sell, d("1"), d("2")};
+  // From flat, a target opens on its own side; at the target nothing is sent.
+  EXPECT_EQ(orders("2", flat), (Orders{{Side::buy, Offset::open, "2", ""}}));
+  EXPECT_EQ(orders("-2", flat), (Orders{{Side::sell, Offset::open, "2", ""}}));
+  EXPECT_TRUE(orders("0", flat).empty());
+  EXPECT_TRUE(orders("3", long3).empty());
+  EXPECT_TRUE(orders("-3", short3).empty());
+  // On the held side the difference is opened or closed.
+  EXPECT_EQ(orders("5", long3), (Orders{{Side::buy, Offset::open, "2", ""}}));
+  EXPECT_EQ(orders("-5", short3), (Orders{{Side::sell, Offset::open, "2", ""}}));
+  EXPECT_EQ(orders("1", long3), (Orders{{Side::sell, Offset::close, "2", ""}}));
+  EXPECT_EQ(orders("-1", short3), (Orders{{Side::buy, Offset::close, "2", ""}}));
+  // A reversal only closes: the other side opens once this one is gone.
+  EXPECT_EQ(orders("-2", long3), (Orders{{Side::sell, Offset::close, "3", ""}}));
+  EXPECT_EQ(orders("2", short3), (Orders{{Side::buy, Offset::close, "3", ""}}));
+  EXPECT_EQ(orders("0", short3), (Orders{{Side::buy, Offset::close, "3", ""}}));
+  // Explicit-bucket venues close yesterday's lots first, one order per bucket.
+  EXPECT_EQ(orders("2", long3, ClosePolicy::explicit_buckets),
+            (Orders{{Side::sell, Offset::close_yesterday, "1", ".yesterday"}}));
+  EXPECT_EQ(orders("0", long3, ClosePolicy::explicit_buckets),
+            (Orders{{Side::sell, Offset::close_yesterday, "2", ".yesterday"},
+                    {Side::sell, Offset::close_today, "1", ".today"}}));
+  EXPECT_EQ(orders("4", short3, ClosePolicy::explicit_buckets),
+            (Orders{{Side::buy, Offset::close_yesterday, "2", ".yesterday"},
+                    {Side::buy, Offset::close_today, "1", ".today"}}));
+  EXPECT_EQ(orders("0", HeldPosition{Side::sell, d("2"), d("0")}, ClosePolicy::explicit_buckets),
+            (Orders{{Side::buy, Offset::close_today, "2", ".today"}}));
+  EXPECT_THROW(orders("1", HeldPosition{Side::buy, d("-1"), d("0")}), std::invalid_argument);
+  for (const auto sides : {asterion::PositionSides::both, asterion::PositionSides::long_only,
+                           asterion::PositionSides::short_only})
+    EXPECT_EQ(asterion::parse_position_sides(asterion::position_sides_name(sides)), sides);
+  EXPECT_THROW(asterion::parse_position_sides("flat"), std::invalid_argument);
+}

@@ -32,13 +32,14 @@ public:
   void stop() noexcept { running_ = false; }
   void submit(LimitOrder order, Offset offset);
   void cancel(const std::string& id);
-  // A strategy target decided from a preceding bar. Apply after any new-day
-  // cost change and before matching the next bar of this contract.
-  struct LongTarget {
+  // A strategy target decided from a preceding bar: the position wanted in
+  // lots, positive long and negative short. Apply after any new-day cost
+  // change and before matching the next bar of this contract.
+  struct Target {
     std::string order_id;
     Decimal quantity, limit_price;
   };
-  void advance(const std::optional<LongTarget>& target = {});
+  void advance(const std::optional<Target>& target = {});
   // One price per contract, ordered as account().contracts(); a contract that
   // did not trade that day has none and must hold no position. A day-end
   // settlement follows the last event of a trading day, before the next day's
@@ -48,9 +49,12 @@ public:
   void cancel_open_orders();
   // Working orders of one contract only.
   void cancel_open_orders(const InstrumentId& instrument);
-  // Long/flat target for one contract, routed through normal account checks.
-  void reconcile_long_target(const std::string& order_id, const InstrumentId& instrument,
-                             Decimal target, Decimal price);
+  // Moves one contract toward a signed target with limit orders at `price`,
+  // routed through normal account checks. Replaces the contract's working
+  // orders. A position on the other side is closed first; the target's own
+  // side opens on a later call, once that close has filled.
+  void reconcile_target(const std::string& order_id, const InstrumentId& instrument, Decimal target,
+                        Decimal price);
   Json snapshot() const;
   const FuturesAccount& account() const noexcept { return account_; }
   // Number of consumed events; the next advance consumes event(cursor).

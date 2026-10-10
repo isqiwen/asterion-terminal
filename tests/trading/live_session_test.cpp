@@ -198,7 +198,7 @@ public:
     std::lock_guard lock(mutex_);
     series_ = std::move(series);
   }
-  Json start(std::string run, const char* quantity) const {
+  Json start(std::string run, const char* quantity, const char* sides = "long") const {
     return {{"request_id", std::move(run)},
             {"action", "strategy_start"},
             {"venue", "SHFE"},
@@ -206,6 +206,7 @@ public:
             {"fast", 1},
             {"slow", 2},
             {"quantity", quantity},
+            {"sides", sides},
             {"market_endpoint", endpoint_},
             {"market_service", "market"}};
   }
@@ -248,6 +249,14 @@ Decimal long_position(const Json& state) {
   Decimal held;
   for (const auto& position : state.at("positions"))
     if (position.at("side") == "buy")
+      held = held + Decimal::parse(position.at("today").get<std::string>()) +
+             Decimal::parse(position.at("yesterday").get<std::string>());
+  return held;
+}
+Decimal short_position(const Json& state) {
+  Decimal held;
+  for (const auto& position : state.at("positions"))
+    if (position.at("side") == "sell")
       held = held + Decimal::parse(position.at("today").get<std::string>()) +
              Decimal::parse(position.at("yesterday").get<std::string>());
   return held;
@@ -1239,7 +1248,7 @@ TEST_F(Live, CredentialsAreNeverWrittenAndHeadersPinTheEngine) {
   }
   const auto header_file = test::journal_record(directory.path, 0);
   auto header = test::read_record(header_file);
-  EXPECT_EQ(header.at("engine"), "asterion.live-futures.v26");
+  EXPECT_EQ(header.at("engine"), "asterion.live-futures.v27");
   EXPECT_EQ(header.at("manifest"), manifest());
   header["engine"] = "asterion.live-futures.v4";
   test::write_record(header_file, header);
@@ -1319,6 +1328,90 @@ TEST_F(Live, StrategyRunOwnsTheAccountAndItsTargetsTakeTheOrderPath) {
   // An accepted order is listed once the broker reports it.
   state = wait_for(session, [](const Json& s) { return find_order(s, "manual").is_object(); });
   EXPECT_TRUE(find_order(state, "manual").is_object());
+}
+TEST_F(Live, StrategyRunSellsShortAndReversesByClosingBeforeOpening) {
+  FakeMarket market;
+  LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+  const auto day = ready(session).at("trading_day").get<std::string>();
+  act(session, authorize());
+  // A falling close asks for a short position.
+  market.set(day, {"3500", "3499", "3499"});
+  act(session, market.start("run", "1", "both"));
+  const auto sold = FakeMarket::order("run", 1);
+  auto state =
+      wait_for(session, [&](const Json& s) { return order_has_status(s, sold, "filled"); });
+  ASSERT_TRUE(order_has_status(state, sold, "filled")) << state.at("strategy").dump();
+  EXPECT_EQ(find_order(state, sold).at("side"), "sell");
+  EXPECT_EQ(find_order(state, sold).at("offset"), "open");
+  EXPECT_EQ(find_order(state, sold).at("limit_price"), "3499");
+  EXPECT_EQ(state.at("strategy").at("target"), "-1");
+  EXPECT_EQ(state.at("strategy").at("sides"), "both");
+  state = wait_for(session, [](const Json& s) { return short_position(s) == Decimal::parse("1"); });
+  EXPECT_EQ(short_position(state), Decimal::parse("1"));
+  // A rising close asks for a long one. That bar only buys the short back.
+  market.set(day, {"3500", "3499", "3501", "3501"});
+  const auto covered = FakeMarket::order("run", 2, ".today");
+  state = wait_for(session, [&](const Json& s) {
+    return order_has_status(s, covered, "filled") && short_position(s) == Decimal{};
+  });
+  ASSERT_TRUE(order_has_status(state, covered, "filled")) << state.at("strategy").dump();
+  EXPECT_EQ(find_order(state, covered).at("side"), "buy");
+  EXPECT_EQ(find_order(state, covered).at("offset"), "close_today");
+  EXPECT_EQ(state.at("strategy").at("target"), "1");
+  EXPECT_EQ(long_position(state), Decimal{}) << "the two sides are never held together";
+  EXPECT_TRUE(find_order(state, FakeMarket::order("run", 2)).is_null());
+  // The next bar still asks for the long position; flat now, it opens.
+  market.set(day, {"3500", "3499", "3501", "3502", "3502"});
+  const auto bought = FakeMarket::order("run", 3);
+  state = wait_for(session, [&](const Json& s) {
+    return order_has_status(s, bought, "filled") && long_position(s) == Decimal::parse("1");
+  });
+  ASSERT_TRUE(order_has_status(state, bought, "filled")) << state.at("strategy").dump();
+  EXPECT_EQ(find_order(state, bought).at("side"), "buy");
+  EXPECT_EQ(find_order(state, bought).at("offset"), "open");
+  EXPECT_EQ(short_position(state), Decimal{});
+  act(session, stop_strategy("stop"));
+  EXPECT_TRUE(strategy_stopped(session.snapshot()));
+}
+TEST_F(Live, StrategyTakesOverOneSideAndRefusesAContractHeldOnBoth) {
+  FakeMarket market;
+  LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+  const auto day = ready(session).at("trading_day").get<std::string>();
+  act(session, authorize());
+  auto sell = submit("short", "1");
+  sell["side"] = "sell";
+  act(session, sell);
+  auto state =
+      wait_for(session, [](const Json& s) { return short_position(s) == Decimal::parse("1"); });
+  ASSERT_EQ(short_position(state), Decimal::parse("1"));
+  // The owner's short position is the run's to manage: a long-only run buys it back.
+  market.set(day, {"3500", "3501", "3501"});
+  act(session, market.start("run", "1", "long"));
+  const auto covered = FakeMarket::order("run", 1, ".today");
+  state = wait_for(session, [&](const Json& s) {
+    return order_has_status(s, covered, "filled") && short_position(s) == Decimal{};
+  });
+  ASSERT_TRUE(order_has_status(state, covered, "filled")) << state.at("strategy").dump();
+  EXPECT_EQ(find_order(state, covered).at("offset"), "close_today");
+  act(session, stop_strategy("stop"));
+  // Both sides at once are not one position for a target to be measured against.
+  act(session, submit("long", "1"));
+  // Opening pauses until the broker's positions include the last fill.
+  state = wait_for(session, [](const Json& s) { return long_position(s) == Decimal::parse("1"); });
+  ASSERT_EQ(long_position(state), Decimal::parse("1"));
+  sell = submit("short.again", "1");
+  sell["side"] = "sell";
+  act(session, sell);
+  state = wait_for(session, [](const Json& s) {
+    return long_position(s) == Decimal::parse("1") && short_position(s) == Decimal::parse("1");
+  });
+  ASSERT_EQ(short_position(state), Decimal::parse("1"));
+  try {
+    act(session, market.start("both", "1", "both"));
+    FAIL() << "a run started on a contract held on both sides";
+  } catch (const Error& error) {
+    EXPECT_EQ(error.code(), ErrorCode::conflict);
+  }
 }
 TEST_F(Live, StrategyReplacesItsWorkingOrderAndStoppingRequestsItsCancellation) {
   FakeMarket market;
@@ -1478,6 +1571,7 @@ TEST(LiveProtocol, SnapshotAndCommandsRoundTrip) {
         {"fast", 5},
         {"slow", 20},
         {"quantity", "1"},
+        {"sides", "both"},
         {"state", "running"},
         {"reason", ""},
         {"started_ms", 8},

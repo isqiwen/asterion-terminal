@@ -14,7 +14,7 @@ import {
 } from "../contract";
 import { timestamp } from "../../src/bridge/client";
 import { ExperimentDetails } from "./ExperimentDetails";
-import { namespace, ResearchPage, states, t, TaskRecords, useRun } from "./shared";
+import { namespace, ResearchPage, states, t, TaskRecords, useRun, positionSides } from "./shared";
 
 // Performance figures are statistics; an absent one was not computed.
 const percent = (value: number | null) => (value === null ? "—" : `${(value * 100).toFixed(2)}%`);
@@ -71,10 +71,11 @@ export function Backtest({
   }, [workspacePage, workspaceParams, setSelectedTask, setView]);
 
   const destination = JSON.stringify([snapshot?.data?.connection_id, taskService?.connection_id]);
-  const [parameters, setParameters] = useWorkspaceDraft("parameters", {
+  const [parameters, setParameters] = useWorkspaceDraft("backtest-parameters", {
     fast: "5",
     slow: "20",
     quantity: "1",
+    sides: "both",
     deposit: "",
     max_order_quantity: "",
     max_gross_quantity: "",
@@ -241,7 +242,26 @@ export function Backtest({
                       />
                     </label>
                   ))}
+                  <label>
+                    {t("持仓方向")}
+                    <select
+                      aria-label={t("持仓方向")}
+                      value={parameters.sides}
+                      onChange={e => setParameters({ ...parameters, sides: e.target.value })}
+                    >
+                      {Object.entries(positionSides).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {t(label)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
+                <p className="subtle">
+                  {t(
+                    "快线高于慢线时持有目标手数的多单，低于时持有空单；不允许的方向空仓。反手时先平仓，平掉之后的下一根 K 线再开仓。",
+                  )}
+                </p>
                 <div className="research-fields">
                   {(
                     [

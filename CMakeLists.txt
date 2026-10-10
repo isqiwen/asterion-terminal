@@ -55,7 +55,7 @@ target_include_directories(asterion_kernel PUBLIC bindings/plugin/include)
 target_link_libraries(asterion_kernel PRIVATE ${CMAKE_DL_LIBS})
 target_link_libraries(asterion_kernel PUBLIC Asterion::Foundation Threads::Threads PRIVATE spdlog::spdlog_header_only asio::asio OpenSSL::SSL)
 
-add_library(asterion_domain STATIC core/src/domain/market.cpp core/src/domain/historical_bars.cpp core/src/domain/history_identity.cpp core/src/domain/intraday_bars.cpp core/src/domain/order.cpp core/src/domain/futures.cpp core/src/domain/account.cpp core/src/domain/risk_port.cpp)
+add_library(asterion_domain STATIC core/src/domain/market.cpp core/src/domain/historical_bars.cpp core/src/domain/history_identity.cpp core/src/domain/intraday_bars.cpp core/src/domain/order.cpp core/src/domain/futures.cpp core/src/domain/account.cpp core/src/domain/position_target.cpp core/src/domain/risk_port.cpp)
 add_library(Asterion::Domain ALIAS asterion_domain)
 target_link_libraries(asterion_domain PUBLIC Asterion::Kernel)
 

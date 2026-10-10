@@ -673,6 +673,7 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData) {
   backtest->mutable_sma()->set_fast(1);
   backtest->mutable_sma()->set_slow(3);
   backtest->mutable_sma()->mutable_quantity()->set_units(Decimal::parse("1").raw());
+  backtest->mutable_sma()->set_sides(protocol::v1::LONG_ONLY);
   ASSERT_EQ(call(submit).task().kind(), task::v1::BACKTEST);
   submit.mutable_submit()->set_id("factor");
   auto* factor = submit.mutable_submit()->mutable_factor_request();

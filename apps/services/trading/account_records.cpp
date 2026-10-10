@@ -131,7 +131,7 @@ AccountRequest AccountRequest::parse(const Json& command) {
     result.operation = ChangePolicy{command.at("policy"), text(command, "risk_artifact")};
   } else if (action == "strategy_start") {
     require_fields(command, {"request_id", "action", "venue", "symbol", "fast", "slow", "quantity",
-                             "market_endpoint", "market_service"});
+                             "sides", "market_endpoint", "market_service"});
     // Order IDs derived from the run stay within the identity length.
     if (result.id.size() > 64)
       throw std::invalid_argument("strategy run identity is too long");
@@ -141,6 +141,7 @@ AccountRequest AccountRequest::parse(const Json& command) {
                                      command.at("fast").get<std::uint32_t>(),
                                      command.at("slow").get<std::uint32_t>(),
                                      Decimal::parse(text(command, "quantity")),
+                                     parse_position_sides(text(command, "sides")),
                                      text(command, "market_endpoint"),
                                      std::move(service)};
   } else if (action == "strategy_stop") {

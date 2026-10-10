@@ -1,5 +1,6 @@
 #include "paper_execution.hpp"
 #include "portfolio.hpp"
+#include <asterion/domain/position_target.hpp>
 #include <asterion/protocol/data.hpp>
 #include <algorithm>
 #include <stdexcept>
@@ -94,7 +95,7 @@ std::optional<Decimal> fill_price(const AccountOrder& item, const MarketBar& bar
                                          : std::nullopt;
 }
 } // namespace
-void PaperExecution::advance(const std::optional<LongTarget>& target) {
+void PaperExecution::advance(const std::optional<Target>& target) {
   require_running();
   if (cursor_ == size())
     throw std::invalid_argument("replay has finished");
@@ -131,7 +132,7 @@ void PaperExecution::advance(const std::optional<LongTarget>& target) {
       next.update_costs(costs);
     }
     if (target)
-      reconcile_long_target(target->order_id, instrument, target->quantity, target->limit_price);
+      reconcile_target(target->order_id, instrument, target->quantity, target->limit_price);
     auto sequence = execution_sequence_;
     auto liquidity = quantize(multiply(bar.volume, paper_bar_participation, Rounding::floor),
                               terms.instrument.quantity_increment, Rounding::floor);
@@ -205,29 +206,29 @@ void PaperExecution::cancel_open_orders(const InstrumentId& instrument) {
     }
   }
 }
-void PaperExecution::reconcile_long_target(const std::string& order_id,
-                                           const InstrumentId& instrument, Decimal target,
-                                           Decimal price) {
+void PaperExecution::reconcile_target(const std::string& order_id, const InstrumentId& instrument,
+                                      Decimal target, Decimal price) {
   require_running();
   if (order_id.empty() || order_id.size() > 128)
     throw std::invalid_argument("invalid target order identity");
   const auto& spec = account_.contracts()[account_.contract_index(instrument)].instrument;
-  if (target < Decimal{} || !target.multiple_of(spec.quantity_increment))
-    throw std::invalid_argument("target must be nonnegative and lot aligned");
-  Decimal today, yesterday;
+  if (!target.multiple_of(spec.quantity_increment))
+    throw std::invalid_argument("target must be lot aligned");
+  HeldPosition held;
   for (const auto& lot : account_.positions()) {
     if (lot.instrument != instrument)
       continue;
-    if (lot.side != Side::buy)
-      throw std::invalid_argument("long/flat target requires long positions");
-    auto& bucket = lot.today ? today : yesterday;
+    if (held.today + held.yesterday > Decimal{} && lot.side != held.side)
+      throw std::invalid_argument("a target needs the contract held on one side only");
+    held.side = lot.side;
+    auto& bucket = lot.today ? held.today : held.yesterday;
     bucket = bucket + lot.quantity;
   }
-  const auto current = today + yesterday;
+  const auto orders = target_orders(target, held, account_.close_policy(instrument));
   const auto working = std::ranges::any_of(account_.working_orders(), [&](const auto index) {
     return account_.orders()[index].order.request().instrument == instrument;
   });
-  if (target == current && !working)
+  if (orders.empty() && !working)
     return;
   // Keep account and revision changes atomic across both close buckets without
   // copying the completed order/fill history. Risk checks keep the same order.
@@ -241,27 +242,9 @@ void PaperExecution::reconcile_long_target(const std::string& order_id,
       if (item.order.request().instrument == instrument)
         account_.cancel(item.order.request().id);
     }
-    if (target > current) {
-      submit({order_id, instrument, Side::buy, target - current, price}, Offset::open);
-    } else if (target < current &&
-               account_.close_policy(instrument) != ClosePolicy::explicit_buckets) {
-      // The exchange assigns buckets (and their fees) itself.
-      submit({order_id, instrument, Side::sell, current - target, price}, Offset::close);
-    } else if (target < current) {
-      // Explicit-bucket venues: yesterday first, then today. A simulator policy,
-      // not a fee optimization. Each bucket retains its fee.
-      const auto old_quantity = std::min(current - target, yesterday);
-      const auto new_quantity = current - target - old_quantity;
-      const bool split = old_quantity > Decimal{} && new_quantity > Decimal{};
-      if (old_quantity > Decimal{})
-        submit({split ? order_id + ".yesterday" : order_id, instrument, Side::sell, old_quantity,
-                price},
-               Offset::close_yesterday);
-      if (new_quantity > Decimal{})
-        submit(
-            {split ? order_id + ".today" : order_id, instrument, Side::sell, new_quantity, price},
-            Offset::close_today);
-    }
+    for (const auto& order : orders)
+      submit({order_id + std::string(order.suffix), instrument, order.side, order.quantity, price},
+             order.offset);
   } catch (...) {
     revision_ = previous_revision;
     throw;

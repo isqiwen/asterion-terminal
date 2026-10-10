@@ -18,8 +18,8 @@ namespace asterion::trading {
 namespace {
 // Record 0 carries this identity. Bump it whenever authorization, allowlist,
 // risk or order-recording semantics change; recovery refuses other identities.
-// v26: the authorization lasts until revoked; one strategy run may control the account.
-const std::string journal_engine = "asterion.live-futures.v26";
+// v27: a strategy run's target is signed; it may hold a contract short.
+const std::string journal_engine = "asterion.live-futures.v27";
 constexpr int journal_format = 1;
 constexpr auto quote_validity = std::chrono::seconds(10);
 std::string text(const Json& value, const char* key) {
@@ -478,13 +478,15 @@ AccountCommand LiveAccountState::start_strategy(const AccountRequest& request,
                           [](const BrokerOrder& order) { return working(order.status); }))
     throw Error(ErrorCode::conflict,
                 "a strategy starts on a reconciled account without working orders");
-  if (std::ranges::any_of(state.positions, [&](const BrokerPosition& position) {
-        return position.instrument == start.instrument && position.side == Side::sell &&
+  // The run takes over the contract's position, which its target is measured
+  // against; both sides at once are not one position.
+  if (std::ranges::count_if(state.positions, [&](const BrokerPosition& position) {
+        return position.instrument == start.instrument &&
                position.today + position.yesterday > Decimal{};
-      }))
-    throw Error(ErrorCode::conflict, "a long/flat strategy cannot start on a short position");
+      }) > 1)
+    throw Error(ErrorCode::conflict, "a strategy cannot start on a contract held on both sides");
   // Parameters the strategy rejects are refused before anything is recorded.
-  static_cast<void>(MovingAverage(terms, start.fast, start.slow, start.quantity));
+  static_cast<void>(MovingAverage(terms, start.fast, start.slow, start.quantity, start.sides));
   co_await append(command_entry(request, policy_->revision));
   if (control != send_gate_.revision() || !authorization_)
     throw Error(ErrorCode::conflict, "account state changed before the strategy started");
@@ -494,11 +496,12 @@ AccountCommand LiveAccountState::start_strategy(const AccountRequest& request,
   run_->fast = start.fast;
   run_->slow = start.slow;
   run_->quantity = start.quantity;
+  run_->sides = start.sides;
   run_->started_ms = now_ms();
   try {
     run_->host = std::make_unique<StrategyHost>(
         StrategyHost::Definition{start.market_endpoint, start.market_service, terms, start.fast,
-                                 start.slow, start.quantity},
+                                 start.slow, start.quantity, start.sides},
         [this, post = post_, run = request.id](auto event) {
           post([this, run, event = std::move(event)] { report(run, event); });
         });
@@ -602,54 +605,40 @@ AccountCommand LiveAccountState::cancel_run_orders() {
   if (failure)
     std::rethrow_exception(failure);
 }
-// Moves the contract's long position to the target with limit orders at the
-// deciding bar's close, as the backtest does. Each order takes the same path
-// as a manual one: authorization, allowlist, broker quote, risk, record, send.
+// Moves the contract's position toward the signed target with limit orders at
+// the deciding bar's close, as the backtest does: a position on the other side
+// is closed first and the target's side opens on a later bar. Each order takes
+// the same path as a manual one: authorization, allowlist, broker quote, risk,
+// record, send.
 AccountCommand LiveAccountState::place_target(std::uint64_t control) {
   auto& run = *run_;
   const auto bar = *run.bar;
   const auto& id = run.instrument.id;
-  const auto [today, yesterday, opposite] = observed([&](const BrokerSnapshot& state) {
-    std::tuple<Decimal, Decimal, bool> held;
+  const auto held = observed([&](const BrokerSnapshot& state) {
+    std::optional<HeldPosition> result = HeldPosition{};
     for (const auto& position : state.positions) {
-      if (position.instrument != id)
+      if (position.instrument != id || position.today + position.yesterday == Decimal{})
         continue;
-      if (position.side == Side::sell)
-        std::get<2>(held) = position.today + position.yesterday > Decimal{};
-      else
-        held = {position.today, position.yesterday, std::get<2>(held)};
+      if (result->today + result->yesterday > Decimal{})
+        return std::optional<HeldPosition>{};
+      result = HeldPosition{position.side, position.today, position.yesterday};
     }
-    return held;
+    return result;
   });
-  if (opposite)
-    throw std::invalid_argument("a long/flat strategy found a short position");
+  if (!held)
+    throw std::invalid_argument("a strategy found its contract held on both sides");
   // Each bar's target is acted on once, whatever becomes of its orders.
   run.placed_bar = bar.start_ms;
-  const auto current = today + yesterday;
-  const auto target = *bar.target;
-  std::vector<std::tuple<std::string, Side, Offset, Decimal>> orders;
-  if (target > current)
-    orders.emplace_back("", Side::buy, Offset::open, target - current);
-  else if (target < current && close_policy(id.venue) != ClosePolicy::explicit_buckets)
-    orders.emplace_back("", Side::sell, Offset::close, current - target);
-  else if (target < current) {
-    // Explicit-bucket venues: yesterday's lots first, then today's.
-    const auto old = std::min(current - target, yesterday);
-    if (old > Decimal{})
-      orders.emplace_back(".yesterday", Side::sell, Offset::close_yesterday, old);
-    if (current - target > old)
-      orders.emplace_back(".today", Side::sell, Offset::close_today, current - target - old);
-  }
-  for (const auto& [suffix, side, offset, quantity] : orders) {
-    const auto order_id = run.id + "." + std::to_string(bar.start_ms) + suffix;
+  for (const auto& order : target_orders(*bar.target, *held, close_policy(id.venue))) {
+    const auto order_id = run.id + "." + std::to_string(bar.start_ms) + std::string(order.suffix);
     const auto request = AccountRequest::parse({{"request_id", order_id},
                                                 {"action", "submit"},
                                                 {"order_id", order_id},
                                                 {"venue", id.venue},
                                                 {"symbol", id.symbol},
-                                                {"side", side_name(side)},
-                                                {"offset", offset_name(offset)},
-                                                {"quantity", quantity.str()},
+                                                {"side", side_name(order.side)},
+                                                {"offset", offset_name(order.offset)},
+                                                {"quantity", order.quantity.str()},
                                                 {"price", bar.close.str()}});
     std::exception_ptr failure;
     try {
@@ -957,6 +946,7 @@ Json LiveAccountState::snapshot() const {
         {"fast", run_->fast},
         {"slow", run_->slow},
         {"quantity", run_->quantity.str()},
+        {"sides", position_sides_name(run_->sides)},
         {"state", running() ? "running" : "stopped"},
         {"reason", run_->ended},
         {"started_ms", run_->started_ms},

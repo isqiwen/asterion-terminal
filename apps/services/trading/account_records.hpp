@@ -1,5 +1,6 @@
 #pragma once
 #include <asterion/domain/broker_execution.hpp>
+#include <asterion/domain/position_target.hpp>
 #include <asterion/foundation/serialization.hpp>
 #include <optional>
 #include <string>
@@ -30,12 +31,13 @@ struct ChangePolicy {
   Json definition;
   std::string risk_artifact;
 };
-// One long/flat moving-average run on one allowed contract. The request ID is
+// One moving-average run on one allowed contract, on the sides it may hold. The request ID is
 // the run's identity and prefixes the ID of every order it places.
 struct StartStrategy {
   InstrumentId instrument;
   std::uint32_t fast = 0, slow = 0;
   Decimal quantity;
+  PositionSides sides = PositionSides::both;
   // The market service on this machine whose minute bars the run reads.
   std::string market_endpoint, market_service;
 };

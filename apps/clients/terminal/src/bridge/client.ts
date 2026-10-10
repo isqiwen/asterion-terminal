@@ -219,11 +219,13 @@ export type LiveSession = {
     fast: number;
     slow: number;
     quantity: string;
+    sides: PositionSides;
     state: "running" | "stopped";
     reason: string;
     started_ms: number;
     bars: number;
     bar_ms: number;
+    // The position wanted in lots: positive long, negative short.
     target: string | null;
     orders: string[];
   };
@@ -670,7 +672,7 @@ export type ExperimentData = {
 export type BacktestExperiment = {
   version: number;
   dataset_revision: string;
-  sma: { fast: number; slow: number; quantity: string };
+  sma: { fast: number; slow: number; quantity: string; sides: PositionSides };
   paper: {
     version: number;
     type: "historical_paper";
@@ -712,6 +714,8 @@ export type FactorExperiment = {
 // How a backtest's result performed, from its day-end equity. The drawdown is
 // a share of the peak it fell from. Yearly figures are scaled by the calendar
 // time the days span and are null with fewer than 20 trading days.
+// Which sides of a contract a strategy may hold.
+export type PositionSides = "both" | "long" | "short";
 export type BacktestPerformance = {
   trading_days: number;
   total_return: number;

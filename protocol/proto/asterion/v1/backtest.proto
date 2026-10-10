@@ -4,7 +4,10 @@ import "asterion/v1/domain.proto";
 import "asterion/v1/trading.proto";
 import "asterion/v1/data.proto";
 
-message SmaStrategy { uint32 fast = 1; uint32 slow = 2; asterion.protocol.v1.Decimal quantity = 3; }
+message SmaStrategy {
+  uint32 fast = 1; uint32 slow = 2; asterion.protocol.v1.Decimal quantity = 3;
+  asterion.protocol.v1.PositionSides sides = 4;
+}
 // Immutable data resolved by Data and captured with calculation parameters by Task. paper.contracts hold the bars
 // and trading days of each contract; the SMA strategy runs on every contract.
 message BacktestInput {
@@ -61,7 +64,7 @@ message ContractSettlement {
   string venue = 1;
   string symbol = 2;
   asterion.protocol.v1.Decimal price = 3;
-  asterion.protocol.v1.Decimal position_quantity = 4;
+  asterion.protocol.v1.Decimal position_quantity = 4; // Net lots: long positive, short negative.
 }
 message DaySettlement {
   string trading_day = 1;

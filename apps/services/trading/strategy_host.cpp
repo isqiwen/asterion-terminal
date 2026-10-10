@@ -97,7 +97,7 @@ void run(const std::stop_token& stop, const StrategyHost::Definition& definition
 } // namespace
 StrategyHost::StrategyHost(Definition definition, Report report) {
   MovingAverage strategy(definition.instrument, definition.fast, definition.slow,
-                         definition.quantity);
+                         definition.quantity, definition.sides);
   strategy.start();
   thread_ = std::jthread([definition = std::move(definition), report = std::move(report),
                           strategy = std::move(strategy)](std::stop_token stop) mutable {

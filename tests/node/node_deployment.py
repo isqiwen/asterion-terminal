@@ -189,7 +189,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         # Task results survive a program update of the stopped service.
         call(terminal, "data.dataset.clear")
         call(terminal, "data.dataset.select", seed([100, 101, 102, 101, 104, 103, 102, 103], "remote-backtest"))
-        call(terminal, "backtest.submit", {"id": "remote-backtest", "fast": 1, "slow": 3, "quantity": "1", "deposit": "10000", "contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
+        call(terminal, "backtest.submit", {"id": "remote-backtest", "fast": 1, "slow": 3, "quantity": "1", "sides": "long", "deposit": "10000", "contracts": contracts(), "max_order_quantity":"100", "max_gross_quantity":"100", "max_working_orders":"100"})
         def task_done(task_id):
             tasks = [task for task in call(terminal, "runtime.snapshot")["task_service"]["tasks"] if task["id"] == task_id]
             return tasks and tasks[0]["state"] == "succeeded"

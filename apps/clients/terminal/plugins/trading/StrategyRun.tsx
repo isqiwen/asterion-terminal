@@ -4,6 +4,14 @@ import type { LiveSession } from "../../src/bridge/client";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.trading", key, values);
 type Contract = LiveSession["contracts"][number];
+const positionSides = { both: "多空", long: "只做多", short: "只做空" } as const;
+// A signed target in lots, said the way a position is: long, short or flat.
+const position = (target: string) =>
+  target === "0"
+    ? t("空仓")
+    : target.startsWith("-")
+      ? t("空 {n} 手", { n: target.slice(1) })
+      : t("多 {n} 手", { n: target });
 const key = (item: Contract) => `${item.venue}:${item.symbol}`;
 
 // The account's strategy run. While it runs it is the only originator of new
@@ -24,12 +32,13 @@ export function StrategyStatus({
       <div className="strategy-run-heading">
         <strong>{t("策略运行中")}</strong>
         <span>
-          {t("{venue} · {symbol} · 均线 {fast}/{slow} · {quantity} 手", {
+          {t("{venue} · {symbol} · 均线 {fast}/{slow} · {quantity} 手 · {sides}", {
             venue: run.venue,
             symbol: run.symbol,
             fast: run.fast,
             slow: run.slow,
             quantity: run.quantity,
+            sides: t(positionSides[run.sides]),
           })}
         </span>
         <button disabled={stopping} onClick={onStop}>
@@ -47,9 +56,7 @@ export function StrategyStatus({
         </div>
         <div>
           <dt>{t("目标持仓")}</dt>
-          <dd data-testid="strategy-target">
-            {run.target === null ? "—" : t("{n} 手", { n: run.target })}
-          </dd>
+          <dd data-testid="strategy-target">{run.target === null ? "—" : position(run.target)}</dd>
         </div>
         <div>
           <dt>{t("策略挂单")}</dt>
@@ -75,7 +82,13 @@ export function StrategyStart({
   busy: boolean;
   onStart: (params: Record<string, unknown>) => void;
 }) {
-  const [form, setForm] = useState({ contract: "", fast: "5", slow: "20", quantity: "1" });
+  const [form, setForm] = useState({
+    contract: "",
+    fast: "5",
+    slow: "20",
+    quantity: "1",
+    sides: "both",
+  });
   const chosen = live.contracts.find(item => key(item) === form.contract) ?? live.contracts[0];
   const last = live.strategy;
   return (
@@ -90,6 +103,7 @@ export function StrategyStart({
           fast: Number(form.fast),
           slow: Number(form.slow),
           quantity: form.quantity,
+          sides: form.sides,
         });
       }}
     >
@@ -135,6 +149,20 @@ export function StrategyStart({
               />
             </label>
           ))}
+          <label>
+            {t("持仓方向")}
+            <select
+              aria-label={t("持仓方向")}
+              value={form.sides}
+              onChange={event => setForm({ ...form, sides: event.target.value })}
+            >
+              {Object.entries(positionSides).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {t(label)}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         <div className="source-actions">
           <button className="primary" type="submit">
@@ -142,7 +170,7 @@ export function StrategyStart({
           </button>
           <span className="subtle">
             {t(
-              "均线多头策略：快线高于慢线时持有上面的手数，否则空仓；使用本机行情服务的 1 分钟线，按 K 线收盘价挂限价单。启动后由策略独占下单，断线重连和换交易日后自动继续，直到你停止它、撤销授权、修改风控政策或交易服务重启。",
+              "均线策略：快线高于慢线时持有上面手数的多单，低于时持有空单，不允许的方向空仓；反手时先平仓，下一根 K 线再开仓。该合约已有的单边持仓由策略接管。使用本机行情服务的 1 分钟线，按 K 线收盘价挂限价单。启动后由策略独占下单，断线重连和换交易日后自动继续，直到你停止它、撤销授权、修改风控政策或交易服务重启。",
             )}
           </span>
         </div>

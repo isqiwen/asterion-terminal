@@ -9,7 +9,7 @@
 namespace asterion::protocol {
 namespace {
 backtest::v1::SmaStrategy sma(const Json& value) {
-  require_fields(value, {"fast", "slow", "quantity"});
+  require_fields(value, {"fast", "slow", "quantity", "sides"});
   for (auto name : {"fast", "slow"})
     if (!value.at(name).is_number_integer() || value.at(name) < 1 || value.at(name) > 10000)
       throw std::invalid_argument("invalid SMA period");
@@ -18,6 +18,7 @@ backtest::v1::SmaStrategy sma(const Json& value) {
   result.set_slow(value.at("slow").get<unsigned>());
   result.mutable_quantity()->set_units(
       Decimal::parse(value.at("quantity").get<std::string>()).raw());
+  result.set_sides(encode_position_sides(value.at("sides")));
   return result;
 }
 // Index lists: every index names a contract, none twice across all lists.
@@ -115,7 +116,8 @@ Json decode_backtest(const backtest::v1::BacktestInput& input, DatasetView view)
               {"sma",
                {{"fast", input.sma().fast()},
                 {"slow", input.sma().slow()},
-                {"quantity", Decimal::from_raw(input.sma().quantity().units()).str()}}}};
+                {"quantity", Decimal::from_raw(input.sma().quantity().units()).str()},
+                {"sides", position_sides_name(position_sides(input.sma().sides()))}}}};
   if (input.series_size()) {
     Json all = Json::array();
     for (const auto& series : input.series()) {

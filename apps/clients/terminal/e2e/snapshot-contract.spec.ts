@@ -62,6 +62,7 @@ test(
         fast: 1,
         slow: 2,
         quantity: "1",
+        sides: "long",
         deposit: "10000",
         contracts: [
           {

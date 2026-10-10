@@ -57,7 +57,8 @@ void validate(const backtest::v1::BacktestInput& input) {
     contract.validate();
     (void)protocol::cost_schedule(item.cost_schedule());
     const MovingAverage strategy(contract.instrument, input.sma().fast(), input.sma().slow(),
-                                 decimal(input.sma().quantity()));
+                                 decimal(input.sma().quantity()),
+                                 protocol::position_sides(input.sma().sides()));
     (void)strategy;
     // A series is one strategy over all of its months.
     if (series[static_cast<std::size_t>(index)] != none)
@@ -90,7 +91,8 @@ backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::
   std::vector<MovingAverage> strategies;
   for (const auto& contract : portfolio.contracts)
     strategies.emplace_back(contract.terms.instrument, input.sma().fast(), input.sma().slow(),
-                            decimal(input.sma().quantity()));
+                            decimal(input.sma().quantity()),
+                            protocol::position_sides(input.sma().sides()));
   PaperExecution execution(decimal(p.deposit()), std::move(portfolio.contracts), risk);
   execution.start();
   for (auto& strategy : strategies)
@@ -118,7 +120,7 @@ backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::
     point->set_event(event);
     point->mutable_equity()->set_units(equity.raw());
   };
-  std::vector<std::optional<PaperExecution::LongTarget>> pending(strategies.size());
+  std::vector<std::optional<PaperExecution::Target>> pending(strategies.size());
   const auto total = execution.size();
   for (std::size_t index = 0; index < total; ++index) {
     if (stop.stop_requested())
@@ -134,7 +136,7 @@ backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::
       if (dominant(rolls, bar.trading_day).contract() != current.contract)
         intent->quantity = Decimal{};
       // Apply the roll and the no-overlapping-months rule at submission.
-      else if (intent->quantity > Decimal{} &&
+      else if (intent->quantity != Decimal{} &&
                std::ranges::any_of(rolls.rolls(), [&](const auto& other) {
                  return other.contract() != current.contract && holds(other.contract());
                }))
@@ -147,7 +149,7 @@ backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::
     const auto& event = schedule.event(index);
     const auto order = "sma." + std::to_string(index);
     const auto decide = [&](Decimal target) {
-      intent = PaperExecution::LongTarget{order, target, bar.close};
+      intent = PaperExecution::Target{order, target, bar.close};
     };
     if (const auto member = series[current.contract]; member == none) {
       const auto target = strategies[current.contract].on_bar(bar);
@@ -186,10 +188,11 @@ backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::
         if (!day.prices[c])
           continue;
         const auto& id = account.contracts()[c].instrument.id;
+        // Net lots: long positive, short negative.
         Decimal quantity;
         for (const auto& lot : account.positions())
           if (lot.instrument == id)
-            quantity = quantity + lot.quantity;
+            quantity = lot.side == Side::buy ? quantity + lot.quantity : quantity - lot.quantity;
         auto* row = settled->add_contracts();
         row->set_venue(id.venue);
         row->set_symbol(id.symbol);

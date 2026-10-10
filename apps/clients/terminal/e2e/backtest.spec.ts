@@ -126,6 +126,8 @@ test(
         .filter({ has: page.getByText(label, { exact: true }) })
         .locator("dd");
     await expect(parameter("快均线")).toHaveText("1");
+    // The form starts on both sides; the experiment records what was submitted.
+    await expect(parameter("持仓方向")).toHaveText("多空");
     await expect(parameter("初始资金")).toHaveText("10000");
     await expect(parameter("平今手续费")).toHaveText("3");
     await expect(parameter("输入 K 线")).toHaveText("8");

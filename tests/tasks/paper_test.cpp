@@ -313,15 +313,77 @@ TEST(PaperExecution, FailedTargetReplacementKeepsExistingOrdersAndReserves) {
       risk());
   engine.start();
   engine.advance();
-  engine.reconcile_long_target("one", instrument().id, d("1"), d("100"));
+  engine.reconcile_target("one", instrument().id, d("1"), d("100"));
   const auto before = engine.snapshot();
-  EXPECT_THROW(engine.reconcile_long_target("two", instrument().id, d("2"), d("100")),
+  EXPECT_THROW(engine.reconcile_target("two", instrument().id, d("2"), d("100")),
                std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), before);
   engine.advance();
   EXPECT_EQ(engine.snapshot().at("fills").size(), 1U);
 }
 
+TEST(PaperExecution, TargetsHoldShortsAndReverseByClosingBeforeOpening) {
+  PaperExecution engine(
+      d("1000"),
+      {{{instrument(), costs()},
+        {test::flat("2026-09-28", 100, "100", "30"), test::flat("2026-09-28", 200, "100", "30"),
+         test::flat("2026-09-28", 300, "96", "30"), test::flat("2026-09-28", 400, "96", "30"),
+         test::flat("2026-09-28", 500, "98", "30")}}},
+      risk());
+  engine.start();
+  engine.advance();
+  engine.reconcile_target("short", instrument().id, d("-2"), d("100"));
+  auto state = engine.snapshot();
+  EXPECT_EQ(state.at("orders")[0].at("side"), "sell");
+  EXPECT_EQ(state.at("orders")[0].at("offset"), "open");
+  engine.advance();
+  engine.advance();
+  state = engine.snapshot();
+  ASSERT_EQ(state.at("positions").size(), 1U);
+  EXPECT_EQ(state.at("positions")[0].at("side"), "sell");
+  EXPECT_EQ(state.at("positions")[0].at("quantity"), "2");
+  // Two lots sold at 100 and marked at 96, ten per point.
+  EXPECT_EQ(state.at("unrealized"), "80");
+  EXPECT_EQ(state.at("margin"), "200");
+  // A long target first only buys the short back.
+  engine.reconcile_target("flip", instrument().id, d("1"), d("96"));
+  state = engine.snapshot();
+  ASSERT_EQ(state.at("orders").size(), 2U);
+  EXPECT_EQ(state.at("orders")[1].at("id"), "flip.today");
+  EXPECT_EQ(state.at("orders")[1].at("side"), "buy");
+  EXPECT_EQ(state.at("orders")[1].at("offset"), "close_today");
+  EXPECT_EQ(state.at("orders")[1].at("quantity"), "2");
+  engine.advance();
+  state = engine.snapshot();
+  EXPECT_TRUE(state.at("positions").empty());
+  EXPECT_EQ(state.at("realized"), "80");
+  EXPECT_EQ(state.at("fees"), "10"); // Two opens at 2 and two closes of today's lots at 3.
+  // Flat now: the same target opens its own side.
+  engine.reconcile_target("long", instrument().id, d("1"), d("98"));
+  engine.advance();
+  state = engine.snapshot();
+  ASSERT_EQ(state.at("positions").size(), 1U);
+  EXPECT_EQ(state.at("positions")[0].at("side"), "buy");
+  EXPECT_EQ(state.at("positions")[0].at("quantity"), "1");
+}
+TEST(PaperExecution, TargetRefusesAContractHeldOnBothSides) {
+  PaperExecution engine(
+      d("1000"),
+      {{{instrument(), costs()},
+        {test::flat("2026-09-28", 100, "100", "30"), test::flat("2026-09-28", 200, "100", "30"),
+         test::flat("2026-09-28", 300, "100", "30")}}},
+      risk());
+  engine.start();
+  engine.advance();
+  engine.submit(order("long", Side::buy, "1", "100"), Offset::open);
+  engine.submit(order("short", Side::sell, "1", "100"), Offset::open);
+  engine.advance();
+  const auto before = engine.snapshot();
+  ASSERT_EQ(before.at("positions").size(), 2U);
+  EXPECT_THROW(engine.reconcile_target("net", instrument().id, d("1"), d("100")),
+               std::invalid_argument);
+  EXPECT_EQ(engine.snapshot(), before);
+}
 TEST(PreTradeRisk, UnavailablePluginAndRejectedTargetCannotMutateExecution) {
   const auto spec = instrument();
   auto policy = std::make_shared<OrderLimits>(OrderLimitsConfig{d("1"), d("1"), 1});
@@ -339,12 +401,10 @@ TEST(PreTradeRisk, UnavailablePluginAndRejectedTargetCannotMutateExecution) {
   policy->start();
   engine.submit(order("one", Side::buy, "1", "100"), Offset::open);
   const auto accepted = engine.snapshot();
-  EXPECT_THROW(engine.reconcile_long_target("two", spec.id, d("2"), d("100")),
-               std::invalid_argument);
+  EXPECT_THROW(engine.reconcile_target("two", spec.id, d("2"), d("100")), std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), accepted);
   policy->stop();
-  EXPECT_THROW(engine.reconcile_long_target("three", spec.id, d("1"), d("100")),
-               std::invalid_argument);
+  EXPECT_THROW(engine.reconcile_target("three", spec.id, d("1"), d("100")), std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), accepted);
 }
 
@@ -375,7 +435,7 @@ TEST(PaperExecution, ScheduledSettlementCarriesBasisAndClosesBucketsWithDistinct
   EXPECT_EQ(positions[0].at("bucket"), "yesterday");
   EXPECT_EQ(positions[0].at("basis"), "105");
   EXPECT_EQ(positions[1].at("bucket"), "today");
-  engine.reconcile_long_target("close", instrument().id, d("0"), d("104"));
+  engine.reconcile_target("close", instrument().id, d("0"), d("104"));
   auto state = engine.snapshot();
   EXPECT_EQ(state.at("orders")[2].at("id"), "close.yesterday");
   EXPECT_EQ(state.at("orders")[2].at("offset"), "close_yesterday");
@@ -399,11 +459,11 @@ TEST(PaperExecution, SecondBucketRiskRejectionPreservesOriginalOrdersAndAccount)
   mixed_longs(engine);
   engine.submit(order("existing", Side::sell, "1", "200"), Offset::close_today);
   const auto before = engine.snapshot();
-  EXPECT_THROW(engine.reconcile_long_target("split", instrument().id, d("0"), d("104")),
+  EXPECT_THROW(engine.reconcile_target("split", instrument().id, d("0"), d("104")),
                std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), before);
   // Only the yesterday bucket is needed: one order fits the same risk limit.
-  engine.reconcile_long_target("reduce", instrument().id, d("1"), d("104"));
+  engine.reconcile_target("reduce", instrument().id, d("1"), d("104"));
   EXPECT_EQ(engine.snapshot().at("orders").back().at("offset"), "close_yesterday");
   engine.advance();
   ASSERT_EQ(engine.snapshot().at("positions").size(), 1U);
@@ -444,10 +504,10 @@ TEST(PaperExecution, ChildIdentityConflictCannotPartiallyReplaceMixedBucketOrder
   mixed_longs(engine);
   engine.submit(order("split.today", Side::sell, "1", "200"), Offset::close_today);
   const auto before = engine.snapshot();
-  EXPECT_THROW(engine.reconcile_long_target("", instrument().id, d("0"), d("104")),
+  EXPECT_THROW(engine.reconcile_target("", instrument().id, d("0"), d("104")),
                std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), before);
-  EXPECT_THROW(engine.reconcile_long_target("split", instrument().id, d("0"), d("104")),
+  EXPECT_THROW(engine.reconcile_target("split", instrument().id, d("0"), d("104")),
                std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), before);
 }

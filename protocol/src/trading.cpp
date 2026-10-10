@@ -31,6 +31,33 @@ std::string side(v1::Side value) {
     return "sell";
   throw std::invalid_argument("invalid side");
 }
+} // namespace
+PositionSides position_sides(v1::PositionSides value) {
+  switch (value) {
+  case v1::LONG_AND_SHORT:
+    return PositionSides::both;
+  case v1::LONG_ONLY:
+    return PositionSides::long_only;
+  case v1::SHORT_ONLY:
+    return PositionSides::short_only;
+  default:
+    throw std::invalid_argument("position sides must be both, long or short");
+  }
+}
+v1::PositionSides encode_position_sides(const Json& value) {
+  if (!value.is_string())
+    throw std::invalid_argument("position sides must be both, long or short");
+  switch (parse_position_sides(value.get<std::string>())) {
+  case PositionSides::long_only:
+    return v1::LONG_ONLY;
+  case PositionSides::short_only:
+    return v1::SHORT_ONLY;
+  case PositionSides::both:
+    break;
+  }
+  return v1::LONG_AND_SHORT;
+}
+namespace {
 v1::Offset offset(const std::string& value) {
   if (value == "open")
     return v1::OPEN;
@@ -324,7 +351,7 @@ v1::Command encode_command(const Json& c) {
     result.mutable_live_resolve()->set_order_id(c.at("order_id").get<std::string>());
   } else if (action == "strategy_start") {
     require_fields(c, {"request_id", "action", "venue", "symbol", "fast", "slow", "quantity",
-                       "market_endpoint", "market_service"});
+                       "sides", "market_endpoint", "market_service"});
     auto* start = result.mutable_strategy_start();
     start->set_venue(c.at("venue").get<std::string>());
     start->set_symbol(c.at("symbol").get<std::string>());
@@ -332,6 +359,7 @@ v1::Command encode_command(const Json& c) {
     start->set_fast(c.at("fast").get<std::uint32_t>());
     start->set_slow(c.at("slow").get<std::uint32_t>());
     set(start->mutable_quantity(), c.at("quantity"));
+    start->set_sides(encode_position_sides(c.at("sides")));
     start->set_market_endpoint(c.at("market_endpoint").get<std::string>());
     start->set_market_service(c.at("market_service").get<std::string>());
   } else if (action == "strategy_stop") {
@@ -380,6 +408,7 @@ Json decode_command(const v1::Command& c) {
                    {"fast", start.fast()},
                    {"slow", start.slow()},
                    {"quantity", get(start.quantity())},
+                   {"sides", position_sides_name(position_sides(start.sides()))},
                    {"market_endpoint", start.market_endpoint()},
                    {"market_service", start.market_service()}});
     result.update(instrument_fields(start.venue(), start.symbol()));
@@ -718,6 +747,7 @@ v1::LiveSnapshot encode_live_snapshot(const Json& s) {
     item->set_fast(run.at("fast"));
     item->set_slow(run.at("slow"));
     set(item->mutable_quantity(), run.at("quantity"));
+    item->set_sides(encode_position_sides(run.at("sides")));
     item->set_state(run.at("state"));
     item->set_reason(run.at("reason"));
     item->set_started_ms(run.at("started_ms"));
@@ -865,6 +895,7 @@ Json decode_live_snapshot(const v1::LiveSnapshot& s) {
                  {"fast", run.fast()},
                  {"slow", run.slow()},
                  {"quantity", get(run.quantity())},
+                 {"sides", position_sides_name(position_sides(run.sides()))},
                  {"state", run.state()},
                  {"reason", run.reason()},
                  {"started_ms", run.started_ms()},

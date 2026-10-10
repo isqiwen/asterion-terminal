@@ -67,6 +67,8 @@ parser.add_argument("--instrument", required=True, help="VENUE:SYMBOL")
 parser.add_argument("--minutes", type=int, default=8, help="minutes to watch the strategy run")
 parser.add_argument("--fast", type=int, default=1)
 parser.add_argument("--slow", type=int, default=2)
+parser.add_argument("--sides", choices=["both", "long", "short"], default="both",
+                    help="sides the strategy run may hold")
 parser.add_argument("--deviation", default="0.02", help="price deviation limit of the test policy")
 parser.add_argument("--timeout", type=int, default=90, help="seconds to wait for each step")
 parser.add_argument("--report", default="", help="write a JSON report (no credentials)")
@@ -254,7 +256,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-ctp-", ignore_cleanup_errors=T
                                      "account_id": live["account_id"],
                                      "policy_revision": live["policy_revision"],
                                      "venue": venue, "symbol": symbol, "fast": args.fast,
-                                     "slow": args.slow, "quantity": "1"})
+                                     "slow": args.slow, "quantity": "1", "sides": args.sides})
         run = session()["strategy"]
         step("strategy started", run and run["state"] == "running", f"run={run and run['id']}")
         refused("manual order refused while the strategy runs", "strategy controls",

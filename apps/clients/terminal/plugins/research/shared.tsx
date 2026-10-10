@@ -25,6 +25,8 @@ export const states: Record<string, string> = {
 };
 // A factor counts in observations of its series: the same parameters read as
 // bars or as trading days, by what the series is made of.
+// What the sides a strategy may hold are called.
+export const positionSides = { both: "多空", long: "只做多", short: "只做空" } as const;
 export const factorWords = {
   bars: {
     computed: "按 K 线计算",

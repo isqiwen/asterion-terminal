@@ -87,6 +87,7 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
     fast: 1,
     slow: 3,
     quantity: "1",
+    sides: "long",
     deposit: "10000",
     contracts: [
       {

@@ -7,7 +7,7 @@ import {
   type ExperimentData,
   type TaskResult,
 } from "../../src/bridge/client";
-import { factorWords } from "./shared";
+import { factorWords, positionSides } from "./shared";
 const t = (key: string) => translate("asterion.terminal.research", key);
 type Evidence = Extract<TaskResult, { kind: "backtest" | "factor" }>;
 type Rows = [string, string | number][];
@@ -72,6 +72,7 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
       ["快均线", sma.fast],
       ["慢均线", sma.slow],
       ["目标手数", sma.quantity],
+      ["持仓方向", t(positionSides[sma.sides])],
       ["初始资金", paper.deposit],
       ["单笔数量上限", paper.risk.max_order_quantity],
       ["总持仓量上限", paper.risk.max_gross_quantity],

@@ -30,14 +30,16 @@ namespace {
 Decimal d(const char* text) {
   return Decimal::parse(text);
 }
-backtest::v1::BacktestInput input() {
+backtest::v1::BacktestInput input(const std::vector<int>& prices = {100, 101, 102, 101, 100, 101,
+                                                                    103},
+                                  const char* settlement = "103") {
   std::vector<MarketBar> bars;
   std::int64_t time = 1790298000000000000LL;
-  for (const auto price : {100, 101, 102, 101, 100, 101, 103}) {
+  for (const auto price : prices) {
     bars.push_back(test::flat("2026-09-25", time, std::to_string(price).c_str(), "10"));
     time += 1000000000;
   }
-  const auto dataset = test::dataset(bars, {{"2026-09-25", d("103")}});
+  const auto dataset = test::dataset(bars, {{"2026-09-25", d(settlement)}});
   const auto manifest =
       Json{{"version", 4},
            {"type", "historical_paper"},
@@ -62,6 +64,7 @@ backtest::v1::BacktestInput input() {
   result.mutable_sma()->set_fast(1);
   result.mutable_sma()->set_slow(3);
   result.mutable_sma()->mutable_quantity()->set_units(d("1").raw());
+  result.mutable_sma()->set_sides(protocol::v1::LONG_ONLY);
   result.set_dataset_revision(protocol::dataset_revision(result.paper()));
   return result;
 }
@@ -184,7 +187,7 @@ TEST(Backtest, RejectsUnsupportedDaysAndStopsCooperatively) {
 }
 TEST(Backtest, SmaWarmupAndLifecycleUseSamePluginOutsideBacktest) {
   Instrument instrument{{"SHFE", "rb2610"}, "CNY", d("1"), d("1"), d("10")};
-  MovingAverage strategy(instrument, 1, 3, d("1"));
+  MovingAverage strategy(instrument, 1, 3, d("1"), PositionSides::long_only);
   auto tick = test::flat("2026-09-25", 100, "100", "1");
   EXPECT_THROW(strategy.on_bar(tick), std::logic_error);
   strategy.start();
@@ -200,6 +203,71 @@ TEST(Backtest, SmaWarmupAndLifecycleUseSamePluginOutsideBacktest) {
   strategy.stop();
   strategy.start();
   EXPECT_FALSE(strategy.on_bar(tick));
+}
+TEST(Backtest, MovingAverageTargetsFollowTheSidesItMayHold) {
+  Instrument instrument{{"SHFE", "rb2610"}, "CNY", d("1"), d("1"), d("10")};
+  // With windows of 1 and 2 the close is above, below, equal to and above its average.
+  const auto targets = [&](PositionSides sides) {
+    MovingAverage strategy(instrument, 1, 2, d("2"), sides);
+    strategy.start();
+    std::vector<std::optional<Decimal>> result;
+    auto tick = test::flat("2026-09-25", 100, "100", "1");
+    for (const auto* price : {"100", "102", "101", "101", "103"}) {
+      tick.timestamp_ns++;
+      tick.open = tick.high = tick.low = tick.close = d(price);
+      result.push_back(strategy.on_bar(tick));
+    }
+    return result;
+  };
+  using Targets = std::vector<std::optional<Decimal>>;
+  EXPECT_EQ(targets(PositionSides::both), (Targets{{}, d("2"), d("-2"), d("0"), d("2")}));
+  EXPECT_EQ(targets(PositionSides::long_only), (Targets{{}, d("2"), d("0"), d("0"), d("2")}));
+  EXPECT_EQ(targets(PositionSides::short_only), (Targets{{}, d("0"), d("-2"), d("0"), d("0")}));
+}
+TEST(Backtest, ShortTargetsSellToOpenAndSettleAsNegativePositions) {
+  // The close falls below its average at the third bar; the fourth lets the sell fill.
+  auto spec = input({103, 102, 101, 101, 99}, "99");
+  spec.mutable_sma()->set_sides(protocol::v1::LONG_AND_SHORT);
+  const auto result = backtest::run(spec);
+  ASSERT_EQ(result.account().fills_size(), 1);
+  EXPECT_EQ(result.account().fills(0).price().units(), d("101").raw());
+  // At its target the run sends nothing more.
+  ASSERT_EQ(result.account().orders_size(), 1);
+  EXPECT_EQ(result.account().orders(0).side(), protocol::v1::SELL);
+  EXPECT_EQ(result.account().orders(0).offset(), protocol::v1::OPEN);
+  ASSERT_EQ(result.account().positions_size(), 1);
+  EXPECT_EQ(result.account().positions(0).side(), protocol::v1::SELL);
+  ASSERT_EQ(result.settlements_size(), 1);
+  EXPECT_EQ(result.settlements(0).contracts(0).position_quantity().units(), d("-1").raw());
+  // One lot sold at 101 and settled at 99, ten per point, less the opening fee.
+  EXPECT_EQ(result.account().equity().units(), d("10018").raw());
+  // The same bars with long positions only: nothing to hold.
+  spec.mutable_sma()->set_sides(protocol::v1::LONG_ONLY);
+  const auto flat = backtest::run(spec);
+  EXPECT_EQ(flat.account().fills_size(), 0);
+  EXPECT_EQ(flat.account().equity().units(), d("10000").raw());
+  // No sides is not a strategy.
+  spec.mutable_sma()->clear_sides();
+  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+}
+TEST(Backtest, AReversalBuysTheShortBackBeforeItBuysToOpen) {
+  // Short from the fourth bar; the close rises above its average at the seventh.
+  auto spec = input({103, 102, 101, 101, 99, 98, 100, 100, 100}, "100");
+  spec.mutable_sma()->set_sides(protocol::v1::LONG_AND_SHORT);
+  const auto result = backtest::run(spec);
+  std::vector<std::pair<protocol::v1::Side, protocol::v1::Offset>> filled;
+  for (const auto& order : result.account().orders())
+    if (order.state() == protocol::v1::FILLED)
+      filled.emplace_back(order.side(), order.offset());
+  using Filled = std::vector<std::pair<protocol::v1::Side, protocol::v1::Offset>>;
+  EXPECT_EQ(filled, (Filled{{protocol::v1::SELL, protocol::v1::OPEN},
+                            {protocol::v1::BUY, protocol::v1::CLOSE_TODAY},
+                            {protocol::v1::BUY, protocol::v1::OPEN}}));
+  ASSERT_EQ(result.account().positions_size(), 1);
+  EXPECT_EQ(result.account().positions(0).side(), protocol::v1::BUY);
+  EXPECT_EQ(result.settlements(0).contracts(0).position_quantity().units(), d("1").raw());
+  // Sold at 101 and bought back at 100, less an open, a close and another open.
+  EXPECT_EQ(result.account().equity().units(), d("10003").raw());
 }
 TEST(Backtest, InputDecodingRejectsCorruptOldOrIncompleteInputs) {
   const auto spec = input();
@@ -1771,7 +1839,8 @@ TEST(TaskStore, CompletedResultCarriesPersistedExperimentAndRejectsMismatchedEvi
   *response.mutable_backtest() = tasks::result(restored, "evidence");
   *response.mutable_result_task() = restored.get("evidence");
   const auto value = protocol::decode_task_result(response, "evidence");
-  EXPECT_EQ(value.at("experiment").at("sma"), Json({{"fast", 1}, {"slow", 3}, {"quantity", "1"}}));
+  EXPECT_EQ(value.at("experiment").at("sma"),
+            Json({{"fast", 1}, {"slow", 3}, {"quantity", "1"}, {"sides", "long"}}));
   EXPECT_EQ(value.at("experiment").at("paper").at("deposit"), "10000");
   EXPECT_EQ(value.at("experiment")
                 .at("paper")
