@@ -103,6 +103,16 @@ export function Backtest({
   const [strategy, setStrategy] = useWorkspaceDraft("backtest-strategy", strategyDefaults);
   // Several values in a window make several strategies, compared before a holdout.
   const [holdoutFrom, setHoldoutFrom] = useWorkspaceDraft("backtest-holdout", "");
+  // Or they are compared by rolling: rounds of training days and the
+  // validation days after them.
+  const [comparison, setComparison] = useWorkspaceDraft<"holdout" | "rolling">(
+    "backtest-comparison",
+    "holdout",
+  );
+  const [rolling, setRolling] = useWorkspaceDraft("backtest-rolling", {
+    training: "60",
+    validation: "20",
+  });
   const candidates = strategiesOf(strategy);
   // A rule that ranks contracts holds some long and as many short: it needs
   // twice as many as the most any candidate holds a side.
@@ -134,6 +144,8 @@ export function Backtest({
       destination,
       strategy,
       holdoutFrom,
+      comparison,
+      rolling,
       parameters,
       costs,
       datasets.map(item => item.revision),
@@ -156,7 +168,14 @@ export function Backtest({
         id,
         ...parameters,
         strategies: candidates,
-        holdout_from: candidates.length > 1 ? holdoutFrom : "",
+        holdout_from: candidates.length > 1 && comparison === "holdout" ? holdoutFrom : "",
+        walk_forward:
+          candidates.length > 1 && comparison === "rolling"
+            ? {
+                training_days: Number(rolling.training),
+                validation_days: Number(rolling.validation),
+              }
+            : null,
         contracts: contractCostRequest(datasets, costs, snapshot?.dataset_series ?? []),
       };
       if (await run("backtest.submit", payload)) {
@@ -294,21 +313,58 @@ export function Backtest({
                 )}
                 <p className="subtle">
                   {t(
-                    "窗口里可以用逗号填多个值，所有组合各成一个候选策略，最多 32 个；规则用不了的组合不算。多个候选时只用留出起始日之前的交易日比较，取夏普比率最高的一个回放全部交易日。",
+                    "窗口里可以用逗号填多个值，所有组合各成一个候选策略，最多 32 个；规则用不了的组合不算。多个候选要选一种比较方式：留出，只用留出起始日之前的交易日比较，取夏普比率最高的一个回放全部交易日；滚动验证，每一轮用一段训练交易日比较，账户在随后的验证交易日里跟随这一轮夏普比率最高的那个，再整体向后移一轮。",
                   )}
                 </p>
                 {candidates.length > 1 && (
                   <div className="research-fields">
                     <label>
-                      {t("留出起始日")}
-                      <input
-                        aria-label={t("留出起始日")}
-                        type="date"
-                        required
-                        value={holdoutFrom}
-                        onChange={event => setHoldoutFrom(event.target.value)}
-                      />
+                      {t("比较方式")}
+                      <select
+                        aria-label={t("比较方式")}
+                        value={comparison}
+                        onChange={event =>
+                          setComparison(event.target.value as "holdout" | "rolling")
+                        }
+                      >
+                        <option value="holdout">{t("留出")}</option>
+                        <option value="rolling">{t("滚动验证")}</option>
+                      </select>
                     </label>
+                    {comparison === "holdout" ? (
+                      <label>
+                        {t("留出起始日")}
+                        <input
+                          aria-label={t("留出起始日")}
+                          type="date"
+                          required
+                          value={holdoutFrom}
+                          onChange={event => setHoldoutFrom(event.target.value)}
+                        />
+                      </label>
+                    ) : (
+                      (
+                        [
+                          ["training", "训练交易日数", 20],
+                          ["validation", "每轮验证交易日数", 1],
+                        ] as const
+                      ).map(([key, label, least]) => (
+                        <label key={key}>
+                          {t(label)}
+                          <input
+                            aria-label={t(label)}
+                            type="number"
+                            min={least}
+                            step="1"
+                            required
+                            value={rolling[key]}
+                            onChange={event =>
+                              setRolling({ ...rolling, [key]: event.target.value })
+                            }
+                          />
+                        </label>
+                      ))
+                    )}
                   </div>
                 )}
                 <p className="subtle" role="status">
@@ -317,10 +373,15 @@ export function Backtest({
                     : candidates.length > 32
                       ? t("候选策略 {n} 个，超过 32 个。", { n: candidates.length })
                       : candidates.length > 1
-                        ? t(
-                            "候选策略 {n} 个；留出起始日之前至少要有 20 个交易日，起始日不是交易日时取其后的第一个交易日。",
-                            { n: candidates.length },
-                          )
+                        ? comparison === "holdout"
+                          ? t(
+                              "候选策略 {n} 个；留出起始日之前至少要有 20 个交易日，起始日不是交易日时取其后的第一个交易日。",
+                              { n: candidates.length },
+                            )
+                          : t(
+                              "候选策略 {n} 个；训练交易日至少 20 个且少于全部交易日数，第一轮验证开始之前账户不持仓，最后一轮验证取剩下的交易日，最多 100 轮。",
+                              { n: candidates.length },
+                            )
                         : t("一个策略，不做比较。")}
                 </p>
                 <div className="research-fields">
@@ -382,10 +443,18 @@ export function Backtest({
                   <dd>
                     {candidates.length === 1
                       ? strategyRule(candidates[0])
-                      : t("{n} 个候选，留出自 {day} 起", {
-                          n: candidates.length,
-                          day: holdoutFrom,
-                        })}{" "}
+                      : comparison === "holdout"
+                        ? t("{n} 个候选，留出自 {day} 起", {
+                            n: candidates.length,
+                            day: holdoutFrom,
+                          })
+                        : t(
+                            "{n} 个候选，滚动验证：训练 {training} 个交易日，每轮验证 {validation} 个",
+                            {
+                              n: candidates.length,
+                              ...rolling,
+                            },
+                          )}{" "}
                     {candidates.length > 0 && <>· {strategySize(candidates[0])} </>}·{" "}
                     {strategySides(strategy.sides)}
                   </dd>
@@ -523,7 +592,9 @@ export function Backtest({
               <section className="research-result" aria-label={t("回测结果")}>
                 <h3>
                   {activeTask?.instrument} ·{" "}
-                  {strategyRule(result.experiment.strategies[result.result.selected])}
+                  {result.experiment.walk_forward
+                    ? t("滚动验证 · {n} 个候选", { n: result.experiment.strategies.length })
+                    : strategyRule(result.experiment.strategies[result.result.selected])}
                 </h3>
                 <p className="subtle">
                   {activeTask && new Date(activeTask.submitted_at_ms).toLocaleString(getLocale())} ·{" "}
@@ -587,6 +658,62 @@ export function Backtest({
                       <p className="subtle">
                         {t("前段结束时权益已不为正，留出段没有收益率可言。")}
                       </p>
+                    )}
+                  </>
+                )}
+                {result.experiment.walk_forward && (
+                  <>
+                    <h4>{t("滚动验证")}</h4>
+                    <p className="subtle">
+                      {t(
+                        "每一轮只用它的 {training} 个训练交易日给候选策略打分，账户在随后的验证交易日里跟随夏普比率最高的那个；第一轮验证开始之前不持仓。下表的验证段数字是这一个账户在各轮验证交易日里的表现，不是选中策略单独回放的结果。",
+                        { training: result.experiment.walk_forward.training_days },
+                      )}
+                    </p>
+                    <div className="research-table">
+                      <table aria-label={t("滚动验证各轮")}>
+                        <thead>
+                          <tr>
+                            <th>{t("验证起始日")}</th>
+                            <th>{t("跟随的策略")}</th>
+                            <th>{t("训练段夏普比率")}</th>
+                            <th>{t("验证交易日数")}</th>
+                            <th>{t("验证段收益率")}</th>
+                            <th>{t("验证段最大回撤")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {result.result.folds.map((fold, index) => {
+                            const validation = result.performance.folds[index];
+                            return (
+                              <tr key={fold.first_day}>
+                                <td>{fold.first_day}</td>
+                                <td>
+                                  {fold.selected === null
+                                    ? t("无（都没有夏普比率，不持仓）")
+                                    : strategyRule(result.experiment.strategies[fold.selected])}
+                                </td>
+                                <td>
+                                  {ratio(
+                                    fold.selected === null
+                                      ? null
+                                      : fold.candidates[fold.selected].sharpe,
+                                  )}
+                                </td>
+                                <td>{validation?.trading_days ?? "—"}</td>
+                                <td>{percent(validation?.total_return ?? null)}</td>
+                                <td>{percent(validation?.max_drawdown ?? null)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <h4>{t("样本外")}</h4>
+                    {result.performance.out_of_sample ? (
+                      <Figures label={t("样本外")} value={result.performance.out_of_sample} />
+                    ) : (
+                      <p className="subtle">{t("第一轮验证开始时权益已不为正。")}</p>
                     )}
                   </>
                 )}

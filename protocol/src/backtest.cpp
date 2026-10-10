@@ -38,7 +38,8 @@ void validate_series(const backtest::v1::BacktestInput& input) {
 }
 } // namespace
 backtest::v1::BacktestRequest encode_backtest_request(const Json& input) {
-  require_fields(input, {"contracts", "deposit", "risk", "strategies", "series", "holdout_from"});
+  require_fields(input, {"contracts", "deposit", "risk", "strategies", "series", "holdout_from",
+                         "walk_forward"});
   if (!input.at("strategies").is_array() || input.at("strategies").empty() ||
       input.at("strategies").size() > 32 || !input.at("holdout_from").is_string())
     throw std::invalid_argument("backtest requires 1 to 32 strategies");
@@ -69,6 +70,15 @@ backtest::v1::BacktestRequest encode_backtest_request(const Json& input) {
   for (const auto& strategy : input.at("strategies"))
     *result.add_strategies() = encode_strategy(strategy);
   result.set_holdout_from(input.at("holdout_from").get<std::string>());
+  if (const auto& rolling = input.at("walk_forward"); !rolling.is_null()) {
+    require_fields(rolling, {"training_days", "validation_days"});
+    if (!rolling.at("training_days").is_number_unsigned() ||
+        !rolling.at("validation_days").is_number_unsigned())
+      throw std::invalid_argument("a rolling comparison counts whole trading days");
+    result.mutable_walk_forward()->set_training_days(rolling.at("training_days").get<unsigned>());
+    result.mutable_walk_forward()->set_validation_days(
+        rolling.at("validation_days").get<unsigned>());
+  }
   return result;
 }
 std::vector<std::string> backtest_trading_days(const backtest::v1::BacktestInput& input) {
@@ -78,10 +88,19 @@ std::vector<std::string> backtest_trading_days(const backtest::v1::BacktestInput
       days.insert(day.trading_day());
   return {days.begin(), days.end()};
 }
-void set_backtest_holdout(backtest::v1::BacktestInput& input, const std::string& from) {
+void set_backtest_strategies(backtest::v1::BacktestInput& input,
+                             const backtest::v1::BacktestRequest& request) {
+  *input.mutable_strategies() = request.strategies();
+  const auto& from = request.holdout_from();
   if (input.strategies_size() < 2) {
-    if (!from.empty())
+    if (!from.empty() || request.has_walk_forward())
       throw std::invalid_argument("a holdout belongs to a comparison of several strategies");
+    return;
+  }
+  if (request.has_walk_forward()) {
+    if (!from.empty())
+      throw std::invalid_argument("strategies are compared before a holdout or by rolling");
+    *input.mutable_walk_forward() = request.walk_forward();
     return;
   }
   static_cast<void>(parse_trading_date(from));
@@ -91,6 +110,15 @@ void set_backtest_holdout(backtest::v1::BacktestInput& input, const std::string&
     throw std::invalid_argument("the holdout begins after the last trading day");
   input.set_holdout_day(*first);
 }
+std::vector<BacktestRound> backtest_folds(const backtest::v1::BacktestInput& input) {
+  const auto days = backtest_trading_days(input).size();
+  const std::size_t training = input.walk_forward().training_days();
+  const std::size_t validation = input.walk_forward().validation_days();
+  std::vector<BacktestRound> result;
+  for (auto first = training; first < days; first += validation)
+    result.push_back({first, std::min(days, first + validation)});
+  return result;
+}
 std::size_t backtest_work_units(const backtest::v1::BacktestInput& input) {
   std::size_t bars = 0, development = 0;
   for (const auto& contract : input.paper().contracts())
@@ -98,13 +126,14 @@ std::size_t backtest_work_units(const backtest::v1::BacktestInput& input) {
       ++bars;
       development += bar.trading_day() < input.holdout_day();
     }
-  return bars + (input.strategies_size() > 1
-                     ? static_cast<std::size_t>(input.strategies_size()) * development
-                     : 0);
+  const auto compared = static_cast<std::size_t>(input.strategies_size());
+  if (compared < 2)
+    return bars;
+  return bars + compared * (input.has_walk_forward() ? bars : development);
 }
 Json decode_backtest(const backtest::v1::BacktestInput& input, DatasetView view) {
   validate_message(input);
-  if (input.version() != 9 || !input.has_paper() || input.strategies().empty() ||
+  if (input.version() != 10 || !input.has_paper() || input.strategies().empty() ||
       input.strategies_size() > 32)
     throw std::invalid_argument("incomplete backtest input");
   if (input.dataset_revision() != dataset_revision(input.paper()))
@@ -124,19 +153,33 @@ Json decode_backtest(const backtest::v1::BacktestInput& input, DatasetView view)
   }
   const auto days = backtest_trading_days(input);
   const auto holdout = std::ranges::find(days, input.holdout_day());
-  if (input.strategies_size() == 1
-          ? !input.holdout_day().empty()
-          : holdout == days.end() ||
-                static_cast<std::size_t>(holdout - days.begin()) < backtest_development_days)
+  if (input.has_walk_forward()) {
+    // Rounds score by a yearly ratio, which fewer than 20 days do not have.
+    const auto& rolling = input.walk_forward();
+    if (input.strategies_size() == 1 || !input.holdout_day().empty() ||
+        rolling.training_days() < backtest_development_days || !rolling.validation_days() ||
+        rolling.training_days() >= days.size() || backtest_folds(input).size() > 100)
+      throw std::invalid_argument(
+          "a rolling comparison of several strategies requires at least 20 training days, "
+          "validation days after them and at most 100 rounds, and no holdout");
+  } else if (input.strategies_size() == 1
+                 ? !input.holdout_day().empty()
+                 : holdout == days.end() ||
+                       static_cast<std::size_t>(holdout - days.begin()) < backtest_development_days)
     throw std::invalid_argument(
         "comparing strategies requires a holdout that begins on a trading day after at least 20 "
         "others; one strategy takes none");
   validate_series(input);
-  Json result{{"version", 9},
-              {"dataset_revision", input.dataset_revision()},
-              {"paper", std::move(paper)},
-              {"strategies", std::move(strategies)},
-              {"holdout_day", input.holdout_day()}};
+  Json result{
+      {"version", 10},
+      {"dataset_revision", input.dataset_revision()},
+      {"paper", std::move(paper)},
+      {"strategies", std::move(strategies)},
+      {"holdout_day", input.holdout_day()},
+      {"walk_forward", input.has_walk_forward()
+                           ? Json{{"training_days", input.walk_forward().training_days()},
+                                  {"validation_days", input.walk_forward().validation_days()}}
+                           : Json(nullptr)}};
   if (input.series_size()) {
     Json all = Json::array();
     for (const auto& series : input.series())
@@ -188,32 +231,48 @@ Json decode_backtest_result(const backtest::v1::BacktestResult& result) {
   auto account = protocol::decode_snapshot(result.account());
   account["mode"] = "backtest";
   account["persistent"] = false;
+  // The scores of what was compared, and the highest ratio among them: the
+  // first to have it, or none when no score has a ratio.
+  const auto scores = [](const auto& compared, Json& shown) {
+    std::optional<unsigned> best;
+    for (int i = 0; i < compared.size(); ++i) {
+      const auto& candidate = compared[i];
+      if (!std::isfinite(candidate.total_return()) || !std::isfinite(candidate.max_drawdown()) ||
+          candidate.max_drawdown() < 0 ||
+          (candidate.has_sharpe() && !std::isfinite(candidate.sharpe())))
+        throw std::invalid_argument("invalid backtest comparison evidence");
+      shown.push_back(
+          {{"total_return", candidate.total_return()},
+           {"max_drawdown", candidate.max_drawdown()},
+           {"sharpe", candidate.has_sharpe() ? Json(candidate.sharpe()) : Json(nullptr)}});
+      if (candidate.has_sharpe() &&
+          (!best || candidate.sharpe() > compared[static_cast<int>(*best)].sharpe()))
+        best = static_cast<unsigned>(i);
+    }
+    return best;
+  };
   Json candidates = Json::array();
-  for (const auto& candidate : result.candidates()) {
-    if (!std::isfinite(candidate.total_return()) || !std::isfinite(candidate.max_drawdown()) ||
-        candidate.max_drawdown() < 0 ||
-        (candidate.has_sharpe() && !std::isfinite(candidate.sharpe())))
-      throw std::invalid_argument("invalid backtest comparison evidence");
-    candidates.push_back(
-        {{"total_return", candidate.total_return()},
-         {"max_drawdown", candidate.max_drawdown()},
-         {"sharpe", candidate.has_sharpe() ? Json(candidate.sharpe()) : Json(nullptr)}});
-  }
+  const auto best = scores(result.candidates(), candidates);
+  // The selected strategy is the best of those compared before a holdout.
   if (candidates.empty() ? result.selected() != 0
-                         : candidates.size() < 2 || result.selected() >= candidates.size() ||
-                               !result.candidates(static_cast<int>(result.selected())).has_sharpe())
+                         : candidates.size() < 2 || best != result.selected())
     throw std::invalid_argument("invalid backtest comparison evidence");
-  // The selected strategy has the highest ratio and is the first to have it.
-  for (int i = 0; i < result.candidates_size(); ++i) {
-    const auto best = result.candidates(static_cast<int>(result.selected())).sharpe();
-    if (const auto& other = result.candidates(i);
-        other.has_sharpe() &&
-        (other.sharpe() > best ||
-         (other.sharpe() == best && static_cast<unsigned>(i) < result.selected())))
+  Json folds = Json::array();
+  for (const auto& fold : result.folds()) {
+    static_cast<void>(parse_trading_date(fold.first_day()));
+    Json compared = Json::array();
+    const auto chosen = scores(fold.candidates(), compared);
+    // A round follows its best strategy, or none when none has a ratio.
+    if (compared.size() < 2 || !candidates.empty() ||
+        chosen != (fold.has_selected() ? std::optional(fold.selected()) : std::nullopt))
       throw std::invalid_argument("invalid backtest comparison evidence");
+    folds.push_back({{"first_day", fold.first_day()},
+                     {"candidates", std::move(compared)},
+                     {"selected", chosen ? Json(*chosen) : Json(nullptr)}});
   }
   return {{"candidates", std::move(candidates)},
           {"selected", result.selected()},
+          {"folds", std::move(folds)},
           {"version", result.version()},
           {"dataset_revision", result.dataset_revision()},
           {"engine_version", result.engine_version()},

@@ -31,6 +31,8 @@ task::v1::TaskExecution task_execution(const task::v1::Task& task,
     *parameters->mutable_risk() = input.paper().risk();
     *parameters->mutable_strategies() = input.strategies();
     parameters->set_holdout_from(input.holdout_day());
+    if (input.has_walk_forward())
+      *parameters->mutable_walk_forward() = input.walk_forward();
     for (const auto& contract : input.paper().contracts()) {
       auto* item = parameters->add_contracts();
       *item->mutable_data() = selection(contract.dataset());

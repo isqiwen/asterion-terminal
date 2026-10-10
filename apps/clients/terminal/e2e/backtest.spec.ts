@@ -533,3 +533,109 @@ test("a ranking rule holds the strongest contract long and the weakest short", a
   await expect(parameter("波动窗口")).toHaveText("0");
   await page.screenshot({ path: join(__dirname, "../test-results/backtest-ranked.png") });
 });
+
+test("strategies are compared by rolling and the account follows each round's best", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.locator(".workspace-tabs")).toBeVisible();
+  // Thirty weekdays from 2026-08-17 with one bar each, as for the holdout:
+  // twenty training days leave two rounds of five validation days.
+  const days: string[] = [];
+  for (let at = Date.UTC(2026, 7, 17); days.length < 30; at += 86400000)
+    if (new Date(at).getUTCDay() % 6 !== 0) days.push(new Date(at).toISOString().slice(0, 10));
+  await seedDataset(
+    page.request,
+    days.map((_, i) => 100 + 2 * i - (i % 3 === 2 ? 3 : 0)),
+    "rolling",
+    { minuteDays: days },
+  );
+  await page.reload();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  const workspace = page.getByRole("region", { name: "期货研究", exact: true });
+  await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
+  await workspace.getByRole("button", { name: "下一步", exact: true }).click();
+  await workspace.getByLabel("策略", { exact: true }).selectOption("moving_average");
+  await workspace.getByLabel("快均线", { exact: true }).fill("1");
+  await workspace.getByLabel("慢均线", { exact: true }).fill("2, 3");
+  await workspace.getByLabel("比较方式", { exact: true }).selectOption("rolling");
+  // A rolling comparison asks for its windows instead of a holdout date.
+  await expect(workspace.getByLabel("留出起始日", { exact: true })).toHaveCount(0);
+  await expect(workspace.getByText(/^候选策略 2 个；训练交易日至少 20 个/)).toBeVisible();
+  for (const [label, value] of [
+    ["训练交易日数", "20"],
+    ["每轮验证交易日数", "5"],
+    ["目标手数", "1"],
+    ["初始资金", "100000"],
+    ["每手保证金", "100"],
+    ["每手开仓费", "2"],
+    ["每手平今费", "3"],
+    ["每手平昨费", "4"],
+    ["单笔数量上限", "100"],
+    ["总持仓量上限", "100"],
+    ["在途委托数上限", "100"],
+  ])
+    await workspace.getByLabel(label, { exact: true }).fill(value);
+  await workspace.getByRole("button", { name: "下一步", exact: true }).click();
+  await expect(
+    workspace.getByText(/2 个候选，滚动验证：训练 20 个交易日，每轮验证 5 个/),
+  ).toBeVisible();
+  await workspace.getByRole("button", { name: "开始回测", exact: true }).click();
+  await workspace.getByRole("button", { name: "返回回测记录", exact: true }).click();
+  const row = workspace
+    .getByRole("region", { name: "研究任务", exact: true })
+    .getByRole("row")
+    .filter({ hasText: "SHFE/rb2610" })
+    .first();
+  await expect(row.getByText("已完成", { exact: true })).toBeVisible({ timeout: 20000 });
+  await row.getByRole("button", { name: "查看结果", exact: true }).click();
+  const result = workspace.getByRole("region", { name: "回测结果", exact: true });
+  await expect(result.getByRole("heading", { name: /滚动验证 · 2 个候选/ })).toBeVisible();
+  // Two rounds, each from its first validation day over five days, each
+  // following one of the two averages.
+  const rounds = result
+    .getByRole("table", { name: "滚动验证各轮", exact: true })
+    .locator("tbody tr");
+  await expect(rounds).toHaveCount(2);
+  for (const [index, first] of [
+    [0, days[20]],
+    [1, days[25]],
+  ] as const) {
+    const cells = rounds.nth(index).locator("td");
+    await expect(cells.nth(0)).toHaveText(first);
+    await expect(cells.nth(1)).toHaveText(/^均线交叉 1\/[23]$/);
+    await expect(cells.nth(3)).toHaveText("5");
+  }
+  const figure = (section: string, name: string) =>
+    result
+      .getByRole("region", { name: section, exact: true })
+      .locator(".research-metrics > div")
+      .filter({ has: page.getByText(name, { exact: true }) })
+      .locator("strong");
+  // The account trades from the first validation day: ten days out of sample.
+  await expect(figure("绩效", "交易日数")).toHaveText("30");
+  await expect(figure("样本外", "交易日数")).toHaveText("10");
+  const body = await page.request.post("/__asterion/api", {
+    data: { version: 1, method: "runtime.snapshot", params: {} },
+  });
+  const evidence = (await body.json()).result.task_result;
+  expect(evidence.experiment.walk_forward).toEqual({ training_days: 20, validation_days: 5 });
+  expect(evidence.result.folds.map((fold: { first_day: string }) => fold.first_day)).toEqual([
+    days[20],
+    days[25],
+  ]);
+  // Nothing was held before the first round had a strategy to follow.
+  for (const day of evidence.result.settlements.slice(0, 20))
+    expect(day.contracts[0].position_quantity).toBe("0");
+  await result.getByText("实验参数", { exact: true }).click();
+  const parameter = (label: string) =>
+    result
+      .locator(".experiment-fields > div")
+      .filter({ has: page.getByText(label, { exact: true }) })
+      .locator("dd");
+  await expect(parameter("候选策略")).toHaveText("均线交叉 1/2 · 均线交叉 1/3");
+  await expect(parameter("训练交易日数")).toHaveText("20");
+  await expect(parameter("每轮验证交易日数")).toHaveText("5");
+  await result.getByRole("heading", { name: "滚动验证", exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: join(__dirname, "../test-results/backtest-rolling.png") });
+});

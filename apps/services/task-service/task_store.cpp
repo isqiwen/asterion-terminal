@@ -218,8 +218,18 @@ void verify_result(const wire::Task& task, const asterion::backtest::v1::Backtes
   std::uint32_t bars = 0;
   for (const auto& contract : paper.contracts())
     bars += static_cast<std::uint32_t>(contract.dataset().bars_size());
-  // A comparison scores every strategy it was given; one strategy has no scores.
-  const auto compared = task.input().strategies_size() > 1 ? task.input().strategies_size() : 0;
+  // A comparison scores every strategy it was given: once before a holdout,
+  // or in every round of a rolling one. One strategy has no scores.
+  const auto strategies = task.input().strategies_size();
+  const bool rolling = task.input().has_walk_forward();
+  const auto compared = strategies > 1 && !rolling ? strategies : 0;
+  const auto rounds =
+      rolling ? protocol::backtest_folds(task.input()) : std::vector<protocol::BacktestRound>{};
+  const std::vector<std::string> ordered(trading_days.begin(), trading_days.end());
+  bool folds = static_cast<std::size_t>(result.folds_size()) == rounds.size();
+  for (std::size_t i = 0; folds && i < rounds.size(); ++i)
+    folds = result.folds(static_cast<int>(i)).first_day() == ordered[rounds[i].first] &&
+            result.folds(static_cast<int>(i)).candidates_size() == strategies;
   bool contracts = result.account().contracts_size() == paper.contracts_size();
   for (int c = 0; contracts && c < paper.contracts_size(); ++c)
     contracts =
@@ -236,7 +246,7 @@ void verify_result(const wire::Task& task, const asterion::backtest::v1::Backtes
       result.engine_version() != protocol::backtest_engine_version ||
       result.account().cursor() != bars || result.account().total() != bars ||
       result.equity_size() != static_cast<int>(bars) + days || result.settlements_size() != days ||
-      !contracts || result.candidates_size() != compared ||
+      !contracts || result.candidates_size() != compared || !folds ||
       result.account().risk().SerializeAsString() != paper.risk().SerializeAsString() ||
       !result.has_max_drawdown() || result.account().recovery_required())
     throw std::invalid_argument("incomplete or mismatched task result");

@@ -651,6 +651,13 @@ export type BacktestResult = {
   // in the order they were given, and which one the rest of the result replays.
   candidates: { total_return: number; max_drawdown: number; sharpe: number | null }[];
   selected: number;
+  // The rounds of a rolling comparison: what each one's training days showed
+  // of every strategy, and the one followed from `first_day`, if any.
+  folds: {
+    first_day: string;
+    candidates: { total_return: number; max_drawdown: number; sharpe: number | null }[];
+    selected: number | null;
+  }[];
   max_drawdown: string;
   account: BacktestAccount;
   equity: { timestamp_ns: string; equity: string; event: "trade" | "settlement" }[];
@@ -680,6 +687,10 @@ export type BacktestExperiment = {
   // One strategy, or the several that were compared before `holdout_day`.
   strategies: StrategyDefinition[];
   holdout_day: string;
+  // Or the several are compared by rolling: each round scores them over
+  // `training_days` and the account follows the best over the
+  // `validation_days` after.
+  walk_forward: null | { training_days: number; validation_days: number };
   paper: {
     version: number;
     type: "historical_paper";
@@ -792,7 +803,12 @@ export type PerformanceFigures = {
 // The figures of all days and, where strategies were compared, of the days
 // before and from the holdout; the holdout starts from the equity the
 // development days ended with.
+// `out_of_sample` and `folds` belong to a rolling comparison: the figures from
+// the first round's validation days on, and of each round's validation days;
+// a span that begins with an empty account has none.
 export type BacktestPerformance = PerformanceFigures & {
+  out_of_sample: PerformanceFigures | null;
+  folds: (PerformanceFigures | null)[];
   development: PerformanceFigures | null;
   holdout: PerformanceFigures | null;
 };

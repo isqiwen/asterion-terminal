@@ -7,7 +7,7 @@ import "asterion/v1/data.proto";
 // Immutable data resolved by Data and captured with calculation parameters by Task. paper.contracts hold the bars
 // and trading days of each contract; the strategy runs on every contract.
 message BacktestInput {
-  uint32 version = 1; // 9
+  uint32 version = 1; // 10
   string dataset_revision = 2;
   asterion.protocol.v1.PaperInput paper = 3;
   // One strategy is replayed as it is. Several, up to 32 and all different,
@@ -15,9 +15,18 @@ message BacktestInput {
   // those days favour is replayed over every day.
   repeated asterion.protocol.v1.Strategy strategies = 4;
   repeated asterion.data.v1.DominantSchedule series = 5;
-  // The first trading day kept out of the comparison; empty with one strategy.
+  // Several strategies are compared in one of two ways. The first trading day
+  // kept out of the comparison; empty with one strategy or a rolling one.
   string holdout_day = 6;
+  // A rolling comparison; absent with one strategy or a holdout.
+  BacktestWalkForward walk_forward = 7;
 }
+// A comparison that rolls forward by trading days. Each round scores the
+// strategies over `training_days` and the account follows the best of them
+// over the `validation_days` after; the next round begins `validation_days`
+// later, and the last takes the days that remain. Before the first round's
+// validation days the account holds nothing.
+message BacktestWalkForward { uint32 training_days = 1; uint32 validation_days = 2; }
 // Month contracts of one product traded as its dominant series: on each
 // trading day only the dominant month is traded, and one strategy runs on the
 // series. Indexes refer to the contracts of the request.
@@ -34,8 +43,9 @@ message BacktestRequest {
   repeated asterion.protocol.v1.Strategy strategies = 4;
   repeated DominantSeries series = 5;
   // A date; the holdout begins on the first trading day on or after it.
-  // Empty with one strategy.
+  // Empty with one strategy or a rolling comparison.
   string holdout_from = 6;
+  BacktestWalkForward walk_forward = 7;
 }
 enum EquityEvent { EQUITY_EVENT_UNSPECIFIED = 0; TRADE_MARK = 1; DAILY_SETTLEMENT = 2; }
 message EquityPoint {
@@ -66,6 +76,14 @@ message BacktestCandidate {
   // Yearly Sharpe ratio; absent when the daily returns do not vary.
   optional double sharpe = 3;
 }
+// One round of a rolling comparison: what its training days showed of every
+// strategy, in input order, and the one the account followed from first_day
+// through its validation days. None is selected when none has a ratio.
+message BacktestFold {
+  string first_day = 1;
+  repeated BacktestCandidate candidates = 2;
+  optional uint32 selected = 3;
+}
 message BacktestResult {
   uint32 version = 1;
   string dataset_revision = 2;
@@ -79,5 +97,8 @@ message BacktestResult {
   // the rest of this result is.
   repeated BacktestCandidate candidates = 8;
   uint32 selected = 9;
+  // With a rolling comparison instead: its rounds, and the rest of this
+  // result is the one account that followed each round's strategy in turn.
+  repeated BacktestFold folds = 10;
 }
 

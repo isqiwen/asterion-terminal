@@ -52,11 +52,24 @@ backtest::v1::BacktestInput input_of(const data::v1::BarDataset& dataset) {
                                                      {"close_today_fee_rate", "0"},
                                                      {"close_yesterday_fee_rate", "0"}})}}}}};
   backtest::v1::BacktestInput result;
-  result.set_version(9);
+  result.set_version(10);
   *result.mutable_paper() = testing_support::paper_input(manifest);
   *result.add_strategies() = testing_support::moving_average(1, 3);
   result.set_dataset_revision(protocol::dataset_revision(result.paper()));
   return result;
+}
+// Compares the input's strategies as a request for them would: before a
+// holdout from `from`, or by rolling when training days are given.
+void compare(backtest::v1::BacktestInput& input, const std::string& from, unsigned training = 0,
+             unsigned validation = 0) {
+  backtest::v1::BacktestRequest request;
+  *request.mutable_strategies() = input.strategies();
+  request.set_holdout_from(from);
+  if (training) {
+    request.mutable_walk_forward()->set_training_days(training);
+    request.mutable_walk_forward()->set_validation_days(validation);
+  }
+  protocol::set_backtest_strategies(input, request);
 }
 backtest::v1::BacktestInput input(const std::vector<int>& prices = {100, 101, 102, 101, 100, 101,
                                                                     103},
@@ -93,7 +106,35 @@ backtest::v1::BacktestInput comparison() {
   auto result = input_of(test::dataset(bars, settlements));
   *result.mutable_strategies(0) = testing_support::moving_average(1, 2, "1", "short");
   *result.add_strategies() = testing_support::moving_average(1, 2, "1", "long");
-  protocol::set_backtest_holdout(result, "2026-10-20");
+  compare(result, "2026-10-20");
+  return result;
+}
+// Sixty such days: the first thirty rise as above, the last thirty fall two a
+// day with a bump every third. The same two averages are compared by rolling,
+// twenty days of training and ten of validation: four rounds, the
+// last of which trains on falling days alone.
+backtest::v1::BacktestInput rolling_comparison() {
+  using namespace std::chrono;
+  std::vector<MarketBar> bars;
+  std::vector<DaySettlement> settlements;
+  int previous = 100;
+  for (int i = 0; i < 60; ++i) {
+    const int close =
+        i < 30 ? 100 + 2 * i - (i % 3 == 2 ? 3 : 0) : 158 - 2 * (i - 29) + (i % 3 == 2 ? 3 : 0);
+    const auto day =
+        format_trading_date(year_month_day{sys_days{year{2026} / September / 25} + days{i}});
+    const auto text = [](int value) { return std::to_string(value); };
+    bars.push_back(test::bar(day, 1790298000000000000LL + i * 86400LL * 1000000000,
+                             text(previous).c_str(), text(std::max(previous, close)).c_str(),
+                             text(std::min(previous, close) - 1).c_str(), text(close).c_str(),
+                             "10"));
+    settlements.push_back({day, d(text(close).c_str())});
+    previous = close;
+  }
+  auto result = input_of(test::dataset(bars, settlements));
+  *result.mutable_strategies(0) = testing_support::moving_average(1, 2, "1", "short");
+  *result.add_strategies() = testing_support::moving_average(1, 2, "1", "long");
+  compare(result, "", 20, 10);
   return result;
 }
 // The bars of a factor input's one series, which is added when there is none yet.
@@ -472,6 +513,142 @@ TEST(Backtest, SeveralStrategiesAreComparedOnTheDaysBeforeTheHoldoutAlone) {
     EXPECT_EQ(other.candidates(i).SerializeAsString(), result.candidates(i).SerializeAsString());
   EXPECT_NE(other.account().equity().units(), result.account().equity().units());
 }
+TEST(Backtest, ARollingComparisonFollowsEachRoundsBestStrategyOverTheDaysAfterIt) {
+  const auto spec = rolling_comparison();
+  ASSERT_TRUE(spec.has_walk_forward());
+  std::size_t reported = 0, units = 0;
+  const auto result = backtest::run(spec, {}, [&](auto done, auto total) {
+    reported = done;
+    units = total;
+  });
+  // Each strategy alone over every bar, and the account once more.
+  EXPECT_EQ(units, 3U * 60);
+  EXPECT_EQ(reported, units);
+  EXPECT_EQ(protocol::backtest_work_units(spec), units);
+  ASSERT_EQ(result.folds_size(), 4);
+  EXPECT_EQ(result.candidates_size(), 0);
+  // Each strategy as it trades alone, to compare the rounds with.
+  std::vector<backtest::v1::BacktestResult> alone;
+  for (const auto& strategy : spec.strategies()) {
+    auto single = spec;
+    single.clear_walk_forward();
+    single.clear_strategies();
+    *single.add_strategies() = strategy;
+    alone.push_back(backtest::run(single));
+  }
+  const auto position = [](const backtest::v1::BacktestResult& run, int day) {
+    return run.settlements(day).contracts(0).position_quantity().units();
+  };
+  // Nothing is held before the first round has anything to follow.
+  for (int day = 0; day < 20; ++day) {
+    EXPECT_EQ(position(result, day), 0) << day;
+    EXPECT_EQ(result.settlements(day).equity().units(), d("10000").raw()) << day;
+  }
+  for (int round = 0; round < 4; ++round) {
+    const auto& fold = result.folds(round);
+    const int first = 20 + 10 * round;
+    EXPECT_EQ(fold.first_day(), result.settlements(first).trading_day());
+    ASSERT_EQ(fold.candidates_size(), 2);
+    // What a round records of a strategy is what its twenty training days
+    // alone show of that strategy trading alone.
+    std::optional<unsigned> best;
+    for (int k = 0; k < 2; ++k) {
+      std::vector<EquityDay> days;
+      for (int day = first - 20; day < first; ++day)
+        days.push_back(
+            {std::chrono::sys_days(parse_trading_date(alone[k].settlements(day).trading_day())),
+             Decimal::from_raw(alone[k].settlements(day).equity().units())});
+      std::vector<Decimal> marks; // a mark and a settlement for each day
+      for (int i = 2 * (first - 20); i < 2 * first; ++i)
+        marks.push_back(Decimal::from_raw(alone[k].equity(i).equity().units()));
+      const auto base = first == 20
+                            ? d("10000")
+                            : Decimal::from_raw(alone[k].settlements(first - 21).equity().units());
+      const auto record = performance(base, days, marks);
+      EXPECT_DOUBLE_EQ(fold.candidates(k).total_return(), record.total_return) << round << k;
+      ASSERT_EQ(fold.candidates(k).has_sharpe(), record.sharpe.has_value()) << round << k;
+      if (record.sharpe) {
+        EXPECT_DOUBLE_EQ(fold.candidates(k).sharpe(), *record.sharpe) << round << k;
+        if (!best || *record.sharpe > fold.candidates(static_cast<int>(*best)).sharpe())
+          best = static_cast<unsigned>(k);
+      }
+    }
+    ASSERT_TRUE(best);
+    ASSERT_TRUE(fold.has_selected());
+    EXPECT_EQ(fold.selected(), *best);
+    // Through its validation days the account holds what that strategy holds:
+    // the target it had the evening before fills on the first of them.
+    for (int day = first; day < first + 10; ++day)
+      EXPECT_EQ(position(result, day), position(alone[fold.selected()], day)) << day;
+  }
+  // The rising days favour the long average and the falling ones the short.
+  EXPECT_EQ(result.folds(0).selected(), 1U);
+  EXPECT_EQ(result.folds(3).selected(), 0U);
+
+  // A round reads nothing from its validation days on: other prices from the
+  // last round's first day leave every round as it was.
+  auto changed = spec;
+  auto* dataset = changed.mutable_paper()->mutable_contracts(0)->mutable_dataset();
+  for (int i = 50; i < 60; ++i) {
+    auto* bar = dataset->mutable_bars(i);
+    const auto price = d(std::to_string(300 + i).c_str()).raw();
+    for (auto* field :
+         {bar->mutable_open(), bar->mutable_high(), bar->mutable_low(), bar->mutable_close()})
+      field->set_units(price);
+    dataset->mutable_days(i)->mutable_settlement_price()->set_units(price);
+  }
+  dataset->set_revision(protocol::bar_dataset_revision(*dataset));
+  changed.set_dataset_revision(protocol::dataset_revision(changed.paper()));
+  const auto other = backtest::run(changed);
+  for (int round = 0; round < 4; ++round)
+    EXPECT_EQ(other.folds(round).SerializeAsString(), result.folds(round).SerializeAsString());
+  EXPECT_NE(other.account().equity().units(), result.account().equity().units());
+}
+TEST(Backtest, ARollingComparisonNeedsTwentyTrainingDaysAndDaysAfterThem) {
+  const auto spec = rolling_comparison();
+  EXPECT_NO_THROW(backtest::validate(spec));
+  const auto refused = [&](unsigned training, unsigned validation) {
+    auto invalid = spec;
+    invalid.mutable_walk_forward()->set_training_days(training);
+    invalid.mutable_walk_forward()->set_validation_days(validation);
+    EXPECT_THROW(backtest::validate(invalid), std::invalid_argument)
+        << training << " " << validation;
+  };
+  refused(19, 10); // too few days for a yearly ratio
+  refused(20, 0);
+  refused(60, 10); // no day left to trade
+  // The last round takes what remains: 59 training days leave one.
+  auto last = spec;
+  last.mutable_walk_forward()->set_training_days(59);
+  EXPECT_NO_THROW(backtest::validate(last));
+  EXPECT_EQ(protocol::backtest_folds(last).size(), 1U);
+  auto uneven = spec;
+  uneven.mutable_walk_forward()->set_validation_days(7);
+  const auto rounds = protocol::backtest_folds(uneven);
+  ASSERT_EQ(rounds.size(), 6U); // 20-26, 27-33, 34-40, 41-47, 48-54, 55-59
+  EXPECT_EQ(rounds.back().first, 55U);
+  EXPECT_EQ(rounds.back().end, 60U);
+  // One way of comparing at a time, and only several strategies are compared.
+  auto both = spec;
+  both.set_holdout_day("2026-10-20");
+  EXPECT_THROW(backtest::validate(both), std::invalid_argument);
+  auto single = spec;
+  single.mutable_strategies()->RemoveLast();
+  EXPECT_THROW(backtest::validate(single), std::invalid_argument);
+  auto requested = spec;
+  requested.clear_walk_forward();
+  EXPECT_THROW(compare(requested, "2026-10-20", 20, 10), std::invalid_argument);
+  // What a worker is told, and what a client reads back.
+  task::v1::Task task;
+  *task.mutable_input() = spec;
+  EXPECT_EQ(protocol::task_execution(task, std::string(64, '0'))
+                .backtest()
+                .walk_forward()
+                .SerializeAsString(),
+            spec.walk_forward().SerializeAsString());
+  EXPECT_EQ(protocol::decode_backtest(spec, protocol::DatasetView::metadata).at("walk_forward"),
+            (Json{{"training_days", 20}, {"validation_days", 10}}));
+}
 TEST(Backtest, AComparisonNeedsDifferentStrategiesAndTwentyDaysBeforeItsHoldout) {
   const auto spec = comparison();
   EXPECT_NO_THROW(backtest::validate(spec));
@@ -494,12 +671,12 @@ TEST(Backtest, AComparisonNeedsDifferentStrategiesAndTwentyDaysBeforeItsHoldout)
   // A date that is no trading day begins the holdout on the next one; one
   // strategy takes no date; a date after the data has no day to begin on.
   auto dated = spec;
-  protocol::set_backtest_holdout(dated, "2026-10-19");
+  compare(dated, "2026-10-19");
   EXPECT_EQ(dated.holdout_day(), "2026-10-19");
-  EXPECT_THROW(protocol::set_backtest_holdout(dated, "2026-12-01"), std::invalid_argument);
-  EXPECT_THROW(protocol::set_backtest_holdout(dated, "soon"), std::invalid_argument);
+  EXPECT_THROW(compare(dated, "2026-12-01"), std::invalid_argument);
+  EXPECT_THROW(compare(dated, "soon"), std::invalid_argument);
   dated.mutable_strategies()->RemoveLast();
-  EXPECT_THROW(protocol::set_backtest_holdout(dated, "2026-10-19"), std::invalid_argument);
+  EXPECT_THROW(compare(dated, "2026-10-19"), std::invalid_argument);
   // Rules that take their first side only after the development days leave
   // the account untouched there: nothing varies, so there is nothing to
   // choose by.
@@ -3258,4 +3435,35 @@ TEST(TaskStore, AComparisonCountsEveryReplayAndKeepsItsScores) {
   }
   tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
   EXPECT_EQ(restored.get("compared").state(), task::v1::SUCCEEDED);
+}
+TEST(TaskStore, ARollingComparisonKeepsItsRoundsAndRefusesOthers) {
+  TaskDirectory directory;
+  const auto spec = rolling_comparison();
+  const auto result = backtest::run(spec);
+  {
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    const auto task = tasks::submit(store, "rolled", spec);
+    EXPECT_EQ(task.total(), 180U);
+    const auto token = store.commit(store.claim("rolled")).token();
+    // A result without its rounds, or short of one, is not this task's.
+    auto bare = result;
+    bare.clear_folds();
+    EXPECT_THROW(store.commit(tasks::finish(store, "rolled", token, bare)), std::invalid_argument);
+    auto short_of = result;
+    short_of.mutable_folds()->RemoveLast();
+    EXPECT_THROW(store.commit(tasks::finish(store, "rolled", token, short_of)),
+                 std::invalid_argument);
+    // Nor is one whose round followed another strategy than its best, or
+    // that begins on another day.
+    auto misnamed = result;
+    misnamed.mutable_folds(0)->set_selected(1 - result.folds(0).selected());
+    EXPECT_THROW(store.commit(tasks::finish(store, "rolled", token, misnamed)),
+                 std::invalid_argument);
+    auto moved = result;
+    moved.mutable_folds(1)->set_first_day(result.folds(2).first_day());
+    EXPECT_THROW(store.commit(tasks::finish(store, "rolled", token, moved)), std::invalid_argument);
+    store.commit(tasks::finish(store, "rolled", token, result));
+  }
+  tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
+  EXPECT_EQ(restored.get("rolled").state(), task::v1::SUCCEEDED);
 }

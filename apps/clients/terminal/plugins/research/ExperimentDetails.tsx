@@ -1,5 +1,5 @@
 import { HistoryAvailability } from "./HistoryAvailability";
-import { CostScheduleDetails, getLocale, strategyRows, translate } from "../contract";
+import { CostScheduleDetails, getLocale, strategyRows, strategyRule, translate } from "../contract";
 import {
   timestamp,
   type CostVersion,
@@ -110,18 +110,26 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
   let contracts: Block[];
   if (evidence.kind === "backtest") {
     const { paper, strategies, data } = evidence.experiment;
-    const strategy = strategies[evidence.result.selected];
+    const rolling = evidence.experiment.walk_forward;
     contracts = paper.contracts.map((item, index) =>
       contractRows(item.dataset, data[index], item.cost_schedule),
     );
-    strategyFacts = strategyRows(strategy);
+    // A rolling comparison follows several strategies in turn: it lists them
+    // all below instead of the fields of one.
+    if (!rolling) strategyFacts = strategyRows(strategies[evidence.result.selected]);
     rows.push(
       ["初始资金", paper.deposit],
       ["单笔数量上限", paper.risk.max_order_quantity],
       ["总持仓量上限", paper.risk.max_gross_quantity],
       ["在途委托数上限", paper.risk.max_working_orders],
     );
-    if (strategies.length > 1)
+    if (rolling)
+      rows.push(
+        ["候选策略", strategies.map(strategyRule).join(" · ")],
+        ["训练交易日数", rolling.training_days],
+        ["每轮验证交易日数", rolling.validation_days],
+      );
+    else if (strategies.length > 1)
       rows.push(["候选策略数", strategies.length], ["留出起始日", evidence.experiment.holdout_day]);
   } else {
     const { series, lookbacks, horizon, evaluation } = evidence.experiment;

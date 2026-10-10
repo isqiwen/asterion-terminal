@@ -508,7 +508,8 @@ TEST(TerminalApi, LargeNamedDatasetsBacktest) {
         json::array({{{"quantity", "1"},
                       {"sides", "long"},
                       {"rule", {{"kind", "moving_average"}, {"fast", 5}, {"slow", 20}}}}})},
-       {"holdout_from", ""}});
+       {"holdout_from", ""},
+       {"walk_forward", nullptr}});
   const auto submitted = invoke("backtest.submit", backtest);
   ASSERT_TRUE(submitted.contains("result")) << submitted.dump().substr(0, 400);
 }

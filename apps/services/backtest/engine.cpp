@@ -84,11 +84,23 @@ void validate(const backtest::v1::BacktestInput& input) {
   static_cast<void>(replay_schedule(paper_portfolio(p), sparse(series)));
 }
 namespace {
-// One strategy replayed over the input's bars: all of them, or only the
-// trading days before `until`. A partial replay ends with that day's
-// settlement and carries the equity record alone.
+// What one strategy wants of every unit as bars arrive: one strategy for each
+// unit, or one rule that ranks them all.
+struct Follower {
+  const protocol::v1::Strategy* definition;
+  std::unique_ptr<CrossSection> cross;
+  std::vector<std::unique_ptr<Strategy>> strategies;
+  // The last target asked for each unit.
+  std::vector<std::optional<Decimal>> wanted;
+};
+// One account replayed over the input's bars: all of them, or only the
+// trading days before `until`; a partial replay ends with that day's
+// settlement and carries the equity record alone. Every one of `definitions`
+// reads every bar. `followed` says, for each trading day, whose targets the
+// account takes: one of them, or none and it holds nothing.
 backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
-                                    const protocol::v1::Strategy& definition,
+                                    const std::vector<const protocol::v1::Strategy*>& definitions,
+                                    const std::vector<std::optional<std::size_t>>& followed,
                                     const std::string& until, std::stop_token stop,
                                     const std::function<void()>& step,
                                     const risk_providers::Module* pinned) {
@@ -114,33 +126,35 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
       unit[c] = units.size() + series[c];
   for (const auto& rolls : input.series())
     units.push_back(portfolio.contracts[rolls.rolls(0).contract()].terms.instrument);
-  // One strategy for each unit, or one rule that ranks them all; either way
-  // they share the account.
-  std::unique_ptr<CrossSection> cross;
-  std::vector<std::unique_ptr<Strategy>> strategies;
   // What a ranking by the term structure reads: the carry each trading day
   // of each series begins with, where it has a term point.
   std::vector<std::map<std::string, Decimal>> carry;
-  if (CrossSection::defines(definition)) {
-    cross = std::make_unique<CrossSection>(definition, units.size());
-    if (definition.cross().factor() == protocol::v1::TERM_STRUCTURE) {
-      std::vector<const protocol::v1::Contract*> contracts;
-      for (const auto& contract : p.contracts())
-        contracts.push_back(&contract.dataset().contract());
-      for (const auto& rolls : input.series())
-        carry.push_back(protocol::term_carries(rolls, contracts));
-    }
-  } else
-    for (auto& instrument : units)
-      strategies.push_back(make_strategy(definition, std::move(instrument)));
+  {
+    std::vector<const protocol::v1::Contract*> contracts;
+    for (const auto& contract : p.contracts())
+      contracts.push_back(&contract.dataset().contract());
+    for (const auto& rolls : input.series())
+      carry.push_back(protocol::term_carries(rolls, contracts));
+  }
+  std::vector<Follower> followers;
+  for (const auto* definition : definitions) {
+    auto& follower = followers.emplace_back();
+    follower.definition = definition;
+    follower.wanted.resize(units.size());
+    if (CrossSection::defines(*definition))
+      follower.cross = std::make_unique<CrossSection>(*definition, units.size());
+    else
+      for (const auto& instrument : units)
+        follower.strategies.push_back(make_strategy(*definition, instrument));
+  }
   PaperExecution execution(decimal(p.deposit()), std::move(portfolio.contracts), risk);
   execution.start();
-  for (auto& strategy : strategies)
-    strategy->start();
-  // The last target asked for each unit.
-  std::vector<std::optional<Decimal>> wanted(units.size());
-  // The contracts that had a bar at the current timestamp and what each
-  // decided on: a ranking made once all of them are in decides them again.
+  for (auto& follower : followers)
+    for (auto& strategy : follower.strategies)
+      strategy->start();
+  // What a contract decided on at a bar. A ranking made once all bars of a
+  // timestamp are in decides those contracts again, and so does a day's end
+  // after which the account follows another strategy.
   struct Decided {
     std::size_t contract;
     std::string order;
@@ -148,6 +162,16 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     bool leading;
   };
   std::vector<Decided> together;
+  std::vector<std::optional<Decided>> today(series.size());
+  // What the account wants of a contract while it follows `whom`: the unit's
+  // target where the contract is the one its unit trades now, and nothing of
+  // a month that is no longer dominant or while it follows no one.
+  const auto target = [&](const std::optional<std::size_t>& whom, std::size_t contract,
+                          bool leading) -> std::optional<Decimal> {
+    if (!leading || !whom)
+      return Decimal{};
+    return followers[*whom].wanted[unit[contract]];
+  };
   const auto holds = [&](std::size_t contract) {
     const auto& id = execution.contract(contract).terms.instrument.id;
     return std::ranges::any_of(execution.account().positions(),
@@ -197,9 +221,6 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     const auto& account = execution.account();
     const auto& event = schedule.event(index);
     const auto order = "strategy." + std::to_string(index);
-    const auto decide = [&](Decimal target) {
-      intent = PaperExecution::Target{order, target, bar.close};
-    };
     const auto member = series[current.contract];
     const auto* roll =
         member == none
@@ -208,18 +229,21 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     // The contract its unit trades now: an ordinary one, or the dominant
     // month. A month that is no longer dominant only closes what it holds.
     const bool leading = !roll || roll->contract() == current.contract;
+    const auto& whom = followed[event.day];
     if (leading) {
       const auto u = unit[current.contract];
       const auto observe = [&](const MarketBar& seen) {
-        if (!cross) {
-          if (const auto target = strategies[u]->on_bar(seen))
-            wanted[u] = target;
-        } else if (carry.empty()) {
-          cross->on_bar(u, seen.timestamp_ns, seen.close);
-        } else if (const auto term = carry[member].find(bar.trading_day);
-                   term != carry[member].end()) {
-          // A day without a term point is no bar of this unit for the ranking.
-          cross->on_bar(u, seen.timestamp_ns, seen.close, term->second);
+        for (auto& follower : followers) {
+          if (!follower.cross) {
+            if (const auto wanted = follower.strategies[u]->on_bar(seen))
+              follower.wanted[u] = wanted;
+          } else if (follower.definition->cross().factor() != protocol::v1::TERM_STRUCTURE) {
+            follower.cross->on_bar(u, seen.timestamp_ns, seen.close);
+          } else if (const auto term = carry[member].find(bar.trading_day);
+                     term != carry[member].end()) {
+            // A day without a term point is no bar of this unit for the ranking.
+            follower.cross->on_bar(u, seen.timestamp_ns, seen.close, term->second);
+          }
         }
       };
       if (roll)
@@ -227,39 +251,48 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
                          execution.contract(current.contract).terms.instrument.price_increment));
       else
         observe(bar);
-      if (wanted[u])
-        decide(*wanted[u]);
-    } else {
-      decide(Decimal{});
     }
-    if (cross) {
-      together.push_back({current.contract, order, bar.close, leading});
-      if (index + 1 == total ||
-          execution.bar(execution.event(index + 1)).timestamp_ns != bar.timestamp_ns) {
-        if (const auto shares = cross->rank()) {
-          // A unit holds the lots of the month it trades now whose value at
-          // this close is nearest its share of the rule's notional.
-          const auto notional = decimal(definition.cross().notional());
-          for (const auto& item : together) {
-            if (!item.leading)
-              continue;
-            const auto u = unit[item.contract];
-            const auto share = (*shares)[u];
-            const auto& terms = execution.contract(item.contract).terms.instrument;
-            const auto lots = quantize(
-                divide(
-                    multiply(notional, Decimal::from_raw(std::llround(std::abs(share) * 100000000)),
-                             Rounding::half_up),
-                    multiply(item.close, terms.multiplier, Rounding::half_up), Rounding::half_up),
-                terms.quantity_increment, Rounding::half_up);
-            wanted[u] = share > 0 ? lots : share < 0 ? Decimal{} - lots : Decimal{};
-          }
-          for (const auto& item : together)
-            pending[item.contract] = PaperExecution::Target{
-                item.order, item.leading ? *wanted[unit[item.contract]] : Decimal{}, item.close};
+    const Decided decided{current.contract, order, bar.close, leading};
+    // A strategy that has given no target yet leaves the contract alone.
+    const auto issue = [&](const Decided& item, const std::optional<std::size_t>& taken) {
+      if (const auto quantity = target(taken, item.contract, item.leading))
+        pending[item.contract] = PaperExecution::Target{item.order, *quantity, item.close};
+    };
+    issue(decided, whom);
+    today[current.contract] = decided;
+    together.push_back(decided);
+    if (index + 1 == total ||
+        execution.bar(execution.event(index + 1)).timestamp_ns != bar.timestamp_ns) {
+      for (std::size_t k = 0; k < followers.size(); ++k) {
+        auto& follower = followers[k];
+        if (!follower.cross)
+          continue;
+        const auto shares = follower.cross->rank();
+        if (!shares)
+          continue;
+        // A unit holds the lots of the month it trades now whose value at
+        // this close is nearest its share of the rule's notional.
+        const auto notional = decimal(follower.definition->cross().notional());
+        for (const auto& item : together) {
+          if (!item.leading)
+            continue;
+          const auto u = unit[item.contract];
+          const auto share = (*shares)[u];
+          const auto& terms = execution.contract(item.contract).terms.instrument;
+          const auto lots = quantize(
+              divide(multiply(notional,
+                              Decimal::from_raw(std::llround(std::abs(share) * 100000000)),
+                              Rounding::half_up),
+                     multiply(item.close, terms.multiplier, Rounding::half_up), Rounding::half_up),
+              terms.quantity_increment, Rounding::half_up);
+          follower.wanted[u] = share > 0 ? lots : share < 0 ? Decimal{} - lots : Decimal{};
         }
-        together.clear();
+        // Every contract of this timestamp decided before the ranking was known.
+        if (whom == k)
+          for (const auto& item : together)
+            issue(item, whom);
       }
+      together.clear();
     }
     add_equity(bar.timestamp_ns, backtest::v1::TRADE_MARK, account);
     if (event.day_end) {
@@ -291,6 +324,15 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
         row->mutable_position_quantity()->set_units(quantity.raw());
       }
     }
+    if (event.day_end) {
+      // From the next day the account may follow another strategy: what that
+      // one wanted after today's last bars is what the next bars fill.
+      if (index + 1 < total && followed[event.day + 1] != whom)
+        for (const auto& item : today)
+          if (item)
+            issue(*item, followed[event.day + 1]);
+      std::ranges::fill(today, std::nullopt);
+    }
     step();
     if (event.day_end && !until.empty() &&
         (index + 1 == total || schedule.day(schedule.event(index + 1).day).trading_day >= until))
@@ -313,10 +355,57 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
   account["storage_state"] = "ready";
   *result.mutable_account() = protocol::encode_snapshot(account);
   result.mutable_max_drawdown()->set_units(drawdown.raw());
-  for (auto& strategy : strategies)
-    strategy->stop();
+  for (auto& follower : followers)
+    for (auto& strategy : follower.strategies)
+      strategy->stop();
   execution.stop();
   return result;
+}
+} // namespace
+namespace {
+// What a candidate's days before the holdout, or a round's training days,
+// showed of it.
+backtest::v1::BacktestCandidate scored(Decimal base, std::span<const EquityDay> days,
+                                       std::span<const Decimal> marks) {
+  backtest::v1::BacktestCandidate candidate;
+  // An account already emptied has no return to speak of.
+  if (base <= Decimal{})
+    return candidate;
+  const auto record = performance(base, days, marks);
+  candidate.set_total_return(record.total_return);
+  candidate.set_max_drawdown(record.max_drawdown);
+  if (record.sharpe)
+    candidate.set_sharpe(*record.sharpe);
+  return candidate;
+}
+// The highest ratio wins; among equals, the one named first. None when no
+// candidate has one.
+template <class Candidates> std::optional<std::size_t> best(const Candidates& candidates) {
+  std::optional<std::size_t> selected;
+  for (int i = 0; i < static_cast<int>(candidates.size()); ++i)
+    if (candidates[i].has_sharpe() &&
+        (!selected || candidates[i].sharpe() > candidates[static_cast<int>(*selected)].sharpe()))
+      selected = static_cast<std::size_t>(i);
+  return selected;
+}
+// The equity record of one replay, by trading day.
+struct Curve {
+  std::vector<EquityDay> days;
+  // Every equity observation in order, and where each day's end.
+  std::vector<Decimal> marks;
+  std::vector<std::size_t> day_end;
+};
+Curve curve(const backtest::v1::BacktestResult& result) {
+  Curve value;
+  for (const auto& point : result.equity()) {
+    value.marks.push_back(decimal(point.equity()));
+    if (point.event() == backtest::v1::DAILY_SETTLEMENT)
+      value.day_end.push_back(value.marks.size());
+  }
+  for (const auto& day : result.settlements())
+    value.days.push_back(
+        {std::chrono::sys_days(parse_trading_date(day.trading_day())), decimal(day.equity())});
+  return value;
 }
 } // namespace
 backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::stop_token stop,
@@ -329,40 +418,70 @@ backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::
     if (progress)
       progress(++completed, units);
   };
+  const auto days = protocol::backtest_trading_days(input).size();
+  const auto deposit = decimal(input.paper().deposit());
+  // One strategy alone on the account, over all the days or those before `until`.
+  const auto alone = [&](const protocol::v1::Strategy& strategy, const std::string& until) {
+    return replay(input, {&strategy}, std::vector<std::optional<std::size_t>>(days, 0), until, stop,
+                  step, pinned);
+  };
   if (input.strategies_size() == 1)
-    return replay(input, input.strategies(0), {}, stop, step, pinned);
-  // Each strategy is judged by the days before the holdout and nothing else:
-  // its replay ends there.
-  std::vector<backtest::v1::BacktestCandidate> candidates;
-  std::optional<std::size_t> selected;
-  for (const auto& strategy : input.strategies()) {
-    const auto development = replay(input, strategy, input.holdout_day(), stop, step, pinned);
-    std::vector<EquityDay> days;
-    for (const auto& day : development.settlements())
-      days.push_back(
-          {std::chrono::sys_days(parse_trading_date(day.trading_day())), decimal(day.equity())});
-    std::vector<Decimal> marks;
-    for (const auto& point : development.equity())
-      marks.push_back(decimal(point.equity()));
-    const auto record = performance(decimal(input.paper().deposit()), days, marks);
-    auto& candidate = candidates.emplace_back();
-    candidate.set_total_return(record.total_return);
-    candidate.set_max_drawdown(record.max_drawdown);
-    if (record.sharpe)
-      candidate.set_sharpe(*record.sharpe);
-    // The highest ratio wins; among equals, the one named first.
-    if (record.sharpe && (!selected || *record.sharpe > candidates[*selected].sharpe()))
-      selected = candidates.size() - 1;
+    return alone(input.strategies(0), {});
+  if (!input.has_walk_forward()) {
+    // Each strategy is judged by the days before the holdout and nothing
+    // else: its replay ends there.
+    std::vector<backtest::v1::BacktestCandidate> candidates;
+    for (const auto& strategy : input.strategies()) {
+      const auto development = curve(alone(strategy, input.holdout_day()));
+      candidates.push_back(scored(deposit, development.days, development.marks));
+    }
+    const auto selected = best(candidates);
+    if (!selected)
+      throw std::invalid_argument(
+          "no compared strategy has a development Sharpe ratio: none of them varied before the "
+          "holdout");
+    auto result = alone(input.strategies(static_cast<int>(*selected)), {});
+    for (auto& candidate : candidates)
+      *result.add_candidates() = std::move(candidate);
+    result.set_selected(static_cast<unsigned>(*selected));
+    return result;
   }
-  if (!selected)
-    throw std::invalid_argument(
-        "no compared strategy has a development Sharpe ratio: none of them varied before the "
-        "holdout");
-  auto result =
-      replay(input, input.strategies(static_cast<int>(*selected)), {}, stop, step, pinned);
-  for (auto& candidate : candidates)
-    *result.add_candidates() = std::move(candidate);
-  result.set_selected(static_cast<unsigned>(*selected));
+  // Rolling: every strategy is first replayed alone over all the days. A round
+  // reads of those replays its training days and nothing after them, and the
+  // account then follows the round's best strategy over its validation days.
+  std::vector<Curve> curves;
+  std::vector<const protocol::v1::Strategy*> definitions;
+  for (const auto& strategy : input.strategies()) {
+    curves.push_back(curve(alone(strategy, {})));
+    definitions.push_back(&strategy);
+  }
+  const auto training = input.walk_forward().training_days();
+  std::vector<std::optional<std::size_t>> followed(days);
+  std::vector<backtest::v1::BacktestFold> folds;
+  for (const auto& range : protocol::backtest_folds(input)) {
+    auto& fold = folds.emplace_back();
+    fold.set_first_day(
+        format_trading_date(std::chrono::year_month_day{curves.front().days[range.first].day}));
+    const auto begin = range.first - training;
+    for (const auto& record : curves) {
+      const auto first_mark = begin ? record.day_end[begin - 1] : 0;
+      *fold.add_candidates() =
+          scored(begin ? record.days[begin - 1].equity : deposit,
+                 std::span(record.days).subspan(begin, training),
+                 std::span(record.marks)
+                     .subspan(first_mark, record.day_end[range.first - 1] - first_mark));
+    }
+    // A round in which no strategy has a ratio follows none: the account
+    // holds nothing through it.
+    if (const auto selected = best(fold.candidates())) {
+      fold.set_selected(static_cast<unsigned>(*selected));
+      std::fill(followed.begin() + static_cast<std::ptrdiff_t>(range.first),
+                followed.begin() + static_cast<std::ptrdiff_t>(range.end), selected);
+    }
+  }
+  auto result = replay(input, definitions, followed, {}, stop, step, pinned);
+  for (auto& fold : folds)
+    *result.add_folds() = std::move(fold);
   return result;
 }
 } // namespace asterion::backtest

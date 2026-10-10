@@ -24,43 +24,54 @@ Json figures(const Performance& value) {
           {"sharpe", optional(value.sharpe)},
           {"calmar", optional(value.calmar)}};
 }
-// How a backtest's fixed result performed, over all of its days and, for a
-// comparison, before and from the holdout: the holdout starts from the equity
-// the development days ended with. Derived on every read, never stored.
+// How a backtest's fixed result performed: over all of its days; for a
+// comparison before a holdout, before and from it; for a rolling one, over
+// each round's validation days and over all of them together. A span of days
+// starts from the equity the day before it ended with. Derived on every read,
+// never stored.
 Json backtest_performance(const backtest::v1::BacktestInput& input,
                           const backtest::v1::BacktestResult& result) {
   std::vector<EquityDay> days;
   for (const auto& day : result.settlements())
     days.push_back({std::chrono::sys_days(parse_trading_date(day.trading_day())),
                     Decimal::from_raw(day.equity().units())});
+  // Every equity observation in order, and where each day's end.
   std::vector<Decimal> marks;
-  // How many days, and how many marks up to their last settlement, come
-  // before the holdout.
-  std::size_t development_days = 0, development_marks = 0;
-  int settled = 0;
+  std::vector<std::size_t> day_end;
   for (const auto& point : result.equity()) {
     marks.push_back(Decimal::from_raw(point.equity().units()));
-    if (point.event() != backtest::v1::DAILY_SETTLEMENT)
-      continue;
-    if (result.settlements(settled).trading_day() < input.holdout_day()) {
-      development_days = static_cast<std::size_t>(settled) + 1;
-      development_marks = marks.size();
-    }
-    ++settled;
+    if (point.event() == backtest::v1::DAILY_SETTLEMENT)
+      day_end.push_back(marks.size());
   }
   const auto deposit = Decimal::from_raw(input.paper().deposit().units());
-  auto value = figures(performance(deposit, days, marks));
+  // The figures of days [first, end); none once the account they start from
+  // is empty, which has no return to speak of.
+  const auto span_of = [&](std::size_t first, std::size_t end) -> Json {
+    const auto base = first ? days[first - 1].equity : deposit;
+    if (base <= Decimal{})
+      return nullptr;
+    const auto begin = first ? day_end[first - 1] : 0;
+    return figures(performance(base, std::span(days).subspan(first, end - first),
+                               std::span(marks).subspan(begin, day_end[end - 1] - begin)));
+  };
+  auto value = span_of(0, days.size());
   value["development"] = nullptr;
   value["holdout"] = nullptr;
+  value["out_of_sample"] = nullptr;
+  value["folds"] = Json::array();
   if (!input.holdout_day().empty()) {
-    const std::span all_days(days);
-    const std::span all_marks(marks);
-    value["development"] = figures(
-        performance(deposit, all_days.first(development_days), all_marks.first(development_marks)));
-    // An account that the development days emptied has no return to speak of.
-    if (const auto start = days[development_days - 1].equity; start > Decimal{})
-      value["holdout"] = figures(performance(start, all_days.subspan(development_days),
-                                             all_marks.subspan(development_marks)));
+    const auto development =
+        static_cast<std::size_t>(std::ranges::count_if(result.settlements(), [&](const auto& day) {
+          return day.trading_day() < input.holdout_day();
+        }));
+    value["development"] = span_of(0, development);
+    value["holdout"] = span_of(development, days.size());
+  }
+  if (input.has_walk_forward()) {
+    const auto rounds = protocol::backtest_folds(input);
+    value["out_of_sample"] = span_of(rounds.front().first, days.size());
+    for (const auto& round : rounds)
+      value["folds"].push_back(span_of(round.first, round.end));
   }
   return value;
 }

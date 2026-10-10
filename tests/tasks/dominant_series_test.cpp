@@ -56,7 +56,7 @@ backtest::v1::BacktestInput rolling(const char* outgoing_volume = "10") {
                                           {"close_today_fee_rate", "0"},
                                           {"close_yesterday_fee_rate", "0"}});
   backtest::v1::BacktestInput input;
-  input.set_version(9);
+  input.set_version(10);
   *input.mutable_paper() = testing_support::paper_input(
       {{"version", 4},
        {"type", "historical_paper"},
