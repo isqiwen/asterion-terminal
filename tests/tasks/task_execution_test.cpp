@@ -307,11 +307,8 @@ TEST(Backtest, ARankingRuleTradesTheStrongestAndWeakestOfSeveralContracts) {
   }
   spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
   // A lot is worth ten times its price; each held contract is sized to 2500.
-  const Json rule{{"kind", "cross_momentum"},
-                  {"lookback", 1},
-                  {"rebalance", 2},
-                  {"count", 1},
-                  {"notional", "2500"}};
+  const Json rule{{"kind", "cross_momentum"}, {"reverse", false}, {"lookback", 1},
+                  {"rebalance", 2},           {"count", 1},       {"notional", "2500"}};
   *spec.mutable_strategies(0) = protocol::encode_strategy({{"sides", "both"}, {"rule", rule}});
   const auto result = backtest::run(spec);
   // Decided at the second bar and filled at the third: 2500 is nearest two
@@ -319,14 +316,15 @@ TEST(Backtest, ARankingRuleTradesTheStrongestAndWeakestOfSeveralContracts) {
   // when both are at 99 and three lots each: closed at the fifth bar and
   // opened the other way at the sixth. hc and al never trade.
   ASSERT_EQ(result.account().fills_size(), 6);
-  const auto fill = [&](int index) {
-    const auto& value = result.account().fills(index);
-    const auto order = std::ranges::find(result.account().orders(), value.order_id(),
+  const auto fill_of = [](const backtest::v1::BacktestResult& run, int index) {
+    const auto& value = run.account().fills(index);
+    const auto order = std::ranges::find(run.account().orders(), value.order_id(),
                                          [](const auto& item) { return item.id(); });
     return value.symbol() + (order->side() == protocol::v1::BUY ? " buy " : " sell ") +
            Decimal::from_raw(value.quantity().units()).str() + " at " +
            Decimal::from_raw(value.price().units()).str();
   };
+  const auto fill = [&](int index) { return fill_of(result, index); };
   EXPECT_EQ(fill(0), "rb2610 buy 2 at 110");
   EXPECT_EQ(fill(1), "zn2610 sell 3 at 90");
   EXPECT_EQ(fill(2), "rb2610 sell 2 at 99");
@@ -344,6 +342,17 @@ TEST(Backtest, ARankingRuleTradesTheStrongestAndWeakestOfSeveralContracts) {
   EXPECT_EQ(result.settlements(0).contracts(3).position_quantity().units(), d("3").raw());
   EXPECT_EQ(protocol::decode_backtest(spec, protocol::DatasetView::metadata).at("strategies").at(0),
             (Json{{"sides", "both"}, {"rule", rule}}));
+  // Reversed, the same ranking holds the weakest long and the strongest
+  // short: rb is sold and zn bought.
+  auto reversed = spec;
+  reversed.mutable_strategies(0)->mutable_cross()->set_reversed(true);
+  const auto mirrored = backtest::run(reversed);
+  ASSERT_EQ(mirrored.account().fills_size(), 6);
+  EXPECT_EQ(fill_of(mirrored, 0), "rb2610 sell 2 at 110");
+  EXPECT_EQ(fill_of(mirrored, 1), "zn2610 buy 3 at 90");
+  // What the first lost the second gains, less the same fees.
+  EXPECT_EQ(mirrored.account().realized().units(), d("490").raw());
+  EXPECT_EQ(mirrored.account().equity().units(), d("10453").raw());
   // A contract whose one lot is worth more than twice the notional is ranked
   // and not held: 400 against lots of about 1000.
   auto small = spec;

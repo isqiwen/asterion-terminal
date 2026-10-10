@@ -1426,6 +1426,7 @@ TEST_F(Live, ARunTradesByTheRuleItWasStartedWith) {
   ranked["strategy"] = {{"sides", "both"},
                         {"rule",
                          {{"kind", "cross_momentum"},
+                          {"reverse", false},
                           {"lookback", 1},
                           {"rebalance", 1},
                           {"count", 1},

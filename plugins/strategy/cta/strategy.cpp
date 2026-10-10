@@ -215,6 +215,7 @@ bool CrossSection::defines(const protocol::v1::Strategy& definition) {
 }
 CrossSection::CrossSection(const protocol::v1::Strategy& definition, std::size_t units)
     : momentum_(definition.cross().factor() == protocol::v1::PRICE_MOMENTUM),
+      reversed_(definition.cross().reversed()),
       window_(definition.cross().lookback() + (momentum_ ? 1 : 0)),
       rebalance_(definition.cross().rebalance()), count_(definition.cross().count()),
       sides_(protocol::position_sides(definition.sides())), latest_(units), values_(units) {
@@ -265,9 +266,11 @@ std::optional<std::vector<int>> CrossSection::rank() {
   std::vector<std::size_t> order(values_.size());
   for (std::size_t unit = 0; unit < order.size(); ++unit)
     order[unit] = unit;
-  // Highest first; equal units keep the order they were given in.
-  std::ranges::stable_sort(order,
-                           [&](auto left, auto right) { return score[left] > score[right]; });
+  // Those to hold long first: the highest, or the lowest of a reversed rule.
+  // Equal units keep the order they were given in.
+  std::ranges::stable_sort(order, [&](auto left, auto right) {
+    return reversed_ ? score[left] < score[right] : score[left] > score[right];
+  });
   std::vector<int> wanted(values_.size());
   for (std::size_t i = 0; i < count_; ++i) {
     if (sides_ != PositionSides::short_only)

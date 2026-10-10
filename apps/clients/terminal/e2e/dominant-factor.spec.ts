@@ -233,6 +233,8 @@ test("a backtest ranks dominant series by their term structure", async ({ page }
   await workspace.getByRole("button", { name: "下一步", exact: true }).click();
   await workspace.getByLabel("策略", { exact: true }).selectOption("cross_term_structure");
   await expect(workspace.getByText(/价差最高（近月相对最贵）的“每侧合约数”个做多/)).toBeVisible();
+  // Held the other way round: long the lowest, short the highest.
+  await workspace.getByLabel("排序方向", { exact: true }).selectOption("true");
   for (const [label, value] of [
     ["均值窗口", "1"],
     ["调仓间隔", "1"],
@@ -272,21 +274,34 @@ test("a backtest ranks dominant series by their term structure", async ({ page }
   await expect(row.getByText("已完成", { exact: true })).toBeVisible({ timeout: 20000 });
   await row.getByRole("button", { name: "查看结果", exact: true }).click();
   const result = workspace.getByRole("region", { name: "回测结果", exact: true });
-  await expect(result.getByRole("heading", { name: /截面期限结构 1\/1\/1/ })).toBeVisible();
-  // Ranked at the first bar that knows a term structure: zn is bought and al
-  // sold at the next, and both are held to the end.
-  await result.getByText("逐日结算", { exact: true }).click();
-  const settlements = result.locator(".research-settlements tbody tr");
-  await expect(settlements.last()).toContainText("al2610");
-  await expect(settlements.last()).toContainText("-1");
+  await expect(result.getByRole("heading", { name: /截面期限结构 1\/1\/1 · 反向/ })).toBeVisible();
   const state = await rpc(page.request, "runtime.snapshot");
   const evidence = state.task_result;
   checkSnapshot("term structure ranking", state);
   expect(evidence.result.account.fills).toHaveLength(2);
+  // Both months trade at the same prices. The bar after the ranking dips, so
+  // the buy of al fills on it; the sale of zn waits for the bar after that.
   expect(evidence.result.account.fills.map((fill: { symbol: string }) => fill.symbol)).toEqual([
-    "zn2610",
     "al2610",
+    "zn2610",
   ]);
-  expect(evidence.experiment.strategies[0].rule.kind).toBe("cross_term_structure");
+  expect(evidence.experiment.strategies[0].rule).toMatchObject({
+    kind: "cross_term_structure",
+    reverse: true,
+  });
+  // Ranked at the first bar that knows a term structure and filled at the
+  // next. zn has the higher carry: reversed, it is sold and al bought, and
+  // both are held to the end.
+  expect(
+    evidence.result.settlements
+      .at(-1)
+      .contracts.map((item: { symbol: string; position_quantity: string }) => [
+        item.symbol,
+        item.position_quantity,
+      ]),
+  ).toEqual([
+    ["zn2610", "-1"],
+    ["al2610", "1"],
+  ]);
   await page.screenshot({ path: join(__dirname, "../test-results/backtest-term-structure.png") });
 });

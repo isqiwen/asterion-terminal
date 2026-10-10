@@ -99,9 +99,12 @@ v1::Strategy encode_strategy(const Json& value) {
     result.mutable_reversion()->set_window(window("window"));
     result.mutable_reversion()->mutable_width()->set_units(amount(rule.at("width")));
   } else if (ranks) {
-    require_fields(rule, {"kind", "lookback", "rebalance", "count", "notional"});
+    require_fields(rule, {"kind", "reverse", "lookback", "rebalance", "count", "notional"});
+    if (!rule.at("reverse").is_boolean())
+      throw std::invalid_argument("invalid strategy");
     auto* cross = result.mutable_cross();
     cross->set_factor(kind == "cross_momentum" ? v1::PRICE_MOMENTUM : v1::TERM_STRUCTURE);
+    cross->set_reversed(rule.at("reverse").get<bool>());
     cross->set_lookback(window("lookback"));
     cross->set_rebalance(window("rebalance"));
     cross->set_count(window("count"));
@@ -134,6 +137,7 @@ Json decode_strategy(const v1::Strategy& strategy) {
   case v1::Strategy::kCross:
     rule = {{"kind", strategy.cross().factor() == v1::TERM_STRUCTURE ? "cross_term_structure"
                                                                      : "cross_momentum"},
+            {"reverse", strategy.cross().reversed()},
             {"lookback", strategy.cross().lookback()},
             {"rebalance", strategy.cross().rebalance()},
             {"count", strategy.cross().count()},

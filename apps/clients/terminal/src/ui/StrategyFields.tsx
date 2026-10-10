@@ -61,6 +61,8 @@ type Kind = keyof typeof rules;
 // Rules that rank several contracts; a run on one contract cannot use them.
 const ranking: readonly Kind[] = ["cross_momentum", "cross_term_structure"];
 const sides = { both: "多空", long: "只做多", short: "只做空" } as const;
+// Which end of a ranking is held long.
+const directions = { false: "做多最高、做空最低", true: "做多最低、做空最高" } as const;
 
 // A strategy as a form holds it: every rule keeps its own windows, so
 // switching rules loses nothing.
@@ -78,6 +80,7 @@ export type StrategyDraft = {
   rebalance: string;
   count: string;
   notional: string;
+  reverse: boolean;
 };
 export const strategyDefaults: StrategyDraft = {
   kind: "moving_average",
@@ -93,6 +96,7 @@ export const strategyDefaults: StrategyDraft = {
   rebalance: "5",
   count: "1",
   notional: "100000",
+  reverse: false,
 };
 
 const several = (text: string) =>
@@ -126,6 +130,7 @@ function combinations(draft: StrategyDraft): StrategyDefinition["rule"][] {
       values("rebalance").flatMap(rebalance =>
         values("count").map(count => ({
           kind,
+          reverse: draft.reverse,
           lookback,
           rebalance,
           count,
@@ -158,7 +163,7 @@ export function strategyRule(definition: StrategyDefinition): string {
   const rule = definition.rule;
   const windows =
     "rebalance" in rule
-      ? `${rule.lookback}/${rule.rebalance}/${rule.count}`
+      ? `${rule.lookback}/${rule.rebalance}/${rule.count}${rule.reverse ? ` · ${t("反向")}` : ""}`
       : rule.kind === "moving_average"
         ? `${rule.fast}/${rule.slow}`
         : rule.kind === "breakout"
@@ -184,9 +189,12 @@ export function strategyRows(definition: StrategyDefinition): [string, string | 
     ...rules[rule.kind].fields.map(
       ([name, label]) => [t(label), values[name]] as [string, string | number],
     ),
-    "quantity" in definition
-      ? [t("目标手数"), definition.quantity]
-      : [t("每个合约的名义金额"), definition.rule.notional],
+    ...("quantity" in definition
+      ? [[t("目标手数"), definition.quantity] as [string, string]]
+      : ([
+          [t("排序方向"), t(directions[`${definition.rule.reverse}`])],
+          [t("每个合约的名义金额"), definition.rule.notional],
+        ] as [string, string][])),
     [t("持仓方向"), strategySides(definition.sides)],
   ];
 }
@@ -259,6 +267,22 @@ export function StrategyFields({
             )}
           </label>
         ))}
+        {ranking.includes(value.kind) && (
+          <label>
+            {t("排序方向")}
+            <select
+              aria-label={t("排序方向")}
+              value={`${value.reverse}`}
+              onChange={event => onChange({ ...value, reverse: event.target.value === "true" })}
+            >
+              {Object.entries(directions).map(([reverse, label]) => (
+                <option key={reverse} value={reverse}>
+                  {t(label)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {ranking.includes(value.kind) ? (
           <label>
             {t("每个合约的名义金额")}

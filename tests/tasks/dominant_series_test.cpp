@@ -136,6 +136,7 @@ TEST(DominantSeries, ARankingRuleTakesASeriesAsOneOfTheContractsItRanks) {
   *input.mutable_strategies(0) = protocol::encode_strategy({{"sides", "long"},
                                                             {"rule",
                                                              {{"kind", "cross_momentum"},
+                                                              {"reverse", false},
                                                               {"lookback", 1},
                                                               {"rebalance", 1},
                                                               {"count", 1},
@@ -185,6 +186,7 @@ TEST(DominantSeries, ARankingByTheTermStructureHoldsTheSeriesWithTheHigherCarry)
   for (const std::size_t day : {2, 3, 4})
     term(1, day, "150", "148", "2027-01");
   const Json rule{{"kind", "cross_term_structure"},
+                  {"reverse", false},
                   {"lookback", 1},
                   {"rebalance", 1},
                   {"count", 1},

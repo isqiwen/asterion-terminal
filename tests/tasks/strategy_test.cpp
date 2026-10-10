@@ -137,11 +137,8 @@ TEST(Strategy, ADefinitionStatesWindowsItsRuleCanWorkWith) {
     EXPECT_THROW(strategy(rule), std::exception) << rule.dump();
 }
 TEST(Strategy, ARankingRuleHoldsTheStrongestLongAndTheWeakestShortOnBarsAllUnitsHave) {
-  const Json rule{{"kind", "cross_momentum"},
-                  {"lookback", 1},
-                  {"rebalance", 2},
-                  {"count", 1},
-                  {"notional", "1000"}};
+  const Json rule{{"kind", "cross_momentum"}, {"reverse", false}, {"lookback", 1},
+                  {"rebalance", 2},           {"count", 1},       {"notional", "1000"}};
   CrossSection ranked(ranking(rule), 4);
   using Wanted = std::optional<std::vector<int>>;
   const auto bars = [](CrossSection& run, std::int64_t time,
@@ -169,6 +166,17 @@ TEST(Strategy, ARankingRuleHoldsTheStrongestLongAndTheWeakestShortOnBarsAllUnits
   CrossSection longs(ranking(rule, "long"), 2);
   EXPECT_EQ(bars(longs, 1, {"100", "100"}), Wanted());
   EXPECT_EQ(bars(longs, 2, {"99", "101"}), Wanted({0, 1}));
+
+  // Reversed, the weakest is held long and the strongest short; of the equal
+  // strongest it is now the one named last that is at the end.
+  auto other = rule;
+  other["reverse"] = true;
+  CrossSection reversed(ranking(other), 4);
+  EXPECT_EQ(bars(reversed, 1, {"100", "100", "100", "100"}), Wanted());
+  EXPECT_EQ(bars(reversed, 2, {"110", "105", "100", "95"}), Wanted({-1, 0, 0, 1}));
+  EXPECT_EQ(bars(reversed, 4, {"110", "126", "90", "95"}), Wanted());
+  EXPECT_EQ(bars(reversed, 5, {"99", "126", "99", "104.5"}), Wanted({1, 0, 0, -1}));
+  EXPECT_EQ(protocol::decode_strategy(ranking(other)).at("rule"), other);
 
   // A unit is never wanted on both sides; bars keep their order; a rule over
   // several contracts is no strategy for one.
@@ -199,6 +207,7 @@ TEST(Strategy, ARankingRuleHoldsTheStrongestLongAndTheWeakestShortOnBarsAllUnits
 }
 TEST(Strategy, ARankingByTheTermStructureAveragesTheCarryOverItsWindow) {
   const Json rule{{"kind", "cross_term_structure"},
+                  {"reverse", false},
                   {"lookback", 2},
                   {"rebalance", 1},
                   {"count", 1},

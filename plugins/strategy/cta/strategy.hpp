@@ -41,7 +41,8 @@ std::unique_ptr<Strategy> make_strategy(const protocol::v1::Strategy& definition
                                         Instrument instrument);
 // A rule over several units at once, each a contract or a product's dominant
 // series: it ranks them on the bars they all have and says which to hold long
-// and which short. How many lots that is for each is its host's to work out.
+// and which short: the highest long and the lowest short, or the other way
+// round when the rule is reversed. How many lots that is for each is its host's to work out.
 // Like a Strategy it has no clock, data source or execution.
 class CrossSection {
 public:
@@ -62,7 +63,7 @@ private:
   // Momentum compares a value with the one a lookback earlier; the term
   // structure averages the lookback's values. `window_` is how many of the
   // bars every unit had are kept for that.
-  bool momentum_;
+  bool momentum_, reversed_;
   std::size_t window_, rebalance_, count_;
   PositionSides sides_;
   std::int64_t time_ = -1;

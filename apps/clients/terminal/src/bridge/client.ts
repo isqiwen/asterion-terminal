@@ -755,6 +755,8 @@ export type StrategyDefinition =
       sides: PositionSides;
       rule: {
         kind: "cross_momentum" | "cross_term_structure";
+        // The lowest are held long and the highest short.
+        reverse: boolean;
         lookback: number;
         rebalance: number;
         count: number;

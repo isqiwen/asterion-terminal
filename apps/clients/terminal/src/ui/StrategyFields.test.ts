@@ -46,6 +46,7 @@ describe("the strategies a form submits", () => {
         [20, 2],
       ].map(([lookback, count]) => ({
         kind: "cross_momentum",
+        reverse: false,
         lookback,
         rebalance: 5,
         count,
