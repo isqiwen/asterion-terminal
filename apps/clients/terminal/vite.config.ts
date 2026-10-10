@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createInterface } from "node:readline";
 const root = fileURLToPath(new URL("../../..", import.meta.url));
 // C++ build that serves the dev bridge.
@@ -136,6 +136,16 @@ function localCore(): Plugin {
         core.child.kill();
         await exited(core.child);
         await stopAgent(process.env.ASTERION_NODE_DIRECTORY!);
+        // A node directory holds a copy of every service program: the one
+        // before goes, or a run of forty spec files fills the temporary
+        // filesystem. Services that are still stopping may write once more.
+        for (const entry of readdirSync(originalNode!))
+          rmSync(resolve(originalNode!, entry), {
+            recursive: true,
+            force: true,
+            maxRetries: 20,
+            retryDelay: 100,
+          });
         // Inside the wrapper's temporary root, which it cleans up at exit.
         process.env.ASTERION_NODE_DIRECTORY = mkdtempSync(resolve(originalNode!, "reset-"));
         core = startCore();

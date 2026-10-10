@@ -246,15 +246,15 @@ DataClient::verify_connection(const std::string& source, const std::string& cred
       },
       true, 90s);
 }
-std::future<backtest::v1::DominantSeriesPreview>
+std::future<data::v1::DominantSeriesPreview>
 DataClient::dominant_series(const std::vector<data::v1::BarDatasetRequest>& months) {
   wire::DataRequest request;
   for (const auto& month : months)
     *request.mutable_dominant_series()->add_months() = month;
-  return impl_->invoke<backtest::v1::DominantSeriesPreview>(
+  return impl_->invoke<data::v1::DominantSeriesPreview>(
       std::move(request),
       [](const wire::DataRequest& request,
-         wire::DataResponse& response) -> backtest::v1::DominantSeriesPreview {
+         wire::DataResponse& response) -> data::v1::DominantSeriesPreview {
         const auto& months = request.dominant_series().months();
         auto& preview = *response.mutable_dominant_series();
         if (preview.months().empty() || preview.months_size() != preview.datasets_size() ||

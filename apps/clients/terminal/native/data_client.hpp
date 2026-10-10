@@ -26,7 +26,7 @@ public:
   [[nodiscard]] std::future<data::v1::HistoryConnectionVerification>
   verify_connection(const std::string& source, const std::string& credential);
   [[nodiscard]] std::future<data::v1::BarDataset> bar_dataset(const data::v1::BarDatasetRequest&);
-  [[nodiscard]] std::future<backtest::v1::DominantSeriesPreview>
+  [[nodiscard]] std::future<data::v1::DominantSeriesPreview>
   dominant_series(const std::vector<data::v1::BarDatasetRequest>&);
   [[nodiscard]] std::future<data::v1::HistoryUpdatePlan>
   history_update_plan(const data::v1::HistoryUpdateQuery&);

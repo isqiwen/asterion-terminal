@@ -104,7 +104,7 @@ data::v1::BarDataset* factor_bars(factor::v1::FactorInput& input) {
 }
 factor::v1::FactorInput maximum_factor_input() {
   factor::v1::FactorInput spec;
-  spec.set_version(6);
+  spec.set_version(7);
   spec.set_full_sample(true);
   spec.add_lookbacks(2);
   spec.set_horizon(1);
@@ -2442,7 +2442,7 @@ TEST(NamedDatasets, RequestedWindowReportsMissingBoundaryDays) {
   EXPECT_EQ(dataset.uncovered_days(1), "2026-09-25");
   task::v1::Task calculation;
   *factor_bars(*calculation.mutable_factor()) = dataset;
-  calculation.mutable_factor()->set_version(6);
+  calculation.mutable_factor()->set_version(7);
   calculation.mutable_factor()->set_dataset_revision(dataset.revision());
   calculation.mutable_factor()->add_lookbacks(1);
   calculation.mutable_factor()->set_horizon(1);
@@ -2724,7 +2724,7 @@ TEST_F(TaskProcess, HistoryUsageKeepsTaskReferencesAfterCancellationAndRestart) 
     tasks::submit(store, "usage-backtest", backtest);
     store.commit(store.cancel("usage-backtest")).task();
     factor::v1::FactorInput factor;
-    factor.set_version(6);
+    factor.set_version(7);
     *factor_bars(factor) = data;
     factor.set_dataset_revision(data.revision());
     factor.add_lookbacks(1);
@@ -2989,7 +2989,7 @@ TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTa
   data::Store data_store(warehouse.path, "historical-data", "task");
   const auto source = data::resolve_bar_dataset(data_store.sources(composed_request({selection})));
   factor::v1::FactorInput spec;
-  spec.set_version(6);
+  spec.set_version(7);
   *factor_bars(spec) = source;
   spec.set_dataset_revision(source.revision());
   spec.add_lookbacks(1);
@@ -3063,7 +3063,7 @@ TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTa
 TEST(TaskStore, ActiveCapacityAppliesToNewAdmissionsAndExplicitRetries) {
   TaskDirectory directory;
   factor::v1::FactorInput spec;
-  spec.set_version(6);
+  spec.set_version(7);
   *factor_bars(spec) = input().paper().contracts(0).dataset();
   auto* data = factor_bars(spec);
   const auto first = data->bars(0);

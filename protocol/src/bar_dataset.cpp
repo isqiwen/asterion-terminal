@@ -345,6 +345,50 @@ Json decode_bar_dataset_request(const data::v1::BarDatasetRequest& request) {
           {"end_day", request.end_day()},
           {"contract", std::move(contract)}};
 }
+void validate_dominant_schedule(const data::v1::DominantSchedule& schedule,
+                                std::span<const v1::Contract* const> contracts) {
+  if (schedule.rolls().empty())
+    throw std::invalid_argument("invalid dominant series schedule");
+  const data::v1::DominantRoll* previous = nullptr;
+  for (const auto& roll : schedule.rolls()) {
+    (void)parse_trading_date(roll.trading_day());
+    if (roll.contract() >= contracts.size() || !roll.has_factor() || roll.factor().units() <= 0)
+      throw std::invalid_argument("invalid dominant series schedule");
+    if (previous) {
+      const auto& contract = *contracts[roll.contract()];
+      const auto& before = *contracts[previous->contract()];
+      // One product, later months only, each from a later day.
+      if (roll.trading_day() <= previous->trading_day() || contract.venue() != before.venue() ||
+          contract.product() != before.product() ||
+          contract.delivery_month() <= before.delivery_month() ||
+          contract.price_increment().units() != before.price_increment().units() ||
+          contract.multiplier().units() != before.multiplier().units())
+        throw std::invalid_argument("invalid dominant series schedule");
+    }
+    previous = &roll;
+  }
+  if (previous->factor().units() != Decimal::parse("1").raw())
+    throw std::invalid_argument("invalid dominant series schedule");
+}
+const data::v1::DominantRoll& dominant_roll(const data::v1::DominantSchedule& schedule,
+                                            const std::string& trading_day) {
+  const auto* current = &schedule.rolls(0);
+  for (const auto& roll : schedule.rolls())
+    if (roll.trading_day() <= trading_day)
+      current = &roll;
+  return *current;
+}
+Decimal dominant_price(Decimal raw, Decimal factor, Decimal increment) {
+  return quantize(multiply(raw, factor, Rounding::half_up), increment, Rounding::half_up);
+}
+Json decode_dominant_schedule(const data::v1::DominantSchedule& schedule) {
+  Json rolls = Json::array();
+  for (const auto& roll : schedule.rolls())
+    rolls.push_back({{"trading_day", roll.trading_day()},
+                     {"contract", roll.contract()},
+                     {"factor", value(roll.factor()).str()}});
+  return rolls;
+}
 std::string named_dataset_revision(const data::v1::NamedDataset& value) {
   auto canonical = value;
   canonical.clear_id();

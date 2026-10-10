@@ -194,8 +194,15 @@ export function BarFactorForm({
   run,
 }: Pick<TerminalContext, "snapshot" | "query" | "busy" | "trade" | "navigate"> & { run: Run }) {
   const datasets = snapshot?.datasets ?? [];
-  // One contract is studied over time, three or more against each other.
-  const cross = datasets.length > 1;
+  // A dominant series is one series, whatever months it is read from.
+  const dominant = snapshot?.dataset_series ?? [];
+  const alone = datasets.filter(
+    item =>
+      !dominant.some(series => series.venue === item.venue && series.symbols.includes(item.symbol)),
+  );
+  const count = alone.length + dominant.length;
+  // One series is studied over time, three or more against each other.
+  const cross = count > 1;
   return (
     <>
       <h3>{t("因子设置")}</h3>
@@ -210,19 +217,21 @@ export function BarFactorForm({
         {t(
           cross
             ? "多个合约 · 在各合约共有的 K 线上比较它们的动量与未来收益"
-            : "单合约 · 按 K 线收盘价计算",
+            : dominant.length
+              ? "主力连续 · 每个交易日取当时主力月份的 K 线，收盘价按换月比例调整到最新月份的水平"
+              : "单合约 · 按 K 线收盘价计算",
         )}
       </p>
-      {datasets.length === 2 && (
+      {count === 2 && (
         <p role="alert" className="alert">
           {t("比较合约至少需要 3 个；只分析一个合约时请只保留一个数据集。")}
         </p>
       )}
       <FactorParameters
         kind="bars"
-        series={datasets.length === 1 || datasets.length > 2 ? { kind: "bars" } : null}
+        series={count === 1 || count > 2 ? { kind: "bars" } : null}
         identity={JSON.stringify(datasets.map(item => item.revision))}
-        observations={cross ? undefined : datasets[0]?.count}
+        observations={cross ? undefined : alone[0]?.count}
         snapshot={snapshot}
         busy={busy}
         run={run}

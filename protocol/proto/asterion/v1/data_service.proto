@@ -1,7 +1,6 @@
 syntax = "proto3";
 package asterion.data.v1;
 import "asterion/v1/data.proto";
-import "asterion/v1/backtest.proto";
 import "asterion/v1/factor.proto";
 import "asterion/v1/trading.proto";
 import "asterion/v1/node.proto";
@@ -73,7 +72,7 @@ message DataRequest {
     DataId saved_dataset = 22;
     asterion.protocol.v1.Empty saved_datasets = 23;
     HistoryUpdateQuery update_plan = 24;
-    asterion.backtest.v1.DominantSeriesRequest dominant_series = 25;
+    DominantSeriesRequest dominant_series = 25;
     DataId daily_factor_dataset = 26;
     DataId history_usage = 27;
     DownloadAuthorizationRequest authorize_download = 28;
@@ -104,7 +103,7 @@ message DataResponse {
     NamedDataset saved_dataset = 21;
     NamedDatasets saved_datasets = 22;
     HistoryUpdatePlan update_plan = 23;
-    asterion.backtest.v1.DominantSeriesPreview dominant_series = 24;
+    DominantSeriesPreview dominant_series = 24;
     asterion.factor.v1.DailyFactorDataset daily_factor_dataset = 25;
     HistoryUsage history_usage = 26;
     DownloadAuthorization download_authorization = 27;

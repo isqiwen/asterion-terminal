@@ -584,7 +584,7 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   EXPECT_FALSE(dataset.bars(0).has_settlement());
   EXPECT_FALSE(dataset.bars(0).has_macd());
   factor::v1::FactorInput input;
-  input.set_version(6);
+  input.set_version(7);
   input.add_lookbacks(2);
   input.set_horizon(2);
   input.set_holdout_start(40);

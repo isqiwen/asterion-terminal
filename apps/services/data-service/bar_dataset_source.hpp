@@ -27,7 +27,7 @@ struct DominantSeries {
   // the trading day after it, on which the position it still holds is closed.
   std::vector<data::v1::BarDataset> datasets;
   // contract indexes refer to `months`.
-  backtest::v1::DominantSchedule schedule;
+  data::v1::DominantSchedule schedule;
 };
 // Fails rather than guesses: when no month has data on a day, when the
 // outgoing month has no bars on the roll day to close on, or when the two

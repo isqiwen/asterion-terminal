@@ -61,14 +61,15 @@ message TaskId { string id = 1; }
 message TaskSubmit { string id = 1; oneof definition { asterion.backtest.v1.BacktestRequest backtest = 2; asterion.factor.v1.FactorRequest factor_request = 3; string download_authorization = 4; } }
 // Small execution definition, projected from Task-owned immutable evidence.
 // Backtest contracts already follow the resolved month order. The fixed schedules
-// below replace request.series: workers never select dominant months again.
+// below replace request.series, and are those of a factor request's dominant
+// series in order: workers never select dominant months again.
 message TaskExecution {
   string input_sha256 = 1;
   oneof parameters {
     asterion.backtest.v1.BacktestRequest backtest = 2;
     asterion.factor.v1.FactorRequest factor = 3;
   }
-  repeated asterion.backtest.v1.DominantSchedule schedules = 4;
+  repeated asterion.data.v1.DominantSchedule schedules = 4;
 }
 message TaskAttempt {
   Task task = 1; // Calculation summary only; downloads retain their definition.

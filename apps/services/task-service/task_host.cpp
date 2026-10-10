@@ -333,7 +333,7 @@ PolledTask<> TaskHost::submit_backtest(Call& call) {
     auto prepared = co_await data_input(call, std::move(query));
     keep(c, std::move(*prepared.mutable_bar_dataset()));
   }
-  std::vector<backtest::v1::DominantSchedule> schedules;
+  std::vector<data::v1::DominantSchedule> schedules;
   for (const auto& series : b.series()) {
     data::v1::DataRequest query;
     for (const auto index : series.contracts())

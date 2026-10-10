@@ -10,69 +10,72 @@ namespace {
 bool digest(const std::string& value) {
   return value.size() == 64 && value.find_first_not_of("0123456789abcdef") == std::string::npos;
 }
+// The bars one series holds in an input.
+std::size_t held_bars(const factor::v1::FactorSeries& data) {
+  if (data.has_bars())
+    return static_cast<std::size_t>(data.bars().bars_size());
+  if (data.has_daily())
+    return static_cast<std::size_t>(data.daily().bars_size());
+  std::size_t bars = 0;
+  for (const auto& month : data.dominant().months())
+    bars += static_cast<std::size_t>(month.bars_size());
+  return bars;
+}
+// Minutes of one bar of a series; zero for provider trading dates.
+unsigned period(const factor::v1::FactorSeries& data) {
+  if (data.has_bars())
+    return data.bars().interval_minutes();
+  if (data.has_dominant() && data.dominant().months_size())
+    return data.dominant().months(0).interval_minutes();
+  if (data.has_daily())
+    return 0;
+  throw std::invalid_argument("factor series must be of one kind and one period");
+}
 // One series, or a cross-section of contracts observed the same way.
 void validate_series(const google::protobuf::RepeatedPtrField<factor::v1::FactorSeries>& series) {
   if (series.size() != 1 && (series.size() < 3 || series.size() > 20))
     throw std::invalid_argument("factor analysis studies one series or 3..20 contracts");
-  const auto& first = series.Get(0);
   for (const auto& data : series)
-    if (data.source_case() == factor::v1::FactorSeries::SOURCE_NOT_SET ||
-        data.source_case() != first.source_case() ||
-        (data.has_bars() && data.bars().interval_minutes() != first.bars().interval_minutes()))
+    if (period(data) != period(series.Get(0)) || data.has_daily() != series.Get(0).has_daily())
       throw std::invalid_argument("factor series must be of one kind and one period");
 }
-// When each observation of a series was made, as a number that increases
-// along it: the bar's label timestamp, or the provider's trading date.
-std::vector<std::int64_t> observation_order(const factor::v1::FactorSeries& data) {
-  std::vector<std::int64_t> result;
+// A series as a factor reads it: when each observation was made, as a number
+// that increases along it (a bar's label timestamp, or the provider's trading
+// date), and its close. A dominant series reads each trading day from the
+// month its schedule names, at the level of its latest month.
+struct Observed {
+  std::vector<std::int64_t> order;
+  std::vector<Decimal> closes;
+};
+Observed observed(const factor::v1::FactorSeries& data) {
+  Observed result;
+  const auto add = [&](std::int64_t when, Decimal close) {
+    result.order.push_back(when);
+    result.closes.push_back(close);
+  };
   if (data.has_bars()) {
     for (const auto& bar : data.bars().bars())
-      result.push_back(bar.timestamp_ns());
-  } else {
+      add(bar.timestamp_ns(), Decimal::from_raw(bar.close().units()));
+  } else if (data.has_daily()) {
     for (const auto& bar : daily_factor_bars(data.daily()))
-      result.push_back(std::chrono::sys_days(bar.trading_day).time_since_epoch().count());
-  }
-  return result;
-}
-// The observations every series has, in order, and where each sits in each
-// series. One series shares all of its own.
-struct SharedObservations {
-  std::vector<std::int64_t> order;
-  std::vector<std::vector<int>> positions;
-};
-SharedObservations shared_observations(const factor::v1::FactorInput& input) {
-  validate_series(input.series());
-  std::vector<std::vector<std::int64_t>> orders;
-  for (const auto& data : input.series())
-    orders.push_back(observation_order(data));
-  SharedObservations result;
-  result.positions.resize(orders.size());
-  std::vector<std::size_t> cursor(orders.size());
-  for (std::size_t i = 0; i < orders.front().size(); ++i) {
-    cursor.front() = i;
-    bool everywhere = true;
-    for (std::size_t s = 1; s < orders.size() && everywhere; ++s) {
-      auto& at = cursor[s];
-      while (at < orders[s].size() && orders[s][at] < orders.front()[i])
-        ++at;
-      everywhere = at < orders[s].size() && orders[s][at] == orders.front()[i];
+      add(std::chrono::sys_days(bar.trading_day).time_since_epoch().count(), bar.close);
+  } else {
+    const auto& rolls = data.dominant().schedule().rolls();
+    for (int i = 0; i < rolls.size(); ++i) {
+      const auto& month = data.dominant().months(static_cast<int>(rolls[i].contract()));
+      const auto factor = Decimal::from_raw(rolls[i].factor().units());
+      const auto increment = Decimal::from_raw(month.contract().price_increment().units());
+      for (const auto& bar : month.bars())
+        if (bar.trading_day() >= rolls[i].trading_day() &&
+            (i + 1 == rolls.size() || bar.trading_day() < rolls[i + 1].trading_day()))
+          add(bar.timestamp_ns(),
+              dominant_price(Decimal::from_raw(bar.close().units()), factor, increment));
     }
-    if (!everywhere)
-      continue;
-    result.order.push_back(orders.front()[i]);
-    for (std::size_t s = 0; s < orders.size(); ++s)
-      result.positions[s].push_back(static_cast<int>(cursor[s]));
   }
   return result;
 }
 unsigned observation_count(const factor::v1::FactorInput& input) {
-  return static_cast<unsigned>(shared_observations(input).order.size());
-}
-// When an observation was made, as the interface shows it: the bar's label
-// timestamp, or the provider's trading date.
-std::string observed(const factor::v1::FactorSeries& data, int index) {
-  return data.has_bars() ? std::to_string(data.bars().bars(index).timestamp_ns())
-                         : data.daily().bars(index).trading_day();
+  return static_cast<unsigned>(factor_observations(input).order.size());
 }
 } // namespace
 std::vector<HistoricalDailyBar> daily_factor_bars(const factor::v1::DailyFactorDataset& input) {
@@ -143,9 +146,18 @@ factor::v1::FactorRequest encode_factor_request(const Json& input) {
     else if (source.contains("daily_dataset_id") && source.at("daily_dataset_id").is_string() &&
              digest(source.at("daily_dataset_id").get<std::string>()))
       result.add_series()->set_daily_dataset_id(source.at("daily_dataset_id").get<std::string>());
-    else
+    else if (source.contains("dominant")) {
+      const auto& months = source.at("dominant");
+      if (!months.is_array() || months.size() < 2 || months.size() > 20)
+        throw std::invalid_argument("a dominant series requires 2 to 20 month contracts");
+      auto* series = result.add_series()->mutable_dominant();
+      for (const auto& month : months)
+        *series->add_months() = encode_bar_dataset_request(month);
+    } else
       throw std::invalid_argument("invalid factor series");
-    if (result.series(result.series_size() - 1).source_case() != result.series(0).source_case())
+    // Bars and dominant series are read alike; provider trading dates are not.
+    if (result.series(result.series_size() - 1).has_daily_dataset_id() !=
+        result.series(0).has_daily_dataset_id())
       throw std::invalid_argument("factor series must be of one kind and one period");
   }
   const auto& windows = input.at("lookbacks");
@@ -194,6 +206,8 @@ data::v1::DataRequest factor_series_query(const factor::v1::FactorSeriesRequest&
     *query.mutable_bar_dataset() = source.bars();
   else if (source.has_daily_dataset_id())
     query.mutable_daily_factor_dataset()->set_id(source.daily_dataset_id());
+  else if (source.has_dominant())
+    *query.mutable_dominant_series() = source.dominant();
   else
     throw std::invalid_argument("invalid factor series");
   return query;
@@ -205,7 +219,12 @@ factor::v1::FactorSeries factor_series(const factor::v1::FactorSeriesRequest& so
     *result.mutable_bars() = std::move(*reply.mutable_bar_dataset());
   else if (source.has_daily_dataset_id() && reply.has_daily_factor_dataset())
     *result.mutable_daily() = std::move(*reply.mutable_daily_factor_dataset());
-  else
+  else if (source.has_dominant() && reply.has_dominant_series()) {
+    // Data returns the months that are dominant at some point, in roll order.
+    auto& resolved = *reply.mutable_dominant_series();
+    *result.mutable_dominant()->mutable_months() = std::move(*resolved.mutable_datasets());
+    *result.mutable_dominant()->mutable_schedule() = std::move(*resolved.mutable_schedule());
+  } else
     throw std::invalid_argument("data reply does not match the requested factor series");
   return result;
 }
@@ -213,7 +232,7 @@ factor::v1::FactorInput factor_input(const factor::v1::FactorRequest& request) {
   if (request.series_size() != 1 && (request.series_size() < 3 || request.series_size() > 20))
     throw std::invalid_argument("factor analysis studies one series or 3..20 contracts");
   factor::v1::FactorInput input;
-  input.set_version(6);
+  input.set_version(7);
   *input.mutable_lookbacks() = request.lookbacks();
   input.set_horizon(request.horizon());
   if (request.has_full_sample())
@@ -228,8 +247,7 @@ void add_factor_series(factor::v1::FactorInput& input, factor::v1::FactorSeries 
   std::size_t bars = 0;
   *input.add_series() = std::move(series);
   for (const auto& data : input.series())
-    bars += static_cast<std::size_t>(data.has_bars() ? data.bars().bars_size()
-                                                     : data.daily().bars_size());
+    bars += held_bars(data);
   if (bars > max_dataset_bars)
     throw std::invalid_argument("dataset exceeds 200000 bars; narrow the date range");
 }
@@ -237,35 +255,54 @@ std::string
 factor_revision(const google::protobuf::RepeatedPtrField<factor::v1::FactorSeries>& series) {
   validate_series(series);
   Json revisions = Json::array();
-  for (const auto& data : series)
-    revisions.push_back(data.has_bars() ? data.bars().revision()
-                                        : daily_factor_revision(data.daily()));
+  for (const auto& data : series) {
+    if (data.has_bars())
+      revisions.push_back(data.bars().revision());
+    else if (data.has_daily())
+      revisions.push_back(daily_factor_revision(data.daily()));
+    else {
+      // The months as they were resolved, and which of them is read when.
+      Json identity = Json::array();
+      for (const auto& month : data.dominant().months())
+        identity.push_back(month.revision());
+      identity.push_back(decode_dominant_schedule(data.dominant().schedule()));
+      revisions.push_back(sha256_bytes(identity.dump()));
+    }
+  }
   // One series is identified by its own data; several by all of theirs, in order.
   return revisions.size() == 1 ? revisions.at(0).get<std::string>()
                                : sha256_bytes(revisions.dump());
 }
 FactorObservations factor_observations(const factor::v1::FactorInput& input) {
-  auto shared = shared_observations(input);
+  validate_series(input.series());
+  std::vector<Observed> all;
+  for (const auto& data : input.series())
+    all.push_back(observed(data));
   FactorObservations result;
-  result.order = std::move(shared.order);
-  for (int s = 0; s < input.series_size(); ++s) {
-    const auto& data = input.series(s);
-    auto& closes = result.closes.emplace_back();
-    if (data.has_bars()) {
-      for (const auto position : shared.positions[static_cast<std::size_t>(s)])
-        closes.push_back(Decimal::from_raw(data.bars().bars(position).close().units()));
-    } else {
-      const auto bars = daily_factor_bars(data.daily());
-      for (const auto position : shared.positions[static_cast<std::size_t>(s)])
-        closes.push_back(bars[static_cast<std::size_t>(position)].close);
+  result.closes.resize(all.size());
+  std::vector<std::size_t> cursor(all.size());
+  for (std::size_t i = 0; i < all.front().order.size(); ++i) {
+    cursor.front() = i;
+    const auto when = all.front().order[i];
+    bool everywhere = true;
+    for (std::size_t s = 1; s < all.size() && everywhere; ++s) {
+      auto& at = cursor[s];
+      while (at < all[s].order.size() && all[s].order[at] < when)
+        ++at;
+      everywhere = at < all[s].order.size() && all[s].order[at] == when;
     }
+    if (!everywhere)
+      continue;
+    result.order.push_back(when);
+    for (std::size_t s = 0; s < all.size(); ++s)
+      result.closes[s].push_back(all[s].closes[cursor[s]]);
   }
   return result;
 }
 namespace {
 Json factor_definition(const factor::v1::FactorInput& input) {
   validate_message(input);
-  if (input.version() != 6)
+  if (input.version() != 7)
     throw std::invalid_argument("unsupported factor input version");
   const auto count = observation_count(input);
   if (!input.horizon() || input.horizon() > 10000 || input.lookbacks_size() < 1 ||
@@ -281,7 +318,7 @@ Json factor_definition(const factor::v1::FactorInput& input) {
   }
   if (input.lookbacks_size() > 1 && !input.has_holdout_start() && !input.has_walk_forward())
     throw std::invalid_argument("factor parameter comparison requires a holdout");
-  Json result{{"version", 6},
+  Json result{{"version", 7},
               {"dataset_revision", input.dataset_revision()},
               {"lookbacks", windows},
               {"horizon", input.horizon()}};
@@ -416,15 +453,32 @@ void validate_factor_input(const factor::v1::FactorInput& input) {
   for (const auto& data : input.series()) {
     if (data.has_bars()) {
       validate_bar_dataset(data.bars());
-      for (const auto& bar : data.bars().bars())
-        if (bar.close().units() <= 0)
-          throw std::invalid_argument("factor analysis requires positive closes");
-      bars += static_cast<std::size_t>(data.bars().bars_size());
       contracts.insert(data.bars().contract().venue() + '\n' + data.bars().contract().symbol());
+    } else if (data.has_dominant()) {
+      // Data resolves a series into the months it reads, in roll order.
+      const auto& series = data.dominant();
+      std::vector<const v1::Contract*> months;
+      for (const auto& month : series.months()) {
+        validate_bar_dataset(month);
+        if (month.interval_minutes() != series.months(0).interval_minutes())
+          throw std::invalid_argument("invalid dominant series schedule");
+        months.push_back(&month.contract());
+      }
+      validate_dominant_schedule(series.schedule(), months);
+      if (series.schedule().rolls_size() != series.months_size())
+        throw std::invalid_argument("invalid dominant series schedule");
+      for (int i = 0; i < series.months_size(); ++i)
+        if (series.schedule().rolls(i).contract() != static_cast<unsigned>(i))
+          throw std::invalid_argument("invalid dominant series schedule");
+      const auto& contract = series.months(0).contract();
+      contracts.insert(contract.venue() + '\n' + contract.product() + "\ndominant");
     } else {
-      bars += static_cast<std::size_t>(data.daily().bars_size());
       contracts.insert(data.daily().contract_id());
     }
+    bars += held_bars(data);
+    for (const auto close : observed(data).closes)
+      if (close <= Decimal{})
+        throw std::invalid_argument("factor analysis requires positive closes");
   }
   if (bars > max_dataset_bars)
     throw std::invalid_argument("dataset exceeds 200000 bars; narrow the date range");
@@ -561,6 +615,17 @@ Json decode_factor(const factor::v1::FactorInput& input, DatasetView view) {
                                   {"data", decode_bar_dataset_range(data.bars())}});
       continue;
     }
+    if (data.has_dominant()) {
+      Json months = Json::array();
+      for (const auto& month : data.dominant().months())
+        months.push_back({{"dataset", decode_bar_dataset(month, view)},
+                          {"data", decode_bar_dataset_range(month)}});
+      result["series"].push_back({{"kind", "dominant"},
+                                  {"months", std::move(months)},
+                                  {"rolls", decode_dominant_schedule(data.dominant().schedule())},
+                                  {"count", observed(data).order.size()}});
+      continue;
+    }
     const auto& daily = data.daily();
     const auto count = daily.bars_size();
     if (count < 1)
@@ -583,11 +648,14 @@ Json decode_factor_result(const factor::v1::FactorInput& input,
                           const factor::v1::FactorResult& result) {
   validate_factor_result(input, result);
   auto decoded = result_structure(result);
-  // Every series was observed at the shared observations; the first tells when.
-  const auto& data = input.series(0);
-  const auto positions = std::move(shared_observations(input).positions.front());
+  // When an observation was made, as the interface shows it: the bar's label
+  // timestamp, or the provider's trading date.
+  const auto order = factor_observations(input).order;
   const auto when = [&](unsigned index) {
-    return observed(data, positions[static_cast<std::size_t>(index)]);
+    const auto at = order[static_cast<std::size_t>(index)];
+    return input.series(0).has_daily()
+               ? format_trading_date(std::chrono::sys_days{std::chrono::days{at}})
+               : std::to_string(at);
   };
   Json samples = Json::array(), sections = Json::array();
   for (const auto& row : result.samples())

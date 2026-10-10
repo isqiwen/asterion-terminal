@@ -30,20 +30,11 @@ std::vector<bool> sparse(const std::vector<std::size_t>& series) {
     result.push_back(item != none);
   return result;
 }
-// The roll in force on a trading day; the first roll before the series begins.
-const backtest::v1::DominantRoll& dominant(const backtest::v1::DominantSchedule& series,
-                                           const std::string& trading_day) {
-  const auto* current = &series.rolls(0);
-  for (const auto& roll : series.rolls())
-    if (roll.trading_day() <= trading_day)
-      current = &roll;
-  return *current;
-}
 // The bar a series strategy sees: prices scaled to the level of the latest
 // month and put back on the price grid. Never used for orders or fills.
 MarketBar adjusted(MarketBar bar, Decimal factor, Decimal increment) {
   for (auto* price : {&bar.open, &bar.high, &bar.low, &bar.close})
-    *price = quantize(multiply(*price, factor, Rounding::half_up), increment, Rounding::half_up);
+    *price = protocol::dominant_price(*price, factor, increment);
   return bar;
 }
 } // namespace
@@ -141,7 +132,7 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     auto& intent = pending[current.contract];
     if (const auto member = series[current.contract]; member != none && intent) {
       const auto& rolls = input.series(static_cast<int>(member));
-      if (dominant(rolls, bar.trading_day).contract() != current.contract)
+      if (protocol::dominant_roll(rolls, bar.trading_day).contract() != current.contract)
         intent->quantity = Decimal{};
       // Apply the roll and the no-overlapping-months rule at submission.
       else if (intent->quantity != Decimal{} &&
@@ -165,7 +156,7 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
         decide(*target);
     } else {
       const auto& rolls = input.series(static_cast<int>(member));
-      const auto& roll = dominant(rolls, bar.trading_day);
+      const auto& roll = protocol::dominant_roll(rolls, bar.trading_day);
       if (roll.contract() != current.contract) {
         // A month that is no longer dominant only closes what it still holds.
         decide(Decimal{});

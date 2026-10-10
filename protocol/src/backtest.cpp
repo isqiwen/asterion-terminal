@@ -22,33 +22,18 @@ void distinct_contracts(const Lists& lists, std::size_t contracts, Indexes index
     }
 }
 void validate_series(const backtest::v1::BacktestInput& input) {
-  const auto& contracts = input.paper().contracts();
-  std::vector<bool> used(static_cast<std::size_t>(contracts.size()));
+  std::vector<const v1::Contract*> contracts;
+  for (const auto& contract : input.paper().contracts())
+    contracts.push_back(&contract.dataset().contract());
+  // No month belongs to two series.
+  std::vector<bool> used(contracts.size());
   for (const auto& series : input.series()) {
-    if (series.rolls().empty())
-      throw std::invalid_argument("invalid dominant series schedule");
-    const backtest::v1::DominantRoll* previous = nullptr;
+    validate_dominant_schedule(series, contracts);
     for (const auto& roll : series.rolls()) {
-      (void)parse_trading_date(roll.trading_day());
-      if (roll.contract() >= static_cast<unsigned>(contracts.size()) || used[roll.contract()] ||
-          !roll.has_factor() || roll.factor().units() <= 0)
+      if (used[roll.contract()])
         throw std::invalid_argument("invalid dominant series schedule");
       used[roll.contract()] = true;
-      const auto& contract = contracts[static_cast<int>(roll.contract())].dataset().contract();
-      if (previous) {
-        const auto& before = contracts[static_cast<int>(previous->contract())].dataset().contract();
-        // One product, later months only, each from a later day.
-        if (roll.trading_day() <= previous->trading_day() || contract.venue() != before.venue() ||
-            contract.product() != before.product() ||
-            contract.delivery_month() <= before.delivery_month() ||
-            contract.price_increment().units() != before.price_increment().units() ||
-            contract.multiplier().units() != before.multiplier().units())
-          throw std::invalid_argument("invalid dominant series schedule");
-      }
-      previous = &roll;
     }
-    if (previous->factor().units() != Decimal::parse("1").raw())
-      throw std::invalid_argument("invalid dominant series schedule");
   }
 }
 } // namespace
@@ -154,14 +139,8 @@ Json decode_backtest(const backtest::v1::BacktestInput& input, DatasetView view)
               {"holdout_day", input.holdout_day()}};
   if (input.series_size()) {
     Json all = Json::array();
-    for (const auto& series : input.series()) {
-      Json rolls = Json::array();
-      for (const auto& roll : series.rolls())
-        rolls.push_back({{"trading_day", roll.trading_day()},
-                         {"contract", roll.contract()},
-                         {"factor", Decimal::from_raw(roll.factor().units()).str()}});
-      all.push_back(std::move(rolls));
-    }
+    for (const auto& series : input.series())
+      all.push_back(decode_dominant_schedule(series));
     result["series"] = std::move(all);
   }
   return result;

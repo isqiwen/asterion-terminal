@@ -460,18 +460,19 @@ void Application::Impl::register_data_commands() {
     const auto selection_generation = dataset_selection_generation;
     const auto client = data_client;
     const auto generation = data_task_generation;
-    auto [months, preview] = (co_await run<std::pair<std::vector<data::v1::BarDatasetRequest>,
-                                                     backtest::v1::DominantSeriesPreview>>(
-        [&]() -> PolledTask<std::pair<std::vector<data::v1::BarDatasetRequest>,
-                                      backtest::v1::DominantSeriesPreview>> {
-          const auto archive = (co_await PollFuture{client->datasets({})});
-          std::vector<data::v1::BarDatasetRequest> months;
-          for (std::size_t i = 0; i < sources.size(); ++i)
-            months.push_back(contract_request(archive, json::array({sources[i]}),
-                                              json::array({settlements[i]}), p));
-          auto preview = (co_await PollFuture{client->dominant_series(months)});
-          co_return std::pair{std::move(months), std::move(preview)};
-        }));
+    auto [months, preview] =
+        (co_await run<
+            std::pair<std::vector<data::v1::BarDatasetRequest>, data::v1::DominantSeriesPreview>>(
+            [&]() -> PolledTask<std::pair<std::vector<data::v1::BarDatasetRequest>,
+                                          data::v1::DominantSeriesPreview>> {
+              const auto archive = (co_await PollFuture{client->datasets({})});
+              std::vector<data::v1::BarDatasetRequest> months;
+              for (std::size_t i = 0; i < sources.size(); ++i)
+                months.push_back(contract_request(archive, json::array({sources[i]}),
+                                                  json::array({settlements[i]}), p));
+              auto preview = (co_await PollFuture{client->dominant_series(months)});
+              co_return std::pair{std::move(months), std::move(preview)};
+            }));
     if (generation != data_task_generation)
       throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
     if (selection_generation != dataset_selection_generation)

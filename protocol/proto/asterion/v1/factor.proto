@@ -4,6 +4,14 @@ import "asterion/v1/data.proto";
 package asterion.factor.v1;
 import "asterion/v1/trading.proto";
 
+// Months of one product read as its dominant series. On each trading day the
+// observations are the bars of the month the schedule names, each close
+// multiplied by that roll's factor; the bars a month keeps past its last
+// dominant day are not read.
+message DominantBars {
+  repeated asterion.data.v1.BarDataset months = 1;
+  asterion.data.v1.DominantSchedule schedule = 2;
+}
 // One instrument's ordered closes, fixed by the data service. Bars keep their
 // label timestamps; daily closes keep provider trading dates. Neither carries
 // account or execution assumptions into a factor.
@@ -11,14 +19,15 @@ message FactorSeries {
   oneof source {
     asterion.data.v1.BarDataset bars = 1;
     DailyFactorDataset daily = 2;
+    DominantBars dominant = 3;
   }
 }
 message FactorInput {
-  uint32 version = 1; // 6
+  uint32 version = 1; // 7
   string dataset_revision = 2; // The revision of the series.
   // One series is evaluated over its own observations. Three to twenty of the
-  // same kind and period, each a different contract, are evaluated across
-  // contracts on the observations they all have; nothing is filled in. Windows,
+  // same period, each a different contract or product, are evaluated across
+  // them on the observations they all have; nothing is filled in. Windows,
   // horizon and boundaries count those shared observations.
   repeated FactorSeries series = 3;
   repeated uint32 lookbacks = 4; // Strictly ascending, unique; 1..32 candidates.
@@ -30,12 +39,14 @@ message FactorInput {
     uint32 holdout_start = 8; // Zero-based first holdout observation.
   }
 }
-// What Data resolves into one fixed series: a bar selection, or a published
-// daily version. Clients cannot upload observations or provenance.
+// What Data resolves into one fixed series: a bar selection, a published
+// daily version, or the months of a product to read as its dominant series.
+// Clients cannot upload observations or provenance.
 message FactorSeriesRequest {
   oneof source {
     asterion.data.v1.BarDatasetRequest bars = 1;
     string daily_dataset_id = 2;
+    asterion.data.v1.DominantSeriesRequest dominant = 3;
   }
 }
 // Client submission: Task obtains the fixed series from Data before persisting input.

@@ -52,6 +52,14 @@ void prepare(wire::Task& task) {
         const auto& c = series.bars().contract();
         instruments += separator + c.venue() + "/" + c.symbol();
         sources += separator + series.bars().revision();
+      } else if (series.has_dominant()) {
+        // A product by the first and last month it is read from.
+        const auto& months = series.dominant().months();
+        const auto& c = months.begin()->contract();
+        instruments += separator + c.venue() + "/" + c.product() + " (" + c.symbol() + "-" +
+                       months.rbegin()->contract().symbol() + ")";
+        for (const auto& month : months)
+          sources += (sources.empty() ? "" : " + ") + month.revision();
       } else {
         instruments += separator + series.daily().contract_id();
         sources += separator + series.daily().source_dataset_id();
@@ -1247,8 +1255,10 @@ void Store::HistoryRead::load_page() {
       for (const auto& series : task.factor().series()) {
         if (series.has_bars())
           inspect(series.bars());
-        else
+        else if (series.has_daily())
           market |= series.daily().source_dataset_id() == dataset_id;
+        for (const auto& month : series.dominant().months())
+          inspect(month);
       }
     }
     const bool output =

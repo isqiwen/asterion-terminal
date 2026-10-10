@@ -43,8 +43,15 @@ task::v1::TaskExecution task_execution(const task::v1::Task& task,
     for (const auto& series : input.series()) {
       if (series.has_bars())
         *parameters->add_series()->mutable_bars() = selection(series.bars());
-      else
+      else if (series.has_daily())
         parameters->add_series()->set_daily_dataset_id(series.daily().source_dataset_id());
+      else {
+        // The months as they were fixed, and their schedule beside them.
+        auto* months = parameters->add_series()->mutable_dominant();
+        for (const auto& month : series.dominant().months())
+          *months->add_months() = selection(month);
+        *result.add_schedules() = series.dominant().schedule();
+      }
     }
     *parameters->mutable_lookbacks() = input.lookbacks();
     parameters->set_horizon(input.horizon());

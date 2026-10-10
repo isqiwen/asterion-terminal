@@ -3,6 +3,7 @@
 #include "task_store.hpp"
 #include "tasks/task_store_support.hpp"
 #include "momentum.hpp"
+#include <asterion/protocol/task_execution.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <cmath>
 #include <fstream>
@@ -26,7 +27,7 @@ const data::v1::BarDataset& bars(const factor::v1::FactorInput& value) {
 void revision(factor::v1::FactorInput&);
 factor::v1::FactorInput input() {
   factor::v1::FactorInput result;
-  result.set_version(6);
+  result.set_version(7);
   result.set_full_sample(true);
   result.add_lookbacks(2);
   result.set_horizon(1);
@@ -621,7 +622,7 @@ namespace {
 template <class Close> factor::v1::FactorInput daily_input(int count, Close close) {
   using namespace std::chrono;
   factor::v1::FactorInput input;
-  input.set_version(6);
+  input.set_version(7);
   input.add_lookbacks(2);
   input.set_horizon(2);
   input.set_holdout_start(40);
@@ -780,7 +781,7 @@ namespace {
 // second lacks the bar at `missing`.
 factor::v1::FactorInput cross_input(int count = 41, int missing = 10) {
   factor::v1::FactorInput result;
-  result.set_version(6);
+  result.set_version(7);
   result.set_full_sample(true);
   result.add_lookbacks(2);
   result.set_horizon(1);
@@ -956,7 +957,7 @@ TEST_F(FactorTasks, CrossSectionHoldoutAndRollingResultsSurviveTheStore) {
 }
 TEST(Factor, DailyCrossSectionSharesTradingDays) {
   factor::v1::FactorInput value;
-  value.set_version(6);
+  value.set_version(7);
   value.set_full_sample(true);
   value.add_lookbacks(2);
   value.set_horizon(2);
@@ -979,4 +980,164 @@ TEST(Factor, DailyCrossSectionSharesTradingDays) {
   EXPECT_EQ(row.at("event_index"), 20);
   EXPECT_EQ(row.at("observed"), "2023-01-22");
   EXPECT_EQ(row.at("label"), "2023-01-24");
+}
+namespace {
+// rb read as its dominant series, eight one-minute bars a day. rb2610 is
+// dominant on the first three days at 100, 101, ...; rb2701 takes over on the
+// fourth at 300, 302, ... and the earlier prices are scaled by 1.5. rb2610
+// keeps its bars of the fourth day, on which a backtest closes it.
+const std::int64_t first_bar = 1790298000000000000LL;
+std::string series_day(int day) {
+  return "2026-09-" + std::to_string(25 + day);
+}
+// Eight bars a day from `first_day`, the closes rising by `step` from `price`.
+std::vector<MarketBar> bars_of(int first_day, int days, int price, int step) {
+  std::vector<MarketBar> rows;
+  for (int day = first_day; day < first_day + days; ++day)
+    for (int i = 0; i < 8; ++i, price += step) {
+      const auto text = std::to_string(price);
+      rows.push_back(test::flat(
+          series_day(day), first_bar + day * 86400000000000LL + i * 60000000000LL, text.c_str()));
+    }
+  return rows;
+}
+factor::v1::FactorInput dominant_input() {
+  factor::v1::FactorInput result;
+  result.set_version(7);
+  result.set_full_sample(true);
+  result.add_lookbacks(2);
+  result.set_horizon(1);
+  auto* series = result.add_series()->mutable_dominant();
+  *series->add_months() = test::dataset(bars_of(0, 4, 100, 1));
+  *series->add_months() =
+      test::dataset(bars_of(3, 3, 300, 2), {}, test::contract("SHFE", "rb2701", "rb", "2027-01"));
+  const auto roll = [&](int day, unsigned month, const char* factor) {
+    auto* value = series->mutable_schedule()->add_rolls();
+    value->set_trading_day(series_day(day));
+    value->set_contract(month);
+    value->mutable_factor()->set_units(d(factor).raw());
+  };
+  roll(0, 0, "1.5");
+  roll(3, 1, "1");
+  result.set_dataset_revision(protocol::factor_revision(result.series()));
+  return result;
+}
+} // namespace
+TEST(Factor, ADominantSeriesReadsEachDayFromItsDominantMonthAtTheLatestLevel) {
+  const auto value = dominant_input();
+  EXPECT_NO_THROW(protocol::validate_factor_input(value));
+  const auto read = protocol::factor_observations(value);
+  // Three days of rb2610 and three of rb2701; rb2610's fourth day is not read.
+  ASSERT_EQ(read.order.size(), 48U);
+  ASSERT_EQ(read.closes.size(), 1U);
+  EXPECT_EQ(read.closes[0][0], d("150"));  // 100 x 1.5
+  EXPECT_EQ(read.closes[0][1], d("152"));  // 101 x 1.5 = 151.5, back on the price grid
+  EXPECT_EQ(read.closes[0][23], d("185")); // 123 x 1.5 = 184.5
+  EXPECT_EQ(read.closes[0][24], d("300")); // rb2701 as it traded
+  EXPECT_EQ(read.order[23], first_bar + 2 * 86400000000000LL + 7 * 60000000000LL);
+  EXPECT_EQ(read.order[24], first_bar + 3 * 86400000000000LL);
+  EXPECT_EQ(read.closes[0][47], d("346"));
+
+  const auto result = factor::run(value);
+  EXPECT_EQ(result.input_count(), 48U);
+  ASSERT_EQ(result.samples_size(), 45); // 48 - warmup 2 - horizon 1
+  // The first feature and label, from adjusted closes 150, 152, 153, 155.
+  EXPECT_NEAR(result.samples(0).value(), 153.0 / 150 - 1, 1e-12);
+  EXPECT_NEAR(result.samples(0).forward_return(), 155.0 / 153 - 1, 1e-12);
+  // Across the roll a return compares prices of one level: 300 after 185.
+  EXPECT_NEAR(result.samples(21).forward_return(), 300.0 / 185 - 1, 1e-12);
+  EXPECT_NO_THROW(protocol::validate_factor_result(value, result));
+
+  const auto shown = protocol::decode_factor(value, protocol::DatasetView::metadata);
+  const auto& series = shown.at("series").at(0);
+  EXPECT_EQ(series.at("kind"), "dominant");
+  EXPECT_EQ(series.at("count"), 48);
+  ASSERT_EQ(series.at("months").size(), 2U);
+  EXPECT_EQ(series.at("months").at(1).at("dataset").at("contract").at("symbol"), "rb2701");
+  EXPECT_EQ(series.at("rolls").at(1),
+            (Json{{"trading_day", series_day(3)}, {"contract", 1}, {"factor", "1"}}));
+  const auto rows = protocol::decode_factor_result(value, result);
+  EXPECT_EQ(rows.at("samples").at(21).at("label"), std::to_string(read.order[24]));
+
+  // What a worker is given: the fixed months and their schedule, not a
+  // request to choose months again.
+  task::v1::Task task;
+  *task.mutable_factor() = value;
+  const auto execution = protocol::task_execution(task, std::string(64, '0'));
+  ASSERT_TRUE(execution.factor().series(0).has_dominant());
+  EXPECT_EQ(execution.factor().series(0).dominant().months_size(), 2);
+  ASSERT_EQ(execution.schedules_size(), 1);
+  EXPECT_EQ(execution.schedules(0).SerializeAsString(),
+            value.series(0).dominant().schedule().SerializeAsString());
+}
+TEST(Factor, ADominantSeriesIsFixedWithItsScheduleAndRefusedWhenThatIsNotOneSeries) {
+  const auto value = dominant_input();
+  // Another factor is another series: the revision covers the schedule.
+  auto scaled = value;
+  auto* rolls = scaled.mutable_series(0)->mutable_dominant()->mutable_schedule();
+  rolls->mutable_rolls(0)->mutable_factor()->set_units(d("2").raw());
+  EXPECT_THROW(protocol::validate_factor_input(scaled), std::invalid_argument);
+  scaled.set_dataset_revision(protocol::factor_revision(scaled.series()));
+  EXPECT_NE(scaled.dataset_revision(), value.dataset_revision());
+  EXPECT_NO_THROW(protocol::validate_factor_input(scaled));
+
+  const auto refused = [&](auto change) {
+    auto invalid = value;
+    change(*invalid.mutable_series(0)->mutable_dominant());
+    invalid.set_dataset_revision(protocol::factor_revision(invalid.series()));
+    EXPECT_THROW(protocol::validate_factor_input(invalid), std::invalid_argument);
+  };
+  // A month no roll names.
+  refused([](auto& series) {
+    series.mutable_schedule()->mutable_rolls()->RemoveLast();
+    series.mutable_schedule()->mutable_rolls(0)->mutable_factor()->set_units(d("1").raw());
+  });
+  // Rolls that go back to an earlier month.
+  refused([](auto& series) { series.mutable_months()->SwapElements(0, 1); });
+  // A second roll that does not begin later.
+  refused([](auto& series) {
+    series.mutable_schedule()->mutable_rolls(1)->set_trading_day(series_day(0));
+  });
+
+  // A request names the months of a product; one month is no series.
+  const auto month = [](const char* symbol, const char* delivery) {
+    return Json{
+        {"source_dataset_ids", {std::string(64, 'a')}},
+        {"settlement_dataset_ids", {std::string(64, 'b')}},
+        {"begin_day", "2026-09-25"},
+        {"end_day", "2026-09-30"},
+        {"contract", protocol::decode_contract(test::contract("SHFE", symbol, "rb", delivery))}};
+  };
+  Json request{
+      {"series", {{{"dominant", {month("rb2610", "2026-10"), month("rb2701", "2027-01")}}}}},
+      {"lookbacks", {2}},
+      {"horizon", 1},
+      {"evaluation", {{"mode", "full_sample"}}}};
+  const auto encoded = protocol::encode_factor_request(request);
+  ASSERT_TRUE(encoded.series(0).has_dominant());
+  EXPECT_EQ(encoded.series(0).dominant().months_size(), 2);
+  EXPECT_TRUE(protocol::factor_series_query(encoded.series(0)).has_dominant_series());
+  request["series"][0]["dominant"].erase(1);
+  EXPECT_THROW(protocol::encode_factor_request(request), std::invalid_argument);
+}
+TEST(Factor, ADominantSeriesIsComparedWithContractsOnTheBarsTheyShare) {
+  auto value = dominant_input();
+  // hc2610 lacks the last day; al2610 has all six.
+  *value.add_series()->mutable_bars() =
+      test::dataset(bars_of(0, 5, 500, 3), {}, test::contract("SHFE", "hc2610", "hc", "2026-10"));
+  *value.add_series()->mutable_bars() =
+      test::dataset(bars_of(0, 6, 900, -2), {}, test::contract("SHFE", "al2610", "al", "2026-10"));
+  value.set_dataset_revision(protocol::factor_revision(value.series()));
+  EXPECT_NO_THROW(protocol::validate_factor_input(value));
+  const auto read = protocol::factor_observations(value);
+  ASSERT_EQ(read.closes.size(), 3U);
+  ASSERT_EQ(read.order.size(), 40U);
+  // The fourth day is rb2701's first as the dominant month.
+  EXPECT_EQ(read.closes[0][24], d("300"));
+  EXPECT_EQ(read.closes[1][24], d("572"));
+  EXPECT_EQ(factor::run(value).cross_sections_size(), 37);
+
+  // Provider trading dates are another kind of observation.
+  *value.mutable_series(2) = daily_input().series(0);
+  EXPECT_THROW(protocol::factor_revision(value.series()), std::invalid_argument);
 }

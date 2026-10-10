@@ -688,10 +688,17 @@ export type BacktestExperiment = {
   // One range per contract, in contract order.
   data: ExperimentData[];
 };
-// One series a factor read: a contract's bars, or the daily closes of a
-// published version.
+// One series a factor read: a contract's bars, a product's dominant series
+// (the months it was read from, when each took over, and how many bars that
+// made), or the daily closes of a published version.
 export type FactorSeriesEvidence =
   | { kind: "bars"; dataset: DatasetEvidence; data: ExperimentData }
+  | {
+      kind: "dominant";
+      months: { dataset: DatasetEvidence; data: ExperimentData }[];
+      rolls: { trading_day: string; contract: number; factor: string }[];
+      count: number;
+    }
   | {
       kind: "daily";
       data: {
@@ -716,9 +723,6 @@ export type FactorExperiment = {
     | { mode: "holdout"; split_index: number }
     | { mode: "walk_forward"; training_events: number; validation_events: number };
 };
-// How a backtest's result performed, from its day-end equity. The drawdown is
-// a share of the peak it fell from. Yearly figures are scaled by the calendar
-// time the days span and are null with fewer than 20 trading days.
 // Which sides of a contract a strategy may hold.
 export type PositionSides = "both" | "long" | "short";
 // What a strategy trades by: a rule over completed bars, the lots it holds
@@ -732,6 +736,9 @@ export type StrategyDefinition = {
     | { kind: "momentum"; lookback: number }
     | { kind: "reversion"; window: number; width: string };
 };
+// How a backtest's result performed, from its day-end equity. The drawdown is
+// a share of the peak it fell from. Yearly figures are scaled by the calendar
+// time the days span and are null with fewer than 20 trading days.
 export type PerformanceFigures = {
   trading_days: number;
   total_return: number;

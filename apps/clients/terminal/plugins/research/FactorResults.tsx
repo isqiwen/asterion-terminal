@@ -31,7 +31,8 @@ const pageSize = 50;
 /** One result page for every factor task, whatever its series is made of. */
 export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { kind: "factor" }> }) {
   const { id, result, experiment } = evidence;
-  const kind = experiment.series[0].kind;
+  // A dominant series is read bar by bar, like a contract.
+  const kind = experiment.series[0].kind === "daily" ? "daily" : "bars";
   const words = factorWords[kind];
   const cross = experiment.series.length > 1;
   const names = statistics[cross ? "cross" : "series"];
@@ -55,6 +56,7 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
               : "全样本评价",
         )}
         {cross && <> · {t("{count} 个合约的截面", { count: experiment.series.length })}</>}
+        {experiment.series.some(series => series.kind === "dominant") && <> · {t("主力连续")}</>}
       </p>
       {cross && (
         <p className="subtle">

@@ -3,6 +3,7 @@
 #include <asterion/domain/market.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/v1/data.pb.h>
+#include <span>
 namespace asterion::protocol {
 data::v1::DailyBar encode_daily_bar(const HistoricalDailyBar&);
 HistoricalDailyBar daily_bar(const data::v1::DailyBar&);
@@ -37,6 +38,18 @@ Json decode_bar_dataset_range(const data::v1::BarDataset&);
 data::v1::BarDataset encode_bar_dataset(const Json&);
 data::v1::BarDatasetRequest encode_bar_dataset_request(const Json&);
 Json decode_bar_dataset_request(const data::v1::BarDatasetRequest&);
+// A dominant series over `contracts`, which its rolls name by index: later
+// months of one product with the same terms, each from a later trading day,
+// with positive factors that end in 1.
+void validate_dominant_schedule(const data::v1::DominantSchedule& schedule,
+                                std::span<const v1::Contract* const> contracts);
+// The roll in force on a trading day; the first roll before the series begins.
+const data::v1::DominantRoll& dominant_roll(const data::v1::DominantSchedule& schedule,
+                                            const std::string& trading_day);
+// A month's raw price at the level of the series' latest month, back on the
+// price grid. Signals and factors read it; orders and fills never do.
+Decimal dominant_price(Decimal raw, Decimal factor, Decimal increment);
+Json decode_dominant_schedule(const data::v1::DominantSchedule& schedule);
 std::string named_dataset_revision(const data::v1::NamedDataset&);
 void validate_named_dataset(const data::v1::NamedDataset&);
 Json decode_named_dataset(const data::v1::NamedDataset&);

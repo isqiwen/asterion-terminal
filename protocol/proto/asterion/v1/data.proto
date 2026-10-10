@@ -47,6 +47,29 @@ message BarDatasetRequest {
   string end_day = 4;
   asterion.protocol.v1.Contract contract = 5;
 }
+// From trading_day on, the contract is the dominant month of a series: an
+// index into the contracts the schedule is kept with (a backtest's
+// paper.contracts, a factor series' months). factor multiplies its raw prices
+// for signals and factors: ratio back-adjustment, 1 for the last segment.
+// Orders, fills, margin and profit always use the raw prices of the real
+// contract.
+message DominantRoll {
+  string trading_day = 1;
+  uint32 contract = 2;
+  asterion.protocol.v1.Decimal factor = 3;
+}
+// The resolved schedule of one series; rolls ascend by trading day and by
+// delivery month.
+message DominantSchedule { repeated DominantRoll rolls = 1; }
+// Resolves month contracts of one product as its dominant series.
+message DominantSeriesRequest { repeated BarDatasetRequest months = 1; }
+// months: indexes of the request's months that are dominant at some point,
+// in delivery-month order; datasets and schedule contracts follow that order.
+message DominantSeriesPreview {
+  repeated uint32 months = 1;
+  repeated BarDataset datasets = 2;
+  DominantSchedule schedule = 3;
+}
 
 // Credentials are not part of this durable task definition.
 message MinuteDownload {

@@ -60,8 +60,20 @@ void resolve_task_input(task::v1::TaskAttempt& attempt, std::stop_token stop) {
     const auto& parameters = execution.factor();
     auto* input = task.mutable_factor();
     *input = factor_input(parameters);
+    int schedule = 0;
     for (const auto& source : parameters.series()) {
       check_stop();
+      if (source.has_dominant()) {
+        // The fixed months under their fixed schedule: nothing is selected again.
+        if (schedule == execution.schedules_size())
+          throw std::invalid_argument("calculation requires fixed dominant schedules");
+        factor::v1::FactorSeries series;
+        for (const auto& month : source.dominant().months())
+          *series.mutable_dominant()->add_months() = bars(month);
+        *series.mutable_dominant()->mutable_schedule() = execution.schedules(schedule++);
+        add_factor_series(*input, std::move(series));
+        continue;
+      }
       auto reply = data.call(factor_series_query(source));
       check_stop();
       add_factor_series(*input, factor_series(source, std::move(reply)));

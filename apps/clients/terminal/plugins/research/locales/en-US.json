@@ -251,5 +251,9 @@
   "前段夏普比率": "Development Sharpe",
   "前段最大回撤": "Development drawdown",
   "前段结束时权益已不为正，留出段没有收益率可言。": "Equity was not positive when the development days ended; the holdout has no return to speak of.",
-  "候选策略数": "Candidate strategies compared"
+  "候选策略数": "Candidate strategies compared",
+  "月份合约": "Month contracts",
+  "换月": "Rolls",
+  "主力连续": "Dominant series",
+  "主力连续 · 每个交易日取当时主力月份的 K 线，收盘价按换月比例调整到最新月份的水平": "Dominant series · each trading day reads the bars of the month that is dominant then, with closes scaled by the roll ratios to the level of the latest month"
 }
