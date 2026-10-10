@@ -477,8 +477,11 @@ Json decode_input(const v1::PaperInput& input, DatasetView view) {
   for (const auto& c : input.contracts()) {
     if (!c.has_dataset() || !c.has_cost_schedule())
       throw std::invalid_argument("missing explicit paper costs or dataset");
+    if (c.slippage_ticks() > max_slippage_ticks)
+      throw std::invalid_argument("slippage is 0 to 100 price increments");
     contracts.push_back({{"dataset", decode_bar_dataset(c.dataset(), view)},
-                         {"cost_schedule", decode_cost_schedule(c.cost_schedule())}});
+                         {"cost_schedule", decode_cost_schedule(c.cost_schedule())},
+                         {"slippage_ticks", c.slippage_ticks()}});
     terms.push_back(contract_terms(c));
   }
   // The account validates currency, uniqueness and each contract's terms.

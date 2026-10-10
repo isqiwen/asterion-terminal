@@ -94,6 +94,7 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
       {
         venue: "SHFE",
         symbol: "rb2610",
+        slippage_ticks: 0,
         cost_schedule: [
           {
             effective_from: "1970-01-01",

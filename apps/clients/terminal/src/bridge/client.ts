@@ -696,7 +696,12 @@ export type BacktestExperiment = {
     type: "historical_paper";
     deposit: string;
     risk: RiskLimits;
-    contracts: { dataset: DatasetEvidence; cost_schedule: CostVersion[] }[];
+    // slippage_ticks: the price increments every fill of the contract gave up.
+    contracts: {
+      dataset: DatasetEvidence;
+      cost_schedule: CostVersion[];
+      slippage_ticks: number;
+    }[];
   };
   // One range per contract, in contract order.
   data: ExperimentData[];

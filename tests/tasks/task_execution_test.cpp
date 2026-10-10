@@ -318,6 +318,30 @@ TEST(Backtest, ARuleOtherThanAveragesRunsThroughTheSameEngine) {
                 .at(0)
                 .at("rule"),
             Json({{"kind", "momentum"}, {"lookback", 2}}));
+  // With one price increment of slippage the same two orders fill a point
+  // worse each: bought at 102 and sold at 100, twenty less at ten a point.
+  auto slipped = spec;
+  slipped.mutable_paper()->mutable_contracts(0)->set_slippage_ticks(1);
+  const auto worse = backtest::run(slipped);
+  ASSERT_EQ(worse.account().fills_size(), 2);
+  EXPECT_EQ(worse.account().fills(0).price().units(), d("102").raw());
+  EXPECT_EQ(worse.account().fills(1).price().units(), d("100").raw());
+  EXPECT_EQ(worse.account().fees().units(), result.account().fees().units());
+  EXPECT_EQ(worse.account().equity().units(), d("9975").raw());
+  EXPECT_EQ(protocol::decode_backtest(slipped, protocol::DatasetView::metadata)
+                .at("paper")
+                .at("contracts")
+                .at(0)
+                .at("slippage_ticks"),
+            1);
+  // What a worker is told to give up is what the input fixed.
+  task::v1::Task task;
+  *task.mutable_input() = slipped;
+  EXPECT_EQ(
+      protocol::task_execution(task, std::string(64, '0')).backtest().contracts(0).slippage_ticks(),
+      1U);
+  slipped.mutable_paper()->mutable_contracts(0)->set_slippage_ticks(101);
+  EXPECT_THROW(backtest::validate(slipped), std::invalid_argument);
   // Seven bars cannot give a rule its first target at the eighth.
   spec.mutable_strategies(0)->mutable_momentum()->set_lookback(7);
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);

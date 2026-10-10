@@ -48,10 +48,14 @@ backtest::v1::BacktestRequest encode_backtest_request(const Json& input) {
     throw std::invalid_argument("backtest requires 1 to 20 contracts");
   backtest::v1::BacktestRequest result;
   for (const auto& contract : input.at("contracts")) {
-    require_fields(contract, {"data", "cost_schedule"});
+    require_fields(contract, {"data", "cost_schedule", "slippage_ticks"});
+    if (!contract.at("slippage_ticks").is_number_integer() || contract.at("slippage_ticks") < 0 ||
+        contract.at("slippage_ticks") > max_slippage_ticks)
+      throw std::invalid_argument("slippage is 0 to 100 price increments");
     auto* item = result.add_contracts();
     *item->mutable_data() = encode_bar_dataset_request(contract.at("data"));
     *item->mutable_cost_schedule() = encode_cost_schedule(contract.at("cost_schedule"));
+    item->set_slippage_ticks(contract.at("slippage_ticks").get<unsigned>());
   }
   for (const auto& members : input.at("series")) {
     if (!members.is_array() || members.size() < 2)

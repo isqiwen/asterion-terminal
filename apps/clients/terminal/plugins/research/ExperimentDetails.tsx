@@ -19,6 +19,7 @@ function contractRows(
   dataset: DatasetEvidence,
   data: ExperimentData,
   schedule?: CostVersion[],
+  slippage?: number,
 ): Block {
   const contract = dataset.contract;
   const rows: Rows = [
@@ -35,6 +36,7 @@ function contractRows(
     ["K 线数据版本", dataset.source_dataset_ids.join(" · ")],
     ["结算价数据版本", dataset.settlement_dataset_ids.join(" · ")],
   ];
+  if (slippage !== undefined) rows.push(["滑点（跳）", slippage]);
   const costs = schedule?.filter(row => row.effective_from <= data.first_day).at(-1)?.values;
   if (costs)
     rows.push(
@@ -112,7 +114,7 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
     const { paper, strategies, data } = evidence.experiment;
     const rolling = evidence.experiment.walk_forward;
     contracts = paper.contracts.map((item, index) =>
-      contractRows(item.dataset, data[index], item.cost_schedule),
+      contractRows(item.dataset, data[index], item.cost_schedule, item.slippage_ticks),
     );
     // A rolling comparison follows several strategies in turn: it lists them
     // all below instead of the fields of one.

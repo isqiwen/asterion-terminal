@@ -13,10 +13,11 @@ inline protocol::v1::PaperInput paper_input(const Json& manifest) {
       Decimal::parse(manifest.at("deposit").get<std::string>()).raw());
   *result.mutable_risk() = protocol::encode_risk(manifest.at("risk"));
   for (const auto& item : manifest.at("contracts")) {
-    require_fields(item, {"dataset", "cost_schedule"});
+    // Fills give nothing up unless a manifest says how many price increments.
     auto* contract = result.add_contracts();
     *contract->mutable_dataset() = protocol::encode_bar_dataset(item.at("dataset"));
     *contract->mutable_cost_schedule() = protocol::encode_cost_schedule(item.at("cost_schedule"));
+    contract->set_slippage_ticks(item.value("slippage_ticks", 0U));
   }
   static_cast<void>(protocol::decode_input(result, protocol::DatasetView::metadata));
   return result;

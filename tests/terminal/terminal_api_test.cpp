@@ -37,6 +37,7 @@ struct Fixture {
 json fixture_contracts() {
   return json::array({{{"venue", "SHFE"},
                        {"symbol", "rb2610"},
+                       {"slippage_ticks", 0},
                        {"cost_schedule", json::array({{{"effective_from", "1970-01-01"},
                                                        {"source", "test fixture"},
                                                        {"values",

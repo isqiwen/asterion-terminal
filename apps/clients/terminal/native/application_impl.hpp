@@ -106,8 +106,9 @@ struct Application::Impl {
   std::uint64_t dataset_selection_generation = 0;
   // The selected datasets or an actionable error; never an empty stand-in.
   const std::vector<DatasetSelection>& selected() const;
-  // Costs of every selected contract, in selection order, from a request's
-  // "contracts" entries ({venue, symbol, and the eight cost fields}).
+  // What every selected contract trades at, in selection order, from a
+  // request's "contracts" entries ({venue, symbol, cost_schedule,
+  // slippage_ticks}): its cost schedule and slippage.
   std::vector<json> selection_costs(const json& contracts) const;
   std::shared_ptr<const std::vector<HistoryListing>> history_contracts =
       std::make_shared<const std::vector<HistoryListing>>();

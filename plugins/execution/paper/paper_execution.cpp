@@ -34,12 +34,18 @@ PaperExecution::PaperExecution(Decimal deposit, std::vector<ContractBars> contra
   std::size_t total = 0;
   for (std::size_t c = 0; c < data->contracts.size(); ++c) {
     const auto& contract = data->contracts[c];
+    if (contract.slippage < Decimal{} ||
+        !contract.slippage.multiple_of(contract.terms.instrument.price_increment))
+      throw std::invalid_argument("slippage is a whole number of price increments");
     const MarketBar* previous = nullptr;
     for (std::size_t b = 0; b < contract.bars.size(); ++b) {
       const auto& bar = contract.bars[b];
       bar.validate(contract.terms.instrument);
       if (bar.low <= Decimal{})
         throw std::invalid_argument("futures paper model requires positive market prices");
+      // A sale that gives the slippage up must still have a price.
+      if (bar.low <= contract.slippage)
+        throw std::invalid_argument("slippage reaches a contract's lowest price");
       if (previous &&
           (bar.timestamp_ns <= previous->timestamp_ns || bar.trading_day < previous->trading_day))
         throw std::invalid_argument("historical bars must be strictly ascending");
@@ -85,14 +91,19 @@ void PaperExecution::cancel(const std::string& id) {
   ++revision_;
 }
 namespace {
-// Called only for FuturesAccount::working_orders(). A bar must reach the limit.
-std::optional<Decimal> fill_price(const AccountOrder& item, const MarketBar& bar) {
+// Called only for FuturesAccount::working_orders(). A bar must reach the
+// price that lies the slippage inside the limit; the fill gives the slippage
+// back up and so never passes the limit.
+std::optional<Decimal> fill_price(const AccountOrder& item, const MarketBar& bar,
+                                  Decimal slippage) {
   const auto& request = item.order.request();
-  if (request.side == Side::buy)
-    return bar.low <= request.limit_price ? std::optional(std::min(bar.open, request.limit_price))
-                                          : std::nullopt;
-  return bar.high >= request.limit_price ? std::optional(std::max(bar.open, request.limit_price))
-                                         : std::nullopt;
+  if (request.side == Side::buy) {
+    const auto reached = request.limit_price - slippage;
+    return bar.low <= reached ? std::optional(std::min(bar.open, reached) + slippage)
+                              : std::nullopt;
+  }
+  const auto reached = request.limit_price + slippage;
+  return bar.high >= reached ? std::optional(std::max(bar.open, reached) - slippage) : std::nullopt;
 }
 } // namespace
 void PaperExecution::advance(const std::optional<Target>& target) {
@@ -103,8 +114,10 @@ void PaperExecution::advance(const std::optional<Target>& target) {
   const auto& bar = this->bar(current);
   const auto& terms = data_->contracts[current.contract].terms;
   const auto& instrument = terms.instrument.id;
+  const auto slippage = data_->contracts[current.contract].slippage;
   const auto fills = [&](const AccountOrder& item) {
-    return item.order.request().instrument == instrument && fill_price(item, bar).has_value();
+    return item.order.request().instrument == instrument &&
+           fill_price(item, bar, slippage).has_value();
   };
   const bool changes_day = cursor_ && bar.trading_day != this->bar(event(cursor_ - 1)).trading_day;
   const bool changes_costs =
@@ -145,7 +158,7 @@ void PaperExecution::advance(const std::optional<Target>& target) {
       const auto& item = next.orders()[i];
       if (item.order.request().instrument != instrument)
         continue;
-      const auto price = fill_price(item, bar);
+      const auto price = fill_price(item, bar, slippage);
       if (!price)
         continue;
       const auto id = item.order.request().id;
@@ -224,6 +237,7 @@ void PaperExecution::reconcile_target(const std::string& order_id, const Instrum
     auto& bucket = lot.today ? held.today : held.yesterday;
     bucket = bucket + lot.quantity;
   }
+  const auto slippage = data_->contracts[account_.contract_index(instrument)].slippage;
   const auto orders = target_orders(target, held, account_.close_policy(instrument));
   const auto working = std::ranges::any_of(account_.working_orders(), [&](const auto index) {
     return account_.orders()[index].order.request().instrument == instrument;
@@ -243,7 +257,9 @@ void PaperExecution::reconcile_target(const std::string& order_id, const Instrum
         account_.cancel(item.order.request().id);
     }
     for (const auto& order : orders)
-      submit({order_id + std::string(order.suffix), instrument, order.side, order.quantity, price},
+      // The limit lies the slippage beyond the price a bar must reach.
+      submit({order_id + std::string(order.suffix), instrument, order.side, order.quantity,
+              order.side == Side::buy ? price + slippage : price - slippage},
              order.offset);
   } catch (...) {
     revision_ = previous_revision;

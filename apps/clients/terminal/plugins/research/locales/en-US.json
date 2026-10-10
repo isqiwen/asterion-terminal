@@ -287,5 +287,6 @@
   "验证段最大回撤": "Validation drawdown",
   "无（都没有夏普比率，不持仓）": "None (no candidate has a Sharpe ratio; nothing held)",
   "样本外": "Out of sample",
-  "第一轮验证开始时权益已不为正。": "Equity was not positive when the first round's validation began."
+  "第一轮验证开始时权益已不为正。": "Equity was not positive when the first round's validation began.",
+  "滑点（跳）": "Slippage (ticks)"
 }

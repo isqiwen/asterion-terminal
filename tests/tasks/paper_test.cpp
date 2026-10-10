@@ -737,6 +737,62 @@ TEST(PaperExecution, NextBarFillsRespectPriceParticipationAndArrivalOrder) {
   EXPECT_EQ(execution.snapshot(), state);
 }
 
+TEST(PaperExecution, SlippageMovesEveryFillAgainstTheOrderAndNotWhetherItFills) {
+  // Two price increments given up on every fill of this contract.
+  const std::vector<MarketBar> bars{test::flat("2026-09-28", 1, "100", "100"),
+                                    test::bar("2026-09-28", 2, "101", "102", "101", "102", "100"),
+                                    test::bar("2026-09-28", 3, "101", "103", "100", "102", "100"),
+                                    test::bar("2026-09-28", 4, "99", "104", "98", "103", "100"),
+                                    test::bar("2026-09-28", 5, "104", "105", "101", "102", "100"),
+                                    test::bar("2026-09-28", 6, "107", "108", "106", "107", "100")};
+  PaperExecution execution(d("100000"), {{{instrument(), costs()}, bars, {}, d("2")}}, risk());
+  execution.start();
+  execution.advance();
+  // A target decided at 100 is placed at 102, the worst price it accepts.
+  execution.reconcile_target("long", instrument().id, d("1"), d("100"));
+  EXPECT_EQ(execution.snapshot().at("orders")[0].at("limit_price"), "102");
+  // A low of 101 is inside that limit and still does not reach 100: no fill.
+  execution.advance();
+  EXPECT_TRUE(execution.account().fills().empty());
+  // A low of 100 reaches it: filled at 100 and two more, not at the open.
+  execution.advance();
+  ASSERT_EQ(execution.account().fills().size(), 1U);
+  EXPECT_EQ(execution.account().fills()[0].price.str(), "102");
+  // A second lot decided at 102: the bar opens below it, at 99, and the fill
+  // gives two up from there.
+  execution.reconcile_target("more", instrument().id, d("2"), d("102"));
+  execution.advance();
+  ASSERT_EQ(execution.account().fills().size(), 2U);
+  EXPECT_EQ(execution.account().fills()[1].price.str(), "101");
+  // Selling both at a price of 103: placed at 101, filled once the high
+  // reaches 103, at max(open 104, 103) less two.
+  execution.reconcile_target("flat", instrument().id, d("0"), d("103"));
+  EXPECT_EQ(execution.snapshot().at("orders").back().at("limit_price"), "101");
+  execution.advance();
+  ASSERT_EQ(execution.account().fills().size(), 3U);
+  EXPECT_EQ(execution.account().fills()[2].price.str(), "102");
+  EXPECT_TRUE(execution.account().positions().empty());
+  // Bought at 102 and 101, sold at 102: one point over two lots at ten a
+  // point, where without slippage 100, 99 and 104 would have made 90.
+  EXPECT_EQ(execution.account().realized().str(), "10");
+
+  // An order placed by hand keeps its limit: with slippage it needs the bar
+  // to reach two inside it.
+  execution.submit(order("manual", Side::sell, "1", "106"), Offset::open);
+  execution.advance(); // high 108 reaches 108 = 106 + 2: max(open 107, 108) - 2
+  ASSERT_EQ(execution.account().fills().size(), 4U);
+  EXPECT_EQ(execution.account().fills()[3].price.str(), "106");
+
+  // Slippage is a whole number of increments and leaves a sale a price.
+  const auto with = [&](const char* slippage) {
+    return PaperExecution(d("100000"), {{{instrument(), costs()}, bars, {}, d(slippage)}}, risk());
+  };
+  EXPECT_THROW(with("0.5"), std::invalid_argument);
+  EXPECT_THROW(with("-1"), std::invalid_argument);
+  EXPECT_THROW(with("98"), std::invalid_argument);
+  EXPECT_NO_THROW(with("97"));
+}
+
 TEST(SqliteJournal, OnlyDeclaredRealSidecarDirectoriesAreAccepted) {
   Directory directory;
   std::filesystem::create_directory(directory.path / "plugins");

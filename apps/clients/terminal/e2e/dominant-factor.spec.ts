@@ -258,6 +258,7 @@ test("a backtest ranks dominant series by their term structure", async ({ page }
     });
     for (const [label, value] of [
       ["每手保证金", "100"],
+      ["滑点（跳）", "0"],
       ["每手开仓费", "2"],
       ["每手平今费", "3"],
       ["每手平昨费", "4"],

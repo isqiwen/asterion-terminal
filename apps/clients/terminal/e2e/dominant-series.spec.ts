@@ -75,6 +75,7 @@ test("a product's months backtest as its dominant series and roll at real prices
     ["目标手数", "1"],
     ["初始资金", "10000"],
     ["每手保证金", "100"],
+    ["滑点（跳）", "0"],
     ["每手开仓费", "2"],
     ["每手平今费", "3"],
     ["每手平昨费", "4"],

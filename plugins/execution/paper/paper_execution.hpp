@@ -13,6 +13,9 @@ struct ContractBars {
   // Empty only for explicitly fixed-cost in-memory callers. Persisted inputs
   // always carry a validated, nonempty schedule through the protocol.
   std::vector<FuturesCostVersion> cost_schedule;
+  // What every fill of the contract gives up: a whole number of price
+  // increments, or none.
+  Decimal slippage = {};
 };
 // Historical bar replay of a futures portfolio. The contracts' bars form one
 // event stream ordered by bar time (then contract order); each advance
@@ -21,6 +24,13 @@ struct ContractBars {
 // when the bar's low reaches its limit, at min(open, limit); a sell fills
 // when the high reaches it, at max(open, limit). Fills share at most
 // paper_bar_participation of that bar's volume.
+//
+// A contract's slippage moves every fill against the order by that much and
+// leaves whether it fills alone. An order's limit is the worst price it
+// accepts, so the price the bar must reach lies the slippage inside it: a buy
+// at limit L fills when the low reaches L - slippage, at
+// min(open, L - slippage) + slippage. A target decided at a price is placed
+// that much beyond it, and so fills when the bar reaches the price itself.
 class PaperExecution final {
 public:
   struct Event {
@@ -49,8 +59,9 @@ public:
   void cancel_open_orders();
   // Working orders of one contract only.
   void cancel_open_orders(const InstrumentId& instrument);
-  // Moves one contract toward a signed target with limit orders at `price`,
-  // routed through normal account checks. Replaces the contract's working
+  // Moves one contract toward a signed target with limit orders that fill
+  // when a bar reaches `price`: their limits lie the contract's slippage
+  // beyond it. Routed through normal account checks. Replaces the contract's working
   // orders. A position on the other side is closed first; the target's own
   // side opens on a later call, once that close has filled.
   void reconcile_target(const std::string& order_id, const InstrumentId& instrument, Decimal target,

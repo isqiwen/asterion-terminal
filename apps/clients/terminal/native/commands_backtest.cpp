@@ -9,12 +9,16 @@ void Application::Impl::register_backtest_commands() {
     if (!task_client)
       throw std::invalid_argument("task service is not connected");
     const auto generation = data_task_generation;
+    // What each selected contract trades at: its cost schedule and slippage.
     const auto costs = selection_costs(p.at("contracts"));
     json contracts = json::array(), series = json::array();
+    const auto traded = [](const data::v1::BarDatasetRequest& data, json cost) {
+      cost["data"] = protocol::decode_bar_dataset_request(data);
+      return cost;
+    };
     for (std::size_t i = 0; i < selected().size(); ++i)
       if (!series_of(selected()[i].dataset.contract()))
-        contracts.push_back({{"data", protocol::decode_bar_dataset_request(selected()[i].request)},
-                             {"cost_schedule", costs[i]}});
+        contracts.push_back(traded(selected()[i].request, costs[i]));
     // A series sends every month it was resolved from, so the service works
     // out the same schedule. A month that never trades takes the costs of
     // one that does; they are not used.
@@ -34,8 +38,7 @@ void Application::Impl::register_backtest_commands() {
       }
       for (std::size_t m = 0; m < item.months.size(); ++m) {
         members.push_back(contracts.size());
-        contracts.push_back({{"data", protocol::decode_bar_dataset_request(item.months[m])},
-                             {"cost_schedule", known[m] ? *known[m] : any.value()}});
+        contracts.push_back(traded(item.months[m], known[m] ? *known[m] : any.value()));
       }
       series.push_back(std::move(members));
     }

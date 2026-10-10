@@ -462,10 +462,11 @@ std::vector<json> Application::Impl::selection_costs(const json& contracts) cons
     });
     if (found == contracts.end())
       throw std::invalid_argument("give costs for every selected contract");
-    require_fields(*found, {"venue", "symbol", "cost_schedule"});
+    require_fields(*found, {"venue", "symbol", "cost_schedule", "slippage_ticks"});
     const auto schedule = protocol::encode_cost_schedule(found->at("cost_schedule"));
     (void)costs_on(protocol::cost_schedule(schedule), item.dataset.bars(0).trading_day());
-    result.push_back(protocol::decode_cost_schedule(schedule));
+    result.push_back({{"cost_schedule", protocol::decode_cost_schedule(schedule)},
+                      {"slippage_ticks", found->at("slippage_ticks")}});
   }
   return result;
 }

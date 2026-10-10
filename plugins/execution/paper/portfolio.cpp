@@ -19,9 +19,11 @@ replay_order(const std::vector<const std::vector<MarketBar>*>& contracts) {
 PaperPortfolio paper_portfolio(const protocol::v1::PaperInput& input) {
   PaperPortfolio result;
   for (const auto& contract : input.contracts()) {
-    result.contracts.push_back({protocol::contract_terms(contract),
-                                protocol::dataset_bars(contract.dataset()),
-                                protocol::cost_schedule(contract.cost_schedule())});
+    auto terms = protocol::contract_terms(contract);
+    const auto slippage = terms.instrument.price_increment *
+                          Decimal::parse(std::to_string(contract.slippage_ticks()));
+    result.contracts.push_back({std::move(terms), protocol::dataset_bars(contract.dataset()),
+                                protocol::cost_schedule(contract.cost_schedule()), slippage});
     result.days.push_back(protocol::dataset_days(contract.dataset()));
   }
   return result;

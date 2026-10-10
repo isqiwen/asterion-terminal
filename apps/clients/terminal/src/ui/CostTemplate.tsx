@@ -198,8 +198,16 @@ export function CostTemplate({
   );
 }
 
-// Cost drafts per portfolio contract, keyed by "VENUE.SYMBOL".
-export type ContractCostDrafts = Record<string, CostValues & { cost_schedule?: CostVersion[] }>;
+// Cost drafts per portfolio contract, keyed by "VENUE.SYMBOL". `slippage_ticks`
+// is what a backtest's fills give up, in price increments; it is no fee and
+// no template sets it.
+export type ContractCostDrafts = Record<
+  string,
+  CostValues & { cost_schedule?: CostVersion[]; slippage_ticks?: string }
+>;
+// One price increment a fill: about a spread, where none would say that every
+// order trades at the price it was decided at.
+const defaultSlippage = "1";
 const blank: CostValues = {
   margin_per_lot: "",
   margin_rate: "0",
@@ -249,6 +257,7 @@ export function contractCostRequest(
     return {
       venue: dataset.venue,
       symbol: dataset.symbol,
+      slippage_ticks: Number(drafts[contractKey(owner)]?.slippage_ticks ?? defaultSlippage),
       cost_schedule: drafts[contractKey(owner)]?.cost_schedule ?? [
         {
           effective_from: owner.first_day,
@@ -288,8 +297,10 @@ export function ContractCosts({
         const schedule = drafts[key]?.cost_schedule;
         const active = schedule?.filter(row => row.effective_from <= dataset.first_day).at(-1);
         const values = schedule ? (active?.values ?? blank) : (drafts[key] ?? blank);
+        const slippage = drafts[key]?.slippage_ticks ?? defaultSlippage;
+        // A template or a fixed rate replaces the fees and leaves the slippage.
         const update = (next: CostValues & { cost_schedule?: CostVersion[] }) =>
-          onChange({ ...drafts, [key]: next });
+          onChange({ ...drafts, [key]: { ...next, slippage_ticks: slippage } });
         const name = group
           ? `${group.venue} · ${group.product} ${t("主力连续")}`
           : `${dataset.venue} · ${dataset.symbol}`;
@@ -347,7 +358,31 @@ export function ContractCosts({
                   />
                 </label>
               ))}
+              <label>
+                {t("滑点（跳）")}
+                <input
+                  aria-label={t("滑点（跳）")}
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={slippage}
+                  onChange={event =>
+                    onChange({
+                      ...drafts,
+                      [key]: { ...(drafts[key] ?? blank), slippage_ticks: event.target.value },
+                    })
+                  }
+                  disabled={disabled}
+                  required
+                />
+              </label>
             </div>
+            <p className="subtle">
+              {t(
+                "滑点是每笔成交让出的最小变动价位数：买入按高出这么多跳、卖出按低这么多跳的价格成交，能否成交不受影响。填 0 表示每笔都按决定时的价格成交。",
+              )}
+            </p>
           </section>
         );
       })}

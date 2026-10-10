@@ -127,6 +127,8 @@
   "authorize live trading for this account first": "authorize live trading for this account first",
   "automatic shutdown requires the managed development environment": "automatic shutdown requires the managed development environment",
   "backtest requires 1 to 20 contracts": "backtest requires 1 to 20 contracts",
+  "slippage is 0 to 100 price increments": "slippage is 0 to 100 price increments",
+  "slippage reaches a contract's lowest price": "slippage reaches a contract's lowest price",
   "a rolling comparison counts whole trading days": "a rolling comparison counts whole trading days",
   "strategies are compared before a holdout or by rolling": "strategies are compared before a holdout or by rolling",
   "a rolling comparison of several strategies requires at least 20 training days, validation days after them and at most 100 rounds, and no holdout": "a rolling comparison of several strategies requires at least 20 training days, validation days after them and at most 100 rounds, and no holdout",

@@ -4,7 +4,7 @@
 namespace asterion::protocol {
 // Identity of the backtest semantics (matching, costs, close rules). Stored
 // results from another identity are refused, never recomputed or migrated.
-inline constexpr const char* backtest_engine_version = "asterion.backtest.v14";
+inline constexpr const char* backtest_engine_version = "asterion.backtest.v15";
 // Fewer development days say too little to choose a strategy by.
 inline constexpr std::size_t backtest_development_days = 20;
 backtest::v1::BacktestRequest encode_backtest_request(const Json& input);

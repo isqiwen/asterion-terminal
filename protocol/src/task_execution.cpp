@@ -37,6 +37,7 @@ task::v1::TaskExecution task_execution(const task::v1::Task& task,
       auto* item = parameters->add_contracts();
       *item->mutable_data() = selection(contract.dataset());
       *item->mutable_cost_schedule() = contract.cost_schedule();
+      item->set_slippage_ticks(contract.slippage_ticks());
     }
     *result.mutable_schedules() = input.series();
   } else if (task.has_factor()) {

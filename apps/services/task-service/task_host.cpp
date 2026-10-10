@@ -360,6 +360,7 @@ PolledTask<> TaskHost::submit_backtest(Call& call) {
     auto* contract = paper->add_contracts();
     *contract->mutable_dataset() = std::move(dataset);
     *contract->mutable_cost_schedule() = b.contracts(static_cast<int>(index)).cost_schedule();
+    contract->set_slippage_ticks(b.contracts(static_cast<int>(index)).slippage_ticks());
   }
   for (auto& schedule : schedules)
     *input.add_series() = std::move(schedule);

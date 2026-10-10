@@ -35,4 +35,4 @@ COSTS = {"margin_per_lot": "100", "open_fee": "2", "close_today_fee": "3", "clos
 
 
 def contracts():
-    return [dict(CONTRACT, cost_schedule=[{"effective_from":"1970-01-01", "source":"test fixture", "values":dict(COSTS)}])]
+    return [dict(CONTRACT, slippage_ticks=0, cost_schedule=[{"effective_from":"1970-01-01", "source":"test fixture", "values":dict(COSTS)}])]

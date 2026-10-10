@@ -35,6 +35,8 @@ message DominantSeries { repeated uint32 contracts = 1; }
 message BacktestContract {
   asterion.data.v1.BarDatasetRequest data = 1;
   asterion.protocol.v1.CostSchedule cost_schedule = 2;
+  // Price increments every fill of the contract gives up.
+  uint32 slippage_ticks = 3;
 }
 message BacktestRequest {
   repeated BacktestContract contracts = 1;

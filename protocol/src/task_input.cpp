@@ -51,6 +51,7 @@ void resolve_task_input(task::v1::TaskAttempt& attempt, std::stop_token stop) {
       auto* item = paper->add_contracts();
       *item->mutable_dataset() = std::move(dataset);
       *item->mutable_cost_schedule() = contract.cost_schedule();
+      item->set_slippage_ticks(contract.slippage_ticks());
     }
     set_backtest_strategies(*input, parameters);
     input->set_dataset_revision(dataset_revision(*paper));

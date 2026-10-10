@@ -32,6 +32,7 @@ test(
       ["目标手数", "1"],
       ["初始资金", "10000"],
       ["每手保证金", "100"],
+      ["滑点（跳）", "0"],
       ["每手开仓费", "2"],
       ["每手平今费", "3"],
       ["每手平昨费", "4"],
@@ -232,6 +233,7 @@ test("a portfolio backtest settles every contract on one account", async ({ page
     const costs = workspace.getByRole("region", { name: `SHFE · ${symbol} 保证金与手续费` });
     for (const [label, value] of [
       ["每手保证金", "100"],
+      ["滑点（跳）", "0"],
       ["每手开仓费", "2"],
       ["每手平今费", "3"],
       ["每手平昨费", "4"],
@@ -282,6 +284,7 @@ test("a backtest trades by the rule chosen in the form", async ({ page }) => {
   await workspace.getByLabel("策略", { exact: true }).selectOption("momentum");
   await expect(workspace.getByLabel("快均线", { exact: true })).toHaveCount(0);
   await expect(workspace.getByText(/收盘价高于“动量回看”根 K 线之前的收盘价时做多/)).toBeVisible();
+  await expect(workspace.getByLabel("滑点（跳）", { exact: true })).toHaveValue("1");
   for (const [label, value] of [
     ["动量回看", "2"],
     ["目标手数", "1"],
@@ -316,6 +319,18 @@ test("a backtest trades by the rule chosen in the form", async ({ page }) => {
   await expect(parameter("策略")).toHaveText("时序动量");
   await expect(parameter("动量回看")).toHaveText("2");
   await expect(parameter("持仓方向")).toHaveText("多空");
+  // The form's slippage was left at one price increment a fill: bought at 102
+  // and sold at 100 where the bars say 101, then bought at 104 where they say
+  // 103. Ten a point over three fills is thirty less than without it, and the
+  // last lot is marked at the settlement of 110.
+  await expect(parameter("滑点（跳）")).toHaveText("1");
+  await expect(
+    result
+      .locator(".research-metrics > div")
+      .filter({ has: page.getByText("期末权益", { exact: true }) })
+      .locator("strong")
+      .first(),
+  ).toHaveText("10033");
   await page.screenshot({ path: join(__dirname, "../test-results/backtest-rule-form.png") });
 });
 
@@ -355,6 +370,7 @@ test("several strategies are compared before a holdout and one is replayed", asy
     ["目标手数", "1"],
     ["初始资金", "100000"],
     ["每手保证金", "100"],
+    ["滑点（跳）", "0"],
     ["每手开仓费", "2"],
     ["每手平今费", "3"],
     ["每手平昨费", "4"],
@@ -462,6 +478,7 @@ test("a ranking rule holds the strongest contract long and the weakest short", a
     });
     for (const [label, value] of [
       ["每手保证金", "100"],
+      ["滑点（跳）", "0"],
       ["每手开仓费", "2"],
       ["每手平今费", "3"],
       ["每手平昨费", "4"],
@@ -568,6 +585,7 @@ test("strategies are compared by rolling and the account follows each round's be
     ["目标手数", "1"],
     ["初始资金", "100000"],
     ["每手保证金", "100"],
+    ["滑点（跳）", "0"],
     ["每手开仓费", "2"],
     ["每手平今费", "3"],
     ["每手平昨费", "4"],
