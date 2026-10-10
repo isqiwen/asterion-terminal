@@ -7,6 +7,9 @@
 namespace asterion {
 // Concurrent submit; one host owns shutdown/destruction. Running callbacks must
 // cooperate with stop_token. Multiple workers do not guarantee completion order.
+// `completed`, when given, runs on the worker once a task's result is
+// available: an owner that polls those results uses it to look at once
+// instead of at its next periodic check.
 class ThreadPool final {
   struct Task {
     std::function<void(std::stop_token)> run;
@@ -14,7 +17,9 @@ class ThreadPool final {
   };
 
 public:
-  explicit ThreadPool(std::size_t workers = 2, std::size_t capacity = 256) : queue_(capacity) {
+  explicit ThreadPool(std::size_t workers = 2, std::size_t capacity = 256,
+                      std::function<void()> completed = {})
+      : queue_(capacity), completed_(std::move(completed)) {
     if (!workers || workers > 256)
       throw Error(ErrorCode::invalid_request, "invalid worker count");
     workers_.reserve(workers);
@@ -30,6 +35,8 @@ public:
             } catch (...) {
               task->completion.set_exception(std::current_exception());
             }
+            if (completed_)
+              completed_();
           }
           active_pool_ = nullptr;
         });
@@ -68,6 +75,7 @@ public:
 private:
   inline static thread_local const ThreadPool* active_pool_ = nullptr;
   BoundedQueue<Task> queue_;
+  const std::function<void()> completed_;
   std::stop_source stop_;
   std::vector<std::jthread> workers_;
 };

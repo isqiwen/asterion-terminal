@@ -72,7 +72,8 @@ private:
   bool initialized_ = false, degraded_ = false, quiescing_ = false;
   std::unique_ptr<Store> store_;
   std::unique_ptr<DownloadBudget> budgets_;
-  ThreadPool writer_{1, 8};
+  // Requests wait on these pools; finished work prompts the I/O owner.
+  ThreadPool writer_{1, 8, service::wake_io_owner};
   ThreadPool readers_;
   std::future<void> opening_;
   std::size_t named_dataset_count_ = 0;

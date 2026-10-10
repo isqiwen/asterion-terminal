@@ -29,9 +29,10 @@ struct MarketClient::Impl : std::enable_shared_from_this<Impl> {
                                                    : ServiceIo::PayloadLane::control);
       transports[i] =
           endpoint.endpoint.empty()
-              ? std::make_unique<ipc::RpcClient>(endpoint.host, endpoint.port, endpoint.tls,
-                                                 capacity[i], budget)
-              : std::make_unique<ipc::RpcClient>(endpoint.endpoint, capacity[i], budget);
+              ? std::make_unique<ipc::RpcClient>(io.reactor(), endpoint.host, endpoint.port,
+                                                 endpoint.tls, capacity[i], budget)
+              : std::make_unique<ipc::RpcClient>(io.reactor(), endpoint.endpoint, capacity[i],
+                                                 budget);
     }
   }
   bool stopped(std::stop_token stop) const {

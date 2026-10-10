@@ -38,10 +38,11 @@ struct DataClient::Impl : std::enable_shared_from_this<Impl> {
       auto budget = io.payload_budget(i == static_cast<std::size_t>(Channel::request)
                                           ? ServiceIo::PayloadLane::data
                                           : ServiceIo::PayloadLane::control);
-      transports[i] = endpoint.endpoint.empty()
-                          ? std::make_unique<ipc::RpcClient>(endpoint.host, endpoint.port,
-                                                             endpoint.tls, slots[i], budget)
-                          : std::make_unique<ipc::RpcClient>(endpoint.endpoint, slots[i], budget);
+      transports[i] =
+          endpoint.endpoint.empty()
+              ? std::make_unique<ipc::RpcClient>(io.reactor(), endpoint.host, endpoint.port,
+                                                 endpoint.tls, slots[i], budget)
+              : std::make_unique<ipc::RpcClient>(io.reactor(), endpoint.endpoint, slots[i], budget);
     }
   }
   bool stopped(std::stop_token stop) const {

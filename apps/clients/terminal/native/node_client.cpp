@@ -34,11 +34,11 @@ struct NodeClient::Impl : std::enable_shared_from_this<Impl> {
       transport =
           endpoint.endpoint.empty()
               ? std::make_unique<ipc::RpcClient>(
-                    endpoint.host, endpoint.port, endpoint.tls, 1,
+                    io.reactor(), endpoint.host, endpoint.port, endpoint.tls, 1,
                     io.payload_budget(ServiceIo::PayloadLane::administration), 2 * 1024 * 1024)
               : std::make_unique<ipc::RpcClient>(
-                    endpoint.endpoint, 1, io.payload_budget(ServiceIo::PayloadLane::administration),
-                    2 * 1024 * 1024);
+                    io.reactor(), endpoint.endpoint, 1,
+                    io.payload_budget(ServiceIo::PayloadLane::administration), 2 * 1024 * 1024);
   }
   bool stopped(std::stop_token stop) const {
     return stop.stop_requested() || lifetime.stop_requested();

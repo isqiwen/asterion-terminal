@@ -22,7 +22,7 @@ void fail(wire::DataResponse& response, const std::exception& error) {
 } // namespace
 DataHost::DataHost(Configuration configuration)
     : configuration_(std::move(configuration)), process_(unique_process_id()),
-      readers_(configuration_.file_workers, 8) {}
+      readers_(configuration_.file_workers, 8, service::wake_io_owner) {}
 void DataHost::open() {
   opening_ = writer_.submit([this](std::stop_token) {
     const auto directory = std::filesystem::absolute(configuration_.directory);

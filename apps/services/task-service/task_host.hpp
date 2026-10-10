@@ -100,7 +100,8 @@ private:
   std::atomic<bool> journal_failed_{false};
   std::map<std::string, std::shared_ptr<Writing>> writing_;
   static constexpr std::size_t journal_capacity = 16;
-  ThreadPool journal_{1, journal_capacity};
+  // Requests wait on these pools; finished work prompts the I/O owner.
+  ThreadPool journal_{1, journal_capacity, service::wake_io_owner};
   ThreadPool files_;
   bool publication_wake_ = true;
   std::optional<PolledTask<>> publication_;

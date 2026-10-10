@@ -42,6 +42,20 @@ TEST(Kernel, worker_shutdown) {
   EXPECT_THROW(([&] { failed.get(); })(), std::runtime_error);
   next.get();
 }
+TEST(ThreadPool, AnnouncesATaskOnceItsResultIsAvailable) {
+  std::promise<void> gate;
+  const auto open = gate.get_future().share();
+  std::future<void> result;
+  std::promise<bool> announced;
+  auto available = announced.get_future();
+  ThreadPool pool(1, 1, [&] {
+    announced.set_value(result.wait_for(std::chrono::seconds(0)) == std::future_status::ready);
+  });
+  result = pool.submit([open](std::stop_token) { open.wait(); });
+  gate.set_value();
+  ASSERT_EQ(available.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+  EXPECT_TRUE(available.get());
+}
 TEST(ThreadPool, WorkersRunConcurrentlyAndShutdownCancelsQueue) {
   std::mutex mutex;
   std::condition_variable_any condition;

@@ -24,9 +24,10 @@ struct TradingClient::Impl {
     validate_id(endpoint.session);
     transport =
         endpoint.endpoint.empty()
-            ? std::make_unique<ipc::RpcClient>(endpoint.host, endpoint.port, endpoint.tls, 2,
+            ? std::make_unique<ipc::RpcClient>(io.reactor(), endpoint.host, endpoint.port,
+                                               endpoint.tls, 2,
                                                io.payload_budget(ServiceIo::PayloadLane::control))
-            : std::make_unique<ipc::RpcClient>(endpoint.endpoint, 2,
+            : std::make_unique<ipc::RpcClient>(io.reactor(), endpoint.endpoint, 2,
                                                io.payload_budget(ServiceIo::PayloadLane::control));
   }
   bool stopped(std::stop_token stop) const {

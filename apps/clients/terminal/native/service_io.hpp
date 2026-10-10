@@ -1,4 +1,5 @@
 #pragma once
+#include <asterion/kernel/ipc/rpc_client.hpp>
 #include <asterion/kernel/polled_task.hpp>
 #include <asterion/kernel/payload_budget.hpp>
 #include <functional>
@@ -11,6 +12,9 @@
 namespace asterion::terminal {
 // One Terminal owner advances service operations. Callbacks must only do bounded
 // state work or suspend; blocking management and large reads belong to their pools.
+// The owner advances them when a client's socket has made progress, when pool
+// work has finished and when an operation is admitted, and otherwise every
+// 2 ms, which is how it observes deadlines and stop requests.
 // Admitted operations retain their captures even if the returned future is dropped.
 // Client destruction requests cancellation without waiting on this owner; destroy
 // ServiceIo after its clients to drain all admitted work and release transports.
@@ -21,6 +25,8 @@ public:
   enum class ReadLane { data, response };
   enum class PayloadLane { data, control, administration };
   PayloadBudget payload_budget(PayloadLane lane) const;
+  // Where every client of this owner creates its transports.
+  ipc::Reactor& reactor();
   ServiceIo();
   ~ServiceIo();
   ServiceIo(const ServiceIo&) = delete;

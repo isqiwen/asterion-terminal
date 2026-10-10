@@ -74,7 +74,7 @@ struct TaskHost::Call {
 TaskHost::TaskHost(Configuration configuration)
     : configuration_(std::move(configuration)), process_(unique_process_id()),
       data_(configuration_.data_endpoint, 8, PayloadBudget{128 * 1024 * 1024}),
-      files_(configuration_.file_workers, 8) {}
+      files_(configuration_.file_workers, 8, service::wake_io_owner) {}
 void TaskHost::open() {
   opening_ = files_.submit([this](std::stop_token) {
     storage_ =

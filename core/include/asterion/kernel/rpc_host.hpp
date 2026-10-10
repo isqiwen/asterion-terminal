@@ -31,8 +31,17 @@ bool stop_requested() noexcept;
 // Clears a stop request. Only for hosts that run several service lifetimes in
 // one process, such as tests.
 void reset_stop_request() noexcept;
+// Asks the I/O owner to advance now. A thread calls it when it has finished
+// work that a pending reply waits for; the owner would otherwise notice at its
+// next periodic check. Safe from any thread, and without effect when no host
+// is running.
+void wake_io_owner();
 // Request/reply transport with one bounded, nonblocking I/O owner. A business
 // request may outlive a socket; closing a connection never cancels or replays it.
+// The owner advances pending replies and the service's own state when a
+// request arrives, when a request's last reply leaves, when wake_io_owner() is
+// called, and otherwise every 10 ms, which is also how it observes deadlines
+// and stop requests and paces the frames of a stream.
 class RpcHost {
 public:
   struct Peer {

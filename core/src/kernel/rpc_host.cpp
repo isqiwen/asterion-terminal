@@ -11,7 +11,9 @@
 #include <atomic>
 #include <csignal>
 #include <filesystem>
+#include <functional>
 #include <map>
+#include <mutex>
 #include <stdexcept>
 #include <sys/stat.h>
 
@@ -45,6 +47,22 @@ struct LocalListener {
   }
   ~LocalListener() { ::unlink(endpoint.c_str()); }
 };
+// How any thread prompts a running host: one advance on its loop, however
+// many requests arrive before it runs.
+struct Waker {
+  asio::io_context& io;
+  const std::function<void()> advance;
+  std::atomic<bool> requested{false};
+  void wake() {
+    if (!requested.exchange(true))
+      asio::post(io, [this] {
+        requested = false;
+        advance();
+      });
+  }
+};
+std::mutex running_mutex;
+std::vector<Waker*> running;
 } // namespace
 
 void Transport::validate() const {
@@ -73,6 +91,11 @@ void request_stop() noexcept {
 }
 bool stop_requested() noexcept {
   return stop_flag.load();
+}
+void wake_io_owner() {
+  std::lock_guard lock(running_mutex);
+  for (auto* host : running)
+    host->wake();
 }
 void reset_stop_request() noexcept {
   stop_flag.store(false);
@@ -135,12 +158,18 @@ struct RpcHost::Impl {
       }
       try {
         if (auto response = reply()) {
-          if (!response->more) {
+          const bool finished = !response->more;
+          if (finished) {
             reply = {};
             release(input_bytes);
             input_bytes = 0;
           }
           send(std::move(response->payload));
+          // What a finished request released may be what another one waits
+          // for. A stream's next frame stays on the periodic check: frames
+          // must not set each other off.
+          if (finished)
+            host.waker.wake();
         }
       } catch (const std::exception& error) {
         host.failed(error);
@@ -232,6 +261,8 @@ struct RpcHost::Impl {
                                      self->lane ? self->lane->handler : self->host.handler;
                                  self->reply = handler(self->peer, std::move(self->payload));
                                  self->poll(Clock::now());
+                                 // The service starts on an accepted request now.
+                                 self->host.waker.wake();
                                } catch (const std::exception& failure) {
                                  self->host.failed(failure);
                                  self->close();
@@ -280,6 +311,7 @@ struct RpcHost::Impl {
   std::map<const LocalEndpoint*, std::shared_ptr<PayloadBudget>> payload_budgets;
   asio::io_context io;
   asio::steady_timer tick{io};
+  Waker waker{io, [this] { advance(); }};
   std::unique_ptr<LocalListener> local;
   std::vector<std::unique_ptr<LocalListener>> auxiliary;
   std::unique_ptr<ProcessOwner> owner;
@@ -288,7 +320,7 @@ struct RpcHost::Impl {
   std::vector<std::shared_ptr<Session>> sessions;
   std::size_t handshakes = 0;
   std::uint64_t failures = 0;
-  bool stopping = false, drained = true;
+  bool stopping = false, drained = true, finished = false;
   Clock::time_point drain_deadline;
   Impl(Transport transport, Handler handler, Options options, Progress& progress)
       : progress(progress), transport(std::move(transport)), handler(std::move(handler)),
@@ -377,6 +409,9 @@ struct RpcHost::Impl {
     });
   }
   void advance() {
+    // A wake-up may still be queued when the host has ended.
+    if (finished)
+      return;
     progress.finish();
     const auto now = Clock::now();
     if (owner && !owner->alive())
@@ -402,6 +437,7 @@ struct RpcHost::Impl {
     std::erase_if(sessions, [](const auto& session) { return session->phase == Phase::closed; });
     const bool complete = stage == Stage::stopping_resources && resources_stopped;
     if (stopping && (complete || now >= drain_deadline)) {
+      finished = true;
       drained = complete;
       asio::error_code ignored;
       for (auto& listener : auxiliary)
@@ -418,8 +454,9 @@ struct RpcHost::Impl {
       sessions.clear();
       return;
     }
-    // Only completion readiness and stop/deadline observation are polled. Socket
-    // reads, writes and TLS handshakes share the nonblocking event loop.
+    // Socket reads, writes and TLS handshakes share the nonblocking event loop,
+    // and finished work announces itself through the waker. This check is what
+    // observes deadlines and stop requests, and work that announces nothing.
     tick.expires_after(Milliseconds{10});
     tick.async_wait([this](asio::error_code error) {
       if (!error)
@@ -432,6 +469,17 @@ RpcHost::RpcHost(Transport transport, Handler handler, Options options, Progress
                                    progress)) {}
 RpcHost::~RpcHost() = default;
 bool RpcHost::run() {
+  struct Running {
+    Waker& host;
+    explicit Running(Waker& host) : host(host) {
+      std::lock_guard lock(running_mutex);
+      running.push_back(&host);
+    }
+    ~Running() {
+      std::lock_guard lock(running_mutex);
+      std::erase(running, &host);
+    }
+  } registered{impl_->waker};
   impl_->advance();
   impl_->io.run();
   return impl_->drained;

@@ -7,6 +7,7 @@
 #include <asio/ssl.hpp>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <vector>
 #include <type_traits>
 #include <utility>
@@ -15,6 +16,31 @@ using namespace std::chrono_literals;
 using Local = asio::local::stream_protocol;
 using Tcp = asio::ip::tcp;
 using Tls = asio::ssl::stream<Tcp::socket>;
+struct Reactor::Impl {
+  asio::io_context io;
+  // Set by wake() and taken by the next wait(): a wake-up is never lost to a
+  // client that pumps the loop in between.
+  std::atomic<bool> woken{false};
+};
+Reactor::Reactor() : impl_(std::make_unique<Impl>()) {}
+Reactor::~Reactor() = default;
+void Reactor::wait(std::optional<std::chrono::milliseconds> limit) {
+  if (impl_->woken.exchange(false))
+    return;
+  auto& io = impl_->io;
+  io.restart();
+  // Without outstanding I/O the loop would return at once instead of waiting.
+  const auto work = asio::make_work_guard(io);
+  if (limit)
+    io.run_one_for(*limit);
+  else
+    io.run_one();
+}
+void Reactor::wake() {
+  // The posted handler only interrupts a wait that is already blocking.
+  if (!impl_->woken.exchange(true))
+    asio::post(impl_->io, [] {});
+}
 struct RpcClient::Impl {
   struct Pending {
     bool done = false;
@@ -184,17 +210,20 @@ struct RpcClient::Impl {
           });
     }
   };
-  asio::io_context io;
+  // A client pumped on its own has its own loop.
+  const std::unique_ptr<asio::io_context> own;
+  asio::io_context& io;
   const std::string address;
   const std::uint16_t port;
   const std::size_t capacity, frame_bytes;
   const PayloadBudget payloads;
   std::shared_ptr<asio::ssl::context> tls;
   std::vector<std::shared_ptr<Pending>> active;
-  Impl(std::string address, std::uint16_t port, std::size_t capacity, PayloadBudget payloads,
-       std::size_t frame_bytes)
-      : address(std::move(address)), port(port), capacity(capacity), frame_bytes(frame_bytes),
-        payloads(std::move(payloads)) {
+  Impl(Reactor* reactor, std::string address, std::uint16_t port, std::size_t capacity,
+       PayloadBudget payloads, std::size_t frame_bytes)
+      : own(reactor ? nullptr : std::make_unique<asio::io_context>()),
+        io(reactor ? reactor->impl_->io : *own), address(std::move(address)), port(port),
+        capacity(capacity), frame_bytes(frame_bytes), payloads(std::move(payloads)) {
     if (this->address.empty() || this->address.find('\0') != std::string::npos || !capacity)
       throw std::invalid_argument("invalid RPC client endpoint or capacity");
     if (!frame_bytes || frame_bytes > Channel::max_frame || frame_bytes > this->payloads.limit())
@@ -241,22 +270,38 @@ struct RpcClient::Impl {
                          send_timeout, std::move(frame));
   }
 };
-RpcClient::RpcClient(std::string endpoint, std::size_t capacity, PayloadBudget payloads,
-                     std::size_t frame_bytes)
-    : impl_(std::make_unique<Impl>(std::move(endpoint), 0, capacity, std::move(payloads),
+RpcClient::RpcClient(Reactor* reactor, std::string endpoint, std::size_t capacity,
+                     PayloadBudget payloads, std::size_t frame_bytes)
+    : impl_(std::make_unique<Impl>(reactor, std::move(endpoint), 0, capacity, std::move(payloads),
                                    frame_bytes)) {
   if (impl_->address.front() != '/')
     throw std::invalid_argument("invalid local socket path");
   static_cast<void>(Local::endpoint(impl_->address));
 }
-RpcClient::RpcClient(std::string host, std::uint16_t port, const TlsIdentity& identity,
-                     std::size_t capacity, PayloadBudget payloads, std::size_t frame_bytes)
-    : impl_(std::make_unique<Impl>(std::move(host), port, capacity, std::move(payloads),
+RpcClient::RpcClient(Reactor* reactor, std::string host, std::uint16_t port,
+                     const TlsIdentity& identity, std::size_t capacity, PayloadBudget payloads,
+                     std::size_t frame_bytes)
+    : impl_(std::make_unique<Impl>(reactor, std::move(host), port, capacity, std::move(payloads),
                                    frame_bytes)) {
   if (!port)
     throw std::invalid_argument("TCP host, port and positive timeout are required");
   impl_->tls = detail::tls_context(identity, false);
 }
+RpcClient::RpcClient(std::string endpoint, std::size_t capacity, PayloadBudget payloads,
+                     std::size_t frame_bytes)
+    : RpcClient(nullptr, std::move(endpoint), capacity, std::move(payloads), frame_bytes) {}
+RpcClient::RpcClient(std::string host, std::uint16_t port, const TlsIdentity& identity,
+                     std::size_t capacity, PayloadBudget payloads, std::size_t frame_bytes)
+    : RpcClient(nullptr, std::move(host), port, identity, capacity, std::move(payloads),
+                frame_bytes) {}
+RpcClient::RpcClient(Reactor& reactor, std::string endpoint, std::size_t capacity,
+                     PayloadBudget payloads, std::size_t frame_bytes)
+    : RpcClient(&reactor, std::move(endpoint), capacity, std::move(payloads), frame_bytes) {}
+RpcClient::RpcClient(Reactor& reactor, std::string host, std::uint16_t port,
+                     const TlsIdentity& identity, std::size_t capacity, PayloadBudget payloads,
+                     std::size_t frame_bytes)
+    : RpcClient(&reactor, std::move(host), port, identity, capacity, std::move(payloads),
+                frame_bytes) {}
 RpcClient::~RpcClient() = default;
 std::future<Payload> RpcClient::request(std::string payload,
                                         std::chrono::milliseconds reply_timeout,

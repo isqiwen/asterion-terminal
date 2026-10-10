@@ -92,7 +92,8 @@ class Agent {
   Progress state_progress_, initialization_progress_, persistence_progress_;
   bool recovering_drain_ = false;
   bool upgrade_active() const { return upgrade_ && upgrade_->active(); }
-  ThreadPool journal_{1, 8}, operations_{2, 8};
+  // Requests wait on these pools; finished work prompts the I/O owner.
+  ThreadPool journal_{1, 8, service::wake_io_owner}, operations_{2, 8, service::wake_io_owner};
   bool mutation_active_ = false, node_mutation_ = false, stopping_ = false;
   std::size_t admitted_mutations_ = 0;
   std::string last_supervised_, last_dispatched_;

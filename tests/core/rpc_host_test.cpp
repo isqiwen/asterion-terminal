@@ -9,7 +9,9 @@
 #include <tuple>
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <asterion/kernel/process/child.hpp>
+#include <asterion/kernel/thread_pool.hpp>
 #include <gtest/gtest.h>
+#include <atomic>
 #include <future>
 #include <thread>
 using namespace asterion;
@@ -273,6 +275,60 @@ TEST(RpcHost, IncompleteDrainRetainsAdmittedReplyUntilProcessExit) {
   // Production exits here. Destroying the request earlier would invalidate
   // coroutine locals that a file worker may still be reading or writing.
   EXPECT_FALSE(lifetime.expired());
+}
+
+// A reply that waits for pool work leaves when the work is done, and a client
+// on its owner's reactor receives it there. Neither side waits for a periodic
+// check: the host's comes every 10 ms and would alone take 400 ms here.
+TEST(RpcHost, FinishedPoolWorkIsAnsweredWithoutWaitingForAPeriodicCheck) {
+  service::reset_stop_request();
+  service::Transport transport;
+  transport.endpoint = "/tmp/ast-prompt-" + unique_process_id() + ".sock";
+  ThreadPool pool(1, 8, service::wake_io_owner);
+  Progress progress;
+  service::RpcHost server(
+      transport,
+      [&](const auto&, std::string request) -> service::RpcHost::Reply {
+        auto work = std::make_shared<std::future<void>>(
+            pool.submit([](std::stop_token) { std::this_thread::sleep_for(200us); }));
+        return [work, request = std::move(request)]() -> std::optional<std::string> {
+          if (work->wait_for(0ms) != std::future_status::ready)
+            return {};
+          return request;
+        };
+      },
+      {}, progress);
+  std::jthread worker([&] { static_cast<void>(server.run()); });
+  struct Stop {
+    ~Stop() { service::request_stop(); }
+  } stop;
+  ipc::Reactor reactor;
+  ipc::RpcClient client(reactor, transport.endpoint, 1, PayloadBudget{128 * 1024 * 1024});
+  constexpr int rounds = 40;
+  const auto started = std::chrono::steady_clock::now();
+  for (int round = 0; round < rounds; ++round) {
+    auto reply = client.request(std::to_string(round), 5s);
+    // The owner only waits on its reactor; nothing pumps the client by itself.
+    while (reply.wait_for(0ms) != std::future_status::ready)
+      reactor.wait(1s);
+    ASSERT_EQ(*reply.get(), std::to_string(round));
+  }
+  EXPECT_LT(std::chrono::steady_clock::now() - started, rounds * 5ms);
+}
+
+TEST(Reactor, AWakeUpEndsTheNextWaitOrTheOneInProgress) {
+  ipc::Reactor reactor;
+  reactor.wake();
+  reactor.wait(std::nullopt);
+  std::atomic<bool> woken = false;
+  std::jthread other([&] {
+    std::this_thread::sleep_for(20ms);
+    woken = true;
+    reactor.wake();
+  });
+  // Without a limit only the wake-up can end this.
+  while (!woken)
+    reactor.wait(std::nullopt);
 }
 
 TEST(RpcClient, PendingReplyDoesNotBlockControlAndTimeoutNeverResends) {

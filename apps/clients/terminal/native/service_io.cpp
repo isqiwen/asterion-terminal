@@ -3,7 +3,6 @@
 #include <asterion/kernel/trace.hpp>
 #include <asterion/kernel/thread_pool.hpp>
 #include <array>
-#include <condition_variable>
 #include <deque>
 #include <list>
 #include <mutex>
@@ -25,14 +24,17 @@ struct ServiceIo::Impl {
   // Includes suspended operations, not just the incoming queue.
   static constexpr std::array<std::size_t, 4> capacity{32, 8, 64, ServiceIo::application_capacity};
   std::mutex mutex;
-  std::condition_variable wake;
   std::deque<std::unique_ptr<Pending>> incoming;
   std::array<std::size_t, 4> admitted{};
   bool closing = false;
-  ThreadPool readers{2, 8};
+  // The owner waits here; sockets, finished pool work and admissions end the wait.
+  ipc::Reactor reactor;
+  const std::function<void()> finished = [this] { reactor.wake(); };
+  ThreadPool readers{2, 8, finished};
   // One response job per admitted operation; bulk reads cannot consume these slots.
-  ThreadPool responses{1, std::accumulate(capacity.begin(), capacity.end(), std::size_t{0})};
-  ThreadPool administrators{2, 8};
+  ThreadPool responses{1, std::accumulate(capacity.begin(), capacity.end(), std::size_t{0}),
+                       finished};
+  ThreadPool administrators{2, 8, finished};
   std::jthread owner;
   Impl() : owner([this](std::stop_token stop) { run(stop); }) {}
   // Returns once every admitted operation has finished on the owner.
@@ -42,7 +44,7 @@ struct ServiceIo::Impl {
       closing = true;
     }
     owner.request_stop();
-    wake.notify_one();
+    reactor.wake();
     owner.join();
   }
   void run(std::stop_token stop) {
@@ -74,13 +76,14 @@ struct ServiceIo::Impl {
         std::lock_guard lock(mutex);
         --admitted[lane];
       }
-      std::unique_lock lock(mutex);
-      if (stop.stop_requested() && active.empty() && incoming.empty())
-        return;
-      if (active.empty())
-        wake.wait(lock, [&] { return closing || !incoming.empty(); });
-      else
-        wake.wait_for(lock, std::chrono::milliseconds(2), [&] { return !incoming.empty(); });
+      {
+        std::lock_guard lock(mutex);
+        if (stop.stop_requested() && active.empty() && incoming.empty())
+          return;
+      }
+      // An admission or a stop request after the check above has already
+      // woken the reactor, so this wait returns for it.
+      reactor.wait(active.empty() ? std::nullopt : std::optional(std::chrono::milliseconds(2)));
     }
   }
 };
@@ -93,6 +96,9 @@ ServiceIo::~ServiceIo() {
 }
 PayloadBudget ServiceIo::payload_budget(PayloadLane lane) const {
   return impl_->payloads[static_cast<std::size_t>(lane)];
+}
+ipc::Reactor& ServiceIo::reactor() {
+  return impl_->reactor;
 }
 std::future<void> ServiceIo::read_work(std::function<void()> process, ReadLane lane) {
   auto& pool = lane == ReadLane::response ? impl_->responses : impl_->readers;
@@ -124,6 +130,6 @@ void ServiceIo::enqueue(std::function<PolledTask<void>(std::stop_token)> operati
     impl_->incoming.push_back(std::move(pending));
     ++impl_->admitted[slot];
   }
-  impl_->wake.notify_one();
+  impl_->reactor.wake();
 }
 } // namespace asterion::terminal
