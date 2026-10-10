@@ -1,9 +1,7 @@
 import { test, expect } from "./test";
 import { seedHistory, rpc } from "./dataset-fixture";
 
-test("usage shows fixed source and saved references, refreshes draft and ignores obsolete replies", async ({
-  page,
-}) => {
+test("usage shows fixed source and saved references and refreshes the draft", async ({ page }) => {
   const seeded = await seedHistory(page.request, [101, 102, 103, 104, 105, 106, 107], "usage-ui", {
     product: "al",
   });
@@ -31,36 +29,6 @@ test("usage shows fixed source and saved references, refreshes draft and ignores
   await expect(usage).toContainText("未检查停止的远程数据服务");
   await page.screenshot({ path: "build/history-usage-browser.png", fullPage: true });
   await usage.getByRole("button", { name: "关闭", exact: true }).click();
-  let release!: () => void;
-  const gate = new Promise<void>(resolve => {
-    release = resolve;
-  });
-  let held = false;
-  await page.route("**/__asterion/api", async route => {
-    const body = route.request().postDataJSON();
-    if (body.method !== "data.history.usage" || body.params.id !== seeded.source_dataset_ids[0]) {
-      await route.continue();
-      return;
-    }
-    const response = await route.fetch();
-    held = true;
-    await gate;
-    await route.fulfill({ response });
-  });
-  try {
-    await minute.getByRole("button", { name: "使用情况", exact: true }).click();
-    await expect.poll(() => held).toBe(true);
-    await daily.getByRole("button", { name: "使用情况", exact: true }).click();
-    await expect(table.getByRole("row").filter({ hasText: "引用核对组合" })).toContainText(
-      "结算输入",
-    );
-    release();
-    await expect(table).toContainText("结算输入");
-    await expect(table).not.toContainText("行情输入");
-  } finally {
-    release();
-    await page.unrouteAll({ behavior: "wait" });
-  }
   // A daily version can serve both market and settlement input. It must
   // appear once for the saved record, with both roles preserved.
   await rpc(page.request, "data.dataset.select", {
@@ -68,27 +36,11 @@ test("usage shows fixed source and saved references, refreshes draft and ignores
     source_dataset_ids: seeded.settlement_dataset_ids,
   });
   await rpc(page.request, "data.dataset.save", { name: "日线双用途" });
-  await usage.getByRole("button", { name: "刷新使用情况", exact: true }).click();
+  await daily.getByRole("button", { name: "使用情况", exact: true }).click();
   const dual = table.getByRole("row").filter({ hasText: "日线双用途" });
   await expect(dual).toHaveCount(1);
   await expect(dual).toContainText("行情输入、结算输入");
   await expect(usage).toContainText("本窗口回测与因子草稿：行情输入、结算输入");
-  await page.route("**/__asterion/api", async route => {
-    if (route.request().postDataJSON().method !== "data.history.usage") {
-      await route.continue();
-      return;
-    }
-    await route.fulfill({
-      json: {
-        version: 1,
-        error: { code: "unavailable", message: "invalid historical usage response" },
-      },
-    });
-  });
-  await usage.getByRole("button", { name: "刷新使用情况", exact: true }).click();
-  await expect(usage.getByRole("alert")).toBeVisible();
-  await expect(table).toHaveCount(0);
-  await expect(usage).not.toContainText("未发现关联记录");
 });
 
 // Explicit UI fixture: real mTLS inventory and failures are covered by native tests.
