@@ -217,7 +217,6 @@ CrossSection::CrossSection(const protocol::v1::Strategy& definition, std::size_t
     : lookback_(definition.cross_momentum().lookback()),
       rebalance_(definition.cross_momentum().rebalance()),
       count_(definition.cross_momentum().count()),
-      quantity_(Decimal::from_raw(definition.quantity().units())),
       sides_(protocol::position_sides(definition.sides())), latest_(units), closes_(units) {
   if (!defines(definition))
     throw std::invalid_argument("unknown strategy rule");
@@ -236,7 +235,7 @@ void CrossSection::on_bar(std::size_t unit, std::int64_t timestamp_ns, Decimal c
   time_ = timestamp_ns;
   latest_.at(unit) = close;
 }
-std::optional<std::vector<Decimal>> CrossSection::rank() {
+std::optional<std::vector<int>> CrossSection::rank() {
   const bool everywhere =
       std::ranges::all_of(latest_, [](const auto& close) { return close.has_value(); });
   if (everywhere)
@@ -261,13 +260,13 @@ std::optional<std::vector<Decimal>> CrossSection::rank() {
   // Strongest first; equal units keep the order they were given in.
   std::ranges::stable_sort(order,
                            [&](auto left, auto right) { return momentum[left] > momentum[right]; });
-  std::vector<Decimal> targets(closes_.size());
+  std::vector<int> wanted(closes_.size());
   for (std::size_t i = 0; i < count_; ++i) {
     if (sides_ != PositionSides::short_only)
-      targets[order[i]] = quantity_;
+      wanted[order[i]] = 1;
     if (sides_ != PositionSides::long_only)
-      targets[order[order.size() - 1 - i]] = Decimal{} - quantity_;
+      wanted[order[order.size() - 1 - i]] = -1;
   }
-  return targets;
+  return wanted;
 }
 } // namespace asterion

@@ -54,10 +54,13 @@ message BandReversion { uint32 window = 1; Decimal width = 2; }
 // `rebalance`-th bar that all of them have, each is ranked by its close over
 // its close `lookback` such bars earlier. The `count` strongest are held long
 // and the `count` weakest short until the next ranking; the rest are flat.
-message CrossMomentum { uint32 lookback = 1; uint32 rebalance = 2; uint32 count = 3; }
+// A held contract holds the lots whose value at that bar's close is nearest
+// `notional`, so contracts of different sizes weigh alike.
+message CrossMomentum { uint32 lookback = 1; uint32 rebalance = 2; uint32 count = 3; Decimal notional = 4; }
 // What a strategy trades by: one rule, the lots it holds while the rule takes
 // a side, and the sides it may hold; it is flat on a side it may not hold and
-// while the rule takes none.
+// while the rule takes none. A rule over several contracts sizes each by its
+// notional and has no quantity.
 message Strategy {
   Decimal quantity = 1;
   PositionSides sides = 2;

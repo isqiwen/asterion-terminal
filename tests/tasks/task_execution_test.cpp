@@ -283,13 +283,14 @@ TEST(Backtest, ARuleOtherThanAveragesRunsThroughTheSameEngine) {
 TEST(Backtest, ARankingRuleTradesTheStrongestAndWeakestOfSeveralContracts) {
   // Four contracts on the same six bars of one day, each settled at its last
   // price. A lookback of 1 ranks them at the second bar and again at the
-  // fourth: first rb leads and zn trails, then the two change places.
+  // fourth: first rb leads and zn trails, then the two change places. A bar
+  // trades 100 lots, of which an order may take ten.
   const auto contract = [](const char* symbol, const char* product,
                            std::initializer_list<const char*> prices) {
     std::vector<MarketBar> bars;
     std::int64_t time = 1790298000000000000LL;
     for (const auto* price : prices) {
-      bars.push_back(test::flat("2026-09-25", time, price, "10"));
+      bars.push_back(test::flat("2026-09-25", time, price, "100"));
       time += 1000000000;
     }
     return test::dataset(bars, {{"2026-09-25", bars.back().close}},
@@ -304,41 +305,50 @@ TEST(Backtest, ARankingRuleTradesTheStrongestAndWeakestOfSeveralContracts) {
     *added->mutable_dataset() = dataset;
   }
   spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
-  const Json rule{{"kind", "cross_momentum"}, {"lookback", 1}, {"rebalance", 2}, {"count", 1}};
-  *spec.mutable_strategies(0) =
-      protocol::encode_strategy({{"quantity", "1"}, {"sides", "both"}, {"rule", rule}});
+  // A lot is worth ten times its price; each held contract is sized to 2500.
+  const Json rule{{"kind", "cross_momentum"},
+                  {"lookback", 1},
+                  {"rebalance", 2},
+                  {"count", 1},
+                  {"notional", "2500"}};
+  *spec.mutable_strategies(0) = protocol::encode_strategy({{"sides", "both"}, {"rule", rule}});
   const auto result = backtest::run(spec);
-  // Decided at the second bar and filled at the third: rb bought at 110, zn
-  // sold at 90. Decided again at the fourth: both are closed at the fifth
-  // bar's 99 and opened the other way at the sixth's. hc and al never trade.
+  // Decided at the second bar and filled at the third: 2500 is nearest two
+  // lots of rb at 110 and three of zn at 90. Decided again at the fourth,
+  // when both are at 99 and three lots each: closed at the fifth bar and
+  // opened the other way at the sixth. hc and al never trade.
   ASSERT_EQ(result.account().fills_size(), 6);
   const auto fill = [&](int index) {
     const auto& value = result.account().fills(index);
     const auto order = std::ranges::find(result.account().orders(), value.order_id(),
                                          [](const auto& item) { return item.id(); });
     return value.symbol() + (order->side() == protocol::v1::BUY ? " buy " : " sell ") +
+           Decimal::from_raw(value.quantity().units()).str() + " at " +
            Decimal::from_raw(value.price().units()).str();
   };
-  EXPECT_EQ(fill(0), "rb2610 buy 110");
-  EXPECT_EQ(fill(1), "zn2610 sell 90");
-  EXPECT_EQ(fill(2), "rb2610 sell 99");
-  EXPECT_EQ(fill(3), "zn2610 buy 99");
-  EXPECT_EQ(fill(4), "rb2610 sell 99");
-  EXPECT_EQ(fill(5), "zn2610 buy 99");
-  // Lost 11 a unit on rb and 9 on zn at a multiplier of 10; four opens at 2
-  // and two closes of the day at 3.
-  EXPECT_EQ(result.account().realized().units(), d("-200").raw());
-  EXPECT_EQ(result.account().fees().units(), d("14").raw());
-  EXPECT_EQ(result.account().equity().units(), d("9786").raw());
+  EXPECT_EQ(fill(0), "rb2610 buy 2 at 110");
+  EXPECT_EQ(fill(1), "zn2610 sell 3 at 90");
+  EXPECT_EQ(fill(2), "rb2610 sell 2 at 99");
+  EXPECT_EQ(fill(3), "zn2610 buy 3 at 99");
+  EXPECT_EQ(fill(4), "rb2610 sell 3 at 99");
+  EXPECT_EQ(fill(5), "zn2610 buy 3 at 99");
+  // Lost 11 a unit on two lots of rb and 9 on three of zn at a multiplier of
+  // 10; eleven lots opened at 2 and five closed the same day at 3.
+  EXPECT_EQ(result.account().realized().units(), d("-490").raw());
+  EXPECT_EQ(result.account().fees().units(), d("37").raw());
+  EXPECT_EQ(result.account().equity().units(), d("9473").raw());
   ASSERT_EQ(result.settlements(0).contracts_size(), 4);
-  EXPECT_EQ(result.settlements(0).contracts(0).position_quantity().units(), d("-1").raw());
+  EXPECT_EQ(result.settlements(0).contracts(0).position_quantity().units(), d("-3").raw());
   EXPECT_EQ(result.settlements(0).contracts(1).position_quantity().units(), 0);
-  EXPECT_EQ(result.settlements(0).contracts(3).position_quantity().units(), d("1").raw());
-  EXPECT_EQ(protocol::decode_backtest(spec, protocol::DatasetView::metadata)
-                .at("strategies")
-                .at(0)
-                .at("rule"),
-            rule);
+  EXPECT_EQ(result.settlements(0).contracts(3).position_quantity().units(), d("3").raw());
+  EXPECT_EQ(protocol::decode_backtest(spec, protocol::DatasetView::metadata).at("strategies").at(0),
+            (Json{{"sides", "both"}, {"rule", rule}}));
+  // A contract whose one lot is worth more than twice the notional is ranked
+  // and not held: 400 against lots of about 1000.
+  auto small = spec;
+  small.mutable_strategies(0)->mutable_cross_momentum()->mutable_notional()->set_units(
+      d("400").raw());
+  EXPECT_EQ(backtest::run(small).account().fills_size(), 0);
   // One contract a side of four leaves two flat; two a side needs them all,
   // and three a side has no one to hold.
   spec.mutable_strategies(0)->mutable_cross_momentum()->set_count(2);

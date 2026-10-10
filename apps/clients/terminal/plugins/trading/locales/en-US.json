@@ -185,6 +185,6 @@
   "空仓": "Flat",
   "空 {n} 手": "Short {n} lots",
   "多 {n} 手": "Long {n} lots",
-  "{venue} · {symbol} · {rule} · {quantity} 手 · {sides}": "{venue} · {symbol} · {rule} · {quantity} lots · {sides}",
+  "{venue} · {symbol} · {rule} · {size} · {sides}": "{venue} · {symbol} · {rule} · {size} · {sides}",
   "该合约已有的单边持仓由策略接管。策略使用本机行情服务的 1 分钟线，按 K 线收盘价挂限价单。启动后由策略独占下单，断线重连和换交易日后自动继续，直到你停止它、撤销授权、修改风控政策或交易服务重启。": "A position the contract already holds on one side is taken over. The strategy reads 1-minute bars from the market service on this computer and places limit orders at the bar's close. Once started it alone places orders and continues across reconnects and trading days until you stop it, revoke the authorization, change the risk policy or the trading service restarts."
 }

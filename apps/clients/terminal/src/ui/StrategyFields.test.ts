@@ -28,15 +28,31 @@ describe("the strategies a form submits", () => {
       { kind: "reversion", window: 20, width: "1.5" },
       { kind: "reversion", window: 20, width: "2" },
     ]);
-    // A rule that ranks contracts varies all three of its fields.
-    expect(
-      rules({ kind: "cross_momentum", lookback: "5,20", rebalance: "5", count: "1,2" }),
-    ).toEqual([
-      { kind: "cross_momentum", lookback: 5, rebalance: 5, count: 1 },
-      { kind: "cross_momentum", lookback: 5, rebalance: 5, count: 2 },
-      { kind: "cross_momentum", lookback: 20, rebalance: 5, count: 1 },
-      { kind: "cross_momentum", lookback: 20, rebalance: 5, count: 2 },
-    ]);
+    // A rule that ranks contracts varies all three of its windows; it is
+    // sized by its notional and submits no quantity.
+    const ranked = strategiesOf({
+      ...strategyDefaults,
+      kind: "cross_momentum",
+      lookback: "5,20",
+      rebalance: "5",
+      count: "1,2",
+      notional: "50000",
+    });
+    expect(ranked.map(strategy => strategy.rule)).toEqual(
+      [
+        [5, 1],
+        [5, 2],
+        [20, 1],
+        [20, 2],
+      ].map(([lookback, count]) => ({
+        kind: "cross_momentum",
+        lookback,
+        rebalance: 5,
+        count,
+        notional: "50000",
+      })),
+    );
+    expect(ranked[0]).toEqual({ sides: "both", rule: ranked[0].rule });
     expect(rules({ fast: "20", slow: "5" })).toEqual([]);
   });
 });

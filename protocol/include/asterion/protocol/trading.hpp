@@ -10,13 +10,15 @@ Json decode_contract(const v1::Contract& input);
 PositionSides position_sides(v1::PositionSides value);
 v1::PositionSides encode_position_sides(const Json& value);
 // {"quantity", "sides", "rule": {"kind": "moving_average" | "breakout" |
-// "momentum" | "reversion" | "cross_momentum", ...its windows}}. Shapes only: whether the windows
-// make a strategy is the strategy's to say.
+// "momentum" | "reversion", ...its windows}}, or without a quantity
+// {"sides", "rule": {"kind": "cross_momentum", ...its windows, "notional"}}. Shapes only: whether
+// the windows make a strategy is the strategy's to say.
 v1::Strategy encode_strategy(const Json& value);
 Json decode_strategy(const v1::Strategy& strategy);
 // Whether the definition makes a strategy for a contract traded in lots of
 // `quantity_increment`: a positive lot-aligned quantity, sides, and windows
-// its rule can work with.
+// its rule can work with. A rule over several contracts has a positive
+// notional instead of a quantity.
 void validate_strategy(const v1::Strategy& strategy, Decimal quantity_increment);
 // The completed bars after which the rule first takes a side or none.
 std::size_t strategy_warmup(const v1::Strategy& strategy);

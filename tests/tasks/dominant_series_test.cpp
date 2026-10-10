@@ -131,10 +131,15 @@ TEST(DominantSeries, ARankingRuleTakesASeriesAsOneOfTheContractsItRanks) {
                           day_bars(3, 100, 0), day_bars(4, 100, 0)}),
                     {}, test::contract("SHFE", "hc2610", "hc", "2026-10"));
   input.set_dataset_revision(protocol::dataset_revision(input.paper()));
-  *input.mutable_strategies(0) = protocol::encode_strategy(
-      {{"quantity", "1"},
-       {"sides", "long"},
-       {"rule", {{"kind", "cross_momentum"}, {"lookback", 1}, {"rebalance", 1}, {"count", 1}}}});
+  // 1500 is nearest one lot of either month: about 2000 for rb2610 at its
+  // real prices and 1100 for rb2701.
+  *input.mutable_strategies(0) = protocol::encode_strategy({{"sides", "long"},
+                                                            {"rule",
+                                                             {{"kind", "cross_momentum"},
+                                                              {"lookback", 1},
+                                                              {"rebalance", 1},
+                                                              {"count", 1},
+                                                              {"notional", "1500"}}}});
   const auto result = backtest::run(input);
   // Ranked from the second bar: rb2610 is bought at that bar's real close of
   // 202, sold on the roll day, and rb2701 bought once it is. hc never trades.

@@ -58,23 +58,31 @@ v1::PositionSides encode_position_sides(const Json& value) {
   return v1::LONG_AND_SHORT;
 }
 v1::Strategy encode_strategy(const Json& value) {
-  if (!value.is_object())
+  if (!value.is_object() || !value.contains("rule") || !value.at("rule").is_object() ||
+      !value.at("rule").contains("kind") || !value.at("rule").at("kind").is_string())
     throw std::invalid_argument("invalid strategy");
-  require_fields(value, {"quantity", "sides", "rule"});
   const auto& rule = value.at("rule");
-  if (!rule.is_object() || !rule.contains("kind") || !rule.at("kind").is_string() ||
-      !value.at("quantity").is_string())
-    throw std::invalid_argument("invalid strategy");
+  const auto kind = rule.at("kind").get<std::string>();
+  // A rule over several contracts carries its own size and takes no quantity.
+  const bool ranks = kind == "cross_momentum";
+  if (ranks)
+    require_fields(value, {"sides", "rule"});
+  else
+    require_fields(value, {"quantity", "sides", "rule"});
+  const auto amount = [](const Json& text) {
+    if (!text.is_string())
+      throw std::invalid_argument("invalid strategy");
+    return Decimal::parse(text.get<std::string>()).raw();
+  };
   v1::Strategy result;
-  result.mutable_quantity()->set_units(
-      Decimal::parse(value.at("quantity").get<std::string>()).raw());
+  if (!ranks)
+    result.mutable_quantity()->set_units(amount(value.at("quantity")));
   result.set_sides(encode_position_sides(value.at("sides")));
   const auto window = [&](const char* name) {
     if (!rule.at(name).is_number_integer() || rule.at(name) < 0 || rule.at(name) > 10000)
       throw std::invalid_argument("strategy windows are whole bars up to 10000");
     return rule.at(name).get<unsigned>();
   };
-  const auto kind = rule.at("kind").get<std::string>();
   if (kind == "moving_average") {
     require_fields(rule, {"kind", "fast", "slow"});
     result.mutable_moving_average()->set_fast(window("fast"));
@@ -88,16 +96,14 @@ v1::Strategy encode_strategy(const Json& value) {
     result.mutable_momentum()->set_lookback(window("lookback"));
   } else if (kind == "reversion") {
     require_fields(rule, {"kind", "window", "width"});
-    if (!rule.at("width").is_string())
-      throw std::invalid_argument("invalid strategy");
     result.mutable_reversion()->set_window(window("window"));
-    result.mutable_reversion()->mutable_width()->set_units(
-        Decimal::parse(rule.at("width").get<std::string>()).raw());
+    result.mutable_reversion()->mutable_width()->set_units(amount(rule.at("width")));
   } else if (kind == "cross_momentum") {
-    require_fields(rule, {"kind", "lookback", "rebalance", "count"});
+    require_fields(rule, {"kind", "lookback", "rebalance", "count", "notional"});
     result.mutable_cross_momentum()->set_lookback(window("lookback"));
     result.mutable_cross_momentum()->set_rebalance(window("rebalance"));
     result.mutable_cross_momentum()->set_count(window("count"));
+    result.mutable_cross_momentum()->mutable_notional()->set_units(amount(rule.at("notional")));
   } else
     throw std::invalid_argument("unknown strategy rule");
   return result;
@@ -127,17 +133,30 @@ Json decode_strategy(const v1::Strategy& strategy) {
     rule = {{"kind", "cross_momentum"},
             {"lookback", strategy.cross_momentum().lookback()},
             {"rebalance", strategy.cross_momentum().rebalance()},
-            {"count", strategy.cross_momentum().count()}};
+            {"count", strategy.cross_momentum().count()},
+            {"notional", Decimal::from_raw(strategy.cross_momentum().notional().units()).str()}};
     break;
   case v1::Strategy::RULE_NOT_SET:
     throw std::invalid_argument("unknown strategy rule");
   }
-  return {{"quantity", Decimal::from_raw(strategy.quantity().units()).str()},
-          {"sides", position_sides_name(position_sides(strategy.sides()))},
-          {"rule", std::move(rule)}};
+  Json result{{"sides", position_sides_name(position_sides(strategy.sides()))},
+              {"rule", std::move(rule)}};
+  if (!strategy.has_cross_momentum())
+    result["quantity"] = Decimal::from_raw(strategy.quantity().units()).str();
+  return result;
 }
 void validate_strategy(const v1::Strategy& strategy, Decimal quantity_increment) {
   static_cast<void>(position_sides(strategy.sides()));
+  if (strategy.has_cross_momentum()) {
+    const auto& rule = strategy.cross_momentum();
+    if (strategy.has_quantity() || !rule.lookback() || rule.lookback() > 10000 ||
+        !rule.rebalance() || rule.rebalance() > 10000 || !rule.count() || rule.count() > 10 ||
+        rule.notional().units() <= 0)
+      throw std::invalid_argument(
+          "cross momentum requires a lookback and a rebalance of 1..10000 bars, 1..10 contracts "
+          "a side and a positive notional in place of a quantity");
+    return;
+  }
   const auto quantity = Decimal::from_raw(strategy.quantity().units());
   if (!strategy.has_quantity() || quantity <= Decimal{} ||
       !quantity.multiple_of(quantity_increment))
@@ -167,12 +186,6 @@ void validate_strategy(const v1::Strategy& strategy, Decimal quantity_increment)
     return;
   }
   case v1::Strategy::kCrossMomentum:
-    if (const auto& rule = strategy.cross_momentum();
-        !rule.lookback() || rule.lookback() > 10000 || !rule.rebalance() ||
-        rule.rebalance() > 10000 || !rule.count() || rule.count() > 10)
-      throw std::invalid_argument("cross momentum requires a lookback and a rebalance of "
-                                  "1..10000 bars and 1..10 contracts a side");
-    return;
   case v1::Strategy::RULE_NOT_SET:
     break;
   }

@@ -44,7 +44,7 @@ const rules = {
       ["count", "每侧合约数"],
     ],
     about:
-      "在所有合约都有的 K 线上，每隔“调仓间隔”根按“收盘价 ÷ 动量回看根之前的收盘价”给各合约排序，最强的“每侧合约数”个做多、最弱的做空，其余空仓，持有到下一次排序。一条主力连续算一个合约。",
+      "在所有合约都有的 K 线上，每隔“调仓间隔”根按“收盘价 ÷ 动量回看根之前的收盘价”给各合约排序，最强的“每侧合约数”个做多、最弱的做空，其余空仓，持有到下一次排序。入选的合约各持有市值最接近“每个合约的名义金额”的手数，按排序那根 K 线的收盘价和合约乘数计算。一条主力连续算一个合约。",
   },
 } as const;
 type Kind = keyof typeof rules;
@@ -67,6 +67,7 @@ export type StrategyDraft = {
   width: string;
   rebalance: string;
   count: string;
+  notional: string;
 };
 export const strategyDefaults: StrategyDraft = {
   kind: "moving_average",
@@ -81,6 +82,7 @@ export const strategyDefaults: StrategyDraft = {
   width: "2",
   rebalance: "5",
   count: "1",
+  notional: "100000",
 };
 
 const several = (text: string) =>
@@ -116,6 +118,7 @@ function combinations(draft: StrategyDraft): StrategyDefinition["rule"][] {
           lookback,
           rebalance,
           count,
+          notional: draft.notional,
         })),
       ),
     );
@@ -126,7 +129,12 @@ function combinations(draft: StrategyDraft): StrategyDefinition["rule"][] {
 
 /** The strategies a draft submits: one, or one for each combination of its windows. */
 export function strategiesOf(draft: StrategyDraft): StrategyDefinition[] {
-  return combinations(draft).map(rule => ({ quantity: draft.quantity, sides: draft.sides, rule }));
+  // A rule that ranks contracts carries its own size and takes no quantity.
+  return combinations(draft).map(rule =>
+    rule.kind === "cross_momentum"
+      ? { sides: draft.sides, rule }
+      : { quantity: draft.quantity, sides: draft.sides, rule },
+  );
 }
 /** The definition a draft with one value in every window submits. */
 export function strategyOf(draft: StrategyDraft): StrategyDefinition {
@@ -149,6 +157,11 @@ export function strategyRule(definition: StrategyDefinition): string {
   return `${t(rules[rule.kind].name)} ${windows}`;
 }
 export const strategySides = (value: PositionSides) => t(sides[value]);
+/** What a strategy holds on a side, as one reads it in a summary. */
+export const strategySize = (definition: StrategyDefinition) =>
+  "quantity" in definition
+    ? t("{n} 手", { n: definition.quantity })
+    : t("每个合约 {n}", { n: definition.rule.notional });
 
 /** A strategy's fields as labelled rows, for showing what was submitted. */
 export function strategyRows(definition: StrategyDefinition): [string, string | number][] {
@@ -159,7 +172,9 @@ export function strategyRows(definition: StrategyDefinition): [string, string | 
     ...rules[rule.kind].fields.map(
       ([name, label]) => [t(label), values[name]] as [string, string | number],
     ),
-    [t("目标手数"), definition.quantity],
+    "quantity" in definition
+      ? [t("目标手数"), definition.quantity]
+      : [t("每个合约的名义金额"), definition.rule.notional],
     [t("持仓方向"), strategySides(definition.sides)],
   ];
 }
@@ -232,18 +247,32 @@ export function StrategyFields({
             )}
           </label>
         ))}
-        <label>
-          {t("目标手数")}
-          <input
-            aria-label={t("目标手数")}
-            type="number"
-            min="1"
-            step="1"
-            required
-            value={value.quantity}
-            onChange={event => onChange({ ...value, quantity: event.target.value })}
-          />
-        </label>
+        {ranking.includes(value.kind) ? (
+          <label>
+            {t("每个合约的名义金额")}
+            <input
+              aria-label={t("每个合约的名义金额")}
+              inputMode="decimal"
+              pattern="[0-9]+([.][0-9]+)?"
+              required
+              value={value.notional}
+              onChange={event => onChange({ ...value, notional: event.target.value })}
+            />
+          </label>
+        ) : (
+          <label>
+            {t("目标手数")}
+            <input
+              aria-label={t("目标手数")}
+              type="number"
+              min="1"
+              step="1"
+              required
+              value={value.quantity}
+              onChange={event => onChange({ ...value, quantity: event.target.value })}
+            />
+          </label>
+        )}
         <label>
           {t("持仓方向")}
           <select

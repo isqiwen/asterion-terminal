@@ -853,7 +853,7 @@
   "breakout requires 1 <= exit <= entry <= 10000": "通道突破要求 1 ≤ 离场通道 ≤ 入场通道 ≤ 10000。",
   "momentum requires a lookback of 1..10000 bars": "时序动量的回看必须是 1 至 10000 根 K 线。",
   "reversion requires a window of 2..10000 bars and a width above 0 up to 10": "布林回归要求均值窗口为 2 至 10000 根 K 线，带宽大于 0 且不超过 10。",
-  "cross momentum requires a lookback and a rebalance of 1..10000 bars and 1..10 contracts a side": "截面动量的动量回看和调仓间隔须为 1 到 10000 根 K 线，每侧合约数须为 1 到 10。",
+  "cross momentum requires a lookback and a rebalance of 1..10000 bars, 1..10 contracts a side and a positive notional in place of a quantity": "截面动量的动量回看和调仓间隔须为 1 到 10000 根 K 线，每侧合约数须为 1 到 10，并以正的名义金额代替目标手数。",
   "a rule over several contracts runs in backtests only": "给多个合约排序的规则只能用于回测，不能在单个合约的实盘运行里使用。",
   "cross momentum requires at least twice as many contracts as it holds a side": "截面动量需要的合约（或主力连续）数量至少是每侧合约数的两倍。",
   "cross momentum requires positive closes": "截面动量要求收盘价为正。",

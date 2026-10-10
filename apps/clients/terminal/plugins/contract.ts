@@ -7,6 +7,7 @@ export {
   strategyRows,
   strategyRule,
   strategySides,
+  strategySize,
   type StrategyDraft,
 } from "../src/ui/StrategyFields";
 export { useWorkspaceDraft, useWorkspaceRequestId } from "../src/host/workspace/drafts";

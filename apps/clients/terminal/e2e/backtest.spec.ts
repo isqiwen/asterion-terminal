@@ -442,11 +442,14 @@ test("a ranking rule holds the strongest contract long and the weakest short", a
   await workspace.getByRole("button", { name: "下一步", exact: true }).click();
   await workspace.getByLabel("策略", { exact: true }).selectOption("cross_momentum");
   await expect(workspace.getByText(/最强的“每侧合约数”个做多、最弱的做空/)).toBeVisible();
+  // It is sized by a notional, not by a number of lots.
+  await expect(workspace.getByLabel("目标手数", { exact: true })).toHaveCount(0);
   for (const [label, value] of [
     ["动量回看", "1"],
     ["调仓间隔", "2"],
     ["每侧合约数", "3"],
-    ["目标手数", "1"],
+    // A lot is worth ten times its price, about 1000 here: one lot each.
+    ["每个合约的名义金额", "1000"],
     ["初始资金", "100000"],
     ["单笔数量上限", "100"],
     ["总持仓量上限", "100"],
@@ -512,5 +515,6 @@ test("a ranking rule holds the strongest contract long and the weakest short", a
   await expect(parameter("策略")).toHaveText("截面动量");
   await expect(parameter("调仓间隔")).toHaveText("2");
   await expect(parameter("每侧合约数")).toHaveText("1");
+  await expect(parameter("每个合约的名义金额")).toHaveText("1000");
   await page.screenshot({ path: join(__dirname, "../test-results/backtest-ranked.png") });
 });

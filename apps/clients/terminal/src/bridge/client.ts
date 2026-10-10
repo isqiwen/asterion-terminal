@@ -727,17 +727,28 @@ export type FactorExperiment = {
 export type PositionSides = "both" | "long" | "short";
 // What a strategy trades by: a rule over completed bars, the lots it holds
 // while the rule takes a side, and the sides it may hold.
-export type StrategyDefinition = {
-  quantity: string;
-  sides: PositionSides;
-  rule:
-    | { kind: "moving_average"; fast: number; slow: number }
-    | { kind: "breakout"; entry: number; exit: number }
-    | { kind: "momentum"; lookback: number }
-    | { kind: "reversion"; window: number; width: string }
-    // Ranks several contracts and holds `count` a side; backtests only.
-    | { kind: "cross_momentum"; lookback: number; rebalance: number; count: number };
-};
+export type StrategyDefinition =
+  | {
+      quantity: string;
+      sides: PositionSides;
+      rule:
+        | { kind: "moving_average"; fast: number; slow: number }
+        | { kind: "breakout"; entry: number; exit: number }
+        | { kind: "momentum"; lookback: number }
+        | { kind: "reversion"; window: number; width: string };
+    }
+  // Ranks several contracts, holds `count` a side and sizes each to the lots
+  // nearest `notional` instead of a quantity; backtests only.
+  | {
+      sides: PositionSides;
+      rule: {
+        kind: "cross_momentum";
+        lookback: number;
+        rebalance: number;
+        count: number;
+        notional: string;
+      };
+    };
 // How a backtest's result performed, from its day-end equity. The drawdown is
 // a share of the peak it fell from. Yearly figures are scaled by the calendar
 // time the days span and are null with fewer than 20 trading days.

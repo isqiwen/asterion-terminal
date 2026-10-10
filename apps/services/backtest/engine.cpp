@@ -214,9 +214,21 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
       together.push_back({current.contract, order, bar.close, leading});
       if (index + 1 == total ||
           execution.bar(execution.event(index + 1)).timestamp_ns != bar.timestamp_ns) {
-        if (const auto targets = cross->rank()) {
-          for (std::size_t u = 0; u < wanted.size(); ++u)
-            wanted[u] = (*targets)[u];
+        if (const auto sides = cross->rank()) {
+          // A unit holds the lots of the month it trades now whose value at
+          // this close is nearest the rule's notional.
+          const auto notional = decimal(definition.cross_momentum().notional());
+          for (const auto& item : together) {
+            const auto u = unit[item.contract];
+            if (item.leading) {
+              const auto& terms = execution.contract(item.contract).terms.instrument;
+              const auto lots = quantize(
+                  divide(notional, multiply(item.close, terms.multiplier, Rounding::half_up),
+                         Rounding::half_up),
+                  terms.quantity_increment, Rounding::half_up);
+              wanted[u] = (*sides)[u] > 0 ? lots : (*sides)[u] < 0 ? Decimal{} - lots : Decimal{};
+            }
+          }
           for (const auto& item : together)
             pending[item.contract] = PaperExecution::Target{
                 item.order, item.leading ? *wanted[unit[item.contract]] : Decimal{}, item.close};

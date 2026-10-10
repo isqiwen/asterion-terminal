@@ -15,6 +15,7 @@ import {
   strategiesOf,
   strategyRule,
   strategySides,
+  strategySize,
   type TerminalContext,
 } from "../contract";
 import { timestamp, type PerformanceFigures } from "../../src/bridge/client";
@@ -370,7 +371,8 @@ export function Backtest({
                           n: candidates.length,
                           day: holdoutFrom,
                         })}{" "}
-                    · {t("{n} 手", { n: strategy.quantity })} · {strategySides(strategy.sides)}
+                    {candidates.length > 0 && <>· {strategySize(candidates[0])} </>}·{" "}
+                    {strategySides(strategy.sides)}
                   </dd>
                   <dt>{t("初始资金")}</dt>
                   <dd>{parameters.deposit}</dd>

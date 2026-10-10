@@ -1422,12 +1422,15 @@ TEST_F(Live, ARunTradesByTheRuleItWasStartedWith) {
                                          {{"kind", "breakout"}, {"entry", 1}, {"exit", 2}})),
                std::invalid_argument);
   // So is a rule that ranks several contracts: a run trades one.
-  EXPECT_THROW(
-      act(session,
-          market.start(
-              "ranked", "1", "both",
-              {{"kind", "cross_momentum"}, {"lookback", 1}, {"rebalance", 1}, {"count", 1}})),
-      std::invalid_argument);
+  auto ranked = market.start("ranked", "1");
+  ranked["strategy"] = {{"sides", "both"},
+                        {"rule",
+                         {{"kind", "cross_momentum"},
+                          {"lookback", 1},
+                          {"rebalance", 1},
+                          {"count", 1},
+                          {"notional", "1000"}}}};
+  EXPECT_THROW(act(session, ranked), std::invalid_argument);
   EXPECT_TRUE(session.snapshot().at("strategy").is_null());
   // Momentum over one bar: 3501 is above the close before it.
   const Json rule{{"kind", "momentum"}, {"lookback", 1}};

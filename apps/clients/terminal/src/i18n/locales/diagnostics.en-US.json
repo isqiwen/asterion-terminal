@@ -853,7 +853,7 @@
   "breakout requires 1 <= exit <= entry <= 10000": "breakout requires 1 <= exit <= entry <= 10000",
   "momentum requires a lookback of 1..10000 bars": "momentum requires a lookback of 1..10000 bars",
   "reversion requires a window of 2..10000 bars and a width above 0 up to 10": "reversion requires a window of 2..10000 bars and a width above 0 up to 10",
-  "cross momentum requires a lookback and a rebalance of 1..10000 bars and 1..10 contracts a side": "cross momentum requires a lookback and a rebalance of 1..10000 bars and 1..10 contracts a side",
+  "cross momentum requires a lookback and a rebalance of 1..10000 bars, 1..10 contracts a side and a positive notional in place of a quantity": "cross momentum requires a lookback and a rebalance of 1..10000 bars, 1..10 contracts a side and a positive notional in place of a quantity",
   "a rule over several contracts runs in backtests only": "a rule over several contracts runs in backtests only",
   "cross momentum requires at least twice as many contracts as it holds a side": "cross momentum requires at least twice as many contracts as it holds a side",
   "cross momentum requires positive closes": "cross momentum requires positive closes",

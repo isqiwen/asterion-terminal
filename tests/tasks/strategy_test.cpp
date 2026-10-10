@@ -14,6 +14,10 @@ protocol::v1::Strategy strategy(Json rule, const char* sides = "both", const cha
   return protocol::encode_strategy(
       {{"quantity", quantity}, {"sides", sides}, {"rule", std::move(rule)}});
 }
+// A rule over several contracts: it carries a notional and takes no quantity.
+protocol::v1::Strategy ranking(Json rule, const char* sides = "both") {
+  return protocol::encode_strategy({{"sides", sides}, {"rule", std::move(rule)}});
+}
 using Targets = std::vector<std::optional<Decimal>>;
 // The target after each of these closes, fed as bars without a range.
 Targets targets(const protocol::v1::Strategy& definition,
@@ -133,9 +137,13 @@ TEST(Strategy, ADefinitionStatesWindowsItsRuleCanWorkWith) {
     EXPECT_THROW(strategy(rule), std::exception) << rule.dump();
 }
 TEST(Strategy, ARankingRuleHoldsTheStrongestLongAndTheWeakestShortOnBarsAllUnitsHave) {
-  const Json rule{{"kind", "cross_momentum"}, {"lookback", 1}, {"rebalance", 2}, {"count", 1}};
-  CrossSection ranking(strategy(rule, "both", "2"), 4);
-  using Wanted = std::optional<std::vector<Decimal>>;
+  const Json rule{{"kind", "cross_momentum"},
+                  {"lookback", 1},
+                  {"rebalance", 2},
+                  {"count", 1},
+                  {"notional", "1000"}};
+  CrossSection ranked(ranking(rule), 4);
+  using Wanted = std::optional<std::vector<int>>;
   const auto bars = [](CrossSection& run, std::int64_t time,
                        std::initializer_list<const char*> closes) {
     std::size_t unit = 0;
@@ -147,37 +155,45 @@ TEST(Strategy, ARankingRuleHoldsTheStrongestLongAndTheWeakestShortOnBarsAllUnits
     return run.rank();
   };
   // One shared bar has nothing a lookback of 1 can compare it with.
-  EXPECT_EQ(bars(ranking, 1, {"100", "100", "100", "100"}), Wanted());
+  EXPECT_EQ(bars(ranked, 1, {"100", "100", "100", "100"}), Wanted());
   // 1.10, 1.05, 1.00, 0.95 of the bar before: the first long, the last short.
-  EXPECT_EQ(bars(ranking, 2, {"110", "105", "100", "95"}),
-            Wanted({d("2"), d("0"), d("0"), d("-2")}));
+  EXPECT_EQ(bars(ranked, 2, {"110", "105", "100", "95"}), Wanted({1, 0, 0, -1}));
   // A bar the fourth unit lacks is no bar of them all, and the next shared
   // one is not the second since the ranking.
-  EXPECT_EQ(bars(ranking, 3, {"1", "1", "1", ""}), Wanted());
-  EXPECT_EQ(bars(ranking, 4, {"110", "126", "90", "95"}), Wanted());
+  EXPECT_EQ(bars(ranked, 3, {"1", "1", "1", ""}), Wanted());
+  EXPECT_EQ(bars(ranked, 4, {"110", "126", "90", "95"}), Wanted());
   // 0.9, 1.0, 1.1, 1.1 of the shared bar before, at time 4: of the equal
   // strongest the one named first is held.
-  EXPECT_EQ(bars(ranking, 5, {"99", "126", "99", "104.5"}),
-            Wanted({d("-2"), d("0"), d("2"), d("0")}));
+  EXPECT_EQ(bars(ranked, 5, {"99", "126", "99", "104.5"}), Wanted({-1, 0, 1, 0}));
 
-  CrossSection longs(strategy(rule, "long"), 2);
+  CrossSection longs(ranking(rule, "long"), 2);
   EXPECT_EQ(bars(longs, 1, {"100", "100"}), Wanted());
-  EXPECT_EQ(bars(longs, 2, {"99", "101"}), Wanted({d("0"), d("1")}));
+  EXPECT_EQ(bars(longs, 2, {"99", "101"}), Wanted({0, 1}));
 
   // A unit is never wanted on both sides; bars keep their order; a rule over
   // several contracts is no strategy for one.
-  EXPECT_THROW(CrossSection(strategy(rule), 1), std::invalid_argument);
+  EXPECT_THROW(CrossSection(ranking(rule), 1), std::invalid_argument);
   EXPECT_THROW(longs.on_bar(0, 1, d("100")), std::invalid_argument);
   longs.on_bar(0, 3, d("100"));
   EXPECT_THROW(longs.on_bar(0, 3, d("100")), std::invalid_argument);
-  EXPECT_THROW(make_strategy(strategy(rule), instrument()), std::invalid_argument);
+  EXPECT_THROW(make_strategy(ranking(rule), instrument()), std::invalid_argument);
   EXPECT_THROW(CrossSection(strategy(average), 4), std::invalid_argument);
-  EXPECT_EQ(protocol::strategy_warmup(strategy(rule)), 2U);
-  EXPECT_EQ(protocol::decode_strategy(strategy(rule)).at("rule"), rule);
-  for (const auto* field : {"lookback", "rebalance", "count"}) {
+  EXPECT_EQ(protocol::strategy_warmup(ranking(rule)), 2U);
+  EXPECT_EQ(protocol::decode_strategy(ranking(rule)), (Json{{"sides", "both"}, {"rule", rule}}));
+  for (const auto& [field, value] :
+       {std::pair{"lookback", Json(0)}, std::pair{"rebalance", Json(0)},
+        std::pair{"count", Json(0)}, std::pair{"count", Json(11)},
+        std::pair{"notional", Json("0")}}) {
     auto invalid = rule;
-    invalid[field] = 0;
-    EXPECT_THROW(protocol::validate_strategy(strategy(invalid), d("1")), std::invalid_argument)
+    invalid[field] = value;
+    EXPECT_THROW(protocol::validate_strategy(ranking(invalid), d("1")), std::invalid_argument)
         << field;
   }
+  // It sizes by its notional: a quantity beside it is refused, and a rule on
+  // one contract cannot go without one.
+  EXPECT_THROW(strategy(rule), Error);
+  auto sized = ranking(rule);
+  sized.mutable_quantity()->set_units(d("1").raw());
+  EXPECT_THROW(protocol::validate_strategy(sized, d("1")), std::invalid_argument);
+  EXPECT_THROW(ranking(average), Error);
 }

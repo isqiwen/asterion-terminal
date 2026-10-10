@@ -6,6 +6,7 @@ import {
   strategyOf,
   strategyRule,
   strategySides,
+  strategySize,
   translate,
   type MessageValues,
 } from "../contract";
@@ -40,11 +41,11 @@ export function StrategyStatus({
       <div className="strategy-run-heading">
         <strong>{t("策略运行中")}</strong>
         <span>
-          {t("{venue} · {symbol} · {rule} · {quantity} 手 · {sides}", {
+          {t("{venue} · {symbol} · {rule} · {size} · {sides}", {
             venue: run.venue,
             symbol: run.symbol,
             rule: strategyRule(run.strategy),
-            quantity: run.strategy.quantity,
+            size: strategySize(run.strategy),
             sides: strategySides(run.strategy.sides),
           })}
         </span>
