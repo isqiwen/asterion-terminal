@@ -262,5 +262,12 @@
   "平均盈利": "Average win",
   "平均亏损": "Average loss",
   "盈亏比": "Payoff ratio",
-  "一笔是一个合约从开仓到全部平掉的一次持仓，不论分几次成交；盈亏是卖出所得减买入所付再乘合约乘数，未扣手续费。期末还没平掉的持仓不算一笔，主力连续换月时新旧月份各算一笔。": "A trade is one contract's position from its opening until all of it is closed, in however many fills; its profit is what the sells brought in less what the buys cost, times the contract multiplier, before fees. A position still open at the end is no trade, and when a dominant series rolls, the old month and the new are a trade each."
+  "一笔是一个合约从开仓到全部平掉的一次持仓，不论分几次成交；盈亏是卖出所得减买入所付再乘合约乘数，未扣手续费。期末还没平掉的持仓不算一笔，主力连续换月时新旧月份各算一笔。": "A trade is one contract's position from its opening until all of it is closed, in however many fills; its profit is what the sells brought in less what the buys cost, times the contract multiplier, before fees. A position still open at the end is no trade, and when a dominant series rolls, the old month and the new are a trade each.",
+  "价格动量": "Price momentum",
+  "期限结构": "Term structure",
+  "期限结构只在主力连续上评价：请去掉单个合约，只保留主力连续。": "The term structure is evaluated on dominant series alone: remove the single contracts and keep the dominant series.",
+  "所选主力连续里有的没有期限结构数据：主力月份之后还需要有已下载日线的月份，才能比较近远月。": "A selected dominant series has no term structure: a month after the dominant one must have downloaded daily data for the two to be compared.",
+  "期限结构 · 每个交易日开始时已知的年化近远月价差：前一交易日主力月份的结算价 ÷ 当日持仓最大的后续月份的结算价 − 1，再乘以 12 ÷ 两个月份相隔的月数；回看窗口内取均值。只在能做这个比较的交易日上评价。": "Term structure · the annualised spread known when a trading day begins: the dominant month's settlement on the day before over that of the later month with the largest open interest that day, less one, times 12 over the delivery months between them; averaged over the lookback window. Only trading days that allow the comparison are evaluated.",
+  "期限结构只使用前一交易日已有的结算价，留出段可使用此前历史预热。未来标签不进入因子，跨分界标签剔除。留出评价需事先固定参数；反复查看留出结果后调参不能证明样本外有效。": "The term structure uses only settlements already known the day before, and the holdout may warm up on earlier history. Future labels never enter the factor, and labels that cross the boundary are left out. A holdout evaluation needs its parameters fixed beforehand; tuning after looking at the holdout repeatedly proves nothing out of sample.",
+  "有期限结构的交易日": "Trading days with a term structure"
 }

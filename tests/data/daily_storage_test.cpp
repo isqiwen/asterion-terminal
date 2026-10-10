@@ -584,7 +584,8 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   EXPECT_FALSE(dataset.bars(0).has_settlement());
   EXPECT_FALSE(dataset.bars(0).has_macd());
   factor::v1::FactorInput input;
-  input.set_version(7);
+  input.set_version(8);
+  input.set_factor(protocol::v1::PRICE_MOMENTUM);
   input.add_lookbacks(2);
   input.set_horizon(2);
   input.set_holdout_start(40);
@@ -594,6 +595,7 @@ TEST(DailyFactorSource, SnapshotsVerifiedCompletedSourceAndRejectsChangedEvidenc
   EXPECT_EQ(analysis.samples_size(), 74);
   factor::v1::FactorRequest parameters;
   parameters.add_series()->set_daily_dataset_id(result.manifest_sha256());
+  parameters.set_factor(protocol::v1::PRICE_MOMENTUM);
   parameters.add_lookbacks(2);
   parameters.set_horizon(2);
   parameters.set_holdout_start(40);

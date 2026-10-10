@@ -5,7 +5,7 @@
 #include <asterion/v1/factor.pb.h>
 namespace asterion::protocol {
 // Identifies how features, labels, partitions and selection are computed.
-inline constexpr char factor_engine_version[] = "asterion.factor.momentum.v6";
+inline constexpr char factor_engine_version[] = "asterion.factor.v7";
 std::vector<HistoricalDailyBar> daily_factor_bars(const factor::v1::DailyFactorDataset&);
 std::string daily_factor_revision(const factor::v1::DailyFactorDataset&);
 factor::v1::FactorRequest encode_factor_request(const Json& input);
@@ -24,8 +24,10 @@ factor_revision(const google::protobuf::RepeatedPtrField<factor::v1::FactorSerie
 // What a factor reads from the series of a valid input: the observations they
 // all have, in order. `closes` holds one positive close per observation for
 // each series; `order` says when it was observed, as a number that increases.
+// `terms` holds each observation's carry for the term structure and is empty
+// for price momentum, which reads the closes.
 struct FactorObservations {
-  std::vector<std::vector<Decimal>> closes;
+  std::vector<std::vector<Decimal>> closes, terms;
   std::vector<std::int64_t> order;
 };
 FactorObservations factor_observations(const factor::v1::FactorInput& input);

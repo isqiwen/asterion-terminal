@@ -40,7 +40,8 @@ data::v1::BarDatasetRequest encode_bar_dataset_request(const Json&);
 Json decode_bar_dataset_request(const data::v1::BarDatasetRequest&);
 // A dominant series over `contracts`, which its rolls name by index: later
 // months of one product with the same terms, each from a later trading day,
-// with positive factors that end in 1.
+// with positive factors that end in 1. Its term points, at most one a day
+// from its first, compare positive settlements with a later delivery month.
 void validate_dominant_schedule(const data::v1::DominantSchedule& schedule,
                                 std::span<const v1::Contract* const> contracts);
 // The roll in force on a trading day; the first roll before the series begins.
@@ -50,6 +51,11 @@ const data::v1::DominantRoll& dominant_roll(const data::v1::DominantSchedule& sc
 // price grid. Signals and factors read it; orders and fills never do.
 Decimal dominant_price(Decimal raw, Decimal factor, Decimal increment);
 Json decode_dominant_schedule(const data::v1::DominantSchedule& schedule);
+// How far `near_month` settled above the later month of a term point, as a
+// year's worth: near over far less one, times twelve over the delivery
+// months between them. Positive when the nearer month is the dearer.
+Decimal term_carry(const data::v1::TermPoint& point, const std::string& near_month);
+Json decode_term_points(const data::v1::DominantSchedule& schedule);
 std::string named_dataset_revision(const data::v1::NamedDataset&);
 void validate_named_dataset(const data::v1::NamedDataset&);
 Json decode_named_dataset(const data::v1::NamedDataset&);

@@ -514,7 +514,9 @@ void Application::Impl::register_data_commands() {
                          {{"venue", product.venue()},
                           {"product", product.product()},
                           {"symbols", std::move(symbols)},
-                          {"rolls", std::move(rolls)}}});
+                          {"rolls", std::move(rolls)},
+                          // Trading days on which the term structure is known.
+                          {"terms", preview.schedule().terms_size()}}});
     ++dataset_selection_generation;
     selections = std::move(kept);
     dataset_series = std::move(remaining);

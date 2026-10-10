@@ -33,6 +33,12 @@ message LiveAuthorize { string user_id = 1; }
 // it stops counting as working exposure. It is never resent either way.
 message LiveResolve { string order_id = 1; }
 enum Side { SIDE_UNSPECIFIED = 0; BUY = 1; SELL = 2; }
+// What contracts are compared by; a window counts observations.
+// PRICE_MOMENTUM: the close over the close a window earlier, less one.
+// TERM_STRUCTURE: the mean over a window of how far the dominant month of a
+// series settled above a later month the day before, as a year's worth.
+// Unspecified is invalid.
+enum Factor { FACTOR_UNSPECIFIED = 0; PRICE_MOMENTUM = 1; TERM_STRUCTURE = 2; }
 // Which sides of a contract a strategy may hold. Unspecified is invalid.
 enum PositionSides { POSITION_SIDES_UNSPECIFIED = 0; LONG_AND_SHORT = 1; LONG_ONLY = 2; SHORT_ONLY = 3; }
 // The rules a strategy takes its side by. Windows count completed bars.

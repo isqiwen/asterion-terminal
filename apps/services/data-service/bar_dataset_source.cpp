@@ -217,6 +217,7 @@ DominantSeries resolve_dominant_series(const std::vector<BarDatasetSources>& inp
     Decimal ratio; // New over old settlement on the day before the roll.
   };
   std::vector<Segment> segments;
+  std::vector<data::v1::TermPoint> terms;
   for (std::size_t d = 1; d < days.size(); ++d) {
     const auto &day = days[d], &previous = days[d - 1];
     const auto first = segments.empty() ? 0 : segments.back().month;
@@ -231,6 +232,24 @@ DominantSeries resolve_dominant_series(const std::vector<BarDatasetSources>& inp
     if (!chosen)
       throw std::invalid_argument("no month contract of the series has data on " + day +
                                   " and open interest on " + previous);
+    // The term structure the day begins with: the dominant month against the
+    // later month most held the day before, where both settled then.
+    const auto& dominant = months[*chosen];
+    std::optional<std::size_t> later;
+    for (std::size_t m = *chosen + 1; m < months.size(); ++m) {
+      const auto interest = months[m].open_interest.find(previous);
+      if (!months[m].settlement.contains(previous) || interest == months[m].open_interest.end())
+        continue;
+      if (!later || interest->second > months[*later].open_interest.at(previous))
+        later = m;
+    }
+    if (later && dominant.settlement.contains(previous)) {
+      auto& term = terms.emplace_back();
+      term.set_trading_day(day);
+      term.mutable_near()->set_units(dominant.settlement.at(previous).raw());
+      term.mutable_far()->set_units(months[*later].settlement.at(previous).raw());
+      term.set_far_month(months[*later].contract.delivery_month());
+    }
     if (!segments.empty() && *chosen == segments.back().month)
       continue;
     Decimal ratio = Decimal::parse("1");
@@ -283,6 +302,8 @@ DominantSeries resolve_dominant_series(const std::vector<BarDatasetSources>& inp
     if (factors[i] <= Decimal{})
       throw std::invalid_argument("invalid roll adjustment ratio on " + segments[i].begin);
   }
+  for (auto& term : terms)
+    *result.schedule.add_terms() = std::move(term);
   return result;
 }
 } // namespace asterion::data

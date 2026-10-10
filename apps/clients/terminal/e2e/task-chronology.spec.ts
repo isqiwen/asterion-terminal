@@ -18,6 +18,7 @@ test("durable task order and dates survive reload independently of task IDs", as
   );
   const spec = {
     series: { kind: "bars" },
+    factor: "momentum",
     lookbacks: [2],
     horizon: 1,
     evaluation: { mode: "full_sample" },

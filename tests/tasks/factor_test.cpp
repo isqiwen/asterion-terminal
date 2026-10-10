@@ -2,7 +2,7 @@
 #include "data/bar_fixture.hpp"
 #include "task_store.hpp"
 #include "tasks/task_store_support.hpp"
-#include "momentum.hpp"
+#include "evaluation.hpp"
 #include <asterion/protocol/task_execution.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <cmath>
@@ -27,7 +27,8 @@ const data::v1::BarDataset& bars(const factor::v1::FactorInput& value) {
 void revision(factor::v1::FactorInput&);
 factor::v1::FactorInput input() {
   factor::v1::FactorInput result;
-  result.set_version(7);
+  result.set_version(8);
+  result.set_factor(protocol::v1::PRICE_MOMENTUM);
   result.set_full_sample(true);
   result.add_lookbacks(2);
   result.set_horizon(1);
@@ -77,7 +78,7 @@ TEST(Factor, FeaturesReadOnlyThePastAndLabelsOnlyTheFuture) {
   closes[1] = d("0");
   EXPECT_THROW(momentum(closes, 1), std::invalid_argument);
   const std::vector<std::span<const Decimal>> series{closes};
-  EXPECT_THROW(evaluate_momentum(series, std::vector<unsigned>{1}, 1, std::nullopt),
+  EXPECT_THROW(evaluate_factor(series, series, momentum, std::vector<unsigned>{1}, 1, std::nullopt),
                std::invalid_argument);
 }
 TEST(Factor, PearsonTiedRanksUndefinedVarianceAndSmallPriceChanges) {
@@ -365,16 +366,16 @@ factor::v1::FactorInput search_input() {
 }
 } // namespace
 TEST(Factor, CandidatePolicyUsesAbsoluteDevelopmentScoreAndDeterministicTies) {
-  std::vector<MomentumCandidateScore> candidates{{2, .2}, {5, -.8}, {10, .8}};
-  EXPECT_EQ(select_momentum_lookback(candidates), 5U);
+  std::vector<FactorCandidateScore> candidates{{2, .2}, {5, -.8}, {10, .8}};
+  EXPECT_EQ(select_lookback(candidates), 5U);
   candidates = {{2, std::nullopt}, {5, 0.0}};
-  EXPECT_EQ(select_momentum_lookback(candidates), 5U);
+  EXPECT_EQ(select_lookback(candidates), 5U);
   candidates = {{2, std::nullopt}, {5, std::nullopt}};
-  EXPECT_FALSE(select_momentum_lookback(candidates));
+  EXPECT_FALSE(select_lookback(candidates));
   candidates = {{5, .2}, {2, .8}};
-  EXPECT_THROW(select_momentum_lookback(candidates), std::invalid_argument);
+  EXPECT_THROW(select_lookback(candidates), std::invalid_argument);
   candidates = {{2, std::numeric_limits<double>::quiet_NaN()}};
-  EXPECT_THROW(select_momentum_lookback(candidates), std::invalid_argument);
+  EXPECT_THROW(select_lookback(candidates), std::invalid_argument);
 }
 TEST(Factor, SearchUsesCommonSamplesAndNeverSelectsAgainstHoldout) {
   auto value = search_input();
@@ -622,7 +623,8 @@ namespace {
 template <class Close> factor::v1::FactorInput daily_input(int count, Close close) {
   using namespace std::chrono;
   factor::v1::FactorInput input;
-  input.set_version(7);
+  input.set_version(8);
+  input.set_factor(protocol::v1::PRICE_MOMENTUM);
   input.add_lookbacks(2);
   input.set_horizon(2);
   input.set_holdout_start(40);
@@ -751,6 +753,7 @@ TEST(Factor, DailySeriesComparesWindowsAndRollsLikeBars) {
 }
 TEST(Factor, RequestNamesOneSeriesOfBarsOrOneDailyVersion) {
   Json request = {{"series", Json::array({Json{{"daily_dataset_id", std::string(64, 'a')}}})},
+                  {"factor", "momentum"},
                   {"lookbacks", {2, 5}},
                   {"horizon", 2},
                   {"evaluation", {{"mode", "holdout"}, {"split_index", 40}}}};
@@ -765,8 +768,8 @@ TEST(Factor, RequestNamesOneSeriesOfBarsOrOneDailyVersion) {
         Json{{"series", Json::array({Json{{"daily_dataset_id", std::string(64, 'a')}},
                                      Json{{"daily_dataset_id", std::string(64, 'b')}}})}},
         Json{{"series", Json::array({Json{{"uploaded_bars", Json::array()}}})}},
-        Json{{"lookbacks", {5, 2}}}, Json{{"lookbacks", {2.5}}}, Json{{"horizon", 0}},
-        Json{{"evaluation", {{"mode", "walk_forward"}}}}}) {
+        Json{{"factor", "carry"}}, Json{{"lookbacks", {5, 2}}}, Json{{"lookbacks", {2.5}}},
+        Json{{"horizon", 0}}, Json{{"evaluation", {{"mode", "walk_forward"}}}}}) {
     auto invalid = request;
     invalid.update(mutation);
     EXPECT_THROW(protocol::encode_factor_request(invalid), std::exception) << mutation.dump();
@@ -781,7 +784,8 @@ namespace {
 // second lacks the bar at `missing`.
 factor::v1::FactorInput cross_input(int count = 41, int missing = 10) {
   factor::v1::FactorInput result;
-  result.set_version(7);
+  result.set_version(8);
+  result.set_factor(protocol::v1::PRICE_MOMENTUM);
   result.set_full_sample(true);
   result.add_lookbacks(2);
   result.set_horizon(1);
@@ -810,7 +814,8 @@ TEST(Factor, SeveralSeriesAreJudgedAcrossContractsAtEachObservation) {
       b{d("1000"), d("1050"), d("1102.5"), d("1157.625"), d("1215.50625")},
       c{d("1000"), d("1000"), d("1000"), d("1000"), d("1100")};
   const std::vector<std::span<const Decimal>> series{a, b, c};
-  const auto result = evaluate_momentum(series, std::vector<unsigned>{1}, 1, std::nullopt);
+  const auto result =
+      evaluate_factor(series, series, momentum, std::vector<unsigned>{1}, 1, std::nullopt);
   EXPECT_TRUE(result.samples.empty());
   // The contracts keep their order at two observations and reverse it at the third.
   ASSERT_EQ(result.cross_sections.size(), 3U);
@@ -826,17 +831,19 @@ TEST(Factor, SeveralSeriesAreJudgedAcrossContractsAtEachObservation) {
   // The same relation everywhere has a mean and nothing to divide it by.
   const std::vector<std::span<const Decimal>> steady{std::span(a).first(4), std::span(b).first(4),
                                                      std::span(c).first(4)};
-  const auto same = evaluate_momentum(steady, std::vector<unsigned>{1}, 1, std::nullopt);
+  const auto same =
+      evaluate_factor(steady, steady, momentum, std::vector<unsigned>{1}, 1, std::nullopt);
   EXPECT_DOUBLE_EQ(*same.partitions[0].spearman, 1);
   EXPECT_FALSE(same.partitions[0].spearman_ratio);
   // Contracts that do not differ leave their observations undefined, not zero.
   const std::vector<std::span<const Decimal>> identical{c, c, c};
-  const auto undefined = evaluate_momentum(identical, std::vector<unsigned>{1}, 1, std::nullopt);
+  const auto undefined =
+      evaluate_factor(identical, identical, momentum, std::vector<unsigned>{1}, 1, std::nullopt);
   EXPECT_EQ(undefined.partitions[0].samples, 3U);
   EXPECT_FALSE(undefined.cross_sections[0].spearman || undefined.partitions[0].spearman ||
                undefined.partitions[0].pearson);
   const std::vector<std::span<const Decimal>> uneven{a, std::span(b).first(4), c};
-  EXPECT_THROW(evaluate_momentum(uneven, std::vector<unsigned>{1}, 1, std::nullopt),
+  EXPECT_THROW(evaluate_factor(uneven, uneven, momentum, std::vector<unsigned>{1}, 1, std::nullopt),
                std::invalid_argument);
 }
 TEST(Factor, SeveralSeriesChooseTheirWindowFromDevelopmentObservationsAlone) {
@@ -846,8 +853,8 @@ TEST(Factor, SeveralSeriesChooseTheirWindowFromDevelopmentObservationsAlone) {
       closes[k].push_back(Decimal::parse(std::to_string(1000 + (k + 3) * i + i % (k + 3) * 4)));
   const std::vector<unsigned> windows{1, 2, 5};
   const auto evaluate = [&] {
-    return evaluate_momentum(std::vector<std::span<const Decimal>>(closes.begin(), closes.end()),
-                             windows, 2, 40);
+    const std::vector<std::span<const Decimal>> series(closes.begin(), closes.end());
+    return evaluate_factor(series, series, momentum, windows, 2, 40);
   };
   const auto before = evaluate();
   for (auto& series : closes)
@@ -957,7 +964,8 @@ TEST_F(FactorTasks, CrossSectionHoldoutAndRollingResultsSurviveTheStore) {
 }
 TEST(Factor, DailyCrossSectionSharesTradingDays) {
   factor::v1::FactorInput value;
-  value.set_version(7);
+  value.set_version(8);
+  value.set_factor(protocol::v1::PRICE_MOMENTUM);
   value.set_full_sample(true);
   value.add_lookbacks(2);
   value.set_horizon(2);
@@ -1003,7 +1011,8 @@ std::vector<MarketBar> bars_of(int first_day, int days, int price, int step) {
 }
 factor::v1::FactorInput dominant_input() {
   factor::v1::FactorInput result;
-  result.set_version(7);
+  result.set_version(8);
+  result.set_factor(protocol::v1::PRICE_MOMENTUM);
   result.set_full_sample(true);
   result.add_lookbacks(2);
   result.set_horizon(1);
@@ -1084,8 +1093,13 @@ TEST(Factor, ADominantSeriesIsFixedWithItsScheduleAndRefusedWhenThatIsNotOneSeri
   const auto refused = [&](auto change) {
     auto invalid = value;
     change(*invalid.mutable_series(0)->mutable_dominant());
-    invalid.set_dataset_revision(protocol::factor_revision(invalid.series()));
-    EXPECT_THROW(protocol::validate_factor_input(invalid), std::invalid_argument);
+    // Whichever reads the series first refuses it.
+    EXPECT_THROW(
+        {
+          invalid.set_dataset_revision(protocol::factor_revision(invalid.series()));
+          protocol::validate_factor_input(invalid);
+        },
+        std::invalid_argument);
   };
   // A month no roll names.
   refused([](auto& series) {
@@ -1110,6 +1124,7 @@ TEST(Factor, ADominantSeriesIsFixedWithItsScheduleAndRefusedWhenThatIsNotOneSeri
   };
   Json request{
       {"series", {{{"dominant", {month("rb2610", "2026-10"), month("rb2701", "2027-01")}}}}},
+      {"factor", "momentum"},
       {"lookbacks", {2}},
       {"horizon", 1},
       {"evaluation", {{"mode", "full_sample"}}}};
@@ -1140,4 +1155,133 @@ TEST(Factor, ADominantSeriesIsComparedWithContractsOnTheBarsTheyShare) {
   // Provider trading dates are another kind of observation.
   *value.mutable_series(2) = daily_input().series(0);
   EXPECT_THROW(protocol::factor_revision(value.series()), std::invalid_argument);
+}
+namespace {
+// The dominant series above with the term structure of five of its six days:
+// rb2610 against rb2701 while it is dominant, then rb2701 against rb2705. The
+// fifth day has no later month that settled the day before.
+factor::v1::FactorInput term_input() {
+  auto result = dominant_input();
+  result.set_factor(protocol::v1::TERM_STRUCTURE);
+  auto* schedule = result.mutable_series(0)->mutable_dominant()->mutable_schedule();
+  for (const auto& [day, near, far, month] :
+       {std::tuple{0, "150", "100", "2027-01"}, std::tuple{1, "130", "100", "2027-01"},
+        std::tuple{2, "90", "100", "2027-01"}, std::tuple{3, "300", "250", "2027-05"},
+        std::tuple{5, "300", "240", "2027-05"}}) {
+    auto* term = schedule->add_terms();
+    term->set_trading_day(series_day(day));
+    term->mutable_near()->set_units(d(near).raw());
+    term->mutable_far()->set_units(d(far).raw());
+    term->set_far_month(month);
+  }
+  result.set_dataset_revision(protocol::factor_revision(result.series()));
+  return result;
+}
+} // namespace
+TEST(Factor, TheTermStructureIsTheCarryEachDayBeginsWithAveragedOverTheWindow) {
+  const auto value = term_input();
+  EXPECT_NO_THROW(protocol::validate_factor_input(value));
+  const auto read = protocol::factor_observations(value);
+  // Eight bars on each of the five days that have a term point.
+  ASSERT_EQ(read.order.size(), 40U);
+  ASSERT_EQ(read.terms.size(), 1U);
+  // Near over far less one, times twelve over the months between: three from
+  // 2026-10 to 2027-01 and four from 2027-01 to 2027-05.
+  EXPECT_EQ(read.terms[0][0], d("2"));     // 150 / 100
+  EXPECT_EQ(read.terms[0][8], d("1.2"));   // 130 / 100
+  EXPECT_EQ(read.terms[0][16], d("-0.4")); // 90 / 100: the later month is dearer
+  EXPECT_EQ(read.terms[0][24], d("0.6"));  // 300 / 250 over four months
+  EXPECT_EQ(read.terms[0][32], d("0.75")); // 300 / 240
+  // The sixth day follows the fourth: the fifth is no observation.
+  EXPECT_EQ(read.order[32], first_bar + 5 * 86400000000000LL);
+  EXPECT_EQ(read.closes[0][24], d("300"));
+
+  const auto result = factor::run(value);
+  EXPECT_EQ(result.input_count(), 40U);
+  ASSERT_EQ(result.samples_size(), 37); // 40 - warmup 2 - horizon 1
+  // The feature is the mean of the last two observations' carry: 2 within the
+  // first day, 1.6 on the first bar of the second. Labels are returns of the
+  // adjusted closes, as for momentum.
+  EXPECT_DOUBLE_EQ(result.samples(0).value(), 2);
+  EXPECT_NEAR(result.samples(0).forward_return(), 155.0 / 153 - 1, 1e-12);
+  EXPECT_EQ(result.samples(6).event_index(), 8U);
+  EXPECT_DOUBLE_EQ(result.samples(6).value(), 1.6);
+  EXPECT_NO_THROW(protocol::validate_factor_result(value, result));
+
+  const auto shown = protocol::decode_factor(value, protocol::DatasetView::metadata);
+  EXPECT_EQ(shown.at("factor"), "term_structure");
+  EXPECT_EQ(shown.at("series").at(0).at("terms"), 5);
+  EXPECT_EQ(shown.at("series").at(0).at("count"), 40);
+  // Momentum on the same input reads every bar and no term point.
+  auto momentum_of = value;
+  momentum_of.set_factor(protocol::v1::PRICE_MOMENTUM);
+  EXPECT_EQ(protocol::factor_observations(momentum_of).order.size(), 48U);
+  EXPECT_TRUE(protocol::factor_observations(momentum_of).terms.empty());
+  // A worker is told which factor to compute.
+  task::v1::Task task;
+  *task.mutable_factor() = value;
+  EXPECT_EQ(protocol::task_execution(task, std::string(64, '0')).factor().factor(),
+            protocol::v1::TERM_STRUCTURE);
+}
+TEST(Factor, TheTermStructureNeedsDominantSeriesAndTermPointsThatAreFixedWithThem) {
+  const auto value = term_input();
+  // A term point is part of what the series is: another price, another revision.
+  auto changed = value;
+  auto* terms = changed.mutable_series(0)->mutable_dominant()->mutable_schedule();
+  terms->mutable_terms(0)->mutable_far()->set_units(d("120").raw());
+  EXPECT_THROW(protocol::validate_factor_input(changed), std::invalid_argument);
+  changed.set_dataset_revision(protocol::factor_revision(changed.series()));
+  EXPECT_NO_THROW(protocol::validate_factor_input(changed));
+
+  const auto refused = [&](auto change) {
+    auto invalid = value;
+    change(*invalid.mutable_series(0)->mutable_dominant()->mutable_schedule());
+    // Whichever reads the series first refuses it.
+    EXPECT_THROW(
+        {
+          invalid.set_dataset_revision(protocol::factor_revision(invalid.series()));
+          protocol::validate_factor_input(invalid);
+        },
+        std::invalid_argument);
+  };
+  // The later month is the dominant month itself, or an earlier one.
+  refused([](auto& schedule) { schedule.mutable_terms(3)->set_far_month("2027-01"); });
+  refused([](auto& schedule) { schedule.mutable_terms(0)->set_far_month("2026-09"); });
+  // Two points of one day; a point before the series begins; no price.
+  refused([](auto& schedule) { schedule.mutable_terms(1)->set_trading_day(series_day(0)); });
+  refused([](auto& schedule) { schedule.mutable_terms(0)->set_trading_day("2026-09-24"); });
+  refused([](auto& schedule) { schedule.mutable_terms(2)->mutable_far()->set_units(0); });
+
+  // A contract's bars have no later month to compare with.
+  auto bars = input();
+  bars.set_factor(protocol::v1::TERM_STRUCTURE);
+  EXPECT_THROW(protocol::validate_factor_input(bars), std::invalid_argument);
+  // Too few days with a term point leave too few observations.
+  auto sparse = value;
+  sparse.mutable_series(0)->mutable_dominant()->mutable_schedule()->mutable_terms()->DeleteSubrange(
+      1, 4);
+  sparse.set_dataset_revision(protocol::factor_revision(sparse.series()));
+  EXPECT_THROW(protocol::validate_factor_input(sparse), std::invalid_argument);
+  // A request names the factor.
+  Json request{{"series", Json::array({Json{{"daily_dataset_id", std::string(64, 'a')}}})},
+               {"factor", "term_structure"},
+               {"lookbacks", {2}},
+               {"horizon", 1},
+               {"evaluation", {{"mode", "full_sample"}}}};
+  EXPECT_EQ(protocol::encode_factor_request(request).factor(), protocol::v1::TERM_STRUCTURE);
+  EXPECT_EQ(protocol::factor_input(protocol::encode_factor_request(request)).factor(),
+            protocol::v1::TERM_STRUCTURE);
+}
+TEST(Factor, AnAverageNeedsItsWindowAndReadsNothingLater) {
+  std::vector<Decimal> values{d("2"), d("4"), d("-1"), d("3")};
+  auto means = average(values, 2);
+  EXPECT_FALSE(means[0]);
+  EXPECT_DOUBLE_EQ(*means[1], 3);
+  EXPECT_DOUBLE_EQ(*means[2], 1.5);
+  EXPECT_DOUBLE_EQ(*means[3], 1);
+  values[3] = d("100");
+  const auto later = average(values, 2);
+  for (std::size_t i = 0; i < 3; ++i)
+    EXPECT_EQ(later[i], means[i]);
+  EXPECT_DOUBLE_EQ(*average(values, 1)[2], -1);
 }

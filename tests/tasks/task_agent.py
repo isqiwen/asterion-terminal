@@ -58,8 +58,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
         select(process,"short")
         call(process,"backtest.submit",{"id":"agent-recovery","strategies": [{"quantity": "1", "sides": "long", "rule": {"kind": "moving_average", "fast": 1, "slow": 3}}], "holdout_from": "","deposit":"10000","contracts": contracts(),"max_order_quantity":"100","max_gross_quantity":"100","max_working_orders":"100"})
         select(process,"long")
-        call(process,"factor.submit",{"id":"factor-recovery","series":{"kind":"bars"},"lookbacks":[2],"horizon":1,"evaluation":{"mode":"full_sample"}})
-        call(process,"factor.submit",{"id":"rolling-recovery","series":{"kind":"bars"},"lookbacks":[2,5,10],"horizon":1,"evaluation":{"mode":"walk_forward","training_events":80,"validation_events":40}})
+        call(process,"factor.submit",{"id":"factor-recovery","series":{"kind":"bars"},"factor":"momentum","lookbacks":[2],"horizon":1,"evaluation":{"mode":"full_sample"}})
+        call(process,"factor.submit",{"id":"rolling-recovery","series":{"kind":"bars"},"factor":"momentum","lookbacks":[2,5,10],"horizon":1,"evaluation":{"mode":"walk_forward","training_events":80,"validation_events":40}})
     finally:close(process)
     # Service-owned immutable history and admitted tasks survive the submitting process.
     process=launch()
@@ -91,7 +91,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
             assert call(process,"task.result",{"id":identity})["task_result"]==result
         selected,=select(process,"long")["datasets"]
         assert selected["count"]==160 and selected["revision"]==factor["experiment"]["dataset_revision"]
-        call(process,"factor.submit",{"id":"repeated-factor","series":{"kind":"bars"},"lookbacks":[2],"horizon":1,"evaluation":{"mode":"full_sample"}})
+        call(process,"factor.submit",{"id":"repeated-factor","series":{"kind":"bars"},"factor":"momentum","lookbacks":[2],"horizon":1,"evaluation":{"mode":"full_sample"}})
         completed(process,"repeated-factor")
         assert call(process,"task.result",{"id":"repeated-factor"})["task_result"]["result"]==factor["result"]
         call(process,"node.action",{"id":"local","service":"task","action":"stop"})

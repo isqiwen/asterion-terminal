@@ -26,7 +26,9 @@ struct DominantSeries {
   // Bars of each of those months while it is dominant, plus the roll day and
   // the trading day after it, on which the position it still holds is closed.
   std::vector<data::v1::BarDataset> datasets;
-  // contract indexes refer to `months`.
+  // contract indexes refer to `months`. Its term points compare each day's
+  // dominant month with the later month that had the most open interest on
+  // the trading day before, at that day's settlements.
   data::v1::DominantSchedule schedule;
 };
 // Fails rather than guesses: when no month has data on a day, when the

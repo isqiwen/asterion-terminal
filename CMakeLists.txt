@@ -87,7 +87,7 @@ add_library(asterion_performance STATIC plugins/tools/performance/performance.cp
 target_include_directories(asterion_performance PUBLIC plugins/tools/performance)
 target_link_libraries(asterion_performance PUBLIC Asterion::Foundation)
 
-add_library(asterion_factor_analysis STATIC plugins/tools/factor_analysis/momentum.cpp plugins/tools/factor_analysis/walk_forward.cpp)
+add_library(asterion_factor_analysis STATIC plugins/tools/factor_analysis/evaluation.cpp plugins/tools/factor_analysis/walk_forward.cpp)
 target_include_directories(asterion_factor_analysis PUBLIC plugins/tools/factor_analysis)
 target_link_libraries(asterion_factor_analysis PUBLIC Asterion::Domain)
 

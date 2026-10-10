@@ -303,6 +303,16 @@ TEST(DominantSeries, ScheduleFollowsThePreviousDaysOpenInterestAndNeverMovesBack
   EXPECT_EQ(series.datasets[1].days(0).trading_day(), days[3]);
   for (const auto& dataset : series.datasets)
     EXPECT_EQ(dataset.revision(), protocol::bar_dataset_revision(dataset));
+  // While rb2610 is dominant each day begins knowing how it settled against
+  // rb2701 the day before. Once rb2701 is dominant no later month is left.
+  ASSERT_EQ(series.schedule.terms_size(), 2);
+  EXPECT_EQ(
+      protocol::decode_term_points(series.schedule),
+      Json::array(
+          {{{"trading_day", days[1]}, {"near", "200"}, {"far", "100"}, {"far_month", "2027-01"}},
+           {{"trading_day", days[2]}, {"near", "204"}, {"far", "102"}, {"far_month", "2027-01"}}}));
+  // Twice the later month, three delivery months away: a year's worth is 4.
+  EXPECT_EQ(protocol::term_carry(series.schedule.terms(0), "2026-10"), d("4"));
 }
 TEST(DominantSeries, ResolutionFailsWhereItWouldHaveToGuess) {
   Directory directory;

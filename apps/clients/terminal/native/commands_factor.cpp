@@ -4,7 +4,7 @@
 namespace asterion::terminal {
 void Application::Impl::register_factor_commands() {
   command("factor.submit", [this](const json& p) -> PolledTask<Response> {
-    fields(p, {"id", "series", "lookbacks", "horizon", "evaluation"});
+    fields(p, {"id", "series", "factor", "lookbacks", "horizon", "evaluation"});
     validate_id(text(p, "id"));
     // A factor reads the bars this window has selected, or a daily version
     // published in the archive. Each selected contract is a series, and so is
@@ -28,6 +28,7 @@ void Application::Impl::register_factor_commands() {
     } else
       throw std::invalid_argument("invalid factor series");
     const auto request = protocol::encode_factor_request({{"series", std::move(sources)},
+                                                          {"factor", p.at("factor")},
                                                           {"lookbacks", p.at("lookbacks")},
                                                           {"horizon", p.at("horizon")},
                                                           {"evaluation", p.at("evaluation")}});

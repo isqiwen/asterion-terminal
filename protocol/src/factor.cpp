@@ -31,28 +31,50 @@ unsigned period(const factor::v1::FactorSeries& data) {
     return 0;
   throw std::invalid_argument("factor series must be of one kind and one period");
 }
-// One series, or a cross-section of contracts observed the same way.
+// One series, or a cross-section of contracts observed the same way. Nothing
+// reads a dominant series before its schedule is known to fit its months:
+// Data resolves a series into the months it reads, in roll order.
 void validate_series(const google::protobuf::RepeatedPtrField<factor::v1::FactorSeries>& series) {
   if (series.size() != 1 && (series.size() < 3 || series.size() > 20))
     throw std::invalid_argument("factor analysis studies one series or 3..20 contracts");
-  for (const auto& data : series)
+  for (const auto& data : series) {
     if (period(data) != period(series.Get(0)) || data.has_daily() != series.Get(0).has_daily())
       throw std::invalid_argument("factor series must be of one kind and one period");
+    if (!data.has_dominant())
+      continue;
+    const auto& dominant = data.dominant();
+    std::vector<const v1::Contract*> months;
+    for (const auto& month : dominant.months()) {
+      if (month.interval_minutes() != dominant.months(0).interval_minutes())
+        throw std::invalid_argument("invalid dominant series schedule");
+      months.push_back(&month.contract());
+    }
+    validate_dominant_schedule(dominant.schedule(), months);
+    if (dominant.schedule().rolls_size() != dominant.months_size())
+      throw std::invalid_argument("invalid dominant series schedule");
+    for (int i = 0; i < dominant.months_size(); ++i)
+      if (dominant.schedule().rolls(i).contract() != static_cast<unsigned>(i))
+        throw std::invalid_argument("invalid dominant series schedule");
+  }
 }
 // A series as a factor reads it: when each observation was made, as a number
 // that increases along it (a bar's label timestamp, or the provider's trading
 // date), and its close. A dominant series reads each trading day from the
-// month its schedule names, at the level of its latest month.
+// month its schedule names, at the level of its latest month. The term
+// structure reads dominant series alone, on the days that have a term point:
+// `terms` then holds that day's carry for every observation.
 struct Observed {
   std::vector<std::int64_t> order;
-  std::vector<Decimal> closes;
+  std::vector<Decimal> closes, terms;
 };
-Observed observed(const factor::v1::FactorSeries& data) {
+Observed observed(const factor::v1::FactorSeries& data, v1::Factor factor) {
   Observed result;
   const auto add = [&](std::int64_t when, Decimal close) {
     result.order.push_back(when);
     result.closes.push_back(close);
   };
+  if (factor == v1::TERM_STRUCTURE && !data.has_dominant())
+    throw std::invalid_argument("the term structure is read of dominant series");
   if (data.has_bars()) {
     for (const auto& bar : data.bars().bars())
       add(bar.timestamp_ns(), Decimal::from_raw(bar.close().units()));
@@ -60,16 +82,36 @@ Observed observed(const factor::v1::FactorSeries& data) {
     for (const auto& bar : daily_factor_bars(data.daily()))
       add(std::chrono::sys_days(bar.trading_day).time_since_epoch().count(), bar.close);
   } else {
-    const auto& rolls = data.dominant().schedule().rolls();
+    const auto& schedule = data.dominant().schedule();
+    const auto& rolls = schedule.rolls();
+    // The carry each trading day begins with, where it has a term point.
+    std::map<std::string, Decimal> carry;
+    if (factor == v1::TERM_STRUCTURE)
+      for (const auto& term : schedule.terms())
+        carry.emplace(
+            term.trading_day(),
+            term_carry(term, data.dominant()
+                                 .months(static_cast<int>(
+                                     dominant_roll(schedule, term.trading_day()).contract()))
+                                 .contract()
+                                 .delivery_month()));
     for (int i = 0; i < rolls.size(); ++i) {
       const auto& month = data.dominant().months(static_cast<int>(rolls[i].contract()));
-      const auto factor = Decimal::from_raw(rolls[i].factor().units());
+      const auto scale = Decimal::from_raw(rolls[i].factor().units());
       const auto increment = Decimal::from_raw(month.contract().price_increment().units());
-      for (const auto& bar : month.bars())
-        if (bar.trading_day() >= rolls[i].trading_day() &&
-            (i + 1 == rolls.size() || bar.trading_day() < rolls[i + 1].trading_day()))
-          add(bar.timestamp_ns(),
-              dominant_price(Decimal::from_raw(bar.close().units()), factor, increment));
+      for (const auto& bar : month.bars()) {
+        if (bar.trading_day() < rolls[i].trading_day() ||
+            (i + 1 < rolls.size() && bar.trading_day() >= rolls[i + 1].trading_day()))
+          continue;
+        if (factor == v1::TERM_STRUCTURE) {
+          const auto term = carry.find(bar.trading_day());
+          if (term == carry.end())
+            continue;
+          result.terms.push_back(term->second);
+        }
+        add(bar.timestamp_ns(),
+            dominant_price(Decimal::from_raw(bar.close().units()), scale, increment));
+      }
     }
   }
   return result;
@@ -133,11 +175,17 @@ std::string daily_factor_revision(const factor::v1::DailyFactorDataset& input) {
       {"bars", rows}}.dump());
 }
 factor::v1::FactorRequest encode_factor_request(const Json& input) {
-  require_fields(input, {"series", "lookbacks", "horizon", "evaluation"});
+  require_fields(input, {"series", "factor", "lookbacks", "horizon", "evaluation"});
   factor::v1::FactorRequest result;
   const auto& series = input.at("series");
   if (!series.is_array() || (series.size() != 1 && (series.size() < 3 || series.size() > 20)))
     throw std::invalid_argument("factor analysis studies one series or 3..20 contracts");
+  if (input.at("factor") == "momentum")
+    result.set_factor(v1::PRICE_MOMENTUM);
+  else if (input.at("factor") == "term_structure")
+    result.set_factor(v1::TERM_STRUCTURE);
+  else
+    throw std::invalid_argument("unknown factor");
   for (const auto& source : series) {
     if (!source.is_object() || source.size() != 1)
       throw std::invalid_argument("invalid factor series");
@@ -232,7 +280,8 @@ factor::v1::FactorInput factor_input(const factor::v1::FactorRequest& request) {
   if (request.series_size() != 1 && (request.series_size() < 3 || request.series_size() > 20))
     throw std::invalid_argument("factor analysis studies one series or 3..20 contracts");
   factor::v1::FactorInput input;
-  input.set_version(7);
+  input.set_version(8);
+  input.set_factor(request.factor());
   *input.mutable_lookbacks() = request.lookbacks();
   input.set_horizon(request.horizon());
   if (request.has_full_sample())
@@ -266,6 +315,7 @@ factor_revision(const google::protobuf::RepeatedPtrField<factor::v1::FactorSerie
       for (const auto& month : data.dominant().months())
         identity.push_back(month.revision());
       identity.push_back(decode_dominant_schedule(data.dominant().schedule()));
+      identity.push_back(decode_term_points(data.dominant().schedule()));
       revisions.push_back(sha256_bytes(identity.dump()));
     }
   }
@@ -277,9 +327,11 @@ FactorObservations factor_observations(const factor::v1::FactorInput& input) {
   validate_series(input.series());
   std::vector<Observed> all;
   for (const auto& data : input.series())
-    all.push_back(observed(data));
+    all.push_back(observed(data, input.factor()));
+  const bool terms = input.factor() == v1::TERM_STRUCTURE;
   FactorObservations result;
   result.closes.resize(all.size());
+  result.terms.resize(terms ? all.size() : 0);
   std::vector<std::size_t> cursor(all.size());
   for (std::size_t i = 0; i < all.front().order.size(); ++i) {
     cursor.front() = i;
@@ -294,16 +346,21 @@ FactorObservations factor_observations(const factor::v1::FactorInput& input) {
     if (!everywhere)
       continue;
     result.order.push_back(when);
-    for (std::size_t s = 0; s < all.size(); ++s)
+    for (std::size_t s = 0; s < all.size(); ++s) {
       result.closes[s].push_back(all[s].closes[cursor[s]]);
+      if (terms)
+        result.terms[s].push_back(all[s].terms[cursor[s]]);
+    }
   }
   return result;
 }
 namespace {
 Json factor_definition(const factor::v1::FactorInput& input) {
   validate_message(input);
-  if (input.version() != 7)
+  if (input.version() != 8)
     throw std::invalid_argument("unsupported factor input version");
+  if (input.factor() != v1::PRICE_MOMENTUM && input.factor() != v1::TERM_STRUCTURE)
+    throw std::invalid_argument("unknown factor");
   const auto count = observation_count(input);
   if (!input.horizon() || input.horizon() > 10000 || input.lookbacks_size() < 1 ||
       input.lookbacks_size() > 32)
@@ -318,7 +375,8 @@ Json factor_definition(const factor::v1::FactorInput& input) {
   }
   if (input.lookbacks_size() > 1 && !input.has_holdout_start() && !input.has_walk_forward())
     throw std::invalid_argument("factor parameter comparison requires a holdout");
-  Json result{{"version", 7},
+  Json result{{"version", 8},
+              {"factor", input.factor() == v1::TERM_STRUCTURE ? "term_structure" : "momentum"},
               {"dataset_revision", input.dataset_revision()},
               {"lookbacks", windows},
               {"horizon", input.horizon()}};
@@ -455,28 +513,15 @@ void validate_factor_input(const factor::v1::FactorInput& input) {
       validate_bar_dataset(data.bars());
       contracts.insert(data.bars().contract().venue() + '\n' + data.bars().contract().symbol());
     } else if (data.has_dominant()) {
-      // Data resolves a series into the months it reads, in roll order.
-      const auto& series = data.dominant();
-      std::vector<const v1::Contract*> months;
-      for (const auto& month : series.months()) {
+      for (const auto& month : data.dominant().months())
         validate_bar_dataset(month);
-        if (month.interval_minutes() != series.months(0).interval_minutes())
-          throw std::invalid_argument("invalid dominant series schedule");
-        months.push_back(&month.contract());
-      }
-      validate_dominant_schedule(series.schedule(), months);
-      if (series.schedule().rolls_size() != series.months_size())
-        throw std::invalid_argument("invalid dominant series schedule");
-      for (int i = 0; i < series.months_size(); ++i)
-        if (series.schedule().rolls(i).contract() != static_cast<unsigned>(i))
-          throw std::invalid_argument("invalid dominant series schedule");
-      const auto& contract = series.months(0).contract();
+      const auto& contract = data.dominant().months(0).contract();
       contracts.insert(contract.venue() + '\n' + contract.product() + "\ndominant");
     } else {
       contracts.insert(data.daily().contract_id());
     }
     bars += held_bars(data);
-    for (const auto close : observed(data).closes)
+    for (const auto close : observed(data, input.factor()).closes)
       if (close <= Decimal{})
         throw std::invalid_argument("factor analysis requires positive closes");
   }
@@ -623,7 +668,8 @@ Json decode_factor(const factor::v1::FactorInput& input, DatasetView view) {
       result["series"].push_back({{"kind", "dominant"},
                                   {"months", std::move(months)},
                                   {"rolls", decode_dominant_schedule(data.dominant().schedule())},
-                                  {"count", observed(data).order.size()}});
+                                  {"terms", data.dominant().schedule().terms_size()},
+                                  {"count", observed(data, input.factor()).order.size()}});
       continue;
     }
     const auto& daily = data.daily();

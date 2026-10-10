@@ -723,6 +723,7 @@ TEST(TerminalDailyFactor, SubmissionDoesNotBlockOtherWindowsAndRejectsChangedSer
   const auto submit = request(
       "factor.submit", {{"id", "analysis"},
                         {"series", {{"kind", "daily"}, {"dataset_id", std::string(64, 'a')}}},
+                        {"factor", "momentum"},
                         {"lookbacks", {20}},
                         {"horizon", 5},
                         {"evaluation", {{"mode", "full_sample"}}}});

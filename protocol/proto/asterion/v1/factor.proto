@@ -23,20 +23,23 @@ message FactorSeries {
   }
 }
 message FactorInput {
-  uint32 version = 1; // 7
+  uint32 version = 1; // 8
   string dataset_revision = 2; // The revision of the series.
   // One series is evaluated over its own observations. Three to twenty of the
   // same period, each a different contract or product, are evaluated across
   // them on the observations they all have; nothing is filled in. Windows,
   // horizon and boundaries count those shared observations.
   repeated FactorSeries series = 3;
-  repeated uint32 lookbacks = 4; // Strictly ascending, unique; 1..32 candidates.
-  uint32 horizon = 5;
+  // The feature. The term structure is read of dominant series alone, on the
+  // trading days that have a term point.
+  asterion.protocol.v1.Factor factor = 4;
+  repeated uint32 lookbacks = 5; // Strictly ascending, unique; 1..32 candidates.
+  uint32 horizon = 6;
   // Required explicit evaluation; full_sample must be true.
   oneof evaluation {
-    bool full_sample = 6;
-    WalkForwardEvaluation walk_forward = 7;
-    uint32 holdout_start = 8; // Zero-based first holdout observation.
+    bool full_sample = 7;
+    WalkForwardEvaluation walk_forward = 8;
+    uint32 holdout_start = 9; // Zero-based first holdout observation.
   }
 }
 // What Data resolves into one fixed series: a bar selection, a published
@@ -52,12 +55,13 @@ message FactorSeriesRequest {
 // Client submission: Task obtains the fixed series from Data before persisting input.
 message FactorRequest {
   repeated FactorSeriesRequest series = 1;
-  repeated uint32 lookbacks = 2;
-  uint32 horizon = 3;
+  asterion.protocol.v1.Factor factor = 2;
+  repeated uint32 lookbacks = 3;
+  uint32 horizon = 4;
   oneof evaluation {
-    bool full_sample = 4;
-    WalkForwardEvaluation walk_forward = 5;
-    uint32 holdout_start = 6;
+    bool full_sample = 5;
+    WalkForwardEvaluation walk_forward = 6;
+    uint32 holdout_start = 7;
   }
 }
 message WalkForwardEvaluation {

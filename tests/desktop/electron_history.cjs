@@ -307,7 +307,7 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
   const taskTable = page.getByRole("region", { name: "研究任务", exact: true });
   await taskTable.getByRole("button", { name: "查看结果", exact: true }).click();
   const factorView = page.getByRole("region", { name: "因子结果", exact: true });
-  await expect(factorView).toContainText("按日线计算 · 时间留出评价");
+  await expect(factorView).toContainText("按日线计算 · 价格动量 · 时间留出评价");
   await factorView.getByText("结果详情", { exact: true }).click();
   await expect(factorView).toContainText("有效样本: 113");
   await expect(factorView).toContainText("剔除跨界标签: 1");

@@ -1,12 +1,11 @@
-#include "momentum.hpp"
+#include "evaluation.hpp"
 #include <algorithm>
 #include <cmath>
 #include <numeric>
 #include <vector>
 #include <stdexcept>
 namespace asterion {
-std::optional<unsigned>
-select_momentum_lookback(std::span<const MomentumCandidateScore> candidates) {
+std::optional<unsigned> select_lookback(std::span<const FactorCandidateScore> candidates) {
   if (candidates.empty() || candidates.size() > 32)
     throw std::invalid_argument("momentum selection needs 1..32 candidates");
   unsigned previous = 0;
@@ -100,6 +99,19 @@ std::vector<std::optional<double>> momentum(std::span<const Decimal> closes, std
     result[i] = price_return(closes[i - lookback], closes[i]);
   return result;
 }
+std::vector<std::optional<double>> average(std::span<const Decimal> values, std::size_t lookback) {
+  std::vector<std::optional<double>> result(values.size());
+  long double sum = 0;
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    sum += static_cast<long double>(values[i].raw());
+    if (i >= lookback)
+      sum -= static_cast<long double>(values[i - lookback].raw());
+    // Raw decimals carry eight places.
+    if (lookback && i + 1 >= lookback)
+      result[i] = static_cast<double>(sum / static_cast<long double>(lookback) / 100000000);
+  }
+  return result;
+}
 std::vector<std::optional<double>> forward_returns(std::span<const Decimal> closes,
                                                    std::size_t horizon) {
   if (!horizon || horizon > 10000)
@@ -116,8 +128,8 @@ struct Statistics {
 };
 // The mean of the defined values, and that mean over their standard deviation.
 std::pair<std::optional<double>, std::optional<double>>
-summary(std::span<const MomentumCrossSection> sections,
-        std::optional<double> MomentumCrossSection::* value) {
+summary(std::span<const FactorCrossSection> sections,
+        std::optional<double> FactorCrossSection::* value) {
   long double sum = 0, squares = 0;
   std::size_t count = 0;
   for (const auto& section : sections)
@@ -136,9 +148,9 @@ summary(std::span<const MomentumCrossSection> sections,
     ratio = static_cast<double>(mean / std::sqrt(squares / static_cast<long double>(count - 1)));
   return {static_cast<double>(mean), ratio};
 }
-Statistics statistics(std::span<const MomentumCrossSection> sections) {
-  const auto [pearson, pearson_ratio] = summary(sections, &MomentumCrossSection::pearson);
-  const auto [spearman, spearman_ratio] = summary(sections, &MomentumCrossSection::spearman);
+Statistics statistics(std::span<const FactorCrossSection> sections) {
+  const auto [pearson, pearson_ratio] = summary(sections, &FactorCrossSection::pearson);
+  const auto [spearman, spearman_ratio] = summary(sections, &FactorCrossSection::spearman);
   return {pearson, spearman, pearson_ratio, spearman_ratio};
 }
 // Rows where every series has its feature and its label; the series share
@@ -160,10 +172,10 @@ over_time(const Column& feature, const Column& label, std::span<const std::size_
   }
   return {std::move(values), std::move(outcomes)};
 }
-std::vector<MomentumCrossSection> across_series(std::span<const Column> features,
-                                                std::span<const Column> labels,
-                                                std::span<const std::size_t> rows) {
-  std::vector<MomentumCrossSection> sections;
+std::vector<FactorCrossSection> across_series(std::span<const Column> features,
+                                              std::span<const Column> labels,
+                                              std::span<const std::size_t> rows) {
+  std::vector<FactorCrossSection> sections;
   std::vector<double> values(features.size()), outcomes(features.size());
   for (const auto row : rows) {
     for (std::size_t s = 0; s < features.size(); ++s) {
@@ -175,21 +187,21 @@ std::vector<MomentumCrossSection> across_series(std::span<const Column> features
   return sections;
 }
 } // namespace
-MomentumEvaluation
-evaluate_momentum(std::span<const std::span<const Decimal>> series,
-                  std::span<const unsigned> lookbacks, std::size_t horizon,
-                  std::optional<std::size_t> split, std::stop_token stop,
-                  const std::function<void(std::size_t, std::size_t)>& progress) {
-  if (series.empty())
-    throw std::invalid_argument("momentum evaluation needs a series");
+FactorEvaluation evaluate_factor(std::span<const std::span<const Decimal>> series,
+                                 std::span<const std::span<const Decimal>> values, Feature feature,
+                                 std::span<const unsigned> lookbacks, std::size_t horizon,
+                                 std::optional<std::size_t> split, std::stop_token stop,
+                                 const std::function<void(std::size_t, std::size_t)>& progress) {
+  if (series.empty() || values.size() != series.size())
+    throw std::invalid_argument("factor evaluation needs a series and its values");
   const auto count = series.front().size();
   if (lookbacks.empty() || (lookbacks.size() > 1 && !split) || (split && *split >= count))
-    throw std::invalid_argument("momentum evaluation needs windows and, to compare them, a "
+    throw std::invalid_argument("factor evaluation needs windows and, to compare them, a "
                                 "boundary inside the series");
-  for (const auto closes : series) {
-    if (closes.size() != count)
-      throw std::invalid_argument("momentum series must share their observations");
-    for (const auto close : closes)
+  for (std::size_t s = 0; s < series.size(); ++s) {
+    if (series[s].size() != count || values[s].size() != count)
+      throw std::invalid_argument("factor series must share their observations");
+    for (const auto close : series[s])
       if (close <= Decimal{})
         throw std::invalid_argument("return requires positive prices");
   }
@@ -206,22 +218,28 @@ evaluate_momentum(std::span<const std::span<const Decimal>> series,
       throw std::runtime_error("factor analysis cancelled");
   };
   advance(0);
-  const auto columns = [&](std::size_t end, const auto& compute) {
+  // Labels of the closes and features of the values, from the first `end`
+  // observations alone.
+  const auto labelled = [&](std::size_t end) {
     std::vector<Column> result;
     for (const auto closes : series)
-      result.push_back(compute(closes.first(end)));
+      result.push_back(forward_returns(closes.first(end), horizon));
     return result;
   };
-  MomentumEvaluation result;
+  const auto featured = [&](std::size_t end, std::size_t window) {
+    std::vector<Column> result;
+    for (const auto input : values)
+      result.push_back(feature(input.first(end), window));
+    return result;
+  };
+  FactorEvaluation result;
   result.lookback = lookbacks.front();
   if (lookbacks.size() > 1) {
     // Selection sees the development observations and nothing else.
-    const auto labels =
-        columns(boundary, [&](auto closes) { return forward_returns(closes, horizon); });
-    std::vector<MomentumCandidateScore> scores;
+    const auto labels = labelled(boundary);
+    std::vector<FactorCandidateScore> scores;
     for (const auto window : lookbacks) {
-      const auto features =
-          columns(boundary, [&](auto closes) { return momentum(closes, window); });
+      const auto features = featured(boundary, window);
       const auto rows = evaluated(features.front(), labels.front(), warmup, boundary);
       std::optional<double> score;
       if (cross) {
@@ -234,14 +252,13 @@ evaluate_momentum(std::span<const std::span<const Decimal>> series,
       scores.push_back({window, score});
       advance(boundary);
     }
-    const auto selection = select_momentum_lookback(scores);
+    const auto selection = select_lookback(scores);
     if (!selection)
       throw std::invalid_argument("no candidate has a defined development correlation");
     result.lookback = *selection;
   }
-  const auto features =
-      columns(count, [&](auto closes) { return momentum(closes, result.lookback); });
-  const auto labels = columns(count, [&](auto closes) { return forward_returns(closes, horizon); });
+  const auto features = featured(count, result.lookback);
+  const auto labels = labelled(count);
   for (std::size_t index = 0; index < (split ? 2U : 1U); ++index) {
     const auto begin = index ? boundary : 0, end = index || !split ? count : boundary;
     auto rows = evaluated(features.front(), labels.front(), std::max(begin, warmup), end);

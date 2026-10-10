@@ -8,7 +8,7 @@ import {
   type FactorSeriesEvidence,
   type TaskResult,
 } from "../../src/bridge/client";
-import { factorWords } from "./shared";
+import { factorNames, factorWords } from "./shared";
 const t = (key: string) => translate("asterion.terminal.research", key);
 type Evidence = Extract<TaskResult, { kind: "backtest" | "factor" }>;
 type Rows = [string, string | number][];
@@ -78,6 +78,7 @@ function dominantRows(input: Extract<FactorSeriesEvidence, { kind: "dominant" }>
     ["价格步长", contract.price_increment],
     ["K 线周期（分钟）", first.data.interval_minutes],
     ["输入 K 线", input.count],
+    ["有期限结构的交易日", input.terms],
     ["交易日范围", `${first.data.first_day} – ${last.data.last_day}`],
     ["数据源", first.data.source],
     ["K 线数据版本", versions("source_dataset_ids")],
@@ -142,6 +143,7 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
             },
     );
     rows.push(
+      ["因子", t(factorNames[evidence.experiment.factor])],
       [words.candidates, lookbacks.join(", ")],
       [words.horizon, horizon],
       [

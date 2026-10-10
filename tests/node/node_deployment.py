@@ -198,7 +198,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
         assert result["kind"] == "backtest" and result["result"]["settlements"], result
         call(terminal, "data.dataset.clear")
         call(terminal, "data.dataset.select", seed([100 + i + i % 3 for i in range(160)], "remote-factor"))
-        call(terminal, "factor.submit", {"id": "remote-factor", "series": {"kind": "bars"}, "lookbacks": [2, 5, 10], "horizon": 1, "evaluation": {"mode": "walk_forward", "training_events": 80, "validation_events": 40}})
+        call(terminal, "factor.submit", {"id": "remote-factor", "series": {"kind": "bars"}, "factor": "momentum", "lookbacks": [2, 5, 10], "horizon": 1, "evaluation": {"mode": "walk_forward", "training_events": 80, "validation_events": 40}})
         wait(lambda: task_done("remote-factor"))
         factor_result = call(terminal, "task.result", {"id": "remote-factor"})["task_result"]
         assert factor_result["kind"] == "factor" and len(factor_result["result"]["samples"]) == 78, factor_result

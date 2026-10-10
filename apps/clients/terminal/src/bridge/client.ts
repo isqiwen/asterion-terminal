@@ -43,6 +43,8 @@ export type DatasetSeries = {
   product: string;
   symbols: string[];
   rolls: { trading_day: string; symbol: string; factor: string }[];
+  // Trading days on which the dominant month can be compared with a later one.
+  terms: number;
 };
 export type HistoryVersionEvidence = {
   dataset_id: string;
@@ -697,6 +699,8 @@ export type FactorSeriesEvidence =
       kind: "dominant";
       months: { dataset: DatasetEvidence; data: ExperimentData }[];
       rolls: { trading_day: string; contract: number; factor: string }[];
+      // Trading days that have a term point; `count` bars were read.
+      terms: number;
       count: number;
     }
   | {
@@ -712,8 +716,12 @@ export type FactorSeriesEvidence =
         last_day: string;
       };
     };
+// What a factor's feature is: price momentum over a window, or the mean over a
+// window of the carry a dominant series' term structure shows each day.
+export type FactorKind = "momentum" | "term_structure";
 export type FactorExperiment = {
   version: number;
+  factor: FactorKind;
   dataset_revision: string;
   series: FactorSeriesEvidence[];
   lookbacks: number[];

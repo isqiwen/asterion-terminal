@@ -53,6 +53,7 @@ task::v1::TaskExecution task_execution(const task::v1::Task& task,
         *result.add_schedules() = series.dominant().schedule();
       }
     }
+    parameters->set_factor(input.factor());
     *parameters->mutable_lookbacks() = input.lookbacks();
     parameters->set_horizon(input.horizon());
     if (input.has_full_sample())

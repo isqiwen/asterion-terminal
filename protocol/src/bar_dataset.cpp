@@ -369,6 +369,19 @@ void validate_dominant_schedule(const data::v1::DominantSchedule& schedule,
   }
   if (previous->factor().units() != Decimal::parse("1").raw())
     throw std::invalid_argument("invalid dominant series schedule");
+  const data::v1::TermPoint* before = nullptr;
+  for (const auto& term : schedule.terms()) {
+    (void)parse_trading_date(term.trading_day());
+    const auto& month =
+        contracts[dominant_roll(schedule, term.trading_day()).contract()]->delivery_month();
+    if (term.trading_day() < schedule.rolls(0).trading_day() ||
+        (before && term.trading_day() <= before->trading_day()) || term.near().units() <= 0 ||
+        term.far().units() <= 0 || term.far_month().size() != month.size() ||
+        term.far_month() <= month)
+      throw std::invalid_argument("invalid dominant series schedule");
+    (void)term_carry(term, month);
+    before = &term;
+  }
 }
 const data::v1::DominantRoll& dominant_roll(const data::v1::DominantSchedule& schedule,
                                             const std::string& trading_day) {
@@ -380,6 +393,34 @@ const data::v1::DominantRoll& dominant_roll(const data::v1::DominantSchedule& sc
 }
 Decimal dominant_price(Decimal raw, Decimal factor, Decimal increment) {
   return quantize(multiply(raw, factor, Rounding::half_up), increment, Rounding::half_up);
+}
+Decimal term_carry(const data::v1::TermPoint& point, const std::string& near_month) {
+  // Delivery months are YYYY-MM.
+  const auto months = [](const std::string& text) {
+    int year = 0, month = 0;
+    const auto* end = text.data() + text.size();
+    if (text.size() != 7 || text[4] != '-' ||
+        std::from_chars(text.data(), text.data() + 4, year).ptr != text.data() + 4 ||
+        std::from_chars(text.data() + 5, end, month).ptr != end || month < 1 || month > 12)
+      throw std::invalid_argument("invalid dominant series schedule");
+    return year * 12 + month;
+  };
+  const auto apart = months(point.far_month()) - months(near_month);
+  if (apart <= 0)
+    throw std::invalid_argument("invalid dominant series schedule");
+  const auto spread =
+      divide(value(point.near()), value(point.far()), Rounding::half_up) - Decimal::parse("1");
+  return divide(multiply(spread, Decimal::parse("12"), Rounding::half_up),
+                Decimal::parse(std::to_string(apart)), Rounding::half_up);
+}
+Json decode_term_points(const data::v1::DominantSchedule& schedule) {
+  Json terms = Json::array();
+  for (const auto& term : schedule.terms())
+    terms.push_back({{"trading_day", term.trading_day()},
+                     {"near", value(term.near()).str()},
+                     {"far", value(term.far()).str()},
+                     {"far_month", term.far_month()}});
+  return terms;
 }
 Json decode_dominant_schedule(const data::v1::DominantSchedule& schedule) {
   Json rolls = Json::array();

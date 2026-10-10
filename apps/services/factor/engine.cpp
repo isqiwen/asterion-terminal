@@ -1,10 +1,10 @@
 #include "factor_engine.hpp"
-#include "momentum.hpp"
+#include "evaluation.hpp"
 #include "walk_forward.hpp"
 #include <stdexcept>
 namespace asterion::factor {
 namespace {
-void fill(factor::v1::FactorPartition& target, const MomentumPartition& source, const char* name,
+void fill(factor::v1::FactorPartition& target, const FactorPartition& source, const char* name,
           std::size_t offset) {
   target.set_name(name);
   target.set_begin_index(static_cast<unsigned>(source.begin + offset));
@@ -20,7 +20,7 @@ void fill(factor::v1::FactorPartition& target, const MomentumPartition& source, 
     target.set_spearman_ratio(*source.spearman_ratio);
 }
 template <class Candidates>
-void fill(Candidates& target, const std::vector<MomentumCandidate>& source) {
+void fill(Candidates& target, const std::vector<FactorCandidate>& source) {
   for (const auto& candidate : source) {
     auto* evidence = target.Add();
     evidence->set_lookback(candidate.lookback);
@@ -38,6 +38,14 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
   const auto observations = protocol::factor_observations(input);
   std::vector<std::span<const Decimal>> closes(observations.closes.begin(),
                                                observations.closes.end());
+  // Price momentum reads the closes; the term structure the carry of each
+  // observation, averaged over the window.
+  const bool carry = input.factor() == protocol::v1::TERM_STRUCTURE;
+  std::vector<std::span<const Decimal>> values(observations.terms.begin(),
+                                               observations.terms.end());
+  if (!carry)
+    values = closes;
+  const Feature feature = carry ? average : momentum;
   const std::vector<unsigned> lookbacks(input.lookbacks().begin(), input.lookbacks().end());
   const bool search = lookbacks.size() > 1;
   factor::v1::FactorResult result;
@@ -48,8 +56,7 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
   result.set_input_count(static_cast<unsigned>(observations.order.size()));
   result.set_evaluation_warmup(lookbacks.back());
   // Rows from `first` on, as observations of the whole input.
-  const auto rows = [&](const MomentumEvaluation& evaluation, std::size_t first,
-                        std::size_t offset) {
+  const auto rows = [&](const FactorEvaluation& evaluation, std::size_t first, std::size_t offset) {
     for (const auto& row : evaluation.samples) {
       if (row.index < first)
         continue;
@@ -70,11 +77,11 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
     }
   };
   if (!input.has_walk_forward()) {
-    const auto evaluation = evaluate_momentum(
-        closes, lookbacks, input.horizon(),
-        input.has_holdout_start() ? std::optional<std::size_t>(input.holdout_start())
-                                  : std::nullopt,
-        stop, progress);
+    const auto evaluation = evaluate_factor(closes, values, feature, lookbacks, input.horizon(),
+                                            input.has_holdout_start()
+                                                ? std::optional<std::size_t>(input.holdout_start())
+                                                : std::nullopt,
+                                            stop, progress);
     result.set_selection_rule(search ? "development_abs_spearman" : "fixed");
     result.set_lookback(evaluation.lookback);
     fill(*result.mutable_candidates(), evaluation.candidates);
@@ -97,15 +104,18 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
            input.walk_forward().training_events(), input.walk_forward().validation_events())) {
     const auto training = range.training_end - range.training_begin;
     std::size_t units = 0;
-    auto window = closes;
-    for (auto& series : window)
-      series = series.subspan(range.training_begin, range.validation_end - range.training_begin);
-    const auto evaluation = evaluate_momentum(window, lookbacks, input.horizon(), training, stop,
-                                              [&](std::size_t done, std::size_t all) {
-                                                units = all;
-                                                if (progress)
-                                                  progress(completed + done, total);
-                                              });
+    const auto within = [&](std::vector<std::span<const Decimal>> all) {
+      for (auto& series : all)
+        series = series.subspan(range.training_begin, range.validation_end - range.training_begin);
+      return all;
+    };
+    const auto evaluation =
+        evaluate_factor(within(closes), within(values), feature, lookbacks, input.horizon(),
+                        training, stop, [&](std::size_t done, std::size_t all) {
+                          units = all;
+                          if (progress)
+                            progress(completed + done, total);
+                        });
     completed += units;
     auto* fold = result.add_folds();
     fold->set_training_begin(range.training_begin);

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { timestamp, type TaskResult } from "../../src/bridge/client";
 import { ExperimentDetails } from "./ExperimentDetails";
-import { factorWords, t } from "./shared";
+import { factorWords, t, factorNames } from "./shared";
 
 const correlation = (value: number | null) => (value === null ? t("未定义") : value.toFixed(4));
 // What a result's statistics are called: one series is correlated over time,
@@ -47,7 +47,7 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
     <section className="research-result" aria-label={t("因子结果")}>
       <h3>{t("因子结果")}</h3>
       <p className="subtle">
-        {t(words.computed)} ·{" "}
+        {t(words.computed)} · {t(factorNames[experiment.factor])} ·{" "}
         {t(
           result.folds.length
             ? "滚动验证"

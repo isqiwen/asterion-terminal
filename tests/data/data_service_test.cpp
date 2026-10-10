@@ -678,6 +678,7 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData) {
   submit.mutable_submit()->set_id("factor");
   auto* factor = submit.mutable_submit()->mutable_factor_request();
   *factor->add_series()->mutable_bars() = selection;
+  factor->set_factor(protocol::v1::PRICE_MOMENTUM);
   factor->add_lookbacks(1);
   factor->set_horizon(1);
   factor->set_full_sample(true);

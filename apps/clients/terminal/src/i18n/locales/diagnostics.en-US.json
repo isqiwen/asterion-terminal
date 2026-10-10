@@ -857,6 +857,8 @@
   "a rule over several contracts runs in backtests only": "a rule over several contracts runs in backtests only",
   "cross momentum requires at least twice as many contracts as it holds a side": "cross momentum requires at least twice as many contracts as it holds a side",
   "cross momentum requires positive closes": "cross momentum requires positive closes",
+  "the term structure is read of dominant series": "the term structure is read of dominant series",
+  "unknown factor": "unknown factor",
   "unknown strategy rule": "unknown strategy rule",
   "invalid strategy": "invalid strategy",
   "strategy windows are whole bars up to 10000": "strategy windows are whole bars up to 10000",

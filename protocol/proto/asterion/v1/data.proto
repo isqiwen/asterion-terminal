@@ -58,9 +58,20 @@ message DominantRoll {
   uint32 contract = 2;
   asterion.protocol.v1.Decimal factor = 3;
 }
+// How a series' dominant month stood against a later month of the product at
+// the settlement before trading_day, so that both prices are known before
+// that day begins. The later month is the one with the largest open interest
+// on that earlier day; far_month is its delivery month.
+message TermPoint {
+  string trading_day = 1;
+  asterion.protocol.v1.Decimal near = 2;
+  asterion.protocol.v1.Decimal far = 3;
+  string far_month = 4;
+}
 // The resolved schedule of one series; rolls ascend by trading day and by
-// delivery month.
-message DominantSchedule { repeated DominantRoll rolls = 1; }
+// delivery month. terms ascend by trading day, at most one a day: a day has
+// none when no later month settled the day before.
+message DominantSchedule { repeated DominantRoll rolls = 1; repeated TermPoint terms = 2; }
 // Resolves month contracts of one product as its dominant series.
 message DominantSeriesRequest { repeated BarDatasetRequest months = 1; }
 // months: indexes of the request's months that are dominant at some point,

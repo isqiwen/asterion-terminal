@@ -36,6 +36,8 @@ export function selectedSeries(snapshot: TerminalContext["snapshot"]) {
   );
   return { alone, dominant, count: alone.length + dominant.length };
 }
+// What each factor is called.
+export const factorNames = { momentum: "价格动量", term_structure: "期限结构" } as const;
 // A factor counts in observations of its series: the same parameters read as
 // bars or as trading days, by what the series is made of.
 export const factorWords = {

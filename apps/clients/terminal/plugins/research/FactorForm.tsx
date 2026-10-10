@@ -7,7 +7,8 @@ import {
   ErrorNotice,
   type TerminalContext,
 } from "../contract";
-import { factorWords, t, type Run, selectedSeries } from "./shared";
+import type { FactorKind } from "../../src/bridge/client";
+import { factorNames, factorWords, t, type Run, selectedSeries } from "./shared";
 
 type Kind = keyof typeof factorWords;
 const defaults = {
@@ -26,6 +27,7 @@ const defaults = {
  */
 function FactorParameters({
   kind,
+  factor = "momentum",
   series,
   identity,
   observations,
@@ -34,6 +36,7 @@ function FactorParameters({
   run,
 }: Pick<TerminalContext, "snapshot" | "busy"> & {
   kind: Kind;
+  factor?: FactorKind;
   series: Record<string, string> | null;
   identity: string;
   observations?: number;
@@ -49,7 +52,7 @@ function FactorParameters({
   );
   const [pendingId, setPendingId] = useWorkspaceRequestId(
     `factor-submission:${kind}`,
-    JSON.stringify([destination, identity, parameters]),
+    JSON.stringify([destination, identity, factor, parameters]),
   );
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -58,6 +61,7 @@ function FactorParameters({
     const payload = {
       id,
       series,
+      factor,
       lookbacks: parameters.lookback.split(",").map(value => Number(value.trim())),
       horizon: Number(parameters.horizon),
       evaluation:
@@ -176,7 +180,9 @@ function FactorParameters({
         <summary>{t("计算说明")}</summary>
         <p>
           {t(
-            "动量只使用过去价格，留出段可使用此前历史预热。未来标签不进入因子，跨分界标签剔除。留出评价需事先固定参数；反复查看留出结果后调参不能证明样本外有效。",
+            factor === "term_structure"
+              ? "期限结构只使用前一交易日已有的结算价，留出段可使用此前历史预热。未来标签不进入因子，跨分界标签剔除。留出评价需事先固定参数；反复查看留出结果后调参不能证明样本外有效。"
+              : "动量只使用过去价格，留出段可使用此前历史预热。未来标签不进入因子，跨分界标签剔除。留出评价需事先固定参数；反复查看留出结果后调参不能证明样本外有效。",
           )}
         </p>
       </details>
@@ -197,6 +203,19 @@ export function BarFactorForm({
   const { alone, dominant, count } = selectedSeries(snapshot);
   // One series is studied over time, three or more against each other.
   const cross = count > 1;
+  const [factor, setFactor] = useWorkspaceDraft<FactorKind>("factor:bars:factor", "momentum");
+  // The term structure compares a dominant month with a later one: it is read
+  // of dominant series alone, where the months after the dominant one exist.
+  const unavailable =
+    factor !== "term_structure"
+      ? null
+      : alone.length
+        ? t("期限结构只在主力连续上评价：请去掉单个合约，只保留主力连续。")
+        : dominant.some(series => !series.terms)
+          ? t(
+              "所选主力连续里有的没有期限结构数据：主力月份之后还需要有已下载日线的月份，才能比较近远月。",
+            )
+          : null;
   return (
     <>
       <h3>{t("因子设置")}</h3>
@@ -207,15 +226,38 @@ export function BarFactorForm({
         trade={trade}
         onDownload={() => navigate("workspace.data", { page: "history" })}
       />
+      <div className="research-fields">
+        <label>
+          {t("因子")}
+          <select
+            aria-label={t("因子")}
+            value={factor}
+            onChange={event => setFactor(event.target.value as FactorKind)}
+          >
+            {Object.entries(factorNames).map(([value, name]) => (
+              <option key={value} value={value}>
+                {t(name)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <p className="subtle">
         {t(
-          cross
-            ? "多个合约 · 在各合约共有的 K 线上比较它们的动量与未来收益"
-            : dominant.length
-              ? "主力连续 · 每个交易日取当时主力月份的 K 线，收盘价按换月比例调整到最新月份的水平"
-              : "单合约 · 按 K 线收盘价计算",
+          factor === "term_structure"
+            ? "期限结构 · 每个交易日开始时已知的年化近远月价差：前一交易日主力月份的结算价 ÷ 当日持仓最大的后续月份的结算价 − 1，再乘以 12 ÷ 两个月份相隔的月数；回看窗口内取均值。只在能做这个比较的交易日上评价。"
+            : cross
+              ? "多个合约 · 在各合约共有的 K 线上比较它们的动量与未来收益"
+              : dominant.length
+                ? "主力连续 · 每个交易日取当时主力月份的 K 线，收盘价按换月比例调整到最新月份的水平"
+                : "单合约 · 按 K 线收盘价计算",
         )}
       </p>
+      {unavailable && (
+        <p role="alert" className="alert">
+          {unavailable}
+        </p>
+      )}
       {count === 2 && (
         <p role="alert" className="alert">
           {t("比较合约至少需要 3 个；只分析一个合约时请只保留一个数据集。")}
@@ -223,7 +265,8 @@ export function BarFactorForm({
       )}
       <FactorParameters
         kind="bars"
-        series={count === 1 || count > 2 ? { kind: "bars" } : null}
+        factor={factor}
+        series={(count === 1 || count > 2) && !unavailable ? { kind: "bars" } : null}
         identity={JSON.stringify(datasets.map(item => item.revision))}
         observations={cross ? undefined : alone[0]?.count}
         snapshot={snapshot}
