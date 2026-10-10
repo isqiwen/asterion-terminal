@@ -761,6 +761,8 @@ export type StrategyDefinition =
         rebalance: number;
         count: number;
         notional: string;
+        // Bars of returns the held contracts' notional is split by; 0 for alike.
+        volatility: number;
       };
     };
 // What a backtest's closed positions say. A trade is one contract's position

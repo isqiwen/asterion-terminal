@@ -62,9 +62,12 @@ message BandReversion { uint32 window = 1; Decimal width = 2; }
 // `count` lowest short until the next ranking, or the other way round when
 // `reversed`; the rest are flat. A held contract holds the lots whose value
 // at that bar's close is nearest `notional`, so contracts of different sizes
-// weigh alike. The term structure ranks dominant series alone, on the bars of
-// days that have a term point.
-message CrossRank { Factor factor = 1; bool reversed = 2; uint32 lookback = 3; uint32 rebalance = 4; uint32 count = 5; Decimal notional = 6; }
+// weigh alike. With a `volatility` window the held contracts' notional, the
+// same in all, is split by the inverse of the standard deviation of each
+// one's returns over that many bars, so that they move alike. The term
+// structure ranks dominant series alone, on the bars of days that have a
+// term point.
+message CrossRank { Factor factor = 1; bool reversed = 2; uint32 lookback = 3; uint32 rebalance = 4; uint32 count = 5; Decimal notional = 6; uint32 volatility = 7; }
 // What a strategy trades by: one rule, the lots it holds while the rule takes
 // a side, and the sides it may hold; it is flat on a side it may not hold and
 // while the rule takes none. A rule over several contracts sizes each by its

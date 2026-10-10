@@ -42,9 +42,10 @@ const rules = {
       ["lookback", "动量回看"],
       ["rebalance", "调仓间隔"],
       ["count", "每侧合约数"],
+      ["volatility", "波动窗口"],
     ],
     about:
-      "在所有合约都有的 K 线上，每隔“调仓间隔”根按“收盘价 ÷ 动量回看根之前的收盘价”给各合约排序，最强的“每侧合约数”个做多、最弱的做空，其余空仓，持有到下一次排序。入选的合约各持有市值最接近“每个合约的名义金额”的手数，按排序那根 K 线的收盘价和合约乘数计算。一条主力连续算一个合约。",
+      "在所有合约都有的 K 线上，每隔“调仓间隔”根按“收盘价 ÷ 动量回看根之前的收盘价”给各合约排序，最强的“每侧合约数”个做多、最弱的做空，其余空仓，持有到下一次排序。入选的合约各持有市值最接近“每个合约的名义金额”的手数，按排序那根 K 线的收盘价和合约乘数计算。一条主力连续算一个合约。“波动窗口”填 0 时入选的各持相同的名义金额；填 N（至少 2）时，它们合计的名义金额不变，按各自最近 N 根共有 K 线收益率标准差的倒数分配，波动大的少持。",
   },
   cross_term_structure: {
     name: "截面期限结构",
@@ -52,9 +53,10 @@ const rules = {
       ["lookback", "均值窗口"],
       ["rebalance", "调仓间隔"],
       ["count", "每侧合约数"],
+      ["volatility", "波动窗口"],
     ],
     about:
-      "在所有品种都有期限结构的 K 线上，每隔“调仓间隔”根按最近“均值窗口”根 K 线上年化近远月价差的均值给各品种排序：价差最高（近月相对最贵）的“每侧合约数”个做多、最低的做空，其余空仓，持有到下一次排序。只用于主力连续。入选的品种各持有市值最接近“每个合约的名义金额”的手数，按排序那根 K 线的收盘价和合约乘数计算。",
+      "在所有品种都有期限结构的 K 线上，每隔“调仓间隔”根按最近“均值窗口”根 K 线上年化近远月价差的均值给各品种排序：价差最高（近月相对最贵）的“每侧合约数”个做多、最低的做空，其余空仓，持有到下一次排序。只用于主力连续。入选的品种各持有市值最接近“每个合约的名义金额”的手数，按排序那根 K 线的收盘价和合约乘数计算。“波动窗口”填 0 时入选的各持相同的名义金额；填 N（至少 2）时，它们合计的名义金额不变，按各自最近 N 根共有 K 线收益率标准差的倒数分配，波动大的少持。",
   },
 } as const;
 type Kind = keyof typeof rules;
@@ -81,6 +83,7 @@ export type StrategyDraft = {
   count: string;
   notional: string;
   reverse: boolean;
+  volatility: string;
 };
 export const strategyDefaults: StrategyDraft = {
   kind: "moving_average",
@@ -97,6 +100,7 @@ export const strategyDefaults: StrategyDraft = {
   count: "1",
   notional: "100000",
   reverse: false,
+  volatility: "0",
 };
 
 const several = (text: string) =>
@@ -108,7 +112,16 @@ const several = (text: string) =>
 // order written; combinations the rule cannot work with are left out.
 function combinations(draft: StrategyDraft): StrategyDefinition["rule"][] {
   const values = (
-    name: "fast" | "slow" | "entry" | "exit" | "lookback" | "window" | "rebalance" | "count",
+    name:
+      | "fast"
+      | "slow"
+      | "entry"
+      | "exit"
+      | "lookback"
+      | "window"
+      | "rebalance"
+      | "count"
+      | "volatility",
   ) => several(draft[name]).map(Number);
   if (draft.kind === "moving_average")
     return values("fast").flatMap(fast =>
@@ -128,14 +141,17 @@ function combinations(draft: StrategyDraft): StrategyDefinition["rule"][] {
     const kind = draft.kind;
     return values("lookback").flatMap(lookback =>
       values("rebalance").flatMap(rebalance =>
-        values("count").map(count => ({
-          kind,
-          reverse: draft.reverse,
-          lookback,
-          rebalance,
-          count,
-          notional: draft.notional,
-        })),
+        values("count").flatMap(count =>
+          values("volatility").map(volatility => ({
+            kind,
+            reverse: draft.reverse,
+            lookback,
+            rebalance,
+            count,
+            notional: draft.notional,
+            volatility,
+          })),
+        ),
       ),
     );
   }
@@ -163,7 +179,9 @@ export function strategyRule(definition: StrategyDefinition): string {
   const rule = definition.rule;
   const windows =
     "rebalance" in rule
-      ? `${rule.lookback}/${rule.rebalance}/${rule.count}${rule.reverse ? ` · ${t("反向")}` : ""}`
+      ? `${rule.lookback}/${rule.rebalance}/${rule.count}${rule.reverse ? ` · ${t("反向")}` : ""}${
+          rule.volatility ? ` · ${t("波动窗口")} ${rule.volatility}` : ""
+        }`
       : rule.kind === "moving_average"
         ? `${rule.fast}/${rule.slow}`
         : rule.kind === "breakout"
@@ -247,7 +265,9 @@ export function StrategyFields({
                 pattern={
                   name === "width"
                     ? "[ ]*[0-9]+([.][0-9]+)?[ ]*(,[ ]*[0-9]+([.][0-9]+)?[ ]*)*"
-                    : "[ ]*[1-9][0-9]*[ ]*(,[ ]*[1-9][0-9]*[ ]*)*"
+                    : name === "volatility"
+                      ? "[ ]*[0-9]+[ ]*(,[ ]*[0-9]+[ ]*)*"
+                      : "[ ]*[1-9][0-9]*[ ]*(,[ ]*[1-9][0-9]*[ ]*)*"
                 }
                 required
                 value={value[name]}
@@ -257,7 +277,15 @@ export function StrategyFields({
               <input
                 aria-label={t(label)}
                 type="number"
-                min={name === "width" ? "0.1" : name === "slow" || name === "window" ? 2 : 1}
+                min={
+                  name === "width"
+                    ? "0.1"
+                    : name === "volatility"
+                      ? 0
+                      : name === "slow" || name === "window"
+                        ? 2
+                        : 1
+                }
                 max={name === "width" ? 10 : 10000}
                 step={name === "width" ? "0.1" : "1"}
                 required

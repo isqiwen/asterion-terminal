@@ -1430,7 +1430,8 @@ TEST_F(Live, ARunTradesByTheRuleItWasStartedWith) {
                           {"lookback", 1},
                           {"rebalance", 1},
                           {"count", 1},
-                          {"notional", "1000"}}}};
+                          {"notional", "1000"},
+                          {"volatility", 0}}}};
   EXPECT_THROW(act(session, ranked), std::invalid_argument);
   EXPECT_TRUE(session.snapshot().at("strategy").is_null());
   // Momentum over one bar: 3501 is above the close before it.

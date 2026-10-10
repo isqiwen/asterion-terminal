@@ -50,27 +50,34 @@ public:
   static bool defines(const protocol::v1::Strategy& definition);
   // The definition ranks `units` units or this throws.
   CrossSection(const protocol::v1::Strategy& definition, std::size_t units);
-  // One completed bar of one unit, with what the rule's factor reads of it:
-  // its close for momentum, the carry its day began with for the term
-  // structure. Timestamps never go back; a unit has one bar at a timestamp.
-  void on_bar(std::size_t unit, std::int64_t timestamp_ns, Decimal value);
+  // One completed bar of one unit: its close, and for a ranking by the term
+  // structure the carry its day began with. Timestamps never go back; a unit
+  // has one bar at a timestamp.
+  void on_bar(std::size_t unit, std::int64_t timestamp_ns, Decimal close, Decimal term = {});
   // Called when no more bars of the last timestamp will come. Where every
-  // unit had a bar and the rule rebalances, the side wanted of each unit from
-  // now on: 1 long, -1 short, 0 none. Absent otherwise.
-  std::optional<std::vector<int>> rank();
+  // unit had a bar and the rule rebalances, what is wanted of each unit from
+  // now on: positive long, negative short, zero none. The size is the share
+  // of the rule's notional the unit is to hold: one, or with a volatility
+  // window its part of what the held units hold together, split by the
+  // inverse of the standard deviation of their returns. A held unit whose
+  // closes did not vary has no volatility to size by and is not held. Absent
+  // otherwise.
+  std::optional<std::vector<double>> rank();
 
 private:
-  // Momentum compares a value with the one a lookback earlier; the term
-  // structure averages the lookback's values. `window_` is how many of the
-  // bars every unit had are kept for that.
+  struct Bar {
+    Decimal close, term;
+  };
+  // Momentum compares a close with the one a lookback earlier; the term
+  // structure averages the lookback's carry; a volatility window reads one
+  // close more than its returns. `need_` bars every unit had are kept.
   bool momentum_, reversed_;
-  std::size_t window_, rebalance_, count_;
+  std::size_t lookback_, volatility_, need_, rebalance_, count_;
   PositionSides sides_;
   std::int64_t time_ = -1;
-  // The bars of the current timestamp, and the values of the last bars every
-  // unit had.
-  std::vector<std::optional<Decimal>> latest_;
-  std::vector<std::deque<Decimal>> values_;
+  // The bars of the current timestamp, and the last bars every unit had.
+  std::vector<std::optional<Bar>> latest_;
+  std::vector<std::deque<Bar>> bars_;
   std::size_t shared_ = 0;
 };
 } // namespace asterion

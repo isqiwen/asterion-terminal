@@ -308,7 +308,8 @@ TEST(Backtest, ARankingRuleTradesTheStrongestAndWeakestOfSeveralContracts) {
   spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
   // A lot is worth ten times its price; each held contract is sized to 2500.
   const Json rule{{"kind", "cross_momentum"}, {"reverse", false}, {"lookback", 1},
-                  {"rebalance", 2},           {"count", 1},       {"notional", "2500"}};
+                  {"rebalance", 2},           {"count", 1},       {"notional", "2500"},
+                  {"volatility", 0}};
   *spec.mutable_strategies(0) = protocol::encode_strategy({{"sides", "both"}, {"rule", rule}});
   const auto result = backtest::run(spec);
   // Decided at the second bar and filled at the third: 2500 is nearest two
@@ -364,6 +365,49 @@ TEST(Backtest, ARankingRuleTradesTheStrongestAndWeakestOfSeveralContracts) {
   EXPECT_NO_THROW(backtest::validate(spec));
   spec.mutable_strategies(0)->mutable_cross()->set_count(3);
   EXPECT_THROW(backtest::validate(spec), std::invalid_argument);
+}
+TEST(Backtest, ARankingRuleSizedByVolatilityHoldsLessOfWhatMovesMore) {
+  // rb moves by a tenth a bar where hc moves by a hundredth, at a hundredth of
+  // its price. A bar trades 1000 lots, of which an order may take a hundred.
+  const auto contract = [](const char* symbol, const char* product,
+                           std::initializer_list<const char*> prices) {
+    std::vector<MarketBar> bars;
+    std::int64_t time = 1790298000000000000LL;
+    for (const auto* price : prices) {
+      bars.push_back(test::flat("2026-09-25", time, price, "1000"));
+      time += 1000000000;
+    }
+    return test::dataset(bars, {{"2026-09-25", bars.back().close}},
+                         test::contract("SHFE", symbol, product, "2026-10"));
+  };
+  auto spec = input_of(contract("rb2610", "rb", {"100", "110", "99", "99", "99"}));
+  auto* added = spec.mutable_paper()->add_contracts();
+  *added = spec.paper().contracts(0);
+  *added->mutable_dataset() = contract("hc2610", "hc", {"10000", "10100", "9999", "9999", "9999"});
+  spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
+  // Ranked once, at the third bar: the window of two returns needs it.
+  const Json rule{{"kind", "cross_momentum"}, {"reverse", false}, {"lookback", 1},
+                  {"rebalance", 10},          {"count", 1},       {"notional", "110000"},
+                  {"volatility", 2}};
+  *spec.mutable_strategies(0) = protocol::encode_strategy({{"sides", "both"}, {"rule", rule}});
+  const auto result = backtest::run(spec);
+  // hc fell less and is held long, rb short. Of the 220000 the two hold
+  // together rb takes one eleventh, 20000 against lots of 990, and hc the
+  // rest, 200000 against lots of 99990.
+  ASSERT_EQ(result.account().fills_size(), 2);
+  const auto fill = [&](int index) {
+    const auto& value = result.account().fills(index);
+    return value.symbol() + " " + Decimal::from_raw(value.quantity().units()).str() + " at " +
+           Decimal::from_raw(value.price().units()).str();
+  };
+  EXPECT_EQ(fill(0), "rb2610 20 at 99");
+  EXPECT_EQ(fill(1), "hc2610 2 at 9999");
+  // Nothing moved after the fills: only the 22 lots' opening fees are gone.
+  EXPECT_EQ(result.account().equity().units(), d("9956").raw());
+  // Split alike, the same notional asks for a hundred lots of rb and one of
+  // hc at the second bar: more than the account may hold, and refused.
+  spec.mutable_strategies(0)->mutable_cross()->set_volatility(0);
+  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
 }
 TEST(Backtest, SeveralStrategiesAreComparedOnTheDaysBeforeTheHoldoutAlone) {
   const auto spec = comparison();

@@ -12,7 +12,7 @@ v1::PositionSides encode_position_sides(const Json& value);
 // {"quantity", "sides", "rule": {"kind": "moving_average" | "breakout" |
 // "momentum" | "reversion", ...its windows}}, or without a quantity
 // {"sides", "rule": {"kind": "cross_momentum" | "cross_term_structure",
-// "reverse", ...its windows, "notional"}}. Shapes only: whether
+// "reverse", ...its windows, "notional", "volatility"}}. Shapes only: whether
 // the windows make a strategy is the strategy's to say.
 v1::Strategy encode_strategy(const Json& value);
 Json decode_strategy(const v1::Strategy& strategy);

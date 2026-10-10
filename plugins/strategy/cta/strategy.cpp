@@ -215,10 +215,11 @@ bool CrossSection::defines(const protocol::v1::Strategy& definition) {
 }
 CrossSection::CrossSection(const protocol::v1::Strategy& definition, std::size_t units)
     : momentum_(definition.cross().factor() == protocol::v1::PRICE_MOMENTUM),
-      reversed_(definition.cross().reversed()),
-      window_(definition.cross().lookback() + (momentum_ ? 1 : 0)),
+      reversed_(definition.cross().reversed()), lookback_(definition.cross().lookback()),
+      volatility_(definition.cross().volatility()),
+      need_(std::max(lookback_ + (momentum_ ? 1 : 0), volatility_ ? volatility_ + 1 : 0)),
       rebalance_(definition.cross().rebalance()), count_(definition.cross().count()),
-      sides_(protocol::position_sides(definition.sides())), latest_(units), values_(units) {
+      sides_(protocol::position_sides(definition.sides())), latest_(units), bars_(units) {
   if (!defines(definition))
     throw std::invalid_argument("unknown strategy rule");
   // A unit is never wanted on both sides.
@@ -226,44 +227,47 @@ CrossSection::CrossSection(const protocol::v1::Strategy& definition, std::size_t
     throw std::invalid_argument(
         "a ranking rule requires at least twice as many contracts as it holds a side");
 }
-void CrossSection::on_bar(std::size_t unit, std::int64_t timestamp_ns, Decimal value) {
+void CrossSection::on_bar(std::size_t unit, std::int64_t timestamp_ns, Decimal close,
+                          Decimal term) {
   if (timestamp_ns < time_ || (timestamp_ns == time_ && latest_.at(unit)))
     throw std::invalid_argument("strategy events are out of order");
-  if (momentum_ && value <= Decimal{})
-    throw std::invalid_argument("ranking by momentum requires positive closes");
+  if (close <= Decimal{})
+    throw std::invalid_argument("a ranking rule requires positive closes");
   if (timestamp_ns > time_)
     std::ranges::fill(latest_, std::nullopt);
   time_ = timestamp_ns;
-  latest_.at(unit) = value;
+  latest_.at(unit) = Bar{close, term};
 }
-std::optional<std::vector<int>> CrossSection::rank() {
+std::optional<std::vector<double>> CrossSection::rank() {
   const bool everywhere =
-      std::ranges::all_of(latest_, [](const auto& value) { return value.has_value(); });
+      std::ranges::all_of(latest_, [](const auto& bar) { return bar.has_value(); });
   if (everywhere)
-    for (std::size_t unit = 0; unit < values_.size(); ++unit) {
-      values_[unit].push_back(*latest_[unit]);
-      if (values_[unit].size() > window_)
-        values_[unit].pop_front();
+    for (std::size_t unit = 0; unit < bars_.size(); ++unit) {
+      bars_[unit].push_back(*latest_[unit]);
+      if (bars_[unit].size() > need_)
+        bars_[unit].pop_front();
     }
   std::ranges::fill(latest_, std::nullopt);
-  // The first ranking needs its window behind it; later ones follow at every
+  // The first ranking needs its windows behind it; later ones follow at every
   // `rebalance`-th shared bar.
-  if (!everywhere || ++shared_ < window_ || (shared_ - window_) % rebalance_ != 0)
+  if (!everywhere || ++shared_ < need_ || (shared_ - need_) % rebalance_ != 0)
     return std::nullopt;
-  // A statistic, like a factor: binary floating point, not ledger arithmetic.
+  // Statistics, like a factor: binary floating point, not ledger arithmetic.
+  const auto price = [](const Bar& bar) { return static_cast<long double>(bar.close.raw()); };
   std::vector<double> score;
-  for (const auto& values : values_) {
+  for (const auto& bars : bars_) {
+    const auto last = bars.size() - 1;
     if (momentum_) {
-      score.push_back(static_cast<double>(values.back().raw()) /
-                      static_cast<double>(values.front().raw()));
+      score.push_back(static_cast<double>(bars[last].close.raw()) /
+                      static_cast<double>(bars[last - lookback_].close.raw()));
       continue;
     }
     long double sum = 0;
-    for (const auto value : values)
-      sum += static_cast<long double>(value.raw());
-    score.push_back(static_cast<double>(sum / static_cast<long double>(values.size())));
+    for (std::size_t i = 0; i < lookback_; ++i)
+      sum += static_cast<long double>(bars[last - i].term.raw());
+    score.push_back(static_cast<double>(sum / static_cast<long double>(lookback_)));
   }
-  std::vector<std::size_t> order(values_.size());
+  std::vector<std::size_t> order(bars_.size());
   for (std::size_t unit = 0; unit < order.size(); ++unit)
     order[unit] = unit;
   // Those to hold long first: the highest, or the lowest of a reversed rule.
@@ -271,13 +275,48 @@ std::optional<std::vector<int>> CrossSection::rank() {
   std::ranges::stable_sort(order, [&](auto left, auto right) {
     return reversed_ ? score[left] < score[right] : score[left] > score[right];
   });
-  std::vector<int> wanted(values_.size());
+  std::vector<double> wanted(bars_.size());
   for (std::size_t i = 0; i < count_; ++i) {
     if (sides_ != PositionSides::short_only)
       wanted[order[i]] = 1;
     if (sides_ != PositionSides::long_only)
       wanted[order[order.size() - 1 - i]] = -1;
   }
+  if (!volatility_)
+    return wanted;
+  // The sample standard deviation of a unit's last `volatility_` returns.
+  const auto deviation = [&](const std::deque<Bar>& bars) {
+    const auto last = bars.size() - 1;
+    std::vector<long double> returns;
+    for (std::size_t i = 0; i < volatility_; ++i)
+      returns.push_back(price(bars[last - i]) / price(bars[last - i - 1]) - 1);
+    long double mean = 0, squares = 0;
+    for (const auto value : returns)
+      mean += value;
+    mean /= static_cast<long double>(returns.size());
+    for (const auto value : returns)
+      squares += (value - mean) * (value - mean);
+    return std::sqrt(squares / static_cast<long double>(returns.size() - 1));
+  };
+  // The held units share what they would hold alike by the inverse of their
+  // volatility; one without any is not held.
+  std::vector<long double> inverse(bars_.size());
+  long double total = 0;
+  std::size_t held = 0;
+  for (std::size_t unit = 0; unit < bars_.size(); ++unit) {
+    if (wanted[unit] == 0)
+      continue;
+    if (const auto sigma = deviation(bars_[unit]); sigma > 0) {
+      inverse[unit] = 1 / sigma;
+      total += inverse[unit];
+      ++held;
+    }
+  }
+  for (std::size_t unit = 0; unit < bars_.size(); ++unit)
+    wanted[unit] *=
+        inverse[unit] > 0
+            ? static_cast<double>(static_cast<long double>(held) * inverse[unit] / total)
+            : 0;
   return wanted;
 }
 } // namespace asterion

@@ -140,7 +140,8 @@ TEST(DominantSeries, ARankingRuleTakesASeriesAsOneOfTheContractsItRanks) {
                                                               {"lookback", 1},
                                                               {"rebalance", 1},
                                                               {"count", 1},
-                                                              {"notional", "1500"}}}});
+                                                              {"notional", "1500"},
+                                                              {"volatility", 0}}}});
   const auto result = backtest::run(input);
   // Ranked from the second bar: rb2610 is bought at that bar's real close of
   // 202, sold on the roll day, and rb2701 bought once it is. hc never trades.
@@ -190,7 +191,8 @@ TEST(DominantSeries, ARankingByTheTermStructureHoldsTheSeriesWithTheHigherCarry)
                   {"lookback", 1},
                   {"rebalance", 1},
                   {"count", 1},
-                  {"notional", "1500"}};
+                  {"notional", "1500"},
+                  {"volatility", 0}};
   *input.mutable_strategies(0) = protocol::encode_strategy({{"sides", "long"}, {"rule", rule}});
   const auto result = backtest::run(input);
   // Ranked from the first bar of the second day: rb2610 is bought at that

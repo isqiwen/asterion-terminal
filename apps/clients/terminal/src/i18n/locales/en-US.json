@@ -535,14 +535,15 @@
   "截面动量": "Cross-sectional momentum",
   "调仓间隔": "Rebalance every",
   "每侧合约数": "Contracts a side",
-  "在所有合约都有的 K 线上，每隔“调仓间隔”根按“收盘价 ÷ 动量回看根之前的收盘价”给各合约排序，最强的“每侧合约数”个做多、最弱的做空，其余空仓，持有到下一次排序。入选的合约各持有市值最接近“每个合约的名义金额”的手数，按排序那根 K 线的收盘价和合约乘数计算。一条主力连续算一个合约。": "On the bars every contract has, at every “Rebalance every”-th one the contracts are ranked by their close over the close “Momentum lookback” such bars earlier. The strongest “Contracts a side” are held long and the weakest short, the rest flat, until the next ranking. A held contract holds the lots whose value is nearest “Notional per contract”, by the close of the ranking bar and the contract multiplier. A dominant series counts as one contract.",
+  "在所有合约都有的 K 线上，每隔“调仓间隔”根按“收盘价 ÷ 动量回看根之前的收盘价”给各合约排序，最强的“每侧合约数”个做多、最弱的做空，其余空仓，持有到下一次排序。入选的合约各持有市值最接近“每个合约的名义金额”的手数，按排序那根 K 线的收盘价和合约乘数计算。一条主力连续算一个合约。“波动窗口”填 0 时入选的各持相同的名义金额；填 N（至少 2）时，它们合计的名义金额不变，按各自最近 N 根共有 K 线收益率标准差的倒数分配，波动大的少持。": "On the bars every contract has, at every “Rebalance every”-th one the contracts are ranked by their close over the close “Momentum lookback” such bars earlier. The strongest “Contracts a side” are held long and the weakest short, the rest flat, until the next ranking. A held contract holds the lots whose value is nearest “Notional per contract”, by the close of the ranking bar and the contract multiplier. A dominant series counts as one contract. With “Volatility window” at 0 every held one holds the same notional; at N (2 or more) what they hold together stays the same and is split by the inverse of the standard deviation of each one's returns over the last N shared bars, so the more volatile holds less.",
   "每个合约的名义金额": "Notional per contract",
   "{n} 手": "{n} lots",
   "每个合约 {n}": "{n} per contract",
   "截面期限结构": "Cross-sectional term structure",
-  "在所有品种都有期限结构的 K 线上，每隔“调仓间隔”根按最近“均值窗口”根 K 线上年化近远月价差的均值给各品种排序：价差最高（近月相对最贵）的“每侧合约数”个做多、最低的做空，其余空仓，持有到下一次排序。只用于主力连续。入选的品种各持有市值最接近“每个合约的名义金额”的手数，按排序那根 K 线的收盘价和合约乘数计算。": "On the bars where every product has a term structure, at every “Rebalance every”-th one the products are ranked by the mean, over the last “Mean window” bars, of their annualised spread between the near and the later month. The highest “Contracts a side” (the near month dearest) are held long and the lowest short, the rest flat, until the next ranking. It is for dominant series only. A held product holds the lots whose value is nearest “Notional per contract”, by the close of the ranking bar and the contract multiplier.",
+  "在所有品种都有期限结构的 K 线上，每隔“调仓间隔”根按最近“均值窗口”根 K 线上年化近远月价差的均值给各品种排序：价差最高（近月相对最贵）的“每侧合约数”个做多、最低的做空，其余空仓，持有到下一次排序。只用于主力连续。入选的品种各持有市值最接近“每个合约的名义金额”的手数，按排序那根 K 线的收盘价和合约乘数计算。“波动窗口”填 0 时入选的各持相同的名义金额；填 N（至少 2）时，它们合计的名义金额不变，按各自最近 N 根共有 K 线收益率标准差的倒数分配，波动大的少持。": "On the bars where every product has a term structure, at every “Rebalance every”-th one the products are ranked by the mean, over the last “Mean window” bars, of their annualised spread between the near and the later month. The highest “Contracts a side” (the near month dearest) are held long and the lowest short, the rest flat, until the next ranking. It is for dominant series only. A held product holds the lots whose value is nearest “Notional per contract”, by the close of the ranking bar and the contract multiplier. With “Volatility window” at 0 every held one holds the same notional; at N (2 or more) what they hold together stays the same and is split by the inverse of the standard deviation of each one's returns over the last N shared bars, so the more volatile holds less.",
   "排序方向": "Held ends",
   "做多最高、做空最低": "Long the highest, short the lowest",
   "做多最低、做空最高": "Long the lowest, short the highest",
-  "反向": "reversed"
+  "反向": "reversed",
+  "波动窗口": "Volatility window"
 }

@@ -8,6 +8,7 @@
 #include "paper_execution.hpp"
 #include "portfolio.hpp"
 #include <algorithm>
+#include <cmath>
 #include <asterion/domain/futures.hpp>
 #include <stdexcept>
 namespace asterion::backtest {
@@ -218,7 +219,7 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
         } else if (const auto term = carry[member].find(bar.trading_day);
                    term != carry[member].end()) {
           // A day without a term point is no bar of this unit for the ranking.
-          cross->on_bar(u, seen.timestamp_ns, term->second);
+          cross->on_bar(u, seen.timestamp_ns, seen.close, term->second);
         }
       };
       if (roll)
@@ -235,20 +236,23 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
       together.push_back({current.contract, order, bar.close, leading});
       if (index + 1 == total ||
           execution.bar(execution.event(index + 1)).timestamp_ns != bar.timestamp_ns) {
-        if (const auto sides = cross->rank()) {
+        if (const auto shares = cross->rank()) {
           // A unit holds the lots of the month it trades now whose value at
-          // this close is nearest the rule's notional.
+          // this close is nearest its share of the rule's notional.
           const auto notional = decimal(definition.cross().notional());
           for (const auto& item : together) {
+            if (!item.leading)
+              continue;
             const auto u = unit[item.contract];
-            if (item.leading) {
-              const auto& terms = execution.contract(item.contract).terms.instrument;
-              const auto lots = quantize(
-                  divide(notional, multiply(item.close, terms.multiplier, Rounding::half_up),
-                         Rounding::half_up),
-                  terms.quantity_increment, Rounding::half_up);
-              wanted[u] = (*sides)[u] > 0 ? lots : (*sides)[u] < 0 ? Decimal{} - lots : Decimal{};
-            }
+            const auto share = (*shares)[u];
+            const auto& terms = execution.contract(item.contract).terms.instrument;
+            const auto lots = quantize(
+                divide(
+                    multiply(notional, Decimal::from_raw(std::llround(std::abs(share) * 100000000)),
+                             Rounding::half_up),
+                    multiply(item.close, terms.multiplier, Rounding::half_up), Rounding::half_up),
+                terms.quantity_increment, Rounding::half_up);
+            wanted[u] = share > 0 ? lots : share < 0 ? Decimal{} - lots : Decimal{};
           }
           for (const auto& item : together)
             pending[item.contract] = PaperExecution::Target{

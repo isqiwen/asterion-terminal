@@ -51,6 +51,7 @@ describe("the strategies a form submits", () => {
         rebalance: 5,
         count,
         notional: "50000",
+        volatility: 0,
       })),
     );
     expect(ranked[0]).toEqual({ sides: "both", rule: ranked[0].rule });

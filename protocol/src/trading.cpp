@@ -99,7 +99,8 @@ v1::Strategy encode_strategy(const Json& value) {
     result.mutable_reversion()->set_window(window("window"));
     result.mutable_reversion()->mutable_width()->set_units(amount(rule.at("width")));
   } else if (ranks) {
-    require_fields(rule, {"kind", "reverse", "lookback", "rebalance", "count", "notional"});
+    require_fields(rule,
+                   {"kind", "reverse", "lookback", "rebalance", "count", "notional", "volatility"});
     if (!rule.at("reverse").is_boolean())
       throw std::invalid_argument("invalid strategy");
     auto* cross = result.mutable_cross();
@@ -109,6 +110,7 @@ v1::Strategy encode_strategy(const Json& value) {
     cross->set_rebalance(window("rebalance"));
     cross->set_count(window("count"));
     cross->mutable_notional()->set_units(amount(rule.at("notional")));
+    cross->set_volatility(window("volatility"));
   } else
     throw std::invalid_argument("unknown strategy rule");
   return result;
@@ -141,7 +143,8 @@ Json decode_strategy(const v1::Strategy& strategy) {
             {"lookback", strategy.cross().lookback()},
             {"rebalance", strategy.cross().rebalance()},
             {"count", strategy.cross().count()},
-            {"notional", Decimal::from_raw(strategy.cross().notional().units()).str()}};
+            {"notional", Decimal::from_raw(strategy.cross().notional().units()).str()},
+            {"volatility", strategy.cross().volatility()}};
     break;
   case v1::Strategy::RULE_NOT_SET:
     throw std::invalid_argument("unknown strategy rule");
@@ -164,6 +167,10 @@ void validate_strategy(const v1::Strategy& strategy, Decimal quantity_increment)
       throw std::invalid_argument(
           "a ranking rule requires a factor, a lookback and a rebalance of 1..10000 bars, 1..10 "
           "contracts a side and a positive notional in place of a quantity");
+    // A standard deviation needs two returns.
+    if (rule.volatility() == 1 || rule.volatility() > 10000)
+      throw std::invalid_argument(
+          "a ranking rule sizes by volatility over 2..10000 bars, or over none");
     return;
   }
   const auto quantity = Decimal::from_raw(strategy.quantity().units());
@@ -212,8 +219,11 @@ std::size_t strategy_warmup(const v1::Strategy& strategy) {
     return strategy.reversion().window();
   case v1::Strategy::kCross:
     // Momentum compares with the bar a lookback earlier; the term structure
-    // averages over the lookback itself.
-    return strategy.cross().lookback() + (strategy.cross().factor() == v1::PRICE_MOMENTUM ? 1 : 0);
+    // averages over the lookback itself. Sizing by volatility needs one bar
+    // more than its window of returns.
+    return std::max<std::size_t>(
+        strategy.cross().lookback() + (strategy.cross().factor() == v1::PRICE_MOMENTUM ? 1 : 0),
+        strategy.cross().volatility() ? strategy.cross().volatility() + 1 : 0);
   case v1::Strategy::RULE_NOT_SET:
     break;
   }

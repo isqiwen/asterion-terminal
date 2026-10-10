@@ -529,5 +529,7 @@ test("a ranking rule holds the strongest contract long and the weakest short", a
   await expect(parameter("调仓间隔")).toHaveText("2");
   await expect(parameter("每侧合约数")).toHaveText("1");
   await expect(parameter("每个合约的名义金额")).toHaveText("1000");
+  await expect(parameter("排序方向")).toHaveText("做多最高、做空最低");
+  await expect(parameter("波动窗口")).toHaveText("0");
   await page.screenshot({ path: join(__dirname, "../test-results/backtest-ranked.png") });
 });

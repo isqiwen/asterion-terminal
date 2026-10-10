@@ -138,9 +138,10 @@ TEST(Strategy, ADefinitionStatesWindowsItsRuleCanWorkWith) {
 }
 TEST(Strategy, ARankingRuleHoldsTheStrongestLongAndTheWeakestShortOnBarsAllUnitsHave) {
   const Json rule{{"kind", "cross_momentum"}, {"reverse", false}, {"lookback", 1},
-                  {"rebalance", 2},           {"count", 1},       {"notional", "1000"}};
+                  {"rebalance", 2},           {"count", 1},       {"notional", "1000"},
+                  {"volatility", 0}};
   CrossSection ranked(ranking(rule), 4);
-  using Wanted = std::optional<std::vector<int>>;
+  using Wanted = std::optional<std::vector<double>>;
   const auto bars = [](CrossSection& run, std::int64_t time,
                        std::initializer_list<const char*> closes) {
     std::size_t unit = 0;
@@ -211,12 +212,13 @@ TEST(Strategy, ARankingByTheTermStructureAveragesTheCarryOverItsWindow) {
                   {"lookback", 2},
                   {"rebalance", 1},
                   {"count", 1},
-                  {"notional", "1000"}};
+                  {"notional", "1000"},
+                  {"volatility", 0}};
   CrossSection ranked(ranking(rule), 2);
-  using Wanted = std::optional<std::vector<int>>;
+  using Wanted = std::optional<std::vector<double>>;
   const auto bars = [&](std::int64_t time, const char* first, const char* second) {
-    ranked.on_bar(0, time, d(first));
-    ranked.on_bar(1, time, d(second));
+    ranked.on_bar(0, time, d("100"), d(first));
+    ranked.on_bar(1, time, d("100"), d(second));
     return ranked.rank();
   };
   // A window of two has nothing to rank by after one bar.
@@ -232,4 +234,45 @@ TEST(Strategy, ARankingByTheTermStructureAveragesTheCarryOverItsWindow) {
   auto unnamed = ranking(rule);
   unnamed.mutable_cross()->clear_factor();
   EXPECT_THROW(protocol::validate_strategy(unnamed, d("1")), std::invalid_argument);
+}
+TEST(Strategy, AVolatilityWindowSplitsWhatIsHeldByTheInverseOfEachUnitsVolatility) {
+  // Momentum over one bar, sized by the volatility of the last two returns:
+  // three closes are needed before the first ranking.
+  const Json rule{{"kind", "cross_momentum"}, {"reverse", false}, {"lookback", 1},
+                  {"rebalance", 1},           {"count", 1},       {"notional", "1000"},
+                  {"volatility", 2}};
+  const auto bars = [](CrossSection& run, std::int64_t time,
+                       std::initializer_list<const char*> closes) {
+    std::size_t unit = 0;
+    for (const auto* close : closes)
+      run.on_bar(unit++, time, d(close));
+    return run.rank();
+  };
+  CrossSection ranked(ranking(rule), 3);
+  EXPECT_FALSE(bars(ranked, 1, {"100", "10000", "50"}));
+  EXPECT_FALSE(bars(ranked, 2, {"110", "10100", "52"}));
+  // 0.90, 0.99 and 0.95 of the bar before: the second is held long and the
+  // first short. Their returns were +10% and -10% against +1% and -1%, ten
+  // times the volatility: of the two units' worth they hold together the
+  // first takes one eleventh.
+  const auto shares = bars(ranked, 3, {"99", "9999", "49.4"});
+  ASSERT_TRUE(shares);
+  EXPECT_NEAR((*shares)[0], -2.0 / 11, 1e-9);
+  EXPECT_NEAR((*shares)[1], 20.0 / 11, 1e-9);
+  EXPECT_EQ((*shares)[2], 0);
+  // A unit that never moved has no volatility to size by: it ranks highest
+  // here and is not held, and the other holds one unit's worth.
+  CrossSection still(ranking(rule), 2);
+  EXPECT_FALSE(bars(still, 1, {"100", "100"}));
+  EXPECT_FALSE(bars(still, 2, {"100", "110"}));
+  const auto alone = bars(still, 3, {"100", "99"});
+  ASSERT_TRUE(alone);
+  EXPECT_EQ((*alone)[0], 0);
+  EXPECT_DOUBLE_EQ((*alone)[1], -1);
+  EXPECT_EQ(protocol::strategy_warmup(ranking(rule)), 3U);
+  EXPECT_EQ(protocol::decode_strategy(ranking(rule)).at("rule"), rule);
+  // One return has no standard deviation.
+  auto single = rule;
+  single["volatility"] = 1;
+  EXPECT_THROW(protocol::validate_strategy(ranking(single), d("1")), std::invalid_argument);
 }
