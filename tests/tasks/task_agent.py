@@ -56,7 +56,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
         selections["long"] = {k:v for k,v in seed(invoke,[100+i+i%3 for i in range(160)],"long")["datasets"][0].items() if k in {"source_dataset_ids","settlement_dataset_ids","begin_day","end_day"}}
         selections["long"].update(price_increment="1",multiplier="10")
         select(process,"short")
-        call(process,"backtest.submit",{"id":"agent-recovery","strategy":{"quantity": "1", "sides": "long", "rule": {"kind": "moving_average", "fast": 1, "slow": 3}},"deposit":"10000","contracts": contracts(),"max_order_quantity":"100","max_gross_quantity":"100","max_working_orders":"100"})
+        call(process,"backtest.submit",{"id":"agent-recovery","strategies": [{"quantity": "1", "sides": "long", "rule": {"kind": "moving_average", "fast": 1, "slow": 3}}], "holdout_from": "","deposit":"10000","contracts": contracts(),"max_order_quantity":"100","max_gross_quantity":"100","max_working_orders":"100"})
         select(process,"long")
         call(process,"factor.submit",{"id":"factor-recovery","series":{"kind":"bars"},"lookbacks":[2],"horizon":1,"evaluation":{"mode":"full_sample"}})
         call(process,"factor.submit",{"id":"rolling-recovery","series":{"kind":"bars"},"lookbacks":[2,5,10],"horizon":1,"evaluation":{"mode":"walk_forward","training_events":80,"validation_events":40}})

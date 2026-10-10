@@ -107,7 +107,7 @@ export async function seedDataset(
   request: APIRequestContext,
   prices: number[],
   id: string,
-  options: { product?: string; keep?: boolean; day?: string } = {},
+  options: Parameters<typeof seedHistory>[3] = {},
 ) {
   const selection = await seedHistory(request, prices, id, options);
   return rpc(request, "data.dataset.select", selection);

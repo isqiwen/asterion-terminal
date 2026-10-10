@@ -84,11 +84,10 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
     .toBe(true);
   await rpc(page.request, "backtest.submit", {
     id: "composed-backtest",
-    strategy: {
-      quantity: "1",
-      sides: "long",
-      rule: { kind: "moving_average", fast: 1, slow: 3 },
-    },
+    strategies: [
+      { quantity: "1", sides: "long", rule: { kind: "moving_average", fast: 1, slow: 3 } },
+    ],
+    holdout_from: "",
     deposit: "10000",
     contracts: [
       {

@@ -670,7 +670,7 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData) {
   backtest->mutable_risk()->mutable_max_order_quantity()->set_units(Decimal::parse("100").raw());
   backtest->mutable_risk()->mutable_max_gross_quantity()->set_units(Decimal::parse("100").raw());
   backtest->mutable_risk()->set_max_working_orders(100);
-  *backtest->mutable_strategy() =
+  *backtest->add_strategies() =
       protocol::encode_strategy({{"quantity", "1"},
                                  {"sides", "long"},
                                  {"rule", {{"kind", "moving_average"}, {"fast", 1}, {"slow", 3}}}});

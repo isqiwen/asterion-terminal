@@ -318,3 +318,99 @@ test("a backtest trades by the rule chosen in the form", async ({ page }) => {
   await expect(parameter("持仓方向")).toHaveText("多空");
   await page.screenshot({ path: join(__dirname, "../test-results/backtest-rule-form.png") });
 });
+
+test("several strategies are compared before a holdout and one is replayed", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".workspace-tabs")).toBeVisible();
+  // Thirty weekdays from 2026-08-17 with one bar each: a rising market with a
+  // dip every third day.
+  const days: string[] = [];
+  for (let at = Date.UTC(2026, 7, 17); days.length < 30; at += 86400000)
+    if (new Date(at).getUTCDay() % 6 !== 0) days.push(new Date(at).toISOString().slice(0, 10));
+  await seedDataset(
+    page.request,
+    days.map((_, i) => 100 + 2 * i - (i % 3 === 2 ? 3 : 0)),
+    "comparison",
+    { minuteDays: days },
+  );
+  await page.reload();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  const workspace = page.getByRole("region", { name: "期货研究", exact: true });
+  await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
+  await workspace.getByRole("button", { name: "下一步", exact: true }).click();
+  await workspace.getByLabel("快均线", { exact: true }).fill("1");
+  // One value is one strategy and asks for no holdout.
+  await workspace.getByLabel("慢均线", { exact: true }).fill("2");
+  await expect(workspace.getByText("一个策略，不做比较。", { exact: true })).toBeVisible();
+  await expect(workspace.getByLabel("留出起始日", { exact: true })).toHaveCount(0);
+  // A fast average that is not shorter than the slow one is no strategy.
+  await workspace.getByLabel("慢均线", { exact: true }).fill("1");
+  await expect(workspace.getByText("这些窗口组不出可用的策略。", { exact: true })).toBeVisible();
+  await expect(workspace.getByRole("button", { name: "下一步", exact: true })).toBeDisabled();
+  await workspace.getByLabel("慢均线", { exact: true }).fill("2, 3");
+  await expect(workspace.getByText(/^候选策略 2 个/)).toBeVisible();
+  // A Saturday: the holdout begins on the Monday after it.
+  await workspace.getByLabel("留出起始日", { exact: true }).fill("2026-09-19");
+  for (const [label, value] of [
+    ["目标手数", "1"],
+    ["初始资金", "100000"],
+    ["每手保证金", "100"],
+    ["每手开仓费", "2"],
+    ["每手平今费", "3"],
+    ["每手平昨费", "4"],
+    ["单笔数量上限", "100"],
+    ["总持仓量上限", "100"],
+    ["在途委托数上限", "100"],
+  ])
+    await workspace.getByLabel(label, { exact: true }).fill(value);
+  await workspace.getByRole("button", { name: "下一步", exact: true }).click();
+  await expect(workspace.getByText(/2 个候选，留出自 2026-09-19 起/)).toBeVisible();
+  await workspace.getByRole("button", { name: "开始回测", exact: true }).click();
+  await workspace.getByRole("button", { name: "返回回测记录", exact: true }).click();
+  const row = workspace
+    .getByRole("region", { name: "研究任务", exact: true })
+    .getByRole("row")
+    .filter({ hasText: "SHFE/rb2610" })
+    .first();
+  await expect(row.getByText("已完成", { exact: true })).toBeVisible({ timeout: 20000 });
+  await row.getByRole("button", { name: "查看结果", exact: true }).click();
+  const result = workspace.getByRole("region", { name: "回测结果", exact: true });
+  // Both candidates keep their scores; the heading names the selected one.
+  const candidates = result.getByRole("table", { name: "候选策略", exact: true });
+  await expect(candidates.locator("tbody tr")).toHaveCount(2);
+  await expect(candidates.locator("tbody tr").nth(0)).toContainText("均线交叉 1/2");
+  await expect(candidates.locator("tbody tr").nth(1)).toContainText("均线交叉 1/3");
+  const chosen = candidates.locator("tbody tr").filter({ hasText: "已选中" });
+  await expect(chosen).toHaveCount(1);
+  const rule = (await chosen.locator("td").first().innerText()).split(" · ")[0];
+  await expect(result.getByRole("heading", { name: new RegExp(rule) })).toBeVisible();
+  const figure = (section: string, name: string) =>
+    result
+      .getByRole("region", { name: section, exact: true })
+      .locator(".research-metrics > div")
+      .filter({ has: page.getByText(name, { exact: true }) })
+      .locator("strong");
+  // Twenty-five days before 2026-09-21 and five from it; the whole run has both.
+  await expect(figure("绩效", "交易日数")).toHaveText("30");
+  await expect(figure("前段", "交易日数")).toHaveText("25");
+  await expect(figure("留出段", "交易日数")).toHaveText("5");
+  // The development figures are the selected candidate's scores.
+  await expect(figure("前段", "总收益率")).toHaveText(
+    await chosen.locator("td").nth(1).innerText(),
+  );
+  await expect(figure("前段", "夏普比率")).toHaveText(
+    await chosen.locator("td").nth(2).innerText(),
+  );
+  // Five days are too few for yearly figures.
+  await expect(figure("留出段", "夏普比率")).toHaveText("—");
+  await result.getByRole("heading", { name: "比较", exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: join(__dirname, "../test-results/backtest-comparison.png") });
+  await result.getByText("实验参数", { exact: true }).click();
+  const parameter = (label: string) =>
+    result
+      .locator(".experiment-fields > div")
+      .filter({ has: page.getByText(label, { exact: true }) })
+      .locator("dd");
+  await expect(parameter("候选策略数")).toHaveText("2");
+  await expect(parameter("留出起始日")).toHaveText("2026-09-21");
+});

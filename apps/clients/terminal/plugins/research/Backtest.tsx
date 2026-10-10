@@ -12,18 +12,41 @@ import {
   asDisplayError,
   StrategyFields,
   strategyDefaults,
-  strategyOf,
+  strategiesOf,
   strategyRule,
   strategySides,
   type TerminalContext,
 } from "../contract";
-import { timestamp } from "../../src/bridge/client";
+import { timestamp, type PerformanceFigures } from "../../src/bridge/client";
 import { ExperimentDetails } from "./ExperimentDetails";
 import { namespace, ResearchPage, states, t, TaskRecords, useRun } from "./shared";
 
 // Performance figures are statistics; an absent one was not computed.
 const percent = (value: number | null) => (value === null ? "—" : `${(value * 100).toFixed(2)}%`);
 const ratio = (value: number | null) => (value === null ? "—" : value.toFixed(2));
+function Figures({ label, value }: { label: string; value: PerformanceFigures }) {
+  return (
+    <section aria-label={label}>
+      <div className="research-metrics">
+        {[
+          [t("总收益率"), percent(value.total_return)],
+          [t("年化收益率"), percent(value.annual_return)],
+          [t("年化波动率"), percent(value.annual_volatility)],
+          [t("夏普比率"), ratio(value.sharpe)],
+          [t("最大回撤"), percent(value.max_drawdown)],
+          [t("卡玛比率"), ratio(value.calmar)],
+          [t("盈利交易日占比"), percent(value.winning_days)],
+          [t("交易日数"), value.trading_days],
+        ].map(([name, figure]) => (
+          <div key={name}>
+            <span className="subtle">{name}</span>
+            <strong>{figure}</strong>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 /** Strategy backtests: their records, a three-step form, one task's progress and its fixed result. */
 export function Backtest({
@@ -77,6 +100,9 @@ export function Backtest({
 
   const destination = JSON.stringify([snapshot?.data?.connection_id, taskService?.connection_id]);
   const [strategy, setStrategy] = useWorkspaceDraft("backtest-strategy", strategyDefaults);
+  // Several values in a window make several strategies, compared before a holdout.
+  const [holdoutFrom, setHoldoutFrom] = useWorkspaceDraft("backtest-holdout", "");
+  const candidates = strategiesOf(strategy);
   const [parameters, setParameters] = useWorkspaceDraft("backtest-account", {
     deposit: "",
     max_order_quantity: "",
@@ -87,7 +113,14 @@ export function Backtest({
   const [submitted, setSubmitted] = useWorkspaceDraft(`submitted:${destination}:backtest`, "");
   const [pendingId, setPendingId] = useWorkspaceRequestId(
     "backtest-submission",
-    JSON.stringify([destination, parameters, costs, datasets.map(item => item.revision)]),
+    JSON.stringify([
+      destination,
+      strategy,
+      holdoutFrom,
+      parameters,
+      costs,
+      datasets.map(item => item.revision),
+    ]),
   );
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -105,7 +138,8 @@ export function Backtest({
       const payload = {
         id,
         ...parameters,
-        strategy: strategyOf(strategy),
+        strategies: candidates,
+        holdout_from: candidates.length > 1 ? holdoutFrom : "",
         contracts: contractCostRequest(datasets, costs, snapshot?.dataset_series ?? []),
       };
       if (await run("backtest.submit", payload)) {
@@ -225,7 +259,39 @@ export function Backtest({
                   className="research-fields"
                   value={strategy}
                   onChange={setStrategy}
+                  compare
                 />
+                <p className="subtle">
+                  {t(
+                    "窗口里可以用逗号填多个值，所有组合各成一个候选策略，最多 32 个；规则用不了的组合不算。多个候选时只用留出起始日之前的交易日比较，取夏普比率最高的一个回放全部交易日。",
+                  )}
+                </p>
+                {candidates.length > 1 && (
+                  <div className="research-fields">
+                    <label>
+                      {t("留出起始日")}
+                      <input
+                        aria-label={t("留出起始日")}
+                        type="date"
+                        required
+                        value={holdoutFrom}
+                        onChange={event => setHoldoutFrom(event.target.value)}
+                      />
+                    </label>
+                  </div>
+                )}
+                <p className="subtle" role="status">
+                  {candidates.length === 0
+                    ? t("这些窗口组不出可用的策略。")
+                    : candidates.length > 32
+                      ? t("候选策略 {n} 个，超过 32 个。", { n: candidates.length })
+                      : candidates.length > 1
+                        ? t(
+                            "候选策略 {n} 个；留出起始日之前至少要有 20 个交易日，起始日不是交易日时取其后的第一个交易日。",
+                            { n: candidates.length },
+                          )
+                        : t("一个策略，不做比较。")}
+                </p>
                 <div className="research-fields">
                   {(
                     [
@@ -260,7 +326,13 @@ export function Backtest({
                   <button
                     className="primary"
                     type="submit"
-                    disabled={!taskService?.online || !snapshot?.data?.online || !datasets.length}
+                    disabled={
+                      !taskService?.online ||
+                      !snapshot?.data?.online ||
+                      !datasets.length ||
+                      candidates.length < 1 ||
+                      candidates.length > 32
+                    }
                   >
                     {t("下一步")}
                   </button>
@@ -275,8 +347,13 @@ export function Backtest({
                   <dd>{datasets.map(d => `${d.venue} · ${d.symbol}`).join(" + ")}</dd>
                   <dt>{t("策略")}</dt>
                   <dd>
-                    {strategyRule(strategyOf(strategy))} · {t("{n} 手", { n: strategy.quantity })} ·{" "}
-                    {strategySides(strategy.sides)}
+                    {candidates.length === 1
+                      ? strategyRule(candidates[0])
+                      : t("{n} 个候选，留出自 {day} 起", {
+                          n: candidates.length,
+                          day: holdoutFrom,
+                        })}{" "}
+                    · {t("{n} 手", { n: strategy.quantity })} · {strategySides(strategy.sides)}
                   </dd>
                   <dt>{t("初始资金")}</dt>
                   <dd>{parameters.deposit}</dd>
@@ -411,7 +488,8 @@ export function Backtest({
             {view === "result" && result && result.id === selectedTask && (
               <section className="research-result" aria-label={t("回测结果")}>
                 <h3>
-                  {activeTask?.instrument} · {strategyRule(result.experiment.strategy)}
+                  {activeTask?.instrument} ·{" "}
+                  {strategyRule(result.experiment.strategies[result.result.selected])}
                 </h3>
                 <p className="subtle">
                   {activeTask && new Date(activeTask.submitted_at_ms).toLocaleString(getLocale())} ·{" "}
@@ -431,30 +509,58 @@ export function Backtest({
                     </div>
                   ))}
                 </div>
-                <section aria-label={t("绩效")}>
-                  <div className="research-metrics">
-                    {[
-                      [t("总收益率"), percent(result.performance.total_return)],
-                      [t("年化收益率"), percent(result.performance.annual_return)],
-                      [t("年化波动率"), percent(result.performance.annual_volatility)],
-                      [t("夏普比率"), ratio(result.performance.sharpe)],
-                      [t("最大回撤"), percent(result.performance.max_drawdown)],
-                      [t("卡玛比率"), ratio(result.performance.calmar)],
-                      [t("盈利交易日占比"), percent(result.performance.winning_days)],
-                      [t("交易日数"), result.performance.trading_days],
-                    ].map(([label, value]) => (
-                      <div key={label}>
-                        <span className="subtle">{label}</span>
-                        <strong>{value}</strong>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="subtle">
-                    {t(
-                      "按逐日结算权益计算，是统计值而不是账本数值。年化按这些交易日跨越的日历时间折算，无风险利率取 0；不足 20 个交易日时不计算年化指标。",
+                <Figures label={t("绩效")} value={result.performance} />
+                {result.performance.development && (
+                  <>
+                    <h4>{t("比较")}</h4>
+                    <p className="subtle">
+                      {t(
+                        "候选策略只按 {day} 之前的交易日比较，取夏普比率最高的一个；其余候选在留出段的表现没有计算，也不显示。",
+                        { day: result.experiment.holdout_day },
+                      )}
+                    </p>
+                    <div className="research-table">
+                      <table aria-label={t("候选策略")}>
+                        <thead>
+                          <tr>
+                            <th>{t("策略")}</th>
+                            <th>{t("前段总收益率")}</th>
+                            <th>{t("前段夏普比率")}</th>
+                            <th>{t("前段最大回撤")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {result.result.candidates.map((candidate, index) => (
+                            <tr key={index}>
+                              <td>
+                                {strategyRule(result.experiment.strategies[index])}
+                                {index === result.result.selected ? ` · ${t("已选中")}` : ""}
+                              </td>
+                              <td>{percent(candidate.total_return)}</td>
+                              <td>{ratio(candidate.sharpe)}</td>
+                              <td>{percent(candidate.max_drawdown)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <h4>{t("前段")}</h4>
+                    <Figures label={t("前段")} value={result.performance.development} />
+                    <h4>{t("留出段")}</h4>
+                    {result.performance.holdout ? (
+                      <Figures label={t("留出段")} value={result.performance.holdout} />
+                    ) : (
+                      <p className="subtle">
+                        {t("前段结束时权益已不为正，留出段没有收益率可言。")}
+                      </p>
                     )}
-                  </p>
-                </section>
+                  </>
+                )}
+                <p className="subtle">
+                  {t(
+                    "按逐日结算权益计算，是统计值而不是账本数值。年化按这些交易日跨越的日历时间折算，无风险利率取 0；不足 20 个交易日时不计算年化指标。",
+                  )}
+                </p>
                 <div className="research-chart">
                   <div className="research-axis" aria-hidden>
                     <span>{highText}</span>

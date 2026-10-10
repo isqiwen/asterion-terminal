@@ -66,7 +66,8 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
   let strategyFacts: Rows = [];
   let contracts;
   if (evidence.kind === "backtest") {
-    const { paper, strategy, data } = evidence.experiment;
+    const { paper, strategies, data } = evidence.experiment;
+    const strategy = strategies[evidence.result.selected];
     contracts = paper.contracts.map((item, index) =>
       contractRows(item.dataset, data[index], item.cost_schedule),
     );
@@ -77,6 +78,8 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
       ["总持仓量上限", paper.risk.max_gross_quantity],
       ["在途委托数上限", paper.risk.max_working_orders],
     );
+    if (strategies.length > 1)
+      rows.push(["候选策略数", strategies.length], ["留出起始日", evidence.experiment.holdout_day]);
   } else {
     const { series, lookbacks, horizon, evaluation } = evidence.experiment;
     const words = factorWords[series[0].kind];

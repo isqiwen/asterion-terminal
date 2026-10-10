@@ -11,17 +11,7 @@ namespace asterion::terminal {
 using namespace std::chrono_literals;
 namespace wire = task::v1;
 namespace {
-// How a backtest's fixed result performed. Derived on every read, never stored.
-Json backtest_performance(const backtest::v1::BacktestInput& input,
-                          const backtest::v1::BacktestResult& result) {
-  std::vector<EquityDay> days;
-  for (const auto& day : result.settlements())
-    days.push_back({std::chrono::sys_days(parse_trading_date(day.trading_day())),
-                    Decimal::from_raw(day.equity().units())});
-  std::vector<Decimal> marks;
-  for (const auto& point : result.equity())
-    marks.push_back(Decimal::from_raw(point.equity().units()));
-  const auto value = performance(Decimal::from_raw(input.paper().deposit().units()), days, marks);
+Json figures(const Performance& value) {
   const auto optional = [](const std::optional<double>& statistic) {
     return statistic ? Json(*statistic) : Json(nullptr);
   };
@@ -33,6 +23,46 @@ Json backtest_performance(const backtest::v1::BacktestInput& input,
           {"annual_volatility", optional(value.annual_volatility)},
           {"sharpe", optional(value.sharpe)},
           {"calmar", optional(value.calmar)}};
+}
+// How a backtest's fixed result performed, over all of its days and, for a
+// comparison, before and from the holdout: the holdout starts from the equity
+// the development days ended with. Derived on every read, never stored.
+Json backtest_performance(const backtest::v1::BacktestInput& input,
+                          const backtest::v1::BacktestResult& result) {
+  std::vector<EquityDay> days;
+  for (const auto& day : result.settlements())
+    days.push_back({std::chrono::sys_days(parse_trading_date(day.trading_day())),
+                    Decimal::from_raw(day.equity().units())});
+  std::vector<Decimal> marks;
+  // How many days, and how many marks up to their last settlement, come
+  // before the holdout.
+  std::size_t development_days = 0, development_marks = 0;
+  int settled = 0;
+  for (const auto& point : result.equity()) {
+    marks.push_back(Decimal::from_raw(point.equity().units()));
+    if (point.event() != backtest::v1::DAILY_SETTLEMENT)
+      continue;
+    if (result.settlements(settled).trading_day() < input.holdout_day()) {
+      development_days = static_cast<std::size_t>(settled) + 1;
+      development_marks = marks.size();
+    }
+    ++settled;
+  }
+  const auto deposit = Decimal::from_raw(input.paper().deposit().units());
+  auto value = figures(performance(deposit, days, marks));
+  value["development"] = nullptr;
+  value["holdout"] = nullptr;
+  if (!input.holdout_day().empty()) {
+    const std::span all_days(days);
+    const std::span all_marks(marks);
+    value["development"] = figures(
+        performance(deposit, all_days.first(development_days), all_marks.first(development_marks)));
+    // An account that the development days emptied has no return to speak of.
+    if (const auto start = days[development_days - 1].equity; start > Decimal{})
+      value["holdout"] = figures(performance(start, all_days.subspan(development_days),
+                                             all_marks.subspan(development_marks)));
+  }
+  return value;
 }
 wire::TaskResponse decode_task_response(const wire::TaskRequest& request, const std::string& raw) {
   wire::TaskResponse response;

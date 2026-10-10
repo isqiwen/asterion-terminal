@@ -1,6 +1,8 @@
 #include "engine.hpp"
 #include <asterion/protocol/data.hpp>
 #include "strategy.hpp"
+#include "performance.hpp"
+#include <asterion/domain/daily_bars.hpp>
 #include "order_limits.hpp"
 #include "risk_module.hpp"
 #include "paper_execution.hpp"
@@ -50,14 +52,17 @@ void validate(const backtest::v1::BacktestInput& input) {
   const auto& p = input.paper();
   const auto series = series_of(input);
   std::vector<int> series_bars(static_cast<std::size_t>(input.series_size()));
-  const auto warmup = protocol::strategy_warmup(input.strategy());
+  std::size_t warmup = 0;
+  for (const auto& strategy : input.strategies())
+    warmup = std::max(warmup, protocol::strategy_warmup(strategy));
   for (int index = 0; index < p.contracts_size(); ++index) {
     const auto& item = p.contracts(index);
     const auto& c = item.dataset().contract();
     FuturesContract contract{protocol::instrument(c), c.product(), c.delivery_month()};
     contract.validate();
     (void)protocol::cost_schedule(item.cost_schedule());
-    static_cast<void>(make_strategy(input.strategy(), contract.instrument));
+    for (const auto& strategy : input.strategies())
+      static_cast<void>(make_strategy(strategy, contract.instrument));
     // A series is one strategy over all of its months.
     if (series[static_cast<std::size_t>(index)] != none)
       series_bars[series[static_cast<std::size_t>(index)]] += item.dataset().bars_size();
@@ -74,10 +79,15 @@ void validate(const backtest::v1::BacktestInput& input) {
     throw std::invalid_argument("backtest requires positive capital");
   static_cast<void>(replay_schedule(paper_portfolio(p), sparse(series)));
 }
-backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::stop_token stop,
-                                 const std::function<void(std::size_t, std::size_t)>& progress,
-                                 const risk_providers::Module* pinned) {
-  validate(input);
+namespace {
+// One strategy replayed over the input's bars: all of them, or only the
+// trading days before `until`. A partial replay ends with that day's
+// settlement and carries the equity record alone.
+backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
+                                    const protocol::v1::Strategy& definition,
+                                    const std::string& until, std::stop_token stop,
+                                    const std::function<void()>& step,
+                                    const risk_providers::Module* pinned) {
   const auto& p = input.paper();
   auto portfolio = paper_portfolio(p);
   const auto series = series_of(input);
@@ -90,7 +100,7 @@ backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::
   // which sees the back-adjusted bars of whichever month is dominant.
   std::vector<std::unique_ptr<Strategy>> strategies;
   for (const auto& contract : portfolio.contracts)
-    strategies.push_back(make_strategy(input.strategy(), contract.terms.instrument));
+    strategies.push_back(make_strategy(definition, contract.terms.instrument));
   PaperExecution execution(decimal(p.deposit()), std::move(portfolio.contracts), risk);
   execution.start();
   for (auto& strategy : strategies)
@@ -198,8 +208,10 @@ backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::
         row->mutable_position_quantity()->set_units(quantity.raw());
       }
     }
-    if (progress)
-      progress(index + 1, total);
+    step();
+    if (event.day_end && !until.empty() &&
+        (index + 1 == total || schedule.day(schedule.event(index + 1).day).trading_day >= until))
+      return result;
   }
   auto account = execution.snapshot();
   const auto manifest = protocol::decode_input(p, protocol::DatasetView::metadata);
@@ -221,6 +233,53 @@ backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::
   for (auto& strategy : strategies)
     strategy->stop();
   execution.stop();
+  return result;
+}
+} // namespace
+backtest::v1::BacktestResult run(const backtest::v1::BacktestInput& input, std::stop_token stop,
+                                 const std::function<void(std::size_t, std::size_t)>& progress,
+                                 const risk_providers::Module* pinned) {
+  validate(input);
+  const auto units = protocol::backtest_work_units(input);
+  std::size_t completed = 0;
+  const auto step = [&] {
+    if (progress)
+      progress(++completed, units);
+  };
+  if (input.strategies_size() == 1)
+    return replay(input, input.strategies(0), {}, stop, step, pinned);
+  // Each strategy is judged by the days before the holdout and nothing else:
+  // its replay ends there.
+  std::vector<backtest::v1::BacktestCandidate> candidates;
+  std::optional<std::size_t> selected;
+  for (const auto& strategy : input.strategies()) {
+    const auto development = replay(input, strategy, input.holdout_day(), stop, step, pinned);
+    std::vector<EquityDay> days;
+    for (const auto& day : development.settlements())
+      days.push_back(
+          {std::chrono::sys_days(parse_trading_date(day.trading_day())), decimal(day.equity())});
+    std::vector<Decimal> marks;
+    for (const auto& point : development.equity())
+      marks.push_back(decimal(point.equity()));
+    const auto record = performance(decimal(input.paper().deposit()), days, marks);
+    auto& candidate = candidates.emplace_back();
+    candidate.set_total_return(record.total_return);
+    candidate.set_max_drawdown(record.max_drawdown);
+    if (record.sharpe)
+      candidate.set_sharpe(*record.sharpe);
+    // The highest ratio wins; among equals, the one named first.
+    if (record.sharpe && (!selected || *record.sharpe > candidates[*selected].sharpe()))
+      selected = candidates.size() - 1;
+  }
+  if (!selected)
+    throw std::invalid_argument(
+        "no compared strategy has a development Sharpe ratio: none of them varied before the "
+        "holdout");
+  auto result =
+      replay(input, input.strategies(static_cast<int>(*selected)), {}, stop, step, pinned);
+  for (auto& candidate : candidates)
+    *result.add_candidates() = std::move(candidate);
+  result.set_selected(static_cast<unsigned>(*selected));
   return result;
 }
 } // namespace asterion::backtest

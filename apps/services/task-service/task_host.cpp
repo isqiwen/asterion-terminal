@@ -352,7 +352,7 @@ PolledTask<> TaskHost::submit_backtest(Call& call) {
     schedules.push_back(std::move(*resolved.mutable_schedule()));
   }
   backtest::v1::BacktestInput input;
-  input.set_version(8);
+  input.set_version(9);
   auto* paper = input.mutable_paper();
   *paper->mutable_deposit() = b.deposit();
   *paper->mutable_risk() = b.risk();
@@ -363,7 +363,8 @@ PolledTask<> TaskHost::submit_backtest(Call& call) {
   }
   for (auto& schedule : schedules)
     *input.add_series() = std::move(schedule);
-  *input.mutable_strategy() = b.strategy();
+  *input.mutable_strategies() = b.strategies();
+  protocol::set_backtest_holdout(input, b.holdout_from());
   co_await ready(call);
   call.input_in_time();
   refuse_during_upgrade(quiescing_);

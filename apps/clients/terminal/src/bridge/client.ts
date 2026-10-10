@@ -645,6 +645,10 @@ export type BacktestResult = {
   version: number;
   dataset_revision: string;
   engine_version: string;
+  // With several strategies: what the days before the holdout showed of each,
+  // in the order they were given, and which one the rest of the result replays.
+  candidates: { total_return: number; max_drawdown: number; sharpe: number | null }[];
+  selected: number;
   max_drawdown: string;
   account: BacktestAccount;
   equity: { timestamp_ns: string; equity: string; event: "trade" | "settlement" }[];
@@ -671,7 +675,9 @@ export type ExperimentData = {
 export type BacktestExperiment = {
   version: number;
   dataset_revision: string;
-  strategy: StrategyDefinition;
+  // One strategy, or the several that were compared before `holdout_day`.
+  strategies: StrategyDefinition[];
+  holdout_day: string;
   paper: {
     version: number;
     type: "historical_paper";
@@ -726,7 +732,7 @@ export type StrategyDefinition = {
     | { kind: "momentum"; lookback: number }
     | { kind: "reversion"; window: number; width: string };
 };
-export type BacktestPerformance = {
+export type PerformanceFigures = {
   trading_days: number;
   total_return: number;
   max_drawdown: number;
@@ -735,6 +741,13 @@ export type BacktestPerformance = {
   annual_volatility: number | null;
   sharpe: number | null;
   calmar: number | null;
+};
+// The figures of all days and, where strategies were compared, of the days
+// before and from the holdout; the holdout starts from the equity the
+// development days ended with.
+export type BacktestPerformance = PerformanceFigures & {
+  development: PerformanceFigures | null;
+  holdout: PerformanceFigures | null;
 };
 export type TaskResult =
   | {

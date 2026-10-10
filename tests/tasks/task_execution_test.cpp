@@ -1,5 +1,6 @@
 #include <asterion/protocol/data_client.hpp>
 #include "tasks/paper_input.hpp"
+#include "performance.hpp"
 #include "support/local_listener.hpp"
 #include <asterion/protocol/factor.hpp>
 #include "history_update.hpp"
@@ -29,16 +30,9 @@ namespace {
 Decimal d(const char* text) {
   return Decimal::parse(text);
 }
-backtest::v1::BacktestInput input(const std::vector<int>& prices = {100, 101, 102, 101, 100, 101,
-                                                                    103},
-                                  const char* settlement = "103") {
-  std::vector<MarketBar> bars;
-  std::int64_t time = 1790298000000000000LL;
-  for (const auto price : prices) {
-    bars.push_back(test::flat("2026-09-25", time, std::to_string(price).c_str(), "10"));
-    time += 1000000000;
-  }
-  const auto dataset = test::dataset(bars, {{"2026-09-25", d(settlement)}});
+// One contract's bars on an account of 10000 with fixed costs, traded by a
+// long-only moving average of 1 and 3.
+backtest::v1::BacktestInput input_of(const data::v1::BarDataset& dataset) {
   const auto manifest =
       Json{{"version", 4},
            {"type", "historical_paper"},
@@ -58,10 +52,48 @@ backtest::v1::BacktestInput input(const std::vector<int>& prices = {100, 101, 10
                                                      {"close_today_fee_rate", "0"},
                                                      {"close_yesterday_fee_rate", "0"}})}}}}};
   backtest::v1::BacktestInput result;
-  result.set_version(8);
+  result.set_version(9);
   *result.mutable_paper() = testing_support::paper_input(manifest);
-  *result.mutable_strategy() = testing_support::moving_average(1, 3);
+  *result.add_strategies() = testing_support::moving_average(1, 3);
   result.set_dataset_revision(protocol::dataset_revision(result.paper()));
+  return result;
+}
+backtest::v1::BacktestInput input(const std::vector<int>& prices = {100, 101, 102, 101, 100, 101,
+                                                                    103},
+                                  const char* settlement = "103") {
+  std::vector<MarketBar> bars;
+  std::int64_t time = 1790298000000000000LL;
+  for (const auto price : prices) {
+    bars.push_back(test::flat("2026-09-25", time, std::to_string(price).c_str(), "10"));
+    time += 1000000000;
+  }
+  return input_of(test::dataset(bars, {{"2026-09-25", d(settlement)}}));
+}
+// Thirty trading days of one bar each, rising two a day with a dip every
+// third. A bar opens at the close before it and trades one below, so a limit
+// at that close fills. Two moving averages of 1 and 2 are compared on the 25
+// days before 2026-10-20: one may only be short, the other only long.
+backtest::v1::BacktestInput comparison() {
+  using namespace std::chrono;
+  std::vector<MarketBar> bars;
+  std::vector<DaySettlement> settlements;
+  int previous = 100;
+  for (int i = 0; i < 30; ++i) {
+    const int close = 100 + 2 * i - (i % 3 == 2 ? 3 : 0);
+    const auto day =
+        format_trading_date(year_month_day{sys_days{year{2026} / September / 25} + days{i}});
+    const auto text = [](int value) { return std::to_string(value); };
+    bars.push_back(test::bar(day, 1790298000000000000LL + i * 86400LL * 1000000000,
+                             text(previous).c_str(), text(std::max(previous, close)).c_str(),
+                             text(std::min(previous, close) - 1).c_str(), text(close).c_str(),
+                             "10"));
+    settlements.push_back({day, d(text(close).c_str())});
+    previous = close;
+  }
+  auto result = input_of(test::dataset(bars, settlements));
+  *result.mutable_strategies(0) = testing_support::moving_average(1, 2, "1", "short");
+  *result.add_strategies() = testing_support::moving_average(1, 2, "1", "long");
+  protocol::set_backtest_holdout(result, "2026-10-20");
   return result;
 }
 // The bars of a factor input's one series, which is added when there is none yet.
@@ -168,7 +200,7 @@ TEST(Backtest, RejectsUnsupportedDaysAndStopsCooperatively) {
   spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
   spec = input();
-  spec.mutable_strategy()->mutable_moving_average()->set_fast(3);
+  spec.mutable_strategies(0)->mutable_moving_average()->set_fast(3);
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
   spec = input();
   std::stop_source stop;
@@ -184,7 +216,7 @@ TEST(Backtest, RejectsUnsupportedDaysAndStopsCooperatively) {
 TEST(Backtest, ShortTargetsSellToOpenAndSettleAsNegativePositions) {
   // The close falls below its average at the third bar; the fourth lets the sell fill.
   auto spec = input({103, 102, 101, 101, 99}, "99");
-  spec.mutable_strategy()->set_sides(protocol::v1::LONG_AND_SHORT);
+  spec.mutable_strategies(0)->set_sides(protocol::v1::LONG_AND_SHORT);
   const auto result = backtest::run(spec);
   ASSERT_EQ(result.account().fills_size(), 1);
   EXPECT_EQ(result.account().fills(0).price().units(), d("101").raw());
@@ -199,18 +231,18 @@ TEST(Backtest, ShortTargetsSellToOpenAndSettleAsNegativePositions) {
   // One lot sold at 101 and settled at 99, ten per point, less the opening fee.
   EXPECT_EQ(result.account().equity().units(), d("10018").raw());
   // The same bars with long positions only: nothing to hold.
-  spec.mutable_strategy()->set_sides(protocol::v1::LONG_ONLY);
+  spec.mutable_strategies(0)->set_sides(protocol::v1::LONG_ONLY);
   const auto flat = backtest::run(spec);
   EXPECT_EQ(flat.account().fills_size(), 0);
   EXPECT_EQ(flat.account().equity().units(), d("10000").raw());
   // No sides is not a strategy.
-  spec.mutable_strategy()->clear_sides();
+  spec.mutable_strategies(0)->clear_sides();
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
 }
 TEST(Backtest, AReversalBuysTheShortBackBeforeItBuysToOpen) {
   // Short from the fourth bar; the close rises above its average at the seventh.
   auto spec = input({103, 102, 101, 101, 99, 98, 100, 100, 100}, "100");
-  spec.mutable_strategy()->set_sides(protocol::v1::LONG_AND_SHORT);
+  spec.mutable_strategies(0)->set_sides(protocol::v1::LONG_AND_SHORT);
   const auto result = backtest::run(spec);
   std::vector<std::pair<protocol::v1::Side, protocol::v1::Offset>> filled;
   for (const auto& order : result.account().orders())
@@ -228,7 +260,7 @@ TEST(Backtest, AReversalBuysTheShortBackBeforeItBuysToOpen) {
 }
 TEST(Backtest, ARuleOtherThanAveragesRunsThroughTheSameEngine) {
   auto spec = input();
-  *spec.mutable_strategy() = protocol::encode_strategy(
+  *spec.mutable_strategies(0) = protocol::encode_strategy(
       {{"quantity", "1"}, {"sides", "both"}, {"rule", {{"kind", "momentum"}, {"lookback", 2}}}});
   const auto result = backtest::run(spec);
   // 102 is above the close two bars before it: bought at the next bar's 101.
@@ -239,12 +271,116 @@ TEST(Backtest, ARuleOtherThanAveragesRunsThroughTheSameEngine) {
   EXPECT_EQ(result.account().fills(1).price().units(), d("101").raw());
   EXPECT_EQ(result.account().positions_size(), 0);
   EXPECT_EQ(result.account().equity().units(), d("9995").raw());
-  EXPECT_EQ(
-      protocol::decode_backtest(spec, protocol::DatasetView::metadata).at("strategy").at("rule"),
-      Json({{"kind", "momentum"}, {"lookback", 2}}));
+  EXPECT_EQ(protocol::decode_backtest(spec, protocol::DatasetView::metadata)
+                .at("strategies")
+                .at(0)
+                .at("rule"),
+            Json({{"kind", "momentum"}, {"lookback", 2}}));
   // Seven bars cannot give a rule its first target at the eighth.
-  spec.mutable_strategy()->mutable_momentum()->set_lookback(7);
+  spec.mutable_strategies(0)->mutable_momentum()->set_lookback(7);
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+}
+TEST(Backtest, SeveralStrategiesAreComparedOnTheDaysBeforeTheHoldoutAlone) {
+  const auto spec = comparison();
+  EXPECT_EQ(spec.holdout_day(), "2026-10-20");
+  std::size_t reported = 0, units = 0;
+  const auto result = backtest::run(spec, {}, [&](auto done, auto total) {
+    EXPECT_GE(done, reported);
+    reported = done;
+    units = total;
+  });
+  // Every bar once, and the 25 development bars once more for each strategy.
+  EXPECT_EQ(units, 30U + 2 * 25);
+  EXPECT_EQ(reported, units);
+  EXPECT_EQ(protocol::backtest_work_units(spec), units);
+  // In a rising market selling the dips loses and holding the rises gains:
+  // the long-only average has the higher ratio and is replayed over all
+  // thirty days.
+  ASSERT_EQ(result.candidates_size(), 2);
+  EXPECT_LT(result.candidates(0).total_return(), 0);
+  EXPECT_GT(result.candidates(1).total_return(), 0);
+  EXPECT_GT(result.candidates(1).sharpe(), result.candidates(0).sharpe());
+  EXPECT_EQ(result.selected(), 1U);
+  auto alone = spec;
+  alone.mutable_strategies()->DeleteSubrange(0, 1);
+  alone.clear_holdout_day();
+  const auto single = backtest::run(alone);
+  EXPECT_EQ(result.account().SerializeAsString(), single.account().SerializeAsString());
+  EXPECT_EQ(result.settlements_size(), 30);
+  EXPECT_EQ(single.candidates_size(), 0);
+  for (int i = 0; i < result.equity_size(); ++i)
+    ASSERT_EQ(result.equity(i).equity().units(), single.equity(i).equity().units());
+  // What was recorded of a strategy is what its first 25 days alone show.
+  std::vector<EquityDay> days;
+  for (int i = 0; i < 25; ++i)
+    days.push_back({std::chrono::sys_days(parse_trading_date(single.settlements(i).trading_day())),
+                    Decimal::from_raw(single.settlements(i).equity().units())});
+  std::vector<Decimal> marks;
+  for (int i = 0; i < 50; ++i) // a mark and a settlement for each day
+    marks.push_back(Decimal::from_raw(single.equity(i).equity().units()));
+  const auto record = performance(d("10000"), days, marks);
+  EXPECT_DOUBLE_EQ(result.candidates(1).total_return(), record.total_return);
+  EXPECT_DOUBLE_EQ(result.candidates(1).sharpe(), *record.sharpe);
+  EXPECT_DOUBLE_EQ(result.candidates(1).max_drawdown(), record.max_drawdown);
+
+  // The holdout decides nothing: other prices from its first day on leave
+  // the scores and the choice as they were.
+  auto changed = spec;
+  auto* dataset = changed.mutable_paper()->mutable_contracts(0)->mutable_dataset();
+  for (int i = 25; i < 30; ++i) {
+    auto* bar = dataset->mutable_bars(i);
+    for (auto* price :
+         {bar->mutable_open(), bar->mutable_high(), bar->mutable_low(), bar->mutable_close()})
+      price->set_units(d(std::to_string(90 - i).c_str()).raw());
+    dataset->mutable_days(i)->mutable_settlement_price()->set_units(
+        d(std::to_string(90 - i).c_str()).raw());
+  }
+  dataset->set_revision(protocol::bar_dataset_revision(*dataset));
+  changed.set_dataset_revision(protocol::dataset_revision(changed.paper()));
+  const auto other = backtest::run(changed);
+  EXPECT_EQ(other.selected(), result.selected());
+  for (int i = 0; i < 2; ++i)
+    EXPECT_EQ(other.candidates(i).SerializeAsString(), result.candidates(i).SerializeAsString());
+  EXPECT_NE(other.account().equity().units(), result.account().equity().units());
+}
+TEST(Backtest, AComparisonNeedsDifferentStrategiesAndTwentyDaysBeforeItsHoldout) {
+  const auto spec = comparison();
+  EXPECT_NO_THROW(backtest::validate(spec));
+  auto invalid = spec;
+  invalid.clear_holdout_day();
+  EXPECT_THROW(backtest::validate(invalid), std::invalid_argument);
+  invalid = spec;
+  invalid.set_holdout_day("2026-10-14"); // the twentieth day: nineteen before it
+  EXPECT_THROW(backtest::validate(invalid), std::invalid_argument);
+  invalid.set_holdout_day("2026-10-15");
+  EXPECT_NO_THROW(backtest::validate(invalid));
+  invalid.set_holdout_day("2026-11-30"); // not one of the trading days
+  EXPECT_THROW(backtest::validate(invalid), std::invalid_argument);
+  invalid = spec;
+  *invalid.mutable_strategies(1) = invalid.strategies(0);
+  EXPECT_THROW(backtest::validate(invalid), std::invalid_argument);
+  invalid = spec;
+  invalid.mutable_strategies()->RemoveLast();
+  EXPECT_THROW(backtest::validate(invalid), std::invalid_argument) << "one strategy, a holdout";
+  // A date that is no trading day begins the holdout on the next one; one
+  // strategy takes no date; a date after the data has no day to begin on.
+  auto dated = spec;
+  protocol::set_backtest_holdout(dated, "2026-10-19");
+  EXPECT_EQ(dated.holdout_day(), "2026-10-19");
+  EXPECT_THROW(protocol::set_backtest_holdout(dated, "2026-12-01"), std::invalid_argument);
+  EXPECT_THROW(protocol::set_backtest_holdout(dated, "soon"), std::invalid_argument);
+  dated.mutable_strategies()->RemoveLast();
+  EXPECT_THROW(protocol::set_backtest_holdout(dated, "2026-10-19"), std::invalid_argument);
+  // Rules that take their first side only after the development days leave
+  // the account untouched there: nothing varies, so there is nothing to
+  // choose by.
+  auto idle = spec;
+  for (int i = 0; i < 2; ++i)
+    *idle.mutable_strategies(i) =
+        protocol::encode_strategy({{"quantity", "1"},
+                                   {"sides", "both"},
+                                   {"rule", {{"kind", "momentum"}, {"lookback", 28 + i}}}});
+  EXPECT_THROW(backtest::run(idle), std::invalid_argument);
 }
 TEST(Backtest, InputDecodingRejectsCorruptOldOrIncompleteInputs) {
   const auto spec = input();
@@ -263,7 +399,7 @@ TEST(Backtest, InputDecodingRejectsCorruptOldOrIncompleteInputs) {
   old.set_version(1);
   EXPECT_THROW(protocol::decode_backtest(old), std::invalid_argument);
   auto missing = spec;
-  missing.mutable_strategy()->clear_quantity();
+  missing.mutable_strategies(0)->clear_quantity();
   EXPECT_THROW(protocol::decode_backtest(missing), std::invalid_argument);
 }
 
@@ -412,7 +548,7 @@ TEST(TaskStore, DuplicateSubmissionAndStaleAttemptsAreFenced) {
   auto spec = input();
   const auto first = tasks::submit(store, "job1", spec);
   EXPECT_EQ(tasks::submit(store, "job1", spec).SerializeAsString(), first.SerializeAsString());
-  spec.mutable_strategy()->mutable_quantity()->set_units(d("2").raw());
+  spec.mutable_strategies(0)->mutable_quantity()->set_units(d("2").raw());
   EXPECT_THROW(tasks::submit(store, "job1", spec), std::invalid_argument);
   const auto old = store.commit(store.claim("job1")).token();
   store.commit(store.progress("job1", old, 2));
@@ -1816,7 +1952,7 @@ TEST(TaskStore, CompletedResultCarriesPersistedExperimentAndRejectsMismatchedEvi
   *response.mutable_backtest() = tasks::result(restored, "evidence");
   *response.mutable_result_task() = restored.get("evidence");
   const auto value = protocol::decode_task_result(response, "evidence");
-  EXPECT_EQ(value.at("experiment").at("strategy"),
+  EXPECT_EQ(value.at("experiment").at("strategies").at(0),
             protocol::decode_strategy(testing_support::moving_average(1, 3)));
   EXPECT_EQ(value.at("experiment").at("paper").at("deposit"), "10000");
   EXPECT_EQ(value.at("experiment")
@@ -2964,4 +3100,29 @@ TEST(TaskStore, ActiveCapacityAppliesToNewAdmissionsAndExplicitRetries) {
   EXPECT_EQ(store.commit(store.retry("queued-0")).task().submission_sequence(), 1);
   EXPECT_EQ(store.list().capacity().retained_tasks(), 1001);
   EXPECT_EQ(store.list().capacity().active_used(), 1000);
+}
+TEST(TaskStore, AComparisonCountsEveryReplayAndKeepsItsScores) {
+  TaskDirectory directory;
+  const auto spec = comparison();
+  const auto result = backtest::run(spec);
+  {
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    const auto task = tasks::submit(store, "compared", spec);
+    EXPECT_EQ(task.total(), 80U);
+    const auto token = store.commit(store.claim("compared")).token();
+    // A result without the scores of what it compared is not this task's.
+    auto bare = result;
+    bare.clear_candidates();
+    bare.clear_selected();
+    EXPECT_THROW(store.commit(tasks::finish(store, "compared", token, bare)),
+                 std::invalid_argument);
+    // Nor is one that names another strategy than the best of them.
+    auto misnamed = result;
+    misnamed.set_selected(0);
+    EXPECT_THROW(store.commit(tasks::finish(store, "compared", token, misnamed)),
+                 std::invalid_argument);
+    store.commit(tasks::finish(store, "compared", token, result));
+  }
+  tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
+  EXPECT_EQ(restored.get("compared").state(), task::v1::SUCCEEDED);
 }

@@ -67,19 +67,42 @@ export const strategyDefaults: StrategyDraft = {
   width: "2",
 };
 
-/** The definition a draft submits. */
+const several = (text: string) =>
+  text
+    .split(",")
+    .map(value => value.trim())
+    .filter(Boolean);
+// Every combination of the values a draft gives its rule's windows, in the
+// order written; combinations the rule cannot work with are left out.
+function combinations(draft: StrategyDraft): StrategyDefinition["rule"][] {
+  const values = (name: "fast" | "slow" | "entry" | "exit" | "lookback" | "window") =>
+    several(draft[name]).map(Number);
+  if (draft.kind === "moving_average")
+    return values("fast").flatMap(fast =>
+      values("slow")
+        .filter(slow => fast < slow)
+        .map(slow => ({ kind: "moving_average" as const, fast, slow })),
+    );
+  if (draft.kind === "breakout")
+    return values("entry").flatMap(entry =>
+      values("exit")
+        .filter(exit => exit <= entry)
+        .map(exit => ({ kind: "breakout" as const, entry, exit })),
+    );
+  if (draft.kind === "momentum")
+    return values("lookback").map(lookback => ({ kind: "momentum" as const, lookback }));
+  return values("window").flatMap(window =>
+    several(draft.width).map(width => ({ kind: "reversion" as const, window, width })),
+  );
+}
+
+/** The strategies a draft submits: one, or one for each combination of its windows. */
+export function strategiesOf(draft: StrategyDraft): StrategyDefinition[] {
+  return combinations(draft).map(rule => ({ quantity: draft.quantity, sides: draft.sides, rule }));
+}
+/** The definition a draft with one value in every window submits. */
 export function strategyOf(draft: StrategyDraft): StrategyDefinition {
-  const whole = (name: "fast" | "slow" | "entry" | "exit" | "lookback" | "window") =>
-    Number(draft[name]);
-  const rule =
-    draft.kind === "moving_average"
-      ? { kind: draft.kind, fast: whole("fast"), slow: whole("slow") }
-      : draft.kind === "breakout"
-        ? { kind: draft.kind, entry: whole("entry"), exit: whole("exit") }
-        : draft.kind === "momentum"
-          ? { kind: draft.kind, lookback: whole("lookback") }
-          : { kind: draft.kind, window: whole("window"), width: draft.width };
-  return { quantity: draft.quantity, sides: draft.sides, rule };
+  return strategiesOf(draft)[0];
 }
 
 /** A strategy's rule with its windows, as one reads it in a heading. */
@@ -111,15 +134,20 @@ export function strategyRows(definition: StrategyDefinition): [string, string | 
   ];
 }
 
-/** The form fields of one strategy; `className` is the host's field grid. */
+/**
+ * The form fields of one strategy; `className` is the host's field grid. With
+ * `compare` a window takes several comma-separated values to be compared.
+ */
 export function StrategyFields({
   value,
   onChange,
   className,
+  compare = false,
 }: {
   value: StrategyDraft;
   onChange: (next: StrategyDraft) => void;
   className: string;
+  compare?: boolean;
 }) {
   const rule = rules[value.kind];
   return (
@@ -142,16 +170,31 @@ export function StrategyFields({
         {rule.fields.map(([name, label]) => (
           <label key={name}>
             {t(label)}
-            <input
-              aria-label={t(label)}
-              type="number"
-              min={name === "width" ? "0.1" : name === "slow" || name === "window" ? 2 : 1}
-              max={name === "width" ? 10 : 10000}
-              step={name === "width" ? "0.1" : "1"}
-              required
-              value={value[name]}
-              onChange={event => onChange({ ...value, [name]: event.target.value })}
-            />
+            {compare ? (
+              <input
+                aria-label={t(label)}
+                inputMode="decimal"
+                pattern={
+                  name === "width"
+                    ? "[ ]*[0-9]+([.][0-9]+)?[ ]*(,[ ]*[0-9]+([.][0-9]+)?[ ]*)*"
+                    : "[ ]*[1-9][0-9]*[ ]*(,[ ]*[1-9][0-9]*[ ]*)*"
+                }
+                required
+                value={value[name]}
+                onChange={event => onChange({ ...value, [name]: event.target.value })}
+              />
+            ) : (
+              <input
+                aria-label={t(label)}
+                type="number"
+                min={name === "width" ? "0.1" : name === "slow" || name === "window" ? 2 : 1}
+                max={name === "width" ? 10 : 10000}
+                step={name === "width" ? "0.1" : "1"}
+                required
+                value={value[name]}
+                onChange={event => onChange({ ...value, [name]: event.target.value })}
+              />
+            )}
           </label>
         ))}
         <label>

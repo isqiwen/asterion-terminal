@@ -56,7 +56,7 @@ backtest::v1::BacktestInput rolling(const char* outgoing_volume = "10") {
                                           {"close_today_fee_rate", "0"},
                                           {"close_yesterday_fee_rate", "0"}});
   backtest::v1::BacktestInput input;
-  input.set_version(8);
+  input.set_version(9);
   *input.mutable_paper() = testing_support::paper_input(
       {{"version", 4},
        {"type", "historical_paper"},
@@ -68,7 +68,7 @@ backtest::v1::BacktestInput rolling(const char* outgoing_volume = "10") {
        {"contracts",
         {{{"dataset", protocol::decode_bar_dataset(near)}, {"cost_schedule", costs}},
          {{"dataset", protocol::decode_bar_dataset(far)}, {"cost_schedule", costs}}}}});
-  *input.mutable_strategy() = testing_support::moving_average(1, 4);
+  *input.add_strategies() = testing_support::moving_average(1, 4);
   input.set_dataset_revision(protocol::dataset_revision(input.paper()));
   auto* series = input.add_series();
   for (const auto& [day, contract, factor] :

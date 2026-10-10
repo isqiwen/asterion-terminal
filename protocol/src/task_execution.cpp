@@ -29,7 +29,8 @@ task::v1::TaskExecution task_execution(const task::v1::Task& task,
     auto* parameters = result.mutable_backtest();
     *parameters->mutable_deposit() = input.paper().deposit();
     *parameters->mutable_risk() = input.paper().risk();
-    *parameters->mutable_strategy() = input.strategy();
+    *parameters->mutable_strategies() = input.strategies();
+    parameters->set_holdout_from(input.holdout_day());
     for (const auto& contract : input.paper().contracts()) {
       auto* item = parameters->add_contracts();
       *item->mutable_data() = selection(contract.dataset());

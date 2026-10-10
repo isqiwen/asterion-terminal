@@ -37,8 +37,8 @@ void resolve_task_input(task::v1::TaskAttempt& attempt, std::stop_token stop) {
     if (!parameters.series().empty())
       throw std::invalid_argument("calculation requires fixed dominant schedules");
     auto* input = task.mutable_input();
-    input->set_version(8);
-    *input->mutable_strategy() = parameters.strategy();
+    input->set_version(9);
+    *input->mutable_strategies() = parameters.strategies();
     *input->mutable_series() = execution.schedules();
     auto* paper = input->mutable_paper();
     *paper->mutable_deposit() = parameters.deposit();
@@ -53,6 +53,7 @@ void resolve_task_input(task::v1::TaskAttempt& attempt, std::stop_token stop) {
       *item->mutable_dataset() = std::move(dataset);
       *item->mutable_cost_schedule() = contract.cost_schedule();
     }
+    set_backtest_holdout(*input, parameters.holdout_from());
     input->set_dataset_revision(dataset_revision(*paper));
     digest = sha256_bytes(input->SerializeAsString());
   } else {

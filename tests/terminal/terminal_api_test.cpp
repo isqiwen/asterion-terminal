@@ -502,11 +502,13 @@ TEST(TerminalApi, LargeNamedDatasetsBacktest) {
                    {"max_gross_quantity", "10"},
                    {"max_working_orders", "10"}};
   auto backtest = costs;
-  backtest.update({{"id", "large-backtest"},
-                   {"strategy",
-                    {{"quantity", "1"},
-                     {"sides", "long"},
-                     {"rule", {{"kind", "moving_average"}, {"fast", 5}, {"slow", 20}}}}}});
+  backtest.update(
+      {{"id", "large-backtest"},
+       {"strategies",
+        json::array({{{"quantity", "1"},
+                      {"sides", "long"},
+                      {"rule", {{"kind", "moving_average"}, {"fast", 5}, {"slow", 20}}}}})},
+       {"holdout_from", ""}});
   const auto submitted = invoke("backtest.submit", backtest);
   ASSERT_TRUE(submitted.contains("result")) << submitted.dump().substr(0, 400);
 }

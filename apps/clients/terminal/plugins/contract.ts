@@ -2,6 +2,7 @@ export { TaskPagination } from "../src/ui/TaskPagination";
 export {
   StrategyFields,
   strategyDefaults,
+  strategiesOf,
   strategyOf,
   strategyRows,
   strategyRule,

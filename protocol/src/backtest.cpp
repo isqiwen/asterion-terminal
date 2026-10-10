@@ -5,6 +5,8 @@
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/backtest.hpp>
 #include <charconv>
+#include <cmath>
+#include <set>
 #include <stdexcept>
 namespace asterion::protocol {
 namespace {
@@ -51,7 +53,10 @@ void validate_series(const backtest::v1::BacktestInput& input) {
 }
 } // namespace
 backtest::v1::BacktestRequest encode_backtest_request(const Json& input) {
-  require_fields(input, {"contracts", "deposit", "risk", "strategy", "series"});
+  require_fields(input, {"contracts", "deposit", "risk", "strategies", "series", "holdout_from"});
+  if (!input.at("strategies").is_array() || input.at("strategies").empty() ||
+      input.at("strategies").size() > 32 || !input.at("holdout_from").is_string())
+    throw std::invalid_argument("backtest requires 1 to 32 strategies");
   if (!input.at("series").is_array() || !input.at("contracts").is_array() ||
       input.at("contracts").empty() || input.at("contracts").size() > max_portfolio_contracts)
     throw std::invalid_argument("backtest requires 1 to 20 contracts");
@@ -76,27 +81,77 @@ backtest::v1::BacktestRequest encode_backtest_request(const Json& input) {
                      [](const auto& series) { return series.contracts(); });
   result.mutable_deposit()->set_units(Decimal::parse(input.at("deposit").get<std::string>()).raw());
   *result.mutable_risk() = encode_risk(input.at("risk"));
-  *result.mutable_strategy() = encode_strategy(input.at("strategy"));
+  for (const auto& strategy : input.at("strategies"))
+    *result.add_strategies() = encode_strategy(strategy);
+  result.set_holdout_from(input.at("holdout_from").get<std::string>());
   return result;
+}
+std::vector<std::string> backtest_trading_days(const backtest::v1::BacktestInput& input) {
+  std::set<std::string> days;
+  for (const auto& contract : input.paper().contracts())
+    for (const auto& day : contract.dataset().days())
+      days.insert(day.trading_day());
+  return {days.begin(), days.end()};
+}
+void set_backtest_holdout(backtest::v1::BacktestInput& input, const std::string& from) {
+  if (input.strategies_size() < 2) {
+    if (!from.empty())
+      throw std::invalid_argument("a holdout belongs to a comparison of several strategies");
+    return;
+  }
+  static_cast<void>(parse_trading_date(from));
+  const auto days = backtest_trading_days(input);
+  const auto first = std::ranges::lower_bound(days, from);
+  if (first == days.end())
+    throw std::invalid_argument("the holdout begins after the last trading day");
+  input.set_holdout_day(*first);
+}
+std::size_t backtest_work_units(const backtest::v1::BacktestInput& input) {
+  std::size_t bars = 0, development = 0;
+  for (const auto& contract : input.paper().contracts())
+    for (const auto& bar : contract.dataset().bars()) {
+      ++bars;
+      development += bar.trading_day() < input.holdout_day();
+    }
+  return bars + (input.strategies_size() > 1
+                     ? static_cast<std::size_t>(input.strategies_size()) * development
+                     : 0);
 }
 Json decode_backtest(const backtest::v1::BacktestInput& input, DatasetView view) {
   validate_message(input);
-  if (input.version() != 8 || !input.has_paper() || !input.has_strategy())
+  if (input.version() != 9 || !input.has_paper() || input.strategies().empty() ||
+      input.strategies_size() > 32)
     throw std::invalid_argument("incomplete backtest input");
   if (input.dataset_revision() != dataset_revision(input.paper()))
     throw std::invalid_argument("dataset revision does not match input snapshot");
   // Evaluated before the braced initializer: GCC < 13 leaks already-built
   // initializer_list elements when a later element throws (PR66139).
   auto paper = decode_input(input.paper(), view);
-  for (const auto& contract : input.paper().contracts())
-    validate_strategy(
-        input.strategy(),
-        Decimal::from_raw(contract.dataset().contract().quantity_increment().units()));
+  Json strategies = Json::array();
+  std::set<std::string> distinct;
+  for (const auto& strategy : input.strategies()) {
+    for (const auto& contract : input.paper().contracts())
+      validate_strategy(
+          strategy, Decimal::from_raw(contract.dataset().contract().quantity_increment().units()));
+    if (!distinct.insert(strategy.SerializeAsString()).second)
+      throw std::invalid_argument("compared strategies must differ");
+    strategies.push_back(decode_strategy(strategy));
+  }
+  const auto days = backtest_trading_days(input);
+  const auto holdout = std::ranges::find(days, input.holdout_day());
+  if (input.strategies_size() == 1
+          ? !input.holdout_day().empty()
+          : holdout == days.end() ||
+                static_cast<std::size_t>(holdout - days.begin()) < backtest_development_days)
+    throw std::invalid_argument(
+        "comparing strategies requires a holdout that begins on a trading day after at least 20 "
+        "others; one strategy takes none");
   validate_series(input);
-  Json result{{"version", 8},
+  Json result{{"version", 9},
               {"dataset_revision", input.dataset_revision()},
               {"paper", std::move(paper)},
-              {"strategy", decode_strategy(input.strategy())}};
+              {"strategies", std::move(strategies)},
+              {"holdout_day", input.holdout_day()}};
   if (input.series_size()) {
     Json all = Json::array();
     for (const auto& series : input.series()) {
@@ -154,7 +209,33 @@ Json decode_backtest_result(const backtest::v1::BacktestResult& result) {
   auto account = protocol::decode_snapshot(result.account());
   account["mode"] = "backtest";
   account["persistent"] = false;
-  return {{"version", result.version()},
+  Json candidates = Json::array();
+  for (const auto& candidate : result.candidates()) {
+    if (!std::isfinite(candidate.total_return()) || !std::isfinite(candidate.max_drawdown()) ||
+        candidate.max_drawdown() < 0 ||
+        (candidate.has_sharpe() && !std::isfinite(candidate.sharpe())))
+      throw std::invalid_argument("invalid backtest comparison evidence");
+    candidates.push_back(
+        {{"total_return", candidate.total_return()},
+         {"max_drawdown", candidate.max_drawdown()},
+         {"sharpe", candidate.has_sharpe() ? Json(candidate.sharpe()) : Json(nullptr)}});
+  }
+  if (candidates.empty() ? result.selected() != 0
+                         : candidates.size() < 2 || result.selected() >= candidates.size() ||
+                               !result.candidates(static_cast<int>(result.selected())).has_sharpe())
+    throw std::invalid_argument("invalid backtest comparison evidence");
+  // The selected strategy has the highest ratio and is the first to have it.
+  for (int i = 0; i < result.candidates_size(); ++i) {
+    const auto best = result.candidates(static_cast<int>(result.selected())).sharpe();
+    if (const auto& other = result.candidates(i);
+        other.has_sharpe() &&
+        (other.sharpe() > best ||
+         (other.sharpe() == best && static_cast<unsigned>(i) < result.selected())))
+      throw std::invalid_argument("invalid backtest comparison evidence");
+  }
+  return {{"candidates", std::move(candidates)},
+          {"selected", result.selected()},
+          {"version", result.version()},
           {"dataset_revision", result.dataset_revision()},
           {"engine_version", result.engine_version()},
           {"account", account},

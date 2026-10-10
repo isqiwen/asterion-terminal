@@ -7,11 +7,16 @@ import "asterion/v1/data.proto";
 // Immutable data resolved by Data and captured with calculation parameters by Task. paper.contracts hold the bars
 // and trading days of each contract; the strategy runs on every contract.
 message BacktestInput {
-  uint32 version = 1; // 8
+  uint32 version = 1; // 9
   string dataset_revision = 2;
   asterion.protocol.v1.PaperInput paper = 3;
-  asterion.protocol.v1.Strategy strategy = 4;
+  // One strategy is replayed as it is. Several, up to 32 and all different,
+  // are compared on the trading days before `holdout_day` alone, and the one
+  // those days favour is replayed over every day.
+  repeated asterion.protocol.v1.Strategy strategies = 4;
   repeated DominantSchedule series = 5;
+  // The first trading day kept out of the comparison; empty with one strategy.
+  string holdout_day = 6;
 }
 // Month contracts of one product traded as its dominant series: on each
 // trading day only the dominant month is traded, and one strategy runs on the
@@ -47,8 +52,11 @@ message BacktestRequest {
   repeated BacktestContract contracts = 1;
   asterion.protocol.v1.Decimal deposit = 2;
   asterion.protocol.v1.RiskLimits risk = 3;
-  asterion.protocol.v1.Strategy strategy = 4;
+  repeated asterion.protocol.v1.Strategy strategies = 4;
   repeated DominantSeries series = 5;
+  // A date; the holdout begins on the first trading day on or after it.
+  // Empty with one strategy.
+  string holdout_from = 6;
 }
 enum EquityEvent { EQUITY_EVENT_UNSPECIFIED = 0; TRADE_MARK = 1; DAILY_SETTLEMENT = 2; }
 message EquityPoint {
@@ -71,6 +79,14 @@ message DaySettlement {
   asterion.protocol.v1.Decimal fees = 6;
   repeated ContractSettlement contracts = 7;
 }
+// What the days before the holdout showed of one compared strategy. Nothing
+// from the holdout is recorded for a strategy that was not chosen.
+message BacktestCandidate {
+  double total_return = 1;
+  double max_drawdown = 2;
+  // Yearly Sharpe ratio; absent when the daily returns do not vary.
+  optional double sharpe = 3;
+}
 message BacktestResult {
   uint32 version = 1;
   string dataset_revision = 2;
@@ -79,5 +95,10 @@ message BacktestResult {
   repeated EquityPoint equity = 5;
   asterion.protocol.v1.Decimal max_drawdown = 6;
   repeated DaySettlement settlements = 7;
+  // With several strategies: one entry per strategy in input order, and the
+  // index of the one with the highest development Sharpe ratio, whose replay
+  // the rest of this result is.
+  repeated BacktestCandidate candidates = 8;
+  uint32 selected = 9;
 }
 

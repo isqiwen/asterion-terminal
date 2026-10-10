@@ -68,19 +68,17 @@ void prepare(wire::Task& task) {
     const auto& paper = task.input().paper();
     const auto& dataset = paper.contracts(0).dataset();
     std::string instruments, sources;
-    unsigned total = 0;
     for (const auto& contract : paper.contracts()) {
       const auto& c = contract.dataset().contract();
       instruments += (instruments.empty() ? "" : " + ") + c.venue() + "/" + c.symbol();
       sources += (sources.empty() ? "" : " + ") + contract.dataset().revision();
-      total += static_cast<unsigned>(contract.dataset().bars_size());
     }
     task.set_instrument(instruments);
     task.set_source_name(sources);
     task.set_trading_day(dataset.days(0).trading_day());
     if (dataset.days_size() > 1)
       task.set_trading_day(task.trading_day() + " / " + dataset.days().rbegin()->trading_day());
-    task.set_total(total);
+    task.set_total(static_cast<unsigned>(protocol::backtest_work_units(task.input())));
   } else
     throw std::invalid_argument("task requires an explicit input type");
   task.set_data_source(task.has_minutes() ? task.minutes().source()
@@ -209,6 +207,11 @@ void verify_result(const wire::Task& task, const asterion::backtest::v1::Backtes
       trading_days.insert(day.trading_day());
   const auto days = static_cast<int>(trading_days.size());
   const auto last_day = trading_days.empty() ? std::string() : *trading_days.rbegin();
+  std::uint32_t bars = 0;
+  for (const auto& contract : paper.contracts())
+    bars += static_cast<std::uint32_t>(contract.dataset().bars_size());
+  // A comparison scores every strategy it was given; one strategy has no scores.
+  const auto compared = task.input().strategies_size() > 1 ? task.input().strategies_size() : 0;
   bool contracts = result.account().contracts_size() == paper.contracts_size();
   for (int c = 0; contracts && c < paper.contracts_size(); ++c)
     contracts =
@@ -223,9 +226,9 @@ void verify_result(const wire::Task& task, const asterion::backtest::v1::Backtes
             paper.contracts(c).cost_schedule().SerializeAsString();
   if (result.version() != 5 || result.dataset_revision() != task.input().dataset_revision() ||
       result.engine_version() != protocol::backtest_engine_version ||
-      result.account().cursor() != task.total() || result.account().total() != task.total() ||
-      result.equity_size() != static_cast<int>(task.total()) + days ||
-      result.settlements_size() != days || !contracts ||
+      result.account().cursor() != bars || result.account().total() != bars ||
+      result.equity_size() != static_cast<int>(bars) + days || result.settlements_size() != days ||
+      !contracts || result.candidates_size() != compared ||
       result.account().risk().SerializeAsString() != paper.risk().SerializeAsString() ||
       !result.has_max_drawdown() || result.account().recovery_required())
     throw std::invalid_argument("incomplete or mismatched task result");
