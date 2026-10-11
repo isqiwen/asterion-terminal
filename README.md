@@ -19,8 +19,10 @@
 依赖：Node.js 22+、pnpm 10、Python 3、Conan 2、CMake 3.25+、Ninja；macOS 用 Xcode 26 及以上的 Command Line Tools（Apple Clang），Linux 用 GCC 13 及以上。
 
 ```sh
+conan profile detect --exist-ok     # 生成本机 Conan profile；已有时不改动
 python3 scripts/prepare_ctp.py      # 下载并校验 CTP SDK
 pnpm install --frozen-lockfile
+pnpm exec install-electron          # 下载锁定版本的 Electron 运行时
 pnpm desktop                        # 构建并启动桌面开发窗口
 ```
 

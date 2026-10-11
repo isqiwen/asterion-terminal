@@ -261,13 +261,14 @@ def main():
         macos_release.signing_preflight(env)
     resources = ROOT / "build/electron-resources/remote-linux"
     archives = Path(env.get("ASTERION_LINUX_BUNDLES", str(ROOT / "build/linux-bundles")))
-    if mode in {"build", "package-test"} and not (archives / "asterion-services-linux-x86_64.zip").is_file():
+    if mode != "dev" and not (archives / "asterion-services-linux-x86_64.zip").is_file():
         raise SystemExit(
             "Missing required Linux x86_64 release bundle: "
             + str(archives / "asterion-services-linux-x86_64.zip")
-            + "\nObtain the matching source revision's remote-linux CI artifact and place it "
-            "in this directory, or set ASTERION_LINUX_BUNDLES to its directory. "
-            "Desktop packaging requires the bundled remote services."
+            + "\nBuild it with scripts/services/build_linux_services.sh, or obtain the matching "
+            "source revision's remote-linux CI artifact and place it in this directory, or set "
+            "ASTERION_LINUX_BUNDLES to its directory. Desktop check and packaging require the "
+            "bundled remote services; pnpm desktop runs without them."
         )
     stage = [sys.executable, str(ROOT / "scripts/desktop/remote_resources.py"), "stage", "--archives", str(archives)]
     if mode == "dev" and archives.is_dir():

@@ -4,8 +4,9 @@
   "tasks": [
     {
       "label": "Prepare dependencies",
+      "detail": "First on a new machine: Conan profile, CTP SDK, pnpm packages, Electron runtime",
       "type": "shell",
-      "command": "python3 scripts/prepare_ctp.py && pnpm install --frozen-lockfile && pnpm exec install-electron",
+      "command": "conan profile detect --exist-ok && python3 scripts/prepare_ctp.py && pnpm install --frozen-lockfile && pnpm exec install-electron",
       "problemMatcher": []
     },
     {
@@ -29,6 +30,7 @@
     },
     {
       "label": "C++: build",
+      "detail": "Incremental; Desktop: run or Desktop: check configures build/Debug first",
       "type": "shell",
       "command": "cmake --build --preset conan-debug",
       "problemMatcher": ["$gcc"],

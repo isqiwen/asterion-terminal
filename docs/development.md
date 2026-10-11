@@ -4,22 +4,25 @@
 
 - macOS（Apple Silicon 或 Intel），Xcode 26 及以上的 Command Line Tools（Apple Clang；Xcode 16 的标准库没有 `std::stop_token` 和 `std::jthread`，编译不过）；或 Linux x86_64，GCC 13 及以上
 - Node.js 22+、pnpm 10、Python 3、Conan 2、CMake 3.25+、Ninja
-- 可选：OrbStack 或 Docker（重建远程 Linux 服务包）
+- clang-format 23.1.1，即 CI 固定的版本。`pnpm run format` 和格式检查使用 `PATH` 上的 `clang-format`，其它版本的排版结果不同（21.1.8 会判定现有源码未格式化）。
+- 可选：OrbStack 或 Docker（重建远程 Linux 服务包）。它和上面的工具链一样由开发者自己在机器上安装，项目的脚本和任务不安装系统软件；Ubuntu 上是 `sudo apt install docker.io`。Linux 上当前用户还要能不经 `sudo` 运行 `docker`，例如 `sudo usermod -aG docker $USER`；新的组要等该用户的全部会话（包括 SSH）退出后重新登录，或重启后才生效，此前可以用 `sg docker -c '<命令>'` 运行。
 
 Linux 桌面还需要：
 
 - 可用的 systemd 用户服务管理器（`systemctl --user`）和统一 cgroup v2。本机 Agent 注册为当前用户的 systemd 单元；没有用户会话总线的纯 SSH 登录不能启动本机节点。
-- 图形会话（X11 或 Wayland）。Electron 的沙箱需要非特权用户命名空间；Ubuntu 24.04 默认用 AppArmor 限制它，开发机需要按发行版说明放开（例如 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`），不要用 `--no-sandbox` 运行。
+- 图形会话（X11 或 Wayland）。Electron 的沙箱需要非特权用户命名空间；Ubuntu 24.04 起默认用 AppArmor 限制它，开发机需要按发行版说明放开（例如 `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`），不要用 `--no-sandbox` 运行。未放开时 Electron 以“SUID sandbox helper binary … not configured correctly”退出。从 deb 安装的 VS Code 的终端和任务里启动不受这一限制：进程继承 Ubuntu 为 VS Code 提供的 AppArmor 配置，其中允许用户命名空间。
 - 可选：Secret Service（GNOME Keyring、KWallet 等）及 `libsecret-1.so.0`，用于记住行情与数据源凭据。没有时 Terminal 正常运行，凭据只在本次运行期间有效。
 
 首次准备：
 
 ```sh
-conan profile detect          # 没有 Conan profile 时
+conan profile detect --exist-ok   # 生成本机 Conan profile；已有时不改动
 python3 scripts/prepare_ctp.py
 pnpm install --frozen-lockfile
-pnpm exec install-electron   # 显式准备锁定版本的 Electron 二进制
+pnpm exec install-electron        # 显式准备锁定版本的 Electron 二进制
 ```
+
+随后用 `pnpm desktop` 完成第一次构建。ConanCenter 没有本机编译器的预编译包时，这一步会从源码编译全部依赖，之后的构建复用 Conan 缓存。`pnpm desktop:check` 还要求下文的远程 Linux 服务包，新机器上先用 `pnpm desktop`。
 
 `build/local-profile` 存在时，桌面脚本会使用它。macOS 强制系统 Apple Clang；Linux 使用 Conan profile 中的编译器，依赖按 Release 构建（带调试信息的内嵌 DuckDB 会超过 Agent 的程序大小上限），项目自身在开发模式下按 Debug 构建。
 
@@ -45,10 +48,10 @@ Conan 与 CTP SDK 只接受 macOS armv8/x86_64 和 Linux x86_64；CMake 拒绝�
 
 - **扩展**：打开仓库时会推荐 clangd、C/C++（只用作调试器）、CMake Tools、Prettier、ESLint 和 EditorConfig。Playwright 扩展被列为不推荐：它直接调用 `playwright test`，会操作本机正在使用的服务。
 - **C++**：clangd 读取 `build/Debug/compile_commands.json`，这个文件由 `pnpm desktop` 或 `pnpm desktop:check` 的配置步骤生成，所以要先跑一次其中之一。C++ 不在保存时自动格式化（编辑器自带的 clang-format 版本可能与 CI 固定的版本不同），以 `pnpm run format` 为准；TypeScript、JavaScript 和 CSS 在保存时用仓库锁定的 Prettier 格式化。
-- **任务**（“运行任务”）：准备依赖、运行或检查桌面、打安装包、构建 C++（默认构建任务）、C++ 测试（默认测试任务）、界面单元测试、E2E（关键链路或全部）、Electron 宿主测试、界面开发服务、类型/Lint/格式检查、格式化、重建 Linux 服务包。命令在两个系统上相同。
+- **任务**（“运行任务”）：准备依赖、运行或检查桌面、打安装包、构建 C++（默认构建任务）、C++ 测试（默认测试任务）、界面单元测试、E2E（关键链路或全部）、Electron 宿主测试、界面开发服务、类型/Lint/格式检查、格式化、重建 Linux 服务包。命令在两个系统上相同。新机器上先运行“Prepare dependencies”（即上面首次准备的四条命令），再运行“Desktop: run”。
 - **调试**：C++ 调试在 Linux 用 gdb、在 macOS 用 lldb。在 CMake Tools 状态栏选择启动目标后，“C++: debug test” 会询问 GoogleTest 过滤条件并带上测试节点容量；还可以附加到运行中的服务，或附加到 `pnpm desktop` 的 Electron 主进程调试原生模块。Linux 上附加到不是调试器启动的进程需要 `kernel.yama.ptrace_scope=0`。“UI: debug in Chrome” 用于在浏览器入口调试界面，先启动“UI: dev server”任务。
 
-CMake Tools 使用 Conan 生成的 preset，同样要先跑过一次 `pnpm desktop:check`。
+CMake Tools 使用 Conan 生成的 preset，同样要先跑过一次 `pnpm desktop` 或 `pnpm desktop:check`。
 
 ## 测试
 

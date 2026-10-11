@@ -3274,3 +3274,40 @@ terminal 的任务才第一次真正运行。
 - **仍未验证。** 真实行情；三个以上品种；按期限结构排序与滚动验证合用；20 个品种、
   多年日线时的耗时。
 
+## 2026-10-11（新机器首次准备：Ubuntu 26.04）
+
+用户在一台新的 Ubuntu 26.04.1 机器上打开仓库，反馈 VS Code 任务不能直接构建运行。没有产品
+代码改动，服务源码指纹不变。
+
+- **原因。** 机器上没有 Node.js、pnpm 和 Conan，任何任务的第一条命令都会失败；这是开发指南
+  列出的环境要求，不是任务的缺陷。任务自身有一处缺口：“Prepare dependencies”不生成 Conan
+  profile，全新机器上 `prepare_ctp.py` 的 `conan export-pkg` 以“default build profile doesn't
+  exist”失败（用空的 `CONAN_HOME` 复现）。首次准备的步骤写在三处且互不一致：只有开发指南是
+  完整的，任务缺 `conan profile detect`，README 的快速开始还缺 `pnpm exec install-electron`
+  ——Electron 44 没有安装脚本，照 README 做会在全部构建完成后因缺少运行时而失败。
+- **改动。** 任务、README 和开发指南统一为同样的四条命令，profile 用
+  `conan profile detect --exist-ok`：已有 profile 时不改动，可以重复执行。任务选择列表里给
+  “Prepare dependencies”和“C++: build”各加一行说明（前者是新机器的第一步，后者需要已经配置
+  的 `build/Debug`）。`pnpm desktop:check` 在缺少 Linux 服务包时原先抛出两段 Python 回溯，现在
+  和打包一样直接说明缺什么、怎样得到，并指出 `pnpm desktop` 不需要它
+  （`scripts/desktop/desktop.py`，不在服务源码指纹内）。开发指南补充四点：格式检查要求 CI
+  固定的 clang-format 23.1.1；新机器先用 `pnpm desktop`，`desktop:check` 另需服务包；AppArmor
+  对沙箱的限制在 VS Code 里启动时不生效；重建服务包要求当前用户能不经 `sudo` 运行 `docker`
+  （这台机器上的用户不在 `docker` 组，重建因此没有做）。
+- **这台机器上的验证**（Ubuntu 26.04.1，GCC 15.2，CMake 4.2.3，Python 3.14.4，Node.js 22.23.3，
+  pnpm 10.32.1，Conan 2.32.0）。ConanCenter 没有 GCC 15 的预编译包，abseil、protobuf、OpenSSL、
+  sqlite3、zlib、gtest 和 DuckDB 从源码编译通过；项目 Debug 构建零错误，唯一的编译器警告是
+  测试替身 `tests/market/ctp_fake_sdk.cpp` 的 `-Wformat-truncation`；`ctest` 555/555（330 秒）；
+  界面单元测试 25/25；类型、ESLint、Prettier 和 C++ 格式检查通过；`pnpm desktop` 的增量构建、
+  界面构建和 Node-API 桥接检查通过。用户同时从 VS Code 任务启动了 `pnpm desktop`：Electron、
+  Vite、开发 Agent 及其三个服务进程运行，界面当日日志中的 265 次数据服务请求全部成功。
+- **两处与机器有关的发现。** 系统自带的 clang-format 21.1.8 判定
+  `apps/clients/terminal/native/task_client.cpp` 未格式化，23.1.1 通过；`scripts/format_cpp.py`
+  不检查版本，用错版本时“Format”会按另一种结果改写文件。沙箱：从 VS Code 启动的进程带
+  `vscode` 的 AppArmor 标签，Electron 沙箱初始化成功；从会话的其它进程启动
+  （`systemd-run --user`）以“SUID sandbox helper binary … not configured correctly”退出，与
+  开发指南的描述一致。
+- **未验证。** 当前用户不在 `docker` 组，没有重建 Linux 服务包，`pnpm desktop:check` 和打包
+  没有运行（只确认了缺包时的提示）；Electron 宿主测试和端到端测试当时没有运行（用户正在使用
+  开发窗口），随后补上，见本页末的补记；改过的任务没有在 VS Code 界面里逐项点过，macOS 上
+  没有重新验证。
