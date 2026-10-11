@@ -25,12 +25,6 @@ std::string shifted(const std::string& day, int offset) {
   using namespace std::chrono;
   return format_trading_date(year_month_day(sys_days(parse_trading_date(day)) + days(offset)));
 }
-std::size_t column(const HistoryTable& table, std::string_view name) {
-  const auto found = std::ranges::find(table.columns, name, &TableColumn::name);
-  if (found == table.columns.end())
-    throw std::logic_error("history table has no such column");
-  return static_cast<std::size_t>(found - table.columns.begin());
-}
 std::string date_text(std::int64_t day) {
   using namespace std::chrono;
   return format_trading_date(year_month_day(sys_days(days(day))));
@@ -47,7 +41,7 @@ TableRevision reference(const TableStore& store, const TableSeries& series,
 // The first day anything was listed on the exchange.
 std::string inception(const TableStore& store, const TableSeries& contracts,
                       const std::string& venue) {
-  const auto listed = column(history_table(contracts_table), "list_date");
+  const auto listed = table_column(history_table(contracts_table), "list_date");
   std::optional<std::int64_t> first;
   for (const auto& row : store.rows(reference(store, contracts, venue, "all")))
     if (const auto* day = std::get_if<std::int64_t>(&row[listed]); day && (!first || *day < *first))
@@ -62,7 +56,7 @@ std::optional<std::vector<std::string>>
 open_days(const TableStore& store, const TableSeries& calendar, const std::string& venue,
           const std::string& first, const std::string& last) {
   const auto& table = history_table(calendar_table);
-  const auto day = column(table, "day"), open = column(table, "open");
+  const auto day = table_column(table, "day"), open = table_column(table, "open");
   std::vector<std::string> result;
   for (auto year = std::stoi(first.substr(0, 4)); year <= std::stoi(last.substr(0, 4)); ++year) {
     const auto revision = store.current(calendar, venue, std::to_string(year));

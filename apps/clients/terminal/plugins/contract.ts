@@ -57,6 +57,7 @@ export type TerminalContext = {
       | "data.download.update.plan"
       | "data.tables.coverage"
       | "data.tables.page"
+      | "data.tables.products"
       | "market.minutes",
     params: Record<string, unknown>,
   ) => Promise<Snapshot>;

@@ -179,6 +179,31 @@ TEST(HistoryTableStore, ARevisionNeverReplacesWhatAnEarlierSnapshotHeld) {
   EXPECT_EQ(coverage[0].first_period, "2025-07-25");
   EXPECT_EQ(coverage[0].last_period, "2025-07-28");
   EXPECT_EQ(coverage[0].acquired_at_ns, 4000);
+  // A snapshot keeps holding what it held: the first one has one day, as first read.
+  ASSERT_EQ(store.sequence(snapshot), 1U);
+  EXPECT_FALSE(store.sequence(std::string(64, 'a'))) << "never a snapshot of this ledger";
+  const auto then = store.revisions(series, "SHFE", "2025-07-01", "2025-07-31", 1);
+  ASSERT_EQ(then.size(), 1U);
+  EXPECT_EQ(store.rows(then[0]), first.rows);
+  const auto now = store.revisions(series, "SHFE", "2025-07-01", "2025-07-31", 3);
+  ASSERT_EQ(now.size(), 2U);
+  EXPECT_EQ(store.rows(now[0]), corrected.rows);
+  EXPECT_EQ(now[1].period, "2025-07-28");
+  EXPECT_TRUE(store.revisions(series, "SHFE", "2025-07-26", "2025-07-27", 3).empty());
+  // Both days read together: the closes of one product, each with its day.
+  std::map<std::string, std::string> closes;
+  const std::vector<std::size_t> wanted{table_column(daily, "contract"),
+                                        table_column(daily, "close")};
+  const std::vector<std::string> products{"SHFE/rb/"}, others{"SHFE/cu/"};
+  store.scan(now, wanted, products, [&](std::size_t revision, std::vector<TableCell>& cells) {
+    EXPECT_EQ(std::get<std::string>(cells[0]), "SHFE/rb/2025-10");
+    closes[now[revision].period] = *table_cell_text(daily.columns[wanted[1]], cells[1]);
+  });
+  EXPECT_EQ(closes,
+            (std::map<std::string, std::string>{{"2025-07-25", "3357"}, {"2025-07-28", "3360"}}));
+  store.scan(now, wanted, others, [](std::size_t, std::vector<TableCell>&) {
+    FAIL() << "no row is of another product";
+  });
   // A file that no longer has the recorded bytes is refused, not read.
   const auto object = folder.path / "tables" / "objects" / current->object.substr(0, 2) /
                       (current->object + ".parquet");

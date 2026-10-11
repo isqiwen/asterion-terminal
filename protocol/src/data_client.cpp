@@ -117,6 +117,10 @@ data::v1::DataResponse decode_data_response(const data::v1::DataRequest& request
       return Response::kTablePlan;
     case Request::kStoreTablePartition:
       return Response::kTablePartition;
+    case Request::kTableSeries:
+      return Response::kTableSeries;
+    case Request::kTableProducts:
+      return Response::kTableProducts;
     case Request::OPERATION_NOT_SET:
       return Response::RESULT_NOT_SET;
     }

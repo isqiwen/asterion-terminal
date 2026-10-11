@@ -1,6 +1,7 @@
 #include "table_parquet.hpp"
 #include "parquet_engine.hpp"
 #include <stdexcept>
+#include <unordered_map>
 namespace asterion::parquet {
 namespace {
 duckdb::LogicalType logical(const TableColumn& column) {
@@ -45,6 +46,36 @@ duckdb::Value value(const TableColumn& column, const TableCell& cell) {
     throw std::logic_error("table cell does not match its column");
   }
 }
+// Text is data, never SQL: quote it as a string literal.
+std::string text_literal(std::string_view value) {
+  std::string quoted = "'";
+  for (const auto c : value) {
+    quoted += c;
+    if (c == '\'')
+      quoted += '\'';
+  }
+  return quoted + "'";
+}
+// One cell of a flat result vector; a missing value stays missing.
+TableCell cell(const TableColumn& column, duckdb::Vector& vector, duckdb::idx_t row) {
+  if (!duckdb::FlatVector::Validity(vector).RowIsValid(row)) {
+    if (column.key)
+      throw std::invalid_argument("Parquet table key has a missing value");
+    return {};
+  }
+  switch (column.type) {
+  case TableType::text:
+  case TableType::contract:
+    return duckdb::FlatVector::GetData<duckdb::string_t>(vector)[row].GetString();
+  case TableType::date:
+    return std::int64_t{duckdb::FlatVector::GetData<duckdb::date_t>(vector)[row].days};
+  case TableType::boolean:
+    return std::int64_t{duckdb::FlatVector::GetData<bool>(vector)[row]};
+  case TableType::decimal:
+    return duckdb::FlatVector::GetData<std::int64_t>(vector)[row];
+  }
+  throw std::logic_error("unknown table column type");
+}
 } // namespace
 void write_table(const std::filesystem::path& path, const TablePartition& partition) {
   const auto& table = *partition.table;
@@ -82,34 +113,43 @@ std::vector<std::vector<TableCell>> read_table(const std::filesystem::path& path
     chunk->Flatten();
     const auto first = rows.size();
     rows.resize(first + chunk->size(), std::vector<TableCell>(table.columns.size()));
-    for (std::size_t c = 0; c < table.columns.size(); ++c) {
-      auto& vector = chunk->data[c];
-      const auto& validity = duckdb::FlatVector::Validity(vector);
-      for (duckdb::idx_t r = 0; r < chunk->size(); ++r) {
-        if (!validity.RowIsValid(r)) {
-          if (table.columns[c].key)
-            throw std::invalid_argument("Parquet table key has a missing value");
-          continue;
-        }
-        auto& cell = rows[first + r][c];
-        switch (table.columns[c].type) {
-        case TableType::text:
-        case TableType::contract:
-          cell = duckdb::FlatVector::GetData<duckdb::string_t>(vector)[r].GetString();
-          break;
-        case TableType::date:
-          cell = std::int64_t{duckdb::FlatVector::GetData<duckdb::date_t>(vector)[r].days};
-          break;
-        case TableType::boolean:
-          cell = std::int64_t{duckdb::FlatVector::GetData<bool>(vector)[r]};
-          break;
-        case TableType::decimal:
-          cell = duckdb::FlatVector::GetData<std::int64_t>(vector)[r];
-          break;
-        }
-      }
-    }
+    for (std::size_t c = 0; c < table.columns.size(); ++c)
+      for (duckdb::idx_t r = 0; r < chunk->size(); ++r)
+        rows[first + r][c] = cell(table.columns[c], chunk->data[c], r);
   }
   return rows;
+}
+void scan_tables(std::span<const std::filesystem::path> files, const HistoryTable& table,
+                 std::span<const std::size_t> columns, std::span<const std::string> prefixes,
+                 const std::function<void(std::size_t, std::vector<TableCell>&)>& visit) {
+  if (files.empty())
+    return;
+  std::string list, selected, wanted;
+  std::unordered_map<std::string, std::size_t> index;
+  for (std::size_t f = 0; f < files.size(); ++f) {
+    list += (f ? ", " : "") + literal(files[f]);
+    index.emplace(files[f].string(), f);
+  }
+  for (const auto column : columns)
+    selected += ", " + quoted(table.columns[column].name);
+  for (const auto& prefix : prefixes)
+    wanted += (wanted.empty() ? " WHERE " : " OR ") + std::string("starts_with(") +
+              quoted(table.columns[0].name) + ", " + text_literal(prefix) + ")";
+  Engine engine;
+  const auto result = engine.run("SELECT filename" + selected + " FROM read_parquet([" + list +
+                                 "], filename = true)" + wanted);
+  std::vector<TableCell> cells(columns.size());
+  while (auto chunk = result->Fetch()) {
+    chunk->Flatten();
+    for (duckdb::idx_t r = 0; r < chunk->size(); ++r) {
+      const auto file =
+          index.find(duckdb::FlatVector::GetData<duckdb::string_t>(chunk->data[0])[r].GetString());
+      if (file == index.end())
+        throw std::logic_error("Parquet scan returned a file it was not given");
+      for (std::size_t c = 0; c < columns.size(); ++c)
+        cells[c] = cell(table.columns[columns[c]], chunk->data[c + 1], r);
+      visit(file->second, cells);
+    }
+  }
 }
 } // namespace asterion::parquet

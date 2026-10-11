@@ -92,6 +92,36 @@ function dominantRows(input: Extract<FactorSeriesEvidence, { kind: "dominant" }>
     range: [first.data.first_timestamp_ns, last.data.last_timestamp_ns],
   };
 }
+// An instrument of the market-wide daily table: the months it was read from,
+// when each took over, and the snapshot they were read under.
+function tableRows(input: Extract<FactorSeriesEvidence, { kind: "table" }>): Block {
+  const data = input.data;
+  const read = data.months.filter(month => month.first_day && month.last_day);
+  const rows: Rows = [
+    ["月份合约", data.months.map(month => month.contract).join(" · ")],
+    ["输入日线", data.count],
+    ["交易日范围", read.length ? `${read[0].first_day} – ${read[read.length - 1].last_day}` : "—"],
+    ["数据源", data.daily_source],
+    ["交易日历来源", data.calendar_source],
+    ["数据表快照", data.snapshot],
+  ];
+  if (data.rolls.length)
+    rows.splice(
+      1,
+      0,
+      [
+        "换月",
+        data.rolls
+          .map(roll => `${roll.trading_day} ${data.months[roll.contract].contract} ×${roll.factor}`)
+          .join(" · "),
+      ],
+      ["有期限结构的交易日", data.terms],
+    );
+  return {
+    name: data.rolls.length ? `${data.instrument} · ${t("主力连续")}` : data.instrument,
+    rows,
+  };
+}
 function Fields({ rows }: { rows: Rows }) {
   return (
     <dl className="experiment-fields">
@@ -135,22 +165,25 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
       rows.push(["候选策略数", strategies.length], ["留出起始日", evidence.experiment.holdout_day]);
   } else {
     const { series, lookbacks, horizon, evaluation } = evidence.experiment;
-    const words = factorWords[series[0].kind === "daily" ? "daily" : "bars"];
+    const words =
+      factorWords[series[0].kind === "daily" || series[0].kind === "table" ? "daily" : "bars"];
     contracts = series.map(input =>
       input.kind === "bars"
         ? contractRows(input.dataset, input.data)
         : input.kind === "dominant"
           ? dominantRows(input)
-          : {
-              name: input.data.contract_id,
-              rows: [
-                ["交易日范围", `${input.data.first_day} – ${input.data.last_day}`],
-                [words.input, input.data.count],
-                ["数据源", input.data.source],
-                ["来源数据版本", input.data.source_dataset_id],
-                ["来源摘要", input.data.manifest_sha256],
-              ] as Rows,
-            },
+          : input.kind === "table"
+            ? tableRows(input)
+            : {
+                name: input.data.contract_id,
+                rows: [
+                  ["交易日范围", `${input.data.first_day} – ${input.data.last_day}`],
+                  [words.input, input.data.count],
+                  ["数据源", input.data.source],
+                  ["来源数据版本", input.data.source_dataset_id],
+                  ["来源摘要", input.data.manifest_sha256],
+                ] as Rows,
+              },
     );
     rows.push(
       ["因子", t(factorNames[evidence.experiment.factor])],
@@ -183,7 +216,16 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
         ? input.dataset.history_evidence
         : input.kind === "dominant"
           ? input.months.flatMap(month => month.dataset.history_evidence)
-          : [input.data.history_evidence],
+          : input.kind === "table"
+            ? [
+                // The snapshot stands for everything read under it.
+                {
+                  dataset_id: input.data.snapshot,
+                  acquired_at_ns: input.data.acquired_at_ns,
+                  source_availability: "unknown" as const,
+                },
+              ]
+            : [input.data.history_evidence],
     );
   return (
     <>

@@ -233,6 +233,19 @@ void Application::Impl::register_data_commands() {
     result.values["table_page"] = std::move(page);
     co_return result;
   });
+  command("data.tables.products", [this](const json& p) -> PolledTask<Response> {
+    const auto query = protocol::encode_table_products_query(p);
+    if (!data_client)
+      throw std::invalid_argument("connect the data and task services first");
+    const auto reader = data_client;
+    const auto generation = data_task_generation;
+    auto products = (co_await PollFuture{reader->table_products(query)});
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
+    auto result = read_published(json::object());
+    result.values["table_products"] = std::move(products);
+    co_return result;
+  });
   command("data.dataset.saved", [this](const json& p) -> PolledTask<Response> {
     fields(p, {});
     if (!data_client)

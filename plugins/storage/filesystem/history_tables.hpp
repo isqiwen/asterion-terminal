@@ -1,6 +1,7 @@
 #pragma once
 #include <asterion/domain/history_tables.hpp>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -67,8 +68,23 @@ public:
   // Periods of one exchange that hold a revision, ascending, within [first, last].
   std::vector<std::string> periods(const TableSeries&, const std::string& exchange,
                                    const std::string& first, const std::string& last) const;
+  // Where a snapshot ends in the ledger; nothing for a snapshot it never had.
+  std::optional<std::uint64_t> sequence(const std::string& snapshot) const;
+  // What a snapshot holds of one exchange within [first, last]: for each period
+  // the newest revision up to the snapshot's last entry, ascending by period.
+  std::vector<TableRevision> revisions(const TableSeries&, const std::string& exchange,
+                                       const std::string& first, const std::string& last,
+                                       std::uint64_t until) const;
   // The typed rows of a revision, after its file's digest has been checked.
   std::vector<std::vector<TableCell>> rows(const TableRevision&) const;
+  // Revisions of one series read together, after every file's digest has been
+  // checked: of each row whose first column starts with one of `prefixes`
+  // (every row when there are none), the cells of `columns`, which index the
+  // table's columns. `visit` is given the row's revision as an index into
+  // `revisions`; rows come in no particular order.
+  void scan(std::span<const TableRevision> revisions, std::span<const std::size_t> columns,
+            std::span<const std::string> prefixes,
+            const std::function<void(std::size_t, std::vector<TableCell>&)>& visit) const;
 
 private:
   std::filesystem::path object_path(const std::string& object) const;

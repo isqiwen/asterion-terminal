@@ -131,7 +131,7 @@ foreach(schema health domain trading node market task backtest factor data data_
     DEPENDS ${ASTERION_PROTO_FILES} protobuf::protoc VERBATIM)
   list(APPEND ASTERION_PROTO_SOURCES ${ASTERION_PROTO_GEN}/asterion/v1/${schema}.pb.cc)
 endforeach()
-add_library(asterion_protocol STATIC ${ASTERION_PROTO_SOURCES} protocol/src/trading.cpp protocol/src/health.cpp protocol/src/market.cpp protocol/src/bar_dataset.cpp protocol/src/task.cpp protocol/src/task_execution.cpp protocol/src/backtest.cpp protocol/src/factor.cpp protocol/src/data.cpp)
+add_library(asterion_protocol STATIC ${ASTERION_PROTO_SOURCES} protocol/src/trading.cpp protocol/src/health.cpp protocol/src/market.cpp protocol/src/bar_dataset.cpp protocol/src/task.cpp protocol/src/task_execution.cpp protocol/src/backtest.cpp protocol/src/factor.cpp protocol/src/data.cpp protocol/src/table_series.cpp)
 target_include_directories(asterion_protocol PUBLIC protocol/include ${ASTERION_PROTO_GEN})
 target_link_libraries(asterion_protocol PUBLIC Asterion::Domain protobuf::libprotobuf)
 

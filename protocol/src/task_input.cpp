@@ -77,7 +77,8 @@ void resolve_task_input(task::v1::TaskAttempt& attempt, std::stop_token stop) {
       }
       auto reply = data.call(factor_series_query(source));
       check_stop();
-      add_factor_series(*input, factor_series(source, std::move(reply)));
+      for (auto& series : factor_series(source, std::move(reply)))
+        add_factor_series(*input, std::move(series));
     }
     input->set_dataset_revision(factor_revision(input->series()));
     digest = sha256_bytes(input->SerializeAsString());

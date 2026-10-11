@@ -5,6 +5,7 @@
 #include "history_minutes.hpp"
 #include "history_providers.hpp"
 #include "history_update.hpp"
+#include "table_series.hpp"
 #include "table_update.hpp"
 #include <asterion/kernel/logger.hpp>
 #include <asterion/kernel/process/artifact.hpp>
@@ -261,6 +262,10 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
     *response.mutable_table_coverage() = table_coverage(store_->tables(), store_->table_offers());
   else if (request.has_table_page())
     *response.mutable_table_page() = table_page(store_->tables(), request.table_page());
+  else if (request.has_table_series())
+    *response.mutable_table_series() = table_series(store_->tables(), request.table_series());
+  else if (request.has_table_products())
+    *response.mutable_table_products() = table_products(store_->tables(), request.table_products());
   else
     throw std::invalid_argument("missing data operation");
   return {};

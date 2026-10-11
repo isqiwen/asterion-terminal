@@ -108,6 +108,8 @@ message DataRequest {
     TablePageQuery table_page = 38;
     TablePlanQuery table_plan = 39;
     TablePartitionRows store_table_partition = 40;
+    TableSeriesRequest table_series = 41;
+    TableProductsQuery table_products = 42;
   }
 }
 message DataResponse {
@@ -141,5 +143,7 @@ message DataResponse {
     TablePage table_page = 35;
     TableUpdatePlan table_plan = 36;
     TablePartitionReceipt table_partition = 37;
+    TableSeriesGroup table_series = 38;
+    TableProducts table_products = 39;
   }
 }

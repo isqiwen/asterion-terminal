@@ -183,6 +183,12 @@ const HistoryTable& history_table(std::string_view id) {
       return table;
   throw std::invalid_argument("unknown history table");
 }
+std::size_t table_column(const HistoryTable& table, std::string_view name) {
+  const auto found = std::ranges::find(table.columns, name, &TableColumn::name);
+  if (found == table.columns.end())
+    throw std::logic_error("history table has no such column");
+  return static_cast<std::size_t>(found - table.columns.begin());
+}
 void validate_table_period(const HistoryTable& table, std::string_view period) {
   switch (table.period) {
   case TablePeriod::all:

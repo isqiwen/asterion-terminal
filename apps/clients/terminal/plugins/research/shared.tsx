@@ -44,6 +44,22 @@ export const factorNames = {
 } as const;
 // A factor counts in observations of its series: the same parameters read as
 // bars or as trading days, by what the series is made of.
+// Series kept by provider trading dates: a published daily version, or
+// instruments of the market-wide daily table.
+const dated = {
+  computed: "按日线计算",
+  lookback: "回看日线数",
+  horizon: "未来日线数",
+  split: "前段日线数",
+  training: "训练日线数",
+  validation: "每轮验证日线数",
+  candidates: "候选回看日线数",
+  selected: "选中回看日线数",
+  warmup: "共同预热日线数",
+  input: "输入日线",
+  observed: "交易日",
+  label: "标签日期",
+} as const;
 export const factorWords = {
   bars: {
     computed: "按 K 线计算",
@@ -59,20 +75,8 @@ export const factorWords = {
     observed: "因子时间",
     label: "标签结束时间",
   },
-  daily: {
-    computed: "按日线计算",
-    lookback: "回看日线数",
-    horizon: "未来日线数",
-    split: "前段日线数",
-    training: "训练日线数",
-    validation: "每轮验证日线数",
-    candidates: "候选回看日线数",
-    selected: "选中回看日线数",
-    warmup: "共同预热日线数",
-    input: "输入日线",
-    observed: "交易日",
-    label: "标签日期",
-  },
+  daily: dated,
+  tables: dated,
 } as const;
 type TaskService = NonNullable<NonNullable<TerminalContext["snapshot"]>["task_service"]>;
 export type ResearchTask = TaskService["tasks"][number];

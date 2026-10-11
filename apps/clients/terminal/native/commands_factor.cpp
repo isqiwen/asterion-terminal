@@ -6,9 +6,10 @@ void Application::Impl::register_factor_commands() {
   command("factor.submit", [this](const json& p) -> PolledTask<Response> {
     fields(p, {"id", "series", "factor", "lookbacks", "horizon", "evaluation"});
     validate_id(text(p, "id"));
-    // A factor reads the bars this window has selected, or a daily version
-    // published in the archive. Each selected contract is a series, and so is
-    // each dominant series, which sends every month it was resolved from.
+    // A factor reads the bars this window has selected, a daily version
+    // published in the archive, or instruments of the market-wide daily table.
+    // Each selected contract is a series, and so is each dominant series, which
+    // sends every month it was resolved from.
     const auto& series = p.at("series");
     auto sources = json::array();
     if (series.is_object() && series.value("kind", "") == "bars") {
@@ -25,6 +26,12 @@ void Application::Impl::register_factor_commands() {
     } else if (series.is_object() && series.value("kind", "") == "daily") {
       fields(series, {"kind", "dataset_id"});
       sources.push_back({{"daily_dataset_id", series.at("dataset_id")}});
+    } else if (series.is_object() && series.value("kind", "") == "tables") {
+      fields(series, {"kind", "snapshot", "daily_source", "calendar_source", "begin_day", "end_day",
+                      "instruments"});
+      auto tables = series;
+      tables.erase("kind");
+      sources.push_back({{"tables", std::move(tables)}});
     } else
       throw std::invalid_argument("invalid factor series");
     const auto request = protocol::encode_factor_request({{"series", std::move(sources)},

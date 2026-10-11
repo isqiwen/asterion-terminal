@@ -302,6 +302,7 @@ export type TerminalCommand =
   | "data.tables.update.submit"
   | "data.tables.coverage"
   | "data.tables.page"
+  | "data.tables.products"
   | "data.dataset.select"
   | "data.dataset.series"
   | "data.dataset.remove"
@@ -729,6 +730,29 @@ export type FactorSeriesEvidence =
       count: number;
     }
   | {
+      // An instrument of the market-wide daily table: a contract, or a product
+      // read as its dominant series (then with rolls, naming months by index).
+      kind: "table";
+      data: {
+        instrument: string;
+        snapshot: string;
+        daily_source: string;
+        calendar_source: string;
+        begin_day: string;
+        end_day: string;
+        acquired_at_ns: string;
+        months: {
+          contract: string;
+          count: number;
+          first_day: string | null;
+          last_day: string | null;
+        }[];
+        rolls: { trading_day: string; contract: number; factor: string }[];
+        terms: number;
+        count: number;
+      };
+    }
+  | {
       kind: "daily";
       data: {
         history_evidence: HistoryVersionEvidence;
@@ -915,6 +939,14 @@ export type TableCoverageRow = {
   missing_examples: string[];
 };
 export type TableCoverage = { snapshot: string; sources: TableSource[]; rows: TableCoverageRow[] };
+// A product of an exchange, as the contract lists of a snapshot hold it.
+export type TableProduct = {
+  exchange: string;
+  product: string;
+  contracts: number;
+  first_listed: string;
+  last_delisted: string;
+};
 // One page of a stored partition. Cells are text as stored; null is a missing value.
 export type TablePage = {
   revision: TablePartitionKey & {
@@ -1100,6 +1132,7 @@ export type Snapshot = {
   history_usage?: HistoryUsage;
   table_coverage?: TableCoverage;
   table_page?: TablePage;
+  table_products?: TableProduct[];
   // Present when the core answered from its last snapshot because another operation was running.
   // Revision of the core's published state and when the core last refreshed it.
   revision: number;

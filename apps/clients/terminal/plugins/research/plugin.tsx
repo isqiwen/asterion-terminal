@@ -22,6 +22,8 @@ export const plugin: TerminalPlugin = {
     "data.dataset.remove",
     "backtest.submit",
     "factor.submit",
+    "data.tables.coverage",
+    "data.tables.products",
     "task.action",
     "task.result",
   ],

@@ -8,11 +8,14 @@
 #include <stdexcept>
 namespace asterion {
 namespace {
+constexpr std::array<std::string_view, 6> venues{"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"};
 bool known_venue(std::string_view venue) {
-  constexpr std::array<std::string_view, 6> venues{"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"};
   return std::ranges::find(venues, venue) != venues.end();
 }
 } // namespace
+std::span<const std::string_view> history_venues() {
+  return venues;
+}
 void validate_history_venue(std::string_view venue) {
   if (!known_venue(venue))
     throw std::invalid_argument("unsupported futures exchange");

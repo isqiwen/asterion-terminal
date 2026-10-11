@@ -47,6 +47,36 @@ nav.research-modes {
   border-color: var(--accent-line);
   background: var(--accent-surface);
 }
+/* A button beside a labelled field sits on the field's line, not the label's. */
+.research-fields > button {
+  align-self: end;
+  justify-self: start;
+}
+/* The products and contracts a factor reads from the market-wide table. */
+.research-instruments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.research-instruments li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 2px 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--panel-radius);
+  font-family: var(--font-terminal);
+  font-size: 12px;
+}
+.research-instruments button {
+  padding: 0 6px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
 
 .research-layout {
   padding: 16px 24px 24px;

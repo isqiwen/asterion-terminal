@@ -914,5 +914,17 @@
   "数据源没有返回合约表或交易日历，依赖它的交易日没有下载": "The source returned no contract list or calendar, so the days that depend on it were not read",
   "合约表或交易日历尚未入库，依赖它的交易日没有下载": "The contract list or calendar is not stored, so the days that depend on it were not read",
   "合约表里没有上市日期，无法确定该交易所的起始日": "The contract list has no listing date, so the exchange's first day is unknown",
-  "该数据源不提供这张数据表或这个交易所": "The data source does not provide this table or exchange"
+  "该数据源不提供这张数据表或这个交易所": "The data source does not provide this table or exchange",
+  "invalid table series request": "The request for series of the market-wide table is not valid",
+  "invalid table series": "A series of the market-wide table is not valid",
+  "invalid table instrument": "A product or contract is written as SHFE/rb or SHFE/rb/2026-10",
+  "invalid table products query": "The query for the products of the table is not valid",
+  "invalid table products": "The products the data service returned are not valid",
+  "invalid history table snapshot": "The table snapshot's identity is not valid",
+  "history table scan reads one series": "A scan reads one table series",
+  "the table snapshot is not in this store": "This data service does not hold that table snapshot; refresh and try again",
+  "范围内的交易日历没有入库，请先更新全市场数据": "The calendar of the range is not stored; update the market-wide data first",
+  "全市场日线表缺少范围内的交易日，请先补齐再提交；详情里是交易所和日期": "The daily table is missing trading days of the range; store them first. The details name the exchange and the days",
+  "所选的品种或合约在范围内没有收盘价；详情里是它的代码": "A chosen product or contract has no closes in the range; the details name it",
+  "一个品种的主力连续无法读出；详情里是品种和原因": "A product's dominant series cannot be read; the details name the product and the reason"
 }

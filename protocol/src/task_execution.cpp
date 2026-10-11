@@ -48,7 +48,28 @@ task::v1::TaskExecution task_execution(const task::v1::Task& task,
         *parameters->add_series()->mutable_bars() = selection(series.bars());
       else if (series.has_daily())
         parameters->add_series()->set_daily_dataset_id(series.daily().source_dataset_id());
-      else {
+      else if (series.has_table()) {
+        // Instruments read under one snapshot and range are asked for together.
+        const auto& table = series.table();
+        const bool same = parameters->series_size() &&
+                          parameters->series(parameters->series_size() - 1).has_tables() &&
+                          [&](const data::v1::TableSeriesRequest& last) {
+                            return last.snapshot() == table.snapshot() &&
+                                   last.daily_source() == table.daily_source() &&
+                                   last.calendar_source() == table.calendar_source() &&
+                                   last.begin_day() == table.begin_day() &&
+                                   last.end_day() == table.end_day();
+                          }(parameters->series(parameters->series_size() - 1).tables());
+        auto* request =
+            same ? parameters->mutable_series(parameters->series_size() - 1)->mutable_tables()
+                 : parameters->add_series()->mutable_tables();
+        request->set_snapshot(table.snapshot());
+        request->set_daily_source(table.daily_source());
+        request->set_calendar_source(table.calendar_source());
+        request->set_begin_day(table.begin_day());
+        request->set_end_day(table.end_day());
+        request->add_instruments(table.instrument());
+      } else {
         // The months as they were fixed, and their schedule beside them.
         auto* months = parameters->add_series()->mutable_dominant();
         for (const auto& month : series.dominant().months())

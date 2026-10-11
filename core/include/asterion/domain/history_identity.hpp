@@ -1,6 +1,7 @@
 #pragma once
 #include <asterion/domain/market.hpp>
 #include <optional>
+#include <span>
 #include <vector>
 #include <stop_token>
 namespace asterion {
@@ -28,7 +29,8 @@ struct HistorySemantics {
   void validate() const;
 };
 void validate_history_source(std::string_view);
-// One of the six futures exchanges history is kept for.
+// The six futures exchanges history is kept for.
+std::span<const std::string_view> history_venues();
 void validate_history_venue(std::string_view);
 std::int64_t parse_shanghai_time(std::string_view);
 std::string format_shanghai_time(std::int64_t);

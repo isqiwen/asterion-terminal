@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useWorkspaceDraft, type TerminalContext } from "../contract";
-import { BarFactorForm, DailyFactorForm } from "./FactorForm";
+import { BarFactorForm, DailyFactorForm, TableFactorForm } from "./FactorForm";
 import { FactorResults } from "./FactorResults";
 import { ResearchPage, t, TaskRecords, useRun } from "./shared";
 
-const inputs = { bars: "K 线", daily: "日线" };
+const inputs = { bars: "K 线", daily: "日线", tables: "全市场数据表" };
 
 /**
- * Momentum factor evaluation. The series comes either from a dataset of one
- * contract's bars or from a daily version published in the archive; the task,
- * its parameters and its result are the same either way.
+ * Factor evaluation. The series come from datasets of contracts' bars, from a
+ * daily version published in the archive, or from instruments of the
+ * market-wide daily table; the task, its parameters and its result are the
+ * same either way.
  */
 export function Factor({
   snapshot,
@@ -59,7 +60,15 @@ export function Factor({
               </button>
             ))}
           </nav>
-          {input === "daily" ? (
+          {input === "tables" ? (
+            <TableFactorForm
+              query={query}
+              snapshot={snapshot}
+              busy={busy}
+              navigate={navigate}
+              run={run}
+            />
+          ) : input === "daily" ? (
             <DailyFactorForm
               query={query}
               snapshot={snapshot}

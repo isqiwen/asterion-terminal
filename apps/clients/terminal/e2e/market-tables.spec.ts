@@ -37,3 +37,17 @@ test("the market tables page lists what the data source offers before anything i
     "futures.rankings",
   ]);
 });
+
+// The research plugin reads the same store through the real core.
+test("a factor on the market-wide table waits for stored data and leads to the update page", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "研究", exact: true }).click();
+  await page.getByRole("button", { name: "因子", exact: true }).click();
+  await page.getByRole("button", { name: "全市场数据表", exact: true }).click();
+  await expect(page.getByText("还没有入库的全市场日线。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "开始分析", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "更新全市场数据", exact: true }).click();
+  await expect(page.getByRole("region", { name: "全市场数据", exact: true })).toBeVisible();
+});

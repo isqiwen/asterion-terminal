@@ -380,7 +380,8 @@ PolledTask<> TaskHost::submit_factor(Call& call) {
   auto input = protocol::factor_input(f);
   for (const auto& source : f.series()) {
     auto prepared = co_await data_input(call, protocol::factor_series_query(source));
-    protocol::add_factor_series(input, protocol::factor_series(source, std::move(prepared)));
+    for (auto& series : protocol::factor_series(source, std::move(prepared)))
+      protocol::add_factor_series(input, std::move(series));
   }
   co_await ready(call);
   call.input_in_time();

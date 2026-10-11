@@ -9,10 +9,11 @@ inline constexpr char factor_engine_version[] = "asterion.factor.v8";
 std::vector<HistoricalDailyBar> daily_factor_bars(const factor::v1::DailyFactorDataset&);
 std::string daily_factor_revision(const factor::v1::DailyFactorDataset&);
 factor::v1::FactorRequest encode_factor_request(const Json& input);
-// What Data is asked for one requested series, and the fixed series its reply makes.
+// What Data is asked for one entry of a request, and the fixed series its
+// reply makes: one, or one for each instrument of the market-wide table.
 data::v1::DataRequest factor_series_query(const factor::v1::FactorSeriesRequest& source);
-factor::v1::FactorSeries factor_series(const factor::v1::FactorSeriesRequest& source,
-                                       data::v1::DataResponse reply);
+std::vector<factor::v1::FactorSeries> factor_series(const factor::v1::FactorSeriesRequest& source,
+                                                    data::v1::DataResponse reply);
 // The fixed input of a request, before its series: Task and the worker each
 // resolve them from Data, add them in request order and then set the revision.
 factor::v1::FactorInput factor_input(const factor::v1::FactorRequest& request);

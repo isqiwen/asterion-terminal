@@ -1,4 +1,5 @@
 #include "bar_dataset_source.hpp"
+#include "dominant_plan.hpp"
 #include "history_daily.hpp"
 #include "history_minutes.hpp"
 #include "history_metadata.hpp"
@@ -193,7 +194,7 @@ DominantSeries resolve_dominant_series(const std::vector<BarDatasetSources>& inp
     months.push_back(std::move(month));
   }
   std::ranges::sort(months, {}, [](const Month& month) { return month.contract.delivery_month(); });
-  std::set<std::string> all;
+  std::vector<DominantMonth> facts;
   for (std::size_t i = 0; i < months.size(); ++i) {
     const auto& contract = months[i].contract;
     const auto& first = months.front().contract;
@@ -203,85 +204,17 @@ DominantSeries resolve_dominant_series(const std::vector<BarDatasetSources>& inp
         months[i].interval != months.front().interval || months[i].source != months.front().source)
       throw std::invalid_argument(
           "a dominant series requires months of one product with the same terms and bars");
-    if (i && contract.delivery_month() == months[i - 1].contract.delivery_month())
-      throw std::invalid_argument("a dominant series lists each month once");
-    for (const auto& [day, price] : months[i].settlement)
-      all.insert(day);
+    facts.push_back({contract.symbol(), contract.delivery_month(), months[i].settlement,
+                     months[i].open_interest});
   }
-  const std::vector<std::string> days(all.begin(), all.end());
-  if (days.size() < 2)
-    throw std::invalid_argument("a dominant series requires at least two trading days");
-  struct Segment {
-    std::size_t month;
-    std::string begin;
-    // The trading day before `begin`, on which the month that takes over
-    // already settled: its bars of that day give it a price to take over at.
-    std::string before;
-    Decimal ratio; // New over old settlement on the day before the roll.
-  };
-  std::vector<Segment> segments;
-  std::vector<data::v1::TermPoint> terms;
-  for (std::size_t d = 1; d < days.size(); ++d) {
-    const auto &day = days[d], &previous = days[d - 1];
-    const auto first = segments.empty() ? 0 : segments.back().month;
-    std::optional<std::size_t> chosen;
-    for (std::size_t m = first; m < months.size(); ++m) {
-      const auto interest = months[m].open_interest.find(previous);
-      if (!months[m].settlement.contains(day) || interest == months[m].open_interest.end())
-        continue;
-      if (!chosen || interest->second > months[*chosen].open_interest.at(previous))
-        chosen = m;
-    }
-    if (!chosen)
-      throw std::invalid_argument("no month contract of the series has data on " + day +
-                                  " and open interest on " + previous);
-    // The term structure the day begins with: the dominant month against the
-    // later month most held the day before, where both settled then.
-    const auto& dominant = months[*chosen];
-    std::optional<std::size_t> later;
-    for (std::size_t m = *chosen + 1; m < months.size(); ++m) {
-      const auto interest = months[m].open_interest.find(previous);
-      if (!months[m].settlement.contains(previous) || interest == months[m].open_interest.end())
-        continue;
-      if (!later || interest->second > months[*later].open_interest.at(previous))
-        later = m;
-    }
-    if (later && dominant.settlement.contains(previous)) {
-      auto& term = terms.emplace_back();
-      term.set_trading_day(day);
-      term.mutable_near()->set_units(dominant.settlement.at(previous).raw());
-      term.mutable_far()->set_units(months[*later].settlement.at(previous).raw());
-      term.set_far_month(months[*later].contract.delivery_month());
-    }
-    if (!segments.empty() && *chosen == segments.back().month)
-      continue;
-    Decimal ratio = Decimal::parse("1");
-    if (!segments.empty()) {
-      const auto& old = months[segments.back().month];
-      const auto& symbol = old.contract.symbol();
-      if (!old.settlement.contains(day))
-        throw std::invalid_argument("the outgoing month has no bars on the roll day: " + symbol +
-                                    " on " + day);
-      if (!old.settlement.contains(previous) || !months[*chosen].settlement.contains(previous))
-        throw std::invalid_argument(
-            "the roll lacks both settlement prices on the previous day: " + symbol + " on " + day);
-      ratio = divide(months[*chosen].settlement.at(previous), old.settlement.at(previous),
-                     Rounding::half_up);
-      if (ratio <= Decimal{})
-        throw std::invalid_argument("invalid roll adjustment ratio on " + day);
-    }
-    segments.push_back({*chosen, day, previous, ratio});
-  }
+  // Backtests trade these months: a position is closed on the roll day.
+  const auto plan = plan_dominant(facts, RollDay::must_settle);
+  const auto& segments = plan.segments;
   DominantSeries result;
-  // Back-adjustment: the last month keeps its prices; each earlier month is
-  // scaled by the ratios of every roll after it.
-  std::vector<Decimal> factors(segments.size(), Decimal::parse("1"));
-  for (std::size_t i = segments.size() - 1; i > 0; --i)
-    factors[i - 1] = multiply(factors[i], segments[i].ratio, Rounding::half_up);
   std::size_t total_bars = 0;
   for (std::size_t i = 0; i < segments.size(); ++i) {
     const auto& month = months[segments[i].month];
-    auto end = days.back();
+    auto end = plan.days.back();
     if (i + 1 < segments.size()) {
       // Through the roll day and the month's next trading day after it.
       end = segments[i + 1].begin;
@@ -302,12 +235,10 @@ DominantSeries resolve_dominant_series(const std::vector<BarDatasetSources>& inp
     auto* roll = result.schedule.add_rolls();
     roll->set_trading_day(segments[i].begin);
     roll->set_contract(static_cast<unsigned>(i));
-    roll->mutable_factor()->set_units(factors[i].raw());
-    if (factors[i] <= Decimal{})
-      throw std::invalid_argument("invalid roll adjustment ratio on " + segments[i].begin);
+    roll->mutable_factor()->set_units(segments[i].factor.raw());
   }
-  for (auto& term : terms)
-    *result.schedule.add_terms() = std::move(term);
+  for (const auto& term : plan.terms)
+    *result.schedule.add_terms() = term;
   return result;
 }
 } // namespace asterion::data

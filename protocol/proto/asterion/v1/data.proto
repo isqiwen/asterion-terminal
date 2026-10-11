@@ -203,6 +203,42 @@ message TablePage {
   TableRevision revision = 1; repeated string columns = 2; repeated TableRow rows = 3;
   uint64 offset = 4;
 }
+// Series read from the market-wide daily table under one snapshot of its
+// ledger. An instrument is one contract (SHFE/rb/2026-10) or a product
+// (SHFE/rb), read as its dominant series under the rule of DominantSchedule.
+// The calendar of the same snapshot says which trading days of the range
+// have to be stored: a day that is missing is refused, not skipped.
+message TableSeriesRequest {
+  string snapshot = 1; string daily_source = 2; string calendar_source = 3;
+  string begin_day = 4; string end_day = 5; // Inclusive.
+  repeated string instruments = 6; // 1..20, each once.
+}
+message TableClose { string trading_day = 1; asterion.protocol.v1.Decimal close = 2; }
+// One month contract's closes on the days it is read, ascending. A day the
+// contract has no close on is not there.
+message TableMonth { string contract = 1; repeated TableClose closes = 2; }
+// One instrument as it was read. A contract is one month and has no schedule.
+// A product is the months that are dominant at some point, in roll order (a
+// roll's contract is an index into them), each with its closes while it is
+// dominant. Prices are raw; the schedule's factors adjust them.
+message TableSeries {
+  uint32 version = 1; // 1
+  string snapshot = 2; string daily_source = 3; string calendar_source = 4;
+  string begin_day = 5; string end_day = 6;
+  string instrument = 7;
+  repeated TableMonth months = 8;
+  DominantSchedule schedule = 9;
+  int64 acquired_at_ns = 10; // The most recent of the partitions read.
+}
+// The series of a request's instruments, in its order.
+message TableSeriesGroup { repeated TableSeries series = 1; }
+// The products a snapshot's contract lists hold, by exchange and product.
+message TableProductsQuery { string snapshot = 1; string contracts_source = 2; }
+message TableProduct {
+  string exchange = 1; string product = 2; uint32 contracts = 3;
+  string first_listed = 4; string last_delisted = 5;
+}
+message TableProducts { repeated TableProduct products = 1; }
 
 enum DailyPeriod { DAY = 0; WEEK = 1; MONTH = 2; QUARTER = 3; YEAR = 4; }
 message DailyPageQuery { string dataset_id = 1; string task_id = 2; uint64 offset = 3; uint32 limit = 4; string begin_day = 5; string end_day = 6; bool include_macd = 7; DailyPeriod period = 8; }

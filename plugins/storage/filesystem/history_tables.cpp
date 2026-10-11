@@ -224,6 +224,39 @@ std::vector<std::string> TableStore::periods(const TableSeries& series, const st
     result.push_back(statement.text(0));
   return result;
 }
+std::optional<std::uint64_t> TableStore::sequence(const std::string& snapshot) const {
+  if (!digest(snapshot))
+    throw std::invalid_argument("invalid history table snapshot");
+  std::lock_guard lock(mutex_);
+  Statement statement(*ledger_, "SELECT sequence FROM table_revisions WHERE snapshot = ?");
+  statement.bind(1, snapshot);
+  if (!statement.step())
+    return std::nullopt;
+  return static_cast<std::uint64_t>(statement.integer(0));
+}
+std::vector<TableRevision> TableStore::revisions(const TableSeries& series,
+                                                 const std::string& exchange,
+                                                 const std::string& first, const std::string& last,
+                                                 std::uint64_t until) const {
+  validate(series);
+  std::lock_guard lock(mutex_);
+  Statement statement(*ledger_,
+                      std::string("SELECT ") + fields +
+                          " FROM table_revisions r WHERE dataset = ? AND schema = ? AND "
+                          "source = ? AND exchange = ? AND period BETWEEN ? AND ? AND sequence = "
+                          "(SELECT max(sequence) FROM table_revisions x WHERE "
+                          "x.dataset = r.dataset AND x.schema = r.schema AND "
+                          "x.source = r.source AND x.exchange = r.exchange AND "
+                          "x.period = r.period AND x.sequence <= ?) ORDER BY period");
+  bind_partition(statement, series, exchange)
+      .bind(5, first)
+      .bind(6, last)
+      .bind(7, static_cast<std::int64_t>(until));
+  std::vector<TableRevision> result;
+  while (statement.step())
+    result.push_back(revision(statement));
+  return result;
+}
 std::vector<std::vector<TableCell>> TableStore::rows(const TableRevision& revision) const {
   validate(revision.series);
   const auto path = object_path(revision.object);
@@ -233,5 +266,24 @@ std::vector<std::vector<TableCell>> TableStore::rows(const TableRevision& revisi
   if (rows.size() != revision.rows)
     throw std::invalid_argument("history table object digest mismatch");
   return rows;
+}
+void TableStore::scan(
+    std::span<const TableRevision> revisions, std::span<const std::size_t> columns,
+    std::span<const std::string> prefixes,
+    const std::function<void(std::size_t, std::vector<TableCell>&)>& visit) const {
+  if (revisions.empty())
+    return;
+  validate(revisions.front().series);
+  std::vector<fs::path> files;
+  for (const auto& revision : revisions) {
+    if (revision.series != revisions.front().series)
+      throw std::invalid_argument("history table scan reads one series");
+    auto path = object_path(revision.object);
+    if (fs::is_symlink(path) || !fs::is_regular_file(path) || sha256_file(path) != revision.object)
+      throw std::invalid_argument("history table object digest mismatch");
+    files.push_back(std::move(path));
+  }
+  parquet::scan_tables(files, history_table(revisions.front().series.table), columns, prefixes,
+                       visit);
 }
 } // namespace asterion::history_files

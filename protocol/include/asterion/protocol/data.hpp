@@ -23,6 +23,24 @@ Json decode_table_update_result(const data::v1::TableUpdateResult&);
 Json decode_table_coverage(const data::v1::TableCoverage&);
 data::v1::TablePageQuery encode_table_page_query(const Json&);
 Json decode_table_page(const data::v1::TablePage&);
+// Series of the market-wide daily table. An instrument is a contract
+// (SHFE/rb/2026-10) or a product (SHFE/rb): its delivery month is then empty.
+struct TableInstrument {
+  std::string venue, product, delivery_month;
+};
+TableInstrument table_instrument(std::string_view text);
+void validate_table_series_request(const data::v1::TableSeriesRequest&);
+data::v1::TableSeriesRequest encode_table_series_request(const Json&);
+// Identity, ascending positive closes inside the range, and for a product a
+// schedule that fits its months, each read only while it is dominant.
+void validate_table_series(const data::v1::TableSeries&);
+// The months of a series as contracts: exchange, product and delivery month.
+std::vector<v1::Contract> table_series_months(const data::v1::TableSeries&);
+// Content identity: SHA-256 of the instrument, its months' closes and schedule.
+std::string table_series_revision(const data::v1::TableSeries&);
+Json decode_table_series(const data::v1::TableSeries&);
+data::v1::TableProductsQuery encode_table_products_query(const Json&);
+Json decode_table_products(const data::v1::TableProducts&);
 
 // Evidence is fixed with task inputs, independently of bar content identity.
 void validate_history_evidence(const data::v1::HistoryVersionEvidence&);

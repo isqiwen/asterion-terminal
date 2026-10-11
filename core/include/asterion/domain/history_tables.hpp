@@ -28,6 +28,8 @@ struct HistoryTable {
 };
 std::span<const HistoryTable> history_tables();
 const HistoryTable& history_table(std::string_view id);
+// Where a column is among a table's columns; the name must be one of them.
+std::size_t table_column(const HistoryTable&, std::string_view name);
 void validate_table_period(const HistoryTable&, std::string_view period);
 
 // A typed cell. Text and contract columns hold text; the others hold units:

@@ -13,13 +13,15 @@ message DominantBars {
   asterion.data.v1.DominantSchedule schedule = 2;
 }
 // One instrument's ordered closes, fixed by the data service. Bars keep their
-// label timestamps; daily closes keep provider trading dates. Neither carries
-// account or execution assumptions into a factor.
+// label timestamps; daily closes and the closes of the market-wide daily table
+// keep provider trading dates. None carries account or execution assumptions
+// into a factor.
 message FactorSeries {
   oneof source {
     asterion.data.v1.BarDataset bars = 1;
     DailyFactorDataset daily = 2;
     DominantBars dominant = 3;
+    asterion.data.v1.TableSeries table = 4;
   }
 }
 message FactorInput {
@@ -42,14 +44,16 @@ message FactorInput {
     uint32 holdout_start = 9; // Zero-based first holdout observation.
   }
 }
-// What Data resolves into one fixed series: a bar selection, a published
-// daily version, or the months of a product to read as its dominant series.
+// What Data resolves into fixed series: a bar selection, a published daily
+// version, the months of a product to read as its dominant series, or
+// instruments of the market-wide daily table, which make one series each.
 // Clients cannot upload observations or provenance.
 message FactorSeriesRequest {
   oneof source {
     asterion.data.v1.BarDatasetRequest bars = 1;
     string daily_dataset_id = 2;
     asterion.data.v1.DominantSeriesRequest dominant = 3;
+    asterion.data.v1.TableSeriesRequest tables = 4;
   }
 }
 // Client submission: Task obtains the fixed series from Data before persisting input.

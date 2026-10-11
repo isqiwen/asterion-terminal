@@ -442,6 +442,14 @@ std::future<Json> DataClient::table_page(const data::v1::TablePageQuery& query) 
         return protocol::decode_table_page(page);
       });
 }
+std::future<Json> DataClient::table_products(const data::v1::TableProductsQuery& query) {
+  wire::DataRequest request;
+  *request.mutable_table_products() = query;
+  return impl_->invoke<Json>(std::move(request),
+                             [](const wire::DataRequest&, wire::DataResponse& response) -> Json {
+                               return protocol::decode_table_products(response.table_products());
+                             });
+}
 std::future<Json> DataClient::history_usage(const std::string& id) {
   wire::DataRequest request;
   request.mutable_history_usage()->set_id(id);

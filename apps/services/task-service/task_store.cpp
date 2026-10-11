@@ -74,6 +74,11 @@ void prepare(wire::Task& task) {
                        months.rbegin()->contract().symbol() + ")";
         for (const auto& month : months)
           sources += (sources.empty() ? "" : " + ") + month.revision();
+      } else if (series.has_table()) {
+        // Every instrument of one snapshot names it once.
+        instruments += separator + series.table().instrument();
+        if (!sources.ends_with(series.table().snapshot()))
+          sources += separator + series.table().snapshot();
       } else {
         instruments += separator + series.daily().contract_id();
         sources += separator + series.daily().source_dataset_id();

@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   useWorkspaceDraft,
   useWorkspaceRequestId,
   useHistoryDatasets,
   DatasetPicker,
   ErrorNotice,
+  asDisplayError,
+  type DisplayError,
   type TerminalContext,
 } from "../contract";
-import type { FactorKind } from "../../src/bridge/client";
+import type { FactorKind, TableCoverage, TableProduct } from "../../src/bridge/client";
 import { factorNames, factorWords, t, type Run, selectedSeries } from "./shared";
 
 type Kind = keyof typeof factorWords;
@@ -37,7 +39,7 @@ function FactorParameters({
 }: Pick<TerminalContext, "snapshot" | "busy"> & {
   kind: Kind;
   factor?: FactorKind;
-  series: Record<string, string> | null;
+  series: Record<string, unknown> | null;
   identity: string;
   observations?: number;
   run: Run;
@@ -353,6 +355,275 @@ export function DailyFactorForm({
         series={selected ? { kind: "daily", dataset_id: selected.id } : null}
         identity={source}
         observations={selected?.rows}
+        snapshot={snapshot}
+        busy={busy}
+        run={run}
+      />
+    </>
+  );
+}
+
+// A contract (SHFE/rb/2026-10) or a product (SHFE/rb) of the market-wide table.
+const instrumentPattern = /^[A-Z]+\/[a-z]+(\/\d{4}-\d{2})?$/;
+
+/**
+ * A factor on instruments of the market-wide daily table: a product is read
+ * as its dominant series, a contract as its own closes. What is read is what
+ * the store's current snapshot holds.
+ */
+export function TableFactorForm({
+  snapshot,
+  query,
+  busy,
+  navigate,
+  run,
+}: Pick<TerminalContext, "snapshot" | "query" | "busy" | "navigate"> & { run: Run }) {
+  const online = !!snapshot?.data?.online;
+  const connection = snapshot?.data?.connection_id;
+  const destination = JSON.stringify([connection, snapshot?.task_service?.connection_id]);
+  const [held, setHeld] = useState<{ coverage: TableCoverage; products: TableProduct[] } | null>(
+    null,
+  );
+  const [error, setError] = useState<DisplayError>("");
+  const [loading, setLoading] = useState(false);
+  const ask = useRef(query);
+  ask.current = query;
+  // Replies of an earlier request, or to an earlier connection, are dropped.
+  const sequence = useRef({ value: 0 });
+  const load = useCallback(async () => {
+    const generation = sequence.current;
+    const current = ++generation.value;
+    setLoading(true);
+    setError("");
+    try {
+      const coverage = (await ask.current("data.tables.coverage", {})).table_coverage;
+      if (!coverage) return;
+      const lists = coverage.sources.find(source => source.table === "futures.contracts");
+      const products =
+        coverage.snapshot && lists
+          ? ((
+              await ask.current("data.tables.products", {
+                snapshot: coverage.snapshot,
+                contracts_source: lists.source,
+              })
+            ).table_products ?? [])
+          : [];
+      if (current === generation.value) setHeld({ coverage, products });
+    } catch (e) {
+      if (current === generation.value) setError(asDisplayError(e));
+    } finally {
+      if (current === generation.value) setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    const generation = sequence.current;
+    setHeld(null);
+    if (online) void load();
+    return () => {
+      ++generation.value;
+    };
+  }, [online, connection, load]);
+  const [factor, setFactor] = useWorkspaceDraft<FactorKind>("factor:tables:factor", "momentum");
+  const [instruments, setInstruments] = useWorkspaceDraft<string[]>(
+    `factor:tables:instruments:${destination}`,
+    [],
+  );
+  const [range, setRange] = useWorkspaceDraft(`factor:tables:range:${destination}`, {
+    begin: "",
+    end: "",
+  });
+  const [entry, setEntry] = useState("");
+  // The daily table that holds data, and the calendar of the same data source.
+  const coverage = held?.coverage;
+  const daily = coverage?.sources.find(
+    source =>
+      source.table === "futures.daily" &&
+      coverage.rows.some(row => row.table === source.table && row.source === source.source),
+  );
+  const calendar = coverage?.sources.find(
+    source => source.table === "futures.calendar" && source.plugin_id === daily?.plugin_id,
+  );
+  const stored = (coverage?.rows ?? []).filter(
+    row => row.table === "futures.daily" && row.source === daily?.source,
+  );
+  const exchanges = [...new Set(instruments.map(item => item.split("/")[0]))];
+  const add = () => {
+    const name = entry.trim();
+    if (!instrumentPattern.test(name) || instruments.includes(name) || instruments.length >= 20)
+      return;
+    setInstruments([...instruments, name]);
+    setEntry("");
+  };
+  const contracts = instruments.filter(item => item.split("/").length === 3);
+  const unavailable =
+    factor === "term_structure" && contracts.length
+      ? t("期限结构只在品种的主力连续上评价：请去掉单个合约。")
+      : null;
+  const complete =
+    !!coverage?.snapshot &&
+    !!daily &&
+    !!calendar &&
+    (instruments.length === 1 || instruments.length > 2) &&
+    !!range.begin &&
+    !!range.end &&
+    range.begin <= range.end &&
+    !unavailable;
+  const series = complete
+    ? {
+        kind: "tables",
+        snapshot: coverage.snapshot,
+        daily_source: daily.source,
+        calendar_source: calendar.source,
+        begin_day: range.begin,
+        end_day: range.end,
+        instruments,
+      }
+    : null;
+  return (
+    <>
+      <h3>{t("数据表因子设置")}</h3>
+      <p className="subtle">
+        {t(
+          "从全市场日线表读取。品种按主力连续读取：按前一交易日的持仓量选月份、只向后换月，收盘价按换月比例调整到最新月份的水平，序列从范围内的第二个交易日开始；合约按它自己的收盘价读取。范围内有交易日没有入库时任务会被拒绝，不会跳过。",
+        )}
+      </p>
+      {error && (
+        <p role="alert">
+          <ErrorNotice error={error} />
+        </p>
+      )}
+      {held && !daily && <p role="status">{t("还没有入库的全市场日线。")}</p>}
+      <div className="workflow-actions">
+        <button disabled={busy} onClick={() => navigate("workspace.data", { page: "tables" })}>
+          {t("更新全市场数据")}
+        </button>
+        <button disabled={busy || loading || !online} onClick={() => void load()}>
+          {t("刷新")}
+        </button>
+      </div>
+      {daily && (
+        <>
+          <p className="subtle">
+            {t("已入库的日线：{ranges}", {
+              ranges: stored
+                .filter(row => !exchanges.length || exchanges.includes(row.exchange))
+                .map(row => `${row.exchange} ${row.first_period} — ${row.last_period}`)
+                .join("；"),
+            })}
+          </p>
+          <div className="research-fields">
+            <label>
+              {t("因子")}
+              <select
+                aria-label={t("因子")}
+                value={factor}
+                onChange={event => setFactor(event.target.value as FactorKind)}
+              >
+                {Object.entries(factorNames).map(([value, name]) => (
+                  <option key={value} value={value}>
+                    {t(name)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              {t("起始日期")}
+              <input
+                type="date"
+                aria-label={t("起始日期")}
+                max={range.end || undefined}
+                value={range.begin}
+                onChange={event => setRange({ ...range, begin: event.target.value })}
+              />
+            </label>
+            <label>
+              {t("结束日期")}
+              <input
+                type="date"
+                aria-label={t("结束日期")}
+                min={range.begin || undefined}
+                value={range.end}
+                onChange={event => setRange({ ...range, end: event.target.value })}
+              />
+            </label>
+          </div>
+          <div className="research-fields">
+            <label>
+              {t("品种或合约")}
+              <input
+                aria-label={t("品种或合约")}
+                list="factor-table-products"
+                placeholder={t("例如 SHFE/rb 或 SHFE/rb/2026-10")}
+                value={entry}
+                onChange={event => setEntry(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key !== "Enter") return;
+                  event.preventDefault();
+                  add();
+                }}
+              />
+              <datalist id="factor-table-products">
+                {(held?.products ?? []).map(product => (
+                  <option
+                    key={`${product.exchange}/${product.product}`}
+                    value={`${product.exchange}/${product.product}`}
+                  >
+                    {`${product.first_listed} — ${product.last_delisted}`}
+                  </option>
+                ))}
+              </datalist>
+            </label>
+            <button
+              type="button"
+              disabled={
+                busy ||
+                !instrumentPattern.test(entry.trim()) ||
+                instruments.includes(entry.trim()) ||
+                instruments.length >= 20
+              }
+              onClick={add}
+            >
+              {t("添加")}
+            </button>
+          </div>
+          <ul className="research-instruments" aria-label={t("已选的品种和合约")}>
+            {instruments.map(item => (
+              <li key={item}>
+                {item}
+                <button
+                  type="button"
+                  disabled={busy}
+                  aria-label={t("移除 {name}", { name: item })}
+                  onClick={() => setInstruments(instruments.filter(other => other !== item))}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="subtle">
+            {t(
+              "一个品种或合约按时间评价；3 到 20 个在它们共有的交易日上相互比较。按当前快照 {id} 读取，之后入库的数据不影响这次任务。",
+              { id: coverage?.snapshot.slice(0, 12) ?? "" },
+            )}
+          </p>
+          {instruments.length === 2 && (
+            <p role="alert" className="alert">
+              {t("截面比较至少需要 3 个品种或合约；只分析一个时请只保留一个。")}
+            </p>
+          )}
+          {unavailable && (
+            <p role="alert" className="alert">
+              {unavailable}
+            </p>
+          )}
+        </>
+      )}
+      <FactorParameters
+        kind="tables"
+        factor={factor}
+        series={series}
+        identity={JSON.stringify(series)}
         snapshot={snapshot}
         busy={busy}
         run={run}
