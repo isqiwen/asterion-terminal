@@ -48,6 +48,11 @@ struct FactorCrossSection {
   std::size_t index;
   std::optional<double> pearson, spearman;
 };
+// The mean label of the series with the highest features and of those with
+// the lowest, a number of them on each side.
+struct FactorSpread {
+  double highest, lowest;
+};
 struct FactorPartition {
   std::size_t begin, end, samples;
   // One series: the correlation over its samples. Several: the mean of the
@@ -56,6 +61,10 @@ struct FactorPartition {
   // Several series: that mean over the standard deviation of the
   // cross-sections; undefined with fewer than two or when they do not vary.
   std::optional<double> pearson_ratio, spearman_ratio;
+  // Several series: entry k - 1 holds k of them on each side, up to half of
+  // them, averaged over the observations. Equal features keep the order the
+  // series were given in, as a ranking rule holds them.
+  std::vector<FactorSpread> spreads;
 };
 struct FactorCandidate {
   unsigned lookback;

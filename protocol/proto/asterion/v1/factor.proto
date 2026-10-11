@@ -119,6 +119,16 @@ message FactorPartition {
   // cross-sections; absent with fewer than two or when they do not vary.
   optional double pearson_ratio = 7;
   optional double spearman_ratio = 8;
+  // Several series only: entry k - 1 holds k of them on each side, up to
+  // half of them.
+  repeated FactorSpread spreads = 9;
+}
+// The mean label, over a partition's observations, of the series with the
+// highest features and of those with the lowest. Equal features keep the
+// order the series were given in.
+message FactorSpread {
+  double highest = 1;
+  double lowest = 2;
 }
 
 message FactorFold {

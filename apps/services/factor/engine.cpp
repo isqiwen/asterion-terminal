@@ -18,6 +18,11 @@ void fill(factor::v1::FactorPartition& target, const FactorPartition& source, co
     target.set_pearson_ratio(*source.pearson_ratio);
   if (source.spearman_ratio)
     target.set_spearman_ratio(*source.spearman_ratio);
+  for (const auto& spread : source.spreads) {
+    auto* row = target.add_spreads();
+    row->set_highest(spread.highest);
+    row->set_lowest(spread.lowest);
+  }
 }
 template <class Candidates>
 void fill(Candidates& target, const std::vector<FactorCandidate>& source) {
@@ -49,7 +54,7 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
   const std::vector<unsigned> lookbacks(input.lookbacks().begin(), input.lookbacks().end());
   const bool search = lookbacks.size() > 1;
   factor::v1::FactorResult result;
-  result.set_version(6);
+  result.set_version(7);
   result.set_dataset_revision(input.dataset_revision());
   result.set_engine_version(protocol::factor_engine_version);
   result.set_horizon(input.horizon());

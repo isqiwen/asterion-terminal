@@ -5,7 +5,7 @@
 #include <asterion/v1/factor.pb.h>
 namespace asterion::protocol {
 // Identifies how features, labels, partitions and selection are computed.
-inline constexpr char factor_engine_version[] = "asterion.factor.v7";
+inline constexpr char factor_engine_version[] = "asterion.factor.v8";
 std::vector<HistoricalDailyBar> daily_factor_bars(const factor::v1::DailyFactorDataset&);
 std::string daily_factor_revision(const factor::v1::DailyFactorDataset&);
 factor::v1::FactorRequest encode_factor_request(const Json& input);

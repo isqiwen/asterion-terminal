@@ -186,6 +186,28 @@ std::vector<FactorCrossSection> across_series(std::span<const Column> features,
   }
   return sections;
 }
+std::vector<FactorSpread> spreads(std::span<const Column> features, std::span<const Column> labels,
+                                  std::span<const std::size_t> rows) {
+  std::vector<FactorSpread> result(features.size() / 2);
+  std::vector<std::size_t> order(features.size());
+  for (const auto row : rows) {
+    std::iota(order.begin(), order.end(), std::size_t{});
+    std::ranges::stable_sort(
+        order, [&](auto left, auto right) { return *features[left][row] > *features[right][row]; });
+    double highest = 0, lowest = 0;
+    for (std::size_t k = 0; k < result.size(); ++k) {
+      highest += *labels[order[k]][row];
+      lowest += *labels[order[order.size() - 1 - k]][row];
+      result[k].highest += highest / static_cast<double>(k + 1);
+      result[k].lowest += lowest / static_cast<double>(k + 1);
+    }
+  }
+  for (auto& spread : result) {
+    spread.highest /= static_cast<double>(std::max<std::size_t>(rows.size(), 1));
+    spread.lowest /= static_cast<double>(std::max<std::size_t>(rows.size(), 1));
+  }
+  return result;
+}
 } // namespace
 FactorEvaluation evaluate_factor(std::span<const std::span<const Decimal>> series,
                                  std::span<const std::span<const Decimal>> values, Feature feature,
@@ -273,7 +295,8 @@ FactorEvaluation evaluate_factor(std::span<const std::span<const Decimal>> serie
       const auto sections = across_series(features, labels, rows);
       const auto summary = statistics(sections);
       result.partitions.push_back({begin, end, rows.size(), summary.pearson, summary.spearman,
-                                   summary.pearson_ratio, summary.spearman_ratio});
+                                   summary.pearson_ratio, summary.spearman_ratio,
+                                   spreads(features, labels, rows)});
       result.cross_sections.insert(result.cross_sections.end(), sections.begin(), sections.end());
     } else {
       const auto [values, outcomes] = over_time(features.front(), labels.front(), rows);
@@ -282,6 +305,7 @@ FactorEvaluation evaluate_factor(std::span<const std::span<const Decimal>> serie
                                    rows.size(),
                                    correlation(values, outcomes),
                                    rank_correlation(values, outcomes),
+                                   {},
                                    {},
                                    {}});
       for (std::size_t i = 0; i < rows.size(); ++i)

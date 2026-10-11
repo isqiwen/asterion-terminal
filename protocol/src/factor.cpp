@@ -395,7 +395,7 @@ Json factor_definition(const factor::v1::FactorInput& input) {
 // The structure of a result, without reference to the input it belongs to.
 Json result_structure(const factor::v1::FactorResult& result) {
   validate_message(result);
-  if (result.version() != 6)
+  if (result.version() != 7)
     throw std::invalid_argument("unsupported factor result version");
   for (const auto& row : result.samples())
     if (!std::isfinite(row.value()) || !std::isfinite(row.forward_return()))
@@ -425,7 +425,14 @@ Json result_structure(const factor::v1::FactorResult& result) {
     if (p.begin_index() >= p.end_index() || p.end_index() > result.input_count() ||
         p.sample_count() > p.end_index() - p.begin_index())
       throw std::invalid_argument("invalid factor partition range");
+    Json spreads = Json::array();
+    for (const auto& spread : p.spreads()) {
+      if (!std::isfinite(spread.highest()) || !std::isfinite(spread.lowest()))
+        throw std::invalid_argument("non-finite factor result");
+      spreads.push_back({{"highest", spread.highest()}, {"lowest", spread.lowest()}});
+    }
     partitions.push_back({{"name", p.name()},
+                          {"spreads", std::move(spreads)},
                           {"begin_index", p.begin_index()},
                           {"end_index", p.end_index()},
                           {"sample_count", p.sample_count()},
@@ -467,7 +474,7 @@ Json result_structure(const factor::v1::FactorResult& result) {
           !fold.lookback())
         throw std::invalid_argument("invalid walk-forward fold");
       factor::v1::FactorResult metadata;
-      metadata.set_version(6);
+      metadata.set_version(7);
       metadata.set_input_count(result.input_count());
       metadata.set_selection_rule("fixed");
       *metadata.add_partitions() = fold.development();
@@ -592,7 +599,8 @@ void validate_factor_result(const factor::v1::FactorInput& input,
                              unsigned samples) {
     if (part.name() != name || part.begin_index() != begin || part.end_index() != end ||
         part.sample_count() != samples ||
-        (input.series_size() == 1 && (part.has_pearson_ratio() || part.has_spearman_ratio())))
+        (input.series_size() == 1 && (part.has_pearson_ratio() || part.has_spearman_ratio())) ||
+        part.spreads_size() != (input.series_size() == 1 ? 0 : input.series_size() / 2))
       reject();
   };
   const bool cross = input.series_size() > 1;

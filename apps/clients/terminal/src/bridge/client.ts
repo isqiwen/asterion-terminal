@@ -529,6 +529,9 @@ export type FactorResult = {
     spearman: number | null;
     pearson_ratio: number | null;
     spearman_ratio: number | null;
+    // Several series: entry k - 1 is the mean label of the k highest
+    // features and of the k lowest.
+    spreads: { highest: number; lowest: number }[];
   }[];
   // One row per evaluated observation: samples for one series, cross-sections
   // for several; the other list is empty. `observed` and `label` are a

@@ -24,6 +24,7 @@ const statistics = {
     selection: "仅按前段秩 IC 均值的绝对值选择；完全相同时取较小窗口。",
   },
 } as const;
+const percent = (value: number) => `${(value * 100).toFixed(4)}%`;
 const partitionName = (name: string) =>
   t(name === "holdout" ? "留出段" : name === "development" ? "前段" : "全样本");
 const pageSize = 50;
@@ -61,7 +62,7 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
       {cross && (
         <p className="subtle">
           {t(
-            "每个观测上比较各合约的动量与未来收益（IC 为相关系数，秩 IC 为秩相关），只使用所有合约都有的观测；信息比率是均值除以各截面的标准差。",
+            "每个观测上比较各合约的动量与未来收益（IC 为相关系数，秩 IC 为秩相关），只使用所有合约都有的观测；信息比率是均值除以各截面的标准差。分组收益是每个观测上因子最高和最低的若干个合约的平均未来收益，再对各观测取均值；因子相同的合约按输入顺序排。",
           )}
         </p>
       )}
@@ -81,6 +82,7 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
                   <th>{t(names.rows)}</th>
                   <th>{t(names.pearson)}</th>
                   <th>{t(names.spearman)}</th>
+                  {cross && <th>{t("每侧 1 个的多空差")}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -97,6 +99,11 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
                     <td>{fold.holdout.sample_count}</td>
                     <td>{correlation(fold.holdout.pearson)}</td>
                     <td>{correlation(fold.holdout.spearman)}</td>
+                    {cross && (
+                      <td>
+                        {percent(fold.holdout.spreads[0].highest - fold.holdout.spreads[0].lowest)}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -181,6 +188,30 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
           </div>
           {(partition.pearson === null || partition.spearman === null) && (
             <p className="subtle">{t(names.undefined)}</p>
+          )}
+          {cross && (
+            <div className="research-table">
+              <table aria-label={`${partitionName(partition.name)} · ${t("分组收益")}`}>
+                <thead>
+                  <tr>
+                    <th>{t("每侧合约数")}</th>
+                    <th>{t("因子最高的一组")}</th>
+                    <th>{t("因子最低的一组")}</th>
+                    <th>{t("多空差")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {partition.spreads.map((spread, index) => (
+                    <tr key={index}>
+                      <td>{index + 1}</td>
+                      <td>{percent(spread.highest)}</td>
+                      <td>{percent(spread.lowest)}</td>
+                      <td>{percent(spread.highest - spread.lowest)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
       ))}

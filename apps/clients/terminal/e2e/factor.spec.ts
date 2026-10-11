@@ -197,6 +197,14 @@ test("three contracts are compared with each other at every bar they share", asy
   for (const name of ["IC 均值", "秩 IC 均值", "IC 信息比率", "秩 IC 信息比率"])
     await expect(whole.getByText(name, { exact: true })).toBeVisible();
   await whole.screenshot({ path: join(__dirname, "../test-results/factor-cross-metrics.png") });
+  // Three contracts hold one on each side: one row, whose difference is its
+  // highest group less its lowest.
+  const groups = result.getByRole("table", { name: "全样本 · 分组收益" }).locator("tbody tr");
+  await expect(groups).toHaveCount(1);
+  const [, highest, lowest, difference] = (await groups.locator("td").allTextContents()).map(text =>
+    Number(text.replace("%", "")),
+  );
+  expect(difference).toBeCloseTo(highest - lowest, 3);
   await result.getByText("截面明细", { exact: true }).click();
   const sections = result.getByRole("table", { name: "截面明细" });
   await expect(sections.locator("tbody tr")).toHaveCount(37);

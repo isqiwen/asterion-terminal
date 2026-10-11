@@ -828,6 +828,12 @@ TEST(Factor, SeveralSeriesAreJudgedAcrossContractsAtEachObservation) {
   EXPECT_EQ(result.partitions[0].samples, 3U);
   EXPECT_NEAR(*result.partitions[0].spearman, 1.0 / 3, 1e-12);
   EXPECT_NEAR(*result.partitions[0].spearman_ratio, std::sqrt(3.0) / 6, 1e-12);
+  // One on each side of three. The first has the highest momentum at every
+  // observation and then returns 10%, 10% and -10%; the third the lowest,
+  // returning nothing twice and then 10%.
+  ASSERT_EQ(result.partitions[0].spreads.size(), 1U);
+  EXPECT_NEAR(result.partitions[0].spreads[0].highest, 0.1 / 3, 1e-12);
+  EXPECT_NEAR(result.partitions[0].spreads[0].lowest, 0.1 / 3, 1e-12);
   // The same relation everywhere has a mean and nothing to divide it by.
   const std::vector<std::span<const Decimal>> steady{std::span(a).first(4), std::span(b).first(4),
                                                      std::span(c).first(4)};
@@ -888,6 +894,7 @@ TEST(Factor, CrossSectionUsesOnlyObservationsEveryContractHas) {
   EXPECT_EQ(result.partitions(0).sample_count(), 37U);
   EXPECT_TRUE(result.partitions(0).has_spearman());
   EXPECT_TRUE(result.partitions(0).has_spearman_ratio());
+  ASSERT_EQ(result.partitions(0).spreads_size(), 1);
   const auto decoded = protocol::decode_factor_result(value, result);
   EXPECT_TRUE(decoded.at("samples").empty());
   // Shared observation 10 is the first contract's bar 11; its label is the next one.
@@ -905,9 +912,15 @@ TEST(Factor, CrossSectionUsesOnlyObservationsEveryContractHas) {
   wrong = result;
   wrong.mutable_cross_sections()->DeleteSubrange(5, 1);
   EXPECT_THROW(protocol::validate_factor_result(value, wrong), std::invalid_argument);
+  wrong = result;
+  wrong.mutable_partitions(0)->clear_spreads();
+  EXPECT_THROW(protocol::validate_factor_result(value, wrong), std::invalid_argument);
   auto single = input();
   auto ratio = factor::run(single);
   ratio.mutable_partitions(0)->set_spearman_ratio(1);
+  EXPECT_THROW(protocol::validate_factor_result(single, ratio), std::invalid_argument);
+  ratio = factor::run(single);
+  ratio.mutable_partitions(0)->add_spreads();
   EXPECT_THROW(protocol::validate_factor_result(single, ratio), std::invalid_argument);
 
   // Two contracts are no cross-section; neither is one contract twice, a
