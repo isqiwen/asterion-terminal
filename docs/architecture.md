@@ -1,6 +1,6 @@
 # 架构
 
-当前产品为运行于 macOS 与 Linux x86_64 的期货 Terminal，本机服务与 Terminal 运行在同一台机器，远程节点服务仅支持 Linux x86_64。
+当前产品为运行于 macOS（Apple Silicon）与 Linux x86_64 的期货 Terminal，本机服务与 Terminal 运行在同一台机器，远程节点服务仅支持 Linux x86_64。
 本文描述当前代码；架构改造的逐项实现、验收证据及运行限制见[实施记录](reviews/architecture-implementation.md)。
 
 ## 分层

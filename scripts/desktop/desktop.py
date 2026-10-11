@@ -311,9 +311,7 @@ def main():
         minimum = "13.0"
         env["MACOSX_DEPLOYMENT_TARGET"] = minimum
         install += ["-s:h", "os.version=" + minimum, "-s:b", "os.version=" + minimum]
-        sdk_arch = "armv8" if platform.machine() == "arm64" else "x86_64"
-        sdk_root = ROOT / "build/ctp-sdk" / ("macos-" + sdk_arch)
-        install += ["-c", "user.ctp:sdk_root=" + str(sdk_root)]
+        install += ["-c", "user.ctp:sdk_root=" + str(ROOT / "build/ctp-sdk/macos-armv8")]
         # CMake's compiler detection survives toolchain changes. Reset only
         # when an earlier configure used a different compiler.
         compiler_records = (ROOT / "build" / configuration / "CMakeFiles").glob("*/CMakeCXXCompiler.cmake")

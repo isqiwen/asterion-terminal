@@ -3311,3 +3311,68 @@ terminal 的任务才第一次真正运行。
   没有运行（只确认了缺包时的提示）；Electron 宿主测试和端到端测试当时没有运行（用户正在使用
   开发窗口），随后补上，见本页末的补记；改过的任务没有在 VS Code 界面里逐项点过，macOS 上
   没有重新验证。
+
+## 2026-10-11（不再支持 Intel Mac）
+
+维护者先决定 CI 不需要 Intel Mac，随后决定整体不再支持。macOS 只支持 Apple Silicon。服务源码
+指纹因此改变，已有的 Linux 服务包需要重建。
+
+- **CI。** `terminal` 任务在 `0217a91`（10 月 6 日）为了同时覆盖两种架构，从 `macos-latest`
+  改成了 `macos-15`、`macos-15-intel` 的矩阵（Intel 镜像只有 macOS 15）。现在改回
+  `macos-latest`，与 `core`、`core-sanitizers` 一致，并去掉矩阵；为 macOS 15 镜像默认的
+  Xcode 16.4 而加的“Select Xcode 26”一步随之删除。上传的两个产物改名为
+  `installed-desktop-macos` 和 `terminal-test-macos`，与 Linux 任务的命名对应（仓库里没有别处
+  引用旧名）。
+- **构建入口拒绝 Intel Mac。** `conanfile.py` 和 `conan/ctp/conanfile.py` 的目标检查只接受
+  macOS armv8 与 Linux x86_64；`scripts/prepare_ctp.py` 在下载前拒绝其它组合（原先只检查
+  Linux 的架构）；CTP 配方从厂商的通用库中固定取 arm64；`scripts/desktop/desktop.py` 不再按
+  本机架构选择 SDK 目录。CTP 配方内容变了，`conan.lock` 中它的修订号随之更新
+  （`ad962838…` → `3f055f74…`），其它条目不变。
+- **插件 ABI。** `bindings/plugin/include/asterion/plugin/abi.h` 删除 `macos-x86_64` 平台，在
+  Intel Mac 上编译会停在既有的 `#error Unsupported native plugin platform`。其余平台的字符串
+  和 ABI 版本不变。
+- **发行校验。** `scripts/desktop/macos_release.py` 原先要求应用和原生资源包含验收主机的架构，
+  现在要求包含 arm64；对应用例改为“只有 Intel 架构的应用被拒绝”。
+- **没有改的。** `core/src/kernel/process/artifact.cpp` 仍能识别 x86_64 的 Mach-O，和识别
+  Linux arm64 一样只用于说明“程序与节点平台不符”，不代表支持。CMake 没有新增架构检查：
+  macOS 的目标架构由 Conan 的设置决定，并由上面的 `#error` 在编译时兜底。`docs/reviews/`
+  下 10 月 5 日至 6 日的验收记录里“Intel 未验证”的说法是当时的事实，保留原样。
+- **文档。** `AGENTS.md` 的范围、README、架构、现状、开发指南和原生插件 SDK 中的平台说明
+  改为“macOS（Apple Silicon）”。
+- **验证**（Ubuntu 26.04.1，GCC 15.2）。重新导出 CTP 配方，用 `conan lock update` 更新锁文件后
+  `conan install` 成功；Debug 重新编译零错误；`ctest` 555/555（279 秒），其中包括发行校验
+  的 10 项用例；`prepare_ctp.py --os macos --arch x86_64` 在下载前以参数错误退出；C++ 与
+  Prettier 格式检查通过；工作流按 YAML 解析通过，没有任务再引用已删除的矩阵。新的服务源码
+  指纹为 `72d8cf5997c861f5e696cea8a3d755098219e231b34e6e1063ffb2addb2a7d7b`。
+- **未验证。** 手边没有 macOS 机器：Apple Silicon 上的构建、CTP 库取 arm64、发行校验的真实
+  运行都没有执行。CI 没有运行；`terminal` 任务在 `macos-latest` 默认的 Xcode 下能否编译要等
+  下一次运行，依据只是 `core` 任务此前在同一标签上通过。Linux 服务包没有重建（这台机器的
+  用户没有 Docker 权限）。
+
+### 补记：桌面与端到端验证（同日，两项改动之后）
+
+用户关闭自己的开发窗口后，补上了此前没有运行的部分，用的是去掉 Intel 分支后重新编译的程序。
+
+- **`pnpm desktop`。** 增量构建、重新暂存原生资源、界面构建和 Node-API 桥接检查通过；
+  Electron、Vite 和开发 Agent 启动，新编译的程序同步进开发节点（“Development service programs
+  synchronized: 3”），界面日志里的数据服务请求全部成功。向启动器发 SIGINT 后按正常流程
+  退出：`development.shutdown` 成功，Agent 单元停止并注销，没有残留进程。
+- **Electron 宿主测试**（`pnpm test:desktop`）通过。Electron 在这个会话里以原生 Wayland 运行；
+  此前记录的 Linux 验证是 X11 和 CI 的 xvfb。
+- **端到端关键链路**（`pnpm run test:e2e:journeys`）9/9，2.7 分钟；之前先执行了
+  `pnpm exec playwright install chromium`。运行结束后没有残留进程、端口或临时目录。
+- **仍未验证。** 全部端到端用例（只跑了关键链路）；`pnpm desktop:check` 和打包（这台机器上
+  没有 Linux 服务包）；macOS 与 CI，见上文。
+
+### 补记：Linux 服务包与 `desktop:check`（同日）
+
+用户把自己加入 `docker` 组后（用 `sg docker -c` 运行，没有重新登录），补上了被服务包卡住的部分。
+
+- `scripts/services/build_linux_services.sh` 在 `ubuntu:24.04` 容器里从干净的 Conan 缓存构建成功，
+  这也验证了更新后的 `conan.lock`（新的 CTP 配方修订）在全新环境里可以解析。服务包 SHA-256
+  `234a2311fff487fd2130e3c9b0c075de73bf32cdd0f61309df52a109423b866f`，对应源码指纹
+  `72d8cf59…`。
+- `pnpm desktop:check` 通过：服务包校验并暂存、构建、界面构建、Node-API 桥接检查。
+- 开发指南的环境一节写明 Docker 由开发者自己安装（Ubuntu 上 `sudo apt install docker.io`）、
+  当前用户要在 `docker` 组里，以及新的组何时生效。
+- **仍未验证。** 打安装包（`pnpm desktop:build`）；全部端到端用例；macOS 与 CI。

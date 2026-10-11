@@ -9,8 +9,6 @@
 #endif
 #if defined(__APPLE__) && defined(__aarch64__)
 #define ASTERION_PLUGIN_PLATFORM "macos-arm64"
-#elif defined(__APPLE__) && defined(__x86_64__)
-#define ASTERION_PLUGIN_PLATFORM "macos-x86_64"
 #elif defined(__linux__) && defined(__x86_64__)
 #define ASTERION_PLUGIN_PLATFORM "linux-x86_64"
 #else

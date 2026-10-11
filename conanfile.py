@@ -14,8 +14,8 @@ class Asterion(ConanFile):
 
     def validate(self):
         target = (str(self.settings.os), str(self.settings.arch))
-        if target not in (("Macos", "armv8"), ("Macos", "x86_64"), ("Linux", "x86_64")):
-            raise ConanInvalidConfiguration("Asterion supports macOS armv8/x86_64 and Linux x86_64 only")
+        if target not in (("Macos", "armv8"), ("Linux", "x86_64")):
+            raise ConanInvalidConfiguration("Asterion supports macOS armv8 and Linux x86_64 only")
 
     def build_requirements(self):
         if self.options.with_tests:

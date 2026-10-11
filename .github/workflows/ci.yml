@@ -114,19 +114,11 @@ jobs:
 
   terminal:
     needs: [style, core, core-sanitizers, remote-linux]
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-15, macos-15-intel]
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-latest
     env:
       ASTERION_CPP_BUILD: ${{ github.workspace }}/build/Debug
     steps:
       - uses: actions/checkout@v4
-      # The image defaults to Xcode 16.4, whose standard library has no
-      # std::stop_token or std::jthread; they arrived with Xcode 26.
-      - name: Select Xcode 26
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -165,12 +157,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: installed-desktop-${{ matrix.os }}
+          name: installed-desktop-macos
           if-no-files-found: warn
           path: build/installed-desktop/
       - uses: actions/upload-artifact@v4
         with:
-          name: terminal-test-${{ matrix.os }}
+          name: terminal-test-macos
           if-no-files-found: error
           path: build/desktop-test/*.dmg
 

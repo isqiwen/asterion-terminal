@@ -74,8 +74,7 @@ class SignatureGuards(unittest.TestCase):
             return description if command[-1] == str(self.app) else native_description
 
         with patch.object(release, "output", side_effect=output), \
-                patch.object(release.subprocess, "run") as run, \
-                patch.object(release.platform, "machine", return_value="arm64"):
+                patch.object(release.subprocess, "run") as run:
             release.verify_application(self.app, {self.native_name} if native_description is not None else set())
             return run
 
@@ -132,15 +131,15 @@ class SignatureGuards(unittest.TestCase):
     def test_valid_runtime_and_exact_team_require_ticket_and_gatekeeper(self):
         for flags in ("0x10000(runtime)", "0x10001(host,runtime)", "0x10000"):
             with self.subTest(flags=flags):
-                run = self.verify(signature(flags=flags), signature(), archs="x86_64 arm64")
+                run = self.verify(signature(flags=flags), signature())
                 run.assert_any_call(["codesign", "--verify", "--deep", "--strict", str(self.app)], check=True)
                 run.assert_any_call(["codesign", "--verify", "--strict",
                                      str(self.app / "Contents/Resources/native" / self.native_name)], check=True)
                 run.assert_any_call(["xcrun", "stapler", "validate", str(self.app)], check=True)
                 run.assert_any_call(["spctl", "--assess", "--type", "execute", str(self.app)], check=True)
 
-    def test_host_architecture_is_still_required(self):
-        with self.assertRaisesRegex(ValueError, "architecture differs"):
+    def test_an_intel_only_application_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Application is not built for Apple Silicon"):
             self.verify(signature(), archs="x86_64")
 
     def test_installer_rejects_decoy_authority_and_ad_hoc_signature(self):

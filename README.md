@@ -1,8 +1,8 @@
 # Asterion Terminal
 
-面向中国期货的桌面量化交易终端，运行于 macOS 与 Linux x86_64。C++20 核心与独立服务进程，Electron + React 桌面界面。
+面向中国期货的桌面量化交易终端，运行于 macOS（Apple Silicon）与 Linux x86_64。C++20 核心与独立服务进程，Electron + React 桌面界面。
 
-当前范围：**只开发 macOS 与 Linux x86_64 上的 Terminal，只做期货。**
+当前范围：**只开发 macOS（Apple Silicon）与 Linux x86_64 上的 Terminal，只做期货。**
 
 行情、数据、任务、账户交易分别运行于独立服务进程，由 Node Agent 管理；
 下载、回测和因子计算使用按需工作进程。见[架构与状态所有权](docs/architecture.md)。

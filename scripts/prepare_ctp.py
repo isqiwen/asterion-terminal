@@ -14,8 +14,8 @@ p.add_argument("--arch", choices=["armv8", "x86_64"], default={"arm64":"armv8", 
 args = p.parse_args()
 if args.os is None or args.arch is None:
     p.error('Specify a supported --os and --arch; host target could not be inferred')
-if args.os == 'linux' and args.arch != 'x86_64':
-    p.error(f'{args.os} CTP SDK currently supports x86_64 only')
+if (args.os, args.arch) not in (('macos', 'armv8'), ('linux', 'x86_64')):
+    p.error('CTP SDK supports macOS armv8 and Linux x86_64 only')
 manifest = json.loads((ROOT / "conan/ctp/sources.json").read_text())[args.os]
 stage = ROOT / "build/ctp-sdk" / (args.os + "-" + args.arch)
 stage.mkdir(parents=True, exist_ok=True)

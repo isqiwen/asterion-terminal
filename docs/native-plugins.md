@@ -18,7 +18,7 @@
 - `risk.h`：期货交易前风险上下文、明确拒绝原因与同步评估函数表。
 - `sdk.hpp`：可选的 C++ 异常屏障和配置读取助手。使用纯 C 时不需要它。
 
-第三方只需要这些头文件和自身供应商依赖，不需要链接 Asterion Core、Protobuf、Node 或 UI。使用本机工具链编译为 macOS 的 `.dylib` 或 Linux x86_64 的 `.so`，远程服务使用 Linux x86_64 `.so`。一个动态库可以发布多个来源或多个能力；每种能力只声明确实实现的版本。
+第三方只需要这些头文件和自身供应商依赖，不需要链接 Asterion Core、Protobuf、Node 或 UI。使用本机工具链编译为 macOS（Apple Silicon）的 `.dylib` 或 Linux x86_64 的 `.so`，远程服务使用 Linux x86_64 `.so`。一个动态库可以发布多个来源或多个能力；每种能力只声明确实实现的版本。
 
 导出 `asterion_plugin_entry_v1(uint32_t host_abi, uint32_t host_struct_size)`，检查两个参数后返回只读 `AstPluginV1`。入口之外的符号应隐藏。描述信息必须包含稳定且唯一的插件 ID、实现版本、匹配的平台，以及非空能力目录。每个能力有稳定 ID、版本号和种类。
 

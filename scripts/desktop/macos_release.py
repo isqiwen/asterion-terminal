@@ -84,17 +84,16 @@ def verify_application(app, native_files):
         raise ValueError("Distribution application lacks a Developer ID signature")
     if not has_hardened_runtime(description):
         raise ValueError("Distribution application lacks hardened runtime signing")
-    arch = {"arm64": "arm64", "x86_64": "x86_64"}[platform.machine()]
-    if arch not in output(["lipo", "-archs", str(app / "Contents/MacOS/asterion-terminal")]).split():
-        raise ValueError("Application architecture differs from its acceptance host")
+    if "arm64" not in output(["lipo", "-archs", str(app / "Contents/MacOS/asterion-terminal")]).split():
+        raise ValueError("Application is not built for Apple Silicon")
     for name in sorted(native_files):
         binary = app / "Contents/Resources/native" / name
         subprocess.run(["codesign", "--verify", "--strict", str(binary)], check=True)
         signature = output(["codesign", "--display", "--verbose=4", str(binary)])
         if developer_id_team(signature) != team:
             raise ValueError("Native resource does not carry the application's Developer ID: " + name)
-        if arch not in output(["lipo", "-archs", str(binary)]).split():
-            raise ValueError("Native resource has no executable architecture for this host: " + name)
+        if "arm64" not in output(["lipo", "-archs", str(binary)]).split():
+            raise ValueError("Native resource is not built for Apple Silicon: " + name)
     subprocess.run(["xcrun", "stapler", "validate", str(app)], check=True)
     subprocess.run(["spctl", "--assess", "--type", "execute", str(app)], check=True)
 

@@ -11,8 +11,8 @@ class Ctp(ConanFile):
     settings = "os", "arch"
     def validate(self):
         target = (str(self.settings.os), str(self.settings.arch))
-        if target not in (("Macos", "armv8"), ("Macos", "x86_64"), ("Linux", "x86_64")):
-            raise ConanInvalidConfiguration("CTP supports macOS armv8/x86_64 and Linux x86_64 only")
+        if target not in (("Macos", "armv8"), ("Linux", "x86_64")):
+            raise ConanInvalidConfiguration("CTP supports macOS armv8 and Linux x86_64 only")
 
     def package(self):
         root = self.conf.get("user.ctp:sdk_root", default="")
@@ -26,7 +26,7 @@ class Ctp(ConanFile):
                 import subprocess
                 source = str(Path(root) / (library + ".dylib"))
                 target = str(Path(self.package_folder) / "bin" / (library + ".dylib"))
-                subprocess.run(["lipo", source, "-thin", "arm64" if str(self.settings.arch) == "armv8" else "x86_64", "-output", target], check=True)
+                subprocess.run(["lipo", source, "-thin", "arm64", "-output", target], check=True)
     def package_info(self):
         self.cpp_info.set_property("cmake_file_name", "ctp")
         self.cpp_info.set_property("cmake_target_name", "ctp::ctp")

@@ -6,7 +6,7 @@ philosophy guides implementation within those constraints.
 
 ## Scope
 
-- Build, test, and ship **Terminal for futures only**, on **macOS** and **Linux x86_64**.
+- Build, test, and ship **Terminal for futures only**, on **macOS (Apple Silicon)** and **Linux x86_64**.
 - Do not add Web, Mobile, Notebook, standalone CLI, or Windows desktop clients.
 - Remote services support **Linux x86_64** only and exist to serve Terminal.
 - Build interfaces and implementations only for actual requirements.
