@@ -242,9 +242,13 @@ add_dependencies(asterion_terminal_api ${ASTERION_SERVICE_TARGETS})
 
 foreach(target asterion_order_limits_config asterion_risk_providers asterion_order_limits_plugin asterion_tushare asterion_order_limits asterion_ctp_trader asterion_history_files asterion_history_providers asterion_task_client asterion_factor_engine asterion_factor_analysis asterion_performance asterion_task_store asterion_task_events asterion_strategies asterion_backtest_engine ${ASTERION_SERVICE_TARGETS} asterion_ctp asterion-market-data asterion_node_firewall asterion_node_storage asterion_node_supervision asterion_node_operations asterion-node-agent asterion-trading asterion_trading_session asterion_terminal_dev_bridge asterion_paper asterion_sqlite asterion_foundation asterion_kernel asterion_domain asterion_terminal_api)
   # Designated initializers omit members on purpose; Clang accepts that and
-  # GCC's -Wextra would reject it.
+  # GCC's -Wextra would reject it. GCC 15, optimizing, takes the object behind
+  # a structured binding of a co_await, and members an aggregate initializer
+  # leaves to their defaults, for maybe uninitialized; earlier versions do not
+  # and keep the check.
   target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror
-    $<$<CXX_COMPILER_ID:GNU>:-Wno-missing-field-initializers>)
+    $<$<CXX_COMPILER_ID:GNU>:-Wno-missing-field-initializers>
+    $<$<AND:$<CXX_COMPILER_ID:GNU>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,15>>:-Wno-maybe-uninitialized>)
 endforeach()
 
 if(BUILD_TESTING)
