@@ -88,3 +88,52 @@ TEST(NativeHistoryPlugin, BudgetFailureAbortsReadAndPreservesHostDiagnostic) {
     EXPECT_STREQ(error.what(), "fixture budget service unavailable");
   }
 }
+TEST(NativeHistoryPlugin, TablesArriveAsTextAndFailuresKeepThePluginsOwnWords) {
+  configure_native_plugins(PLUGIN_FIXTURE_DIRECTORY);
+  const auto offered = history_providers::table_sources();
+  ASSERT_EQ(offered.size(), 3U);
+  EXPECT_EQ(offered[2].table, "futures.daily");
+  EXPECT_EQ(offered[2].source, "fixture.daily.v1");
+  EXPECT_EQ(offered[2].plugin_id, "test.independent.c");
+  EXPECT_EQ(offered[2].venues, std::vector<std::string>{"SHFE"});
+  EXPECT_EQ(history_providers::table_artifact("test.independent.c").size(), 64U);
+  unsigned requests = 0;
+  auto reader = history_providers::tables("test.independent.c", "fixture",
+                                          [&](std::stop_token) { ++requests; });
+  const auto& daily = history_table("futures.daily");
+  const auto day =
+      table_partition(daily, "SHFE", "2024-03-01", reader->read(daily, "SHFE", "2024-03-01", {}));
+  ASSERT_EQ(day.rows.size(), 1U);
+  EXPECT_EQ(table_cell_text(daily.columns[0], day.rows[0][0]), "SHFE/cu/2024-03");
+  EXPECT_EQ(table_cell_text(daily.columns[9], day.rows[0][9]), "432000000000.25");
+  EXPECT_EQ(table_cell_text(daily.columns[1], day.rows[0][1]), std::nullopt);
+  EXPECT_TRUE(reader->read(daily, "SHFE", "2024-03-07", {}).empty()) << "not published yet";
+  EXPECT_EQ(reader->read(history_table("futures.calendar"), "SHFE", "2024", {}).size(), 9U);
+  EXPECT_EQ(requests, 3U);
+  // The partition is unusable: the plugin's sentence, as one distinct failure.
+  try {
+    (void)reader->read(daily, "SHFE", "2024-03-06", {});
+    FAIL() << "the source reported unusable data";
+  } catch (const history_providers::TableRejected& error) {
+    EXPECT_STREQ(error.what(),
+                 "futures.daily SHFE 2024-03-06: vendor/cu2499 is not in the contract list");
+  }
+  // The request did not complete: the status decides the code, the plugin the words.
+  auto refused = history_providers::tables("test.independent.c", "refused", [](std::stop_token) {});
+  try {
+    (void)refused->read(daily, "SHFE", "2024-03-01", {});
+    FAIL() << "a refused request has no rows";
+  } catch (const Error& error) {
+    EXPECT_EQ(error.code(), ErrorCode::permission_denied);
+    EXPECT_STREQ(error.what(), "fixture refused the request: the account has no permission");
+  }
+  EXPECT_THROW((void)reader->read(daily, "DCE", "2024-03-01", {}), std::invalid_argument);
+  EXPECT_THROW((void)reader->read(daily, "SHFE", "2024", {}), std::invalid_argument);
+  EXPECT_THROW((void)history_providers::tables("test.independent.c", "")
+                   ->read(daily, "SHFE", "2024-03-01", {}),
+               std::invalid_argument);
+  EXPECT_THROW(history_providers::tables("missing", "fixture"), std::invalid_argument);
+  std::stop_source cancelled;
+  cancelled.request_stop();
+  EXPECT_THROW((void)reader->read(daily, "SHFE", "2024-03-01", cancelled.get_token()), Error);
+}

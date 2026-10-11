@@ -36,7 +36,7 @@ Terminal 的 JSON 命令注册与分派属于 Native 应用边界，核心库不
 | `asterion-node-agent` | 部署、启停、健康探测、有限重启、程序升级 |
 | `asterion-market-data` | CTP 实时行情、合约目录、事件流、当日分钟线与 1 分钟涨速 |
 | `asterion-trading` | CTP 交易账户会话（授权、风控、执行链与持久记录） |
-| `asterion-data-service` | 历史版本仓库、具名数据集、查询、下载授权与供应商预算、候选准备和版本发布 |
+| `asterion-data-service` | 历史版本仓库、全市场数据表、具名数据集、查询、下载授权与供应商预算、候选准备和版本发布 |
 | `asterion-task-service` | 任务定义、排队与执行尝试、取消与完成裁决、固定输入及结果保管；协调下载发布，不执行算法或拥有历史目录 |
 | `asterion-backtest` / `asterion-factor` / `asterion-data-pipeline` | 按任务启动的工作程序 |
 
@@ -82,9 +82,9 @@ Data 拥有历史版本和来源证据；Task 拥有固定任务、尝试及结�
 
 | 类别 | 实现 |
 | --- | --- |
-| 数据 | `data/ctp`（行情与合约目录）、`data/tushare`（分钟线、日线）、`data/registry`（历史数据源组合与目录入口） |
+| 数据 | `data/ctp`（行情与合约目录）、`data/tushare`（分钟线、日线、全市场数据表）、`data/registry`（历史数据源组合与目录入口） |
 | 执行 | `execution/paper`（回测撮合）、`execution/ctp`（CTP 交易接口） |
-| 存储 | `storage/sqlite`（交易记录与任务的有序日志和索引）、`storage/filesystem`（历史数据版本目录） |
+| 存储 | `storage/sqlite`（交易记录与任务的有序日志和索引）、`storage/filesystem`（历史数据版本目录、全市场数据表的分区登记）、`storage/parquet`（K 线与数据表分区文件） |
 | 策略 | `strategy/cta`（均线交叉、通道突破、时序动量、布林回归） |
 | 风控 | `risk/order-limits`（交易前限额） |
 | 工具 | `tools/chart_indicators`（均线、MACD）、`tools/factor_analysis` |
@@ -146,6 +146,11 @@ Agent 按节点 CPU、内存和磁盘工作量接纳服务和 worker；资源不
 直接访问 Data 的历史目录与查询协议，TaskClient 访问任务和结果；Task 不打开 Data 的仓库文件。
 下载请求使用完整合约身份、明确来源与供应商映射；Data 保管授权快照，worker 按尝试取得凭据
 和共享额度，完成后由 Task 持久决定发布，Data 验证原决定并公开原版本。
+
+[全市场数据表](market-data.md#全市场数据表)按“表 × 交易所 × 周期”取数和保存，表的列由 Domain 定义。
+它的更新也是一个下载任务，授权、凭据和额度同上，但发布不同：worker 每读到一个分区就交给
+Data，Data 校验通过即追加到只追加的登记里，分区随即可读；任务的取消或失败不撤回已入库的
+分区，任务结果只是这次运行的摘要。理由见[设计](reviews/history-tables-design.md)。
 
 文件插件保管数据块、摘要、来源取得证据和版本索引。取得时间不冒充历史公布时间，未知历史
 可知性的来源明确标为事后分析。计算输入固定数据版本与算法摘要，后续下载不改写旧输入。

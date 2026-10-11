@@ -177,6 +177,62 @@ void Application::Impl::register_data_commands() {
                   "original services before retrying");
     co_return snapshot();
   });
+  // Market-wide tables. An update only names what to read; the data service
+  // plans the partitions when the task runs and publishes each as it arrives.
+  command("data.tables.update.submit", [this](const json& p) -> PolledTask<Response> {
+    fields(p, {"id", "provider", "tables", "begin_day", "end_day", "requests_per_minute", "token"});
+    if (!task_client || !data_client)
+      throw std::invalid_argument("connect the data and task services first");
+    const auto client = task_client;
+    const auto reader = data_client;
+    const auto generation = data_task_generation;
+    data::v1::DownloadAuthorizationRequest authorization;
+    *authorization.mutable_table_update() =
+        protocol::encode_table_update({{"provider", p.at("provider")},
+                                       {"tables", p.at("tables")},
+                                       {"begin_day", p.at("begin_day")},
+                                       {"end_day", p.at("end_day")},
+                                       {"requests_per_minute", p.at("requests_per_minute")}});
+    authorization.set_task_instance(client->endpoint().session);
+    authorization.set_task_id(text(p, "id"));
+    authorization.set_credential(
+        (co_await provider_credential(text(p, "provider"), text(p, "token", true))));
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
+    const auto reference = co_await PollFuture{reader->authorize_download(authorization)};
+    co_await PollFuture{client->submit_download(text(p, "id"), reference)};
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict,
+                  "data/task service selection changed during operation; inspect the "
+                  "original services before retrying");
+    co_return snapshot();
+  });
+  command("data.tables.coverage", [this](const json& p) -> PolledTask<Response> {
+    fields(p, {});
+    if (!data_client)
+      throw std::invalid_argument("connect the data and task services first");
+    const auto reader = data_client;
+    const auto generation = data_task_generation;
+    auto coverage = (co_await PollFuture{reader->table_coverage()});
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
+    auto result = read_published(json::object());
+    result.values["table_coverage"] = std::move(coverage);
+    co_return result;
+  });
+  command("data.tables.page", [this](const json& p) -> PolledTask<Response> {
+    const auto query = protocol::encode_table_page_query(p);
+    if (!data_client)
+      throw std::invalid_argument("connect the data and task services first");
+    const auto reader = data_client;
+    const auto generation = data_task_generation;
+    auto page = (co_await PollFuture{reader->table_page(query)});
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
+    auto result = read_published(json::object());
+    result.values["table_page"] = std::move(page);
+    co_return result;
+  });
   command("data.dataset.saved", [this](const json& p) -> PolledTask<Response> {
     fields(p, {});
     if (!data_client)

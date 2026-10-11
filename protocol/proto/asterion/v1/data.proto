@@ -147,6 +147,63 @@ message MinutePage {
 message DailyDownload { uint32 version = 1; string contract_id = 2; string source = 3; string source_instrument = 4; string begin_day = 5; string end_day = 6; uint32 requests_per_minute = 7; }
 message DailyDownloadResult { uint32 version = 1; string directory = 2; string manifest_sha256 = 3; uint64 rows = 4; uint32 pages = 5; }
 
+// Market-wide tables. A partition is one exchange and one period of a table:
+// the whole table ("all"), a year or a trading day, as the table defines. An
+// update reads the partitions the store lacks; each becomes visible when the
+// data service has validated it, whatever becomes of the task that read it.
+// Credentials are not part of this durable task definition.
+message TableUpdate {
+  uint32 version = 1;
+  string provider = 2; // the plugin whose tables are read
+  // Day tables, sorted and unique. The contract list and the calendar they
+  // depend on are always refreshed first.
+  repeated string tables = 3;
+  string begin_day = 4; // empty: continue after what each exchange already holds
+  string end_day = 5;   // empty: through the last day that has ended in Asia/Shanghai
+  uint32 requests_per_minute = 6;
+}
+message TablePartitionKey { string table = 1; string exchange = 2; string period = 3; }
+message TablePartitionOutcome { TablePartitionKey partition = 1; string reason = 2; }
+// What one run did. Partitions are counted once each; lists are bounded.
+message TableUpdateResult {
+  uint32 version = 1;
+  uint32 stored = 2;    // received a new revision
+  uint32 unchanged = 3; // already held the same content
+  repeated TablePartitionOutcome rejected = 4; // could not be used, and why
+  uint32 unpublished = 5; // the source returned no rows
+  repeated TablePartitionKey unpublished_examples = 6;
+  // "table exchange" pairs that hold nothing yet while the update names no begin day.
+  repeated string waiting = 7;
+  string snapshot = 8; // the store after the last partition of this run
+}
+// One entry of the store's ledger: the content a partition held from this
+// sequence on. snapshot identifies the ledger up to and including the entry.
+message TableRevision {
+  uint64 sequence = 1; string table = 2; uint32 schema = 3; string source = 4;
+  string exchange = 5; string period = 6; string content = 7; string object = 8;
+  uint64 rows = 9; uint64 bytes = 10; int64 acquired_at_ns = 11;
+  string provider_artifact = 12; string snapshot = 13;
+}
+// Cells as text in the table's column order; an absent text is a missing value.
+message TableCell { optional string text = 1; }
+message TableRow { repeated TableCell cells = 1; }
+// A table an installed plugin provides under the column definition this service uses.
+message TableSource { string table = 1; uint32 schema = 2; string source = 3; string plugin_id = 4; repeated string venues = 5; }
+// What the store holds for one exchange of one series. missing_days counts the
+// calendar's trading days between first_period and last_period that hold nothing;
+// it is absent when the store has no calendar to count against.
+message TableCoverageRow {
+  string table = 1; uint32 schema = 2; string source = 3; string exchange = 4;
+  uint64 partitions = 5; uint64 rows = 6; string first_period = 7; string last_period = 8;
+  int64 acquired_at_ns = 9; optional uint32 missing_days = 10; repeated string missing_examples = 11;
+}
+message TableCoverage { repeated TableCoverageRow rows = 1; string snapshot = 2; repeated TableSource sources = 3; }
+message TablePageQuery { TablePartitionKey partition = 1; string source = 2; uint64 offset = 3; uint32 limit = 4; }
+message TablePage {
+  TableRevision revision = 1; repeated string columns = 2; repeated TableRow rows = 3;
+  uint64 offset = 4;
+}
+
 enum DailyPeriod { DAY = 0; WEEK = 1; MONTH = 2; QUARTER = 3; YEAR = 4; }
 message DailyPageQuery { string dataset_id = 1; string task_id = 2; uint64 offset = 3; uint32 limit = 4; string begin_day = 5; string end_day = 6; bool include_macd = 7; DailyPeriod period = 8; }
 message DailyBar {

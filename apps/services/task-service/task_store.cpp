@@ -42,6 +42,20 @@ void prepare(wire::Task& task) {
     task.set_source_name(task.minutes().source() + " " + task.minutes().contract_id());
     task.set_instrument(range.instrument.key());
     task.set_total(static_cast<unsigned>((range.end_ns - range.begin_ns) / 86400000000000LL + 1));
+  } else if (task.has_table_update()) {
+    const auto& update = task.table_update();
+    protocol::validate_table_update(update);
+    task.set_kind(wire::TABLE_UPDATE);
+    std::string tables;
+    for (const auto& table : update.tables())
+      tables += (tables.empty() ? "" : " + ") + table;
+    task.set_source_name(update.provider());
+    task.set_instrument(tables);
+    task.set_trading_day(update.begin_day().empty() && update.end_day().empty()
+                             ? std::string()
+                             : update.begin_day() + " / " + update.end_day());
+    // What an update reads is decided when it runs: progress is a percentage.
+    task.set_total(100);
   } else if (task.has_factor()) {
     protocol::validate_factor_input(task.factor());
     task.set_kind(wire::FACTOR);
@@ -89,9 +103,10 @@ void prepare(wire::Task& task) {
     task.set_total(static_cast<unsigned>(protocol::backtest_work_units(task.input())));
   } else
     throw std::invalid_argument("task requires an explicit input type");
-  task.set_data_source(task.has_minutes() ? task.minutes().source()
-                       : task.has_daily() ? task.daily().source()
-                                          : std::string{});
+  task.set_data_source(task.has_minutes()        ? task.minutes().source()
+                       : task.has_daily()        ? task.daily().source()
+                       : task.has_table_update() ? task.table_update().provider()
+                                                 : std::string{});
   task.set_minute_interval_minutes(task.has_minutes() ? task.minutes().interval_minutes() : 0);
   task.set_state(wire::QUEUED);
 }
@@ -100,6 +115,8 @@ const google::protobuf::Message& definition(const wire::Task& task) {
     return task.daily();
   if (task.kind() == wire::MINUTE_DOWNLOAD && task.has_minutes())
     return task.minutes();
+  if (task.kind() == wire::TABLE_UPDATE && task.has_table_update())
+    return task.table_update();
   if (task.kind() == wire::FACTOR && task.has_factor())
     return task.factor();
   if (task.kind() == wire::BACKTEST && task.has_input())
@@ -331,6 +348,9 @@ wire::Task read_input(wire::Task task, const fs::path& path, const std::string& 
   case wire::MINUTE_DOWNLOAD:
     payload::parse(raw, *task.mutable_minutes());
     break;
+  case wire::TABLE_UPDATE:
+    payload::parse(raw, *task.mutable_table_update());
+    break;
   case wire::FACTOR:
     payload::parse(raw, *task.mutable_factor());
     break;
@@ -349,6 +369,9 @@ wire::Task attach_definition(wire::Task task, wire::Task source) {
     break;
   case wire::MINUTE_DOWNLOAD:
     *task.mutable_minutes() = std::move(*source.mutable_minutes());
+    break;
+  case wire::TABLE_UPDATE:
+    *task.mutable_table_update() = std::move(*source.mutable_table_update());
     break;
   case wire::FACTOR:
     *task.mutable_factor() = std::move(*source.mutable_factor());
@@ -579,6 +602,8 @@ struct Store::Impl {
         entry.task.set_kind(wire::DAILY_DOWNLOAD);
       else if (manifest.at("type") == "minutes.task")
         entry.task.set_kind(wire::MINUTE_DOWNLOAD);
+      else if (manifest.at("type") == "tables.task")
+        entry.task.set_kind(wire::TABLE_UPDATE);
       else if (manifest.at("type") == "backtest.task")
         entry.task.set_kind(wire::BACKTEST);
       else if (manifest.at("type") == "factor.task")
@@ -588,7 +613,8 @@ struct Store::Impl {
       entry.task.set_provider_artifact(manifest.at("provider_artifact").get<std::string>());
       entry.task.set_download_authorization(
           manifest.at("download_authorization").get<std::string>());
-      if (entry.task.kind() == wire::MINUTE_DOWNLOAD || entry.task.kind() == wire::DAILY_DOWNLOAD) {
+      if (entry.task.kind() == wire::MINUTE_DOWNLOAD || entry.task.kind() == wire::DAILY_DOWNLOAD ||
+          entry.task.kind() == wire::TABLE_UPDATE) {
         if (entry.task.download_authorization().size() != 64 ||
             entry.task.download_authorization().find_first_not_of("0123456789abcdef") !=
                 std::string::npos)
@@ -972,6 +998,9 @@ void Store::ResultRead::verify() {
   } else if (task_.kind() == wire::MINUTE_DOWNLOAD) {
     payload::parse(raw, *result.mutable_minutes());
 
+  } else if (task_.kind() == wire::TABLE_UPDATE) {
+    payload::parse(raw, *result.mutable_table_update());
+
   } else if (task_.kind() == wire::FACTOR) {
     payload::parse(raw, *result.mutable_factor());
     if (verify)
@@ -1049,6 +1078,8 @@ Store::Submission Store::submission(const data::v1::DownloadAuthorization& autho
     *task.mutable_daily() = authorization.daily();
   else if (authorization.has_minutes())
     *task.mutable_minutes() = authorization.minutes();
+  else if (authorization.has_table_update())
+    *task.mutable_table_update() = authorization.table_update();
   else
     throw std::invalid_argument("download definition is missing");
   return Submission(impl_.get(), impl_->root, std::move(task));
@@ -1129,6 +1160,7 @@ Store::Change Store::register_submission(Submission& input) {
   change.active_entry = Impl::active_entry(change.next);
   change.kind = task.kind() == wire::DAILY_DOWNLOAD    ? "daily.task"
                 : task.kind() == wire::MINUTE_DOWNLOAD ? "minutes.task"
+                : task.kind() == wire::TABLE_UPDATE    ? "tables.task"
                 : task.kind() == wire::FACTOR          ? "factor.task"
                                                        : "backtest.task";
   change.manifest = Json{
@@ -1365,6 +1397,11 @@ wire::TaskLaunches Store::dispatch(const wire::TaskDispatch& processes, bool dat
       launch->set_minute_download(task.kind() == wire::MINUTE_DOWNLOAD);
       launch->set_daily_download(task.kind() == wire::DAILY_DOWNLOAD);
       break;
+    case wire::TABLE_UPDATE:
+      launch->set_program(wire::DATA_PIPELINE_PROGRAM);
+      launch->set_provider_artifact(task.provider_artifact());
+      launch->set_table_update(true);
+      break;
     default:
       throw std::invalid_argument("unsupported queued task kind");
     }
@@ -1440,6 +1477,9 @@ void Store::Completion::prepare_payload() {
       protocol::validate_message(result_.daily());
     else if (result_.has_minutes() && task_.kind() == wire::MINUTE_DOWNLOAD && task_.has_minutes())
       protocol::validate_message(result_.minutes());
+    else if (result_.has_table_update() && task_.kind() == wire::TABLE_UPDATE &&
+             task_.has_table_update())
+      (void)protocol::decode_table_update_result(result_.table_update());
     else if (result_.has_result())
       verify_result(task_, result_.result());
     else if (result_.has_factor() && task_.kind() == wire::FACTOR && task_.has_factor())
@@ -1453,6 +1493,9 @@ void Store::Completion::prepare_payload() {
       break;
     case wire::TaskFinish::kMinutes:
       output = &result_.minutes();
+      break;
+    case wire::TaskFinish::kTableUpdate:
+      output = &result_.table_update();
       break;
     case wire::TaskFinish::kResult:
       output = &result_.result();

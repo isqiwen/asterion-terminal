@@ -55,12 +55,12 @@ target_include_directories(asterion_kernel PUBLIC bindings/plugin/include)
 target_link_libraries(asterion_kernel PRIVATE ${CMAKE_DL_LIBS})
 target_link_libraries(asterion_kernel PUBLIC Asterion::Foundation Threads::Threads PRIVATE spdlog::spdlog_header_only asio::asio OpenSSL::SSL)
 
-add_library(asterion_domain STATIC core/src/domain/market.cpp core/src/domain/historical_bars.cpp core/src/domain/history_identity.cpp core/src/domain/intraday_bars.cpp core/src/domain/order.cpp core/src/domain/futures.cpp core/src/domain/account.cpp core/src/domain/position_target.cpp core/src/domain/risk_port.cpp)
+add_library(asterion_domain STATIC core/src/domain/market.cpp core/src/domain/historical_bars.cpp core/src/domain/history_identity.cpp core/src/domain/history_tables.cpp core/src/domain/intraday_bars.cpp core/src/domain/order.cpp core/src/domain/futures.cpp core/src/domain/account.cpp core/src/domain/position_target.cpp core/src/domain/risk_port.cpp)
 add_library(Asterion::Domain ALIAS asterion_domain)
 target_link_libraries(asterion_domain PUBLIC Asterion::Kernel)
 
 
-add_library(asterion_tushare STATIC plugins/data/tushare/tushare.cpp plugins/data/tushare/https.cpp)
+add_library(asterion_tushare STATIC plugins/data/tushare/tushare.cpp plugins/data/tushare/tables.cpp plugins/data/tushare/https.cpp)
 target_include_directories(asterion_tushare PUBLIC plugins/data/tushare)
 target_link_libraries(asterion_tushare PUBLIC Asterion::Domain PRIVATE httplib::httplib)
 
@@ -112,7 +112,7 @@ target_link_libraries(asterion_paper PUBLIC Asterion::Domain asterion_protocol)
 target_include_directories(asterion_paper PUBLIC plugins/execution/paper)
 find_package(SQLite3 REQUIRED)
 find_package(duckdb CONFIG REQUIRED)
-add_library(asterion_bar_parquet STATIC plugins/storage/parquet/bar_parquet.cpp)
+add_library(asterion_bar_parquet STATIC plugins/storage/parquet/parquet_engine.cpp plugins/storage/parquet/bar_parquet.cpp plugins/storage/parquet/table_parquet.cpp)
 target_link_libraries(asterion_bar_parquet PUBLIC Asterion::Domain PRIVATE Asterion::Kernel duckdb::duckdb)
 target_include_directories(asterion_bar_parquet PUBLIC plugins/storage/parquet)
 add_library(asterion_sqlite STATIC plugins/storage/sqlite/sqlite_database.cpp plugins/storage/sqlite/sqlite_journal.cpp)
@@ -136,9 +136,9 @@ target_include_directories(asterion_protocol PUBLIC protocol/include ${ASTERION_
 target_link_libraries(asterion_protocol PUBLIC Asterion::Domain protobuf::libprotobuf)
 
 # Storage plugins that persist protocol-typed records.
-add_library(asterion_history_files STATIC plugins/storage/filesystem/history_archive.cpp plugins/storage/filesystem/history_minutes.cpp plugins/storage/filesystem/history_daily.cpp)
+add_library(asterion_history_files STATIC plugins/storage/filesystem/history_archive.cpp plugins/storage/filesystem/history_minutes.cpp plugins/storage/filesystem/history_daily.cpp plugins/storage/filesystem/history_tables.cpp)
 target_include_directories(asterion_history_files PUBLIC plugins/storage/filesystem)
-target_link_libraries(asterion_history_files PUBLIC asterion_protocol PRIVATE asterion_chart_indicators asterion_bar_parquet)
+target_link_libraries(asterion_history_files PUBLIC asterion_protocol PRIVATE asterion_chart_indicators asterion_bar_parquet asterion_sqlite)
 add_library(asterion_task_events STATIC plugins/storage/sqlite/task_events.cpp)
 target_link_libraries(asterion_task_events PUBLIC asterion_sqlite asterion_protocol)
 

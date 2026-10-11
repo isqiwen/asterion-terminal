@@ -64,7 +64,7 @@ pnpm desktop                        # 构建并启动桌面开发窗口
 - [因子分析](docs/factors.md)
 - [服务与部署](docs/services.md)
 - [现状与下一步](docs/status.md)
-- [目标架构设计](docs/reviews/architecture-design-review.md) · [架构实施进度](docs/reviews/architecture-implementation.md) · [整改记录](docs/reviews/audit-progress.md)
+- [目标架构设计](docs/reviews/architecture-design-review.md) · [架构实施进度](docs/reviews/architecture-implementation.md) · [整改记录](docs/reviews/audit-progress.md) · [全市场数据表设计](docs/reviews/history-tables-design.md)
 - [贡献约束](AGENTS.md)
 
 第三方数据源与风控插件接入：[原生插件 SDK](docs/native-plugins.md)。

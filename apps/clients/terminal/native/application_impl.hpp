@@ -97,6 +97,8 @@ struct Application::Impl {
   // The credential a download of this source uses: the one typed for this
   // request, otherwise the one saved for the source's provider.
   PolledTask<std::string> source_credential(const std::string& source, std::string typed);
+  // The credential typed for this request, else the one saved for the provider.
+  PolledTask<std::string> provider_credential(const std::string& provider, std::string typed);
   std::shared_ptr<const json> task_result;
   // One dataset per portfolio contract, in selection order.
   std::vector<DatasetSelection> selections;

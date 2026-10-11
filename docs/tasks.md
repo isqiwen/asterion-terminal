@@ -12,6 +12,7 @@
 `asterion-task-service` 持久化下载、回测和因子任务及其执行尝试：任务清单与活动状态日志写入当前服务目录的 `tasks.sqlite`（任务表带当前状态、尝试次数和更新时间索引），任务清单为 v7、状态事件为 v3，固定输入保存为任务目录中的 `input.pb`，各次准备的结果文件保存为 `results/<尝试次数>.pb`；均使用原始 Protobuf 二进制和 SHA-256 校验。大输入不写入 SQLite 清单，也不展开成 JSON 字节数组。Node Agent 按任务类型启动工作程序（每个服务最多同时 2 个）。
 
 - 计算状态：`queued → running → succeeded / failed`；下载验收后先进入持久 `publishing`，数据服务确认原版本已公开后才为 `succeeded`；取消运行中任务先进入 `cancel_requested`，工作程序确认后为 `cancelled`。
+- 全市场数据更新没有 `publishing`：分区由数据服务逐个校验并入库，任务结果只是这次运行的摘要，状态与计算任务相同。任务取消、失败或中断不撤回已入库的分区。它要读多少分区在运行时才知道，进度按百分比报告（`total` 固定为 100）。
 - `failed`、`cancelled`、`interrupted` 可显式重试，每次重试是新的执行尝试，带独立令牌。
 - 工作程序独立于引擎进度每 250 ms 报告一次存活和最新进度，初始化、下载等待和完成复核期间也续租；30 秒未收到报告则标记 `interrupted`。服务重启时运行中任务标记中断，不自动重跑；失去服务连接按失败处理，不冒充用户取消。
 - 结果先写入并同步，再记录完成状态和 SHA-256；只有确认完成的结果可查询。
@@ -22,6 +23,7 @@
 | [回测](backtest.md) | `asterion-backtest` | [策略](strategies.md)回测：四条单合约规则和三条排序规则，多空 |
 | [因子分析](factors.md) | `asterion-factor` | 价格动量、期限结构、波动率三种因子；一个合约，或 3–20 个合约的截面 |
 | [历史下载](market-data.md) | `asterion-data-pipeline` | 统一历史格式的分钟线、日线（当前生产插件为 Tushare） |
+| [全市场数据更新](market-data.md#全市场数据表) | `asterion-data-pipeline` | 按交易所和交易日读取全市场数据表；读到的每个分区由数据服务校验后立即入库 |
 
 ## 节点执行额度
 
@@ -131,7 +133,7 @@ Task 自有的固定实验依据核验，读取历史结果不要求 Data 在线
 
 ## 备份与恢复
 
-备份包含[下载凭据](market-data.md#下载凭据)，应存放在限制访问的加密存储中。先停止任务服务并确认 worker 已退出，已决定的发布须完成或持久保留其未完成状态，再停止配对的数据服务和所属 Agent，复制双方完整服务目录。任务目录保管 `instance.json`、`tasks.sqlite`、`event-segments/`、固定输入、结果和算法副本；数据目录保管实例配对、`authorizations/` 固定下载授权与凭据、`budgets/` 共享下载额度政策、下载候选、发布证据、`history/` 版本与具名数据集。Task 只保管非秘密授权引用，不持有供应商令牌。仅复制 SQLite 或单个服务目录不是完整备份；节点插件和程序等依赖也需保留。当前采用节点管理员执行的文件级冷备份，不增设在线快照、自动恢复或转换入口。隔离恢复验收状态见[实施进度](reviews/architecture-implementation.md)。
+备份包含[下载凭据](market-data.md#下载凭据)，应存放在限制访问的加密存储中。先停止任务服务并确认 worker 已退出，已决定的发布须完成或持久保留其未完成状态，再停止配对的数据服务和所属 Agent，复制双方完整服务目录。任务目录保管 `instance.json`、`tasks.sqlite`、`event-segments/`、固定输入、结果和算法副本；数据目录保管实例配对、`authorizations/` 固定下载授权与凭据、`budgets/` 共享下载额度政策、下载候选、发布证据、`history/` 版本与具名数据集、`tables/` 全市场数据表的登记与分区文件。Task 只保管非秘密授权引用，不持有供应商令牌。仅复制 SQLite 或单个服务目录不是完整备份；节点插件和程序等依赖也需保留。当前采用节点管理员执行的文件级冷备份，不增设在线快照、自动恢复或转换入口。隔离恢复验收状态见[实施进度](reviews/architecture-implementation.md)。
 
 
 备份集须一并记录节点、Data 与 Task 的稳定身份和原配对、源绝对目录、程序/插件摘要及

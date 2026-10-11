@@ -1,6 +1,7 @@
 #include <asterion/domain/daily_bars.hpp>
 #include <asterion/domain/futures.hpp>
 #include <asterion/domain/historical_bars.hpp>
+#include <asterion/domain/history_tables.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
 #include <stdexcept>
@@ -265,6 +266,154 @@ Json decode_history_update_plan(const data::v1::HistoryUpdatePlan& value) {
           {"end", value.has_minutes() ? format_shanghai_time(value.minutes().end_ns())
                                       : value.daily().end_day()},
           {"missing_days", days}};
+}
+void validate_table_update(const data::v1::TableUpdate& update) {
+  validate_message(update);
+  validate_id(update.provider());
+  if (update.version() != 1 || update.requests_per_minute() < 1 ||
+      update.requests_per_minute() > 500 || update.tables().empty() || update.tables_size() > 32)
+    throw std::invalid_argument("invalid table update definition");
+  std::string_view previous;
+  for (const auto& table : update.tables()) {
+    if (history_table(table).period != TablePeriod::day || table <= previous)
+      throw std::invalid_argument("invalid table update definition");
+    previous = table;
+  }
+  for (const auto* day : {&update.begin_day(), &update.end_day()})
+    if (!day->empty())
+      (void)parse_trading_date(*day);
+  if (!update.begin_day().empty() && !update.end_day().empty() &&
+      update.begin_day() > update.end_day())
+    throw std::invalid_argument("invalid table update definition");
+}
+data::v1::TableUpdate encode_table_update(const Json& value) {
+  require_fields(value, {"provider", "tables", "begin_day", "end_day", "requests_per_minute"});
+  const auto& rate = value.at("requests_per_minute");
+  if (!value.at("tables").is_array() || !rate.is_number_integer() || rate < 1 || rate > 500)
+    throw std::invalid_argument("invalid table update definition");
+  data::v1::TableUpdate update;
+  update.set_version(1);
+  update.set_provider(value.at("provider").get<std::string>());
+  for (const auto& table : value.at("tables"))
+    update.add_tables(table.get<std::string>());
+  update.set_begin_day(value.at("begin_day").get<std::string>());
+  update.set_end_day(value.at("end_day").get<std::string>());
+  update.set_requests_per_minute(value.at("requests_per_minute").get<unsigned>());
+  validate_table_update(update);
+  return update;
+}
+Json decode_table_update(const data::v1::TableUpdate& update) {
+  validate_table_update(update);
+  return {{"provider", update.provider()},
+          {"tables", std::vector<std::string>(update.tables().begin(), update.tables().end())},
+          {"begin_day", update.begin_day()},
+          {"end_day", update.end_day()},
+          {"requests_per_minute", update.requests_per_minute()}};
+}
+namespace {
+Json partition_key(const data::v1::TablePartitionKey& key) {
+  return {{"table", key.table()}, {"exchange", key.exchange()}, {"period", key.period()}};
+}
+Json table_revision(const data::v1::TableRevision& revision) {
+  for (const auto* digest : {&revision.content(), &revision.object(), &revision.snapshot()})
+    if (digest->size() != 64 || digest->find_first_not_of("0123456789abcdef") != std::string::npos)
+      throw std::invalid_argument("invalid history table revision");
+  if (!revision.sequence() || !revision.rows())
+    throw std::invalid_argument("invalid history table revision");
+  return {{"sequence", revision.sequence()},
+          {"table", revision.table()},
+          {"schema", revision.schema()},
+          {"source", revision.source()},
+          {"exchange", revision.exchange()},
+          {"period", revision.period()},
+          {"content", revision.content()},
+          {"rows", revision.rows()},
+          {"bytes", revision.bytes()},
+          {"acquired_at_ns", std::to_string(revision.acquired_at_ns())},
+          {"provider_artifact", revision.provider_artifact()},
+          {"snapshot", revision.snapshot()}};
+}
+} // namespace
+Json decode_table_update_result(const data::v1::TableUpdateResult& result) {
+  validate_message(result);
+  if (result.version() != 1 ||
+      static_cast<unsigned>(result.unpublished_examples_size()) > result.unpublished())
+    throw std::invalid_argument("invalid table update result");
+  Json rejected = Json::array(), unpublished = Json::array();
+  for (const auto& item : result.rejected()) {
+    auto row = partition_key(item.partition());
+    row["reason"] = item.reason();
+    rejected.push_back(std::move(row));
+  }
+  for (const auto& item : result.unpublished_examples())
+    unpublished.push_back(partition_key(item));
+  return {{"stored", result.stored()},
+          {"unchanged", result.unchanged()},
+          {"rejected", std::move(rejected)},
+          {"unpublished", result.unpublished()},
+          {"unpublished_examples", std::move(unpublished)},
+          {"waiting", std::vector<std::string>(result.waiting().begin(), result.waiting().end())},
+          {"snapshot", result.snapshot()}};
+}
+Json decode_table_coverage(const data::v1::TableCoverage& coverage) {
+  validate_message(coverage);
+  Json sources = Json::array(), rows = Json::array();
+  for (const auto& item : coverage.sources())
+    sources.push_back(
+        {{"table", item.table()},
+         {"schema", item.schema()},
+         {"source", item.source()},
+         {"plugin_id", item.plugin_id()},
+         {"venues", std::vector<std::string>(item.venues().begin(), item.venues().end())}});
+  for (const auto& item : coverage.rows())
+    rows.push_back({{"table", item.table()},
+                    {"schema", item.schema()},
+                    {"source", item.source()},
+                    {"exchange", item.exchange()},
+                    {"partitions", item.partitions()},
+                    {"rows", item.rows()},
+                    {"first_period", item.first_period()},
+                    {"last_period", item.last_period()},
+                    {"acquired_at_ns", std::to_string(item.acquired_at_ns())},
+                    {"missing_days", item.has_missing_days() ? Json(item.missing_days()) : Json()},
+                    {"missing_examples", std::vector<std::string>(item.missing_examples().begin(),
+                                                                  item.missing_examples().end())}});
+  return {{"snapshot", coverage.snapshot()},
+          {"sources", std::move(sources)},
+          {"rows", std::move(rows)}};
+}
+data::v1::TablePageQuery encode_table_page_query(const Json& value) {
+  require_fields(value, {"table", "source", "exchange", "period", "offset", "limit"});
+  if (!value.at("offset").is_number_integer() || value.at("offset") < 0 ||
+      !value.at("limit").is_number_integer() || value.at("limit") < 1 || value.at("limit") > 500)
+    throw std::invalid_argument("invalid history table page query");
+  data::v1::TablePageQuery query;
+  query.mutable_partition()->set_table(value.at("table").get<std::string>());
+  query.mutable_partition()->set_exchange(value.at("exchange").get<std::string>());
+  query.mutable_partition()->set_period(value.at("period").get<std::string>());
+  query.set_source(value.at("source").get<std::string>());
+  query.set_offset(value.at("offset").get<std::uint64_t>());
+  query.set_limit(value.at("limit").get<unsigned>());
+  validate_table_period(history_table(query.partition().table()), query.partition().period());
+  validate_history_venue(query.partition().exchange());
+  validate_history_source(query.source());
+  return query;
+}
+Json decode_table_page(const data::v1::TablePage& page) {
+  validate_message(page);
+  Json rows = Json::array();
+  for (const auto& row : page.rows()) {
+    if (row.cells_size() != page.columns_size())
+      throw std::invalid_argument("invalid history table page");
+    Json cells = Json::array();
+    for (const auto& cell : row.cells())
+      cells.push_back(cell.has_text() ? Json(cell.text()) : Json());
+    rows.push_back(std::move(cells));
+  }
+  return {{"revision", table_revision(page.revision())},
+          {"columns", std::vector<std::string>(page.columns().begin(), page.columns().end())},
+          {"rows", std::move(rows)},
+          {"offset", page.offset()}};
 }
 Json decode_history_usage(const data::v1::HistoryUsage& value) {
   validate_message(value);

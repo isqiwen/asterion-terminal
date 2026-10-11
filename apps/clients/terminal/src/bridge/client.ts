@@ -299,6 +299,9 @@ export type TerminalCommand =
   | "data.history.usage"
   | "data.download.update.plan"
   | "data.download.update.submit"
+  | "data.tables.update.submit"
+  | "data.tables.coverage"
+  | "data.tables.page"
   | "data.dataset.select"
   | "data.dataset.series"
   | "data.dataset.remove"
@@ -622,7 +625,7 @@ export type TaskRecord = {
   risk_artifact?: string;
   data_source?: string;
   history_dataset_id?: string;
-  kind: "backtest" | "factor" | "minute_download" | "daily_download";
+  kind: "backtest" | "factor" | "minute_download" | "daily_download" | "table_update";
   id: string;
   state:
     | "queued"
@@ -855,7 +858,80 @@ export type TaskResult =
       task: TaskRecord;
       experiment: { contract_id: string; begin_day: string; end_day: string };
       result: { directory: string; manifest_sha256: string; rows: number; pages: number };
+    }
+  | {
+      id: string;
+      kind: "table_update";
+      task: TaskRecord;
+      experiment: TableUpdate;
+      result: TableUpdateResult;
     };
+// One exchange and one period of a market-wide table: a trading day
+// (YYYY-MM-DD), a year or "all", as the table is kept.
+export type TablePartitionKey = { table: string; exchange: string; period: string };
+// What an update of market-wide tables was asked to read. An empty begin day
+// continues after what each exchange already holds; an empty end day reads
+// through the last day that has ended.
+export type TableUpdate = {
+  provider: string;
+  tables: string[];
+  begin_day: string;
+  end_day: string;
+  requests_per_minute: number;
+};
+// What one update did, partition by partition. Stored partitions stay whatever
+// became of the rest.
+export type TableUpdateResult = {
+  stored: number;
+  unchanged: number;
+  rejected: (TablePartitionKey & { reason: string })[];
+  unpublished: number;
+  unpublished_examples: TablePartitionKey[];
+  // "table exchange" pairs that hold nothing yet while the update named no begin day.
+  waiting: string[];
+  snapshot: string;
+};
+// A table an installed data source provides.
+export type TableSource = {
+  table: string;
+  schema: number;
+  source: string;
+  plugin_id: string;
+  venues: string[];
+};
+// What the store holds for one exchange of one table. missing_days is null
+// when there is no calendar to count against.
+export type TableCoverageRow = {
+  table: string;
+  schema: number;
+  source: string;
+  exchange: string;
+  partitions: number;
+  rows: number;
+  first_period: string;
+  last_period: string;
+  acquired_at_ns: string;
+  missing_days: number | null;
+  missing_examples: string[];
+};
+export type TableCoverage = { snapshot: string; sources: TableSource[]; rows: TableCoverageRow[] };
+// One page of a stored partition. Cells are text as stored; null is a missing value.
+export type TablePage = {
+  revision: TablePartitionKey & {
+    sequence: number;
+    schema: number;
+    source: string;
+    content: string;
+    rows: number;
+    bytes: number;
+    acquired_at_ns: string;
+    provider_artifact: string;
+    snapshot: string;
+  };
+  columns: string[];
+  rows: (string | null)[][];
+  offset: number;
+};
 // Trading days per contract across archived minute and daily versions.
 export type HistoryCoverage = {
   minute_dataset_id: string;
@@ -1022,6 +1098,8 @@ export type Snapshot = {
   history_coverage?: HistoryCoverage[];
   history_update_plan?: HistoryUpdatePlan;
   history_usage?: HistoryUsage;
+  table_coverage?: TableCoverage;
+  table_page?: TablePage;
   // Present when the core answered from its last snapshot because another operation was running.
   // Revision of the core's published state and when the core last refreshed it.
   revision: number;

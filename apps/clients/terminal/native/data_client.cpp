@@ -417,6 +417,31 @@ std::future<Json> DataClient::daily_page(const data::v1::DailyPageQuery& query) 
         return protocol::decode_daily_page(page);
       });
 }
+std::future<Json> DataClient::table_coverage() {
+  wire::DataRequest request;
+  request.mutable_table_coverage();
+  return impl_->invoke<Json>(std::move(request),
+                             [](const wire::DataRequest&, wire::DataResponse& response) -> Json {
+                               return protocol::decode_table_coverage(response.table_coverage());
+                             });
+}
+std::future<Json> DataClient::table_page(const data::v1::TablePageQuery& query) {
+  wire::DataRequest request;
+  *request.mutable_table_page() = query;
+  return impl_->invoke<Json>(
+      std::move(request),
+      [](const wire::DataRequest& request, wire::DataResponse& response) -> Json {
+        const auto& query = request.table_page();
+        const auto& page = response.table_page();
+        const auto& held = page.revision();
+        if (held.table() != query.partition().table() ||
+            held.exchange() != query.partition().exchange() ||
+            held.period() != query.partition().period() || held.source() != query.source() ||
+            page.offset() != query.offset() || page.rows_size() > static_cast<int>(query.limit()))
+          throw Error(ErrorCode::unavailable, "history table page identity mismatch");
+        return protocol::decode_table_page(page);
+      });
+}
 std::future<Json> DataClient::history_usage(const std::string& id) {
   wire::DataRequest request;
   request.mutable_history_usage()->set_id(id);

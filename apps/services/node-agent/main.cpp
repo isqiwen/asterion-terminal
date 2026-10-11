@@ -587,10 +587,11 @@ class Agent {
       validate_id(launch.task_id());
       if (service.workers.contains(launch.task_id()))
         throw std::runtime_error("dispatch repeated a running task");
-      // The data pipeline only runs data-source downloads.
-      if ((launch.program() == task::v1::DATA_PIPELINE_PROGRAM) !=
-              (launch.daily_download() || launch.minute_download()) ||
-          (launch.daily_download() && launch.minute_download()))
+      // The data pipeline only runs data-source downloads, one kind at a time.
+      const auto downloads =
+          launch.daily_download() + launch.minute_download() + launch.table_update();
+      if ((launch.program() == task::v1::DATA_PIPELINE_PROGRAM) != (downloads == 1) ||
+          downloads > 1)
         throw std::invalid_argument("invalid download worker launch");
       std::string artifact;
       switch (launch.program()) {
@@ -626,6 +627,8 @@ class Agent {
           args.push_back("--minute-download");
         if (launch.daily_download())
           args.push_back("--daily-download");
+        if (launch.table_update())
+          args.push_back("--table-update");
         child = std::make_unique<ChildProcess>(worker, args);
       });
       service.workers.emplace(launch.task_id(), std::move(child));

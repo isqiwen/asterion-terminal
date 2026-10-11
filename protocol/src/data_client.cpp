@@ -109,6 +109,14 @@ data::v1::DataResponse decode_data_response(const data::v1::DataRequest& request
       return Response::kPublishedDownload;
     case Request::kPublishedDownload:
       return Response::kPublishedDownload;
+    case Request::kTableCoverage:
+      return Response::kTableCoverage;
+    case Request::kTablePage:
+      return Response::kTablePage;
+    case Request::kTablePlan:
+      return Response::kTablePlan;
+    case Request::kStoreTablePartition:
+      return Response::kTablePartition;
     case Request::OPERATION_NOT_SET:
       return Response::RESULT_NOT_SET;
     }

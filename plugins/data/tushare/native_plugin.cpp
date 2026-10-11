@@ -1,6 +1,7 @@
-#include "tushare.hpp"
+#include "tables.hpp"
 #include <asterion/plugin/history.h>
 #include <asterion/plugin/history_connection.h>
+#include <asterion/plugin/history_tables.h>
 #include <asterion/plugin/sdk.hpp>
 #include <algorithm>
 #include <thread>
@@ -11,6 +12,7 @@ struct Instance {
   std::string source, credential;
   std::unique_ptr<tushare::Minutes> minutes;
   std::unique_ptr<tushare::Daily> daily;
+  std::unique_ptr<tushare::Tables> tables;
   bool running = false;
   AstRequestBudget budget{};
 };
@@ -195,6 +197,72 @@ AstStatus daily(void* object, const AstHistoryQuery* query, AstCancellation canc
     }
   });
 }
+AstStatus tables(void*, void* context, AstStatus (*emit)(void*, const AstHistoryTable*)) noexcept {
+  return sdk::boundary([&] {
+    if (!emit)
+      throw AstStatus(AST_INVALID);
+    static const char* venues[] = {"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"};
+    for (const auto& definition : tushare::table_definitions()) {
+      const AstHistoryTable row{definition.table, definition.schema, definition.source, venues, 6};
+      sdk::check(emit(context, &row));
+    }
+  });
+}
+AstStatus read_table(void* object, const char* table, const char* const* columns,
+                     uint32_t column_count, const char* venue, const char* period,
+                     AstCancellation cancel, AstRequestBudget budget, AstDiagnostics diagnostics,
+                     void* context,
+                     AstStatus (*emit)(void*, const char* const*, uint32_t)) noexcept {
+  return sdk::boundary([&] {
+    if (!table || !columns || !column_count || column_count > 64 || !venue || !period || !emit)
+      throw AstStatus(AST_INVALID);
+    auto* self = static_cast<Instance*>(object);
+    active(self);
+    if (!self->tables)
+      throw AstStatus(AST_UNSUPPORTED);
+    BudgetScope admission(*self, budget);
+    Cancellation cancellation(cancel);
+    std::vector<std::string> names;
+    for (uint32_t i = 0; i < column_count; ++i) {
+      if (!columns[i])
+        throw AstStatus(AST_INVALID);
+      names.emplace_back(columns[i]);
+    }
+    // Only sentences this plugin wrote cross the boundary; see tables.cpp.
+    const auto report = [&](const char* message) {
+      if (diagnostics.report)
+        diagnostics.report(diagnostics.context, message);
+    };
+    std::vector<tushare::TableRow> rows;
+    try {
+      rows = self->tables->read(table, names, venue, period, cancellation.source.get_token());
+    } catch (const tushare::TableError& error) {
+      report(error.what());
+      throw AstStatus(AST_INVALID);
+    } catch (const tushare::RequestError& error) {
+      report(error.what());
+      switch (error.reason) {
+      case tushare::AccessFailure::invalid_credential:
+      case tushare::AccessFailure::permission:
+        throw AstStatus(AST_PERMISSION);
+      case tushare::AccessFailure::rate_limit:
+        throw AstStatus(AST_LIMIT);
+      case tushare::AccessFailure::network:
+        throw AstStatus(AST_UNAVAILABLE);
+      default:
+        throw AstStatus(AST_FAILED);
+      }
+    }
+    std::vector<const char*> cells(names.size());
+    for (const auto& row : rows) {
+      if (cancellation.source.stop_requested())
+        throw AstStatus(AST_CANCELLED);
+      for (std::size_t i = 0; i < cells.size(); ++i)
+        cells[i] = row[i] ? row[i]->c_str() : nullptr;
+      sdk::check(emit(context, cells.data(), column_count));
+    }
+  });
+}
 AstStatus describe_connection(void*, const char* source, void* context,
                               AstStatus (*emit)(void*,
                                                 const AstHistoryConnectionSchema*)) noexcept {
@@ -284,6 +352,7 @@ AstStatus verify_connection(void*, const char* source, const char* credential,
 const AstHistoryConnectionV1 connection{sizeof(AstHistoryConnectionV1), 1, describe_connection,
                                         verify_connection};
 const AstHistoryV2 history{sizeof(AstHistoryV2), 2, sources, catalog, minutes, daily};
+const AstHistoryTablesV1 history_tables{sizeof(AstHistoryTablesV1), 1, tables, read_table};
 AstStatus create(const char* capability, const AstSetting* settings, uint32_t count,
                  void** out) noexcept {
   if (!out)
@@ -291,7 +360,8 @@ AstStatus create(const char* capability, const AstSetting* settings, uint32_t co
   *out = nullptr;
   return sdk::boundary([&] {
     if (!capability || (std::string_view(capability) != AST_HISTORY_V2 &&
-                        std::string_view(capability) != AST_HISTORY_CONNECTION_V1))
+                        std::string_view(capability) != AST_HISTORY_CONNECTION_V1 &&
+                        std::string_view(capability) != AST_HISTORY_TABLES_V1))
       throw AstStatus(AST_UNSUPPORTED);
     if (count > 64 || (count && !settings))
       throw AstStatus(AST_INVALID);
@@ -317,6 +387,9 @@ AstStatus create(const char* capability, const AstSetting* settings, uint32_t co
       result->minutes = std::make_unique<tushare::Minutes>(result->credential, post);
     if (result->source == "tushare.fut_daily")
       result->daily = std::make_unique<tushare::Daily>(result->credential, post);
+    // A metadata instance has no credential and only lists the tables.
+    if (std::string_view(capability) == AST_HISTORY_TABLES_V1 && !result->credential.empty())
+      result->tables = std::make_unique<tushare::Tables>(result->credential, post);
     *out = result.release();
   });
 }
@@ -354,20 +427,26 @@ AstStatus query(void*, const char* id, uint32_t version, uint32_t size, const vo
     *out = &connection;
     return AST_OK;
   }
+  if (id && std::string_view(id) == AST_HISTORY_TABLES_V1 && version == 1 &&
+      size == sizeof(AstHistoryTablesV1)) {
+    *out = &history_tables;
+    return AST_OK;
+  }
   if (!id || std::string_view(id) != AST_HISTORY_V2 || version != 2 || size != sizeof(AstHistoryV2))
     return AST_UNSUPPORTED;
   *out = &history;
   return AST_OK;
 }
 const AstCapability capabilities[] = {{AST_HISTORY_V2, 2, "data"},
-                                      {AST_HISTORY_CONNECTION_V1, 1, "data"}};
+                                      {AST_HISTORY_CONNECTION_V1, 1, "data"},
+                                      {AST_HISTORY_TABLES_V1, 1, "data"}};
 const AstPluginV1 plugin{sizeof(AstPluginV1),
                          ASTERION_PLUGIN_ABI_VERSION,
                          "asterion.data.tushare",
                          "1.0.0",
                          ASTERION_PLUGIN_PLATFORM,
                          capabilities,
-                         2,
+                         3,
                          create,
                          start,
                          stop,

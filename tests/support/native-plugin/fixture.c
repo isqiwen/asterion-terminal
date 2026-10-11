@@ -2,9 +2,10 @@
 #include "fixture.h"
 #include <asterion/plugin/history.h>
 #include <asterion/plugin/history_connection.h>
+#include <asterion/plugin/history_tables.h>
 #include <stdlib.h>
 #include <string.h>
-typedef struct { int running, fail_start, daily; } Instance;
+typedef struct { int running, fail_start, daily, refuse; } Instance;
 static uint32_t destroyed_count, stopped_count;
 static int32_t running(void* p) { return ((Instance*)p)->running; }
 static uint32_t destroyed(void) { return destroyed_count; }
@@ -59,9 +60,51 @@ static AstStatus verify_connection(void* self,const char* source,const char* cre
   AstStatus result=emit(ctx,&catalog);return result==AST_OK?emit(ctx,&history):result;
 }
 static const AstHistoryConnectionV1 connection={sizeof(AstHistoryConnectionV1),1,describe_connection,verify_connection};
+/* Market-wide tables of one exchange with one contract. The first week of March 2024 holds every
+ * outcome a reader meets: 03-01 and 03-04 are ordinary days, 03-05 carries a volume no table can
+ * hold, 03-06 is a day this source cannot use, and 03-07 is not published yet. */
+static AstStatus tables(void* self,void* ctx,AstStatus(*emit)(void*,const AstHistoryTable*)) {
+  (void)self; if(!emit) return AST_INVALID;
+  static const char* venues[]={"SHFE"};
+  const AstHistoryTable rows[]={{"futures.contracts",1,"fixture.contracts.v1",venues,1},{"futures.calendar",1,"fixture.calendar.v1",venues,1},{"futures.daily",1,"fixture.daily.v1",venues,1}};
+  for(int i=0;i<3;++i) { AstStatus result=emit(ctx,&rows[i]); if(result!=AST_OK) return result; }
+  return AST_OK;
+}
+typedef struct { const char *name, *value; } Cell;
+static AstStatus emit_row(const Cell* known,int count,const char* const* columns,uint32_t width,void* ctx,AstStatus(*emit)(void*,const char* const*,uint32_t)) {
+  const char* cells[64]; if(width>64) return AST_INVALID;
+  for(uint32_t c=0;c<width;++c) { cells[c]=NULL; for(int k=0;k<count;++k) if(columns[c] && !strcmp(columns[c],known[k].name)) cells[c]=known[k].value; }
+  return emit(ctx,cells,width);
+}
+static AstStatus read_table(void* self,const char* table,const char* const* columns,uint32_t width,const char* venue,const char* period,AstCancellation cancel,AstRequestBudget budget,AstDiagnostics diagnostics,void* ctx,AstStatus(*emit)(void*,const char* const*,uint32_t)) {
+  if(!self || !table || !columns || !venue || !period || !emit) return AST_INVALID;
+  Instance* p=self;
+  if(!p->running) return AST_UNAVAILABLE;
+  if(cancel.requested && cancel.requested(cancel.context)) return AST_CANCELLED;
+  if(!budget.acquire) return AST_INVALID;
+  AstStatus permit=budget.acquire(budget.context); if(permit!=AST_OK) return permit;
+  if(p->refuse) { if(diagnostics.report) diagnostics.report(diagnostics.context,"fixture refused the request: the account has no permission"); return AST_PERMISSION; }
+  if(strcmp(venue,"SHFE")) return AST_UNSUPPORTED;
+  if(!strcmp(table,"futures.contracts")) {
+    const Cell row[]={{"contract","SHFE/cu/2024-03"},{"source_instrument","vendor/cu2403"},{"name","Fixture copper"},{"list_date","2024-02-29"},{"delist_date","2024-03-15"},{"per_unit","5"},{"trade_unit","tonnes"}};
+    return emit_row(row,7,columns,width,ctx,emit);
+  }
+  if(!strcmp(table,"futures.calendar")) {
+    static const char* days[][3]={{"2024-02-28","1",NULL},{"2024-02-29","1","2024-02-28"},{"2024-03-01","1","2024-02-29"},{"2024-03-02","0",NULL},{"2024-03-03","0",NULL},{"2024-03-04","1","2024-03-01"},{"2024-03-05","1","2024-03-04"},{"2024-03-06","1","2024-03-05"},{"2024-03-07","1","2024-03-06"}};
+    if(strcmp(period,"2024")) return AST_OK;
+    for(int i=0;i<9;++i) { const Cell row[]={{"day",days[i][0]},{"open",days[i][1]},{"previous_trading_day",days[i][2]}}; AstStatus result=emit_row(row,3,columns,width,ctx,emit); if(result!=AST_OK) return result; }
+    return AST_OK;
+  }
+  if(strcmp(table,"futures.daily")) return AST_UNSUPPORTED;
+  if(!strcmp(period,"2024-03-07")) return AST_OK;
+  if(!strcmp(period,"2024-03-06")) { if(diagnostics.report) diagnostics.report(diagnostics.context,"futures.daily SHFE 2024-03-06: vendor/cu2499 is not in the contract list"); return AST_INVALID; }
+  const Cell row[]={{"contract","SHFE/cu/2024-03"},{"close","72000.5"},{"settlement","71990"},{"volume",!strcmp(period,"2024-03-05")?"1200.5":"1200"},{"amount","432000000000.25"},{"open_interest","3400"}};
+  return emit_row(row,6,columns,width,ctx,emit);
+}
+static const AstHistoryTablesV1 history_tables={sizeof(AstHistoryTablesV1),1,tables,read_table};
 static AstStatus create(const char* capability,const AstSetting* settings,uint32_t count,void** out) {
   if(!out) return AST_INVALID; *out=NULL;
-  if(!capability || (strcmp(capability,AST_TEST_LIFETIME) && strcmp(capability,AST_HISTORY_V2) && strcmp(capability,AST_HISTORY_CONNECTION_V1))) return AST_UNSUPPORTED;
+  if(!capability || (strcmp(capability,AST_TEST_LIFETIME) && strcmp(capability,AST_HISTORY_V2) && strcmp(capability,AST_HISTORY_CONNECTION_V1) && strcmp(capability,AST_HISTORY_TABLES_V1))) return AST_UNSUPPORTED;
   if(count>64 || (count && !settings)) return AST_INVALID;
   Instance* p=calloc(1,sizeof(Instance)); if(!p) return AST_LIMIT;
   for(uint32_t i=0;i<count;++i) {
@@ -69,6 +112,7 @@ static AstStatus create(const char* capability,const AstSetting* settings,uint32
     if(!strcmp(settings[i].key,"fail_create")) {free(p);return AST_PERMISSION;}
     if(!strcmp(settings[i].key,"fail_start")) p->fail_start=1;
     if(!strcmp(settings[i].key,"source")) p->daily=!strcmp(settings[i].value,"fixture.daily");
+    if(!strcmp(settings[i].key,"credential")) p->refuse=!strcmp(settings[i].value,"refused");
   }
   *out=p;return AST_OK;
 }
@@ -87,16 +131,17 @@ static AstStatus query(void* self,const char* id,uint32_t version,uint32_t size,
   if(!strcmp(id,AST_TEST_LIFETIME) && version==1 && size==sizeof(TestLifetime)) {*out=&lifetime;return AST_OK;}
   if(!strcmp(id,AST_HISTORY_V2) && version==2 && size==sizeof(AstHistoryV2)) {*out=&history;return AST_OK;}
   if(!strcmp(id,AST_HISTORY_CONNECTION_V1) && version==1 && size==sizeof(AstHistoryConnectionV1)) {*out=&connection;return AST_OK;}
+  if(!strcmp(id,AST_HISTORY_TABLES_V1) && version==1 && size==sizeof(AstHistoryTablesV1)) {*out=&history_tables;return AST_OK;}
   return AST_UNSUPPORTED;
 }
-static const AstCapability capabilities[]={{AST_TEST_LIFETIME,1,"tool"},{AST_HISTORY_V2,2,"data"},{AST_HISTORY_CONNECTION_V1,1,"data"}};
+static const AstCapability capabilities[]={{AST_TEST_LIFETIME,1,"tool"},{AST_HISTORY_V2,2,"data"},{AST_HISTORY_CONNECTION_V1,1,"data"},{AST_HISTORY_TABLES_V1,1,"data"}};
 #ifndef BAD_ABI
 #define BAD_ABI ASTERION_PLUGIN_ABI_VERSION
 #endif
 #ifndef FIXTURE_VERSION
 #define FIXTURE_VERSION "1.0.0"
 #endif
-static const AstPluginV1 plugin={sizeof(AstPluginV1),BAD_ABI,"test.independent.c",FIXTURE_VERSION,ASTERION_PLUGIN_PLATFORM,capabilities,3,create,start,stop,destroy,query};
+static const AstPluginV1 plugin={sizeof(AstPluginV1),BAD_ABI,"test.independent.c",FIXTURE_VERSION,ASTERION_PLUGIN_PLATFORM,capabilities,4,create,start,stop,destroy,query};
 #ifdef MISSING_ENTRY
 ASTERION_PLUGIN_EXPORT int unrelated_entry(void) {return 1;}
 #else

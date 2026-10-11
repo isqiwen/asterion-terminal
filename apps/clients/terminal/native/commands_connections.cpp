@@ -7,6 +7,12 @@ PolledTask<std::string> Application::Impl::source_credential(const std::string& 
   if (!typed.empty())
     co_return typed;
   const auto provider = (co_await PollFuture{data_client->source(source)}).plugin_id();
+  co_return co_await provider_credential(provider, {});
+}
+PolledTask<std::string> Application::Impl::provider_credential(const std::string& provider,
+                                                               std::string typed) {
+  if (!typed.empty())
+    co_return typed;
   const auto saved = co_await settings<std::optional<DataCredential>>(
       [&] { return data_credentials.find(provider); });
   co_return saved ? saved->credential : std::string();

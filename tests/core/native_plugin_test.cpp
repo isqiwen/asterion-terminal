@@ -16,7 +16,7 @@ TEST(NativePlugin, InstancePinsLibraryAndOwnsDestruction) {
   {
     NativeLibrary library(PLUGIN_GOOD);
     EXPECT_EQ(library.descriptor().id, "test.independent.c");
-    EXPECT_EQ(library.descriptor().capabilities.size(), 3);
+    EXPECT_EQ(library.descriptor().capabilities.size(), 4);
     instance = library.create(AST_TEST_LIFETIME, {});
   }
   const auto& api = table(*instance);

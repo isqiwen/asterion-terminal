@@ -20,12 +20,12 @@ message DownloadPermit { bool granted = 1; uint32 retry_after_ms = 2; }
 // part of the public authorization or immutable task definition.
 message DownloadAuthorizationRequest {
   string task_instance = 1; string task_id = 2; string credential = 3;
-  oneof definition { MinuteDownload minutes = 4; DailyDownload daily = 5; }
+  oneof definition { MinuteDownload minutes = 4; DailyDownload daily = 5; TableUpdate table_update = 6; }
 }
 message DownloadAuthorization {
   uint32 version = 1; string id = 2; string data_instance = 3;
   string task_instance = 4; string task_id = 5; string provider_artifact = 6; string provider_id = 7;
-  oneof definition { MinuteDownload minutes = 8; DailyDownload daily = 9; }
+  oneof definition { MinuteDownload minutes = 8; DailyDownload daily = 9; TableUpdate table_update = 10; }
 }
 // Private on-disk representation. Never returned through DataResponse.
 message StoredDownloadAuthorization {
@@ -41,7 +41,7 @@ message DownloadCredentials { DownloadIdentity identity = 1; string authorizatio
 message DownloadAllocation {
   string authorization_id = 1;
   DownloadIdentity identity = 2;
-  oneof definition { MinuteDownload minutes = 3; DailyDownload daily = 4; }
+  oneof definition { MinuteDownload minutes = 3; DailyDownload daily = 4; TableUpdate table_update = 5; }
 }
 message DownloadDirectory { string directory = 1; }
 message AllocatedDownload { DownloadAllocation request = 1; string directory = 2; }
@@ -54,6 +54,21 @@ message DownloadPublication {
   DownloadIdentity identity = 1; string candidate_digest = 2; string publication_id = 3;
 }
 message PublishedDownload { DownloadPublication decision = 1; HistoryRecord record = 2; }
+// What a table update still has to read, in order. The reference phase lists
+// the contract lists and calendar years; the other phase the trading days,
+// worked out from the calendar the reference phase has stored.
+message TablePlanQuery { DownloadIdentity identity = 1; bool references = 2; }
+message TableUpdatePlan { repeated TablePartitionKey partitions = 1; repeated string waiting = 2; }
+// One partition as the source delivered it. The reply is the revision the
+// partition now holds, or why its rows cannot be stored; a rejection is an
+// answer about the data, not a failed request.
+message TablePartitionRows {
+  DownloadIdentity identity = 1; TablePartitionKey partition = 2; repeated TableRow rows = 3;
+}
+message TablePartitionReceipt {
+  oneof outcome { TableRevision revision = 1; string rejection = 2; }
+  bool unchanged = 3;
+}
 message DataRequest {
   uint32 version = 1; string service_id = 2; string correlation_id = 3;
   oneof operation {
@@ -84,6 +99,10 @@ message DataRequest {
     DownloadIdentity download_credentials = 34;
     DownloadBudgetConfiguration configure_download_budget = 35;
     DownloadIdentity acquire_download_permit = 36;
+    asterion.protocol.v1.Empty table_coverage = 37;
+    TablePageQuery table_page = 38;
+    TablePlanQuery table_plan = 39;
+    TablePartitionRows store_table_partition = 40;
   }
 }
 message DataResponse {
@@ -113,5 +132,9 @@ message DataResponse {
     DownloadCredentials download_credentials = 31;
     DownloadBudgetPolicy download_budget = 32;
     DownloadPermit download_permit = 33;
+    TableCoverage table_coverage = 34;
+    TablePage table_page = 35;
+    TableUpdatePlan table_plan = 36;
+    TablePartitionReceipt table_partition = 37;
   }
 }

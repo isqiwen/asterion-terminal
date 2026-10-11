@@ -2,6 +2,7 @@
 #include <asterion/kernel/native_plugin.hpp>
 #include <asterion/plugin/history.h>
 #include <asterion/plugin/history_connection.h>
+#include <asterion/plugin/history_tables.h>
 #include <algorithm>
 #include <asterion/foundation/error.hpp>
 #include <cstring>
@@ -458,5 +459,182 @@ std::vector<HistoryListing> catalog(const std::string& source, const std::string
         !identities.insert(item.identity).second)
       throw std::invalid_argument("invalid native history listing");
   return result;
+}
+namespace {
+const AstHistoryTablesV1& tables_table(const NativeInstance& instance) {
+  const auto* result = static_cast<const AstHistoryTablesV1*>(
+      instance.query(AST_HISTORY_TABLES_V1, 1, sizeof(AstHistoryTablesV1)));
+  if (result->size != sizeof(AstHistoryTablesV1) || result->version != 1 || !result->tables ||
+      !result->read)
+    throw std::invalid_argument("invalid native history table capability");
+  return *result;
+}
+struct InstalledTables {
+  NativeLibrary library;
+  std::string plugin_id;
+  std::vector<TableSource> tables;
+};
+const std::vector<InstalledTables>& table_registry() {
+  static const auto all = [] {
+    std::vector<InstalledTables> result;
+    for (auto& library : discover_native_plugins(native_plugin_directory())) {
+      const auto& descriptor = library.descriptor();
+      if (std::ranges::none_of(descriptor.capabilities, [](const auto& c) {
+            return c.id == AST_HISTORY_TABLES_V1 && c.version == 1;
+          }))
+        continue;
+      auto instance = library.create(AST_HISTORY_TABLES_V1, {});
+      Output<TableSource> out;
+      const auto status = tables_table(*instance).tables(
+          instance->handle(), &out,
+          [](void* context, const AstHistoryTable* row) noexcept -> AstStatus {
+            return static_cast<Output<TableSource>*>(context)->emit([&] {
+              if (!row || !row->venues || !row->venue_count || row->venue_count > 64)
+                throw std::invalid_argument("invalid native history table");
+              TableSource table{text(row->table), row->schema, text(row->source), {}, {}};
+              validate_history_source(table.source);
+              std::set<std::string> venues;
+              for (uint32_t i = 0; i < row->venue_count; ++i) {
+                auto venue = text(row->venues[i]);
+                validate_history_venue(venue);
+                if (!venues.insert(venue).second)
+                  throw std::invalid_argument("invalid native history table");
+                table.venues.push_back(std::move(venue));
+              }
+              return table;
+            });
+          });
+      InstalledTables installed{library, descriptor.id, {}};
+      std::set<std::string> offered;
+      for (auto& table : out.finish(status)) {
+        table.plugin_id = descriptor.id;
+        if (!offered.insert(table.table).second)
+          throw std::invalid_argument("duplicate native history table");
+        // A table this host defines otherwise, or not at all, is not offered.
+        const auto known =
+            std::ranges::find(history_tables(), std::string_view(table.table), &HistoryTable::id);
+        if (known != history_tables().end() && known->schema == table.schema)
+          installed.tables.push_back(std::move(table));
+      }
+      result.push_back(std::move(installed));
+    }
+    return result;
+  }();
+  return all;
+}
+const InstalledTables& table_provider(const std::string& plugin_id) {
+  for (const auto& installed : table_registry())
+    if (installed.plugin_id == plugin_id)
+      return installed;
+  throw std::invalid_argument("history table source is unavailable");
+}
+class Tables final : public TableReader {
+public:
+  Tables(const std::string& plugin_id, const std::string& credential, RequestBudget budget)
+      : installed_(table_provider(plugin_id)), budget_(std::move(budget)) {
+    if (credential.empty() || credential.size() > 256)
+      throw std::invalid_argument("invalid native plugin credential");
+    instance_ =
+        installed_.library.create(AST_HISTORY_TABLES_V1, {{"credential", credential.c_str()}});
+    instance_->start();
+  }
+  std::vector<TableSourceRow> read(const HistoryTable& table, const std::string& venue,
+                                   const std::string& period, std::stop_token stop) override {
+    const auto offered = std::ranges::find(installed_.tables, table.id, &TableSource::table);
+    if (offered == installed_.tables.end() ||
+        std::ranges::find(offered->venues, venue) == offered->venues.end())
+      throw std::invalid_argument("history table is unavailable from this source");
+    validate_table_period(table, period);
+    if (stop.stop_requested())
+      check_plugin_status(AST_CANCELLED);
+    std::vector<std::string> names;
+    std::vector<const char*> columns;
+    for (const auto& column : table.columns)
+      names.emplace_back(column.name);
+    for (const auto& name : names)
+      columns.push_back(name.c_str());
+    struct Rows {
+      std::size_t width;
+      std::vector<TableSourceRow> rows;
+      std::exception_ptr error;
+    } out{columns.size(), {}, {}};
+    std::string diagnostic;
+    Admission admission{budget_, stop, {}};
+    const std::string id(table.id);
+    const auto status =
+        tables_table(*instance_)
+            .read(
+                instance_->handle(), id.c_str(), columns.data(),
+                static_cast<uint32_t>(columns.size()), venue.c_str(), period.c_str(),
+                cancellation(stop), admission.callback(),
+                {&diagnostic,
+                 [](void* context, const char* message) {
+                   // One bounded line, whatever the plugin passed.
+                   auto& kept = *static_cast<std::string*>(context);
+                   if (!message || !kept.empty())
+                     return;
+                   kept.assign(message, strnlen(message, 512));
+                   for (auto& c : kept)
+                     if (static_cast<unsigned char>(c) < 0x20 || c == 0x7f)
+                       c = ' ';
+                 }},
+                &out,
+                [](void* context, const char* const* cells, uint32_t count) noexcept -> AstStatus {
+                  auto& out = *static_cast<Rows*>(context);
+                  if (out.error)
+                    return AST_FAILED;
+                  try {
+                    if (!cells || count != out.width)
+                      throw std::invalid_argument("invalid native history table row");
+                    if (out.rows.size() >= max_table_partition_rows)
+                      throw Error(ErrorCode::resource_exhausted,
+                                  "native plugin resource limit exceeded");
+                    auto& row = out.rows.emplace_back();
+                    row.reserve(count);
+                    for (uint32_t i = 0; i < count; ++i)
+                      row.push_back(cells[i] ? std::optional(text(cells[i])) : std::nullopt);
+                    return AST_OK;
+                  } catch (...) {
+                    out.error = std::current_exception();
+                    return AST_FAILED;
+                  }
+                });
+    admission.finish();
+    if (out.error)
+      std::rethrow_exception(out.error);
+    if (stop.stop_requested())
+      check_plugin_status(AST_CANCELLED);
+    if (status == AST_INVALID)
+      throw TableRejected(!diagnostic.empty() ? diagnostic
+                                              : id + " " + venue + " " + period +
+                                                    ": the source could not use its data");
+    try {
+      check_plugin_status(status);
+    } catch (const Error& error) {
+      if (diagnostic.empty())
+        throw;
+      throw Error(error.code(), diagnostic);
+    }
+    return std::move(out.rows);
+  }
+
+private:
+  const InstalledTables& installed_;
+  RequestBudget budget_;
+  std::unique_ptr<NativeInstance> instance_;
+};
+} // namespace
+std::vector<TableSource> table_sources() {
+  std::vector<TableSource> result;
+  for (const auto& installed : table_registry())
+    result.insert(result.end(), installed.tables.begin(), installed.tables.end());
+  return result;
+}
+std::string table_artifact(const std::string& plugin_id) {
+  return table_provider(plugin_id).library.sha256();
+}
+std::unique_ptr<TableReader> tables(const std::string& plugin_id, const std::string& credential,
+                                    RequestBudget budget) {
+  return std::make_unique<Tables>(plugin_id, credential, std::move(budget));
 }
 } // namespace asterion::history_providers

@@ -40,10 +40,12 @@ Json decode_task(const task::v1::Task& task) {
     throw std::invalid_argument("invalid task state");
   }
   if (task.kind() != task::v1::BACKTEST && task.kind() != task::v1::FACTOR &&
-      task.kind() != task::v1::MINUTE_DOWNLOAD && task.kind() != task::v1::DAILY_DOWNLOAD)
+      task.kind() != task::v1::MINUTE_DOWNLOAD && task.kind() != task::v1::DAILY_DOWNLOAD &&
+      task.kind() != task::v1::TABLE_UPDATE)
     throw std::invalid_argument("invalid task kind");
   Json output = {{"kind", task.kind() == task::v1::DAILY_DOWNLOAD    ? "daily_download"
                           : task.kind() == task::v1::MINUTE_DOWNLOAD ? "minute_download"
+                          : task.kind() == task::v1::TABLE_UPDATE    ? "table_update"
                           : task.kind() == task::v1::FACTOR          ? "factor"
                                                                      : "backtest"},
                  {"id", task.id()},
@@ -123,6 +125,10 @@ Json decode_task_result(const task::v1::TaskResponse& response, const std::strin
                               {"interval_minutes", input.interval_minutes()},
                               {"begin_ns", std::to_string(input.begin_ns())},
                               {"end_ns", std::to_string(input.end_ns())}};
+  } else if (task.kind() == task::v1::TABLE_UPDATE && task.has_table_update() &&
+             response.has_table_update()) {
+    envelope["result"] = decode_table_update_result(response.table_update());
+    envelope["experiment"] = decode_table_update(task.table_update());
   } else if (task.kind() == task::v1::BACKTEST && task.has_input() && response.has_backtest()) {
     auto experiment = decode_backtest(task.input(), DatasetView::metadata);
     if (response.backtest().dataset_revision() != task.input().dataset_revision())

@@ -1,4 +1,5 @@
 #include "tushare.hpp"
+#include "wire.hpp"
 #include <algorithm>
 #include <charconv>
 #include <chrono>
@@ -63,13 +64,19 @@ public:
     return false;
   }
 };
+} // namespace
+Json parse_response(const std::string& raw) {
+  ExactJson parser;
+  if (!Json::sax_parse(raw, &parser))
+    throw std::runtime_error("invalid Tushare response JSON");
+  return std::move(parser.result);
+}
 std::string text(const Json& value) {
   if (!value.is_string())
     throw std::invalid_argument("Tushare missing or invalid field");
   return value.get<std::string>();
 }
-// Expand scientific notation without converting through double.
-Decimal decimal(const Json& value, int shift = 0) {
+std::string plain_decimal(const Json& value, int shift) {
   auto raw = text(value);
   const auto exponent = raw.find_first_of("eE");
   if (exponent != std::string::npos || shift) {
@@ -116,7 +123,12 @@ Decimal decimal(const Json& value, int shift = 0) {
     if (!raw.empty() && raw.back() == '.')
       raw.pop_back();
   }
-  return Decimal::parse(raw);
+  return raw;
+}
+namespace {
+// Expand scientific notation without converting through double.
+Decimal decimal(const Json& value, int shift = 0) {
+  return Decimal::parse(plain_decimal(value, shift));
 }
 } // namespace
 std::int64_t parse_time(std::string_view text) {
@@ -125,7 +137,6 @@ std::int64_t parse_time(std::string_view text) {
 std::string format_time(std::int64_t ns) {
   return format_shanghai_time(ns);
 }
-namespace {
 AccessFailure rejection(const Json& response) {
   const auto message = response.value("msg", std::string{});
   if (message.find("token") != std::string::npos &&
@@ -139,7 +150,6 @@ AccessFailure rejection(const Json& response) {
     return AccessFailure::permission;
   return AccessFailure::failed;
 }
-} // namespace
 InstrumentId instrument(std::string_view ts_code) {
   const std::string value(ts_code);
   static const std::regex pattern("^([A-Z]{1,3}[0-9]{3,4})\\.(SHF|DCE|ZCE|CFX|INE|GFE)$");
@@ -242,10 +252,7 @@ std::optional<bool> Minutes::open(const std::string& venue, std::chrono::year_mo
     if (raw.size() > 1024 * 1024)
       throw std::runtime_error("Tushare response exceeds size limit");
     try {
-      ExactJson parser;
-      if (!Json::sax_parse(raw, &parser))
-        throw std::runtime_error("invalid Tushare response JSON");
-      const auto& root = parser.result;
+      const auto root = parse_response(raw);
       if (text(root.at("code")) != "0")
         throw RequestError(rejection(root), "Tushare rejected the trading calendar request");
       const auto& fields = root.at("data").at("fields");
@@ -308,11 +315,8 @@ std::vector<HistoricalBar> Minutes::read(const HistoricalBarRange& range, std::s
     throw std::runtime_error("Tushare download cancelled");
   if (raw.size() > 8 * 1024 * 1024)
     throw std::runtime_error("Tushare response exceeds size limit");
-  ExactJson parser;
-  if (!Json::sax_parse(raw, &parser))
-    throw std::runtime_error("invalid Tushare response JSON");
+  const auto root = parse_response(raw);
   try {
-    const auto& root = parser.result;
     if (text(root.at("code")) != "0") {
       // Provider text can echo a token. Never pass it to logs or the UI.
       throw RequestError(
@@ -418,11 +422,8 @@ std::vector<FuturesListing> contracts(const std::string& token, const std::strin
     throw std::runtime_error("Tushare download cancelled");
   if (raw.size() > 8 * 1024 * 1024)
     throw std::runtime_error("Tushare response exceeds size limit");
-  ExactJson parser;
-  if (!Json::sax_parse(raw, &parser))
-    throw std::runtime_error("invalid Tushare response JSON");
+  const auto root = parse_response(raw);
   try {
-    const auto& root = parser.result;
     if (text(root.at("code")) != "0")
       throw RequestError(
           rejection(root),
@@ -548,11 +549,8 @@ std::vector<HistoricalDailyBar> Daily::read(const HistoricalDailyRange& range,
     throw std::runtime_error("Tushare download cancelled");
   if (raw.size() > 8 * 1024 * 1024)
     throw std::runtime_error("Tushare response exceeds size limit");
-  ExactJson parser;
-  if (!Json::sax_parse(raw, &parser))
-    throw std::runtime_error("invalid Tushare response JSON");
+  const auto root = parse_response(raw);
   try {
-    const auto& root = parser.result;
     if (text(root.at("code")) != "0")
       throw RequestError(
           rejection(root),

@@ -1,6 +1,7 @@
 #pragma once
 #include <asterion/domain/historical_bars.hpp>
 #include <asterion/domain/daily_bars.hpp>
+#include <asterion/domain/history_tables.hpp>
 #include <memory>
 #include <functional>
 namespace asterion::history_providers {
@@ -39,4 +40,31 @@ std::unique_ptr<HistoricalDailyPort> daily(const std::string& source, const std:
 std::vector<HistoryListing> catalog(const std::string& source, const std::string& credential,
                                     const std::string& venue, const std::string& product,
                                     std::stop_token = {});
+// A market-wide table one installed plugin provides.
+struct TableSource {
+  std::string table;
+  unsigned schema = 0;
+  std::string source, plugin_id;
+  std::vector<std::string> venues;
+};
+// Only tables whose column definition the plugin shares with this host.
+std::vector<TableSource> table_sources();
+// The library a table update pins.
+std::string table_artifact(const std::string& plugin_id);
+// The source answered but the partition cannot be used; what() says why.
+class TableRejected final : public std::invalid_argument {
+public:
+  using std::invalid_argument::invalid_argument;
+};
+class TableReader {
+public:
+  virtual ~TableReader() = default;
+  // Rows of one partition in the table's column order; none while the source
+  // has not published it. Any other failure means the request did not complete.
+  virtual std::vector<TableSourceRow> read(const HistoryTable&, const std::string& venue,
+                                           const std::string& period, std::stop_token) = 0;
+};
+// One reader serves every table of the plugin; reads acquire the request budget.
+std::unique_ptr<TableReader> tables(const std::string& plugin_id, const std::string& credential,
+                                    RequestBudget budget = {});
 } // namespace asterion::history_providers

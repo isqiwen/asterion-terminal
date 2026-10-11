@@ -120,9 +120,10 @@ wire::TaskResponse decode_task_response(const wire::TaskRequest& request, const 
     throw_remote_error(response.error().code(), response.error().message());
   if (request.has_history_usage() ? !response.has_history_usage()
       : request.has_list()        ? !response.has_tasks()
-      : request.has_result()      ? (!response.has_backtest() && !response.has_factor() &&
-                                     !response.has_minutes() && !response.has_daily())
-                                  : !response.has_task())
+      : request.has_result()
+          ? (!response.has_backtest() && !response.has_factor() && !response.has_minutes() &&
+             !response.has_daily() && !response.has_table_update())
+          : !response.has_task())
     throw Error(ErrorCode::unavailable, "unexpected task response");
   return response;
 }

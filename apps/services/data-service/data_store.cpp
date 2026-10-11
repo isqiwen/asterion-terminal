@@ -66,7 +66,8 @@ Store::Store(fs::path root, std::string instance, std::string task_instance)
         create_directories_durably(root_ / "downloads");
         create_directories_durably(root_ / "authorizations");
         return root_ / "history";
-      }()) {}
+      }()),
+      tables_(root_ / "tables") {}
 v1::DownloadBudgetPolicy
 Store::verify_budget(const v1::DownloadBudgetConfiguration& request) const {
   protocol::validate_message(request);
@@ -111,11 +112,13 @@ Store::verify_authorization(const v1::DownloadAuthorizationRequest& request) con
     auto existing = read_authorization(id);
     const auto& fixed = existing.authorization();
     const bool same_definition =
-        request.has_minutes()
-            ? fixed.has_minutes() &&
-                  request.minutes().SerializeAsString() == fixed.minutes().SerializeAsString()
-            : request.has_daily() && fixed.has_daily() &&
-                  request.daily().SerializeAsString() == fixed.daily().SerializeAsString();
+        request.has_minutes() ? fixed.has_minutes() && request.minutes().SerializeAsString() ==
+                                                           fixed.minutes().SerializeAsString()
+        : request.has_daily() ? fixed.has_daily() && request.daily().SerializeAsString() ==
+                                                         fixed.daily().SerializeAsString()
+                              : request.has_table_update() && fixed.has_table_update() &&
+                                    request.table_update().SerializeAsString() ==
+                                        fixed.table_update().SerializeAsString();
     if (!same_definition || request.credential() != existing.credential())
       throw Error(ErrorCode::conflict, "data operation identity has different content");
     return VerifiedAuthorization(std::move(existing));
@@ -143,9 +146,25 @@ Store::verify_authorization(const v1::DownloadAuthorizationRequest& request) con
     auto provider = history_providers::daily(input.source(), request.credential());
     authorization->set_provider_artifact(history_providers::artifact(input.source()));
     *authorization->mutable_daily() = input;
+  } else if (request.has_table_update()) {
+    const auto& input = request.table_update();
+    protocol::validate_table_update(input);
+    const auto offered = history_providers::table_sources();
+    for (const auto& table : input.tables())
+      if (std::ranges::none_of(offered, [&](const auto& item) {
+            return item.plugin_id == input.provider() && item.table == table;
+          }))
+        throw std::invalid_argument("history table is unavailable from this source");
+    // Starting the provider checks the credential's shape, as for the other downloads.
+    auto provider = history_providers::tables(input.provider(), request.credential());
+    authorization->set_provider_artifact(history_providers::table_artifact(input.provider()));
+    authorization->set_provider_id(input.provider());
+    *authorization->mutable_table_update() = input;
   } else
     throw std::invalid_argument("download definition is missing");
-  const auto source = request.has_minutes() ? request.minutes().source() : request.daily().source();
+  const auto source = request.has_minutes() ? request.minutes().source()
+                      : request.has_daily() ? request.daily().source()
+                                            : std::string();
   for (const auto& item : history_providers::sources())
     if (item.id == source) {
       authorization->set_provider_id(item.plugin_id);
@@ -181,6 +200,8 @@ v1::StoredDownloadAuthorization Store::read_authorization(const std::string& id)
     (void)history_files::minute_range(value.minutes());
   else if (value.has_daily())
     (void)history_files::daily_range(value.daily());
+  else if (value.has_table_update())
+    protocol::validate_table_update(value.table_update());
   else
     throw std::invalid_argument("invalid stored download authorization");
   return stored;
@@ -240,18 +261,24 @@ Store::VerifiedAllocation Store::verify_allocation(const v1::DownloadAllocation&
       (authorized.has_minutes()
            ? !request.has_minutes() ||
                  authorized.minutes().SerializeAsString() != request.minutes().SerializeAsString()
-           : !request.has_daily() ||
-                 authorized.daily().SerializeAsString() != request.daily().SerializeAsString()))
+       : authorized.has_daily()
+           ? !request.has_daily() ||
+                 authorized.daily().SerializeAsString() != request.daily().SerializeAsString()
+           : !request.has_table_update() || authorized.table_update().SerializeAsString() !=
+                                                request.table_update().SerializeAsString()))
     throw Error(ErrorCode::conflict, "download allocation does not match authorization");
   std::optional<std::string> directory;
   if (fs::exists(path / "allocation.pb")) {
     const auto saved = read_message<v1::AllocatedDownload>(path / "allocation.pb");
     if (saved.request().SerializeAsString() != request.SerializeAsString())
       throw Error(ErrorCode::conflict, "data operation identity has different content");
-    if (!fs::path(saved.directory()).is_absolute())
+    if (request.has_table_update() ? !saved.directory().empty()
+                                   : !fs::path(saved.directory()).is_absolute())
       throw std::invalid_argument("invalid allocated download directory");
     directory = saved.directory();
   }
+  if (request.has_table_update())
+    return VerifiedAllocation(request, std::nullopt, {}, 0, std::move(directory));
   if (request.has_minutes()) {
     const auto range = history_files::minute_range(request.minutes());
     return VerifiedAllocation(request, range.instrument, range.source, range.interval_minutes,
@@ -266,9 +293,17 @@ Store::VerifiedAllocation Store::verify_allocation(const v1::DownloadAllocation&
 v1::DownloadDirectory Store::allocate(const VerifiedAllocation& verified) {
   const auto& request = verified.value_;
   const auto path = operation(request.identity());
-  const auto directory = archive_.directory(verified.contract_, verified.source_,
-                                            verified.interval_, path.filename().string());
   v1::DownloadDirectory result;
+  if (!verified.contract_) {
+    // The receipt alone binds the attempt to its authorization.
+    create_directories_durably(path);
+    v1::AllocatedDownload allocation;
+    *allocation.mutable_request() = request;
+    store_once(path / "allocation.pb", allocation.SerializeAsString());
+    return result;
+  }
+  const auto directory = archive_.directory(*verified.contract_, verified.source_,
+                                            verified.interval_, path.filename().string());
   if (verified.directory_) {
     // The receipt owns the confirmed path. OS aliases do not allocate a new version.
     if (!fs::equivalent(*verified.directory_, directory))
@@ -394,5 +429,85 @@ v1::HistoryUsage Store::history_usage(const std::string& dataset) const {
   }
   (void)asterion::protocol::decode_history_usage(usage);
   return usage;
+}
+std::vector<TableOffer> Store::table_offers() const {
+  std::vector<TableOffer> result;
+  for (auto& item : history_providers::table_sources())
+    result.push_back({{std::move(item.table), item.schema, std::move(item.source)},
+                      std::move(item.plugin_id),
+                      std::move(item.venues)});
+  return result;
+}
+std::pair<v1::TableUpdate, std::vector<TableOffer>>
+Store::table_attempt(const v1::DownloadIdentity& identity) const {
+  const auto stored = download_authorization(identity);
+  const auto& authorization = stored.authorization();
+  if (!authorization.has_table_update())
+    throw Error(ErrorCode::conflict, "download attempt is not a table update");
+  const auto& provider = authorization.table_update().provider();
+  // One library means one set of sources and mapping rules. An attempt pinned
+  // to a library this service no longer runs would record under another's name.
+  if (history_providers::table_artifact(provider) != authorization.provider_artifact())
+    throw Error(ErrorCode::conflict,
+                "the data source changed after this update was submitted; submit it again");
+  auto offers = table_offers();
+  std::erase_if(offers, [&](const TableOffer& item) { return item.plugin_id != provider; });
+  return {authorization.table_update(), std::move(offers)};
+}
+v1::TableUpdatePlan Store::table_plan(const v1::TablePlanQuery& query,
+                                      const std::string& today) const {
+  protocol::validate_message(query);
+  const auto [update, offers] = table_attempt(query.identity());
+  return table_update_plan(tables_, offers, update, query.references(), today);
+}
+std::variant<v1::TablePartitionReceipt, Store::VerifiedPartition>
+Store::verify_partition(const v1::TablePartitionRows& request) const {
+  protocol::validate_message(request);
+  const auto [update, offers] = table_attempt(request.identity());
+  const auto& key = request.partition();
+  if (!table_update_covers(offers, update, key))
+    throw std::invalid_argument("partition is not part of this table update");
+  if (request.rows().empty())
+    throw std::invalid_argument("a table partition needs rows");
+  const auto& table = history_table(key.table());
+  std::vector<TableSourceRow> rows;
+  rows.reserve(static_cast<std::size_t>(request.rows_size()));
+  for (const auto& source : request.rows()) {
+    auto& row = rows.emplace_back();
+    row.reserve(static_cast<std::size_t>(source.cells_size()));
+    for (const auto& cell : source.cells())
+      row.push_back(cell.has_text() ? std::optional(cell.text()) : std::nullopt);
+  }
+  v1::TablePartitionReceipt receipt;
+  VerifiedPartition verified;
+  try {
+    verified.partition_ = table_partition(table, key.exchange(), key.period(), rows);
+  } catch (const std::invalid_argument& error) {
+    // An answer about the rows, not a failed request.
+    receipt.set_rejection(error.what());
+    return receipt;
+  }
+  verified.series_ =
+      std::ranges::find(offers, key.table(), [](const TableOffer& item) -> const std::string& {
+        return item.series.table;
+      })->series;
+  if (const auto held = tables_.current(verified.series_, key.exchange(), key.period());
+      held && held->content == verified.partition_.content) {
+    *receipt.mutable_revision() = encode_table_revision(*held);
+    receipt.set_unchanged(true);
+    return receipt;
+  }
+  verified.object_ = tables_.write(verified.partition_);
+  verified.provider_artifact_ = history_providers::table_artifact(update.provider());
+  return verified;
+}
+v1::TablePartitionReceipt Store::record_partition(const VerifiedPartition& verified,
+                                                  std::int64_t now_ns) {
+  const auto recorded = tables_.record(verified.partition_, verified.series_, verified.object_,
+                                       verified.provider_artifact_, now_ns);
+  v1::TablePartitionReceipt receipt;
+  *receipt.mutable_revision() = encode_table_revision(recorded.revision);
+  receipt.set_unchanged(recorded.unchanged);
+  return receipt;
 }
 } // namespace asterion::data

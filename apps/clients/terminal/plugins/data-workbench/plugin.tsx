@@ -6,6 +6,7 @@ import zh from "./locales/zh-CN.json";
 import en from "./locales/en-US.json";
 import { lazy } from "react";
 import type { TerminalPlugin } from "../contract";
+import { tableNames } from "./table-names";
 const Panel = lazy(() => import("./DataPanel").then(module => ({ default: module.DataPanel })));
 export const plugin: TerminalPlugin = {
   id: "asterion.terminal.data-workbench",
@@ -26,14 +27,28 @@ export const plugin: TerminalPlugin = {
     "data.download.minutes.submit",
     "data.minutes.page",
     "data.contracts.load",
+    "data.tables.update.submit",
+    "data.tables.coverage",
+    "data.tables.page",
   ],
   languageResources: { "zh-CN": zh, "en-US": en },
   tasks: context =>
     (context.snapshot?.task_service?.tasks ?? [])
-      .filter(task => task.kind === "minute_download" || task.kind === "daily_download")
+      .filter(
+        task =>
+          task.kind === "minute_download" ||
+          task.kind === "daily_download" ||
+          task.kind === "table_update",
+      )
       .map(task => ({
         id: task.id,
-        title: `${task.source_name} · ${task.instrument}`,
+        title:
+          task.kind === "table_update"
+            ? `${t("全市场数据")} · ${task.instrument
+                .split(" + ")
+                .map(table => (tableNames[table] ? t(tableNames[table]) : table))
+                .join(" + ")}`
+            : `${task.source_name} · ${task.instrument}`,
         status: t(
           {
             queued: "排队中",
@@ -48,7 +63,10 @@ export const plugin: TerminalPlugin = {
         ),
         completed: task.completed,
         total: task.total,
-        open: () => context.navigate("workspace.data", { page: "history" }),
+        open: () =>
+          context.navigate("workspace.data", {
+            page: task.kind === "table_update" ? "tables" : "history",
+          }),
       })),
   workspace: {
     id: "workspace.data",

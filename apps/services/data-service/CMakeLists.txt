@@ -1,4 +1,4 @@
-add_library(asterion_data_queries STATIC bar_dataset_source.cpp daily_factor_source.cpp history_coverage.cpp history_update.cpp)
+add_library(asterion_data_queries STATIC bar_dataset_source.cpp daily_factor_source.cpp history_coverage.cpp history_update.cpp table_update.cpp)
 target_include_directories(asterion_data_queries PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(asterion_data_queries PUBLIC asterion_history_files asterion_protocol)
 add_library(asterion_data_store STATIC data_store.cpp download_budget.cpp)

@@ -351,6 +351,9 @@
   border-bottom: 1px solid var(--line);
   text-align: left;
 }
+.coverage-table .numeric {
+  text-align: right;
+}
 .history-update,
 .history-usage {
   margin: 16px 24px;

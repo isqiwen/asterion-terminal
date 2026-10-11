@@ -1,9 +1,11 @@
 #pragma once
 #include "bar_dataset_source.hpp"
 #include "history_archive.hpp"
+#include "table_update.hpp"
 #include <asterion/kernel/process/file_lock.hpp>
 #include <asterion/v1/data_service.pb.h>
 #include <optional>
+#include <variant>
 
 namespace asterion::data {
 // One persistent warehouse, independent of task history and process lifetimes.
@@ -43,12 +45,13 @@ public:
   v1::DownloadCredentials credentials(const v1::DownloadIdentity&) const;
   class VerifiedAllocation {
     friend class Store;
-    VerifiedAllocation(v1::DownloadAllocation value, HistoryIdentity contract, std::string source,
-                       unsigned interval, std::optional<std::string> directory)
+    // A table update writes no files of its own: it has no contract and no directory.
+    VerifiedAllocation(v1::DownloadAllocation value, std::optional<HistoryIdentity> contract,
+                       std::string source, unsigned interval, std::optional<std::string> directory)
         : value_(std::move(value)), contract_(std::move(contract)), source_(std::move(source)),
           interval_(interval), directory_(std::move(directory)) {}
     v1::DownloadAllocation value_;
-    HistoryIdentity contract_;
+    std::optional<HistoryIdentity> contract_;
     std::string source_;
     unsigned interval_;
     std::optional<std::string> directory_;
@@ -78,12 +81,34 @@ public:
   VerifiedPublication verify_publication(const v1::DownloadPublication&) const;
   v1::PublishedDownload publish(const VerifiedPublication&);
   v1::PublishedDownload published(const v1::DownloadIdentity&) const;
+  // Market-wide tables. A partition is published when it has been validated and
+  // recorded; the task that delivered it only drives the reading.
+  const history_files::TableStore& tables() const noexcept { return tables_; }
+  std::vector<TableOffer> table_offers() const;
+  v1::TableUpdatePlan table_plan(const v1::TablePlanQuery&, const std::string& today) const;
+  class VerifiedPartition {
+    friend class Store;
+    TablePartition partition_;
+    history_files::TableSeries series_;
+    history_files::TableStore::Object object_;
+    std::string provider_artifact_;
+  };
+  // Types the delivered rows and writes their file. The receipt is final when
+  // the rows are rejected or the partition already holds them; otherwise the
+  // sealed partition still has to be recorded.
+  std::variant<v1::TablePartitionReceipt, VerifiedPartition>
+  verify_partition(const v1::TablePartitionRows&) const;
+  v1::TablePartitionReceipt record_partition(const VerifiedPartition&, std::int64_t now_ns);
 
 private:
   std::filesystem::path root_;
   std::string instance_, task_instance_;
   FileLock ownership_;
   history_files::Archive archive_;
+  history_files::TableStore tables_;
+  // The update a table attempt was authorized for, and what its plugin provides.
+  std::pair<v1::TableUpdate, std::vector<TableOffer>>
+  table_attempt(const v1::DownloadIdentity&) const;
   v1::StoredDownloadAuthorization read_authorization(const std::string& id) const;
   std::filesystem::path authorization_path(const std::string& id) const;
   std::filesystem::path operation(const v1::DownloadIdentity&) const;

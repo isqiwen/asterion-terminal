@@ -55,6 +55,8 @@ export type TerminalContext = {
       | "data.coverage"
       | "data.history.usage"
       | "data.download.update.plan"
+      | "data.tables.coverage"
+      | "data.tables.page"
       | "market.minutes",
     params: Record<string, unknown>,
   ) => Promise<Snapshot>;

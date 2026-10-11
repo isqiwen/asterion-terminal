@@ -7,9 +7,18 @@
 #include <sstream>
 #include <stdexcept>
 namespace asterion {
-void HistoryIdentity::validate() const {
+namespace {
+bool known_venue(std::string_view venue) {
   constexpr std::array<std::string_view, 6> venues{"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"};
-  if (std::ranges::find(venues, venue) == venues.end() || product.empty() || product.size() > 8 ||
+  return std::ranges::find(venues, venue) != venues.end();
+}
+} // namespace
+void validate_history_venue(std::string_view venue) {
+  if (!known_venue(venue))
+    throw std::invalid_argument("unsupported futures exchange");
+}
+void HistoryIdentity::validate() const {
+  if (!known_venue(venue) || product.empty() || product.size() > 8 ||
       !std::ranges::all_of(product, [](char c) { return c >= 'a' && c <= 'z'; }) ||
       delivery_month.size() != 7)
     throw std::invalid_argument("invalid historical contract identity");

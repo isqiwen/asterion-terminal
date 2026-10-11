@@ -28,6 +28,8 @@ struct HistorySemantics {
   void validate() const;
 };
 void validate_history_source(std::string_view);
+// One of the six futures exchanges history is kept for.
+void validate_history_venue(std::string_view);
 std::int64_t parse_shanghai_time(std::string_view);
 std::string format_shanghai_time(std::int64_t);
 } // namespace asterion

@@ -61,6 +61,25 @@ const prefixedDiagnostics = [
   ["cannot validate owned regular file ", "durable file ownership or type is invalid"],
   ["cannot prepare durable write ", "cannot prepare durable file contents"],
   ["cannot verify publication identity ", "durable publication source changed"],
+  ["Tushare did not accept the token: ", "Tushare 没有接受该 Token，请检查后重新保存"],
+  ["the Tushare account has no permission for this interface: ", "Tushare 账号没有该接口的权限"],
+  [
+    "the Tushare account reached its request limit: ",
+    "Tushare 账号的请求额度已用尽，请稍后再试或降低每分钟请求数",
+  ],
+  ["Tushare reported an error: ", "Tushare 返回了错误"],
+  [
+    "too many partitions were rejected; the first: ",
+    "被拒绝的分区过多，更新已停止；详情里是第一条原因",
+  ],
+  ["reference data was rejected: ", "合约表或交易日历未通过校验，依赖它的交易日没有下载"],
+  [
+    "the source returned no reference data: ",
+    "数据源没有返回合约表或交易日历，依赖它的交易日没有下载",
+  ],
+  ["reference data is not stored: ", "合约表或交易日历尚未入库，依赖它的交易日没有下载"],
+  ["the contract list has no listing date: ", "合约表里没有上市日期，无法确定该交易所的起始日"],
+  ["the source does not provide ", "该数据源不提供这张数据表或这个交易所"],
 ] as const;
 // The localized form of a known English service diagnostic.
 export function diagnosticSummary(message: string) {

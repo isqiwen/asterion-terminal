@@ -414,7 +414,8 @@ PolledTask<> TaskHost::claim(Call& call) {
     attempt->set_token(token);
     attempt->set_data_endpoint(configuration_.data_endpoint);
     attempt->set_data_instance(configuration_.data_instance);
-    if (attempt->task().has_minutes() || attempt->task().has_daily()) {
+    if (attempt->task().has_minutes() || attempt->task().has_daily() ||
+        attempt->task().has_table_update()) {
       data::v1::DataRequest allocation;
       auto* download = allocation.mutable_allocate_download();
       download->set_authorization_id(attempt->task().download_authorization());
@@ -425,8 +426,10 @@ PolledTask<> TaskHost::claim(Call& call) {
       identity->set_attempt(attempt->task().attempt());
       if (attempt->task().has_daily())
         *download->mutable_daily() = attempt->task().daily();
-      else
+      else if (attempt->task().has_minutes())
         *download->mutable_minutes() = attempt->task().minutes();
+      else
+        *download->mutable_table_update() = attempt->task().table_update();
       const auto allocated =
           co_await data_call(std::move(allocation), 10s, request.correlation_id());
       co_await ready(call);

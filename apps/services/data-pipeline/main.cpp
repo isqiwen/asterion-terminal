@@ -9,6 +9,111 @@
 #include <iostream>
 #include <condition_variable>
 #include <stdexcept>
+namespace {
+using namespace asterion;
+// Reads what a table update still lacks and hands each partition to the data
+// service, which validates and publishes it. Nothing delivered is taken back:
+// whatever ends this run, the partitions before it stay.
+data::v1::TableUpdateResult update_tables(protocol::DataClient& data,
+                                          const data::v1::DownloadIdentity& identity,
+                                          history_providers::TableReader& reader,
+                                          std::stop_token stop,
+                                          const std::function<void(unsigned)>& percent) {
+  // Rejections of one kind repeat: stop before they use up the request budget.
+  constexpr int rejection_limit = 10, example_limit = 100;
+  enum class Outcome { stored, rejected, unpublished };
+  data::v1::TableUpdateResult result;
+  result.set_version(1);
+  std::uint64_t latest = 0;
+  std::string reason;
+  const auto plan = [&](bool references) {
+    data::v1::DataRequest request;
+    *request.mutable_table_plan()->mutable_identity() = identity;
+    request.mutable_table_plan()->set_references(references);
+    return data.call(request).table_plan();
+  };
+  const auto deliver = [&](const data::v1::TablePartitionKey& key) {
+    if (stop.stop_requested())
+      throw Error(ErrorCode::cancelled, "Historical download cancelled");
+    data::v1::DataRequest request;
+    auto* delivery = request.mutable_store_table_partition();
+    *delivery->mutable_identity() = identity;
+    *delivery->mutable_partition() = key;
+    try {
+      for (auto& cells :
+           reader.read(history_table(key.table()), key.exchange(), key.period(), stop)) {
+        auto* row = delivery->add_rows();
+        for (auto& cell : cells) {
+          auto* value = row->add_cells();
+          if (cell)
+            value->set_text(std::move(*cell));
+        }
+      }
+    } catch (const history_providers::TableRejected& error) {
+      reason = error.what();
+      return Outcome::rejected;
+    }
+    if (delivery->rows().empty())
+      return Outcome::unpublished;
+    const auto receipt = data.call(request).table_partition();
+    if (receipt.has_rejection()) {
+      reason = receipt.rejection();
+      return Outcome::rejected;
+    }
+    if (receipt.unchanged())
+      result.set_unchanged(result.unchanged() + 1);
+    else
+      result.set_stored(result.stored() + 1);
+    if (receipt.revision().sequence() > latest) {
+      latest = receipt.revision().sequence();
+      result.set_snapshot(receipt.revision().snapshot());
+    }
+    return Outcome::stored;
+  };
+  const auto name = [](const data::v1::TablePartitionKey& key) {
+    return key.table() + " " + key.exchange() + " " + key.period();
+  };
+  // The contract lists and the calendar decide which days exist. Without one
+  // of them the days of that exchange cannot be planned, so the run ends.
+  const auto references = plan(true);
+  for (const auto& key : references.partitions())
+    switch (deliver(key)) {
+    case Outcome::stored:
+      break;
+    case Outcome::rejected:
+      throw Error(ErrorCode::operation_failed, "reference data was rejected: " + reason);
+    case Outcome::unpublished:
+      throw Error(ErrorCode::operation_failed,
+                  "the source returned no reference data: " + name(key));
+    }
+  const auto days = plan(false);
+  for (const auto& waiting : days.waiting())
+    result.add_waiting(waiting);
+  for (int done = 0; done < days.partitions_size(); ++done) {
+    const auto& key = days.partitions(done);
+    switch (deliver(key)) {
+    case Outcome::stored:
+      break;
+    case Outcome::rejected: {
+      auto* rejected = result.add_rejected();
+      *rejected->mutable_partition() = key;
+      rejected->set_reason(reason);
+      if (result.rejected_size() >= rejection_limit)
+        throw Error(ErrorCode::operation_failed,
+                    "too many partitions were rejected; the first: " + result.rejected(0).reason());
+      break;
+    }
+    case Outcome::unpublished:
+      result.set_unpublished(result.unpublished() + 1);
+      if (result.unpublished_examples_size() < example_limit)
+        *result.add_unpublished_examples() = key;
+      break;
+    }
+    percent(static_cast<unsigned>(100LL * (done + 1) / days.partitions_size()));
+  }
+  return result;
+}
+} // namespace
 int main(int argc, char** argv) {
   CLI::App app{"Asterion historical data downloads from data-source plugins"};
   app.set_version_flag("--version", "asterion-data-pipeline " ASTERION_PRODUCT_VERSION);
@@ -25,9 +130,10 @@ int main(int argc, char** argv) {
   app.add_option("--tls-key", tls.private_key_file);
   app.add_option("--session", service);
   app.add_option("--task", task);
-  bool minute_worker = false, daily_worker = false;
+  bool minute_worker = false, daily_worker = false, table_worker = false;
   app.add_flag("--daily-download", daily_worker, "Run a managed daily-data download");
   app.add_flag("--minute-download", minute_worker, "Run a managed minute-data download");
+  app.add_flag("--table-update", table_worker, "Run a managed update of market-wide tables");
   argv = app.ensure_utf8(argv);
   std::string plugin_directory;
   app.add_option("--plugin-directory", plugin_directory)->check(CLI::ExistingDirectory);
@@ -35,16 +141,23 @@ int main(int argc, char** argv) {
   try {
     if (!plugin_directory.empty())
       asterion::configure_native_plugins(plugin_directory);
-    if (minute_worker == daily_worker)
-      throw std::invalid_argument("choose exactly one of --minute-download or --daily-download");
+    if (minute_worker + daily_worker + table_worker != 1)
+      throw std::invalid_argument(
+          "choose exactly one of --minute-download, --daily-download or --table-update");
     {
       return asterion::protocol::run_task_worker(
           endpoint, host, port, tls, service, task,
-          daily_worker ? asterion::task::v1::DAILY_DOWNLOAD : asterion::task::v1::MINUTE_DOWNLOAD,
-          [daily_worker, &service](const auto& attempt, auto stop, const auto& progress) {
+          table_worker   ? asterion::task::v1::TABLE_UPDATE
+          : daily_worker ? asterion::task::v1::DAILY_DOWNLOAD
+                         : asterion::task::v1::MINUTE_DOWNLOAD,
+          [daily_worker, table_worker, &service](const auto& attempt, auto stop,
+                                                 const auto& progress) {
             const auto& input = attempt.task();
-            const auto source = daily_worker ? input.daily().source() : input.minutes().source();
-            if (input.provider_artifact() != asterion::history_providers::artifact(source))
+            if (input.provider_artifact() !=
+                (table_worker
+                     ? asterion::history_providers::table_artifact(input.table_update().provider())
+                     : asterion::history_providers::artifact(
+                           daily_worker ? input.daily().source() : input.minutes().source())))
               throw std::invalid_argument("download provider artifact does not match task");
             asterion::protocol::DataClient data(attempt.data_endpoint(), attempt.data_instance());
             asterion::data::v1::DataRequest query;
@@ -60,8 +173,9 @@ int main(int argc, char** argv) {
               throw std::invalid_argument("download credentials do not match attempt");
             asterion::data::v1::DataRequest permit_request;
             *permit_request.mutable_acquire_download_permit() = *identity;
-            const auto rpm = daily_worker ? input.daily().requests_per_minute()
-                                          : input.minutes().requests_per_minute();
+            const auto rpm = table_worker   ? input.table_update().requests_per_minute()
+                             : daily_worker ? input.daily().requests_per_minute()
+                                            : input.minutes().requests_per_minute();
             auto next_request = std::chrono::steady_clock::now();
             auto budget = [&](std::stop_token cancelled) {
               std::mutex mutex;
@@ -86,6 +200,14 @@ int main(int argc, char** argv) {
                                     "Historical download cancelled");
             };
             asterion::task::v1::TaskFinish result;
+            if (table_worker) {
+              auto reader = asterion::history_providers::tables(input.table_update().provider(),
+                                                                credentials.credential(), budget);
+              *result.mutable_table_update() =
+                  update_tables(data, *identity, *reader, stop,
+                                [&](unsigned percent) { progress(percent, 100); });
+              return result;
+            }
             const auto directory = std::filesystem::path(std::u8string(
                 attempt.output_directory().begin(), attempt.output_directory().end()));
             if (daily_worker) {

@@ -5,6 +5,7 @@
 #include "history_minutes.hpp"
 #include "history_providers.hpp"
 #include "history_update.hpp"
+#include "table_update.hpp"
 #include <asterion/kernel/logger.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -18,6 +19,11 @@ namespace {
 void fail(wire::DataResponse& response, const std::exception& error) {
   response.mutable_error()->set_code(std::string(error_name(classify(error))));
   response.mutable_error()->set_message(error.what());
+}
+std::int64_t now_ns() {
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
 }
 } // namespace
 DataHost::DataHost(Configuration configuration)
@@ -182,10 +188,7 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
     *response.mutable_coverage() = history_coverage(store_->archive(), request.coverage());
   else if (request.has_update_plan())
     *response.mutable_update_plan() =
-        history_update_plan(store_->archive(), request.update_plan(),
-                            std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                std::chrono::system_clock::now().time_since_epoch())
-                                .count());
+        history_update_plan(store_->archive(), request.update_plan(), now_ns());
   else if (request.has_verify_connection()) {
     auto* result = response.mutable_connection_verification();
     for (const auto& check :
@@ -243,7 +246,22 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
         schema->set_requests_per_minute_max(source.connection->requests_per_minute_max);
       }
     }
-  } else
+  } else if (request.has_store_table_partition()) {
+    auto verified = store_->verify_partition(request.store_table_partition());
+    if (auto* receipt = std::get_if<wire::TablePartitionReceipt>(&verified))
+      *response.mutable_table_partition() = std::move(*receipt);
+    else
+      return [&, verified = std::get<Store::VerifiedPartition>(std::move(verified))] {
+        *response.mutable_table_partition() = store_->record_partition(verified, now_ns());
+      };
+  } else if (request.has_table_plan())
+    *response.mutable_table_plan() =
+        store_->table_plan(request.table_plan(), format_shanghai_time(now_ns()).substr(0, 10));
+  else if (request.has_table_coverage())
+    *response.mutable_table_coverage() = table_coverage(store_->tables(), store_->table_offers());
+  else if (request.has_table_page())
+    *response.mutable_table_page() = table_page(store_->tables(), request.table_page());
+  else
     throw std::invalid_argument("missing data operation");
   return {};
 }
@@ -321,12 +339,13 @@ void DataHost::admit(Work& admitted, bool worker) {
                         request.has_download_authorization() ||
                         request.has_download_credentials() || request.has_save_dataset() ||
                         request.has_allocate_download() || request.has_prepare_download() ||
-                        request.has_publish_download();
+                        request.has_publish_download() || request.has_store_table_partition();
   const bool private_operation =
       request.has_allocate_download() || request.has_prepare_download() ||
       request.has_publish_download() || request.has_published_download() ||
       request.has_download_authorization() || request.has_download_credentials() ||
-      request.has_acquire_download_permit();
+      request.has_acquire_download_permit() || request.has_table_plan() ||
+      request.has_store_table_partition();
   if (private_operation && !worker)
     throw Error(ErrorCode::permission_denied,
                 "download coordination requires the private data channel");
@@ -355,7 +374,14 @@ void DataHost::admit(Work& admitted, bool worker) {
     attempt(request.download_credentials());
   else if (request.has_acquire_download_permit())
     attempt(request.acquire_download_permit());
-  else if (request.has_save_dataset())
+  else if (request.has_table_plan())
+    attempt(request.table_plan().identity());
+  else if (request.has_store_table_partition()) {
+    // One writer at a time for a partition, whichever attempt delivers it.
+    const auto& partition = request.store_table_partition().partition();
+    attempt(request.store_table_partition().identity());
+    work->objects.push_back("table/" + sha256_bytes(partition.SerializeAsString()));
+  } else if (request.has_save_dataset())
     work->objects.push_back("dataset/" + request.save_dataset().id());
   else if (request.has_configure_download_budget())
     work->objects.push_back("budget-configuration");

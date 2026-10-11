@@ -139,9 +139,9 @@ add_dependencies(asterion_native_history_plugin_tests plugin_fixture_good)
 asterion_unit_tests(asterion_calendar_bar_tests data/calendar_bar_test.cpp asterion_chart_indicators)
 asterion_unit_tests(asterion_tushare_tests data/tushare_test.cpp asterion_task_store)
 target_link_libraries(asterion_tushare_tests PRIVATE asterion_data_store asterion_data_client asterion_tushare asterion_sqlite asterion_bar_parquet asterion_factor_engine)
-target_sources(asterion_tushare_tests PRIVATE data/tushare_daily_test.cpp data/daily_storage_test.cpp data/history_archive_test.cpp data/bar_parquet_test.cpp)
-target_compile_definitions(asterion_tushare_tests PRIVATE ASTERION_DATA_SERVICE_PATH="$<TARGET_FILE:asterion-data-service>" ASTERION_FACTOR_PATH="$<TARGET_FILE:asterion-factor>" ASTERION_DATA_PIPELINE_PATH="$<TARGET_FILE:asterion-data-pipeline>" ASTERION_TASK_SERVICE_PATH="$<TARGET_FILE:asterion-task-service>")
-add_dependencies(asterion_tushare_tests asterion-data-service asterion-task-service asterion-data-pipeline asterion-factor)
+target_sources(asterion_tushare_tests PRIVATE data/tushare_daily_test.cpp data/daily_storage_test.cpp data/history_archive_test.cpp data/bar_parquet_test.cpp data/history_tables_test.cpp data/tushare_tables_test.cpp data/table_update_test.cpp)
+target_compile_definitions(asterion_tushare_tests PRIVATE ASTERION_DATA_SERVICE_PATH="$<TARGET_FILE:asterion-data-service>" ASTERION_FACTOR_PATH="$<TARGET_FILE:asterion-factor>" ASTERION_DATA_PIPELINE_PATH="$<TARGET_FILE:asterion-data-pipeline>" ASTERION_TASK_SERVICE_PATH="$<TARGET_FILE:asterion-task-service>" PLUGIN_FIXTURE_DIRECTORY="$<TARGET_FILE_DIR:plugin_fixture_good>")
+add_dependencies(asterion_tushare_tests asterion-data-service asterion-task-service asterion-data-pipeline asterion-factor plugin_fixture_good)
 
 # tasks: the task service, backtest and factor engines, workers
 add_test(NAME task_agent_recovery COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/support/isolated_node.py ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tasks/task_agent.py $<TARGET_FILE:asterion_terminal_dev_bridge>)

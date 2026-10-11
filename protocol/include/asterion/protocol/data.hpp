@@ -14,6 +14,15 @@ Json decode_history_update_query(const data::v1::HistoryUpdateQuery&);
 Json decode_history_usage(const data::v1::HistoryUsage&);
 Json decode_history_update_plan(const data::v1::HistoryUpdatePlan&);
 Json decode_minute_page(const data::v1::MinutePage&);
+// Market-wide table updates: the definition both services keep, and what the
+// Terminal shows of the store.
+void validate_table_update(const data::v1::TableUpdate&);
+data::v1::TableUpdate encode_table_update(const Json&);
+Json decode_table_update(const data::v1::TableUpdate&);
+Json decode_table_update_result(const data::v1::TableUpdateResult&);
+Json decode_table_coverage(const data::v1::TableCoverage&);
+data::v1::TablePageQuery encode_table_page_query(const Json&);
+Json decode_table_page(const data::v1::TablePage&);
 
 // Evidence is fixed with task inputs, independently of bar content identity.
 void validate_history_evidence(const data::v1::HistoryVersionEvidence&);
