@@ -63,8 +63,12 @@ type Kind = keyof typeof rules;
 // Rules that rank several contracts; a run on one contract cannot use them.
 const ranking: readonly Kind[] = ["cross_momentum", "cross_term_structure"];
 const sides = { both: "多空", long: "只做多", short: "只做空" } as const;
-// Which end of a ranking is held long.
-const directions = { false: "做多最高、做空最低", true: "做多最低、做空最高" } as const;
+// Which end of a ranking is held long; a comparison may try both.
+const directions = {
+  highest: "做多最高、做空最低",
+  lowest: "做多最低、做空最高",
+  both: "两个方向都比较",
+} as const;
 
 // A strategy as a form holds it: every rule keeps its own windows, so
 // switching rules loses nothing.
@@ -82,7 +86,7 @@ export type StrategyDraft = {
   rebalance: string;
   count: string;
   notional: string;
-  reverse: boolean;
+  direction: keyof typeof directions;
   volatility: string;
 };
 export const strategyDefaults: StrategyDraft = {
@@ -99,7 +103,7 @@ export const strategyDefaults: StrategyDraft = {
   rebalance: "5",
   count: "1",
   notional: "100000",
-  reverse: false,
+  direction: "highest",
   volatility: "0",
 };
 
@@ -139,18 +143,21 @@ function combinations(draft: StrategyDraft): StrategyDefinition["rule"][] {
     return values("lookback").map(lookback => ({ kind: "momentum" as const, lookback }));
   if (draft.kind === "cross_momentum" || draft.kind === "cross_term_structure") {
     const kind = draft.kind;
+    const reversals = draft.direction === "both" ? [false, true] : [draft.direction === "lowest"];
     return values("lookback").flatMap(lookback =>
       values("rebalance").flatMap(rebalance =>
         values("count").flatMap(count =>
-          values("volatility").map(volatility => ({
-            kind,
-            reverse: draft.reverse,
-            lookback,
-            rebalance,
-            count,
-            notional: draft.notional,
-            volatility,
-          })),
+          values("volatility").flatMap(volatility =>
+            reversals.map(reverse => ({
+              kind,
+              reverse,
+              lookback,
+              rebalance,
+              count,
+              notional: draft.notional,
+              volatility,
+            })),
+          ),
         ),
       ),
     );
@@ -210,7 +217,7 @@ export function strategyRows(definition: StrategyDefinition): [string, string | 
     ...("quantity" in definition
       ? [[t("目标手数"), definition.quantity] as [string, string]]
       : ([
-          [t("排序方向"), t(directions[`${definition.rule.reverse}`])],
+          [t("排序方向"), t(directions[definition.rule.reverse ? "lowest" : "highest"])],
           [t("每个合约的名义金额"), definition.rule.notional],
         ] as [string, string][])),
     [t("持仓方向"), strategySides(definition.sides)],
@@ -300,14 +307,18 @@ export function StrategyFields({
             {t("排序方向")}
             <select
               aria-label={t("排序方向")}
-              value={`${value.reverse}`}
-              onChange={event => onChange({ ...value, reverse: event.target.value === "true" })}
+              value={value.direction}
+              onChange={event =>
+                onChange({ ...value, direction: event.target.value as StrategyDraft["direction"] })
+              }
             >
-              {Object.entries(directions).map(([reverse, label]) => (
-                <option key={reverse} value={reverse}>
-                  {t(label)}
-                </option>
-              ))}
+              {Object.entries(directions)
+                .filter(([direction]) => compare || direction !== "both")
+                .map(([direction, label]) => (
+                  <option key={direction} value={direction}>
+                    {t(label)}
+                  </option>
+                ))}
             </select>
           </label>
         )}

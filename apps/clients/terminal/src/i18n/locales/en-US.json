@@ -544,6 +544,7 @@
   "排序方向": "Held ends",
   "做多最高、做空最低": "Long the highest, short the lowest",
   "做多最低、做空最高": "Long the lowest, short the highest",
+  "两个方向都比较": "Compare both",
   "反向": "reversed",
   "波动窗口": "Volatility window",
   "滑点（跳）": "Slippage (ticks)",

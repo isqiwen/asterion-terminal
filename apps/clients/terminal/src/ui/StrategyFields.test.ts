@@ -55,6 +55,25 @@ describe("the strategies a form submits", () => {
       })),
     );
     expect(ranked[0]).toEqual({ sides: "both", rule: ranked[0].rule });
+    // Comparing both directions gives each combination twice, the usual
+    // direction first: a tie in the comparison keeps it.
+    const directed = (direction: "lowest" | "both") =>
+      strategiesOf({
+        ...strategyDefaults,
+        kind: "cross_momentum",
+        lookback: "5,20",
+        direction,
+      }).map(({ rule }) => "reverse" in rule && [rule.lookback, rule.reverse]);
+    expect(directed("lowest")).toEqual([
+      [5, true],
+      [20, true],
+    ]);
+    expect(directed("both")).toEqual([
+      [5, false],
+      [5, true],
+      [20, false],
+      [20, true],
+    ]);
     expect(rules({ fast: "20", slow: "5" })).toEqual([]);
   });
 });

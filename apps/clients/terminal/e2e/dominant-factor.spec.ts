@@ -234,7 +234,7 @@ test("a backtest ranks dominant series by their term structure", async ({ page }
   await workspace.getByLabel("策略", { exact: true }).selectOption("cross_term_structure");
   await expect(workspace.getByText(/价差最高（近月相对最贵）的“每侧合约数”个做多/)).toBeVisible();
   // Held the other way round: long the lowest, short the highest.
-  await workspace.getByLabel("排序方向", { exact: true }).selectOption("true");
+  await workspace.getByLabel("排序方向", { exact: true }).selectOption("lowest");
   for (const [label, value] of [
     ["均值窗口", "1"],
     ["调仓间隔", "1"],
