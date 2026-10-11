@@ -1,6 +1,7 @@
-import { seedDataset } from "./dataset-fixture";
+import { rpc, seedDataset } from "./dataset-fixture";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 import { test, expect } from "./test";
+import { checkSnapshot } from "./snapshot-schema";
 import { join } from "node:path";
 
 for (const mode of ["full", "holdout", "search", "rolling"])
@@ -176,7 +177,7 @@ test("three contracts are compared with each other at every bar they share", asy
   await expect(workspace.getByText("任务服务已连接", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "因子", exact: true }).click();
   await expect(
-    workspace.getByText("多个合约 · 在各合约共有的 K 线上比较它们的动量与未来收益", {
+    workspace.getByText("多个合约 · 在各合约共有的 K 线上比较它们的因子值与未来收益", {
       exact: true,
     }),
   ).toBeVisible();
@@ -226,4 +227,48 @@ test("three contracts are compared with each other at every bar they share", asy
   const english = page.getByRole("region", { name: "Factor Results", exact: true });
   await expect(english).toContainText("cross-section of 3 contracts");
   await expect(english).not.toContainText(/\p{Script=Han}/u);
+});
+
+test("volatility is evaluated as the deviation of a window's returns", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".workspace-tabs")).toBeVisible();
+  // 100, then 110 and 99 in turn: returns of +10% and -10% begin the series.
+  await seedDataset(
+    page.request,
+    Array.from({ length: 40 }, (_, i) => (i === 0 ? 100 : i % 2 ? 110 : 99)),
+    "factor-volatility",
+  );
+  await page.reload();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  const workspace = page.getByRole("region", { name: "期货研究", exact: true });
+  await expect(workspace.getByText("任务服务已连接", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "因子", exact: true }).click();
+  await workspace.getByLabel("因子", { exact: true }).selectOption("volatility");
+  await expect(workspace.getByText(/波动率 · 回看窗口内逐条收益率/)).toBeVisible();
+  await workspace.getByLabel("回看 K 线数", { exact: true }).fill("2");
+  await workspace.getByLabel("未来收益 K 线数", { exact: true }).fill("1");
+  const tasks = workspace.getByRole("region", { name: "研究任务", exact: true });
+  const before = await tasks.locator("tbody tr code").allTextContents();
+  await workspace.getByRole("button", { name: "开始分析", exact: true }).click();
+  await expect
+    .poll(async () => (await tasks.locator("tbody tr code").allTextContents()).length)
+    .toBe(before.length + 1);
+  const taskId = (await tasks.locator("tbody tr code").allTextContents()).find(
+    id => !before.includes(id),
+  )!;
+  const row = tasks.getByRole("row").filter({ hasText: taskId });
+  await expect(row.getByText("已完成", { exact: true })).toBeVisible({ timeout: 20000 });
+  await row.getByRole("button", { name: "查看结果", exact: true }).click();
+  const result = workspace.getByRole("region", { name: "因子结果", exact: true });
+  await expect(result).toContainText("按 K 线计算 · 波动率 · 全样本评价");
+  await result.getByText("样本明细", { exact: true }).click();
+  const samples = result.getByRole("table", { name: "样本明细" });
+  await expect(samples.getByRole("columnheader", { name: "波动率", exact: true })).toBeVisible();
+  // Two returns 0.2 apart: 0.2 over the root of two.
+  await expect(samples.locator("tbody tr").first().locator("td").nth(2)).toHaveText("14.1421%");
+  // The fixed input names the factor, and the result fits the Terminal's types.
+  const state = await rpc(page.request, "runtime.snapshot");
+  const evidence = state.task_result;
+  checkSnapshot("volatility factor", state);
+  expect(evidence.experiment.factor).toBe("volatility");
 });

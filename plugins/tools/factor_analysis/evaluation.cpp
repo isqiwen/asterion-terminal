@@ -112,6 +112,28 @@ std::vector<std::optional<double>> average(std::span<const Decimal> values, std:
   }
   return result;
 }
+std::vector<std::optional<double>> volatility(std::span<const Decimal> closes,
+                                              std::size_t lookback) {
+  if (lookback < 2 || lookback > 10000)
+    throw std::invalid_argument("volatility lookback must be 2..10000 observations");
+  std::vector<double> returns(closes.size());
+  for (std::size_t i = 1; i < closes.size(); ++i)
+    returns[i] = price_return(closes[i - 1], closes[i]);
+  std::vector<std::optional<double>> result(closes.size());
+  // Each window is summed afresh: closes that did not move leave exactly
+  // zero, which a running sum of squares need not.
+  for (std::size_t i = lookback; i < closes.size(); ++i) {
+    const auto window = std::span(returns).subspan(i + 1 - lookback, lookback);
+    long double mean = 0, squares = 0;
+    for (const auto value : window)
+      mean += value;
+    mean /= static_cast<long double>(lookback);
+    for (const auto value : window)
+      squares += (value - mean) * (value - mean);
+    result[i] = static_cast<double>(std::sqrt(squares / static_cast<long double>(lookback - 1)));
+  }
+  return result;
+}
 std::vector<std::optional<double>> forward_returns(std::span<const Decimal> closes,
                                                    std::size_t horizon) {
   if (!horizon || horizon > 10000)

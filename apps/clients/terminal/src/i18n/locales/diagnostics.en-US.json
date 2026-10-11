@@ -552,6 +552,7 @@
   "missing trading response": "missing trading response",
   "missing verified task output": "missing verified task output",
   "momentum lookback must be 1..10000 observations": "Momentum lookback must be 1–10000 observations",
+  "volatility lookback must be 2..10000 observations": "Volatility lookback must be 2–10000 observations",
   "native core call failed": "native core call failed",
   "native core initialization failed": "native core initialization failed",
   "native plugin ABI mismatch": "native plugin ABI mismatch",

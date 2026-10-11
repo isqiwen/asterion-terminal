@@ -177,12 +177,7 @@ factor::v1::FactorRequest encode_factor_request(const Json& input) {
   const auto& series = input.at("series");
   if (!series.is_array() || (series.size() != 1 && (series.size() < 3 || series.size() > 20)))
     throw std::invalid_argument("factor analysis studies one series or 3..20 contracts");
-  if (input.at("factor") == "momentum")
-    result.set_factor(v1::PRICE_MOMENTUM);
-  else if (input.at("factor") == "term_structure")
-    result.set_factor(v1::TERM_STRUCTURE);
-  else
-    throw std::invalid_argument("unknown factor");
+  result.set_factor(encode_factor(input.at("factor")));
   for (const auto& source : series) {
     if (!source.is_object() || source.size() != 1)
       throw std::invalid_argument("invalid factor series");
@@ -356,8 +351,7 @@ Json factor_definition(const factor::v1::FactorInput& input) {
   validate_message(input);
   if (input.version() != 8)
     throw std::invalid_argument("unsupported factor input version");
-  if (input.factor() != v1::PRICE_MOMENTUM && input.factor() != v1::TERM_STRUCTURE)
-    throw std::invalid_argument("unknown factor");
+  const std::string factor = factor_name(input.factor());
   const auto count = observation_count(input);
   if (!input.horizon() || input.horizon() > 10000 || input.lookbacks_size() < 1 ||
       input.lookbacks_size() > 32)
@@ -370,10 +364,13 @@ Json factor_definition(const factor::v1::FactorInput& input) {
     previous = window;
     windows.push_back(window);
   }
+  // A standard deviation needs two returns.
+  if (input.factor() == v1::VOLATILITY && input.lookbacks(0) < 2)
+    throw std::invalid_argument("volatility lookback must be 2..10000 observations");
   if (input.lookbacks_size() > 1 && !input.has_holdout_start() && !input.has_walk_forward())
     throw std::invalid_argument("factor parameter comparison requires a holdout");
   Json result{{"version", 8},
-              {"factor", input.factor() == v1::TERM_STRUCTURE ? "term_structure" : "momentum"},
+              {"factor", factor},
               {"dataset_revision", input.dataset_revision()},
               {"lookbacks", windows},
               {"horizon", input.horizon()}};

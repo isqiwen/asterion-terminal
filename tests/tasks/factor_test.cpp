@@ -1298,3 +1298,48 @@ TEST(Factor, AnAverageNeedsItsWindowAndReadsNothingLater) {
     EXPECT_EQ(later[i], means[i]);
   EXPECT_DOUBLE_EQ(*average(values, 1)[2], -1);
 }
+TEST(Factor, VolatilityIsTheDeviationOfAWindowsReturns) {
+  // Returns of +10%, -10%, +10% and none.
+  std::vector<Decimal> closes{d("100"), d("110"), d("99"), d("108.9"), d("108.9")};
+  const auto values = volatility(closes, 2);
+  ASSERT_EQ(values.size(), 5U);
+  EXPECT_FALSE(values[0] || values[1]);
+  // The sample deviation of two returns is their difference over the root of
+  // two: 0.2 apart twice, then 0.1.
+  EXPECT_NEAR(*values[2], 0.2 / std::sqrt(2.0), 1e-12);
+  EXPECT_NEAR(*values[3], 0.2 / std::sqrt(2.0), 1e-12);
+  EXPECT_NEAR(*values[4], 0.1 / std::sqrt(2.0), 1e-12);
+  // A later close changes no earlier value.
+  closes[4] = d("500");
+  const auto later = volatility(closes, 2);
+  for (std::size_t i = 0; i < 4; ++i)
+    EXPECT_EQ(later[i], values[i]);
+  // Closes that did not move have a volatility of exactly nothing.
+  const std::vector<Decimal> still(4, d("100"));
+  EXPECT_EQ(*volatility(still, 3)[3], 0);
+  // One return has no deviation.
+  EXPECT_THROW(volatility(closes, 1), std::invalid_argument);
+
+  // As a factor it reads the closes, like momentum: 100, 102, 104 begin the
+  // series, returns of 2/100 and 2/102.
+  auto value = input();
+  value.set_factor(protocol::v1::VOLATILITY);
+  const auto result = factor::run(value);
+  ASSERT_EQ(result.samples_size(), 37); // 40 - warmup 2 - horizon 1
+  EXPECT_EQ(result.samples(0).event_index(), 2U);
+  EXPECT_NEAR(result.samples(0).value(), (0.02 - 2.0 / 102) / std::sqrt(2.0), 1e-12);
+  EXPECT_NO_THROW(protocol::validate_factor_result(value, result));
+  EXPECT_EQ(protocol::decode_factor(value, protocol::DatasetView::metadata).at("factor"),
+            "volatility");
+  Json request{{"series", Json::array({Json{{"daily_dataset_id", std::string(64, 'a')}}})},
+               {"factor", "volatility"},
+               {"lookbacks", {2}},
+               {"horizon", 1},
+               {"evaluation", {{"mode", "full_sample"}}}};
+  EXPECT_EQ(protocol::encode_factor_request(request).factor(), protocol::v1::VOLATILITY);
+  request["factor"] = "value";
+  EXPECT_THROW(protocol::encode_factor_request(request), std::invalid_argument);
+  // Its smallest window is two.
+  value.set_lookbacks(0, 1);
+  EXPECT_THROW(protocol::validate_factor_input(value), std::invalid_argument);
+}

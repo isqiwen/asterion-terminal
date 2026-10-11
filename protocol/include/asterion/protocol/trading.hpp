@@ -9,9 +9,12 @@ Json decode_contract(const v1::Contract& input);
 // Which sides a strategy may hold: "both", "long" or "short".
 PositionSides position_sides(v1::PositionSides value);
 v1::PositionSides encode_position_sides(const Json& value);
+// What a factor is called: "momentum", "term_structure" or "volatility".
+v1::Factor encode_factor(const Json& name);
+const char* factor_name(v1::Factor factor);
 // {"quantity", "sides", "rule": {"kind": "moving_average" | "breakout" |
 // "momentum" | "reversion", ...its windows}}, or without a quantity
-// {"sides", "rule": {"kind": "cross_momentum" | "cross_term_structure",
+// {"sides", "rule": {"kind": "cross_" and the name of the factor ranked by,
 // "reverse", ...its windows, "notional", "volatility"}}. Shapes only: whether
 // the windows make a strategy is the strategy's to say.
 v1::Strategy encode_strategy(const Json& value);

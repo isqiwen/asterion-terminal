@@ -58,10 +58,21 @@ const rules = {
     about:
       "在所有品种都有期限结构的 K 线上，每隔“调仓间隔”根按最近“均值窗口”根 K 线上年化近远月价差的均值给各品种排序：价差最高（近月相对最贵）的“每侧合约数”个做多、最低的做空，其余空仓，持有到下一次排序。只用于主力连续。入选的品种各持有市值最接近“每个合约的名义金额”的手数，按排序那根 K 线的收盘价和合约乘数计算。“波动窗口”填 0 时入选的各持相同的名义金额；填 N（至少 2）时，它们合计的名义金额不变，按各自最近 N 根共有 K 线收益率标准差的倒数分配，波动大的少持。",
   },
+  cross_volatility: {
+    name: "截面波动率",
+    fields: [
+      ["lookback", "波动率回看"],
+      ["rebalance", "调仓间隔"],
+      ["count", "每侧合约数"],
+      ["volatility", "波动窗口"],
+    ],
+    about:
+      "在所有合约都有的 K 线上，每隔“调仓间隔”根按最近“波动率回看”根 K 线逐根收益率的样本标准差给各合约排序，波动最大的“每侧合约数”个做多、最小的做空，其余空仓，持有到下一次排序；要做多波动小的，把排序方向选为“做多最低、做空最高”。“波动率回看”至少为 2。入选的合约各持有市值最接近“每个合约的名义金额”的手数，按排序那根 K 线的收盘价和合约乘数计算。一条主力连续算一个合约。“波动窗口”填 0 时入选的各持相同的名义金额；填 N（至少 2）时，它们合计的名义金额不变，按各自最近 N 根共有 K 线收益率标准差的倒数分配，波动大的少持。",
+  },
 } as const;
 type Kind = keyof typeof rules;
 // Rules that rank several contracts; a run on one contract cannot use them.
-const ranking: readonly Kind[] = ["cross_momentum", "cross_term_structure"];
+const ranking: readonly Kind[] = ["cross_momentum", "cross_term_structure", "cross_volatility"];
 const sides = { both: "多空", long: "只做多", short: "只做空" } as const;
 // Which end of a ranking is held long; a comparison may try both.
 const directions = {
@@ -141,7 +152,11 @@ function combinations(draft: StrategyDraft): StrategyDefinition["rule"][] {
     );
   if (draft.kind === "momentum")
     return values("lookback").map(lookback => ({ kind: "momentum" as const, lookback }));
-  if (draft.kind === "cross_momentum" || draft.kind === "cross_term_structure") {
+  if (
+    draft.kind === "cross_momentum" ||
+    draft.kind === "cross_term_structure" ||
+    draft.kind === "cross_volatility"
+  ) {
     const kind = draft.kind;
     const reversals = draft.direction === "both" ? [false, true] : [draft.direction === "lowest"];
     return values("lookback").flatMap(lookback =>

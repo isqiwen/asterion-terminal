@@ -552,6 +552,7 @@
   "missing trading response": "缺少交易服务返回的结果。",
   "missing verified task output": "缺少已核验的任务结果。",
   "momentum lookback must be 1..10000 observations": "动量回看窗口必须为 1 至 10000 条观测",
+  "volatility lookback must be 2..10000 observations": "波动率的回看窗口必须为 2 至 10000 条观测",
   "native core call failed": "原生核心调用失败",
   "native core initialization failed": "原生核心初始化失败",
   "native plugin ABI mismatch": "原生插件 ABI 版本不匹配。",

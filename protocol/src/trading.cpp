@@ -57,6 +57,25 @@ v1::PositionSides encode_position_sides(const Json& value) {
   }
   return v1::LONG_AND_SHORT;
 }
+namespace {
+constexpr std::pair<v1::Factor, const char*> factors[] = {{v1::PRICE_MOMENTUM, "momentum"},
+                                                          {v1::TERM_STRUCTURE, "term_structure"},
+                                                          {v1::VOLATILITY, "volatility"}};
+// A rule that ranks by a factor is of the kind named after it.
+const char cross_prefix[] = "cross_";
+} // namespace
+v1::Factor encode_factor(const Json& name) {
+  for (const auto& [factor, known] : factors)
+    if (name == known)
+      return factor;
+  throw std::invalid_argument("unknown factor");
+}
+const char* factor_name(v1::Factor factor) {
+  for (const auto& [known, name] : factors)
+    if (known == factor)
+      return name;
+  throw std::invalid_argument("unknown factor");
+}
 v1::Strategy encode_strategy(const Json& value) {
   if (!value.is_object() || !value.contains("rule") || !value.at("rule").is_object() ||
       !value.at("rule").contains("kind") || !value.at("rule").at("kind").is_string())
@@ -64,7 +83,7 @@ v1::Strategy encode_strategy(const Json& value) {
   const auto& rule = value.at("rule");
   const auto kind = rule.at("kind").get<std::string>();
   // A rule over several contracts carries its own size and takes no quantity.
-  const bool ranks = kind == "cross_momentum" || kind == "cross_term_structure";
+  const bool ranks = kind.starts_with(cross_prefix);
   if (ranks)
     require_fields(value, {"sides", "rule"});
   else
@@ -104,7 +123,7 @@ v1::Strategy encode_strategy(const Json& value) {
     if (!rule.at("reverse").is_boolean())
       throw std::invalid_argument("invalid strategy");
     auto* cross = result.mutable_cross();
-    cross->set_factor(kind == "cross_momentum" ? v1::PRICE_MOMENTUM : v1::TERM_STRUCTURE);
+    cross->set_factor(encode_factor(kind.substr(sizeof cross_prefix - 1)));
     cross->set_reversed(rule.at("reverse").get<bool>());
     cross->set_lookback(window("lookback"));
     cross->set_rebalance(window("rebalance"));
@@ -137,8 +156,7 @@ Json decode_strategy(const v1::Strategy& strategy) {
             {"width", Decimal::from_raw(strategy.reversion().width().units()).str()}};
     break;
   case v1::Strategy::kCross:
-    rule = {{"kind", strategy.cross().factor() == v1::TERM_STRUCTURE ? "cross_term_structure"
-                                                                     : "cross_momentum"},
+    rule = {{"kind", std::string(cross_prefix) + factor_name(strategy.cross().factor())},
             {"reverse", strategy.cross().reversed()},
             {"lookback", strategy.cross().lookback()},
             {"rebalance", strategy.cross().rebalance()},
@@ -159,15 +177,16 @@ void validate_strategy(const v1::Strategy& strategy, Decimal quantity_increment)
   static_cast<void>(position_sides(strategy.sides()));
   if (strategy.has_cross()) {
     const auto& rule = strategy.cross();
-    if (strategy.has_quantity() ||
-        (rule.factor() != v1::PRICE_MOMENTUM && rule.factor() != v1::TERM_STRUCTURE) ||
-        !rule.lookback() || rule.lookback() > 10000 || !rule.rebalance() ||
-        rule.rebalance() > 10000 || !rule.count() || rule.count() > 10 ||
-        rule.notional().units() <= 0)
+    if (strategy.has_quantity() || rule.factor() == v1::FACTOR_UNSPECIFIED || !rule.lookback() ||
+        rule.lookback() > 10000 || !rule.rebalance() || rule.rebalance() > 10000 || !rule.count() ||
+        rule.count() > 10 || rule.notional().units() <= 0)
       throw std::invalid_argument(
           "a ranking rule requires a factor, a lookback and a rebalance of 1..10000 bars, 1..10 "
           "contracts a side and a positive notional in place of a quantity");
+    static_cast<void>(factor_name(rule.factor()));
     // A standard deviation needs two returns.
+    if (rule.factor() == v1::VOLATILITY && rule.lookback() < 2)
+      throw std::invalid_argument("volatility lookback must be 2..10000 observations");
     if (rule.volatility() == 1 || rule.volatility() > 10000)
       throw std::invalid_argument(
           "a ranking rule sizes by volatility over 2..10000 bars, or over none");
@@ -218,11 +237,12 @@ std::size_t strategy_warmup(const v1::Strategy& strategy) {
   case v1::Strategy::kReversion:
     return strategy.reversion().window();
   case v1::Strategy::kCross:
-    // Momentum compares with the bar a lookback earlier; the term structure
-    // averages over the lookback itself. Sizing by volatility needs one bar
-    // more than its window of returns.
+    // Momentum compares with the bar a lookback earlier and volatility reads
+    // a lookback of returns; the term structure averages over the lookback
+    // itself. Sizing by volatility needs one bar more than its window of
+    // returns.
     return std::max<std::size_t>(
-        strategy.cross().lookback() + (strategy.cross().factor() == v1::PRICE_MOMENTUM ? 1 : 0),
+        strategy.cross().lookback() + (strategy.cross().factor() == v1::TERM_STRUCTURE ? 0 : 1),
         strategy.cross().volatility() ? strategy.cross().volatility() + 1 : 0);
   case v1::Strategy::RULE_NOT_SET:
     break;

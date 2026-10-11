@@ -33,6 +33,11 @@ std::vector<std::optional<double>> momentum(std::span<const Decimal> closes, std
 // The mean of the last `lookback` values, the observation's own included;
 // absent until there are that many.
 std::vector<std::optional<double>> average(std::span<const Decimal> values, std::size_t lookback);
+// Volatility: the sample standard deviation of the last `lookback` returns,
+// each from one close to the next and the observation's own included; absent
+// for the first `lookback` observations. Closes that did not move give zero.
+std::vector<std::optional<double>> volatility(std::span<const Decimal> closes,
+                                              std::size_t lookback);
 // Label: close[i + horizon] / close[i] - 1, absent where the series ends
 // first. Only the evaluation reads labels; they are never a feature's input.
 std::vector<std::optional<double>> forward_returns(std::span<const Decimal> closes,

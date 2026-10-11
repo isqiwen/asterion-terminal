@@ -1,4 +1,5 @@
 #include "strategy.hpp"
+#include "evaluation.hpp"
 #include <asterion/protocol/trading.hpp>
 #include <algorithm>
 #include <cmath>
@@ -214,12 +215,11 @@ bool CrossSection::defines(const protocol::v1::Strategy& definition) {
   return definition.has_cross();
 }
 CrossSection::CrossSection(const protocol::v1::Strategy& definition, std::size_t units)
-    : momentum_(definition.cross().factor() == protocol::v1::PRICE_MOMENTUM),
-      reversed_(definition.cross().reversed()), lookback_(definition.cross().lookback()),
-      volatility_(definition.cross().volatility()),
-      need_(std::max(lookback_ + (momentum_ ? 1 : 0), volatility_ ? volatility_ + 1 : 0)),
-      rebalance_(definition.cross().rebalance()), count_(definition.cross().count()),
-      sides_(protocol::position_sides(definition.sides())), latest_(units), bars_(units) {
+    : factor_(definition.cross().factor()), reversed_(definition.cross().reversed()),
+      lookback_(definition.cross().lookback()), volatility_(definition.cross().volatility()),
+      need_(protocol::strategy_warmup(definition)), rebalance_(definition.cross().rebalance()),
+      count_(definition.cross().count()), sides_(protocol::position_sides(definition.sides())),
+      latest_(units), bars_(units) {
   if (!defines(definition))
     throw std::invalid_argument("unknown strategy rule");
   // A unit is never wanted on both sides.
@@ -252,21 +252,34 @@ std::optional<std::vector<double>> CrossSection::rank() {
   // `rebalance`-th shared bar.
   if (!everywhere || ++shared_ < need_ || (shared_ - need_) % rebalance_ != 0)
     return std::nullopt;
-  // Statistics, like a factor: binary floating point, not ledger arithmetic.
-  const auto price = [](const Bar& bar) { return static_cast<long double>(bar.close.raw()); };
+  // The last `count` closes of a unit, or the carry of its last bars.
+  const auto last = [](const std::deque<Bar>& bars, Decimal Bar::* value, std::size_t count) {
+    std::vector<Decimal> values;
+    for (auto i = bars.size() - count; i < bars.size(); ++i)
+      values.push_back(bars[i].*value);
+    return values;
+  };
+  // Statistics of a factor, in binary floating point: not ledger arithmetic.
+  // Each is the factor evaluation's own feature at the latest bar.
+  const auto latest = [&](Feature feature, const std::deque<Bar>& bars, Decimal Bar::* value,
+                          std::size_t window, std::size_t count) {
+    return *feature(last(bars, value, count), window).back();
+  };
   std::vector<double> score;
-  for (const auto& bars : bars_) {
-    const auto last = bars.size() - 1;
-    if (momentum_) {
-      score.push_back(static_cast<double>(bars[last].close.raw()) /
-                      static_cast<double>(bars[last - lookback_].close.raw()));
-      continue;
+  for (const auto& bars : bars_)
+    switch (factor_) {
+    case protocol::v1::PRICE_MOMENTUM:
+      score.push_back(latest(momentum, bars, &Bar::close, lookback_, lookback_ + 1));
+      break;
+    case protocol::v1::TERM_STRUCTURE:
+      score.push_back(latest(average, bars, &Bar::term, lookback_, lookback_));
+      break;
+    case protocol::v1::VOLATILITY:
+      score.push_back(latest(volatility, bars, &Bar::close, lookback_, lookback_ + 1));
+      break;
+    default:
+      throw std::invalid_argument("unknown factor");
     }
-    long double sum = 0;
-    for (std::size_t i = 0; i < lookback_; ++i)
-      sum += static_cast<long double>(bars[last - i].term.raw());
-    score.push_back(static_cast<double>(sum / static_cast<long double>(lookback_)));
-  }
   std::vector<std::size_t> order(bars_.size());
   for (std::size_t unit = 0; unit < order.size(); ++unit)
     order[unit] = unit;
@@ -284,30 +297,18 @@ std::optional<std::vector<double>> CrossSection::rank() {
   }
   if (!volatility_)
     return wanted;
-  // The sample standard deviation of a unit's last `volatility_` returns.
-  const auto deviation = [&](const std::deque<Bar>& bars) {
-    const auto last = bars.size() - 1;
-    std::vector<long double> returns;
-    for (std::size_t i = 0; i < volatility_; ++i)
-      returns.push_back(price(bars[last - i]) / price(bars[last - i - 1]) - 1);
-    long double mean = 0, squares = 0;
-    for (const auto value : returns)
-      mean += value;
-    mean /= static_cast<long double>(returns.size());
-    for (const auto value : returns)
-      squares += (value - mean) * (value - mean);
-    return std::sqrt(squares / static_cast<long double>(returns.size() - 1));
-  };
   // The held units share what they would hold alike by the inverse of their
-  // volatility; one without any is not held.
+  // volatility over the window; one without any is not held.
   std::vector<long double> inverse(bars_.size());
   long double total = 0;
   std::size_t held = 0;
   for (std::size_t unit = 0; unit < bars_.size(); ++unit) {
     if (wanted[unit] == 0)
       continue;
-    if (const auto sigma = deviation(bars_[unit]); sigma > 0) {
-      inverse[unit] = 1 / sigma;
+    if (const auto sigma =
+            latest(volatility, bars_[unit], &Bar::close, volatility_, volatility_ + 1);
+        sigma > 0) {
+      inverse[unit] = 1 / static_cast<long double>(sigma);
       total += inverse[unit];
       ++held;
     }

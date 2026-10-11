@@ -551,6 +551,102 @@ test("a ranking rule holds the strongest contract long and the weakest short", a
   await page.screenshot({ path: join(__dirname, "../test-results/backtest-ranked.png") });
 });
 
+test("a ranking by volatility holds the contract that moved the most long", async ({ page }) => {
+  test.setTimeout(60000);
+  await page.goto("/");
+  await expect(page.locator(".workspace-tabs")).toBeVisible();
+  // Six bars each. Over the first three rb returns +10% and -10%, hc +1% and
+  // -1%, and al does not move; nothing moves afterwards.
+  const contracts: [string, number[]][] = [
+    ["rb", [100, 110, 99, 99, 99, 99]],
+    ["hc", [100, 101, 100, 100, 100, 100]],
+    ["al", [100, 100, 100, 100, 100, 100]],
+  ];
+  for (const [product, prices] of contracts)
+    await seedDataset(page.request, prices, `volatile-${product}`, {
+      product,
+      keep: product !== "rb",
+    });
+  await page.reload();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  const workspace = page.getByRole("region", { name: "期货研究", exact: true });
+  await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
+  await expect(workspace.getByRole("list", { name: "已选合约" }).getByRole("listitem")).toHaveCount(
+    3,
+  );
+  await workspace.getByRole("button", { name: "下一步", exact: true }).click();
+  await workspace.getByLabel("策略", { exact: true }).selectOption("cross_volatility");
+  await expect(workspace.getByText(/波动最大的“每侧合约数”个做多、最小的做空/)).toBeVisible();
+  for (const [label, value] of [
+    ["波动率回看", "2"],
+    // The third bar ranks; the sixth has no bar after it to trade on.
+    ["调仓间隔", "3"],
+    ["每侧合约数", "1"],
+    // A lot is worth ten times its price, about 1000 here: one lot each.
+    ["每个合约的名义金额", "1000"],
+    ["初始资金", "100000"],
+    ["单笔数量上限", "100"],
+    ["总持仓量上限", "100"],
+    ["在途委托数上限", "100"],
+  ])
+    await workspace.getByLabel(label, { exact: true }).fill(value);
+  for (const [product] of contracts) {
+    const costs = workspace.getByRole("region", {
+      name: `SHFE · ${product}2610 保证金与手续费`,
+    });
+    for (const [label, value] of [
+      ["每手保证金", "100"],
+      ["滑点（跳）", "0"],
+      ["每手开仓费", "2"],
+      ["每手平今费", "3"],
+      ["每手平昨费", "4"],
+    ])
+      await costs.getByLabel(label, { exact: true }).fill(value);
+  }
+  await workspace.getByRole("button", { name: "下一步", exact: true }).click();
+  await workspace.getByRole("button", { name: "开始回测", exact: true }).click();
+  await workspace.getByRole("button", { name: "返回回测记录", exact: true }).click();
+  const row = workspace
+    .getByRole("region", { name: "研究任务", exact: true })
+    .getByRole("row")
+    .filter({ hasText: "SHFE/rb2610 + SHFE/hc2610 + SHFE/al2610" })
+    // The ranking by momentum before this one added zn to the same three.
+    .filter({ hasNotText: "zn2610" });
+  await expect(row.getByText("已完成", { exact: true })).toBeVisible({ timeout: 20000 });
+  await row.getByRole("button", { name: "查看结果", exact: true }).click();
+  const result = workspace.getByRole("region", { name: "回测结果", exact: true });
+  await expect(result.getByRole("heading", { name: /截面波动率 2\/3\/1/ })).toBeVisible();
+  const figure = (name: string) =>
+    result
+      .locator(".research-metrics > div")
+      .filter({ has: page.getByText(name, { exact: true }) })
+      .locator("strong")
+      .first();
+  // rb is bought at 99 and al sold at 100 on the fourth bar. At the
+  // settlement of 110 the lot of rb has gained 110 and that of al lost 100;
+  // opening the two cost 4.
+  await expect(figure("成交笔数")).toHaveText("2");
+  await expect(figure("手续费")).toHaveText("4");
+  await expect(figure("期末权益")).toHaveText("100006");
+  await result.getByText("逐日结算", { exact: true }).click();
+  const settlements = result.locator(".research-settlements tbody tr");
+  await expect(settlements).toHaveCount(3);
+  await expect(settlements.nth(0)).toContainText("rb2610");
+  await expect(settlements.nth(0).locator("td").nth(3)).toHaveText("1");
+  await expect(settlements.nth(1).locator("td").nth(3)).toHaveText("0");
+  await expect(settlements.nth(2)).toContainText("al2610");
+  await expect(settlements.nth(2).locator("td").nth(3)).toHaveText("-1");
+  await result.getByText("实验参数", { exact: true }).click();
+  const parameter = (label: string) =>
+    result
+      .locator(".experiment-fields > div")
+      .filter({ has: page.getByText(label, { exact: true }) })
+      .locator("dd")
+      .first();
+  await expect(parameter("策略")).toHaveText("截面波动率");
+  await expect(parameter("波动率回看")).toHaveText("2");
+});
+
 test("strategies are compared by rolling and the account follows each round's best", async ({
   page,
 }) => {

@@ -68,10 +68,10 @@ private:
   struct Bar {
     Decimal close, term;
   };
-  // Momentum compares a close with the one a lookback earlier; the term
-  // structure averages the lookback's carry; a volatility window reads one
-  // close more than its returns. `need_` bars every unit had are kept.
-  bool momentum_, reversed_;
+  // What the units are ranked by, computed as a factor evaluation computes
+  // it. `need_` bars every unit had are kept: those the first ranking needs.
+  protocol::v1::Factor factor_;
+  bool reversed_;
   std::size_t lookback_, volatility_, need_, rebalance_, count_;
   PositionSides sides_;
   std::int64_t time_ = -1;

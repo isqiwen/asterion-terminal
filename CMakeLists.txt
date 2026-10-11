@@ -77,7 +77,7 @@ add_dependencies(asterion_history_providers asterion_tushare_plugin)
 
 add_library(asterion_strategies STATIC plugins/strategy/cta/strategy.cpp)
 target_include_directories(asterion_strategies PUBLIC plugins/strategy/cta)
-target_link_libraries(asterion_strategies PUBLIC asterion_protocol)
+target_link_libraries(asterion_strategies PUBLIC asterion_protocol PRIVATE asterion_factor_analysis)
 
 add_library(asterion_chart_indicators STATIC plugins/tools/chart_indicators/macd.cpp plugins/tools/chart_indicators/calendar_bars.cpp)
 target_include_directories(asterion_chart_indicators PUBLIC plugins/tools/chart_indicators)

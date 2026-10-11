@@ -43,14 +43,16 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
   const auto observations = protocol::factor_observations(input);
   std::vector<std::span<const Decimal>> closes(observations.closes.begin(),
                                                observations.closes.end());
-  // Price momentum reads the closes; the term structure the carry of each
-  // observation, averaged over the window.
+  // Price momentum and volatility read the closes; the term structure the
+  // carry of each observation, averaged over the window.
   const bool carry = input.factor() == protocol::v1::TERM_STRUCTURE;
   std::vector<std::span<const Decimal>> values(observations.terms.begin(),
                                                observations.terms.end());
   if (!carry)
     values = closes;
-  const Feature feature = carry ? average : momentum;
+  const Feature feature = carry                                        ? average
+                          : input.factor() == protocol::v1::VOLATILITY ? volatility
+                                                                       : momentum;
   const std::vector<unsigned> lookbacks(input.lookbacks().begin(), input.lookbacks().end());
   const bool search = lookbacks.size() > 1;
   factor::v1::FactorResult result;

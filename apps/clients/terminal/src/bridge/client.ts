@@ -738,9 +738,10 @@ export type FactorSeriesEvidence =
         last_day: string;
       };
     };
-// What a factor's feature is: price momentum over a window, or the mean over a
-// window of the carry a dominant series' term structure shows each day.
-export type FactorKind = "momentum" | "term_structure";
+// What a factor's feature is: price momentum over a window, the mean over a
+// window of the carry a dominant series' term structure shows each day, or
+// the deviation of a window's returns.
+export type FactorKind = "momentum" | "term_structure" | "volatility";
 export type FactorExperiment = {
   version: number;
   factor: FactorKind;
@@ -767,13 +768,12 @@ export type StrategyDefinition =
         | { kind: "momentum"; lookback: number }
         | { kind: "reversion"; window: number; width: string };
     }
-  // Ranks several contracts by price momentum or by their term structure,
-  // holds `count` a side and sizes each to the lots nearest `notional` instead
-  // of a quantity; backtests only.
+  // Ranks several contracts by a factor, holds `count` a side and sizes each
+  // to the lots nearest `notional` instead of a quantity; backtests only.
   | {
       sides: PositionSides;
       rule: {
-        kind: "cross_momentum" | "cross_term_structure";
+        kind: `cross_${FactorKind}`;
         // The lowest are held long and the highest short.
         reverse: boolean;
         lookback: number;

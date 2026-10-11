@@ -62,7 +62,7 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
       {cross && (
         <p className="subtle">
           {t(
-            "每个观测上比较各合约的动量与未来收益（IC 为相关系数，秩 IC 为秩相关），只使用所有合约都有的观测；信息比率是均值除以各截面的标准差。分组收益是每个观测上因子最高和最低的若干个合约的平均未来收益，再对各观测取均值；因子相同的合约按输入顺序排。",
+            "每个观测上比较各合约的因子值与未来收益（IC 为相关系数，秩 IC 为秩相关），只使用所有合约都有的观测；信息比率是均值除以各截面的标准差。分组收益是每个观测上因子最高和最低的若干个合约的平均未来收益，再对各观测取均值；因子相同的合约按输入顺序排。",
           )}
         </p>
       )}
@@ -227,7 +227,7 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
               <tr>
                 <th>{t(words.observed)}</th>
                 <th>{t(words.label)}</th>
-                <th>{cross ? "IC" : t("动量")}</th>
+                <th>{cross ? "IC" : t(factorNames[experiment.factor])}</th>
                 <th>{cross ? t("秩 IC") : t("未来收益")}</th>
               </tr>
             </thead>

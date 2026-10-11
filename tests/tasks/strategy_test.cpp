@@ -235,6 +235,47 @@ TEST(Strategy, ARankingByTheTermStructureAveragesTheCarryOverItsWindow) {
   unnamed.mutable_cross()->clear_factor();
   EXPECT_THROW(protocol::validate_strategy(unnamed, d("1")), std::invalid_argument);
 }
+TEST(Strategy, ARankingByVolatilityHoldsTheUnitThatMovedTheMostLong) {
+  const Json rule{{"kind", "cross_volatility"},
+                  {"reverse", false},
+                  {"lookback", 2},
+                  {"rebalance", 1},
+                  {"count", 1},
+                  {"notional", "1000"},
+                  {"volatility", 0}};
+  using Wanted = std::optional<std::vector<double>>;
+  // Returns of +10% and -10%, of +1% and -1%, and none.
+  const auto run = [](const Json& ranked) {
+    CrossSection units(ranking(ranked), 3);
+    Wanted wanted;
+    std::int64_t time = 0;
+    for (const auto& closes : std::vector<std::vector<const char*>>{
+             {"100", "10000", "50"}, {"110", "10100", "50"}, {"99", "9999", "50"}}) {
+      // Two returns need three closes.
+      EXPECT_FALSE(wanted);
+      ++time;
+      for (std::size_t unit = 0; unit < closes.size(); ++unit)
+        units.on_bar(unit, time, d(closes[unit]));
+      wanted = units.rank();
+    }
+    return wanted;
+  };
+  EXPECT_EQ(run(rule), Wanted({1, 0, -1}));
+  // Reversed, the quietest is held long.
+  auto other = rule;
+  other["reverse"] = true;
+  EXPECT_EQ(run(other), Wanted({-1, 0, 1}));
+  EXPECT_EQ(protocol::strategy_warmup(ranking(rule)), 3U);
+  EXPECT_EQ(protocol::decode_strategy(ranking(rule)).at("rule"), rule);
+  EXPECT_EQ(ranking(rule).cross().factor(), protocol::v1::VOLATILITY);
+  // One return has no deviation; a ranking is by a factor there is.
+  auto single = rule;
+  single["lookback"] = 1;
+  EXPECT_THROW(protocol::validate_strategy(ranking(single), d("1")), std::invalid_argument);
+  auto unknown = rule;
+  unknown["kind"] = "cross_value";
+  EXPECT_THROW(ranking(unknown), std::invalid_argument);
+}
 TEST(Strategy, AVolatilityWindowSplitsWhatIsHeldByTheInverseOfEachUnitsVolatility) {
   // Momentum over one bar, sized by the volatility of the last two returns:
   // three closes are needed before the first ranking.
