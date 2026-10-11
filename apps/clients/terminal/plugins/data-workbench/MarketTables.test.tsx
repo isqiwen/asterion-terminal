@@ -194,7 +194,7 @@ test("an update keeps its identity until it is accepted, then reports partition 
         ],
         unpublished: 2,
         unpublished_examples: [{ table: "futures.daily", exchange: "SHFE", period: "2026-10-09" }],
-        waiting: [],
+        waiting: ["futures.receipts SHFE", "futures.rankings SHFE"],
         snapshot: "e".repeat(64),
       },
     };
@@ -209,5 +209,89 @@ test("an update keeps its identity until it is accepted, then reports partition 
   expect(rejected.textContent).toContain('column amount: "1.5e3" is not a plain decimal number');
   expect(document.body.textContent).toContain(
     "数据源对 2 个分区没有返回数据，例如 日线 SHFE 2026-10-09。",
+  );
+  expect(document.body.textContent).toContain(
+    "有 2 组数据表和交易所还没有数据，需要给出起始日期才会下载，例如 仓单日报 SHFE、成交持仓排名 SHFE。",
+  );
+});
+
+test("a column is named for what it means in its table, with what a reader must know first", async () => {
+  const snapshot = ready();
+  const receipts = {
+    table: "futures.receipts",
+    schema: 1,
+    source: "tushare.fut_wsr.v4",
+    plugin_id: provider,
+    venues: ["SHFE"],
+  };
+  const held: TableCoverage = {
+    snapshot: "c".repeat(64),
+    sources: [...coverage.sources, receipts],
+    rows: [
+      ...coverage.rows,
+      {
+        ...coverage.rows[0],
+        table: receipts.table,
+        source: receipts.source,
+        partitions: 1,
+        rows: 2,
+        first_period: "2026-10-09",
+        missing_days: 0,
+        missing_examples: [],
+      },
+    ],
+  };
+  const asked: Record<string, unknown>[] = [];
+  const query: TerminalContext["query"] = async (method, params) => {
+    if (method !== "data.tables.page") return { ...snapshot, table_coverage: held };
+    asked.push(params!);
+    return {
+      ...snapshot,
+      table_page: {
+        revision: {
+          sequence: 9,
+          table: receipts.table,
+          schema: 1,
+          source: receipts.source,
+          exchange: "SHFE",
+          period: "2026-10-09",
+          content: "a".repeat(64),
+          rows: 2,
+          bytes: 1024,
+          acquired_at_ns: "1791717000000000000",
+          provider_artifact: "b".repeat(64),
+          snapshot: "c".repeat(64),
+        },
+        columns: ["product", "line", "warehouse", "volume", "unit", "later_column"],
+        rows: [
+          ["cu", "1", "上海国储天威", "8285", "吨", "x"],
+          ["cu", "2", "中储大场", null, "吨", null],
+        ],
+        offset: 0,
+      },
+    };
+  };
+  render(page(snapshot, undefined, query));
+  const table = await screen.findByRole("table", { name: "全市场数据覆盖" });
+  const row = within(table)
+    .getAllByRole("row")
+    .find(item => item.textContent?.startsWith("仓单日报"))!;
+  fireEvent.click(within(row).getByRole("button", { name: "查看数据" }));
+  const viewer = await screen.findByRole("table", { name: "分区数据" });
+  const headers = within(viewer).getAllByRole("columnheader");
+  // The daily table calls its volume 成交量; here it is receipts.
+  expect(headers.map(item => item.textContent)).toEqual([
+    "品种",
+    "行",
+    "仓库",
+    "今日仓单量",
+    "单位",
+    "later_column",
+  ]);
+  expect(headers.map(item => item.className)).toEqual(["", "numeric", "", "numeric", "", ""]);
+  expect(within(viewer).getAllByRole("row")[2].textContent).toBe("cu2中储大场—吨—");
+  expect(asked[0]).toMatchObject({ table: receipts.table, source: receipts.source });
+  expect(screen.getByRole("region", { name: "分区数据" }).textContent).toContain(
+    "行号是当天报表里该品种的第几行，不同日期之间不对应。",
   );
 });

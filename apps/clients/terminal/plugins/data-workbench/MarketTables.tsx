@@ -21,60 +21,101 @@ import { tableNames } from "./table-names";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
 
-// Columns by the names the store keeps; unknown ones show as stored.
-const columnNames: Record<string, string> = {
-  contract: "合约",
-  source_instrument: "数据源代码",
-  name: "名称",
-  list_date: "上市日",
-  delist_date: "最后交易日",
-  last_delivery_date: "最后交割日",
-  multiplier: "合约乘数",
-  per_unit: "每手数量",
-  trade_unit: "交易单位",
-  quote_unit: "报价单位",
-  tick_description: "最小变动价位",
-  delivery_description: "交割方式",
-  trading_hours: "交易时间",
-  day: "日期",
-  open: "开盘价",
-  previous_trading_day: "上一交易日",
-  high: "最高价",
-  low: "最低价",
-  close: "收盘价",
-  settlement: "结算价",
-  previous_close: "昨收",
-  previous_settlement: "昨结算",
-  volume: "成交量",
-  amount: "成交额",
-  open_interest: "持仓量",
-  open_interest_change: "持仓量变化",
-  delivery_settlement: "交割结算价",
+// How each table's columns are shown: a label, and whether the cells are
+// numbers, which line up on the right like every number in the terminal. A
+// name means what its table says: a volume is contracts traded in one and
+// receipts registered in another. Tables and columns this page does not know
+// show as stored.
+type Shown = readonly [label: string, numeric?: true];
+const shown: Record<string, Record<string, Shown>> = {
+  "futures.contracts": {
+    contract: ["合约"],
+    source_instrument: ["数据源代码"],
+    name: ["名称"],
+    list_date: ["上市日"],
+    delist_date: ["最后交易日"],
+    last_delivery_date: ["最后交割日"],
+    multiplier: ["合约乘数", true],
+    per_unit: ["每手数量", true],
+    trade_unit: ["交易单位"],
+    quote_unit: ["报价单位"],
+    tick_description: ["最小变动价位"],
+    delivery_description: ["交割方式"],
+    trading_hours: ["交易时间"],
+  },
+  "futures.calendar": {
+    day: ["日期"],
+    open: ["开市"],
+    previous_trading_day: ["上一交易日"],
+  },
+  "futures.daily": {
+    contract: ["合约"],
+    open: ["开盘价", true],
+    high: ["最高价", true],
+    low: ["最低价", true],
+    close: ["收盘价", true],
+    settlement: ["结算价", true],
+    previous_close: ["昨收", true],
+    previous_settlement: ["昨结算", true],
+    volume: ["成交量", true],
+    amount: ["成交额", true],
+    open_interest: ["持仓量", true],
+    open_interest_change: ["持仓量变化", true],
+    delivery_settlement: ["交割结算价", true],
+  },
+  "futures.settlement": {
+    contract: ["合约"],
+    trading_fee_rate: ["交易手续费率", true],
+    trading_fee: ["交易手续费", true],
+    close_today_fee: ["平今手续费", true],
+    delivery_fee: ["交割手续费", true],
+    long_margin_rate: ["买投机保证金率", true],
+    short_margin_rate: ["卖投机保证金率", true],
+    buy_hedging_margin_rate: ["买套保保证金率", true],
+    sell_hedging_margin_rate: ["卖套保保证金率", true],
+  },
+  "futures.receipts": {
+    product: ["品种"],
+    line: ["行", true],
+    product_name: ["品种名称"],
+    warehouse: ["仓库"],
+    warehouse_id: ["仓库编号"],
+    area: ["地区"],
+    year: ["年度"],
+    grade: ["等级"],
+    brand: ["品牌"],
+    place: ["产地"],
+    converted: ["折算仓单"],
+    previous_volume: ["昨日仓单量", true],
+    volume: ["今日仓单量", true],
+    change: ["增减", true],
+    unit: ["单位"],
+    premium: ["升贴水", true],
+  },
+  "futures.rankings": {
+    instrument: ["合约或品种"],
+    member: ["会员"],
+    volume: ["成交量", true],
+    volume_change: ["成交量变化", true],
+    long: ["持买仓量", true],
+    long_change: ["持买仓量变化", true],
+    short: ["持卖仓量", true],
+    short_change: ["持卖仓量变化", true],
+  },
+};
+// What a reader has to know before using a table's numbers.
+const notes: Record<string, string> = {
+  "futures.settlement": "结算参数说明",
+  "futures.receipts": "仓单日报说明",
+  "futures.rankings": "成交持仓排名说明",
 };
 const named = (names: Record<string, string>, key: string) => (names[key] ? t(names[key]) : key);
-// The calendar's flag shares its name with the daily table's opening price.
-const flag = (table: string, column: string) => table === "futures.calendar" && column === "open";
-const columnName = (table: string, column: string) =>
-  flag(table, column) ? t("开市") : named(columnNames, column);
-// Prices and quantities line up on the right, like every number in the terminal.
-const numbers = new Set([
-  "multiplier",
-  "per_unit",
-  "open",
-  "high",
-  "low",
-  "close",
-  "settlement",
-  "previous_close",
-  "previous_settlement",
-  "volume",
-  "amount",
-  "open_interest",
-  "open_interest_change",
-  "delivery_settlement",
-]);
+const columnName = (table: string, column: string) => {
+  const known = shown[table]?.[column];
+  return known ? t(known[0]) : column;
+};
 const numeric = (table: string, column: string) =>
-  numbers.has(column) && !flag(table, column) ? "numeric" : undefined;
+  shown[table]?.[column]?.[1] ? "numeric" : undefined;
 // Which tables are kept by trading day: the ones an update is asked for.
 const byDay = (table: string) => table !== "futures.contracts" && table !== "futures.calendar";
 function yesterday() {
@@ -542,7 +583,7 @@ function TableUpdateForm({
               {!!result.unpublished && (
                 <p>
                   {t(
-                    "数据源对 {count} 个分区没有返回数据，例如 {examples}。可能尚未发布，下次更新会再取。",
+                    "数据源对 {count} 个分区没有返回数据，例如 {examples}。可能尚未发布，也可能数据源没有这段历史；下次更新会再取。",
                     {
                       count: result.unpublished,
                       examples: result.unpublished_examples
@@ -558,9 +599,20 @@ function TableUpdateForm({
               )}
               {!!result.waiting.length && (
                 <p>
-                  {t("{count} 个交易所还没有数据，需要给出起始日期才会下载。", {
-                    count: result.waiting.length,
-                  })}
+                  {t(
+                    "有 {count} 组数据表和交易所还没有数据，需要给出起始日期才会下载，例如 {examples}。",
+                    {
+                      count: result.waiting.length,
+                      // Each is a table and an exchange, as the plan names them.
+                      examples: result.waiting
+                        .slice(0, 3)
+                        .map(item => {
+                          const [table, exchange] = item.split(" ");
+                          return `${named(tableNames, table)} ${exchange}`;
+                        })
+                        .join("、"),
+                    },
+                  )}
                 </p>
               )}
               {!!result.rejected.length && (
@@ -692,6 +744,7 @@ function PartitionViewer({
           <ErrorNotice error={error} />
         </p>
       )}
+      {notes[row.table] && <p className="subtle">{t(notes[row.table])}</p>}
       {page && (
         <>
           <p className="subtle">

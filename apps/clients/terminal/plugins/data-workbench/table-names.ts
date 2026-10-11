@@ -3,4 +3,7 @@ export const tableNames: Record<string, string> = {
   "futures.contracts": "合约表",
   "futures.calendar": "交易日历",
   "futures.daily": "日线",
+  "futures.settlement": "结算参数",
+  "futures.receipts": "仓单日报",
+  "futures.rankings": "成交持仓排名",
 };

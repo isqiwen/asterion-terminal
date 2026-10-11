@@ -45,10 +45,59 @@ constexpr TableColumn daily[] = {
     {"open_interest_change", decimal, 0},
     {"delivery_settlement", decimal, 8},
 };
+// The settlement parameters of a contract on a day: what the exchange charges
+// and requires, in the units the source publishes. They differ by exchange: a
+// fee is a share of turnover or an amount per lot, a margin rate a fraction
+// or a percentage. The settlement price itself is in futures.daily.
+constexpr TableColumn settlement[] = {
+    {"contract", contract, 0, true},
+    {"trading_fee_rate", decimal, 8},
+    {"trading_fee", decimal, 8},
+    {"close_today_fee", decimal, 8},
+    {"delivery_fee", decimal, 8},
+    {"long_margin_rate", decimal, 8},
+    {"short_margin_rate", decimal, 8},
+    {"buy_hedging_margin_rate", decimal, 8},
+    {"sell_hedging_margin_rate", decimal, 8},
+};
+// The lines of an exchange's daily report of registered warehouse receipts,
+// in the order published. What tells two lines of a product apart differs by
+// exchange and product (a warehouse, a region, a crop year, a grade, a
+// brand), and some lines nothing published tells apart: a line is known by
+// its place among the lines of its product, on that day only.
+constexpr TableColumn receipts[] = {
+    {"product", text, 0, true},
+    {"line", decimal, 0, true},
+    {"product_name", text},
+    {"warehouse", text},
+    {"warehouse_id", text},
+    {"area", text},
+    {"year", text},
+    {"grade", text},
+    {"brand", text},
+    {"place", text},
+    {"converted", text},
+    {"previous_volume", decimal, 0},
+    {"volume", decimal, 0},
+    {"change", decimal, 0},
+    {"unit", text},
+    {"premium", decimal, 8},
+};
+// What each member traded and holds in a contract or a product, as the
+// exchange ranks it. The instrument is a contract (SHFE/cu/2024-03) or a
+// product (SHFE/cu).
+constexpr TableColumn rankings[] = {
+    {"instrument", text, 0, true}, {"member", text, 0, true},    {"volume", decimal, 0},
+    {"volume_change", decimal, 0}, {"long", decimal, 0},         {"long_change", decimal, 0},
+    {"short", decimal, 0},         {"short_change", decimal, 0},
+};
 constexpr HistoryTable tables[] = {
     {"futures.contracts", 1, TablePeriod::all, contracts},
     {"futures.calendar", 1, TablePeriod::year, calendar},
     {"futures.daily", 1, TablePeriod::day, daily},
+    {"futures.settlement", 1, TablePeriod::day, settlement},
+    {"futures.receipts", 1, TablePeriod::day, receipts},
+    {"futures.rankings", 1, TablePeriod::day, rankings},
 };
 constexpr std::size_t max_text_bytes = 1024;
 constexpr std::int64_t powers[] = {1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000};

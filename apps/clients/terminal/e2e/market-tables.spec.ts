@@ -12,8 +12,10 @@ test("the market tables page lists what the data source offers before anything i
   await page.getByRole("button", { name: "全市场数据", exact: true }).click();
   const tables = page.getByRole("region", { name: "全市场数据", exact: true });
   const coverage = tables.getByRole("table", { name: "全市场数据覆盖" });
-  // Contracts, calendar and daily bars of six exchanges, under one heading row.
-  await expect(coverage.getByRole("row")).toHaveCount(19);
+  // Six tables of six exchanges under one heading row; CFFEX has no warehouse
+  // receipts, so that table has five.
+  await expect(coverage.getByRole("row")).toHaveCount(36);
+  await expect(coverage.getByRole("row").filter({ hasText: "仓单日报" })).toHaveCount(5);
   await expect(
     coverage.getByRole("row").filter({ hasText: "日线" }).filter({ hasText: "GFEX" }),
   ).toContainText("尚未下载");
@@ -30,5 +32,8 @@ test("the market tables page lists what the data source offers before anything i
     "futures.contracts",
     "futures.calendar",
     "futures.daily",
+    "futures.settlement",
+    "futures.receipts",
+    "futures.rankings",
   ]);
 });

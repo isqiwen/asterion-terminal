@@ -30,7 +30,31 @@ Json listing(const char* code, const char* exchange, const char* product, const 
 const std::vector<std::string> daily_fields{
     "ts_code", "trade_date", "pre_close", "pre_settle", "open", "high",   "low",
     "close",   "settle",     "vol",       "amount",     "oi",   "oi_chg", "delv_settle"};
+const std::vector<std::string> settlement_fields{"ts_code",
+                                                 "trade_date",
+                                                 "trading_fee_rate",
+                                                 "trading_fee",
+                                                 "delivery_fee",
+                                                 "b_hedging_margin_rate",
+                                                 "s_hedging_margin_rate",
+                                                 "long_margin_rate",
+                                                 "short_margin_rate",
+                                                 "offset_today_fee"};
+const std::vector<std::string> receipt_fields{
+    "trade_date", "symbol", "fut_name", "warehouse", "wh_id", "pre_vol", "vol",   "vol_chg",
+    "area",       "year",   "grade",    "brand",     "place", "pd",      "is_ct", "unit"};
+const std::vector<std::string> ranking_fields{"trade_date", "symbol",    "broker",
+                                              "vol",        "vol_chg",   "long_hld",
+                                              "long_chg",   "short_hld", "short_chg"};
 const std::vector<std::string> only_contract{"contract"};
+// A stored row as readers are shown it.
+using Cells = std::vector<std::optional<std::string>>;
+Cells cells(const HistoryTable& table, const std::vector<TableCell>& row) {
+  Cells result;
+  for (std::size_t c = 0; c < table.columns.size(); ++c)
+    result.push_back(table_cell_text(table.columns[c], row[c]));
+  return result;
+}
 std::string failure(tushare::Tables& tables, const char* venue, const char* day) {
   try {
     (void)tables.read("futures.daily", columns(table("futures.daily")), venue, day, {});
@@ -147,29 +171,204 @@ TEST(TushareTables, ContractsAndCalendarKeepTheVendorsFieldsUnderOurNames) {
   EXPECT_EQ(table_cell_text(calendar.columns[1], year.rows[1][1]), "0");
   EXPECT_EQ(table_cell_text(calendar.columns[2], year.rows[1][2]), std::nullopt);
 }
-TEST(TushareTables, ACodeAnExchangeReusesNamesTheContractListedThatDay) {
+TEST(TushareTables, SettlementParametersAreThoseOfTheContractsListedThatDay) {
+  tushare::Tables tables("fixture-token", [](const auto& body, auto) {
+    const auto request = Json::parse(body);
+    if (request.at("api_name") == "fut_basic")
+      return answer(contract_fields,
+                    {listing("IF2605.CFX", "CFFEX", "IF", "202605", "20250922", "20260515"),
+                     listing("IF2612.CFX", "CFFEX", "IF", "202612", "20260420", "20261218")})
+          .dump();
+    EXPECT_EQ(request.at("api_name"), "fut_settle");
+    EXPECT_EQ(request.at("params"), (Json{{"trade_date", "20261009"}, {"exchange", "CFFEX"}}));
+    // As the vendor answers for CFFEX: percentages, one number as both rate
+    // and amount, and a contract whose last day was in May.
+    return answer(settlement_fields,
+                  {{"IF2605.CFX", "20261009", 0.23, 0.23, 0.5, 12.0, 12.0, 12.0, 12.0, 1000.0},
+                   {"IF2612.CFX", "20261009", 0.23, 0.23, 1.0, 12.0, 12.0, 14.0, 15.0, 1000.0}})
+        .dump();
+  });
+  const auto& settlement = table("futures.settlement");
+  const auto partition = table_partition(
+      settlement, "CFFEX", "2026-10-09",
+      tables.read("futures.settlement", columns(settlement), "CFFEX", "2026-10-09", {}));
+  ASSERT_EQ(partition.rows.size(), 1U);
+  EXPECT_EQ(cells(settlement, partition.rows[0]),
+            (Cells{"CFFEX/if/2026-12", "0.23", "0.23", "1000", "1", "14", "15", "12", "12"}))
+      << "in the units published, under the names of the table";
+}
+TEST(TushareTables, ACzceCodeNamesTheContractListedThatDayWhateverDecadeTheVendorWrote) {
   Json day;
   tushare::Tables tables("fixture-token", [&](const auto& body, auto) {
     if (Json::parse(body).at("api_name") == "fut_basic")
       return answer(contract_fields,
-                    {listing("TA709.ZCE", "CZCE", "TA", "201709", "20160919", "20170914"),
-                     listing("TA709.ZCE", "CZCE", "TA", "202709", "20260915", "20270914"),
-                     listing("TA701.ZCE", "CZCE", "TA", "202701", "20260115", "20270114")})
+                    {listing("AP2003.ZCE", "CZCE", "AP", "202003", "20190315", "20200313"),
+                     listing("CF1003.ZCE", "CZCE", "CF", "201003", "20090316", "20100312"),
+                     listing("CF2003.ZCE", "CZCE", "CF", "202003", "20190315", "20200313"),
+                     listing("CF1907.ZCE", "CZCE", "CF", "201907", "20180716", "20190712")})
           .dump();
-    return answer(daily_fields, day).dump();
+    return answer(settlement_fields, day).dump();
   });
-  const auto contract = [&](const char* code, const char* date, const char* period) {
-    day = Json::array({{code, date, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, nullptr}});
-    return tables.read("futures.daily", only_contract, "CZCE", period, {}).at(0).at(0);
+  const auto row = [](const char* code) {
+    return Json::array({code, "20190617", nullptr, 4.3, 0, 0.07, 0.07, 0.07, 0.07, 0});
   };
-  EXPECT_EQ(contract("TA709.ZCE", "20261009", "2026-10-09"), "CZCE/ta/2027-09");
-  EXPECT_EQ(contract("TA709.ZCE", "20170301", "2017-03-01"), "CZCE/ta/2017-09");
-  // One listing under a code is that contract whatever the catalogue's dates say.
-  EXPECT_EQ(contract("TA701.ZCE", "20270115", "2027-01-15"), "CZCE/ta/2027-01");
-  day = Json::array({{"TA709.ZCE", "20200102", 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, nullptr}});
+  // The exchange calls them AP003 and CF003; in 2019 those are the months of 2020.
+  day = {row("AP1003.ZCE"), row("CF1003.ZCE"), row("CF1907.ZCE")};
+  const auto rows = tables.read("futures.settlement", only_contract, "CZCE", "2019-06-17", {});
+  EXPECT_EQ(rows, (std::vector<tushare::TableRow>{
+                      {"CZCE/ap/2020-03"}, {"CZCE/cf/2020-03"}, {"CZCE/cf/2019-07"}}));
+  day = {row("SR1003.ZCE")};
+  try {
+    (void)tables.read("futures.settlement", only_contract, "CZCE", "2019-06-17", {});
+    FAIL() << "no contract of that product was listed";
+  } catch (const tushare::TableError& error) {
+    EXPECT_STREQ(error.what(),
+                 "futures.settlement CZCE 2019-06-17: SR1003.ZCE is not in the contract list");
+  }
+}
+TEST(TushareTables, ReceiptsAreTheLinesOfTheReportInItsOrder) {
+  std::vector<Json> asked;
+  tushare::Tables tables("fixture-token", [&](const auto& body, auto) {
+    const auto request = Json::parse(body);
+    const auto& exchange = request.at("params").at("exchange");
+    if (request.at("api_name") == "fut_basic")
+      return answer(
+                 contract_fields,
+                 exchange == "SHFE"
+                     ? Json{listing("CU2611.SHF", "SHFE", "CU", "202611", "20251118", "20261116")}
+                 : exchange == "INE"
+                     ? Json{listing("BC2611.INE", "INE", "BC", "202611", "20251118", "20261116"),
+                            listing("SC2611.INE", "INE", "SC", "202611", "20231101", "20261030")}
+                     : Json{listing("TA2611.ZCE", "CZCE", "TA", "202611", "20251118", "20261113")})
+          .dump();
+    EXPECT_EQ(request.at("api_name"), "fut_wsr");
+    asked.push_back(request.at("params"));
+    const auto line = [](const char* symbol, const char* name, const std::string& warehouse) {
+      return Json::array({"20261009", symbol, name, warehouse, nullptr, nullptr, 300, -5, "上海",
+                          "0", nullptr, nullptr, nullptr, nullptr, nullptr, "吨"});
+    };
+    if (exchange == "CZCE")
+      return answer(receipt_fields, {line("PTA", "PTA", "逸盛大化"), line("WT", "硬麦", "郑州")})
+          .dump();
+    // The vendor answers for SHFE with the lines of INE among them, a page of
+    // a thousand at a time; international copper comes under copper.
+    Json lines = Json::array();
+    if (request.at("params").at("offset") == 0) {
+      for (int i = 0; i < 998; ++i)
+        lines.push_back(line("CU", "铜", "仓库" + std::to_string(i)));
+      lines.push_back(line("CU", "铜(BC)", "洋山"));
+      lines.push_back(line("SC", "中质含硫原油", "中化兴中"));
+    } else {
+      lines.push_back(line("CU", "铜", "仓库0"));
+      lines.push_back(line("CU", "铜(BC)", "外高桥"));
+    }
+    return answer(receipt_fields, lines).dump();
+  });
+  const auto& receipts = table("futures.receipts");
+  const auto read = [&](const char* venue) {
+    return table_partition(
+        receipts, venue, "2026-10-09",
+        tables.read("futures.receipts", columns(receipts), venue, "2026-10-09", {}));
+  };
+  const auto energy = read("INE");
+  ASSERT_EQ(energy.rows.size(), 3U);
   EXPECT_EQ(
-      failure(tables, "CZCE", "2020-01-02"),
-      "futures.daily CZCE 2020-01-02: TA709.ZCE does not name one contract listed on that day");
+      cells(receipts, energy.rows[0]),
+      (Cells{"bc", "1", "铜(BC)", "洋山", std::nullopt, "上海", "0", std::nullopt, std::nullopt,
+             std::nullopt, std::nullopt, std::nullopt, "300", "-5", "吨", std::nullopt}));
+  EXPECT_EQ(cells(receipts, energy.rows[1]).at(3), "外高桥");
+  EXPECT_EQ(cells(receipts, energy.rows[2]).at(0), "sc");
+  const auto shanghai = read("SHFE");
+  ASSERT_EQ(shanghai.rows.size(), 999U);
+  // Two lines of one warehouse that nothing tells apart are both kept, each at its place.
+  EXPECT_EQ(cells(receipts, shanghai.rows[0]).at(3), "仓库0");
+  EXPECT_EQ(cells(receipts, shanghai.rows[998]).at(1), "999");
+  EXPECT_EQ(cells(receipts, shanghai.rows[998]).at(3), "仓库0");
+  EXPECT_EQ(
+      asked,
+      (std::vector<Json>{
+          {{"trade_date", "20261009"}, {"exchange", "SHFE"}, {"limit", 1000}, {"offset", 0}},
+          {{"trade_date", "20261009"}, {"exchange", "SHFE"}, {"limit", 1000}, {"offset", 1000}}}))
+      << "one answer serves both exchanges";
+  // CZCE calls TA by its name; a product the exchange never listed is not guessed at.
+  try {
+    (void)read("CZCE");
+    FAIL() << "WT is not in the contract list";
+  } catch (const tushare::TableError& error) {
+    EXPECT_STREQ(error.what(),
+                 "futures.receipts CZCE 2026-10-09: WT is not a product of this exchange");
+  }
+}
+TEST(TushareTables, RankingsNameAContractOrAProductHoweverTheSourceWritesIt) {
+  Json day;
+  tushare::Tables tables("fixture-token", [&](const auto& body, auto) {
+    const auto request = Json::parse(body);
+    const auto& exchange = request.at("params").at("exchange");
+    if (request.at("api_name") == "fut_basic")
+      return answer(
+                 contract_fields,
+                 exchange == "SHFE"
+                     ? Json{listing("CU2611.SHF", "SHFE", "CU", "202611", "20251118", "20261116")}
+                 : exchange == "INE"
+                     ? Json{listing("BC2611.INE", "INE", "BC", "202611", "20251118", "20261116")}
+                 : exchange == "CZCE"
+                     ? Json{listing("UR2701.ZCE", "CZCE", "UR", "202701", "20260115", "20270114"),
+                            listing("TA2701.ZCE", "CZCE", "TA", "202701", "20260115", "20270114")}
+                     : Json{listing("IF2612.CFX", "CFFEX", "IF", "202612", "20260420", "20261218")})
+          .dump();
+    EXPECT_EQ(request.at("api_name"), "fut_holding");
+    EXPECT_EQ(request.at("params").at("limit"), 2000);
+    return answer(ranking_fields, day).dump();
+  });
+  const auto rank = [](const char* symbol, const char* member) {
+    return Json::array({"20261009", symbol, member, 1200, -30, 800, 10, nullptr, nullptr});
+  };
+  const auto& rankings = table("futures.rankings");
+  const auto read = [&](const char* venue) {
+    std::vector<Cells> rows;
+    for (const auto& row : table_partition(rankings, venue, "2026-10-09",
+                                           tables.read("futures.rankings", columns(rankings), venue,
+                                                       "2026-10-09", {}))
+                               .rows)
+      rows.push_back(cells(rankings, row));
+    return rows;
+  };
+  // A product by its Chinese name and letters, by its name alone, and a
+  // contract by the three digits the exchange itself writes, in lower case.
+  day = {rank("尿素UR", "中信期货"), rank("PTA", "中信期货"), rank("ur701", "永安期货（代客）")};
+  EXPECT_EQ(read("CZCE"),
+            (std::vector<Cells>{
+                {"CZCE/ta", "中信期货", "1200", "-30", "800", "10", std::nullopt, std::nullopt},
+                {"CZCE/ur", "中信期货", "1200", "-30", "800", "10", std::nullopt, std::nullopt},
+                {"CZCE/ur/2027-01", "永安期货（代客）", "1200", "-30", "800", "10", std::nullopt,
+                 std::nullopt}}));
+  // Shanghai: a product over its active contracts or by a kind of member, and
+  // the contracts of INE in the same answer.
+  day = {rank("CUACTV", "中信期货"), rank("CU", "期货公司"), rank("CU2611", "中信期货"),
+         rank("BC2611", "东证期货")};
+  const auto shanghai = read("SHFE");
+  ASSERT_EQ(shanghai.size(), 3U);
+  EXPECT_EQ(shanghai[0].at(0), "SHFE/cu");
+  EXPECT_EQ(shanghai[0].at(1), "中信期货");
+  EXPECT_EQ(shanghai[1].at(1), "期货公司");
+  EXPECT_EQ(shanghai[2].at(0), "SHFE/cu/2026-11");
+  const auto energy = read("INE");
+  ASSERT_EQ(energy.size(), 1U);
+  EXPECT_EQ(energy[0].at(0), "INE/bc/2026-11");
+  // Options are ranked with the futures and are not futures.
+  day = {rank("IO2610", "中信期货"), rank("IF2612", "中信期货")};
+  const auto index = read("CFFEX");
+  ASSERT_EQ(index.size(), 1U);
+  EXPECT_EQ(index[0].at(0), "CFFEX/if/2026-12");
+  // A notation nobody has seen is not skipped: the day waits for a rule.
+  day = {rank("IF2612", "中信期货"), rank("合计", "中信期货"), rank("IF26", "中信期货")};
+  try {
+    (void)read("CFFEX");
+    FAIL() << "two symbols name nothing";
+  } catch (const tushare::TableError& error) {
+    EXPECT_STREQ(error.what(), "futures.rankings CFFEX 2026-10-09: IF26 合计 name neither a "
+                               "contract nor a product");
+  }
 }
 TEST(TushareTables, FailuresSayWhichPartitionAndNeverRepeatTheVendor) {
   std::string reply;

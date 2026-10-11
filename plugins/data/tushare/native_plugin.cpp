@@ -201,9 +201,10 @@ AstStatus tables(void*, void* context, AstStatus (*emit)(void*, const AstHistory
   return sdk::boundary([&] {
     if (!emit)
       throw AstStatus(AST_INVALID);
-    static const char* venues[] = {"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"};
     for (const auto& definition : tushare::table_definitions()) {
-      const AstHistoryTable row{definition.table, definition.schema, definition.source, venues, 6};
+      const AstHistoryTable row{definition.table, definition.schema, definition.source,
+                                definition.venues.data(),
+                                static_cast<uint32_t>(definition.venues.size())};
       sdk::check(emit(context, &row));
     }
   });
