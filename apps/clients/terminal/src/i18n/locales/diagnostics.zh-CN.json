@@ -875,6 +875,7 @@
   "a strategy order is unconfirmed at the broker; verify it before starting again": "有一笔策略委托在柜台没有回报；请先在券商端核实，再重新启动策略。",
   "the trading record needs recovery; the strategy stopped": "交易记录需要恢复，策略已停止。",
   "invalid table update definition": "全市场数据更新的参数无效",
+  "invalid table plan step": "全市场数据更新的计划步骤无效",
   "unknown history table": "未知的数据表",
   "invalid history table period": "数据表分区的日期无效",
   "invalid history table page query": "数据表分页查询参数无效",

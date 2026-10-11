@@ -54,10 +54,15 @@ message DownloadPublication {
   DownloadIdentity identity = 1; string candidate_digest = 2; string publication_id = 3;
 }
 message PublishedDownload { DownloadPublication decision = 1; HistoryRecord record = 2; }
-// What a table update still has to read, in order. The reference phase lists
-// the contract lists and calendar years; the other phase the trading days,
-// worked out from the calendar the reference phase has stored.
-message TablePlanQuery { DownloadIdentity identity = 1; bool references = 2; }
+// What a table update still has to read, in order. It is planned in steps,
+// each from what the step before stored: the contract lists say when an
+// exchange began, its calendar from that year on which days it was open, and
+// those days are read last.
+enum TablePlanStep {
+  TABLE_PLAN_STEP_UNSPECIFIED = 0;
+  TABLE_PLAN_CONTRACTS = 1; TABLE_PLAN_CALENDAR = 2; TABLE_PLAN_DAYS = 3;
+}
+message TablePlanQuery { DownloadIdentity identity = 1; TablePlanStep step = 2; }
 message TableUpdatePlan { repeated TablePartitionKey partitions = 1; repeated string waiting = 2; }
 // One partition as the source delivered it. The reply is the revision the
 // partition now holds, or why its rows cannot be stored; a rejection is an

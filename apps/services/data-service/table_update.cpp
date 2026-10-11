@@ -5,6 +5,7 @@
 #include <chrono>
 #include <map>
 #include <optional>
+#include <set>
 #include <tuple>
 namespace asterion::data {
 namespace {
@@ -98,9 +99,12 @@ bool table_update_covers(const std::vector<TableOffer>& offers, const v1::TableU
 }
 v1::TableUpdatePlan table_update_plan(const TableStore& store,
                                       const std::vector<TableOffer>& offers,
-                                      const v1::TableUpdate& update, bool references,
+                                      const v1::TableUpdate& update, v1::TablePlanStep step,
                                       const std::string& today) {
   protocol::validate_table_update(update);
+  if (step != v1::TABLE_PLAN_CONTRACTS && step != v1::TABLE_PLAN_CALENDAR &&
+      step != v1::TABLE_PLAN_DAYS)
+    throw std::invalid_argument("invalid table plan step");
   (void)parse_trading_date(today);
   const auto ended = shifted(today, -1);
   const auto end = update.end_day().empty() ? ended : std::min(update.end_day(), ended);
@@ -128,17 +132,34 @@ v1::TableUpdatePlan table_update_plan(const TableStore& store,
       starts.push_back({table, venue, std::move(first)});
     }
   }
-  if (references) {
+  if (step == v1::TABLE_PLAN_CONTRACTS) {
+    std::set<std::string> venues;
+    for (const auto& start : starts)
+      venues.insert(start.venue);
+    for (const auto& venue : venues) {
+      (void)offer(offers, contracts_table, venue);
+      // New contracts are listed every day: the list is always read again.
+      add(plan, contracts_table, venue, "all");
+    }
+    return plan;
+  }
+  // Nothing is asked about an exchange before it listed its first contract:
+  // a source has neither a calendar nor days for those years.
+  std::map<std::string, std::string> inceptions; // by exchange
+  for (auto& start : starts) {
+    const auto [listed, fresh] = inceptions.try_emplace(start.venue);
+    if (fresh)
+      listed->second =
+          inception(store, offer(offers, contracts_table, start.venue).series, start.venue);
+    start.first = std::max(start.first, listed->second);
+  }
+  std::erase_if(starts, [&](const Start& start) { return start.first > end; });
+  if (step == v1::TABLE_PLAN_CALENDAR) {
     std::map<std::string, std::string> earliest; // by exchange
     for (const auto& start : starts) {
       const auto [found, inserted] = earliest.emplace(start.venue, start.first);
       if (!inserted && start.first < found->second)
         found->second = start.first;
-    }
-    for (const auto& [venue, first] : earliest) {
-      (void)offer(offers, contracts_table, venue);
-      // New contracts are listed every day: the list is always read again.
-      add(plan, contracts_table, venue, "all");
     }
     for (const auto& [venue, first] : earliest) {
       const auto& calendar = offer(offers, calendar_table, venue);
@@ -150,27 +171,16 @@ v1::TableUpdatePlan table_update_plan(const TableStore& store,
     }
     return plan;
   }
-  std::map<std::string, std::string> inceptions;
   std::vector<v1::TablePartitionKey> days;
   for (const auto& start : starts) {
     const auto& series = offer(offers, start.table, start.venue).series;
-    auto listed = inceptions.find(start.venue);
-    if (listed == inceptions.end())
-      listed = inceptions
-                   .emplace(start.venue,
-                            inception(store, offer(offers, contracts_table, start.venue).series,
-                                      start.venue))
-                   .first;
-    const auto first = std::max(start.first, listed->second);
-    if (first > end)
-      continue;
     const auto& calendar = offer(offers, calendar_table, start.venue).series;
-    const auto open = open_days(store, calendar, start.venue, first, end);
+    const auto open = open_days(store, calendar, start.venue, start.first, end);
     if (!open)
       throw Error(ErrorCode::conflict,
                   "reference data is not stored: " + std::string(calendar_table) + " " +
                       start.venue + " for a year of the range");
-    const auto held = store.periods(series, start.venue, first, end);
+    const auto held = store.periods(series, start.venue, start.first, end);
     for (const auto& day : *open)
       if (!std::ranges::binary_search(held, day)) {
         auto& partition = days.emplace_back();

@@ -26,10 +26,10 @@ data::v1::TableUpdateResult update_tables(protocol::DataClient& data,
   result.set_version(1);
   std::uint64_t latest = 0;
   std::string reason;
-  const auto plan = [&](bool references) {
+  const auto plan = [&](data::v1::TablePlanStep step) {
     data::v1::DataRequest request;
     *request.mutable_table_plan()->mutable_identity() = identity;
-    request.mutable_table_plan()->set_references(references);
+    request.mutable_table_plan()->set_step(step);
     return data.call(request).table_plan();
   };
   const auto deliver = [&](const data::v1::TablePartitionKey& key) {
@@ -73,20 +73,24 @@ data::v1::TableUpdateResult update_tables(protocol::DataClient& data,
   const auto name = [](const data::v1::TablePartitionKey& key) {
     return key.table() + " " + key.exchange() + " " + key.period();
   };
-  // The contract lists and the calendar decide which days exist. Without one
-  // of them the days of that exchange cannot be planned, so the run ends.
-  const auto references = plan(true);
-  for (const auto& key : references.partitions())
-    switch (deliver(key)) {
-    case Outcome::stored:
-      break;
-    case Outcome::rejected:
-      throw Error(ErrorCode::operation_failed, "reference data was rejected: " + reason);
-    case Outcome::unpublished:
-      throw Error(ErrorCode::operation_failed,
-                  "the source returned no reference data: " + name(key));
-    }
-  const auto days = plan(false);
+  // The contract lists say when an exchange began, and its calendar from then
+  // on which days exist: each is planned once the one before is stored.
+  // Without one of them the days of that exchange cannot be planned, so the
+  // run ends.
+  for (const auto step : {data::v1::TABLE_PLAN_CONTRACTS, data::v1::TABLE_PLAN_CALENDAR}) {
+    const auto references = plan(step);
+    for (const auto& key : references.partitions())
+      switch (deliver(key)) {
+      case Outcome::stored:
+        break;
+      case Outcome::rejected:
+        throw Error(ErrorCode::operation_failed, "reference data was rejected: " + reason);
+      case Outcome::unpublished:
+        throw Error(ErrorCode::operation_failed,
+                    "the source returned no reference data: " + name(key));
+      }
+  }
+  const auto days = plan(data::v1::TABLE_PLAN_DAYS);
   for (const auto& waiting : days.waiting())
     result.add_waiting(waiting);
   for (int done = 0; done < days.partitions_size(); ++done) {

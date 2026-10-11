@@ -458,7 +458,7 @@ v1::TableUpdatePlan Store::table_plan(const v1::TablePlanQuery& query,
                                       const std::string& today) const {
   protocol::validate_message(query);
   const auto [update, offers] = table_attempt(query.identity());
-  return table_update_plan(tables_, offers, update, query.references(), today);
+  return table_update_plan(tables_, offers, update, query.step(), today);
 }
 std::variant<v1::TablePartitionReceipt, Store::VerifiedPartition>
 Store::verify_partition(const v1::TablePartitionRows& request) const {

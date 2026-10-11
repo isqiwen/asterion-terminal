@@ -142,12 +142,13 @@ struct Node {
 } // namespace
 TEST(TableUpdates, AnUpdateStoresWhatItCanAndSaysWhatItCouldNot) {
   Node node;
-  const auto first = node.update("tables", "2024-02-01");
+  // The source has no calendar for the year before the exchange had a contract.
+  const auto first = node.update("tables", "2023-06-01");
   ASSERT_EQ(first.state(), task::v1::SUCCEEDED) << first.error();
   EXPECT_EQ(first.completed(), 100U);
   const auto done = node.result("tables");
   // The contract list, the year of the calendar, and the three ordinary days
-  // from the first listing on: nothing is read before the exchange had a contract.
+  // from the first listing on: nothing is asked about the time before it.
   EXPECT_EQ(done.stored(), 5U);
   EXPECT_EQ(done.unchanged(), 0U);
   ASSERT_EQ(done.rejected_size(), 2);

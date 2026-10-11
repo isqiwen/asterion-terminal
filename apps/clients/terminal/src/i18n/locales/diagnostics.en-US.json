@@ -875,6 +875,7 @@
   "a strategy order is unconfirmed at the broker; verify it before starting again": "a strategy order is unconfirmed at the broker; verify it before starting again",
   "the trading record needs recovery; the strategy stopped": "the trading record needs recovery; the strategy stopped",
   "invalid table update definition": "The market table update is not valid",
+  "invalid table plan step": "The market table update's plan step is not valid",
   "unknown history table": "Unknown market table",
   "invalid history table period": "The table partition's period is not valid",
   "invalid history table page query": "The table page query is not valid",
