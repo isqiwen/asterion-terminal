@@ -37,7 +37,7 @@ TableInstrument table_instrument(std::string_view text) {
 void validate_table_series_request(const data::v1::TableSeriesRequest& request) {
   validate_message(request);
   validate_selection(request);
-  if (request.instruments().empty() || request.instruments_size() > 20)
+  if (request.instruments().empty() || request.instruments_size() > max_table_instruments)
     throw std::invalid_argument("invalid table series request");
   std::set<std::string_view> seen;
   for (const auto& instrument : request.instruments()) {

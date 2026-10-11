@@ -42,11 +42,12 @@ const coverage: TableCoverage = {
     },
   ],
 };
-const products: TableProduct[] = ["al", "cu", "rb"].map(product => ({
+// Three products listed throughout, and one whose first contract came later.
+const products: TableProduct[] = ["al", "cu", "rb", "op"].map(product => ({
   exchange: "SHFE",
   product,
   contracts: 12,
-  first_listed: "1995-04-17",
+  first_listed: product === "op" ? "2026-09-25" : "1995-04-17",
   last_delisted: "2027-10-15",
 }));
 
@@ -107,6 +108,12 @@ test("instruments of the market-wide table are submitted together under the stor
   expect(start.disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "移除 SHFE/rb/2026-10" }));
   expect(start.disabled).toBe(false);
+  // Everything listed from the first day to the last joins what is already chosen.
+  fireEvent.click(screen.getByRole("button", { name: "移除 SHFE/al" }));
+  fireEvent.click(screen.getByRole("button", { name: "添加范围内上市的全部品种" }));
+  expect(screen.getByRole("list", { name: "已选的品种和合约" }).textContent).toBe(
+    "SHFE/rb×SHFE/cu×SHFE/al×",
+  );
   fireEvent.click(start);
   await waitFor(() => expect(run).toHaveBeenCalled());
   expect(run).toHaveBeenCalledWith("factor.submit", {

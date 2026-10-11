@@ -28,6 +28,8 @@ Json decode_table_page(const data::v1::TablePage&);
 struct TableInstrument {
   std::string venue, product, delivery_month;
 };
+// What one request may ask for: more than there are futures products.
+inline constexpr int max_table_instruments = 100;
 TableInstrument table_instrument(std::string_view text);
 void validate_table_series_request(const data::v1::TableSeriesRequest&);
 data::v1::TableSeriesRequest encode_table_series_request(const Json&);

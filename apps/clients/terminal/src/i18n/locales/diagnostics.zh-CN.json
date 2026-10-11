@@ -271,7 +271,7 @@
   "factor analysis cancelled": "因子分析已取消",
   "factor analysis requires at least 30 labelled observations after warmup and tail exclusion": "扣除预热和末尾没有标签的观测后，至少需要 30 个有效观测。",
   "factor analysis requires positive closes": "因子分析要求收盘价为正。",
-  "factor analysis studies one series or 3..20 contracts": "因子分析需要一个合约，或 3–20 个合约的截面。",
+  "factor analysis studies one series or 3..100 contracts": "因子分析需要一个合约，或 3–100 个合约的截面。",
   "factor dataset revision mismatch": "因子数据内容版本不匹配",
   "factor parameter comparison requires a holdout": "比较多个窗口需要使用留出或滚动验证。",
   "factor series must be different contracts": "截面里的合约不能重复。",

@@ -47,8 +47,8 @@ bool table_product(const factor::v1::FactorSeries& data) {
 // reads a dominant series before its schedule is known to fit its months:
 // Data resolves a series into the months it reads, in roll order.
 void validate_series(const google::protobuf::RepeatedPtrField<factor::v1::FactorSeries>& series) {
-  if (series.size() != 1 && (series.size() < 3 || series.size() > 20))
-    throw std::invalid_argument("factor analysis studies one series or 3..20 contracts");
+  if (series.size() != 1 && (series.size() < 3 || series.size() > max_factor_series))
+    throw std::invalid_argument("factor analysis studies one series or 3..100 contracts");
   for (const auto& data : series) {
     if (period(data) != period(series.Get(0)) || observed_as(data) != observed_as(series.Get(0)))
       throw std::invalid_argument("factor series must be of one kind and one period");
@@ -219,8 +219,9 @@ factor::v1::FactorRequest encode_factor_request(const Json& input) {
   require_fields(input, {"series", "factor", "lookbacks", "horizon", "evaluation"});
   factor::v1::FactorRequest result;
   const auto& series = input.at("series");
-  if (!series.is_array() || series.empty() || series.size() > 20)
-    throw std::invalid_argument("factor analysis studies one series or 3..20 contracts");
+  if (!series.is_array() || series.empty() ||
+      series.size() > static_cast<std::size_t>(max_factor_series))
+    throw std::invalid_argument("factor analysis studies one series or 3..100 contracts");
   result.set_factor(encode_factor(input.at("factor")));
   for (const auto& source : series) {
     if (!source.is_object() || source.size() != 1)
@@ -337,8 +338,8 @@ factor::v1::FactorInput factor_input(const factor::v1::FactorRequest& request) {
   int count = 0;
   for (const auto& source : request.series())
     count += source.has_tables() ? source.tables().instruments_size() : 1;
-  if (count != 1 && (count < 3 || count > 20))
-    throw std::invalid_argument("factor analysis studies one series or 3..20 contracts");
+  if (count != 1 && (count < 3 || count > max_factor_series))
+    throw std::invalid_argument("factor analysis studies one series or 3..100 contracts");
   factor::v1::FactorInput input;
   input.set_version(8);
   input.set_factor(request.factor());

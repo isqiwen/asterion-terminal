@@ -222,6 +222,37 @@ TEST(TableSeries, AHoleInTheRangeIsRefusedNotReadAround) {
   auto twice = request(snapshot, {"SHFE/rb", "SHFE/rb"});
   EXPECT_EQ(ask(twice), "invalid table series request");
   EXPECT_EQ(ask(request(snapshot, {"SHFE/rb/2026"})), "invalid table instrument");
+  // One request asks for at most a hundred instruments, and a factor compares
+  // at most as many series however its request is put together.
+  std::vector<std::string> many;
+  for (int month = 0; month < 101; ++month) {
+    char name[24];
+    std::snprintf(name, sizeof name, "SHFE/rb/%04d-%02d", 2030 + month / 12, month % 12 + 1);
+    many.emplace_back(name);
+  }
+  EXPECT_EQ(ask(request(snapshot, many)), "invalid table series request");
+  many.pop_back();
+  EXPECT_EQ(ask(request(snapshot, many, "2026-03-05")),
+            "the instrument has no closes in the range: SHFE/rb/2030-01");
+  const auto sixty = [&](std::size_t first) {
+    return Json{{"tables",
+                 {{"snapshot", snapshot},
+                  {"daily_source", daily.source},
+                  {"calendar_source", calendar.source},
+                  {"begin_day", "2026-03-05"},
+                  {"end_day", "2026-03-09"},
+                  {"instruments", std::vector<std::string>(
+                                      many.begin() + static_cast<std::ptrdiff_t>(first),
+                                      many.begin() + static_cast<std::ptrdiff_t>(first) + 60)}}}};
+  };
+  EXPECT_EQ(refusal([&] {
+              (void)protocol::encode_factor_request({{"series", {sixty(0), sixty(40)}},
+                                                     {"factor", "momentum"},
+                                                     {"lookbacks", {5}},
+                                                     {"horizon", 1},
+                                                     {"evaluation", {{"mode", "full_sample"}}}});
+            }),
+            "factor analysis studies one series or 3..100 contracts");
 }
 TEST(TableSeries, ProductsAreThoseOfTheContractListsOfASnapshot) {
   Folder folder("ast-ts-");

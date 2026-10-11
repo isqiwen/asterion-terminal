@@ -211,7 +211,7 @@ message TablePage {
 message TableSeriesRequest {
   string snapshot = 1; string daily_source = 2; string calendar_source = 3;
   string begin_day = 4; string end_day = 5; // Inclusive.
-  repeated string instruments = 6; // 1..20, each once.
+  repeated string instruments = 6; // 1..100, each once.
 }
 message TableClose { string trading_day = 1; asterion.protocol.v1.Decimal close = 2; }
 // One month contract's closes on the days it is read, ascending. A day the

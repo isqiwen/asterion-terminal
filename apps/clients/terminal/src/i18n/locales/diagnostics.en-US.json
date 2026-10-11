@@ -271,7 +271,7 @@
   "factor analysis cancelled": "factor analysis cancelled",
   "factor analysis requires at least 30 labelled observations after warmup and tail exclusion": "factor analysis requires at least 30 labelled observations after warmup and tail exclusion",
   "factor analysis requires positive closes": "factor analysis requires positive closes",
-  "factor analysis studies one series or 3..20 contracts": "factor analysis studies one series or 3..20 contracts",
+  "factor analysis studies one series or 3..100 contracts": "factor analysis studies one series or 3..100 contracts",
   "factor dataset revision mismatch": "factor dataset revision mismatch",
   "factor parameter comparison requires a holdout": "factor parameter comparison requires a holdout",
   "factor series must be different contracts": "factor series must be different contracts",

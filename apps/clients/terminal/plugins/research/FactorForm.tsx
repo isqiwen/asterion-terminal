@@ -365,6 +365,8 @@ export function DailyFactorForm({
 
 // A contract (SHFE/rb/2026-10) or a product (SHFE/rb) of the market-wide table.
 const instrumentPattern = /^[A-Z]+\/[a-z]+(\/\d{4}-\d{2})?$/;
+// As many series as one cross-section compares.
+const maxInstruments = 100;
 
 /**
  * A factor on instruments of the market-wide daily table: a product is read
@@ -449,11 +451,27 @@ export function TableFactorForm({
   const exchanges = [...new Set(instruments.map(item => item.split("/")[0]))];
   const add = () => {
     const name = entry.trim();
-    if (!instrumentPattern.test(name) || instruments.includes(name) || instruments.length >= 20)
+    if (
+      !instrumentPattern.test(name) ||
+      instruments.includes(name) ||
+      instruments.length >= maxInstruments
+    )
       return;
     setInstruments([...instruments, name]);
     setEntry("");
   };
+  // Products with a contract listed from the first day of the range to the last.
+  const listed = (held?.products ?? [])
+    .filter(
+      product =>
+        !!range.begin &&
+        !!range.end &&
+        product.first_listed <= range.begin &&
+        product.last_delisted >= range.end,
+    )
+    .map(product => `${product.exchange}/${product.product}`)
+    .filter(name => !instruments.includes(name));
+  const addListed = () => setInstruments([...instruments, ...listed].slice(0, maxInstruments));
   const contracts = instruments.filter(item => item.split("/").length === 3);
   const unavailable =
     factor === "term_structure" && contracts.length
@@ -579,11 +597,18 @@ export function TableFactorForm({
                 busy ||
                 !instrumentPattern.test(entry.trim()) ||
                 instruments.includes(entry.trim()) ||
-                instruments.length >= 20
+                instruments.length >= maxInstruments
               }
               onClick={add}
             >
               {t("添加")}
+            </button>
+            <button
+              type="button"
+              disabled={busy || !listed.length || instruments.length >= maxInstruments}
+              onClick={addListed}
+            >
+              {t("添加范围内上市的全部品种")}
             </button>
           </div>
           <ul className="research-instruments" aria-label={t("已选的品种和合约")}>
@@ -603,10 +628,17 @@ export function TableFactorForm({
           </ul>
           <p className="subtle">
             {t(
-              "一个品种或合约按时间评价；3 到 20 个在它们共有的交易日上相互比较。按当前快照 {id} 读取，之后入库的数据不影响这次任务。",
+              "一个品种或合约按时间评价；3 到 100 个在它们共有的交易日上相互比较。按当前快照 {id} 读取，之后入库的数据不影响这次任务。",
               { id: coverage?.snapshot.slice(0, 12) ?? "" },
             )}
           </p>
+          {instruments.length > 2 && (
+            <p className="subtle">
+              {t(
+                "没有成交的品种每天的收盘价等于结算价，价格不动：它们的动量和未来收益都是 0，并且一起排在波动率最低的一端。做截面比较时请把不活跃的品种从列表里移除。",
+              )}
+            </p>
+          )}
           {instruments.length === 2 && (
             <p role="alert" className="alert">
               {t("截面比较至少需要 3 个品种或合约；只分析一个时请只保留一个。")}
