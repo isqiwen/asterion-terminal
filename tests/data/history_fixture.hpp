@@ -26,10 +26,12 @@ struct DailyTrade {
 // One day of a contract in the daily table. Without a trade nobody traded it
 // in the auction: the table then has its settlement, the same price as its
 // close, and the lots that changed hands outside the auction, if any (as in a
-// delivery month).
+// delivery month). Without a settlement the source has none for the day, as
+// happens on the last day of a contract.
 struct DailyRow {
   std::string day;
-  int settlement, open_interest;
+  std::optional<int> settlement;
+  int open_interest;
   std::optional<DailyTrade> trade = {};
   int off_auction_volume = 0;
 };
@@ -68,7 +70,8 @@ inline Json seed_daily_table(const std::filesystem::path& root, const std::strin
     years[day.day.substr(0, 4)].push_back({day.day, "1", std::nullopt});
     TableSourceRow row(history_table("futures.daily").columns.size());
     row[0] = contract_id;
-    row[4] = row[5] = std::to_string(day.settlement);
+    if (day.settlement)
+      row[4] = row[5] = std::to_string(*day.settlement);
     row[10] = std::to_string(day.open_interest);
     if (day.trade) {
       row[1] = std::to_string(day.trade->open);

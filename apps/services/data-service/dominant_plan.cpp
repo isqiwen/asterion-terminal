@@ -21,17 +21,23 @@ DominantPlan plan_dominant(std::span<const DominantMonth> months, RollDay roll_d
   for (std::size_t d = 1; d < days.size(); ++d) {
     const auto &day = days[d], &previous = days[d - 1];
     const auto first = plan.segments.empty() ? 0 : plan.segments.back().month;
-    std::optional<std::size_t> chosen;
+    std::optional<std::size_t> chosen, ending;
     for (std::size_t m = first; m < months.size(); ++m) {
       const auto interest = months[m].open_interest.find(previous);
       if (!months[m].settlement.contains(day) || interest == months[m].open_interest.end())
         continue;
+      // Held past its last day, a month could not be left. The series may end in it.
+      if (roll_day == RollDay::must_settle && day == months[m].last_day && d + 1 < days.size()) {
+        ending = m;
+        continue;
+      }
       if (!chosen || interest->second > months[*chosen].open_interest.at(previous))
         chosen = m;
     }
     if (!chosen)
-      throw std::invalid_argument("no month contract of the series has data on " + day +
-                                  " and open interest on " + previous);
+      throw std::invalid_argument(
+          "no month contract of the series has data on " + day + " and open interest on " +
+          previous + (ending ? ", apart from " + months[*ending].name + " on its last day" : ""));
     // The term structure the day begins with: the dominant month against the
     // later month most held the day before, where both settled then.
     const auto& dominant = months[*chosen];

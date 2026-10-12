@@ -163,12 +163,11 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
   };
   std::vector<Decided> together;
   std::vector<std::optional<Decided>> today(series.size());
-  // What the account wants of a contract while it follows `whom`: the unit's
-  // target where the contract is the one its unit trades now, and nothing of
-  // a month that is no longer dominant or while it follows no one.
-  const auto target = [&](const std::optional<std::size_t>& whom, std::size_t contract,
-                          bool leading) -> std::optional<Decimal> {
-    if (!leading || !whom)
+  // What the account wants of the contract a unit trades now while it
+  // follows `whom`: the unit's target, and nothing while it follows no one.
+  const auto target = [&](const std::optional<std::size_t>& whom,
+                          std::size_t contract) -> std::optional<Decimal> {
+    if (!whom)
       return Decimal{};
     return followers[*whom].wanted[unit[contract]];
   };
@@ -194,8 +193,12 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     point->mutable_equity()->set_units(equity.raw());
   };
   std::vector<std::optional<PaperExecution::Target>> pending(series.size());
-  // For a roll: whether a month has traded as its series' dominant one yet.
-  std::vector<bool> led(series.size());
+  // For a roll: whether a month has taken over what its series holds. The
+  // first month of a series has none to take over from and trades as any
+  // contract does.
+  std::vector<bool> took_over(series.size());
+  for (const auto& rolls : input.series())
+    took_over[rolls.rolls(0).contract()] = true;
   const auto total = execution.size();
   for (std::size_t index = 0; index < total; ++index) {
     if (stop.stop_requested())
@@ -218,24 +221,28 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     const bool leading = !roll || roll->contract() == current.contract;
     if (roll) {
       const auto& rolls = input.series(static_cast<int>(member));
-      // A month takes over on its first bar as the dominant one what its
-      // series wanted after the bars before it: the order rests at the
-      // month's own last close and can fill on this bar, the same one the
-      // month before it is closed on, so the series is not left flat for a
-      // bar between the two. A month without an earlier bar has no price to
-      // rest at and opens after this bar, as any contract does after its first.
-      if (leading && !led[current.contract] && current.bar)
-        if (const auto quantity = target(whom, current.contract, true))
-          intent = PaperExecution::Target{"roll." + std::to_string(index), *quantity,
-                                          execution.bar({current.contract, current.bar - 1}).close};
-      if (intent && !leading)
-        intent->quantity = Decimal{};
-      // Apply the roll and the no-overlapping-months rule at submission.
-      else if (intent && intent->quantity != Decimal{} &&
-               std::ranges::any_of(rolls.rolls(), [&](const auto& other) {
-                 return other.contract() != current.contract && holds(other.contract());
-               }))
-        intent.reset();
+      // A roll moves what the series holds and decides nothing, so it waits
+      // for no price: both months trade at the open of a bar, which every
+      // bar reaches. A month that is no longer dominant gives up what it
+      // holds, on each of its bars until their volume has taken it all. The
+      // dominant month takes over what its series wanted after the bars
+      // before, on its first bar that finds the other months closed: no two
+      // months of a series are held at once. On daily bars both happen on
+      // the roll day, the left month first. A month's first bar takes no
+      // order, as any contract's: the account has no price of it yet.
+      const bool others = std::ranges::any_of(rolls.rolls(), [&](const auto& other) {
+        return other.contract() != current.contract && holds(other.contract());
+      });
+      if (!leading)
+        intent = PaperExecution::Target{"roll." + std::to_string(index), Decimal{}, bar.open};
+      else if (others) {
+        if (intent && intent->quantity != Decimal{})
+          intent.reset();
+      } else if (!took_over[current.contract] && current.bar) {
+        if (const auto quantity = target(whom, current.contract))
+          intent = PaperExecution::Target{"roll." + std::to_string(index), *quantity, bar.open};
+        took_over[current.contract] = true;
+      }
     }
     execution.advance(intent);
     intent.reset();
@@ -263,14 +270,16 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
             adjusted(bar, decimal(roll->factor()),
                      execution.contract(current.contract).terms.instrument.price_increment);
         observe(seen);
-        led[current.contract] = true;
       } else
         observe(bar);
     }
     const Decided decided{current.contract, order, bar.close, leading};
-    // A strategy that has given no target yet leaves the contract alone.
+    // A strategy that has given no target yet leaves the contract alone, and
+    // none decides for a month that is not dominant: a roll closes that.
     const auto issue = [&](const Decided& item, const std::optional<std::size_t>& taken) {
-      if (const auto quantity = target(taken, item.contract, item.leading))
+      if (!item.leading)
+        return;
+      if (const auto quantity = target(taken, item.contract))
         pending[item.contract] = PaperExecution::Target{item.order, *quantity, item.close};
     };
     issue(decided, whom);

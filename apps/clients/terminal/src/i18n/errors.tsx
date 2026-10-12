@@ -43,7 +43,7 @@ const prefixedDiagnostics = [
   ["bundled plugin is required: ", "应用自带的插件必须保持启用"],
   [
     "no month contract of the series has data on ",
-    "主力连续在某个交易日没有任何月份的数据：分钟线请补齐各月份的下载；日线表示这个品种那天没有月份成交",
+    "主力连续在某个交易日没有可以持有的月份：分钟线请补齐各月份的下载；日线表示这个品种那天没有月份成交，或只有当天到期的月份成交",
   ],
   [
     "the outgoing month has no bars on the roll day: ",

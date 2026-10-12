@@ -822,7 +822,7 @@
   "worker artifact only belongs to task service": "worker artifact only belongs to task service",
   "worker artifacts only belong to task service": "worker artifacts only belong to task service",
   "worker kind does not match task": "worker kind does not match task",
-  "主力连续在某个交易日没有任何月份的数据：分钟线请补齐各月份的下载；日线表示这个品种那天没有月份成交": "No month of the dominant series has data on a trading day: for minute bars, complete the downloads of its months; for daily bars, no month of the product traded that day",
+  "主力连续在某个交易日没有可以持有的月份：分钟线请补齐各月份的下载；日线表示这个品种那天没有月份成交，或只有当天到期的月份成交": "No month of the dominant series can be held on a trading day: for minute bars, complete the downloads of its months; for daily bars, no month of the product traded that day, or only one on its last day did",
   "已有操作正在进行，请完成后重试": "another Terminal operation is in progress; retry after it completes",
   "应用自带的插件必须保持启用": "Plugins shipped with the application must stay enabled.",
   "换月前一交易日缺少新旧合约的结算价，无法计算复权系数": "Both settlement prices on the day before the roll are required for the adjustment factor.",

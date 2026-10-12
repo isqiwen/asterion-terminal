@@ -227,6 +227,20 @@ struct Month {
   std::string source;
   std::map<std::string, Decimal> settlement, open_interest;
 };
+// The last day the daily table has a settlement price of a contract on, of
+// the range `facts` were read over: the last it trades on, where the range
+// goes on after it.
+std::string last_settled(const DailyFacts& facts, const std::string& contract) {
+  const auto& settled = of(facts.settlement, contract);
+  return settled.empty() ? std::string{} : settled.rbegin()->first;
+}
+// How long a month that is left stays in its series, by the days it has
+// bars on: through the roll day, on which what it holds is closed at the
+// open, and its next day, for what the roll day's volume did not take.
+std::string left_until(const std::map<std::string, Decimal>& days, const std::string& roll_day) {
+  const auto next = days.upper_bound(roll_day);
+  return next == days.end() ? roll_day : next->first;
+}
 } // namespace
 DominantSeries resolve_dominant_series(const history_files::TableStore& tables,
                                        const std::vector<BarDatasetSources>& inputs) {
@@ -266,14 +280,15 @@ DominantSeries resolve_dominant_series(const history_files::TableStore& tables,
     first_day = std::min(first_day, month.settlement.begin()->first);
     last_day = std::max(last_day, month.settlement.rbegin()->first);
   }
-  auto held =
-      daily_facts(tables, daily, months.front().contract.venue(), first_day, last_day, names)
-          .open_interest;
+  auto table =
+      daily_facts(tables, daily, months.front().contract.venue(), first_day, last_day, names);
   std::vector<DominantMonth> facts;
   for (std::size_t i = 0; i < months.size(); ++i) {
-    months[i].open_interest = std::move(held[names[i]]);
+    months[i].open_interest = std::move(table.open_interest[names[i]]);
+    // The table, not the download, says when a month stops trading: one whose
+    // bars end before it does is not left early for that.
     facts.push_back({months[i].contract.symbol(), months[i].contract.delivery_month(),
-                     months[i].settlement, months[i].open_interest});
+                     months[i].settlement, months[i].open_interest, last_settled(table, names[i])});
   }
   // Backtests trade these months: a position is closed on the roll day.
   const auto plan = plan_dominant(facts, RollDay::must_settle);
@@ -282,18 +297,12 @@ DominantSeries resolve_dominant_series(const history_files::TableStore& tables,
   std::size_t total_bars = 0;
   for (std::size_t i = 0; i < segments.size(); ++i) {
     const auto& month = months[segments[i].month];
-    auto end = plan.days.back();
-    if (i + 1 < segments.size()) {
-      // Through the roll day and the month's next trading day after it.
-      end = segments[i + 1].begin;
-      const auto next = month.settlement.upper_bound(end);
-      if (next != month.settlement.end())
-        end = next->first;
-    }
     auto selected = inputs[month.input];
     // The first month starts the series; a later one begins a day early.
     selected.request.set_begin_day(i ? segments[i].before : segments[i].begin);
-    selected.request.set_end_day(end);
+    selected.request.set_end_day(i + 1 < segments.size()
+                                     ? left_until(month.settlement, segments[i + 1].begin)
+                                     : plan.days.back());
     auto dataset = resolve_bar_dataset(tables, selected);
     total_bars += static_cast<std::size_t>(dataset.bars_size());
     if (total_bars > protocol::max_dataset_bars)
@@ -350,21 +359,20 @@ DominantSeries resolve_product_series(const history_files::TableStore& tables,
   std::vector<DominantMonth> dominant;
   for (const auto& month : months)
     dominant.push_back({month.contract.symbol(), month.contract.delivery_month(), month.settlement,
-                        of(facts.open_interest, month.name)});
+                        of(facts.open_interest, month.name), last_settled(facts, month.name)});
   // Backtests trade these months: a position is closed on the roll day.
   const auto plan = plan_dominant(dominant, RollDay::must_settle);
   const auto& segments = plan.segments;
   DominantSeries result;
   for (std::size_t i = 0; i < segments.size(); ++i) {
     const auto& month = months[segments[i].month];
-    // A month that is left stays until it stops trading. Its position is
-    // closed at a limit, and a day has one bar to reach it: the roll day and
-    // the day after are too few when the price runs away from it.
-    const auto end = i + 1 < segments.size() ? month.settlement.rbegin()->first : plan.days.back();
     // The first month starts the series; a later one begins a day early.
     result.months.push_back(segments[i].month);
     result.datasets.push_back(tabled(month.contract, request.daily(), facts, month.name,
-                                     i ? segments[i].before : segments[i].begin, end));
+                                     i ? segments[i].before : segments[i].begin,
+                                     i + 1 < segments.size()
+                                         ? left_until(month.settlement, segments[i + 1].begin)
+                                         : plan.days.back()));
     auto* roll = result.schedule.add_rolls();
     roll->set_trading_day(segments[i].begin);
     roll->set_contract(static_cast<unsigned>(i));

@@ -12,6 +12,9 @@ struct DominantMonth {
   std::string name; // how a failure names it
   std::string delivery_month;
   std::map<std::string, Decimal> settlement, open_interest;
+  // The last trading day the market-wide table has for the month in the
+  // range. Only a series that is traded reads it.
+  std::string last_day;
 };
 // From `begin` on, `month` is the dominant one. `before` is the trading day
 // before `begin`; `factor` multiplies the month's prices to the level of the
@@ -28,7 +31,9 @@ struct DominantPlan {
 };
 // What a roll asks of the month that is left. A position held in it is closed
 // on the roll day, so a series that is traded needs the month to settle that
-// day. A series that is only read does not: a month still dominant on its last
+// day, and leaves a month while it still trades: on its last day the month
+// hands over to the most held of the others, whatever it holds itself. A
+// series that is only read needs neither: a month still dominant on its last
 // day simply hands over on the next.
 enum class RollDay { must_settle, may_have_expired };
 // Which of a product's months is dominant on each trading day. `months` are in
@@ -39,9 +44,9 @@ enum class RollDay { must_settle, may_have_expired };
 // A term point compares the dominant month with the later month most held the
 // day before, at that day's settlements.
 //
-// Fails rather than guesses: when no month has data on a day, when the
-// outgoing month did not settle on a roll day it must settle on, or when the
-// two months lack a common settlement on the day before a roll (the
+// Fails rather than guesses: when no month can be dominant on a day, when
+// the outgoing month did not settle on a roll day it must settle on, or when
+// the two months lack a common settlement on the day before a roll (the
 // adjustment ratio).
 DominantPlan plan_dominant(std::span<const DominantMonth> months, RollDay);
 } // namespace asterion::data
