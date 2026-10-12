@@ -117,7 +117,9 @@ test("a contract's days and a product's months backtest from the daily table", a
   await row.first().getByRole("button", { name: "查看结果", exact: true }).click();
   const result = workspace.getByRole("region", { name: "回测结果", exact: true });
   await result.getByText("实验参数", { exact: true }).click();
-  await expect(result.getByRole("region", { name: "SHFE · ag2610", exact: true })).toContainText(
-    "取自全市场日线表",
-  );
+  // The months are one block, with the costs they all trade at.
+  const details = result.getByRole("region", { name: "SHFE · ag · 主力连续", exact: true });
+  await expect(details).toContainText("ag2610 – ag2701（2 个）");
+  await expect(details).toContainText("取自全市场日线表");
+  await expect(result.getByRole("region", { name: "SHFE · ag2610", exact: true })).toHaveCount(0);
 });

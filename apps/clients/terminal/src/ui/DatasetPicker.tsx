@@ -8,14 +8,16 @@ import { useDailyTable, type DailyTableQuery } from "./useDailyTable";
 import { useWorkspaceDraft } from "../host/workspace/drafts";
 import { DominantSeriesPicker } from "./DominantSeriesPicker";
 import { DailyBarsPicker } from "./DailyBarsPicker";
+import { RollSchedule } from "./RollSchedule";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 
 // A minute download, as the lists of them name it.
 const label = (item: HistoryDatasetRecord) =>
   `${item.contract_id} · ${t("{n} 分钟", { n: item.interval_minutes })} · ${item.begin.slice(0, 10)} — ${item.end.slice(0, 10)} · ${item.source} · ${item.id.slice(0, 8)}`;
 
-// Mirrors the core's portfolio limit.
-const maxContracts = 20;
+// Mirrors the core's portfolio limit: what it trades at a time, each contract
+// and each dominant series as one.
+const maxMembers = 20;
 
 // One way of adding data is shown at a time, each a form of its own.
 const methods = [
@@ -57,6 +59,7 @@ export function DatasetPicker({
     series.some(group => group.venue === item.venue && group.symbols.includes(item.symbol));
   const all = snapshot?.datasets ?? [];
   const selected = all.filter(item => !inSeries(item));
+  const members = selected.length + series.length;
   const { items: archived, error: loadError, loading } = useHistoryDatasets(snapshot, query);
   // Minute bars are chosen from downloads. Daily bars are the market-wide
   // daily table's own, so a download of them is not a source.
@@ -225,7 +228,9 @@ export function DatasetPicker({
         </li>
       ))}
       {series.map(group => {
-        const months = all.filter(item => item.venue === group.venue && inSeries(item));
+        const months = all.filter(
+          item => item.venue === group.venue && group.symbols.includes(item.symbol),
+        );
         const name = `${group.venue} · ${group.product} ${t("主力连续")}`;
         return (
           <li key={`${group.venue}.${group.product}`}>
@@ -247,27 +252,7 @@ export function DatasetPicker({
                 multiplier: months[0]?.contract.multiplier ?? "",
               })}
             </p>
-            <details>
-              <summary>{t("换月日程（{n} 次换月）", { n: group.rolls.length - 1 })}</summary>
-              <table className="data-table" aria-label={t("{name} 换月日程", { name })}>
-                <thead>
-                  <tr>
-                    <th>{t("起始交易日")}</th>
-                    <th>{t("主力合约")}</th>
-                    <th>{t("复权系数")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {group.rolls.map(roll => (
-                    <tr key={roll.trading_day}>
-                      <td>{roll.trading_day}</td>
-                      <td>{roll.symbol}</td>
-                      <td>{roll.factor}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </details>
+            <RollSchedule name={name} rolls={group.rolls} />
             {!locked && (
               <div className="source-actions">
                 <button
@@ -319,8 +304,10 @@ export function DatasetPicker({
       ) : (
         <p className="subtle">{t("尚未选择数据。用下面任一方式添加。")}</p>
       )}
-      {all.length >= maxContracts && (
-        <p className="subtle">{t("组合最多 {n} 个合约。", { n: maxContracts })}</p>
+      {members >= maxMembers && (
+        <p className="subtle">
+          {t("组合最多 {n} 个合约或主力连续，一条主力连续算一个。", { n: maxMembers })}
+        </p>
       )}
       {loadError && (
         <p role="alert">
@@ -496,7 +483,7 @@ export function DatasetPicker({
                     <button
                       type="submit"
                       className="primary"
-                      disabled={!chosen || !settled || (!replacing && all.length >= maxContracts)}
+                      disabled={!chosen || !settled || (!replacing && members >= maxMembers)}
                     >
                       {replacing ? t("更新此合约") : all.length ? t("加入组合") : t("使用此数据集")}
                     </button>

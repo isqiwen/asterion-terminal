@@ -230,6 +230,8 @@ const labels: [(typeof costFields)[number], string][] = [
 ];
 const contractKey = (contract: { venue: string; symbol: string }) =>
   `${contract.venue}.${contract.symbol}`;
+const inGroup = (group: DatasetSeries, dataset: { venue: string; symbol: string }) =>
+  group.venue === dataset.venue && group.symbols.includes(dataset.symbol);
 // The dataset whose costs a contract uses: itself, or the first month of the
 // dominant series it belongs to (one set of costs serves every month).
 function costOwner(
@@ -237,38 +239,49 @@ function costOwner(
   datasets: DatasetSelection[],
   series: DatasetSeries[],
 ) {
-  const group = series.find(
-    item => item.venue === dataset.venue && item.symbols.includes(dataset.symbol),
-  );
+  const group = series.find(item => inGroup(item, dataset));
   return (
     (group &&
       datasets.find(item => item.venue === group.venue && item.symbol === group.symbols[0])) ||
     dataset
   );
 }
-// The "contracts" entries of backtest.submit, in selection order.
+// The "contracts" entries of backtest.submit: one for each contract outside a
+// series, by its symbol, and one for each dominant series, by its product,
+// which every month of the series trades at.
 export function contractCostRequest(
   datasets: DatasetSelection[],
   drafts: ContractCostDrafts,
   series: DatasetSeries[] = [],
 ) {
-  return datasets.map(dataset => {
-    const owner = costOwner(dataset, datasets, series);
-    return {
+  const costs = (owner: DatasetSelection) => ({
+    slippage_ticks: Number(drafts[contractKey(owner)]?.slippage_ticks ?? defaultSlippage),
+    cost_schedule: drafts[contractKey(owner)]?.cost_schedule ?? [
+      {
+        effective_from: owner.first_day,
+        source: "User-entered fixed costs",
+        values: Object.fromEntries(
+          costFields.map(field => [field, (drafts[contractKey(owner)] ?? blank)[field]]),
+        ),
+      },
+    ],
+  });
+  const outside = datasets.filter(dataset => !series.some(group => inGroup(group, dataset)));
+  // A series' costs are kept under its first month.
+  const first = (group: DatasetSeries) =>
+    datasets.find(item => item.venue === group.venue && item.symbol === group.symbols[0])!;
+  return [
+    ...outside.map(dataset => ({
       venue: dataset.venue,
       symbol: dataset.symbol,
-      slippage_ticks: Number(drafts[contractKey(owner)]?.slippage_ticks ?? defaultSlippage),
-      cost_schedule: drafts[contractKey(owner)]?.cost_schedule ?? [
-        {
-          effective_from: owner.first_day,
-          source: "User-entered fixed costs",
-          values: Object.fromEntries(
-            costFields.map(field => [field, (drafts[contractKey(owner)] ?? blank)[field]]),
-          ),
-        },
-      ],
-    };
-  });
+      ...costs(dataset),
+    })),
+    ...series.map(group => ({
+      venue: group.venue,
+      product: group.product,
+      ...costs(first(group)),
+    })),
+  ];
 }
 
 // Margin and fee fields for every selected contract, each with its product's template.

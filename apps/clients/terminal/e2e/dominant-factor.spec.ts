@@ -79,8 +79,12 @@ test("a factor reads a product's months as one dominant series", async ({ page }
       .locator(".experiment-fields > div")
       .filter({ has: page.getByText(label, { exact: true }) })
       .locator("dd");
-  await expect(parameter("月份合约")).toHaveText("rb2610 · rb2701");
-  await expect(parameter("换月")).toHaveText("2026-09-22 rb2610 ×2 · 2026-09-25 rb2701 ×1");
+  await expect(parameter("月份合约")).toHaveText("rb2610 – rb2701（2 个）");
+  // Each month with the day it takes over and the factor its prices take.
+  await details.getByText("换月日程（1 次换月）", { exact: true }).click();
+  await expect(
+    details.getByRole("table", { name: "SHFE · rb · 主力连续 换月日程" }).locator("tbody tr"),
+  ).toHaveText([/2026-09-22\s*rb2610\s*2/, /2026-09-25\s*rb2701\s*1/]);
   await expect(parameter("输入 K 线")).toHaveText("40");
   const state = await rpc(page.request, "runtime.snapshot");
   const evidence = state.task_result;
@@ -148,7 +152,7 @@ test("the term structure of a dominant series is evaluated as a factor", async (
   const row = workspace
     .getByRole("region", { name: "研究任务", exact: true })
     .getByRole("row")
-    .filter({ hasText: "SHFE/hc (hc2610-hc2610)" });
+    .filter({ hasText: "SHFE/hc (hc2610)" });
   await expect(row.getByText("已完成", { exact: true })).toBeVisible({ timeout: 20000 });
   await row.getByRole("button", { name: "查看结果", exact: true }).click();
   const result = workspace.getByRole("region", { name: "因子结果", exact: true });
@@ -271,7 +275,7 @@ test("a backtest ranks dominant series by their term structure", async ({ page }
   const row = workspace
     .getByRole("region", { name: "研究任务", exact: true })
     .getByRole("row")
-    .filter({ hasText: "SHFE/zn2610 + SHFE/al2610" });
+    .filter({ hasText: "SHFE/zn (zn2610) + SHFE/al (al2610)" });
   await expect(row.getByText("已完成", { exact: true })).toBeVisible({ timeout: 20000 });
   await row.getByRole("button", { name: "查看结果", exact: true }).click();
   const result = workspace.getByRole("region", { name: "回测结果", exact: true });

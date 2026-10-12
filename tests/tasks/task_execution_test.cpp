@@ -1566,6 +1566,11 @@ TEST_F(TaskProcess, ABacktestOfAProductTradesTheMonthsTheDailyTableNames) {
   ASSERT_EQ(task.input().series_size(), 1);
   ASSERT_EQ(task.input().series(0).rolls_size(), 2);
   EXPECT_EQ(task.input().series(0).rolls(1).trading_day(), days[3]);
+  // A list names the series once, over all its days, and the snapshot its
+  // months were read under once.
+  EXPECT_EQ(task.instrument(), "SHFE/rb (rb2610-rb2701)");
+  EXPECT_EQ(task.trading_day(), std::string(days[1]) + " / " + days[5]);
+  EXPECT_EQ(task.source_name(), table.at("snapshot").get<std::string>());
   task_wire::TaskRequest result;
   result.mutable_result()->set_id("product");
   // Settled every day from the second, on which the series begins.

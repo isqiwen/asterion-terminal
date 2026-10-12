@@ -132,10 +132,20 @@ void Application::Impl::adopt_selection(DatasetSelection next) {
     return item.dataset.contract().venue() == next.dataset.contract().venue() &&
            item.dataset.contract().symbol() == next.dataset.contract().symbol();
   });
+  // What the portfolio trades at a time: each contract outside a series, and
+  // each series as one.
+  const auto traded =
+      dataset_series.size() +
+      static_cast<std::size_t>(std::ranges::count_if(selections, [&](const DatasetSelection& item) {
+        return !series_of(item.dataset.contract());
+      }));
   if (same != selections.end())
     *same = std::move(next);
-  else if (selections.size() == max_portfolio_contracts)
-    throw std::invalid_argument("a portfolio holds at most 20 contracts");
+  else if (traded == max_portfolio_contracts)
+    throw std::invalid_argument("a portfolio holds at most 20 contracts and dominant series");
+  else if (selections.size() == max_account_contracts)
+    throw std::invalid_argument(
+        "a selection holds at most 256 month contracts; narrow a dominant series");
   else
     selections.push_back(std::move(next));
 }
@@ -154,9 +164,10 @@ void Application::Impl::adopt_series(DatasetSeries series,
     return item.summary.at("venue") == product.venue() &&
            item.summary.at("product") == product.product();
   });
-  // A submission lists every month a series was given (a product lists none)
-  // and trades the months that trade: neither may exceed a portfolio.
-  std::size_t listed = series.months.size();
+  // The portfolio trades each contract outside a series, and each series as
+  // one. The account keeps every month that trades, and a submission lists
+  // every month a series was given (a product lists none).
+  std::size_t listed = series.months.size(), outside = 0;
   for (const auto& item : remaining)
     listed += item.months.size();
   for (const auto& item : kept)
@@ -164,9 +175,13 @@ void Application::Impl::adopt_series(DatasetSeries series,
           return other.summary.at("venue") == item.dataset.contract().venue() &&
                  other.summary.at("product") == item.dataset.contract().product();
         }))
-      ++listed;
-  if (listed > max_portfolio_contracts || kept.size() + traded.size() > max_portfolio_contracts)
-    throw std::invalid_argument("a portfolio holds at most 20 contracts");
+      ++outside;
+  if (outside + remaining.size() + 1 > max_portfolio_contracts)
+    throw std::invalid_argument("a portfolio holds at most 20 contracts and dominant series");
+  if (listed + outside > max_account_contracts ||
+      kept.size() + traded.size() > max_account_contracts)
+    throw std::invalid_argument(
+        "a selection holds at most 256 month contracts; narrow a dominant series");
   json symbols = json::array(), rolls = json::array();
   for (int i = 0; i < preview.datasets_size(); ++i) {
     const auto& dataset = preview.datasets(i);

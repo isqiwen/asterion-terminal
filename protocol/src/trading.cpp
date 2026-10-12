@@ -487,8 +487,8 @@ ContractTerms contract_terms(const v1::PaperContract& contract) {
 // Manifest version 4: each contract pins a complete dated cost schedule.
 Json decode_input(const v1::PaperInput& input, DatasetView view) {
   if (!input.has_deposit() || !input.has_risk() || input.contracts().empty() ||
-      static_cast<std::size_t>(input.contracts_size()) > max_portfolio_contracts)
-    throw std::invalid_argument("paper input requires deposit, risk and 1 to 20 contracts");
+      static_cast<std::size_t>(input.contracts_size()) > max_account_contracts)
+    throw std::invalid_argument("paper input requires deposit, risk and 1 to 256 contracts");
   // Evaluated before the braced initializer: GCC < 13 leaks already-built
   // initializer_list elements when a later element throws (PR66139).
   auto risk = decode_risk(input.risk());
@@ -670,7 +670,7 @@ v1::Snapshot encode_snapshot(const Json& s) {
 }
 Json decode_snapshot(const v1::Snapshot& s) {
   if (s.contracts().empty() ||
-      static_cast<std::size_t>(s.contracts_size()) > max_portfolio_contracts || !s.has_balance() ||
+      static_cast<std::size_t>(s.contracts_size()) > max_account_contracts || !s.has_balance() ||
       !s.has_equity() || !s.has_available() || !s.has_margin() || !s.has_frozen() ||
       !s.has_fees() || !s.has_realized() || !s.has_unrealized() || s.total() == 0 ||
       s.total() > max_dataset_bars || s.cursor() > s.total() ||

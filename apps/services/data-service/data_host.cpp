@@ -175,7 +175,7 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
         daily_factor_dataset(store_->archive().get(request.daily_factor_dataset().id()));
   else if (request.has_dominant_series()) {
     if (request.dominant_series().months_size() > 20)
-      throw std::invalid_argument("backtest requires 1 to 20 contracts");
+      throw std::invalid_argument("a dominant series requires 2 to 20 month contracts");
     // The months a request lists, or the product's own in the daily table.
     DominantSeries resolved;
     if (request.dominant_series().has_product()) {

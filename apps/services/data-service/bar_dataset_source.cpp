@@ -331,14 +331,10 @@ DominantSeries resolve_product_series(const history_files::TableStore& tables,
   DominantSeries result;
   for (std::size_t i = 0; i < segments.size(); ++i) {
     const auto& month = months[segments[i].month];
-    auto end = plan.days.back();
-    if (i + 1 < segments.size()) {
-      // Through the roll day and the month's next trading day after it.
-      end = segments[i + 1].begin;
-      const auto next = month.settlement.upper_bound(end);
-      if (next != month.settlement.end())
-        end = next->first;
-    }
+    // A month that is left stays until it stops trading. Its position is
+    // closed at a limit, and a day has one bar to reach it: the roll day and
+    // the day after are too few when the price runs away from it.
+    const auto end = i + 1 < segments.size() ? month.settlement.rbegin()->first : plan.days.back();
     // The first month starts the series; a later one begins a day early.
     result.months.push_back(segments[i].month);
     result.datasets.push_back(tabled(month.contract, request.daily(), facts, month.name,

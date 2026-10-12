@@ -303,10 +303,10 @@ PolledTask<> TaskHost::submit_backtest(Call& call) {
   const auto& p = call.request.submit();
   const auto& b = p.backtest();
   // A product of the daily table brings its own months.
-  if (b.contracts_size() > 20 ||
+  if (static_cast<std::size_t>(b.contracts_size()) > max_account_contracts ||
       (b.contracts().empty() &&
        std::ranges::none_of(b.series(), [](const auto& series) { return series.has_product(); })))
-    throw std::invalid_argument("backtest requires 1 to 20 contracts");
+    throw std::invalid_argument("backtest requires 1 to 256 contracts");
   // Months of a dominant series are resolved together by Data.
   std::vector<bool> in_series(static_cast<std::size_t>(b.contracts_size()));
   for (const auto& series : b.series()) {

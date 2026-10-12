@@ -347,6 +347,161 @@ TEST(DominantSeries, PersistedRollingResultRejectsPreviousEngineAndSurvivesResta
   EXPECT_EQ(restored.get("rolling").input().SerializeAsString(), input.SerializeAsString());
   EXPECT_EQ(tasks::result(restored, "rolling").SerializeAsString(), expected.SerializeAsString());
 }
+namespace {
+const auto fixed_costs = test::cost_schedule({{"margin_per_lot", "100"},
+                                              {"open_fee", "2"},
+                                              {"close_today_fee", "3"},
+                                              {"close_yesterday_fee", "4"},
+                                              {"margin_rate", "0"},
+                                              {"open_fee_rate", "0"},
+                                              {"close_today_fee_rate", "0"},
+                                              {"close_yesterday_fee_rate", "0"}});
+// One daily bar of a contract, closing at 100 plus the day and ranging far
+// enough for a limit at the close before it to fill.
+MarketBar daily_bar(int day) {
+  using namespace std::chrono;
+  const auto date =
+      format_trading_date(year_month_day{sys_days{year{2026} / June / 1} + std::chrono::days{day}});
+  const auto close = 100 + day;
+  return test::bar(date, 1'790'000'000'000'000'000 + day * 86'400'000'000'000LL,
+                   std::to_string(close).c_str(), std::to_string(close + 1).c_str(),
+                   std::to_string(close - 2).c_str(), std::to_string(close).c_str());
+}
+backtest::v1::BacktestInput traded(Json contracts) {
+  backtest::v1::BacktestInput input;
+  input.set_version(10);
+  *input.mutable_paper() =
+      testing_support::paper_input({{"version", 4},
+                                    {"type", "historical_paper"},
+                                    {"risk",
+                                     {{"max_order_quantity", "1"},
+                                      {"max_gross_quantity", "1"},
+                                      {"max_working_orders", std::uint64_t{2}}}},
+                                    {"deposit", "100000"},
+                                    {"contracts", std::move(contracts)}});
+  *input.add_strategies() = testing_support::moving_average(1, 2);
+  input.set_dataset_revision(protocol::dataset_revision(input.paper()));
+  return input;
+}
+// A product whose months roll every day: month m is dominant on day m, with a
+// bar the day before for a price to take over at and one the day after to be
+// closed on. Every month closes at the same price, so every factor is 1.
+backtest::v1::BacktestInput rolling_daily(int months) {
+  Json contracts = Json::array();
+  for (int m = 0; m < months; ++m) {
+    std::vector<MarketBar> bars;
+    for (int day = std::max(m - 1, 0); day <= std::min(m + 1, months - 1); ++day)
+      bars.push_back(daily_bar(day));
+    char symbol[8], delivery[8];
+    std::snprintf(symbol, sizeof symbol, "cu%02d%02d", 27 + m / 12, m % 12 + 1);
+    std::snprintf(delivery, sizeof delivery, "20%02d-%02d", 27 + m / 12, m % 12 + 1);
+    contracts.push_back(
+        {{"dataset", protocol::decode_bar_dataset(
+                         test::dataset(bars, {}, test::contract("SHFE", symbol, "cu", delivery)))},
+         {"cost_schedule", fixed_costs}});
+  }
+  auto input = traded(std::move(contracts));
+  auto* series = input.add_series();
+  for (int m = 0; m < months; ++m) {
+    auto* roll = series->add_rolls();
+    roll->set_trading_day(daily_bar(m).trading_day);
+    roll->set_contract(static_cast<unsigned>(m));
+    roll->mutable_factor()->set_units(d("1").raw());
+  }
+  return input;
+}
+} // namespace
+// Daily bars give a roll one bar a day to close the month it leaves. When the
+// price runs away for two days, the position is closed on the day a bar
+// reaches the limit again, which the month's bars must last to.
+TEST(DominantSeries, AMonthLeftOnDailyBarsIsClosedOnTheDayItsLimitIsReached) {
+  Directory directory;
+  {
+    data::Store created(directory.path, "historical-data", "task");
+  }
+  const auto day = [](int index) { return daily_bar(index).trading_day; };
+  // The series begins on the second day. rb2610 rises two a day and is bought
+  // at 202 on the fourth, the day rb2701 comes to hold more: the fifth is the
+  // roll day. rb2610 is to be sold at 204, its close before, but ranges
+  // 175-185 that day, and 155-165 on the sixth against a limit of 180. On the
+  // seventh it opens at 170, above the limit of 160, and is sold there.
+  (void)test::seed_daily_table(directory.path, "SHFE/rb/2026-10",
+                               {{day(0), 198, 100, test::DailyTrade{198, 199, 197, 198, 100}},
+                                {day(1), 200, 100, test::DailyTrade{200, 201, 199, 200, 100}},
+                                {day(2), 202, 100, test::DailyTrade{202, 203, 201, 202, 100}},
+                                {day(3), 204, 40, test::DailyTrade{204, 205, 201, 204, 100}},
+                                {day(4), 180, 30, test::DailyTrade{180, 185, 175, 180, 100}},
+                                {day(5), 160, 20, test::DailyTrade{160, 165, 155, 160, 100}},
+                                {day(6), 170, 10, test::DailyTrade{170, 185, 155, 170, 100}}});
+  // rb2701 rises two a day from 94, ranging three either side.
+  std::vector<test::DailyRow> later;
+  for (int i = 0; i < 9; ++i) {
+    const auto price = 94 + 2 * i;
+    later.push_back({day(i), price, i < 3 ? 10 : 200,
+                     test::DailyTrade{price, price + 3, price - 3, price, 100}});
+  }
+  (void)test::seed_daily_table(directory.path, "SHFE/rb/2027-01", later);
+  const auto series = series_of(directory.path, "rb", day(0), day(8));
+  ASSERT_EQ(series.schedule.rolls_size(), 2);
+  EXPECT_EQ(series.schedule.rolls(1).trading_day(), day(4));
+  // rb2610 is read to the last day it trades, not only to the day after the roll.
+  EXPECT_EQ(series.datasets[0].days().rbegin()->trading_day(), day(6));
+  Json contracts = Json::array();
+  for (const auto& dataset : series.datasets)
+    contracts.push_back(
+        {{"dataset", protocol::decode_bar_dataset(dataset)}, {"cost_schedule", fixed_costs}});
+  auto input = traded(std::move(contracts));
+  *input.add_series() = series.schedule;
+  const auto result = backtest::run(input);
+  ASSERT_EQ(result.account().fills_size(), 3);
+  const auto fill = [&](int index) {
+    const auto& fill = result.account().fills(index);
+    return fill.symbol() + " " + Decimal::from_raw(fill.price().units()).str();
+  };
+  EXPECT_EQ(fill(0), "rb2610 202");
+  EXPECT_EQ(fill(1), "rb2610 170");
+  // Opened the same day, at rb2701's close of the day before.
+  EXPECT_EQ(fill(2), "rb2701 104");
+  // 32 lost a lot of ten in rb2610, 6 gained in rb2701 to its last settlement
+  // of 110, and fees of 2 to open twice and 4 to close a position of an
+  // earlier day.
+  EXPECT_EQ(result.account().equity().units(), d("99732").raw());
+  EXPECT_EQ(result.settlements_size(), 8);
+}
+TEST(DominantSeries, ASeriesBringsEveryMonthItTradesAndIsOneOfThePortfoliosTwenty) {
+  const auto result = backtest::run(rolling_daily(24));
+  EXPECT_EQ(result.account().contracts_size(), 24);
+  EXPECT_EQ(result.settlements_size(), 24);
+  // The series rises one a day, so a lot is held from the third day: bought
+  // in the third month, then sold and bought again at each of the 21 rolls.
+  ASSERT_EQ(result.account().fills_size(), 43);
+  EXPECT_EQ(result.account().fills(0).symbol(), "cu2703");
+  EXPECT_EQ(result.account().fills(41).symbol(), "cu2811");
+  EXPECT_EQ(result.account().fills(42).symbol(), "cu2812");
+  // An account keeps a contract for every month, up to 256 of them.
+  EXPECT_NO_THROW(backtest::validate(rolling_daily(256)));
+  EXPECT_THROW(rolling_daily(257), std::invalid_argument);
+  // Contracts outside a series are each one of the twenty.
+  const auto alone = [](int count) {
+    Json contracts = Json::array();
+    for (int c = 0; c < count; ++c) {
+      const std::string product{'a', static_cast<char>('a' + c)};
+      contracts.push_back({{"dataset", protocol::decode_bar_dataset(test::dataset(
+                                           {daily_bar(0), daily_bar(1)}, {},
+                                           test::contract("SHFE", (product + "2610").c_str(),
+                                                          product.c_str(), "2026-10")))},
+                           {"cost_schedule", fixed_costs}});
+    }
+    return traded(std::move(contracts));
+  };
+  EXPECT_NO_THROW(backtest::validate(alone(20)));
+  try {
+    backtest::validate(alone(21));
+    FAIL() << "twenty-one contracts were taken as a portfolio";
+  } catch (const std::invalid_argument& error) {
+    EXPECT_STREQ(error.what(), "a portfolio holds at most 20 contracts and dominant series");
+  }
+}
 TEST(DominantSeries, ScheduleFollowsThePreviousDaysOpenInterestAndNeverMovesBack) {
   Directory directory;
   // Open interest moves to rb2701 on the third day, so it is dominant from
@@ -377,10 +532,10 @@ TEST(DominantSeries, ScheduleFollowsThePreviousDaysOpenInterestAndNeverMovesBack
   // 110 / 200 on the day before the roll.
   EXPECT_EQ(series.schedule.rolls(0).factor().units(), d("0.55").raw());
   EXPECT_EQ(series.schedule.rolls(1).factor().units(), d("1").raw());
-  // rb2610: from the start through the roll day and the day after it.
-  ASSERT_EQ(series.datasets[0].days_size(), 4);
+  // rb2610: from the start to the last day it trades, well after it is left.
+  ASSERT_EQ(series.datasets[0].days_size(), 5);
   EXPECT_EQ(series.datasets[0].days(0).trading_day(), days[1]);
-  EXPECT_EQ(series.datasets[0].days(3).trading_day(), days[4]);
+  EXPECT_EQ(series.datasets[0].days(4).trading_day(), days[5]);
   // rb2701: from the day before it takes over, for a price to take over at.
   ASSERT_EQ(series.datasets[1].days_size(), 4);
   EXPECT_EQ(series.datasets[1].days(0).trading_day(), days[2]);

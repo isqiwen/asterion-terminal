@@ -32,10 +32,11 @@ data::v1::BarDataset resolve_bar_dataset(const history_files::TableStore&,
 struct DominantSeries {
   // The inputs that are dominant at some point, in delivery-month order.
   std::vector<std::size_t> months;
-  // Bars of each of those months while it is dominant, plus the roll day and
-  // the trading day after it, on which the position it still holds is closed,
-  // and the trading day before it becomes dominant, whose last bar is the
-  // price it takes the series over at. A day without bars is not added.
+  // Bars of each of those months while it is dominant; the trading day before
+  // it becomes dominant, whose last bar is the price it takes the series over
+  // at; and, once it is left, the days the position it still holds is closed
+  // on: the roll day and the trading day after it of minute bars, every day it
+  // still trades of daily bars. A day without bars is not added.
   std::vector<data::v1::BarDataset> datasets;
   // contract indexes refer to `months`. Its term points compare each day's
   // dominant month with the later month that had the most open interest on
@@ -53,7 +54,8 @@ DominantSeries resolve_dominant_series(const history_files::TableStore&,
 // A product's daily bars from the daily table as its dominant series: the
 // months are those that traded in the range, read once together; `months`
 // index them in delivery order. Each dataset is what resolve_bar_dataset
-// reads of that month over the same days.
+// reads of that month over the same days. Unlike a month of minute bars, a
+// month that is left keeps its bars to the last day it traded in the range.
 DominantSeries resolve_product_series(const history_files::TableStore&,
                                       const data::v1::ProductBarsRequest&);
 } // namespace asterion::data

@@ -389,7 +389,7 @@
   "类型": "Type",
   "紧凑": "Compact",
   "红涨绿跌": "Red Up / Green Down",
-  "组合最多 {n} 个合约。": "A portfolio holds at most {n} contracts.",
+  "组合最多 {n} 个合约或主力连续，一条主力连续算一个。": "A portfolio holds at most {n} contracts and dominant series; a series counts as one.",
   "终端设置": "Terminal Settings",
   "经纪商代码": "Broker ID",
   "结束交易日": "Last trading day",

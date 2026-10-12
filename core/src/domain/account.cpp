@@ -132,9 +132,9 @@ Decimal FuturesCosts::margin(Decimal quantity, Decimal price, Decimal multiplier
 }
 FuturesAccount::FuturesAccount(Decimal deposit, std::vector<ContractTerms> contracts)
     : contracts_(std::move(contracts)), marks_(contracts_.size()), balance_(deposit) {
-  if (contracts_.empty() || contracts_.size() > max_portfolio_contracts || deposit <= zero)
+  if (contracts_.empty() || contracts_.size() > max_account_contracts || deposit <= zero)
     throw std::invalid_argument(
-        "futures account requires a positive deposit and 1 to 20 contracts");
+        "futures account requires a positive deposit and 1 to 256 contracts");
   for (std::size_t i = 0; i < contracts_.size(); ++i) {
     const auto& terms = contracts_[i];
     terms.instrument.validate();

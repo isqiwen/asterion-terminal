@@ -1,5 +1,11 @@
 import { HistoryAvailability } from "./HistoryAvailability";
-import { CostScheduleDetails, getLocale, strategyRows, strategyRule, translate } from "../contract";
+import {
+  CostScheduleDetails,
+  getLocale,
+  RollSchedule,
+  strategyRows,
+  strategyRule,
+} from "../contract";
 import {
   timestamp,
   type CostVersion,
@@ -8,19 +14,47 @@ import {
   type FactorSeriesEvidence,
   type TaskResult,
 } from "../../src/bridge/client";
-import { factorNames, factorWords } from "./shared";
-const t = (key: string) => translate("asterion.terminal.research", key);
+import { factorNames, factorWords, t } from "./shared";
 type Evidence = Extract<TaskResult, { kind: "backtest" | "factor" }>;
 type Rows = [string, string | number][];
+type Roll = { trading_day: string; symbol: string; factor: string };
 // One block of the details: a contract or series with what was read of it.
-type Block = { name: string; rows: Rows; schedule?: CostVersion[]; range?: string[] };
+type Block = {
+  name: string;
+  rows: Rows;
+  schedule?: CostVersion[];
+  range?: string[];
+  rolls?: Roll[];
+};
+// The months of a series by its first and last: ten years of a product are
+// too many to list in a field, and the roll schedule names each.
+const monthsRead = (symbols: string[]) =>
+  t("{first} – {last}（{n} 个）", {
+    first: symbols[0],
+    last: symbols[symbols.length - 1],
+    n: symbols.length,
+  });
+// What a contract, or every month of a series, trades at: slippage and the
+// costs in force on the first day.
+function costRows(schedule: CostVersion[], slippage: number, firstDay: string): Rows {
+  const rows: Rows = [["滑点（跳）", slippage]];
+  const costs = schedule.filter(row => row.effective_from <= firstDay).at(-1)?.values;
+  if (costs)
+    rows.push(
+      ["每手保证金", costs.margin_per_lot],
+      ["开仓手续费", costs.open_fee],
+      ["平今手续费", costs.close_today_fee],
+      ["平昨手续费", costs.close_yesterday_fee],
+      ["保证金率", costs.margin_rate],
+      ["开仓费率", costs.open_fee_rate],
+      ["平今费率", costs.close_today_fee_rate],
+      ["平昨费率", costs.close_yesterday_fee_rate],
+    );
+  return rows;
+}
+type Traded = { schedule: CostVersion[]; slippage: number };
 // One contract of the experiment: its terms, input range and, for backtests, costs.
-function contractRows(
-  dataset: DatasetEvidence,
-  data: ExperimentData,
-  schedule?: CostVersion[],
-  slippage?: number,
-): Block {
+function contractRows(dataset: DatasetEvidence, data: ExperimentData, traded?: Traded): Block {
   const contract = dataset.contract;
   const rows: Rows = [
     ["品种代码", contract.product],
@@ -40,29 +74,27 @@ function contractRows(
     ["日线来源", dataset.daily.daily_source],
     ["交易日历来源", dataset.daily.calendar_source],
   ];
-  if (slippage !== undefined) rows.push(["滑点（跳）", slippage]);
-  const costs = schedule?.filter(row => row.effective_from <= data.first_day).at(-1)?.values;
-  if (costs)
-    rows.push(
-      ["每手保证金", costs.margin_per_lot],
-      ["开仓手续费", costs.open_fee],
-      ["平今手续费", costs.close_today_fee],
-      ["平昨手续费", costs.close_yesterday_fee],
-      ["保证金率", costs.margin_rate],
-      ["开仓费率", costs.open_fee_rate],
-      ["平今费率", costs.close_today_fee_rate],
-      ["平昨费率", costs.close_yesterday_fee_rate],
-    );
+  if (traded) rows.push(...costRows(traded.schedule, traded.slippage, data.first_day));
   return {
     name: `${contract.venue} · ${contract.symbol}`,
     rows,
-    schedule,
+    schedule: traded?.schedule,
     range: [data.first_timestamp_ns, data.last_timestamp_ns],
   };
 }
 // A product read as its dominant series: the months it was read from and the
-// day each took over, with the factor its prices were scaled by.
-function dominantRows(input: Extract<FactorSeriesEvidence, { kind: "dominant" }>): Block {
+// day each took over, with the factor its prices were scaled by. A backtest
+// trades every month at one set of costs.
+function dominantRows(
+  input: {
+    months: { dataset: DatasetEvidence; data: ExperimentData }[];
+    // `contract` names a month by its place among them.
+    rolls: { trading_day: string; contract: number; factor: string }[];
+    count: number;
+    terms?: number;
+  },
+  traded?: Traded,
+): Block {
   const first = input.months[0];
   const last = input.months[input.months.length - 1];
   const contract = first.dataset.contract;
@@ -71,21 +103,13 @@ function dominantRows(input: Extract<FactorSeriesEvidence, { kind: "dominant" }>
   ].join(" · ");
   const rows: Rows = [
     ["品种代码", contract.product],
-    ["月份合约", input.months.map(month => month.dataset.contract.symbol).join(" · ")],
-    [
-      "换月",
-      input.rolls
-        .map(
-          roll =>
-            `${roll.trading_day} ${input.months[roll.contract].dataset.contract.symbol} ×${roll.factor}`,
-        )
-        .join(" · "),
-    ],
+    ["月份合约", monthsRead(input.months.map(month => month.dataset.contract.symbol))],
     ["合约乘数", contract.multiplier],
     ["价格步长", contract.price_increment],
     ["K 线周期（分钟）", first.data.interval_minutes],
     ["输入 K 线", input.count],
-    ["有期限结构的交易日", input.terms],
+    // Counted where the series was read for a factor.
+    ...(input.terms === undefined ? [] : ([["有期限结构的交易日", input.terms]] as Rows)),
     ["交易日范围", `${first.data.first_day} – ${last.data.last_day}`],
     ["数据源", first.data.source],
     ["K 线数据版本", versions || t("取自全市场日线表")],
@@ -94,10 +118,17 @@ function dominantRows(input: Extract<FactorSeriesEvidence, { kind: "dominant" }>
     ["日线来源", first.dataset.daily.daily_source],
     ["交易日历来源", first.dataset.daily.calendar_source],
   ];
+  if (traded) rows.push(...costRows(traded.schedule, traded.slippage, first.data.first_day));
   return {
     name: `${contract.venue} · ${contract.product} · ${t("主力连续")}`,
     rows,
+    schedule: traded?.schedule,
     range: [first.data.first_timestamp_ns, last.data.last_timestamp_ns],
+    rolls: input.rolls.map(roll => ({
+      trading_day: roll.trading_day,
+      symbol: input.months[roll.contract].dataset.contract.symbol,
+      factor: roll.factor,
+    })),
   };
 }
 // An instrument of the market-wide daily table: the months it was read from,
@@ -106,28 +137,25 @@ function tableRows(input: Extract<FactorSeriesEvidence, { kind: "table" }>): Blo
   const data = input.data;
   const read = data.months.filter(month => month.first_day && month.last_day);
   const rows: Rows = [
-    ["月份合约", data.months.map(month => month.contract).join(" · ")],
+    ["月份合约", monthsRead(data.months.map(month => month.contract))],
     ["输入日线", data.count],
     ["交易日范围", read.length ? `${read[0].first_day} – ${read[read.length - 1].last_day}` : "—"],
     ["数据源", data.daily_source],
     ["交易日历来源", data.calendar_source],
     ["数据表快照", data.snapshot],
   ];
-  if (data.rolls.length)
-    rows.splice(
-      1,
-      0,
-      [
-        "换月",
-        data.rolls
-          .map(roll => `${roll.trading_day} ${data.months[roll.contract].contract} ×${roll.factor}`)
-          .join(" · "),
-      ],
-      ["有期限结构的交易日", data.terms],
-    );
+  // A product is read as its dominant series; a contract has no rolls.
+  if (data.rolls.length) rows.splice(1, 0, ["有期限结构的交易日", data.terms]);
   return {
     name: data.rolls.length ? `${data.instrument} · ${t("主力连续")}` : data.instrument,
     rows,
+    rolls: data.rolls.length
+      ? data.rolls.map(roll => ({
+          trading_day: roll.trading_day,
+          symbol: data.months[roll.contract].contract,
+          factor: roll.factor,
+        }))
+      : undefined,
   };
 }
 function Fields({ rows }: { rows: Rows }) {
@@ -151,9 +179,31 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
   if (evidence.kind === "backtest") {
     const { paper, strategies, data } = evidence.experiment;
     const rolling = evidence.experiment.walk_forward;
-    contracts = paper.contracts.map((item, index) =>
-      contractRows(item.dataset, data[index], item.cost_schedule, item.slippage_ticks),
-    );
+    // Months of a dominant series are shown with their series, not one by one.
+    const series = evidence.experiment.series ?? [];
+    const months = new Set(series.flat().map(roll => roll.contract));
+    const traded = (index: number) => ({
+      schedule: paper.contracts[index].cost_schedule,
+      slippage: paper.contracts[index].slippage_ticks,
+    });
+    contracts = [
+      ...paper.contracts.flatMap((item, index) =>
+        months.has(index) ? [] : [contractRows(item.dataset, data[index], traded(index))],
+      ),
+      ...series.map(rolls =>
+        dominantRows(
+          {
+            months: rolls.map(roll => ({
+              dataset: paper.contracts[roll.contract].dataset,
+              data: data[roll.contract],
+            })),
+            rolls: rolls.map((roll, place) => ({ ...roll, contract: place })),
+            count: rolls.reduce((sum, roll) => sum + data[roll.contract].count, 0),
+          },
+          traded(rolls[0].contract),
+        ),
+      ),
+    ];
     // A rolling comparison follows several strategies in turn: it lists them
     // all below instead of the fields of one.
     if (!rolling) strategyFacts = strategyRows(strategies[evidence.result.selected]);
@@ -268,6 +318,7 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
           <section key={contract.name} aria-label={contract.name}>
             <h4>{contract.name}</h4>
             <Fields rows={contract.rows} />
+            {contract.rolls && <RollSchedule name={contract.name} rolls={contract.rolls} />}
             {contract.schedule && <CostScheduleDetails versions={contract.schedule} />}
             {contract.range && (
               <p>

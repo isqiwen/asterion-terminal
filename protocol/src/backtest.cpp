@@ -35,6 +35,12 @@ void validate_series(const backtest::v1::BacktestInput& input) {
       used[roll.contract()] = true;
     }
   }
+  // What the portfolio trades at a time: each contract outside a series, and
+  // each series as one, however many months it brings.
+  const auto months = static_cast<std::size_t>(std::ranges::count(used, true));
+  if (contracts.size() - months + static_cast<std::size_t>(input.series_size()) >
+      max_portfolio_contracts)
+    throw std::invalid_argument("a portfolio holds at most 20 contracts and dominant series");
 }
 } // namespace
 backtest::v1::BacktestRequest encode_backtest_request(const Json& input) {
@@ -47,9 +53,9 @@ backtest::v1::BacktestRequest encode_backtest_request(const Json& input) {
   // need list no contract.
   const auto product = [](const Json& series) { return series.is_object(); };
   if (!input.at("series").is_array() || !input.at("contracts").is_array() ||
-      input.at("contracts").size() > max_portfolio_contracts ||
+      input.at("contracts").size() > max_account_contracts ||
       (input.at("contracts").empty() && std::ranges::none_of(input.at("series"), product)))
-    throw std::invalid_argument("backtest requires 1 to 20 contracts");
+    throw std::invalid_argument("backtest requires 1 to 256 contracts");
   const auto slippage = [](const Json& traded) {
     if (!traded.at("slippage_ticks").is_number_integer() || traded.at("slippage_ticks") < 0 ||
         traded.at("slippage_ticks") > max_slippage_ticks)

@@ -21,7 +21,7 @@
 | 任务 | 工作程序 | 内容 |
 | --- | --- | --- |
 | [回测](backtest.md) | `asterion-backtest` | [策略](strategies.md)回测：四条单合约规则和三条排序规则，多空 |
-| [因子分析](factors.md) | `asterion-factor` | 价格动量、期限结构、波动率三种因子；一个合约，或 3–20 个合约的截面 |
+| [因子分析](factors.md) | `asterion-factor` | 价格动量、期限结构、波动率三种因子；一条序列，或 3–100 条序列的截面 |
 | [历史下载](market-data.md) | `asterion-data-pipeline` | 统一历史格式的分钟线、日线（当前生产插件为 Tushare） |
 | [全市场数据更新](market-data.md#全市场数据表) | `asterion-data-pipeline` | 按交易所和交易日读取全市场数据表；读到的每个分区由数据服务校验后立即入库 |
 

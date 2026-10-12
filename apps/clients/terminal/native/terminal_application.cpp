@@ -449,20 +449,28 @@ Application::Impl::series_of(const protocol::v1::Contract& contract) const {
       return i;
   return std::nullopt;
 }
-std::vector<json> Application::Impl::selection_costs(const json& contracts) const {
+std::vector<json> Application::Impl::selection_costs(const json& members) const {
   const auto& chosen = selected();
-  if (!contracts.is_array() || contracts.size() != chosen.size())
+  // One entry for each contract outside a series, by venue and symbol, and one
+  // for each series, by venue and product: its months all trade at it.
+  auto expected = dataset_series.size();
+  for (const auto& item : chosen)
+    if (!series_of(item.dataset.contract()))
+      ++expected;
+  if (!members.is_array() || members.size() != expected)
     throw std::invalid_argument("give costs for every selected contract");
   std::vector<json> result;
   for (const auto& item : chosen) {
     const auto& spec = item.dataset.contract();
-    const auto found = std::ranges::find_if(contracts, [&](const json& entry) {
+    const auto* name = series_of(spec) ? "product" : "symbol";
+    const auto& wanted = series_of(spec) ? spec.product() : spec.symbol();
+    const auto found = std::ranges::find_if(members, [&](const json& entry) {
       return entry.is_object() && entry.value("venue", "") == spec.venue() &&
-             entry.value("symbol", "") == spec.symbol();
+             entry.value(name, "") == wanted;
     });
-    if (found == contracts.end())
+    if (found == members.end())
       throw std::invalid_argument("give costs for every selected contract");
-    require_fields(*found, {"venue", "symbol", "cost_schedule", "slippage_ticks"});
+    require_fields(*found, {"venue", name, "cost_schedule", "slippage_ticks"});
     const auto schedule = protocol::encode_cost_schedule(found->at("cost_schedule"));
     (void)costs_on(protocol::cost_schedule(schedule), item.dataset.bars(0).trading_day());
     result.push_back({{"cost_schedule", protocol::decode_cost_schedule(schedule)},

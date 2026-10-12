@@ -29,6 +29,24 @@ void safe(const fs::path& path) {
   if (fs::is_symlink(path))
     throw std::invalid_argument("task store rejects symbolic links");
 }
+// How a list names a dominant series: the product by the first and last month
+// it is read from.
+std::string series_name(const data::v1::BarDataset& first, const data::v1::BarDataset& last) {
+  const auto& contract = first.contract();
+  const auto months = contract.symbol() == last.contract().symbol()
+                          ? contract.symbol()
+                          : contract.symbol() + "-" + last.contract().symbol();
+  return contract.venue() + "/" + contract.product() + " (" + months + ")";
+}
+// What a list says a dataset was read from: its own revision, or for daily
+// bars of the daily table the snapshot, which datasets read together name
+// once.
+void name_source(std::string& sources, const data::v1::BarDataset& dataset) {
+  const auto& name =
+      dataset.source_dataset_ids().empty() ? dataset.daily().snapshot() : dataset.revision();
+  if (!sources.ends_with(name))
+    sources += (sources.empty() ? "" : " + ") + name;
+}
 void prepare(wire::Task& task) {
   if (task.has_daily()) {
     const auto range = history_files::daily_range(task.daily());
@@ -65,15 +83,12 @@ void prepare(wire::Task& task) {
       if (series.has_bars()) {
         const auto& c = series.bars().contract();
         instruments += separator + c.venue() + "/" + c.symbol();
-        sources += separator + series.bars().revision();
+        name_source(sources, series.bars());
       } else if (series.has_dominant()) {
-        // A product by the first and last month it is read from.
         const auto& months = series.dominant().months();
-        const auto& c = months.begin()->contract();
-        instruments += separator + c.venue() + "/" + c.product() + " (" + c.symbol() + "-" +
-                       months.rbegin()->contract().symbol() + ")";
+        instruments += separator + series_name(*months.begin(), *months.rbegin());
         for (const auto& month : months)
-          sources += (sources.empty() ? "" : " + ") + month.revision();
+          name_source(sources, month);
       } else if (series.has_table()) {
         // Every instrument of one snapshot names it once.
         instruments += separator + series.table().instrument();
@@ -91,20 +106,39 @@ void prepare(wire::Task& task) {
   } else if (task.has_input()) {
     (void)protocol::decode_backtest(task.input(), protocol::DatasetView::metadata);
     task.set_kind(wire::BACKTEST);
-    // Contracts share trading days; the first dataset describes them.
     const auto& paper = task.input().paper();
-    const auto& dataset = paper.contracts(0).dataset();
+    const auto dataset = [&](unsigned contract) -> const data::v1::BarDataset& {
+      return paper.contracts(static_cast<int>(contract)).dataset();
+    };
+    // The series each contract is a month of, if any.
+    std::vector<const data::v1::DominantSchedule*> series(
+        static_cast<std::size_t>(paper.contracts_size()));
+    for (const auto& schedule : task.input().series())
+      for (const auto& roll : schedule.rolls())
+        series[roll.contract()] = &schedule;
+    // Contracts outside a series share their trading days; a series runs from
+    // its first month's first day to its last month's last.
     std::string instruments, sources;
-    for (const auto& contract : paper.contracts()) {
-      const auto& c = contract.dataset().contract();
-      instruments += (instruments.empty() ? "" : " + ") + c.venue() + "/" + c.symbol();
-      sources += (sources.empty() ? "" : " + ") + contract.dataset().revision();
+    auto first = dataset(0).days(0).trading_day(), last = first;
+    for (unsigned c = 0; c < series.size(); ++c) {
+      first = std::min(first, dataset(c).days(0).trading_day());
+      last = std::max(last, dataset(c).days().rbegin()->trading_day());
+      const auto separator = instruments.empty() ? "" : " + ";
+      if (!series[c]) {
+        const auto& contract = dataset(c).contract();
+        instruments += separator + contract.venue() + "/" + contract.symbol();
+        name_source(sources, dataset(c));
+      } else if (series[c]->rolls(0).contract() == c) {
+        // Named once, where its first month stands.
+        instruments +=
+            separator + series_name(dataset(c), dataset(series[c]->rolls().rbegin()->contract()));
+        for (const auto& roll : series[c]->rolls())
+          name_source(sources, dataset(roll.contract()));
+      }
     }
     task.set_instrument(instruments);
     task.set_source_name(sources);
-    task.set_trading_day(dataset.days(0).trading_day());
-    if (dataset.days_size() > 1)
-      task.set_trading_day(task.trading_day() + " / " + dataset.days().rbegin()->trading_day());
+    task.set_trading_day(first == last ? first : first + " / " + last);
     task.set_total(static_cast<unsigned>(protocol::backtest_work_units(task.input())));
   } else
     throw std::invalid_argument("task requires an explicit input type");

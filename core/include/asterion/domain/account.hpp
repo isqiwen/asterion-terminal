@@ -43,7 +43,12 @@ struct ContractTerms {
   Instrument instrument;
   FuturesCosts costs;
 };
+// What a portfolio trades at a time: a contract, or a dominant series as one.
 inline constexpr std::size_t max_portfolio_contracts = 20;
+// The contracts an account keeps. A dominant series brings one for every month
+// it trades, so an account of a few series holds many more than it trades at
+// a time.
+inline constexpr std::size_t max_account_contracts = 256;
 struct PositionLot {
   InstrumentId instrument;
   Side side;
