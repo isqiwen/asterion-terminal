@@ -8,6 +8,7 @@ import { useDailyTable, type DailyTableQuery } from "./useDailyTable";
 import { useWorkspaceDraft } from "../host/workspace/drafts";
 import { DominantSeriesPicker } from "./DominantSeriesPicker";
 import { DailyBarsPicker } from "./DailyBarsPicker";
+import { DailyTableGaps } from "./DailyTableGaps";
 import { RollSchedule } from "./RollSchedule";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 
@@ -471,6 +472,7 @@ export function DatasetPicker({
                       )}
                     </p>
                   )}
+                  {chosen && settled && <DailyTableGaps stored={settled} />}
                   {chosen && !daily.loading && !settled && (
                     <p role="status">
                       {t(

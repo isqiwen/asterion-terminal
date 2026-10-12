@@ -2,6 +2,7 @@ import { useState } from "react";
 import { translate, type MessageValues } from "../i18n";
 import type { HistoryDatasetRecord, Snapshot } from "../bridge/client";
 import type { dailyTableOf } from "./useDailyTable";
+import { DailyTableGaps } from "./DailyTableGaps";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 
 // Mirrors the core's portfolio limit.
@@ -163,6 +164,7 @@ export function DominantSeriesPicker({
             )}
           </p>
         )}
+        {group && settled && <DailyTableGaps stored={settled} />}
         {group && !settled && (
           <p role="status">
             {t(

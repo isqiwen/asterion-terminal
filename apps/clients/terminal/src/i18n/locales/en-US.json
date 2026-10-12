@@ -565,5 +565,7 @@
   "日线和结算价取自全市场日线表（快照 {snapshot}）": "Daily bars and settlement prices from the market-wide daily table (snapshot {snapshot})",
   "分钟线合约": "Minute bars of a contract",
   "直接读取全市场日线表里一个合约的日线：有成交的交易日是一根 K 线，结算价取同一行。不需要另外下载。": "Reads a contract's daily bars straight from the market-wide daily table: a day it traded on is a bar, settled at the same row's settlement price. Nothing else needs downloading.",
-  "起止交易日都要填写；范围内日线表缺的交易日会被拒绝并列出日期。": "Both the first and the last trading day are needed; trading days of the range that the daily table lacks are refused, with the days named."
+  "起止交易日都要填写；范围内日线表缺的交易日会被拒绝并列出日期。": "Both the first and the last trading day are needed; trading days of the range that the daily table lacks are refused, with the days named.",
+  "这个范围内的交易日历没有全部入库，中间是否缺交易日无法判断；数据集用到没有入库的交易日时会被拒绝并列出日期。": "The calendar of this range is not stored in full, so whether trading days are missing inside it cannot be told; a dataset that needs a day that is not stored is refused and names it.",
+  "这个范围内有 {count} 个交易日还没有入库；数据集用到这些交易日时会被拒绝并列出日期。": "{count} trading days inside this range are not stored yet; a dataset that needs one of them is refused and names it."
 }

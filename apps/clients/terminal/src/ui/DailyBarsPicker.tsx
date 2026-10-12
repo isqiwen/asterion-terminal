@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { translate, type MessageValues } from "../i18n";
 import type { dailyTableOf } from "./useDailyTable";
+import { DailyTableGaps } from "./DailyTableGaps";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 
 // What is read of the daily table: one contract's own days, or a product's
@@ -131,6 +132,7 @@ export function DailyBarsPicker({
             )}
           </p>
         )}
+        {named && settled && <DailyTableGaps stored={settled} />}
         {named && !settled && (
           <p role="status">
             {t("全市场日线表里还没有 {exchange} 的数据。", { exchange: exchange ?? "" })}
