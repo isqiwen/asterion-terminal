@@ -300,64 +300,73 @@ std::vector<HistoricalBar> Minutes::read(const HistoricalBarRange& range, std::s
     throw std::logic_error("Tushare data plugin is not started");
   if (stop.stop_requested())
     throw std::runtime_error("Tushare download cancelled");
-  if (range.end_ns - range.begin_ns >= 86400 * second)
-    throw std::invalid_argument("Tushare minute requests must be shorter than one day");
-  const Json request{{"api_name", "ft_mins"},
-                     {"token", token_},
-                     {"params",
-                      {{"ts_code", range.source_instrument},
-                       {"freq", std::to_string(range.interval_minutes) + "min"},
-                       {"start_date", format_time(range.begin_ns)},
-                       {"end_date", format_time(range.end_ns)}}},
-                     {"fields", "ts_code,trade_time,open,high,low,close,vol,amount,oi"}};
-  const auto raw = post_(request.dump(), stop);
-  if (stop.stop_requested())
-    throw std::runtime_error("Tushare download cancelled");
-  if (raw.size() > 8 * 1024 * 1024)
-    throw std::runtime_error("Tushare response exceeds size limit");
-  const auto root = parse_response(raw);
+  if (range.end_ns - range.begin_ns >= 31 * 86400 * second)
+    throw std::invalid_argument("Tushare minute requests must be shorter than 31 days");
+  // The interface answers with at most this many rows. A full answer may have
+  // more behind it, which the next offset asks for; one that is not full ends
+  // the range.
+  constexpr std::size_t page = 8000;
+  std::vector<HistoricalBar> bars;
   try {
-    if (text(root.at("code")) != "0") {
-      // Provider text can echo a token. Never pass it to logs or the UI.
-      throw RequestError(
-          rejection(root),
-          "Tushare rejected request; verify token, minute-data entitlement and rate limit");
-    }
-    const auto& fields = root.at("data").at("fields");
-    const auto& items = root.at("data").at("items");
-    if (!fields.is_array() || fields.size() != 9 || !items.is_array())
-      throw std::invalid_argument("invalid Tushare table");
-    if (items.size() >= 8000)
-      throw std::runtime_error(
-          "Tushare row limit reached; refusing a potentially truncated dataset");
-    std::map<std::string, std::size_t> columns;
-    for (std::size_t i = 0; i < fields.size(); ++i)
-      if (!columns.emplace(text(fields[i]), i).second)
-        throw std::invalid_argument("duplicate Tushare field");
-    for (auto field :
-         {"ts_code", "trade_time", "open", "high", "low", "close", "vol", "amount", "oi"})
-      if (!columns.contains(field))
-        throw std::invalid_argument("missing Tushare field");
-    std::vector<HistoricalBar> bars;
-    for (const auto& row : items) {
-      if (!row.is_array() || row.size() != fields.size())
-        throw std::invalid_argument("invalid Tushare row");
-      const auto get = [&](const char* key) -> const Json& { return row.at(columns.at(key)); };
-      if (text(get("ts_code")) != range.source_instrument)
-        throw std::invalid_argument("Tushare returned another contract");
-      HistoricalBar bar{parse_time(text(get("trade_time"))),
-                        decimal(get("open")),
-                        decimal(get("high")),
-                        decimal(get("low")),
-                        decimal(get("close")),
-                        decimal(get("vol")),
-                        decimal(get("amount")),
-                        decimal(get("oi"))};
-      bar.validate();
-      if (bar.timestamp_ns < range.begin_ns || bar.timestamp_ns > range.end_ns ||
-          bar.timestamp_ns % (60 * second) || bar.volume.raw() % 100000000)
-        throw std::invalid_argument("Tushare bar outside interval or invalid minute/volume");
-      bars.push_back(bar);
+    for (bool more = true; more;) {
+      const Json request{{"api_name", "ft_mins"},
+                         {"token", token_},
+                         {"params",
+                          {{"ts_code", range.source_instrument},
+                           {"freq", std::to_string(range.interval_minutes) + "min"},
+                           {"start_date", format_time(range.begin_ns)},
+                           {"end_date", format_time(range.end_ns)},
+                           {"limit", page},
+                           {"offset", bars.size()}}},
+                         {"fields", "ts_code,trade_time,open,high,low,close,vol,amount,oi"}};
+      const auto raw = post_(request.dump(), stop);
+      if (stop.stop_requested())
+        throw std::runtime_error("Tushare download cancelled");
+      if (raw.size() > 8 * 1024 * 1024)
+        throw std::runtime_error("Tushare response exceeds size limit");
+      const auto root = parse_response(raw);
+      if (text(root.at("code")) != "0") {
+        // Provider text can echo a token. Never pass it to logs or the UI.
+        throw RequestError(
+            rejection(root),
+            "Tushare rejected request; verify token, minute-data entitlement and rate limit");
+      }
+      const auto& fields = root.at("data").at("fields");
+      const auto& items = root.at("data").at("items");
+      if (!fields.is_array() || fields.size() != 9 || !items.is_array() || items.size() > page)
+        throw std::invalid_argument("invalid Tushare table");
+      more = items.size() == page;
+      std::map<std::string, std::size_t> columns;
+      for (std::size_t i = 0; i < fields.size(); ++i)
+        if (!columns.emplace(text(fields[i]), i).second)
+          throw std::invalid_argument("duplicate Tushare field");
+      for (auto field :
+           {"ts_code", "trade_time", "open", "high", "low", "close", "vol", "amount", "oi"})
+        if (!columns.contains(field))
+          throw std::invalid_argument("missing Tushare field");
+      for (const auto& row : items) {
+        if (!row.is_array() || row.size() != fields.size())
+          throw std::invalid_argument("invalid Tushare row");
+        const auto get = [&](const char* key) -> const Json& { return row.at(columns.at(key)); };
+        if (text(get("ts_code")) != range.source_instrument)
+          throw std::invalid_argument("Tushare returned another contract");
+        HistoricalBar bar{parse_time(text(get("trade_time"))),
+                          decimal(get("open")),
+                          decimal(get("high")),
+                          decimal(get("low")),
+                          decimal(get("close")),
+                          decimal(get("vol")),
+                          decimal(get("amount")),
+                          decimal(get("oi"))};
+        bar.validate();
+        if (bar.timestamp_ns < range.begin_ns || bar.timestamp_ns > range.end_ns ||
+            bar.timestamp_ns % (60 * second) || bar.volume.raw() % 100000000)
+          throw std::invalid_argument("Tushare bar outside interval or invalid minute/volume");
+        bars.push_back(bar);
+      }
+      // More rows than the range has minutes: the offset was not honoured.
+      if (bars.size() > 31 * 1440)
+        throw std::invalid_argument("duplicate Tushare bar timestamp");
     }
     std::ranges::sort(bars, {}, &HistoricalBar::timestamp_ns);
     for (std::size_t i = 1; i < bars.size(); ++i)

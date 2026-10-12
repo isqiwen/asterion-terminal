@@ -85,7 +85,7 @@
   "Tushare data plugin is not started": "Tushare 数据插件尚未启动",
   "Tushare decimal exponent exceeds exact range": "Tushare 数值超出精确表示范围，未进行舍入",
   "Tushare download cancelled": "分钟数据下载已取消，已完成分段可继续使用",
-  "Tushare minute requests must be shorter than one day": "分钟请求分段必须短于一天",
+  "Tushare minute requests must be shorter than 31 days": "分钟请求分段必须短于 31 天",
   "Tushare missing or invalid field": "Tushare 数据字段缺失或无效",
   "Tushare rejected contract query; verify token and contract-data entitlement": "Tushare 拒绝合约查询，请检查 Token 和合约资料权限。",
   "Tushare rejected daily query; verify token, daily-data entitlement and rate limit": "日线查询被拒绝，请检查 Token、日线权限与请求频率。",

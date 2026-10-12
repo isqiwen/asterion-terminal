@@ -24,13 +24,14 @@ const AstHistoryV2& table(const NativeInstance& instance) {
   return *t;
 }
 template <class T> struct Output {
+  std::size_t limit = 10000;
   std::vector<T> rows;
   std::exception_ptr error;
   template <class F> AstStatus emit(F&& f) noexcept {
     if (error)
       return AST_FAILED;
     try {
-      if (rows.size() >= 10000)
+      if (rows.size() >= limit)
         throw Error(ErrorCode::resource_exhausted, "native plugin resource limit exceeded");
       rows.push_back(f());
       return AST_OK;
@@ -241,7 +242,8 @@ public:
                           range.end_ns,
                           nullptr,
                           nullptr};
-    Output<HistoricalBar> out;
+    // A stored segment: every minute of 31 days.
+    Output<HistoricalBar> out{.limit = 31 * 1440};
     const auto& instance = *provider_.instance;
     Admission admission{budget_, stop, {}};
     const auto status =

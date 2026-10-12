@@ -52,6 +52,23 @@ std::string response(const std::string& time = "2023-08-25 09:01:00") {
          "\"close\",\"vol\",\"amount\",\"oi\"],\"items\":[[\"CU2310.SHF\",\"" +
          time + "\",100.1,102,99.9,101.2,20.0,12345678.12345678,2000]]}}";
 }
+// The start of every day a minute request spans, a day apart from its start.
+std::vector<std::int64_t> requested_days(const std::string& body) {
+  const auto params = Json::parse(body).at("params");
+  const auto last = tushare::parse_time(params.at("end_date").get<std::string>());
+  std::vector<std::int64_t> days;
+  for (auto day = tushare::parse_time(params.at("start_date").get<std::string>()); day <= last;
+       day += 86400000000000LL)
+    days.push_back(day);
+  return days;
+}
+Json minute_table(Json items) {
+  return {{"code", 0},
+          {"data",
+           {{"fields",
+             {"ts_code", "trade_time", "open", "high", "low", "close", "vol", "amount", "oi"}},
+            {"items", std::move(items)}}}};
+}
 class Folder {
 public:
   std::filesystem::path path =
@@ -125,6 +142,40 @@ TEST(Tushare, RejectsInvalidRowsAndTruncationWithoutEchoingProviderSecrets) {
     }
   }
 }
+TEST(Tushare, AMinuteRangeIsReadInPagesOfTheRowsTheInterfaceReturns) {
+  // Six days of an index future, a bar every minute: 8640 rows, which the
+  // interface hands out 8000 at a time, latest first.
+  constexpr std::int64_t minute = 60000000000LL;
+  HistoricalBarRange days{{"CFFEX", "if", "2023-10"}, 1,           begin, begin + 8639 * minute,
+                          "tushare.ft_mins",          "IF2310.CFX"};
+  std::vector<std::pair<std::size_t, std::size_t>> asked;
+  bool honoured = true;
+  tushare::Minutes provider(
+      "fixture", calendar([&](const auto& body, auto) {
+        const auto params = Json::parse(body).at("params");
+        const auto limit = params.at("limit").template get<std::size_t>();
+        const auto offset = params.at("offset").template get<std::size_t>();
+        asked.emplace_back(limit, offset);
+        Json items = Json::array();
+        for (auto i = honoured ? offset : 0; i < 8640 && items.size() < limit; ++i)
+          items.push_back(
+              {"IF2310.CFX",
+               tushare::format_time(begin + static_cast<std::int64_t>(8639 - i) * minute), 100, 100,
+               100, 100, 1, 100, 10});
+        return minute_table(std::move(items)).dump();
+      }));
+  provider.start();
+  const auto bars = provider.read(days, {});
+  EXPECT_EQ(asked, (std::vector<std::pair<std::size_t, std::size_t>>{{8000, 0}, {8000, 8000}}));
+  ASSERT_EQ(bars.size(), 8640U);
+  EXPECT_EQ(bars.front().timestamp_ns, begin);
+  EXPECT_EQ(bars.back().timestamp_ns, begin + 8639 * minute);
+  // An interface that answered every offset with the same rows would repeat them.
+  honoured = false;
+  EXPECT_THROW(provider.read(days, {}), std::invalid_argument);
+  days.end_ns = begin + 31 * 1440 * minute;
+  EXPECT_THROW(provider.read(days, {}), std::invalid_argument);
+}
 TEST(Tushare, SortsSourceRowsAndPreservesScientificDecimal) {
   auto raw = Json::parse(response());
   raw["data"]["items"].push_back(raw["data"]["items"][0]);
@@ -139,14 +190,15 @@ TEST(Tushare, SortsSourceRowsAndPreservesScientificDecimal) {
 TEST(Tushare, ResumeSkipsDurablePagesAndRejectsChangedInputOrDamagedPage) {
   Folder folder;
   auto input = range();
-  input.end_ns = input.begin_ns + 86400000000000LL + 600000000000LL;
+  // 32 day pages: a segment of 31 and one of the last day, a request each.
+  input.end_ns = input.begin_ns + 31 * 86400000000000LL + 600000000000LL;
   unsigned calls = 0;
   bool fail = true;
   tushare::Minutes p("fixture", calendar([&](const auto&, auto) {
                        ++calls;
                        if (calls == 2 && fail)
                          throw std::runtime_error("fixture interrupted");
-                       return response(calls == 1 ? "2023-08-25 09:01:00" : "2023-08-26 09:01:00");
+                       return response(calls == 1 ? "2023-08-25 09:01:00" : "2023-09-25 09:01:00");
                      }));
   p.start();
   EXPECT_THROW(history_files::download_minutes(p, input, folder.path), std::runtime_error);
@@ -368,12 +420,13 @@ TEST(Tushare, DatasetViewSkipsUnrequestedSegmentsAndStillVerifiesRequestedData) 
   auto spec = range();
   // 63 day pages: segments start at pages 0, 31 and 62.
   spec.end_ns = spec.begin_ns + 62 * 86400000000000LL;
-  tushare::Minutes provider(
-      "fixture", calendar([](const auto& body, auto) {
-        const auto start =
-            Json::parse(body).at("params").at("start_date").template get<std::string>();
-        return response(start);
-      }));
+  tushare::Minutes provider("fixture", calendar([](const auto& body, auto) {
+                              Json items = Json::array();
+                              for (const auto day : requested_days(body))
+                                items.push_back({"CU2310.SHF", tushare::format_time(day), 100.1,
+                                                 102, 99.9, 101.2, 20, 100, 2000});
+                              return minute_table(std::move(items)).dump();
+                            }));
   provider.start();
   history_files::download_minutes(provider, spec, folder.path);
   data::v1::MinuteDownload input;
@@ -642,26 +695,19 @@ TEST(Tushare, CorruptPageCountsAreRejectedBeforeConstructingBarRanges) {
 TEST(Tushare, MacdPrefixRemainsExactAcrossMultipleSegments) {
   Folder folder;
   constexpr std::int64_t day = 86400000000000LL;
-  tushare::Minutes provider(
-      "fixture", calendar([](const auto& body, auto) {
-        const auto request = Json::parse(body);
-        const auto first =
-            tushare::parse_time(request.at("params").at("start_date").template get<std::string>());
-        const auto day_index = static_cast<int>((first - begin) / day);
-        Json items = Json::array();
-        for (int i = 0; i < 20; ++i) {
-          const int price = 100 + day_index * 20 + i;
-          items.push_back({"CU2310.SHF", tushare::format_time(first + i * 60000000000LL), price,
-                           price + 2, price - 1, price, 1, 100, 10});
-        }
-        return Json{
-            {"code", 0},
-            {"data",
-             {{"fields",
-               {"ts_code", "trade_time", "open", "high", "low", "close", "vol", "amount", "oi"}},
-              {"items", items}}}}
-            .dump();
-      }));
+  tushare::Minutes provider("fixture", calendar([](const auto& body, auto) {
+                              Json items = Json::array();
+                              for (const auto first : requested_days(body)) {
+                                const auto day_index = static_cast<int>((first - begin) / day);
+                                for (int i = 0; i < 20; ++i) {
+                                  const int price = 100 + day_index * 20 + i;
+                                  items.push_back({"CU2310.SHF",
+                                                   tushare::format_time(first + i * 60000000000LL),
+                                                   price, price + 2, price - 1, price, 1, 100, 10});
+                                }
+                              }
+                              return minute_table(std::move(items)).dump();
+                            }));
   provider.start();
   auto spec = range();
   spec.end_ns = begin + 69 * day + 19 * 60000000000LL;

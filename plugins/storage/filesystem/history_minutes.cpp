@@ -11,6 +11,7 @@
 #include <mutex>
 #include <map>
 #include <optional>
+#include <span>
 #include <list>
 #include <algorithm>
 namespace asterion::history_files {
@@ -133,7 +134,7 @@ constexpr unsigned segment_pages = 31;
 std::string segment_name(unsigned first_page) {
   return "minutes-" + std::to_string(first_page) + ".parquet";
 }
-void validate_page(const std::vector<HistoricalBar>& bars, const HistoricalBarRange& range) {
+void validate_page(std::span<const HistoricalBar> bars, const HistoricalBarRange& range) {
   if (bars.size() >= 8000)
     throw std::invalid_argument("minute dataset page identity mismatch");
   std::int64_t previous = -1;
@@ -299,56 +300,47 @@ Json download_minutes(HistoricalBarPort& provider, const HistoricalBarRange& ran
   const auto committed = static_cast<unsigned>(manifest.at("pages").size());
   if (progress)
     progress(committed, total, rows);
-  // Fetched pages wait in memory until a segment is written; cancellation and
-  // provider failures still publish what was fetched before stopping.
-  std::vector<std::vector<HistoricalBar>> pending;
-  const auto flush = [&] {
-    if (pending.empty())
-      return;
-    const auto first = static_cast<unsigned>(manifest.at("pages").size());
-    std::vector<HistoricalBar> bars;
-    for (auto& page : pending) {
-      manifest["pages"].push_back(page.size());
-      bars.insert(bars.end(), page.begin(), page.end());
+  // The provider is asked for a whole segment at once, so that it pages by
+  // what it returns instead of by the calendar; a segment that fails or is
+  // cancelled leaves nothing behind and is asked for again.
+  for (auto first = committed; first < total;) {
+    if (stop.stop_requested())
+      throw std::runtime_error("Historical download cancelled");
+    const auto count = std::min(segment_pages, total - first);
+    auto request = page_range(range, first);
+    request.end_ns = page_range(range, first + count - 1).end_ns;
+    const auto bars = provider.read(request, stop);
+    if (stop.stop_requested())
+      throw std::runtime_error("Historical download cancelled");
+    auto next = bars.begin();
+    for (unsigned page = first; page < first + count; ++page) {
+      const auto span = page_range(range, page);
+      const auto end = std::find_if(next, bars.end(), [&](const HistoricalBar& bar) {
+        return bar.timestamp_ns > span.end_ns;
+      });
+      const std::span<const HistoricalBar> part(next, end);
+      for (const auto& bar : part)
+        bar.validate();
+      validate_page(part, span);
+      manifest["pages"].push_back(part.size());
+      next = end;
     }
+    if (next != bars.end())
+      throw std::invalid_argument("invalid minute dataset order, interval or volume");
     const auto path = directory / segment_name(first);
     parquet::write_minute_bars(path, bars);
     rows += bars.size();
     manifest["segments"].push_back({{"file", segment_name(first)},
                                     {"first_page", first},
-                                    {"pages", pending.size()},
+                                    {"pages", count},
                                     {"rows", bars.size()},
                                     {"sha256", sha256_file(path)}});
     manifest["rows"] = rows;
-    complete_version(manifest, manifest.at("pages").size() == total);
+    first += count;
+    complete_version(manifest, first == total);
     replace_file_durably(directory / manifest_name, manifest.dump());
-    pending.clear();
-  };
-  try {
-    for (unsigned i = committed; i < total; ++i) {
-      if (stop.stop_requested())
-        throw std::runtime_error("Historical download cancelled");
-      const auto request = page_range(range, i);
-      auto bars = provider.read(request, stop);
-      // A page read while cancellation arrived is discarded, not published.
-      if (stop.stop_requested())
-        throw std::runtime_error("Historical download cancelled");
-      for (const auto& bar : bars)
-        bar.validate();
-      validate_page(bars, request);
-      pending.push_back(std::move(bars));
-      if (pending.size() == segment_pages || i + 1 == total)
-        flush();
-      if (progress) {
-        std::uint64_t fetched = rows;
-        for (const auto& page : pending)
-          fetched += page.size();
-        progress(i + 1, total, fetched);
-      }
-    }
-  } catch (...) {
-    flush();
-    throw;
+    if (progress)
+      progress(first, total, rows);
   }
   return manifest;
 }

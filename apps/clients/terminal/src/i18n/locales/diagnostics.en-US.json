@@ -85,7 +85,7 @@
   "Tushare data plugin is not started": "Tushare data plugin is not started",
   "Tushare decimal exponent exceeds exact range": "Tushare decimal exponent exceeds exact range",
   "Tushare download cancelled": "Tushare download cancelled",
-  "Tushare minute requests must be shorter than one day": "Tushare minute requests must be shorter than one day",
+  "Tushare minute requests must be shorter than 31 days": "Tushare minute requests must be shorter than 31 days",
   "Tushare missing or invalid field": "Tushare missing or invalid field",
   "Tushare rejected contract query; verify token and contract-data entitlement": "Tushare rejected contract query; verify token and contract-data entitlement",
   "Tushare rejected daily query; verify token, daily-data entitlement and rate limit": "Tushare rejected daily query; verify token, daily-data entitlement and rate limit",
