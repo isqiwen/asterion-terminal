@@ -226,8 +226,6 @@ BarDatasetSources Store::sources(const v1::BarDatasetRequest& request) const {
   result.request = request;
   for (const auto& id : request.source_dataset_ids())
     result.sources.push_back(archive_.get(id));
-  for (const auto& id : request.settlement_dataset_ids())
-    result.settlements.push_back(archive_.get(id));
   return result;
 }
 Store::VerifiedDataset Store::verify_dataset(const v1::NamedDataset& value) const {
@@ -235,7 +233,7 @@ Store::VerifiedDataset Store::verify_dataset(const v1::NamedDataset& value) cons
   std::size_t bars = 0;
   std::vector<std::string> days;
   for (int i = 0; i < value.selections_size(); ++i) {
-    const auto resolved = resolve_bar_dataset(sources(value.selections(i)));
+    const auto resolved = resolve_bar_dataset(tables_, sources(value.selections(i)));
     if (resolved.revision() != value.content_revisions(i))
       throw std::invalid_argument("saved dataset revision mismatch");
     bars += static_cast<std::size_t>(resolved.bars_size());
@@ -409,24 +407,19 @@ v1::HistoryUsage Store::history_usage(const std::string& dataset) const {
   usage.set_dataset_id(dataset);
   const auto saved_datasets = archive_.named_datasets();
   for (const auto& saved : saved_datasets.items()) {
-    bool market = false, settlement = false;
-    for (const auto& selection : saved.selections()) {
+    bool market = false;
+    for (const auto& selection : saved.selections())
       market |= std::ranges::find(selection.source_dataset_ids(), usage.dataset_id()) !=
                 selection.source_dataset_ids().end();
-      settlement |= std::ranges::find(selection.settlement_dataset_ids(), usage.dataset_id()) !=
-                    selection.settlement_dataset_ids().end();
-    }
-    if (!market && !settlement)
+    if (!market)
       continue;
     auto* row = usage.add_references();
     row->set_kind(asterion::data::v1::HISTORY_SAVED_DATASET);
     row->set_id(saved.id());
     row->set_name(saved.name());
-    if (market)
-      row->add_roles(asterion::data::v1::HISTORY_MARKET);
-    if (settlement)
-      row->add_roles(asterion::data::v1::HISTORY_SETTLEMENT);
+    row->add_roles(asterion::data::v1::HISTORY_MARKET);
   }
+  usage.set_unreadable(saved_datasets.unsupported());
   (void)asterion::protocol::decode_history_usage(usage);
   return usage;
 }

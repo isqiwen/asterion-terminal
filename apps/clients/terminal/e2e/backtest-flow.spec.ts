@@ -26,13 +26,12 @@ test(
     await expect(page.getByLabel("K 线来源", { exact: true })).toHaveValue(
       selected.source_dataset_ids[0],
     );
-    if (await page.getByLabel("结算价来源", { exact: true }).isVisible())
-      await page
-        .getByLabel("结算价来源", { exact: true })
-        .selectOption(selected.settlement_dataset_ids[0]);
-    await expect(page.getByLabel("结算价来源", { exact: true })).toHaveValue(
-      selected.settlement_dataset_ids[0],
-    );
+    // Nothing to choose for settlement prices: they are the daily table's.
+    await expect(
+      page.getByText(
+        /^结算价和交易日取自全市场日线表：SHFE 已入库 .* 读取，之后入库的数据不影响这次选择。$/,
+      ),
+    ).toBeVisible();
     await page.getByLabel("最小变动价位", { exact: true }).fill(selected.price_increment);
     await page.getByLabel("合约乘数", { exact: true }).fill(selected.multiplier);
     await page.getByLabel("开始交易日", { exact: true }).fill("2026-09-25");
@@ -119,10 +118,9 @@ test("data handoff stays bound to its service and never reuses another contract'
   await expect(page.getByLabel("K 线来源", { exact: true })).toHaveValue("");
   await expect(page.getByRole("button", { name: "加入组合", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "下一步", exact: true })).toBeDisabled();
-  await page.getByLabel("K 线来源", { exact: true }).selectOption(two.settlement_dataset_ids[0]);
-  await expect(page.getByLabel("结算价来源", { exact: true })).toHaveValue(
-    two.settlement_dataset_ids[0],
-  );
+  // A version of the service now connected can be chosen again.
+  await page.getByLabel("K 线来源", { exact: true }).selectOption(two.daily_dataset_id);
+  await expect(page.getByLabel("K 线来源", { exact: true })).toHaveValue(two.daily_dataset_id);
 });
 
 test("data/task access prepares a stopped local service once and does not replace an offline remote connection", async ({
@@ -216,8 +214,7 @@ test("archive versions remain selectable without any download tasks", async ({ p
   await page.goto("/");
   await expect(page.locator(".workspace-tabs")).toBeVisible();
   await seedHistory(page.request, [100, 101], "unrelated-contract", { product: "al" });
-  // A product no other spec seeds: the daily settlement is matched
-  // automatically only when it is the contract's single candidate.
+  // A product no other spec seeds.
   const selected = await seedHistory(page.request, [100, 101, 102, 103], "archive-only", {
     product: "sn",
   });
@@ -238,9 +235,7 @@ test("archive versions remain selectable without any download tasks", async ({ p
   await expect(page.getByLabel("K 线来源", { exact: true })).toHaveValue(
     selected.source_dataset_ids[0],
   );
-  await expect(page.getByLabel("结算价来源", { exact: true })).toHaveValue(
-    selected.settlement_dataset_ids[0],
-  );
+  await expect(page.getByText(/^结算价和交易日取自全市场日线表：SHFE 已入库 /)).toBeVisible();
   await page.getByLabel("最小变动价位", { exact: true }).fill("1");
   await page.getByLabel("合约乘数", { exact: true }).fill("10");
   await page.getByRole("button", { name: "使用此数据集", exact: true }).click();

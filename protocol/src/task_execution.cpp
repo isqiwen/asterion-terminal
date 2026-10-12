@@ -7,7 +7,7 @@ data::v1::BarDatasetRequest selection(const data::v1::BarDataset& dataset) {
   data::v1::BarDatasetRequest result;
   *result.mutable_contract() = dataset.contract();
   *result.mutable_source_dataset_ids() = dataset.source_dataset_ids();
-  *result.mutable_settlement_dataset_ids() = dataset.settlement_dataset_ids();
+  *result.mutable_daily() = dataset.daily();
   // Include reported boundary gaps too: they are part of the fixed evidence.
   auto begin = dataset.days(0).trading_day();
   auto end = dataset.days(dataset.days_size() - 1).trading_day();

@@ -4,12 +4,92 @@
 #include "data/history_requests.hpp"
 #include "history_minutes.hpp"
 #include "history_daily.hpp"
+#include "history_tables.hpp"
 #include "data/data_fixture.hpp"
+#include <asterion/domain/history_tables.hpp>
 #include <algorithm>
 #include <cctype>
+#include <map>
 namespace asterion::test {
+// The sources of the market-wide daily table and its calendar. The test
+// provider's by default; a test of the real Terminal seeds under the sources
+// the installed data source offers, which are the ones its pages read.
+struct DailyTableSources {
+  std::string daily = "fixture.daily.v1", calendar = "fixture.calendar.v1";
+};
+// One day of a contract in the daily table.
+struct DailyRow {
+  std::string day;
+  int settlement, open_interest;
+};
+// Adds one SHFE contract's days to the daily table and to the calendar, keeping
+// what other contracts already have on those days. Returns where a dataset
+// reads them, under the snapshot that now holds them.
+inline Json seed_daily_table(const std::filesystem::path& root, const std::string& contract_id,
+                             const std::vector<DailyRow>& days,
+                             const DailyTableSources& sources = {}) {
+  const history_files::TableSeries daily{"futures.daily", 1, sources.daily},
+      calendar{"futures.calendar", 1, sources.calendar};
+  history_files::TableStore tables(root / "tables");
+  const auto merge = [&](const history_files::TableSeries& series, const std::string& period,
+                         const std::vector<TableSourceRow>& added) {
+    const auto& table = history_table(series.table);
+    std::map<std::string, TableSourceRow> rows; // by key
+    if (const auto held = tables.current(series, "SHFE", period))
+      for (const auto& cells : tables.rows(*held)) {
+        TableSourceRow row;
+        for (std::size_t c = 0; c < cells.size(); ++c)
+          row.push_back(table_cell_text(table.columns[c], cells[c]));
+        const auto key = row.at(0).value();
+        rows[key] = std::move(row);
+      }
+    for (const auto& row : added)
+      rows[row.at(0).value()] = row;
+    std::vector<TableSourceRow> all;
+    for (auto& [key, row] : rows)
+      all.push_back(std::move(row));
+    const auto partition = table_partition(table, "SHFE", period, all);
+    (void)tables.record(partition, series, tables.write(partition), std::string(64, 'a'),
+                        1790000000000000000);
+  };
+  std::map<std::string, std::vector<TableSourceRow>> years;
+  for (const auto& day : days) {
+    years[day.day.substr(0, 4)].push_back({day.day, "1", std::nullopt});
+    TableSourceRow row(history_table("futures.daily").columns.size());
+    row[0] = contract_id;
+    row[4] = row[5] = std::to_string(day.settlement);
+    row[10] = std::to_string(day.open_interest);
+    merge(daily, day.day, {row});
+  }
+  for (const auto& [year, open] : years)
+    merge(calendar, year, open);
+  return {{"snapshot", tables.head()},
+          {"daily_source", daily.source},
+          {"calendar_source", calendar.source}};
+}
+// Every day settles at `settlement` with `open_interest` held.
+inline Json seed_daily_table(const std::filesystem::path& root, const std::string& contract_id,
+                             const std::vector<std::string>& days, int settlement,
+                             int open_interest, const DailyTableSources& sources = {}) {
+  std::vector<DailyRow> rows;
+  for (const auto& day : days)
+    rows.push_back({day, settlement, open_interest});
+  return seed_daily_table(root, contract_id, rows, sources);
+}
+// Of several seeded histories, the daily table as the last of them left it:
+// every seeding keeps what the earlier ones stored.
+inline Json latest_daily(const std::vector<Json>& selections) {
+  return std::ranges::max_element(selections, {},
+                                  [](const Json& selection) {
+                                    return selection.at("daily_sequence").get<std::uint64_t>();
+                                  })
+      ->at("daily");
+}
 // Minute bars spread evenly over `minute_days` (09:00 onwards, bar end, each
-// with its trading day); daily rows with settlement 110 on `daily_days`.
+// with its trading day), published as one download; the contract's settlement
+// 110 on `daily_days` in the market-wide daily table, which is where a dataset
+// reads it. The same daily rows are also published as the contract's own daily
+// download (`daily_dataset_id`), for what still reads one.
 // The contract is SHFE `product` of delivery `month`, e.g. rb2610; every daily
 // row reports `open_interest`.
 inline Json seed_history(
@@ -17,7 +97,8 @@ inline Json seed_history(
     std::vector<std::string> minute_days = {"2026-09-25"}, std::vector<std::string> daily_days = {},
     const std::string& product = "rb", unsigned interval = 1, int settlement_price = 110,
     const std::string& normalization = "test.confirmed.v1", const std::string& month = "2026-10",
-    int open_interest = 100, const std::string& data_instance = "historical-data") {
+    int open_interest = 100, const std::string& data_instance = "historical-data",
+    const DailyTableSources& tables = {}) {
   if (daily_days.empty())
     daily_days = minute_days;
   class Minutes final : public HistoricalBarPort {
@@ -87,7 +168,6 @@ inline Json seed_history(
   minutes.prices = prices;
   minutes.days = minute_days;
   daily.days = daily_days;
-  data::Store store(root, data_instance, "task");
   const auto contract_id = "SHFE/" + product + "/" + month;
   auto upper = product;
   std::ranges::transform(upper, upper.begin(), [](unsigned char c) { return std::toupper(c); });
@@ -114,10 +194,22 @@ inline Json seed_history(
                                                 {"begin_day", daily_days.front()},
                                                 {"end_day", daily_days.back()},
                                                 {"requests_per_minute", 500}});
-  const auto minute_result = publish_download(store, id + "-bars", minute, minutes).minute_result();
-  const auto daily_result = publish_download(store, id + "-settlement", day, daily).daily_result();
-  return {{"source_dataset_ids", Json::array({minute_result.manifest_sha256()})},
-          {"settlement_dataset_ids", Json::array({daily_result.manifest_sha256()})},
+  std::string bars, settlement;
+  {
+    // One process owns the table ledger: the store goes before the tables open.
+    data::Store store(root, data_instance, "task");
+    bars = publish_download(store, id + "-bars", minute, minutes).minute_result().manifest_sha256();
+    settlement =
+        publish_download(store, id + "-settlement", day, daily).daily_result().manifest_sha256();
+  }
+  const auto table =
+      seed_daily_table(root, contract_id, daily_days, settlement_price, open_interest, tables);
+  return {{"source_dataset_ids", Json::array({bars})},
+          {"daily", table},
+          {"daily_sequence", history_files::TableStore(root / "tables")
+                                 .sequence(table.at("snapshot").get<std::string>())
+                                 .value()},
+          {"daily_dataset_id", settlement},
           {"begin_day", ""},
           {"end_day", ""},
           {"price_increment", "1"},

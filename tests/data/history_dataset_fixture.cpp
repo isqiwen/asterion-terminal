@@ -10,6 +10,7 @@ int main(int argc, char** argv) {
   std::vector<std::string> minute_days, daily_days;
   std::string month = "2026-10";
   int open_interest = 100, settlement = 110;
+  asterion::test::DailyTableSources tables;
   app.add_option("--directory", directory)->required();
   app.add_option("--data-instance", data_instance);
   app.add_option("--id", id)->required();
@@ -21,6 +22,8 @@ int main(int argc, char** argv) {
   app.add_option("--month", month, "Delivery month of the contract");
   app.add_option("--open-interest", open_interest, "Open interest of every daily row");
   app.add_option("--settlement", settlement, "Settlement price of every daily row");
+  app.add_option("--daily-source", tables.daily, "Source of the market-wide daily table");
+  app.add_option("--calendar-source", tables.calendar, "Source of the trading calendar");
   CLI11_PARSE(app, argc, argv);
   try {
     asterion::validate_id(data_instance);
@@ -33,7 +36,7 @@ int main(int argc, char** argv) {
                      directory, prices, id,
                      minute_days.empty() ? std::vector<std::string>{day} : minute_days, daily_days,
                      product, 1, settlement, "test.confirmed.v1", month, open_interest,
-                     data_instance)
+                     data_instance, tables)
                      .dump()
               << '\n';
   } catch (const std::exception& error) {

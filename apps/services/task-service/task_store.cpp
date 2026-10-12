@@ -357,29 +357,42 @@ void verify_result(const wire::Task& task, const asterion::backtest::v1::Backtes
       throw std::invalid_argument("settlement result does not match input contracts");
   }
 }
-wire::Task read_input(wire::Task task, const fs::path& path, const std::string& digest,
-                      std::uint64_t bytes) {
-  const auto raw = payload::read(path, digest, payload::max_input_bytes, bytes);
-  switch (task.kind()) {
-  case wire::DAILY_DOWNLOAD:
-    payload::parse(raw, *task.mutable_daily());
-    break;
-  case wire::MINUTE_DOWNLOAD:
-    payload::parse(raw, *task.mutable_minutes());
-    break;
-  case wire::TABLE_UPDATE:
-    payload::parse(raw, *task.mutable_table_update());
-    break;
-  case wire::FACTOR:
-    payload::parse(raw, *task.mutable_factor());
-    break;
-  case wire::BACKTEST:
-    payload::parse(raw, *task.mutable_input());
-    break;
-  default:
-    throw std::invalid_argument("unsupported task manifest type");
+// A stored definition that this version's messages cannot hold.
+struct OtherVersion : std::invalid_argument {
+  OtherVersion()
+      : std::invalid_argument("task input was stored by another version; submit the task again") {}
+};
+// `raw` is the bytes that were stored, checked against their digest: what does
+// not parse of them was written by a version with other messages.
+wire::Task parse_input(wire::Task task, const std::string& raw) {
+  try {
+    switch (task.kind()) {
+    case wire::DAILY_DOWNLOAD:
+      payload::parse(raw, *task.mutable_daily());
+      break;
+    case wire::MINUTE_DOWNLOAD:
+      payload::parse(raw, *task.mutable_minutes());
+      break;
+    case wire::TABLE_UPDATE:
+      payload::parse(raw, *task.mutable_table_update());
+      break;
+    case wire::FACTOR:
+      payload::parse(raw, *task.mutable_factor());
+      break;
+    case wire::BACKTEST:
+      payload::parse(raw, *task.mutable_input());
+      break;
+    default:
+      throw std::logic_error("unsupported task manifest type");
+    }
+  } catch (const std::invalid_argument&) {
+    throw OtherVersion();
   }
   return task;
+}
+wire::Task read_input(wire::Task task, const fs::path& path, const std::string& digest,
+                      std::uint64_t bytes) {
+  return parse_input(std::move(task), payload::read(path, digest, payload::max_input_bytes, bytes));
 }
 wire::Task attach_definition(wire::Task task, wire::Task source) {
   switch (task.kind()) {
@@ -1199,13 +1212,14 @@ void Store::InputRead::load() {
   loaded_ = true;
 }
 void Store::InputRead::load_for_claim() {
-  load();
   // The version that stored a task admitted its input. This one runs it only
-  // if it admits the input too and finds the same work in it, which is what
-  // progress is counted against. Otherwise the attempt fails with the reason,
-  // and what was stored stays as it was written.
+  // if it can read the input, admits it too and finds the same work in it,
+  // which is what progress is counted against. Otherwise the claim goes on so
+  // that its attempt fails with the reason: the task leaves the queue, and
+  // what was stored stays as it was written.
   const auto admitted = task_.total();
   try {
+    load();
     prepare(task_);
     if (task_.total() != admitted)
       throw std::invalid_argument("task input reads differently in this version; submit it again");
@@ -1213,6 +1227,7 @@ void Store::InputRead::load_for_claim() {
       execution_ = protocol::task_execution(task_, digest_);
   } catch (const std::exception& error) {
     refusal_ = error.what();
+    loaded_ = true;
   }
   if (task_.has_input() || task_.has_factor())
     task_.clear_definition(); // Release full evidence on this file worker.
@@ -1287,14 +1302,18 @@ void Store::HistoryRead::load_page() {
   const auto& dataset_id = result.dataset_id();
   for (const auto& entry : page_) {
     const auto& id = entry.task().id();
-    const auto task = read_input(entry.task(), root_ / id / "input.pb", entry.input_digest(),
-                                 entry.input_bytes());
-    bool market = false, settlement = false;
+    wire::Task task;
+    try {
+      task = read_input(entry.task(), root_ / id / "input.pb", entry.input_digest(),
+                        entry.input_bytes());
+    } catch (const OtherVersion&) {
+      result.set_unreadable(result.unreadable() + 1);
+      continue;
+    }
+    bool market = false;
     const auto inspect = [&](const data::v1::BarDataset& data) {
       market |= std::ranges::find(data.source_dataset_ids(), dataset_id) !=
                 data.source_dataset_ids().end();
-      settlement |= std::ranges::find(data.settlement_dataset_ids(), dataset_id) !=
-                    data.settlement_dataset_ids().end();
     };
     auto kind = data::v1::HISTORY_REFERENCE_UNSPECIFIED;
     if (task.has_input()) {
@@ -1314,15 +1333,13 @@ void Store::HistoryRead::load_page() {
     }
     const bool output =
         task.history_dataset_id() == dataset_id && (task.has_minutes() || task.has_daily());
-    if (!market && !settlement && !output)
+    if (!market && !output)
       continue;
     auto* row = result.add_references();
     row->set_id(id);
     row->set_kind(output ? data::v1::HISTORY_DOWNLOAD : kind);
     if (market)
       row->add_roles(data::v1::HISTORY_MARKET);
-    if (settlement)
-      row->add_roles(data::v1::HISTORY_SETTLEMENT);
     if (output)
       row->add_roles(data::v1::HISTORY_OUTPUT);
     if (result.references_size() > 10000)

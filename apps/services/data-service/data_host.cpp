@@ -168,7 +168,8 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
     *response.mutable_daily_page() =
         history_files::read_daily_page(record.daily(), record.daily_result(), query);
   } else if (request.has_bar_dataset())
-    *response.mutable_bar_dataset() = resolve_bar_dataset(store_->sources(request.bar_dataset()));
+    *response.mutable_bar_dataset() =
+        resolve_bar_dataset(store_->tables(), store_->sources(request.bar_dataset()));
   else if (request.has_daily_factor_dataset())
     *response.mutable_daily_factor_dataset() =
         daily_factor_dataset(store_->archive().get(request.daily_factor_dataset().id()));
@@ -178,7 +179,7 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
     std::vector<BarDatasetSources> months;
     for (const auto& month : request.dominant_series().months())
       months.push_back(store_->sources(month));
-    auto resolved = resolve_dominant_series(months);
+    auto resolved = resolve_dominant_series(store_->tables(), months);
     auto* preview = response.mutable_dominant_series();
     for (const auto index : resolved.months)
       preview->add_months(static_cast<unsigned>(index));
@@ -393,8 +394,6 @@ void DataHost::admit(Work& admitted, bool worker) {
   const auto history = [&](const std::string& id) { work->objects.push_back("history/" + id); };
   const auto selection = [&](const wire::BarDatasetRequest& input) {
     for (const auto& id : input.source_dataset_ids())
-      history(id);
-    for (const auto& id : input.settlement_dataset_ids())
       history(id);
   };
   if (request.has_record())

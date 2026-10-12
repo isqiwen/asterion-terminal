@@ -446,16 +446,16 @@ Json decode_history_usage(const data::v1::HistoryUsage& value) {
     Json roles = Json::array();
     int previous = 0;
     for (const auto role : row.roles()) {
-      if (role <= previous || role > data::v1::HISTORY_OUTPUT ||
+      if (role <= previous ||
+          (role != data::v1::HISTORY_MARKET && role != data::v1::HISTORY_OUTPUT) ||
           ((row.kind() == data::v1::HISTORY_DOWNLOAD) != (role == data::v1::HISTORY_OUTPUT)))
         throw std::invalid_argument("invalid historical usage response");
       previous = role;
-      roles.push_back(role == data::v1::HISTORY_MARKET       ? "market"
-                      : role == data::v1::HISTORY_SETTLEMENT ? "settlement"
-                                                             : "output");
+      roles.push_back(role == data::v1::HISTORY_MARKET ? "market" : "output");
     }
     rows.push_back({{"kind", kind}, {"id", row.id()}, {"name", row.name()}, {"roles", roles}});
   }
-  return {{"dataset_id", value.dataset_id()}, {"references", rows}};
+  return {
+      {"dataset_id", value.dataset_id()}, {"references", rows}, {"unreadable", value.unreadable()}};
 }
 } // namespace asterion::protocol

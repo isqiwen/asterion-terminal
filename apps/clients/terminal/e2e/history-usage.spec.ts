@@ -12,7 +12,7 @@ test("usage shows fixed source and saved references and refreshes the draft", as
   await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
   const archive = page.getByRole("region", { name: "历史数据仓库", exact: true });
   const minute = archive.locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`);
-  const daily = archive.locator(`[data-dataset-id="${seeded.settlement_dataset_ids[0]}"]`);
+  const daily = archive.locator(`[data-dataset-id="${seeded.daily_dataset_id}"]`);
   await minute.getByRole("button", { name: "使用情况", exact: true }).click();
   const usage = archive.getByRole("region", { name: "使用情况", exact: true });
   // Published fixture versions have no fabricated download tasks.
@@ -29,18 +29,21 @@ test("usage shows fixed source and saved references and refreshes the draft", as
   await expect(usage).toContainText("未检查停止的远程数据服务");
   await page.screenshot({ path: "build/history-usage-browser.png", fullPage: true });
   await usage.getByRole("button", { name: "关闭", exact: true }).click();
-  // A daily version can serve both market and settlement input. It must
-  // appear once for the saved record, with both roles preserved.
+  // The contract's daily download is used only where it is chosen as bars:
+  // settlement prices are the daily table's, which is not an archive version.
+  await daily.getByRole("button", { name: "使用情况", exact: true }).click();
+  await expect(usage).toContainText("当前数据服务中未发现关联记录");
+  await usage.getByRole("button", { name: "关闭", exact: true }).click();
   await rpc(page.request, "data.dataset.select", {
     ...seeded,
-    source_dataset_ids: seeded.settlement_dataset_ids,
+    source_dataset_ids: [seeded.daily_dataset_id],
   });
-  await rpc(page.request, "data.dataset.save", { name: "日线双用途" });
+  await rpc(page.request, "data.dataset.save", { name: "日线作 K 线" });
   await daily.getByRole("button", { name: "使用情况", exact: true }).click();
-  const dual = table.getByRole("row").filter({ hasText: "日线双用途" });
-  await expect(dual).toHaveCount(1);
-  await expect(dual).toContainText("行情输入、结算输入");
-  await expect(usage).toContainText("本窗口回测与因子草稿：行情输入、结算输入");
+  const bars = table.getByRole("row").filter({ hasText: "日线作 K 线" });
+  await expect(bars).toHaveCount(1);
+  await expect(bars).toContainText("行情输入");
+  await expect(usage).toContainText("本窗口回测与因子草稿：行情输入");
 });
 
 // Explicit UI fixture: real mTLS inventory and failures are covered by native tests.
@@ -67,15 +70,17 @@ test("other data services retain known references and disclose stopped or failed
             kind: "saved_dataset",
             id: "saved",
             name: "跨服务输入",
-            roles: ["market", "settlement"],
+            roles: ["market"],
           },
         ],
+        unreadable: 2,
       },
       {
         node: "测试节点 B",
         service: "backtest-factor-b",
         checked: false,
         references: [],
+        unreadable: 0,
         error: "data/task service is not running; references were not inspected",
       },
       {
@@ -83,6 +88,7 @@ test("other data services retain known references and disclose stopped or failed
         service: "",
         checked: false,
         references: [],
+        unreadable: 0,
         error: "historical service inspection timed out",
       },
     ];
@@ -98,7 +104,11 @@ test("other data services retain known references and disclose stopped or failed
     .click();
   const taskService = archive.getByRole("region", { name: "其他数据服务", exact: true });
   await expect(taskService.getByRole("table")).toContainText("跨服务输入");
-  await expect(taskService.getByRole("table")).toContainText("行情输入、结算输入");
+  await expect(taskService.getByRole("table")).toContainText("行情输入");
+  // What another version stored there is counted, not read.
+  await expect(taskService).toContainText(
+    "另有 2 个由其他版本保存的任务或数据集无法读取，不能判断它们是否使用了此版本。",
+  );
   await expect(taskService.getByRole("alert")).toHaveCount(2);
   const stopped = taskService.getByRole("region", {
     name: "测试节点 B / backtest-factor-b",

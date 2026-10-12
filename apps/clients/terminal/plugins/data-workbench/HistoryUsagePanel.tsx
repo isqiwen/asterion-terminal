@@ -16,7 +16,12 @@ const kinds = {
   factor: "因子任务",
   saved_dataset: "已保存数据集",
 };
-const roles = { market: "行情输入", settlement: "结算输入", output: "下载产物" };
+const roles = { market: "行情输入", output: "下载产物" };
+// Tasks and saved datasets of another version are counted, not read.
+const unreadable = (count: number) =>
+  t("另有 {count} 个由其他版本保存的任务或数据集无法读取，不能判断它们是否使用了此版本。", {
+    count,
+  });
 export function HistoryUsagePanel({
   context,
   item,
@@ -89,6 +94,7 @@ export function HistoryUsagePanel({
               ? t("找到 {count} 条关联记录，请保留此版本。", { count: usage.references.length })
               : t("当前数据服务中未发现关联记录；这不代表该版本可以删除。")}
           </p>
+          {usage.unreadable > 0 && <p role="status">{unreadable(usage.unreadable)}</p>}
           {!!usage.selected_roles.length && (
             <p>
               {t("本窗口回测与因子草稿：{roles}", {
@@ -127,6 +133,7 @@ export function HistoryUsagePanel({
                       )}
                     </div>
                   )}
+                  {group.unreadable > 0 && <p role="status">{unreadable(group.unreadable)}</p>}
                   {group.stopped && <p className="subtle">{t("本机账本已检查；服务保持停止。")}</p>}
                   <ReferenceTable rows={group.references} />
                 </section>

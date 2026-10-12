@@ -1213,7 +1213,10 @@ TEST(Factor, ADominantSeriesIsFixedWithItsScheduleAndRefusedWhenThatIsNotOneSeri
   const auto month = [](const char* symbol, const char* delivery) {
     return Json{
         {"source_dataset_ids", {std::string(64, 'a')}},
-        {"settlement_dataset_ids", {std::string(64, 'b')}},
+        {"daily",
+         {{"snapshot", std::string(64, 'b')},
+          {"daily_source", "fixture.daily.v1"},
+          {"calendar_source", "fixture.calendar.v1"}}},
         {"begin_day", "2026-09-25"},
         {"end_day", "2026-09-30"},
         {"contract", protocol::decode_contract(test::contract("SHFE", symbol, "rb", delivery))}};

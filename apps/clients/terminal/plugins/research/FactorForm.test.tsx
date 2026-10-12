@@ -134,3 +134,29 @@ test("instruments of the market-wide table are submitted together under the stor
     evaluation: { mode: "full_sample" },
   });
 });
+
+test("with no daily table stored the form says so and has nothing to start", async () => {
+  const snapshot = readySnapshot();
+  // The data source offers the tables; nothing of them is stored yet.
+  const query: TerminalContext["query"] = async () => ({
+    ...snapshot,
+    table_coverage: { snapshot: "", sources: coverage.sources, rows: [] },
+    table_products: [],
+  });
+  render(
+    <WorkspaceDraftScope store={createWorkspaceDrafts()} namespace="test">
+      <TableFactorForm
+        snapshot={snapshot}
+        query={query}
+        busy={false}
+        navigate={() => {}}
+        run={async () => true}
+      />
+    </WorkspaceDraftScope>,
+  );
+  expect((await screen.findByRole("status")).textContent).toBe("还没有入库的全市场日线。");
+  expect(screen.queryByLabelText("品种或合约")).toBeNull();
+  expect((screen.getByRole("button", { name: "开始分析" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+});

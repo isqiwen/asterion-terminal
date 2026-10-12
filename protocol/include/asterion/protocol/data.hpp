@@ -31,6 +31,11 @@ struct TableInstrument {
 // What one request may ask for: more than there are futures products.
 inline constexpr int max_table_instruments = 100;
 TableInstrument table_instrument(std::string_view text);
+// Where daily facts are read: a snapshot of the table store and the sources
+// of its daily table and calendar.
+void validate_daily_table(const data::v1::DailyTable&);
+data::v1::DailyTable encode_daily_table(const Json&);
+Json decode_daily_table(const data::v1::DailyTable&);
 void validate_table_series_request(const data::v1::TableSeriesRequest&);
 data::v1::TableSeriesRequest encode_table_series_request(const Json&);
 // Identity, ascending positive closes inside the range, and for a product a
@@ -58,6 +63,7 @@ MarketBar market_bar(const v1::Bar&);
 // Content identity: SHA-256 of contract, interval, bars and days.
 std::string bar_dataset_revision(const data::v1::BarDataset&);
 // Validates structure, order, contract units, day coverage and revision.
+inline constexpr unsigned bar_dataset_version = 3;
 void validate_bar_dataset(const data::v1::BarDataset&);
 std::vector<MarketBar> dataset_bars(const data::v1::BarDataset&);
 std::vector<DaySettlement> dataset_days(const data::v1::BarDataset&);
@@ -91,6 +97,7 @@ std::map<std::string, Decimal> term_carries(const data::v1::DominantSchedule& sc
                                             std::span<const v1::Contract* const> contracts);
 Json decode_term_points(const data::v1::DominantSchedule& schedule);
 std::string named_dataset_revision(const data::v1::NamedDataset&);
+inline constexpr unsigned named_dataset_version = 2;
 void validate_named_dataset(const data::v1::NamedDataset&);
 Json decode_named_dataset(const data::v1::NamedDataset&);
 } // namespace asterion::protocol

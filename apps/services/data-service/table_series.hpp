@@ -1,7 +1,24 @@
 #pragma once
 #include "history_tables.hpp"
+#include <asterion/foundation/decimal.hpp>
 #include <asterion/v1/data.pb.h>
+#include <map>
+#include <string>
+#include <vector>
 namespace asterion::data {
+// What contracts of one exchange did on the trading days of a range, as the
+// daily table holds it under a snapshot. A day a contract has no row on, or
+// no value for, is not in its map.
+struct DailyFacts {
+  // By contract, then by trading day.
+  std::map<std::string, std::map<std::string, Decimal>> settlement, open_interest;
+  // When the partition of each trading day of the range was acquired.
+  std::map<std::string, std::int64_t> acquired_at_ns;
+};
+// Fails rather than reads around a hole, as table_series does.
+DailyFacts daily_facts(const history_files::TableStore&, const v1::DailyTable&,
+                       const std::string& venue, const std::string& begin_day,
+                       const std::string& end_day, const std::vector<std::string>& contracts);
 // The series of a request's instruments, read from the market-wide daily table
 // as the request's snapshot holds it. Nothing is read of another snapshot, so
 // the same request always makes the same series.

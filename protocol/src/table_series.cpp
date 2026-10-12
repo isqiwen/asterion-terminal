@@ -34,6 +34,28 @@ TableInstrument table_instrument(std::string_view text) {
     throw std::invalid_argument("invalid table instrument");
   }
 }
+void validate_daily_table(const data::v1::DailyTable& table) {
+  validate_message(table);
+  validate_history_source(table.daily_source());
+  validate_history_source(table.calendar_source());
+  if (!digest(table.snapshot()))
+    throw std::invalid_argument("invalid daily table reference");
+}
+data::v1::DailyTable encode_daily_table(const Json& value) {
+  require_fields(value, {"snapshot", "daily_source", "calendar_source"});
+  data::v1::DailyTable table;
+  table.set_snapshot(value.at("snapshot").get<std::string>());
+  table.set_daily_source(value.at("daily_source").get<std::string>());
+  table.set_calendar_source(value.at("calendar_source").get<std::string>());
+  validate_daily_table(table);
+  return table;
+}
+Json decode_daily_table(const data::v1::DailyTable& table) {
+  validate_daily_table(table);
+  return {{"snapshot", table.snapshot()},
+          {"daily_source", table.daily_source()},
+          {"calendar_source", table.calendar_source()}};
+}
 void validate_table_series_request(const data::v1::TableSeriesRequest& request) {
   validate_message(request);
   validate_selection(request);

@@ -25,10 +25,11 @@ const version = (id: string): HistoryDatasetRecord => ({
   rows: 100,
 });
 // What the core answers for one version: a saved dataset uses it in `roles`.
-const usedBy = (dataset: string, roles: HistoryReference["roles"]): Snapshot => {
+const usedBy = (dataset: string, roles: HistoryReference["roles"], unreadable = 0): Snapshot => {
   const usage: HistoryUsage = {
     dataset_id: dataset,
     references: [{ kind: "saved_dataset", id: "saved-1", name: "引用核对组合", roles }],
+    unreadable,
     selected_roles: [],
     disconnected_nodes: { names: [] },
     other_data_services: [],
@@ -58,15 +59,23 @@ test("a reply for a version that is no longer shown is ignored", async () => {
     release = resolve;
   });
   const query = vi.fn(async (_method: string, params: Record<string, unknown>) =>
-    params.id === "minute" ? held : usedBy("daily", ["settlement"]),
+    params.id === "minute" ? held : usedBy("daily", ["output"]),
   );
   const view = render(panel(query, "minute"));
   await waitFor(() => expect(query).toHaveBeenCalledTimes(1));
   view.rerender(panel(query, "daily"));
-  await waitFor(() => expect(records()).toContain("结算输入"));
+  await waitFor(() => expect(records()).toContain("下载产物"));
   await act(async () => release(usedBy("minute", ["market"])));
-  expect(records()).toContain("结算输入");
+  expect(records()).toContain("下载产物");
   expect(records()).not.toContain("行情输入");
+});
+
+test("tasks and datasets of another version are counted as not checked", async () => {
+  render(panel(async () => usedBy("minute", ["market"], 2), "minute"));
+  await waitFor(() => expect(records()).toContain("行情输入"));
+  expect(screen.getByRole("region", { name: "使用情况" }).textContent).toContain(
+    "另有 2 个由其他版本保存的任务或数据集无法读取",
+  );
 });
 
 test("a failed check shows its error and neither an earlier result nor an all-clear", async () => {

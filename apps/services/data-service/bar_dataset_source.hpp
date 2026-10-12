@@ -1,4 +1,5 @@
 #pragma once
+#include "history_tables.hpp"
 #include <asterion/protocol/data.hpp>
 #include <asterion/v1/backtest.pb.h>
 #include <vector>
@@ -8,13 +9,18 @@ namespace asterion::data {
 struct BarDatasetSources {
   data::v1::BarDatasetRequest request;
   std::vector<data::v1::HistoryRecord> sources;
-  std::vector<data::v1::HistoryRecord> settlements;
 };
 // Minute bars carry their exchange trading day from the data source and need
 // bar-end labels. Daily bars are labelled 15:00 local on their trading day.
-// Fails rather than drops bars without a settlement, and when the range exceeds
-// max_dataset_bars. Settlement days without minute bars are listed as uncovered.
-data::v1::BarDataset resolve_bar_dataset(const BarDatasetSources&);
+//
+// Each trading day's settlement price is the contract's in the market-wide
+// daily table, as the request's snapshot holds it, read from the first day
+// asked for (or of the bars) to the last. Fails rather than drops bars without
+// a settlement, rather than reads around a trading day the table lacks, and
+// when the range exceeds max_dataset_bars. Days the contract settled on
+// without bars are listed as uncovered.
+data::v1::BarDataset resolve_bar_dataset(const history_files::TableStore&,
+                                         const BarDatasetSources&);
 // Month contracts of one product as its dominant series. The dominant month
 // of a trading day is the month with the largest open interest on the
 // previous trading day, among the current month and later ones: it never
@@ -33,9 +39,12 @@ struct DominantSeries {
   // the trading day before, at that day's settlements.
   data::v1::DominantSchedule schedule;
 };
+// A month has data on the days it has bars; its open interest is the daily
+// table's, on every day any of the months has bars.
 // Fails rather than guesses: when no month has data on a day, when the
 // outgoing month has no bars on the roll day to close on, or when the two
 // months lack a common settlement on the day before a roll (the adjustment
 // ratio).
-DominantSeries resolve_dominant_series(const std::vector<BarDatasetSources>& months);
+DominantSeries resolve_dominant_series(const history_files::TableStore&,
+                                       const std::vector<BarDatasetSources>& months);
 } // namespace asterion::data

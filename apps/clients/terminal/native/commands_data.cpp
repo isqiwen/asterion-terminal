@@ -32,11 +32,12 @@ DatasetSelection resolved_selection(const data::v1::BarDatasetRequest& request,
   return DatasetSelection{request, std::move(dataset), std::move(summary)};
 }
 // The request for one archived contract: its identity comes from the
-// archive, the units a data source does not provide from the user.
+// archive, the units a data source does not provide from the user, and its
+// daily facts from the market-wide table under the snapshot the user saw.
 data::v1::BarDatasetRequest contract_request(const Json& archive, const json& sources,
-                                             const json& settlements, const json& p) {
+                                             const json& p) {
   if (!sources.is_array() || sources.empty())
-    throw std::invalid_argument("dataset requires 1..32 versions per source role");
+    throw std::invalid_argument("dataset requires 1..32 source versions");
   std::string key;
   for (const auto& item : archive)
     if (item.at("id") == sources.at(0))
@@ -47,7 +48,7 @@ data::v1::BarDatasetRequest contract_request(const Json& archive, const json& so
   const auto id = identity.exchange_id();
   auto product = id.symbol.substr(0, identity.product.size());
   return protocol::encode_bar_dataset_request({{"source_dataset_ids", sources},
-                                               {"settlement_dataset_ids", settlements},
+                                               {"daily", p.at("daily")},
                                                {"begin_day", p.at("begin_day")},
                                                {"end_day", p.at("end_day")},
                                                {"contract",
@@ -256,7 +257,8 @@ void Application::Impl::register_data_commands() {
     if (generation != data_task_generation)
       throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
     auto result = snapshot();
-    result.values["saved_datasets"] = std::move(library);
+    result.values["saved_datasets"] = std::move(library.at("items"));
+    result.values["saved_datasets_unsupported"] = library.at("unsupported");
     co_return result;
   });
   command("data.dataset.save", [this](const json& p) -> PolledTask<Response> {
@@ -266,7 +268,7 @@ void Application::Impl::register_data_commands() {
     if (!dataset_series.empty())
       throw std::invalid_argument("a named dataset cannot hold a dominant series");
     data::v1::NamedDataset saved;
-    saved.set_version(1);
+    saved.set_version(protocol::named_dataset_version);
     saved.set_name(text(p, "name"));
     for (const auto& item : selected()) {
       *saved.add_selections() = item.request;
@@ -480,17 +482,16 @@ void Application::Impl::register_data_commands() {
   // contract. The contract comes from the archive's unified identity; only the
   // units a data source does not provide are entered by the user.
   command("data.dataset.select", [this](const json& p) -> PolledTask<Response> {
-    fields(p, {"source_dataset_ids", "settlement_dataset_ids", "begin_day", "end_day",
-               "price_increment", "multiplier"});
+    fields(p, {"source_dataset_ids", "daily", "begin_day", "end_day", "price_increment",
+               "multiplier"});
     if (!data_client)
       throw std::invalid_argument("data service is not connected");
     const auto selection_generation = dataset_selection_generation;
     const auto client = data_client;
     const auto generation = data_task_generation;
     auto next = (co_await run<DatasetSelection>([&]() -> PolledTask<DatasetSelection> {
-      const auto request =
-          contract_request((co_await PollFuture{client->datasets({})}), p.at("source_dataset_ids"),
-                           p.at("settlement_dataset_ids"), p);
+      const auto request = contract_request((co_await PollFuture{client->datasets({})}),
+                                            p.at("source_dataset_ids"), p);
       co_return resolved_selection(request, (co_await PollFuture{client->bar_dataset(request)}));
     }));
     if (generation != data_task_generation)
@@ -514,17 +515,16 @@ void Application::Impl::register_data_commands() {
     co_return snapshot();
   });
   // Month contracts of one product as its dominant series: one archive
-  // version of bars and one of daily settlements per month. The data service
-  // works out the schedule; the months that trade become the selection.
+  // version of bars per month. The data service works out the schedule from
+  // what the daily table says each month settled at and held; the months that
+  // trade become the selection.
   command("data.dataset.series", [this](const json& p) -> PolledTask<Response> {
-    fields(p, {"source_dataset_ids", "settlement_dataset_ids", "begin_day", "end_day",
-               "price_increment", "multiplier"});
+    fields(p, {"source_dataset_ids", "daily", "begin_day", "end_day", "price_increment",
+               "multiplier"});
     if (!data_client)
       throw std::invalid_argument("data service is not connected");
     const auto& sources = p.at("source_dataset_ids");
-    const auto& settlements = p.at("settlement_dataset_ids");
-    if (!sources.is_array() || !settlements.is_array() || sources.size() < 2 ||
-        sources.size() != settlements.size() || sources.size() > max_portfolio_contracts)
+    if (!sources.is_array() || sources.size() < 2 || sources.size() > max_portfolio_contracts)
       throw std::invalid_argument("a dominant series requires 2 to 20 month contracts");
     const auto selection_generation = dataset_selection_generation;
     const auto client = data_client;
@@ -537,8 +537,7 @@ void Application::Impl::register_data_commands() {
               const auto archive = (co_await PollFuture{client->datasets({})});
               std::vector<data::v1::BarDatasetRequest> months;
               for (std::size_t i = 0; i < sources.size(); ++i)
-                months.push_back(contract_request(archive, json::array({sources[i]}),
-                                                  json::array({settlements[i]}), p));
+                months.push_back(contract_request(archive, json::array({sources[i]}), p));
               auto preview = (co_await PollFuture{client->dominant_series(months)});
               co_return std::pair{std::move(months), std::move(preview)};
             }));

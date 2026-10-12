@@ -31,14 +31,14 @@ bool digest(const std::string& text) {
 }
 void validate_versions(const google::protobuf::RepeatedPtrField<std::string>& ids) {
   if (ids.empty() || ids.size() > max_dataset_sources)
-    throw std::invalid_argument("dataset requires 1..32 versions per source role");
+    throw std::invalid_argument("dataset requires 1..32 source versions");
   for (int i = 0; i < ids.size(); ++i)
     if (!digest(ids.Get(i)) || (i && ids.Get(i) <= ids.Get(i - 1)))
       throw std::invalid_argument("dataset versions must be sorted unique SHA-256 identities");
 }
 void encode_versions(const Json& json, google::protobuf::RepeatedPtrField<std::string>* out) {
   if (!json.is_array() || json.size() > static_cast<std::size_t>(max_dataset_sources))
-    throw std::invalid_argument("dataset requires 1..32 versions per source role");
+    throw std::invalid_argument("dataset requires 1..32 source versions");
   auto ids = json.get<std::vector<std::string>>();
   std::ranges::sort(ids);
   for (const auto& id : ids)
@@ -176,11 +176,14 @@ std::string bar_dataset_revision(const data::v1::BarDataset& dataset) {
   return sha256_bytes(canonical);
 }
 void validate_bar_dataset(const data::v1::BarDataset& dataset) {
+  // Before anything else: a dataset of another version is not read as this one.
+  if (dataset.version() != bar_dataset_version)
+    throw std::invalid_argument("unsupported bar dataset version");
   validate_message(dataset);
-  if (dataset.version() != 2 || !dataset.has_contract() || dataset.bars_size() < 1 ||
+  if (!dataset.has_contract() || dataset.bars_size() < 1 ||
       static_cast<std::size_t>(dataset.bars_size()) > max_dataset_bars || dataset.days_size() < 1 ||
       dataset.days_size() > dataset.bars_size())
-    throw std::invalid_argument("bar dataset requires version 2, 1..200000 bars and trading days");
+    throw std::invalid_argument("bar dataset requires 1..200000 bars and their trading days");
   const auto interval = dataset.interval_minutes();
   if (interval > 1440)
     throw std::invalid_argument("unsupported bar interval");
@@ -194,18 +197,17 @@ void validate_bar_dataset(const data::v1::BarDataset& dataset) {
   if (dataset.source().empty() || dataset.source().size() > 64)
     throw std::invalid_argument("invalid bar dataset provenance");
   validate_versions(dataset.source_dataset_ids());
-  validate_versions(dataset.settlement_dataset_ids());
-  std::set<std::string> versions(dataset.source_dataset_ids().begin(),
-                                 dataset.source_dataset_ids().end());
-  versions.insert(dataset.settlement_dataset_ids().begin(), dataset.settlement_dataset_ids().end());
-  if (dataset.history_evidence_size() != static_cast<int>(versions.size()))
+  if (dataset.history_evidence_size() != dataset.source_dataset_ids_size())
     throw std::invalid_argument("historical evidence does not match dataset versions");
-  auto expected = versions.begin();
+  auto expected = dataset.source_dataset_ids().begin();
   for (const auto& evidence : dataset.history_evidence()) {
     validate_history_evidence(evidence);
     if (evidence.dataset_id() != *expected++)
       throw std::invalid_argument("historical evidence does not match dataset versions");
   }
+  validate_daily_table(dataset.daily());
+  if (dataset.daily_acquired_at_ns() <= 0)
+    throw std::invalid_argument("invalid bar dataset provenance");
   const auto spec = instrument(dataset.contract());
   std::optional<MarketBar> previous;
   std::vector<std::string> bar_days;
@@ -251,7 +253,7 @@ std::vector<DaySettlement> dataset_days(const data::v1::BarDataset& dataset) {
 }
 Json decode_bar_dataset_range(const data::v1::BarDataset& dataset) {
   if (dataset.bars().empty())
-    throw std::invalid_argument("bar dataset requires version 2, 1..200000 bars and trading days");
+    throw std::invalid_argument("bar dataset requires 1..200000 bars and their trading days");
   const auto& first = dataset.bars(0);
   const auto& last = dataset.bars(dataset.bars_size() - 1);
   return {{"count", dataset.bars_size()},
@@ -274,19 +276,20 @@ Json decode_bar_dataset(const data::v1::BarDataset& dataset, DatasetView view) {
   result.update({{"revision", dataset.revision()},
                  {"source", dataset.source()},
                  {"source_dataset_ids", versions(dataset.source_dataset_ids())},
-                 {"settlement_dataset_ids", versions(dataset.settlement_dataset_ids())}});
+                 {"daily", decode_daily_table(dataset.daily())},
+                 {"daily_acquired_at_ns", std::to_string(dataset.daily_acquired_at_ns())}});
   return result;
 }
 data::v1::BarDataset encode_bar_dataset(const Json& json) {
   require_fields(json,
                  {"version", "revision", "contract", "interval_minutes", "bars", "days", "source",
-                  "source_dataset_ids", "settlement_dataset_ids", "history_evidence"});
-  if (!json.at("version").is_number_integer() || json.at("version") != 2 ||
+                  "source_dataset_ids", "history_evidence", "daily", "daily_acquired_at_ns"});
+  if (!json.at("version").is_number_integer() || json.at("version") != bar_dataset_version ||
       !json.at("interval_minutes").is_number_unsigned() || !json.at("bars").is_array() ||
       !json.at("days").is_array() || json.at("bars").size() > max_dataset_bars)
     throw std::invalid_argument("unsupported bar dataset format");
   data::v1::BarDataset result;
-  result.set_version(2);
+  result.set_version(bar_dataset_version);
   result.set_revision(json.at("revision").get<std::string>());
   *result.mutable_contract() = encode_contract(json.at("contract"));
   result.set_interval_minutes(json.at("interval_minutes").get<std::uint32_t>());
@@ -305,21 +308,21 @@ data::v1::BarDataset encode_bar_dataset(const Json& json) {
   }
   result.set_source(json.at("source").get<std::string>());
   encode_versions(json.at("source_dataset_ids"), result.mutable_source_dataset_ids());
-  encode_versions(json.at("settlement_dataset_ids"), result.mutable_settlement_dataset_ids());
   if (!json.at("history_evidence").is_array() ||
-      json.at("history_evidence").size() > 2 * max_dataset_sources)
+      json.at("history_evidence").size() > max_dataset_sources)
     throw std::invalid_argument("historical evidence does not match dataset versions");
   for (const auto& evidence : json.at("history_evidence"))
     *result.add_history_evidence() = encode_history_evidence(evidence);
+  *result.mutable_daily() = encode_daily_table(json.at("daily"));
+  result.set_daily_acquired_at_ns(nanoseconds(json.at("daily_acquired_at_ns")));
   validate_bar_dataset(result);
   return result;
 }
 data::v1::BarDatasetRequest encode_bar_dataset_request(const Json& json) {
-  require_fields(
-      json, {"source_dataset_ids", "settlement_dataset_ids", "begin_day", "end_day", "contract"});
+  require_fields(json, {"source_dataset_ids", "daily", "begin_day", "end_day", "contract"});
   data::v1::BarDatasetRequest result;
   encode_versions(json.at("source_dataset_ids"), result.mutable_source_dataset_ids());
-  encode_versions(json.at("settlement_dataset_ids"), result.mutable_settlement_dataset_ids());
+  *result.mutable_daily() = encode_daily_table(json.at("daily"));
   result.set_begin_day(json.at("begin_day").get<std::string>());
   result.set_end_day(json.at("end_day").get<std::string>());
   *result.mutable_contract() = encode_contract(json.at("contract"));
@@ -329,7 +332,7 @@ data::v1::BarDatasetRequest encode_bar_dataset_request(const Json& json) {
 Json decode_bar_dataset_request(const data::v1::BarDatasetRequest& request) {
   validate_message(request);
   validate_versions(request.source_dataset_ids());
-  validate_versions(request.settlement_dataset_ids());
+  validate_daily_table(request.daily());
   for (const auto* day : {&request.begin_day(), &request.end_day()})
     if (!day->empty())
       (void)parse_trading_date(*day);
@@ -340,7 +343,7 @@ Json decode_bar_dataset_request(const data::v1::BarDatasetRequest& request) {
   // Evaluated before the braced initializer (GCC < 13 PR66139 leak).
   auto contract = decode_contract(request.contract());
   return {{"source_dataset_ids", versions(request.source_dataset_ids())},
-          {"settlement_dataset_ids", versions(request.settlement_dataset_ids())},
+          {"daily", decode_daily_table(request.daily())},
           {"begin_day", request.begin_day()},
           {"end_day", request.end_day()},
           {"contract", std::move(contract)}};
@@ -447,9 +450,12 @@ std::string named_dataset_revision(const data::v1::NamedDataset& value) {
   return sha256_bytes(canonical.SerializeAsString());
 }
 void validate_named_dataset(const data::v1::NamedDataset& value) {
+  // Before anything else: one saved by another version is not read as this one.
+  if (value.version() != named_dataset_version)
+    throw std::invalid_argument("unsupported saved dataset version");
   validate_message(value);
-  if (value.version() != 1 || value.name().empty() || value.name().size() > 120 ||
-      value.name().front() == ' ' || value.name().back() == ' ' ||
+  if (value.name().empty() || value.name().size() > 120 || value.name().front() == ' ' ||
+      value.name().back() == ' ' ||
       std::any_of(value.name().begin(), value.name().end(),
                   [](unsigned char c) { return c < 32 || c == 127; }) ||
       value.selections_size() < 1 || value.selections_size() > 20 ||

@@ -2,6 +2,7 @@
 #include "data/history_requests.hpp"
 #include "download_budget.hpp"
 #include "data/data_fixture.hpp"
+#include "data/history_fixture.hpp"
 #include "task_store.hpp"
 #include "tasks/task_store_support.hpp"
 #include "data/bar_fixture.hpp"
@@ -53,6 +54,14 @@ struct Daily : HistoricalDailyPort {
     return bars;
   }
 };
+// Every calendar day from the first to the last, as the fixtures here trade.
+std::vector<std::string> every_day(const char* first, const char* last) {
+  std::vector<std::string> days;
+  for (auto day = std::chrono::sys_days(parse_trading_date(first));
+       day <= std::chrono::sys_days(parse_trading_date(last)); day += std::chrono::days(1))
+    days.push_back(format_trading_date(std::chrono::year_month_day(day)));
+  return days;
+}
 data::v1::DownloadAllocation allocation() {
   data::v1::DownloadAllocation request;
   auto* identity = request.mutable_identity();
@@ -594,6 +603,9 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData) {
     data.publish(data.verify_publication(decision));
     dataset_id = prepared.dataset_id();
   }
+  // The days of those daily bars settle in the market-wide table.
+  const auto daily = protocol::encode_daily_table(test::seed_daily_table(
+      warehouse.path, "SHFE/rb/2026-10", every_day("2026-09-01", "2026-10-10"), 110, 100));
   const auto data_endpoint = (sockets.path / "data.sock").string();
   const auto data_workers = (sockets.path / "data.workers").string();
   const auto task_endpoint = (sockets.path / "task.sock").string();
@@ -625,7 +637,7 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData) {
   };
   data::v1::BarDatasetRequest selection;
   selection.add_source_dataset_ids(dataset_id);
-  selection.add_settlement_dataset_ids(dataset_id);
+  *selection.mutable_daily() = daily;
   *selection.mutable_contract() = test::contract();
   protocol::DataClient data(data_endpoint, "data-one");
   await_ready(data);
@@ -635,7 +647,7 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData) {
   ASSERT_EQ(expected.bars_size(), 40);
 
   data::v1::NamedDataset saved;
-  saved.set_version(1);
+  saved.set_version(protocol::named_dataset_version);
   saved.set_name("fixed-inputs");
   *saved.add_selections() = selection;
   saved.add_content_revisions(expected.revision());
@@ -648,7 +660,7 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData) {
   ASSERT_EQ(usage.references_size(), 1);
   EXPECT_EQ(usage.references(0).kind(), data::v1::HISTORY_SAVED_DATASET);
   EXPECT_EQ(usage.references(0).id(), saved.id());
-  EXPECT_EQ(usage.references(0).roles_size(), 2);
+  EXPECT_EQ(usage.references(0).roles_size(), 1);
 
   task::v1::TaskRequest submit;
   submit.mutable_submit()->set_id("backtest");
@@ -757,13 +769,9 @@ TEST(DataInputs, PrivateDatasetReplySupportsTheMaximumTaskInput) {
     request.set_requests_per_minute(100);
     const auto source = test::publish_download(store, "minutes", request, minutes);
     selection->add_source_dataset_ids(source.minute_result().manifest_sha256());
-    auto daily = allocation().daily();
-    daily.set_begin_day("2026-01-01");
-    daily.set_end_day("2026-05-20");
-    Daily provider(daily.source());
-    const auto settlement = test::publish_download(store, "settlements", daily, provider);
-    selection->add_settlement_dataset_ids(settlement.daily_result().manifest_sha256());
   }
+  *selection->mutable_daily() = protocol::encode_daily_table(test::seed_daily_table(
+      warehouse.path, "SHFE/rb/2026-10", every_day("2026-01-01", "2026-05-20"), 100, 100));
   const auto endpoint = (sockets.path / "data.sock").string();
   const auto worker = (sockets.path / "data.workers").string();
   ChildProcess process(ASTERION_DATA_SERVICE_PATH,

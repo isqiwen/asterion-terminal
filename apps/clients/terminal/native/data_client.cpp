@@ -282,7 +282,7 @@ DataClient::bar_dataset(const data::v1::BarDatasetRequest& query) {
         auto& dataset = *response.mutable_bar_dataset();
         protocol::validate_bar_dataset(dataset);
         if (!std::ranges::equal(dataset.source_dataset_ids(), query.source_dataset_ids()) ||
-            !std::ranges::equal(dataset.settlement_dataset_ids(), query.settlement_dataset_ids()) ||
+            dataset.daily().SerializeAsString() != query.daily().SerializeAsString() ||
             dataset.contract().SerializeAsString() != query.contract().SerializeAsString())
           throw Error(ErrorCode::unavailable, "bar dataset identity mismatch");
         return std::move(dataset);
@@ -490,7 +490,9 @@ std::future<Json> DataClient::saved_datasets() {
                                Json items = Json::array();
                                for (const auto& item : response.saved_datasets().items())
                                  items.push_back(protocol::decode_named_dataset(item));
-                               return items;
+                               // Those another version saved are kept and not listed.
+                               return {{"items", std::move(items)},
+                                       {"unsupported", response.saved_datasets().unsupported()}};
                              });
 }
 std::future<data::v1::NamedDataset> DataClient::saved_dataset(const std::string& id) {

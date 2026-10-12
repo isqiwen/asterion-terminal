@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { translate, type MessageValues } from "../i18n";
 import type { HistoryDatasetRecord, Snapshot } from "../bridge/client";
+import type { dailyTableOf } from "./useDailyTable";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 
 // Mirrors the core's portfolio limit.
@@ -10,18 +11,16 @@ const latest = (items: HistoryDatasetRecord[]) =>
     (best, item) => (!best || item.end > best.end ? item : best),
     undefined,
   );
-type Month = { contract: string; bars: HistoryDatasetRecord; settlement: HistoryDatasetRecord };
+type Month = { contract: string; bars: HistoryDatasetRecord };
 type Group = { key: string; product: string; interval: number; source: string; months: Month[] };
 // Products whose months can form a dominant series: at least two months with
-// bars of one source and interval, each with a daily download for its
-// settlements and open interest. A month uses its download that ends last.
+// bars of one source and interval. A month uses its download that ends last;
+// what each month settled at and held comes from the market-wide daily table.
 function groups(versions: HistoryDatasetRecord[]): Group[] {
   const result = new Map<string, Group>();
   const contracts = [...new Set(versions.map(item => item.contract_id))].sort();
   for (const contract of contracts) {
     const own = versions.filter(item => item.contract_id === contract);
-    const settlement = latest(own.filter(item => item.interval_minutes === 0));
-    if (!settlement) continue;
     const product = contract.split("/").slice(0, 2).join("/");
     for (const interval of new Set(own.map(item => item.interval_minutes)))
       for (const source of new Set(own.map(item => item.source))) {
@@ -31,7 +30,7 @@ function groups(versions: HistoryDatasetRecord[]): Group[] {
         if (!bars) continue;
         const key = `${product}|${interval}|${source}`;
         const group = result.get(key) ?? { key, product, interval, source, months: [] };
-        group.months.push({ contract, bars, settlement });
+        group.months.push({ contract, bars });
         result.set(key, group);
       }
   }
@@ -43,11 +42,13 @@ function groups(versions: HistoryDatasetRecord[]): Group[] {
 export function DominantSeriesPicker({
   snapshot,
   versions,
+  daily,
   disabled,
   select,
 }: {
   snapshot: Snapshot | null;
   versions: HistoryDatasetRecord[];
+  daily: ReturnType<typeof dailyTableOf>;
   disabled: boolean;
   select: (params: Record<string, unknown>) => void;
 }) {
@@ -58,12 +59,11 @@ export function DominantSeriesPicker({
   const [tick, setTick] = useState("");
   const [multiplier, setMultiplier] = useState("");
   if (!available.length)
-    return (
-      <p className="subtle">
-        {t("主力连续需要同一品种至少两个月份的 K 线，且每个月份都有日线数据。")}
-      </p>
-    );
+    return <p className="subtle">{t("主力连续需要同一品种至少两个月份的 K 线。")}</p>;
   const group = available.find(item => item.key === key);
+  // What the daily table holds of the product's exchange.
+  const exchange = group?.product.split("/")[0];
+  const settled = daily?.stored.find(row => row.exchange === exchange);
   // Months whose bars reach into the chosen trading days.
   const months = (group?.months ?? []).filter(
     month =>
@@ -133,17 +133,44 @@ export function DominantSeriesPicker({
         {group && months.length < 2 && (
           <p role="status">{t("所选交易日内不足两个月份，无法组成主力连续。")}</p>
         )}
+        {group && settled && daily && (
+          <p className="subtle">
+            {t(
+              "结算价、交易日和持仓量取自全市场日线表：{exchange} 已入库 {first} — {last}，按快照 {snapshot} 读取。",
+              {
+                exchange: settled.exchange,
+                first: settled.first_period,
+                last: settled.last_period,
+                snapshot: daily.table.snapshot.slice(0, 12),
+              },
+            )}
+          </p>
+        )}
+        {group && !settled && (
+          <p role="status">
+            {t(
+              "全市场日线表里还没有 {exchange} 的数据，结算价无处可取。请先在「数据 → 全市场数据」更新日线，范围要覆盖这些 K 线的交易日。",
+              { exchange: exchange ?? "" },
+            )}
+          </p>
+        )}
         <div className="source-actions">
           <button
             type="button"
             className="primary"
             disabled={
-              !group || months.length < 2 || months.length > maxMonths || !tick || !multiplier
+              !group ||
+              !settled ||
+              months.length < 2 ||
+              months.length > maxMonths ||
+              !tick ||
+              !multiplier
             }
             onClick={() =>
+              daily &&
               select({
                 source_dataset_ids: months.map(month => month.bars.id),
-                settlement_dataset_ids: months.map(month => month.settlement.id),
+                daily: daily.table,
                 begin_day: begin,
                 end_day: end,
                 price_increment: tick,

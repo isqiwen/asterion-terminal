@@ -13,6 +13,7 @@ export {
 export { useWorkspaceDraft, useWorkspaceRequestId } from "../src/host/workspace/drafts";
 export { Icon } from "../src/ui/Icon";
 export { useHistoryDatasets } from "../src/ui/useHistoryDatasets";
+export { dailyTableOf } from "../src/ui/useDailyTable";
 export { DatasetPicker } from "../src/ui/DatasetPicker";
 export { explicitCloseBuckets } from "../src/ui/closePolicy";
 export { DataTaskAccess } from "../src/ui/DataTaskAccess";

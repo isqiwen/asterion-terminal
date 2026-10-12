@@ -148,7 +148,10 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
             call(terminal, "node.action", {"id": "task", "service": "task-data", "action": "start"})
             call(terminal, "node.data_tasks.attach", {"id": "task", "service": "task"})
             wait(lambda: call(terminal, "runtime.snapshot")["data"]["online"])
-            return json.loads(seeded.stdout)
+            # What data.dataset.select takes of what the fixture program prints.
+            return {key: value for key, value in json.loads(seeded.stdout).items()
+                    if key in {"source_dataset_ids", "daily", "begin_day", "end_day",
+                               "price_increment", "multiplier"}}
         # A deployed CTP account service waits for its account.
         wait(lambda: account_service(call(terminal, "runtime.snapshot")["nodes"][0])["health"] == "awaiting_input")
         old_pid = deployed["pid"]

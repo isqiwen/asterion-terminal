@@ -178,7 +178,6 @@
   "选择日线数据版本": "Select a daily data version",
   "来源数据版本": "Source data version",
   "K 线数据版本": "Bar data version",
-  "结算价数据版本": "Settlement data version",
   "正在发布": "Publishing",
   "数据连接已改变，请重新选择当前服务中的日线。": "The data connection changed. Select daily data from the current service again.",
   "任务服务已连接": "Task service connected",

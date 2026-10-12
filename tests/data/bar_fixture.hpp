@@ -39,7 +39,7 @@ inline data::v1::BarDataset dataset(const std::vector<MarketBar>& bars,
                                     protocol::v1::Contract spec = contract(),
                                     unsigned interval_minutes = 1) {
   data::v1::BarDataset result;
-  result.set_version(2);
+  result.set_version(protocol::bar_dataset_version);
   *result.mutable_contract() = spec;
   result.set_interval_minutes(interval_minutes);
   for (const auto& value : bars)
@@ -55,13 +55,14 @@ inline data::v1::BarDataset dataset(const std::vector<MarketBar>& bars,
   }
   result.set_source("test.fixture");
   result.add_source_dataset_ids(std::string(64, 'a'));
-  result.add_settlement_dataset_ids(std::string(64, 'b'));
-  for (char id : {'a', 'b'}) {
-    auto* evidence = result.add_history_evidence();
-    evidence->set_dataset_id(std::string(64, id));
-    evidence->set_acquired_at_ns(1790000000000000000);
-    evidence->set_source_availability(data::v1::SOURCE_AVAILABILITY_UNKNOWN);
-  }
+  auto* evidence = result.add_history_evidence();
+  evidence->set_dataset_id(std::string(64, 'a'));
+  evidence->set_acquired_at_ns(1790000000000000000);
+  evidence->set_source_availability(data::v1::SOURCE_AVAILABILITY_UNKNOWN);
+  result.mutable_daily()->set_snapshot(std::string(64, 'b'));
+  result.mutable_daily()->set_daily_source("fixture.daily.v1");
+  result.mutable_daily()->set_calendar_source("fixture.calendar.v1");
+  result.set_daily_acquired_at_ns(1790000000000000000);
   result.set_revision(protocol::bar_dataset_revision(result));
   protocol::validate_bar_dataset(result);
   return result;

@@ -165,7 +165,6 @@
   "来源下载": "Source download",
   "回测任务": "Backtest task",
   "行情输入": "Market input",
-  "结算输入": "Settlement input",
   "下载产物": "Download output",
   "正在核对使用情况…": "Checking usage…",
   "找到 {count} 条关联记录，请保留此版本。": "Found {count} linked records. Retain this version.",
@@ -194,7 +193,7 @@
   "检查已连接节点的任务与已保存数据集；停止的本机服务只读检查账本。": "Inspect tasks and saved datasets on connected nodes; stopped local service ledgers are read only.",
   "核对任务记录和本窗口草稿。尚未开放历史版本删除。": "Checks task records and this window's drafts. Deleting historical versions is not available yet.",
   "未检查停止的远程数据服务、未连接的节点及其他窗口的回测与因子草稿。结果是本次查询的观察值，不是删除许可；检查失败时不能按无引用处理。": "Stopped remote data services, disconnected nodes and drafts in other windows are not checked. The result is an observation of this query, not permission to delete; a failed check must not be treated as no reference.",
-  "日线保存供应商交易日期与结算价，可作为回测与因子的 K 线或结算价来源；不补造缺失的交易日。": "Daily bars keep the vendor's trading dates and settlement prices and provide bars or settlement prices for backtests and factor analysis. Missing trading days are not fabricated.",
+  "日线保存供应商交易日期与结算价，可作为回测与因子的 K 线来源；回测与因子的结算价取自全市场日线表。不补造缺失的交易日。": "Daily bars keep the vendor's trading dates and settlement prices and provide bars for backtests and factors, whose settlement prices come from the market-wide daily table. Missing trading days are not filled in.",
   "分钟数据按 K 线结束时间保存，交易日来自交易所交易日历，可用于回测与因子分析。不补造缺失的 K 线或主力连续合约。": "Minute bars are stored by bar end time, with trading days from the exchange calendar, and can be used for backtests and factor analysis. Missing bars and continuous contracts are not fabricated.",
   "使用已保存的 {label}": "Using the saved {label}",
   "更改": "Change",
@@ -303,5 +302,6 @@
   "持买仓量": "Long position",
   "持买仓量变化": "Long change",
   "持卖仓量": "Short position",
-  "持卖仓量变化": "Short change"
+  "持卖仓量变化": "Short change",
+  "另有 {count} 个由其他版本保存的任务或数据集无法读取，不能判断它们是否使用了此版本。": "{count} more tasks or saved datasets were stored by another version and cannot be read, so whether they use this version is unknown."
 }

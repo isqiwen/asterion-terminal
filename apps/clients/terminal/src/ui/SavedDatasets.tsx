@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { SavedNamedDataset, Snapshot, TerminalCommand } from "../bridge/client";
-import { translate } from "../i18n";
+import { translate, type MessageValues } from "../i18n";
 import { asDisplayError, ErrorNotice, type DisplayError } from "../i18n/errors";
 import type { HistoryQuery } from "./useHistoryDatasets";
-const t = (key: string) => translate("host", key);
+const t = (key: string, values?: MessageValues) => translate("host", key, values);
 export function SavedDatasets({
   snapshot,
   busy,
@@ -21,6 +21,7 @@ export function SavedDatasets({
   onSelected?: () => void;
 }) {
   const [items, setItems] = useState<SavedNamedDataset[]>([]);
+  const [unsupported, setUnsupported] = useState(0);
   const [id, setId] = useState("");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<DisplayError>("");
@@ -34,13 +35,17 @@ export function SavedDatasets({
     const counter = reads.current;
     const request = ++reads.current.sequence;
     setItems([]);
+    setUnsupported(0);
     setId("");
     setError("");
     if (online)
       void api
         .current("data.dataset.saved", {})
         .then(result => {
-          if (active && request === reads.current.sequence) setItems(result.saved_datasets ?? []);
+          if (active && request === reads.current.sequence) {
+            setItems(result.saved_datasets ?? []);
+            setUnsupported(result.saved_datasets_unsupported ?? 0);
+          }
         })
         .catch(reason => {
           if (active && request === reads.current.sequence) setError(asDisplayError(reason));
@@ -62,6 +67,7 @@ export function SavedDatasets({
         const result = await query("data.dataset.saved", {});
         if (request !== reads.current.sequence) return;
         setItems(result.saved_datasets ?? []);
+        setUnsupported(result.saved_datasets_unsupported ?? 0);
       }
     } catch (reason) {
       setError(asDisplayError(reason));
@@ -107,6 +113,14 @@ export function SavedDatasets({
         )}
         {selected && !!snapshot?.datasets.length && (
           <p className="subtle">{t("使用后替换当前选择，已有任务不受影响。")}</p>
+        )}
+        {unsupported > 0 && (
+          <p role="status">
+            {t(
+              "另有 {count} 个数据集是其他版本保存的，当前版本不能使用；文件仍保留，请重新选择数据并保存。",
+              { count: unsupported },
+            )}
+          </p>
         )}
       </fieldset>
       {error && (

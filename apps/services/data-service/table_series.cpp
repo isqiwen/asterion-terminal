@@ -53,16 +53,75 @@ std::vector<std::string> open_days(const TableStore& store, const TableSeries& c
 struct Month {
   std::map<std::string, Decimal> close, settlement, open_interest;
 };
-} // namespace
-v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeriesRequest& request) {
-  protocol::validate_table_series_request(request);
-  const auto until = held(store, request.snapshot());
+struct Days {
+  std::map<std::string, Month> months;          // by contract
+  std::map<std::string, std::int64_t> acquired; // by trading day
+};
+// The contracts of one exchange whose names begin with one of `prefixes`, on
+// the days of [begin, end]. Every day the snapshot's calendar has open in the
+// range must be stored: a missing one is named, not read around.
+Days read_days(const TableStore& store, const TableSeries& daily, const TableSeries& calendar,
+               const std::string& venue, const std::string& begin, const std::string& end,
+               std::uint64_t until, const std::vector<std::string>& prefixes) {
   const auto& table = history_table(daily_table);
-  const auto daily = series_of(daily_table, request.daily_source());
-  const auto calendar = series_of(calendar_table, request.calendar_source());
   const std::vector<std::size_t> columns{
       table_column(table, "contract"), table_column(table, "close"),
       table_column(table, "settlement"), table_column(table, "open_interest")};
+  const auto revisions = store.revisions(daily, venue, begin, end, until);
+  std::vector<std::string> missing;
+  for (const auto& day : open_days(store, calendar, venue, begin, end, until))
+    if (!std::ranges::binary_search(revisions, day, {}, &TableRevision::period))
+      missing.push_back(day);
+  if (!missing.empty()) {
+    constexpr std::size_t shown = 5;
+    auto text = "futures.daily is missing trading days of the range: " + venue;
+    for (const auto& day : missing | std::views::take(shown))
+      text += " " + day;
+    if (missing.size() > shown)
+      text += " and " + std::to_string(missing.size() - shown) + " more";
+    throw Error(ErrorCode::conflict, text);
+  }
+  Days result;
+  for (const auto& revision : revisions)
+    result.acquired.emplace(revision.period, revision.acquired_at_ns);
+  store.scan(revisions, columns, prefixes, [&](std::size_t revision, auto& cells) {
+    auto& month = result.months[std::get<std::string>(cells[0])];
+    const auto& day = revisions[revision].period;
+    const auto keep = [&](std::map<std::string, Decimal>& values, const TableCell& cell) {
+      if (const auto* units = std::get_if<std::int64_t>(&cell))
+        values.emplace(day, Decimal::from_raw(*units));
+    };
+    keep(month.close, cells[1]);
+    keep(month.settlement, cells[2]);
+    // Kept in lots; only compared, so the scale does not matter.
+    keep(month.open_interest, cells[3]);
+  });
+  return result;
+}
+} // namespace
+DailyFacts daily_facts(const TableStore& store, const v1::DailyTable& table,
+                       const std::string& venue, const std::string& begin_day,
+                       const std::string& end_day, const std::vector<std::string>& contracts) {
+  protocol::validate_daily_table(table);
+  auto days = read_days(store, series_of(daily_table, table.daily_source()),
+                        series_of(calendar_table, table.calendar_source()), venue, begin_day,
+                        end_day, held(store, table.snapshot()), contracts);
+  DailyFacts result;
+  result.acquired_at_ns = std::move(days.acquired);
+  for (auto& [contract, month] : days.months) {
+    // A longer name that begins with a contract's is another contract.
+    if (std::ranges::find(contracts, contract) == contracts.end())
+      continue;
+    result.settlement.emplace(contract, std::move(month.settlement));
+    result.open_interest.emplace(contract, std::move(month.open_interest));
+  }
+  return result;
+}
+v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeriesRequest& request) {
+  protocol::validate_table_series_request(request);
+  const auto until = held(store, request.snapshot());
+  const auto daily = series_of(daily_table, request.daily_source());
+  const auto calendar = series_of(calendar_table, request.calendar_source());
   // Each exchange's days are read once, for all of its instruments.
   std::vector<protocol::TableInstrument> instruments;
   std::map<std::string, std::vector<int>> exchanges;
@@ -75,43 +134,17 @@ v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeries
     group.add_series();
   std::size_t total = 0;
   for (const auto& [venue, wanted] : exchanges) {
-    const auto revisions =
-        store.revisions(daily, venue, request.begin_day(), request.end_day(), until);
-    std::vector<std::string> missing;
-    for (const auto& day :
-         open_days(store, calendar, venue, request.begin_day(), request.end_day(), until))
-      if (!std::ranges::binary_search(revisions, day, {}, &TableRevision::period))
-        missing.push_back(day);
-    if (!missing.empty()) {
-      constexpr std::size_t shown = 5;
-      auto text = "futures.daily is missing trading days of the range: " + venue;
-      for (const auto& day : missing | std::views::take(shown))
-        text += " " + day;
-      if (missing.size() > shown)
-        text += " and " + std::to_string(missing.size() - shown) + " more";
-      throw Error(ErrorCode::conflict, text);
-    }
     std::vector<std::string> prefixes;
     for (const auto index : wanted)
       prefixes.push_back(
           request.instruments(index) +
           (instruments[static_cast<std::size_t>(index)].delivery_month.empty() ? "/" : ""));
-    std::map<std::string, Month> months; // by contract
+    const auto days = read_days(store, daily, calendar, venue, request.begin_day(),
+                                request.end_day(), until, prefixes);
+    const auto& months = days.months;
     std::int64_t acquired = 0;
-    for (const auto& revision : revisions)
-      acquired = std::max(acquired, revision.acquired_at_ns);
-    store.scan(revisions, columns, prefixes, [&](std::size_t revision, auto& cells) {
-      auto& month = months[std::get<std::string>(cells[0])];
-      const auto& day = revisions[revision].period;
-      const auto keep = [&](std::map<std::string, Decimal>& values, const TableCell& cell) {
-        if (const auto* units = std::get_if<std::int64_t>(&cell))
-          values.emplace(day, Decimal::from_raw(*units));
-      };
-      keep(month.close, cells[1]);
-      keep(month.settlement, cells[2]);
-      // Kept in lots; only compared, so the scale does not matter.
-      keep(month.open_interest, cells[3]);
-    });
+    for (const auto& [day, time] : days.acquired)
+      acquired = std::max(acquired, time);
     for (const auto index : wanted) {
       const auto& name = request.instruments(index);
       const auto& instrument = instruments[static_cast<std::size_t>(index)];

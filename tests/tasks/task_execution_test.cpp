@@ -1447,13 +1447,12 @@ struct TaskProcess : testing::Test {
     data::v1::BarDatasetRequest request;
     for (const auto& version : selection.at("source_dataset_ids"))
       request.add_source_dataset_ids(version.get<std::string>());
-    for (const auto& version : selection.at("settlement_dataset_ids"))
-      request.add_settlement_dataset_ids(version.get<std::string>());
+    *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
     *request.mutable_contract() = test::contract();
     data::v1::BarDataset dataset;
     {
       data::Store store(warehouse.path, "historical-data", "task");
-      dataset = data::resolve_bar_dataset(store.sources(request));
+      dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
     }
     start_data();
     return dataset;
@@ -1521,12 +1520,40 @@ TEST_F(TaskProcess, WorkerRejectsDataEvidenceDifferentFromTheAcceptedInput) {
   EXPECT_EQ(task.error(), "calculation input does not match fixed task evidence");
   EXPECT_TRUE(task.result_digest().empty());
 }
-TEST_F(TaskProcess, ATaskStoredUnderOtherRulesStaysListedAndItsAttemptFailsWithTheReason) {
+TEST_F(TaskProcess, TasksStoredByAnotherVersionStayListedAndTheirAttemptsFailWithTheReason) {
   const auto spec = process_input();
   service.reset();
   {
     tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
     tasks::submit(store, "other-rules", spec);
+    tasks::submit(store, "other-messages", spec);
+  }
+  // Another version's messages need not be this one's: here the stored input
+  // has a field this version does not know. The bytes are what the index says.
+  {
+    const auto path = directory.path / "other-messages" / "input.pb";
+    std::ifstream stream(path, std::ios::binary);
+    std::string raw((std::istreambuf_iterator<char>(stream)), {});
+    stream.close();
+    raw += "\xb8\x3e\x01"; // field 999, a varint
+    replace_file_durably(path, raw);
+    sqlite::Database db(directory.path / "tasks.sqlite");
+    Json manifest;
+    task::v1::StoredTaskRecord record;
+    {
+      sqlite::Database::Statement read(
+          db, "SELECT manifest, record FROM tasks WHERE id='other-messages'");
+      ASSERT_TRUE(read.step());
+      manifest = Json::parse(read.text(0));
+      ASSERT_TRUE(record.ParseFromString(read.blob(1)));
+    }
+    manifest["input_sha256"] = sha256_bytes(raw);
+    manifest["input_bytes"] = raw.size();
+    record.set_input_digest(sha256_bytes(raw));
+    record.set_input_bytes(raw.size());
+    sqlite::Database::Statement write(
+        db, "UPDATE tasks SET manifest=?, record=? WHERE id='other-messages'");
+    write.bind(1, manifest.dump()).bind_blob(2, record.SerializeAsString()).step();
   }
   // The version that stored a task may have read its input otherwise: here it
   // counted one unit of work more than this one does.
@@ -1562,11 +1589,35 @@ TEST_F(TaskProcess, ATaskStoredUnderOtherRulesStaysListedAndItsAttemptFailsWithT
   EXPECT_EQ(refused.attempt(), 1U);
   EXPECT_EQ(refused.total(), admitted);
   EXPECT_EQ(refused.error(), "task input reads differently in this version; submit it again");
+  // What the unreadable input reads cannot be told: it is counted, and the
+  // task that can be read is still found.
+  task_wire::TaskRequest usage;
+  usage.mutable_history_usage()->set_id(spec.paper().contracts(0).dataset().source_dataset_ids(0));
+  const auto used = call(usage).history_usage();
+  EXPECT_EQ(used.unreadable(), 1U);
+  ASSERT_EQ(used.references_size(), 1);
+  EXPECT_EQ(used.references(0).id(), "other-rules");
+  ChildProcess unreadable(ASTERION_BACKTEST_PATH, {"--endpoint", endpoint, "--session", "task",
+                                                   "--task", "other-messages"});
+  ASSERT_TRUE(unreadable.wait(15s));
+  EXPECT_NE(unreadable.exit_code(), 0);
+  // Asking for the task with its input is refused for the same reason; the
+  // list, which reads the index, shows how its attempt ended.
+  get.mutable_get()->set_id("other-messages");
+  EXPECT_THROW(call(get), std::runtime_error);
+  task_wire::TaskRequest list;
+  list.mutable_list()->set_limit(200);
+  const auto tasks = call(list).tasks().tasks();
+  const auto listed = std::ranges::find(tasks, "other-messages", &task_wire::Task::id);
+  ASSERT_NE(listed, tasks.end());
+  EXPECT_EQ(listed->state(), task_wire::FAILED);
+  EXPECT_EQ(listed->error(), "task input was stored by another version; submit the task again");
   task_wire::TaskRequest dispatch;
   dispatch.mutable_dispatch()->set_launch_slots(2);
   EXPECT_EQ(call(dispatch, endpoint + ".worker").launches().launches_size(), 0);
   service.reset();
   start();
+  get.mutable_get()->set_id("other-rules");
   EXPECT_EQ(call(get).task().SerializeAsString(), refused.SerializeAsString());
 }
 TEST_F(TaskProcess, RestartFencesClaimedWorkAndQueuedCancelStaysCancelled) {
@@ -2606,15 +2657,21 @@ TEST(NamedDatasets, SettlementDaysWithoutMinuteBarsAreListedAsUncovered) {
       test::seed_history(directory.path, {100, 101, 102, 103}, "gap", {"2026-09-23", "2026-09-25"},
                          {"2026-09-23", "2026-09-24", "2026-09-25"});
   data::Store store(directory.path, "historical-data", "task");
-  Json request = selection;
-  request.erase("price_increment");
-  request.erase("multiplier");
-  request["contract"] = {{"venue", "SHFE"},           {"symbol", "rb2610"},
-                         {"product", "rb"},           {"delivery_month", "2026-10"},
-                         {"currency", "CNY"},         {"price_increment", "1"},
-                         {"quantity_increment", "1"}, {"multiplier", "10"}};
+  const Json request{{"source_dataset_ids", selection.at("source_dataset_ids")},
+                     {"daily", selection.at("daily")},
+                     {"begin_day", ""},
+                     {"end_day", ""},
+                     {"contract",
+                      {{"venue", "SHFE"},
+                       {"symbol", "rb2610"},
+                       {"product", "rb"},
+                       {"delivery_month", "2026-10"},
+                       {"currency", "CNY"},
+                       {"price_increment", "1"},
+                       {"quantity_increment", "1"},
+                       {"multiplier", "10"}}}};
   const auto sources = store.sources(protocol::encode_bar_dataset_request(request));
-  const auto dataset = data::resolve_bar_dataset(sources);
+  const auto dataset = data::resolve_bar_dataset(store.tables(), sources);
   ASSERT_EQ(dataset.bars_size(), 4);
   EXPECT_EQ(dataset.days_size(), 2);
   ASSERT_EQ(dataset.uncovered_days_size(), 1);
@@ -2751,9 +2808,8 @@ TEST(NamedDatasets, CoverageDoesNotMergeIntervalsOrRevisions) {
   const auto result = data::history_coverage(archive, {});
   // Identical settlement bars from two acquisitions retain distinct version evidence.
   ASSERT_EQ(result.items_size(), 4);
-  const std::set<std::string> daily_versions{
-      sparse.at("settlement_dataset_ids").at(0).get<std::string>(),
-      filled.at("settlement_dataset_ids").at(0).get<std::string>()};
+  const std::set<std::string> daily_versions{sparse.at("daily_dataset_id").get<std::string>(),
+                                             filled.at("daily_dataset_id").get<std::string>()};
   for (const auto& row : result.items()) {
     EXPECT_TRUE(daily_versions.contains(row.daily_dataset_id()));
     if (row.minute_dataset_id() == sparse.at("source_dataset_ids").at(0).get<std::string>()) {
@@ -2789,16 +2845,57 @@ TEST(NamedDatasets, RequestedWindowExcludesUnrelatedMissingSettlement) {
   data::Store store(directory.path, "historical-data", "task");
   data::v1::BarDatasetRequest request;
   request.add_source_dataset_ids(selection.at("source_dataset_ids").at(0).get<std::string>());
-  request.add_settlement_dataset_ids(
-      selection.at("settlement_dataset_ids").at(0).get<std::string>());
+  *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
   *request.mutable_contract() = test::contract();
-  EXPECT_THROW(data::resolve_bar_dataset(store.sources(request)), std::invalid_argument);
+  EXPECT_THROW(data::resolve_bar_dataset(store.tables(), store.sources(request)),
+               std::invalid_argument);
   request.set_begin_day("2026-09-25");
   request.set_end_day("2026-09-25");
-  const auto dataset = data::resolve_bar_dataset(store.sources(request));
+  const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
   ASSERT_EQ(dataset.days_size(), 1);
   EXPECT_EQ(dataset.days(0).trading_day(), "2026-09-25");
   EXPECT_EQ(dataset.bars_size(), 2);
+}
+
+TEST(NamedDatasets, ATradingDayTheDailyTableLacksIsNamedAndASnapshotKeepsWhatItRead) {
+  TaskDirectory directory;
+  const auto selection = test::seed_history(directory.path, {100, 101, 102, 103}, "hole",
+                                            {"2026-09-23", "2026-09-25"});
+  // The exchange turns out to have been open on the 24th as well, and nothing
+  // of that day is stored.
+  std::string later;
+  {
+    history_files::TableStore tables(directory.path / "tables");
+    const auto partition = table_partition(history_table("futures.calendar"), "SHFE", "2026",
+                                           {{"2026-09-23", "1", std::nullopt},
+                                            {"2026-09-24", "1", std::nullopt},
+                                            {"2026-09-25", "1", std::nullopt}});
+    later = tables
+                .record(partition, {"futures.calendar", 1, "fixture.calendar.v1"},
+                        tables.write(partition), std::string(64, 'a'), 1790000000000000000)
+                .revision.snapshot;
+  }
+  data::Store store(directory.path, "historical-data", "task");
+  data::v1::BarDatasetRequest request;
+  request.add_source_dataset_ids(selection.at("source_dataset_ids").at(0).get<std::string>());
+  *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
+  *request.mutable_contract() = test::contract();
+  // Under the snapshot it was selected with, the dataset is what it was.
+  const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
+  ASSERT_EQ(dataset.days_size(), 2);
+  EXPECT_EQ(dataset.days(0).settlement_price().units(), Decimal::parse("110").raw());
+  EXPECT_EQ(dataset.uncovered_days_size(), 0);
+  EXPECT_EQ(dataset.daily().snapshot(), selection.at("daily").at("snapshot").get<std::string>());
+  EXPECT_EQ(dataset.daily_acquired_at_ns(), 1790000000000000000);
+  // Under the later one the missing day is named, not read around.
+  request.mutable_daily()->set_snapshot(later);
+  try {
+    (void)data::resolve_bar_dataset(store.tables(), store.sources(request));
+    FAIL() << "a dataset was read around a trading day the table lacks";
+  } catch (const Error& error) {
+    EXPECT_STREQ(error.what(),
+                 "futures.daily is missing trading days of the range: SHFE 2026-09-24");
+  }
 }
 
 TEST(NamedDatasets, RequestedWindowReportsMissingBoundaryDays) {
@@ -2809,12 +2906,11 @@ TEST(NamedDatasets, RequestedWindowReportsMissingBoundaryDays) {
   data::Store store(directory.path, "historical-data", "task");
   data::v1::BarDatasetRequest request;
   request.add_source_dataset_ids(selection.at("source_dataset_ids").at(0).get<std::string>());
-  request.add_settlement_dataset_ids(
-      selection.at("settlement_dataset_ids").at(0).get<std::string>());
+  *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
   request.set_begin_day("2026-09-23");
   request.set_end_day("2026-09-25");
   *request.mutable_contract() = test::contract();
-  const auto dataset = data::resolve_bar_dataset(store.sources(request));
+  const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
   ASSERT_EQ(dataset.uncovered_days_size(), 2);
   EXPECT_EQ(dataset.uncovered_days(0), "2026-09-23");
   EXPECT_EQ(dataset.uncovered_days(1), "2026-09-25");
@@ -2830,26 +2926,24 @@ TEST(NamedDatasets, RequestedWindowReportsMissingBoundaryDays) {
       protocol::task_execution(calculation, sha256_bytes(calculation.factor().SerializeAsString()));
   EXPECT_EQ(execution.factor().series(0).bars().begin_day(), "2026-09-23");
   EXPECT_EQ(execution.factor().series(0).bars().end_day(), "2026-09-25");
-  EXPECT_EQ(data::resolve_bar_dataset(store.sources(execution.factor().series(0).bars()))
-                .SerializeAsString(),
-            dataset.SerializeAsString());
+  EXPECT_EQ(
+      data::resolve_bar_dataset(store.tables(), store.sources(execution.factor().series(0).bars()))
+          .SerializeAsString(),
+      dataset.SerializeAsString());
 }
 
 namespace {
 data::v1::BarDatasetRequest composed_request(const std::vector<Json>& selections) {
-  Json request = {{"source_dataset_ids", Json::array()},
-                  {"settlement_dataset_ids", Json::array()},
-                  {"begin_day", ""},
-                  {"end_day", ""},
-                  {"contract", protocol::decode_contract(test::contract())}};
-  for (const auto* role : {"source_dataset_ids", "settlement_dataset_ids"}) {
-    std::set<std::string> ids;
-    for (const auto& selected : selections)
-      for (const auto& id : selected.at(role))
-        ids.insert(id.get<std::string>());
-    request[role] = ids;
-  }
-  return protocol::encode_bar_dataset_request(request);
+  std::set<std::string> ids;
+  for (const auto& selected : selections)
+    for (const auto& id : selected.at("source_dataset_ids"))
+      ids.insert(id.get<std::string>());
+  return protocol::encode_bar_dataset_request(
+      {{"source_dataset_ids", ids},
+       {"daily", test::latest_daily(selections)},
+       {"begin_day", ""},
+       {"end_day", ""},
+       {"contract", protocol::decode_contract(test::contract())}});
 }
 } // namespace
 TEST(NamedDatasets, ComposesDownloadsDeduplicatesAndRestoresFixedVersions) {
@@ -2862,16 +2956,17 @@ TEST(NamedDatasets, ComposesDownloadsDeduplicatesAndRestoresFixedVersions) {
                                         {"2026-09-23", "2026-09-24"});
   auto store = std::make_unique<data::Store>(directory.path, "historical-data", "task");
   const auto request = composed_request({second, first});
-  const auto result = data::resolve_bar_dataset(store->sources(request));
+  const auto result = data::resolve_bar_dataset(store->tables(), store->sources(request));
   EXPECT_EQ(result.bars_size(), 4);
   EXPECT_EQ(result.days_size(), 2);
   EXPECT_EQ(result.source_dataset_ids_size(), 2);
   EXPECT_EQ(result.uncovered_days_size(), 0);
-  const auto overlapping =
-      data::resolve_bar_dataset(store->sources(composed_request({first, whole, second})));
+  const auto overlapping = data::resolve_bar_dataset(
+      store->tables(), store->sources(composed_request({first, whole, second})));
   EXPECT_EQ(overlapping.bars_size(), 4);
   EXPECT_EQ(overlapping.revision(), result.revision());
-  EXPECT_EQ(data::resolve_bar_dataset(store->sources(composed_request({whole}))).revision(),
+  EXPECT_EQ(data::resolve_bar_dataset(store->tables(), store->sources(composed_request({whole})))
+                .revision(),
             result.revision());
   auto json = protocol::decode_bar_dataset_request(request);
   std::reverse(json["source_dataset_ids"].begin(), json["source_dataset_ids"].end());
@@ -2879,7 +2974,7 @@ TEST(NamedDatasets, ComposesDownloadsDeduplicatesAndRestoresFixedVersions) {
             request.SerializeAsString());
   history_files::Archive archive(directory.path / "history");
   data::v1::NamedDataset saved;
-  saved.set_version(1);
+  saved.set_version(protocol::named_dataset_version);
   saved.set_name("composed");
   *saved.add_selections() = request;
   saved.add_content_revisions(result.revision());
@@ -2888,12 +2983,16 @@ TEST(NamedDatasets, ComposesDownloadsDeduplicatesAndRestoresFixedVersions) {
   store.reset();
   data::Store restarted(directory.path, "historical-data", "task");
   const auto restored = archive.named_dataset(saved.id());
-  EXPECT_EQ(
-      data::resolve_bar_dataset(restarted.sources(restored.selections(0))).SerializeAsString(),
-      result.SerializeAsString());
+  EXPECT_EQ(data::resolve_bar_dataset(restarted.tables(), restarted.sources(restored.selections(0)))
+                .SerializeAsString(),
+            result.SerializeAsString());
+  // The contract's own daily downloads are bars too, settled from the same table.
   auto daily = request;
-  *daily.mutable_source_dataset_ids() = daily.settlement_dataset_ids();
-  const auto day_result = data::resolve_bar_dataset(restarted.sources(daily));
+  daily.clear_source_dataset_ids();
+  for (const auto& id : std::set<std::string>{first.at("daily_dataset_id").get<std::string>(),
+                                              second.at("daily_dataset_id").get<std::string>()})
+    daily.add_source_dataset_ids(id);
+  const auto day_result = data::resolve_bar_dataset(restarted.tables(), restarted.sources(daily));
   EXPECT_EQ(day_result.interval_minutes(), 0);
   EXPECT_EQ(day_result.bars_size(), 2);
 }
@@ -2902,15 +3001,12 @@ TEST(NamedDatasets, CompositionRejectsConflictsAndClipsBeforeComparing) {
   const auto one = test::seed_history(directory.path, {100, 101, 102, 103}, "conflict-one",
                                       {"2026-09-23", "2026-09-24"});
   const auto two = test::seed_history(directory.path, {999, 101}, "conflict-two", {"2026-09-23"});
-  const auto settlement = test::seed_history(directory.path, {100, 101}, "settlement-conflict",
-                                             {"2026-09-23"}, {}, "rb", 1, 120);
   data::Store store(directory.path, "historical-data", "task");
   auto request = composed_request({one, two});
-  EXPECT_THROW(data::resolve_bar_dataset(store.sources(request)), std::invalid_argument);
-  request.set_begin_day("2026-09-24");
-  EXPECT_EQ(data::resolve_bar_dataset(store.sources(request)).bars_size(), 2);
-  EXPECT_THROW(data::resolve_bar_dataset(store.sources(composed_request({one, settlement}))),
+  EXPECT_THROW(data::resolve_bar_dataset(store.tables(), store.sources(request)),
                std::invalid_argument);
+  request.set_begin_day("2026-09-24");
+  EXPECT_EQ(data::resolve_bar_dataset(store.tables(), store.sources(request)).bars_size(), 2);
 }
 TEST(NamedDatasets, CompositionRejectsMixedContractsIntervalsAndSemantics) {
   TaskDirectory directory;
@@ -2924,12 +3020,9 @@ TEST(NamedDatasets, CompositionRejectsMixedContractsIntervalsAndSemantics) {
   data::Store store(directory.path, "historical-data", "task");
   for (const auto& other : {contract, interval, semantics}) {
     auto request = composed_request({one, other});
-    EXPECT_THROW(data::resolve_bar_dataset(store.sources(request)), std::invalid_argument);
+    EXPECT_THROW(data::resolve_bar_dataset(store.tables(), store.sources(request)),
+                 std::invalid_argument);
   }
-  // Verify bar semantics independently of settlement semantics.
-  auto request = composed_request({one, semantics});
-  *request.mutable_settlement_dataset_ids() = composed_request({one}).settlement_dataset_ids();
-  EXPECT_THROW(data::resolve_bar_dataset(store.sources(request)), std::invalid_argument);
 }
 TEST(NamedDatasets, CompositionReportsGapsAndRejectsInvalidVersionLists) {
   TaskDirectory directory;
@@ -2938,7 +3031,7 @@ TEST(NamedDatasets, CompositionReportsGapsAndRejectsInvalidVersionLists) {
   const auto two = test::seed_history(directory.path, {102, 103}, "gap-two", {"2026-09-25"});
   data::Store store(directory.path, "historical-data", "task");
   auto request = composed_request({one, two});
-  const auto result = data::resolve_bar_dataset(store.sources(request));
+  const auto result = data::resolve_bar_dataset(store.tables(), store.sources(request));
   ASSERT_EQ(result.uncovered_days_size(), 1);
   EXPECT_EQ(result.uncovered_days(0), "2026-09-24");
   auto json = protocol::decode_bar_dataset_request(request);
@@ -2974,7 +3067,7 @@ TEST(HistoryUpdate, IncrementalMinuteAndDailyPlansStartAfterFixedBoundaries) {
   EXPECT_EQ(protocol::decode_history_update_plan(plan).at("query"),
             protocol::decode_history_update_query(query));
   EXPECT_EQ(archive.get(query.dataset_id()).SerializeAsString(), before);
-  query.set_dataset_id(seeded.at("settlement_dataset_ids").at(0).get<std::string>());
+  query.set_dataset_id(seeded.at("daily_dataset_id").get<std::string>());
   const auto day = data::history_update_plan(archive, query, now);
   EXPECT_EQ(day.daily().begin_day(), "2026-09-26");
   EXPECT_EQ(day.daily().end_day(), "2026-09-26");
@@ -2994,12 +3087,12 @@ TEST(HistoryUpdate, RepairPinsCalendarAndPreservesNightSessionWindow) {
   const auto other =
       test::seed_history(directory.path, {100, 101}, "update-other", {"2026-09-25"}, {}, "cu");
   history_files::Archive archive(directory.path / "history");
-  auto query = protocol::encode_history_update_query(
-      {{"dataset_id", seeded.at("source_dataset_ids").at(0)},
-       {"calendar_dataset_id", seeded.at("settlement_dataset_ids").at(0)},
-       {"mode", "repair"},
-       {"end_day", ""},
-       {"requests_per_minute", 60}});
+  auto query =
+      protocol::encode_history_update_query({{"dataset_id", seeded.at("source_dataset_ids").at(0)},
+                                             {"calendar_dataset_id", seeded.at("daily_dataset_id")},
+                                             {"mode", "repair"},
+                                             {"end_day", ""},
+                                             {"requests_per_minute", 60}});
   const auto now = parse_shanghai_time("2026-09-28 01:00:00");
   const auto source = archive.get(query.dataset_id());
   const auto plan = data::history_update_plan(archive, query, now);
@@ -3008,11 +3101,11 @@ TEST(HistoryUpdate, RepairPinsCalendarAndPreservesNightSessionWindow) {
   EXPECT_EQ(plan.minutes().begin_ns(), source.minutes().begin_ns());
   EXPECT_EQ(plan.minutes().end_ns(), source.minutes().end_ns());
   EXPECT_EQ(plan.minutes().requests_per_minute(), 60);
-  query.set_calendar_dataset_id(other.at("settlement_dataset_ids").at(0).get<std::string>());
+  query.set_calendar_dataset_id(other.at("daily_dataset_id").get<std::string>());
   EXPECT_THROW(data::history_update_plan(archive, query, now), std::invalid_argument);
   query.set_dataset_id(other.at("source_dataset_ids").at(0).get<std::string>());
   EXPECT_THROW(data::history_update_plan(archive, query, now), std::invalid_argument);
-  query.set_dataset_id(other.at("settlement_dataset_ids").at(0).get<std::string>());
+  query.set_dataset_id(other.at("daily_dataset_id").get<std::string>());
   EXPECT_THROW(data::history_update_plan(archive, query, now), std::invalid_argument);
 }
 TEST(HistoryUpdate, CorruptBaseAndMalformedQueryCannotProducePlans) {
@@ -3096,7 +3189,7 @@ TEST_F(TaskProcess, HistoryUsageKeepsTaskReferencesAfterCancellationAndRestart) 
   {
     tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
     data::Store data_store(warehouse.path, "historical-data", "task");
-    const auto data = data::resolve_bar_dataset(data_store.sources(request));
+    const auto data = data::resolve_bar_dataset(data_store.tables(), data_store.sources(request));
     auto backtest = input();
     *backtest.mutable_paper()->mutable_contracts(0)->mutable_dataset() = data;
     backtest.set_dataset_revision(protocol::dataset_revision(backtest.paper()));
@@ -3129,12 +3222,10 @@ TEST_F(TaskProcess, HistoryUsageKeepsTaskReferencesAfterCancellationAndRestart) 
   service.reset();
   start();
   EXPECT_EQ(call(query).history_usage().SerializeAsString(), first.SerializeAsString());
-  query.mutable_history_usage()->set_id(
-      seeded.at("settlement_dataset_ids").at(0).get<std::string>());
-  const auto settlement = call(query).history_usage();
-  ASSERT_EQ(settlement.references_size(), 2);
-  for (const auto& row : settlement.references())
-    EXPECT_EQ(row.roles(0), data::v1::HISTORY_SETTLEMENT);
+  // Settlements come from the daily table: the contract's own daily download
+  // is not something a dataset reads.
+  query.mutable_history_usage()->set_id(seeded.at("daily_dataset_id").get<std::string>());
+  EXPECT_EQ(call(query).history_usage().references_size(), 0);
   query.mutable_history_usage()->set_id(std::string(64, '0'));
   EXPECT_EQ(call(query).history_usage().references_size(), 0);
   query.mutable_history_usage()->set_id("../escape");
@@ -3174,8 +3265,7 @@ TEST(HistoryUsage, RejectsUnknownKindsDuplicateReferencesAndInvalidRoles) {
   row->set_id("consumer");
   row->set_kind(data::v1::HISTORY_BACKTEST);
   row->add_roles(data::v1::HISTORY_MARKET);
-  row->add_roles(data::v1::HISTORY_SETTLEMENT);
-  EXPECT_EQ(protocol::decode_history_usage(usage).at("references").at(0).at("roles").size(), 2);
+  EXPECT_EQ(protocol::decode_history_usage(usage).at("references").at(0).at("roles").size(), 1);
   const auto valid = usage;
   *usage.add_references() = usage.references(0);
   EXPECT_THROW(protocol::decode_history_usage(usage), std::invalid_argument);
@@ -3194,7 +3284,7 @@ TEST(HistoryUsage, StoppedLedgerInspectionDoesNotRecoverTasksOrChangeFiles) {
   {
     tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
     data::Store data_store(warehouse.path, "historical-data", "task");
-    const auto data = data::resolve_bar_dataset(data_store.sources(request));
+    const auto data = data::resolve_bar_dataset(data_store.tables(), data_store.sources(request));
     auto task = input();
     *task.mutable_paper()->mutable_contracts(0)->mutable_dataset() = data;
     task.set_dataset_revision(protocol::dataset_revision(task.paper()));
@@ -3213,11 +3303,10 @@ TEST(HistoryUsage, StoppedLedgerInspectionDoesNotRecoverTasksOrChangeFiles) {
     return files;
   };
   const auto before = fingerprints();
-  for (const auto& key : {"source_dataset_ids", "settlement_dataset_ids"}) {
-    const auto usage = tasks::Store::inspect_history_usage(
-        directory.path, tasks::Identity{"task", "historical-data"}, seeded.at(key)[0]);
-    EXPECT_EQ(usage.references_size(), 1); // Only the still-running task owns this reference.
-  }
+  const auto usage = tasks::Store::inspect_history_usage(directory.path,
+                                                         tasks::Identity{"task", "historical-data"},
+                                                         seeded.at("source_dataset_ids")[0]);
+  EXPECT_EQ(usage.references_size(), 1); // Only the still-running task owns this reference.
   auto after = fingerprints();
   // SQLite READONLY may create its own coordination files; never ignore a pre-existing WAL.
   if (!before.contains("tasks.sqlite-wal")) {
@@ -3367,7 +3456,8 @@ TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTa
     prices[i] = 100 + static_cast<int>(i) + static_cast<int>(i % 3);
   const auto selection = test::seed_history(warehouse.path, prices, "long-lived");
   data::Store data_store(warehouse.path, "historical-data", "task");
-  const auto source = data::resolve_bar_dataset(data_store.sources(composed_request({selection})));
+  const auto source = data::resolve_bar_dataset(data_store.tables(),
+                                                data_store.sources(composed_request({selection})));
   factor::v1::FactorInput spec;
   spec.set_version(8);
   spec.set_factor(protocol::v1::PRICE_MOMENTUM);
@@ -3426,7 +3516,8 @@ TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTa
                                   expected));
     EXPECT_EQ(restored.describe("retry-original").attempt(), 2);
     EXPECT_EQ(restored.list().capacity().active_used(), 0);
-    EXPECT_EQ(data::resolve_bar_dataset(data_store.sources(composed_request({selection})))
+    EXPECT_EQ(data::resolve_bar_dataset(data_store.tables(),
+                                        data_store.sources(composed_request({selection})))
                   .SerializeAsString(),
               source.SerializeAsString());
   }

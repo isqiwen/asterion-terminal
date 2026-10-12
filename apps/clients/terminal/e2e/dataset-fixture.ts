@@ -2,8 +2,10 @@ import { expect, type APIRequestContext } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 // Test-only history: verified minute and daily versions published by the
-// compiled test provider into the isolated data warehouse. It is not a
-// client workflow; production history comes only from data-source plugins.
+// compiled test provider into the isolated data warehouse, and the same daily
+// rows in the market-wide daily table, which is where a dataset reads its
+// settlement prices. It is not a client workflow; production history comes
+// only from data-source plugins.
 const build = process.env.ASTERION_CPP_BUILD ?? resolve(__dirname, "../../../../build/Debug");
 
 export async function rpc(
@@ -24,8 +26,9 @@ type Service = { id: string; directory: string };
 type Snapshot = { nodes: { id: string; health: { services: Service[] } }[] };
 
 // Returns the data.dataset.select parameters for the seeded downloads of
-// the SHFE `product` 2026-10 contract. `keep` adds to the current selection
-// instead of starting a new one.
+// the SHFE `product` 2026-10 contract, and beside them the contract's own
+// daily download. `keep` adds to the current selection instead of starting a
+// new one.
 export async function seedHistory(
   request: APIRequestContext,
   prices: number[],
@@ -54,6 +57,16 @@ export async function seedHistory(
   // The selection lives in the shared core process; earlier specs may leave one.
   if (!keep) await rpc(request, "data.dataset.clear");
   await rpc(request, "node.data_tasks.local.open");
+  // The daily table is seeded under the sources the installed data source
+  // offers: those are the ones the Terminal's pages read.
+  const offered: { table: string; source: string; plugin_id: string }[] = (
+    await rpc(request, "data.tables.coverage", {})
+  ).table_coverage.sources;
+  const dailySource = offered.find(item => item.table === "futures.daily")!;
+  const calendarSource = offered.find(
+    item => item.table === "futures.calendar" && item.plugin_id === dailySource.plugin_id,
+  )!;
+  const tables = ["--daily-source", dailySource.source, "--calendar-source", calendarSource.source];
   const snapshot: Snapshot = await rpc(request, "node.action", {
     id: "local",
     service: "historical-data",
@@ -86,6 +99,7 @@ export async function seedHistory(
       String(openInterest),
       "--settlement",
       String(settlement),
+      ...tables,
     ],
     { encoding: "utf8" },
   );
@@ -93,14 +107,29 @@ export async function seedHistory(
   await expect
     .poll(async () => (await rpc(request, "runtime.snapshot")).data?.online, { timeout: 10000 })
     .toBe(true);
-  return JSON.parse(output) as {
+  const {
+    source_dataset_ids,
+    daily,
+    daily_dataset_id,
+    begin_day,
+    end_day,
+    price_increment,
+    multiplier,
+  } = JSON.parse(output);
+  const selection: {
     source_dataset_ids: string[];
-    settlement_dataset_ids: string[];
+    daily: { snapshot: string; daily_source: string; calendar_source: string };
     begin_day: string;
     end_day: string;
     price_increment: string;
     multiplier: string;
-  };
+  } = { source_dataset_ids, daily, begin_day, end_day, price_increment, multiplier };
+  // The contract's own daily download: bars for a daily dataset, and what the
+  // archive pages compare minute downloads with. It is not a parameter of
+  // data.dataset.select, so it does not travel when the selection is spread.
+  return Object.defineProperty(selection, "daily_dataset_id", {
+    value: daily_dataset_id,
+  }) as typeof selection & { readonly daily_dataset_id: string };
 }
 
 export async function seedDataset(

@@ -12,13 +12,11 @@ PolledTask<Application::Impl::Response> Application::Impl::history_usage(const j
   const auto generation = data_task_generation;
   const auto selection_generation = dataset_selection_generation;
   const auto id = text(params, "id");
-  bool market_reference = false, settlement_reference = false;
+  bool market_reference = false;
   for (const auto& selection : selections) {
     const auto& data = selection.request;
     market_reference |=
         std::ranges::find(data.source_dataset_ids(), id) != data.source_dataset_ids().end();
-    settlement_reference |=
-        std::ranges::find(data.settlement_dataset_ids(), id) != data.settlement_dataset_ids().end();
   }
   const auto task_address = client->endpoint();
   const auto inspected_nodes = nodes;
@@ -29,6 +27,8 @@ PolledTask<Application::Impl::Response> Application::Impl::history_usage(const j
     const auto data_usage = (co_await PollFuture{warehouse->history_usage(id)});
     for (const auto& reference : data_usage.at("references"))
       usage["references"].push_back(reference);
+    usage["unreadable"] = usage.at("unreadable").get<std::uint64_t>() +
+                          data_usage.at("unreadable").get<std::uint64_t>();
     usage["disconnected_nodes"] = registered;
     auto& disconnected = usage["disconnected_nodes"]["names"];
     std::erase_if(disconnected.get_ref<json::array_t&>(), [&](const auto& name) {
@@ -52,10 +52,11 @@ PolledTask<Application::Impl::Response> Application::Impl::history_usage(const j
           json group{{"node", name},
                      {"service", service.address.session},
                      {"checked", false},
-                     {"references", json::array()}};
+                     {"references", json::array()},
+                     {"unreadable", 0}};
           try {
             if (local && service.kind == node::v1::TASK_SERVICE && service.state == "stopped") {
-              group["references"] = co_await service_io.read<json>([&] {
+              const auto stopped = co_await service_io.read<json>([&] {
                 const auto expected =
                     local_node_directory() / "services" / service.address.session / "ledger";
                 // Only the current environment's managed layout is eligible for disk inspection.
@@ -69,8 +70,10 @@ PolledTask<Application::Impl::Response> Application::Impl::history_usage(const j
                   throw std::invalid_argument("invalid local task ledger directory");
                 const auto result = tasks::Store::inspect_history_usage(
                     expected, {service.address.session, service.data_service}, id);
-                return protocol::decode_history_usage(result).at("references");
+                return protocol::decode_history_usage(result);
               });
+              group["references"] = stopped.at("references");
+              group["unreadable"] = stopped.at("unreadable");
               group["checked"] = true;
               group["stopped"] = true;
               usage["other_data_services"].push_back(std::move(group));
@@ -90,6 +93,7 @@ PolledTask<Application::Impl::Response> Application::Impl::history_usage(const j
                                     : (co_await PollFuture{TaskClient::inspect_history_usage(
                                           service_io, service.address, id, until)});
             group["references"] = result.at("references");
+            group["unreadable"] = result.at("unreadable");
             group["checked"] = true;
           } catch (const std::exception& e) {
             group["error"] = e.what();
@@ -101,6 +105,7 @@ PolledTask<Application::Impl::Response> Application::Impl::history_usage(const j
                                                 {"service", ""},
                                                 {"checked", false},
                                                 {"references", json::array()},
+                                                {"unreadable", 0},
                                                 {"error", e.what()}});
       }
     }
@@ -118,8 +123,6 @@ PolledTask<Application::Impl::Response> Application::Impl::history_usage(const j
   report["selected_roles"] = json::array();
   if (market_reference)
     report["selected_roles"].push_back("market");
-  if (settlement_reference)
-    report["selected_roles"].push_back("settlement");
   auto result = snapshot();
   result.values["history_usage"] = std::move(report);
   co_return result;

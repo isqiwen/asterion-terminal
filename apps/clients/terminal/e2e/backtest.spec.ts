@@ -113,12 +113,12 @@ test(
     const availability = result.getByRole("region", { name: "历史可知性", exact: true });
     await expect(availability).toContainText("来源公布时间未知");
     await availability.getByText("版本取得证据", { exact: true }).click();
-    await expect(availability.locator("code")).toHaveText(
-      [
-        ...seeded.datasets[0].source_dataset_ids,
-        ...seeded.datasets[0].settlement_dataset_ids,
-      ].sort(),
-    );
+    // The archive version of the bars, and the snapshot of the daily table
+    // the settlement price was read under.
+    await expect(availability.locator("code")).toHaveText([
+      ...seeded.datasets[0].source_dataset_ids,
+      seeded.datasets[0].daily.snapshot,
+    ]);
     await expect(availability).toContainText("完整版本取得时间");
     await result.getByText("实验参数", { exact: true }).click();
     const parameter = (label: string) =>
@@ -133,9 +133,8 @@ test(
     await expect(parameter("平今手续费")).toHaveText("3");
     await expect(parameter("输入 K 线")).toHaveText("8");
     await expect(parameter("K 线数据版本")).toHaveText(seeded.datasets[0].source_dataset_ids[0]);
-    await expect(parameter("结算价数据版本")).toHaveText(
-      seeded.datasets[0].settlement_dataset_ids[0],
-    );
+    // Settlement prices are the daily table's, under the snapshot selected with.
+    await expect(parameter("数据表快照")).toHaveText(seeded.datasets[0].daily.snapshot);
     await expect(parameter("交易日范围")).toHaveText("2026-09-25 – 2026-09-25");
     await result.getByText("逐日结算", { exact: true }).click();
     const settlements = result.locator(".research-settlements tbody tr");

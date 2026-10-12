@@ -3,7 +3,7 @@
 #include "history_daily.hpp"
 #include "history_minutes.hpp"
 #include "bar_dataset_source.hpp"
-#include "data/bar_fixture.hpp"
+#include "data/history_fixture.hpp"
 #include "data_store.hpp"
 #include "daily_factor_source.hpp"
 #include <asterion/kernel/durable_file.hpp>
@@ -42,6 +42,12 @@ public:
              test::dec("2")}};
   }
 };
+// Where a saved selection reads its daily facts; nothing is read of it here.
+data::v1::DailyTable daily_table() {
+  return protocol::encode_daily_table({{"snapshot", std::string(64, 'd')},
+                                       {"daily_source", "fixture.daily.v1"},
+                                       {"calendar_source", "fixture.calendar.v1"}});
+}
 data::v1::HistoryRecord publish(history_files::Archive& archive, AlternateDaily& provider,
                                 const HistoryIdentity& identity, const std::string& acquisition) {
   const auto input =
@@ -175,6 +181,12 @@ TEST(HistoryArchive, RejectsUnconfirmedSourceAndPartialDataset) {
 
 TEST(HistoryArchive, DataResolvesPublishedVersionsWithoutDownloadTasks) {
   Folder root;
+  // A data directory begins as the store's; the tables are seeded into it once
+  // it is, with the day the fixture's download holds, settled at its price.
+  {
+    data::Store created(root.path, "historical-data", "task");
+  }
+  const auto daily = test::seed_daily_table(root.path, "SHFE/cu/2024-03", {"2024-01-02"}, 2, 1);
   data::Store store(root.path, "historical-data", "task");
   history_files::Archive archive(root.path / "history");
   AlternateDaily provider;
@@ -188,16 +200,16 @@ TEST(HistoryArchive, DataResolvesPublishedVersionsWithoutDownloadTasks) {
   contract.mutable_price_increment()->set_units(1);
   data::v1::BarDatasetRequest request;
   request.add_source_dataset_ids(id);
-  request.add_settlement_dataset_ids(id);
+  *request.mutable_daily() = protocol::encode_daily_table(daily);
   *request.mutable_contract() = contract;
   const auto captured = store.sources(request);
-  const auto before = data::resolve_bar_dataset(captured);
+  const auto before = data::resolve_bar_dataset(store.tables(), captured);
   EXPECT_EQ(before.bars_size(), 1);
   EXPECT_EQ(before.source_dataset_ids(0), id);
   provider.normalization = "fixture.normalization.v2";
   const auto newer = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "second");
   EXPECT_NE(newer.daily_result().manifest_sha256(), id);
-  EXPECT_EQ(data::resolve_bar_dataset(store.sources(request)).SerializeAsString(),
+  EXPECT_EQ(data::resolve_bar_dataset(store.tables(), store.sources(request)).SerializeAsString(),
             before.SerializeAsString());
   EXPECT_EQ(data::daily_factor_dataset(archive.get(id)).source_dataset_id(), id);
   request.add_source_dataset_ids("first");
@@ -210,11 +222,11 @@ TEST(HistoryArchive, NamedDatasetsAreImmutableAndSurviveRestart) {
   AlternateDaily provider;
   const auto original = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "named");
   data::v1::NamedDataset saved;
-  saved.set_version(1);
+  saved.set_version(protocol::named_dataset_version);
   saved.set_name("铜日线研究");
   auto* input = saved.add_selections();
   input->add_source_dataset_ids(original.daily_result().manifest_sha256());
-  input->add_settlement_dataset_ids(original.daily_result().manifest_sha256());
+  *input->mutable_daily() = daily_table();
   *input->mutable_contract() = test::contract("SHFE", "cu2403", "cu", "2024-03");
   saved.add_content_revisions(std::string(64, 'a'));
   saved.set_id(protocol::named_dataset_revision(saved));
@@ -244,11 +256,11 @@ TEST(HistoryArchive, NamedDatasetsRejectInvalidNamesDuplicateContractsAndMissing
   Folder root;
   history_files::Archive archive(root.path / "history");
   data::v1::NamedDataset value;
-  value.set_version(1);
+  value.set_version(protocol::named_dataset_version);
   value.set_name("test");
   auto* input = value.add_selections();
   input->add_source_dataset_ids(std::string(64, 'a'));
-  input->add_settlement_dataset_ids(std::string(64, 'b'));
+  *input->mutable_daily() = daily_table();
   *input->mutable_contract() = test::contract();
   value.add_content_revisions(std::string(64, 'c'));
   value.set_id(protocol::named_dataset_revision(value));

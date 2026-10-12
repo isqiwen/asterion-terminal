@@ -11,11 +11,16 @@ message HistoryVersionEvidence {
   SourceAvailability source_availability = 3;
 }
 
-// Bars resolved by the data service from immutable archive versions.
+// Where a dataset's daily facts are read: the market-wide daily table and the
+// calendar as one snapshot of the table store holds them.
+message DailyTable { string snapshot = 1; string daily_source = 2; string calendar_source = 3; }
+// Bars resolved by the data service from immutable archive versions, with each
+// trading day's settlement price from the market-wide daily table.
 // revision is the SHA-256 of contract, interval, bars and days; provenance
-// fields identify the source downloads and are not part of content identity.
+// fields identify where they were read and are not part of content identity.
 message BarDataset {
-  uint32 version = 1; // 2
+  reserved 9;
+  uint32 version = 1; // 3
   string revision = 2;
   asterion.protocol.v1.Contract contract = 3;
   uint32 interval_minutes = 4; // 0 for daily bars
@@ -23,12 +28,15 @@ message BarDataset {
   repeated asterion.protocol.v1.TradingDay days = 6;
   string source = 7;
   repeated string source_dataset_ids = 8;
-  repeated string settlement_dataset_ids = 9;
-  // Sorted union of source and settlement versions, exactly once per identity.
+  // The source versions, sorted, exactly once per identity.
   repeated HistoryVersionEvidence history_evidence = 10;
-  // Trading days of the settlement download, inside the dataset's first and
-  // last bar days, that have no bars. Informational; not part of the revision.
+  // Trading days the contract settled on, from the first of these or of the
+  // bars to the last, that have no bars. Informational; not part of the revision.
   repeated string uncovered_days = 11;
+  DailyTable daily = 12;
+  // The most recent of the daily partitions from the first of the bar days and
+  // the uncovered days to the last.
+  int64 daily_acquired_at_ns = 13;
 }
 // Clients select published archive versions and a contract specification; they
 // cannot upload bars. Days are inclusive; empty means the dataset bounds.
@@ -38,14 +46,16 @@ message NamedDataset {
   repeated BarDatasetRequest selections = 4;
   repeated string content_revisions = 5;
 }
-message NamedDatasets { repeated NamedDataset items = 1; }
+// `unsupported` counts the datasets saved by another version: kept, not listed.
+message NamedDatasets { repeated NamedDataset items = 1; uint32 unsupported = 2; }
 message BarDatasetRequest {
-  // Sorted unique immutable versions, 1..32 per role. Same contract and semantics.
+  reserved 2;
+  // Sorted unique immutable versions, 1..32. Same contract and semantics.
   repeated string source_dataset_ids = 1;
-  repeated string settlement_dataset_ids = 2;
   string begin_day = 3;
   string end_day = 4;
   asterion.protocol.v1.Contract contract = 5;
+  DailyTable daily = 6;
 }
 // From trading_day on, the contract is the dominant month of a series: an
 // index into the contracts the schedule is kept with (a backtest's
@@ -333,11 +343,17 @@ enum HistoryReferenceKind {
   HISTORY_SAVED_DATASET = 4;
 }
 enum HistoryReferenceRole {
+  reserved 2;
   HISTORY_ROLE_UNSPECIFIED = 0;
-  HISTORY_MARKET = 1; HISTORY_SETTLEMENT = 2; HISTORY_OUTPUT = 3;
+  HISTORY_MARKET = 1; HISTORY_OUTPUT = 3;
 }
 message HistoryReference {
   HistoryReferenceKind kind = 1; string id = 2; string name = 3;
   repeated HistoryReferenceRole roles = 4;
 }
-message HistoryUsage { string dataset_id = 1; repeated HistoryReference references = 2; }
+message HistoryUsage {
+  string dataset_id = 1; repeated HistoryReference references = 2;
+  // Tasks and saved datasets stored by another version: what they read cannot
+  // be told, so they are counted instead of listed.
+  uint32 unreadable = 3;
+}

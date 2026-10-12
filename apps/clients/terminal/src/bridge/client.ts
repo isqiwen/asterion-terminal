@@ -13,10 +13,13 @@ export type FuturesContract = {
   quantity_increment: string;
   multiplier: string;
 };
+// Where a dataset's settlement prices, trading days and open interest are
+// read: the market-wide daily table and its calendar under one snapshot.
+export type DailyTable = { snapshot: string; daily_source: string; calendar_source: string };
 // Bars resolved by Data from immutable provider downloads.
 export type DatasetSelection = {
   source_dataset_ids: string[];
-  settlement_dataset_ids: string[];
+  daily: DailyTable;
   begin_day: string;
   end_day: string;
   contract: FuturesContract;
@@ -58,7 +61,9 @@ export type DatasetEvidence = {
   revision: string;
   source: string;
   source_dataset_ids: string[];
-  settlement_dataset_ids: string[];
+  daily: DailyTable;
+  // When the most recent of the daily partitions read was acquired.
+  daily_acquired_at_ns: string;
   interval_minutes: number;
   contract: FuturesContract;
 };
@@ -988,24 +993,22 @@ export type SavedNamedDataset = {
   name: string;
   selections: Pick<
     DatasetSelection,
-    | "source_dataset_ids"
-    | "settlement_dataset_ids"
-    | "begin_day"
-    | "end_day"
-    | "contract"
-    | "revision"
+    "source_dataset_ids" | "daily" | "begin_day" | "end_day" | "contract" | "revision"
   >[];
 };
 export type HistoryReference = {
   kind: "download" | "backtest" | "factor" | "saved_dataset";
   id: string;
   name: string;
-  roles: ("market" | "settlement" | "output")[];
+  roles: ("market" | "output")[];
 };
 export type HistoryUsage = {
   dataset_id: string;
   references: HistoryReference[];
-  selected_roles: ("market" | "settlement")[];
+  // Tasks and saved datasets stored by another version, which cannot be read
+  // to tell whether they use this version.
+  unreadable: number;
+  selected_roles: "market"[];
   disconnected_nodes: { names: string[]; error?: string };
   other_data_services: {
     node: string;
@@ -1013,6 +1016,7 @@ export type HistoryUsage = {
     checked: boolean;
     stopped?: boolean;
     references: HistoryReference[];
+    unreadable: number;
     error?: string;
   }[];
 };
@@ -1129,6 +1133,8 @@ export type Snapshot = {
   history_contracts: HistoryContractCatalog;
   history_datasets?: HistoryDatasetRecord[];
   saved_datasets?: SavedNamedDataset[];
+  // Datasets another version saved: kept by the data service, not listed.
+  saved_datasets_unsupported?: number;
   history_coverage?: HistoryCoverage[];
   history_update_plan?: HistoryUpdatePlan;
   history_usage?: HistoryUsage;

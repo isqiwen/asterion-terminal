@@ -76,6 +76,9 @@ json history(void* runtime, const std::vector<int>& prices, const std::string& i
         if (service.at("id") == "historical-data")
           directory = service.at("directory").get<std::string>();
   auto selection = asterion::test::seed_history(directory, prices, id);
+  // What the fixture says beside the selection itself.
+  selection.erase("daily_sequence");
+  selection.erase("daily_dataset_id");
   invoke("node.data_tasks.local.open");
   const auto deadline =
       std::chrono::steady_clock::now() + asterion::testing_support::bound(std::chrono::seconds(10));

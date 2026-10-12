@@ -34,7 +34,10 @@ function contractRows(
     ["交易日范围", `${data.first_day} – ${data.last_day}`],
     ["数据源", data.source],
     ["K 线数据版本", dataset.source_dataset_ids.join(" · ")],
-    ["结算价数据版本", dataset.settlement_dataset_ids.join(" · ")],
+    // Settlement prices and trading days are the market-wide daily table's.
+    ["数据表快照", dataset.daily.snapshot],
+    ["日线来源", dataset.daily.daily_source],
+    ["交易日历来源", dataset.daily.calendar_source],
   ];
   if (slippage !== undefined) rows.push(["滑点（跳）", slippage]);
   const costs = schedule?.filter(row => row.effective_from <= data.first_day).at(-1)?.values;
@@ -62,8 +65,9 @@ function dominantRows(input: Extract<FactorSeriesEvidence, { kind: "dominant" }>
   const first = input.months[0];
   const last = input.months[input.months.length - 1];
   const contract = first.dataset.contract;
-  const versions = (role: "source_dataset_ids" | "settlement_dataset_ids") =>
-    [...new Set(input.months.flatMap(month => month.dataset[role]))].join(" · ");
+  const versions = [
+    ...new Set(input.months.flatMap(month => month.dataset.source_dataset_ids)),
+  ].join(" · ");
   const rows: Rows = [
     ["品种代码", contract.product],
     ["月份合约", input.months.map(month => month.dataset.contract.symbol).join(" · ")],
@@ -83,8 +87,11 @@ function dominantRows(input: Extract<FactorSeriesEvidence, { kind: "dominant" }>
     ["有期限结构的交易日", input.terms],
     ["交易日范围", `${first.data.first_day} – ${last.data.last_day}`],
     ["数据源", first.data.source],
-    ["K 线数据版本", versions("source_dataset_ids")],
-    ["结算价数据版本", versions("settlement_dataset_ids")],
+    ["K 线数据版本", versions],
+    // Settlements and open interest of every month are the daily table's.
+    ["数据表快照", first.dataset.daily.snapshot],
+    ["日线来源", first.dataset.daily.daily_source],
+    ["交易日历来源", first.dataset.daily.calendar_source],
   ];
   return {
     name: `${contract.venue} · ${contract.product} · ${t("主力连续")}`,
@@ -207,31 +214,41 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
       );
     if (evaluation.mode === "holdout") rows.push([words.split, evaluation.split_index]);
   }
+  // A snapshot of the daily table stands for everything read under it.
+  const snapshot = (id: string, acquired_at_ns: string) => ({
+    dataset_id: id,
+    acquired_at_ns,
+    source_availability: "unknown" as const,
+  });
+  // A dataset's bars come from archive versions, its settlement prices from
+  // the daily table.
+  const dataset = (item: DatasetEvidence) => [
+    ...item.history_evidence,
+    snapshot(item.daily.snapshot, item.daily_acquired_at_ns),
+  ];
   let versions;
   if (evidence.kind === "backtest")
-    versions = evidence.experiment.paper.contracts.flatMap(item => item.dataset.history_evidence);
+    versions = evidence.experiment.paper.contracts.flatMap(item => dataset(item.dataset));
   else
     versions = evidence.experiment.series.flatMap(input =>
       input.kind === "bars"
-        ? input.dataset.history_evidence
+        ? dataset(input.dataset)
         : input.kind === "dominant"
-          ? input.months.flatMap(month => month.dataset.history_evidence)
+          ? input.months.flatMap(month => dataset(month.dataset))
           : input.kind === "table"
-            ? [
-                // The snapshot stands for everything read under it.
-                {
-                  dataset_id: input.data.snapshot,
-                  acquired_at_ns: input.data.acquired_at_ns,
-                  source_availability: "unknown" as const,
-                },
-              ]
+            ? [snapshot(input.data.snapshot, input.data.acquired_at_ns)]
             : [input.data.history_evidence],
     );
+  // Once each; of a snapshot read several times, the most recent partition.
+  const acquired = new Map<string, (typeof versions)[number]>();
+  for (const version of versions) {
+    const known = acquired.get(version.dataset_id);
+    if (!known || BigInt(version.acquired_at_ns) > BigInt(known.acquired_at_ns))
+      acquired.set(version.dataset_id, version);
+  }
   return (
     <>
-      <HistoryAvailability
-        versions={[...new Map(versions.map(value => [value.dataset_id, value])).values()]}
-      />
+      <HistoryAvailability versions={[...acquired.values()]} />
       <details className="research-experiment">
         <summary>{t("实验参数")}</summary>
         <p className="subtle">{t("任务提交时的配置")}</p>

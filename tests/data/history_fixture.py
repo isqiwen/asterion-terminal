@@ -7,6 +7,10 @@ import sys
 import time
 
 
+# What data.dataset.select takes of what the fixture program prints.
+SELECTION = {"source_dataset_ids", "daily", "begin_day", "end_day", "price_increment", "multiplier"}
+
+
 def seed(call, prices, identity="fixture"):
     assert os.environ.get("ASTERION_TEST_NODE_ISOLATED") == "1"
     call("node.data_tasks.local.open")
@@ -17,7 +21,7 @@ def seed(call, prices, identity="fixture"):
     executable = Path(sys.argv[1]).resolve().parent / "asterion_test_history"
     result = subprocess.run([str(executable), "--directory", service["directory"], "--id", identity,
                              "--price", *map(str, prices)], check=True, capture_output=True, text=True)
-    selection = json.loads(result.stdout)
+    selection = {key: value for key, value in json.loads(result.stdout).items() if key in SELECTION}
     call("node.data_tasks.local.open")
     deadline = time.monotonic() + 10
     while not call("runtime.snapshot")["data"]["online"]:

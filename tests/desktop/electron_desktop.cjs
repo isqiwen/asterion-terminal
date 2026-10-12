@@ -198,6 +198,13 @@ async function closeDesktop(application) {
       return response.result;
     };
     await call("node.data_tasks.local.open");
+    // The daily table is seeded under the sources the installed data source
+    // offers: those are the ones the dataset picker reads settlement prices of.
+    const offered = (await call("data.tables.coverage", {})).table_coverage.sources;
+    const dailySource = offered.find(source => source.table === "futures.daily");
+    const calendarSource = offered.find(
+      source => source.table === "futures.calendar" && source.plugin_id === dailySource.plugin_id,
+    );
     const stopped = await call("node.action", {
       id: "local",
       service: "historical-data",
@@ -213,7 +220,20 @@ async function closeDesktop(application) {
     );
     const seeded = await execFile(
       path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug", "asterion_test_history"),
-      ["--directory", service.directory, "--id", "native-history", "--price", "100", "99", "110"],
+      [
+        "--directory",
+        service.directory,
+        "--id",
+        "native-history",
+        "--price",
+        "100",
+        "99",
+        "110",
+        "--daily-source",
+        dailySource.source,
+        "--calendar-source",
+        calendarSource.source,
+      ],
       {
         env: { ...process.env, ASTERION_NODE_DIRECTORY: root, ...testNode },
         timeout: 15000,

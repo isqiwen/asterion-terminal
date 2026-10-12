@@ -3,6 +3,7 @@ import {
   useWorkspaceDraft,
   useWorkspaceRequestId,
   useHistoryDatasets,
+  dailyTableOf,
   DatasetPicker,
   ErrorNotice,
   asDisplayError,
@@ -437,17 +438,8 @@ export function TableFactorForm({
   const [entry, setEntry] = useState("");
   // The daily table that holds data, and the calendar of the same data source.
   const coverage = held?.coverage;
-  const daily = coverage?.sources.find(
-    source =>
-      source.table === "futures.daily" &&
-      coverage.rows.some(row => row.table === source.table && row.source === source.source),
-  );
-  const calendar = coverage?.sources.find(
-    source => source.table === "futures.calendar" && source.plugin_id === daily?.plugin_id,
-  );
-  const stored = (coverage?.rows ?? []).filter(
-    row => row.table === "futures.daily" && row.source === daily?.source,
-  );
+  const daily = dailyTableOf(coverage);
+  const stored = daily?.stored ?? [];
   const exchanges = [...new Set(instruments.map(item => item.split("/")[0]))];
   const add = () => {
     const name = entry.trim();
@@ -479,9 +471,7 @@ export function TableFactorForm({
       ? t("期限结构只在品种的主力连续上评价：请去掉单个合约。")
       : null;
   const complete =
-    !!coverage?.snapshot &&
     !!daily &&
-    !!calendar &&
     (instruments.length === 1 || instruments.length > 2) &&
     !!range.begin &&
     !!range.end &&
@@ -490,9 +480,7 @@ export function TableFactorForm({
   const series = complete
     ? {
         kind: "tables",
-        snapshot: coverage.snapshot,
-        daily_source: daily.source,
-        calendar_source: calendar.source,
+        ...daily.table,
         begin_day: range.begin,
         end_day: range.end,
         instruments,

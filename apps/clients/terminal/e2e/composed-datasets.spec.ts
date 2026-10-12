@@ -16,19 +16,13 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
   await page.getByRole("button", { name: "新建回测", exact: true }).click();
   const picker = page.getByRole("form", { name: "历史数据集" });
   await picker.getByLabel("K 线来源", { exact: true }).selectOption(first.source_dataset_ids[0]);
-  await picker
-    .getByLabel("结算价来源", { exact: true })
-    .selectOption(first.settlement_dataset_ids[0]);
   await picker.getByLabel("最小变动价位", { exact: true }).fill("1");
   await picker.getByLabel("合约乘数", { exact: true }).fill("10");
   await picker.getByText("拼接更多下载", { exact: false }).click();
+  // Both days settle from the daily table; only the bars are put together.
   const bars = picker.getByRole("group", { name: "补充 K 线", exact: true });
-  const settlements = picker.getByRole("group", { name: "补充结算价", exact: true });
   await bars
     .getByRole("checkbox", { name: new RegExp(second.source_dataset_ids[0].slice(0, 8)) })
-    .check();
-  await settlements
-    .getByRole("checkbox", { name: new RegExp(second.settlement_dataset_ids[0].slice(0, 8)) })
     .check();
   await picker.getByRole("button", { name: "使用此数据集", exact: true }).click();
   await expect(picker.getByRole("list", { name: "已选合约" })).toContainText("6 根 · 2 个交易日");

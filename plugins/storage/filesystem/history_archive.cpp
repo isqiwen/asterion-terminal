@@ -33,6 +33,10 @@ void digest(const std::string& id) {
   if (id.size() != 64 || id.find_first_not_of("0123456789abcdef") != std::string::npos)
     throw std::invalid_argument("invalid historical dataset revision");
 }
+// A dataset saved by another version: kept where it is, never read as this one's.
+struct UnsupportedVersion : std::invalid_argument {
+  UnsupportedVersion() : std::invalid_argument("unsupported saved dataset version") {}
+};
 HistoryDataset summary(const data::v1::HistoryRecord& record) {
   protocol::validate_message(record);
   if (record.version() != 1)
@@ -177,12 +181,9 @@ std::vector<HistoryDataset> Archive::datasets(const HistoryFilter& filter) const
 void Archive::save_named_dataset(const data::v1::NamedDataset& value) {
   writable();
   protocol::validate_named_dataset(value);
-  for (const auto& input : value.selections()) {
+  for (const auto& input : value.selections())
     for (const auto& id : input.source_dataset_ids())
       (void)get(id);
-    for (const auto& id : input.settlement_dataset_ids())
-      (void)get(id);
-  }
   FileLock lock(root_, "datasets.lock");
   const auto path = root_ / "named-datasets" / (value.id() + ".pb");
   safe(path);
@@ -211,7 +212,11 @@ data::v1::NamedDataset Archive::named_dataset(const std::string& id) const {
   std::ifstream file(path, std::ios::binary);
   std::string bytes((std::istreambuf_iterator<char>(file)), {});
   data::v1::NamedDataset value;
-  if (!value.ParseFromString(bytes) || value.id() != id)
+  // The version comes first: what another version saved need not parse as this
+  // one's message, and is refused for what it is.
+  if (!value.ParseFromString(bytes) || value.version() != protocol::named_dataset_version)
+    throw UnsupportedVersion();
+  if (value.id() != id)
     throw std::invalid_argument("saved dataset revision mismatch");
   protocol::validate_named_dataset(value);
   return value;
@@ -226,15 +231,21 @@ data::v1::NamedDatasets Archive::named_datasets() const {
   else if (!std::filesystem::is_empty(root_ / "named-datasets"))
     throw std::invalid_argument("historical archive coordination file is missing");
   std::vector<data::v1::NamedDataset> rows;
+  data::v1::NamedDatasets result;
   for (const auto& entry : std::filesystem::directory_iterator(root_ / "named-datasets")) {
     if (entry.path().extension() != ".pb" || rows.size() >= 1000)
       throw std::invalid_argument("invalid saved dataset");
-    rows.push_back(named_dataset(entry.path().stem().string()));
+    // One saved by another version stays where it is and is counted, so that
+    // it does not take the others with it.
+    try {
+      rows.push_back(named_dataset(entry.path().stem().string()));
+    } catch (const UnsupportedVersion&) {
+      result.set_unsupported(result.unsupported() + 1);
+    }
   }
   std::ranges::sort(rows, [](const auto& a, const auto& b) {
     return std::make_pair(a.name(), a.id()) < std::make_pair(b.name(), b.id());
   });
-  data::v1::NamedDatasets result;
   for (auto& row : rows)
     *result.add_items() = std::move(row);
   return result;

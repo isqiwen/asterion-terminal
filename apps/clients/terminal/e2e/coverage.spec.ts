@@ -14,7 +14,7 @@ test("archive coverage check lists trading days per contract", async ({ page }) 
   const row = table
     .getByRole("row")
     .filter({ hasText: seeded.source_dataset_ids[0].slice(0, 8) })
-    .filter({ hasText: seeded.settlement_dataset_ids[0].slice(0, 8) });
+    .filter({ hasText: seeded.daily_dataset_id.slice(0, 8) });
   await expect(row).toContainText("1 · 2026-09-25 — 2026-09-25");
   await expect(row.getByRole("cell").nth(4)).toHaveText("无");
 });

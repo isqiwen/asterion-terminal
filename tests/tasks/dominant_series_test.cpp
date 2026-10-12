@@ -1,7 +1,7 @@
 #include "bar_dataset_source.hpp"
 #include "tasks/paper_input.hpp"
 #include "data/history_requests.hpp"
-#include "data/bar_fixture.hpp"
+#include "data/history_fixture.hpp"
 #include "engine.hpp"
 #include "factor_engine.hpp"
 #include "history_daily.hpp"
@@ -282,12 +282,13 @@ struct Row {
   std::string day;
   int price, open_interest;
 };
-// A completed daily download of one month of a SHFE product; daily bars are
-// both its bars and its settlements. A bar opens and closes at its price and
-// ranges `range` either side of it.
-data::BarDatasetSources month(data::Store& store, const std::string& delivery,
-                              const std::vector<Row>& rows, const std::string& product = "rb",
-                              int range = 0) {
+// One month of a SHFE product: a completed daily download for its bars, and
+// the same days in the market-wide daily table for its settlements and open
+// interest. A bar opens and closes at its price and ranges `range` either side
+// of it.
+data::v1::BarDatasetRequest month(const std::filesystem::path& root, const std::string& delivery,
+                                  const std::vector<Row>& rows, const std::string& product = "rb",
+                                  int range = 0) {
   class Daily final : public HistoricalDailyPort {
   public:
     std::vector<Row> rows;
@@ -331,22 +332,41 @@ data::BarDatasetSources month(data::Store& store, const std::string& delivery,
                                                 {"begin_day", rows.front().day},
                                                 {"end_day", rows.back().day},
                                                 {"requests_per_minute", 500}});
-  const auto id =
-      test::publish_download(store, task, input, provider).daily_result().manifest_sha256();
-  return store.sources(
-      protocol::encode_bar_dataset_request({{"source_dataset_ids", Json::array({id})},
-                                            {"settlement_dataset_ids", Json::array({id})},
-                                            {"begin_day", ""},
-                                            {"end_day", ""},
-                                            {"contract",
-                                             {{"venue", "SHFE"},
-                                              {"symbol", symbol},
-                                              {"product", product},
-                                              {"delivery_month", delivery},
-                                              {"currency", "CNY"},
-                                              {"price_increment", "1"},
-                                              {"quantity_increment", "1"},
-                                              {"multiplier", "10"}}}}));
+  std::string id;
+  {
+    // One process owns the table ledger: the store goes before the tables open.
+    data::Store store(root, "historical-data", "task");
+    id = test::publish_download(store, task, input, provider).daily_result().manifest_sha256();
+  }
+  std::vector<test::DailyRow> settled;
+  for (const auto& row : rows)
+    settled.push_back({row.day, row.price, row.open_interest});
+  return protocol::encode_bar_dataset_request(
+      {{"source_dataset_ids", Json::array({id})},
+       {"daily", test::seed_daily_table(root, "SHFE/" + product + "/" + delivery, settled)},
+       {"begin_day", ""},
+       {"end_day", ""},
+       {"contract",
+        {{"venue", "SHFE"},
+         {"symbol", symbol},
+         {"product", product},
+         {"delivery_month", delivery},
+         {"currency", "CNY"},
+         {"price_increment", "1"},
+         {"quantity_increment", "1"},
+         {"multiplier", "10"}}}});
+}
+// The months as one series, read under the daily table as it is once all of
+// them are seeded: each seeding keeps what the earlier ones stored.
+data::DominantSeries series_of(const std::filesystem::path& root,
+                               std::vector<data::v1::BarDatasetRequest> months) {
+  data::Store store(root, "historical-data", "task");
+  std::vector<data::BarDatasetSources> sources;
+  for (auto& month : months) {
+    month.mutable_daily()->set_snapshot(store.tables().head());
+    sources.push_back(store.sources(month));
+  }
+  return data::resolve_dominant_series(store.tables(), sources);
 }
 } // namespace
 TEST(DominantSeries, PersistedRollingResultRejectsPreviousEngineAndSurvivesRestart) {
@@ -377,17 +397,16 @@ TEST(DominantSeries, PersistedRollingResultRejectsPreviousEngineAndSurvivesResta
 }
 TEST(DominantSeries, ScheduleFollowsThePreviousDaysOpenInterestAndNeverMovesBack) {
   Directory directory;
-  data::Store store(directory.path, "historical-data", "task");
   // Open interest moves to rb2701 on the third day, so it is dominant from
   // the fourth; rb2610's late surge does not bring it back.
-  const auto near = month(store, "2026-10",
+  const auto near = month(directory.path, "2026-10",
                           {{days[0], 200, 100},
                            {days[1], 204, 100},
                            {days[2], 200, 40},
                            {days[3], 202, 30},
                            {days[4], 204, 1000},
                            {days[5], 206, 1000}});
-  const auto far = month(store, "2027-01",
+  const auto far = month(directory.path, "2027-01",
                          {{days[0], 100, 10},
                           {days[1], 102, 60},
                           {days[2], 110, 90},
@@ -395,7 +414,7 @@ TEST(DominantSeries, ScheduleFollowsThePreviousDaysOpenInterestAndNeverMovesBack
                           {days[4], 112, 99},
                           {days[5], 113, 99}});
   // Listed out of order: the series sorts by delivery month.
-  const auto series = data::resolve_dominant_series({far, near});
+  const auto series = series_of(directory.path, {far, near});
   ASSERT_EQ(series.months, (std::vector<std::size_t>{1, 0}));
   ASSERT_EQ(series.schedule.rolls_size(), 2);
   EXPECT_EQ(series.schedule.rolls(0).trading_day(), days[1]) << "begins on the second day";
@@ -427,15 +446,14 @@ TEST(DominantSeries, ScheduleFollowsThePreviousDaysOpenInterestAndNeverMovesBack
 }
 TEST(DominantSeries, ResolutionFailsWhereItWouldHaveToGuess) {
   Directory directory;
-  data::Store store(directory.path, "historical-data", "task");
   const auto far =
-      month(store, "2027-01",
+      month(directory.path, "2027-01",
             {{days[0], 100, 10}, {days[1], 102, 60}, {days[2], 110, 90}, {days[3], 111, 95}});
-  EXPECT_THROW(data::resolve_dominant_series({far}), std::invalid_argument);
+  EXPECT_THROW(series_of(directory.path, {far}), std::invalid_argument);
   // rb2610 ends the day before rb2701 takes over: nothing to close on.
-  const auto near =
-      month(store, "2026-10", {{days[0], 200, 100}, {days[1], 204, 100}, {days[2], 200, 40}});
-  EXPECT_THROW(data::resolve_dominant_series({near, far}), std::invalid_argument);
+  const auto near = month(directory.path, "2026-10",
+                          {{days[0], 200, 100}, {days[1], 204, 100}, {days[2], 200, 40}});
+  EXPECT_THROW(series_of(directory.path, {near, far}), std::invalid_argument);
 }
 // The path a study of several products takes on daily bars: Data resolves each
 // product's months as its dominant series, a ranking rule holds one long and
@@ -445,7 +463,7 @@ TEST(DominantSeries, DailySeriesOfTwoProductsAreRankedRolledAndComparedByRolling
   Directory directory;
   for (const auto* part : {"data", "tasks"})
     std::filesystem::create_directory(directory.path / part);
-  data::Store store(directory.path / "data", "historical-data", "task");
+  const auto data = directory.path / "data";
   const auto day = [](int index) {
     using namespace std::chrono;
     return format_trading_date(
@@ -469,12 +487,10 @@ TEST(DominantSeries, DailySeriesOfTwoProductsAreRankedRolledAndComparedByRolling
   };
   // rb2701, 50 dearer, has the larger interest from day 43 and is dominant
   // from day 44; hc2701, 30 cheaper, from day 51 and day 52.
-  const auto rb_series =
-      data::resolve_dominant_series({month(store, "2026-10", rows(rb, 0, 0), "rb", 15),
-                                     month(store, "2027-01", rows(rb, 50, 43), "rb", 15)});
-  const auto hc_series =
-      data::resolve_dominant_series({month(store, "2026-10", rows(hc, 0, 0), "hc", 15),
-                                     month(store, "2027-01", rows(hc, -30, 51), "hc", 15)});
+  const auto rb_series = series_of(data, {month(data, "2026-10", rows(rb, 0, 0), "rb", 15),
+                                          month(data, "2027-01", rows(rb, 50, 43), "rb", 15)});
+  const auto hc_series = series_of(data, {month(data, "2026-10", rows(hc, 0, 0), "hc", 15),
+                                          month(data, "2027-01", rows(hc, -30, 51), "hc", 15)});
   ASSERT_EQ(rb_series.schedule.rolls_size(), 2);
   EXPECT_EQ(rb_series.schedule.rolls(1).trading_day(), day(44));
   // The later month comes with the day before it takes over.

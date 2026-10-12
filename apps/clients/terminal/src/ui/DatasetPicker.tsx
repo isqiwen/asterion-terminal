@@ -4,6 +4,7 @@ import { translate, type MessageValues } from "../i18n";
 import { ErrorNotice, asDisplayError, type DisplayError } from "../i18n/errors";
 import type { HistoryDatasetRecord, Snapshot, TerminalCommand } from "../bridge/client";
 import { useHistoryDatasets, type HistoryQuery } from "./useHistoryDatasets";
+import { useDailyTable, type DailyTableQuery } from "./useDailyTable";
 import { useWorkspaceDraft } from "../host/workspace/drafts";
 import { DominantSeriesPicker } from "./DominantSeriesPicker";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
@@ -18,7 +19,8 @@ const maxContracts = 20;
 // holds one dataset per
 // contract and all of them share the same trading days. The contract identity
 // comes from the archive; only units a data source does not provide are
-// entered here.
+// entered here. Settlement prices and trading days are the market-wide daily
+// table's, under the snapshot read when the picker opened.
 export function DatasetPicker({
   snapshot,
   busy,
@@ -32,7 +34,7 @@ export function DatasetPicker({
   snapshot: Snapshot | null;
   busy: boolean;
   trade: (method: TerminalCommand, params?: Record<string, unknown>) => Promise<void>;
-  query: HistoryQuery;
+  query: HistoryQuery & DailyTableQuery;
   locked?: boolean;
   sourceRequest?: { id: string; connection: string; request: string };
   onDownload?: () => void;
@@ -45,13 +47,12 @@ export function DatasetPicker({
   const all = snapshot?.datasets ?? [];
   const selected = all.filter(item => !inSeries(item));
   const { items: versions, error: loadError, loading } = useHistoryDatasets(snapshot, query);
+  const daily = useDailyTable(snapshot, query);
   const [draft, setDraft] = useWorkspaceDraft(
     `dataset-picker:composition:${snapshot?.data?.connection_id}`,
     {
       source: "",
-      settlement: "",
       extraSources: [] as string[],
-      extraSettlements: [] as string[],
       begin_day: "",
       end_day: "",
       price_increment: "",
@@ -59,16 +60,7 @@ export function DatasetPicker({
       consumed: "",
     },
   );
-  const {
-    source,
-    settlement,
-    extraSources,
-    extraSettlements,
-    begin_day,
-    end_day,
-    price_increment,
-    multiplier,
-  } = draft;
+  const { source, extraSources, begin_day, end_day, price_increment, multiplier } = draft;
   // One way of adding data is shown at a time; what is already chosen stays
   // above all of them.
   const [method, setMethod] = useWorkspaceDraft<"contract" | "series" | "saved">(
@@ -83,9 +75,9 @@ export function DatasetPicker({
       `${item.contract.venue}/${item.contract.product.toLowerCase()}/${item.contract.delivery_month}` ===
       chosen?.contract_id,
   );
-  const settlements = versions.filter(
-    item => item.interval_minutes === 0 && item.contract_id === chosen?.contract_id,
-  );
+  // What the daily table holds of the chosen contract's exchange.
+  const exchange = chosen?.contract_id.split("/")[0];
+  const settled = daily.held?.stored.find(row => row.exchange === exchange);
   const additionalSources = versions.filter(
     item =>
       item.id !== source &&
@@ -93,34 +85,23 @@ export function DatasetPicker({
       item.interval_minutes === chosen?.interval_minutes &&
       item.source === chosen?.source,
   );
-  const settlementSource = settlements.find(item => item.id === settlement)?.source;
-  const additionalSettlements = settlements.filter(
-    item => item.id !== settlement && item.source === settlementSource,
-  );
-  function toggle(role: "extraSources" | "extraSettlements", id: string) {
+  function toggle(id: string) {
     setDraft(previous => ({
       ...previous,
-      [role]: previous[role].includes(id)
-        ? previous[role].filter(value => value !== id)
-        : [...previous[role], id],
+      extraSources: previous.extraSources.includes(id)
+        ? previous.extraSources.filter(value => value !== id)
+        : [...previous.extraSources, id],
     }));
   }
   function selection(id: string) {
     const item = versions.find(item => item.id === id);
-    const candidates = versions.filter(
-      candidate => candidate.interval_minutes === 0 && candidate.contract_id === item?.contract_id,
-    );
-    const daily =
-      item?.interval_minutes === 0 ? item : candidates.length === 1 ? candidates[0] : undefined;
     const listed = snapshot?.market?.catalog.contracts.find(
       contract => contract.contract_id === item?.contract_id,
     );
     // Never reuse another contract's manually entered exchange units or dates.
     return {
       source: item?.id ?? "",
-      settlement: daily?.id ?? "",
       extraSources: [],
-      extraSettlements: [],
       begin_day: "",
       end_day: "",
       price_increment: listed?.price_tick ?? "",
@@ -186,9 +167,9 @@ export function DatasetPicker({
             })}
           </p>
           <p className="subtle">
-            {t("K 线 {bars} 份 · 结算 {settlements} 份", {
+            {t("K 线 {bars} 份 · 结算价取自全市场日线表（快照 {snapshot}）", {
               bars: item.source_dataset_ids.length,
-              settlements: item.settlement_dataset_ids.length,
+              snapshot: item.daily.snapshot.slice(0, 12),
             })}{" "}
             · {t("数据版本")} <code>{item.revision.slice(0, 16)}</code>
           </p>
@@ -302,9 +283,10 @@ export function DatasetPicker({
       aria-label={t("历史数据集")}
       onSubmit={event => {
         event.preventDefault();
+        if (!daily.held) return;
         void run("data.dataset.select", {
           source_dataset_ids: [source, ...extraSources].sort(),
-          settlement_dataset_ids: [settlement, ...extraSettlements].sort(),
+          daily: daily.held.table,
           begin_day,
           end_day,
           price_increment,
@@ -377,31 +359,6 @@ export function DatasetPicker({
                   ))}
                 </select>
               </label>
-              <label
-                className="dataset-version-field"
-                hidden={!!settlement && settlements.length === 1}
-              >
-                {t("结算价来源")}
-                <select
-                  aria-label={t("结算价来源")}
-                  value={settlement}
-                  onChange={event =>
-                    setDraft({ ...draft, settlement: event.target.value, extraSettlements: [] })
-                  }
-                  required
-                >
-                  <option value="">
-                    {chosen && !settlements.length
-                      ? t("需要同一合约的日线数据")
-                      : t("选择日线版本")}
-                  </option>
-                  {settlements.map(item => (
-                    <option key={item.id} value={item.id}>
-                      {label(item)}
-                    </option>
-                  ))}
-                </select>
-              </label>
               <label>
                 {t("开始交易日")}
                 <input
@@ -441,71 +398,56 @@ export function DatasetPicker({
                 />
               </label>
             </div>
-            {chosen && (additionalSources.length > 0 || additionalSettlements.length > 0) && (
+            {chosen && additionalSources.length > 0 && (
               <details className="dataset-composition">
                 <summary>
-                  {t("拼接更多下载")} ·{" "}
-                  {t("K 线 {bars} 份 · 结算 {settlements} 份", {
-                    bars: 1 + extraSources.length,
-                    settlements: (settlement ? 1 : 0) + extraSettlements.length,
-                  })}
+                  {t("拼接更多下载")} · {t("K 线 {bars} 份", { bars: 1 + extraSources.length })}
                 </summary>
                 <p className="subtle">
-                  {t(
-                    "选择同合约、同周期的其他下载；相同记录去重，冲突记录拒绝使用。每类最多 32 份。",
-                  )}
+                  {t("选择同合约、同周期的其他下载；相同记录去重，冲突记录拒绝使用。最多 32 份。")}
                 </p>
-                {additionalSources.length > 0 && (
-                  <fieldset>
-                    <legend>{t("补充 K 线")}</legend>
-                    {additionalSources.map(item => (
-                      <label className="dataset-segment" key={item.id}>
-                        <input
-                          type="checkbox"
-                          checked={extraSources.includes(item.id)}
-                          disabled={!extraSources.includes(item.id) && extraSources.length >= 31}
-                          onChange={() => toggle("extraSources", item.id)}
-                        />
-                        <span>{label(item)}</span>
-                      </label>
-                    ))}
-                  </fieldset>
-                )}
-                {additionalSettlements.length > 0 && (
-                  <fieldset>
-                    <legend>{t("补充结算价")}</legend>
-                    {additionalSettlements.map(item => (
-                      <label className="dataset-segment" key={item.id}>
-                        <input
-                          type="checkbox"
-                          checked={extraSettlements.includes(item.id)}
-                          disabled={
-                            !extraSettlements.includes(item.id) && extraSettlements.length >= 31
-                          }
-                          onChange={() => toggle("extraSettlements", item.id)}
-                        />
-                        <span>{label(item)}</span>
-                      </label>
-                    ))}
-                  </fieldset>
-                )}
+                <fieldset>
+                  <legend>{t("补充 K 线")}</legend>
+                  {additionalSources.map(item => (
+                    <label className="dataset-segment" key={item.id}>
+                      <input
+                        type="checkbox"
+                        checked={extraSources.includes(item.id)}
+                        disabled={!extraSources.includes(item.id) && extraSources.length >= 31}
+                        onChange={() => toggle(item.id)}
+                      />
+                      <span>{label(item)}</span>
+                    </label>
+                  ))}
+                </fieldset>
               </details>
             )}
-            {settlement && settlements.length === 1 && (
-              <p className="subtle">{t("已匹配同一合约的日线结算版本。")}</p>
+            {chosen && settled && daily.held && (
+              <p className="subtle">
+                {t(
+                  "结算价和交易日取自全市场日线表：{exchange} 已入库 {first} — {last}，按快照 {snapshot} 读取，之后入库的数据不影响这次选择。",
+                  {
+                    exchange: settled.exchange,
+                    first: settled.first_period,
+                    last: settled.last_period,
+                    snapshot: daily.held.table.snapshot.slice(0, 12),
+                  },
+                )}
+              </p>
             )}
-            {chosen && settlements.length > 1 && !settlement && (
-              <p role="status">{t("存在多个日线版本，请明确选择本次使用的结算来源。")}</p>
+            {chosen && !daily.loading && !settled && (
+              <p role="status">
+                {t(
+                  "全市场日线表里还没有 {exchange} 的数据，结算价无处可取。请先在「数据 → 全市场数据」更新日线，范围要覆盖这些 K 线的交易日。",
+                  { exchange: exchange ?? "" },
+                )}
+              </p>
             )}
             <div className="source-actions">
               <button
                 type="submit"
                 className="primary"
-                disabled={
-                  !chosen ||
-                  !settlements.some(item => item.id === settlement) ||
-                  (!replacing && all.length >= maxContracts)
-                }
+                disabled={!chosen || !settled || (!replacing && all.length >= maxContracts)}
               >
                 {replacing ? t("更新此合约") : all.length ? t("加入组合") : t("使用此数据集")}
               </button>
@@ -525,6 +467,7 @@ export function DatasetPicker({
             snapshot={snapshot}
             versions={versions}
             disabled={busy || !snapshot?.data?.online || loading}
+            daily={daily.held}
             select={params => void run("data.dataset.series", params)}
           />
         )}
@@ -542,9 +485,6 @@ export function DatasetPicker({
       </div>
       {onDownload && (
         <div className="source-actions">
-          {chosen && !settlements.length && (
-            <p role="status">{t("此合约缺少日线结算数据，补齐后才能用于回测。")}</p>
-          )}
           <button type="button" onClick={onDownload}>
             {t("前往下载数据")}
           </button>
