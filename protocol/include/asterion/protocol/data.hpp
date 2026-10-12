@@ -74,6 +74,11 @@ Json decode_bar_dataset_range(const data::v1::BarDataset&);
 data::v1::BarDataset encode_bar_dataset(const Json&);
 data::v1::BarDatasetRequest encode_bar_dataset_request(const Json&);
 Json decode_bar_dataset_request(const data::v1::BarDatasetRequest&);
+// A product whose month contracts the daily table names: exchange and product
+// as history writes them, positive units, and a range with both days.
+void validate_product_bars_request(const data::v1::ProductBarsRequest&);
+data::v1::ProductBarsRequest encode_product_bars_request(const Json&);
+Json decode_product_bars_request(const data::v1::ProductBarsRequest&);
 // A dominant series over `contracts`, which its rolls name by index: later
 // months of one product with the same terms, each from a later trading day,
 // with positive factors that end in 1. Its term points, at most one a day

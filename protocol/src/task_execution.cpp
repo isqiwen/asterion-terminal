@@ -2,8 +2,7 @@
 #include <algorithm>
 #include <stdexcept>
 namespace asterion::protocol {
-namespace {
-data::v1::BarDatasetRequest selection(const data::v1::BarDataset& dataset) {
+data::v1::BarDatasetRequest bar_dataset_selection(const data::v1::BarDataset& dataset) {
   data::v1::BarDatasetRequest result;
   *result.mutable_contract() = dataset.contract();
   *result.mutable_source_dataset_ids() = dataset.source_dataset_ids();
@@ -19,7 +18,6 @@ data::v1::BarDatasetRequest selection(const data::v1::BarDataset& dataset) {
   result.set_end_day(end);
   return result;
 }
-} // namespace
 task::v1::TaskExecution task_execution(const task::v1::Task& task,
                                        const std::string& input_sha256) {
   task::v1::TaskExecution result;
@@ -35,7 +33,7 @@ task::v1::TaskExecution task_execution(const task::v1::Task& task,
       *parameters->mutable_walk_forward() = input.walk_forward();
     for (const auto& contract : input.paper().contracts()) {
       auto* item = parameters->add_contracts();
-      *item->mutable_data() = selection(contract.dataset());
+      *item->mutable_data() = bar_dataset_selection(contract.dataset());
       *item->mutable_cost_schedule() = contract.cost_schedule();
       item->set_slippage_ticks(contract.slippage_ticks());
     }
@@ -45,7 +43,7 @@ task::v1::TaskExecution task_execution(const task::v1::Task& task,
     auto* parameters = result.mutable_factor();
     for (const auto& series : input.series()) {
       if (series.has_bars())
-        *parameters->add_series()->mutable_bars() = selection(series.bars());
+        *parameters->add_series()->mutable_bars() = bar_dataset_selection(series.bars());
       else if (series.has_daily())
         parameters->add_series()->set_daily_dataset_id(series.daily().source_dataset_id());
       else if (series.has_table()) {
@@ -73,7 +71,7 @@ task::v1::TaskExecution task_execution(const task::v1::Task& task,
         // The months as they were fixed, and their schedule beside them.
         auto* months = parameters->add_series()->mutable_dominant();
         for (const auto& month : series.dominant().months())
-          *months->add_months() = selection(month);
+          *months->add_months() = bar_dataset_selection(month);
         *result.add_schedules() = series.dominant().schedule();
       }
     }

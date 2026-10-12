@@ -1,5 +1,6 @@
 #include <set>
 #include <asterion/domain/futures.hpp>
+#include <asterion/domain/history_identity.hpp>
 #include <asterion/foundation/id.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
@@ -29,16 +30,17 @@ std::int64_t nanoseconds(const Json& json) {
 bool digest(const std::string& text) {
   return text.size() == 64 && text.find_first_not_of("0123456789abcdef") == std::string::npos;
 }
+// None of them means daily bars from the daily table.
 void validate_versions(const google::protobuf::RepeatedPtrField<std::string>& ids) {
-  if (ids.empty() || ids.size() > max_dataset_sources)
-    throw std::invalid_argument("dataset requires 1..32 source versions");
+  if (ids.size() > max_dataset_sources)
+    throw std::invalid_argument("dataset takes at most 32 source versions");
   for (int i = 0; i < ids.size(); ++i)
     if (!digest(ids.Get(i)) || (i && ids.Get(i) <= ids.Get(i - 1)))
       throw std::invalid_argument("dataset versions must be sorted unique SHA-256 identities");
 }
 void encode_versions(const Json& json, google::protobuf::RepeatedPtrField<std::string>* out) {
   if (!json.is_array() || json.size() > static_cast<std::size_t>(max_dataset_sources))
-    throw std::invalid_argument("dataset requires 1..32 source versions");
+    throw std::invalid_argument("dataset takes at most 32 source versions");
   auto ids = json.get<std::vector<std::string>>();
   std::ranges::sort(ids);
   for (const auto& id : ids)
@@ -206,7 +208,10 @@ void validate_bar_dataset(const data::v1::BarDataset& dataset) {
       throw std::invalid_argument("historical evidence does not match dataset versions");
   }
   validate_daily_table(dataset.daily());
-  if (dataset.daily_acquired_at_ns() <= 0)
+  // Daily bars of the daily table are of its source and of no archive version.
+  if (dataset.daily_acquired_at_ns() <= 0 ||
+      (dataset.source_dataset_ids().empty() &&
+       (interval != 0 || dataset.source() != dataset.daily().daily_source())))
     throw std::invalid_argument("invalid bar dataset provenance");
   const auto spec = instrument(dataset.contract());
   std::optional<MarketBar> previous;
@@ -329,6 +334,40 @@ data::v1::BarDatasetRequest encode_bar_dataset_request(const Json& json) {
   (void)decode_bar_dataset_request(result);
   return result;
 }
+void validate_product_bars_request(const data::v1::ProductBarsRequest& request) {
+  validate_message(request);
+  validate_daily_table(request.daily());
+  // A product is named as a contract is, without the delivery month.
+  HistoryIdentity{request.venue(), request.product(), "2000-01"}.validate();
+  if (!request.has_price_increment() || !request.has_multiplier() ||
+      value(request.price_increment()) <= Decimal{} || value(request.multiplier()) <= Decimal{} ||
+      parse_trading_date(request.begin_day()) > parse_trading_date(request.end_day()))
+    throw std::invalid_argument("invalid product bars request");
+}
+data::v1::ProductBarsRequest encode_product_bars_request(const Json& json) {
+  require_fields(
+      json, {"venue", "product", "price_increment", "multiplier", "begin_day", "end_day", "daily"});
+  data::v1::ProductBarsRequest result;
+  result.set_venue(json.at("venue").get<std::string>());
+  result.set_product(json.at("product").get<std::string>());
+  set(result.mutable_price_increment(), decimal(json, "price_increment"));
+  set(result.mutable_multiplier(), decimal(json, "multiplier"));
+  result.set_begin_day(json.at("begin_day").get<std::string>());
+  result.set_end_day(json.at("end_day").get<std::string>());
+  *result.mutable_daily() = encode_daily_table(json.at("daily"));
+  validate_product_bars_request(result);
+  return result;
+}
+Json decode_product_bars_request(const data::v1::ProductBarsRequest& request) {
+  validate_product_bars_request(request);
+  return {{"venue", request.venue()},
+          {"product", request.product()},
+          {"price_increment", value(request.price_increment()).str()},
+          {"multiplier", value(request.multiplier()).str()},
+          {"begin_day", request.begin_day()},
+          {"end_day", request.end_day()},
+          {"daily", decode_daily_table(request.daily())}};
+}
 Json decode_bar_dataset_request(const data::v1::BarDatasetRequest& request) {
   validate_message(request);
   validate_versions(request.source_dataset_ids());
@@ -339,6 +378,10 @@ Json decode_bar_dataset_request(const data::v1::BarDatasetRequest& request) {
   if (!request.begin_day().empty() && !request.end_day().empty() &&
       request.begin_day() > request.end_day())
     throw std::invalid_argument("dataset begin day follows end day");
+  // Bars of archive versions bound the days themselves; the daily table's do not.
+  if (request.source_dataset_ids().empty() &&
+      (request.begin_day().empty() || request.end_day().empty()))
+    throw std::invalid_argument("daily bars of the daily table require a begin and an end day");
   (void)instrument(request.contract());
   // Evaluated before the braced initializer (GCC < 13 PR66139 leak).
   auto contract = decode_contract(request.contract());

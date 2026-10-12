@@ -1498,6 +1498,79 @@ TEST_F(TaskProcess, WorkerRunsWithoutSubmittingClientAndResultSurvivesRestart) {
   submit("run1"); // Same task ID after restart remains idempotent.
   EXPECT_EQ(call(list).tasks().tasks_size(), 1);
 }
+TEST_F(TaskProcess, ABacktestOfAProductTradesTheMonthsTheDailyTableNames) {
+  // Rebar over six days of the daily table: October is the most held until
+  // the third day, January from the fourth; May never trades.
+  const char* days[] = {"2026-09-21", "2026-09-22", "2026-09-23",
+                        "2026-09-24", "2026-09-25", "2026-09-28"};
+  const auto traded = [&](int base, std::vector<int> held) {
+    std::vector<test::DailyRow> rows;
+    for (int i = 0; i < 6; ++i) {
+      const int price = base + 2 * i;
+      rows.push_back({days[i], price, held[static_cast<std::size_t>(i)],
+                      test::DailyTrade{price, price + 5, price - 5, price, 100}});
+    }
+    return rows;
+  };
+  data_service.reset();
+  {
+    data::Store created(warehouse.path, "historical-data", "task");
+  }
+  (void)test::seed_daily_table(warehouse.path, "SHFE/rb/2026-10",
+                               traded(200, {100, 100, 40, 30, 20, 10}));
+  (void)test::seed_daily_table(warehouse.path, "SHFE/rb/2027-01",
+                               traded(100, {10, 60, 90, 95, 99, 99}));
+  std::vector<test::DailyRow> idle;
+  for (const auto* day : days)
+    idle.push_back({day, 150, 5});
+  const auto table = test::seed_daily_table(warehouse.path, "SHFE/rb/2027-05", idle);
+  start_data();
+  task_wire::TaskRequest submit;
+  submit.mutable_submit()->set_id("product");
+  auto* backtest = submit.mutable_submit()->mutable_backtest();
+  auto* product = backtest->add_series()->mutable_product();
+  *product->mutable_data() = protocol::encode_product_bars_request({{"venue", "SHFE"},
+                                                                    {"product", "rb"},
+                                                                    {"price_increment", "1"},
+                                                                    {"multiplier", "10"},
+                                                                    {"begin_day", days[0]},
+                                                                    {"end_day", days[5]},
+                                                                    {"daily", table}});
+  *product->mutable_cost_schedule() = input().paper().contracts(0).cost_schedule();
+  product->set_slippage_ticks(1);
+  *backtest->mutable_deposit() = input().paper().deposit();
+  *backtest->mutable_risk() = input().paper().risk();
+  *backtest->add_strategies() = input().strategies(0);
+  EXPECT_EQ(call(submit).task().state(), task_wire::QUEUED);
+  ChildProcess worker(ASTERION_BACKTEST_PATH,
+                      {"--endpoint", endpoint, "--session", "task", "--task", "product"});
+  ASSERT_TRUE(worker.wait(15s));
+  ASSERT_EQ(worker.exit_code(), 0);
+  task_wire::TaskRequest get;
+  get.mutable_get()->set_id("product");
+  const auto task = call(get).task();
+  EXPECT_EQ(task.state(), task_wire::SUCCEEDED);
+  // The months that trade are the contracts, each with the product's costs;
+  // the month nobody traded is not among them.
+  const auto& paper = task.input().paper();
+  ASSERT_EQ(paper.contracts_size(), 2);
+  EXPECT_EQ(paper.contracts(0).dataset().contract().symbol(), "rb2610");
+  EXPECT_EQ(paper.contracts(1).dataset().contract().symbol(), "rb2701");
+  for (const auto& contract : paper.contracts()) {
+    EXPECT_EQ(contract.dataset().interval_minutes(), 0U);
+    EXPECT_EQ(contract.dataset().source_dataset_ids_size(), 0);
+    EXPECT_EQ(contract.slippage_ticks(), 1U);
+    EXPECT_EQ(contract.cost_schedule().SerializeAsString(),
+              product->cost_schedule().SerializeAsString());
+  }
+  ASSERT_EQ(task.input().series_size(), 1);
+  ASSERT_EQ(task.input().series(0).rolls_size(), 2);
+  EXPECT_EQ(task.input().series(0).rolls(1).trading_day(), days[3]);
+  task_wire::TaskRequest result;
+  result.mutable_result()->set_id("product");
+  // Settled every day from the second, on which the series begins.
+  EXPECT_EQ(call(result).backtest().settlements_size(), 5);
+}
 TEST_F(TaskProcess, WorkerRejectsDataEvidenceDifferentFromTheAcceptedInput) {
   auto spec = process_input();
   auto* evidence =
@@ -2898,6 +2971,58 @@ TEST(NamedDatasets, ATradingDayTheDailyTableLacksIsNamedAndASnapshotKeepsWhatItR
   }
 }
 
+TEST(NamedDatasets, ADailyBarIsADayTheContractTradedAndADownloadOfDailyBarsIsNoSource) {
+  TaskDirectory directory;
+  const auto seeded = test::seed_history(directory.path, {100, 101}, "daily-bars");
+  // Traded on the 23rd and the 25th. On the 24th it only settled, and on the
+  // 22nd ten lots changed hands outside the auction: neither day has a price
+  // an order could have been filled at.
+  const auto table = test::seed_daily_table(
+      directory.path, "SHFE/rb/2026-10",
+      {{"2026-09-22", 3005, 500, {}, 10},
+       {"2026-09-23", 3010, 500, test::DailyTrade{3000, 3020, 2990, 3015, 1200}},
+       {"2026-09-24", 3012, 500},
+       {"2026-09-25", 3030, 520, test::DailyTrade{3015, 3040, 3010, 3035, 800}}});
+  data::Store store(directory.path, "historical-data", "task");
+  data::v1::BarDatasetRequest request;
+  *request.mutable_daily() = protocol::encode_daily_table(table);
+  *request.mutable_contract() = test::contract();
+  // The table does not bound the days as an archive version does.
+  EXPECT_THROW(store.sources(request), std::invalid_argument);
+  request.set_begin_day("2026-09-22");
+  request.set_end_day("2026-09-25");
+  const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
+  EXPECT_EQ(dataset.interval_minutes(), 0U);
+  EXPECT_EQ(dataset.source(), "fixture.daily.v1");
+  EXPECT_EQ(dataset.source_dataset_ids_size(), 0);
+  EXPECT_EQ(dataset.history_evidence_size(), 0);
+  ASSERT_EQ(dataset.bars_size(), 2);
+  const auto bars = protocol::dataset_bars(dataset);
+  EXPECT_EQ(bars[0].trading_day, "2026-09-23");
+  // 15:00 in Shanghai on the trading day.
+  EXPECT_EQ(bars[0].timestamp_ns, parse_shanghai_time("2026-09-23 15:00:00"));
+  EXPECT_EQ(bars[0].open, Decimal::parse("3000"));
+  EXPECT_EQ(bars[0].high, Decimal::parse("3020"));
+  EXPECT_EQ(bars[0].low, Decimal::parse("2990"));
+  EXPECT_EQ(bars[0].close, Decimal::parse("3015"));
+  EXPECT_EQ(bars[0].volume, Decimal::parse("1200"));
+  EXPECT_EQ(bars[1].close, Decimal::parse("3035"));
+  ASSERT_EQ(dataset.days_size(), 2);
+  EXPECT_EQ(dataset.days(0).settlement_price().units(), Decimal::parse("3010").raw());
+  EXPECT_EQ(dataset.days(1).settlement_price().units(), Decimal::parse("3030").raw());
+  ASSERT_EQ(dataset.uncovered_days_size(), 2);
+  EXPECT_EQ(dataset.uncovered_days(0), "2026-09-22");
+  EXPECT_EQ(dataset.uncovered_days(1), "2026-09-24");
+  // The contract's own download of daily bars is not where bars come from.
+  request.add_source_dataset_ids(seeded.at("daily_dataset_id").get<std::string>());
+  try {
+    (void)data::resolve_bar_dataset(store.tables(), store.sources(request));
+    FAIL() << "a download of daily bars was read as a bar source";
+  } catch (const std::invalid_argument& error) {
+    EXPECT_STREQ(error.what(), "bar source must be a completed minute download");
+  }
+}
+
 TEST(NamedDatasets, RequestedWindowReportsMissingBoundaryDays) {
   TaskDirectory directory;
   const auto selection =
@@ -2986,12 +3111,11 @@ TEST(NamedDatasets, ComposesDownloadsDeduplicatesAndRestoresFixedVersions) {
   EXPECT_EQ(data::resolve_bar_dataset(restarted.tables(), restarted.sources(restored.selections(0)))
                 .SerializeAsString(),
             result.SerializeAsString());
-  // The contract's own daily downloads are bars too, settled from the same table.
+  // Without an archive version the bars are the contract's days in the table.
   auto daily = request;
   daily.clear_source_dataset_ids();
-  for (const auto& id : std::set<std::string>{first.at("daily_dataset_id").get<std::string>(),
-                                              second.at("daily_dataset_id").get<std::string>()})
-    daily.add_source_dataset_ids(id);
+  daily.set_begin_day("2026-09-23");
+  daily.set_end_day("2026-09-24");
   const auto day_result = data::resolve_bar_dataset(restarted.tables(), restarted.sources(daily));
   EXPECT_EQ(day_result.interval_minutes(), 0);
   EXPECT_EQ(day_result.bars_size(), 2);

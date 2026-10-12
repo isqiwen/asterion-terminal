@@ -6,19 +6,30 @@
 #include <string>
 #include <vector>
 namespace asterion::data {
+// A day a contract traded on in the auction: the table has all five of these
+// for it.
+struct DailyTrade {
+  Decimal open, high, low, close, volume;
+};
 // What contracts of one exchange did on the trading days of a range, as the
 // daily table holds it under a snapshot. A day a contract has no row on, or
 // no value for, is not in its map.
 struct DailyFacts {
   // By contract, then by trading day.
   std::map<std::string, std::map<std::string, Decimal>> settlement, open_interest;
+  // Read only where trades are asked for: the days a contract traded on. A
+  // day it did not has a settlement, and a close equal to it, and is not here.
+  std::map<std::string, std::map<std::string, DailyTrade>> trades;
   // When the partition of each trading day of the range was acquired.
   std::map<std::string, std::int64_t> acquired_at_ns;
 };
-// Fails rather than reads around a hole, as table_series does.
+// A name is a contract (SHFE/rb/2026-10), or a product ending in a slash
+// (SHFE/rb/) for every contract of it. Fails rather than reads around a hole,
+// as table_series does.
 DailyFacts daily_facts(const history_files::TableStore&, const v1::DailyTable&,
                        const std::string& venue, const std::string& begin_day,
-                       const std::string& end_day, const std::vector<std::string>& contracts);
+                       const std::string& end_day, const std::vector<std::string>& names,
+                       bool trades = false);
 // The series of a request's instruments, read from the market-wide daily table
 // as the request's snapshot holds it. Nothing is read of another snapshot, so
 // the same request always makes the same series.

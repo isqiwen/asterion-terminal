@@ -176,10 +176,18 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
   else if (request.has_dominant_series()) {
     if (request.dominant_series().months_size() > 20)
       throw std::invalid_argument("backtest requires 1 to 20 contracts");
-    std::vector<BarDatasetSources> months;
-    for (const auto& month : request.dominant_series().months())
-      months.push_back(store_->sources(month));
-    auto resolved = resolve_dominant_series(store_->tables(), months);
+    // The months a request lists, or the product's own in the daily table.
+    DominantSeries resolved;
+    if (request.dominant_series().has_product()) {
+      if (request.dominant_series().months_size())
+        throw std::invalid_argument("a dominant series names its months or its product");
+      resolved = resolve_product_series(store_->tables(), request.dominant_series().product());
+    } else {
+      std::vector<BarDatasetSources> months;
+      for (const auto& month : request.dominant_series().months())
+        months.push_back(store_->sources(month));
+      resolved = resolve_dominant_series(store_->tables(), months);
+    }
     auto* preview = response.mutable_dominant_series();
     for (const auto index : resolved.months)
       preview->add_months(static_cast<unsigned>(index));

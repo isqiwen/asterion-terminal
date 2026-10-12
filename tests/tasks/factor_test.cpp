@@ -1233,6 +1233,22 @@ TEST(Factor, ADominantSeriesIsFixedWithItsScheduleAndRefusedWhenThatIsNotOneSeri
   EXPECT_TRUE(protocol::factor_series_query(encoded.series(0)).has_dominant_series());
   request["series"][0]["dominant"].erase(1);
   EXPECT_THROW(protocol::encode_factor_request(request), std::invalid_argument);
+  // Or it names the product, for its daily bars in the daily table: Data then
+  // finds the months.
+  request["series"][0]["dominant"] = Json{{"product",
+                                           {{"venue", "SHFE"},
+                                            {"product", "rb"},
+                                            {"price_increment", "1"},
+                                            {"multiplier", "10"},
+                                            {"begin_day", "2026-09-25"},
+                                            {"end_day", "2026-09-30"},
+                                            {"daily", month("rb2610", "2026-10").at("daily")}}}};
+  const auto asked =
+      protocol::factor_series_query(protocol::encode_factor_request(request).series(0))
+          .dominant_series();
+  EXPECT_EQ(asked.months_size(), 0);
+  EXPECT_EQ(asked.product().product(), "rb");
+  EXPECT_EQ(asked.product().end_day(), "2026-09-30");
 }
 TEST(Factor, ADominantSeriesIsComparedWithContractsOnTheBarsEachHas) {
   auto value = dominant_input();

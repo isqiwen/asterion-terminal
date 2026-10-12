@@ -34,11 +34,11 @@ test("a factor reads a product's months as one dominant series", async ({ page }
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await expect(workspace.getByText("任务服务已连接", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "因子", exact: true }).click();
-  await workspace.getByRole("button", { name: "主力连续", exact: true }).click();
-  await workspace
+  await workspace.getByRole("button", { name: "分钟线主力连续", exact: true }).click();
+  const series = workspace.getByRole("form", { name: "分钟线主力连续", exact: true });
+  await series
     .getByLabel("品种", { exact: true })
     .selectOption({ label: "SHFE/rb · 1 分钟 · tushare.ft_mins · 2 个月份" });
-  const series = workspace.getByRole("region", { name: "主力连续", exact: true });
   await series.getByLabel("最小变动价位").fill("1");
   await series.getByLabel("合约乘数").fill("10");
   await series.getByRole("button", { name: "使用主力连续（2 个月份）", exact: true }).click();
@@ -126,11 +126,11 @@ test("the term structure of a dominant series is evaluated as a factor", async (
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await expect(workspace.getByText("任务服务已连接", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "因子", exact: true }).click();
-  await workspace.getByRole("button", { name: "主力连续", exact: true }).click();
-  await workspace
+  await workspace.getByRole("button", { name: "分钟线主力连续", exact: true }).click();
+  const series = workspace.getByRole("form", { name: "分钟线主力连续", exact: true });
+  await series
     .getByLabel("品种", { exact: true })
     .selectOption({ label: "SHFE/hc · 1 分钟 · tushare.ft_mins · 2 个月份" });
-  const series = workspace.getByRole("region", { name: "主力连续", exact: true });
   await series.getByLabel("最小变动价位").fill("1");
   await series.getByLabel("合约乘数").fill("10");
   await series.getByRole("button", { name: "使用主力连续（2 个月份）", exact: true }).click();
@@ -214,12 +214,12 @@ test("a backtest ranks dominant series by their term structure", async ({ page }
   await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
-  await workspace.getByRole("button", { name: "主力连续", exact: true }).click();
+  await workspace.getByRole("button", { name: "分钟线主力连续", exact: true }).click();
   const choose = async (product: string) => {
-    await workspace
+    const series = workspace.getByRole("form", { name: "分钟线主力连续", exact: true });
+    await series
       .getByLabel("品种", { exact: true })
       .selectOption({ label: `SHFE/${product} · 1 分钟 · tushare.ft_mins · 2 个月份` });
-    const series = workspace.getByRole("region", { name: "主力连续", exact: true });
     await series.getByLabel("最小变动价位").fill("1");
     await series.getByLabel("合约乘数").fill("10");
     await series.getByRole("button", { name: "使用主力连续（2 个月份）", exact: true }).click();

@@ -7,20 +7,31 @@ import { useHistoryDatasets, type HistoryQuery } from "./useHistoryDatasets";
 import { useDailyTable, type DailyTableQuery } from "./useDailyTable";
 import { useWorkspaceDraft } from "../host/workspace/drafts";
 import { DominantSeriesPicker } from "./DominantSeriesPicker";
+import { DailyBarsPicker } from "./DailyBarsPicker";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 
+// A minute download, as the lists of them name it.
 const label = (item: HistoryDatasetRecord) =>
-  `${item.contract_id} · ${item.interval_minutes ? t("{n} 分钟", { n: item.interval_minutes }) : t("日线")} · ${item.begin.slice(0, 10)} — ${item.end.slice(0, 10)} · ${item.source} · ${item.id.slice(0, 8)}`;
+  `${item.contract_id} · ${t("{n} 分钟", { n: item.interval_minutes })} · ${item.begin.slice(0, 10)} — ${item.end.slice(0, 10)} · ${item.source} · ${item.id.slice(0, 8)}`;
 
 // Mirrors the core's portfolio limit.
 const maxContracts = 20;
 
-// Chooses published archive versions for backtests and factors; a portfolio
-// holds one dataset per
-// contract and all of them share the same trading days. The contract identity
-// comes from the archive; only units a data source does not provide are
-// entered here. Settlement prices and trading days are the market-wide daily
-// table's, under the snapshot read when the picker opened.
+// One way of adding data is shown at a time, each a form of its own.
+const methods = [
+  ["daily", "日线合约"],
+  ["daily-series", "日线主力连续"],
+  ["minute", "分钟线合约"],
+  ["minute-series", "分钟线主力连续"],
+  ["saved", "已保存数据集"],
+] as const;
+
+// Chooses the data of backtests and factors; a portfolio holds one dataset per
+// contract and all of them share the same trading days. Daily bars are the
+// market-wide daily table's own; minute bars come from published archive
+// versions, whose contract identity is the archive's. Only units a data source
+// does not provide are entered here. Settlement prices and trading days are
+// always the daily table's, under the snapshot read when the picker opened.
 export function DatasetPicker({
   snapshot,
   busy,
@@ -46,7 +57,10 @@ export function DatasetPicker({
     series.some(group => group.venue === item.venue && group.symbols.includes(item.symbol));
   const all = snapshot?.datasets ?? [];
   const selected = all.filter(item => !inSeries(item));
-  const { items: versions, error: loadError, loading } = useHistoryDatasets(snapshot, query);
+  const { items: archived, error: loadError, loading } = useHistoryDatasets(snapshot, query);
+  // Minute bars are chosen from downloads. Daily bars are the market-wide
+  // daily table's own, so a download of them is not a source.
+  const versions = archived.filter(item => item.interval_minutes > 0);
   const daily = useDailyTable(snapshot, query);
   const [draft, setDraft] = useWorkspaceDraft(
     `dataset-picker:composition:${snapshot?.data?.connection_id}`,
@@ -61,11 +75,10 @@ export function DatasetPicker({
     },
   );
   const { source, extraSources, begin_day, end_day, price_increment, multiplier } = draft;
-  // One way of adding data is shown at a time; what is already chosen stays
-  // above all of them.
-  const [method, setMethod] = useWorkspaceDraft<"contract" | "series" | "saved">(
+  // What is already chosen stays above every way of adding to it.
+  const [method, setMethod] = useWorkspaceDraft<(typeof methods)[number][0]>(
     "dataset-picker:method",
-    "contract",
+    "daily",
   );
   const [savedRevision, setSavedRevision] = useState(0);
   const [error, setError] = useState<DisplayError>("");
@@ -129,6 +142,8 @@ export function DatasetPicker({
       consumed: sourceRequest.request,
     }));
     setError(valid ? "" : t("数据版本不属于当前数据服务，请重新选择数据。"));
+    // The version asked for is a minute download.
+    setMethod("minute");
     // Consume each navigation intent once; subsequent edits belong to this draft.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -142,7 +157,13 @@ export function DatasetPicker({
     setError("");
     try {
       await trade(method, params);
-      if (method === "data.dataset.select" || method === "data.dataset.series") onSelected?.();
+      if (
+        method === "data.dataset.select" ||
+        method === "data.dataset.daily" ||
+        method === "data.dataset.series" ||
+        method === "data.dataset.product"
+      )
+        onSelected?.();
     } catch (reason) {
       setError(asDisplayError(reason));
     }
@@ -167,10 +188,14 @@ export function DatasetPicker({
             })}
           </p>
           <p className="subtle">
-            {t("K 线 {bars} 份 · 结算价取自全市场日线表（快照 {snapshot}）", {
-              bars: item.source_dataset_ids.length,
-              snapshot: item.daily.snapshot.slice(0, 12),
-            })}{" "}
+            {item.source_dataset_ids.length
+              ? t("K 线 {bars} 份 · 结算价取自全市场日线表（快照 {snapshot}）", {
+                  bars: item.source_dataset_ids.length,
+                  snapshot: item.daily.snapshot.slice(0, 12),
+                })
+              : t("日线和结算价取自全市场日线表（快照 {snapshot}）", {
+                  snapshot: item.daily.snapshot.slice(0, 12),
+                })}{" "}
             · {t("数据版本")} <code>{item.revision.slice(0, 16)}</code>
           </p>
           {item.uncovered_days.length > 0 && (
@@ -277,29 +302,15 @@ export function DatasetPicker({
         )}
       </section>
     );
+  const data = snapshot?.data;
   return (
-    <form
-      className="dataset-picker"
-      aria-label={t("历史数据集")}
-      onSubmit={event => {
-        event.preventDefault();
-        if (!daily.held) return;
-        void run("data.dataset.select", {
-          source_dataset_ids: [source, ...extraSources].sort(),
-          daily: daily.held.table,
-          begin_day,
-          end_day,
-          price_increment,
-          multiplier,
-        });
-      }}
-    >
+    <section className="dataset-picker" aria-label={t("历史数据集")}>
       <h3>{t("历史数据集")}</h3>
       <h4>{t("本次使用的数据")}</h4>
       {list}
       {all.length ? (
         <SaveSelection
-          key={snapshot?.data?.connection_id}
+          key={data?.connection_id}
           snapshot={snapshot}
           busy={busy}
           trade={trade}
@@ -316,15 +327,14 @@ export function DatasetPicker({
           <ErrorNotice error={loadError} />
         </p>
       )}
+      {daily.error && (
+        <p role="alert">
+          <ErrorNotice error={daily.error} />
+        </p>
+      )}
       {loading && <p role="status">{t("正在读取历史仓库…")}</p>}
       <div className="activity-tabs" role="group" aria-label={t("添加数据的方式")}>
-        {(
-          [
-            ["contract", "单个合约"],
-            ["series", "主力连续"],
-            ["saved", "已保存数据集"],
-          ] as const
-        ).map(([value, name]) => (
+        {methods.map(([value, name]) => (
           <button
             key={value}
             type="button"
@@ -335,146 +345,186 @@ export function DatasetPicker({
           </button>
         ))}
       </div>
-      <div hidden={method !== "contract"}>
-        {!snapshot?.data ? (
-          <p className="subtle">{t("数据服务未连接，无法读取已下载的历史数据。")}</p>
-        ) : !versions.length ? (
-          <p className="subtle">{t("历史仓库还没有数据。请先在数据页下载分钟线或日线。")}</p>
-        ) : (
-          <fieldset disabled={busy || !snapshot?.data?.online || loading}>
-            <div className="futures-fields">
-              <label className="dataset-version-field">
-                {t("K 线来源")}
-                <select
-                  aria-label={t("K 线来源")}
-                  value={source}
-                  onChange={event => choose(event.target.value)}
-                  required
-                >
-                  <option value="">{t("选择历史数据版本")}</option>
-                  {versions.map(item => (
-                    <option key={item.id} value={item.id}>
-                      {label(item)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t("开始交易日")}
-                <input
-                  aria-label={t("开始交易日")}
-                  type="date"
-                  value={begin_day}
-                  onChange={event => setDraft({ ...draft, begin_day: event.target.value })}
-                />
-              </label>
-              <label>
-                {t("结束交易日")}
-                <input
-                  aria-label={t("结束交易日")}
-                  type="date"
-                  value={end_day}
-                  onChange={event => setDraft({ ...draft, end_day: event.target.value })}
-                />
-              </label>
-              <label>
-                {t("最小变动价位")}
-                <input
-                  aria-label={t("最小变动价位")}
-                  inputMode="decimal"
-                  value={price_increment}
-                  onChange={event => setDraft({ ...draft, price_increment: event.target.value })}
-                  required
-                />
-              </label>
-              <label>
-                {t("合约乘数")}
-                <input
-                  aria-label={t("合约乘数")}
-                  inputMode="decimal"
-                  value={multiplier}
-                  onChange={event => setDraft({ ...draft, multiplier: event.target.value })}
-                  required
-                />
-              </label>
-            </div>
-            {chosen && additionalSources.length > 0 && (
-              <details className="dataset-composition">
-                <summary>
-                  {t("拼接更多下载")} · {t("K 线 {bars} 份", { bars: 1 + extraSources.length })}
-                </summary>
-                <p className="subtle">
-                  {t("选择同合约、同周期的其他下载；相同记录去重，冲突记录拒绝使用。最多 32 份。")}
-                </p>
-                <fieldset>
-                  <legend>{t("补充 K 线")}</legend>
-                  {additionalSources.map(item => (
-                    <label className="dataset-segment" key={item.id}>
-                      <input
-                        type="checkbox"
-                        checked={extraSources.includes(item.id)}
-                        disabled={!extraSources.includes(item.id) && extraSources.length >= 31}
-                        onChange={() => toggle(item.id)}
-                      />
-                      <span>{label(item)}</span>
-                    </label>
-                  ))}
-                </fieldset>
-              </details>
-            )}
-            {chosen && settled && daily.held && (
-              <p className="subtle">
-                {t(
-                  "结算价和交易日取自全市场日线表：{exchange} 已入库 {first} — {last}，按快照 {snapshot} 读取，之后入库的数据不影响这次选择。",
-                  {
-                    exchange: settled.exchange,
-                    first: settled.first_period,
-                    last: settled.last_period,
-                    snapshot: daily.held.table.snapshot.slice(0, 12),
-                  },
-                )}
-              </p>
-            )}
-            {chosen && !daily.loading && !settled && (
-              <p role="status">
-                {t(
-                  "全市场日线表里还没有 {exchange} 的数据，结算价无处可取。请先在「数据 → 全市场数据」更新日线，范围要覆盖这些 K 线的交易日。",
-                  { exchange: exchange ?? "" },
-                )}
-              </p>
-            )}
-            <div className="source-actions">
-              <button
-                type="submit"
-                className="primary"
-                disabled={!chosen || !settled || (!replacing && all.length >= maxContracts)}
+      {!data && method !== "saved" && (
+        <p className="subtle">{t("数据服务未连接，无法读取已下载的历史数据。")}</p>
+      )}
+      {data && (
+        <>
+          <div hidden={method !== "daily"}>
+            <DailyBarsPicker
+              key={data.connection_id}
+              kind="contract"
+              daily={daily.held}
+              disabled={busy || !data.online || daily.loading}
+              select={(command, params) => void run(command, params)}
+            />
+          </div>
+          <div hidden={method !== "daily-series"}>
+            <DailyBarsPicker
+              key={data.connection_id}
+              kind="product"
+              daily={daily.held}
+              disabled={busy || !data.online || daily.loading}
+              select={(command, params) => void run(command, params)}
+            />
+          </div>
+          <div hidden={method !== "minute"}>
+            {!versions.length ? (
+              <p className="subtle">{t("历史仓库还没有分钟线。请先在数据页下载分钟线。")}</p>
+            ) : (
+              <form
+                aria-label={t("分钟线合约")}
+                onSubmit={event => {
+                  event.preventDefault();
+                  if (!daily.held) return;
+                  void run("data.dataset.select", {
+                    source_dataset_ids: [source, ...extraSources].sort(),
+                    daily: daily.held.table,
+                    begin_day,
+                    end_day,
+                    price_increment,
+                    multiplier,
+                  });
+                }}
               >
-                {replacing ? t("更新此合约") : all.length ? t("加入组合") : t("使用此数据集")}
-              </button>
-              <span className="subtle">
-                {t(
-                  "交易日区间留空表示全部；组合内合约须覆盖相同交易日；合约单位以交易所公布为准。",
-                )}
-              </span>
-            </div>
-          </fieldset>
-        )}
-      </div>
-      <div hidden={method !== "series"}>
-        {!!versions.length && (
-          <DominantSeriesPicker
-            key={snapshot?.data?.connection_id}
-            snapshot={snapshot}
-            versions={versions}
-            disabled={busy || !snapshot?.data?.online || loading}
-            daily={daily.held}
-            select={params => void run("data.dataset.series", params)}
-          />
-        )}
-      </div>
+                <fieldset disabled={busy || !data.online || loading}>
+                  <div className="futures-fields">
+                    <label className="dataset-version-field">
+                      {t("K 线来源")}
+                      <select
+                        aria-label={t("K 线来源")}
+                        value={source}
+                        onChange={event => choose(event.target.value)}
+                        required
+                      >
+                        <option value="">{t("选择历史数据版本")}</option>
+                        {versions.map(item => (
+                          <option key={item.id} value={item.id}>
+                            {label(item)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      {t("开始交易日")}
+                      <input
+                        type="date"
+                        value={begin_day}
+                        onChange={event => setDraft({ ...draft, begin_day: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      {t("结束交易日")}
+                      <input
+                        type="date"
+                        value={end_day}
+                        onChange={event => setDraft({ ...draft, end_day: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      {t("最小变动价位")}
+                      <input
+                        inputMode="decimal"
+                        value={price_increment}
+                        onChange={event =>
+                          setDraft({ ...draft, price_increment: event.target.value })
+                        }
+                        required
+                      />
+                    </label>
+                    <label>
+                      {t("合约乘数")}
+                      <input
+                        inputMode="decimal"
+                        value={multiplier}
+                        onChange={event => setDraft({ ...draft, multiplier: event.target.value })}
+                        required
+                      />
+                    </label>
+                  </div>
+                  {chosen && additionalSources.length > 0 && (
+                    <details className="dataset-composition">
+                      <summary>
+                        {t("拼接更多下载")} ·{" "}
+                        {t("K 线 {bars} 份", { bars: 1 + extraSources.length })}
+                      </summary>
+                      <p className="subtle">
+                        {t(
+                          "选择同合约、同周期的其他下载；相同记录去重，冲突记录拒绝使用。最多 32 份。",
+                        )}
+                      </p>
+                      <fieldset>
+                        <legend>{t("补充 K 线")}</legend>
+                        {additionalSources.map(item => (
+                          <label className="dataset-segment" key={item.id}>
+                            <input
+                              type="checkbox"
+                              checked={extraSources.includes(item.id)}
+                              disabled={
+                                !extraSources.includes(item.id) && extraSources.length >= 31
+                              }
+                              onChange={() => toggle(item.id)}
+                            />
+                            <span>{label(item)}</span>
+                          </label>
+                        ))}
+                      </fieldset>
+                    </details>
+                  )}
+                  {chosen && settled && daily.held && (
+                    <p className="subtle">
+                      {t(
+                        "结算价和交易日取自全市场日线表：{exchange} 已入库 {first} — {last}，按快照 {snapshot} 读取，之后入库的数据不影响这次选择。",
+                        {
+                          exchange: settled.exchange,
+                          first: settled.first_period,
+                          last: settled.last_period,
+                          snapshot: daily.held.table.snapshot.slice(0, 12),
+                        },
+                      )}
+                    </p>
+                  )}
+                  {chosen && !daily.loading && !settled && (
+                    <p role="status">
+                      {t(
+                        "全市场日线表里还没有 {exchange} 的数据，结算价无处可取。请先在「数据 → 全市场数据」更新日线，范围要覆盖这些 K 线的交易日。",
+                        { exchange: exchange ?? "" },
+                      )}
+                    </p>
+                  )}
+                  <div className="source-actions">
+                    <button
+                      type="submit"
+                      className="primary"
+                      disabled={!chosen || !settled || (!replacing && all.length >= maxContracts)}
+                    >
+                      {replacing ? t("更新此合约") : all.length ? t("加入组合") : t("使用此数据集")}
+                    </button>
+                    <span className="subtle">
+                      {t(
+                        "交易日区间留空表示全部；组合内合约须覆盖相同交易日；合约单位以交易所公布为准。",
+                      )}
+                    </span>
+                  </div>
+                </fieldset>
+              </form>
+            )}
+          </div>
+          <div hidden={method !== "minute-series"}>
+            <DominantSeriesPicker
+              key={data.connection_id}
+              snapshot={snapshot}
+              versions={versions}
+              disabled={busy || !data.online || loading}
+              daily={daily.held}
+              select={params => void run("data.dataset.series", params)}
+            />
+          </div>
+        </>
+      )}
       <div hidden={method !== "saved"}>
         <SavedDatasets
-          key={snapshot?.data?.connection_id}
+          key={data?.connection_id}
           snapshot={snapshot}
           busy={busy}
           query={query}
@@ -495,6 +545,6 @@ export function DatasetPicker({
           <ErrorNotice error={error} />
         </p>
       )}
-    </form>
+    </section>
   );
 }

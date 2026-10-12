@@ -1,5 +1,6 @@
 #include "application_impl.hpp"
 #include <asterion/protocol/factor.hpp>
+#include <asterion/protocol/task_execution.hpp>
 #include <asterion/domain/history_identity.hpp>
 
 #include <stdexcept>
@@ -31,20 +32,12 @@ DatasetSelection resolved_selection(const data::v1::BarDatasetRequest& request,
                   {"uncovered_days", uncovered}});
   return DatasetSelection{request, std::move(dataset), std::move(summary)};
 }
-// The request for one archived contract: its identity comes from the
-// archive, the units a data source does not provide from the user, and its
-// daily facts from the market-wide table under the snapshot the user saw.
-data::v1::BarDatasetRequest contract_request(const Json& archive, const json& sources,
+// The request for one contract. Its units, which a data source does not
+// provide, come from the user, and its daily facts from the market-wide table
+// under the snapshot the user saw; `sources` are archive versions of its
+// minute bars, or none for its daily bars in that table.
+data::v1::BarDatasetRequest contract_request(const HistoryIdentity& identity, const json& sources,
                                              const json& p) {
-  if (!sources.is_array() || sources.empty())
-    throw std::invalid_argument("dataset requires 1..32 source versions");
-  std::string key;
-  for (const auto& item : archive)
-    if (item.at("id") == sources.at(0))
-      key = item.at("contract_id").get<std::string>();
-  if (key.empty())
-    throw std::invalid_argument("historical dataset is unavailable");
-  const auto identity = HistoryIdentity::parse(key);
   const auto id = identity.exchange_id();
   auto product = id.symbol.substr(0, identity.product.size());
   return protocol::encode_bar_dataset_request({{"source_dataset_ids", sources},
@@ -60,6 +53,16 @@ data::v1::BarDatasetRequest contract_request(const Json& archive, const json& so
                                                  {"multiplier", p.at("multiplier")},
                                                  {"product", std::move(product)},
                                                  {"delivery_month", identity.delivery_month}}}});
+}
+// The contract an archive version is of: a selection takes its identity from
+// the archive, not from the user.
+HistoryIdentity archived_contract(const Json& archive, const json& sources) {
+  if (!sources.is_array() || sources.empty())
+    throw std::invalid_argument("dataset requires 1..32 source versions");
+  for (const auto& item : archive)
+    if (item.at("id") == sources.at(0))
+      return HistoryIdentity::parse(item.at("contract_id").get<std::string>());
+  throw std::invalid_argument("historical dataset is unavailable");
 }
 } // namespace
 data::v1::MinutePageQuery minute_page_query(const json& p) {
@@ -119,6 +122,71 @@ data::v1::DailyPageQuery daily_page_query(const json& p) {
   if (!query.begin_day().empty() && !query.end_day().empty() && query.begin_day() > query.end_day())
     throw std::invalid_argument("invalid daily dataset page query");
   return query;
+}
+void Application::Impl::adopt_selection(DatasetSelection next) {
+  if (series_of(next.dataset.contract()))
+    throw std::invalid_argument(
+        "this product is selected as a dominant series; remove the series first");
+  ++dataset_selection_generation;
+  const auto same = std::ranges::find_if(selections, [&](const DatasetSelection& item) {
+    return item.dataset.contract().venue() == next.dataset.contract().venue() &&
+           item.dataset.contract().symbol() == next.dataset.contract().symbol();
+  });
+  if (same != selections.end())
+    *same = std::move(next);
+  else if (selections.size() == max_portfolio_contracts)
+    throw std::invalid_argument("a portfolio holds at most 20 contracts");
+  else
+    selections.push_back(std::move(next));
+}
+void Application::Impl::adopt_series(DatasetSeries series,
+                                     const data::v1::DominantSeriesPreview& preview,
+                                     const std::vector<data::v1::BarDatasetRequest>& traded) {
+  const auto& product = preview.datasets(0).contract();
+  // The series replaces whatever was selected for this product.
+  auto kept = selections;
+  std::erase_if(kept, [&](const DatasetSelection& item) {
+    return item.dataset.contract().venue() == product.venue() &&
+           item.dataset.contract().product() == product.product();
+  });
+  auto remaining = dataset_series;
+  std::erase_if(remaining, [&](const DatasetSeries& item) {
+    return item.summary.at("venue") == product.venue() &&
+           item.summary.at("product") == product.product();
+  });
+  // A submission lists every month a series was given (a product lists none)
+  // and trades the months that trade: neither may exceed a portfolio.
+  std::size_t listed = series.months.size();
+  for (const auto& item : remaining)
+    listed += item.months.size();
+  for (const auto& item : kept)
+    if (std::ranges::none_of(remaining, [&](const DatasetSeries& other) {
+          return other.summary.at("venue") == item.dataset.contract().venue() &&
+                 other.summary.at("product") == item.dataset.contract().product();
+        }))
+      ++listed;
+  if (listed > max_portfolio_contracts || kept.size() + traded.size() > max_portfolio_contracts)
+    throw std::invalid_argument("a portfolio holds at most 20 contracts");
+  json symbols = json::array(), rolls = json::array();
+  for (int i = 0; i < preview.datasets_size(); ++i) {
+    const auto& dataset = preview.datasets(i);
+    symbols.push_back(dataset.contract().symbol());
+    rolls.push_back(
+        {{"trading_day", preview.schedule().rolls(i).trading_day()},
+         {"symbol", dataset.contract().symbol()},
+         {"factor", Decimal::from_raw(preview.schedule().rolls(i).factor().units()).str()}});
+    kept.push_back(resolved_selection(traded[static_cast<std::size_t>(i)], dataset));
+  }
+  series.summary = {{"venue", product.venue()},
+                    {"product", product.product()},
+                    {"symbols", std::move(symbols)},
+                    {"rolls", std::move(rolls)},
+                    // Trading days on which the term structure is known.
+                    {"terms", preview.schedule().terms_size()}};
+  remaining.push_back(std::move(series));
+  ++dataset_selection_generation;
+  selections = std::move(kept);
+  dataset_series = std::move(remaining);
 }
 void Application::Impl::register_data_commands() {
   command("data.history.usage", [this](const json& p) -> PolledTask<Response> {
@@ -490,28 +558,36 @@ void Application::Impl::register_data_commands() {
     const auto client = data_client;
     const auto generation = data_task_generation;
     auto next = (co_await run<DatasetSelection>([&]() -> PolledTask<DatasetSelection> {
-      const auto request = contract_request((co_await PollFuture{client->datasets({})}),
-                                            p.at("source_dataset_ids"), p);
+      const auto request =
+          contract_request(archived_contract((co_await PollFuture{client->datasets({})}),
+                                             p.at("source_dataset_ids")),
+                           p.at("source_dataset_ids"), p);
       co_return resolved_selection(request, (co_await PollFuture{client->bar_dataset(request)}));
     }));
     if (generation != data_task_generation)
       throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
     if (selection_generation != dataset_selection_generation)
       throw Error(ErrorCode::conflict, "dataset selection changed during resolution");
-    if (series_of(next.dataset.contract()))
-      throw std::invalid_argument(
-          "this product is selected as a dominant series; remove the series first");
-    ++dataset_selection_generation;
-    const auto same = std::ranges::find_if(selections, [&](const DatasetSelection& item) {
-      return item.dataset.contract().venue() == next.dataset.contract().venue() &&
-             item.dataset.contract().symbol() == next.dataset.contract().symbol();
-    });
-    if (same != selections.end())
-      *same = std::move(next);
-    else if (selections.size() == max_portfolio_contracts)
-      throw std::invalid_argument("a portfolio holds at most 20 contracts");
-    else
-      selections.push_back(std::move(next));
+    adopt_selection(std::move(next));
+    co_return snapshot();
+  });
+  // A contract's daily bars in the market-wide daily table: the days it traded
+  // on from the first day to the last. No archive version is chosen.
+  command("data.dataset.daily", [this](const json& p) -> PolledTask<Response> {
+    fields(p, {"contract_id", "daily", "begin_day", "end_day", "price_increment", "multiplier"});
+    if (!data_client)
+      throw std::invalid_argument("data service is not connected");
+    const auto request =
+        contract_request(HistoryIdentity::parse(text(p, "contract_id")), json::array(), p);
+    const auto selection_generation = dataset_selection_generation;
+    const auto client = data_client;
+    const auto generation = data_task_generation;
+    auto next = resolved_selection(request, (co_await PollFuture{client->bar_dataset(request)}));
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
+    if (selection_generation != dataset_selection_generation)
+      throw Error(ErrorCode::conflict, "dataset selection changed during resolution");
+    adopt_selection(std::move(next));
     co_return snapshot();
   });
   // Month contracts of one product as its dominant series: one archive
@@ -537,7 +613,9 @@ void Application::Impl::register_data_commands() {
               const auto archive = (co_await PollFuture{client->datasets({})});
               std::vector<data::v1::BarDatasetRequest> months;
               for (std::size_t i = 0; i < sources.size(); ++i)
-                months.push_back(contract_request(archive, json::array({sources[i]}), p));
+                months.push_back(
+                    contract_request(archived_contract(archive, json::array({sources[i]})),
+                                     json::array({sources[i]}), p));
               auto preview = (co_await PollFuture{client->dominant_series(months)});
               co_return std::pair{std::move(months), std::move(preview)};
             }));
@@ -545,49 +623,44 @@ void Application::Impl::register_data_commands() {
       throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
     if (selection_generation != dataset_selection_generation)
       throw Error(ErrorCode::conflict, "dataset selection changed during resolution");
-    const auto& product = months.front().contract();
-    // The series replaces whatever was selected for this product.
-    auto kept = selections;
-    std::erase_if(kept, [&](const DatasetSelection& item) {
-      return item.dataset.contract().venue() == product.venue() &&
-             item.dataset.contract().product() == product.product();
-    });
-    auto remaining = dataset_series;
-    std::erase_if(remaining, [&](const DatasetSeries& item) {
-      return item.summary.at("venue") == product.venue() &&
-             item.summary.at("product") == product.product();
-    });
-    std::size_t contracts = months.size();
-    for (const auto& item : remaining)
-      contracts += item.months.size();
-    for (const auto& item : kept)
-      if (std::ranges::none_of(remaining, [&](const DatasetSeries& series) {
-            return series.summary.at("venue") == item.dataset.contract().venue() &&
-                   series.summary.at("product") == item.dataset.contract().product();
-          }))
-        ++contracts;
-    if (contracts > max_portfolio_contracts)
-      throw std::invalid_argument("a portfolio holds at most 20 contracts");
-    json symbols = json::array(), rolls = json::array();
-    for (int i = 0; i < preview.months_size(); ++i) {
-      const auto& dataset = preview.datasets(i);
-      symbols.push_back(dataset.contract().symbol());
-      rolls.push_back(
-          {{"trading_day", preview.schedule().rolls(i).trading_day()},
-           {"symbol", dataset.contract().symbol()},
-           {"factor", Decimal::from_raw(preview.schedule().rolls(i).factor().units()).str()}});
-      kept.push_back(resolved_selection(months[preview.months(i)], dataset));
-    }
-    remaining.push_back({std::move(months),
-                         {{"venue", product.venue()},
-                          {"product", product.product()},
-                          {"symbols", std::move(symbols)},
-                          {"rolls", std::move(rolls)},
-                          // Trading days on which the term structure is known.
-                          {"terms", preview.schedule().terms_size()}}});
-    ++dataset_selection_generation;
-    selections = std::move(kept);
-    dataset_series = std::move(remaining);
+    // Each month that trades is selected with the request it was resolved from.
+    std::vector<data::v1::BarDatasetRequest> traded;
+    for (const auto index : preview.months())
+      traded.push_back(months[index]);
+    adopt_series({std::move(months), std::nullopt, {}}, preview, traded);
+    co_return snapshot();
+  });
+  // A product's daily bars in the market-wide daily table as its dominant
+  // series: the data service finds the months that traded in the range.
+  command("data.dataset.product", [this](const json& p) -> PolledTask<Response> {
+    fields(p, {"product", "daily", "begin_day", "end_day", "price_increment", "multiplier"});
+    if (!data_client)
+      throw std::invalid_argument("data service is not connected");
+    const auto instrument = protocol::table_instrument(text(p, "product"));
+    if (!instrument.delivery_month.empty())
+      throw std::invalid_argument("a dominant series is read of a product, not of a contract");
+    const auto request =
+        protocol::encode_product_bars_request({{"venue", instrument.venue},
+                                               {"product", instrument.product},
+                                               {"price_increment", p.at("price_increment")},
+                                               {"multiplier", p.at("multiplier")},
+                                               {"begin_day", p.at("begin_day")},
+                                               {"end_day", p.at("end_day")},
+                                               {"daily", p.at("daily")}});
+    const auto selection_generation = dataset_selection_generation;
+    const auto client = data_client;
+    const auto generation = data_task_generation;
+    const auto preview = (co_await PollFuture{client->dominant_series(request)});
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
+    if (selection_generation != dataset_selection_generation)
+      throw Error(ErrorCode::conflict, "dataset selection changed during resolution");
+    // Each month that trades is selected as its own daily bars over the days
+    // the series reads of it.
+    std::vector<data::v1::BarDatasetRequest> traded;
+    for (const auto& dataset : preview.datasets())
+      traded.push_back(protocol::bar_dataset_selection(dataset));
+    adopt_series({{}, request, {}}, preview, traded);
     co_return snapshot();
   });
   // Removing a month of a dominant series removes the whole series.

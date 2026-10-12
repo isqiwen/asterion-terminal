@@ -9,7 +9,8 @@ void Application::Impl::register_factor_commands() {
     // A factor reads the bars this window has selected, a daily version
     // published in the archive, or instruments of the market-wide daily table.
     // Each selected contract is a series, and so is each dominant series, which
-    // sends every month it was resolved from.
+    // sends every month it was resolved from, or the product whose months Data
+    // finds in the daily table.
     const auto& series = p.at("series");
     auto sources = json::array();
     if (series.is_object() && series.value("kind", "") == "bars") {
@@ -18,6 +19,11 @@ void Application::Impl::register_factor_commands() {
         if (!series_of(dataset.dataset.contract()))
           sources.push_back({{"bars", protocol::decode_bar_dataset_request(dataset.request)}});
       for (const auto& item : dataset_series) {
+        if (item.product) {
+          sources.push_back(
+              {{"dominant", {{"product", protocol::decode_product_bars_request(*item.product)}}}});
+          continue;
+        }
         auto months = json::array();
         for (const auto& month : item.months)
           months.push_back(protocol::decode_bar_dataset_request(month));

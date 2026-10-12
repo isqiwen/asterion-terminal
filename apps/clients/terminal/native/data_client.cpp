@@ -271,6 +271,33 @@ DataClient::dominant_series(const std::vector<data::v1::BarDatasetRequest>& mont
         return std::move(preview);
       });
 }
+std::future<data::v1::DominantSeriesPreview>
+DataClient::dominant_series(const data::v1::ProductBarsRequest& product) {
+  wire::DataRequest request;
+  *request.mutable_dominant_series()->mutable_product() = product;
+  return impl_->invoke<data::v1::DominantSeriesPreview>(
+      std::move(request),
+      [](const wire::DataRequest& request,
+         wire::DataResponse& response) -> data::v1::DominantSeriesPreview {
+        const auto& product = request.dominant_series().product();
+        auto& preview = *response.mutable_dominant_series();
+        if (preview.months().empty() || preview.months_size() != preview.datasets_size() ||
+            preview.schedule().rolls_size() != preview.months_size())
+          throw Error(ErrorCode::unavailable, "bar dataset identity mismatch");
+        for (int i = 0; i < preview.datasets_size(); ++i) {
+          const auto& dataset = preview.datasets(i);
+          protocol::validate_bar_dataset(dataset);
+          // Daily bars of the product asked for, under the snapshot asked for.
+          if (preview.schedule().rolls(i).contract() != unsigned(i) ||
+              dataset.source_dataset_ids_size() || dataset.contract().venue() != product.venue() ||
+              dataset.contract().price_increment().units() != product.price_increment().units() ||
+              dataset.contract().multiplier().units() != product.multiplier().units() ||
+              dataset.daily().SerializeAsString() != product.daily().SerializeAsString())
+            throw Error(ErrorCode::unavailable, "bar dataset identity mismatch");
+        }
+        return std::move(preview);
+      });
+}
 std::future<data::v1::BarDataset>
 DataClient::bar_dataset(const data::v1::BarDatasetRequest& query) {
   wire::DataRequest request;

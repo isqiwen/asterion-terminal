@@ -302,11 +302,19 @@ PolledTask<> TaskHost::submit_download(Call& call) {
 PolledTask<> TaskHost::submit_backtest(Call& call) {
   const auto& p = call.request.submit();
   const auto& b = p.backtest();
-  if (b.contracts().empty() || b.contracts_size() > 20)
+  // A product of the daily table brings its own months.
+  if (b.contracts_size() > 20 ||
+      (b.contracts().empty() &&
+       std::ranges::none_of(b.series(), [](const auto& series) { return series.has_product(); })))
     throw std::invalid_argument("backtest requires 1 to 20 contracts");
   // Months of a dominant series are resolved together by Data.
   std::vector<bool> in_series(static_cast<std::size_t>(b.contracts_size()));
   for (const auto& series : b.series()) {
+    if (series.has_product()) {
+      if (series.contracts_size())
+        throw std::invalid_argument("a dominant series names its months or its product");
+      continue;
+    }
     if (series.contracts_size() < 2)
       throw std::invalid_argument("a dominant series requires at least two month contracts");
     for (const auto index : series.contracts()) {
@@ -316,14 +324,24 @@ PolledTask<> TaskHost::submit_backtest(Call& call) {
     }
   }
   // The frozen contracts: ordinary ones in request order, then the dominant
-  // months of each series.
-  std::vector<std::pair<std::size_t, data::v1::BarDataset>> datasets;
+  // months of each series, each with what it trades at.
+  struct Frozen {
+    data::v1::BarDataset dataset;
+    const protocol::v1::CostSchedule* costs;
+    unsigned slippage;
+  };
+  std::vector<Frozen> datasets;
   std::size_t total_bars = 0;
-  const auto keep = [&](std::size_t index, data::v1::BarDataset dataset) {
+  const auto freeze = [&](data::v1::BarDataset dataset, const protocol::v1::CostSchedule& costs,
+                          unsigned slippage) {
     total_bars += static_cast<std::size_t>(dataset.bars_size());
     if (total_bars > protocol::max_dataset_bars)
       throw std::invalid_argument("dataset exceeds 200000 bars; narrow the date range");
-    datasets.emplace_back(index, std::move(dataset));
+    datasets.push_back({std::move(dataset), &costs, slippage});
+  };
+  const auto keep = [&](std::size_t index, data::v1::BarDataset dataset) {
+    const auto& contract = b.contracts(static_cast<int>(index));
+    freeze(std::move(dataset), contract.cost_schedule(), contract.slippage_ticks());
   };
   for (std::size_t c = 0; c < in_series.size(); ++c) {
     if (in_series[c])
@@ -336,6 +354,8 @@ PolledTask<> TaskHost::submit_backtest(Call& call) {
   std::vector<data::v1::DominantSchedule> schedules;
   for (const auto& series : b.series()) {
     data::v1::DataRequest query;
+    if (series.has_product())
+      *query.mutable_dominant_series()->mutable_product() = series.product().data();
     for (const auto index : series.contracts())
       *query.mutable_dominant_series()->add_months() = b.contracts(index).data();
     auto prepared = co_await data_input(call, std::move(query));
@@ -345,6 +365,12 @@ PolledTask<> TaskHost::submit_backtest(Call& call) {
     for (auto& roll : *resolved.mutable_schedule()->mutable_rolls())
       roll.set_contract(roll.contract() + static_cast<unsigned>(datasets.size()));
     for (int m = 0; m < resolved.months_size(); ++m) {
+      // A product's months are Data's to find; all trade at the product's costs.
+      if (series.has_product()) {
+        freeze(std::move(*resolved.mutable_datasets(m)), series.product().cost_schedule(),
+               series.product().slippage_ticks());
+        continue;
+      }
       if (resolved.months(m) >= static_cast<unsigned>(series.contracts_size()))
         throw std::invalid_argument("dominant series response has an unknown month");
       keep(series.contracts(resolved.months(m)), std::move(*resolved.mutable_datasets(m)));
@@ -356,11 +382,11 @@ PolledTask<> TaskHost::submit_backtest(Call& call) {
   auto* paper = input.mutable_paper();
   *paper->mutable_deposit() = b.deposit();
   *paper->mutable_risk() = b.risk();
-  for (auto& [index, dataset] : datasets) {
+  for (auto& frozen : datasets) {
     auto* contract = paper->add_contracts();
-    *contract->mutable_dataset() = std::move(dataset);
-    *contract->mutable_cost_schedule() = b.contracts(static_cast<int>(index)).cost_schedule();
-    contract->set_slippage_ticks(b.contracts(static_cast<int>(index)).slippage_ticks());
+    *contract->mutable_dataset() = std::move(frozen.dataset);
+    *contract->mutable_cost_schedule() = *frozen.costs;
+    contract->set_slippage_ticks(frozen.slippage);
   }
   for (auto& schedule : schedules)
     *input.add_series() = std::move(schedule);

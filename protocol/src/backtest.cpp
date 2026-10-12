@@ -43,24 +43,39 @@ backtest::v1::BacktestRequest encode_backtest_request(const Json& input) {
   if (!input.at("strategies").is_array() || input.at("strategies").empty() ||
       input.at("strategies").size() > 32 || !input.at("holdout_from").is_string())
     throw std::invalid_argument("backtest requires 1 to 32 strategies");
+  // A product of the daily table brings its own months: with one, the request
+  // need list no contract.
+  const auto product = [](const Json& series) { return series.is_object(); };
   if (!input.at("series").is_array() || !input.at("contracts").is_array() ||
-      input.at("contracts").empty() || input.at("contracts").size() > max_portfolio_contracts)
+      input.at("contracts").size() > max_portfolio_contracts ||
+      (input.at("contracts").empty() && std::ranges::none_of(input.at("series"), product)))
     throw std::invalid_argument("backtest requires 1 to 20 contracts");
+  const auto slippage = [](const Json& traded) {
+    if (!traded.at("slippage_ticks").is_number_integer() || traded.at("slippage_ticks") < 0 ||
+        traded.at("slippage_ticks") > max_slippage_ticks)
+      throw std::invalid_argument("slippage is 0 to 100 price increments");
+    return traded.at("slippage_ticks").get<unsigned>();
+  };
   backtest::v1::BacktestRequest result;
   for (const auto& contract : input.at("contracts")) {
     require_fields(contract, {"data", "cost_schedule", "slippage_ticks"});
-    if (!contract.at("slippage_ticks").is_number_integer() || contract.at("slippage_ticks") < 0 ||
-        contract.at("slippage_ticks") > max_slippage_ticks)
-      throw std::invalid_argument("slippage is 0 to 100 price increments");
     auto* item = result.add_contracts();
+    item->set_slippage_ticks(slippage(contract));
     *item->mutable_data() = encode_bar_dataset_request(contract.at("data"));
     *item->mutable_cost_schedule() = encode_cost_schedule(contract.at("cost_schedule"));
-    item->set_slippage_ticks(contract.at("slippage_ticks").get<unsigned>());
   }
   for (const auto& members : input.at("series")) {
+    auto* series = result.add_series();
+    if (product(members)) {
+      require_fields(members, {"product", "cost_schedule", "slippage_ticks"});
+      auto* traded = series->mutable_product();
+      traded->set_slippage_ticks(slippage(members));
+      *traded->mutable_data() = encode_product_bars_request(members.at("product"));
+      *traded->mutable_cost_schedule() = encode_cost_schedule(members.at("cost_schedule"));
+      continue;
+    }
     if (!members.is_array() || members.size() < 2)
       throw std::invalid_argument("a dominant series requires at least two month contracts");
-    auto* series = result.add_series();
     for (const auto& index : members) {
       if (!index.is_number_unsigned())
         throw std::invalid_argument("invalid dominant series contracts");

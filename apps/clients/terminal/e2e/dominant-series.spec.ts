@@ -31,18 +31,15 @@ test("a product's months backtest as its dominant series and roll at real prices
   await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   const workspace = page.getByRole("region", { name: "期货研究", exact: true });
   await workspace.getByRole("button", { name: "新建回测", exact: true }).click();
-  await workspace.getByRole("button", { name: "主力连续", exact: true }).click();
-  const product = workspace.getByLabel("品种", { exact: true });
-  // Daily downloads form a series of their own.
-  await expect(product.locator("option")).toHaveCount(3);
-  for (const name of [
+  await workspace.getByRole("button", { name: "分钟线主力连续", exact: true }).click();
+  const series = workspace.getByRole("form", { name: "分钟线主力连续", exact: true });
+  const product = series.getByLabel("品种", { exact: true });
+  // Daily downloads form no series: daily bars are the daily table's own.
+  await expect(product.locator("option")).toHaveText([
     "选择品种",
-    "SHFE/rb · 日线 · tushare.fut_daily · 2 个月份",
     "SHFE/rb · 1 分钟 · tushare.ft_mins · 2 个月份",
-  ])
-    await expect(product.getByRole("option", { name, exact: true })).toHaveCount(1);
+  ]);
   await product.selectOption({ label: "SHFE/rb · 1 分钟 · tushare.ft_mins · 2 个月份" });
-  const series = workspace.getByRole("region", { name: "主力连续", exact: true });
   await series.getByLabel("最小变动价位").fill("1");
   await series.getByLabel("合约乘数").fill("10");
   await series.getByRole("button", { name: "使用主力连续（2 个月份）", exact: true }).click();

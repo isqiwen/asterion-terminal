@@ -14,10 +14,12 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
   await page.getByRole("button", { name: "新建回测", exact: true }).click();
-  const picker = page.getByRole("form", { name: "历史数据集" });
-  await picker.getByLabel("K 线来源", { exact: true }).selectOption(first.source_dataset_ids[0]);
-  await picker.getByLabel("最小变动价位", { exact: true }).fill("1");
-  await picker.getByLabel("合约乘数", { exact: true }).fill("10");
+  const picker = page.getByRole("region", { name: "历史数据集", exact: true });
+  await picker.getByRole("button", { name: "分钟线合约", exact: true }).click();
+  const minute = picker.getByRole("form", { name: "分钟线合约", exact: true });
+  await minute.getByLabel("K 线来源", { exact: true }).selectOption(first.source_dataset_ids[0]);
+  await minute.getByLabel("最小变动价位", { exact: true }).fill("1");
+  await minute.getByLabel("合约乘数", { exact: true }).fill("10");
   await picker.getByText("拼接更多下载", { exact: false }).click();
   // Both days settle from the daily table; only the bars are put together.
   const bars = picker.getByRole("group", { name: "补充 K 线", exact: true });

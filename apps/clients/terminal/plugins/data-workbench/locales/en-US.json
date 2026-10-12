@@ -193,7 +193,7 @@
   "检查已连接节点的任务与已保存数据集；停止的本机服务只读检查账本。": "Inspect tasks and saved datasets on connected nodes; stopped local service ledgers are read only.",
   "核对任务记录和本窗口草稿。尚未开放历史版本删除。": "Checks task records and this window's drafts. Deleting historical versions is not available yet.",
   "未检查停止的远程数据服务、未连接的节点及其他窗口的回测与因子草稿。结果是本次查询的观察值，不是删除许可；检查失败时不能按无引用处理。": "Stopped remote data services, disconnected nodes and drafts in other windows are not checked. The result is an observation of this query, not permission to delete; a failed check must not be treated as no reference.",
-  "日线保存供应商交易日期与结算价，可作为回测与因子的 K 线来源；回测与因子的结算价取自全市场日线表。不补造缺失的交易日。": "Daily bars keep the vendor's trading dates and settlement prices and provide bars for backtests and factors, whose settlement prices come from the market-wide daily table. Missing trading days are not filled in.",
+  "日线保存供应商交易日期与结算价，可在这里查看，也可直接用于日线因子分析。回测和因子的日线 K 线与结算价取自全市场日线表，不取这里的下载。不补造缺失的交易日。": "Daily bars keep the vendor's trading dates and settlement prices; they can be viewed here and used directly for a daily factor analysis. The daily bars and settlement prices of backtests and factors come from the market-wide daily table, not from these downloads. Missing trading days are not filled in.",
   "分钟数据按 K 线结束时间保存，交易日来自交易所交易日历，可用于回测与因子分析。不补造缺失的 K 线或主力连续合约。": "Minute bars are stored by bar end time, with trading days from the exchange calendar, and can be used for backtests and factor analysis. Missing bars and continuous contracts are not fabricated.",
   "使用已保存的 {label}": "Using the saved {label}",
   "更改": "Change",

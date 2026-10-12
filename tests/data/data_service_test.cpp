@@ -635,8 +635,10 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData) {
       throw std::runtime_error(reply.DebugString());
     return reply;
   };
+  // Daily bars are the table's: the selection names no archive version.
   data::v1::BarDatasetRequest selection;
-  selection.add_source_dataset_ids(dataset_id);
+  selection.set_begin_day("2026-09-01");
+  selection.set_end_day("2026-10-10");
   *selection.mutable_daily() = daily;
   *selection.mutable_contract() = test::contract();
   protocol::DataClient data(data_endpoint, "data-one");
@@ -655,12 +657,10 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData) {
   query.Clear();
   *query.mutable_save_dataset() = saved;
   ASSERT_EQ(data.call(query).saved_dataset().id(), saved.id());
+  // Daily bars and settlements are the table's: the saved dataset reads no
+  // archive version, the contract's own daily download included.
   query.mutable_history_usage()->set_id(dataset_id);
-  const auto usage = data.call(query).history_usage();
-  ASSERT_EQ(usage.references_size(), 1);
-  EXPECT_EQ(usage.references(0).kind(), data::v1::HISTORY_SAVED_DATASET);
-  EXPECT_EQ(usage.references(0).id(), saved.id());
-  EXPECT_EQ(usage.references(0).roles_size(), 1);
+  EXPECT_EQ(data.call(query).history_usage().references_size(), 0);
 
   task::v1::TaskRequest submit;
   submit.mutable_submit()->set_id("backtest");

@@ -263,17 +263,19 @@ async function closeDesktop(application) {
       .click();
     await page.getByRole("button", { name: "回测", exact: true }).click();
     await page.getByRole("button", { name: "新建回测", exact: true }).click();
-    const backtestData = page.getByRole("form", { name: "历史数据集", exact: true });
+    const backtestData = page.getByRole("region", { name: "历史数据集", exact: true });
     await expect(backtestData).toBeVisible();
     await expect(
       backtestData.getByRole("list", { name: "已选合约", exact: true }).locator("li"),
     ).toHaveCount(0);
-    await backtestData
+    await backtestData.getByRole("button", { name: "分钟线合约", exact: true }).click();
+    const minuteBars = backtestData.getByRole("form", { name: "分钟线合约", exact: true });
+    await minuteBars
       .getByLabel("K 线来源", { exact: true })
       .selectOption(historySelection.source_dataset_ids[0]);
-    await backtestData.getByLabel("最小变动价位", { exact: true }).fill("1");
-    await backtestData.getByLabel("合约乘数", { exact: true }).fill("10");
-    await backtestData.getByRole("button", { name: "使用此数据集", exact: true }).click();
+    await minuteBars.getByLabel("最小变动价位", { exact: true }).fill("1");
+    await minuteBars.getByLabel("合约乘数", { exact: true }).fill("10");
+    await minuteBars.getByRole("button", { name: "使用此数据集", exact: true }).click();
     await expect(backtestData.getByRole("list", { name: "已选合约", exact: true })).toContainText(
       "3 根 · 1 个交易日",
     );

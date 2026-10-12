@@ -233,7 +233,12 @@ factor::v1::FactorRequest encode_factor_request(const Json& input) {
     else if (source.contains("daily_dataset_id") && source.at("daily_dataset_id").is_string() &&
              digest(source.at("daily_dataset_id").get<std::string>()))
       result.add_series()->set_daily_dataset_id(source.at("daily_dataset_id").get<std::string>());
-    else if (source.contains("dominant")) {
+    else if (source.contains("dominant") && source.at("dominant").is_object()) {
+      // A product of the daily table: Data finds its months.
+      require_fields(source.at("dominant"), {"product"});
+      *result.add_series()->mutable_dominant()->mutable_product() =
+          encode_product_bars_request(source.at("dominant").at("product"));
+    } else if (source.contains("dominant")) {
       const auto& months = source.at("dominant");
       if (!months.is_array() || months.size() < 2 || months.size() > 20)
         throw std::invalid_argument("a dominant series requires 2 to 20 month contracts");

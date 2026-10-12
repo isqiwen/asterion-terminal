@@ -33,7 +33,8 @@ function contractRows(
     ["输入 K 线", data.count],
     ["交易日范围", `${data.first_day} – ${data.last_day}`],
     ["数据源", data.source],
-    ["K 线数据版本", dataset.source_dataset_ids.join(" · ")],
+    // Daily bars have no archive version: they are the daily table's own.
+    ["K 线数据版本", dataset.source_dataset_ids.join(" · ") || t("取自全市场日线表")],
     // Settlement prices and trading days are the market-wide daily table's.
     ["数据表快照", dataset.daily.snapshot],
     ["日线来源", dataset.daily.daily_source],
@@ -87,7 +88,7 @@ function dominantRows(input: Extract<FactorSeriesEvidence, { kind: "dominant" }>
     ["有期限结构的交易日", input.terms],
     ["交易日范围", `${first.data.first_day} – ${last.data.last_day}`],
     ["数据源", first.data.source],
-    ["K 线数据版本", versions],
+    ["K 线数据版本", versions || t("取自全市场日线表")],
     // Settlements and open interest of every month are the daily table's.
     ["数据表快照", first.dataset.daily.snapshot],
     ["日线来源", first.dataset.daily.daily_source],

@@ -23,6 +23,19 @@ void Application::Impl::register_backtest_commands() {
     // out the same schedule. A month that never trades takes the costs of
     // one that does; they are not used.
     for (const auto& item : dataset_series) {
+      // A product of the daily table is sent as the product: the service finds
+      // its months again, and those that trade take the series' costs.
+      if (item.product) {
+        std::optional<json> cost;
+        for (std::size_t i = 0; i < selected().size() && !cost; ++i)
+          if (series_of(selected()[i].dataset.contract()) ==
+              static_cast<std::size_t>(&item - dataset_series.data()))
+            cost = costs[i];
+        auto traded = cost.value();
+        traded["product"] = protocol::decode_product_bars_request(*item.product);
+        series.push_back(std::move(traded));
+        continue;
+      }
       json members = json::array();
       std::optional<json> any;
       std::vector<std::optional<json>> known;

@@ -29,21 +29,10 @@ test("usage shows fixed source and saved references and refreshes the draft", as
   await expect(usage).toContainText("未检查停止的远程数据服务");
   await page.screenshot({ path: "build/history-usage-browser.png", fullPage: true });
   await usage.getByRole("button", { name: "关闭", exact: true }).click();
-  // The contract's daily download is used only where it is chosen as bars:
+  // A dataset reads nothing of the contract's daily download: daily bars and
   // settlement prices are the daily table's, which is not an archive version.
   await daily.getByRole("button", { name: "使用情况", exact: true }).click();
   await expect(usage).toContainText("当前数据服务中未发现关联记录");
-  await usage.getByRole("button", { name: "关闭", exact: true }).click();
-  await rpc(page.request, "data.dataset.select", {
-    ...seeded,
-    source_dataset_ids: [seeded.daily_dataset_id],
-  });
-  await rpc(page.request, "data.dataset.save", { name: "日线作 K 线" });
-  await daily.getByRole("button", { name: "使用情况", exact: true }).click();
-  const bars = table.getByRole("row").filter({ hasText: "日线作 K 线" });
-  await expect(bars).toHaveCount(1);
-  await expect(bars).toContainText("行情输入");
-  await expect(usage).toContainText("本窗口回测与因子草稿：行情输入");
 });
 
 // Explicit UI fixture: real mTLS inventory and failures are covered by native tests.

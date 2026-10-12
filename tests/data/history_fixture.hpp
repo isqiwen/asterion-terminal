@@ -17,10 +17,19 @@ namespace asterion::test {
 struct DailyTableSources {
   std::string daily = "fixture.daily.v1", calendar = "fixture.calendar.v1";
 };
-// One day of a contract in the daily table.
+// What a contract traded at on a day.
+struct DailyTrade {
+  int open, high, low, close, volume;
+};
+// One day of a contract in the daily table. Without a trade nobody traded it
+// in the auction: the table then has its settlement, the same price as its
+// close, and the lots that changed hands outside the auction, if any (as in a
+// delivery month).
 struct DailyRow {
   std::string day;
   int settlement, open_interest;
+  std::optional<DailyTrade> trade = {};
+  int off_auction_volume = 0;
 };
 // Adds one SHFE contract's days to the daily table and to the calendar, keeping
 // what other contracts already have on those days. Returns where a dataset
@@ -59,6 +68,15 @@ inline Json seed_daily_table(const std::filesystem::path& root, const std::strin
     row[0] = contract_id;
     row[4] = row[5] = std::to_string(day.settlement);
     row[10] = std::to_string(day.open_interest);
+    if (day.trade) {
+      row[1] = std::to_string(day.trade->open);
+      row[2] = std::to_string(day.trade->high);
+      row[3] = std::to_string(day.trade->low);
+      row[4] = std::to_string(day.trade->close);
+      row[8] = std::to_string(day.trade->volume);
+    } else if (day.off_auction_volume) {
+      row[8] = std::to_string(day.off_auction_volume);
+    }
     merge(daily, day.day, {row});
   }
   for (const auto& [year, open] : years)
@@ -67,13 +85,15 @@ inline Json seed_daily_table(const std::filesystem::path& root, const std::strin
           {"daily_source", daily.source},
           {"calendar_source", calendar.source}};
 }
-// Every day settles at `settlement` with `open_interest` held.
+// Every day settles at `settlement` with `open_interest` held, having traded
+// from 100 between 90 and 200 to 110: the daily bar the fixtures have always
+// had.
 inline Json seed_daily_table(const std::filesystem::path& root, const std::string& contract_id,
                              const std::vector<std::string>& days, int settlement,
                              int open_interest, const DailyTableSources& sources = {}) {
   std::vector<DailyRow> rows;
   for (const auto& day : days)
-    rows.push_back({day, settlement, open_interest});
+    rows.push_back({day, settlement, open_interest, DailyTrade{100, 200, 90, 110, 10000}});
   return seed_daily_table(root, contract_id, rows, sources);
 }
 // Of several seeded histories, the daily table as the last of them left it:

@@ -52,6 +52,7 @@ std::vector<std::string> open_days(const TableStore& store, const TableSeries& c
 // What one contract did on the days of the range.
 struct Month {
   std::map<std::string, Decimal> close, settlement, open_interest;
+  std::map<std::string, DailyTrade> trades; // where they were read
 };
 struct Days {
   std::map<std::string, Month> months;          // by contract
@@ -62,11 +63,15 @@ struct Days {
 // range must be stored: a missing one is named, not read around.
 Days read_days(const TableStore& store, const TableSeries& daily, const TableSeries& calendar,
                const std::string& venue, const std::string& begin, const std::string& end,
-               std::uint64_t until, const std::vector<std::string>& prefixes) {
+               std::uint64_t until, const std::vector<std::string>& prefixes, bool trades) {
   const auto& table = history_table(daily_table);
-  const std::vector<std::size_t> columns{
-      table_column(table, "contract"), table_column(table, "close"),
-      table_column(table, "settlement"), table_column(table, "open_interest")};
+  std::vector<std::size_t> columns{table_column(table, "contract"), table_column(table, "close"),
+                                   table_column(table, "settlement"),
+                                   table_column(table, "open_interest")};
+  // The other prices and the volume are read only for bars.
+  if (trades)
+    for (const auto* name : {"open", "high", "low", "volume"})
+      columns.push_back(table_column(table, name));
   const auto revisions = store.revisions(daily, venue, begin, end, until);
   std::vector<std::string> missing;
   for (const auto& day : open_days(store, calendar, venue, begin, end, until))
@@ -95,25 +100,46 @@ Days read_days(const TableStore& store, const TableSeries& daily, const TableSer
     keep(month.settlement, cells[2]);
     // Kept in lots; only compared, so the scale does not matter.
     keep(month.open_interest, cells[3]);
+    if (!trades)
+      return;
+    const auto value = [&](std::size_t cell) { return std::get_if<std::int64_t>(&cells[cell]); };
+    const auto *open = value(4), *high = value(5), *low = value(6), *close = value(1),
+               *volume = value(7);
+    // The table has an open, a high and a low only where the contract traded
+    // in the auction. A day nobody traded it has none, and neither has a day
+    // whose only volume changed hands outside the auction, as in a delivery
+    // month: there is no price to fill an order at on either.
+    // Prices are kept to eight places, which is Decimal's own scale; the
+    // volume is kept in whole lots.
+    if (open && high && low && close && volume)
+      month.trades.emplace(day, DailyTrade{Decimal::from_raw(*open), Decimal::from_raw(*high),
+                                           Decimal::from_raw(*low), Decimal::from_raw(*close),
+                                           Decimal::parse(std::to_string(*volume))});
   });
   return result;
 }
 } // namespace
 DailyFacts daily_facts(const TableStore& store, const v1::DailyTable& table,
                        const std::string& venue, const std::string& begin_day,
-                       const std::string& end_day, const std::vector<std::string>& contracts) {
+                       const std::string& end_day, const std::vector<std::string>& names,
+                       bool trades) {
   protocol::validate_daily_table(table);
   auto days = read_days(store, series_of(daily_table, table.daily_source()),
                         series_of(calendar_table, table.calendar_source()), venue, begin_day,
-                        end_day, held(store, table.snapshot()), contracts);
+                        end_day, held(store, table.snapshot()), names, trades);
   DailyFacts result;
   result.acquired_at_ns = std::move(days.acquired);
   for (auto& [contract, month] : days.months) {
-    // A longer name that begins with a contract's is another contract.
-    if (std::ranges::find(contracts, contract) == contracts.end())
+    // A longer name that begins with a contract's is another contract; one
+    // that begins with a product's, slash and all, is a contract of it.
+    if (std::ranges::none_of(names, [&](const std::string& name) {
+          return name == contract || (name.ends_with('/') && contract.starts_with(name));
+        }))
       continue;
     result.settlement.emplace(contract, std::move(month.settlement));
     result.open_interest.emplace(contract, std::move(month.open_interest));
+    if (trades)
+      result.trades.emplace(contract, std::move(month.trades));
   }
   return result;
 }
@@ -140,7 +166,7 @@ v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeries
           request.instruments(index) +
           (instruments[static_cast<std::size_t>(index)].delivery_month.empty() ? "/" : ""));
     const auto days = read_days(store, daily, calendar, venue, request.begin_day(),
-                                request.end_day(), until, prefixes);
+                                request.end_day(), until, prefixes, false);
     const auto& months = days.months;
     std::int64_t acquired = 0;
     for (const auto& [day, time] : days.acquired)

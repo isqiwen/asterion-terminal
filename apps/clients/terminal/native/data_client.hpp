@@ -28,6 +28,9 @@ public:
   [[nodiscard]] std::future<data::v1::BarDataset> bar_dataset(const data::v1::BarDatasetRequest&);
   [[nodiscard]] std::future<data::v1::DominantSeriesPreview>
   dominant_series(const std::vector<data::v1::BarDatasetRequest>&);
+  // A product's own months in the daily table, as its dominant series.
+  [[nodiscard]] std::future<data::v1::DominantSeriesPreview>
+  dominant_series(const data::v1::ProductBarsRequest&);
   [[nodiscard]] std::future<data::v1::HistoryUpdatePlan>
   history_update_plan(const data::v1::HistoryUpdateQuery&);
   [[nodiscard]] std::future<Json> datasets(const data::v1::HistoryFilter&);

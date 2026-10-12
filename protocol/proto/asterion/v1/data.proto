@@ -14,8 +14,10 @@ message HistoryVersionEvidence {
 // Where a dataset's daily facts are read: the market-wide daily table and the
 // calendar as one snapshot of the table store holds them.
 message DailyTable { string snapshot = 1; string daily_source = 2; string calendar_source = 3; }
-// Bars resolved by the data service from immutable archive versions, with each
-// trading day's settlement price from the market-wide daily table.
+// Bars resolved by the data service: minute bars from immutable archive
+// versions, or daily bars from the market-wide daily table (no source
+// versions, and the table's source as `source`). Each trading day's
+// settlement price is the daily table's.
 // revision is the SHA-256 of contract, interval, bars and days; provenance
 // fields identify where they were read and are not part of content identity.
 message BarDataset {
@@ -50,7 +52,9 @@ message NamedDataset {
 message NamedDatasets { repeated NamedDataset items = 1; uint32 unsupported = 2; }
 message BarDatasetRequest {
   reserved 2;
-  // Sorted unique immutable versions, 1..32. Same contract and semantics.
+  // Sorted unique immutable versions of minute bars, at most 32, of the same
+  // contract and semantics. None for the contract's daily bars in the daily
+  // table, which need both days.
   repeated string source_dataset_ids = 1;
   string begin_day = 3;
   string end_day = 4;
@@ -82,10 +86,22 @@ message TermPoint {
 // delivery month. terms ascend by trading day, at most one a day: a day has
 // none when no later month settled the day before.
 message DominantSchedule { repeated DominantRoll rolls = 1; repeated TermPoint terms = 2; }
-// Resolves month contracts of one product as its dominant series.
-message DominantSeriesRequest { repeated BarDatasetRequest months = 1; }
-// months: indexes of the request's months that are dominant at some point,
-// in delivery-month order; datasets and schedule contracts follow that order.
+// A product read from the market-wide daily table: every month contract of it
+// that traded in the range takes part, with the units given here.
+message ProductBarsRequest {
+  string venue = 1; string product = 2; // As history names them: SHFE, rb.
+  asterion.protocol.v1.Decimal price_increment = 3;
+  asterion.protocol.v1.Decimal multiplier = 4;
+  string begin_day = 5; string end_day = 6; // Inclusive.
+  DailyTable daily = 7;
+}
+// Resolves month contracts of one product as its dominant series: the months
+// listed, or the product's own in the daily table.
+message DominantSeriesRequest { repeated BarDatasetRequest months = 1; ProductBarsRequest product = 2; }
+// months: indexes of the months that are dominant at some point, in
+// delivery-month order, among the request's months or, of a product, among
+// those of its months that traded; datasets and schedule contracts follow
+// that order.
 message DominantSeriesPreview {
   repeated uint32 months = 1;
   repeated BarDataset datasets = 2;

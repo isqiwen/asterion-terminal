@@ -310,6 +310,8 @@ export type TerminalCommand =
   | "data.tables.products"
   | "data.dataset.select"
   | "data.dataset.series"
+  | "data.dataset.daily"
+  | "data.dataset.product"
   | "data.dataset.remove"
   | "data.dataset.clear"
   | "task.action"

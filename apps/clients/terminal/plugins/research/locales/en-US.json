@@ -178,6 +178,7 @@
   "选择日线数据版本": "Select a daily data version",
   "来源数据版本": "Source data version",
   "K 线数据版本": "Bar data version",
+  "取自全市场日线表": "From the market-wide daily table",
   "正在发布": "Publishing",
   "数据连接已改变，请重新选择当前服务中的日线。": "The data connection changed. Select daily data from the current service again.",
   "任务服务已连接": "Task service connected",

@@ -49,10 +49,12 @@ struct DatasetSelection {
   json summary;
 };
 // Month contracts of one product selected together as its dominant series.
-// The selections hold the months that trade; `months` are all the months the
-// series was resolved from, which a submission sends again.
+// The selections hold the months that trade. A submission sends again what the
+// series was resolved from: every month it was given, or the product whose
+// months the daily table names.
 struct DatasetSeries {
   std::vector<data::v1::BarDatasetRequest> months;
+  std::optional<data::v1::ProductBarsRequest> product;
   json summary;
 };
 struct Application::Impl {
@@ -105,6 +107,12 @@ struct Application::Impl {
   std::vector<DatasetSeries> dataset_series;
   // The series a selected contract is a month of, if any.
   std::optional<std::size_t> series_of(const protocol::v1::Contract& contract) const;
+  // One contract's dataset joins the selection, or replaces the contract's.
+  void adopt_selection(DatasetSelection next);
+  // A resolved series replaces whatever was selected of its product: `traded`
+  // are the requests of the months that trade, in the preview's order.
+  void adopt_series(DatasetSeries series, const data::v1::DominantSeriesPreview& preview,
+                    const std::vector<data::v1::BarDatasetRequest>& traded);
   std::uint64_t dataset_selection_generation = 0;
   // The selected datasets or an actionable error; never an empty stand-in.
   const std::vector<DatasetSelection>& selected() const;

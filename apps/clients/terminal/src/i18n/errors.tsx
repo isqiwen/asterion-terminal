@@ -43,11 +43,11 @@ const prefixedDiagnostics = [
   ["bundled plugin is required: ", "应用自带的插件必须保持启用"],
   [
     "no month contract of the series has data on ",
-    "主力连续在某个交易日没有任何月份的数据，请补齐该品种各月份的下载",
+    "主力连续在某个交易日没有任何月份的数据：分钟线请补齐各月份的下载；日线表示这个品种那天没有月份成交",
   ],
   [
     "the outgoing month has no bars on the roll day: ",
-    "换月当天旧月份合约没有 K 线，无法平仓；请补齐该月份的数据",
+    "换月当天旧月份合约没有 K 线，无法平仓：分钟线请补齐该月份的下载；日线表示它当天没有成交",
   ],
   [
     "the roll lacks both settlement prices on the previous day: ",

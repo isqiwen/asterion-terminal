@@ -10,13 +10,16 @@ struct BarDatasetSources {
   data::v1::BarDatasetRequest request;
   std::vector<data::v1::HistoryRecord> sources;
 };
-// Minute bars carry their exchange trading day from the data source and need
-// bar-end labels. Daily bars are labelled 15:00 local on their trading day.
+// Minute bars come from archive versions: they carry their exchange trading
+// day from the data source and need bar-end labels. Without archive versions
+// the bars are the contract's days in the market-wide daily table: a day is a
+// bar where the table has its open, high, low, close and volume, labelled
+// 15:00 local on the trading day.
 //
-// Each trading day's settlement price is the contract's in the market-wide
-// daily table, as the request's snapshot holds it, read from the first day
-// asked for (or of the bars) to the last. Fails rather than drops bars without
-// a settlement, rather than reads around a trading day the table lacks, and
+// Each trading day's settlement price is the contract's in the daily table,
+// as the request's snapshot holds it, read from the first day asked for (or
+// of the bars) to the last. Fails rather than drops bars without a
+// settlement, rather than reads around a trading day the table lacks, and
 // when the range exceeds max_dataset_bars. Days the contract settled on
 // without bars are listed as uncovered.
 data::v1::BarDataset resolve_bar_dataset(const history_files::TableStore&,
@@ -47,4 +50,10 @@ struct DominantSeries {
 // ratio).
 DominantSeries resolve_dominant_series(const history_files::TableStore&,
                                        const std::vector<BarDatasetSources>& months);
+// A product's daily bars from the daily table as its dominant series: the
+// months are those that traded in the range, read once together; `months`
+// index them in delivery order. Each dataset is what resolve_bar_dataset
+// reads of that month over the same days.
+DominantSeries resolve_product_series(const history_files::TableStore&,
+                                      const data::v1::ProductBarsRequest&);
 } // namespace asterion::data

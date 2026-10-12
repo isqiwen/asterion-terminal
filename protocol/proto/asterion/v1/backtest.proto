@@ -29,8 +29,16 @@ message BacktestInput {
 message BacktestWalkForward { uint32 training_days = 1; uint32 validation_days = 2; }
 // Month contracts of one product traded as its dominant series: on each
 // trading day only the dominant month is traded, and one strategy runs on the
-// series. Indexes refer to the contracts of the request.
-message DominantSeries { repeated uint32 contracts = 1; }
+// series. Indexes refer to the contracts of the request; or the series is a
+// product of the daily table, whose months Data finds.
+message DominantSeries { repeated uint32 contracts = 1; ProductSeries product = 2; }
+// A product's daily bars in the market-wide daily table, traded as its
+// dominant series. The months that trade become contracts with these costs.
+message ProductSeries {
+  asterion.data.v1.ProductBarsRequest data = 1;
+  asterion.protocol.v1.CostSchedule cost_schedule = 2;
+  uint32 slippage_ticks = 3;
+}
 // One contract of a backtest submission: Data resolves its bars before Task captures the input.
 message BacktestContract {
   asterion.data.v1.BarDatasetRequest data = 1;

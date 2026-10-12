@@ -23,7 +23,9 @@ test(
       .getByRole("button", { name: "用于回测" })
       .click();
     await expect(page.getByRole("heading", { name: "新建回测", exact: true })).toBeVisible();
-    await expect(page.getByLabel("K 线来源", { exact: true })).toHaveValue(
+    // A minute download opens the form that takes one.
+    const minute = page.getByRole("form", { name: "分钟线合约", exact: true });
+    await expect(minute.getByLabel("K 线来源", { exact: true })).toHaveValue(
       selected.source_dataset_ids[0],
     );
     // Nothing to choose for settlement prices: they are the daily table's.
@@ -32,9 +34,9 @@ test(
         /^结算价和交易日取自全市场日线表：SHFE 已入库 .* 读取，之后入库的数据不影响这次选择。$/,
       ),
     ).toBeVisible();
-    await page.getByLabel("最小变动价位", { exact: true }).fill(selected.price_increment);
-    await page.getByLabel("合约乘数", { exact: true }).fill(selected.multiplier);
-    await page.getByLabel("开始交易日", { exact: true }).fill("2026-09-25");
+    await minute.getByLabel("最小变动价位", { exact: true }).fill(selected.price_increment);
+    await minute.getByLabel("合约乘数", { exact: true }).fill(selected.multiplier);
+    await minute.getByLabel("开始交易日", { exact: true }).fill("2026-09-25");
     await page
       .locator(".workspace-tabs")
       .getByRole("button", { name: "数据", exact: true })
@@ -43,11 +45,11 @@ test(
       .locator(".workspace-tabs")
       .getByRole("button", { name: "研究", exact: true })
       .click();
-    await expect(page.getByLabel("K 线来源", { exact: true })).toHaveValue(
+    await expect(minute.getByLabel("K 线来源", { exact: true })).toHaveValue(
       selected.source_dataset_ids[0],
     );
-    await expect(page.getByLabel("开始交易日", { exact: true })).toHaveValue("2026-09-25");
-    await page.getByRole("button", { name: "使用此数据集", exact: true }).click();
+    await expect(minute.getByLabel("开始交易日", { exact: true })).toHaveValue("2026-09-25");
+    await minute.getByRole("button", { name: "使用此数据集", exact: true }).click();
     await expect(page.getByRole("list", { name: "已选合约" })).toContainText("8 根 · 1 个交易日");
     await page.getByRole("button", { name: "下一步", exact: true }).click();
     for (const [label, value] of [
@@ -106,21 +108,24 @@ test("data handoff stays bound to its service and never reuses another contract'
     .getByRole("button", { name: "用于回测" })
     .click();
   await expect(page.getByRole("button", { name: "下一步", exact: true })).toBeDisabled();
-  await page.getByLabel("最小变动价位", { exact: true }).fill("17");
-  await page.getByLabel("合约乘数", { exact: true }).fill("99");
-  await page.getByLabel("K 线来源", { exact: true }).selectOption(two.source_dataset_ids[0]);
-  await expect(page.getByLabel("最小变动价位", { exact: true })).not.toHaveValue("17");
-  await expect(page.getByLabel("合约乘数", { exact: true })).not.toHaveValue("99");
+  const minute = page.getByRole("form", { name: "分钟线合约", exact: true });
+  await minute.getByLabel("最小变动价位", { exact: true }).fill("17");
+  await minute.getByLabel("合约乘数", { exact: true }).fill("99");
+  await minute.getByLabel("K 线来源", { exact: true }).selectOption(two.source_dataset_ids[0]);
+  await expect(minute.getByLabel("最小变动价位", { exact: true })).not.toHaveValue("17");
+  await expect(minute.getByLabel("合约乘数", { exact: true })).not.toHaveValue("99");
   identity = "other-service-with-same-task-ids";
   await expect(
     page.getByText("数据版本不属于当前数据服务，请重新选择数据。", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel("K 线来源", { exact: true })).toHaveValue("");
-  await expect(page.getByRole("button", { name: "加入组合", exact: true })).toBeDisabled();
+  await expect(minute.getByLabel("K 线来源", { exact: true })).toHaveValue("");
+  await expect(minute.getByRole("button", { name: "加入组合", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "下一步", exact: true })).toBeDisabled();
   // A version of the service now connected can be chosen again.
-  await page.getByLabel("K 线来源", { exact: true }).selectOption(two.daily_dataset_id);
-  await expect(page.getByLabel("K 线来源", { exact: true })).toHaveValue(two.daily_dataset_id);
+  await minute.getByLabel("K 线来源", { exact: true }).selectOption(one.source_dataset_ids[0]);
+  await expect(minute.getByLabel("K 线来源", { exact: true })).toHaveValue(
+    one.source_dataset_ids[0],
+  );
 });
 
 test("data/task access prepares a stopped local service once and does not replace an offline remote connection", async ({
@@ -232,13 +237,14 @@ test("archive versions remain selectable without any download tasks", async ({ p
     .locator(`[data-dataset-id="${selected.source_dataset_ids[0]}"]`)
     .getByRole("button", { name: "用于回测" })
     .click();
-  await expect(page.getByLabel("K 线来源", { exact: true })).toHaveValue(
+  const minute = page.getByRole("form", { name: "分钟线合约", exact: true });
+  await expect(minute.getByLabel("K 线来源", { exact: true })).toHaveValue(
     selected.source_dataset_ids[0],
   );
-  await expect(page.getByText(/^结算价和交易日取自全市场日线表：SHFE 已入库 /)).toBeVisible();
-  await page.getByLabel("最小变动价位", { exact: true }).fill("1");
-  await page.getByLabel("合约乘数", { exact: true }).fill("10");
-  await page.getByRole("button", { name: "使用此数据集", exact: true }).click();
+  await expect(minute.getByText(/^结算价和交易日取自全市场日线表：SHFE 已入库 /)).toBeVisible();
+  await minute.getByLabel("最小变动价位", { exact: true }).fill("1");
+  await minute.getByLabel("合约乘数", { exact: true }).fill("10");
+  await minute.getByRole("button", { name: "使用此数据集", exact: true }).click();
   await expect(page.getByRole("list", { name: "已选合约" })).toContainText("4 根 · 1 个交易日");
   await expect(page.getByRole("button", { name: "下一步", exact: true })).toBeEnabled();
   await page.screenshot({

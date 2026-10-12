@@ -270,21 +270,24 @@ export function ArchivedDataPanel(context: TerminalContext) {
               >
                 {t("下载后续数据")}
               </button>
-              <button
-                disabled={!online || context.busy}
-                onClick={() =>
-                  context.navigate("workspace.research", {
-                    page: "backtest",
-                    params: {
-                      source_dataset_id: item.id,
-                      connection_id: connection ?? "",
-                      selection_id: crypto.randomUUID(),
-                    },
-                  })
-                }
-              >
-                {t("用于回测")}
-              </button>
+              {/* Daily bars of a backtest are the market-wide daily table's. */}
+              {item.interval_minutes > 0 && (
+                <button
+                  disabled={!online || context.busy}
+                  onClick={() =>
+                    context.navigate("workspace.research", {
+                      page: "backtest",
+                      params: {
+                        source_dataset_id: item.id,
+                        connection_id: connection ?? "",
+                        selection_id: crypto.randomUUID(),
+                      },
+                    })
+                  }
+                >
+                  {t("用于回测")}
+                </button>
+              )}
               {item.interval_minutes === 0 && (
                 <button
                   disabled={!online || context.busy}

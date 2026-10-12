@@ -181,38 +181,24 @@ TEST(HistoryArchive, RejectsUnconfirmedSourceAndPartialDataset) {
 
 TEST(HistoryArchive, DataResolvesPublishedVersionsWithoutDownloadTasks) {
   Folder root;
-  // A data directory begins as the store's; the tables are seeded into it once
-  // it is, with the day the fixture's download holds, settled at its price.
-  {
-    data::Store created(root.path, "historical-data", "task");
-  }
-  const auto daily = test::seed_daily_table(root.path, "SHFE/cu/2024-03", {"2024-01-02"}, 2, 1);
   data::Store store(root.path, "historical-data", "task");
   history_files::Archive archive(root.path / "history");
   AlternateDaily provider;
   const auto original = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "first");
   const auto id = original.daily_result().manifest_sha256();
-  auto contract = test::contract();
-  contract.set_venue("SHFE");
-  contract.set_symbol("cu2403");
-  contract.set_product("cu");
-  contract.set_delivery_month("2024-03");
-  contract.mutable_price_increment()->set_units(1);
-  data::v1::BarDatasetRequest request;
-  request.add_source_dataset_ids(id);
-  *request.mutable_daily() = protocol::encode_daily_table(daily);
-  *request.mutable_contract() = contract;
-  const auto captured = store.sources(request);
-  const auto before = data::resolve_bar_dataset(store.tables(), captured);
-  EXPECT_EQ(before.bars_size(), 1);
-  EXPECT_EQ(before.source_dataset_ids(0), id);
+  const auto before = data::daily_factor_dataset(archive.get(id));
+  EXPECT_EQ(before.source_dataset_id(), id);
+  // A later publication is another version: the first reads as it did.
   provider.normalization = "fixture.normalization.v2";
   const auto newer = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "second");
   EXPECT_NE(newer.daily_result().manifest_sha256(), id);
-  EXPECT_EQ(data::resolve_bar_dataset(store.tables(), store.sources(request)).SerializeAsString(),
+  EXPECT_EQ(data::daily_factor_dataset(archive.get(id)).SerializeAsString(),
             before.SerializeAsString());
-  EXPECT_EQ(data::daily_factor_dataset(archive.get(id)).source_dataset_id(), id);
+  // A selection names versions by their identity, not by the task that made them.
+  data::v1::BarDatasetRequest request;
   request.add_source_dataset_ids("first");
+  *request.mutable_daily() = daily_table();
+  *request.mutable_contract() = test::contract("SHFE", "cu2403", "cu", "2024-03");
   EXPECT_THROW(store.sources(request), std::invalid_argument);
 }
 

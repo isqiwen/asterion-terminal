@@ -19,6 +19,8 @@ export const plugin: TerminalPlugin = {
     "data.dataset.use",
     "data.dataset.select",
     "data.dataset.series",
+    "data.dataset.daily",
+    "data.dataset.product",
     "data.dataset.remove",
     "backtest.submit",
     "factor.submit",
