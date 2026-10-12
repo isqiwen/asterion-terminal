@@ -27,10 +27,11 @@ message FactorSeries {
 message FactorInput {
   uint32 version = 1; // 8
   string dataset_revision = 2; // The revision of the series.
-  // One series is evaluated over its own observations. Three to twenty of the
-  // same period, each a different contract or product, are evaluated across
-  // them on the observations they all have; nothing is filled in. Windows,
-  // horizon and boundaries count those shared observations.
+  // One series is evaluated over its own observations. Three to a hundred of
+  // the same period, each a different contract or product, are evaluated
+  // across them: at every observation any of them has, those that have it.
+  // Nothing is filled in. Windows, horizon and boundaries count the
+  // observations of them all.
   repeated FactorSeries series = 3;
   // The feature. The term structure is read of dominant series alone, on the
   // trading days that have a term point.
@@ -79,12 +80,14 @@ message FactorSample {
   double value = 2;
   double forward_return = 3;
 }
-// Across several contracts at one shared observation: how their features
-// relate to their labels. Absent where either does not vary across contracts.
+// Across several contracts at one observation: how the features of those that
+// have one there relate to their labels. `series` is how many those are.
+// Absent with fewer than three, and where either does not vary across them.
 message FactorCrossSection {
   uint32 event_index = 1;
   optional double pearson = 2;
   optional double spearman = 3;
+  uint32 series = 4;
 }
 message FactorResult {
   uint32 version = 1;
@@ -92,7 +95,7 @@ message FactorResult {
   string engine_version = 3;
   uint32 lookback = 4;
   uint32 horizon = 5;
-  uint32 input_count = 6; // Observations the series share.
+  uint32 input_count = 6; // Observations any of the series has.
   // One row per evaluated observation: samples for one series, cross-sections
   // for several. The other list is empty.
   repeated FactorSample samples = 7;
@@ -127,12 +130,14 @@ message FactorPartition {
   // half of them.
   repeated FactorSpread spreads = 9;
 }
-// The mean label, over a partition's observations, of the series with the
-// highest features and of those with the lowest. Equal features keep the
-// order the series were given in.
+// The mean label of the series with the highest features and of those with
+// the lowest, over the `observations` of a partition that had enough series
+// for two such sides; zeros when none had. Equal features keep the order the
+// series were given in.
 message FactorSpread {
   double highest = 1;
   double lowest = 2;
+  uint32 observations = 3;
 }
 
 message FactorFold {

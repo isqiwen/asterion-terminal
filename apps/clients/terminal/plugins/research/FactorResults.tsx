@@ -67,7 +67,7 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
       {cross && (
         <p className="subtle">
           {t(
-            "每个观测上比较各合约的因子值与未来收益（IC 为相关系数，秩 IC 为秩相关），只使用所有合约都有的观测；信息比率是均值除以各截面的标准差。分组收益是每个观测上因子最高和最低的若干个合约的平均未来收益，再对各观测取均值；因子相同的合约按输入顺序排。",
+            "每个观测上比较当时有数据的合约的因子值与未来收益（IC 为相关系数，秩 IC 为秩相关）。一个合约参与某个观测，要求它的回看窗口和未来收益都落在自己没有缺口的数据里；参与的合约不足 3 个时该观测不计 IC。信息比率是均值除以各截面的标准差。分组收益是每个观测上因子最高和最低的若干个合约的平均未来收益，再对合约数够分成两侧的观测取均值；因子相同的合约按输入顺序排。",
           )}
         </p>
       )}
@@ -203,15 +203,18 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
                     <th>{t("因子最高的一组")}</th>
                     <th>{t("因子最低的一组")}</th>
                     <th>{t("多空差")}</th>
+                    <th>{t("参与的观测")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {partition.spreads.map((spread, index) => (
                     <tr key={index}>
                       <td>{index + 1}</td>
-                      <td>{percent(spread.highest)}</td>
-                      <td>{percent(spread.lowest)}</td>
-                      <td>{percent(spread.highest - spread.lowest)}</td>
+                      {/* No observation had this many contracts on each side. */}
+                      <td>{spread.observations ? percent(spread.highest) : "—"}</td>
+                      <td>{spread.observations ? percent(spread.lowest) : "—"}</td>
+                      <td>{spread.observations ? percent(spread.highest - spread.lowest) : "—"}</td>
+                      <td>{spread.observations}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -234,6 +237,7 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
                 <th>{t(words.label)}</th>
                 <th>{cross ? "IC" : t(factorNames[experiment.factor])}</th>
                 <th>{cross ? t("秩 IC") : t("未来收益")}</th>
+                {cross && <th>{t("参与的合约数")}</th>}
               </tr>
             </thead>
             <tbody>
@@ -246,6 +250,7 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
                         <td>{when(section.label)}</td>
                         <td>{correlation(section.pearson)}</td>
                         <td>{correlation(section.spearman)}</td>
+                        <td>{section.series}</td>
                       </tr>
                     ))
                 : result.samples
@@ -280,8 +285,8 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
           {t(words.warmup)}: {result.evaluation_warmup}
         </p>
         <p>
-          {t(cross ? "各合约共有的观测" : words.input)}: {result.input_count} · {t(names.rows)}:{" "}
-          {rows.length} · {t("剔除跨界标签")}: {result.purged_count}
+          {t(cross ? "至少一个合约有数据的观测" : words.input)}: {result.input_count} ·{" "}
+          {t(names.rows)}: {rows.length} · {t("剔除跨界标签")}: {result.purged_count}
         </p>
         {result.partitions.map(p => (
           <p key={p.name}>

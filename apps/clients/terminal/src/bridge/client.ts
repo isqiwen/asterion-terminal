@@ -534,8 +534,8 @@ export type FactorResult = {
     pearson_ratio: number | null;
     spearman_ratio: number | null;
     // Several series: entry k - 1 is the mean label of the k highest
-    // features and of the k lowest.
-    spreads: { highest: number; lowest: number }[];
+    // features and of the k lowest, over the `observations` that had 2k series.
+    spreads: { highest: number; lowest: number; observations: number }[];
   }[];
   // One row per evaluated observation: samples for one series, cross-sections
   // for several; the other list is empty. `observed` and `label` are a
@@ -551,8 +551,10 @@ export type FactorResult = {
     event_index: number;
     observed: string;
     label: string;
+    // Null where fewer than three series had the observation.
     pearson: number | null;
     spearman: number | null;
+    series: number;
   }[];
 };
 export type HistoryConnectionSchema = {

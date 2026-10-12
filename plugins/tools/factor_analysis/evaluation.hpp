@@ -47,16 +47,20 @@ struct FactorSample {
   std::size_t index;
   double value, forward_return;
 };
-// Several series at one observation: how their features relate to their
-// labels. Undefined where either is the same for all of them.
+// Several series at one observation: how the features of those that have one
+// there relate to their labels. `series` is how many those are. Undefined with
+// fewer than three of them, and where either is the same for all of them.
 struct FactorCrossSection {
   std::size_t index;
   std::optional<double> pearson, spearman;
+  std::size_t series = 0;
 };
 // The mean label of the series with the highest features and of those with
-// the lowest, a number of them on each side.
+// the lowest, a number of them on each side, over the `observations` that had
+// enough series for two such sides; zeros when none had.
 struct FactorSpread {
   double highest, lowest;
+  std::size_t observations = 0;
 };
 struct FactorPartition {
   std::size_t begin, end, samples;
@@ -91,9 +95,16 @@ struct FactorEvaluation {
   // Development observations whose label would reach into the holdout.
   std::size_t purged = 0;
 };
-// `closes` are those of one contract each, at the same observations, and give
+// What one series has at each observation of an evaluation; nothing where it
+// was not observed.
+using FactorValues = std::vector<std::optional<Decimal>>;
+// `closes` are those of one contract each over the same observations, and give
 // the labels. `values` are what `feature` reads of each contract at those
-// observations: the closes again for momentum. `lookbacks` ascend; every
+// observations: the closes again for momentum. A series need not have every
+// observation: its feature and its label are computed over observations it
+// has without a break (a window or a label never reaches across one it
+// lacks), and an observation compares the series that have both there. One
+// series alone has all of its observations. `lookbacks` ascend; every
 // window is evaluated on the same observations, after the largest one has
 // warmed up. With several windows `split` is required, and the choice among
 // them is fixed from observations before it: features and labels of that
@@ -101,8 +112,8 @@ struct FactorEvaluation {
 // receives completed and total work: one unit per observation, and per
 // development observation for each compared window.
 FactorEvaluation
-evaluate_factor(std::span<const std::span<const Decimal>> closes,
-                std::span<const std::span<const Decimal>> values, Feature feature,
+evaluate_factor(std::span<const std::span<const std::optional<Decimal>>> closes,
+                std::span<const std::span<const std::optional<Decimal>>> values, Feature feature,
                 std::span<const unsigned> lookbacks, std::size_t horizon,
                 std::optional<std::size_t> split, std::stop_token stop = {},
                 const std::function<void(std::size_t, std::size_t)>& progress = {});

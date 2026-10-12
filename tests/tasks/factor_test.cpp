@@ -11,6 +11,19 @@
 #include <limits>
 using namespace asterion;
 namespace {
+// Series for an evaluation, each with every one of its observations.
+struct Panel {
+  std::vector<FactorValues> held;
+  std::vector<std::span<const std::optional<Decimal>>> spans;
+  explicit Panel(std::vector<std::span<const Decimal>> series) {
+    for (const auto closes : series)
+      held.emplace_back(closes.begin(), closes.end());
+    spans.assign(held.begin(), held.end());
+  }
+  operator std::span<const std::span<const std::optional<Decimal>>>() const { return spans; }
+};
+} // namespace
+namespace {
 factor::v1::FactorInput search_input();
 Decimal d(const char* value) {
   return Decimal::parse(value);
@@ -77,7 +90,7 @@ TEST(Factor, FeaturesReadOnlyThePastAndLabelsOnlyTheFuture) {
   }
   closes[1] = d("0");
   EXPECT_THROW(momentum(closes, 1), std::invalid_argument);
-  const std::vector<std::span<const Decimal>> series{closes};
+  const Panel series({closes});
   EXPECT_THROW(evaluate_factor(series, series, momentum, std::vector<unsigned>{1}, 1, std::nullopt),
                std::invalid_argument);
 }
@@ -813,7 +826,7 @@ TEST(Factor, SeveralSeriesAreJudgedAcrossContractsAtEachObservation) {
   const std::vector<Decimal> a{d("1000"), d("1100"), d("1210"), d("1331"), d("1197.9")},
       b{d("1000"), d("1050"), d("1102.5"), d("1157.625"), d("1215.50625")},
       c{d("1000"), d("1000"), d("1000"), d("1000"), d("1100")};
-  const std::vector<std::span<const Decimal>> series{a, b, c};
+  const Panel series({a, b, c});
   const auto result =
       evaluate_factor(series, series, momentum, std::vector<unsigned>{1}, 1, std::nullopt);
   EXPECT_TRUE(result.samples.empty());
@@ -835,21 +848,74 @@ TEST(Factor, SeveralSeriesAreJudgedAcrossContractsAtEachObservation) {
   EXPECT_NEAR(result.partitions[0].spreads[0].highest, 0.1 / 3, 1e-12);
   EXPECT_NEAR(result.partitions[0].spreads[0].lowest, 0.1 / 3, 1e-12);
   // The same relation everywhere has a mean and nothing to divide it by.
-  const std::vector<std::span<const Decimal>> steady{std::span(a).first(4), std::span(b).first(4),
-                                                     std::span(c).first(4)};
+  const Panel steady({std::span(a).first(4), std::span(b).first(4), std::span(c).first(4)});
   const auto same =
       evaluate_factor(steady, steady, momentum, std::vector<unsigned>{1}, 1, std::nullopt);
   EXPECT_DOUBLE_EQ(*same.partitions[0].spearman, 1);
   EXPECT_FALSE(same.partitions[0].spearman_ratio);
   // Contracts that do not differ leave their observations undefined, not zero.
-  const std::vector<std::span<const Decimal>> identical{c, c, c};
+  const Panel identical({c, c, c});
   const auto undefined =
       evaluate_factor(identical, identical, momentum, std::vector<unsigned>{1}, 1, std::nullopt);
   EXPECT_EQ(undefined.partitions[0].samples, 3U);
   EXPECT_FALSE(undefined.cross_sections[0].spearman || undefined.partitions[0].spearman ||
                undefined.partitions[0].pearson);
-  const std::vector<std::span<const Decimal>> uneven{a, std::span(b).first(4), c};
+  const Panel uneven({a, std::span(b).first(4), c});
   EXPECT_THROW(evaluate_factor(uneven, uneven, momentum, std::vector<unsigned>{1}, 1, std::nullopt),
+               std::invalid_argument);
+}
+TEST(Factor, AnObservationComparesTheSeriesThatHaveItAndNothingReachesAcrossAGap) {
+  // The three series above, a fourth that begins at the third observation
+  // (2000, then up 20%, then unchanged), and a fifth that lacks the third.
+  const std::vector<Decimal> a{d("1000"), d("1100"), d("1210"), d("1331"), d("1197.9")},
+      b{d("1000"), d("1050"), d("1102.5"), d("1157.625"), d("1215.50625")},
+      c{d("1000"), d("1000"), d("1000"), d("1000"), d("1100")};
+  const auto all = [](const std::vector<Decimal>& closes) {
+    return FactorValues(closes.begin(), closes.end());
+  };
+  const FactorValues late{std::nullopt, std::nullopt, d("2000"), d("2400"), d("2400")},
+      broken{d("500"), d("510"), std::nullopt, d("530"), d("540")};
+  for (const bool gap : {false, true}) {
+    std::vector<FactorValues> held{all(a), all(b), all(c), late};
+    if (gap)
+      held.push_back(broken);
+    const std::vector<std::span<const std::optional<Decimal>>> series(held.begin(), held.end());
+    const auto result =
+        evaluate_factor(series, series, momentum, std::vector<unsigned>{1}, 1, std::nullopt);
+    // The late series has no return to rank by before its second observation.
+    // The broken one has no label where the next observation is missing and
+    // no momentum where the one before is: it joins none of the three.
+    ASSERT_EQ(result.cross_sections.size(), 3U);
+    EXPECT_EQ(result.cross_sections[0].series, 3U);
+    EXPECT_EQ(result.cross_sections[1].series, 3U);
+    EXPECT_EQ(result.cross_sections[2].series, 4U);
+    EXPECT_DOUBLE_EQ(*result.cross_sections[1].spearman, 1);
+    // Momentum ranks late, a, b, c; what follows ranks c, b, late, a:
+    // 1 - 6 x (4 + 4 + 1 + 9) / (4 x 15).
+    EXPECT_NEAR(*result.cross_sections[2].spearman, -0.8, 1e-12);
+    // One on each side at every observation: a, a and late at the top return
+    // 10%, 10% and nothing; c at the bottom nothing twice and then 10%.
+    const auto& spreads = result.partitions[0].spreads;
+    ASSERT_EQ(spreads.size(), 2U);
+    EXPECT_EQ(spreads[0].observations, 3U);
+    EXPECT_NEAR(spreads[0].highest, 0.2 / 3, 1e-12);
+    EXPECT_NEAR(spreads[0].lowest, 0.1 / 3, 1e-12);
+    // Two on each side only where four are compared: late and a, c and b.
+    EXPECT_EQ(spreads[1].observations, 1U);
+    EXPECT_NEAR(spreads[1].highest, -0.05, 1e-12);
+    EXPECT_NEAR(spreads[1].lowest, 0.075, 1e-12);
+  }
+  // Two series at an observation are not compared, and one alone has no gaps.
+  const std::vector<FactorValues> few{all(a), all(b), late};
+  const std::vector<std::span<const std::optional<Decimal>>> thin(few.begin(), few.end());
+  const auto sparse =
+      evaluate_factor(thin, thin, momentum, std::vector<unsigned>{1}, 1, std::nullopt);
+  EXPECT_EQ(sparse.cross_sections[0].series, 2U);
+  EXPECT_FALSE(sparse.cross_sections[0].spearman || sparse.cross_sections[0].pearson);
+  EXPECT_TRUE(sparse.cross_sections[2].spearman);
+  EXPECT_EQ(sparse.partitions[0].spreads[0].observations, 3U);
+  const std::vector<std::span<const std::optional<Decimal>>> alone{broken};
+  EXPECT_THROW(evaluate_factor(alone, alone, momentum, std::vector<unsigned>{1}, 1, std::nullopt),
                std::invalid_argument);
 }
 TEST(Factor, SeveralSeriesChooseTheirWindowFromDevelopmentObservationsAlone) {
@@ -859,7 +925,7 @@ TEST(Factor, SeveralSeriesChooseTheirWindowFromDevelopmentObservationsAlone) {
       closes[k].push_back(Decimal::parse(std::to_string(1000 + (k + 3) * i + i % (k + 3) * 4)));
   const std::vector<unsigned> windows{1, 2, 5};
   const auto evaluate = [&] {
-    const std::vector<std::span<const Decimal>> series(closes.begin(), closes.end());
+    const Panel series(std::vector<std::span<const Decimal>>(closes.begin(), closes.end()));
     return evaluate_factor(series, series, momentum, windows, 2, 40);
   };
   const auto before = evaluate();
@@ -879,29 +945,40 @@ TEST(Factor, SeveralSeriesChooseTheirWindowFromDevelopmentObservationsAlone) {
   EXPECT_EQ(after.partitions[0].spearman, before.partitions[0].spearman);
   EXPECT_NE(after.partitions[1].spearman, before.partitions[1].spearman);
 }
-TEST(Factor, CrossSectionUsesOnlyObservationsEveryContractHas) {
+TEST(Factor, ACrossSectionReadsEveryObservationAndComparesTheContractsThatHaveIt) {
   const auto value = cross_input();
   EXPECT_NO_THROW(protocol::validate_factor_input(value));
   const auto observations = protocol::factor_observations(value);
   ASSERT_EQ(observations.closes.size(), 3U);
   // 41 bars, one of which the second contract lacks.
-  ASSERT_EQ(observations.order.size(), 40U);
-  EXPECT_EQ(observations.closes[0][10], Decimal::parse(std::to_string(1000 + 3 * 11 + 11 % 3 * 4)));
+  ASSERT_EQ(observations.order.size(), 41U);
+  EXPECT_EQ(observations.closes[0][10], Decimal::parse(std::to_string(1000 + 3 * 10 + 10 % 3 * 4)));
+  EXPECT_FALSE(observations.closes[1][10]);
   const auto result = factor::run(value);
-  EXPECT_EQ(result.input_count(), 40U);
+  EXPECT_EQ(result.input_count(), 41U);
   EXPECT_TRUE(result.samples().empty());
-  ASSERT_EQ(result.cross_sections_size(), 37); // 40 - warmup 2 - horizon 1
-  EXPECT_EQ(result.partitions(0).sample_count(), 37U);
+  ASSERT_EQ(result.cross_sections_size(), 38); // 41 - warmup 2 - horizon 1
+  EXPECT_EQ(result.partitions(0).sample_count(), 38U);
+  // The second contract has no label at bar 9, no bar 10 and no window of two
+  // until bar 13: bars 9 to 12 compare the other two, which is no comparison.
+  for (int i = 0; i < 38; ++i) {
+    const bool without = i >= 7 && i <= 10;
+    EXPECT_EQ(result.cross_sections(i).series(), without ? 2U : 3U) << i;
+    EXPECT_EQ(result.cross_sections(i).has_spearman(), !without) << i;
+  }
+  EXPECT_EQ(result.partitions(0).spreads(0).observations(), 38U);
   EXPECT_TRUE(result.partitions(0).has_spearman());
   EXPECT_TRUE(result.partitions(0).has_spearman_ratio());
   ASSERT_EQ(result.partitions(0).spreads_size(), 1);
   const auto decoded = protocol::decode_factor_result(value, result);
   EXPECT_TRUE(decoded.at("samples").empty());
-  // Shared observation 10 is the first contract's bar 11; its label is the next one.
+  // Observation 10 is bar 10, which two contracts have; its label is the next one.
   const auto& row = decoded.at("cross_sections").at(8);
   EXPECT_EQ(row.at("event_index"), 10);
-  EXPECT_EQ(row.at("observed"), std::to_string(1790298000000000000LL + 11 * 1000000000LL));
-  EXPECT_EQ(row.at("label"), std::to_string(1790298000000000000LL + 12 * 1000000000LL));
+  EXPECT_EQ(row.at("series"), 2);
+  EXPECT_TRUE(row.at("spearman").is_null());
+  EXPECT_EQ(row.at("observed"), std::to_string(1790298000000000000LL + 10 * 1000000000LL));
+  EXPECT_EQ(row.at("label"), std::to_string(1790298000000000000LL + 11 * 1000000000LL));
   EXPECT_EQ(protocol::decode_factor(value, protocol::DatasetView::metadata).at("series").size(),
             3U);
 
@@ -975,7 +1052,7 @@ TEST_F(FactorTasks, CrossSectionHoldoutAndRollingResultsSurviveTheStore) {
   EXPECT_EQ(tasks::factor_result(restored, "rolling").SerializeAsString(),
             folds.SerializeAsString());
 }
-TEST(Factor, DailyCrossSectionSharesTradingDays) {
+TEST(Factor, ADailyCrossSectionReadsEveryTradingDayAnyContractHas) {
   factor::v1::FactorInput value;
   value.set_version(8);
   value.set_factor(protocol::v1::PRICE_MOMENTUM);
@@ -993,14 +1070,20 @@ TEST(Factor, DailyCrossSectionSharesTradingDays) {
   value.set_dataset_revision(protocol::factor_revision(value.series()));
   EXPECT_NO_THROW(protocol::validate_factor_input(value));
   const auto result = factor::run(value);
-  EXPECT_EQ(result.input_count(), 59U);
-  ASSERT_EQ(result.cross_sections_size(), 55); // 59 - warmup 2 - horizon 2
+  EXPECT_EQ(result.input_count(), 60U);
+  ASSERT_EQ(result.cross_sections_size(), 56); // 60 - warmup 2 - horizon 2
   const auto decoded = protocol::decode_factor_result(value, result);
-  // The shared day after 2023-01-20 is the 22nd; its label ends two shared days later.
+  // The 21st is a day of the other two; its label ends two days later.
   const auto& row = decoded.at("cross_sections").at(18);
   EXPECT_EQ(row.at("event_index"), 20);
-  EXPECT_EQ(row.at("observed"), "2023-01-22");
-  EXPECT_EQ(row.at("label"), "2023-01-24");
+  EXPECT_EQ(row.at("observed"), "2023-01-21");
+  EXPECT_EQ(row.at("label"), "2023-01-23");
+  // Around the day it lacks, the third contract has neither a label that
+  // would end on it nor a window that would begin before it.
+  for (int index = 16; index < 25; ++index)
+    EXPECT_EQ(decoded.at("cross_sections").at(index - 2).at("series"),
+              index >= 18 && index <= 22 ? 2 : 3)
+        << index;
 }
 namespace {
 // rb read as its dominant series, eight one-minute bars a day. rb2610 is
@@ -1148,7 +1231,7 @@ TEST(Factor, ADominantSeriesIsFixedWithItsScheduleAndRefusedWhenThatIsNotOneSeri
   request["series"][0]["dominant"].erase(1);
   EXPECT_THROW(protocol::encode_factor_request(request), std::invalid_argument);
 }
-TEST(Factor, ADominantSeriesIsComparedWithContractsOnTheBarsTheyShare) {
+TEST(Factor, ADominantSeriesIsComparedWithContractsOnTheBarsEachHas) {
   auto value = dominant_input();
   // hc2610 lacks the last day; al2610 has all six.
   *value.add_series()->mutable_bars() =
@@ -1159,11 +1242,15 @@ TEST(Factor, ADominantSeriesIsComparedWithContractsOnTheBarsTheyShare) {
   EXPECT_NO_THROW(protocol::validate_factor_input(value));
   const auto read = protocol::factor_observations(value);
   ASSERT_EQ(read.closes.size(), 3U);
-  ASSERT_EQ(read.order.size(), 40U);
+  ASSERT_EQ(read.order.size(), 48U);
   // The fourth day is rb2701's first as the dominant month.
   EXPECT_EQ(read.closes[0][24], d("300"));
   EXPECT_EQ(read.closes[1][24], d("572"));
-  EXPECT_EQ(factor::run(value).cross_sections_size(), 37);
+  EXPECT_FALSE(read.closes[1][40]) << "hc2610 has no sixth day";
+  const auto result = factor::run(value);
+  ASSERT_EQ(result.cross_sections_size(), 45); // 48 - warmup 2 - horizon 1
+  EXPECT_EQ(result.cross_sections(36).series(), 3U);
+  EXPECT_EQ(result.cross_sections(37).series(), 2U) << "its last bar has no label";
 
   // Provider trading dates are another kind of observation.
   *value.mutable_series(2) = daily_input().series(0);

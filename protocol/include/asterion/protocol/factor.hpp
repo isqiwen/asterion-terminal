@@ -6,7 +6,7 @@
 #include <asterion/v1/factor.pb.h>
 namespace asterion::protocol {
 // Identifies how features, labels, partitions and selection are computed.
-inline constexpr char factor_engine_version[] = "asterion.factor.v8";
+inline constexpr char factor_engine_version[] = "asterion.factor.v9";
 // A cross-section compares at most this many series: every product of the
 // market-wide table at once.
 inline constexpr int max_factor_series = max_table_instruments;
@@ -26,13 +26,13 @@ void add_factor_series(factor::v1::FactorInput& input, factor::v1::FactorSeries 
 // The revision of an input's data: of its only series, or of all of them in order.
 std::string
 factor_revision(const google::protobuf::RepeatedPtrField<factor::v1::FactorSeries>& series);
-// What a factor reads from the series of a valid input: the observations they
-// all have, in order. `closes` holds one positive close per observation for
-// each series; `order` says when it was observed, as a number that increases.
-// `terms` holds each observation's carry for the term structure and is empty
-// for price momentum, which reads the closes.
+// What a factor reads from the series of a valid input: every observation any
+// of them has, in order. `closes` holds for each series its positive close at
+// each observation, or nothing where the series was not observed; `order` says
+// when, as a number that increases. `terms` holds each observation's carry for
+// the term structure and is empty for the factors that read the closes.
 struct FactorObservations {
-  std::vector<std::vector<Decimal>> closes, terms;
+  std::vector<std::vector<std::optional<Decimal>>> closes, terms;
   std::vector<std::int64_t> order;
 };
 FactorObservations factor_observations(const factor::v1::FactorInput& input);

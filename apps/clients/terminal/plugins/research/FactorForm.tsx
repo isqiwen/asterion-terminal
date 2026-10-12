@@ -252,7 +252,7 @@ export function BarFactorForm({
           factor === "term_structure"
             ? "期限结构 · 每个交易日开始时已知的年化近远月价差：前一交易日主力月份的结算价 ÷ 当日持仓最大的后续月份的结算价 − 1，再乘以 12 ÷ 两个月份相隔的月数；回看窗口内取均值。只在能做这个比较的交易日上评价。"
             : cross
-              ? "多个合约 · 在各合约共有的 K 线上比较它们的因子值与未来收益"
+              ? "多个合约 · 在每根 K 线上比较当时有数据的合约的因子值与未来收益"
               : dominant.length
                 ? "主力连续 · 每个交易日取当时主力月份的 K 线，收盘价按换月比例调整到最新月份的水平"
                 : "单合约 · 按 K 线收盘价计算",
@@ -460,14 +460,15 @@ export function TableFactorForm({
     setInstruments([...instruments, name]);
     setEntry("");
   };
-  // Products with a contract listed from the first day of the range to the last.
+  // Products with a contract listed at some time in the range: one that begins
+  // or ends inside it is compared on the days it has.
   const listed = (held?.products ?? [])
     .filter(
       product =>
         !!range.begin &&
         !!range.end &&
-        product.first_listed <= range.begin &&
-        product.last_delisted >= range.end,
+        product.first_listed <= range.end &&
+        product.last_delisted >= range.begin,
     )
     .map(product => `${product.exchange}/${product.product}`)
     .filter(name => !instruments.includes(name));
@@ -608,7 +609,7 @@ export function TableFactorForm({
               disabled={busy || !listed.length || instruments.length >= maxInstruments}
               onClick={addListed}
             >
-              {t("添加范围内上市的全部品种")}
+              {t("添加范围内有合约在市的全部品种")}
             </button>
           </div>
           <ul className="research-instruments" aria-label={t("已选的品种和合约")}>
@@ -628,7 +629,7 @@ export function TableFactorForm({
           </ul>
           <p className="subtle">
             {t(
-              "一个品种或合约按时间评价；3 到 100 个在它们共有的交易日上相互比较。按当前快照 {id} 读取，之后入库的数据不影响这次任务。",
+              "一个品种或合约按时间评价；3 到 100 个在每个交易日上相互比较，只比较当天有数据的那些。按当前快照 {id} 读取，之后入库的数据不影响这次任务。",
               { id: coverage?.snapshot.slice(0, 12) ?? "" },
             )}
           </p>

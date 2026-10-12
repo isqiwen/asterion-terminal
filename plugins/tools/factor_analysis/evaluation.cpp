@@ -175,15 +175,22 @@ Statistics statistics(std::span<const FactorCrossSection> sections) {
   const auto [spearman, spearman_ratio] = summary(sections, &FactorCrossSection::spearman);
   return {pearson, spearman, pearson_ratio, spearman_ratio};
 }
-// Rows where every series has its feature and its label; the series share
-// their observations, so one of them decides.
-std::vector<std::size_t> evaluated(const Column& feature, const Column& label, std::size_t begin,
-                                   std::size_t end) {
-  std::vector<std::size_t> rows;
-  for (auto i = begin; i < end; ++i)
-    if (feature[i] && label[i])
-      rows.push_back(i);
-  return rows;
+// A column over observations a series may lack: `compute` is applied to every
+// stretch it has without a break, so nothing reads across a missing one.
+template <class Compute>
+Column unbroken(std::span<const std::optional<Decimal>> values, Compute&& compute) {
+  Column result(values.size());
+  std::vector<Decimal> stretch;
+  for (std::size_t i = 0; i <= values.size(); ++i) {
+    if (i < values.size() && values[i]) {
+      stretch.push_back(*values[i]);
+      continue;
+    }
+    const auto computed = compute(std::span<const Decimal>(stretch));
+    std::ranges::copy(computed, result.begin() + static_cast<std::ptrdiff_t>(i - stretch.size()));
+    stretch.clear();
+  }
+  return result;
 }
 std::pair<std::vector<double>, std::vector<double>>
 over_time(const Column& feature, const Column& label, std::span<const std::size_t> rows) {
@@ -194,47 +201,65 @@ over_time(const Column& feature, const Column& label, std::span<const std::size_
   }
   return {std::move(values), std::move(outcomes)};
 }
+// The series that have a feature and a label at a row, in the order given.
+std::vector<std::size_t> present(std::span<const Column> features, std::span<const Column> labels,
+                                 std::size_t row) {
+  std::vector<std::size_t> series;
+  for (std::size_t s = 0; s < features.size(); ++s)
+    if (features[s][row] && labels[s][row])
+      series.push_back(s);
+  return series;
+}
 std::vector<FactorCrossSection> across_series(std::span<const Column> features,
                                               std::span<const Column> labels,
                                               std::span<const std::size_t> rows) {
   std::vector<FactorCrossSection> sections;
-  std::vector<double> values(features.size()), outcomes(features.size());
+  std::vector<double> values, outcomes;
   for (const auto row : rows) {
-    for (std::size_t s = 0; s < features.size(); ++s) {
-      values[s] = *features[s][row];
-      outcomes[s] = *labels[s][row];
+    const auto series = present(features, labels, row);
+    values.clear();
+    outcomes.clear();
+    for (const auto s : series) {
+      values.push_back(*features[s][row]);
+      outcomes.push_back(*labels[s][row]);
     }
-    sections.push_back({row, correlation(values, outcomes), rank_correlation(values, outcomes)});
+    // Two points always lie on a line: a correlation of them says nothing.
+    const bool enough = series.size() >= 3;
+    sections.push_back({row, enough ? correlation(values, outcomes) : std::nullopt,
+                        enough ? rank_correlation(values, outcomes) : std::nullopt, series.size()});
   }
   return sections;
 }
 std::vector<FactorSpread> spreads(std::span<const Column> features, std::span<const Column> labels,
                                   std::span<const std::size_t> rows) {
   std::vector<FactorSpread> result(features.size() / 2);
-  std::vector<std::size_t> order(features.size());
   for (const auto row : rows) {
-    std::iota(order.begin(), order.end(), std::size_t{});
+    auto order = present(features, labels, row);
     std::ranges::stable_sort(
         order, [&](auto left, auto right) { return *features[left][row] > *features[right][row]; });
     double highest = 0, lowest = 0;
-    for (std::size_t k = 0; k < result.size(); ++k) {
+    // k + 1 on each side, where the row has that many series twice over.
+    for (std::size_t k = 0; 2 * (k + 1) <= order.size(); ++k) {
       highest += *labels[order[k]][row];
       lowest += *labels[order[order.size() - 1 - k]][row];
       result[k].highest += highest / static_cast<double>(k + 1);
       result[k].lowest += lowest / static_cast<double>(k + 1);
+      ++result[k].observations;
     }
   }
-  for (auto& spread : result) {
-    spread.highest /= static_cast<double>(std::max<std::size_t>(rows.size(), 1));
-    spread.lowest /= static_cast<double>(std::max<std::size_t>(rows.size(), 1));
-  }
+  for (auto& spread : result)
+    if (spread.observations) {
+      spread.highest /= static_cast<double>(spread.observations);
+      spread.lowest /= static_cast<double>(spread.observations);
+    }
   return result;
 }
 } // namespace
-FactorEvaluation evaluate_factor(std::span<const std::span<const Decimal>> series,
-                                 std::span<const std::span<const Decimal>> values, Feature feature,
-                                 std::span<const unsigned> lookbacks, std::size_t horizon,
-                                 std::optional<std::size_t> split, std::stop_token stop,
+FactorEvaluation evaluate_factor(std::span<const std::span<const std::optional<Decimal>>> series,
+                                 std::span<const std::span<const std::optional<Decimal>>> values,
+                                 Feature feature, std::span<const unsigned> lookbacks,
+                                 std::size_t horizon, std::optional<std::size_t> split,
+                                 std::stop_token stop,
                                  const std::function<void(std::size_t, std::size_t)>& progress) {
   if (series.empty() || values.size() != series.size())
     throw std::invalid_argument("factor evaluation needs a series and its values");
@@ -242,14 +267,18 @@ FactorEvaluation evaluate_factor(std::span<const std::span<const Decimal>> serie
   if (lookbacks.empty() || (lookbacks.size() > 1 && !split) || (split && *split >= count))
     throw std::invalid_argument("factor evaluation needs windows and, to compare them, a "
                                 "boundary inside the series");
+  const bool cross = series.size() > 1;
   for (std::size_t s = 0; s < series.size(); ++s) {
     if (series[s].size() != count || values[s].size() != count)
       throw std::invalid_argument("factor series must share their observations");
-    for (const auto close : series[s])
-      if (close <= Decimal{})
+    for (std::size_t i = 0; i < count; ++i) {
+      // A value is read where there is a close, and one series has them all.
+      if (series[s][i].has_value() != values[s][i].has_value() || (!cross && !series[s][i]))
+        throw std::invalid_argument("factor series must share their observations");
+      if (series[s][i] && *series[s][i] <= Decimal{})
         throw std::invalid_argument("return requires positive prices");
+    }
   }
-  const bool cross = series.size() > 1;
   const std::size_t warmup = lookbacks.back();
   const auto boundary = split.value_or(count);
   const auto total = count + (lookbacks.size() > 1 ? lookbacks.size() * boundary : 0);
@@ -267,24 +296,36 @@ FactorEvaluation evaluate_factor(std::span<const std::span<const Decimal>> serie
   const auto labelled = [&](std::size_t end) {
     std::vector<Column> result;
     for (const auto closes : series)
-      result.push_back(forward_returns(closes.first(end), horizon));
+      result.push_back(unbroken(closes.first(end), [&](std::span<const Decimal> stretch) {
+        return forward_returns(stretch, horizon);
+      }));
     return result;
   };
   const auto featured = [&](std::size_t end, std::size_t window) {
     std::vector<Column> result;
     for (const auto input : values)
-      result.push_back(feature(input.first(end), window));
+      result.push_back(unbroken(input.first(end), [&](std::span<const Decimal> stretch) {
+        return feature(stretch, window);
+      }));
     return result;
+  };
+  // The observations of [begin, end) that are evaluated: after the largest
+  // window has warmed up, and with their label inside the first `end`.
+  const auto evaluated = [&](std::size_t begin, std::size_t end) {
+    std::vector<std::size_t> rows;
+    for (auto row = std::max(begin, warmup); row + horizon < end; ++row)
+      rows.push_back(row);
+    return rows;
   };
   FactorEvaluation result;
   result.lookback = lookbacks.front();
   if (lookbacks.size() > 1) {
     // Selection sees the development observations and nothing else.
     const auto labels = labelled(boundary);
+    const auto rows = evaluated(0, boundary);
     std::vector<FactorCandidateScore> scores;
     for (const auto window : lookbacks) {
       const auto features = featured(boundary, window);
-      const auto rows = evaluated(features.front(), labels.front(), warmup, boundary);
       std::optional<double> score;
       if (cross) {
         score = statistics(across_series(features, labels, rows)).spearman;
@@ -305,14 +346,11 @@ FactorEvaluation evaluate_factor(std::span<const std::span<const Decimal>> serie
   const auto labels = labelled(count);
   for (std::size_t index = 0; index < (split ? 2U : 1U); ++index) {
     const auto begin = index ? boundary : 0, end = index || !split ? count : boundary;
-    auto rows = evaluated(features.front(), labels.front(), std::max(begin, warmup), end);
-    if (end < count) {
-      // A development label that ends in the holdout would let the two overlap.
-      const auto crossing =
-          std::ranges::remove_if(rows, [&](auto row) { return row + horizon >= end; });
-      result.purged += crossing.size();
-      rows.erase(crossing.begin(), crossing.end());
-    }
+    // A development label that ends in the holdout would let the two overlap.
+    const auto rows = evaluated(begin, end);
+    if (end < count)
+      for (auto row = std::max(begin, warmup); row < end && row + horizon < count; ++row)
+        result.purged += row + horizon >= end;
     if (cross) {
       const auto sections = across_series(features, labels, rows);
       const auto summary = statistics(sections);

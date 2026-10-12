@@ -389,30 +389,31 @@ factor_revision(const google::protobuf::RepeatedPtrField<factor::v1::FactorSerie
 FactorObservations factor_observations(const factor::v1::FactorInput& input) {
   validate_series(input.series());
   std::vector<Observed> all;
-  for (const auto& data : input.series())
+  std::set<std::int64_t> times;
+  for (const auto& data : input.series()) {
     all.push_back(observed(data, input.factor()));
+    const auto& order = all.back().order;
+    if (std::ranges::adjacent_find(order, std::ranges::greater_equal()) != order.end())
+      throw std::invalid_argument("factor observations must be in ascending order");
+    times.insert(order.begin(), order.end());
+  }
   const bool terms = input.factor() == v1::TERM_STRUCTURE;
   FactorObservations result;
+  result.order.assign(times.begin(), times.end());
   result.closes.resize(all.size());
   result.terms.resize(terms ? all.size() : 0);
-  std::vector<std::size_t> cursor(all.size());
-  for (std::size_t i = 0; i < all.front().order.size(); ++i) {
-    cursor.front() = i;
-    const auto when = all.front().order[i];
-    bool everywhere = true;
-    for (std::size_t s = 1; s < all.size() && everywhere; ++s) {
-      auto& at = cursor[s];
-      while (at < all[s].order.size() && all[s].order[at] < when)
+  for (std::size_t s = 0; s < all.size(); ++s) {
+    // Each series ascends, so one pass places what it has.
+    result.closes[s].resize(result.order.size());
+    if (terms)
+      result.terms[s].resize(result.order.size());
+    std::size_t at = 0;
+    for (std::size_t i = 0; i < all[s].order.size(); ++i) {
+      while (result.order[at] != all[s].order[i])
         ++at;
-      everywhere = at < all[s].order.size() && all[s].order[at] == when;
-    }
-    if (!everywhere)
-      continue;
-    result.order.push_back(when);
-    for (std::size_t s = 0; s < all.size(); ++s) {
-      result.closes[s].push_back(all[s].closes[cursor[s]]);
+      result.closes[s][at] = all[s].closes[i];
       if (terms)
-        result.terms[s].push_back(all[s].terms[cursor[s]]);
+        result.terms[s][at] = all[s].terms[i];
     }
   }
   return result;
@@ -463,7 +464,7 @@ Json factor_definition(const factor::v1::FactorInput& input) {
 // The structure of a result, without reference to the input it belongs to.
 Json result_structure(const factor::v1::FactorResult& result) {
   validate_message(result);
-  if (result.version() != 7)
+  if (result.version() != 8)
     throw std::invalid_argument("unsupported factor result version");
   for (const auto& row : result.samples())
     if (!std::isfinite(row.value()) || !std::isfinite(row.forward_return()))
@@ -485,6 +486,8 @@ Json result_structure(const factor::v1::FactorResult& result) {
   for (const auto& row : result.cross_sections()) {
     (void)statistic(row.has_pearson(), row.pearson());
     (void)statistic(row.has_spearman(), row.spearman());
+    if (row.series() < 3 && (row.has_pearson() || row.has_spearman()))
+      throw std::invalid_argument("invalid correlation result");
   }
   Json partitions = Json::array();
   for (const auto& p : result.partitions()) {
@@ -495,9 +498,13 @@ Json result_structure(const factor::v1::FactorResult& result) {
       throw std::invalid_argument("invalid factor partition range");
     Json spreads = Json::array();
     for (const auto& spread : p.spreads()) {
-      if (!std::isfinite(spread.highest()) || !std::isfinite(spread.lowest()))
+      if (!std::isfinite(spread.highest()) || !std::isfinite(spread.lowest()) ||
+          spread.observations() > p.sample_count() ||
+          (!spread.observations() && (spread.highest() != 0 || spread.lowest() != 0)))
         throw std::invalid_argument("non-finite factor result");
-      spreads.push_back({{"highest", spread.highest()}, {"lowest", spread.lowest()}});
+      spreads.push_back({{"highest", spread.highest()},
+                         {"lowest", spread.lowest()},
+                         {"observations", spread.observations()}});
     }
     partitions.push_back({{"name", p.name()},
                           {"spreads", std::move(spreads)},
@@ -542,7 +549,7 @@ Json result_structure(const factor::v1::FactorResult& result) {
           !fold.lookback())
         throw std::invalid_argument("invalid walk-forward fold");
       factor::v1::FactorResult metadata;
-      metadata.set_version(7);
+      metadata.set_version(8);
       metadata.set_input_count(result.input_count());
       metadata.set_selection_rule("fixed");
       *metadata.add_partitions() = fold.development();
@@ -793,6 +800,7 @@ Json decode_factor_result(const factor::v1::FactorInput& input,
     sections.push_back({{"event_index", row.event_index()},
                         {"observed", when(row.event_index())},
                         {"label", when(row.event_index() + input.horizon())},
+                        {"series", row.series()},
                         {"pearson", row.has_pearson() ? Json(row.pearson()) : Json(nullptr)},
                         {"spearman", row.has_spearman() ? Json(row.spearman()) : Json(nullptr)}});
   decoded["samples"] = std::move(samples);

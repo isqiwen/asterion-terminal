@@ -151,13 +151,13 @@ TEST(TableSeries, AProductIsReadThroughItsDominantMonthsUnderOneSnapshot) {
   *input.add_series()->mutable_table() = product;
   const auto observed = protocol::factor_observations(input);
   ASSERT_EQ(observed.closes.at(0).size(), 5U);
-  EXPECT_EQ(observed.closes[0][0].str(), "3209.6794808") << "3110 x 1.03205128";
-  EXPECT_EQ(observed.closes[0][2].str(), "3230");
+  EXPECT_EQ(observed.closes[0][0]->str(), "3209.6794808") << "3110 x 1.03205128";
+  EXPECT_EQ(observed.closes[0][2]->str(), "3230");
   input.set_factor(protocol::v1::TERM_STRUCTURE);
   const auto carried = protocol::factor_observations(input);
   ASSERT_EQ(carried.terms.at(0).size(), 2U) << "only the days that have a term point";
   // (3110 / 3210 - 1) x 12 / 5 months apart.
-  EXPECT_EQ(carried.terms[0][1].str(), "-0.07476636");
+  EXPECT_EQ(carried.terms[0][1]->str(), "-0.07476636");
 
   // A later correction is another snapshot; the first still holds what it held.
   const auto corrected = keep(store, daily, "2026-03-03",

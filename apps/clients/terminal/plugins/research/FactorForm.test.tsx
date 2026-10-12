@@ -42,13 +42,14 @@ const coverage: TableCoverage = {
     },
   ],
 };
-// Three products listed throughout, and one whose first contract came later.
-const products: TableProduct[] = ["al", "cu", "rb", "op"].map(product => ({
+// Three products listed throughout, one whose first contract came inside the
+// range the test asks for, and one whose last contract left before it.
+const products: TableProduct[] = ["al", "cu", "rb", "op", "wr"].map(product => ({
   exchange: "SHFE",
   product,
   contracts: 12,
   first_listed: product === "op" ? "2026-09-25" : "1995-04-17",
-  last_delisted: "2027-10-15",
+  last_delisted: product === "wr" ? "2026-09-15" : "2027-10-15",
 }));
 
 test("instruments of the market-wide table are submitted together under the store's snapshot", async () => {
@@ -108,11 +109,11 @@ test("instruments of the market-wide table are submitted together under the stor
   expect(start.disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "移除 SHFE/rb/2026-10" }));
   expect(start.disabled).toBe(false);
-  // Everything listed from the first day to the last joins what is already chosen.
+  // Everything listed at some time in the range joins what is already chosen.
   fireEvent.click(screen.getByRole("button", { name: "移除 SHFE/al" }));
-  fireEvent.click(screen.getByRole("button", { name: "添加范围内上市的全部品种" }));
+  fireEvent.click(screen.getByRole("button", { name: "添加范围内有合约在市的全部品种" }));
   expect(screen.getByRole("list", { name: "已选的品种和合约" }).textContent).toBe(
-    "SHFE/rb×SHFE/cu×SHFE/al×",
+    "SHFE/rb×SHFE/cu×SHFE/al×SHFE/op×",
   );
   fireEvent.click(start);
   await waitFor(() => expect(run).toHaveBeenCalled());
@@ -125,7 +126,7 @@ test("instruments of the market-wide table are submitted together under the stor
       calendar_source: "tushare.trade_cal.v1",
       begin_day: "2026-09-21",
       end_day: "2026-10-09",
-      instruments: ["SHFE/rb", "SHFE/cu", "SHFE/al"],
+      instruments: ["SHFE/rb", "SHFE/cu", "SHFE/al", "SHFE/op"],
     },
     factor: "term_structure",
     lookbacks: [5],

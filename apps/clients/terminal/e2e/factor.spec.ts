@@ -162,7 +162,7 @@ for (const mode of ["full", "holdout", "search", "rolling"])
     },
   );
 
-test("three contracts are compared with each other at every bar they share", async ({ page }) => {
+test("three contracts are compared with each other at every bar", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".workspace-tabs")).toBeVisible();
   // Each contract moves by its own pattern, so they differ at every bar.
@@ -177,7 +177,7 @@ test("three contracts are compared with each other at every bar they share", asy
   await expect(workspace.getByText("任务服务已连接", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "因子", exact: true }).click();
   await expect(
-    workspace.getByText("多个合约 · 在各合约共有的 K 线上比较它们的因子值与未来收益", {
+    workspace.getByText("多个合约 · 在每根 K 线上比较当时有数据的合约的因子值与未来收益", {
       exact: true,
     }),
   ).toBeVisible();
@@ -193,28 +193,31 @@ test("three contracts are compared with each other at every bar they share", asy
   const result = workspace.getByRole("region", { name: "因子结果", exact: true });
   await expect(result).toContainText("3 个合约的截面");
   const whole = result.getByRole("region", { name: "全样本", exact: true });
-  // 40 shared bars less the window of 2 and the horizon of 1.
+  // 40 bars less the window of 2 and the horizon of 1.
   await expect(whole.getByText("37", { exact: true })).toBeVisible();
   for (const name of ["IC 均值", "秩 IC 均值", "IC 信息比率", "秩 IC 信息比率"])
     await expect(whole.getByText(name, { exact: true })).toBeVisible();
   await whole.screenshot({ path: join(__dirname, "../test-results/factor-cross-metrics.png") });
   // Three contracts hold one on each side: one row, whose difference is its
-  // highest group less its lowest.
+  // highest group less its lowest, over every cross-section.
   const groups = result.getByRole("table", { name: "全样本 · 分组收益" }).locator("tbody tr");
   await expect(groups).toHaveCount(1);
-  const [, highest, lowest, difference] = (await groups.locator("td").allTextContents()).map(text =>
-    Number(text.replace("%", "")),
-  );
+  const [, highest, lowest, difference, counted] = (
+    await groups.locator("td").allTextContents()
+  ).map(text => Number(text.replace("%", "")));
   expect(difference).toBeCloseTo(highest - lowest, 3);
+  expect(counted).toBe(37);
   await result.getByText("截面明细", { exact: true }).click();
   const sections = result.getByRole("table", { name: "截面明细" });
   await expect(sections.locator("tbody tr")).toHaveCount(37);
   await expect(sections.getByRole("columnheader", { name: "秩 IC", exact: true })).toBeVisible();
+  // All three contracts have every bar.
+  await expect(sections.locator("tbody tr").first().locator("td").last()).toHaveText("3");
   await result.getByText("实验参数", { exact: true }).click();
   for (const symbol of ["rb2610", "hc2610", "al2610"])
     await expect(result.getByRole("region", { name: `SHFE · ${symbol}` })).toContainText("40");
   await result.getByText("结果详情", { exact: true }).click();
-  await expect(result).toContainText("各合约共有的观测: 40 · 有效截面: 37");
+  await expect(result).toContainText("至少一个合约有数据的观测: 40 · 有效截面: 37");
   await page.screenshot({ path: join(__dirname, "../test-results/factor-cross-result.png") });
   // The result reads the same in English, with nothing left untranslated.
   page = await openSettingsWindow(page);

@@ -22,6 +22,7 @@ void fill(factor::v1::FactorPartition& target, const FactorPartition& source, co
     auto* row = target.add_spreads();
     row->set_highest(spread.highest);
     row->set_lowest(spread.lowest);
+    row->set_observations(static_cast<unsigned>(spread.observations));
   }
 }
 template <class Candidates>
@@ -41,13 +42,12 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
   // From here on the factor sees ordered closes; what the series is made of
   // no longer matters.
   const auto observations = protocol::factor_observations(input);
-  std::vector<std::span<const Decimal>> closes(observations.closes.begin(),
-                                               observations.closes.end());
+  using Series = std::span<const std::optional<Decimal>>;
+  std::vector<Series> closes(observations.closes.begin(), observations.closes.end());
   // Price momentum and volatility read the closes; the term structure the
   // carry of each observation, averaged over the window.
   const bool carry = input.factor() == protocol::v1::TERM_STRUCTURE;
-  std::vector<std::span<const Decimal>> values(observations.terms.begin(),
-                                               observations.terms.end());
+  std::vector<Series> values(observations.terms.begin(), observations.terms.end());
   if (!carry)
     values = closes;
   const Feature feature = carry                                        ? average
@@ -56,7 +56,7 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
   const std::vector<unsigned> lookbacks(input.lookbacks().begin(), input.lookbacks().end());
   const bool search = lookbacks.size() > 1;
   factor::v1::FactorResult result;
-  result.set_version(7);
+  result.set_version(8);
   result.set_dataset_revision(input.dataset_revision());
   result.set_engine_version(protocol::factor_engine_version);
   result.set_horizon(input.horizon());
@@ -77,6 +77,7 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
         continue;
       auto* target = result.add_cross_sections();
       target->set_event_index(static_cast<unsigned>(row.index + offset));
+      target->set_series(static_cast<unsigned>(row.series));
       if (row.pearson)
         target->set_pearson(*row.pearson);
       if (row.spearman)
@@ -111,7 +112,7 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
            input.walk_forward().training_events(), input.walk_forward().validation_events())) {
     const auto training = range.training_end - range.training_begin;
     std::size_t units = 0;
-    const auto within = [&](std::vector<std::span<const Decimal>> all) {
+    const auto within = [&](std::vector<Series> all) {
       for (auto& series : all)
         series = series.subspan(range.training_begin, range.validation_end - range.training_begin);
       return all;
