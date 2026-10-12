@@ -4,6 +4,7 @@
 #include <asterion/domain/history_identity.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>
+#include <map>
 #include <stdexcept>
 namespace asterion::history_files {
 namespace {
@@ -274,16 +275,35 @@ void TableStore::scan(
   if (revisions.empty())
     return;
   validate(revisions.front().series);
+  // Partitions that held the same rows share one object: it is read once, and
+  // its rows are those of every revision that holds it.
   std::vector<fs::path> files;
-  for (const auto& revision : revisions) {
+  std::vector<std::vector<std::size_t>> holders;
+  std::map<std::string, std::size_t> objects;
+  for (std::size_t i = 0; i < revisions.size(); ++i) {
+    const auto& revision = revisions[i];
     if (revision.series != revisions.front().series)
       throw std::invalid_argument("history table scan reads one series");
-    auto path = object_path(revision.object);
-    if (fs::is_symlink(path) || !fs::is_regular_file(path) || sha256_file(path) != revision.object)
-      throw std::invalid_argument("history table object digest mismatch");
-    files.push_back(std::move(path));
+    const auto [object, first] = objects.emplace(revision.object, files.size());
+    if (first) {
+      auto path = object_path(revision.object);
+      if (fs::is_symlink(path) || !fs::is_regular_file(path) ||
+          sha256_file(path) != revision.object)
+        throw std::invalid_argument("history table object digest mismatch");
+      files.push_back(std::move(path));
+      holders.emplace_back();
+    }
+    holders[object->second].push_back(i);
   }
   parquet::scan_tables(files, history_table(revisions.front().series.table), columns, prefixes,
-                       visit);
+                       [&](std::size_t file, std::vector<TableCell>& cells) {
+                         // A visitor may take the cells, so each but the last has its own.
+                         const auto& held = holders[file];
+                         for (std::size_t i = 0; i + 1 < held.size(); ++i) {
+                           auto copy = cells;
+                           visit(held[i], copy);
+                         }
+                         visit(held.back(), cells);
+                       });
 }
 } // namespace asterion::history_files

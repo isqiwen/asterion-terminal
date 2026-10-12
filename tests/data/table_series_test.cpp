@@ -105,6 +105,25 @@ template <class Call> std::string refusal(Call&& call) {
   return {};
 }
 } // namespace
+TEST(TableSeries, DaysOnWhichAnExchangeHeldTheSameRowsAreEachRead) {
+  // Nothing moved from one day to the next: the two partitions have the same
+  // rows and so the same file, and each day still has them.
+  Folder folder("ast-same-");
+  TableStore store(folder.path);
+  keep_calendar(store);
+  std::string snapshot;
+  for (const auto* day : {days[0], days[1]})
+    snapshot = keep(store, daily, day, {traded("SHFE/rb/2026-10", "3200", "3200", "100")}, 1000);
+  const auto first = store.current(daily, "SHFE", days[0]),
+             second = store.current(daily, "SHFE", days[1]);
+  ASSERT_TRUE(first && second);
+  ASSERT_EQ(first->object, second->object);
+  const auto series =
+      data::table_series(store, request(snapshot, {"SHFE/rb/2026-10"}, days[0], days[1])).series(0);
+  ASSERT_EQ(series.months_size(), 1);
+  EXPECT_EQ(closes(series.months(0)), (std::vector<std::pair<std::string, std::string>>{
+                                          {days[0], "3200"}, {days[1], "3200"}}));
+}
 TEST(TableSeries, AProductIsReadThroughItsDominantMonthsUnderOneSnapshot) {
   Folder folder("ast-ts-");
   TableStore store(folder.path / "tables");
