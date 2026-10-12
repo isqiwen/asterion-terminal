@@ -193,8 +193,9 @@ test("three contracts are compared with each other at every bar", async ({ page 
   const result = workspace.getByRole("region", { name: "因子结果", exact: true });
   await expect(result).toContainText("3 个合约的截面");
   const whole = result.getByRole("region", { name: "全样本", exact: true });
-  // 40 bars less the window of 2 and the horizon of 1.
-  await expect(whole.getByText("37", { exact: true })).toBeVisible();
+  // 40 bars less the window of 2 and the horizon of 1; the group returns
+  // below count the same 37.
+  await expect(whole.locator("strong").getByText("37", { exact: true })).toBeVisible();
   for (const name of ["IC 均值", "秩 IC 均值", "IC 信息比率", "秩 IC 信息比率"])
     await expect(whole.getByText(name, { exact: true })).toBeVisible();
   await whole.screenshot({ path: join(__dirname, "../test-results/factor-cross-metrics.png") });
