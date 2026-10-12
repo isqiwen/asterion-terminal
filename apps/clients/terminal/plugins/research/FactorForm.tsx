@@ -369,6 +369,26 @@ const instrumentPattern = /^[A-Z]+\/[a-z]+(\/\d{4}-\d{2})?$/;
 // As many series as one cross-section compares.
 const maxInstruments = 100;
 
+// What is asked of the daily table: instruments read from the same day go
+// together. An exchange has no trading day before its first contract was
+// listed, so its instruments are read from then on when the range begins
+// earlier; the range itself must be stored whole.
+export function tableRanges(instruments: string[], begin: string, products: TableProduct[]) {
+  const opened = new Map<string, string>();
+  for (const product of products) {
+    const first = opened.get(product.exchange);
+    if (!first || product.first_listed < first) opened.set(product.exchange, product.first_listed);
+  }
+  const ranges: { begin_day: string; instruments: string[] }[] = [];
+  for (const name of instruments) {
+    const first = opened.get(name.split("/")[0]) ?? "";
+    const begin_day = first > begin ? first : begin;
+    const range = ranges.find(item => item.begin_day === begin_day);
+    if (range) range.instruments.push(name);
+    else ranges.push({ begin_day, instruments: [name] });
+  }
+  return ranges;
+}
 /**
  * A factor on instruments of the market-wide daily table: a product is read
  * as its dominant series, a contract as its own closes. What is read is what
@@ -466,10 +486,21 @@ export function TableFactorForm({
     .filter(name => !instruments.includes(name));
   const addListed = () => setInstruments([...instruments, ...listed].slice(0, maxInstruments));
   const contracts = instruments.filter(item => item.split("/").length === 3);
+  const ranges = tableRanges(instruments, range.begin, held?.products ?? []);
+  // Exchanges read from the day they began, and those that begin after the range.
+  const exchangesOf = (names: string[]) => [...new Set(names.map(name => name.split("/")[0]))];
+  const later = ranges.filter(item => item.begin_day > range.begin);
+  const absent = later
+    .filter(item => !!range.end && item.begin_day > range.end)
+    .flatMap(item => item.instruments);
   const unavailable =
     factor === "term_structure" && contracts.length
       ? t("期限结构只在品种的主力连续上评价：请去掉单个合约。")
-      : null;
+      : absent.length
+        ? t("{names} 所在的交易所在结束日期之后才有合约上市：请去掉它们。", {
+            names: absent.join("、"),
+          })
+        : null;
   const complete =
     !!daily &&
     (instruments.length === 1 || instruments.length > 2) &&
@@ -477,15 +508,7 @@ export function TableFactorForm({
     !!range.end &&
     range.begin <= range.end &&
     !unavailable;
-  const series = complete
-    ? {
-        kind: "tables",
-        ...daily.table,
-        begin_day: range.begin,
-        end_day: range.end,
-        instruments,
-      }
-    : null;
+  const series = complete ? { kind: "tables", ...daily.table, end_day: range.end, ranges } : null;
   return (
     <>
       <h3>{t("数据表因子设置")}</h3>
@@ -621,6 +644,15 @@ export function TableFactorForm({
               { id: coverage?.snapshot.slice(0, 12) ?? "" },
             )}
           </p>
+          {!!range.begin && later.length > 0 && !absent.length && (
+            <p role="status">
+              {t("交易所在起始日期之后才有合约上市的，它的品种从第一个上市日起读取：{list}。", {
+                list: later
+                  .map(item => `${exchangesOf(item.instruments).join("、")} ${item.begin_day}`)
+                  .join("；"),
+              })}
+            </p>
+          )}
           {instruments.length > 2 && (
             <p className="subtle">
               {t(

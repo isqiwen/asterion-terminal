@@ -159,6 +159,9 @@ v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeries
   for (int i = 0; i < request.instruments_size(); ++i)
     group.add_series();
   std::size_t total = 0;
+  // Instruments that cannot be read, each with why, by their place in the
+  // request: all of them are named together, not the first one met.
+  std::map<int, std::string> unreadable;
   for (const auto& [venue, wanted] : exchanges) {
     std::vector<std::string> prefixes;
     for (const auto index : wanted)
@@ -195,8 +198,10 @@ v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeries
       };
       if (!instrument.delivery_month.empty()) {
         const auto found = months.find(name);
-        if (found == months.end() || found->second.close.empty())
-          throw std::invalid_argument("the instrument has no closes in the range: " + name);
+        if (found == months.end() || found->second.close.empty()) {
+          unreadable.emplace(index, "it has no closes in the range");
+          continue;
+        }
         auto* month = series.add_months();
         month->set_contract(name);
         add(*month, found->second, request.begin_day(), nullptr);
@@ -212,14 +217,16 @@ v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeries
                          month->second.open_interest});
         rows.push_back(&month->second);
       }
-      if (facts.empty())
-        throw std::invalid_argument("the instrument has no closes in the range: " + name);
+      if (facts.empty()) {
+        unreadable.emplace(index, "it has no closes in the range");
+        continue;
+      }
       DominantPlan plan;
       try {
         plan = plan_dominant(facts, RollDay::may_have_expired);
       } catch (const std::invalid_argument& error) {
-        throw std::invalid_argument("the dominant series cannot be read: " + name + ": " +
-                                    error.what());
+        unreadable.emplace(index, error.what());
+        continue;
       }
       for (std::size_t i = 0; i < plan.segments.size(); ++i) {
         const auto& segment = plan.segments[i];
@@ -237,6 +244,16 @@ v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeries
     }
     if (total > protocol::max_dataset_bars)
       throw std::invalid_argument("dataset exceeds 200000 bars; narrow the date range");
+  }
+  if (!unreadable.empty()) {
+    constexpr std::size_t shown = 20;
+    std::string text = "instruments cannot be read: ";
+    std::size_t listed = 0;
+    for (const auto& [index, why] : unreadable | std::views::take(shown))
+      text += (listed++ ? "; " : "") + request.instruments(index) + ": " + why;
+    if (unreadable.size() > shown)
+      text += " and " + std::to_string(unreadable.size() - shown) + " more";
+    throw std::invalid_argument(text);
   }
   for (const auto& series : group.series())
     protocol::validate_table_series(series);

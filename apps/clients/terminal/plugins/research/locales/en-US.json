@@ -318,5 +318,7 @@
   "添加范围内有合约在市的全部品种": "Add every product with a contract listed in the range",
   "没有成交的品种每天的收盘价等于结算价，价格不动：它们的动量和未来收益都是 0，并且一起排在波动率最低的一端。做截面比较时请把不活跃的品种从列表里移除。": "A product nobody trades closes at its settlement price every day and does not move: its momentum and its forward return are zero, and such products gather at the low end of volatility. Remove inactive products from the list before comparing.",
   "参与的观测": "Observations counted",
-  "参与的合约数": "Contracts compared"
+  "参与的合约数": "Contracts compared",
+  "{names} 所在的交易所在结束日期之后才有合约上市：请去掉它们。": "The exchange of {names} lists its first contract after the end date: remove them.",
+  "交易所在起始日期之后才有合约上市的，它的品种从第一个上市日起读取：{list}。": "Where an exchange lists its first contract after the begin date, its products are read from that day on: {list}."
 }

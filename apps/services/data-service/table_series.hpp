@@ -40,7 +40,10 @@ DailyFacts daily_facts(const history_files::TableStore&, const v1::DailyTable&,
 // on the second trading day of the range.
 //
 // Fails rather than reads around a hole: when the snapshot's calendar does not
-// cover the range, or a day the calendar has open is not stored.
+// cover the range, or a day the calendar has open is not stored. Instruments
+// that cannot be read over a whole range (no closes, or a product whose months
+// leave a day without a dominant one) are refused together, each named with
+// why, so that a long list is corrected once.
 v1::TableSeriesGroup table_series(const history_files::TableStore&, const v1::TableSeriesRequest&);
 // The products of every exchange the snapshot holds a contract list of.
 v1::TableProducts table_products(const history_files::TableStore&, const v1::TableProductsQuery&);

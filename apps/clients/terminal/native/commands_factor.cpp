@@ -7,7 +7,8 @@ void Application::Impl::register_factor_commands() {
     fields(p, {"id", "series", "factor", "lookbacks", "horizon", "evaluation"});
     validate_id(text(p, "id"));
     // A factor reads the bars this window has selected, a daily version
-    // published in the archive, or instruments of the market-wide daily table.
+    // published in the archive, or instruments of the market-wide daily table
+    // over the ranges given for them.
     // Each selected contract is a series, and so is each dominant series, which
     // sends every month it was resolved from, or the product whose months Data
     // finds in the daily table.
@@ -33,11 +34,22 @@ void Application::Impl::register_factor_commands() {
       fields(series, {"kind", "dataset_id"});
       sources.push_back({{"daily_dataset_id", series.at("dataset_id")}});
     } else if (series.is_object() && series.value("kind", "") == "tables") {
-      fields(series, {"kind", "snapshot", "daily_source", "calendar_source", "begin_day", "end_day",
-                      "instruments"});
-      auto tables = series;
-      tables.erase("kind");
-      sources.push_back({{"tables", std::move(tables)}});
+      fields(series, {"kind", "snapshot", "daily_source", "calendar_source", "end_day", "ranges"});
+      // Each range is asked of Data by itself: instruments of an exchange that
+      // began inside the days asked for are read from the day it began.
+      const auto& ranges = series.at("ranges");
+      if (!ranges.is_array() || ranges.empty())
+        throw std::invalid_argument("invalid factor series");
+      for (const auto& range : ranges) {
+        fields(range, {"begin_day", "instruments"});
+        sources.push_back({{"tables",
+                            {{"snapshot", series.at("snapshot")},
+                             {"daily_source", series.at("daily_source")},
+                             {"calendar_source", series.at("calendar_source")},
+                             {"begin_day", range.at("begin_day")},
+                             {"end_day", series.at("end_day")},
+                             {"instruments", range.at("instruments")}}}});
+      }
     } else
       throw std::invalid_argument("invalid factor series");
     const auto request = protocol::encode_factor_request({{"series", std::move(sources)},

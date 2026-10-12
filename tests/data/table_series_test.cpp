@@ -228,12 +228,14 @@ TEST(TableSeries, AHoleInTheRangeIsRefusedNotReadAround) {
   // Without the missing day the range is whole, and each instrument answers for itself.
   EXPECT_EQ(ask(request(snapshot, {"SHFE/rb"}, "2026-03-05")), "");
   EXPECT_EQ(ask(request(snapshot, {"SHFE/rb", "SHFE/ag"}, "2026-03-05")),
-            "the instrument has no closes in the range: SHFE/ag");
-  EXPECT_EQ(ask(request(snapshot, {"SHFE/cu/2026-04"}, "2026-03-05")),
-            "the instrument has no closes in the range: SHFE/cu/2026-04");
-  EXPECT_EQ(ask(request(snapshot, {"SHFE/rb"}, "2026-03-09")),
-            "the dominant series cannot be read: SHFE/rb: a dominant series requires at least "
-            "two trading days");
+            "instruments cannot be read: SHFE/ag: it has no closes in the range");
+  // Every instrument that cannot be read is named, in the order asked for.
+  EXPECT_EQ(ask(request(snapshot, {"SHFE/cu/2026-04", "SHFE/rb", "SHFE/ag"}, "2026-03-05")),
+            "instruments cannot be read: SHFE/cu/2026-04: it has no closes in the range; "
+            "SHFE/ag: it has no closes in the range");
+  EXPECT_EQ(ask(request(snapshot, {"SHFE/rb", "SHFE/ag"}, "2026-03-09")),
+            "instruments cannot be read: SHFE/rb: a dominant series requires at least two "
+            "trading days; SHFE/ag: it has no closes in the range");
   EXPECT_EQ(ask(request(snapshot, {"SHFE/rb"}, "2026-12-30", "2027-01-05")),
             "the calendar of the range is not stored: futures.calendar SHFE 2027");
   EXPECT_EQ(ask(request(std::string(64, 'b'), {"SHFE/rb"})),
@@ -251,8 +253,11 @@ TEST(TableSeries, AHoleInTheRangeIsRefusedNotReadAround) {
   }
   EXPECT_EQ(ask(request(snapshot, many)), "invalid table series request");
   many.pop_back();
-  EXPECT_EQ(ask(request(snapshot, many, "2026-03-05")),
-            "the instrument has no closes in the range: SHFE/rb/2030-01");
+  // Of a long list the first twenty are named and the rest counted.
+  const auto none = ask(request(snapshot, many, "2026-03-05"));
+  EXPECT_TRUE(none.starts_with(
+      "instruments cannot be read: SHFE/rb/2030-01: it has no closes in the range; "));
+  EXPECT_TRUE(none.ends_with("SHFE/rb/2031-08: it has no closes in the range and 80 more")) << none;
   const auto sixty = [&](std::size_t first) {
     return Json{{"tables",
                  {{"snapshot", snapshot},

@@ -80,7 +80,10 @@ const prefixedDiagnostics = [
   ["reference data is not stored: ", "合约表或交易日历尚未入库，依赖它的交易日没有下载"],
   ["the contract list has no listing date: ", "合约表里没有上市日期，无法确定该交易所的起始日"],
   ["the source does not provide ", "该数据源不提供这张数据表或这个交易所"],
-  ["the calendar of the range is not stored: ", "范围内的交易日历没有入库，请先更新全市场数据"],
+  [
+    "the calendar of the range is not stored: ",
+    "范围内有一年的交易日历没有入库。交易所在那一年还没有成立时，把起始日期改到它成立之后；否则先更新全市场数据",
+  ],
   [
     "futures.daily is missing trading days of the range: ",
     "全市场日线表缺少范围内的交易日，请先补齐再提交；详情里是交易所和日期",
@@ -90,10 +93,9 @@ const prefixedDiagnostics = [
     "全市场日线表里没有该合约在某个交易日的结算价；详情里是合约和日期",
   ],
   [
-    "the instrument has no closes in the range: ",
-    "所选的品种或合约在范围内没有收盘价；详情里是它的代码",
+    "instruments cannot be read: ",
+    "所选的品种或合约里有在这个范围内读不出的；详情里逐个列出代码和原因，把它们移除后再提交",
   ],
-  ["the dominant series cannot be read: ", "一个品种的主力连续无法读出；详情里是品种和原因"],
 ] as const;
 // The localized form of a known English service diagnostic.
 export function diagnosticSummary(message: string) {

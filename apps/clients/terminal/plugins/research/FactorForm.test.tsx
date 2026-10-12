@@ -43,14 +43,24 @@ const coverage: TableCoverage = {
   ],
 };
 // Three products listed throughout, one whose first contract came inside the
-// range the test asks for, and one whose last contract left before it.
-const products: TableProduct[] = ["al", "cu", "rb", "op", "wr"].map(product => ({
-  exchange: "SHFE",
-  product,
-  contracts: 12,
-  first_listed: product === "op" ? "2026-09-25" : "1995-04-17",
-  last_delisted: product === "wr" ? "2026-09-15" : "2027-10-15",
-}));
+// range the test asks for, and one whose last contract left before it. A
+// second exchange lists its first contract inside the range.
+const products: TableProduct[] = [
+  ...["al", "cu", "rb", "op", "wr"].map(product => ({
+    exchange: "SHFE",
+    product,
+    contracts: 12,
+    first_listed: product === "op" ? "2026-09-25" : "1995-04-17",
+    last_delisted: product === "wr" ? "2026-09-15" : "2027-10-15",
+  })),
+  {
+    exchange: "GFEX",
+    product: "si",
+    contracts: 12,
+    first_listed: "2026-09-28",
+    last_delisted: "2027-10-15",
+  },
+];
 
 test("instruments of the market-wide table are submitted together under the store's snapshot", async () => {
   const asked: [string, Record<string, unknown>][] = [];
@@ -113,7 +123,12 @@ test("instruments of the market-wide table are submitted together under the stor
   fireEvent.click(screen.getByRole("button", { name: "移除 SHFE/al" }));
   fireEvent.click(screen.getByRole("button", { name: "添加范围内有合约在市的全部品种" }));
   expect(screen.getByRole("list", { name: "已选的品种和合约" }).textContent).toBe(
-    "SHFE/rb×SHFE/cu×SHFE/al×SHFE/op×",
+    "SHFE/rb×SHFE/cu×SHFE/al×SHFE/op×GFEX/si×",
+  );
+  // An exchange that began inside the range is read from the day it began; a
+  // product that began inside it in an older exchange needs no other range.
+  expect(screen.getByRole("status").textContent).toBe(
+    "交易所在起始日期之后才有合约上市的，它的品种从第一个上市日起读取：GFEX 2026-09-28。",
   );
   fireEvent.click(start);
   await waitFor(() => expect(run).toHaveBeenCalled());
@@ -124,9 +139,11 @@ test("instruments of the market-wide table are submitted together under the stor
       snapshot: coverage.snapshot,
       daily_source: "tushare.fut_daily.v3",
       calendar_source: "tushare.trade_cal.v1",
-      begin_day: "2026-09-21",
       end_day: "2026-10-09",
-      instruments: ["SHFE/rb", "SHFE/cu", "SHFE/al", "SHFE/op"],
+      ranges: [
+        { begin_day: "2026-09-21", instruments: ["SHFE/rb", "SHFE/cu", "SHFE/al", "SHFE/op"] },
+        { begin_day: "2026-09-28", instruments: ["GFEX/si"] },
+      ],
     },
     factor: "term_structure",
     lookbacks: [5],
