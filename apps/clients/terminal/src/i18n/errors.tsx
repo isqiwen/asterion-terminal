@@ -47,7 +47,7 @@ const prefixedDiagnostics = [
   ],
   [
     "the outgoing month has no bars on the roll day: ",
-    "换月当天旧月份合约没有 K 线，无法平仓：分钟线请补齐该月份的下载；日线表示它当天没有成交",
+    "换月当天旧月份合约没有 K 线，无法平仓：分钟线请补齐该月份的下载；日线表示它当天没有成交，或日线表里没有它当天的结算价",
   ],
   [
     "the roll lacks both settlement prices on the previous day: ",

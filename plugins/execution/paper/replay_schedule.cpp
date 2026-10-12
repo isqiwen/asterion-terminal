@@ -18,8 +18,7 @@ PaperReplaySchedule::PaperReplaySchedule(const std::vector<Instrument>& contract
     for (std::size_t d = 0; d < settlements[c].size(); ++d) {
       const auto& settlement = settlements[c][d];
       if ((d && settlement.trading_day <= settlements[c][d - 1].trading_day) ||
-          settlement.settlement_price <= Decimal{} ||
-          !settlement.settlement_price.multiple_of(contracts[c].price_increment))
+          settlement.settlement_price <= Decimal{})
         throw std::invalid_argument("invalid ordered replay days or settlement price");
       all.insert(settlement.trading_day);
     }

@@ -229,9 +229,10 @@ void validate_bar_dataset(const data::v1::BarDataset& dataset) {
   std::vector<std::string> days;
   for (const auto& day : dataset.days()) {
     (void)parse_trading_date(day.trading_day());
-    const auto price = value(day.settlement_price());
-    if (!day.has_settlement_price() || price <= Decimal{} ||
-        !price.multiple_of(spec.price_increment) ||
+    // A settlement price is what the exchange publishes, not a price an order
+    // is placed at: the last one of a cash-settled contract is an average
+    // with more places than the price increment has.
+    if (!day.has_settlement_price() || value(day.settlement_price()) <= Decimal{} ||
         (!days.empty() && day.trading_day() <= days.back()))
       throw std::invalid_argument("invalid dataset settlement day");
     days.push_back(day.trading_day());

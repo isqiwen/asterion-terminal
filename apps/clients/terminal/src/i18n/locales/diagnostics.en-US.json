@@ -827,7 +827,7 @@
   "应用自带的插件必须保持启用": "Plugins shipped with the application must stay enabled.",
   "换月前一交易日缺少新旧合约的结算价，无法计算复权系数": "Both settlement prices on the day before the roll are required for the adjustment factor.",
   "换月后旧月份合约的持仓未能平掉；该月份在换月日成交量不足": "The position in the outgoing month could not be closed after the roll: not enough volume on the roll day.",
-  "换月当天旧月份合约没有 K 线，无法平仓：分钟线请补齐该月份的下载；日线表示它当天没有成交": "The outgoing month has no bar on the roll day, so its position cannot be closed: for minute bars, complete that month's download; for daily bars, it did not trade that day",
+  "换月当天旧月份合约没有 K 线，无法平仓：分钟线请补齐该月份的下载；日线表示它当天没有成交，或日线表里没有它当天的结算价": "The outgoing month has no bar on the roll day, so its position cannot be closed: for minute bars, complete that month's download; for daily bars, it did not trade that day or the daily table has no settlement price of it for that day",
   "换月的复权系数无效": "The roll adjustment factor is invalid.",
   "更新正在等待后台工作安全结束，请稍后重试": "The update is waiting for background work to finish safely. Retry later.",
   "正在运行的服务尚不支持自动更新，请保留当前工作并稍后重试": "A running service does not yet support automatic updates. Keep your current work running and retry later.",

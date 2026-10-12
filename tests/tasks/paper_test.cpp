@@ -483,7 +483,9 @@ TEST(PaperExecution, DayEndSettlementRejectsWrongPositionAndPendingOrdersAtomica
   EXPECT_EQ(engine.snapshot(), pending);
   engine.advance();
   const auto filled = engine.snapshot();
-  EXPECT_THROW(engine.settle_scheduled({d("105.5")}, false), std::invalid_argument);
+  // No price to settle at. One off the price increment is taken: an exchange
+  // settles a cash-settled contract's last day at an average.
+  EXPECT_THROW(engine.settle_scheduled({d("0")}, false), std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), filled);
   engine.settle_scheduled({d("105")}, false);
   const auto settled = engine.snapshot();

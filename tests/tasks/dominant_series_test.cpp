@@ -468,6 +468,46 @@ TEST(DominantSeries, AMonthLeftOnDailyBarsIsClosedOnTheDayItsLimitIsReached) {
   EXPECT_EQ(result.account().equity().units(), d("99732").raw());
   EXPECT_EQ(result.settlements_size(), 8);
 }
+// An exchange settles a cash-settled contract on its last day at an average
+// with more places than its prices have: stock index futures trade in steps
+// of 0.2 and settle then to two places.
+TEST(DailyBars, ASettlementPriceNeedNotBeOnThePriceIncrement) {
+  Directory directory;
+  {
+    data::Store created(directory.path, "historical-data", "task");
+  }
+  const auto day = [](int index) { return daily_bar(index).trading_day; };
+  // Prices in steps of two, rising two a day; the last day settles at 107.
+  std::vector<test::DailyRow> rows;
+  for (int i = 0; i < 4; ++i) {
+    const auto price = 100 + 2 * i;
+    rows.push_back({day(i), i == 3 ? 107 : price, 100,
+                    test::DailyTrade{price, price + 2, price - 2, price, 100}});
+  }
+  const auto table = test::seed_daily_table(directory.path, "SHFE/rb/2026-10", rows);
+  data::Store store(directory.path, "historical-data", "task");
+  data::v1::BarDatasetRequest request;
+  *request.mutable_daily() = protocol::encode_daily_table(table);
+  *request.mutable_contract() = test::contract();
+  request.mutable_contract()->mutable_price_increment()->set_units(d("2").raw());
+  request.set_begin_day(day(0));
+  request.set_end_day(day(3));
+  const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
+  EXPECT_EQ(dataset.days(3).settlement_price().units(), d("107").raw());
+  Json contracts = Json::array(
+      {{{"dataset", protocol::decode_bar_dataset(dataset)}, {"cost_schedule", fixed_costs}}});
+  const auto result = backtest::run(traded(std::move(contracts)));
+  // Bought at 102 on the third day, a lot of ten is worth five more at the
+  // last settlement; opening it cost 2.
+  ASSERT_EQ(result.account().fills_size(), 1);
+  EXPECT_EQ(result.account().fills(0).price().units(), d("102").raw());
+  EXPECT_EQ(result.account().equity().units(), d("100048").raw());
+  // A price a bar trades at is on the increment still.
+  auto off = dataset;
+  off.mutable_bars(0)->mutable_close()->set_units(d("101").raw());
+  off.set_revision(protocol::bar_dataset_revision(off));
+  EXPECT_THROW(protocol::validate_bar_dataset(off), std::invalid_argument);
+}
 TEST(DominantSeries, ASeriesBringsEveryMonthItTradesAndIsOneOfThePortfoliosTwenty) {
   const auto result = backtest::run(rolling_daily(24));
   EXPECT_EQ(result.account().contracts_size(), 24);

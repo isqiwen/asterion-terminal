@@ -468,7 +468,9 @@ void FuturesAccount::settle_traded(const std::vector<std::optional<Decimal>>& pr
             "a position remains in a contract on a day it has no settlement price: " + id.symbol);
       continue;
     }
-    if (*prices[i] <= zero || !prices[i]->multiple_of(contracts_[i].instrument.price_increment))
+    // Published by the exchange; no order is placed at it, so it need not be
+    // on the price increment.
+    if (*prices[i] <= zero)
       throw std::invalid_argument("invalid settlement price");
     next[i] = *prices[i];
   }
