@@ -159,6 +159,16 @@ wire::Task summary(const wire::Task& task) {
   result.set_updated_at_ms(task.updated_at_ms());
   return result;
 }
+// What a definition was admitted as. prepare() derives it once, when the task is
+// submitted; the index keeps it from then on.
+void admit_as(wire::Task& task, const wire::Task& admitted) {
+  task.set_total(admitted.total());
+  task.set_trading_day(admitted.trading_day());
+  task.set_instrument(admitted.instrument());
+  task.set_source_name(admitted.source_name());
+  task.set_data_source(admitted.data_source());
+  task.set_minute_interval_minutes(admitted.minute_interval_minutes());
+}
 void transition(const wire::Task& before, const std::string& old_token, const wire::Task& after,
                 const std::string& token) {
   const auto a = before.state(), b = after.state();
@@ -228,6 +238,11 @@ void verify_result(const wire::Task& task, const asterion::backtest::v1::Backtes
   protocol::validate_message(result);
   if (task.kind() != wire::BACKTEST || !task.has_input())
     throw std::invalid_argument("not a backtest task");
+  // The task may have been stored by another version: its input is read as
+  // this one admits it before a result is held against it.
+  (void)protocol::decode_backtest(task.input(), protocol::DatasetView::metadata);
+  if (result.version() != 5 || result.engine_version() != protocol::backtest_engine_version)
+    throw std::invalid_argument("unsupported backtest result version");
   const auto& paper = task.input().paper();
   // Months of a dominant series trade on part of the days only: the replay
   // settles every day any contract trades, and costs follow its last day.
@@ -264,8 +279,7 @@ void verify_result(const wire::Task& task, const asterion::backtest::v1::Backtes
                 .SerializeAsString() &&
         result.account().contracts(c).cost_schedule().SerializeAsString() ==
             paper.contracts(c).cost_schedule().SerializeAsString();
-  if (result.version() != 5 || result.dataset_revision() != task.input().dataset_revision() ||
-      result.engine_version() != protocol::backtest_engine_version ||
+  if (result.dataset_revision() != task.input().dataset_revision() ||
       result.account().cursor() != bars || result.account().total() != bars ||
       result.equity_size() != static_cast<int>(bars) + days || result.settlements_size() != days ||
       !contracts || result.candidates_size() != compared || !folds ||
@@ -397,7 +411,6 @@ bool occupies_slot(wire::TaskState state) {
 }
 } // namespace
 struct Store::Impl {
-  using ValidatedInputs = std::map<std::pair<wire::TaskKind, std::string>, wire::Task>;
   struct Entry {
     wire::Task task; // Metadata only; immutable input stays on disk.
     std::string input_digest;
@@ -436,8 +449,7 @@ struct Store::Impl {
     return value;
   }
   explicit Impl(fs::path directory, Identity binding, std::shared_ptr<const Clock> source,
-                bool inspect, bool bounded_inspection = true,
-                ValidatedInputs* shared_validation = nullptr)
+                bool inspect, bool bounded_inspection = true)
       : root(std::move(directory)), identity(std::move(binding)), read_only(inspect),
         clock(std::move(source)) {
     if (!clock)
@@ -450,11 +462,6 @@ struct Store::Impl {
           ((inspection_bytes += bytes) > 256 * 1024 * 1024 || ++inspection_records > 100000))
         throw std::invalid_argument("task reference inspection limit exceeded");
     };
-    // Repeated experiments may share identical immutable definitions. Cache
-    // only their validated projection for this restore; every owned file is
-    // still checked independently. This cache is bounded independently of history size.
-    ValidatedInputs own_validation;
-    auto& validated_inputs = shared_validation ? *shared_validation : own_validation;
     if (!root.is_absolute() || !fs::is_directory(root))
       throw std::invalid_argument("task store requires an existing absolute directory");
     safe(root);
@@ -502,9 +509,8 @@ struct Store::Impl {
       // Validate every manifest and transition under a shared ownership lock,
       // with a read-only database. Unsupported stores
       // must be rejected before creating directories or writer journal state.
-      // Reuse semantic projections across the read-only preflight and writer
-      // validation, but recheck every file digest after taking exclusive ownership.
-      Impl inspected(root, identity, clock, true, false, &validated_inputs);
+      // Every file digest is checked again after taking exclusive ownership.
+      Impl inspected(root, identity, clock, true, false);
       validated_image = image();
     }
     owner = std::make_unique<FileLock>(root, "manager.lock",
@@ -641,26 +647,14 @@ struct Store::Impl {
           throw std::invalid_argument("invalid risk plugin artifact");
       } else if (!entry.task.risk_artifact().empty())
         throw std::invalid_argument("unexpected task risk artifact");
-      const auto input_identity = std::pair{entry.task.kind(), entry.input_digest};
-      auto validated = validated_inputs.find(input_identity);
-      if (validated == validated_inputs.end()) {
-        // Validate one definition, retain its projection, then release the
-        // large payload before advancing to the next task.
-        auto task = load(entry);
-        prepare(task);
-        if (validated_inputs.size() == 64)
-          validated_inputs.clear();
-        validated = validated_inputs.emplace(input_identity, summary(task)).first;
-      } else
-        payload::check(root / id / "input.pb", entry.input_digest, payload::max_input_bytes,
-                       entry.input_bytes);
-      const auto& projection = validated->second;
-      entry.task.set_total(projection.total());
-      entry.task.set_trading_day(projection.trading_day());
-      entry.task.set_instrument(projection.instrument());
-      entry.task.set_source_name(projection.source_name());
-      entry.task.set_data_source(projection.data_source());
-      entry.task.set_minute_interval_minutes(projection.minute_interval_minutes());
+      // The input is the bytes that were admitted. What they were admitted as
+      // is the index's to say: the version that stored the task derived it,
+      // and this one may read the same input otherwise. Recovery checks that
+      // the store agrees with itself, not that this version would admit it.
+      payload::check(root / id / "input.pb", entry.input_digest, payload::max_input_bytes,
+                     entry.input_bytes);
+      const auto indexed = find(id);
+      admit_as(entry.task, indexed.task);
       entry.task.set_state(wire::QUEUED);
       event_log->read_task(
           id, [&](const std::string&, std::uint64_t sequence, const std::string& raw) {
@@ -701,7 +695,7 @@ struct Store::Impl {
             entry.token = event.at("token").get<std::string>();
             transition(previous, old_token, entry.task, entry.token);
           });
-      if (encode(entry) != encode(find(id)))
+      if (encode(entry) != encode(indexed))
         throw std::invalid_argument("task index does not match state history");
       if (entry.task.has_publication() &&
           (entry.task.publication().identity().task_instance() != identity.instance ||
@@ -758,10 +752,6 @@ struct Store::Impl {
       result.push_back(entry.task);
     std::ranges::sort(result, {}, &wire::Task::submission_sequence);
     return result;
-  }
-  wire::Task load(const Entry& entry) const {
-    return read_input(entry.task, root / entry.task.id() / "input.pb", entry.input_digest,
-                      entry.input_bytes);
   }
   void writable() const {
     if (read_only)
@@ -1210,13 +1200,27 @@ void Store::InputRead::load() {
 }
 void Store::InputRead::load_for_claim() {
   load();
-  if (task_.has_input() || task_.has_factor()) {
-    execution_ = protocol::task_execution(task_, digest_);
-    task_.clear_definition(); // Release full evidence on this file worker.
+  // The version that stored a task admitted its input. This one runs it only
+  // if it admits the input too and finds the same work in it, which is what
+  // progress is counted against. Otherwise the attempt fails with the reason,
+  // and what was stored stays as it was written.
+  const auto admitted = task_.total();
+  try {
+    prepare(task_);
+    if (task_.total() != admitted)
+      throw std::invalid_argument("task input reads differently in this version; submit it again");
+    if (task_.has_input() || task_.has_factor())
+      execution_ = protocol::task_execution(task_, digest_);
+  } catch (const std::exception& error) {
+    refusal_ = error.what();
   }
+  if (task_.has_input() || task_.has_factor())
+    task_.clear_definition(); // Release full evidence on this file worker.
 }
 wire::TaskAttempt Store::confirm_attempt(InputRead read) const {
   validate_input(read);
+  if (!read.refusal_.empty())
+    throw std::invalid_argument(read.refusal_);
   wire::TaskAttempt result;
   if (read.execution_.parameters_case() != wire::TaskExecution::PARAMETERS_NOT_SET) {
     *result.mutable_task() = describe(read.task_.id());

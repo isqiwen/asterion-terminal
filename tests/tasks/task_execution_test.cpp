@@ -1521,6 +1521,54 @@ TEST_F(TaskProcess, WorkerRejectsDataEvidenceDifferentFromTheAcceptedInput) {
   EXPECT_EQ(task.error(), "calculation input does not match fixed task evidence");
   EXPECT_TRUE(task.result_digest().empty());
 }
+TEST_F(TaskProcess, ATaskStoredUnderOtherRulesStaysListedAndItsAttemptFailsWithTheReason) {
+  const auto spec = process_input();
+  service.reset();
+  {
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    tasks::submit(store, "other-rules", spec);
+  }
+  // The version that stored a task may have read its input otherwise: here it
+  // counted one unit of work more than this one does.
+  unsigned admitted = 0;
+  {
+    sqlite::Database db(directory.path / "tasks.sqlite");
+    task::v1::StoredTaskRecord record;
+    {
+      sqlite::Database::Statement read(db, "SELECT record FROM tasks WHERE id='other-rules'");
+      ASSERT_TRUE(read.step());
+      ASSERT_TRUE(record.ParseFromString(read.blob(0)));
+    }
+    admitted = record.task().total() + 1;
+    record.mutable_task()->set_total(admitted);
+    sqlite::Database::Statement write(db, "UPDATE tasks SET record=? WHERE id='other-rules'");
+    write.bind_blob(1, record.SerializeAsString()).step();
+  }
+  // The store agrees with itself, so the service opens it and lists the task
+  // as it was stored.
+  start();
+  task_wire::TaskRequest get;
+  get.mutable_get()->set_id("other-rules");
+  EXPECT_EQ(call(get).task().state(), task_wire::QUEUED);
+  EXPECT_EQ(call(get).task().total(), admitted);
+  // Running it is this version's to refuse: the attempt fails with the reason
+  // and the task leaves the queue, so no worker is launched for it again.
+  ChildProcess worker(ASTERION_BACKTEST_PATH,
+                      {"--endpoint", endpoint, "--session", "task", "--task", "other-rules"});
+  ASSERT_TRUE(worker.wait(15s));
+  EXPECT_NE(worker.exit_code(), 0);
+  const auto refused = call(get).task();
+  EXPECT_EQ(refused.state(), task_wire::FAILED);
+  EXPECT_EQ(refused.attempt(), 1U);
+  EXPECT_EQ(refused.total(), admitted);
+  EXPECT_EQ(refused.error(), "task input reads differently in this version; submit it again");
+  task_wire::TaskRequest dispatch;
+  dispatch.mutable_dispatch()->set_launch_slots(2);
+  EXPECT_EQ(call(dispatch, endpoint + ".worker").launches().launches_size(), 0);
+  service.reset();
+  start();
+  EXPECT_EQ(call(get).task().SerializeAsString(), refused.SerializeAsString());
+}
 TEST_F(TaskProcess, RestartFencesClaimedWorkAndQueuedCancelStaysCancelled) {
   submit("interrupted");
   task_wire::TaskRequest claim;

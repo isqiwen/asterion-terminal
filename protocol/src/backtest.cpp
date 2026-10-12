@@ -137,8 +137,9 @@ std::size_t backtest_work_units(const backtest::v1::BacktestInput& input) {
 }
 Json decode_backtest(const backtest::v1::BacktestInput& input, DatasetView view) {
   validate_message(input);
-  if (input.version() != 10 || !input.has_paper() || input.strategies().empty() ||
-      input.strategies_size() > 32)
+  if (input.version() != 10)
+    throw std::invalid_argument("unsupported backtest input version");
+  if (!input.has_paper() || input.strategies().empty() || input.strategies_size() > 32)
     throw std::invalid_argument("incomplete backtest input");
   if (input.dataset_revision() != dataset_revision(input.paper()))
     throw std::invalid_argument("dataset revision does not match input snapshot");

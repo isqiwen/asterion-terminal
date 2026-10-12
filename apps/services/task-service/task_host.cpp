@@ -409,6 +409,8 @@ PolledTask<> TaskHost::claim(Call& call) {
     refuse_during_upgrade(quiescing_);
   auto* attempt = call.response.mutable_attempt();
   const auto token = (co_await commit(storage_->claim(read))).token();
+  // An attempt that cannot begin fails with the reason: this version refuses
+  // the stored input, or a download has nowhere to write.
   std::exception_ptr allocation_error;
   try {
     *attempt = storage_->confirm_attempt(std::move(read));

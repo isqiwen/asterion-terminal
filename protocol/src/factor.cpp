@@ -652,6 +652,8 @@ void validate_factor_result(const factor::v1::FactorInput& input,
                             const factor::v1::FactorResult& result) {
   static_cast<void>(factor_definition(input));
   (void)result_structure(result);
+  if (result.engine_version() != factor_engine_version)
+    throw std::invalid_argument("unsupported factor result version");
   const auto reject = [] {
     throw std::invalid_argument("factor result evidence does not match its input");
   };
@@ -659,8 +661,7 @@ void validate_factor_result(const factor::v1::FactorInput& input,
   const auto warmup = input.lookbacks(input.lookbacks_size() - 1);
   const auto horizon = input.horizon();
   const bool search = input.lookbacks_size() > 1;
-  if (result.engine_version() != factor_engine_version ||
-      result.dataset_revision() != input.dataset_revision() || result.input_count() != count ||
+  if (result.dataset_revision() != input.dataset_revision() || result.input_count() != count ||
       result.horizon() != horizon || result.evaluation_warmup() != warmup)
     reject();
   const auto selection = [&](unsigned lookback, const auto& candidates, unsigned training_count) {

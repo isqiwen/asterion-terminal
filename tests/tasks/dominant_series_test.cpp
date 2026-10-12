@@ -359,7 +359,14 @@ TEST(DominantSeries, PersistedRollingResultRejectsPreviousEngineAndSurvivesResta
     const auto token = store.commit(store.claim("rolling")).token();
     auto old = expected;
     old.set_engine_version("asterion.backtest.v11");
-    EXPECT_THROW(store.commit(tasks::finish(store, "rolling", token, old)), std::invalid_argument);
+    // Refused for what it is, so that a stored result of another engine reads
+    // as one to submit again and not as damaged evidence.
+    try {
+      store.commit(tasks::finish(store, "rolling", token, old));
+      FAIL() << "a result of another engine was accepted";
+    } catch (const std::invalid_argument& error) {
+      EXPECT_STREQ(error.what(), "unsupported backtest result version");
+    }
     EXPECT_EQ(store.get("rolling").state(), task::v1::RUNNING);
     store.commit(tasks::finish(store, "rolling", token, expected));
   }

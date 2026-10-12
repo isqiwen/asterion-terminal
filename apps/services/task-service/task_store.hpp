@@ -90,6 +90,8 @@ public:
     std::uint64_t bytes_;
     bool loaded_ = false;
     task::v1::TaskExecution execution_;
+    // Why this version cannot run the input; empty when it can.
+    std::string refusal_;
   };
   InputRead prepare_input(const std::string&) const;
   task::v1::Task confirm_input(InputRead) const;
