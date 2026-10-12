@@ -3028,6 +3028,44 @@ TEST(NamedDatasets, ADailyBarIsADayTheContractTradedAndADownloadOfDailyBarsIsNoS
   }
 }
 
+// A multiplier is the user's to give, and a wrong one moves every profit and
+// loss without failing anything. The daily table's turnover says what a lot
+// was worth.
+TEST(NamedDatasets, AMultiplierTheTurnoverContradictsIsRefused) {
+  TaskDirectory directory;
+  {
+    data::Store created(directory.path, "historical-data", "task");
+  }
+  // Copper is five tonnes a lot. 1,200 lots at an average of 70,010 are worth
+  // 420,060,000 and 1,000 at 70,480 are worth 352,400,000. On the third day
+  // lots changed hands far from the day's prices, as in a delivery month: 800
+  // lots worth 304,000,000 are 76,000 a tonne against a settlement of 70,300.
+  const auto table = test::seed_daily_table(
+      directory.path, "SHFE/cu/2026-10",
+      {{"2026-09-23", 70000, 500, test::DailyTrade{69900, 70200, 69800, 70100, 1200, 420060000}},
+       {"2026-09-24", 70500, 500, test::DailyTrade{70100, 70700, 70000, 70600, 1000, 352400000}},
+       {"2026-09-25", 70300, 500, test::DailyTrade{70600, 70700, 70100, 70200, 800, 304000000}}});
+  data::Store store(directory.path, "historical-data", "task");
+  const auto ask = [&](const char* multiplier) {
+    data::v1::BarDatasetRequest request;
+    *request.mutable_daily() = protocol::encode_daily_table(table);
+    *request.mutable_contract() = test::contract("SHFE", "cu2610", "cu", "2026-10");
+    request.mutable_contract()->mutable_multiplier()->set_units(Decimal::parse(multiplier).raw());
+    request.set_begin_day("2026-09-23");
+    request.set_end_day("2026-09-25");
+    return data::resolve_bar_dataset(store.tables(), store.sources(request));
+  };
+  // Two of the three days are within a twentieth of five.
+  EXPECT_EQ(ask("5").bars_size(), 3);
+  try {
+    (void)ask("10");
+    FAIL() << "a multiplier twice what the turnover implies was taken";
+  } catch (const std::invalid_argument& error) {
+    // The middle of 4.99858, 5.00071 and 5.40541.
+    EXPECT_STREQ(error.what(), "the contract multiplier does not match the turnover of "
+                               "SHFE/cu/2026-10: its days imply about 5.00071");
+  }
+}
 TEST(NamedDatasets, RequestedWindowReportsMissingBoundaryDays) {
   TaskDirectory directory;
   const auto selection =

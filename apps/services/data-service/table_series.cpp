@@ -52,8 +52,12 @@ std::vector<std::string> open_days(const TableStore& store, const TableSeries& c
 // What one contract did on the days of the range.
 struct Month {
   std::map<std::string, Decimal> close, settlement, open_interest;
-  std::map<std::string, DailyTrade> trades; // where they were read
+  std::map<std::string, long double> lot_value; // where they were read
+  std::map<std::string, DailyTrade> trades;     // where they were read
 };
+// How much of a contract's day is read: what it settled at and held; also
+// what a lot of it was worth; also the prices it traded at.
+enum class Read { settled, valued, traded };
 struct Days {
   std::map<std::string, Month> months;          // by contract
   std::map<std::string, std::int64_t> acquired; // by trading day
@@ -63,14 +67,17 @@ struct Days {
 // range must be stored: a missing one is named, not read around.
 Days read_days(const TableStore& store, const TableSeries& daily, const TableSeries& calendar,
                const std::string& venue, const std::string& begin, const std::string& end,
-               std::uint64_t until, const std::vector<std::string>& prefixes, bool trades) {
+               std::uint64_t until, const std::vector<std::string>& prefixes, Read read) {
   const auto& table = history_table(daily_table);
   std::vector<std::size_t> columns{table_column(table, "contract"), table_column(table, "close"),
                                    table_column(table, "settlement"),
                                    table_column(table, "open_interest")};
-  // The other prices and the volume are read only for bars.
-  if (trades)
-    for (const auto* name : {"open", "high", "low", "volume"})
+  if (read != Read::settled)
+    for (const auto* name : {"volume", "amount"})
+      columns.push_back(table_column(table, name));
+  // The other prices are read only for bars.
+  if (read == Read::traded)
+    for (const auto* name : {"open", "high", "low"})
       columns.push_back(table_column(table, name));
   const auto revisions = store.revisions(daily, venue, begin, end, until);
   std::vector<std::string> missing;
@@ -100,11 +107,17 @@ Days read_days(const TableStore& store, const TableSeries& daily, const TableSer
     keep(month.settlement, cells[2]);
     // Kept in lots; only compared, so the scale does not matter.
     keep(month.open_interest, cells[3]);
-    if (!trades)
+    if (read == Read::settled)
       return;
     const auto value = [&](std::size_t cell) { return std::get_if<std::int64_t>(&cells[cell]); };
-    const auto *open = value(4), *high = value(5), *low = value(6), *close = value(1),
-               *volume = value(7);
+    const auto *volume = value(4), *amount = value(5);
+    // The amount is kept to two places and the volume in whole lots: what a
+    // lot was worth, a price times the contract's multiplier.
+    if (volume && amount && *volume > 0 && *amount > 0)
+      month.lot_value.emplace(day, static_cast<long double>(*amount) / 100 / *volume);
+    if (read != Read::traded)
+      return;
+    const auto *open = value(6), *high = value(7), *low = value(8), *close = value(1);
     // The table has an open, a high and a low only where the contract traded
     // in the auction. A day nobody traded it has none, and neither has a day
     // whose only volume changed hands outside the auction, as in a delivery
@@ -124,9 +137,10 @@ DailyFacts daily_facts(const TableStore& store, const v1::DailyTable& table,
                        const std::string& end_day, const std::vector<std::string>& names,
                        bool trades) {
   protocol::validate_daily_table(table);
-  auto days = read_days(store, series_of(daily_table, table.daily_source()),
-                        series_of(calendar_table, table.calendar_source()), venue, begin_day,
-                        end_day, held(store, table.snapshot()), names, trades);
+  auto days =
+      read_days(store, series_of(daily_table, table.daily_source()),
+                series_of(calendar_table, table.calendar_source()), venue, begin_day, end_day,
+                held(store, table.snapshot()), names, trades ? Read::traded : Read::valued);
   DailyFacts result;
   result.acquired_at_ns = std::move(days.acquired);
   for (auto& [contract, month] : days.months) {
@@ -138,6 +152,7 @@ DailyFacts daily_facts(const TableStore& store, const v1::DailyTable& table,
       continue;
     result.settlement.emplace(contract, std::move(month.settlement));
     result.open_interest.emplace(contract, std::move(month.open_interest));
+    result.lot_value.emplace(contract, std::move(month.lot_value));
     if (trades)
       result.trades.emplace(contract, std::move(month.trades));
   }
@@ -169,7 +184,7 @@ v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeries
           request.instruments(index) +
           (instruments[static_cast<std::size_t>(index)].delivery_month.empty() ? "/" : ""));
     const auto days = read_days(store, daily, calendar, venue, request.begin_day(),
-                                request.end_day(), until, prefixes, false);
+                                request.end_day(), until, prefixes, Read::settled);
     const auto& months = days.months;
     std::int64_t acquired = 0;
     for (const auto& [day, time] : days.acquired)

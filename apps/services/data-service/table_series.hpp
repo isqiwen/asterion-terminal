@@ -20,6 +20,10 @@ struct DailyFacts {
   // Read only where trades are asked for: the days a contract traded on. A
   // day it did not has a settlement, and a close equal to it, and is not here.
   std::map<std::string, std::map<std::string, DailyTrade>> trades;
+  // What a lot of a contract was worth on a day it has a turnover: the amount
+  // over the volume, which is a price times the contract's multiplier. It
+  // checks a multiplier and is no ledger figure.
+  std::map<std::string, std::map<std::string, long double>> lot_value;
   // When the partition of each trading day of the range was acquired.
   std::map<std::string, std::int64_t> acquired_at_ns;
 };

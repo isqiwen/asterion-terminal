@@ -22,6 +22,11 @@ struct BarDatasetSources {
 // settlement, rather than reads around a trading day the table lacks, and
 // when the range exceeds max_dataset_bars. Days the contract settled on
 // without bars are listed as uncovered.
+//
+// The contract's multiplier is the request's and nothing else of a dataset
+// says it is right: it is checked against the daily table's turnover of the
+// days read, and refused when fewer than half of the days that have one
+// agree with it.
 data::v1::BarDataset resolve_bar_dataset(const history_files::TableStore&,
                                          const BarDatasetSources&);
 // Month contracts of one product as its dominant series. The dominant month

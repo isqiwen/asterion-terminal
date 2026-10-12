@@ -17,9 +17,11 @@ namespace asterion::test {
 struct DailyTableSources {
   std::string daily = "fixture.daily.v1", calendar = "fixture.calendar.v1";
 };
-// What a contract traded at on a day.
+// What a contract traded at on a day, and what the lots were worth in all
+// where the row publishes it.
 struct DailyTrade {
   int open, high, low, close, volume;
+  long long amount = 0;
 };
 // One day of a contract in the daily table. Without a trade nobody traded it
 // in the auction: the table then has its settlement, the same price as its
@@ -74,6 +76,8 @@ inline Json seed_daily_table(const std::filesystem::path& root, const std::strin
       row[3] = std::to_string(day.trade->low);
       row[4] = std::to_string(day.trade->close);
       row[8] = std::to_string(day.trade->volume);
+      if (day.trade->amount)
+        row[9] = std::to_string(day.trade->amount);
     } else if (day.off_auction_volume) {
       row[8] = std::to_string(day.off_auction_volume);
     }

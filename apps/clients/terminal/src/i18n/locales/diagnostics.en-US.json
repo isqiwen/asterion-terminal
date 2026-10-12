@@ -938,5 +938,6 @@
   "unsupported saved dataset version": "unsupported saved dataset version",
   "invalid daily table reference": "invalid daily table reference",
   "task input was stored by another version; submit the task again": "task input was stored by another version; submit the task again",
+  "所填的合约乘数与日线表里这个合约的成交额对不上；详情里是合约和按成交额推出的乘数": "The contract multiplier given does not match the turnover the daily table has of this contract; the details name the contract and the multiplier its turnover implies",
   "全市场日线表里没有该合约在某个交易日的结算价；详情里是合约和日期": "The market-wide daily table has no settlement price for the contract on a trading day; the details name the contract and the day"
 }

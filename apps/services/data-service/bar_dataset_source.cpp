@@ -6,6 +6,8 @@
 #include <asterion/domain/daily_bars.hpp>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <format>
 #include <map>
 #include <optional>
 #include <set>
@@ -38,13 +40,21 @@ HistoryIdentity history_identity(const protocol::v1::Contract& contract) {
   identity.validate();
   return identity;
 }
+template <class Values>
+const Values& of(const std::map<std::string, Values>& all, const std::string& contract) {
+  static const Values none;
+  const auto found = all.find(contract);
+  return found == all.end() ? none : found->second;
+}
 // Completes a dataset from its bars: the settlement price of each of their
 // days, the days of [first, last] the contract settled on without bars, and
-// when the daily partitions it speaks of were acquired.
-void settle(data::v1::BarDataset& result, const Bars& bars,
-            const std::map<std::string, Decimal>& settlements,
-            const std::map<std::string, std::int64_t>& acquired, const std::string& first,
-            const std::string& last, const std::string& contract) {
+// when the daily partitions it speaks of were acquired. The contract's
+// multiplier, which only the user gives, is checked against what its lots
+// were worth on those days.
+void settle(data::v1::BarDataset& result, const Bars& bars, const DailyFacts& facts,
+            const std::string& first, const std::string& last, const std::string& contract) {
+  const auto& settlements = of(facts.settlement, contract);
+  const auto& acquired = facts.acquired_at_ns;
   // The days the contract settled on are the trading days it had. This detects
   // missing whole days only; it cannot establish intraday completeness.
   std::set<std::string> covered;
@@ -77,12 +87,28 @@ void settle(data::v1::BarDataset& result, const Bars& bars,
   for (auto day = acquired.lower_bound(from); day != acquired.end() && day->first <= to; ++day)
     read = std::max(read, day->second);
   result.set_daily_acquired_at_ns(read);
-}
-template <class Values>
-const Values& of(const std::map<std::string, Values>& all, const std::string& contract) {
-  static const Values none;
-  const auto found = all.find(contract);
-  return found == all.end() ? none : found->second;
+  // A lot is worth about the day's settlement price times the multiplier. A
+  // day agrees within a twentieth: turnover of a delivery month includes lots
+  // that changed hands away from the day's prices. A multiplier that is wrong
+  // agrees on no day, so most days must.
+  const auto units = [](const protocol::v1::Decimal& value) {
+    return static_cast<long double>(value.units()) / Decimal::parse("1").raw();
+  };
+  const auto& worth = of(facts.lot_value, contract);
+  const auto multiplier = units(result.contract().multiplier());
+  std::vector<long double> implied;
+  for (const auto& day : result.days())
+    if (const auto value = worth.find(day.trading_day()); value != worth.end())
+      implied.push_back(value->second / units(day.settlement_price()));
+  const auto agree = std::ranges::count_if(
+      implied, [&](long double value) { return std::abs(value / multiplier - 1) <= 0.05L; });
+  if (static_cast<std::size_t>(agree) * 2 < implied.size()) {
+    const auto median = implied.begin() + static_cast<std::ptrdiff_t>(implied.size() / 2);
+    std::ranges::nth_element(implied, median);
+    throw std::invalid_argument("the contract multiplier does not match the turnover of " +
+                                contract + ": its days imply about " +
+                                std::format("{:.6g}", static_cast<double>(*median)));
+  }
 }
 // The daily bars of one contract over [begin, end], as `facts` read them from
 // the daily table: a day is a bar where the contract traded.
@@ -101,7 +127,7 @@ data::v1::BarDataset tabled(const protocol::v1::Contract& spec, const data::v1::
   data::v1::BarDataset result;
   result.set_version(protocol::bar_dataset_version);
   *result.mutable_contract() = spec;
-  settle(result, bars, of(facts.settlement, contract), facts.acquired_at_ns, begin, end, contract);
+  settle(result, bars, facts, begin, end, contract);
   result.set_interval_minutes(0);
   result.set_source(daily.daily_source());
   *result.mutable_daily() = daily;
@@ -178,7 +204,7 @@ data::v1::BarDataset resolve_bar_dataset(const history_files::TableStore& tables
   const auto facts =
       daily_facts(tables, in.request.daily(), identity.venue, first, last, {contract});
   *result.mutable_contract() = in.request.contract();
-  settle(result, bars, of(facts.settlement, contract), facts.acquired_at_ns, first, last, contract);
+  settle(result, bars, facts, first, last, contract);
   result.set_interval_minutes(*interval);
   result.set_source(source_semantics->source);
   *result.mutable_source_dataset_ids() = in.request.source_dataset_ids();

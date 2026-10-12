@@ -89,6 +89,10 @@ const prefixedDiagnostics = [
     "全市场日线表缺少范围内的交易日，请先补齐再提交；详情里是交易所和日期",
   ],
   [
+    "the contract multiplier does not match the turnover of ",
+    "所填的合约乘数与日线表里这个合约的成交额对不上；详情里是合约和按成交额推出的乘数",
+  ],
+  [
     "futures.daily has no settlement price for ",
     "全市场日线表里没有该合约在某个交易日的结算价；详情里是合约和日期",
   ],
