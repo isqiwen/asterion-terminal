@@ -842,6 +842,7 @@
   "market service did not answer; the strategy stopped": "market service did not answer; the strategy stopped",
   "market service has no observations of this contract; subscribe to it first": "market service has no observations of this contract; subscribe to it first",
   "market observations were interrupted; the strategy stopped": "market observations were interrupted; the strategy stopped",
+  "the market service restarted; the strategy stopped": "the market service restarted; the strategy stopped",
   "market service reply is invalid": "market service reply is invalid",
   "a strategy found its contract held on both sides": "a strategy found its contract held on both sides",
   "a strategy controls this account; stop it before placing manual orders": "a strategy controls this account; stop it before placing manual orders",

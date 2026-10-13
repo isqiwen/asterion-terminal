@@ -1537,6 +1537,28 @@ TEST_F(Live, StrategyContinuesIntoTheNextTradingDayAndClosesYesterdaysLot) {
   EXPECT_EQ(find_order(state, sold).at("offset"), "close_yesterday");
   EXPECT_EQ(state.at("strategy").at("state"), "running");
 }
+// A market service observes a trading day from one beginning. A series of
+// the same day that began again is a restarted service's: the run ends on
+// seeing it, before any completed bar of the new series arrives.
+TEST_F(Live, AMarketServiceThatRestartedEndsTheRun) {
+  FakeMarket market;
+  LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+  const auto day = ready(session).at("trading_day").get<std::string>();
+  act(session, authorize());
+  // Level closes ask for nothing: the run holds no position and no order.
+  market.set(day, {"3500", "3500", "3500"});
+  act(session, market.start("run", "1"));
+  auto state = wait_for(session, [](const Json& s) { return s.at("strategy").at("bars") == 2; });
+  ASSERT_EQ(state.at("strategy").at("bars"), 2) << state.at("strategy").dump();
+  // The restarted service's first reply holds only the minute it began in.
+  market.set(day, {"3510"}, false, 5);
+  state = wait_for(session, strategy_stopped);
+  ASSERT_TRUE(strategy_stopped(state)) << state.at("strategy").dump();
+  EXPECT_EQ(state.at("strategy").at("reason"),
+            "the market service restarted; the strategy stopped");
+  EXPECT_EQ(state.at("strategy").at("bars"), 2);
+  EXPECT_TRUE(state.at("orders").empty());
+}
 TEST_F(Live, StrategyRunEndsWithARevokeOrAFailedStepAndIsNeverRestored) {
   FakeMarket market;
   {

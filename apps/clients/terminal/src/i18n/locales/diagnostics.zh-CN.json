@@ -842,6 +842,7 @@
   "market service did not answer; the strategy stopped": "行情服务没有应答，策略已停止。",
   "market service has no observations of this contract; subscribe to it first": "行情服务还没有该合约的行情，请先订阅该合约。",
   "market observations were interrupted; the strategy stopped": "行情观察中断，策略已停止。",
+  "the market service restarted; the strategy stopped": "行情服务已重启，策略已停止。",
   "market service reply is invalid": "行情服务的应答无效。",
   "a strategy found its contract held on both sides": "策略发现该合约同时持有多单和空单。",
   "a strategy controls this account; stop it before placing manual orders": "策略正在控制此账户；先停止策略再手动下单。",

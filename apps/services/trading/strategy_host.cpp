@@ -59,9 +59,12 @@ void run(const std::stop_token& stop, const StrategyHost::Definition& definition
       if (series->trading_day().size() != 8)
         throw std::runtime_error(
             "market service has no observations of this contract; subscribe to it first");
-      // A new trading day is a new series; within one day observation begins once.
-      const bool restarted =
-          series->trading_day() == day && series->first_observation_ms() != first;
+      // A new trading day is a new series. Within one day a market service
+      // begins observing once in its life: a series that began again is
+      // another process's, and what the first one observed after the last bar
+      // fed is lost whether or not this reply brings a completed bar.
+      if (series->trading_day() == day && series->first_observation_ms() != first)
+        throw std::runtime_error("the market service restarted; the strategy stopped");
       day = series->trading_day();
       first = series->first_observation_ms();
       const auto trading_day = day.substr(0, 4) + "-" + day.substr(4, 2) + "-" + day.substr(6, 2);
@@ -76,7 +79,7 @@ void run(const std::stop_token& stop, const StrategyHost::Definition& definition
         // Bars that follow lost observations are not the market's bars. An
         // interruption after the last bar of a day, such as the feed closing
         // overnight, loses nothing the strategy would have seen.
-        if (restarted || series->interrupted())
+        if (series->interrupted())
           throw std::runtime_error("market observations were interrupted; the strategy stopped");
         const MarketBar bar{trading_day,
                             source.start_ms() * 1'000'000,
