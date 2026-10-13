@@ -12,10 +12,12 @@ struct TradingClient::Impl {
   const ServiceEndpoint endpoint;
   std::unique_ptr<ipc::RpcClient> transport;
   std::stop_source lifetime;
-  // One request at a time, and beside it one cancel or strategy stop: neither
-  // waits for a command in flight. The account service runs a cancel of a
-  // recorded order while a submission waits for its quote.
-  bool busy = false, cancelling = false, failed = false;
+  // One request at a time. Beside it one cancel or strategy stop, and beside
+  // those one revoke: none of them waits here for a command in flight, and a
+  // revoke does not wait for a cancel the account service has queued either.
+  // That service runs a cancel of a recorded order while a submission waits
+  // for its quote, and closes the permission to send when it admits a revoke.
+  bool busy = false, cancelling = false, revoking = false, failed = false;
   std::shared_ptr<const Json> last_snapshot;
   Json health = nullptr;
   std::int64_t last_heartbeat_ms = 0, latency_ms = 0;
@@ -25,17 +27,19 @@ struct TradingClient::Impl {
     transport =
         endpoint.endpoint.empty()
             ? std::make_unique<ipc::RpcClient>(io.reactor(), endpoint.host, endpoint.port,
-                                               endpoint.tls, 2,
+                                               endpoint.tls, 3,
                                                io.payload_budget(ServiceIo::PayloadLane::control))
-            : std::make_unique<ipc::RpcClient>(io.reactor(), endpoint.endpoint, 2,
+            : std::make_unique<ipc::RpcClient>(io.reactor(), endpoint.endpoint, 3,
                                                io.payload_budget(ServiceIo::PayloadLane::control));
   }
   bool stopped(std::stop_token stop) const {
     return stop.stop_requested() || lifetime.stop_requested();
   }
   PolledTask<void> call(wire::Request request, std::stop_token stop) {
-    auto& lane =
-        request.command().has_cancel() || request.command().has_strategy_stop() ? cancelling : busy;
+    const auto& command = request.command();
+    auto& lane = command.has_live_revoke()                             ? revoking
+                 : command.has_cancel() || command.has_strategy_stop() ? cancelling
+                                                                       : busy;
     co_await PollUntil{[&] { return !lane || stopped(stop); }};
     if (stopped(stop))
       throw Error(ErrorCode::cancelled, "trading connection closed");

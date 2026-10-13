@@ -1043,7 +1043,7 @@ struct LiveService {
   std::string endpoint = (root / "service").string();
   std::mutex mutex;
   std::condition_variable condition;
-  bool entered = false, released, block_observations = false;
+  bool entered = false, released, block_observations = false, revoke_received = false;
   std::unique_ptr<testing_support::BlockingService> host;
   std::future<bool> running;
   explicit LiveService(bool block) : released(!block) {
@@ -1081,6 +1081,12 @@ struct LiveService {
             } else {
               {
                 std::unique_lock lock(mutex);
+                // A revoke is admitted when it arrives and answered in its turn,
+                // as the account service does.
+                if (message.command().has_live_revoke()) {
+                  revoke_received = true;
+                  condition.notify_all();
+                }
                 // A cancel is answered at once, as the account service answers
                 // one while another command waits.
                 if (!message.command().has_cancel() &&
@@ -1136,6 +1142,10 @@ struct LiveService {
   bool wait() {
     std::unique_lock lock(mutex);
     return condition.wait_for(lock, testing_support::bound(5s), [&] { return entered; });
+  }
+  bool wait_revoke() {
+    std::unique_lock lock(mutex);
+    return condition.wait_for(lock, testing_support::bound(5s), [&] { return revoke_received; });
   }
   void hold_observations() {
     std::lock_guard lock(mutex);
@@ -1374,7 +1384,7 @@ TEST(TerminalLive, BackgroundPollDoesNotRejectAnAccountCommandAsConflicting) {
   EXPECT_NO_THROW((void)pending.get());
 }
 
-TEST(TerminalLive, CancelIsNotHeldBackByAnAccountCommandInFlight) {
+TEST(TerminalLive, ACancelAndARevokeAreNotHeldBackByAnAccountCommandInFlight) {
   LiveService slow(false);
   terminal::Application app;
   terminal::ApplicationTestAccess::attach_live(app, "slow", slow.address());
@@ -1400,10 +1410,21 @@ TEST(TerminalLive, CancelIsNotHeldBackByAnAccountCommandInFlight) {
   const auto started = std::chrono::steady_clock::now();
   EXPECT_NO_THROW(app.dispatch(request("live.act", cancel)));
   EXPECT_LT(std::chrono::steady_clock::now() - started, testing_support::bound(1s));
+  // Nor is a revoke: it reaches the account's service, which closes the
+  // permission to send on admitting it, while the order is still on its way.
+  // Its reply follows that order's.
+  auto revoke = identity;
+  revoke.update({{"request_id", "revoke.now"}, {"action", "live_revoke"}});
+  auto revoking = std::async(std::launch::async,
+                             [&] { return app.dispatch(request("live.act", std::move(revoke))); });
+  EXPECT_TRUE(slow.wait_revoke());
   EXPECT_EQ(pending.wait_for(0ms), std::future_status::timeout);
+  EXPECT_EQ(revoking.wait_for(0ms), std::future_status::timeout);
   slow.release();
   ASSERT_EQ(pending.wait_for(3s), std::future_status::ready);
   EXPECT_NO_THROW((void)pending.get());
+  ASSERT_EQ(revoking.wait_for(3s), std::future_status::ready);
+  EXPECT_NO_THROW((void)revoking.get());
 }
 
 TEST(TerminalLive, ClosingAnAccountCancelsAnUnansweredObservation) {

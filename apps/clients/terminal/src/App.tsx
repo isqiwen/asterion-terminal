@@ -93,7 +93,8 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   const [error, setError] = useState<DisplayError>("");
   const [checkedAt, setCheckedAt] = useState<number | null>(null);
   const generation = useRef(0);
-  // Commands in flight. A cancel may run beside another command.
+  // Commands in flight. A cancel, a strategy stop or a revoke may run beside
+  // another command.
   const commands = useRef(0);
   const revision = useRef<number | undefined>(undefined);
   const held = useRef<Snapshot | null>(null);
@@ -163,12 +164,13 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
   const pollInFlight = useRef(false);
   useEffect(() => {
     // Polls read the core's published snapshot by revision; an unchanged
-    // revision returns no state. Hidden windows stop polling.
-    if (busy || !visible || !polling) return;
+    // revision returns no state. Hidden windows stop polling. A command in
+    // flight does not: accounts and quotes are still observed while it waits.
+    if (!visible || !polling) return;
     let cancelled = false;
     const timer = window.setInterval(
       async () => {
-        // Keep one read per window, including across visibility and busy changes.
+        // Keep one read per window, including across visibility changes.
         if (pollInFlight.current) return;
         pollInFlight.current = true;
         const current = generation.current;
@@ -196,7 +198,7 @@ function TerminalWorkbench({ settingsWindow = false }: { settingsWindow?: boolea
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [busy, visible, polling, live, accept]);
+  }, [visible, polling, live, accept]);
   async function trade(method: TerminalCommand, params: Record<string, unknown> = {}) {
     const current = ++generation.current;
     commands.current += 1;

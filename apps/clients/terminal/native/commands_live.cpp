@@ -156,11 +156,13 @@ void Application::Impl::register_live_commands() {
     const auto execute = [&](TradingClient& client) -> PolledTask<void> {
       (co_await PollFuture{client.execute(command)});
     };
-    // A cancel or a strategy stop must not wait for, or be refused because
-    // of, an order in flight.
+    // What takes something back must not wait for, or be refused because of,
+    // a command of the account in flight: a cancel, a strategy stop, and the
+    // revoke that closes its permission to send. The account's service
+    // decides their order; this boundary only lets them reach it.
     if (const auto action = command.value("action", "");
-        action == "cancel" || action == "strategy_stop")
-      co_await cancel_on_live_account(p, execute);
+        action == "cancel" || action == "strategy_stop" || action == "live_revoke")
+      co_await control_live_account(p, execute);
     else
       co_await with_live_account(p, execute);
     co_return snapshot();
@@ -212,7 +214,7 @@ void Application::Impl::register_live_commands() {
     if (found == live.end())
       co_return snapshot();
     auto account = found->second;
-    if (account->busy || account->cancels)
+    if (account->busy || account->controls)
       throw Error(
           ErrorCode::conflict,
           "another operation for this CTP account is in progress; retry after it completes");

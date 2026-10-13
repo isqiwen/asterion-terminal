@@ -478,8 +478,6 @@ function LiveAccount({
       policy_revision: live.policy_revision,
       ...params,
     });
-  // A cancel is never held back by another command of this account; only a
-  // second click on the same order is.
   // One step is offered at a time: the counter connection, then permission to
   // send, then the order ticket. A window that has not confirmed the
   // environment of an already connected account confirms it first.
@@ -545,7 +543,11 @@ function LiveAccount({
       </p>
     </div>
   );
+  // What takes something back is never held back by another command, of this
+  // account or of the window: a cancel, a strategy stop and a revoke are each
+  // disabled only while the same one is on its way.
   const [cancelling, setCancelling] = useState<readonly string[]>([]);
+  const [revoking, setRevoking] = useState(false);
   // New orders come from the owner or from one strategy run, never both.
   const [origin, setOrigin] = useState<"manual" | "strategy">("manual");
   const [stopping, setStopping] = useState(false);
@@ -579,7 +581,13 @@ function LiveAccount({
         {/* The account's actions stay together when the line wraps. */}
         <div className="ctp-identity-actions">
           {authorized && (
-            <button disabled={busy} onClick={() => void act({ action: "live_revoke" })}>
+            <button
+              disabled={revoking}
+              onClick={() => {
+                setRevoking(true);
+                void act({ action: "live_revoke" }).finally(() => setRevoking(false));
+              }}
+            >
               {t("撤销授权")}
             </button>
           )}
