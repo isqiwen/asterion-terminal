@@ -347,18 +347,10 @@ TEST_F(NodeSupervision, InitializingTaskServiceKeepsHeartbeatAndBecomesReadyWith
 TEST_F(NodeSupervision, ServiceWaitsForResourcesWithoutSpendingRestartsAndStartsAfterRelease) {
   const auto budget = health().at("resource_budget");
   const auto limit = budget.at("limit");
-  const auto deploy = [&](unsigned index) {
-    client
-        ->deploy({.service = "data-" + std::to_string(index),
-                  .kind = node::v1::DATA_SERVICE,
-                  .platform = current_platform(),
-                  .programs = local_service_programs(node::v1::DATA_SERVICE),
-                  .plugins = std::vector<PluginArtifact>{},
-                  .task_service = "tasks-" + std::to_string(index)})
-        .get();
-  };
-  deploy(0);
-  const auto first = state("data-0");
+  // Market services ask for themselves alone, so the node holds a whole number of them.
+  const auto name = [](unsigned index) { return "market-" + std::to_string(index); };
+  deploy_fixture(false, name(0));
+  const auto first = state(name(0));
   ASSERT_EQ(first.at("state"), "running");
   const auto request = first.at("resource_request");
   const auto count =
@@ -366,8 +358,8 @@ TEST_F(NodeSupervision, ServiceWaitsForResourcesWithoutSpendingRestartsAndStarts
                 limit.at("memory_mib").get<unsigned>() / request.at("memory_mib").get<unsigned>(),
                 limit.at("io_slots").get<unsigned>() / request.at("io_slots").get<unsigned>()});
   for (unsigned i = 1; i <= count; ++i)
-    deploy(i);
-  const auto queued = "data-" + std::to_string(count);
+    deploy_fixture(false, name(i));
+  const auto queued = name(count);
   const auto address = state(queued).at("endpoint").get<std::string>();
   ASSERT_FALSE(address.empty());
   const auto deadline = std::chrono::steady_clock::now() + 2s;
@@ -381,7 +373,7 @@ TEST_F(NodeSupervision, ServiceWaitsForResourcesWithoutSpendingRestartsAndStarts
       EXPECT_EQ(used.at(field), count * request.at(field).get<unsigned>());
     std::this_thread::sleep_for(50ms);
   } while (std::chrono::steady_clock::now() < deadline);
-  client->action("data-0", "stop").get();
+  client->action(name(0), "stop").get();
   const auto resumed = std::chrono::steady_clock::now() + 8s;
   while (state(queued).at("state") != "running" && std::chrono::steady_clock::now() < resumed)
     std::this_thread::sleep_for(20ms);
@@ -422,6 +414,88 @@ TEST_F(NodeSupervision, OtherServicesLeaveATaskServiceTheWorkerItNeeds) {
   ASSERT_TRUE(request.ParseFromString(offer.receive(1s)));
   ASSERT_TRUE(request.has_dispatch());
   EXPECT_GE(request.dispatch().launch_slots(), 1U);
+}
+
+// A data service is deployed for a task service. While the pair cannot run
+// beside what the node holds, it waits whole instead of taking room from the
+// pair at work, and starts once that room is given up.
+TEST_F(NodeSupervision, ADataServiceWaitsUntilItsPairHasRoom) {
+  const auto data = [&](const std::string& name, const std::string& task) {
+    client
+        ->deploy({.service = name,
+                  .kind = node::v1::DATA_SERVICE,
+                  .platform = current_platform(),
+                  .programs = local_service_programs(node::v1::DATA_SERVICE),
+                  .plugins = std::vector<PluginArtifact>{},
+                  .task_service = task})
+        .get();
+  };
+  data("observed-data", "observed");
+  deploy_fixture(true, "observed");
+  ASSERT_EQ(state("observed-data").at("state"), "running");
+  ASSERT_EQ(state("observed").at("state"), "running");
+  const auto working = health().at("resource_budget").at("committed");
+  // A second pair is on its way: its data service alone would fit.
+  data("spare-data", "spare");
+  const auto waiting = state("spare-data");
+  EXPECT_EQ(waiting.at("state"), "waiting_capacity");
+  EXPECT_EQ(waiting.at("pid"), 0);
+  EXPECT_EQ(waiting.at("error"),
+            "Node resource capacity cannot hold this service together with the other half of its "
+            "data and task pair and one worker; service is waiting");
+  EXPECT_EQ(health().at("resource_budget").at("committed"), working);
+  // The pair at work is offered what it was offered before.
+  {
+    auto listener = attach(true, false, "observed");
+    auto offer = listener->accept(5s);
+    task::v1::TaskRequest request;
+    ASSERT_TRUE(request.ParseFromString(offer.receive(1s)));
+    ASSERT_TRUE(request.has_dispatch());
+    EXPECT_EQ(request.dispatch().launch_slots(), capacity().at("limit"));
+  }
+  // The owner gives up the first pair: the second has room, half by half.
+  client->action("observed", "stop").get();
+  client->action("observed-data", "stop").get();
+  const auto started = std::chrono::steady_clock::now() + 8s;
+  while (state("spare-data").at("state") != "running" && std::chrono::steady_clock::now() < started)
+    std::this_thread::sleep_for(20ms);
+  EXPECT_EQ(state("spare-data").at("state"), "running");
+  deploy_fixture(true, "spare");
+  EXPECT_EQ(state("spare").at("state"), "running");
+  EXPECT_EQ(health().at("resource_budget").at("committed"), working);
+}
+
+// Room for one half is not room for the pair: neither starts until both fit.
+TEST_F(NodeSupervision, NeitherHalfOfAPairStartsWithoutRoomForBoth) {
+  // Four market services leave room for a task service and its worker, or for
+  // a data service, but not for both.
+  for (int index = 0; index < 4; ++index)
+    deploy_fixture(false, "market-" + std::to_string(index));
+  client
+      ->deploy({.service = "observed-data",
+                .kind = node::v1::DATA_SERVICE,
+                .platform = current_platform(),
+                .programs = local_service_programs(node::v1::DATA_SERVICE),
+                .plugins = std::vector<PluginArtifact>{},
+                .task_service = "observed"})
+      .get();
+  deploy_fixture(true, "observed");
+  for (const auto* half : {"observed-data", "observed"}) {
+    EXPECT_EQ(state(half).at("state"), "waiting_capacity") << half;
+    EXPECT_EQ(state(half).at("pid"), 0) << half;
+  }
+  client->action("market-0", "stop").get();
+  const auto started = std::chrono::steady_clock::now() + 8s;
+  const auto whole = [&] {
+    return state("observed-data").at("state") == "running" &&
+           state("observed").at("state") == "running";
+  };
+  while (!whole() && std::chrono::steady_clock::now() < started)
+    std::this_thread::sleep_for(20ms);
+  EXPECT_TRUE(whole());
+  // Nothing is left over: three markets, the pair and its worker fill the node.
+  const auto budget = health().at("resource_budget");
+  EXPECT_EQ(budget.at("committed").at("cpu_slots"), budget.at("limit").at("cpu_slots"));
 }
 
 TEST_F(NodeSupervision, DataInstanceRunsIndependentlyAndKeepsItsBindingOnRestart) {

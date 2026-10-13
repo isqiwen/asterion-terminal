@@ -325,11 +325,15 @@ class Agent {
     return result;
   }
   PolledTask<void> start(const std::string& name, Service& s, bool automatic = false) {
-    const bool held = s.process || s.retiring_pid || s.starting;
-    const auto extra = held ? Resources{} : resource_budget_->service(s.configuration.kind);
-    if (!resource_budget_->fits(committed(held ? nullptr : &s), extra)) {
+    const auto wanted = holds(s) ? Claim{} : claim(s);
+    if (!resource_budget_->fits(committed(wanted.workers), wanted.services)) {
       s.waiting_capacity = true;
-      s.error = "Node resource capacity is full; service is waiting";
+      // A service that waits for its pair may wait beside room it could take
+      // alone; the reason says so.
+      s.error = wanted.pair ? "Node resource capacity cannot hold this service together with the "
+                              "other half of its data and task pair and one worker; service is "
+                              "waiting"
+                            : "Node resource capacity is full; service is waiting";
       s.retry = std::chrono::steady_clock::now() + 1s;
       co_return;
     }
@@ -525,7 +529,7 @@ class Agent {
   Resources service_usage() const {
     Resources used;
     for (const auto& [name, service] : services_)
-      if (service.process || service.retiring_pid || service.starting)
+      if (holds(service))
         used += resource_budget_->service(service.configuration.kind);
     return used;
   }
@@ -534,32 +538,62 @@ class Agent {
     used += ResourceBudget::workers(owned_workers() + worker_reservations_);
     return used;
   }
-  // A task service's reservation includes one worker: without one it can only
-  // queue. These units are the workers' alone. `starting` is a service about
-  // to take its reservation, counted as if it already had.
-  unsigned reserved_workers(const Service* starting = nullptr) const {
-    unsigned count = starting && starting->configuration.kind == wire::TASK_SERVICE ? 1 : 0;
-    for (const auto& [name, service] : services_)
-      if (service.configuration.kind == wire::TASK_SERVICE &&
-          (service.process || service.retiring_pid || service.starting))
-        ++count;
-    return count;
+  // A service holds its reservation from the moment it is about to start
+  // until its process is gone.
+  static bool holds(const Service& service) {
+    return service.process || service.retiring_pid || service.starting;
   }
-  // What a service asking to start finds taken: the services, and the workers
-  // that run or the units kept for them, whichever is more. `settled` asks
-  // what would be taken once the workers running now had finished.
-  Resources committed(const Service* starting = nullptr, bool settled = false) const {
+  // What starting a service asks of the node: room for processes, and worker
+  // units that then belong to workers alone.
+  struct Claim {
+    Resources services;
+    unsigned workers = 0;
+    bool pair = false;
+  };
+  // A task service can only queue without a worker, so it asks for one. Data
+  // and task services are deployed in pairs, and half a pair computes nothing:
+  // a half that starts while the other is wanted and not running asks for the
+  // other's room as well, so that a pair which cannot become whole holds
+  // nothing a whole pair could use. The data service is deployed first, so
+  // its task service may not be there yet and is wanted all the same.
+  Claim claim(const Service& service) const {
+    const auto kind = service.configuration.kind;
+    Claim result{resource_budget_->service(kind), kind == wire::TASK_SERVICE ? 1U : 0U};
+    if (kind != wire::DATA_SERVICE && kind != wire::TASK_SERVICE)
+      return result;
+    const bool data = kind == wire::DATA_SERVICE;
+    const auto other = services_.find(data ? service.configuration.task_service
+                                           : service.configuration.data_service);
+    if (other == services_.end() ? data
+                                 : other->second.configuration.desired && !holds(other->second)) {
+      result.services += resource_budget_->service(data ? wire::TASK_SERVICE : wire::DATA_SERVICE);
+      result.workers = 1;
+      result.pair = true;
+    }
+    return result;
+  }
+  // What is taken when `claimed` more worker units are asked for: the
+  // services, and the workers that run or the units kept for the task
+  // services, whichever is more. `settled` asks what would be taken once the
+  // workers running now had finished.
+  Resources committed(unsigned claimed = 0, bool settled = false) const {
+    unsigned kept = claimed;
+    for (const auto& [name, service] : services_)
+      if (service.configuration.kind == wire::TASK_SERVICE && holds(service))
+        ++kept;
     auto used = service_usage();
     used += ResourceBudget::workers(
-        std::max(settled ? 0 : owned_workers() + worker_reservations_, reserved_workers(starting)));
+        std::max(settled ? 0 : owned_workers() + worker_reservations_, kept));
     return used;
   }
   unsigned worker_allowance() const {
     for (const auto& [name, service] : services_)
-      if (service.configuration.desired && service.waiting_capacity &&
-          resource_budget_->fits(committed(&service, true),
-                                 resource_budget_->service(service.configuration.kind)))
-        return 0; // Let existing workers finish so a queued service can acquire its reservation.
+      if (service.configuration.desired && service.waiting_capacity) {
+        const auto wanted = claim(service);
+        // Let existing workers finish so a queued service can acquire its reservation.
+        if (resource_budget_->fits(committed(wanted.workers, true), wanted.services))
+          return 0;
+      }
     const auto count = owned_workers() + worker_reservations_;
     return resource_budget_->worker_slots(resource_usage(), worker_limit - count);
   }

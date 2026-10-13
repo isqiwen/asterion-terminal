@@ -60,6 +60,7 @@
   "Native response capacity reached; command outcome may be unknown": "Native 回复容量已满；命令结果可能未知。",
   "Native response exceeds 128 MiB; command outcome may be unknown": "Native 回复超过 128 MiB；命令结果可能未知。",
   "Node resource capacity is full; service is waiting": "节点资源额度已用完；服务等待容量释放",
+  "Node resource capacity cannot hold this service together with the other half of its data and task pair and one worker; service is waiting": "节点资源额度放不下这个服务连同与它配对的另一个服务和一个 worker；服务等待容量释放",
   "RPC client request capacity reached": "RPC 客户端请求容量已满。",
   "RPC connection failed; command outcome may be unknown": "RPC 连接失败；命令结果可能未知。",
   "RPC reply timeout must be positive": "RPC 响应超时必须为正数。",

@@ -60,6 +60,7 @@
   "Native response capacity reached; command outcome may be unknown": "Native response capacity reached; command outcome may be unknown",
   "Native response exceeds 128 MiB; command outcome may be unknown": "Native response exceeds 128 MiB; command outcome may be unknown",
   "Node resource capacity is full; service is waiting": "Node resource capacity is full; service is waiting",
+  "Node resource capacity cannot hold this service together with the other half of its data and task pair and one worker; service is waiting": "Node resource capacity cannot hold this service together with the other half of its data and task pair and one worker; service is waiting",
   "RPC client request capacity reached": "RPC client request capacity reached",
   "RPC connection failed; command outcome may be unknown": "RPC connection failed; command outcome may be unknown",
   "RPC reply timeout must be positive": "RPC reply timeout must be positive",
