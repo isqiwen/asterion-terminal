@@ -204,6 +204,9 @@ test("completed dataset exposes provenance and honest coverage separately from a
     submitted_at_ms: Date.now(),
     updated_at_ms: Date.now(),
   };
+  // The core keeps a result in its snapshot once it has been asked for, so
+  // the polls that follow carry it too; a poll may arrive at any moment.
+  let opened = false;
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
     if (!["runtime.snapshot", "task.result"].includes(request.method)) return route.continue();
@@ -215,6 +218,9 @@ test("completed dataset exposes provenance and honest coverage separately from a
     data.result.task_service.tasks = [task];
     if (request.method === "task.result") {
       expect(request.params.id).toBe(task.id);
+      opened = true;
+    }
+    if (opened) {
       data.result.task_result = {
         id: task.id,
         kind: "minute_download",
