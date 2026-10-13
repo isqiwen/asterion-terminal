@@ -18,8 +18,9 @@ namespace asterion::trading {
 namespace {
 // Record 0 carries this identity. Bump it whenever authorization, allowlist,
 // risk or order-recording semantics change; recovery refuses other identities.
-// v28: a strategy run names its rule; its target is signed and may be short.
-const std::string journal_engine = "asterion.live-futures.v28";
+// v29: a strategy run acts on the target after the latest completed bar of a
+// read; what it wanted after the bars read with that one is never an order.
+const std::string journal_engine = "asterion.live-futures.v29";
 constexpr int journal_format = 1;
 constexpr auto quote_validity = std::chrono::seconds(10);
 std::string text(const Json& value, const char* key) {
@@ -517,8 +518,8 @@ void LiveAccountState::report(const std::string& run,
     end_run(failure->reason, true);
     return;
   }
-  ++run_->bars;
   run_->bar = std::get<StrategyHost::Bar>(event);
+  run_->bars += run_->bar->count;
 }
 bool LiveAccountState::strategy_work_pending() const {
   if (!run_ || failed_)

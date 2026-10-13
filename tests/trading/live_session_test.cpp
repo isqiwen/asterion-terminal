@@ -1246,7 +1246,7 @@ TEST_F(Live, CredentialsAreNeverWrittenAndHeadersPinTheEngine) {
   }
   const auto header_file = test::journal_record(directory.path, 0);
   auto header = test::read_record(header_file);
-  EXPECT_EQ(header.at("engine"), "asterion.live-futures.v28");
+  EXPECT_EQ(header.at("engine"), "asterion.live-futures.v29");
   EXPECT_EQ(header.at("manifest"), manifest());
   header["engine"] = "asterion.live-futures.v4";
   test::write_record(header_file, header);
@@ -1326,6 +1326,40 @@ TEST_F(Live, StrategyRunOwnsTheAccountAndItsTargetsTakeTheOrderPath) {
   // An accepted order is listed once the broker reports it.
   state = wait_for(session, [](const Json& s) { return find_order(s, "manual").is_object(); });
   EXPECT_TRUE(find_order(state, "manual").is_object());
+}
+// Bars a run finds already observed when it starts, or reads several of at
+// once, move the strategy but are not acted on one by one: the account is
+// given only the target after the latest of them.
+TEST_F(Live, AStrategyRunActsOnlyOnTheTargetAfterTheLatestCompletedBar) {
+  FakeMarket market;
+  LiveSession session(directory.path, ASTERION_TEST_CTP_TRADER, owners.path, manifest());
+  const auto day = ready(session).at("trading_day").get<std::string>();
+  act(session, authorize());
+  // The day so far rose once and fell back: the rule wanted the position
+  // after the second bar and has wanted none since the third.
+  market.set(day, {"3500", "3501", "3499", "3498", "3498"});
+  act(session, market.start("run", "1"));
+  auto state = wait_for(session, [](const Json& s) { return s.at("strategy").at("bars") == 4; });
+  ASSERT_EQ(state.at("strategy").at("bars"), 4) << state.at("strategy").dump();
+  EXPECT_EQ(state.at("strategy").at("target"), "0");
+  // Two more read together, up and down again: none is wanted after them either.
+  market.set(day, {"3500", "3501", "3499", "3498", "3502", "3497", "3497"});
+  state = wait_for(session, [](const Json& s) { return s.at("strategy").at("bars") == 6; });
+  ASSERT_EQ(state.at("strategy").at("bars"), 6) << state.at("strategy").dump();
+  EXPECT_EQ(state.at("strategy").at("target"), "0");
+  // A bar that completes while the run watches is acted on as before.
+  market.set(day, {"3500", "3501", "3499", "3498", "3502", "3497", "3503", "3503"});
+  const auto bought = FakeMarket::order("run", 6);
+  state = wait_for(session, [&](const Json& s) {
+    return order_has_status(s, bought, "filled") && long_position(s) == Decimal::parse("1");
+  });
+  EXPECT_TRUE(find_order(state, FakeMarket::order("run", 1)).is_null())
+      << "what the rule wanted on a bar already past became an order";
+  ASSERT_TRUE(order_has_status(state, bought, "filled")) << state.at("strategy").dump();
+  EXPECT_EQ(find_order(state, bought).at("limit_price"), "3503");
+  EXPECT_EQ(state.at("orders").size(), 1U) << state.at("orders").dump();
+  EXPECT_EQ(long_position(state), Decimal::parse("1"));
+  act(session, stop_strategy("stop"));
 }
 TEST_F(Live, StrategyRunSellsShortAndReversesByClosingBeforeOpening) {
   FakeMarket market;

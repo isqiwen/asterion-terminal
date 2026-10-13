@@ -66,7 +66,9 @@ void run(const std::stop_token& stop, const StrategyHost::Definition& definition
       first = series->first_observation_ms();
       const auto trading_day = day.substr(0, 4) + "-" + day.substr(4, 2) + "-" + day.substr(6, 2);
       // The last bar is still forming, and the minute in which observation
-      // began is partial: neither is a completed bar.
+      // began is partial: neither is a completed bar. Every completed bar of
+      // the read feeds the strategy before anything is reported.
+      std::optional<StrategyHost::Bar> latest;
       for (int index = 0; index + 1 < series->bars_size(); ++index) {
         const auto& source = series->bars(index);
         if (source.start_ms() <= fed || source.start_ms() <= first)
@@ -85,8 +87,10 @@ void run(const std::stop_token& stop, const StrategyHost::Definition& definition
                             Decimal::parse(std::to_string(source.volume()))};
         const auto target = strategy.on_bar(bar);
         fed = source.start_ms();
-        report(StrategyHost::Bar{day, fed, bar.close, target});
+        latest = StrategyHost::Bar{day, fed, bar.close, target, latest ? latest->count + 1 : 1};
       }
+      if (latest)
+        report(std::move(*latest));
     }
     std::mutex mutex;
     std::condition_variable_any wake;
