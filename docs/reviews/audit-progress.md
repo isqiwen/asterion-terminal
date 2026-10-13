@@ -5526,7 +5526,7 @@ Ubuntu 26.04.1，GCC 15.2。
 ## 2026-10-13（R1：撤销授权不被 Terminal 的在途命令挡住）
 
 对应[项目评估](project-review-2026-10-13.md)的 R1。评估报告的 R1–R7 按它给出的顺序逐项修复，每项
-一个提交、一节记录；R1–R3 三项 P1 的整组验证记在 R3 之后。
+一个提交、一节记录；R1–R5 的整组验证记在 R5 之后的“R1–R5 整组验证”一节。
 
 ### 为什么做
 
@@ -5884,3 +5884,27 @@ Tick 图已经把来源（`stream_id`、`generation`）放进了读模型和组�
 
 - `pnpm test:unit` 40/40（新增 2 个）；类型检查通过。
 - `asterion_terminal_query_tests --gtest_filter='TerminalMarket.*:TerminalLive.*'` 8/8。
+
+## 2026-10-13（R1–R5 整组验证）
+
+对 `d0b2cf0`（R1–R5 五个提交之后）做的一次完整验证。Ubuntu 26.04.1，GCC 15.2。
+
+- `ctest` Debug 600/600（332.8 秒）、Release 600/600（299.1 秒）。比评估时的 595 个多 5 个：
+  R2、R3 各 1 个（`Live.*`），R4 两个（`Strategy.*`），R5 一个（`TerminalMarket.*`）；R1 是把原有
+  撤单用例扩成了撤单加撤权。依赖服务包的两个用例（`ssh_bootstrap`、`remote_resources`）在新服务包
+  生成之后各又跑了一次，通过。
+- 服务源码指纹 `0b512117b7f11c9250961fee81b0a2b8d0361def768c2032acc7ae4747c230c3`（R2–R4 改了
+  `apps/services/trading` 和 `plugins/strategy`）；服务包 `asterion-services-linux-x86_64.zip` 重建，
+  SHA-256 为 `12e9ef1fa091c2e127fd34030eb637ab878bc3fc6cb3fc10b96f4a2453a76d82`。
+- `pnpm test:unit` 40/40（14 个文件，新增 3 个用例）；类型检查、lint、两项格式检查通过。
+- 端到端：R1 提交前先单独跑了会经过撤权和轮询的 6 个文件（10/10）；最后全量、不与别的任务同时
+  跑：87/87（15.7 分钟）。
+- `pnpm test:desktop`、`pnpm desktop:check`、`pnpm desktop:build` 通过；安装包
+  `Asterion-Terminal-0.1.0-linux-amd64.deb` 的 SHA-256 为
+  `7c0e849f1db034dd92f1f9c3b1cacb8d56dbc38e3ae19d4fbaee9a36ccf21e55`。
+- 全量端到端和三项桌面检查在无头合成器上运行。
+
+每项各自“能在旧实现上失败”的证据记在各节的“测试”里：都是把那一层换回旧实现后实际跑出来的失败，
+不是推断。
+
+没有做的：macOS 上的任何一项；真实柜台或仿真柜台；两个真实行情服务之间的切换；sanitizer 构建。
