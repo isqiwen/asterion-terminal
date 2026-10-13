@@ -136,14 +136,8 @@ void PaperExecution::advance(const std::optional<Target>& target) {
   auto batch = account_.transaction();
   try {
     auto& next = account_;
-    if (changes_costs) {
-      std::vector<FuturesCosts> costs;
-      for (const auto& contract : data_->contracts)
-        costs.push_back(contract.cost_schedule.empty()
-                            ? contract.terms.costs
-                            : costs_on(contract.cost_schedule, bar.trading_day).values);
-      next.update_costs(costs);
-    }
+    if (changes_costs)
+      next.update_costs(costs_on_day(bar.trading_day));
     if (target)
       reconcile_target(target->order_id, instrument, target->quantity, target->limit_price);
     auto sequence = execution_sequence_;
@@ -180,23 +174,34 @@ void PaperExecution::advance(const std::optional<Target>& target) {
     throw;
   }
 }
-void PaperExecution::settle_scheduled(const std::vector<std::optional<Decimal>>& prices,
-                                      bool final) {
+std::vector<FuturesCosts> PaperExecution::costs_on_day(const std::string& trading_day) const {
+  std::vector<FuturesCosts> costs;
+  for (const auto& contract : data_->contracts)
+    costs.push_back(contract.cost_schedule.empty()
+                        ? contract.terms.costs
+                        : costs_on(contract.cost_schedule, trading_day).values);
+  return costs;
+}
+void PaperExecution::settle_scheduled(const std::string& trading_day,
+                                      const std::vector<std::optional<Decimal>>& prices) {
   require_running();
-  if (final) {
-    if (cursor_ != size())
-      throw std::invalid_argument("final settlement is allowed only after the replay finishes");
-    account_.settle_traded(prices);
-    ++revision_;
-    return;
-  }
-  if (cursor_ == 0 || cursor_ == size())
-    throw std::invalid_argument("day-end settlement must fall between replay days");
-  const auto& day = bar(event(cursor_ - 1)).trading_day;
-  if (day == bar(event(cursor_)).trading_day || day == last_settled_day_)
-    throw std::invalid_argument("settlement must follow the last bar of an unsettled day");
+  if (trading_day <= last_settled_day_ ||
+      (cursor_ && bar(event(cursor_ - 1)).trading_day > trading_day) ||
+      (cursor_ < size() && bar(event(cursor_)).trading_day <= trading_day))
+    throw std::invalid_argument(
+        "a day is settled once, after its bars and before those of a later day");
+  // The first bar of a day brings the day's costs. A day after the first bar
+  // that has none of its own follows the calendar here: the schedules cover
+  // the days from that bar on.
+  const bool idle =
+      cursor_ && bar(event(cursor_ - 1)).trading_day < trading_day &&
+      std::ranges::any_of(data_->contracts, [](const auto& c) { return !c.cost_schedule.empty(); });
+  auto batch = account_.transaction();
+  if (idle)
+    account_.update_costs(costs_on_day(trading_day));
   account_.settle_traded(prices);
-  last_settled_day_ = day;
+  batch.commit();
+  last_settled_day_ = trading_day;
   ++revision_;
 }
 void PaperExecution::cancel_open_orders() {

@@ -35,7 +35,8 @@ export type DatasetSelection = {
   first_timestamp_ns: string;
   last_timestamp_ns: string;
   last_close: string;
-  // Exchange trading days (from the daily download) without minute bars.
+  // The trading days it settled on without bars: it did not trade, or its
+  // bars are missing. They are among `days`.
   uncovered_days: string[];
 };
 // Month contracts of one product selected as its dominant series: the months

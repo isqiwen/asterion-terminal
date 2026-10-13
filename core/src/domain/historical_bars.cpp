@@ -37,6 +37,13 @@ std::string format_trading_date(std::chrono::year_month_day day) {
         << unsigned(day.month()) << '-' << std::setw(2) << unsigned(day.day());
   return value.str();
 }
+std::int64_t trading_day_close_ns(std::string_view day) {
+  using namespace std::chrono;
+  // 15:00 Asia/Shanghai = 07:00 UTC.
+  return duration_cast<nanoseconds>(
+             (sys_days(parse_trading_date(day)) + hours(7)).time_since_epoch())
+      .count();
+}
 void HistoricalDailyBar::validate() const {
   if (!trading_day.ok() || trading_day.year() < std::chrono::year(1970) ||
       trading_day.year() > std::chrono::year(9999))

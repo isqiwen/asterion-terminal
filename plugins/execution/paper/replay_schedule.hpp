@@ -4,21 +4,21 @@
 #include <string>
 #include <vector>
 namespace asterion {
-// Groups a portfolio replay into trading days. Contracts share the same
-// trading days, each with its own settlement, unless marked sparse: a sparse
-// contract (a month of a dominant series) trades only part of the days and has
-// no settlement on the others. Every event's contract must have a settlement
-// on the event's day, and every day must have events. Nothing is inferred.
+// Groups a portfolio replay into trading days: every day one of the contracts
+// has a settlement price on, whether any of them has bars that day or not.
+// Contracts settle on the same days, each at its own price, unless marked
+// sparse: a sparse contract (a month of a dominant series) is in the replay
+// for part of the days and has no settlement on the others. Every event's
+// contract must have a settlement on the event's day. Nothing is inferred.
 class PaperReplaySchedule final {
 public:
   struct Event {
     std::size_t day;
-    bool day_end;
   };
   struct Day {
     std::string trading_day;
     // One settlement price per contract, in contract order; empty for a
-    // sparse contract that does not trade that day.
+    // sparse contract that is not in the replay that day.
     std::vector<std::optional<Decimal>> prices;
   };
   // event_days / event_contracts: trading day and contract of each replay

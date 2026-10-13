@@ -44,14 +44,7 @@ PaperReplaySchedule::PaperReplaySchedule(const std::vector<Instrument>& contract
     if (day == days_.size() || days_[day].trading_day != trading_day ||
         event_contracts[index] >= contracts.size() || !days_[day].prices[event_contracts[index]])
       throw std::invalid_argument("bar trading day has no settlement: " + trading_day);
-    if (!events_.empty() && events_.back().day != day && events_.back().day + 1 != day)
-      throw std::invalid_argument("a settlement day between replay bars has no bars");
-    events_.push_back({day, false});
+    events_.push_back({day});
   }
-  if (events_.front().day != 0 || events_.back().day + 1 != days_.size())
-    throw std::invalid_argument("each replay settlement day requires bars");
-  for (std::size_t index = 0; index < events_.size(); ++index)
-    events_[index].day_end =
-        index + 1 == events_.size() || events_[index].day != events_[index + 1].day;
 }
 } // namespace asterion

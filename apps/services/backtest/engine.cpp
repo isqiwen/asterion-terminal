@@ -153,8 +153,9 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     for (auto& strategy : follower.strategies)
       strategy->start();
   // What a contract decided on at a bar. A ranking made once all bars of a
-  // timestamp are in decides those contracts again, and so does a day's end
-  // after which the account follows another strategy.
+  // timestamp are in decides those contracts again, and a day's end after
+  // which the account follows another strategy decides every contract again
+  // at its last bar.
   struct Decided {
     std::size_t contract;
     std::string order;
@@ -162,7 +163,7 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     bool leading;
   };
   std::vector<Decided> together;
-  std::vector<std::optional<Decided>> today(series.size());
+  std::vector<std::optional<Decided>> last(series.size());
   // What the account wants of the contract a unit trades now while it
   // follows `whom`: the unit's target, and nothing while it follows no one.
   const auto target = [&](const std::optional<std::size_t>& whom,
@@ -193,6 +194,14 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     point->mutable_equity()->set_units(equity.raw());
   };
   std::vector<std::optional<PaperExecution::Target>> pending(series.size());
+  // A strategy that has given no target yet leaves the contract alone, and
+  // none decides for a month that is not dominant: a roll closes that.
+  const auto issue = [&](const Decided& item, const std::optional<std::size_t>& taken) {
+    if (!item.leading)
+      return;
+    if (const auto quantity = target(taken, item.contract))
+      pending[item.contract] = PaperExecution::Target{item.order, *quantity, item.close};
+  };
   // For a roll: whether a month has taken over what its series holds. The
   // first month of a series has none to take over from and trades as any
   // contract does.
@@ -200,184 +209,178 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
   for (const auto& rolls : input.series())
     took_over[rolls.rolls(0).contract()] = true;
   const auto total = execution.size();
-  for (std::size_t index = 0; index < total; ++index) {
-    if (stop.stop_requested())
-      throw std::runtime_error("backtest cancelled");
-    const auto current = execution.event(index);
-    const auto& bar = execution.bar(current);
-    const auto& instrument = execution.contract(current.contract).terms.instrument.id;
-    // Orders placed after a contract's bar N can only fill on its bar N+1;
-    // unfilled remainders expire before its strategy decides again.
-    auto& intent = pending[current.contract];
-    const auto& event = schedule.event(index);
-    const auto& whom = followed[event.day];
-    const auto member = series[current.contract];
-    const auto* roll =
-        member == none
-            ? nullptr
-            : &protocol::dominant_roll(input.series(static_cast<int>(member)), bar.trading_day);
-    // The contract its unit trades now: an ordinary one, or the dominant
-    // month. A month that is no longer dominant only closes what it holds.
-    const bool leading = !roll || roll->contract() == current.contract;
-    if (roll) {
-      const auto& rolls = input.series(static_cast<int>(member));
-      // A roll moves what the series holds and decides nothing, so it waits
-      // for no price: both months trade at the open of a bar, which every
-      // bar reaches. A month that is no longer dominant gives up what it
-      // holds, on each of its bars until their volume has taken it all. The
-      // dominant month takes over what its series wanted after the bars
-      // before, on its first bar that finds the other months closed: no two
-      // months of a series are held at once. On daily bars both happen on
-      // the roll day, the left month first. A month's first bar takes no
-      // order, as any contract's: the account has no price of it yet.
-      const bool others = std::ranges::any_of(rolls.rolls(), [&](const auto& other) {
-        return other.contract() != current.contract && holds(other.contract());
-      });
-      if (!leading)
-        intent = PaperExecution::Target{"roll." + std::to_string(index), Decimal{}, bar.open};
-      else if (others) {
-        if (intent && intent->quantity != Decimal{})
-          intent.reset();
-      } else if (!took_over[current.contract] && current.bar) {
-        if (const auto quantity = target(whom, current.contract))
-          intent = PaperExecution::Target{"roll." + std::to_string(index), *quantity, bar.open};
-        took_over[current.contract] = true;
-      }
-    }
-    execution.advance(intent);
-    intent.reset();
-    execution.cancel_open_orders(instrument);
-    const auto& account = execution.account();
-    const auto order = "strategy." + std::to_string(index);
-    if (leading) {
-      const auto u = unit[current.contract];
-      const auto observe = [&](const MarketBar& seen) {
-        for (auto& follower : followers) {
-          if (!follower.cross) {
-            if (const auto wanted = follower.strategies[u]->on_bar(seen))
-              follower.wanted[u] = wanted;
-          } else if (follower.definition->cross().factor() != protocol::v1::TERM_STRUCTURE) {
-            follower.cross->on_bar(u, seen.timestamp_ns, seen.close);
-          } else if (const auto term = carry[member].find(bar.trading_day);
-                     term != carry[member].end()) {
-            // A day without a term point is no bar of this unit for the ranking.
-            follower.cross->on_bar(u, seen.timestamp_ns, seen.close, term->second);
-          }
-        }
-      };
+  const auto& account = execution.account();
+  std::size_t index = 0;
+  // Every day one of the contracts settles on, in order: its bars, where any
+  // contract has some, then its settlement.
+  for (std::size_t d = 0; d < schedule.days(); ++d) {
+    const auto& day = schedule.day(d);
+    const auto& whom = followed[d];
+    // A day without bars is settled when its session closes.
+    auto settled_at = trading_day_close_ns(day.trading_day);
+    for (; index < total && schedule.event(index).day == d; ++index) {
+      if (stop.stop_requested())
+        throw std::runtime_error("backtest cancelled");
+      const auto current = execution.event(index);
+      const auto& bar = execution.bar(current);
+      const auto& instrument = execution.contract(current.contract).terms.instrument.id;
+      // Orders placed after a contract's bar N can only fill on its bar N+1;
+      // unfilled remainders expire before its strategy decides again.
+      auto& intent = pending[current.contract];
+      const auto member = series[current.contract];
+      const auto* roll =
+          member == none
+              ? nullptr
+              : &protocol::dominant_roll(input.series(static_cast<int>(member)), bar.trading_day);
+      // The contract its unit trades now: an ordinary one, or the dominant
+      // month. A month that is no longer dominant only closes what it holds.
+      const bool leading = !roll || roll->contract() == current.contract;
       if (roll) {
-        const auto seen =
-            adjusted(bar, decimal(roll->factor()),
-                     execution.contract(current.contract).terms.instrument.price_increment);
-        observe(seen);
-      } else
-        observe(bar);
-    }
-    const Decided decided{current.contract, order, bar.close, leading};
-    // A strategy that has given no target yet leaves the contract alone, and
-    // none decides for a month that is not dominant: a roll closes that.
-    const auto issue = [&](const Decided& item, const std::optional<std::size_t>& taken) {
-      if (!item.leading)
-        return;
-      if (const auto quantity = target(taken, item.contract))
-        pending[item.contract] = PaperExecution::Target{item.order, *quantity, item.close};
-    };
-    issue(decided, whom);
-    today[current.contract] = decided;
-    together.push_back(decided);
-    if (index + 1 == total ||
-        execution.bar(execution.event(index + 1)).timestamp_ns != bar.timestamp_ns) {
-      for (std::size_t k = 0; k < followers.size(); ++k) {
-        auto& follower = followers[k];
-        if (!follower.cross)
-          continue;
-        const auto shares = follower.cross->rank();
-        if (!shares)
-          continue;
-        // A unit holds the lots of the month it trades now whose value at
-        // this close is nearest its share of the rule's notional.
-        const auto notional = decimal(follower.definition->cross().notional());
-        for (const auto& item : together) {
-          if (!item.leading)
-            continue;
-          const auto u = unit[item.contract];
-          const auto share = (*shares)[u];
-          const auto& terms = execution.contract(item.contract).terms.instrument;
-          const auto lots = quantize(
-              divide(multiply(notional,
-                              Decimal::from_raw(std::llround(std::abs(share) * 100000000)),
-                              Rounding::half_up),
-                     multiply(item.close, terms.multiplier, Rounding::half_up), Rounding::half_up),
-              terms.quantity_increment, Rounding::half_up);
-          follower.wanted[u] = share > 0 ? lots : share < 0 ? Decimal{} - lots : Decimal{};
+        const auto& rolls = input.series(static_cast<int>(member));
+        // A roll moves what the series holds and decides nothing, so it waits
+        // for no price: both months trade at the open of a bar, which every
+        // bar reaches. A month that is no longer dominant gives up what it
+        // holds, on each of its bars until their volume has taken it all. The
+        // dominant month takes over what its series wanted after the bars
+        // before, on its first bar that finds the other months closed: no two
+        // months of a series are held at once. On daily bars both happen on
+        // the roll day where both months trade on it, the left month first. A
+        // month takes no order before the account has a price of it, from a
+        // bar or a settlement, as any contract.
+        const bool others = std::ranges::any_of(rolls.rolls(), [&](const auto& other) {
+          return other.contract() != current.contract && holds(other.contract());
+        });
+        if (!leading)
+          intent = PaperExecution::Target{"roll." + std::to_string(index), Decimal{}, bar.open};
+        else if (others) {
+          if (intent && intent->quantity != Decimal{})
+            intent.reset();
+        } else if (!took_over[current.contract] && account.priced(current.contract)) {
+          if (const auto quantity = target(whom, current.contract))
+            intent = PaperExecution::Target{"roll." + std::to_string(index), *quantity, bar.open};
+          took_over[current.contract] = true;
         }
-        // Every contract of this timestamp decided before the ranking was known.
-        if (whom == k)
-          for (const auto& item : together)
-            issue(item, whom);
       }
-      together.clear();
-    }
-    add_equity(bar.timestamp_ns, backtest::v1::TRADE_MARK, account);
-    if (event.day_end) {
-      const auto& day = schedule.day(event.day);
-      execution.cancel_open_orders();
-      execution.settle_scheduled(day.prices, index + 1 == total);
-      add_equity(bar.timestamp_ns, backtest::v1::DAILY_SETTLEMENT, account);
-      auto* settled = result.add_settlements();
-      settled->set_trading_day(day.trading_day);
-      settled->set_timestamp_ns(bar.timestamp_ns);
-      settled->mutable_balance()->set_units(account.balance().raw());
-      settled->mutable_equity()->set_units((account.balance() + account.unrealized()).raw());
-      settled->mutable_realized()->set_units(account.realized().raw());
-      settled->mutable_fees()->set_units(account.fees().raw());
-      for (std::size_t c = 0; c < account.contracts().size(); ++c) {
-        // A month of a series has no row on the days it does not trade.
-        if (!day.prices[c])
-          continue;
-        const auto& id = account.contracts()[c].instrument.id;
-        // Net lots: long positive, short negative.
-        Decimal quantity;
-        for (const auto& lot : account.positions())
-          if (lot.instrument == id)
-            quantity = lot.side == Side::buy ? quantity + lot.quantity : quantity - lot.quantity;
-        auto* row = settled->add_contracts();
-        row->set_venue(id.venue);
-        row->set_symbol(id.symbol);
-        row->mutable_price()->set_units(day.prices[c]->raw());
-        row->mutable_position_quantity()->set_units(quantity.raw());
+      execution.advance(intent);
+      intent.reset();
+      execution.cancel_open_orders(instrument);
+      const auto order = "strategy." + std::to_string(index);
+      if (leading) {
+        const auto u = unit[current.contract];
+        const auto observe = [&](const MarketBar& seen) {
+          for (auto& follower : followers) {
+            if (!follower.cross) {
+              if (const auto wanted = follower.strategies[u]->on_bar(seen))
+                follower.wanted[u] = wanted;
+            } else if (follower.definition->cross().factor() != protocol::v1::TERM_STRUCTURE) {
+              follower.cross->on_bar(u, seen.timestamp_ns, seen.close);
+            } else if (const auto term = carry[member].find(bar.trading_day);
+                       term != carry[member].end()) {
+              // A day without a term point is no bar of this unit for the ranking.
+              follower.cross->on_bar(u, seen.timestamp_ns, seen.close, term->second);
+            }
+          }
+        };
+        if (roll) {
+          const auto seen =
+              adjusted(bar, decimal(roll->factor()),
+                       execution.contract(current.contract).terms.instrument.price_increment);
+          observe(seen);
+        } else
+          observe(bar);
       }
+      const Decided decided{current.contract, order, bar.close, leading};
+      issue(decided, whom);
+      last[current.contract] = decided;
+      together.push_back(decided);
+      if (index + 1 == total ||
+          execution.bar(execution.event(index + 1)).timestamp_ns != bar.timestamp_ns) {
+        for (std::size_t k = 0; k < followers.size(); ++k) {
+          auto& follower = followers[k];
+          if (!follower.cross)
+            continue;
+          const auto shares = follower.cross->rank();
+          if (!shares)
+            continue;
+          // A unit holds the lots of the month it trades now whose value at
+          // this close is nearest its share of the rule's notional.
+          const auto notional = decimal(follower.definition->cross().notional());
+          for (const auto& item : together) {
+            if (!item.leading)
+              continue;
+            const auto u = unit[item.contract];
+            const auto share = (*shares)[u];
+            const auto& terms = execution.contract(item.contract).terms.instrument;
+            const auto lots = quantize(
+                divide(
+                    multiply(notional, Decimal::from_raw(std::llround(std::abs(share) * 100000000)),
+                             Rounding::half_up),
+                    multiply(item.close, terms.multiplier, Rounding::half_up), Rounding::half_up),
+                terms.quantity_increment, Rounding::half_up);
+            follower.wanted[u] = share > 0 ? lots : share < 0 ? Decimal{} - lots : Decimal{};
+          }
+          // Every contract of this timestamp decided before the ranking was known.
+          if (whom == k)
+            for (const auto& item : together)
+              issue(item, whom);
+        }
+        together.clear();
+      }
+      add_equity(bar.timestamp_ns, backtest::v1::TRADE_MARK, account);
+      settled_at = bar.timestamp_ns;
+      step();
     }
-    if (event.day_end) {
-      // From the next day the account may follow another strategy: what that
-      // one wanted after today's last bars is what the next bars fill.
-      if (index + 1 < total && followed[event.day + 1] != whom)
-        for (const auto& item : today)
-          if (item)
-            issue(*item, followed[event.day + 1]);
-      std::ranges::fill(today, std::nullopt);
+    execution.cancel_open_orders();
+    execution.settle_scheduled(day.trading_day, day.prices);
+    add_equity(settled_at, backtest::v1::DAILY_SETTLEMENT, account);
+    auto* settled = result.add_settlements();
+    settled->set_trading_day(day.trading_day);
+    settled->set_timestamp_ns(settled_at);
+    settled->mutable_balance()->set_units(account.balance().raw());
+    settled->mutable_equity()->set_units((account.balance() + account.unrealized()).raw());
+    settled->mutable_realized()->set_units(account.realized().raw());
+    settled->mutable_fees()->set_units(account.fees().raw());
+    for (std::size_t c = 0; c < account.contracts().size(); ++c) {
+      // A month of a series has no row on the days it is not in the replay.
+      if (!day.prices[c])
+        continue;
+      const auto& id = account.contracts()[c].instrument.id;
+      // Net lots: long positive, short negative.
+      Decimal quantity;
+      for (const auto& lot : account.positions())
+        if (lot.instrument == id)
+          quantity = lot.side == Side::buy ? quantity + lot.quantity : quantity - lot.quantity;
+      auto* row = settled->add_contracts();
+      row->set_venue(id.venue);
+      row->set_symbol(id.symbol);
+      row->mutable_price()->set_units(day.prices[c]->raw());
+      row->mutable_position_quantity()->set_units(quantity.raw());
     }
-    step();
-    if (event.day_end && !until.empty() &&
-        (index + 1 == total || schedule.day(schedule.event(index + 1).day).trading_day >= until))
+    // From the next day the account may follow another strategy: what that one
+    // wanted after each contract's last bar is what its next bar fills.
+    if (d + 1 < schedule.days() && followed[d + 1] != whom)
+      for (const auto& item : last)
+        if (item)
+          issue(*item, followed[d + 1]);
+    if (!until.empty() && (d + 1 == schedule.days() || schedule.day(d + 1).trading_day >= until))
       return result;
   }
-  auto account = execution.snapshot();
+  auto summary = execution.snapshot();
   const auto manifest = protocol::decode_input(p, protocol::DatasetView::metadata);
   Json contracts = Json::array();
   for (std::size_t c = 0; c < manifest.at("contracts").size(); ++c) {
     const auto& item = manifest.at("contracts").at(c);
-    contracts.push_back({{"contract", item.at("dataset").at("contract")},
-                         {"costs", protocol::decode_costs(protocol::encode_costs(
-                                       execution.account().contracts()[c].costs))},
-                         {"cost_schedule", item.at("cost_schedule")},
-                         {"mark", account.at("marks").at(c).at("mark")}});
+    contracts.push_back(
+        {{"contract", item.at("dataset").at("contract")},
+         {"costs", protocol::decode_costs(protocol::encode_costs(account.contracts()[c].costs))},
+         {"cost_schedule", item.at("cost_schedule")},
+         {"mark", summary.at("marks").at(c).at("mark")}});
   }
-  account.erase("marks");
-  account["contracts"] = std::move(contracts);
-  account["risk"] = manifest.at("risk");
-  account["storage_state"] = "ready";
-  *result.mutable_account() = protocol::encode_snapshot(account);
+  summary.erase("marks");
+  summary["contracts"] = std::move(contracts);
+  summary["risk"] = manifest.at("risk");
+  summary["storage_state"] = "ready";
+  *result.mutable_account() = protocol::encode_snapshot(summary);
   result.mutable_max_drawdown()->set_units(drawdown.raw());
   for (auto& follower : followers)
     for (auto& strategy : follower.strategies)

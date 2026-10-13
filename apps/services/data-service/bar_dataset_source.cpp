@@ -5,25 +5,18 @@
 #include "history_metadata.hpp"
 #include <asterion/domain/daily_bars.hpp>
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <format>
+#include <iterator>
 #include <map>
 #include <optional>
 #include <set>
 #include <stdexcept>
 namespace asterion::data {
 namespace {
-using namespace std::chrono;
 using Bars = std::map<std::int64_t, MarketBar>;
 std::filesystem::path directory(const std::string& text) {
   return std::filesystem::path(std::u8string(text.begin(), text.end()));
-}
-std::int64_t close_label(const std::string& day) {
-  // 15:00 Asia/Shanghai = 07:00 UTC on the trading day.
-  return duration_cast<nanoseconds>(
-             (sys_days(parse_trading_date(day)) + hours(7)).time_since_epoch())
-      .count();
 }
 void same_semantics(std::optional<HistorySemantics>& expected, const HistorySemantics& actual) {
   if (expected && *expected != actual)
@@ -46,43 +39,35 @@ const Values& of(const std::map<std::string, Values>& all, const std::string& co
   const auto found = all.find(contract);
   return found == all.end() ? none : found->second;
 }
-// Completes a dataset from its bars: the settlement price of each of their
-// days, the days of [first, last] the contract settled on without bars, and
-// when the daily partitions it speaks of were acquired. The contract's
-// multiplier, which only the user gives, is checked against what its lots
-// were worth on those days.
+// Completes a dataset from its bars: every day of [first, last] the contract
+// has a settlement price on, with bars or without, and when the daily
+// partitions it speaks of were acquired. The contract's multiplier, which
+// only the user gives, is checked against what its lots were worth on those
+// days.
 void settle(data::v1::BarDataset& result, const Bars& bars, const DailyFacts& facts,
             const std::string& first, const std::string& last, const std::string& contract) {
   const auto& settlements = of(facts.settlement, contract);
   const auto& acquired = facts.acquired_at_ns;
-  // The days the contract settled on are the trading days it had. This detects
-  // missing whole days only; it cannot establish intraday completeness.
-  std::set<std::string> covered;
-  for (const auto& [timestamp, bar] : bars)
-    covered.insert(bar.trading_day);
-  for (auto day = settlements.lower_bound(first); day != settlements.end() && day->first <= last;
-       ++day)
-    if (!covered.contains(day->first))
-      result.add_uncovered_days(day->first);
+  // What is traded is settled: a bar without a settlement price of its day
+  // is not dropped, and the price of another day is not put in its place.
   for (const auto& [timestamp, bar] : bars) {
     *result.add_bars() = protocol::encode_bar(bar);
-    if (result.days_size() && result.days(result.days_size() - 1).trading_day() == bar.trading_day)
-      continue;
-    const auto price = settlements.find(bar.trading_day);
-    if (price == settlements.end())
+    if (!settlements.contains(bar.trading_day))
       throw std::invalid_argument("futures.daily has no settlement price for " + contract + " on " +
                                   bar.trading_day);
-    auto* day = result.add_days();
-    day->set_trading_day(bar.trading_day);
-    day->mutable_settlement_price()->set_units(price->second.raw());
+  }
+  // A day without bars is a day all the same: the contract did not trade on
+  // it, or its bars are missing, and a position held over it is settled.
+  for (auto day = settlements.lower_bound(first); day != settlements.end() && day->first <= last;
+       ++day) {
+    auto* settled = result.add_days();
+    settled->set_trading_day(day->first);
+    settled->mutable_settlement_price()->set_units(day->second.raw());
   }
   // Of the days this dataset says anything about, so that the same selection
   // read again over exactly those days records the same time.
-  auto from = result.days(0).trading_day(), to = result.days(result.days_size() - 1).trading_day();
-  if (result.uncovered_days_size()) {
-    from = std::min(from, result.uncovered_days(0));
-    to = std::max(to, result.uncovered_days(result.uncovered_days_size() - 1));
-  }
+  const auto from = result.days(0).trading_day(),
+             to = result.days(result.days_size() - 1).trading_day();
   std::int64_t read = 0;
   for (auto day = acquired.lower_bound(from); day != acquired.end() && day->first <= to; ++day)
     read = std::max(read, day->second);
@@ -118,7 +103,7 @@ data::v1::BarDataset tabled(const protocol::v1::Contract& spec, const data::v1::
   Bars bars;
   const auto& trades = of(facts.trades, contract);
   for (auto day = trades.lower_bound(begin); day != trades.end() && day->first <= end; ++day) {
-    const auto label = close_label(day->first);
+    const auto label = trading_day_close_ns(day->first);
     bars.emplace(label, MarketBar{day->first, label, day->second.open, day->second.high,
                                   day->second.low, day->second.close, day->second.volume});
   }
@@ -225,21 +210,24 @@ struct Month {
   protocol::v1::Contract contract;
   unsigned interval;
   std::string source;
-  std::map<std::string, Decimal> settlement, open_interest;
+  // The days it has bars on.
+  std::set<std::string> bars;
 };
-// The last day the daily table has a settlement price of a contract on, of
-// the range `facts` were read over: the last it trades on, where the range
-// goes on after it.
-std::string last_settled(const DailyFacts& facts, const std::string& contract) {
-  const auto& settled = of(facts.settlement, contract);
-  return settled.empty() ? std::string{} : settled.rbegin()->first;
+// How long a month that is left stays in its series, by the days it has bars
+// on: to its first bar from the roll day on, at whose open what it holds is
+// closed, and its next after that, for what that bar's volume did not take.
+// The plan has made sure of the first.
+std::string left_until(const std::set<std::string>& bars, const std::string& roll_day) {
+  const auto closed = bars.lower_bound(roll_day);
+  const auto next = std::next(closed);
+  return next == bars.end() ? *closed : *next;
 }
-// How long a month that is left stays in its series, by the days it has
-// bars on: through the roll day, on which what it holds is closed at the
-// open, and its next day, for what the roll day's volume did not take.
-std::string left_until(const std::map<std::string, Decimal>& days, const std::string& roll_day) {
-  const auto next = days.upper_bound(roll_day);
-  return next == days.end() ? roll_day : next->first;
+// What a month is to the dominant rule: its settlements and open interest as
+// the daily table has them, on days it traded and days it did not.
+DominantMonth dominant_month(const protocol::v1::Contract& contract, const DailyFacts& facts,
+                             const std::string& name, const std::set<std::string>& bars) {
+  return {contract.symbol(), contract.delivery_month(), of(facts.settlement, name),
+          of(facts.open_interest, name), *bars.rbegin()};
 }
 } // namespace
 DominantSeries resolve_dominant_series(const history_files::TableStore& tables,
@@ -251,10 +239,9 @@ DominantSeries resolve_dominant_series(const history_files::TableStore& tables,
     // Verify one complete selection at a time. The schedule needs daily facts,
     // not every month's full minute payload retained together.
     const auto dataset = resolve_bar_dataset(tables, inputs[i]);
-    Month month{i, dataset.contract(), dataset.interval_minutes(), dataset.source(), {}, {}};
-    for (const auto& day : dataset.days())
-      month.settlement.emplace(day.trading_day(),
-                               Decimal::from_raw(day.settlement_price().units()));
+    Month month{i, dataset.contract(), dataset.interval_minutes(), dataset.source(), {}};
+    for (const auto& bar : dataset.bars())
+      month.bars.insert(bar.trading_day());
     months.push_back(std::move(month));
   }
   std::ranges::sort(months, {}, [](const Month& month) { return month.contract.delivery_month(); });
@@ -271,27 +258,23 @@ DominantSeries resolve_dominant_series(const history_files::TableStore& tables,
       throw std::invalid_argument(
           "a dominant series requires months of one product with the same terms and bars");
   }
-  // What every month held, on each day any of them has bars: a month may lead
-  // on the first day of its own bars, by what it held the day before.
+  // What every month settled at and held, from the first day any of them has
+  // bars to the last. The table says which month is dominant and when one
+  // stops trading; the bars say only where it can be traded. A month whose
+  // bars end before it does is not left early for that.
   std::vector<std::string> names;
-  auto first_day = months.front().settlement.begin()->first, last_day = first_day;
+  auto first_day = *months.front().bars.begin(), last_day = first_day;
   for (const auto& month : months) {
     names.push_back(history_identity(month.contract).key());
-    first_day = std::min(first_day, month.settlement.begin()->first);
-    last_day = std::max(last_day, month.settlement.rbegin()->first);
+    first_day = std::min(first_day, *month.bars.begin());
+    last_day = std::max(last_day, *month.bars.rbegin());
   }
-  auto table =
+  const auto table =
       daily_facts(tables, daily, months.front().contract.venue(), first_day, last_day, names);
   std::vector<DominantMonth> facts;
-  for (std::size_t i = 0; i < months.size(); ++i) {
-    months[i].open_interest = std::move(table.open_interest[names[i]]);
-    // The table, not the download, says when a month stops trading: one whose
-    // bars end before it does is not left early for that.
-    facts.push_back({months[i].contract.symbol(), months[i].contract.delivery_month(),
-                     months[i].settlement, months[i].open_interest, last_settled(table, names[i])});
-  }
-  // Backtests trade these months: a position is closed on the roll day.
-  const auto plan = plan_dominant(facts, RollDay::must_settle);
+  for (std::size_t i = 0; i < months.size(); ++i)
+    facts.push_back(dominant_month(months[i].contract, table, names[i], months[i].bars));
+  const auto plan = plan_dominant(facts, SeriesUse::traded);
   const auto& segments = plan.segments;
   DominantSeries result;
   std::size_t total_bars = 0;
@@ -300,9 +283,8 @@ DominantSeries resolve_dominant_series(const history_files::TableStore& tables,
     auto selected = inputs[month.input];
     // The first month starts the series; a later one begins a day early.
     selected.request.set_begin_day(i ? segments[i].before : segments[i].begin);
-    selected.request.set_end_day(i + 1 < segments.size()
-                                     ? left_until(month.settlement, segments[i + 1].begin)
-                                     : plan.days.back());
+    selected.request.set_end_day(
+        i + 1 < segments.size() ? left_until(month.bars, segments[i + 1].begin) : plan.days.back());
     auto dataset = resolve_bar_dataset(tables, selected);
     total_bars += static_cast<std::size_t>(dataset.bars_size());
     if (total_bars > protocol::max_dataset_bars)
@@ -328,18 +310,23 @@ DominantSeries resolve_product_series(const history_files::TableStore& tables,
   struct Traded {
     std::string name;
     protocol::v1::Contract contract;
-    // On the days it has bars: a month has data where it can be traded.
-    std::map<std::string, Decimal> settlement;
+    // The days it has bars on: those it traded on, and settled.
+    std::set<std::string> bars;
   };
-  // The months that traded in the range, in delivery order: names of one
+  // The months that have bars in the range, in delivery order: names of one
   // product sort so.
   std::vector<Traded> months;
   for (const auto& [name, trades] : facts.trades) {
-    if (trades.empty())
+    std::set<std::string> bars;
+    const auto& settled = of(facts.settlement, name);
+    for (const auto& [day, trade] : trades)
+      if (settled.contains(day))
+        bars.insert(day);
+    if (bars.empty())
       continue;
     const auto identity = HistoryIdentity::parse(name);
     const auto id = identity.exchange_id();
-    Traded month{name, {}, {}};
+    Traded month{name, {}, std::move(bars)};
     month.contract.set_venue(id.venue);
     month.contract.set_symbol(id.symbol);
     month.contract.set_currency("CNY");
@@ -348,20 +335,14 @@ DominantSeries resolve_product_series(const history_files::TableStore& tables,
     *month.contract.mutable_multiplier() = request.multiplier();
     month.contract.set_product(id.symbol.substr(0, identity.product.size()));
     month.contract.set_delivery_month(identity.delivery_month);
-    const auto& settled = of(facts.settlement, name);
-    for (const auto& [day, trade] : trades)
-      if (const auto price = settled.find(day); price != settled.end())
-        month.settlement.emplace(day, price->second);
     months.push_back(std::move(month));
   }
   if (months.size() < 2)
     throw std::invalid_argument("a dominant series requires at least two month contracts");
   std::vector<DominantMonth> dominant;
   for (const auto& month : months)
-    dominant.push_back({month.contract.symbol(), month.contract.delivery_month(), month.settlement,
-                        of(facts.open_interest, month.name), last_settled(facts, month.name)});
-  // Backtests trade these months: a position is closed on the roll day.
-  const auto plan = plan_dominant(dominant, RollDay::must_settle);
+    dominant.push_back(dominant_month(month.contract, facts, month.name, month.bars));
+  const auto plan = plan_dominant(dominant, SeriesUse::traded);
   const auto& segments = plan.segments;
   DominantSeries result;
   for (std::size_t i = 0; i < segments.size(); ++i) {
@@ -371,7 +352,7 @@ DominantSeries resolve_product_series(const history_files::TableStore& tables,
     result.datasets.push_back(tabled(month.contract, request.daily(), facts, month.name,
                                      i ? segments[i].before : segments[i].begin,
                                      i + 1 < segments.size()
-                                         ? left_until(month.settlement, segments[i + 1].begin)
+                                         ? left_until(month.bars, segments[i + 1].begin)
                                          : plan.days.back()));
     auto* roll = result.schedule.add_rolls();
     roll->set_trading_day(segments[i].begin);

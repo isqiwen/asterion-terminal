@@ -59,7 +59,7 @@ Json bar_json(const MarketBar& bar) {
 // Canonical content: the fields that define what the bars are, not where they came from.
 Json contents(const data::v1::BarDataset& dataset, DatasetView view) {
   auto contract = decode_contract(dataset.contract());
-  Json result{{"version", 1},
+  Json result{{"version", 2},
               {"contract", std::move(contract)},
               {"interval_minutes", dataset.interval_minutes()}};
   if (view == DatasetView::metadata)
@@ -174,7 +174,7 @@ std::string bar_dataset_revision(const data::v1::BarDataset& dataset) {
   }
   canonical += "],\"interval_minutes\":";
   canonical += std::to_string(dataset.interval_minutes());
-  canonical += ",\"version\":1}";
+  canonical += ",\"version\":2}";
   return sha256_bytes(canonical);
 }
 void validate_bar_dataset(const data::v1::BarDataset& dataset) {
@@ -184,18 +184,11 @@ void validate_bar_dataset(const data::v1::BarDataset& dataset) {
   validate_message(dataset);
   if (!dataset.has_contract() || dataset.bars_size() < 1 ||
       static_cast<std::size_t>(dataset.bars_size()) > max_dataset_bars || dataset.days_size() < 1 ||
-      dataset.days_size() > dataset.bars_size())
+      static_cast<std::size_t>(dataset.days_size()) > max_dataset_bars)
     throw std::invalid_argument("bar dataset requires 1..200000 bars and their trading days");
   const auto interval = dataset.interval_minutes();
   if (interval > 1440)
     throw std::invalid_argument("unsupported bar interval");
-  if (dataset.uncovered_days_size() > 10000)
-    throw std::invalid_argument("invalid uncovered trading days");
-  for (int i = 0; i < dataset.uncovered_days_size(); ++i) {
-    (void)parse_trading_date(dataset.uncovered_days(i));
-    if (i && dataset.uncovered_days(i) <= dataset.uncovered_days(i - 1))
-      throw std::invalid_argument("invalid uncovered trading days");
-  }
   if (dataset.source().empty() || dataset.source().size() > 64)
     throw std::invalid_argument("invalid bar dataset provenance");
   validate_versions(dataset.source_dataset_ids());
@@ -214,31 +207,33 @@ void validate_bar_dataset(const data::v1::BarDataset& dataset) {
        (interval != 0 || dataset.source() != dataset.daily().daily_source())))
     throw std::invalid_argument("invalid bar dataset provenance");
   const auto spec = instrument(dataset.contract());
-  std::optional<MarketBar> previous;
-  std::vector<std::string> bar_days;
-  for (const auto& row : dataset.bars()) {
-    auto bar = market_bar(row);
-    bar.validate(spec);
-    if (previous &&
-        (bar.timestamp_ns <= previous->timestamp_ns || bar.trading_day < previous->trading_day))
-      throw std::invalid_argument("dataset bars must be strictly ascending");
-    if (bar_days.empty() || bar_days.back() != bar.trading_day)
-      bar_days.push_back(bar.trading_day);
-    previous = std::move(bar);
-  }
-  std::vector<std::string> days;
+  const std::string* before = nullptr;
   for (const auto& day : dataset.days()) {
     (void)parse_trading_date(day.trading_day());
     // A settlement price is what the exchange publishes, not a price an order
     // is placed at: the last one of a cash-settled contract is an average
     // with more places than the price increment has.
     if (!day.has_settlement_price() || value(day.settlement_price()) <= Decimal{} ||
-        (!days.empty() && day.trading_day() <= days.back()))
+        (before && day.trading_day() <= *before))
       throw std::invalid_argument("invalid dataset settlement day");
-    days.push_back(day.trading_day());
+    before = &day.trading_day();
   }
-  if (days != bar_days)
-    throw std::invalid_argument("dataset days must match the trading days of its bars");
+  // A day need have no bars: the contract settled on it without trading, or
+  // its bars are missing. A bar needs a day: what is traded is settled.
+  std::optional<MarketBar> previous;
+  auto day = dataset.days().begin();
+  for (const auto& row : dataset.bars()) {
+    auto bar = market_bar(row);
+    bar.validate(spec);
+    if (previous &&
+        (bar.timestamp_ns <= previous->timestamp_ns || bar.trading_day < previous->trading_day))
+      throw std::invalid_argument("dataset bars must be strictly ascending");
+    while (day != dataset.days().end() && day->trading_day() < bar.trading_day)
+      ++day;
+    if (day == dataset.days().end() || day->trading_day() != bar.trading_day)
+      throw std::invalid_argument("dataset bars must fall on its settlement days");
+    previous = std::move(bar);
+  }
   if (dataset.revision() != bar_dataset_revision(dataset))
     throw std::invalid_argument("bar dataset revision mismatch");
 }

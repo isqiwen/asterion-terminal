@@ -43,11 +43,11 @@ const prefixedDiagnostics = [
   ["bundled plugin is required: ", "应用自带的插件必须保持启用"],
   [
     "no month contract of the series has data on ",
-    "主力连续在某个交易日没有可以持有的月份：分钟线请补齐各月份的下载；日线表示这个品种那天没有月份成交，或只有当天到期的月份成交",
+    "主力连续在某个交易日没有可以持有的月份：那天没有月份有结算价和前一交易日的持仓量，或只有当天到期的月份有",
   ],
   [
-    "the outgoing month has no bars on the roll day: ",
-    "换月当天旧月份合约没有 K 线，无法平仓：分钟线请补齐该月份的下载；日线表示它当天没有成交，或日线表里没有它当天的结算价",
+    "the outgoing month has no bars from the roll day on: ",
+    "被换下的月份从换月日起再没有 K 线，持仓无法平掉：分钟线请补齐该月份的下载；日线表示它此后没有成交",
   ],
   [
     "the roll lacks both settlement prices on the previous day: ",
@@ -56,7 +56,7 @@ const prefixedDiagnostics = [
   ["invalid roll adjustment ratio on ", "换月的复权系数无效"],
   [
     "a position remains in a contract on a day it has no settlement price: ",
-    "换月后旧月份合约的持仓未能平掉；该月份在换月日成交量不足",
+    "一个月份合约的持仓留到了它没有结算价的交易日：换月后成交量不足没有平完，或数据源缺它这一天的结算价",
   ],
   ["cannot validate owned regular file ", "durable file ownership or type is invalid"],
   ["cannot prepare durable write ", "cannot prepare durable file contents"],

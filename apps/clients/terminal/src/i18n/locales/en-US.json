@@ -393,6 +393,7 @@
   "终端设置": "Terminal Settings",
   "经纪商代码": "Broker ID",
   "结束交易日": "Last trading day",
+  "主力月份有 {n} 个交易日没有 K 线：{days}": "The dominant month has no bars on {n} trading days: {days}",
   "结算日历中有 {n} 个交易日没有 K 线：{days}": "The settlement calendar has {n} trading days without bars: {days}",
   "继续恢复": "Continue Recovery",
   "继续配置": "Continue setup",

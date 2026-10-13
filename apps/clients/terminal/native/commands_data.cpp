@@ -13,9 +13,15 @@ DatasetSelection resolved_selection(const data::v1::BarDatasetRequest& request,
   const auto& bars = dataset.bars();
   const auto& first = bars.Get(0);
   const auto& last = bars.Get(bars.size() - 1);
+  // The days it settled on without bars: it did not trade, or bars are missing.
   json uncovered = json::array();
-  for (const auto& day : dataset.uncovered_days())
-    uncovered.push_back(day);
+  auto bar = bars.begin();
+  for (const auto& day : dataset.days()) {
+    while (bar != bars.end() && bar->trading_day() < day.trading_day())
+      ++bar;
+    if (bar == bars.end() || bar->trading_day() != day.trading_day())
+      uncovered.push_back(day.trading_day());
+  }
   json summary = protocol::decode_bar_dataset_request(request);
   summary.update({{"venue", dataset.contract().venue()},
                   {"symbol", dataset.contract().symbol()},

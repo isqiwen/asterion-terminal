@@ -9,7 +9,7 @@ import { useWorkspaceDraft } from "../host/workspace/drafts";
 import { DominantSeriesPicker } from "./DominantSeriesPicker";
 import { DailyBarsPicker } from "./DailyBarsPicker";
 import { DailyTableGaps } from "./DailyTableGaps";
-import { RollSchedule } from "./RollSchedule";
+import { RollSchedule, daysWithoutBars } from "./RollSchedule";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 
 // A minute download, as the lists of them name it.
@@ -233,6 +233,7 @@ export function DatasetPicker({
           item => item.venue === group.venue && group.symbols.includes(item.symbol),
         );
         const name = `${group.venue} · ${group.product} ${t("主力连续")}`;
+        const idle = daysWithoutBars(group.rolls, months);
         return (
           <li key={`${group.venue}.${group.product}`}>
             <p>
@@ -254,6 +255,14 @@ export function DatasetPicker({
               })}
             </p>
             <RollSchedule name={name} rolls={group.rolls} />
+            {idle.length > 0 && (
+              <p role="alert" className="alert">
+                {t("主力月份有 {n} 个交易日没有 K 线：{days}", {
+                  n: idle.length,
+                  days: idle.slice(0, 5).join("、") + (idle.length > 5 ? " …" : ""),
+                })}
+              </p>
+            )}
             {!locked && (
               <div className="source-actions">
                 <button

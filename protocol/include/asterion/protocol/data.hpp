@@ -62,8 +62,9 @@ v1::Bar encode_bar(const MarketBar&);
 MarketBar market_bar(const v1::Bar&);
 // Content identity: SHA-256 of contract, interval, bars and days.
 std::string bar_dataset_revision(const data::v1::BarDataset&);
-// Validates structure, order, contract units, day coverage and revision.
-inline constexpr unsigned bar_dataset_version = 3;
+// Validates structure, order, contract units, that every bar falls on one of
+// the days, and the revision.
+inline constexpr unsigned bar_dataset_version = 4;
 void validate_bar_dataset(const data::v1::BarDataset&);
 std::vector<MarketBar> dataset_bars(const data::v1::BarDataset&);
 std::vector<DaySettlement> dataset_days(const data::v1::BarDataset&);
@@ -102,7 +103,7 @@ std::map<std::string, Decimal> term_carries(const data::v1::DominantSchedule& sc
                                             std::span<const v1::Contract* const> contracts);
 Json decode_term_points(const data::v1::DominantSchedule& schedule);
 std::string named_dataset_revision(const data::v1::NamedDataset&);
-inline constexpr unsigned named_dataset_version = 2;
+inline constexpr unsigned named_dataset_version = 3;
 void validate_named_dataset(const data::v1::NamedDataset&);
 Json decode_named_dataset(const data::v1::NamedDataset&);
 } // namespace asterion::protocol

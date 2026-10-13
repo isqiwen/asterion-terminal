@@ -2618,9 +2618,9 @@ TEST(Backtest, MultidayRequiresExplicitValidCompleteEvidence) {
       spec.paper().contracts(0).dataset().days(0).trading_day());
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
 
+  // A bar needs a day: what is traded is settled.
   spec = original;
-  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_bars()->DeleteSubrange(4,
-                                                                                                4);
+  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_days()->RemoveLast();
   spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
       protocol::bar_dataset_revision(spec.paper().contracts(0).dataset()));
   spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
@@ -2628,6 +2628,37 @@ TEST(Backtest, MultidayRequiresExplicitValidCompleteEvidence) {
   spec = original;
   spec.set_version(3);
   EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+}
+// A day needs no bars. The contract settles on the second day without
+// trading: the lot bought on the first is held over it and settled at its
+// price, when its session closes.
+TEST(Backtest, ADayWithoutBarsIsSettled) {
+  auto spec = multiday_input();
+  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_bars()->DeleteSubrange(4,
+                                                                                                4);
+  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
+      protocol::bar_dataset_revision(spec.paper().contracts(0).dataset()));
+  spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
+  const auto result = backtest::run(spec);
+  ASSERT_EQ(result.settlements_size(), 2);
+  EXPECT_EQ(result.settlements(0).equity().units(), d("10038").raw());
+  EXPECT_EQ(result.settlements(1).trading_day(), "2026-09-28");
+  EXPECT_EQ(result.settlements(1).timestamp_ns(), parse_shanghai_time("2026-09-28 15:00:00"));
+  EXPECT_EQ(result.settlements(1).contracts(0).price().units(), d("110").raw());
+  EXPECT_EQ(result.settlements(1).contracts(0).position_quantity().units(), d("1").raw());
+  // Five a lot of ten, from the 105 it settled at to 110.
+  EXPECT_EQ(result.account().equity().units(), d("10088").raw());
+  // A mark at each of the four bars and a settlement for each of the two days.
+  ASSERT_EQ(result.equity_size(), 6);
+  EXPECT_EQ(result.equity(5).event(), backtest::v1::DAILY_SETTLEMENT);
+  EXPECT_EQ(result.equity(5).timestamp_ns(), result.settlements(1).timestamp_ns());
+  // The Task service takes this result as that of the input.
+  TaskDirectory root;
+  tasks::Store store(root.path, tasks::Identity{"task", "historical-data"});
+  tasks::submit(store, "idle-day", spec);
+  const auto token = store.commit(store.claim("idle-day")).token();
+  store.commit(tasks::finish(store, "idle-day", token, result));
+  EXPECT_EQ(store.get("idle-day").state(), task::v1::SUCCEEDED);
 }
 TEST(TaskStore, MultidayEvidenceRestoresAndForgedSettlementCannotCommit) {
   TaskDirectory root;
@@ -2729,7 +2760,21 @@ TEST(TaskStore, PinnedRiskArtifactIsRetainedButResultReadsDoNotLoadAlgorithm) {
 
 #include "bar_dataset_source.hpp"
 #include "data/history_fixture.hpp"
-TEST(NamedDatasets, SettlementDaysWithoutMinuteBarsAreListedAsUncovered) {
+namespace {
+// The days a dataset settles on without bars: the contract did not trade on
+// them, or their bars are missing.
+std::vector<std::string> days_without_bars(const data::v1::BarDataset& dataset) {
+  std::set<std::string> traded;
+  for (const auto& bar : dataset.bars())
+    traded.insert(bar.trading_day());
+  std::vector<std::string> result;
+  for (const auto& day : dataset.days())
+    if (!traded.contains(day.trading_day()))
+      result.push_back(day.trading_day());
+  return result;
+}
+} // namespace
+TEST(NamedDatasets, ASettlementDayWithoutMinuteBarsIsADayOfTheDataset) {
   TaskDirectory directory;
   const auto selection =
       test::seed_history(directory.path, {100, 101, 102, 103}, "gap", {"2026-09-23", "2026-09-25"},
@@ -2751,9 +2796,9 @@ TEST(NamedDatasets, SettlementDaysWithoutMinuteBarsAreListedAsUncovered) {
   const auto sources = store.sources(protocol::encode_bar_dataset_request(request));
   const auto dataset = data::resolve_bar_dataset(store.tables(), sources);
   ASSERT_EQ(dataset.bars_size(), 4);
-  EXPECT_EQ(dataset.days_size(), 2);
-  ASSERT_EQ(dataset.uncovered_days_size(), 1);
-  EXPECT_EQ(dataset.uncovered_days(0), "2026-09-24");
+  // A position held over the 24th is settled on it, bars or none.
+  EXPECT_EQ(dataset.days_size(), 3);
+  EXPECT_EQ(days_without_bars(dataset), std::vector<std::string>{"2026-09-24"});
   EXPECT_EQ(dataset.revision(), protocol::bar_dataset_revision(dataset));
 }
 #include "history_coverage.hpp"
@@ -2962,7 +3007,7 @@ TEST(NamedDatasets, ATradingDayTheDailyTableLacksIsNamedAndASnapshotKeepsWhatItR
   const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
   ASSERT_EQ(dataset.days_size(), 2);
   EXPECT_EQ(dataset.days(0).settlement_price().units(), Decimal::parse("110").raw());
-  EXPECT_EQ(dataset.uncovered_days_size(), 0);
+  EXPECT_TRUE(days_without_bars(dataset).empty());
   EXPECT_EQ(dataset.daily().snapshot(), selection.at("daily").at("snapshot").get<std::string>());
   EXPECT_EQ(dataset.daily_acquired_at_ns(), 1790000000000000000);
   // Under the later one the missing day is named, not read around.
@@ -3012,12 +3057,13 @@ TEST(NamedDatasets, ADailyBarIsADayTheContractTradedAndADownloadOfDailyBarsIsNoS
   EXPECT_EQ(bars[0].close, Decimal::parse("3015"));
   EXPECT_EQ(bars[0].volume, Decimal::parse("1200"));
   EXPECT_EQ(bars[1].close, Decimal::parse("3035"));
-  ASSERT_EQ(dataset.days_size(), 2);
-  EXPECT_EQ(dataset.days(0).settlement_price().units(), Decimal::parse("3010").raw());
-  EXPECT_EQ(dataset.days(1).settlement_price().units(), Decimal::parse("3030").raw());
-  ASSERT_EQ(dataset.uncovered_days_size(), 2);
-  EXPECT_EQ(dataset.uncovered_days(0), "2026-09-22");
-  EXPECT_EQ(dataset.uncovered_days(1), "2026-09-24");
+  // Every day it settled on is a day of the dataset, at that day's price.
+  ASSERT_EQ(dataset.days_size(), 4);
+  EXPECT_EQ(dataset.days(0).settlement_price().units(), Decimal::parse("3005").raw());
+  EXPECT_EQ(dataset.days(1).settlement_price().units(), Decimal::parse("3010").raw());
+  EXPECT_EQ(dataset.days(2).settlement_price().units(), Decimal::parse("3012").raw());
+  EXPECT_EQ(dataset.days(3).settlement_price().units(), Decimal::parse("3030").raw());
+  EXPECT_EQ(days_without_bars(dataset), (std::vector<std::string>{"2026-09-22", "2026-09-24"}));
   // The contract's own download of daily bars is not where bars come from.
   request.add_source_dataset_ids(seeded.at("daily_dataset_id").get<std::string>());
   try {
@@ -3079,9 +3125,7 @@ TEST(NamedDatasets, RequestedWindowReportsMissingBoundaryDays) {
   request.set_end_day("2026-09-25");
   *request.mutable_contract() = test::contract();
   const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
-  ASSERT_EQ(dataset.uncovered_days_size(), 2);
-  EXPECT_EQ(dataset.uncovered_days(0), "2026-09-23");
-  EXPECT_EQ(dataset.uncovered_days(1), "2026-09-25");
+  EXPECT_EQ(days_without_bars(dataset), (std::vector<std::string>{"2026-09-23", "2026-09-25"}));
   task::v1::Task calculation;
   *factor_bars(*calculation.mutable_factor()) = dataset;
   calculation.mutable_factor()->set_version(8);
@@ -3128,7 +3172,7 @@ TEST(NamedDatasets, ComposesDownloadsDeduplicatesAndRestoresFixedVersions) {
   EXPECT_EQ(result.bars_size(), 4);
   EXPECT_EQ(result.days_size(), 2);
   EXPECT_EQ(result.source_dataset_ids_size(), 2);
-  EXPECT_EQ(result.uncovered_days_size(), 0);
+  EXPECT_TRUE(days_without_bars(result).empty());
   const auto overlapping = data::resolve_bar_dataset(
       store->tables(), store->sources(composed_request({first, whole, second})));
   EXPECT_EQ(overlapping.bars_size(), 4);
@@ -3199,8 +3243,7 @@ TEST(NamedDatasets, CompositionReportsGapsAndRejectsInvalidVersionLists) {
   data::Store store(directory.path, "historical-data", "task");
   auto request = composed_request({one, two});
   const auto result = data::resolve_bar_dataset(store.tables(), store.sources(request));
-  ASSERT_EQ(result.uncovered_days_size(), 1);
-  EXPECT_EQ(result.uncovered_days(0), "2026-09-24");
+  EXPECT_EQ(days_without_bars(result), std::vector<std::string>{"2026-09-24"});
   auto json = protocol::decode_bar_dataset_request(request);
   json["source_dataset_ids"].push_back(json["source_dataset_ids"][0]);
   EXPECT_THROW(protocol::encode_bar_dataset_request(json), std::invalid_argument);

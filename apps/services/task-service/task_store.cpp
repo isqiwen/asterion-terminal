@@ -278,8 +278,8 @@ void verify_result(const wire::Task& task, const asterion::backtest::v1::Backtes
   if (result.version() != 5 || result.engine_version() != protocol::backtest_engine_version)
     throw std::invalid_argument("unsupported backtest result version");
   const auto& paper = task.input().paper();
-  // Months of a dominant series trade on part of the days only: the replay
-  // settles every day any contract trades, and costs follow its last day.
+  // The replay settles every day any contract settles on, with bars that day
+  // or without, and costs follow its last day.
   std::set<std::string> trading_days;
   for (const auto& contract : paper.contracts())
     for (const auto& day : contract.dataset().days())
@@ -343,29 +343,32 @@ void verify_result(const wire::Task& task, const asterion::backtest::v1::Backtes
     for (const auto& bar : contract.dataset().bars())
       timeline.push_back(&bar);
   std::ranges::stable_sort(timeline, {}, [](const auto* bar) { return bar->timestamp_ns(); });
+  // A mark at every bar, and each day's settlement after its bars: at the
+  // last of them, or where the day has none, at the close of its session.
   int point_index = 0, settlement_index = 0;
-  for (std::size_t i = 0; i < timeline.size(); ++i) {
-    const auto check_point = [&](asterion::backtest::v1::EquityEvent event)
-        -> const asterion::backtest::v1::EquityPoint& {
+  std::size_t next = 0;
+  for (const auto& trading_day : trading_days) {
+    const auto check_point = [&](asterion::backtest::v1::EquityEvent event,
+                                 std::int64_t at) -> const asterion::backtest::v1::EquityPoint& {
       if (point_index >= result.equity_size())
         throw std::invalid_argument("result curve does not match input timeline");
       const auto& point = result.equity(point_index++);
-      if (point.timestamp_ns() != timeline[i]->timestamp_ns() || point.event() != event)
+      if (point.timestamp_ns() != at || point.event() != event)
         throw std::invalid_argument("result curve does not match input timeline");
       return point;
     };
-    check_point(asterion::backtest::v1::TRADE_MARK);
-    if (i + 1 == timeline.size() || timeline[i]->trading_day() != timeline[i + 1]->trading_day()) {
-      const auto& point = check_point(asterion::backtest::v1::DAILY_SETTLEMENT);
-      if (settlement_index >= result.settlements_size())
-        throw std::invalid_argument("settlement result does not match input days");
-      const auto& day = result.settlements(settlement_index++);
-      if (day.timestamp_ns() != point.timestamp_ns() ||
-          day.equity().units() != point.equity().units())
-        throw std::invalid_argument("inconsistent result summary");
+    auto settled_at = trading_day_close_ns(trading_day);
+    for (; next < timeline.size() && timeline[next]->trading_day() == trading_day; ++next) {
+      settled_at = timeline[next]->timestamp_ns();
+      check_point(asterion::backtest::v1::TRADE_MARK, settled_at);
     }
+    const auto& point = check_point(asterion::backtest::v1::DAILY_SETTLEMENT, settled_at);
+    const auto& day = result.settlements(settlement_index++);
+    if (day.timestamp_ns() != point.timestamp_ns() ||
+        day.equity().units() != point.equity().units())
+      throw std::invalid_argument("inconsistent result summary");
   }
-  if (point_index != result.equity_size() || settlement_index != result.settlements_size())
+  if (next != timeline.size() || point_index != result.equity_size())
     throw std::invalid_argument("result curve does not match input timeline");
   // Settlement evidence must name the input's exact dates, contracts and prices.
   int day_index = 0;

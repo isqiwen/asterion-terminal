@@ -494,10 +494,12 @@ TEST(DominantSeries, AMonthIsLeftOnItsLastTradingDayAtTheOpen) {
   EXPECT_EQ(result.account().equity().units(), d("99992").raw());
   EXPECT_EQ(result.settlements_size(), 7);
 }
-// The daily table, not a download, says when a month stops trading. A month
-// whose minute bars end with it is left on that day; one whose bars end
-// before it does is not left early to suit them.
-TEST(DominantSeries, AMonthOfMinuteBarsIsLeftOnItsLastDayInTheTableNotOfItsDownload) {
+// The daily table says which month is dominant and when one stops trading; a
+// download says only where it can be traded. A month whose minute bars end
+// with it is left on that day. One whose bars end before it does is not left
+// for that: it stays dominant on days it has no bars on, and the series is
+// refused only when it is to be left with no bar to close on.
+TEST(DominantSeries, AMonthOfMinuteBarsIsDominantByTheTableNotByItsDownload) {
   Directory directory;
   const std::vector<std::string> four(days.begin(), days.begin() + 4),
       three(days.begin(), days.begin() + 3);
@@ -513,9 +515,14 @@ TEST(DominantSeries, AMonthOfMinuteBarsIsLeftOnItsLastDayInTheTableNotOfItsDownl
     return std::vector<Json>{near, far};
   };
   const auto listed = months_of("rb", four), expired = months_of("hc", three);
-  const auto daily = test::latest_daily({listed[0], listed[1], expired[0], expired[1]});
+  const auto held = test::latest_daily({listed[0], listed[1], expired[0], expired[1]});
+  // Later the table has rb2701 holding the more on the third day.
+  const auto moved =
+      test::seed_daily_table(directory.path, "SHFE/rb/2027-01",
+                             {{days[2], 100, 500, test::DailyTrade{100, 200, 90, 110, 10000}}});
   data::Store store(directory.path, "historical-data", "task");
-  const auto series = [&](const std::string& product, const std::vector<Json>& months) {
+  const auto series = [&](const std::string& product, const std::vector<Json>& months,
+                          const Json& daily) {
     std::vector<data::BarDatasetSources> inputs;
     for (std::size_t m = 0; m < months.size(); ++m) {
       data::v1::BarDatasetRequest request;
@@ -530,18 +537,149 @@ TEST(DominantSeries, AMonthOfMinuteBarsIsLeftOnItsLastDayInTheTableNotOfItsDownl
   };
   // hc2610 is in the table for three days: it stops trading on the third and
   // is left then, with the most open interest still.
-  const auto left = series("hc", expired);
+  const auto left = series("hc", expired, held);
   ASSERT_EQ(left.schedule.rolls_size(), 2);
   EXPECT_EQ(left.schedule.rolls(1).trading_day(), days[2]);
-  // rb2610 is in the table on the fourth day too. Its bars of that day are
-  // missing, and the series is refused as it was.
+  // rb2610 is in the table on the fourth day too and holds the most: it is
+  // the dominant month of that day, which has no bars.
+  const auto kept = series("rb", listed, held);
+  ASSERT_EQ(kept.schedule.rolls_size(), 1);
+  ASSERT_EQ(kept.datasets.size(), 1U);
+  EXPECT_EQ(kept.datasets[0].contract().symbol(), "rb2610");
+  ASSERT_EQ(kept.datasets[0].days_size(), 3);
+  EXPECT_EQ(kept.datasets[0].days(2).trading_day(), days[3]);
+  EXPECT_EQ(kept.datasets[0].bars().rbegin()->trading_day(), days[2]);
+  // Where rb2701 takes over on the fourth day, rb2610 is to be closed and has
+  // no bar to be closed on.
   try {
-    (void)series("rb", listed);
-    FAIL() << "a month was left where its download ends";
+    (void)series("rb", listed, moved);
+    FAIL() << "a month was left with no bar to close on";
   } catch (const std::invalid_argument& error) {
     EXPECT_EQ(std::string(error.what()),
-              "the outgoing month has no bars on the roll day: rb2610 on " + days[3]);
+              "the outgoing month has no bars from the roll day on: rb2610 from " + days[3]);
   }
+}
+// A day the dominant month does not trade on, as when it is halted, changes
+// nothing of what is held: it stays dominant, and a position in it is settled
+// at that day's price.
+TEST(DominantSeries, AMonthThatDoesNotTradeOnADayStaysDominantAndIsSettled) {
+  Directory directory;
+  {
+    data::Store created(directory.path, "historical-data", "task");
+  }
+  const auto day = [](int index) { return daily_bar(index).trading_day; };
+  // rb2610 holds twice what rb2701 does throughout. It is bought at 202 on
+  // the fourth day and does not trade on the fifth, when it settles at 210.
+  (void)test::seed_daily_table(directory.path, "SHFE/rb/2026-10",
+                               {{day(0), 198, 100, test::DailyTrade{198, 199, 197, 198, 100}},
+                                {day(1), 200, 100, test::DailyTrade{200, 201, 199, 200, 100}},
+                                {day(2), 202, 100, test::DailyTrade{202, 203, 201, 202, 100}},
+                                {day(3), 204, 100, test::DailyTrade{204, 205, 201, 204, 100}},
+                                {day(4), 210, 100},
+                                {day(5), 213, 100, test::DailyTrade{212, 214, 211, 213, 100}},
+                                {day(6), 215, 100, test::DailyTrade{214, 216, 213, 215, 100}}});
+  std::vector<test::DailyRow> later;
+  for (int i = 0; i < 7; ++i) {
+    const auto price = 94 + 2 * i;
+    later.push_back({day(i), price, 50, test::DailyTrade{price, price + 3, price - 3, price, 100}});
+  }
+  (void)test::seed_daily_table(directory.path, "SHFE/rb/2027-01", later);
+  const auto series = series_of(directory.path, "rb", day(0), day(6));
+  // One month throughout, on a day more than it has bars.
+  ASSERT_EQ(series.schedule.rolls_size(), 1);
+  ASSERT_EQ(series.datasets.size(), 1U);
+  EXPECT_EQ(series.datasets[0].contract().symbol(), "rb2610");
+  EXPECT_EQ(series.datasets[0].days_size(), 6);
+  EXPECT_EQ(series.datasets[0].bars_size(), 5);
+  Json contracts = Json::array();
+  for (const auto& dataset : series.datasets)
+    contracts.push_back(
+        {{"dataset", protocol::decode_bar_dataset(dataset)}, {"cost_schedule", fixed_costs}});
+  auto input = traded(std::move(contracts));
+  *input.add_series() = series.schedule;
+  const auto result = backtest::run(input);
+  ASSERT_EQ(result.account().fills_size(), 1);
+  EXPECT_EQ(result.account().fills(0).price().units(), d("202").raw());
+  // The day without bars is settled like the others, when its session closes:
+  // 8 a lot of ten above 202, less the fee of 2.
+  ASSERT_EQ(result.settlements_size(), 6);
+  const auto& idle = result.settlements(3);
+  EXPECT_EQ(idle.trading_day(), day(4));
+  EXPECT_EQ(idle.timestamp_ns(), trading_day_close_ns(day(4)));
+  ASSERT_EQ(idle.contracts_size(), 1);
+  EXPECT_EQ(idle.contracts(0).price().units(), d("210").raw());
+  EXPECT_EQ(idle.contracts(0).position_quantity().units(), d("1").raw());
+  EXPECT_EQ(idle.equity().units(), d("100078").raw());
+  // Held to the last settlement of 215.
+  EXPECT_EQ(result.account().equity().units(), d("100128").raw());
+}
+// A month can be left on a day it does not trade. What is held of it is
+// settled that day and closed at the open of its next bar, and the month
+// after it takes over once it is.
+TEST(DominantSeries, AMonthLeftOnADayItDoesNotTradeIsClosedOnItsNextBar) {
+  Directory directory;
+  {
+    data::Store created(directory.path, "historical-data", "task");
+  }
+  const auto day = [](int index) { return daily_bar(index).trading_day; };
+  // rb2610 is bought at 202 on the fourth day, when rb2701 comes to hold the
+  // more: the fifth is the roll day. rb2610 does not trade on it and settles
+  // at 190; on the sixth it opens at 188.
+  (void)test::seed_daily_table(directory.path, "SHFE/rb/2026-10",
+                               {{day(0), 198, 100, test::DailyTrade{198, 199, 197, 198, 100}},
+                                {day(1), 200, 100, test::DailyTrade{200, 201, 199, 200, 100}},
+                                {day(2), 202, 100, test::DailyTrade{202, 203, 201, 202, 100}},
+                                {day(3), 204, 40, test::DailyTrade{204, 205, 201, 204, 100}},
+                                {day(4), 190, 40},
+                                {day(5), 186, 40, test::DailyTrade{188, 189, 185, 186, 100}},
+                                {day(6), 184, 40, test::DailyTrade{186, 187, 183, 184, 100}},
+                                {day(7), 182, 40, test::DailyTrade{184, 185, 181, 182, 100}}});
+  // rb2701 rises two a day from 100, ranging three either side.
+  std::vector<test::DailyRow> later;
+  for (int i = 0; i < 8; ++i) {
+    const auto price = 100 + 2 * i;
+    later.push_back({day(i), price, i < 3 ? 50 : 200,
+                     test::DailyTrade{price, price + 3, price - 3, price, 100}});
+  }
+  (void)test::seed_daily_table(directory.path, "SHFE/rb/2027-01", later);
+  const auto series = series_of(directory.path, "rb", day(0), day(7));
+  ASSERT_EQ(series.schedule.rolls_size(), 2);
+  EXPECT_EQ(series.schedule.rolls(1).trading_day(), day(4));
+  // rb2610 is read to the bar it is closed on and the one after: the roll
+  // day is one of its days and has no bar.
+  EXPECT_EQ(series.datasets[0].days().rbegin()->trading_day(), day(6));
+  EXPECT_EQ(series.datasets[0].days_size(), 6);
+  EXPECT_EQ(series.datasets[0].bars_size(), 5);
+  Json contracts = Json::array();
+  for (const auto& dataset : series.datasets)
+    contracts.push_back(
+        {{"dataset", protocol::decode_bar_dataset(dataset)}, {"cost_schedule", fixed_costs}});
+  auto input = traded(std::move(contracts));
+  *input.add_series() = series.schedule;
+  const auto result = backtest::run(input);
+  ASSERT_EQ(result.account().fills_size(), 3);
+  const auto fill = [&](int index) {
+    const auto& fill = result.account().fills(index);
+    return fill.symbol() + " " + Decimal::from_raw(fill.price().units()).str();
+  };
+  EXPECT_EQ(fill(0), "rb2610 202");
+  // Both at the open of the sixth day.
+  EXPECT_EQ(fill(1), "rb2610 188");
+  EXPECT_EQ(fill(2), "rb2701 110");
+  // On the roll day rb2610 is still held and settled at 190; rb2701 waits.
+  const auto& roll_day = result.settlements(3);
+  EXPECT_EQ(roll_day.trading_day(), day(4));
+  ASSERT_EQ(roll_day.contracts_size(), 2);
+  EXPECT_EQ(roll_day.contracts(0).symbol(), "rb2610");
+  EXPECT_EQ(roll_day.contracts(0).price().units(), d("190").raw());
+  EXPECT_EQ(roll_day.contracts(0).position_quantity().units(), d("1").raw());
+  EXPECT_EQ(roll_day.contracts(1).position_quantity().units(), 0);
+  // 12 below 202 a lot of ten, less the fee of 2.
+  EXPECT_EQ(roll_day.equity().units(), d("99878").raw());
+  // 14 lost in rb2610, 4 gained in rb2701 to its last settlement of 114, and
+  // fees of 2 to open twice and 4 to close a position of an earlier day.
+  EXPECT_EQ(result.account().equity().units(), d("99892").raw());
+  EXPECT_EQ(result.settlements_size(), 7);
 }
 // An exchange settles a cash-settled contract on its last day at an average
 // with more places than its prices have: stock index futures trade in steps
@@ -688,8 +826,8 @@ TEST(DominantSeries, ResolutionFailsWhereItWouldHaveToGuess) {
         {{days[0], 100, 10}, {days[1], 102, 60}, {days[2], 110, 90}, {days[3], 111, 95}});
   // One month that traded is no series.
   EXPECT_THROW(series_of(directory.path, "rb", days[0], days[3]), std::invalid_argument);
-  // rb2610 does not trade on the day rb2701 takes over and trades again on
-  // the next: nothing to close on that day.
+  // rb2610 settles on the day rb2701 takes over and on the next, and trades
+  // on neither: what is held of it could not be closed.
   {
     data::Store created(directory.path, "historical-data", "task");
   }
@@ -698,14 +836,14 @@ TEST(DominantSeries, ResolutionFailsWhereItWouldHaveToGuess) {
                                 {days[1], 204, 100, test::DailyTrade{204, 204, 204, 204, 100}},
                                 {days[2], 200, 40, test::DailyTrade{200, 200, 200, 200, 100}},
                                 {days[3], 200, 40},
-                                {days[4], 198, 40, test::DailyTrade{198, 198, 198, 198, 100}}});
+                                {days[4], 198, 40}});
   month(directory.path, "2027-01", {{days[4], 112, 99}});
   try {
     (void)series_of(directory.path, "rb", days[0], days[4]);
-    FAIL() << "a month was left on a day it did not trade";
+    FAIL() << "a month was left that does not trade again";
   } catch (const std::invalid_argument& error) {
     EXPECT_EQ(std::string(error.what()),
-              "the outgoing month has no bars on the roll day: rb2610 on " + days[3]);
+              "the outgoing month has no bars from the roll day on: rb2610 from " + days[3]);
   }
   // hc2610 stops trading on the third day, on which hc2701 does not trade:
   // nothing to move to.

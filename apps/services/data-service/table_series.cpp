@@ -238,7 +238,7 @@ v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeries
       }
       DominantPlan plan;
       try {
-        plan = plan_dominant(facts, RollDay::may_have_expired);
+        plan = plan_dominant(facts, SeriesUse::read);
       } catch (const std::invalid_argument& error) {
         unreadable.emplace(index, error.what());
         continue;

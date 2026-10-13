@@ -3,7 +3,7 @@
 #include <set>
 #include <stdexcept>
 namespace asterion::data {
-DominantPlan plan_dominant(std::span<const DominantMonth> months, RollDay roll_day) {
+DominantPlan plan_dominant(std::span<const DominantMonth> months, SeriesUse use) {
   std::set<std::string> all;
   for (std::size_t i = 0; i < months.size(); ++i) {
     if (i && months[i].delivery_month <= months[i - 1].delivery_month)
@@ -27,7 +27,8 @@ DominantPlan plan_dominant(std::span<const DominantMonth> months, RollDay roll_d
       if (!months[m].settlement.contains(day) || interest == months[m].open_interest.end())
         continue;
       // Held past its last day, a month could not be left. The series may end in it.
-      if (roll_day == RollDay::must_settle && day == months[m].last_day && d + 1 < days.size()) {
+      if (use == SeriesUse::traded && day == months[m].settlement.rbegin()->first &&
+          d + 1 < days.size()) {
         ending = m;
         continue;
       }
@@ -61,9 +62,10 @@ DominantPlan plan_dominant(std::span<const DominantMonth> months, RollDay roll_d
     Decimal ratio = Decimal::parse("1");
     if (!plan.segments.empty()) {
       const auto& old = months[plan.segments.back().month];
-      if (roll_day == RollDay::must_settle && !old.settlement.contains(day))
-        throw std::invalid_argument("the outgoing month has no bars on the roll day: " + old.name +
-                                    " on " + day);
+      // What is held of it is closed on its next bar: it needs one.
+      if (use == SeriesUse::traded && old.last_bar < day)
+        throw std::invalid_argument(
+            "the outgoing month has no bars from the roll day on: " + old.name + " from " + day);
       if (!old.settlement.contains(previous) || !dominant.settlement.contains(previous))
         throw std::invalid_argument("the roll lacks both settlement prices on the previous day: " +
                                     old.name + " on " + day);

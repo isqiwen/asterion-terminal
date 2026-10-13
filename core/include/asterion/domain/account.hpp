@@ -88,6 +88,9 @@ public:
   void cancel(const std::string& id);
   bool fill(const Fill& report);
   void mark(const InstrumentId& instrument, Decimal price);
+  // Whether the account has a price of a contract, in contracts() order, from
+  // a mark or a settlement: an order needs one.
+  bool priced(std::size_t contract) const { return marks_.at(contract) != Decimal{}; }
   // Settles every contract at its price, ordered as contracts(). Only with no
   // outstanding orders; the caller owns the calendar.
   void settle(const std::vector<Decimal>& prices);

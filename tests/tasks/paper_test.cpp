@@ -421,7 +421,7 @@ void mixed_longs(PaperExecution& engine) {
   engine.advance();
   engine.submit(order("old.open", Side::buy, "2", "100"), Offset::open);
   engine.advance();
-  engine.settle_scheduled({d("105")}, false);
+  engine.settle_scheduled("2026-09-25", {d("105")});
   engine.advance();
   engine.submit(order("new.open", Side::buy, "1", "106"), Offset::open);
   engine.advance();
@@ -473,23 +473,24 @@ TEST(PaperExecution, DayEndSettlementRejectsWrongPositionAndPendingOrdersAtomica
   PaperExecution engine(d("1000"), {{{instrument(), costs()}, settlement_bars()}}, risk());
   engine.start();
   const auto empty = engine.snapshot();
-  EXPECT_THROW(engine.settle_scheduled({d("105")}, false), std::invalid_argument);
+  // The day's bars are still to come.
+  EXPECT_THROW(engine.settle_scheduled("2026-09-25", {d("105")}), std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), empty);
   engine.advance();
   engine.submit(order("open", Side::buy, "1", "100"), Offset::open);
   const auto pending = engine.snapshot();
   // The first bar is not the last of its day.
-  EXPECT_THROW(engine.settle_scheduled({d("105")}, false), std::invalid_argument);
+  EXPECT_THROW(engine.settle_scheduled("2026-09-25", {d("105")}), std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), pending);
   engine.advance();
   const auto filled = engine.snapshot();
   // No price to settle at. One off the price increment is taken: an exchange
   // settles a cash-settled contract's last day at an average.
-  EXPECT_THROW(engine.settle_scheduled({d("0")}, false), std::invalid_argument);
+  EXPECT_THROW(engine.settle_scheduled("2026-09-25", {d("0")}), std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), filled);
-  engine.settle_scheduled({d("105")}, false);
+  engine.settle_scheduled("2026-09-25", {d("105")});
   const auto settled = engine.snapshot();
-  EXPECT_THROW(engine.settle_scheduled({d("106")}, false), std::invalid_argument)
+  EXPECT_THROW(engine.settle_scheduled("2026-09-25", {d("106")}), std::invalid_argument)
       << "settled once per day";
   EXPECT_EQ(engine.snapshot(), settled);
   engine.advance();
@@ -497,8 +498,48 @@ TEST(PaperExecution, DayEndSettlementRejectsWrongPositionAndPendingOrdersAtomica
   for (int i = 0; i < 4; ++i)
     engine.advance();
   const auto finished = engine.snapshot();
-  EXPECT_THROW(engine.settle_scheduled({d("105")}, false), std::invalid_argument);
+  // Not a day whose bars are behind an earlier settlement.
+  EXPECT_THROW(engine.settle_scheduled("2026-09-24", {d("105")}), std::invalid_argument);
   EXPECT_EQ(engine.snapshot(), finished);
+}
+// A contract settles on days it has no bars on: before its first, between two
+// of its days, and after its last. A position held over such a day is marked
+// at the day's price like any other, and costs that change with the day
+// change without a bar to bring them.
+TEST(PaperExecution, ADayWithoutBarsIsSettledInItsPlace) {
+  // From the 26th a lot takes a margin of 150.
+  const std::vector<FuturesCostVersion> schedule{
+      {"2026-09-24", "test", costs()}, {"2026-09-26", "test", {d("150"), d("2"), d("3"), d("4")}}};
+  PaperExecution engine(d("1000"), {{{instrument(), costs()}, settlement_bars(), schedule}},
+                        risk());
+  engine.start();
+  engine.settle_scheduled("2026-09-24", {d("101")});
+  EXPECT_EQ(engine.snapshot().at("balance"), "1000");
+  engine.advance();
+  engine.submit(order("open", Side::buy, "1", "100"), Offset::open);
+  engine.advance();
+  // Bought at 99 for a fee of 2, and settled at 105: 6 a lot of ten.
+  engine.settle_scheduled("2026-09-25", {d("105")});
+  EXPECT_EQ(engine.snapshot().at("balance"), "1058");
+  EXPECT_EQ(engine.snapshot().at("margin"), "100");
+  // Nothing trades the next day and the contract settles at 103.
+  engine.settle_scheduled("2026-09-26", {d("103")});
+  EXPECT_EQ(engine.snapshot().at("balance"), "1038");
+  EXPECT_EQ(engine.snapshot().at("unrealized"), "0");
+  EXPECT_EQ(engine.snapshot().at("margin"), "150");
+  const auto held = engine.snapshot();
+  EXPECT_THROW(engine.settle_scheduled("2026-09-25", {d("104")}), std::invalid_argument)
+      << "days are settled in order";
+  EXPECT_THROW(engine.settle_scheduled("2026-09-28", {d("104")}), std::invalid_argument)
+      << "its bars are still to come";
+  EXPECT_EQ(engine.snapshot(), held);
+  for (int i = 0; i < 5; ++i)
+    engine.advance();
+  EXPECT_EQ(engine.snapshot().at("unrealized"), "60");
+  engine.settle_scheduled("2026-09-28", {d("108")});
+  EXPECT_EQ(engine.snapshot().at("balance"), "1088");
+  engine.settle_scheduled("2026-09-29", {d("110")});
+  EXPECT_EQ(engine.snapshot().at("balance"), "1108");
 }
 
 TEST(PaperExecution, ChildIdentityConflictCannotPartiallyReplaceMixedBucketOrders) {
@@ -828,7 +869,7 @@ TEST(BarDataset, RevisionRetainsExactCanonicalBytesAndExcludesProvenance) {
   std::vector<MarketBar> bars{test::flat("2026-09-25", 1790384400000000000LL, "100", "0"),
                               test::flat("2026-09-28", 1790643600000000000LL, "105", "7")};
   auto dataset = test::dataset(bars);
-  auto canonical = Json{{"version", 1},
+  auto canonical = Json{{"version", 2},
                         {"interval_minutes", dataset.interval_minutes()},
                         {"contract", protocol::decode_contract(dataset.contract())},
                         {"bars", Json::array()},

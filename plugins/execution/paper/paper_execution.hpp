@@ -50,12 +50,14 @@ public:
     Decimal quantity, limit_price;
   };
   void advance(const std::optional<Target>& target = {});
-  // One price per contract, ordered as account().contracts(); a contract that
-  // did not trade that day has none and must hold no position. A day-end
-  // settlement follows the last event of a trading day, before the next day's
-  // first event, once per day; the final one follows the last event of the
-  // replay. No outstanding orders.
-  void settle_scheduled(const std::vector<std::optional<Decimal>>& prices, bool final);
+  // One price per contract, ordered as account().contracts(); a contract
+  // that has no settlement price that day has none and must hold no position.
+  // Days are settled in order, each once: after every bar of the day and of
+  // the days before it, and before any bar of a later day. A day need have no
+  // bars at all: costs that change with it change all the same. No
+  // outstanding orders.
+  void settle_scheduled(const std::string& trading_day,
+                        const std::vector<std::optional<Decimal>>& prices);
   void cancel_open_orders();
   // Working orders of one contract only.
   void cancel_open_orders(const InstrumentId& instrument);
@@ -89,6 +91,8 @@ private:
     std::vector<Event> events;
   };
   void require_running() const;
+  // What every contract costs on a trading day, by its schedule.
+  std::vector<FuturesCosts> costs_on_day(const std::string& trading_day) const;
   FuturesAccount account_;
   std::shared_ptr<const RiskPort> risk_;
   std::shared_ptr<const Data> data_;

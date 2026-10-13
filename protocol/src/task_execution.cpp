@@ -1,5 +1,4 @@
 #include <asterion/protocol/task_execution.hpp>
-#include <algorithm>
 #include <stdexcept>
 namespace asterion::protocol {
 data::v1::BarDatasetRequest bar_dataset_selection(const data::v1::BarDataset& dataset) {
@@ -7,15 +6,9 @@ data::v1::BarDatasetRequest bar_dataset_selection(const data::v1::BarDataset& da
   *result.mutable_contract() = dataset.contract();
   *result.mutable_source_dataset_ids() = dataset.source_dataset_ids();
   *result.mutable_daily() = dataset.daily();
-  // Include reported boundary gaps too: they are part of the fixed evidence.
-  auto begin = dataset.days(0).trading_day();
-  auto end = dataset.days(dataset.days_size() - 1).trading_day();
-  for (const auto& day : dataset.uncovered_days()) {
-    begin = std::min(begin, day);
-    end = std::max(end, day);
-  }
-  result.set_begin_day(begin);
-  result.set_end_day(end);
+  // Its days are every day of the range it settled on, with bars or without.
+  result.set_begin_day(dataset.days(0).trading_day());
+  result.set_end_day(dataset.days(dataset.days_size() - 1).trading_day());
   return result;
 }
 task::v1::TaskExecution task_execution(const task::v1::Task& task,
