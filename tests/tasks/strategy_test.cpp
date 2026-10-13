@@ -62,6 +62,35 @@ TEST(Strategy, ATargetIsTheQuantityOnTheSideTheRuleTakesWhereItMayBeHeld) {
   EXPECT_EQ(targets(strategy(average, "short", "2"), closes),
             (Targets{{}, d("0"), d("-2"), d("0"), d("0")}));
 }
+TEST(Strategy, AveragesOverLongWindowsOfHighPricesStayInRange) {
+  // 500 and 1000 bars at 200000. Both averages are 200000; the long window's
+  // sum times the short one's length, which cross-multiplying them would
+  // need, is 100 billion and past what a price can be.
+  auto run = make_strategy(strategy({{"kind", "moving_average"}, {"fast", 500}, {"slow", 1000}}),
+                           instrument());
+  run->start();
+  std::int64_t time = 100;
+  for (int bar = 1; bar < 1000; ++bar)
+    ASSERT_FALSE(run->on_bar(test::flat("2026-09-25", time++, "200000", "1"))) << bar;
+  EXPECT_EQ(run->on_bar(test::flat("2026-09-25", time++, "200000", "1")), d("0"));
+  // 200000.02 is above 200000.01; then 199999.98 is below 199999.99.
+  EXPECT_EQ(run->on_bar(test::flat("2026-09-25", time++, "200010", "1")), d("1"));
+  EXPECT_EQ(run->on_bar(test::flat("2026-09-25", time++, "199980", "1")), d("-1"));
+}
+TEST(Strategy, AveragesAreComparedExactlyBelowZeroAndWithinOnePriceUnit) {
+  const auto rule = strategy({{"kind", "moving_average"}, {"fast", 2}, {"slow", 3}});
+  // -100.5 is below -100.33…; both are -100; -98.5 is above -99.33….
+  EXPECT_EQ(targets(rule, {"-100", "-100", "-101", "-99", "-98"}),
+            (Targets{{}, {}, d("-1"), d("0"), d("1")}));
+  // In the smallest unit a price has: 3.5 is above 3.33…; both are 3; 2.5 is below 3.
+  auto run = make_strategy(rule, {{"SHFE", "rb2610"}, "CNY", d("0.00000001"), d("1"), d("10")});
+  run->start();
+  Targets fine;
+  std::int64_t time = 100;
+  for (const auto* close : {"0.00000003", "0.00000003", "0.00000004", "0.00000002", "0.00000003"})
+    fine.push_back(run->on_bar(test::flat("2026-09-25", time++, close, "1")));
+  EXPECT_EQ(fine, (Targets{{}, {}, d("1"), d("0"), d("-1")}));
+}
 TEST(Strategy, BreakoutEntersBeyondTheEntryChannelAndLeavesAtTheExitChannel) {
   // Four bars form the channel. 18 and 19 close above it; 17 falls below the
   // low of the two bars before it and gives the long up; 15 breaks the low of

@@ -38,6 +38,53 @@ std::optional<Decimal> Strategy::on_bar(const MarketBar& bar) {
   return Decimal{};
 }
 namespace {
+// The mean of the latest closes over a fixed window, exact for every close a
+// Decimal holds. The sum of a long window leaves the range of a price long
+// before the mean does, and cross-multiplying two sums to compare their means
+// leaves it sooner still, so no sum is kept: each close is split by the
+// window into a quotient and a remainder, and those are summed apart.
+class WindowMean {
+public:
+  explicit WindowMean(std::size_t window) : window_(static_cast<std::int64_t>(window)) {}
+  void clear() {
+    closes_.clear();
+    quotients_ = remainders_ = 0;
+  }
+  bool full() const { return closes_.size() == static_cast<std::size_t>(window_); }
+  void push(Decimal close) {
+    if (full()) {
+      quotients_ -= closes_.front().raw() / window_;
+      remainders_ -= closes_.front().raw() % window_;
+      closes_.pop_front();
+    }
+    quotients_ += close.raw() / window_;
+    remainders_ += close.raw() % window_;
+    closes_.push_back(close);
+  }
+  // This mean against another's, both windows full. Nothing is rounded.
+  std::strong_ordering compare(const WindowMean& other) const {
+    const auto [whole, part] = parts();
+    const auto [other_whole, other_part] = other.parts();
+    if (whole != other_whole)
+      return whole <=> other_whole;
+    // part / window against other_part / other.window, without dividing.
+    return part * other.window_ <=> other_part * window_;
+  }
+
+private:
+  // The mean as whole + part / window with 0 <= part < window. A close below
+  // zero leaves a remainder below zero, which is carried into the whole.
+  std::pair<std::int64_t, std::int64_t> parts() const {
+    auto whole = quotients_ + remainders_ / window_, part = remainders_ % window_;
+    if (part < 0) {
+      part += window_;
+      --whole;
+    }
+    return {whole, part};
+  }
+  std::int64_t window_, quotients_ = 0, remainders_ = 0;
+  std::deque<Decimal> closes_;
+};
 class MovingAverageCross final : public Strategy {
 public:
   MovingAverageCross(Instrument instrument, Decimal quantity, PositionSides sides, std::size_t fast,
@@ -46,37 +93,18 @@ public:
 
 private:
   void reset() override {
-    fast_values_.clear();
-    slow_values_.clear();
-    fast_sum_ = {};
-    slow_sum_ = {};
+    fast_.clear();
+    slow_.clear();
   }
   std::optional<int> decide(const MarketBar& bar) override {
-    // Calculate checked sums before changing state; an overflow rejects the event.
-    auto fast_sum = fast_sum_ + bar.close;
-    auto slow_sum = slow_sum_ + bar.close;
-    if (fast_values_.size() == fast_)
-      fast_sum = fast_sum - fast_values_.front();
-    if (slow_values_.size() == slow_)
-      slow_sum = slow_sum - slow_values_.front();
-    // Cross multiplication avoids rounding a mean before comparing them.
-    const auto fast_side = fast_sum * Decimal::parse(std::to_string(slow_));
-    const auto slow_side = slow_sum * Decimal::parse(std::to_string(fast_));
-    fast_values_.push_back(bar.close);
-    slow_values_.push_back(bar.close);
-    if (fast_values_.size() > fast_)
-      fast_values_.pop_front();
-    if (slow_values_.size() > slow_)
-      slow_values_.pop_front();
-    fast_sum_ = fast_sum;
-    slow_sum_ = slow_sum;
-    if (slow_values_.size() < slow_)
+    fast_.push(bar.close);
+    slow_.push(bar.close);
+    if (!slow_.full())
       return std::nullopt;
-    return fast_side > slow_side ? 1 : fast_side < slow_side ? -1 : 0;
+    const auto side = fast_.compare(slow_);
+    return side > 0 ? 1 : side < 0 ? -1 : 0;
   }
-  std::size_t fast_, slow_;
-  Decimal fast_sum_, slow_sum_;
-  std::deque<Decimal> fast_values_, slow_values_;
+  WindowMean fast_, slow_;
 };
 class ChannelBreakout final : public Strategy {
 public:
