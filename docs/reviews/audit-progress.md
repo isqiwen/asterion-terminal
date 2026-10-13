@@ -6087,3 +6087,40 @@ Tick 图已经把来源（`stream_id`、`generation`）放进了读模型和组�
 - `asterion_node_supervision_tests` 的容量与派发用例 4/4；
   `ctest -R 'Node|node_|ssh_|remote_|desktop|trading_process|task_process|TaskProcess|Deployment'`
   51/51。
+
+## 2026-10-13（R6–R7 整组验证）
+
+对 `fda40c3`（R6、R7 两个提交之后，评估的七项都已处理）做的一次完整验证。Ubuntu 26.04.1，GCC 15.2。
+
+- `ctest` Debug 601/601（328.6 秒）、Release 601/601（298.3 秒），比 R1–R5 时多 R7 的 1 个。依赖
+  服务包的两个用例（`ssh_bootstrap`、`remote_resources`）在新服务包生成之后各又跑了一次，通过。
+- 服务源码指纹 `8d427f7fd91550ad14d102ae35b82754e88b406bb2de6a6c009bfe7ffe5876e6`（R7 改了
+  `apps/services/node-agent`；R6 只改 Terminal，不影响指纹）；服务包
+  `asterion-services-linux-x86_64.zip` 重建，SHA-256 为
+  `693a38d997ca7c890f4e337c26a50b3f474f5bdfa678bf3fbdb83a8cfc61a6a6`。
+- `pnpm test:unit` 41/41（15 个文件，R6 新增 1 个）；类型检查、lint、两项格式检查通过。
+- 端到端：先单独跑了受准入规则和设置页影响的 10 个文件（实盘、交易流程与恢复、政策、两个部署、
+  CTP 账户、设置窗口、直接启动、回测流程），20/20；最后全量、不与别的任务同时跑：87/87（15.5 分钟）。
+  测试节点声明 10 CPU / 16 GiB，行情、Data、Task 加保留的一个 worker 之后还放得下用例打开的交易
+  账户，没有用例因为新的准入规则改变结果。
+- `pnpm test:desktop`、`pnpm desktop:check`、`pnpm desktop:build` 通过；安装包
+  `Asterion-Terminal-0.1.0-linux-amd64.deb` 的 SHA-256 为
+  `7063d67dbd6829c02135b4d36acc4a2d2d3190b4f580d345037f70adf46fb1a0`。
+- 全量端到端和三项桌面检查在无头合成器上运行。
+
+### 评估七项的处理结果
+
+| 编号 | 提交 | 结果 |
+| --- | --- | --- |
+| R1 | `db257e8` | 撤销授权穿过界面、Native 和连接三层到达账户服务 |
+| R2 | `2a710b6` | 一次读取一次发布；交易日志引擎 v29 |
+| R3 | `39aa244` | 看到行情服务重启即结束运行 |
+| R4 | `e74173b` | 均线比较不再有超出范围的中间量 |
+| R5 | `d0b2cf0` | 分时序列带行情服务身份，界面按身份清空和拒绝 |
+| R6 | `6e23659` | 经 SSH 更换节点身份，业务状态保留 |
+| R7 | `fda40c3` | 任务服务的预留含一个 worker 额度 |
+
+评估报告“整改顺序”的第 4、5 步（仿真柜台上的完整策略验收；双平台交付、远程节点和真实故障验证）
+需要柜台账户和硬件，没有做。各项自己没有验证的部分记在各节的“未验证”里，其中最需要补的是：
+R6 在真实主机上停止和启动服务管理器的那一段（CI 的 remote-linux 任务会跑到它）、R2/R3 在仿真
+柜台和真实行情服务上的表现。
