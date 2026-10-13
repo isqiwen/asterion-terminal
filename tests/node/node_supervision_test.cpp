@@ -390,6 +390,40 @@ TEST_F(NodeSupervision, ServiceWaitsForResourcesWithoutSpendingRestartsAndStarts
   EXPECT_EQ(state(queued).at("endpoint"), address);
 }
 
+// A task service can only queue without a worker, so one worker's worth of the
+// node is kept with it: other services wait rather than take it.
+TEST_F(NodeSupervision, OtherServicesLeaveATaskServiceTheWorkerItNeeds) {
+  deploy_fixture(true, "observed");
+  const auto task = state().at("resource_request");
+  unsigned markets = 0;
+  std::string queued;
+  for (;; ++markets) {
+    ASSERT_LT(markets, 32U) << "the node admitted every service";
+    queued = "market-" + std::to_string(markets);
+    deploy_fixture(false, queued);
+    if (state(queued).at("state") == "waiting_capacity")
+      break;
+  }
+  ASSERT_GT(markets, 0U);
+  // What is committed counts that worker though none runs.
+  const auto market = state("market-0").at("resource_request");
+  const auto committed = health().at("resource_budget").at("committed");
+  const Json worker{{"cpu_slots", 1}, {"memory_mib", 1024}, {"io_slots", 1}};
+  for (const auto* field : {"cpu_slots", "memory_mib", "io_slots"})
+    EXPECT_EQ(committed.at(field).get<unsigned>(), task.at(field).get<unsigned>() +
+                                                       markets * market.at(field).get<unsigned>() +
+                                                       worker.at(field).get<unsigned>())
+        << field;
+  EXPECT_EQ(capacity().at("owned"), 0);
+  // And the Agent goes on offering it to the task service.
+  auto listener = attach(true, false, "observed");
+  auto offer = listener->accept(5s);
+  task::v1::TaskRequest request;
+  ASSERT_TRUE(request.ParseFromString(offer.receive(1s)));
+  ASSERT_TRUE(request.has_dispatch());
+  EXPECT_GE(request.dispatch().launch_slots(), 1U);
+}
+
 TEST_F(NodeSupervision, DataInstanceRunsIndependentlyAndKeepsItsBindingOnRestart) {
   client
       ->deploy({.service = "data-one",

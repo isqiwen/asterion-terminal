@@ -325,10 +325,9 @@ class Agent {
     return result;
   }
   PolledTask<void> start(const std::string& name, Service& s, bool automatic = false) {
-    const auto extra = s.process || s.retiring_pid || s.starting
-                           ? Resources{}
-                           : resource_budget_->service(s.configuration.kind);
-    if (!resource_budget_->fits(resource_usage(), extra)) {
+    const bool held = s.process || s.retiring_pid || s.starting;
+    const auto extra = held ? Resources{} : resource_budget_->service(s.configuration.kind);
+    if (!resource_budget_->fits(committed(held ? nullptr : &s), extra)) {
       s.waiting_capacity = true;
       s.error = "Node resource capacity is full; service is waiting";
       s.retry = std::chrono::steady_clock::now() + 1s;
@@ -535,11 +534,31 @@ class Agent {
     used += ResourceBudget::workers(owned_workers() + worker_reservations_);
     return used;
   }
+  // A task service's reservation includes one worker: without one it can only
+  // queue. These units are the workers' alone. `starting` is a service about
+  // to take its reservation, counted as if it already had.
+  unsigned reserved_workers(const Service* starting = nullptr) const {
+    unsigned count = starting && starting->configuration.kind == wire::TASK_SERVICE ? 1 : 0;
+    for (const auto& [name, service] : services_)
+      if (service.configuration.kind == wire::TASK_SERVICE &&
+          (service.process || service.retiring_pid || service.starting))
+        ++count;
+    return count;
+  }
+  // What a service asking to start finds taken: the services, and the workers
+  // that run or the units kept for them, whichever is more. `settled` asks
+  // what would be taken once the workers running now had finished.
+  Resources committed(const Service* starting = nullptr, bool settled = false) const {
+    auto used = service_usage();
+    used += ResourceBudget::workers(
+        std::max(settled ? 0 : owned_workers() + worker_reservations_, reserved_workers(starting)));
+    return used;
+  }
   unsigned worker_allowance() const {
-    const auto services = service_usage();
     for (const auto& [name, service] : services_)
       if (service.configuration.desired && service.waiting_capacity &&
-          resource_budget_->fits(services, resource_budget_->service(service.configuration.kind)))
+          resource_budget_->fits(committed(&service, true),
+                                 resource_budget_->service(service.configuration.kind)))
         return 0; // Let existing workers finish so a queued service can acquire its reservation.
     const auto count = owned_workers() + worker_reservations_;
     return resource_budget_->worker_slots(resource_usage(), worker_limit - count);
@@ -928,7 +947,7 @@ class Agent {
     if (resource_budget_) {
       auto* budget = status->mutable_resource_budget();
       encode_resources(*budget->mutable_limit(), resource_budget_->limit);
-      encode_resources(*budget->mutable_committed(), resource_usage());
+      encode_resources(*budget->mutable_committed(), committed());
       budget->set_file_workers(resource_budget_->file_workers);
     }
     status->set_upgrade_protocol(1);
