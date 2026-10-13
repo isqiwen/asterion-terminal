@@ -512,6 +512,7 @@ protected:
     agent::save_service_configuration(root / "services/market", selected);
   }
   void TearDown() override { fs::remove_all(root); }
+  fs::path copy(const std::string& hash) const { return root / "artifacts" / (hash + ".bin"); }
   int prepare() {
     replace_file_durably(root / "programs.pb", manifest.SerializeAsString());
     // Only this child receives the development environment.
@@ -526,6 +527,9 @@ protected:
 };
 } // namespace
 TEST_F(DevelopmentPrograms, SynchronizesBeforeStartupAndPreservesIntentAndLedgers) {
+  // What an earlier start loaded the market service's plugins from.
+  fs::create_directories(root / "services/market/plugins/earlier");
+  write_file_durably(root / "services/market/plugins/earlier/plugin.so", "a copy");
   ASSERT_EQ(prepare(), 0);
   const auto market = agent::load_service_configuration(root / "services/market", true, 0);
   const auto trading = agent::load_service_configuration(root / "services/trading", true, 0);
@@ -541,10 +545,29 @@ TEST_F(DevelopmentPrograms, SynchronizesBeforeStartupAndPreservesIntentAndLedger
     EXPECT_EQ(sha256_file(fs::path(config.directory) / "retained"), sha256_bytes("business data"));
     EXPECT_EQ(config.port, 0);
   }
+  // The program of the build before runs in no service any more: its copy is
+  // gone, or every build would leave one. A plugin that was replaced stays,
+  // for a task submitted under it; the folder plugins were loaded from is a
+  // copy of artifacts and goes.
+  EXPECT_FALSE(fs::exists(copy(sha256_file(ASTERION_AGENT_PATH))));
+  EXPECT_TRUE(fs::exists(copy(sha256_file(PLUGIN_GOOD))));
+  EXPECT_FALSE(fs::exists(root / "services/market/plugins"));
   const auto modified = fs::last_write_time(root / "services/market/service.json");
   ASSERT_EQ(prepare(), 0);
   EXPECT_TRUE(fs::last_write_time(root / "services/market/service.json") == modified);
   EXPECT_FALSE(fs::exists(root / "agent.pid"));
+  // A start that changes nothing removes nothing.
+  for (const auto& hash :
+       {market.artifact, market.provider_artifact, market.catalog_artifact, trading.artifact})
+    EXPECT_TRUE(fs::exists(copy(hash))) << hash;
+}
+// A kind of service this node does not have is not staged: one deployed later
+// brings its own programs, and a copy nothing runs would stay behind.
+TEST_F(DevelopmentPrograms, StagesOnlyWhatAServiceHereRuns) {
+  fs::remove_all(root / "services/trading");
+  ASSERT_EQ(prepare(), 0);
+  EXPECT_TRUE(fs::exists(copy(sha256_file(ASTERION_MARKET_PATH))));
+  EXPECT_FALSE(fs::exists(copy(sha256_file(ASTERION_TRADE_PATH))));
 }
 TEST_F(DevelopmentPrograms, RejectsRunningAgentAndInvalidSelectionWithoutChangingConfiguration) {
   const auto before = sha256_file(root / "services/market/service.json");

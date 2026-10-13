@@ -90,4 +90,9 @@ fs::path PluginArtifacts::materialize(const std::string& name,
   sync_directory(folder);
   return folder;
 }
+void PluginArtifacts::discard(const std::string& name) const {
+  const auto parent = root_ / "services" / name / "plugins";
+  require_managed_path(parent);
+  fs::remove_all(parent);
+}
 } // namespace asterion::agent

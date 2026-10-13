@@ -15,6 +15,10 @@ public:
   std::string identity(const std::filesystem::path& library) const;
   std::filesystem::path materialize(const std::string& service,
                                     const std::vector<std::string>& artifacts) const;
+  // Removes every folder materialize made for a service: copies of the
+  // artifacts, made again where they are needed. Only while nothing of the
+  // service runs.
+  void discard(const std::string& service) const;
 
 private:
   std::filesystem::path binary(const std::string& hash) const;
