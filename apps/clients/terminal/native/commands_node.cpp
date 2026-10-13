@@ -259,6 +259,19 @@ void Application::Impl::register_node_commands() {
     nodes.insert_or_assign(id, std::move(node));
     co_return snapshot();
   });
+  command("node.identity.replace", [this](const json& p) -> PolledTask<Response> {
+    fields(p, {"id", "host", "ssh_port", "username", "key_source", "private_key", "known_hosts"});
+    auto [id, node] = (co_await manage<std::pair<std::string, std::shared_ptr<NodeClient>>>(
+        [&]() -> PolledTask<std::pair<std::string, std::shared_ptr<NodeClient>>> {
+          auto config = (co_await service_io.admin<NodeEndpoint>(
+              [&] { return replace_node_identity(service_io, p); }));
+          auto key = config.id;
+          auto client = co_await PollFuture{NodeClient::open(service_io, std::move(config))};
+          co_return std::pair{std::move(key), std::move(client)};
+        }));
+    nodes.insert_or_assign(id, std::move(node));
+    co_return snapshot();
+  });
   command("node.connect", [this](const json& p) -> PolledTask<Response> {
     fields(p, {"id"});
     auto [id, node] = (co_await manage<std::pair<std::string, std::shared_ptr<NodeClient>>>(

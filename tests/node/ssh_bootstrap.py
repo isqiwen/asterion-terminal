@@ -97,6 +97,71 @@ with tempfile.TemporaryDirectory(prefix='asterion-ssh-', ignore_cleanup_errors=T
         assert 'error' in call('node.bootstrap',dict(request,id='../../escape'))
         assert 'error' in call('node.bootstrap',dict(request,host='host; touch BAD'))
         assert not (remote/'BAD').exists()
+        # A new identity for the same node: every certificate is issued again
+        # and what the node runs is kept. The node below runs one service.
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1',0)); service_port=listener.getsockname()[1]
+        def services():
+            return call('runtime.snapshot',{})['result']['nodes'][0]['health']['services']
+        def running():
+            end=time.monotonic()+30
+            while time.monotonic()<end:
+                found=services()
+                if found and found[0]['state']=='running': return found[0]
+                time.sleep(0.2)
+            raise AssertionError('service did not run')
+        call('node.deploy',dict(kind='live',id='bootstrap-test',service='account-test',port=str(service_port)))
+        kept=running()
+        record=deployed/'state/services/account-test/service.json'
+        configuration=record.read_bytes()
+        local=('ca.crt','client.crt','client.key','trading-client.crt','trading-client.key','server.crt','server.key')
+        published=('ca.crt','server.crt','server.key')
+        old={name:(enrollment/name).read_bytes() for name in local}
+        def node_files(): return {name:(deployed/name).read_bytes() for name in published}
+        def agent(): return int((remote/'pid').read_text())
+        first_agent=agent()
+        replace={key:value for key,value in request.items() if key!='agent_port'}
+        assert 'error' in call('node.identity.replace',request), 'the Agent port is read from the enrollment'
+        assert 'error' in call('node.identity.replace',dict(replace,id='never-enrolled'))
+        assert 'error' in call('node.identity.replace',dict(replace,host='127.0.0.1'))
+        assert not (enrollment/'next').exists(), 'a refused request issued an identity'
+        # Another installation under this name keeps its identity and is not stopped.
+        installed=(deployed/'install.json').read_bytes()
+        (deployed/'install.json').write_bytes(installed+b' ')
+        assert 'error' in call('node.identity.replace',replace)
+        (deployed/'install.json').write_bytes(installed)
+        assert agent()==first_agent and node_files()=={name:old[name] for name in published}
+        assert call('node.connect',{'id':'bootstrap-test'})['result']['nodes'][0]['state']=='online'
+        # The session is lost after the node took the new identity: this machine
+        # still holds the old one, which no longer opens the node.
+        (remote/'lose_reply').touch()
+        assert 'error' in call('node.identity.replace',replace)
+        (remote/'lose_reply').unlink()
+        second_agent=agent()
+        assert second_agent!=first_agent
+        renewed=node_files()
+        assert all(renewed[name]!=old[name] for name in published)
+        assert (enrollment/'next/ca.crt').read_bytes()==renewed['ca.crt']
+        assert {name:(enrollment/name).read_bytes() for name in local}==old
+        assert 'error' in call('node.connect',{'id':'bootstrap-test'})
+        # Doing it again finishes with that same identity and does not stop the node again.
+        result=call('node.identity.replace',replace)
+        assert result['result']['nodes'][0]['state']=='online',result
+        assert agent()==second_agent and node_files()==renewed
+        assert not (enrollment/'next').exists() and not (enrollment/'next.draft').exists()
+        assert all((enrollment/name).read_bytes()!=old[name] for name in local)
+        assert (enrollment/'ca.crt').read_bytes()==renewed['ca.crt']
+        assert not (enrollment/'ca.key').exists()
+        assert not list(deployed.glob('.asterion-identity-*')) and not list(remote.glob('.asterion-install-*'))
+        restored=running()
+        assert {key:restored[key] for key in ('id','kind','revision','artifact','port')}=={key:kept[key] for key in ('id','kind','revision','artifact','port')}
+        assert record.read_bytes()==configuration, 'the service configuration was rewritten'
+        assert call('node.connect',{'id':'bootstrap-test'})['result']['nodes'][0]['state']=='online'
+        # Without an interruption one request does all of it.
+        result=call('node.identity.replace',replace)
+        assert result['result']['nodes'][0]['state']=='online',result
+        assert agent()!=second_agent and node_files()['ca.crt']==(enrollment/'ca.crt').read_bytes()!=renewed['ca.crt']
+        assert running()['revision']==kept['revision']
         for name in (remote/'identity-paths').read_text().splitlines():
             assert not Path(name).exists(), 'temporary SSH key survived operation'
         for file in enrollment.rglob('*'):
@@ -107,4 +172,4 @@ with tempfile.TemporaryDirectory(prefix='asterion-ssh-', ignore_cleanup_errors=T
         host.kill(); host.communicate(timeout=10)
         if (remote/'pid').exists():
             os.kill(int((remote/'pid').read_text()),signal.SIGTERM); time.sleep(2)
-print('SSH orchestration, strict option contract, failed-install retry, immutable identity, real mTLS enrollment and injection rejection verified; remote system installer is simulated')
+print('SSH orchestration, strict option contract, failed-install retry, immutable identity, real mTLS enrollment, identity replacement with its interrupted retry, and injection rejection verified; remote system installer is simulated')

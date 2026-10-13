@@ -140,6 +140,17 @@ def main():
             terminal = launch()
             call('node.connect', dict(id=identity))
             wait(service_running)
+            if linux:
+                # A new identity through the real account and the real unit: the
+                # Agent that account ended is started again by the helper's fixed
+                # entry, and the service it ran comes back.
+                def agent_pid():
+                    return run(['systemctl', 'show', label, '--property=MainPID', '--value'], capture_output=True, text=True).stdout.strip()
+                previous_agent = agent_pid()
+                replaced = call('node.identity.replace', dict(id=identity, host='127.0.0.1', ssh_port=str(ssh_port), username='asterion', key_source='managed', private_key='', known_hosts=str(known)))
+                assert replaced['nodes'][0]['state'] == 'online'
+                assert agent_pid() not in ('0', previous_agent), 'the Agent was not restarted on its new identity'
+                wait(service_running)
             old_pid = health()['health']['services'][0]['pid']
             run(service_command('restart'))
             wait(lambda: service_running() and health()['health']['services'][0]['pid'] != old_pid)
@@ -150,7 +161,7 @@ def main():
             call('node.disconnect', dict(id=identity))
             call('node.connect', dict(id=identity))
             assert health()['health']['services'][0]['state'] == 'stopped'
-            print('PASS: real SSH/SFTP install, native service, mTLS, deployment, Terminal exit, Agent restart and durable stop')
+            print('PASS: real SSH/SFTP install, native service, mTLS, deployment, Terminal exit, identity replacement on Linux, Agent restart and durable stop')
         finally:
             if terminal is not None and terminal.poll() is None:
                 terminal.kill(); terminal.communicate(timeout=15)

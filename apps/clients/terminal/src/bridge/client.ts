@@ -342,6 +342,7 @@ export type TerminalCommand =
   | "live.close"
   | "node.bootstrap"
   | "node.connect"
+  | "node.identity.replace"
   | "node.local"
   | "node.disconnect"
   | "node.deploy"

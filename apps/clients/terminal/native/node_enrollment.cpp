@@ -219,6 +219,88 @@ struct Ssh {
           "SSH upload failed; check authentication, host identity and target directory permission");
   }
 };
+// What the dedicated unprivileged SSH account runs before it touches a node's
+// directory: the directory and every file must be private, owned and regular,
+// and a file is published by exclusive link or verified against what is there.
+constexpr std::string_view publication = R"PY(import hashlib
+import os
+from pathlib import Path
+import stat
+import sys
+import tempfile
+
+stage, root = Path(sys.argv[1]).absolute(), Path(sys.argv[2])
+
+def sync_directory(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+def directory(path):
+    if path.is_symlink():
+        raise ValueError('Installation directory cannot be a symlink')
+    if not path.exists():
+        directory(path.parent)
+        path.mkdir(mode=0o700)
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode):
+        raise ValueError('Installation path is not a directory')
+    if path == root.parent or root in path.parents or path == root:
+        if info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise ValueError('Installation directory must be private to this user')
+    sync_directory(path)
+    sync_directory(path.parent)
+
+def open_owned(path):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    source = os.fdopen(fd, 'rb')
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_nlink != 1:
+        source.close()
+        raise ValueError('Installation file must be an owned regular file')
+    return source
+
+def verify(path, digest, mode):
+    with open_owned(path) as source:
+        if stat.S_IMODE(os.fstat(source.fileno()).st_mode) != mode or hashlib.file_digest(source, 'sha256').hexdigest() != digest:
+            raise ValueError('Existing installation differs; original files preserved')
+        os.fsync(source.fileno())
+    sync_directory(path.parent)
+
+def publish(source_path, target, mode, expected=None):
+    with open_owned(source_path) as source:
+        digest = hashlib.file_digest(source, 'sha256').hexdigest()
+        if expected is not None and digest != expected:
+            raise ValueError('Uploaded Agent integrity check failed')
+        try:
+            verify(target, digest, mode)
+        except FileNotFoundError:
+            pass
+        else:
+            return
+        source.seek(0)
+        fd, temporary = tempfile.mkstemp(prefix='.asterion-publish-', dir=target.parent)
+        try:
+            with os.fdopen(fd, 'wb') as output:
+                os.fchmod(output.fileno(), mode)
+                copied = hashlib.sha256()
+                while block := source.read(1024 * 1024):
+                    output.write(block)
+                    copied.update(block)
+                if copied.hexdigest() != digest:
+                    raise ValueError('Uploaded file changed during publication')
+                output.flush()
+                os.fsync(output.fileno())
+            try:
+                os.link(temporary, target, follow_symlinks=False)
+            except FileExistsError:
+                verify(target, digest, mode)
+        finally:
+            os.unlink(temporary)
+        sync_directory(target.parent)
+)PY";
 unsigned short port(const Json& p, const char* key) {
   const auto value = p.at(key).get<std::string>();
   if (!std::regex_match(value, std::regex("[0-9]{1,5}")))
@@ -455,9 +537,9 @@ Json change_node_firewall(const Json& p, const Json& plan) {
   }
   return completed;
 }
-NodeEndpoint enrolled_node(const std::string& id) {
-  valid_id(id);
-  const auto root = node_enrollment_directory() / id;
+namespace {
+// The record of a node this machine enrolled.
+Json enrollment(const fs::path& root, const std::string& id) {
   const auto file = root / "enrollment.json";
   if (fs::is_symlink(root) || fs::is_symlink(file) || !fs::is_regular_file(file) ||
       fs::file_size(file) > 65536)
@@ -466,7 +548,21 @@ NodeEndpoint enrolled_node(const std::string& id) {
   Json j = Json::parse(in);
   if (j.at("version") != 1 || j.at("id") != id || j.at("os") != "linux")
     throw std::invalid_argument("invalid enrollment");
-  return endpoint(root, j);
+  return j;
+}
+// The host is the Linux this build deploys to, reached as the dedicated
+// account, with the initializer's current helper.
+bool initialized_host(Ssh& ssh) {
+  return ssh.command(
+      "test \"$(uname -s)\" = Linux && test \"$(uname -m)\" = " + quote("x86_64") +
+      " && test \"$(id -un)\" = asterion && test \"$(sudo -n /usr/local/sbin/asterion-host "
+      "--manage check)\" = asterion-host-v2");
+}
+} // namespace
+NodeEndpoint enrolled_node(const std::string& id) {
+  valid_id(id);
+  const auto root = node_enrollment_directory() / id;
+  return endpoint(root, enrollment(root, id));
 }
 NodeEndpoint enroll_node(ServiceIo& io, const Json& p) {
   const auto id = p.at("id").get<std::string>();
@@ -486,11 +582,7 @@ NodeEndpoint enroll_node(ServiceIo& io, const Json& p) {
   const HostPlatform platform{"linux", detected.at("arch").get<std::string>()};
   const auto binary = bundled_linux_program(platform.arch, "asterion-node-agent");
   const auto digest = sha256_file(binary);
-  const auto probe =
-      "test \"$(uname -s)\" = Linux && test \"$(uname -m)\" = " + quote("x86_64") +
-      " && test \"$(id -un)\" = asterion && test \"$(sudo -n /usr/local/sbin/asterion-host "
-      "--manage check)\" = asterion-host-v2";
-  if (!ssh.command(probe))
+  if (!initialized_host(ssh))
     throw std::runtime_error("SSH verification failed; check host identity, authentication, Linux "
                              "platform and host initialization");
   const auto base = node_enrollment_directory();
@@ -533,84 +625,8 @@ NodeEndpoint enroll_node(ServiceIo& io, const Json& p) {
       "\n/usr/bin/python3 - \"$stage\" \"$root\" " + quote(digest) + " <<'ASTERION_PUBLISH'\n";
   // This runs as the dedicated unprivileged SSH account. Only after every
   // immutable prerequisite and install record is durable may sudo enable a unit.
-  script += R"PY(import hashlib
-import os
-from pathlib import Path
-import stat
-import sys
-import tempfile
-
-stage, root, expected_agent = Path(sys.argv[1]).absolute(), Path(sys.argv[2]), sys.argv[3]
-
-def sync_directory(path):
-    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-
-def directory(path):
-    if path.is_symlink():
-        raise ValueError('Installation directory cannot be a symlink')
-    if not path.exists():
-        directory(path.parent)
-        path.mkdir(mode=0o700)
-    info = path.lstat()
-    if not stat.S_ISDIR(info.st_mode):
-        raise ValueError('Installation path is not a directory')
-    if path == root.parent or root in path.parents or path == root:
-        if info.st_uid != os.geteuid() or info.st_mode & 0o077:
-            raise ValueError('Installation directory must be private to this user')
-    sync_directory(path)
-    sync_directory(path.parent)
-
-def open_owned(path):
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
-    source = os.fdopen(fd, 'rb')
-    info = os.fstat(fd)
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_nlink != 1:
-        source.close()
-        raise ValueError('Installation file must be an owned regular file')
-    return source
-
-def verify(path, digest, mode):
-    with open_owned(path) as source:
-        if stat.S_IMODE(os.fstat(source.fileno()).st_mode) != mode or hashlib.file_digest(source, 'sha256').hexdigest() != digest:
-            raise ValueError('Existing installation differs; original files preserved')
-        os.fsync(source.fileno())
-    sync_directory(path.parent)
-
-def publish(source_path, target, mode, expected=None):
-    with open_owned(source_path) as source:
-        digest = hashlib.file_digest(source, 'sha256').hexdigest()
-        if expected is not None and digest != expected:
-            raise ValueError('Uploaded Agent integrity check failed')
-        try:
-            verify(target, digest, mode)
-        except FileNotFoundError:
-            pass
-        else:
-            return
-        source.seek(0)
-        fd, temporary = tempfile.mkstemp(prefix='.asterion-publish-', dir=target.parent)
-        try:
-            with os.fdopen(fd, 'wb') as output:
-                os.fchmod(output.fileno(), mode)
-                copied = hashlib.sha256()
-                while block := source.read(1024 * 1024):
-                    output.write(block)
-                    copied.update(block)
-                if copied.hexdigest() != digest:
-                    raise ValueError('Uploaded file changed during publication')
-                output.flush()
-                os.fsync(output.fileno())
-            try:
-                os.link(temporary, target, follow_symlinks=False)
-            except FileExistsError:
-                verify(target, digest, mode)
-        finally:
-            os.unlink(temporary)
-        sync_directory(target.parent)
+  script += publication;
+  script += R"PY(
 
 directory(root)
 # Reject another installation before publishing any prerequisite.
@@ -618,7 +634,7 @@ if (root / 'install.json').exists() or (root / 'install.json').is_symlink():
     with open_owned(stage / 'install.json') as source:
         verify(root / 'install.json', hashlib.file_digest(source, 'sha256').hexdigest(), 0o600)
 directory(root / 'state')
-publish(stage / 'agent', root / 'asterion-node-agent', 0o700, expected_agent)
+publish(stage / 'agent', root / 'asterion-node-agent', 0o700, sys.argv[3])
 for name in ('ca.crt', 'server.crt', 'server.key'):
     publish(stage / name, root / name, 0o600)
 publish(stage / 'install.json', root / 'install.json', 0o600)
@@ -661,5 +677,144 @@ publish(stage / 'install.json', root / 'install.json', 0o600)
       std::this_thread::sleep_for(500ms);
     }
   }
+}
+// Gives an enrolled node a new mTLS identity over SSH and leaves everything
+// else it has as it is. The CA key is never kept, so no certificate of the old
+// set can be extended: every role is issued again. The node's three files are
+// replaced, its Agent is ended by the account it runs as and started again by
+// the fixed unit, and then this machine's files follow. From the moment the
+// new set exists it waits in `next` until both sides use it; running this
+// again finishes whatever an interruption left, with that same set.
+NodeEndpoint replace_node_identity(ServiceIo& io, const Json& p) {
+  const auto id = p.at("id").get<std::string>();
+  valid_id(id);
+  (void)port(p, "ssh_port");
+  SshIdentity identity(selected_ssh_key(p));
+  Ssh ssh(p, identity.file());
+  if (ssh.user != "asterion")
+    throw std::invalid_argument("Linux nodes use the asterion account created by the initializer");
+  const auto base = node_enrollment_directory();
+  if (fs::is_symlink(base) || !fs::is_directory(base))
+    throw std::invalid_argument("node SSH identity is not configured");
+  FileLock lock(base, "enrollment.lock");
+  const auto root = base / id;
+  const auto config = enrollment(root, id);
+  if (config.at("host") != ssh.host)
+    throw std::invalid_argument(
+        "node name is used by another installation; its identity and services are not replaced");
+  const auto next = root / "next";
+  if (fs::is_symlink(next))
+    throw std::invalid_argument("invalid enrollment path");
+  const auto answers = [&](const fs::path& directory) {
+    try {
+      (void)NodeClient::open(io, endpoint(directory, config)).get()->status().get();
+      return true;
+    } catch (const std::exception&) {
+      return false;
+    }
+  };
+  // An interruption after the node took the new set leaves only this
+  // machine's half: the node is not stopped a second time.
+  if (!fs::exists(next) || !answers(next)) {
+    if (!initialized_host(ssh))
+      throw std::runtime_error("SSH verification failed; check host identity, authentication, "
+                               "Linux platform and host initialization");
+    if (!fs::exists(next)) {
+      // Whole or absent: the set is issued aside and renamed into place.
+      const auto draft = root / "next.draft";
+      fs::remove_all(draft);
+      create_directories_durably(draft);
+      fs::permissions(draft, fs::perms::owner_all);
+      create_node_identity(draft, ssh.host);
+      fs::rename(draft, next);
+      sync_directory(root);
+    }
+    const auto stage = ".asterion-install-" + unique_process_id();
+    if (!ssh.command("umask 077; mkdir " + quote(stage)))
+      throw std::runtime_error("cannot create private SSH installation staging directory");
+    const auto bind = ssh.host.find(':') == std::string::npos ? "0.0.0.0" : "::";
+    std::string script = "#!/bin/sh\nset -eu\numask 077\nstage=" + quote(stage) +
+                         "\nroot=" + quote("/var/lib/asterion/nodes/" + id) +
+                         "\nunit=" + quote("asterion-node-agent-" + id + ".service") +
+                         "\n/usr/bin/python3 - \"$stage\" \"$root\" <<'ASTERION_PUBLISH'\n";
+    script += publication;
+    script += R"PY(
+directory(root)
+# Only the installation this Terminal enrolled is given the identity.
+with open_owned(stage / 'install.json') as source:
+    verify(root / 'install.json', hashlib.file_digest(source, 'sha256').hexdigest(), 0o600)
+# Every new file is whole and durable beside the old one before any is replaced.
+staged = []
+try:
+    for name in ('ca.crt', 'server.crt', 'server.key'):
+        with open_owned(stage / name) as source:
+            fd, temporary = tempfile.mkstemp(prefix='.asterion-identity-', dir=root)
+            staged.append((temporary, root / name))
+            with os.fdopen(fd, 'wb') as output:
+                os.fchmod(output.fileno(), 0o600)
+                output.write(source.read())
+                output.flush()
+                os.fsync(output.fileno())
+    while staged:
+        os.replace(*staged[0])
+        staged.pop(0)
+finally:
+    for temporary, _ in staged:
+        os.unlink(temporary)
+sync_directory(root)
+)PY";
+    script += "ASTERION_PUBLISH\n";
+    // The Agent reads its identity when it starts. Ending it stops the node's
+    // services with it; whatever started it again, it starts on the new files.
+    script += "pid=$(/usr/bin/systemctl show --property MainPID --value \"$unit\")\n"
+              "if test \"$pid\" != 0; then\n"
+              "  kill -TERM \"$pid\"\n"
+              "  waited=0\n"
+              "  while kill -0 \"$pid\" 2>/dev/null; do\n"
+              "    test \"$waited\" -lt 120\n"
+              "    sleep 1\n"
+              "    waited=$((waited + 1))\n"
+              "  done\n"
+              "fi\n";
+    script += "sudo -n /usr/local/sbin/asterion-host --manage install " + quote(id) + " " +
+              std::to_string(config.at("port").get<unsigned short>()) + " " + quote(bind) + "\n";
+    write(next / "install.json", config.dump());
+    write(next / "replace", script);
+    std::string batch;
+    for (const auto* file : {"ca.crt", "server.crt", "server.key", "install.json", "replace"})
+      batch +=
+          "put " + batch_quote(utf8(next / file)) + " " + batch_quote(stage + "/" + file) + "\n";
+    write(next / "upload.batch", batch);
+    try {
+      ssh.upload(next / "upload.batch");
+      if (!ssh.command("sh " + quote(stage + "/replace"), 180s))
+        throw std::runtime_error(
+            "node identity replacement did not complete and services on the node may be "
+            "stopped; replace the identity again to continue");
+    } catch (...) {
+      ssh.command("rm -rf -- " + quote(stage));
+      throw;
+    }
+    ssh.command("rm -rf -- " + quote(stage));
+    const auto deadline = std::chrono::steady_clock::now() + 30s;
+    while (!answers(next)) {
+      if (std::chrono::steady_clock::now() >= deadline)
+        throw std::runtime_error(
+            "the node has its new identity but its Agent does not answer with it; check the "
+            "management port firewall, then replace the identity again to finish");
+      std::this_thread::sleep_for(500ms);
+    }
+  }
+  for (const auto* file : {"ca.crt", "client.crt", "client.key", "trading-client.crt",
+                           "trading-client.key", "server.crt", "server.key"}) {
+    std::ifstream input(next / file, std::ios::binary);
+    const std::string content{std::istreambuf_iterator<char>(input), {}};
+    if (content.empty())
+      throw std::runtime_error("cannot read the new node identity");
+    write(root / file, content);
+  }
+  fs::remove_all(next);
+  sync_directory(root);
+  return endpoint(root, config);
 }
 } // namespace asterion::terminal

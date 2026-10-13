@@ -13,6 +13,7 @@ import {
   type ServiceKind,
 } from "./service-state";
 import { RemoteMachine, loadMachineProfiles, type MachineProfile } from "./RemoteMachine";
+import { NodeIdentity } from "./NodeIdentity";
 import { ServiceActionDialog } from "./ServiceActionDialog";
 import { FirewallPreview } from "./FirewallPreview";
 import { AgentProgram } from "./AgentProgram";
@@ -38,6 +39,8 @@ export function NodeServices({
   const [view, setView] = useState<"overview" | "machines">("overview");
   const [selected, setSelected] = useState("local");
   const [wizard, setWizard] = useState<MachineProfile | "new" | null>(null);
+  // The machine whose identity is being replaced.
+  const [identity, setIdentity] = useState<MachineProfile | null>(null);
   const [error, setError] = useState<DisplayError>("");
   const [saved, setSaved] = useState<MachineProfile[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -70,6 +73,7 @@ export function NodeServices({
     setSelected(id);
     setView("machines");
     setWizard(null);
+    setIdentity(null);
     setDeploying(false);
   }
   function propose(action: Action, target: NodeStatus, service: Service) {
@@ -135,7 +139,7 @@ export function NodeServices({
       : [];
   return (
     <section className="deployment-center" aria-label={t("运行与部署")}>
-      {!wizard && (
+      {!wizard && !identity && (
         <>
           <div className="deployment-heading">
             <div>
@@ -179,7 +183,16 @@ export function NodeServices({
           <ErrorNotice error={error} namespace="host" />
         </p>
       )}
-      {wizard ? (
+      {identity ? (
+        <NodeIdentity
+          key={identity.id}
+          profile={identity}
+          busy={disabled}
+          run={run}
+          onCancel={() => setIdentity(null)}
+          onReplaced={() => manage(identity.id)}
+        />
+      ) : wizard ? (
         <RemoteMachine
           key={wizard === "new" ? "new" : wizard.id}
           snapshot={snapshot}
@@ -271,6 +284,15 @@ export function NodeServices({
                   >
                     {t("连接已安装节点")}
                   </button>
+                  <button
+                    disabled={disabled}
+                    onClick={() => {
+                      setError("");
+                      setIdentity(profile);
+                    }}
+                  >
+                    {t("更换身份")}
+                  </button>
                   <button disabled={disabled} onClick={() => setWizard(profile)}>
                     {t("继续配置")}
                   </button>
@@ -292,6 +314,20 @@ export function NodeServices({
                 >
                   {t("部署服务")}
                 </button>
+                {saved
+                  .filter(profile => profile.id === node.id)
+                  .map(profile => (
+                    <button
+                      key={profile.id}
+                      disabled={disabled}
+                      onClick={() => {
+                        setError("");
+                        setIdentity(profile);
+                      }}
+                    >
+                      {t("更换身份")}
+                    </button>
+                  ))}
               </div>
               {node.state !== "online" && (
                 <p role="alert">{t("节点失联，以下是最后确认的状态。不会自动切换或重发命令。")}</p>

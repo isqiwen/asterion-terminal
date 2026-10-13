@@ -7,9 +7,11 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
+import time
 from unittest.mock import patch
 root = Path(os.environ['ASTERION_SSH_FIXTURE'])
 args = sys.argv[1:]
@@ -56,6 +58,40 @@ elif command.startswith('umask 077; mkdir '):
     stage=shlex.split(command)[-1]
     assert re.fullmatch(r'\.asterion-install-[a-f0-9]{32}',stage)
     (root/stage).mkdir(mode=0o700)
+elif re.fullmatch(r"sh '\.asterion-install-[a-f0-9]{32}/replace'",command):
+    replace=root/shlex.split(command)[1]
+    stage=replace.parent; script=replace.read_text(); deployed=root/'deployed'
+    assert "<<'ASTERION_PUBLISH'\n" in script
+    # The account does everything itself except start the fixed unit.
+    assert script.count('sudo')==1 and 'sudo -n /usr/local/sbin/asterion-host --manage install' in script
+    assert 'systemctl show --property MainPID' in script and 'kill -TERM "$pid"' in script
+    # The shell around the body is not run here; it must at least be a script.
+    subprocess.run(['/bin/sh','-n',str(replace)],check=True)
+    if (root/'fail_replace').exists():
+        sys.exit(1)
+    # Execute the actual uploaded replacement body in the owned fixture path.
+    # The unit's main PID, the signal sent to it and its start remain simulated.
+    publication=script.split("<<'ASTERION_PUBLISH'\n",1)[1].split('\nASTERION_PUBLISH\n',1)[0]
+    argv=sys.argv; sys.argv=['identity-publication',str(stage),str(deployed)]
+    try:
+        exec(compile(publication,str(replace),'exec'), {'__name__':'__main__'})
+    except (OSError,ValueError):
+        sys.exit(1)
+    finally:
+        sys.argv=argv
+    assert not list(deployed.glob('.asterion-identity-*'))
+    previous=int((root/'pid').read_text())
+    os.kill(previous,signal.SIGTERM)
+    deadline=time.monotonic()+60
+    while Path(f'/proc/{previous}').exists() and 'zombie' not in Path(f'/proc/{previous}/status').read_text().lower():
+        assert time.monotonic()<deadline, 'Agent did not stop'
+        time.sleep(0.1)
+    port=int(re.search(r"--manage install '[^']+' (\d+)",script)[1])
+    process=subprocess.Popen([str(deployed/'asterion-node-agent'),'--bind','127.0.0.1','--port',str(port),'--directory',str(deployed/'state'),'--tls-ca',str(deployed/'ca.crt'),'--tls-cert',str(deployed/'server.crt'),'--tls-key',str(deployed/'server.key')],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+    (root/'pid').write_text(str(process.pid))
+    # The node has taken the identity, but the session ends before saying so.
+    if (root/'lose_reply').exists():
+        sys.exit(255)
 elif command.startswith('if test ') or command.startswith("sh '.asterion-install-"):
     install=root/re.search(r"'(\.asterion-install-[a-f0-9]{32}/install)'",command)[1]
     stage=install.parent

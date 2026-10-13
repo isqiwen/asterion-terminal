@@ -176,7 +176,7 @@ target_link_libraries(asterion_test_certificates PRIVATE OpenSSL::Crypto CLI11::
 add_test(NAME ssh_keys COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/ssh_keys.py $<TARGET_FILE:asterion_terminal_dev_bridge>)
 add_test(NAME host_initialization COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/host_initialization.py)
 add_test(NAME ssh_bootstrap COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/ssh_bootstrap.py $<TARGET_FILE:asterion_terminal_dev_bridge> $<TARGET_FILE:asterion-node-agent>)
-set_tests_properties(ssh_bootstrap PROPERTIES TIMEOUT 90)
+set_tests_properties(ssh_bootstrap PROPERTIES TIMEOUT 240)
 add_test(NAME node_deployment COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/node/node_deployment.py $<TARGET_FILE:asterion_terminal_dev_bridge> $<TARGET_FILE:asterion-node-agent> $<TARGET_FILE:asterion-trading> $<TARGET_FILE:asterion_test_certificates>)
 set_tests_properties(node_deployment PROPERTIES TIMEOUT 240 SKIP_RETURN_CODE 77)
 foreach(mode handshake frame overload)
