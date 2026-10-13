@@ -45,43 +45,44 @@ for (const state of ["update_available", "recovery_required"] as const) {
     await settings.getByRole("button", { name: "机器管理", exact: true }).click();
     await settings.getByText("服务管理器程序", { exact: true }).click();
     let inspected: Snapshot | undefined;
+    // What the test has the core say about the Agent program. The core keeps
+    // reporting what it found, so every snapshot from then on says the same:
+    // a poll may arrive at any moment, before or after a command's reply.
+    let program: Snapshot["agent_program"] | undefined;
     const calls: string[] = [];
     await settings.route("**/__asterion/api", async route => {
       const request = route.request().postDataJSON();
       calls.push(request.method);
+      if (request.method === "node.agent.upgrade") {
+        expect(request.params).toEqual({ expected_digest: "1".repeat(64) });
+        expect(inspected).toBeDefined();
+        program = {
+          state: "current",
+          expected_digest: "",
+          installed_digest: "2".repeat(64),
+          bundled_digest: "2".repeat(64),
+        };
+        return route.fulfill({ json: { result: { ...inspected, agent_program: program } } });
+      }
+      if (request.method !== "node.agent.inspect" && request.method !== "runtime.snapshot")
+        return route.continue();
+      const response = await route.fetch();
+      const data = (await response.json()) as { result?: Snapshot | { unchanged: true } };
+      if (!data.result || "unchanged" in data.result) return route.fulfill({ response });
       if (request.method === "node.agent.inspect") {
-        const response = await route.fetch();
-        const data = (await response.json()) as { result: Snapshot };
-        inspected = data.result;
-        expect(inspected.nodes[0].health?.services.some(service => service.desired_running)).toBe(
+        expect(data.result.nodes[0].health?.services.some(service => service.desired_running)).toBe(
           true,
         );
-        inspected.agent_program = {
+        program = {
           state,
           expected_digest: "1".repeat(64),
           installed_digest: "1".repeat(64),
           bundled_digest: "2".repeat(64),
         };
-        return route.fulfill({ response, json: { result: inspected } });
+        inspected = data.result;
       }
-      if (request.method === "node.agent.upgrade") {
-        expect(request.params).toEqual({ expected_digest: "1".repeat(64) });
-        expect(inspected).toBeDefined();
-        return route.fulfill({
-          json: {
-            result: {
-              ...inspected,
-              agent_program: {
-                state: "current",
-                expected_digest: "",
-                installed_digest: "2".repeat(64),
-                bundled_digest: "2".repeat(64),
-              },
-            },
-          },
-        });
-      }
-      return route.continue();
+      if (program) data.result.agent_program = program;
+      return route.fulfill({ response, json: data });
     });
     await settings.getByRole("button", { name: "检查程序更新", exact: true }).click();
     await expect(settings.getByText(/更新会等待服务安全停止/)).toBeVisible();
