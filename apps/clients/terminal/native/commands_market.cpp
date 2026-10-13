@@ -112,6 +112,15 @@ void Application::Impl::register_market_commands() {
       throw std::invalid_argument("select a market service first");
     const auto reader = market;
     auto intraday = (co_await PollFuture{reader->minutes(text(p, "venue"), text(p, "symbol"))});
+    // The series is that service's own observation. It is returned beside
+    // what is published now only while that service is still the selected
+    // one, and it says whose it is.
+    if (market != reader)
+      throw Error(ErrorCode::conflict, "market service selection changed during operation; inspect "
+                                       "the original service before retrying");
+    const auto source = reader->owner_read().header;
+    intraday["service"] = source.at("service");
+    intraday["instance_id"] = source.at("instance_id");
     auto result = read_published(json::object());
     result.values["intraday"] = std::move(intraday);
     co_return result;

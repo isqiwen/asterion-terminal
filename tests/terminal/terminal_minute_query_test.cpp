@@ -80,6 +80,15 @@ struct ApplicationTestAccess {
         })
         .get();
   }
+  static void select_market(Application& app, const ServiceEndpoint& endpoint) {
+    auto client = MarketClient::open(app.impl_->service_io, endpoint).get();
+    app.impl_->service_io
+        .submit<void>([&](std::stop_token) -> PolledTask<void> {
+          app.impl_->market = std::move(client);
+          co_return;
+        })
+        .get();
+  }
   static std::shared_ptr<NodeClient> connect_node(Application& app, NodeEndpoint endpoint) {
     return NodeClient::open(app.impl_->service_io, std::move(endpoint)).get();
   }
@@ -1489,6 +1498,106 @@ TEST(TerminalTaskPages, NativeCommandSelectsHistoryWithoutChangingServiceIdentit
   EXPECT_EQ(std::async(std::launch::async, held).get().at("task_service"), expected);
 }
 
+namespace {
+// A market service as the Terminal reads it: the state of one instance, and
+// the minute series of any contract, which it may hold back.
+struct QuoteService {
+  service::Transport address;
+  Progress progress;
+  const std::string instance;
+  std::mutex mutex;
+  std::condition_variable condition;
+  bool asked = false, held;
+  std::uint64_t sequence = 0;
+  service::RpcHost host;
+  std::jthread server;
+  QuoteService(const std::string& name, bool hold)
+      : address{"/tmp/ast-quotes-" + name + "-" + unique_process_id().substr(0, 12) + ".sock",
+                {},
+                0,
+                {}},
+        instance("instance-" + name), held(hold),
+        host(
+            address, [this](const auto&, std::string bytes) { return serve(bytes); }, {}, progress),
+        server([this] { (void)host.run(); }) {}
+  ~QuoteService() { service::request_stop(); }
+  terminal::ServiceEndpoint endpoint(const std::string& service) const {
+    return {"", service, 0, {}, address.endpoint};
+  }
+  bool wait() {
+    std::unique_lock lock(mutex);
+    return condition.wait_for(lock, testing_support::bound(2s), [&] { return asked; });
+  }
+  void release() {
+    std::lock_guard lock(mutex);
+    held = false;
+  }
+
+private:
+  service::RpcHost::Reply serve(const std::string& bytes) {
+    market::v1::Request request;
+    if (!request.ParseFromString(bytes))
+      throw std::runtime_error("invalid fixture market request");
+    market::v1::Response response;
+    response.set_version(1);
+    response.set_service_id(request.service_id());
+    response.set_correlation_id(request.correlation_id());
+    if (request.has_events())
+      return [] { return std::optional<service::RpcHost::Message>{}; };
+    if (request.has_minutes()) {
+      auto* series = response.mutable_minutes();
+      *series->mutable_instrument() = request.minutes().instrument();
+      series->set_trading_day("20261013");
+      series->set_first_observation_ms(1);
+      {
+        std::lock_guard lock(mutex);
+        asked = true;
+      }
+      condition.notify_all();
+      return [this,
+              reply = response.SerializeAsString()]() -> std::optional<service::RpcHost::Message> {
+        std::lock_guard lock(mutex);
+        if (held)
+          return {};
+        return service::RpcHost::Message(reply);
+      };
+    }
+    return [this, response = std::move(response),
+            watch = request.has_watch()]() mutable -> std::optional<service::RpcHost::Message> {
+      LiveMarketSnapshot state;
+      state.phase = MarketPhase::connected;
+      state.sequence = ++sequence;
+      *response.mutable_snapshot() = protocol::encode_market(state, instance);
+      response.mutable_snapshot()->mutable_catalog()->set_phase("unconfigured");
+      response.mutable_snapshot()->set_catalog_revision(1);
+      return service::RpcHost::Message(response.SerializeAsString(), watch);
+    };
+  }
+};
+} // namespace
+TEST(TerminalMarket, AMinuteSeriesNamesItsServiceAndIsRefusedOnceAnotherIsSelected) {
+  service::reset_stop_request();
+  QuoteService first("a", true), second("b", false);
+  terminal::Application app;
+  const auto minutes = request("market.minutes", {{"venue", "SHFE"}, {"symbol", "rb2610"}});
+  terminal::ApplicationTestAccess::select_market(app, first.endpoint("market-a"));
+  auto late = std::async(std::launch::async, [&] { return app.dispatch(minutes); });
+  ASSERT_TRUE(first.wait());
+  // The other service is selected while the first has not answered.
+  terminal::ApplicationTestAccess::select_market(app, second.endpoint("market-b"));
+  first.release();
+  ASSERT_EQ(late.wait_for(testing_support::bound(2s)), std::future_status::ready);
+  try {
+    (void)late.get();
+    FAIL() << "the series of a service no longer selected was returned";
+  } catch (const Error& error) {
+    EXPECT_EQ(error.code(), ErrorCode::conflict);
+  }
+  const auto series = app.dispatch(minutes).at("intraday");
+  EXPECT_EQ(series.at("service"), "market-b");
+  EXPECT_EQ(series.at("instance_id"), "instance-b");
+  EXPECT_EQ(series.at("symbol"), "rb2610");
+}
 TEST(TerminalMarket, SlowHistoryAndReadBackpressureLeaveControlsAvailable) {
   service::reset_stop_request();
   service::Transport address;

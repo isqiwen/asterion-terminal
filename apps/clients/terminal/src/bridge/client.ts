@@ -492,6 +492,9 @@ export type LiveMarket = {
 };
 // Current trading-day minute bars observed by the market service.
 export type IntradaySeries = {
+  // The market service that observed them, as the snapshot names it.
+  service: string;
+  instance_id: string;
   venue: string;
   symbol: string;
   trading_day: string;

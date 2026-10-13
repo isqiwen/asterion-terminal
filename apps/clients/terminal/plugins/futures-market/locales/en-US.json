@@ -238,6 +238,7 @@
   "涨跌幅(结)": "Chg% (settle)",
   "自": "since",
   "行情设置": "Market settings",
+  "返回的数据不属于当前行情服务": "Returned data is not the current market service's",
   "返回的数据与所选合约不匹配": "Returned data does not match the selected contract",
   "郑州商品期货": "Zhengzhou Commodities",
   "金融期货": "Financial Futures",

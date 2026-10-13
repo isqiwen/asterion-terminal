@@ -39,41 +39,55 @@ const historical = {
 } as const;
 const averageColors = ["#cdd0d7", "#e5b45a", "#d555ae", "#52aa76", "#4aabe0"];
 
-// Polls the market service's minute bars for one contract while mounted.
-function useIntraday(context: TerminalContext, row: Row) {
+// Polls one market service's minute bars of one contract while mounted. The
+// series is that service's observation: after another service is selected, or
+// the same one has started again, the series is dropped and asked for afresh,
+// and a reply that names another service is not taken.
+function useIntraday(context: TerminalContext, market: LiveMarket, row: Row) {
   const [series, setSeries] = useState<IntradaySeries | null>(null);
   const [error, setError] = useState<DisplayError>("");
   const query = useRef(context.query);
   useEffect(() => {
     query.current = context.query;
   }, [context.query]);
+  const { service, instance_id: instance } = market;
   useEffect(() => {
     let current = true;
+    // One read at a time, so replies are taken in the order they were asked for.
+    let pending = false;
     setSeries(null);
     setError("");
-    const load = () =>
-      query
+    const load = () => {
+      if (pending) return;
+      pending = true;
+      void query
         .current("market.minutes", { venue: row.venue, symbol: row.symbol })
         .then((result: Snapshot) => {
           const next = result.intraday;
           if (!current) return;
           if (!next || next.venue !== row.venue || next.symbol !== row.symbol)
             throw new Error(t("返回的数据与所选合约不匹配"));
+          if (next.service !== service || next.instance_id !== instance)
+            throw new Error(t("返回的数据不属于当前行情服务"));
           setSeries(next);
           setError("");
         })
         .catch(reason => {
           if (current) setError(asDisplayError(reason));
+        })
+        .finally(() => {
+          pending = false;
         });
-    void load();
+    };
+    load();
     const timer = window.setInterval(() => {
-      if (!document.hidden) void load();
+      if (!document.hidden) load();
     }, 3000);
     return () => {
       current = false;
       window.clearInterval(timer);
     };
-  }, [row.venue, row.symbol]);
+  }, [row.venue, row.symbol, service, instance]);
   return { series, error };
 }
 
@@ -86,7 +100,7 @@ function IntradayPanel({
   market: LiveMarket;
   row: Row;
 }) {
-  const { series, error } = useIntraday(context, row);
+  const { series, error } = useIntraday(context, market, row);
   const product = market.catalog.contracts.find(
     item => item.venue === row.venue && item.symbol === row.symbol,
   )?.product;
@@ -149,14 +163,16 @@ function IntradayPanel({
 
 function MinuteCandles({
   context,
+  market,
   row,
   minutes,
 }: {
   context: TerminalContext;
+  market: LiveMarket;
   row: Row;
   minutes: number;
 }) {
-  const { series, error } = useIntraday(context, row);
+  const { series, error } = useIntraday(context, market, row);
   if (error && !series)
     return (
       <div className="market-chart-empty" role="alert">
@@ -315,6 +331,7 @@ export function QuotePane({
           <MinuteCandles
             key={identity}
             context={context}
+            market={market}
             row={row}
             minutes={Number.parseInt(period, 10)}
           />
