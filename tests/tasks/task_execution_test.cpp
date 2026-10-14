@@ -2792,26 +2792,44 @@ TEST(NamedDatasets, ASettlementDayWithoutMinuteBarsIsADayOfTheDataset) {
   EXPECT_EQ(dataset.revision(), protocol::bar_dataset_revision(dataset));
 }
 #include "history_coverage.hpp"
+// The days a minute version is compared with are those the market-wide daily
+// table shows the contract traded on: there rebar traded on all three days.
 TEST(NamedDatasets, CoverageCountsTradingDaysPerContractAcrossTheArchive) {
   TaskDirectory directory;
-  test::seed_history(directory.path, {100, 101, 102, 103}, "coverage", {"2026-09-23", "2026-09-25"},
-                     {"2026-09-23", "2026-09-24", "2026-09-25"});
+  const auto rebar =
+      test::seed_history(directory.path, {100, 101, 102, 103}, "coverage",
+                         {"2026-09-23", "2026-09-25"}, {"2026-09-23", "2026-09-24", "2026-09-25"});
+  // Coil's minutes run to 09-28, past the last day the table holds.
+  const auto coil = test::seed_history(directory.path, {100, 101}, "coverage-later",
+                                       {"2026-09-25", "2026-09-28"}, {"2026-09-25"}, "hc");
   history_files::Archive archive(directory.path / "history");
-  data::v1::HistoryFilter filter;
-  filter.set_venue("SHFE");
-  filter.set_product("rb");
-  const auto coverage = data::history_coverage(archive, filter);
+  history_files::TableStore tables(directory.path / "tables");
+  data::v1::HistoryCoverageQuery query;
+  query.mutable_filter()->set_venue("SHFE");
+  query.mutable_filter()->set_product("rb");
+  *query.mutable_daily() = protocol::encode_daily_table(test::latest_daily({rebar, coil}));
+  const auto coverage = data::history_coverage(archive, tables, query);
   ASSERT_EQ(coverage.items_size(), 1);
   const auto& row = coverage.items(0);
   EXPECT_EQ(row.contract_id(), "SHFE/rb/2026-10");
   EXPECT_EQ(row.minute_days(), 2U);
   EXPECT_EQ(row.minute_first(), "2026-09-23");
-  EXPECT_EQ(row.daily_days(), 3U);
+  EXPECT_EQ(row.compared_first(), "2026-09-23");
+  EXPECT_EQ(row.compared_last(), "2026-09-25");
+  EXPECT_EQ(row.traded_days(), 3U);
   EXPECT_EQ(row.uncovered(), 1U);
   ASSERT_EQ(row.uncovered_days_size(), 1);
   EXPECT_EQ(row.uncovered_days(0), "2026-09-24");
-  filter.set_product("cu");
-  EXPECT_EQ(data::history_coverage(archive, filter).items_size(), 0);
+  // What the table does not hold yet is not compared: no day is missing.
+  query.mutable_filter()->set_product("hc");
+  const auto later = data::history_coverage(archive, tables, query);
+  ASSERT_EQ(later.items_size(), 1);
+  EXPECT_EQ(later.items(0).minute_last(), "2026-09-28");
+  EXPECT_EQ(later.items(0).compared_last(), "2026-09-25");
+  EXPECT_EQ(later.items(0).traded_days(), 1U);
+  EXPECT_EQ(later.items(0).uncovered(), 0U);
+  query.mutable_filter()->set_product("cu");
+  EXPECT_EQ(data::history_coverage(archive, tables, query).items_size(), 0);
 }
 TEST(Backtest, PortfolioOfIdenticalContractsDoublesEveryLedgerEffect) {
   const auto single = multiday_input();
@@ -2918,13 +2936,13 @@ TEST(NamedDatasets, CoverageDoesNotMergeIntervalsOrRevisions) {
   const auto filled = test::seed_history(directory.path, {100, 101, 102, 103, 104, 105}, "filled",
                                          {"2026-09-23", "2026-09-24", "2026-09-25"}, {}, "rb", 5);
   history_files::Archive archive(directory.path / "history");
-  const auto result = data::history_coverage(archive, {});
-  // Identical settlement bars from two acquisitions retain distinct version evidence.
-  ASSERT_EQ(result.items_size(), 4);
-  const std::set<std::string> daily_versions{sparse.at("daily_dataset_id").get<std::string>(),
-                                             filled.at("daily_dataset_id").get<std::string>()};
+  history_files::TableStore tables(directory.path / "tables");
+  data::v1::HistoryCoverageQuery query;
+  *query.mutable_daily() = protocol::encode_daily_table(test::latest_daily({sparse, filled}));
+  const auto result = data::history_coverage(archive, tables, query);
+  // One row for each minute version.
+  ASSERT_EQ(result.items_size(), 2);
   for (const auto& row : result.items()) {
-    EXPECT_TRUE(daily_versions.contains(row.daily_dataset_id()));
     if (row.minute_dataset_id() == sparse.at("source_dataset_ids").at(0).get<std::string>()) {
       EXPECT_EQ(row.interval_minutes(), 1);
       EXPECT_EQ(row.uncovered(), 1);
@@ -2948,7 +2966,10 @@ TEST(NamedDatasets, CoverageRejectsChangedManifestEvenWhenChunksAreValid) {
   const std::string original((std::istreambuf_iterator<char>(stream)), {});
   stream.close();
   replace_file_durably(manifest_path, original + "\n");
-  EXPECT_THROW(data::history_coverage(archive, {}), std::invalid_argument);
+  history_files::TableStore tables(directory.path / "tables");
+  data::v1::HistoryCoverageQuery query;
+  *query.mutable_daily() = protocol::encode_daily_table(selected.at("daily"));
+  EXPECT_THROW(data::history_coverage(archive, tables, query), std::invalid_argument);
 }
 
 TEST(NamedDatasets, RequestedWindowExcludesUnrelatedMissingSettlement) {
@@ -3300,35 +3321,38 @@ TEST(HistoryUpdate, IncrementalMinuteAndDailyPlansStartAfterFixedBoundaries) {
   TaskDirectory directory;
   const auto seeded = test::seed_history(directory.path, {100, 101}, "update-base");
   history_files::Archive archive(directory.path / "history");
+  history_files::TableStore tables(directory.path / "tables");
   auto query =
       protocol::encode_history_update_query({{"dataset_id", seeded.at("source_dataset_ids").at(0)},
-                                             {"calendar_dataset_id", ""},
+                                             {"daily", nullptr},
                                              {"mode", "extend"},
                                              {"end_day", "2026-09-26"},
                                              {"requests_per_minute", 60}});
   const auto now = parse_shanghai_time("2026-09-28 01:00:00");
   const auto before = archive.get(query.dataset_id()).SerializeAsString();
-  const auto plan = data::history_update_plan(archive, query, now);
+  const auto plan = data::history_update_plan(archive, tables, query, now);
   EXPECT_EQ(plan.minutes().begin_ns(), parse_shanghai_time("2026-09-25 09:01:01"));
   EXPECT_EQ(plan.minutes().end_ns(), parse_shanghai_time("2026-09-26 23:59:59"));
   EXPECT_EQ(plan.minutes().source_instrument(), "RB2610.SHF");
-  EXPECT_EQ(data::history_update_plan(archive, query, now).id(), plan.id());
+  EXPECT_EQ(data::history_update_plan(archive, tables, query, now).id(), plan.id());
   EXPECT_EQ(protocol::decode_history_update_plan(plan).at("query"),
             protocol::decode_history_update_query(query));
   EXPECT_EQ(archive.get(query.dataset_id()).SerializeAsString(), before);
   query.set_dataset_id(seeded.at("daily_dataset_id").get<std::string>());
-  const auto day = data::history_update_plan(archive, query, now);
+  const auto day = data::history_update_plan(archive, tables, query, now);
   EXPECT_EQ(day.daily().begin_day(), "2026-09-26");
   EXPECT_EQ(day.daily().end_day(), "2026-09-26");
   auto changed = day;
   changed.mutable_daily()->set_end_day("2026-09-27");
   EXPECT_THROW(protocol::decode_history_update_plan(changed), std::invalid_argument);
   query.set_end_day("2026-09-28");
-  EXPECT_THROW(data::history_update_plan(archive, query, now), std::invalid_argument);
+  EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
   query.set_end_day("2026-09-25");
-  EXPECT_THROW(data::history_update_plan(archive, query, now), std::invalid_argument);
+  EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
 }
-TEST(HistoryUpdate, RepairPinsCalendarAndPreservesNightSessionWindow) {
+// The days to fetch again are those the daily table shows the contract traded
+// on that the minute version lacks; the whole original window is fetched.
+TEST(HistoryUpdate, RepairPinsTheDailyTableAndPreservesNightSessionWindow) {
   TaskDirectory directory;
   const auto seeded =
       test::seed_history(directory.path, {100, 101, 102, 103}, "update-gaps",
@@ -3336,26 +3360,30 @@ TEST(HistoryUpdate, RepairPinsCalendarAndPreservesNightSessionWindow) {
   const auto other =
       test::seed_history(directory.path, {100, 101}, "update-other", {"2026-09-25"}, {}, "cu");
   history_files::Archive archive(directory.path / "history");
+  history_files::TableStore tables(directory.path / "tables");
   auto query =
       protocol::encode_history_update_query({{"dataset_id", seeded.at("source_dataset_ids").at(0)},
-                                             {"calendar_dataset_id", seeded.at("daily_dataset_id")},
+                                             {"daily", seeded.at("daily")},
                                              {"mode", "repair"},
                                              {"end_day", ""},
                                              {"requests_per_minute", 60}});
   const auto now = parse_shanghai_time("2026-09-28 01:00:00");
   const auto source = archive.get(query.dataset_id());
-  const auto plan = data::history_update_plan(archive, query, now);
+  const auto plan = data::history_update_plan(archive, tables, query, now);
   ASSERT_EQ(plan.missing_days_size(), 1);
   EXPECT_EQ(plan.missing_days(0), "2026-09-24");
   EXPECT_EQ(plan.minutes().begin_ns(), source.minutes().begin_ns());
   EXPECT_EQ(plan.minutes().end_ns(), source.minutes().end_ns());
   EXPECT_EQ(plan.minutes().requests_per_minute(), 60);
-  query.set_calendar_dataset_id(other.at("daily_dataset_id").get<std::string>());
-  EXPECT_THROW(data::history_update_plan(archive, query, now), std::invalid_argument);
+  // A snapshot this store never had is refused, not read as another.
+  auto unknown = query;
+  unknown.mutable_daily()->set_snapshot(std::string(64, 'f'));
+  EXPECT_THROW(data::history_update_plan(archive, tables, unknown, now), Error);
+  // Copper's one minute day is the one day it traded: nothing to fetch.
   query.set_dataset_id(other.at("source_dataset_ids").at(0).get<std::string>());
-  EXPECT_THROW(data::history_update_plan(archive, query, now), std::invalid_argument);
+  EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
   query.set_dataset_id(other.at("daily_dataset_id").get<std::string>());
-  EXPECT_THROW(data::history_update_plan(archive, query, now), std::invalid_argument);
+  EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
 }
 TEST(HistoryUpdate, CorruptBaseAndMalformedQueryCannotProducePlans) {
   TaskDirectory directory;
@@ -3363,7 +3391,7 @@ TEST(HistoryUpdate, CorruptBaseAndMalformedQueryCannotProducePlans) {
   history_files::Archive archive(directory.path / "history");
   auto query =
       protocol::encode_history_update_query({{"dataset_id", seeded.at("source_dataset_ids").at(0)},
-                                             {"calendar_dataset_id", ""},
+                                             {"daily", nullptr},
                                              {"mode", "extend"},
                                              {"end_day", "2026-09-26"},
                                              {"requests_per_minute", 60}});
@@ -3376,7 +3404,8 @@ TEST(HistoryUpdate, CorruptBaseAndMalformedQueryCannotProducePlans) {
   file >> manifest;
   manifest["rows"] = manifest.at("rows").get<unsigned>() + 1;
   replace_file_durably(path, manifest.dump());
-  EXPECT_THROW(data::history_update_plan(archive, query, now), std::invalid_argument);
+  history_files::TableStore tables(directory.path / "tables");
+  EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
   auto json = protocol::decode_history_update_query(query);
   json["requests_per_minute"] = 501;
   EXPECT_THROW(protocol::encode_history_update_query(json), std::invalid_argument);
@@ -3396,7 +3425,7 @@ TEST_F(TaskProcess, AuthorizedDownloadPersistsExactReviewedRange) {
   data::v1::DataRequest preview;
   *preview.mutable_update_plan() =
       protocol::encode_history_update_query({{"dataset_id", seeded.at("source_dataset_ids").at(0)},
-                                             {"calendar_dataset_id", ""},
+                                             {"daily", nullptr},
                                              {"mode", "extend"},
                                              {"end_day", "2026-09-26"},
                                              {"requests_per_minute", 60}});

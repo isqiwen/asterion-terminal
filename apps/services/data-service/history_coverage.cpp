@@ -1,88 +1,61 @@
 #include "history_coverage.hpp"
-#include "history_daily.hpp"
 #include "history_minutes.hpp"
-#include <map>
-#include <set>
+#include "table_series.hpp"
+#include <asterion/protocol/data.hpp>
 namespace asterion::data {
-namespace {
-std::filesystem::path directory(const std::string& text) {
-  return std::filesystem::path(std::u8string(text.begin(), text.end()));
+MinuteCoverage minute_coverage(const history_files::TableStore& tables,
+                               const data::v1::DailyTable& daily, const std::string& contract,
+                               const std::set<std::string>& minute_days) {
+  MinuteCoverage result;
+  if (minute_days.empty())
+    return result;
+  // This compares whole trading days; it is no proof of intraday completeness.
+  auto days = traded_days(tables, daily, contract, *minute_days.begin(), *minute_days.rbegin());
+  result.compared_first = std::move(days.first);
+  result.compared_last = std::move(days.last);
+  result.traded = static_cast<unsigned>(days.traded.size());
+  for (auto& day : days.traded)
+    if (!minute_days.contains(day))
+      result.uncovered.push_back(std::move(day));
+  return result;
 }
-} // namespace
 data::v1::HistoryCoverages history_coverage(const history_files::Archive& archive,
-                                            const data::v1::HistoryFilter& filter) {
-  struct Version {
-    HistoryDataset info;
-    std::set<std::string> days;
-  };
-  std::map<std::string, std::vector<Version>> minutes, daily;
-  const auto& store = archive;
-  for (const auto& item :
-       store.datasets({filter.venue(), filter.product(), filter.contract_id(), filter.source()})) {
-    const auto record = archive.get(item.id);
-    Version version{item, {}};
-    if (record.has_minute_result()) {
-      for (auto& day : history_files::minute_trading_days(
-               directory(record.minute_result().directory()), item.id))
-        version.days.insert(std::move(day));
-      minutes[item.contract.key()].push_back(std::move(version));
-    } else {
-      for (auto& day :
-           history_files::daily_trading_days(directory(record.daily_result().directory()), item.id))
-        version.days.insert(std::move(day));
-      daily[item.contract.key()].push_back(std::move(version));
-    }
-  }
+                                            const history_files::TableStore& tables,
+                                            const data::v1::HistoryCoverageQuery& query) {
+  protocol::validate_message(query);
+  protocol::validate_daily_table(query.daily());
+  const auto& filter = query.filter();
   data::v1::HistoryCoverages result;
-  const auto append = [&](const std::string& contract, const Version* minute, const Version* day) {
+  for (const auto& item : archive.datasets(
+           {filter.venue(), filter.product(), filter.contract_id(), filter.source()})) {
+    const auto record = archive.get(item.id);
+    if (!record.has_minute_result())
+      continue;
     if (result.items_size() >= 10000)
       throw std::invalid_argument("historical archive query exceeds limit; narrow filters");
+    const auto listed = history_files::minute_trading_days(
+        std::filesystem::path(std::u8string(record.minute_result().directory().begin(),
+                                            record.minute_result().directory().end())),
+        item.id);
+    const std::set<std::string> days(listed.begin(), listed.end());
     auto* row = result.add_items();
-    row->set_contract_id(contract);
-    if (minute) {
-      row->set_minute_dataset_id(minute->info.id);
-      row->set_minute_source(minute->info.source);
-      row->set_interval_minutes(minute->info.interval_minutes);
-      row->set_minute_days(static_cast<unsigned>(minute->days.size()));
-      if (!minute->days.empty()) {
-        row->set_minute_first(*minute->days.begin());
-        row->set_minute_last(*minute->days.rbegin());
-      }
-    }
-    if (day) {
-      row->set_daily_dataset_id(day->info.id);
-      row->set_daily_source(day->info.source);
-      row->set_daily_days(static_cast<unsigned>(day->days.size()));
-      if (!day->days.empty()) {
-        row->set_daily_first(*day->days.begin());
-        row->set_daily_last(*day->days.rbegin());
-      }
-    }
-    // This is a comparison of two exact versions, not proof of intraday completeness.
-    if (!minute || !day || minute->days.empty())
-      return;
-    unsigned uncovered = 0;
-    for (const auto& date : day->days)
-      if (date >= row->minute_first() && date <= row->minute_last() &&
-          !minute->days.contains(date)) {
-        if (++uncovered <= 50)
-          row->add_uncovered_days(date);
-      }
-    row->set_uncovered(uncovered);
-  };
-  for (const auto& [contract, versions] : minutes)
-    for (const auto& version : versions) {
-      const auto found = daily.find(contract);
-      if (found == daily.end())
-        append(contract, &version, nullptr);
-      else
-        for (const auto& day : found->second)
-          append(contract, &version, &day);
-    }
-  for (const auto& [contract, versions] : daily)
-    if (!minutes.contains(contract))
-      for (const auto& version : versions)
-        append(contract, nullptr, &version);
+    row->set_contract_id(item.contract.key());
+    row->set_minute_dataset_id(item.id);
+    row->set_minute_source(item.source);
+    row->set_interval_minutes(item.interval_minutes);
+    row->set_minute_days(static_cast<unsigned>(days.size()));
+    if (days.empty())
+      continue;
+    row->set_minute_first(*days.begin());
+    row->set_minute_last(*days.rbegin());
+    const auto coverage = minute_coverage(tables, query.daily(), item.contract.key(), days);
+    row->set_compared_first(coverage.compared_first);
+    row->set_compared_last(coverage.compared_last);
+    row->set_traded_days(coverage.traded);
+    row->set_uncovered(static_cast<unsigned>(coverage.uncovered.size()));
+    for (std::size_t i = 0; i < coverage.uncovered.size() && i < 50; ++i)
+      row->add_uncovered_days(coverage.uncovered[i]);
+  }
   return result;
 }
 } // namespace asterion::data

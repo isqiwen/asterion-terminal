@@ -9,6 +9,7 @@ import {
   getLocale,
 } from "../contract";
 import {
+  type DailyTable,
   type HistoryDatasetRecord,
   type HistoryUpdatePlan,
   savedCredential,
@@ -27,12 +28,13 @@ function yesterday() {
 export function HistoryUpdatePanel({
   context,
   item,
-  calendar,
+  daily,
   onClose,
 }: {
   context: TerminalContext;
   item: HistoryDatasetRecord;
-  calendar?: string;
+  // A repair: the daily table the missing days are found in.
+  daily?: DailyTable;
   onClose: () => void;
 }) {
   const panel = useRef<HTMLElement>(null);
@@ -69,9 +71,9 @@ export function HistoryUpdatePanel({
   const accepted = submitted || !!task;
   const params = {
     dataset_id: item.id,
-    calendar_dataset_id: calendar ?? "",
-    mode: calendar ? "repair" : "extend",
-    end_day: calendar ? "" : end,
+    daily: daily ?? null,
+    mode: daily ? "repair" : "extend",
+    end_day: daily ? "" : end,
     requests_per_minute: Number(saved?.requests_per_minute ?? rate),
   };
   async function preview() {
@@ -143,10 +145,10 @@ export function HistoryUpdatePanel({
     <section
       ref={panel}
       className="history-update"
-      aria-label={t(calendar ? "补齐缺口" : "下载后续数据")}
+      aria-label={t(daily ? "补齐缺口" : "下载后续数据")}
     >
       <div className="source-actions">
-        <h3>{t(calendar ? "补齐缺口" : "下载后续数据")}</h3>
+        <h3>{t(daily ? "补齐缺口" : "下载后续数据")}</h3>
         <button type="button" disabled={working} onClick={onClose}>
           {t("关闭")}
         </button>
@@ -160,8 +162,8 @@ export function HistoryUpdatePanel({
       </p>
       <p className="subtle">
         {t(
-          calendar
-            ? "按这两个固定版本核对整日缺口；为保留夜盘边界，将重新下载原始请求时段。数据源不保证补回全部缺失记录。"
+          daily
+            ? "按全市场日线表核对整日缺口：表中这个合约有成交、这个版本却没有分钟线的交易日；为保留夜盘边界，将重新下载原始请求时段。数据源不保证补回全部缺失记录。"
             : "从所选版本结束处继续，最多下载到已结束的日期；不会自动合并其他下载或更改已保存数据集。",
         )}
       </p>
@@ -174,7 +176,7 @@ export function HistoryUpdatePanel({
       >
         <fieldset disabled={!enabled || working || context.busy || accepted}>
           <div className="futures-fields">
-            {!calendar && (
+            {!daily && (
               <label>
                 {t("下载至日期")}
                 <input
@@ -210,7 +212,7 @@ export function HistoryUpdatePanel({
           <p>
             <strong>{t("本次下载：{begin} — {end}", { begin: plan.begin, end: plan.end })}</strong>
           </p>
-          {calendar && (
+          {daily && (
             <p>
               {t("待核对 {count} 个交易日：{days}", {
                 count: plan.missing_days.length,

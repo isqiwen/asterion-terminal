@@ -430,6 +430,24 @@ v1::TableProducts table_products(const TableStore& store, const v1::TableProduct
   }
   return result;
 }
+TradedDays traded_days(const TableStore& store, const v1::DailyTable& table,
+                       const std::string& contract, const std::string& first,
+                       const std::string& last) {
+  protocol::validate_daily_table(table);
+  const auto venue = HistoryIdentity::parse(contract).venue;
+  const auto held_days = store.revisions(series_of(daily_table, table.daily_source()), venue, first,
+                                         last, held(store, table.snapshot()));
+  TradedDays result;
+  if (held_days.empty())
+    return result;
+  result.first = held_days.front().period;
+  result.last = held_days.back().period;
+  const auto facts = daily_facts(store, table, venue, result.first, result.last, {contract}, true);
+  if (const auto found = facts.trades.find(contract); found != facts.trades.end())
+    for (const auto& [day, trade] : found->second)
+      result.traded.push_back(day);
+  return result;
+}
 v1::TableDailyPage table_daily(const TableStore& store, const v1::TableDailyQuery& query) {
   using chart_indicators::DailyCandle;
   protocol::validate_table_daily_query(query);

@@ -191,10 +191,11 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
       *preview->add_datasets() = std::move(dataset);
     *preview->mutable_schedule() = std::move(resolved.schedule);
   } else if (request.has_coverage())
-    *response.mutable_coverage() = history_coverage(store_->archive(), request.coverage());
+    *response.mutable_coverage() =
+        history_coverage(store_->archive(), store_->tables(), request.coverage());
   else if (request.has_update_plan())
     *response.mutable_update_plan() =
-        history_update_plan(store_->archive(), request.update_plan(), now_ns());
+        history_update_plan(store_->archive(), store_->tables(), request.update_plan(), now_ns());
   else if (request.has_verify_connection()) {
     auto* result = response.mutable_connection_verification();
     for (const auto& check :
@@ -418,11 +419,8 @@ void DataHost::admit(Work& admitted, bool worker) {
       selection(input);
   else if (request.has_saved_dataset())
     work->objects.push_back("dataset/" + request.saved_dataset().id());
-  else if (request.has_update_plan()) {
+  else if (request.has_update_plan())
     history(request.update_plan().dataset_id());
-    if (!request.update_plan().calendar_dataset_id().empty())
-      history(request.update_plan().calendar_dataset_id());
-  }
   std::ranges::sort(work->objects);
   work->objects.erase(std::unique(work->objects.begin(), work->objects.end()), work->objects.end());
   for (const auto& key : work->objects)

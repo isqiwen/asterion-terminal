@@ -8,9 +8,10 @@ import {
   type MessageValues,
   ErrorNotice,
   asDisplayError,
+  useDailyTable,
   type DisplayError,
 } from "../contract";
-import type { HistoryCoverage, HistoryDatasetRecord } from "../../src/bridge/client";
+import type { DailyTable, HistoryCoverage, HistoryDatasetRecord } from "../../src/bridge/client";
 import { HistoryDatasetViewer } from "./HistoryDatasetViewer";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
@@ -18,9 +19,12 @@ export function ArchivedDataPanel(context: TerminalContext) {
   const [filter, setFilter] = useState({ venue: "", product: "", contract_id: "", source: "" });
   const [items, setItems] = useState<HistoryDatasetRecord[]>([]);
   const [selected, setSelected] = useState<HistoryDatasetRecord | null>(null);
-  const [update, setUpdate] = useState<{ item: HistoryDatasetRecord; calendar?: string } | null>(
+  const [update, setUpdate] = useState<{ item: HistoryDatasetRecord; daily?: DailyTable } | null>(
     null,
   );
+  // Minute versions are checked against the market-wide daily table.
+  const table = useDailyTable(context.snapshot, context.query);
+  const held = table.held?.table;
   const [usage, setUsage] = useState<HistoryDatasetRecord | null>(null);
   const [error, setError] = useState<DisplayError>("");
   const [loading, setLoading] = useState(false);
@@ -31,7 +35,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
   const opened = usage?.id ?? update?.item.id ?? selected?.id;
   useEffect(() => {
     detail.current?.scrollIntoView({ block: "nearest" });
-  }, [opened, update?.calendar]);
+  }, [opened, update?.daily]);
   const query = useRef(context.query);
   query.current = context.query;
   const online = !!context.snapshot?.data?.online;
@@ -54,13 +58,13 @@ export function ArchivedDataPanel(context: TerminalContext) {
       if (current === sequence.current) setLoading(false);
     }
   }, []);
-  const check = useCallback(async (values: typeof filter) => {
+  const check = useCallback(async (values: typeof filter, daily: DailyTable) => {
     const current = ++sequence.current;
     setLoading(true);
     setError("");
     try {
       const [response, archives] = await Promise.all([
-        query.current("data.coverage", values),
+        query.current("data.coverage", { ...values, daily }),
         query.current("data.datasets", values),
       ]);
       if (current === sequence.current) {
@@ -119,9 +123,15 @@ export function ArchivedDataPanel(context: TerminalContext) {
         <button disabled={!online || loading || context.busy}>{t("查询")}</button>
         <button
           type="button"
-          disabled={!online || loading || context.busy || !filter.product}
-          title={filter.product ? undefined : t("按品种核对覆盖，请先填写品种")}
-          onClick={() => void check(filter)}
+          disabled={!online || loading || context.busy || !filter.product || !held}
+          title={
+            !filter.product
+              ? t("按品种核对覆盖，请先填写品种")
+              : held
+                ? undefined
+                : t("覆盖核对按全市场日线表进行，请先在全市场数据里更新日线")
+          }
+          onClick={() => held && void check(filter, held)}
         >
           {t("覆盖核对")}
         </button>
@@ -131,7 +141,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
           <h3>{t("覆盖核对")}</h3>
           <p className="subtle">
             {t(
-              "按固定版本分别核对分钟线与日线，不合并来源、周期或版本。这里只检查整日缺口，不代表日内数据完整。",
+              "每个分钟线版本分别与全市场日线表核对：表中这个合约有成交、版本里却没有分钟线的交易日。只比较表里已经有的交易日；这里只检查整日缺口，不代表日内数据完整。",
             )}
           </p>
           {!coverage.length ? (
@@ -143,28 +153,18 @@ export function ArchivedDataPanel(context: TerminalContext) {
                   <th>{t("合约身份")}</th>
                   <th>{t("数据版本")}</th>
                   <th>{t("分钟线交易日")}</th>
-                  <th>{t("日线交易日")}</th>
+                  <th>{t("日线表中的成交日")}</th>
                   <th>{t("缺失交易日")}</th>
                   <th>{t("操作")}</th>
                 </tr>
               </thead>
               <tbody>
                 {coverage.map(row => (
-                  <tr key={`${row.minute_dataset_id}:${row.daily_dataset_id}`}>
+                  <tr key={row.minute_dataset_id}>
                     <td>{row.contract_id}</td>
                     <td>
-                      {row.minute_dataset_id && (
-                        <div>
-                          {row.interval_minutes}m · {row.minute_source} ·{" "}
-                          <code>{row.minute_dataset_id.slice(0, 8)}</code>
-                        </div>
-                      )}
-                      {row.daily_dataset_id && (
-                        <div>
-                          {t("日线")} · {row.daily_source} ·{" "}
-                          <code>{row.daily_dataset_id.slice(0, 8)}</code>
-                        </div>
-                      )}
+                      {row.interval_minutes}m · {row.minute_source} ·{" "}
+                      <code>{row.minute_dataset_id.slice(0, 8)}</code>
                     </td>
                     <td>
                       {row.minute_days
@@ -172,12 +172,12 @@ export function ArchivedDataPanel(context: TerminalContext) {
                         : "—"}
                     </td>
                     <td>
-                      {row.daily_days
-                        ? `${row.daily_days} · ${row.daily_first} — ${row.daily_last}`
-                        : "—"}
+                      {row.compared_first
+                        ? `${row.traded_days} · ${row.compared_first} — ${row.compared_last}`
+                        : t("表中没有这段时间的日线")}
                     </td>
                     <td>
-                      {row.minute_days && row.daily_days
+                      {row.compared_first
                         ? row.uncovered
                           ? t("{n} 个：{days}", {
                               n: row.uncovered,
@@ -186,7 +186,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
                                 (row.uncovered > 5 ? " …" : ""),
                             })
                           : t("无")
-                        : t("需要分钟线与日线")}
+                        : "—"}
                     </td>
                     <td>
                       {row.uncovered > 0 && (
@@ -199,8 +199,8 @@ export function ArchivedDataPanel(context: TerminalContext) {
                           }
                           onClick={() => {
                             const item = items.find(item => item.id === row.minute_dataset_id);
-                            if (item) {
-                              setUpdate({ item, calendar: row.daily_dataset_id });
+                            if (item && held) {
+                              setUpdate({ item, daily: held });
                               setUsage(null);
                               setSelected(null);
                             }
@@ -306,10 +306,10 @@ export function ArchivedDataPanel(context: TerminalContext) {
                 )}
                 {update?.item.id === item.id && (
                   <HistoryUpdatePanel
-                    key={`${connection}:${update.item.id}:${update.calendar ?? ""}`}
+                    key={`${connection}:${update.item.id}:${update.daily?.snapshot ?? ""}`}
                     context={context}
                     item={update.item}
-                    calendar={update.calendar}
+                    daily={update.daily}
                     onClose={() => setUpdate(null)}
                   />
                 )}

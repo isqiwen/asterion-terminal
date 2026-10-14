@@ -347,15 +347,20 @@ message HistoryDataset { string id = 1; string contract_id = 2; string source = 
 message HistoryDatasets { repeated HistoryDataset items = 1; }
 // Compare exact minute/daily versions of one contract. Never merge periods,
 // sources or revisions. Missing whole trading days do not assess intraday quality.
+// One minute version of a contract against the market-wide daily table: of
+// the version's days, the part the table holds under the snapshot asked for
+// runs from compared_first to compared_last; the contract traded in the
+// auction on traded_days of them, uncovered of which have no minute bars.
 message HistoryCoverage {
+  reserved 5, 6, 7, 11, 13;
   string contract_id = 1;
   uint32 minute_days = 2; string minute_first = 3; string minute_last = 4;
-  uint32 daily_days = 5; string daily_first = 6; string daily_last = 7;
-  uint32 uncovered = 8; repeated string uncovered_days = 9;
-  string minute_dataset_id = 10; string daily_dataset_id = 11;
-  string minute_source = 12; string daily_source = 13; uint32 interval_minutes = 14;
+  uint32 uncovered = 8; repeated string uncovered_days = 9; // At most the first 50.
+  string minute_dataset_id = 10; string minute_source = 12; uint32 interval_minutes = 14;
+  string compared_first = 15; string compared_last = 16; uint32 traded_days = 17;
 }
 message HistoryCoverages { repeated HistoryCoverage items = 1; }
+message HistoryCoverageQuery { HistoryFilter filter = 1; DailyTable daily = 2; }
 
 // Installed native capabilities; account permissions are checked by the provider.
 message HistorySource {
@@ -377,9 +382,13 @@ message HistoryConnectionVerification { repeated HistoryConnectionCheck checks =
 // Repair deliberately re-fetches the original request window: missing trading
 // days alone do not define exchange night-session timestamp boundaries.
 enum HistoryUpdateMode { HISTORY_UPDATE_UNSPECIFIED = 0; EXTEND = 1; REPAIR = 2; }
+// A repair finds the days to fetch again in the market-wide daily table:
+// the days the contract traded on that the minute version lacks.
 message HistoryUpdateQuery {
-  string dataset_id = 1; string calendar_dataset_id = 2;
+  reserved 2;
+  string dataset_id = 1;
   HistoryUpdateMode mode = 3; string end_day = 4; uint32 requests_per_minute = 5;
+  DailyTable daily = 6; // REPAIR only
 }
 message HistoryUpdatePlan {
   string id = 1; HistoryUpdateQuery query = 2;

@@ -184,11 +184,11 @@ Json decode_daily_page(const data::v1::DailyPage& page) {
           {"bars", bars}};
 }
 data::v1::HistoryUpdateQuery encode_history_update_query(const Json& value) {
-  require_fields(value,
-                 {"dataset_id", "calendar_dataset_id", "mode", "end_day", "requests_per_minute"});
+  require_fields(value, {"dataset_id", "daily", "mode", "end_day", "requests_per_minute"});
   data::v1::HistoryUpdateQuery result;
   result.set_dataset_id(value.at("dataset_id").get<std::string>());
-  result.set_calendar_dataset_id(value.at("calendar_dataset_id").get<std::string>());
+  if (!value.at("daily").is_null())
+    *result.mutable_daily() = encode_daily_table(value.at("daily"));
   result.set_end_day(value.at("end_day").get<std::string>());
   const auto mode = value.at("mode").get<std::string>();
   if (mode != "extend" && mode != "repair")
@@ -211,13 +211,13 @@ Json decode_history_update_query(const data::v1::HistoryUpdateQuery& value) {
       (value.mode() != data::v1::EXTEND && value.mode() != data::v1::REPAIR))
     throw std::invalid_argument("invalid history update request");
   if (value.mode() == data::v1::EXTEND) {
-    if (!value.calendar_dataset_id().empty())
+    if (value.has_daily())
       throw std::invalid_argument("invalid history update request");
     (void)parse_trading_date(value.end_day());
-  } else if (!digest(value.calendar_dataset_id()) || !value.end_day().empty())
+  } else if (!value.has_daily() || !value.end_day().empty())
     throw std::invalid_argument("invalid history update request");
   return {{"dataset_id", value.dataset_id()},
-          {"calendar_dataset_id", value.calendar_dataset_id()},
+          {"daily", value.has_daily() ? decode_daily_table(value.daily()) : Json(nullptr)},
           {"mode", value.mode() == data::v1::EXTEND ? "extend" : "repair"},
           {"end_day", value.end_day()},
           {"requests_per_minute", value.requests_per_minute()}};

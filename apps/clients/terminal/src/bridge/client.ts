@@ -999,19 +999,20 @@ export type TablePage = {
   offset: number;
 };
 // Trading days per contract across archived minute and daily versions.
+// A minute version against the market-wide daily table: of its days, the
+// part the table holds (compared_first to compared_last, empty when none),
+// the days the contract traded on in it, and those without minute bars.
 export type HistoryCoverage = {
   minute_dataset_id: string;
-  daily_dataset_id: string;
   minute_source: string;
-  daily_source: string;
   interval_minutes: number;
   contract_id: string;
   minute_days: number;
   minute_first: string;
   minute_last: string;
-  daily_days: number;
-  daily_first: string;
-  daily_last: string;
+  compared_first: string;
+  compared_last: string;
+  traded_days: number;
   uncovered: number;
   uncovered_days: string[];
 };

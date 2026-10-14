@@ -819,7 +819,7 @@ TEST(TerminalHistoryUpdate, SlowPlanDoesNotBlockAndObsoleteServiceCannotSubmit) 
   terminal::Application app;
   terminal::ApplicationTestAccess::attach(app, source.address(), source.data_address());
   const Json params = {{"dataset_id", std::string(64, 'a')},
-                       {"calendar_dataset_id", ""},
+                       {"daily", nullptr},
                        {"mode", "extend"},
                        {"end_day", "2024-03-02"},
                        {"requests_per_minute", 60}};

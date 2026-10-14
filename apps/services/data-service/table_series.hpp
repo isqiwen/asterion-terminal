@@ -79,6 +79,18 @@ std::map<std::string, Decimal> contract_multipliers(const history_files::TableSt
 v1::TableSeriesGroup table_series(const history_files::TableStore&, const v1::TableSeriesRequest&);
 // The products of every exchange the snapshot holds a contract list of.
 v1::TableProducts table_products(const history_files::TableStore&, const v1::TableProductsQuery&);
+// The part of [first, last] the snapshot's daily table holds of a contract's
+// exchange, from the first such day to the last, and the days of it the
+// contract traded in the auction, ascending. Empty when the table holds none
+// of them. Fails rather than reads around a hole inside that part, as
+// table_series does.
+struct TradedDays {
+  std::string first, last;
+  std::vector<std::string> traded;
+};
+TradedDays traded_days(const history_files::TableStore&, const v1::DailyTable&,
+                       const std::string& contract, const std::string& first,
+                       const std::string& last);
 // One contract as a chart draws it: the days it traded in the auction, from
 // the day the snapshot's contract list lists it to the day it delists it, and
 // of those the stored ones; grouped by the period asked for, with MACD from

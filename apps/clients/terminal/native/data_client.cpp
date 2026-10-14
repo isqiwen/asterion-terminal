@@ -349,9 +349,9 @@ std::future<Json> DataClient::datasets(const data::v1::HistoryFilter& filter) {
                                return items;
                              });
 }
-std::future<Json> DataClient::coverage(const data::v1::HistoryFilter& filter) {
+std::future<Json> DataClient::coverage(const data::v1::HistoryCoverageQuery& query) {
   wire::DataRequest request;
-  *request.mutable_coverage() = filter;
+  *request.mutable_coverage() = query;
   return impl_->invoke<Json>(std::move(request),
                              [](const wire::DataRequest&, wire::DataResponse& response) -> Json {
                                Json items = Json::array();
@@ -360,17 +360,15 @@ std::future<Json> DataClient::coverage(const data::v1::HistoryFilter& filter) {
                                  for (const auto& day : row.uncovered_days())
                                    days.push_back(day);
                                  items.push_back({{"minute_dataset_id", row.minute_dataset_id()},
-                                                  {"daily_dataset_id", row.daily_dataset_id()},
                                                   {"minute_source", row.minute_source()},
-                                                  {"daily_source", row.daily_source()},
                                                   {"interval_minutes", row.interval_minutes()},
                                                   {"contract_id", row.contract_id()},
                                                   {"minute_days", row.minute_days()},
                                                   {"minute_first", row.minute_first()},
                                                   {"minute_last", row.minute_last()},
-                                                  {"daily_days", row.daily_days()},
-                                                  {"daily_first", row.daily_first()},
-                                                  {"daily_last", row.daily_last()},
+                                                  {"compared_first", row.compared_first()},
+                                                  {"compared_last", row.compared_last()},
+                                                  {"traded_days", row.traded_days()},
                                                   {"uncovered", row.uncovered()},
                                                   {"uncovered_days", std::move(days)}});
                                }

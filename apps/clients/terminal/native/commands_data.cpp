@@ -396,24 +396,31 @@ void Application::Impl::register_data_commands() {
     ++dataset_selection_generation;
     co_return snapshot();
   });
-  // Archive listing and per-version coverage; reads that never publish.
+  // Archive listing, and its minute versions against the daily table the
+  // coverage check names; reads that never publish.
   for (const auto* method : {"data.datasets", "data.coverage"})
     command(method,
             [this, coverage = std::string_view(method) ==
                               "data.coverage"](const json& p) -> PolledTask<Response> {
-              fields(p, {"venue", "product", "contract_id", "source"});
+              if (coverage)
+                fields(p, {"venue", "product", "contract_id", "source", "daily"});
+              else
+                fields(p, {"venue", "product", "contract_id", "source"});
               if (!data_client)
                 throw std::invalid_argument("connect the data and task services first");
               const auto reader = data_client;
               const auto generation = data_task_generation;
-              data::v1::HistoryFilter filter;
+              data::v1::HistoryCoverageQuery query;
+              auto& filter = *query.mutable_filter();
               filter.set_venue(p.value("venue", ""));
               filter.set_product(p.value("product", ""));
               filter.set_contract_id(p.value("contract_id", ""));
               filter.set_source(p.value("source", ""));
+              if (coverage)
+                *query.mutable_daily() = protocol::encode_daily_table(p.at("daily"));
               auto rows = (co_await run<json>([&]() -> PolledTask<json> {
-                co_return coverage ? (co_await PollFuture{reader->coverage(filter)})
-                                   : (co_await PollFuture{reader->datasets(filter)});
+                co_return coverage ? (co_await PollFuture{reader->coverage(query)})
+                                   : (co_await PollFuture{reader->datasets(query.filter())});
               }));
               if (generation != data_task_generation)
                 throw Error(ErrorCode::conflict,

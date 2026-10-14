@@ -74,7 +74,7 @@ message TablePartitionReceipt {
   bool unchanged = 3;
 }
 message DataRequest {
-  reserved 26;
+  reserved 20, 26;
   uint32 version = 1; string service_id = 2; string correlation_id = 3;
   oneof operation {
     asterion.protocol.v1.Empty heartbeat = 10;
@@ -87,7 +87,6 @@ message DataRequest {
     MinutePageQuery minute_page = 17;
     DailyPageQuery daily_page = 18;
     BarDatasetRequest bar_dataset = 19;
-    HistoryFilter coverage = 20;
     NamedDataset save_dataset = 21;
     DataId saved_dataset = 22;
     asterion.protocol.v1.Empty saved_datasets = 23;
@@ -110,6 +109,7 @@ message DataRequest {
     TableSeriesRequest table_series = 41;
     TableProductsQuery table_products = 42;
     TableDailyQuery table_daily = 43;
+    HistoryCoverageQuery coverage = 44;
   }
 }
 message DataResponse {

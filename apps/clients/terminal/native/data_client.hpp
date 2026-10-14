@@ -34,7 +34,7 @@ public:
   [[nodiscard]] std::future<data::v1::HistoryUpdatePlan>
   history_update_plan(const data::v1::HistoryUpdateQuery&);
   [[nodiscard]] std::future<Json> datasets(const data::v1::HistoryFilter&);
-  [[nodiscard]] std::future<Json> coverage(const data::v1::HistoryFilter&);
+  [[nodiscard]] std::future<Json> coverage(const data::v1::HistoryCoverageQuery&);
   [[nodiscard]] std::future<std::vector<HistoryListing>> catalog(const std::string& source,
                                                                  const std::string& credential,
                                                                  const std::string& venue,
