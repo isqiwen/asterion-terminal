@@ -195,10 +195,16 @@ test("a failed preparation waits for explicit retry instead of restarting in a l
     }
     if (!["runtime.snapshot", "node.data_tasks.local.open"].includes(method))
       return route.continue();
-    const response = await route.fetch();
+    // Every poll is answered with the whole snapshot, whether or not the core
+    // has a new revision. The page takes each as a new state, which is what
+    // would start the preparation again if it looped; a poll answered with
+    // "unchanged" would tell the page nothing and prove nothing.
+    const response = await route.fetch(
+      method === "runtime.snapshot" ? { postData: { version: 1, method, params: {} } } : {},
+    );
     const body = await response.json();
-    reads++;
     if (body.result?.task_service) {
+      reads++;
       body.result.task_service.remote = false;
       if (offline) body.result.task_service.online = false;
     }
