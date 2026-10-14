@@ -1,16 +1,26 @@
-import { test, expect } from "./test";
-import type { Snapshot, DailyPage } from "../src/bridge/client";
+import { test, expect, type Page } from "./test";
+import type { Snapshot, DailyPage, TableDailyPage } from "../src/bridge/client";
 
-test("daily source viewer and market chart preserve dates, missing settlement and paging", async ({
-  page,
-}) => {
-  const calls: { start: string; end: string; offset: number; period?: string }[] = [];
-  let mismatch = false;
-  let connection = "first-connection";
-  const date = (i: number) => new Date(Date.UTC(2023, 0, 1 + i)).toISOString().slice(0, 10);
+const date = (i: number) => new Date(Date.UTC(2023, 0, 1 + i)).toISOString().slice(0, 10);
+// A data and task service with one daily download of rb2610 and, beside it,
+// the market-wide daily table under one snapshot; `answer` fills in the reply
+// to a page request. The connection can be changed while the page is open.
+async function fixture(
+  page: Page,
+  answer: (method: string, params: Record<string, unknown>, result: Snapshot) => void,
+) {
+  const state = { connection: "first-connection" };
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (!["runtime.snapshot", "data.daily.page", "data.datasets"].includes(request.method))
+    if (
+      ![
+        "runtime.snapshot",
+        "data.daily.page",
+        "data.datasets",
+        "data.tables.coverage",
+        "data.tables.daily",
+      ].includes(request.method)
+    )
       return route.continue();
     const response = await route.fetch({
       postData: { version: 1, method: "runtime.snapshot", params: {} },
@@ -18,10 +28,10 @@ test("daily source viewer and market chart preserve dates, missing settlement an
     const data = (await response.json()) as { result: Snapshot };
     if (!data.result.task_service || !data.result.data)
       return route.fulfill({ response, json: data });
-    data.result.data.connection_id = connection;
+    data.result.data.connection_id = state.connection;
     data.result.task_service = {
       ...data.result.task_service!,
-      connection_id: connection,
+      connection_id: state.connection,
       online: true,
       remote: false,
       tasks: [
@@ -85,64 +95,82 @@ test("daily source viewer and market chart preserve dates, missing settlement an
       },
     ];
     data.result.daily_page = null;
-    if (request.method === "data.daily.page") {
-      expect(request.params.id).toBe("daily-fixture");
-      calls.push(request.params);
-      const filtered = !!request.params.start;
-      const period = request.params.period;
-      expect(["day", "week", "month", "quarter", "year"]).toContain(period);
-      const total =
-        period === "week"
-          ? 18
-          : period === "month"
-            ? 4
-            : period === "quarter"
-              ? 2
-              : period === "year"
-                ? 1
-                : 120;
-      const count = filtered ? 0 : total;
-      const offset = request.params.offset;
-      data.result.daily_page = {
-        id: mismatch ? "wrong-dataset" : "daily-fixture",
-        source: "tushare.fut_daily",
-        contract_id: "SHFE/rb/2026-10",
-        manifest_sha256: "b".repeat(64),
-        total_rows: total,
-        matched_rows: count,
-        offset,
-        limit: request.params.limit,
-        first_day: date(0),
-        last_day: date(119),
-        begin_day: request.params.start || date(0),
-        end_day: request.params.end || date(119),
-        bars: Array.from(
-          { length: Math.max(0, Math.min(request.params.limit, count - offset)) },
-          (_, i) => ({
-            trading_day: date(offset + i),
-            open: "100.00000001",
-            high: "102",
-            low: "99",
-            close: "101.5",
-            volume: "20",
-            amount: "12345678.12345678",
-            open_interest: "1000",
-            previous_close: null,
-            previous_settlement: "99.5",
-            settlement: null,
-            macd:
-              offset + i >= 100
-                ? { diff: 0, signal: 0, histogram: 0 }
-                : offset + i >= 33
-                  ? { diff: 1.2, signal: 0.7, histogram: 1 }
-                  : undefined,
-          }),
-        ),
-        period,
-      } satisfies DailyPage;
-      mismatch = false;
-    }
+    data.result.table_coverage = {
+      snapshot: "c".repeat(64),
+      sources: (
+        [
+          ["futures.contracts", "tushare.fut_basic.v1"],
+          ["futures.calendar", "tushare.trade_cal.v1"],
+          ["futures.daily", "tushare.fut_daily.v3"],
+        ] as const
+      ).map(([table, source]) => ({
+        table,
+        schema: 1,
+        source,
+        plugin_id: "asterion.data.tushare",
+        venues: ["SHFE"],
+      })),
+      rows: [
+        {
+          table: "futures.daily",
+          schema: 1,
+          source: "tushare.fut_daily.v3",
+          exchange: "SHFE",
+          partitions: 120,
+          rows: 120,
+          first_period: date(0),
+          last_period: date(119),
+          acquired_at_ns: "1791717000000000000",
+          missing_days: 0,
+          missing_examples: [],
+        },
+      ],
+    };
+    answer(request.method, request.params, data.result);
     await route.fulfill({ response, json: data });
+  });
+  return state;
+}
+
+test("daily source viewer preserves dates, missing settlement and paging", async ({ page }) => {
+  const calls: { start: string; end: string; offset: number }[] = [];
+  let mismatch = false;
+  const state = await fixture(page, (method, params, result) => {
+    if (method !== "data.daily.page") return;
+    expect(params.id).toBe("daily-fixture");
+    expect(params).not.toHaveProperty("period");
+    calls.push(params as (typeof calls)[number]);
+    const count = params.start ? 0 : 120;
+    const offset = params.offset as number;
+    const limit = params.limit as number;
+    result.daily_page = {
+      id: mismatch ? "wrong-dataset" : "daily-fixture",
+      source: "tushare.fut_daily",
+      contract_id: "SHFE/rb/2026-10",
+      manifest_sha256: "b".repeat(64),
+      total_rows: 120,
+      matched_rows: count,
+      offset,
+      limit,
+      first_day: date(0),
+      last_day: date(119),
+      begin_day: (params.start as string) || date(0),
+      end_day: (params.end as string) || date(119),
+      bars: Array.from({ length: Math.max(0, Math.min(limit, count - offset)) }, (_, i) => ({
+        trading_day: date(offset + i),
+        open: "100.00000001",
+        high: "102",
+        low: "99",
+        close: "101.5",
+        volume: "20",
+        amount: "12345678.12345678",
+        open_interest: "1000",
+        previous_close: null,
+        previous_settlement: "99.5",
+        settlement: null,
+      })),
+    } satisfies DailyPage;
+    mismatch = false;
   });
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "业务工作区" });
@@ -175,10 +203,48 @@ test("daily source viewer and market chart preserve dates, missing settlement an
   await viewer.getByRole("button", { name: "下一页", exact: true }).click();
   await expect(viewer.getByRole("alert")).toContainText("返回的数据与所选数据集不匹配");
   await expect(table.getByRole("row").nth(1)).toContainText("2023-01-01");
-  connection = "viewer-new-connection";
+  state.connection = "viewer-new-connection";
   await expect(viewer).toHaveCount(0);
   await page.getByRole("button", { name: "查看数据", exact: true }).click();
   await expect(table.getByRole("row").nth(1)).toContainText("2023-01-01");
+});
+
+test("the daily chart reads the contract from the daily table, by period and page", async ({
+  page,
+}) => {
+  const calls: { contract: string; period: string; offset: number }[] = [];
+  const state = await fixture(page, (method, params, result) => {
+    if (method !== "data.tables.daily") return;
+    calls.push(params as (typeof calls)[number]);
+    const period = params.period as TableDailyPage["period"];
+    const total = { day: 120, week: 18, month: 4, quarter: 2, year: 1 }[period];
+    const offset = params.offset as number;
+    const limit = params.limit as number;
+    result.table_daily = {
+      daily: params.daily as TableDailyPage["daily"],
+      contract: params.contract as string,
+      period,
+      total,
+      offset,
+      limit,
+      candles: Array.from({ length: Math.max(0, Math.min(limit, total - offset)) }, (_, i) => ({
+        trading_day: date(offset + i),
+        open: "100.00000001",
+        high: "102",
+        low: "99",
+        close: "101.5",
+        volume: "20",
+        macd:
+          offset + i >= 100
+            ? { diff: 0, signal: 0, histogram: 0 }
+            : offset + i >= 33
+              ? { diff: 1.2, signal: 0.7, histogram: 1 }
+              : undefined,
+      })),
+    } satisfies TableDailyPage;
+  });
+  await page.goto("/");
+  const nav = page.getByRole("navigation", { name: "业务工作区" });
   await nav.getByRole("button", { name: "自选", exact: true }).click();
   const chart = page.locator(".watchlist-chart-pane").nth(0);
   await expect(chart.getByRole("button", { name: "日K", exact: true })).toBeEnabled();
@@ -203,8 +269,15 @@ test("daily source viewer and market chart preserve dates, missing settlement an
   await expect(chart.locator("[data-oscillator-empty]")).toHaveCount(0);
   await expect(chart.locator("[data-oscillator-axis]")).toBeVisible();
   await expect(chart.locator("[data-oscillator-legend]")).toContainText("DIFF: 0.00");
+  // What the chart asked for: the contract, under the snapshot the coverage named.
+  expect(calls.at(-1)).toMatchObject({
+    contract: "SHFE/rb/2026-10",
+    period: "day",
+    offset: 41,
+    daily: { snapshot: "c".repeat(64), daily_source: "tushare.fut_daily.v3" },
+  });
   const previousCalls = calls.length;
-  connection = "same-named-service-new-connection";
+  state.connection = "same-named-service-new-connection";
   await expect(chart.locator(".market-history-pages")).toContainText("1–100 / 120");
   await expect.poll(() => calls.length).toBeGreaterThan(previousCalls);
   for (const [label, period, total] of [
@@ -234,11 +307,9 @@ test("daily source viewer and market chart preserve dates, missing settlement an
     expect(calls.at(-1)?.offset).toBe(0);
   }
   await expect(chart.getByRole("button", { name: "1 min", exact: true })).toBeDisabled();
-  await nav.getByRole("button", { name: "数据", exact: true }).click();
-  await expect(viewer).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "查看数据", exact: true })).toBeVisible();
+  // The history board opens the contract on its days as well.
   await nav.getByRole("button", { name: "市场", exact: true }).click();
   await page.getByRole("tab", { name: "历史行情", exact: true }).click();
-  await expect(page.locator(".history-market-contracts")).toContainText("日K");
+  await expect(page.locator(".history-market-contracts")).toContainText("螺纹钢2610");
   await expect(page.locator(".history-market-board").getByRole("img")).toBeVisible();
 });

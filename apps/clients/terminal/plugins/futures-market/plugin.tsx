@@ -22,7 +22,8 @@ export const plugin: TerminalPlugin = {
     "market.minutes",
     "data.minutes.page",
     "data.datasets",
-    "data.daily.page",
+    "data.tables.coverage",
+    "data.tables.daily",
   ],
   languageResources: { "zh-CN": zh, "en-US": en },
   workspace: {

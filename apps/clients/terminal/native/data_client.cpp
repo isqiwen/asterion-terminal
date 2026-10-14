@@ -437,7 +437,7 @@ std::future<Json> DataClient::daily_page(const data::v1::DailyPageQuery& query) 
         const auto& query = request.daily_page();
         const auto& page = response.daily_page();
         if (page.task_id() != query.dataset_id() || page.offset() != query.offset() ||
-            page.limit() != query.limit() || page.period() != query.period() ||
+            page.limit() != query.limit() ||
             (!query.begin_day().empty() && page.begin_day() != query.begin_day()) ||
             (!query.end_day().empty() && page.end_day() != query.end_day()))
           throw Error(ErrorCode::unavailable, "daily dataset page identity mismatch");
@@ -476,6 +476,21 @@ std::future<Json> DataClient::table_products(const data::v1::TableProductsQuery&
                              [](const wire::DataRequest&, wire::DataResponse& response) -> Json {
                                return protocol::decode_table_products(response.table_products());
                              });
+}
+std::future<Json> DataClient::table_daily(const data::v1::TableDailyQuery& query) {
+  wire::DataRequest request;
+  *request.mutable_table_daily() = query;
+  return impl_->invoke<Json>(
+      std::move(request),
+      [](const wire::DataRequest& request, wire::DataResponse& response) -> Json {
+        const auto& query = request.table_daily();
+        const auto& page = response.table_daily();
+        if (page.daily().SerializeAsString() != query.daily().SerializeAsString() ||
+            page.contract() != query.contract() || page.period() != query.period() ||
+            page.offset() != query.offset() || page.limit() != query.limit())
+          throw Error(ErrorCode::unavailable, "daily table chart identity mismatch");
+        return protocol::decode_table_daily(page);
+      });
 }
 std::future<Json> DataClient::history_usage(const std::string& id) {
   wire::DataRequest request;

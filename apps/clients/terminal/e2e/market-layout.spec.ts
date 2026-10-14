@@ -62,7 +62,11 @@ test("dense market board links real dataset commands, sorting, pagination and co
   );
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (!["runtime.snapshot", "data.minutes.page", "data.datasets"].includes(request.method))
+    if (
+      !["runtime.snapshot", "data.minutes.page", "data.datasets", "data.tables.coverage"].includes(
+        request.method,
+      )
+    )
       return route.continue();
     if (request.method === "data.minutes.page") {
       expect(["linked-history-fixture", "history-15min"]).toContain(request.params.id);
@@ -197,6 +201,9 @@ test("dense market board links real dataset commands, sorting, pagination and co
       data.result.task_service = { ...data.result.task_service!, online: false, tasks: [] };
     }
     data.result.history_page = requestedPage;
+    // No market-wide daily table is stored: the chart has minutes only.
+    if (request.method === "data.tables.coverage")
+      data.result.table_coverage = { snapshot: "", sources: [], rows: [] };
     if (request.method === "data.datasets")
       data.result.history_datasets = [5, 15]
         .map(interval => ({

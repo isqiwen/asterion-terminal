@@ -261,5 +261,10 @@
   "去市场添加自选": "Add from Market",
   "自选为空。在市场页选中合约，点图表标题旁的“加入自选”。": "The watchlist is empty. Select a contract on the Market page and use “Add to watchlist” next to the chart title.",
   "行情连接": "Market connection",
-  "按代码添加自选": "Add to watchlist by code"
+  "按代码添加自选": "Add to watchlist by code",
+  "全市场日线表": "Market-wide daily table",
+  "全市场日线表还没有入库": "The market-wide daily table is not stored yet",
+  "更新全市场数据": "Update market-wide data",
+  "日线只画合约在集合竞价中有成交的交易日：没有成交的交易日、全市场日线表没有入库的交易日都不画，也不补。": "Only days the contract traded in the auction are drawn: days without a trade, and days the market-wide daily table has not stored, are neither drawn nor filled in.",
+  "全市场日线表里没有这个合约在集合竞价中成交的交易日": "The market-wide daily table has no day on which this contract traded in the auction"
 }

@@ -152,8 +152,6 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
           limit: 10,
           start: "",
           end: "",
-          include_macd: false,
-          period: "day",
         })
       ).daily_page;
     assert.equal((await readDaily()).bars[0].close, "2");

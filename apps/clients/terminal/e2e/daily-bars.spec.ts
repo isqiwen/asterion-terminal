@@ -119,3 +119,46 @@ test("a contract's days and a product's months backtest from the daily table", a
   await expect(details).toContainText("取自全市场日线表");
   await expect(result.getByRole("region", { name: "SHFE · ag2610", exact: true })).toHaveCount(0);
 });
+
+// The market chart reads a contract's days from the daily table through the
+// real core and data service: nothing is downloaded for them.
+test("the market chart draws a contract's days from the daily table", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".workspace-tabs")).toBeVisible();
+  // Forty weekdays, eight whole weeks, of lead's October month; one minute
+  // download puts it on the history board.
+  const days: string[] = [];
+  for (let at = Date.UTC(2026, 7, 17); days.length < 40; at += 86400000)
+    if (new Date(at).getUTCDay() % 6 !== 0) days.push(new Date(at).toISOString().slice(0, 10));
+  const { daily } = await seedHistory(page.request, [100], "chart-pb", {
+    product: "pb",
+    minuteDays: [days[39]],
+    dailyDays: days,
+  });
+  const weeks = await rpc(page.request, "data.tables.daily", {
+    daily,
+    contract: "SHFE/pb/2026-10",
+    period: "week",
+    offset: 0,
+    limit: 100,
+  });
+  checkSnapshot("daily table chart", weeks);
+  expect(weeks.table_daily!.total).toBe(8);
+  expect(weeks.table_daily!.candles[0]).toEqual({
+    trading_day: "2026-08-21",
+    open: "100",
+    high: "201",
+    low: "90",
+    close: "110",
+    volume: "50000",
+  });
+  await page.reload();
+  await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
+  await page.getByRole("tab", { name: "历史行情", exact: true }).click();
+  const board = page.locator(".history-market-board");
+  await board.getByRole("searchbox", { name: "搜索历史合约" }).fill("pb");
+  await board.getByRole("button", { name: /SHFE · pb\/2026-10/ }).click();
+  await board.getByRole("button", { name: "日K", exact: true }).click();
+  await expect(board.locator(".market-history-pages")).toContainText("1–40 / 40");
+  await expect(board.locator(".market-chart-source")).toContainText("全市场日线表");
+});

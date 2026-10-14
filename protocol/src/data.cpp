@@ -126,8 +126,7 @@ Json decode_daily_page(const data::v1::DailyPage& page) {
   const auto begin = parse_trading_date(page.begin_day());
   const auto end = parse_trading_date(page.end_day());
   if (page.version() != 2 || page.limit() < 1 || page.limit() > 200 || begin > end ||
-      !data::v1::DailyPeriod_IsValid(page.period()) || page.source().empty() ||
-      page.contract_id().empty() || page.total_rows() > 20 * 366 + 1 ||
+      page.source().empty() || page.contract_id().empty() || page.total_rows() > 20 * 366 + 1 ||
       page.matched_rows() > page.total_rows() || page.offset() > page.matched_rows() ||
       (page.matched_rows() && page.offset() == page.matched_rows()) ||
       static_cast<std::uint64_t>(page.bars_size()) !=
@@ -169,21 +168,8 @@ Json decode_daily_page(const data::v1::DailyPage& page) {
                     {"previous_close", optional(bar.previous_close)},
                     {"previous_settlement", optional(bar.previous_settlement)},
                     {"settlement", optional(bar.settlement)}});
-    if (row.has_macd()) {
-      const auto& macd = row.macd();
-      if (!std::isfinite(macd.diff()) || !std::isfinite(macd.signal()) ||
-          !std::isfinite(macd.histogram()))
-        throw std::invalid_argument("invalid daily dataset page response");
-      bars.back()["macd"] = {
-          {"diff", macd.diff()}, {"signal", macd.signal()}, {"histogram", macd.histogram()}};
-    }
   }
   return {{"id", page.task_id()},
-          {"period", page.period() == data::v1::DAY       ? "day"
-                     : page.period() == data::v1::WEEK    ? "week"
-                     : page.period() == data::v1::MONTH   ? "month"
-                     : page.period() == data::v1::QUARTER ? "quarter"
-                                                          : "year"},
           {"source", page.source()},
           {"contract_id", page.contract_id()},
           {"manifest_sha256", page.manifest_sha256()},

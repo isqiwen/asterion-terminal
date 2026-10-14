@@ -1,6 +1,6 @@
 add_library(asterion_data_queries STATIC bar_dataset_source.cpp dominant_plan.cpp history_coverage.cpp history_update.cpp table_series.cpp table_update.cpp)
 target_include_directories(asterion_data_queries PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(asterion_data_queries PUBLIC asterion_history_files asterion_protocol)
+target_link_libraries(asterion_data_queries PUBLIC asterion_history_files asterion_protocol PRIVATE asterion_chart_indicators)
 add_library(asterion_data_store STATIC data_store.cpp download_budget.cpp)
 target_include_directories(asterion_data_store PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(asterion_data_store PUBLIC asterion_data_queries PRIVATE asterion_history_providers)

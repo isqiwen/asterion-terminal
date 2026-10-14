@@ -47,6 +47,12 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     };
     await enterWorkbench(page);
     await call("node.data_tasks.local.open");
+    // The fixture seeds the daily table under the sources the installed data
+    // source offers: those are the ones the Terminal's pages read.
+    const offered = (await call("data.tables.coverage")).table_coverage.sources;
+    const table = offered.find(item => item.table === "futures.daily");
+    const source = name =>
+      offered.find(item => item.table === name && item.plugin_id === table.plugin_id).source;
     const stopped = await call("node.action", { id: "local", service: "task", action: "stop" });
     await call("node.action", { id: "local", service: "historical-data", action: "stop" });
     const service = stopped.nodes
@@ -59,7 +65,16 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     );
     await execFile(
       path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug", "asterion_test_minutes"),
-      ["--directory", service.directory],
+      [
+        "--directory",
+        service.directory,
+        "--daily-source",
+        table.source,
+        "--calendar-source",
+        source("futures.calendar"),
+        "--contracts-source",
+        source("futures.contracts"),
+      ],
       {
         env: {
           ...process.env,
@@ -95,8 +110,6 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
       limit: 10,
       start: "",
       end: "",
-      include_macd: false,
-      period: "day",
     });
     assert.equal(reply.daily_page.bars.length, 10);
     assert.equal(reply.daily_page.id, daily.id);

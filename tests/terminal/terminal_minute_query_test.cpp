@@ -305,6 +305,14 @@ struct MinuteService {
             page->set_manifest_sha256(std::string(64, 'a'));
             page->set_begin_day(query.begin_day().empty() ? "2023-01-01" : query.begin_day());
             page->set_end_day(query.end_day().empty() ? "2024-01-01" : query.end_day());
+          } else if (request.has_table_daily()) {
+            // No candles: what is checked here is whose they are.
+            const auto& query = request.table_daily();
+            auto* page = response.mutable_table_daily();
+            *page->mutable_daily() = query.daily();
+            page->set_contract(wrong_identity ? "SHFE/cu/2024-04" : query.contract());
+            page->set_period(query.period());
+            page->set_limit(query.limit());
           } else {
             throw std::runtime_error("unexpected data fixture request");
           }
@@ -354,6 +362,10 @@ Json query(const std::string& id) {
                                        {"start", ""},
                                        {"end", ""},
                                        {"include_macd", true}});
+}
+Json daily_query(const std::string& id) {
+  return request("data.daily.page",
+                 {{"id", id}, {"offset", 0}, {"limit", 100}, {"start", ""}, {"end", ""}});
 }
 } // namespace
 namespace {
@@ -589,9 +601,7 @@ TEST(TerminalDailyQueries, ConcurrentDailyAndMinuteReadersDoNotBlockOrPublishSta
   MinuteService replacement;
   terminal::Application app;
   terminal::ApplicationTestAccess::attach(app, source.address(), source.data_address());
-  auto daily = query("daily");
-  daily["method"] = "data.daily.page";
-  daily["params"]["period"] = "day";
+  auto daily = daily_query("daily");
   auto first = std::async(std::launch::async, [&] { return app.dispatch(daily); });
   EXPECT_TRUE(source.wait(1));
   auto minute = std::async(std::launch::async, [&] { return app.dispatch(query("minute")); });
@@ -628,14 +638,12 @@ TEST(TerminalDailyQueries, DatesAndParametersAreValidatedBeforeServiceIO) {
   source.release();
   terminal::Application app;
   terminal::ApplicationTestAccess::attach(app, source.address(), source.data_address());
-  auto daily = query("daily");
-  daily["method"] = "data.daily.page";
-  daily["params"]["period"] = "day";
+  auto daily = daily_query("daily");
   EXPECT_EQ(app.dispatch(daily).at("daily_page").at("begin_day"), "2023-01-01");
   daily["params"]["start"] = "2023-02-01";
   EXPECT_EQ(app.dispatch(daily).at("daily_page").at("begin_day"), "2023-02-01");
-  for (const auto& change : std::vector<Json>{{{"period", "decade"}},
-                                              {{"period", 0}},
+  // A download is read by day: there is no period to ask for.
+  for (const auto& change : std::vector<Json>{{{"period", "week"}},
                                               {{"start", 0}},
                                               {{"start", "2023-02-29"}},
                                               {{"start", "2023-01-01 09:00:00"}},
@@ -644,7 +652,6 @@ TEST(TerminalDailyQueries, DatesAndParametersAreValidatedBeforeServiceIO) {
                                               {{"offset", -1}},
                                               {{"offset", 99999}},
                                               {{"limit", 201}},
-                                              {{"include_macd", 1}},
                                               {{"unknown", true}}}) {
     auto bad = daily;
     bad["params"].update(change);
@@ -657,14 +664,40 @@ TEST(TerminalDailyQueries, DatesAndParametersAreValidatedBeforeServiceIO) {
     std::lock_guard lock(source.mutex);
     EXPECT_EQ(source.entered, 2);
   }
-  // This fixture deliberately replies with DAY; reject a WEEK request's response.
-  daily["params"]["period"] = "week";
+}
+TEST(TerminalDailyQueries, AChartOfTheDailyTableIsTypedAndOnlyItsOwnReplyIsPublished) {
+  MinuteService source;
+  source.release();
+  terminal::Application app;
+  terminal::ApplicationTestAccess::attach(app, source.address(), source.data_address());
+  auto chart = request("data.tables.daily", {{"daily",
+                                              {{"snapshot", std::string(64, 'b')},
+                                               {"daily_source", "fixture.daily.v1"},
+                                               {"calendar_source", "fixture.calendar.v1"},
+                                               {"contracts_source", "fixture.contracts.v1"}}},
+                                             {"contract", "SHFE/cu/2024-03"},
+                                             {"period", "week"},
+                                             {"offset", 0},
+                                             {"limit", 100}});
+  const auto page = app.dispatch(chart).at("table_daily");
+  EXPECT_EQ(page.at("contract"), "SHFE/cu/2024-03");
+  EXPECT_EQ(page.at("period"), "week");
+  EXPECT_EQ(page.at("daily").at("snapshot"), std::string(64, 'b'));
+  EXPECT_FALSE(app.dispatch(request("runtime.snapshot")).contains("table_daily"));
+  // A product has no candles of its own, and a period is one of five.
+  for (const auto& change :
+       std::vector<Json>{{{"contract", "SHFE/cu"}}, {{"period", "decade"}}, {{"limit", 201}}}) {
+    auto bad = chart;
+    bad["params"].update(change);
+    EXPECT_THROW(app.dispatch(bad), std::invalid_argument);
+  }
+  source.wrong_identity = true;
   try {
-    (void)app.dispatch(daily);
-    FAIL() << "wrong aggregate period was accepted";
+    (void)app.dispatch(chart);
+    FAIL() << "another contract's chart was accepted";
   } catch (const Error& error) {
     EXPECT_EQ(error.code(), ErrorCode::unavailable);
-    EXPECT_EQ(std::string(error.what()), "daily dataset page identity mismatch");
+    EXPECT_EQ(std::string(error.what()), "daily table chart identity mismatch");
   }
 }
 TEST(TerminalDailyQueries, SubmissionRequiresCurrentCatalogAndSendsTypedDatesToService) {

@@ -46,6 +46,7 @@ public:
   [[nodiscard]] std::future<Json> table_coverage();
   [[nodiscard]] std::future<Json> table_page(const data::v1::TablePageQuery&);
   [[nodiscard]] std::future<Json> table_products(const data::v1::TableProductsQuery&);
+  [[nodiscard]] std::future<Json> table_daily(const data::v1::TableDailyQuery&);
   [[nodiscard]] static std::future<Json>
   inspect_history_usage(ServiceIo&, const ServiceEndpoint&, const std::string&,
                         std::chrono::steady_clock::time_point deadline);

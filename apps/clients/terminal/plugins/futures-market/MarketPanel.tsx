@@ -78,25 +78,18 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
               {nameFor(instrument) && <small>{instrument.replace("/", " · ")}</small>}
               <small>
                 {[
-                  ...[
-                    ...new Set(
-                      versions
-                        .filter(
-                          version =>
-                            version.contract_id === instrument && version.interval_minutes > 0,
-                        )
-                        .map(version => version.interval_minutes),
-                    ),
-                  ]
-                    .filter((period): period is number => period !== undefined)
-                    .sort((a, b) => a - b)
-                    .map(period => `${period} min`),
-                  ...(versions.some(
-                    version => version.contract_id === instrument && version.interval_minutes === 0,
-                  )
-                    ? [t("日K")]
-                    : []),
-                ].join(" / ")}
+                  ...new Set(
+                    versions
+                      .filter(
+                        version =>
+                          version.contract_id === instrument && version.interval_minutes > 0,
+                      )
+                      .map(version => version.interval_minutes),
+                  ),
+                ]
+                  .sort((a, b) => a - b)
+                  .map(period => `${period} min`)
+                  .join(" / ")}
               </small>
             </button>
           ))}

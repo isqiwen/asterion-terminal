@@ -2,8 +2,6 @@
 #include "history_daily.hpp"
 #include "history_metadata.hpp"
 #include "bar_parquet.hpp"
-#include "macd.hpp"
-#include "calendar_bars.hpp"
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
@@ -260,7 +258,7 @@ data::v1::DailyPage read_daily_page(const data::v1::DailyDownload& input,
                                     const data::v1::DailyDownloadResult& result,
                                     const data::v1::DailyPageQuery& query) {
   validate_id(query.dataset_id().empty() ? query.task_id() : query.dataset_id());
-  if (query.limit() < 1 || query.limit() > 200 || !data::v1::DailyPeriod_IsValid(query.period()))
+  if (query.limit() < 1 || query.limit() > 200)
     throw std::invalid_argument("invalid daily dataset page query");
   const auto range = daily_range(input);
   const auto begin =
@@ -277,32 +275,21 @@ data::v1::DailyPage read_daily_page(const data::v1::DailyDownload& input,
       result.manifest_sha256() != meta.manifest_sha256 || result.rows() != meta.rows ||
       result.pages() != meta.pages)
     throw std::invalid_argument("daily dataset result does not match request");
-  std::vector<HistoricalDailyBar> grouped;
-  if (query.period() != data::v1::DAY) {
-    for (auto& bucket : chart_indicators::calendar_bars(
-             dataset.bars,
-             query.period() == data::v1::WEEK      ? chart_indicators::CalendarPeriod::week
-             : query.period() == data::v1::MONTH   ? chart_indicators::CalendarPeriod::month
-             : query.period() == data::v1::QUARTER ? chart_indicators::CalendarPeriod::quarter
-                                                   : chart_indicators::CalendarPeriod::year))
-      grouped.push_back(std::move(bucket.bar));
-  }
-  const auto& bars = query.period() == data::v1::DAY ? dataset.bars : grouped;
+  const auto& bars = dataset.bars;
   data::v1::DailyPage page;
   page.set_version(2);
   page.set_task_id(query.dataset_id().empty() ? query.task_id() : query.dataset_id());
   page.set_source(input.source());
   page.set_contract_id(input.contract_id());
   page.set_manifest_sha256(meta.manifest_sha256);
-  page.set_period(query.period());
   page.set_total_rows(bars.size());
   page.set_offset(query.offset());
   page.set_limit(query.limit());
   page.set_begin_day(format_trading_date(begin));
   page.set_end_day(format_trading_date(end));
-  if (!dataset.bars.empty()) {
-    page.set_first_day(format_trading_date(dataset.bars.front().trading_day));
-    page.set_last_day(format_trading_date(dataset.bars.back().trading_day));
+  if (!bars.empty()) {
+    page.set_first_day(format_trading_date(bars.front().trading_day));
+    page.set_last_day(format_trading_date(bars.back().trading_day));
   }
   std::uint64_t matched = 0;
   for (const auto& bar : bars)
@@ -311,25 +298,17 @@ data::v1::DailyPage read_daily_page(const data::v1::DailyDownload& input,
   page.set_matched_rows(matched);
   if (query.offset() > matched || (matched && query.offset() == matched))
     throw std::invalid_argument("daily dataset page offset is out of range");
-  chart_indicators::Macd macd;
   auto skip = query.offset();
   for (const auto& bar : bars) {
     if (bar.trading_day > end || page.bars_size() == static_cast<int>(query.limit()))
       break;
-    const auto indicator = query.include_macd() ? macd.push(bar.close) : std::nullopt;
     if (bar.trading_day < begin)
       continue;
     if (skip) {
       --skip;
       continue;
     }
-    auto* row = page.add_bars();
-    *row = protocol::encode_daily_bar(bar);
-    if (indicator) {
-      row->mutable_macd()->set_diff(indicator->diff);
-      row->mutable_macd()->set_signal(indicator->signal);
-      row->mutable_macd()->set_histogram(indicator->histogram);
-    }
+    *page.add_bars() = protocol::encode_daily_bar(bar);
   }
   return page;
 }

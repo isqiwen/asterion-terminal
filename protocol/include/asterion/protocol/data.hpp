@@ -49,6 +49,11 @@ std::string table_series_revision(const data::v1::TableSeries&);
 Json decode_table_series(const data::v1::TableSeries&);
 data::v1::TableProductsQuery encode_table_products_query(const Json&);
 Json decode_table_products(const data::v1::TableProducts&);
+// A chart of one contract of the daily table: its candles of a period, a page
+// of them at a time.
+void validate_table_daily_query(const data::v1::TableDailyQuery&);
+data::v1::TableDailyQuery encode_table_daily_query(const Json&);
+Json decode_table_daily(const data::v1::TableDailyPage&);
 
 // Evidence is fixed with task inputs, independently of bar content identity.
 void validate_history_evidence(const data::v1::HistoryVersionEvidence&);

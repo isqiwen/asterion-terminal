@@ -98,6 +98,18 @@ const prefixedDiagnostics = [
   ],
   ["the contract table has no ", "合约表里没有这个合约，算不出它的合约乘数；详情里是合约"],
   [
+    "no contract list of ",
+    "这个交易所的合约表还没有入库，不知道合约在哪些交易日上市，画不出日线。请先在「数据 → 全市场数据」更新",
+  ],
+  [
+    "the contract list does not list ",
+    "合约表里没有这个合约，画不出它的日线：合约表可能早于它上市，请先在「数据 → 全市场数据」更新合约表；详情里是合约",
+  ],
+  [
+    "the contract list gives no listing days of ",
+    "合约表没有给出这个合约的上市和退市日期，画不出它的日线；详情里是合约",
+  ],
+  [
     "the contract table's units of ",
     "合约表里这个合约的交易单位和报价单位读不懂，算不出合约乘数；详情里是合约",
   ],

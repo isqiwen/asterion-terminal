@@ -279,8 +279,33 @@ message TableProduct {
 message TableProducts { repeated TableProduct products = 1; }
 
 enum DailyPeriod { DAY = 0; WEEK = 1; MONTH = 2; QUARTER = 3; YEAR = 4; }
-message DailyPageQuery { string dataset_id = 1; string task_id = 2; uint64 offset = 3; uint32 limit = 4; string begin_day = 5; string end_day = 6; bool include_macd = 7; DailyPeriod period = 8; }
+// One contract of the market-wide daily table as a chart draws it, under a
+// snapshot: the days it traded in the auction, from the day the snapshot's
+// contract list lists it to the day it delists it, grouped by `period`. A day
+// the table does not hold is not drawn. MACD runs from the first candle.
+message TableDailyQuery {
+  DailyTable daily = 1; string contract = 2; DailyPeriod period = 3;
+  uint64 offset = 4; uint32 limit = 5; // 1..200
+}
+// A trading day, or the last trading day of the week, month, quarter or year
+// it groups. Display data: no order, ledger or task reads it.
+message TableCandle {
+  string trading_day = 1;
+  asterion.protocol.v1.Decimal open = 2;
+  asterion.protocol.v1.Decimal high = 3;
+  asterion.protocol.v1.Decimal low = 4;
+  asterion.protocol.v1.Decimal close = 5;
+  asterion.protocol.v1.Decimal volume = 6;
+  ChartMacd macd = 7; // absent while the first 33 candles warm it up
+}
+message TableDailyPage {
+  DailyTable daily = 1; string contract = 2; DailyPeriod period = 3;
+  uint64 total = 4; uint64 offset = 5; uint32 limit = 6;
+  repeated TableCandle candles = 7;
+}
+message DailyPageQuery { reserved 7, 8; string dataset_id = 1; string task_id = 2; uint64 offset = 3; uint32 limit = 4; string begin_day = 5; string end_day = 6; }
 message DailyBar {
+  reserved 12;
   string trading_day = 1;
   asterion.protocol.v1.Decimal open = 2;
   asterion.protocol.v1.Decimal high = 3;
@@ -292,9 +317,9 @@ message DailyBar {
   asterion.protocol.v1.Decimal previous_close = 9;
   asterion.protocol.v1.Decimal previous_settlement = 10;
   asterion.protocol.v1.Decimal settlement = 11;
-  ChartMacd macd = 12;
 }
 message DailyPage {
+  reserved 15;
   uint32 version = 1;
   string task_id = 2;
   string source = 3;
@@ -309,7 +334,6 @@ message DailyPage {
   string begin_day = 12;
   string end_day = 13;
   repeated DailyBar bars = 14;
-  DailyPeriod period = 15;
 }
 
 message HistoryCatalogQuery { string source = 1; string venue = 2; string product = 3; string credential = 4; }

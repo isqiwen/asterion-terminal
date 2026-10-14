@@ -271,6 +271,8 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
     *response.mutable_table_series() = table_series(store_->tables(), request.table_series());
   else if (request.has_table_products())
     *response.mutable_table_products() = table_products(store_->tables(), request.table_products());
+  else if (request.has_table_daily())
+    *response.mutable_table_daily() = table_daily(store_->tables(), request.table_daily());
   else
     throw std::invalid_argument("missing data operation");
   return {};

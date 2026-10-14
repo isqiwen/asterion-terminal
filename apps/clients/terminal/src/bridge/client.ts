@@ -320,6 +320,7 @@ export type TerminalCommand =
   | "data.tables.coverage"
   | "data.tables.page"
   | "data.tables.products"
+  | "data.tables.daily"
   | "data.dataset.select"
   | "data.dataset.series"
   | "data.dataset.daily"
@@ -959,6 +960,27 @@ export type TableProduct = {
   first_listed: string;
   last_delisted: string;
 };
+// A day a contract traded in the auction, or the last such day of the week,
+// month, quarter or year it groups. Display data only.
+export type TableCandle = {
+  trading_day: string;
+  open: string;
+  high: string;
+  low: string;
+  close: string;
+  volume: string;
+  macd?: { diff: number; signal: number; histogram: number };
+};
+// A page of one contract's candles in the market-wide daily table.
+export type TableDailyPage = {
+  daily: DailyTable;
+  contract: string;
+  period: "day" | "week" | "month" | "quarter" | "year";
+  total: number;
+  offset: number;
+  limit: number;
+  candles: TableCandle[];
+};
 // One page of a stored partition. Cells are text as stored; null is a missing value.
 export type TablePage = {
   revision: TablePartitionKey & {
@@ -1107,7 +1129,6 @@ export type DailyPage = Omit<
   HistoryPage,
   "interval_minutes" | "first_ns" | "last_ns" | "begin_ns" | "end_ns" | "bars"
 > & {
-  period: "day" | "week" | "month" | "quarter" | "year";
   first_day: string;
   last_day: string;
   begin_day: string;
@@ -1148,6 +1169,7 @@ export type Snapshot = {
   table_coverage?: TableCoverage;
   table_page?: TablePage;
   table_products?: TableProduct[];
+  table_daily?: TableDailyPage;
   // Present when the core answered from its last snapshot because another operation was running.
   // Revision of the core's published state and when the core last refreshed it.
   revision: number;

@@ -1,6 +1,8 @@
 #include <asterion/domain/history_identity.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
+#include <algorithm>
+#include <cmath>
 #include <set>
 #include <stdexcept>
 namespace asterion::protocol {
@@ -17,6 +19,14 @@ template <class Message> void validate_selection(const Message& message) {
   if (!digest(message.snapshot()) || message.begin_day() > message.end_day())
     throw std::invalid_argument("invalid table series request");
 }
+constexpr std::pair<data::v1::DailyPeriod, std::string_view> periods[] = {
+    {data::v1::DAY, "day"},
+    {data::v1::WEEK, "week"},
+    {data::v1::MONTH, "month"},
+    {data::v1::QUARTER, "quarter"},
+    {data::v1::YEAR, "year"}};
+// A contract's days, and so its candles: at most twenty years of them.
+constexpr std::uint64_t max_table_candles = 20 * 366 + 1;
 } // namespace
 TableInstrument table_instrument(std::string_view text) {
   try {
@@ -213,5 +223,80 @@ Json decode_table_products(const data::v1::TableProducts& products) {
                     {"last_delisted", product.last_delisted()}});
   }
   return rows;
+}
+void validate_table_daily_query(const data::v1::TableDailyQuery& query) {
+  validate_message(query);
+  validate_daily_table(query.daily());
+  if (table_instrument(query.contract()).delivery_month.empty() ||
+      !data::v1::DailyPeriod_IsValid(query.period()) || query.limit() < 1 || query.limit() > 200 ||
+      query.offset() >= max_table_candles)
+    throw std::invalid_argument("invalid daily table chart query");
+}
+data::v1::TableDailyQuery encode_table_daily_query(const Json& value) {
+  require_fields(value, {"daily", "contract", "period", "offset", "limit"});
+  const auto& offset = value.at("offset");
+  const auto& limit = value.at("limit");
+  const auto period =
+      std::ranges::find(periods, value.at("period").get<std::string>(),
+                        &std::pair<data::v1::DailyPeriod, std::string_view>::second);
+  if (!offset.is_number_integer() || !limit.is_number_integer() || std::end(periods) == period ||
+      offset < 0 || offset.get<std::int64_t>() >= static_cast<std::int64_t>(max_table_candles) ||
+      limit < 1 || limit > 200)
+    throw std::invalid_argument("invalid daily table chart query");
+  data::v1::TableDailyQuery query;
+  *query.mutable_daily() = encode_daily_table(value.at("daily"));
+  query.set_contract(value.at("contract").get<std::string>());
+  query.set_period(period->first);
+  query.set_offset(offset.get<std::uint64_t>());
+  query.set_limit(limit.get<std::uint32_t>());
+  validate_table_daily_query(query);
+  return query;
+}
+Json decode_table_daily(const data::v1::TableDailyPage& page) {
+  validate_message(page);
+  const auto reject = [] { throw std::invalid_argument("invalid daily table chart"); };
+  const auto period = std::ranges::find(periods, page.period(),
+                                        &std::pair<data::v1::DailyPeriod, std::string_view>::first);
+  if (table_instrument(page.contract()).delivery_month.empty() || std::end(periods) == period ||
+      page.limit() < 1 || page.limit() > 200 || page.total() > max_table_candles ||
+      page.offset() > page.total() || (page.total() && page.offset() == page.total()) ||
+      static_cast<std::uint64_t>(page.candles_size()) !=
+          std::min<std::uint64_t>(page.limit(), page.total() - page.offset()))
+    reject();
+  Json candles = Json::array();
+  std::string previous;
+  for (const auto& row : page.candles()) {
+    (void)parse_trading_date(row.trading_day());
+    const auto open = Decimal::from_raw(row.open().units()),
+               high = Decimal::from_raw(row.high().units()),
+               low = Decimal::from_raw(row.low().units()),
+               close = Decimal::from_raw(row.close().units()),
+               volume = Decimal::from_raw(row.volume().units());
+    if (row.trading_day() <= previous || low > high || open < low || open > high || close < low ||
+        close > high || volume < Decimal{} || volume.raw() % 100000000)
+      reject();
+    previous = row.trading_day();
+    candles.push_back({{"trading_day", row.trading_day()},
+                       {"open", open.str()},
+                       {"high", high.str()},
+                       {"low", low.str()},
+                       {"close", close.str()},
+                       {"volume", volume.str()}});
+    if (row.has_macd()) {
+      const auto& macd = row.macd();
+      if (!std::isfinite(macd.diff()) || !std::isfinite(macd.signal()) ||
+          !std::isfinite(macd.histogram()))
+        reject();
+      candles.back()["macd"] = {
+          {"diff", macd.diff()}, {"signal", macd.signal()}, {"histogram", macd.histogram()}};
+    }
+  }
+  return {{"daily", decode_daily_table(page.daily())},
+          {"contract", page.contract()},
+          {"period", period->second},
+          {"total", page.total()},
+          {"offset", page.offset()},
+          {"limit", page.limit()},
+          {"candles", std::move(candles)}};
 }
 } // namespace asterion::protocol

@@ -1,5 +1,7 @@
 #include "table_series.hpp"
+#include "calendar_bars.hpp"
 #include "dominant_plan.hpp"
+#include "macd.hpp"
 #include "table_update.hpp"
 #include <asterion/domain/daily_bars.hpp>
 #include <asterion/domain/history_identity.hpp>
@@ -427,5 +429,100 @@ v1::TableProducts table_products(const TableStore& store, const v1::TableProduct
     }
   }
   return result;
+}
+v1::TableDailyPage table_daily(const TableStore& store, const v1::TableDailyQuery& query) {
+  using chart_indicators::DailyCandle;
+  protocol::validate_table_daily_query(query);
+  const auto& table = query.daily();
+  const auto until = held(store, table.snapshot());
+  const auto venue = HistoryIdentity::parse(query.contract()).venue;
+  // The days it can have a row on: from its listing to its delisting.
+  const auto lists = store.revisions(series_of(contracts_table, table.contracts_source()), venue,
+                                     "all", "all", until);
+  if (lists.empty())
+    throw Error(ErrorCode::conflict, "no contract list of " + venue + " is stored");
+  const auto& contracts = history_table(contracts_table);
+  const auto name = table_column(contracts, "contract"),
+             listed = table_column(contracts, "list_date"),
+             delisted = table_column(contracts, "delist_date");
+  const auto rows = store.rows(lists.front());
+  const auto found = std::ranges::find_if(rows, [&](const auto& cells) {
+    return std::get<std::string>(cells[name]) == query.contract();
+  });
+  if (found == rows.end())
+    throw Error(ErrorCode::not_found, "the contract list does not list " + query.contract());
+  const auto* first = std::get_if<std::int64_t>(&(*found)[listed]);
+  const auto* last = std::get_if<std::int64_t>(&(*found)[delisted]);
+  if (!first || !last)
+    throw Error(ErrorCode::not_found,
+                "the contract list gives no listing days of " + query.contract());
+  const auto revisions = store.revisions(series_of(daily_table, table.daily_source()), venue,
+                                         date_text(*first), date_text(*last), until);
+  const auto& daily = history_table(daily_table);
+  const std::size_t columns[] = {table_column(daily, "contract"), table_column(daily, "open"),
+                                 table_column(daily, "high"),     table_column(daily, "low"),
+                                 table_column(daily, "close"),    table_column(daily, "volume")};
+  const std::string prefixes[] = {query.contract()};
+  std::map<std::string, DailyCandle> days;
+  store.scan(revisions, columns, prefixes, [&](std::size_t revision, auto& cells) {
+    if (std::get<std::string>(cells[0]) != query.contract())
+      return;
+    const auto value = [&](std::size_t cell) { return std::get_if<std::int64_t>(&cells[cell]); };
+    const auto *open = value(1), *high = value(2), *low = value(3), *close = value(4),
+               *volume = value(5);
+    // A day without an open, a high and a low is one it did not trade in the
+    // auction: there is no candle to draw.
+    if (!open || !high || !low || !close || !volume)
+      return;
+    const auto& day = revisions[revision].period;
+    DailyCandle candle{parse_trading_date(day),   Decimal::from_raw(*open),
+                       Decimal::from_raw(*high),  Decimal::from_raw(*low),
+                       Decimal::from_raw(*close), Decimal::parse(std::to_string(*volume))};
+    candle.validate();
+    days.emplace(day, candle);
+  });
+  std::vector<DailyCandle> candles;
+  for (const auto& [day, candle] : days)
+    candles.push_back(candle);
+  if (query.period() != v1::DAY) {
+    std::vector<DailyCandle> grouped;
+    for (const auto& bucket : chart_indicators::calendar_bars(
+             candles, query.period() == v1::WEEK      ? chart_indicators::CalendarPeriod::week
+                      : query.period() == v1::MONTH   ? chart_indicators::CalendarPeriod::month
+                      : query.period() == v1::QUARTER ? chart_indicators::CalendarPeriod::quarter
+                                                      : chart_indicators::CalendarPeriod::year))
+      grouped.push_back(bucket.bar);
+    candles = std::move(grouped);
+  }
+  if (query.offset() > candles.size() || (!candles.empty() && query.offset() == candles.size()))
+    throw std::invalid_argument("daily table chart offset is out of range");
+  v1::TableDailyPage page;
+  *page.mutable_daily() = table;
+  page.set_contract(query.contract());
+  page.set_period(query.period());
+  page.set_total(candles.size());
+  page.set_offset(query.offset());
+  page.set_limit(query.limit());
+  // MACD runs from the first candle, whichever page is asked for.
+  chart_indicators::Macd macd;
+  for (std::size_t i = 0;
+       i < candles.size() && page.candles_size() < static_cast<int>(query.limit()); ++i) {
+    const auto indicator = macd.push(candles[i].close);
+    if (i < query.offset())
+      continue;
+    auto* row = page.add_candles();
+    row->set_trading_day(format_trading_date(candles[i].trading_day));
+    row->mutable_open()->set_units(candles[i].open.raw());
+    row->mutable_high()->set_units(candles[i].high.raw());
+    row->mutable_low()->set_units(candles[i].low.raw());
+    row->mutable_close()->set_units(candles[i].close.raw());
+    row->mutable_volume()->set_units(candles[i].volume.raw());
+    if (indicator) {
+      row->mutable_macd()->set_diff(indicator->diff);
+      row->mutable_macd()->set_signal(indicator->signal);
+      row->mutable_macd()->set_histogram(indicator->histogram);
+    }
+  }
+  return page;
 }
 } // namespace asterion::data

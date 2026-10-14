@@ -13,7 +13,7 @@ export {
 export { useWorkspaceDraft, useWorkspaceRequestId } from "../src/host/workspace/drafts";
 export { Icon } from "../src/ui/Icon";
 export { useHistoryDatasets } from "../src/ui/useHistoryDatasets";
-export { dailyTableOf } from "../src/ui/useDailyTable";
+export { dailyTableOf, useDailyTable } from "../src/ui/useDailyTable";
 export { DatasetPicker } from "../src/ui/DatasetPicker";
 export { RollSchedule } from "../src/ui/RollSchedule";
 export { multipliers, priceIncrements } from "../src/ui/contractUnits";
@@ -61,6 +61,7 @@ export type TerminalContext = {
       | "data.tables.coverage"
       | "data.tables.page"
       | "data.tables.products"
+      | "data.tables.daily"
       | "market.minutes",
     params: Record<string, unknown>,
   ) => Promise<Snapshot>;

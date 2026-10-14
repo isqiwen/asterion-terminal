@@ -1,10 +1,16 @@
 #include "calendar_bars.hpp"
 #include <algorithm>
+#include <optional>
 #include <stdexcept>
 
 namespace asterion::chart_indicators {
-std::vector<CalendarBar> calendar_bars(std::span<const HistoricalDailyBar> source,
-                                       CalendarPeriod period) {
+void DailyCandle::validate() const {
+  if (!trading_day.ok() || trading_day.year() < std::chrono::year(1970) ||
+      trading_day.year() > std::chrono::year(9999) || low > high || open < low || open > high ||
+      close < low || close > high || volume < Decimal{})
+    throw std::invalid_argument("invalid daily candle");
+}
+std::vector<CalendarBar> calendar_bars(std::span<const DailyCandle> source, CalendarPeriod period) {
   using namespace std::chrono;
   if (period != CalendarPeriod::week && period != CalendarPeriod::month &&
       period != CalendarPeriod::quarter && period != CalendarPeriod::year)
@@ -41,9 +47,6 @@ std::vector<CalendarBar> calendar_bars(std::span<const HistoricalDailyBar> sourc
     value.low = std::min(value.low, bar.low);
     value.close = bar.close;
     value.volume = value.volume + bar.volume;
-    value.amount = value.amount + bar.amount;
-    value.open_interest = bar.open_interest;
-    value.settlement = bar.settlement;
     ++bucket.source_rows;
   }
   return result;

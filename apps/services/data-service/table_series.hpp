@@ -79,4 +79,10 @@ std::map<std::string, Decimal> contract_multipliers(const history_files::TableSt
 v1::TableSeriesGroup table_series(const history_files::TableStore&, const v1::TableSeriesRequest&);
 // The products of every exchange the snapshot holds a contract list of.
 v1::TableProducts table_products(const history_files::TableStore&, const v1::TableProductsQuery&);
+// One contract as a chart draws it: the days it traded in the auction, from
+// the day the snapshot's contract list lists it to the day it delists it, and
+// of those the stored ones; grouped by the period asked for, with MACD from
+// the first candle. Unlike a series it does not fail on a day the table lacks:
+// that day is not drawn. A contract the contract list lacks is refused.
+v1::TableDailyPage table_daily(const history_files::TableStore&, const v1::TableDailyQuery&);
 } // namespace asterion::data

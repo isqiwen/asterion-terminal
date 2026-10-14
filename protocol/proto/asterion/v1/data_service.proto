@@ -109,6 +109,7 @@ message DataRequest {
     TablePartitionRows store_table_partition = 40;
     TableSeriesRequest table_series = 41;
     TableProductsQuery table_products = 42;
+    TableDailyQuery table_daily = 43;
   }
 }
 message DataResponse {
@@ -144,5 +145,6 @@ message DataResponse {
     TablePartitionReceipt table_partition = 37;
     TableSeriesGroup table_series = 38;
     TableProducts table_products = 39;
+    TableDailyPage table_daily = 40;
   }
 }

@@ -84,8 +84,7 @@ export function HistoryDatasetViewer({
       setLoading(true);
       try {
         const result = await invoke.current(daily ? "data.daily.page" : "data.minutes.page", {
-          ...(daily ? { period: "day" } : {}),
-          include_macd: false,
+          ...(daily ? {} : { include_macd: false }),
           id,
           offset,
           limit,
@@ -94,12 +93,7 @@ export function HistoryDatasetViewer({
         });
         if (current !== sequence.current) return;
         const next = daily ? result.daily_page : result.history_page;
-        if (
-          !next ||
-          next.id !== id ||
-          next.source !== source ||
-          (daily && (!("period" in next) || next.period !== "day"))
-        )
+        if (!next || next.id !== id || next.source !== source)
           throw new Error(t("返回的数据与所选数据集不匹配"));
         setPage(next);
         setApplied(range);

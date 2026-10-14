@@ -1,23 +1,20 @@
 #include "calendar_bars.hpp"
+#include <asterion/domain/daily_bars.hpp>
 #include <gtest/gtest.h>
 using namespace asterion;
 using namespace asterion::chart_indicators;
 namespace {
-HistoricalDailyBar sample(const char* date) {
-  return {parse_trading_date(date),      Decimal::parse("100"), Decimal::parse("110"),
-          Decimal::parse("90"),          Decimal::parse("105"), Decimal::parse("2"),
-          Decimal::parse("12.00000001"), Decimal::parse("20"),  Decimal::parse("99"),
-          Decimal::parse("98"),          Decimal::parse("104")};
+DailyCandle sample(const char* date) {
+  return {parse_trading_date(date), Decimal::parse("100"), Decimal::parse("110"),
+          Decimal::parse("90"),     Decimal::parse("105"), Decimal::parse("2")};
 }
 } // namespace
-TEST(CalendarBars, IsoWeekCrossesYearAndRetainsFirstReferencesLastStateAndExactSums) {
+TEST(CalendarBars, IsoWeekCrossesYearAndKeepsFirstOpenLastCloseAndExactSums) {
   auto a = sample("2020-12-31"), b = sample("2021-01-01"), c = sample("2021-01-04");
   b.high = Decimal::parse("120");
   b.low = Decimal::parse("80");
   b.close = Decimal::parse("115");
-  b.open_interest = Decimal::parse("18");
-  b.previous_close.reset();
-  b.settlement.reset();
+  b.volume = Decimal::parse("2.5");
   const auto result = calendar_bars(std::vector{a, b, c}, CalendarPeriod::week);
   ASSERT_EQ(result.size(), 2);
   const auto& first = result.front();
@@ -30,12 +27,7 @@ TEST(CalendarBars, IsoWeekCrossesYearAndRetainsFirstReferencesLastStateAndExactS
   EXPECT_EQ(first.bar.high, b.high);
   EXPECT_EQ(first.bar.low, b.low);
   EXPECT_EQ(first.bar.close, b.close);
-  EXPECT_EQ(first.bar.previous_close, a.previous_close);
-  EXPECT_EQ(first.bar.previous_settlement, a.previous_settlement);
-  EXPECT_FALSE(first.bar.settlement);
-  EXPECT_EQ(first.bar.open_interest.str(), "18");
-  EXPECT_EQ(first.bar.volume.str(), "4");
-  EXPECT_EQ(first.bar.amount.str(), "24.00000002");
+  EXPECT_EQ(first.bar.volume.str(), "4.5");
 }
 TEST(CalendarBars, CalendarMonthsKeepLeapDayAndDoNotInventMissingDatesOrMonths) {
   const auto result =
@@ -58,7 +50,10 @@ TEST(CalendarBars, RejectsAmbiguousDatesInvalidInputAndOverflowWithoutPartialOut
   b.volume = Decimal::parse("-1");
   EXPECT_THROW(calendar_bars(std::vector{a, b}, CalendarPeriod::week), std::invalid_argument);
   b.volume = Decimal::parse("1");
-  a.amount = Decimal::from_raw(INT64_MAX);
+  b.close = Decimal::parse("111");
+  EXPECT_THROW(calendar_bars(std::vector{a, b}, CalendarPeriod::week), std::invalid_argument);
+  b.close = Decimal::parse("105");
+  a.volume = Decimal::from_raw(INT64_MAX);
   EXPECT_THROW(calendar_bars(std::vector{a, b}, CalendarPeriod::week), std::overflow_error);
 }
 
@@ -70,7 +65,7 @@ TEST(CalendarBars, CalendarQuartersAndYearsRespectBoundariesAndMissingPeriods) {
   EXPECT_EQ(format_trading_date(quarters[1].period_begin), "2024-01-01");
   EXPECT_EQ(format_trading_date(quarters[1].period_end), "2024-03-31");
   EXPECT_EQ(quarters[1].source_rows, 2);
-  EXPECT_EQ(quarters[1].bar.amount.str(), "24.00000002");
+  EXPECT_EQ(quarters[1].bar.volume.str(), "4");
   EXPECT_EQ(format_trading_date(quarters[2].period_begin), "2024-04-01");
   EXPECT_EQ(format_trading_date(quarters[2].period_end), "2024-06-30");
   EXPECT_EQ(format_trading_date(quarters[3].bar.trading_day), "2024-12-30");

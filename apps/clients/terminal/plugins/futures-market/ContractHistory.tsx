@@ -3,23 +3,27 @@ import { chartTime } from "./chart-time";
 import { averagePeriods, historyLookback, movingAverage } from "./indicators";
 import { useEffect, useRef, useState } from "react";
 import { PriceChart } from "@asterion/client-ui/PriceChart";
-import {
-  timestamp,
-  type HistoryPage,
-  type DailyPage,
-  type HistoryDatasetRecord,
-} from "../../src/bridge/client";
+import { timestamp, type HistoryBar, type HistoryDatasetRecord } from "../../src/bridge/client";
 import {
   translate,
+  useDailyTable,
   useWorkspaceDraft,
   ErrorNotice,
   asDisplayError,
   type DisplayError,
   type TerminalContext,
 } from "../contract";
-const datasetPeriod = (dataset: HistoryDatasetRecord): number | "day" =>
-  dataset.interval_minutes || "day";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
+// What one request drew: bars from the offset given of the total there are.
+type Drawn = {
+  offset: number;
+  total: number;
+  bars: (Pick<HistoryBar, "timestamp_ns" | "open" | "high" | "low" | "close" | "volume"> & {
+    macd?: HistoryBar["macd"];
+  })[];
+  identity: string;
+  source: string;
+};
 
 export function ContractHistory({
   venue,
@@ -76,14 +80,13 @@ export function ContractHistory({
       current = false;
     };
   }, [catalogKey, contractId, online, publications, retry]);
-  const datasets = catalog.key === catalogKey ? catalog.items : [];
-  const periods = [
-    ...new Set(
-      datasets.flatMap(task =>
-        task.interval_minutes > 0 && task.interval_minutes ? [task.interval_minutes] : [],
-      ),
-    ),
-  ].sort((a, b) => a - b);
+  // Minutes are this contract's downloads; its days are read from the
+  // market-wide daily table, under the snapshot the coverage names.
+  const minutes =
+    catalog.key === catalogKey ? catalog.items.filter(task => task.interval_minutes > 0) : [];
+  const periods = [...new Set(minutes.map(task => task.interval_minutes))].sort((a, b) => a - b);
+  const table = useDailyTable(snapshot, query);
+  const held = table.held?.table;
   const [selection, setSelection] = useState<{ connection: string | undefined; id: string }>({
     connection,
     id: "",
@@ -95,25 +98,30 @@ export function ContractHistory({
   const [period, setPeriod] = useWorkspaceDraft<
     number | "day" | "week" | "month" | "quarter" | "year" | null
   >(`${preferenceKey}.period`, null);
-  const initialDataset =
-    (preferLongest
-      ? (datasets.find(task => task.interval_minutes === 0) ??
-        datasets.find(task => task.interval_minutes === periods.at(-1)))
-      : undefined) ?? datasets[0];
-  const activePeriod =
-    fixedPeriod ?? period ?? (initialDataset ? datasetPeriod(initialDataset) : undefined);
+  // Chosen once both the downloads and the daily table are known.
+  const known = catalog.key === catalogKey && !table.loading;
+  const initialPeriod = !known
+    ? undefined
+    : preferLongest
+      ? held
+        ? "day"
+        : periods.at(-1)
+      : (minutes[0]?.interval_minutes ?? (held ? "day" : undefined));
+  const activePeriod = fixedPeriod ?? period ?? initialPeriod;
   useEffect(() => {
     // A tab-imposed period is not this chart's own remembered choice.
     if (fixedPeriod === undefined && period === null && activePeriod !== undefined)
       setPeriod(activePeriod);
   }, [fixedPeriod, period, activePeriod, setPeriod]);
   const daily = typeof activePeriod === "string";
-  const sourcePeriod = daily ? "day" : activePeriod;
-  const id =
-    datasets.find(task => task.id === selected && datasetPeriod(task) === sourcePeriod)?.id ??
-    datasets.find(task => datasetPeriod(task) === sourcePeriod)?.id ??
-    "";
-  const datasetKey = JSON.stringify([connection, id, activePeriod]);
+  const id = daily
+    ? ""
+    : (minutes.find(task => task.id === selected && task.interval_minutes === activePeriod)?.id ??
+      minutes.find(task => task.interval_minutes === activePeriod)?.id ??
+      "");
+  // What is drawn: a minute download, or the contract in the daily table.
+  const source = daily ? (held && contractId ? JSON.stringify([held, contractId]) : "") : id;
+  const datasetKey = JSON.stringify([connection, source, activePeriod]);
   const [paging, setPaging] = useState({ key: "", offset: 0 });
   const offset = paging.key === datasetKey ? paging.offset : 0;
   useEffect(() => {
@@ -124,9 +132,7 @@ export function ContractHistory({
   const [showAverages, setShowAverages] = useWorkspaceDraft(`${preferenceKey}.averages`, true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<DisplayError>("");
-  const [response, setResponse] = useState<{ key: string; page: HistoryPage | DailyPage } | null>(
-    null,
-  );
+  const [response, setResponse] = useState<{ key: string; page: Drawn } | null>(null);
   const invoke = useRef(query);
   useEffect(() => {
     invoke.current = query;
@@ -134,33 +140,69 @@ export function ContractHistory({
   useEffect(() => {
     let current = true;
     setError("");
-    if (!id || !online) {
+    if (!source || !online) {
       setLoading(false);
       return;
     }
     setLoading(true);
-    void invoke
-      .current(daily ? "data.daily.page" : "data.minutes.page", {
-        ...(daily ? { period: activePeriod } : {}),
-        include_macd: true,
-        id,
-        offset: Math.max(0, offset - historyLookback),
-        limit: 100 + historyLookback,
-        start: "",
-        end: "",
-      })
-      .then(result => {
-        if (current) {
-          const page = daily ? result.daily_page : result.history_page;
-          if (
-            !page ||
-            page.id !== id ||
-            page.source !== (daily ? "tushare.fut_daily" : "tushare.ft_mins") ||
-            (daily && (!("period" in page) || page.period !== activePeriod))
-          )
-            throw new Error(t("返回的数据与所选数据集不匹配"));
-          setResponse({ key: datasetKey, page });
-        }
+    const from = Math.max(0, offset - historyLookback);
+    const limit = 100 + historyLookback;
+    void (
+      daily
+        ? invoke
+            .current("data.tables.daily", {
+              daily: held,
+              contract: contractId,
+              period: activePeriod,
+              offset: from,
+              limit,
+            })
+            .then((result): Drawn => {
+              const page = result.table_daily;
+              if (
+                !page ||
+                page.contract !== contractId ||
+                page.period !== activePeriod ||
+                page.daily.snapshot !== held?.snapshot
+              )
+                throw new Error(t("返回的数据与所选数据集不匹配"));
+              return {
+                offset: page.offset,
+                total: page.total,
+                bars: page.candles.map(dailyChartBar),
+                identity: `${page.daily.snapshot}:${page.contract}`,
+                source: t("全市场日线表"),
+              };
+            })
+        : invoke
+            .current("data.minutes.page", {
+              include_macd: true,
+              id,
+              offset: from,
+              limit,
+              start: "",
+              end: "",
+            })
+            .then((result): Drawn => {
+              const page = result.history_page;
+              if (
+                !page ||
+                page.id !== id ||
+                page.source !== "tushare.ft_mins" ||
+                page.contract_id !== contractId
+              )
+                throw new Error(t("返回的数据与所选数据集不匹配"));
+              return {
+                offset: page.offset,
+                total: page.matched_rows,
+                bars: page.bars,
+                identity: `${page.id}:${page.manifest_sha256}`,
+                source: "Tushare",
+              };
+            })
+    )
+      .then(page => {
+        if (current) setResponse({ key: datasetKey, page });
       })
       .catch(reason => {
         if (current) setError(asDisplayError(reason));
@@ -171,10 +213,8 @@ export function ContractHistory({
     return () => {
       current = false;
     };
-  }, [datasetKey, id, offset, online, retry, daily, activePeriod]);
-  const responsePage = response?.key === datasetKey ? response.page : null;
-  const rawPage =
-    responsePage?.id === id && responsePage.contract_id === contractId ? responsePage : null;
+  }, [datasetKey, source, id, held, contractId, offset, online, retry, daily, activePeriod]);
+  const rawPage = response?.key === datasetKey ? response.page : null;
   const leading = rawPage?.offset ? historyLookback : 0;
   const page = rawPage
     ? {
@@ -183,7 +223,7 @@ export function ContractHistory({
         bars: rawPage.bars.slice(leading, leading + 100),
       }
     : null;
-  const chartBars = page?.bars.map(bar => ("trading_day" in bar ? dailyChartBar(bar) : bar)) ?? [];
+  const chartBars = page?.bars ?? [];
   const formatTime = daily ? dailyChartDate : timestamp;
   const colors = ["#cdd0d7", "#e5b45a", "#d555ae", "#52aa76", "#4aabe0"];
   const overlays =
@@ -203,9 +243,12 @@ export function ContractHistory({
           <span>{t("历史 K 线")}</span>
         </header>
       )}
-      {(catalogError || error) && (
+      {(catalogError || table.error || error) && (
         <div role="alert">
-          <ErrorNotice error={catalogError || error} namespace="asterion.terminal.futures-market" />
+          <ErrorNotice
+            error={catalogError || table.error || error}
+            namespace="asterion.terminal.futures-market"
+          />
           <button disabled={disabled} onClick={() => setRetry(value => value + 1)}>
             {t("重试")}
           </button>
@@ -218,7 +261,7 @@ export function ContractHistory({
             {t("管理历史数据")}
           </button>
         </div>
-      ) : datasets.length || period !== null || fixedPeriod !== undefined ? (
+      ) : minutes.length || held || period !== null || fixedPeriod !== undefined ? (
         <>
           <div className="market-chart-toolbar">
             <div
@@ -246,7 +289,7 @@ export function ContractHistory({
                     disabled={disabled || !periods.includes(period)}
                     onClick={() => {
                       setPeriod(period);
-                      setSelected(datasets.find(task => task.interval_minutes === period)!.id);
+                      setSelected(minutes.find(task => task.interval_minutes === period)!.id);
                       setOffset(0);
                     }}
                   >
@@ -267,15 +310,10 @@ export function ContractHistory({
                   key={value}
                   aria-label={t(label)}
                   aria-pressed={activePeriod === value}
-                  disabled={disabled || !datasets.some(task => task.interval_minutes === 0)}
-                  title={
-                    datasets.some(task => task.interval_minutes === 0)
-                      ? undefined
-                      : t("尚无该周期的数据")
-                  }
+                  disabled={disabled || !held}
+                  title={held ? undefined : t("全市场日线表还没有入库")}
                   onClick={() => {
                     setPeriod(value);
-                    setSelected(datasets.find(task => task.interval_minutes === 0)!.id);
                     setOffset(0);
                   }}
                 >
@@ -304,35 +342,42 @@ export function ContractHistory({
             >
               MACD
             </button>
-            {id && (
+            {source && (
               <details className="market-dataset-choice">
                 <summary>{t("数据版本")}</summary>
-                <select
-                  aria-label={t("历史数据版本")}
-                  value={id}
-                  onChange={event => {
-                    setSelected(event.target.value);
-                    const chosen = datasets.find(task => task.id === event.target.value);
-                    setPeriod(
-                      chosen
-                        ? chosen.interval_minutes === 0 && daily
-                          ? activePeriod
-                          : (datasetPeriod(chosen) ?? null)
-                        : null,
-                    );
-                    setOffset(0);
-                  }}
-                  disabled={disabled}
-                >
-                  {datasets.map(task => (
-                    <option key={task.id} value={task.id}>
-                      {task.source} · {task.begin} — {task.end} · {task.id.slice(0, 8)}
-                    </option>
-                  ))}
-                </select>
+                {daily ? (
+                  <p>
+                    {t("全市场日线表")} · <code>{held!.snapshot.slice(0, 12)}</code>
+                  </p>
+                ) : (
+                  <select
+                    aria-label={t("历史数据版本")}
+                    value={id}
+                    onChange={event => {
+                      setSelected(event.target.value);
+                      const chosen = minutes.find(task => task.id === event.target.value);
+                      setPeriod(chosen ? chosen.interval_minutes : null);
+                      setOffset(0);
+                    }}
+                    disabled={disabled}
+                  >
+                    {minutes.map(task => (
+                      <option key={task.id} value={task.id}>
+                        {task.source} · {task.begin} — {task.end} · {task.id.slice(0, 8)}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <p className="subtle">
                   {t("MACD 从数据集首根收盘价起算，前 33 根为预热；图形指标不用于交易执行。")}
                 </p>
+                {daily && (
+                  <p className="subtle">
+                    {t(
+                      "日线只画合约在集合竞价中有成交的交易日：没有成交的交易日、全市场日线表没有入库的交易日都不画，也不补。",
+                    )}
+                  </p>
+                )}
                 {daily && activePeriod !== "day" && (
                   <p className="subtle">
                     {t(
@@ -344,15 +389,26 @@ export function ContractHistory({
             )}
           </div>
           {!online && <p className="subtle">{t("历史数据服务未连接")}</p>}
-          {!id ? (
-            <div className="market-chart-empty" role="status">
-              <p>
-                {t(datasets.length ? "该合约尚无所选周期的数据" : "该月份合约尚无已下载历史数据")}
-              </p>
-              <button onClick={() => navigate("workspace.data", { page: "history" })}>
-                {t("下载历史数据")}
-              </button>
-            </div>
+          {!source ? (
+            daily && contractId ? (
+              <div className="market-chart-empty" role="status">
+                <p>{t(table.loading ? "读取中" : "全市场日线表还没有入库")}</p>
+                {!table.loading && (
+                  <button onClick={() => navigate("workspace.data", { page: "tables" })}>
+                    {t("更新全市场数据")}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="market-chart-empty" role="status">
+                <p>
+                  {t(minutes.length ? "该合约尚无所选周期的数据" : "该月份合约尚无已下载历史数据")}
+                </p>
+                <button onClick={() => navigate("workspace.data", { page: "history" })}>
+                  {t("下载历史数据")}
+                </button>
+              </div>
+            )
           ) : page?.bars.length ? (
             <>
               <PriceChart
@@ -385,7 +441,7 @@ export function ContractHistory({
                       }
                     : undefined
                 }
-                key={`${id}:${page.offset}:${page.manifest_sha256}`}
+                key={`${page.identity}:${page.offset}`}
                 series={{ kind: "candles", points: chartBars }}
                 label={t("合约历史 K 线")}
                 volumeLabel={t("成交量")}
@@ -400,7 +456,7 @@ export function ContractHistory({
               />
               <div className="market-chart-toolbar market-history-pages">
                 <span>
-                  {page.offset + 1}–{page.offset + page.bars.length} / {page.matched_rows}
+                  {page.offset + 1}–{page.offset + page.bars.length} / {page.total}
                 </span>
                 <button disabled={disabled || !page.offset} onClick={() => setOffset(0)}>
                   {t("最早数据")}
@@ -412,25 +468,33 @@ export function ContractHistory({
                   {t("向前")}
                 </button>
                 <button
-                  disabled={disabled || page.offset + page.bars.length >= page.matched_rows}
+                  disabled={disabled || page.offset + page.bars.length >= page.total}
                   onClick={() => setOffset(page.offset + 100)}
                 >
                   {t("向后")}
                 </button>
                 <button
-                  disabled={disabled || page.offset + page.bars.length >= page.matched_rows}
-                  onClick={() => setOffset(Math.floor((page.matched_rows - 1) / 100) * 100)}
+                  disabled={disabled || page.offset + page.bars.length >= page.total}
+                  onClick={() => setOffset(Math.floor((page.total - 1) / 100) * 100)}
                 >
                   {t("最新数据")}
                 </button>
               </div>
               <div className="market-chart-source">
-                {page.source === "tushare.ft_mins" || page.source === "tushare.fut_daily"
-                  ? "Tushare"
-                  : page.source}{" "}
-                · {t("历史数据 · 非实时")}
+                {page.source} · {t("历史数据 · 非实时")}
               </div>
             </>
+          ) : rawPage && !rawPage.total ? (
+            <div className="market-chart-empty" role="status">
+              <p>
+                {t(daily ? "全市场日线表里没有这个合约在集合竞价中成交的交易日" : "暂无历史记录")}
+              </p>
+              {daily && (
+                <button onClick={() => navigate("workspace.data", { page: "tables" })}>
+                  {t("更新全市场数据")}
+                </button>
+              )}
+            </div>
           ) : (
             <div className="market-chart-empty">{t(loading ? "读取中" : "暂无历史记录")}</div>
           )}

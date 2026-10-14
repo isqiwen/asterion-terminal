@@ -6,6 +6,7 @@
 #include "history_daily.hpp"
 #include "history_tables.hpp"
 #include "data/data_fixture.hpp"
+#include <asterion/domain/history_identity.hpp>
 #include <asterion/domain/history_tables.hpp>
 #include <algorithm>
 #include <cctype>
@@ -39,8 +40,9 @@ struct DailyRow {
 };
 // Adds one SHFE contract's days to the daily table and to the calendar, and
 // the contract to the contract list as `lot` tonnes a lot quoted per tonne,
-// keeping what other contracts already have there. Returns where a dataset
-// reads them, under the snapshot that now holds them.
+// listed from the first of the month a year before its delivery month to the
+// fifteenth of that month, keeping what other contracts already have there.
+// Returns where a dataset reads them, under the snapshot that now holds them.
 inline Json seed_daily_table(const std::filesystem::path& root, const std::string& contract_id,
                              const std::vector<DailyRow>& days,
                              const DailyTableSources& sources = {}, int lot = 10) {
@@ -94,6 +96,9 @@ inline Json seed_daily_table(const std::filesystem::path& root, const std::strin
     merge(calendar, year, open);
   TableSourceRow listed(history_table("futures.contracts").columns.size());
   listed[0] = contract_id;
+  const auto delivery = HistoryIdentity::parse(contract_id).delivery_month;
+  listed[3] = std::to_string(std::stoi(delivery.substr(0, 4)) - 1) + delivery.substr(4) + "-01";
+  listed[4] = delivery + "-15";
   listed[7] = std::to_string(lot);
   listed[8] = "吨";
   listed[9] = "人民币元/吨";

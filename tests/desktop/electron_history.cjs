@@ -23,6 +23,12 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
     return response.result;
   };
   await call("node.data_tasks.local.open");
+  // The daily table is seeded under the sources the installed data source
+  // offers: those are the ones the Terminal's pages read.
+  const offered = (await call("data.tables.coverage")).table_coverage.sources;
+  const daily = offered.find(item => item.table === "futures.daily");
+  const source = table =>
+    offered.find(item => item.table === table && item.plugin_id === daily.plugin_id).source;
   const stopped = await call("node.action", { id: "local", service: "task", action: "stop" });
   await call("node.action", { id: "local", service: "historical-data", action: "stop" });
   const service = stopped.nodes
@@ -39,7 +45,16 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
   const seeded = await execFile(
     process.env.ASTERION_TEST_MINUTE_FIXTURE ||
       path.resolve(process.env.ASTERION_CPP_BUILD || "build/Debug", "asterion_test_minutes"),
-    ["--directory", service.directory],
+    [
+      "--directory",
+      service.directory,
+      "--daily-source",
+      daily.source,
+      "--calendar-source",
+      source("futures.calendar"),
+      "--contracts-source",
+      source("futures.contracts"),
+    ],
     {
       env: {
         ...process.env,
@@ -187,25 +202,31 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
   await expect(board.locator(".market-history-pages")).toContainText("1–100 / 120");
   await board.getByRole("button", { name: "向后", exact: true }).click();
   await expect(board.locator(".market-history-pages")).toContainText("101–120 / 120");
-  const daily = (
-    await call("data.daily.page", {
-      id: dailyTask.history_dataset_id,
+  // The days are the market-wide daily table's, under the snapshot the
+  // coverage names now.
+  const coverage = (await call("data.tables.coverage")).table_coverage;
+  const table = {
+    snapshot: coverage.snapshot,
+    daily_source: daily.source,
+    calendar_source: source("futures.calendar"),
+    contracts_source: source("futures.contracts"),
+  };
+  const days = (
+    await call("data.tables.daily", {
+      daily: table,
+      contract: "SHFE/cu/2023-10",
       period: "day",
       offset: 100,
       limit: 20,
-      start: "",
-      end: "",
-      include_macd: true,
     })
-  ).daily_page;
-  assert.equal(daily.bars[0].trading_day, "2023-04-11");
-  assert.equal(daily.bars[0].amount, "12345678.12345678");
-  assert.equal(daily.bars[0].settlement, null);
-  assert.equal((await call("runtime.snapshot")).daily_page, null);
+  ).table_daily;
+  assert.equal(days.candles[0].trading_day, "2023-04-11");
+  assert.equal(days.candles[0].open, "100");
+  assert.equal((await call("runtime.snapshot")).table_daily, undefined);
   await board.getByRole("img", { name: "合约历史 K 线", exact: true }).press("End");
-  await expect(legend).toContainText(`DIFF: ${daily.bars.at(-1).macd.diff.toFixed(2)}`);
-  await expect(legend).toContainText(`MACD: ${daily.bars.at(-1).macd.histogram.toFixed(2)}`);
-  await expect(board.locator(".history-market-contracts")).toContainText("1 min / 日K");
+  await expect(legend).toContainText(`DIFF: ${days.candles.at(-1).macd.diff.toFixed(2)}`);
+  await expect(legend).toContainText(`MACD: ${days.candles.at(-1).macd.histogram.toFixed(2)}`);
+  await expect(board.locator(".market-chart-source")).toContainText("全市场日线表");
   await capture(page, "native-daily-market");
   for (const [label, period, count] of [
     ["周线", "week", 18],
@@ -220,22 +241,20 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
     );
     await expect(board.locator(".market-history-pages")).toContainText(`1–${count} / ${count}`);
     const grouped = (
-      await call("data.daily.page", {
-        id: dailyTask.history_dataset_id,
+      await call("data.tables.daily", {
+        daily: table,
+        contract: "SHFE/cu/2023-10",
         period,
         offset: 0,
         limit: 100,
-        start: "",
-        end: "",
-        include_macd: true,
       })
-    ).daily_page;
+    ).table_daily;
     await expect(board.locator("[data-oscillator-empty]")).toHaveText("当前区间无 MACD 数据");
     await expect(board.locator("[data-oscillator-axis]")).toHaveCount(0);
     assert.equal(grouped.period, period);
-    assert.equal(grouped.total_rows, count);
+    assert.equal(grouped.total, count);
     assert.equal(
-      grouped.bars[0].trading_day,
+      grouped.candles[0].trading_day,
       period === "week"
         ? "2023-01-01"
         : period === "month"
@@ -245,10 +264,11 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
             : "2023-04-30",
     );
     if (period === "month") {
-      assert.equal(grouped.bars[0].amount, "382716021.82716018");
+      // January: 31 days of 20 lots.
+      assert.equal(grouped.candles[0].volume, "620");
       await capture(page, "native-monthly-market");
     }
-    if (period === "year") assert.equal(grouped.bars[0].amount, "1481481374.8148136");
+    if (period === "year") assert.equal(grouped.candles[0].volume, "2400");
     await expect(board.getByRole("img", { name: "合约历史 K 线", exact: true })).toBeVisible();
   }
   const dateAlignment = await board

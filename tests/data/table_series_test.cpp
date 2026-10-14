@@ -96,6 +96,65 @@ std::vector<std::pair<std::string, std::string>> closes(const data::v1::TableMon
     result.emplace_back(close.trading_day(), Decimal::from_raw(close.close().units()).str());
   return result;
 }
+// A contract in the contract list, listed and delisted on these days.
+TableSourceRow listing(const char* contract, const char* listed, const char* delisted) {
+  TableSourceRow cells(history_table("futures.contracts").columns.size());
+  cells[0] = contract;
+  cells[3] = listed;
+  cells[4] = delisted;
+  return cells;
+}
+// Rebar's October month as a chart draws it: 45 weekdays from 2026-01-05, the
+// day the contract list lists it, on the eleventh of which (2026-01-19)
+// nobody traded it in the auction. Day i opens at 3000 + i, ranges ten either
+// side, closes five above the open and trades 100 + i lots. The Friday before
+// the listing holds a row of it too, as copper's month is on every day.
+std::string keep_chart(TableStore& store) {
+  using namespace std::chrono;
+  (void)keep(store, contracts, "all",
+             {listing("SHFE/cu/2026-04", "2025-04-16", "2026-04-15"),
+              listing("SHFE/rb/2026-10", "2026-01-05", "2026-03-27")},
+             900);
+  const auto row = [](const char* contract, int open, int volume) {
+    TableSourceRow cells(history_table("futures.daily").columns.size());
+    cells[0] = contract;
+    for (const auto [cell, price] :
+         {std::pair{1, open}, {2, open + 10}, {3, open - 10}, {4, open + 5}, {5, open + 5}})
+      cells[static_cast<std::size_t>(cell)] = std::to_string(price);
+    cells[8] = std::to_string(volume);
+    return cells;
+  };
+  std::string snapshot =
+      keep(store, daily, "2026-01-02",
+           {row("SHFE/cu/2026-04", 70000, 5), row("SHFE/rb/2026-10", 2990, 90)}, 1000);
+  int i = 0;
+  for (sys_days day = sys_days(year{2026} / January / 5); i < 45; day += std::chrono::days{1}) {
+    if (weekday(day).iso_encoding() > 5)
+      continue;
+    auto rebar = row("SHFE/rb/2026-10", 3000 + i, 100 + i);
+    if (i == 10)
+      rebar = traded("SHFE/rb/2026-10", "3015", "3015", "100");
+    snapshot = keep(store, daily, format_trading_date(year_month_day(day)),
+                    {row("SHFE/cu/2026-04", 70000 + i, 5), std::move(rebar)}, 1001 + i);
+    ++i;
+  }
+  return snapshot;
+}
+data::v1::TableDailyQuery chart(const std::string& snapshot, data::v1::DailyPeriod period,
+                                std::uint64_t offset = 0, std::uint32_t limit = 200,
+                                const char* contract = "SHFE/rb/2026-10") {
+  data::v1::TableDailyQuery query;
+  auto& table = *query.mutable_daily();
+  table.set_snapshot(snapshot);
+  table.set_daily_source(daily.source);
+  table.set_calendar_source(calendar.source);
+  table.set_contracts_source(contracts.source);
+  query.set_contract(contract);
+  query.set_period(period);
+  query.set_offset(offset);
+  query.set_limit(limit);
+  return query;
+}
 template <class Call> std::string refusal(Call&& call) {
   try {
     call();
@@ -281,13 +340,6 @@ TEST(TableSeries, AHoleInTheRangeIsRefusedNotReadAround) {
 TEST(TableSeries, ProductsAreThoseOfTheContractListsOfASnapshot) {
   Folder folder("ast-ts-");
   TableStore store(folder.path / "tables");
-  const auto listing = [](const char* contract, const char* listed, const char* delisted) {
-    TableSourceRow cells(history_table("futures.contracts").columns.size());
-    cells[0] = contract;
-    cells[3] = listed;
-    cells[4] = delisted;
-    return cells;
-  };
   const auto snapshot = keep(store, contracts, "all",
                              {listing("SHFE/rb/2026-10", "2025-10-16", "2026-10-15"),
                               listing("SHFE/rb/2026-05", "2025-05-16", "2026-05-15"),
@@ -307,6 +359,67 @@ TEST(TableSeries, ProductsAreThoseOfTheContractListsOfASnapshot) {
                            {"contracts", 2},
                            {"first_listed", "2025-05-16"},
                            {"last_delisted", "2026-10-15"}}})));
+}
+TEST(TableSeries, AChartDrawsTheDaysAContractTradedFromItsListingOn) {
+  Folder folder("ast-ts-");
+  TableStore store(folder.path / "tables");
+  const auto snapshot = keep_chart(store);
+  const auto all = data::table_daily(store, chart(snapshot, data::v1::DAY));
+  // Forty-five days less the one without an auction trade; the Friday before
+  // the listing is not read.
+  ASSERT_EQ(all.total(), 44U);
+  ASSERT_EQ(all.candles_size(), 44);
+  const auto decoded = protocol::decode_table_daily(all);
+  EXPECT_EQ(decoded.at("candles")[0], (Json{{"trading_day", "2026-01-05"},
+                                            {"open", "3000"},
+                                            {"high", "3010"},
+                                            {"low", "2990"},
+                                            {"close", "3005"},
+                                            {"volume", "100"}}));
+  EXPECT_EQ(all.candles(9).trading_day(), "2026-01-16");
+  EXPECT_EQ(all.candles(10).trading_day(), "2026-01-20");
+  // MACD warms up over the first 33 candles; a later page has the values the
+  // whole run gives it.
+  EXPECT_FALSE(all.candles(32).has_macd());
+  EXPECT_TRUE(all.candles(33).has_macd());
+  const auto last = data::table_daily(store, chart(snapshot, data::v1::DAY, 40, 10));
+  ASSERT_EQ(last.candles_size(), 4);
+  for (int i = 0; i < 4; ++i)
+    EXPECT_EQ(last.candles(i).SerializeAsString(), all.candles(40 + i).SerializeAsString());
+  EXPECT_THROW((void)data::table_daily(store, chart(snapshot, data::v1::DAY, 44)),
+               std::invalid_argument);
+}
+TEST(TableSeries, AChartGroupsWeeksAndMonthsAndNeedsTheContractList) {
+  Folder folder("ast-ts-");
+  TableStore store(folder.path / "tables");
+  const auto snapshot = keep_chart(store);
+  const auto weeks =
+      protocol::decode_table_daily(data::table_daily(store, chart(snapshot, data::v1::WEEK)));
+  EXPECT_EQ(weeks.at("total"), 9);
+  // The week of 2026-01-19 opens on the Tuesday: the Monday has no candle.
+  EXPECT_EQ(weeks.at("candles")[2], (Json{{"trading_day", "2026-01-23"},
+                                          {"open", "3011"},
+                                          {"high", "3024"},
+                                          {"low", "3001"},
+                                          {"close", "3019"},
+                                          {"volume", "450"}}));
+  const auto months =
+      protocol::decode_table_daily(data::table_daily(store, chart(snapshot, data::v1::MONTH)));
+  ASSERT_EQ(months.at("candles").size(), 3U);
+  EXPECT_EQ(months.at("candles")[0].at("trading_day"), "2026-01-30");
+  EXPECT_EQ(months.at("candles")[0].at("volume"), "2080");
+  EXPECT_EQ(months.at("candles")[2].at("trading_day"), "2026-03-06");
+  // Without the contract list a contract's days cannot be bounded.
+  EXPECT_EQ(refusal([&] {
+              (void)data::table_daily(store,
+                                      chart(snapshot, data::v1::DAY, 0, 200, "SHFE/rb/2026-11"));
+            }),
+            "the contract list does not list SHFE/rb/2026-11");
+  EXPECT_EQ(refusal([&] {
+              (void)data::table_daily(store,
+                                      chart(snapshot, data::v1::DAY, 0, 200, "DCE/m/2026-09"));
+            }),
+            "no contract list of DCE is stored");
 }
 // The real data service, task service and factor worker over a store that
 // holds nine weeks of three products.

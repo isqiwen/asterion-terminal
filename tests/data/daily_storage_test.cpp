@@ -8,7 +8,6 @@
 #include "task_store.hpp"
 #include "tasks/task_store_support.hpp"
 #include <asterion/protocol/data.hpp>
-#include <limits>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
@@ -293,7 +292,7 @@ TEST(DailyTasks, RealServiceDispatchAndManagedWorkerResumeCompletedSourceData) {
   EXPECT_EQ(summary.SerializeAsString().find("fixture-secret"), std::string::npos);
 }
 
-TEST(DailyPages, DatePagingKeepsExactPricesMissingSettlementAndDatasetOriginMacd) {
+TEST(DailyPages, DatePagingKeepsExactPricesAndMissingSettlement) {
   using namespace std::chrono;
   Folder folder;
   const auto input = asterion::testing_support::daily_request({{"version", 2},
@@ -322,14 +321,10 @@ TEST(DailyPages, DatePagingKeepsExactPricesMissingSettlementAndDatasetOriginMacd
   data::v1::DailyPageQuery query;
   query.set_task_id("daily");
   query.set_limit(120);
-  query.set_include_macd(true);
   const auto all = history_files::read_daily_page(input, result, query);
   ASSERT_EQ(all.bars_size(), 120);
   EXPECT_EQ(all.first_day(), "2023-01-01");
   EXPECT_EQ(all.last_day(), "2023-04-30");
-  EXPECT_FALSE(all.bars(32).has_macd());
-  EXPECT_TRUE(all.bars(33).has_macd());
-  EXPECT_NE(all.bars(110).macd().histogram(), 0);
   const auto decoded = protocol::decode_daily_page(all);
   EXPECT_TRUE(decoded.at("bars")[0].at("settlement").is_null());
   EXPECT_TRUE(decoded.at("bars")[0].at("previous_close").is_null());
@@ -371,9 +366,6 @@ TEST(DailyPages, DatePagingKeepsExactPricesMissingSettlementAndDatasetOriginMacd
   EXPECT_THROW(protocol::decode_daily_page(malformed), std::invalid_argument);
   malformed = all;
   malformed.mutable_bars(1)->set_trading_day(all.bars(0).trading_day());
-  EXPECT_THROW(protocol::decode_daily_page(malformed), std::invalid_argument);
-  malformed = all;
-  malformed.mutable_bars(119)->mutable_macd()->set_diff(std::numeric_limits<double>::infinity());
   EXPECT_THROW(protocol::decode_daily_page(malformed), std::invalid_argument);
   malformed = all;
   malformed.set_manifest_sha256(std::string(64, 'z'));
@@ -421,91 +413,6 @@ TEST(DailyPages, EmptyDatasetRetainsRequestedDatesWithoutInventedCoverage) {
   EXPECT_TRUE(protocol::decode_daily_page(page).at("bars").empty());
   result.set_rows(1);
   EXPECT_THROW(history_files::read_daily_page(input, result, query), std::invalid_argument);
-}
-
-TEST(DailyPages, WeeklyAndMonthlyAggregateBeforeFilteringPagingAndMacd) {
-  using namespace std::chrono;
-  Folder folder;
-  const auto input = asterion::testing_support::daily_request({{"version", 2},
-                                                               {"contract_id", "SHFE/cu/2024-03"},
-                                                               {"source", "tushare.fut_daily"},
-                                                               {"source_instrument", "CU2403.SHF"},
-                                                               {"begin_day", "2023-01-01"},
-                                                               {"end_day", "2023-12-31"},
-                                                               {"requests_per_minute", 500}});
-  tushare::Daily provider("fixture", [](const auto& body, auto) {
-    auto data = Json::parse(response(body));
-    auto& rows = data["data"]["items"];
-    rows = Json::array();
-    for (int i = 0; i < 365; ++i) {
-      auto day = format_trading_date(year_month_day(sys_days(year(2023) / January / 1) + days(i)));
-      std::erase(day, '-');
-      rows.push_back({"CU2403.SHF", day, nullptr, 99, 100 + i, 102 + i, 98 + i, 101 + i, nullptr, 2,
-                      1, 2000 + i});
-    }
-    return data.dump();
-  });
-  provider.start();
-  history_files::download_daily(provider, history_files::daily_range(input), folder.path);
-  const auto result = history_files::daily_result(folder.path);
-  data::v1::DailyPageQuery query;
-  query.set_task_id("weekly");
-  query.set_limit(200);
-  query.set_include_macd(true);
-  query.set_period(data::v1::WEEK);
-  const auto all = history_files::read_daily_page(input, result, query);
-  EXPECT_EQ(all.total_rows(), 53);
-  EXPECT_EQ(all.bars(0).trading_day(), "2023-01-01");
-  EXPECT_EQ(all.bars(1).trading_day(), "2023-01-08");
-  EXPECT_EQ(Decimal::from_raw(all.bars(1).volume().units()).str(), "14");
-  EXPECT_EQ(Decimal::from_raw(all.bars(1).open_interest().units()).str(), "2007");
-  EXPECT_FALSE(all.bars(32).has_macd());
-  EXPECT_TRUE(all.bars(33).has_macd());
-  EXPECT_EQ(protocol::decode_daily_page(all).at("period"), "week");
-  query.set_offset(40);
-  query.set_limit(3);
-  const auto paged = history_files::read_daily_page(input, result, query);
-  query.set_offset(0);
-  query.set_begin_day(all.bars(40).trading_day());
-  const auto filtered = history_files::read_daily_page(input, result, query);
-  for (int i = 0; i < 3; ++i) {
-    EXPECT_EQ(paged.bars(i).SerializeAsString(), all.bars(40 + i).SerializeAsString());
-    EXPECT_EQ(filtered.bars(i).SerializeAsString(), all.bars(40 + i).SerializeAsString());
-  }
-  query.set_begin_day("");
-  query.set_limit(200);
-  query.set_period(data::v1::MONTH);
-  const auto months = history_files::read_daily_page(input, result, query);
-  EXPECT_EQ(months.total_rows(), 12);
-  EXPECT_EQ(months.bars(0).trading_day(), "2023-01-31");
-  EXPECT_EQ(Decimal::from_raw(months.bars(0).volume().units()).str(), "62");
-  EXPECT_EQ(Decimal::from_raw(months.bars(0).amount().units()).str(), "310000");
-  EXPECT_EQ(protocol::decode_daily_page(months).at("period"), "month");
-  query.set_period(data::v1::QUARTER);
-  const auto quarters = history_files::read_daily_page(input, result, query);
-  ASSERT_EQ(quarters.total_rows(), 4);
-  EXPECT_EQ(quarters.bars(0).trading_day(), "2023-03-31");
-  EXPECT_EQ(Decimal::from_raw(quarters.bars(0).volume().units()).str(), "180");
-  EXPECT_EQ(protocol::decode_daily_page(quarters).at("period"), "quarter");
-  query.set_offset(1);
-  query.set_limit(1);
-  EXPECT_EQ(history_files::read_daily_page(input, result, query).bars(0).SerializeAsString(),
-            quarters.bars(1).SerializeAsString());
-  query.set_offset(0);
-  query.set_limit(200);
-  query.set_period(data::v1::YEAR);
-  const auto years = history_files::read_daily_page(input, result, query);
-  ASSERT_EQ(years.total_rows(), 1);
-  EXPECT_EQ(years.bars(0).trading_day(), "2023-12-31");
-  EXPECT_EQ(Decimal::from_raw(years.bars(0).volume().units()).str(), "730");
-  EXPECT_EQ(Decimal::from_raw(years.bars(0).amount().units()).str(), "3650000");
-  EXPECT_FALSE(years.bars(0).has_macd());
-  EXPECT_EQ(protocol::decode_daily_page(years).at("period"), "year");
-  query.set_period(static_cast<data::v1::DailyPeriod>(99));
-  EXPECT_THROW(history_files::read_daily_page(input, result, query), std::invalid_argument);
-  auto bad = months;
-  bad.set_period(static_cast<data::v1::DailyPeriod>(99));
-  EXPECT_THROW(protocol::decode_daily_page(bad), std::invalid_argument);
 }
 
 TEST(DailyTasks, ProviderArtifactIsImmutableAcrossRetryAndStoreRestart) {

@@ -90,33 +90,16 @@ data::v1::MinutePageQuery minute_page_query(const json& p) {
 }
 
 data::v1::DailyPageQuery daily_page_query(const json& p) {
-  fields(p, {"id", "offset", "limit", "start", "end", "include_macd", "period"});
-  if (!p.at("include_macd").is_boolean() || !p.at("offset").is_number_integer() ||
-      p.at("offset") < 0 || p.at("offset") > 20 * 366 + 1 || !p.at("limit").is_number_integer() ||
-      p.at("limit") < 1 || p.at("limit") > 200 || !p.at("start").is_string() ||
-      !p.at("end").is_string())
+  fields(p, {"id", "offset", "limit", "start", "end"});
+  if (!p.at("offset").is_number_integer() || p.at("offset") < 0 || p.at("offset") > 20 * 366 + 1 ||
+      !p.at("limit").is_number_integer() || p.at("limit") < 1 || p.at("limit") > 200 ||
+      !p.at("start").is_string() || !p.at("end").is_string())
     throw std::invalid_argument("invalid daily dataset page query");
   data::v1::DailyPageQuery query;
-  if (p.contains("period") && !p.at("period").is_string())
-    throw std::invalid_argument("invalid daily dataset page query");
-  const auto period = text(p, "period");
-  if (period == "day")
-    query.set_period(data::v1::DAY);
-  else if (period == "week")
-    query.set_period(data::v1::WEEK);
-  else if (period == "month")
-    query.set_period(data::v1::MONTH);
-  else if (period == "quarter")
-    query.set_period(data::v1::QUARTER);
-  else if (period == "year")
-    query.set_period(data::v1::YEAR);
-  else
-    throw std::invalid_argument("invalid daily dataset page query");
   query.set_dataset_id(text(p, "id"));
   validate_id(text(p, "id"));
   query.set_offset(p.at("offset").get<std::uint64_t>());
   query.set_limit(p.at("limit").get<unsigned>());
-  query.set_include_macd(p.at("include_macd").get<bool>());
   query.set_begin_day(p.at("start").get<std::string>());
   query.set_end_day(p.at("end").get<std::string>());
   for (const auto& date : {query.begin_day(), query.end_day()})
@@ -318,6 +301,19 @@ void Application::Impl::register_data_commands() {
       throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
     auto result = read_published(json::object());
     result.values["table_page"] = std::move(page);
+    co_return result;
+  });
+  command("data.tables.daily", [this](const json& p) -> PolledTask<Response> {
+    const auto query = protocol::encode_table_daily_query(p);
+    if (!data_client)
+      throw std::invalid_argument("connect the data and task services first");
+    const auto reader = data_client;
+    const auto generation = data_task_generation;
+    auto page = (co_await PollFuture{reader->table_daily(query)});
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
+    auto result = read_published(json::object());
+    result.values["table_daily"] = std::move(page);
     co_return result;
   });
   command("data.tables.products", [this](const json& p) -> PolledTask<Response> {
