@@ -621,7 +621,7 @@ void Application::Impl::register_data_commands() {
     const auto selection_generation = dataset_selection_generation;
     const auto client = data_client;
     const auto generation = data_task_generation;
-    auto [months, preview] =
+    auto awaited =
         (co_await run<
             std::pair<std::vector<data::v1::BarDatasetRequest>, data::v1::DominantSeriesPreview>>(
             [&]() -> PolledTask<std::pair<std::vector<data::v1::BarDatasetRequest>,
@@ -635,6 +635,7 @@ void Application::Impl::register_data_commands() {
               auto preview = (co_await PollFuture{client->dominant_series(months)});
               co_return std::pair{std::move(months), std::move(preview)};
             }));
+    auto& [months, preview] = awaited;
     if (generation != data_task_generation)
       throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
     if (selection_generation != dataset_selection_generation)

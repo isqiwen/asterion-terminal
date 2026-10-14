@@ -145,7 +145,7 @@ void Application::Impl::register_node_commands() {
       throw std::invalid_argument("invalid native plugin selection");
     const auto plugins = p.at("plugins").get<std::vector<std::string>>();
     const auto generation = data_task_generation;
-    auto [node, next, next_data] =
+    auto awaited =
         (co_await manage<std::tuple<std::shared_ptr<NodeClient>, std::shared_ptr<TaskClient>,
                                     std::shared_ptr<DataClient>>>(
             [&, existing = existing_local_node()]()
@@ -158,6 +158,7 @@ void Application::Impl::register_node_commands() {
               auto data = (co_await PollFuture{DataClient::open(service_io, pair.data)});
               co_return std::tuple{std::move(node), std::move(client), std::move(data)};
             }));
+    auto& [node, next, next_data] = awaited;
     if (generation != data_task_generation)
       throw Error(ErrorCode::conflict,
                   "data/task service selection changed during operation; inspect the "
@@ -248,7 +249,7 @@ void Application::Impl::register_node_commands() {
   command("node.bootstrap", [this](const json& p) -> PolledTask<Response> {
     fields(p, {"id", "host", "ssh_port", "username", "key_source", "private_key", "known_hosts",
                "agent_port"});
-    auto [id, node] = (co_await manage<std::pair<std::string, std::shared_ptr<NodeClient>>>(
+    auto awaited = (co_await manage<std::pair<std::string, std::shared_ptr<NodeClient>>>(
         [&]() -> PolledTask<std::pair<std::string, std::shared_ptr<NodeClient>>> {
           auto config =
               (co_await service_io.admin<NodeEndpoint>([&] { return enroll_node(service_io, p); }));
@@ -256,12 +257,13 @@ void Application::Impl::register_node_commands() {
           auto client = co_await PollFuture{NodeClient::open(service_io, std::move(config))};
           co_return std::pair{std::move(key), std::move(client)};
         }));
+    auto& [id, node] = awaited;
     nodes.insert_or_assign(id, std::move(node));
     co_return snapshot();
   });
   command("node.identity.replace", [this](const json& p) -> PolledTask<Response> {
     fields(p, {"id", "host", "ssh_port", "username", "key_source", "private_key", "known_hosts"});
-    auto [id, node] = (co_await manage<std::pair<std::string, std::shared_ptr<NodeClient>>>(
+    auto awaited = (co_await manage<std::pair<std::string, std::shared_ptr<NodeClient>>>(
         [&]() -> PolledTask<std::pair<std::string, std::shared_ptr<NodeClient>>> {
           auto config = (co_await service_io.admin<NodeEndpoint>(
               [&] { return replace_node_identity(service_io, p); }));
@@ -269,12 +271,13 @@ void Application::Impl::register_node_commands() {
           auto client = co_await PollFuture{NodeClient::open(service_io, std::move(config))};
           co_return std::pair{std::move(key), std::move(client)};
         }));
+    auto& [id, node] = awaited;
     nodes.insert_or_assign(id, std::move(node));
     co_return snapshot();
   });
   command("node.connect", [this](const json& p) -> PolledTask<Response> {
     fields(p, {"id"});
-    auto [id, node] = (co_await manage<std::pair<std::string, std::shared_ptr<NodeClient>>>(
+    auto awaited = (co_await manage<std::pair<std::string, std::shared_ptr<NodeClient>>>(
         [&]() -> PolledTask<std::pair<std::string, std::shared_ptr<NodeClient>>> {
           auto config = (co_await service_io.admin<NodeEndpoint>(
               [&] { return enrolled_node(text(p, "id")); }));
@@ -282,6 +285,7 @@ void Application::Impl::register_node_commands() {
           auto client = co_await PollFuture{NodeClient::open(service_io, std::move(config))};
           co_return std::pair{std::move(key), std::move(client)};
         }));
+    auto& [id, node] = awaited;
     nodes.insert_or_assign(id, std::move(node));
     co_return snapshot();
   });

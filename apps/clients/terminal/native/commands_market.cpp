@@ -21,8 +21,8 @@ void Application::Impl::register_market_commands() {
     fields(p, {});
     if (market && nodes.contains("local"))
       co_return snapshot();
-    auto [node, next] = (co_await manage<
-                         std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<MarketClient>>>(
+    auto awaited = (co_await manage<
+                    std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<MarketClient>>>(
         [this, existing = existing_local_node()]()
             -> PolledTask<std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<MarketClient>>> {
           auto node = (co_await local_node_client(existing));
@@ -30,6 +30,7 @@ void Application::Impl::register_market_commands() {
               MarketClient::open(service_io, (co_await PollFuture{node->local_market()}))});
           co_return std::pair{std::move(node), std::move(client)};
         }));
+    auto& [node, next] = awaited;
     nodes.try_emplace("local", std::move(node));
     if (!market)
       market = std::move(next);

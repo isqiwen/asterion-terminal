@@ -82,8 +82,8 @@ void Application::Impl::register_live_commands() {
                     {"max_price_deviation", text(p, "max_price_deviation")},
                     {"contracts", std::move(contracts)}}}};
     (void)protocol::encode_live_input(manifest);
-    auto [node, next] = (co_await manage<
-                         std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<LiveAccount>>>(
+    auto awaited = (co_await manage<
+                    std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<LiveAccount>>>(
         [&, existing = existing_local_node()]()
             -> PolledTask<std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<LiveAccount>>> {
           auto node = (co_await local_node_client(existing));
@@ -95,6 +95,7 @@ void Application::Impl::register_live_commands() {
                                   manifest)}));
           co_return std::pair{std::move(node), std::move(client)};
         }));
+    auto& [node, next] = awaited;
     nodes.try_emplace("local", std::move(node));
     if (!live.try_emplace(account, std::move(next)).second)
       throw Error(ErrorCode::conflict, "another window opened this CTP account meanwhile");
@@ -111,8 +112,8 @@ void Application::Impl::register_live_commands() {
     if (!(co_await service_io.admin<bool>(
             [&] { return std::filesystem::exists(directory / "journal.sqlite"); })))
       throw std::invalid_argument("this CTP account has no trading record yet");
-    auto [node, next] = (co_await manage<
-                         std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<LiveAccount>>>(
+    auto awaited = (co_await manage<
+                    std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<LiveAccount>>>(
         [&, existing = existing_local_node()]()
             -> PolledTask<std::pair<std::shared_ptr<NodeClient>, std::shared_ptr<LiveAccount>>> {
           auto node = (co_await local_node_client(existing));
@@ -120,6 +121,7 @@ void Application::Impl::register_live_commands() {
               service_io, (co_await PollFuture{node->local_session(directory)}))}));
           co_return std::pair{std::move(node), std::move(client)};
         }));
+    auto& [node, next] = awaited;
     nodes.try_emplace("local", std::move(node));
     live.try_emplace(account, std::move(next));
     co_return snapshot();

@@ -242,6 +242,51 @@ TEST(TerminalApi, DataProgramUpdatePreservesServiceBindingAndPublishedVersions) 
   EXPECT_EQ(invoke("data.dataset.select", selection).at("datasets"), original);
 }
 
+// A dominant series the data service refuses is an error the user reads.
+// Here the minute bars of both months run a day past what the daily table
+// holds.
+TEST(TerminalApi, ARefusedMinuteSeriesIsAnError) {
+  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+      asterion_terminal_create(nullptr), asterion_terminal_destroy);
+  ASSERT_TRUE(runtime);
+  auto invoke = [&](const std::string& method, json params = json::object()) {
+    const auto response = call(runtime.get(), request(method, std::move(params)));
+    if (response.contains("error"))
+      throw std::runtime_error(response.dump());
+    return response.at("result");
+  };
+  invoke("node.data_tasks.local.open");
+  const auto stopped =
+      invoke("node.action", {{"id", "local"}, {"service", "historical-data"}, {"action", "stop"}});
+  std::string directory;
+  for (const auto& node : stopped.at("nodes"))
+    if (node.at("id") == "local")
+      for (const auto& service : node.at("health").at("services"))
+        if (service.at("id") == "historical-data")
+          directory = service.at("directory").get<std::string>();
+  std::vector<json> months;
+  for (const auto* month : {"2026-10", "2026-11"})
+    months.push_back(asterion::test::seed_history(
+        directory, {100, 101, 102, 103}, std::string("refused-") + month,
+        {"2026-09-24", "2026-09-25"}, {"2026-09-24"}, "rb", 1, 110, "test.confirmed.v1", month));
+  invoke("node.data_tasks.local.open");
+  const auto deadline =
+      std::chrono::steady_clock::now() + asterion::testing_support::bound(std::chrono::seconds(10));
+  while (!invoke("runtime.snapshot").at("data").at("online").get<bool>()) {
+    ASSERT_LT(std::chrono::steady_clock::now(), deadline);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  const auto refused = call(runtime.get(), request("data.dataset.series",
+                                                   {{"source_dataset_ids",
+                                                     {months[0].at("source_dataset_ids").at(0),
+                                                      months[1].at("source_dataset_ids").at(0)}},
+                                                    {"daily", asterion::test::latest_daily(months)},
+                                                    {"begin_day", ""},
+                                                    {"end_day", ""}}));
+  ASSERT_TRUE(refused.contains("error")) << refused.dump();
+  EXPECT_TRUE(invoke("runtime.snapshot").at("datasets").empty());
+}
+
 TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
   std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
       asterion_terminal_create(nullptr), asterion_terminal_destroy);

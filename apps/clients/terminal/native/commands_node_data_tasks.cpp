@@ -24,7 +24,7 @@ void Application::Impl::register_data_task_connection_commands() {
     const auto generation = data_task_generation;
     const auto current = task_client ? task_client->endpoint() : ServiceEndpoint{};
     const auto service = current.endpoint.empty() ? std::string{} : current.session;
-    auto [node, next, next_data] =
+    auto awaited =
         (co_await manage<std::tuple<std::shared_ptr<NodeClient>, std::shared_ptr<TaskClient>,
                                     std::shared_ptr<DataClient>>>(
             [this, existing = existing_local_node(), service]()
@@ -45,6 +45,7 @@ void Application::Impl::register_data_task_connection_commands() {
               auto data = (co_await PollFuture{DataClient::open(service_io, pair.data)});
               co_return std::tuple{std::move(node), std::move(client), std::move(data)};
             }));
+    auto& [node, next, next_data] = awaited;
     if (generation != data_task_generation)
       throw Error(ErrorCode::conflict,
                   "data/task service selection changed during operation; inspect the "
@@ -58,7 +59,7 @@ void Application::Impl::register_data_task_connection_commands() {
     const auto generation = data_task_generation;
     const auto node = nodes.at(text(p, "id"));
     const auto service = text(p, "service");
-    auto [next, next_data] =
+    auto awaited =
         (co_await manage<std::pair<std::shared_ptr<TaskClient>, std::shared_ptr<DataClient>>>(
             [&]()
                 -> PolledTask<std::pair<std::shared_ptr<TaskClient>, std::shared_ptr<DataClient>>> {
@@ -66,6 +67,7 @@ void Application::Impl::register_data_task_connection_commands() {
               co_return std::pair{(co_await PollFuture{TaskClient::open(service_io, pair.task)}),
                                   (co_await PollFuture{DataClient::open(service_io, pair.data)})};
             }));
+    auto& [next, next_data] = awaited;
     if (generation != data_task_generation)
       throw Error(ErrorCode::conflict,
                   "data/task service selection changed during operation; inspect the "
