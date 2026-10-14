@@ -188,7 +188,6 @@
   "connect the data and task services first": "connect the data and task services first",
   "connect the node before deployment": "connect the node before deployment",
   "connect the node before updating": "connect the node before updating",
-  "contract catalog changed; select the contract again": "contract catalog changed; select the contract again",
   "contract is not allowed in this live session": "contract is not allowed in this live session",
   "contract is not in the CTP contract catalog": "contract is not in the CTP contract catalog",
   "contract is not part of this account": "contract is not part of this account",
@@ -210,7 +209,6 @@
   "daily dataset row count mismatch": "daily dataset row count mismatch",
   "data and task service bindings disagree": "data and task service bindings disagree",
   "data binding only belongs to task service": "data binding only belongs to task service",
-  "data connection changed; reload catalog": "data connection changed; reload catalog",
   "data connection changed; retry verification": "data connection changed; retry verification",
   "data connection closed": "data connection closed",
   "data persistence failed; restart data service": "Data persistence failed; restart the data service.",
@@ -294,7 +292,6 @@
   "historical archive requires existing directories": "Historical archive requires existing directories",
   "historical archive revision mismatch": "historical archive revision mismatch",
   "historical bars must be strictly ascending": "historical bars must be strictly ascending",
-  "historical catalog identity mismatch": "historical catalog identity mismatch",
   "historical data source is unavailable": "historical data source is unavailable",
   "historical dataset is unavailable": "historical dataset is unavailable",
   "historical dataset outside archive": "historical dataset outside archive",
@@ -950,5 +947,6 @@
   "全市场日线表里没有该合约在某个交易日的结算价；详情里是合约和日期": "The market-wide daily table has no settlement price for the contract on a trading day; the details name the contract and the day",
   "这个交易所的合约表还没有入库，不知道合约在哪些交易日上市，画不出日线。请先在「数据 → 全市场数据」更新": "The contract list of this exchange is not stored, so a contract's listed days are unknown and its daily chart cannot be drawn. Update the market-wide tables in Data first",
   "合约表里没有这个合约，画不出它的日线：合约表可能早于它上市，请先在「数据 → 全市场数据」更新合约表；详情里是合约": "The contract list does not list this contract, so its daily chart cannot be drawn: the list may predate its listing. Update the contract list in Data first; the details name the contract",
-  "合约表没有给出这个合约的上市和退市日期，画不出它的日线；详情里是合约": "The contract list gives no listing and delisting days for this contract, so its daily chart cannot be drawn; the details name the contract"
+  "合约表没有给出这个合约的上市和退市日期，画不出它的日线；详情里是合约": "The contract list gives no listing and delisting days for this contract, so its daily chart cannot be drawn; the details name the contract",
+  "contract list identity mismatch": "The returned contract list does not match the selected data source."
 }

@@ -58,7 +58,7 @@ export function MarketBoard({
   const rows = candidates.filter(
     row =>
       (!filter || row.venue === filter) &&
-      `${identity(row)} ${contractName(row, context.snapshot?.history_contracts, market?.catalog) ?? ""} ${productLabel(row, market.catalog) ?? ""}`
+      `${identity(row)} ${contractName(row, market?.catalog) ?? ""} ${productLabel(row, market.catalog) ?? ""}`
         .toUpperCase()
         .includes(query),
   );
@@ -110,9 +110,7 @@ export function MarketBoard({
     market.subscriptions.find(row => rows.includes(row));
   const displayName = (row: LiveMarket["subscriptions"][number]) => {
     const label = overview ? productLabel(row, market.catalog) : undefined;
-    return label
-      ? `${label}${t("主连")}`
-      : contractName(row, context.snapshot?.history_contracts, market.catalog);
+    return label ? `${label}${t("主连")}` : contractName(row, market.catalog);
   };
   const [menuSlot, setMenuSlot] = useState<HTMLElement | null>(null);
   useEffect(() => setMenuSlot(document.getElementById("market-menu-slot")), [menuOpen]);

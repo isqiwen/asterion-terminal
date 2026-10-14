@@ -110,6 +110,7 @@ message DataRequest {
     TableProductsQuery table_products = 42;
     TableDailyQuery table_daily = 43;
     HistoryCoverageQuery coverage = 44;
+    TableContractsQuery table_contracts = 45;
   }
 }
 message DataResponse {
@@ -146,5 +147,6 @@ message DataResponse {
     TableSeriesGroup table_series = 38;
     TableProducts table_products = 39;
     TableDailyPage table_daily = 40;
+    HistoryCatalog table_contracts = 41;
   }
 }

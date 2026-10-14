@@ -1,7 +1,12 @@
 import { HistoryDatasetViewer } from "./HistoryDatasetViewer";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { historySources, type HistorySource } from "./history-sources";
-import { savedCredential, timestamp } from "../../src/bridge/client";
+import {
+  savedCredential,
+  timestamp,
+  type TableContracts,
+  type TableProduct,
+} from "../../src/bridge/client";
 import { BackendError } from "../../src/i18n/errors";
 import {
   TaskPagination,
@@ -16,6 +21,90 @@ import {
 } from "../contract";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
+// The contract list of a history source's own data source in the store: the
+// snapshot read, its products, and the contracts of the product chosen.
+// Read again when the data service changes or a table update finishes.
+function useContractList(
+  context: Pick<TerminalContext, "snapshot" | "query">,
+  source: HistorySource,
+  exchange: string,
+  product: string,
+) {
+  const ask = useRef(context.query);
+  ask.current = context.query;
+  const connection = context.snapshot?.data?.connection_id;
+  const online = !!context.snapshot?.data?.online;
+  const updated = (context.snapshot?.task_service?.tasks ?? []).filter(
+    task => task.kind === "table_update" && task.state === "succeeded",
+  ).length;
+  const [list, setList] = useState<{
+    key: string;
+    snapshot: string;
+    products: TableProduct[];
+  } | null>(null);
+  const [contracts, setContracts] = useState<{ key: string; list: TableContracts } | null>(null);
+  const [error, setError] = useState<DisplayError>("");
+  const listKey = JSON.stringify([connection, source.id, updated]);
+  useEffect(() => {
+    let active = true;
+    setError("");
+    if (!online) return;
+    void (async () => {
+      const coverage = (await ask.current("data.tables.coverage", {})).table_coverage;
+      const lists = coverage?.sources.find(
+        item => item.table === "futures.contracts" && item.plugin_id === source.pluginId,
+      );
+      const stored =
+        !!coverage?.snapshot &&
+        !!lists &&
+        coverage.rows.some(row => row.table === lists.table && row.source === lists.source);
+      const products = stored
+        ? ((
+            await ask.current("data.tables.products", {
+              snapshot: coverage.snapshot,
+              contracts_source: lists.source,
+            })
+          ).table_products ?? [])
+        : [];
+      if (active) setList({ key: listKey, snapshot: stored ? coverage.snapshot : "", products });
+    })().catch(reason => {
+      if (active) setError(asDisplayError(reason));
+    });
+    return () => {
+      active = false;
+    };
+  }, [listKey, online, source.pluginId]);
+  const held = list?.key === listKey ? list : null;
+  const contractsKey = JSON.stringify([listKey, held?.snapshot, exchange, product]);
+  useEffect(() => {
+    let active = true;
+    if (!held?.snapshot || !product) return;
+    void ask
+      .current("data.tables.contracts", {
+        snapshot: held.snapshot,
+        source: source.id,
+        exchange,
+        product,
+      })
+      .then(result => {
+        if (active && result.table_contracts)
+          setContracts({ key: contractsKey, list: result.table_contracts });
+      })
+      .catch(reason => {
+        if (active) setError(asDisplayError(reason));
+      });
+    return () => {
+      active = false;
+    };
+  }, [contractsKey, held?.snapshot, source.id, exchange, product]);
+  return {
+    loading: online && !held,
+    snapshot: held?.snapshot ?? "",
+    products: (held?.products ?? []).filter(item => item.exchange === exchange),
+    contracts: contracts?.key === contractsKey ? contracts.list : null,
+    error,
+  };
+}
 const states = {
   queued: "排队中",
   running: "下载中",
@@ -51,17 +140,16 @@ function SourceDownloads({
   const [token, setToken] = useState(""); // Never retain credentials in workspace drafts/storage.
   const [error, setError] = useState<DisplayError>("");
   const taskService = snapshot?.task_service;
-  const catalog = source.catalog(snapshot);
-  const matchingCatalog =
-    catalog?.exchange === form.exchange && catalog.product === form.product ? catalog : null;
-  const contracts = matchingCatalog?.items ?? [];
+  const lists = useContractList({ snapshot, query }, source, form.exchange, form.product);
+  const listed = lists.contracts;
+  const contracts = listed?.items ?? [];
   const selected = contracts.find(item => item.code === form.code);
   // "*" downloads every listed month; Data grants the shared provider budget
   // before each actual request, independently of worker concurrency.
   const all = form.code === "*" && contracts.length > 0;
   const targets = all ? contracts : selected ? [selected] : [];
   const [submitted, setSubmitted] = useState<number | null>(null);
-  const cutoff = matchingCatalog?.cutoff_ns ?? "0";
+  const cutoff = listed?.cutoff_ns ?? "0";
   const [pending, setPending] = useWorkspaceRequestId(
     `historySubmission:${source.id}`,
     JSON.stringify([taskService?.connection_id, form, cutoff]),
@@ -101,7 +189,7 @@ function SourceDownloads({
         <form
           onSubmit={event => {
             event.preventDefault();
-            if (!targets.length || !matchingCatalog) return;
+            if (!targets.length || !listed) return;
             const id = pending ?? `history-${crypto.randomUUID()}`;
             setPending(id);
             setSubmitted(null);
@@ -119,7 +207,7 @@ function SourceDownloads({
                       rate: String(rate),
                     },
                     saved ? "" : token,
-                    matchingCatalog,
+                    listed,
                   ),
                 });
                 if (!ok) break;
@@ -211,32 +299,25 @@ function SourceDownloads({
                   </select>
                 </label>
                 <label>
-                  {t("品种代码")}
-                  <input
+                  {t("品种")}
+                  <select
+                    aria-label={t("品种")}
                     required
-                    placeholder="CU"
-                    value={form.product}
+                    value={
+                      lists.products.some(item => item.product === form.product) ? form.product : ""
+                    }
                     onChange={event =>
                       setForm(previous => ({ ...previous, product: event.target.value, code: "" }))
                     }
-                  />
-                </label>
-                <div className="history-catalog-action">
-                  <button
-                    type="button"
-                    disabled={(source.credential.required && !saved && !token) || !form.product}
-                    onClick={() =>
-                      void run(source.catalogCommand, {
-                        source: source.id,
-                        exchange: form.exchange,
-                        product: form.product,
-                        token: saved ? "" : token,
-                      })
-                    }
                   >
-                    {t("查询月份合约")}
-                  </button>
-                </div>
+                    <option value="">{t("选择品种")}</option>
+                    {lists.products.map(item => (
+                      <option key={item.product} value={item.product}>
+                        {item.product} · {item.first_listed} — {item.last_delisted}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <label>
                   {t("月份合约")}
                   <select
@@ -277,7 +358,7 @@ function SourceDownloads({
                 <p className="history-lifetime">
                   {t("上市日期")} {selected.list_date} — {t("最后交易日")} {selected.delist_date}
                   <br />
-                  {t("自动下载该合约完整存续期；未到期合约截至本次查询时刻。")}
+                  {t("自动下载该合约完整存续期；未到期合约截至读取合约表的时刻。")}
                   <br />
                   {t("本次截止")} {timestamp(cutoff)}
                 </p>
@@ -303,8 +384,28 @@ function SourceDownloads({
                   </p>
                 </details>
               )}
-              {matchingCatalog && !contracts.length && (
-                <p role="status">{t("没有找到月份合约，请检查交易所和品种代码。")}</p>
+              {!lists.loading && !lists.snapshot && (
+                <div role="status">
+                  <p>
+                    {t(
+                      "这个数据源的合约表还没有入库：月份合约和它们的上市日期取自合约表。请先更新全市场数据。",
+                    )}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => navigate("workspace.data", { page: "tables" })}
+                  >
+                    {t("更新全市场数据")}
+                  </button>
+                </div>
+              )}
+              {listed && !contracts.length && (
+                <p role="status">{t("合约表里这个品种没有可以下载的月份合约。")}</p>
+              )}
+              {lists.error && (
+                <p role="alert">
+                  <ErrorNotice error={lists.error} namespace="asterion.terminal.data-workbench" />
+                </p>
               )}
             </section>
             {all && (

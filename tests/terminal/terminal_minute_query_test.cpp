@@ -103,21 +103,11 @@ struct ApplicationTestAccess {
         })
         .get();
   }
-  static void catalog(Application& app, std::int64_t cutoff) {
+  // Changes what the core publishes, as an owner operation does.
+  static void verification(Application& app, Json result) {
     app.impl_->service_io
         .submit<void>([&](std::stop_token) -> PolledTask<void> {
-          app.impl_->history_cutoff = cutoff;
-          app.impl_->history_source = "tushare.fut_daily";
-          app.impl_->history_contracts = std::make_shared<const std::vector<HistoryListing>>(
-              std::vector<HistoryListing>{{{"SHFE", "cu", "2024-03"},
-                                           "copper",
-                                           "2023-01-01",
-                                           "2024-03-15",
-                                           "CU2403.SHF",
-                                           {},
-                                           Decimal::parse("5.00000001"),
-                                           "tonne",
-                                           "CNY/tonne"}});
+          app.impl_->credential_verification = std::move(result);
           app.impl_->publish();
           co_return;
         })
@@ -305,6 +295,22 @@ struct MinuteService {
             page->set_manifest_sha256(std::string(64, 'a'));
             page->set_begin_day(query.begin_day().empty() ? "2023-01-01" : query.begin_day());
             page->set_end_day(query.end_day().empty() ? "2024-01-01" : query.end_day());
+          } else if (request.has_table_contracts()) {
+            // Copper's March month, as the source's contract list lists it.
+            const auto& query = request.table_contracts();
+            auto* list = response.mutable_table_contracts();
+            list->set_source(query.source());
+            if (query.exchange() == "SHFE" && query.product() == "cu") {
+              auto* item = list->add_items();
+              item->set_contract_id("SHFE/cu/2024-03");
+              item->set_source_instrument("CU2403.SHF");
+              item->set_name("copper");
+              item->set_list_date("2023-01-01");
+              item->set_delist_date("2024-03-15");
+              item->mutable_per_unit()->set_units(Decimal::parse("5.00000001").raw());
+              item->set_trade_unit("tonne");
+              item->set_quote_unit("CNY/tonne");
+            }
           } else if (request.has_table_daily()) {
             // No candles: what is checked here is whose they are.
             const auto& query = request.table_daily();
@@ -700,21 +706,38 @@ TEST(TerminalDailyQueries, AChartOfTheDailyTableIsTypedAndOnlyItsOwnReplyIsPubli
     EXPECT_EQ(std::string(error.what()), "daily table chart identity mismatch");
   }
 }
-TEST(TerminalDailyQueries, SubmissionRequiresCurrentCatalogAndSendsTypedDatesToService) {
+// A download takes its contract's code and days from the contract list of
+// the source's own data source, under the snapshot it was chosen from.
+TEST(TerminalDailyQueries, SubmissionReadsTheContractListAndSendsTypedDatesToService) {
   MinuteService source;
   source.release();
   terminal::Application app;
   terminal::ApplicationTestAccess::attach(app, source.address(), source.data_address());
+  const auto snapshot = std::string(64, 'b');
+  const auto listed =
+      app.dispatch(request("data.tables.contracts", {{"snapshot", snapshot},
+                                                     {"source", "tushare.fut_daily"},
+                                                     {"exchange", "SHFE"},
+                                                     {"product", "cu"}}))
+          .at("table_contracts");
+  EXPECT_EQ(listed.at("snapshot"), snapshot);
+  const auto& item = listed.at("items").at(0);
+  EXPECT_EQ(item.at("code"), "SHFE/cu/2024-03");
+  EXPECT_TRUE(item.at("multiplier").is_null());
+  EXPECT_EQ(item.at("per_unit"), "5.00000001");
+  EXPECT_EQ(item.at("trade_unit"), "tonne");
+  EXPECT_EQ(item.at("quote_unit"), "CNY/tonne");
   const auto cutoff = parse_shanghai_time("2023-06-01 10:00:00");
-  auto submission =
-      request("data.download.daily.submit", {{"id", "daily"},
-                                             {"contract_id", "SHFE/cu/2024-03"},
-                                             {"source", "tushare.fut_daily"},
-                                             {"requests_per_minute", 60},
-                                             {"token", "fixture-secret"},
-                                             {"catalog_cutoff_ns", std::to_string(cutoff)}});
+  auto submission = request("data.download.daily.submit", {{"id", "daily"},
+                                                           {"contract_id", "SHFE/cu/2024-04"},
+                                                           {"source", "tushare.fut_daily"},
+                                                           {"requests_per_minute", 60},
+                                                           {"token", "fixture-secret"},
+                                                           {"snapshot", snapshot},
+                                                           {"cutoff_ns", std::to_string(cutoff)}});
+  // A month the list does not have cannot be downloaded.
   EXPECT_THROW(app.dispatch(submission), std::invalid_argument);
-  terminal::ApplicationTestAccess::catalog(app, cutoff);
+  submission["params"]["contract_id"] = "SHFE/cu/2024-03";
   EXPECT_EQ(app.dispatch(request("data.download.budget.configure", {{"source", "tushare.fut_daily"},
                                                                     {"token", "fixture-secret"},
                                                                     {"requests_per_minute", 20}}))
@@ -723,11 +746,6 @@ TEST(TerminalDailyQueries, SubmissionRequiresCurrentCatalogAndSendsTypedDatesToS
             std::string::npos);
   const auto result = app.dispatch(submission);
   EXPECT_EQ(result.dump().find("fixture-secret"), std::string::npos);
-  const auto& item = result.at("history_contracts").at("items").at(0);
-  EXPECT_TRUE(item.at("multiplier").is_null());
-  EXPECT_EQ(item.at("per_unit"), "5.00000001");
-  EXPECT_EQ(item.at("trade_unit"), "tonne");
-  EXPECT_EQ(item.at("quote_unit"), "CNY/tonne");
   {
     std::lock_guard lock(source.mutex);
     ASSERT_TRUE(source.captured_authorization.has_daily());
@@ -741,7 +759,9 @@ TEST(TerminalDailyQueries, SubmissionRequiresCurrentCatalogAndSendsTypedDatesToS
     EXPECT_EQ(source.submitted.download_authorization(), std::string(64, 'a'));
     EXPECT_EQ(source.submitted.SerializeAsString().find("fixture-secret"), std::string::npos);
   }
-  for (const auto& change : std::vector<Json>{{{"catalog_cutoff_ns", "0"}},
+  for (const auto& change : std::vector<Json>{{{"cutoff_ns", "0"}},
+                                              {{"cutoff_ns", "9999999999999999999"}},
+                                              {{"snapshot", "b"}},
                                               {{"contract_id", "CU9999.SHF"}},
                                               {{"requests_per_minute", 501}},
                                               {{"requests_per_minute", 1.5}},
@@ -1290,15 +1310,15 @@ TEST(TerminalApplication, DelayedSnapshotKeepsItsRevisionWithoutReplacingANewerP
                       });
     // This owner operation follows capture of the old request, while its renderer
     // is still waiting. Publishing cannot depend on the response worker.
-    terminal::ApplicationTestAccess::catalog(app, 1700000000000000000);
+    terminal::ApplicationTestAccess::verification(app, {{"source", "tushare.fut_daily"}});
     EXPECT_EQ(old.wait_for(0s), std::future_status::timeout);
   }
   old.get();
   ASSERT_FALSE(failure);
   const auto delayed = parse_json(*encoded).at("result");
   const auto current = app.dispatch(request("runtime.snapshot", {{"since", std::uint64_t{0}}}));
-  EXPECT_EQ(delayed.at("history_contracts"), initial.at("history_contracts"));
-  EXPECT_EQ(current.at("history_contracts").at("source"), "tushare.fut_daily");
+  EXPECT_EQ(delayed.at("credential_verification"), initial.at("credential_verification"));
+  EXPECT_EQ(current.at("credential_verification").at("source"), "tushare.fut_daily");
   EXPECT_GT(current.at("revision"), delayed.at("revision"));
 }
 

@@ -69,7 +69,6 @@ export function readySnapshot(): Snapshot {
   return {
     daily_page: null,
     history_page: null,
-    history_contracts: { source: "", exchange: "", product: "", cutoff_ns: "0", items: [] },
     revision: 1,
     refreshed_at_ms: Date.now(),
     task_service: {

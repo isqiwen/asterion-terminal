@@ -164,7 +164,6 @@ Application::Impl::~Impl() {
 }
 Application::Impl::Publication Application::Impl::capture() {
   Publication next;
-  next.history = history_contracts;
   next.task_result = task_result;
   next.plugins = native_plugins;
   next.settings = settings_view;
@@ -180,12 +179,6 @@ Application::Impl::Publication Application::Impl::capture() {
     next.nodes.push_back(node->owner_view());
   }
   next.metadata = {
-      {"history_contracts",
-       {{"source", history_source},
-        {"exchange", history_exchange},
-        {"product", history_product},
-        {"cutoff_ns", std::to_string(history_cutoff)},
-        {"items", json::array()}}},
       {"task_service", nullptr},
       {"data", data},
       {"credential_verification", credential_verification},
@@ -250,10 +243,9 @@ Application::Impl::Publication Application::Impl::capture() {
 
 bool Application::Impl::Publication::same_state(const Publication& other) const {
   return metadata == other.metadata && live == other.live && tasks == other.tasks &&
-         nodes == other.nodes && settings == other.settings && history == other.history &&
-         task_result == other.task_result && plugins == other.plugins &&
-         market.header == other.market.header && market.catalog == other.market.catalog &&
-         market.rows == other.market.rows;
+         nodes == other.nodes && settings == other.settings && task_result == other.task_result &&
+         plugins == other.plugins && market.header == other.market.header &&
+         market.catalog == other.market.catalog && market.rows == other.market.rows;
 }
 json Application::Impl::Publication::render(std::optional<MarketCursor> held) const {
   auto result = metadata;
@@ -263,17 +255,6 @@ json Application::Impl::Publication::render(std::optional<MarketCursor> held) co
   result["data_credentials"] = settings->credentials;
   result["ctp_connections"] = settings->accounts;
   result["ctp_market"] = settings->market;
-  auto& catalog = result.at("history_contracts").at("items");
-  for (const auto& item : *history)
-    catalog.push_back(
-        {{"code", item.identity.key()},
-         {"name", item.name},
-         {"list_date", item.list_date},
-         {"delist_date", item.delist_date},
-         {"multiplier", item.multiplier ? json(item.multiplier->str()) : json(nullptr)},
-         {"per_unit", item.per_unit ? json(item.per_unit->str()) : json(nullptr)},
-         {"trade_unit", item.trade_unit ? json(*item.trade_unit) : json(nullptr)},
-         {"quote_unit", item.quote_unit ? json(*item.quote_unit) : json(nullptr)}});
   auto& accounts = result["live"] = json::object();
   for (const auto& [id, account] : live) {
     accounts[id] = account.render();

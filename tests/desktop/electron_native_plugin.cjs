@@ -95,31 +95,7 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
       requests_per_minute: 30,
     });
     const tasks = state => state.task_service.tasks;
-    const completed = {};
-    for (const [source, method, id, extra] of [
-      [
-        "fixture.minutes",
-        "data.download.minutes.submit",
-        "native-minutes",
-        { interval_minutes: 1 },
-      ],
-      ["fixture.daily", "data.download.daily.submit", "native-daily", {}],
-    ]) {
-      const catalog = await call("data.contracts.load", {
-        source,
-        exchange: "SHFE",
-        product: "CU",
-        token: "",
-      });
-      await call(method, {
-        id,
-        source,
-        contract_id: "SHFE/cu/2024-03",
-        catalog_cutoff_ns: catalog.history_contracts.cutoff_ns,
-        requests_per_minute: 30,
-        token: "",
-        ...extra,
-      });
+    const succeeded = async id =>
       await expect
         .poll(
           async () => {
@@ -130,6 +106,47 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
           { timeout: 30000 },
         )
         .toBe("succeeded");
+    // A download picks its contract from its own data source's contract list,
+    // which a table update stores with the days it depends on.
+    await call("data.tables.update.submit", {
+      id: "native-tables",
+      provider: "test.independent.c",
+      tables: ["futures.daily"],
+      begin_day: "2024-03-04",
+      end_day: "2024-03-04",
+      requests_per_minute: 30,
+      token: "",
+    });
+    await succeeded("native-tables");
+    const { snapshot } = (await call("data.tables.coverage")).table_coverage;
+    const completed = {};
+    for (const [source, method, id, extra] of [
+      [
+        "fixture.minutes",
+        "data.download.minutes.submit",
+        "native-minutes",
+        { interval_minutes: 1 },
+      ],
+      ["fixture.daily", "data.download.daily.submit", "native-daily", {}],
+    ]) {
+      const listed = (
+        await call("data.tables.contracts", { snapshot, source, exchange: "SHFE", product: "cu" })
+      ).table_contracts;
+      assert.deepEqual(
+        listed.items.map(item => item.code),
+        ["SHFE/cu/2024-03"],
+      );
+      await call(method, {
+        id,
+        source,
+        contract_id: "SHFE/cu/2024-03",
+        snapshot,
+        cutoff_ns: listed.cutoff_ns,
+        requests_per_minute: 30,
+        token: "",
+        ...extra,
+      });
+      await succeeded(id);
       completed[id] = tasks(await call("runtime.snapshot")).find(item => item.id === id);
       assert.equal(completed[id].provider_artifact, hash);
     }

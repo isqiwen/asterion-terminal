@@ -375,27 +375,25 @@ std::future<Json> DataClient::coverage(const data::v1::HistoryCoverageQuery& que
                                return items;
                              });
 }
-std::future<std::vector<HistoryListing>> DataClient::catalog(const std::string& source,
-                                                             const std::string& credential,
-                                                             const std::string& venue,
-                                                             const std::string& product) {
+std::future<std::vector<HistoryListing>>
+DataClient::table_contracts(const data::v1::TableContractsQuery& query) {
   wire::DataRequest request;
-  auto* q = request.mutable_catalog();
-  q->set_source(source);
-  q->set_credential(credential);
-  q->set_venue(venue);
-  q->set_product(product);
+  *request.mutable_table_contracts() = query;
   return impl_->invoke<std::vector<HistoryListing>>(
       std::move(request),
       [](const wire::DataRequest& request,
          wire::DataResponse& response) -> std::vector<HistoryListing> {
-        const auto& source = request.catalog().source();
-        if (!response.has_catalog() || response.catalog().source() != source)
-          throw std::invalid_argument("historical catalog identity mismatch");
+        const auto& query = request.table_contracts();
+        if (response.table_contracts().source() != query.source())
+          throw Error(ErrorCode::unavailable, "contract list identity mismatch");
         std::vector<HistoryListing> result;
-        for (const auto& row : response.catalog().items()) {
+        for (const auto& row : response.table_contracts().items()) {
           HistoryListing item{HistoryIdentity::parse(row.contract_id()), row.name(),
                               row.list_date(), row.delist_date(), row.source_instrument()};
+          if (item.identity.venue != query.exchange() || item.identity.product != query.product())
+            throw Error(ErrorCode::unavailable, "contract list identity mismatch");
+          (void)parse_trading_date(item.list_date);
+          (void)parse_trading_date(item.delist_date);
           if (row.has_multiplier())
             item.multiplier = Decimal::from_raw(row.multiplier().units());
           if (row.has_per_unit())
@@ -407,8 +405,7 @@ std::future<std::vector<HistoryListing>> DataClient::catalog(const std::string& 
           result.push_back(std::move(item));
         }
         return result;
-      },
-      true, 90s);
+      });
 }
 std::future<Json> DataClient::minute_page(const data::v1::MinutePageQuery& query) {
   wire::DataRequest request;

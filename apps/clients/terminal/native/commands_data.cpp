@@ -3,8 +3,10 @@
 #include <asterion/protocol/task_execution.hpp>
 #include <asterion/domain/history_identity.hpp>
 
-#include <stdexcept>
 #include <algorithm>
+#include <charconv>
+#include <chrono>
+#include <stdexcept>
 
 namespace asterion::terminal {
 namespace {
@@ -45,6 +47,33 @@ DatasetSelection resolved_selection(const data::v1::BarDatasetRequest& request,
                   {"last_close", Decimal::from_raw(last.close().units()).str()},
                   {"uncovered_days", uncovered}});
   return DatasetSelection{request, std::move(dataset), std::move(summary)};
+}
+// What a download of one contract asks the data service for: the contract
+// list of the history source's own data source, under the snapshot the user
+// chose the contract from.
+data::v1::TableContractsQuery contract_list(const json& p, const HistoryIdentity& contract) {
+  data::v1::TableContractsQuery query;
+  query.set_snapshot(p.at("snapshot").get<std::string>());
+  query.set_source(p.at("source").get<std::string>());
+  query.set_exchange(contract.venue);
+  query.set_product(contract.product);
+  if (query.snapshot().size() != 64 ||
+      query.snapshot().find_first_not_of("0123456789abcdef") != std::string::npos)
+    throw std::invalid_argument("invalid contract list query");
+  return query;
+}
+// The time up to which a contract still trading is downloaded: the contract
+// list's reply named it, so a resubmission asks for the same range.
+std::int64_t download_cutoff(const json& p) {
+  const auto& text = p.at("cutoff_ns").get_ref<const std::string&>();
+  std::int64_t cutoff = 0;
+  const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), cutoff);
+  const auto now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+  if (error != std::errc{} || end != text.data() + text.size() || cutoff <= 0 || cutoff > now)
+    throw std::invalid_argument("invalid download cutoff");
+  return cutoff;
 }
 // The request for one contract. Its daily facts and units come from the
 // market-wide tables under the snapshot the user saw; `sources` are archive
@@ -443,7 +472,8 @@ void Application::Impl::register_data_commands() {
     co_return result;
   });
   command("data.download.daily.submit", [this](const json& p) -> PolledTask<Response> {
-    fields(p, {"id", "source", "contract_id", "requests_per_minute", "token", "catalog_cutoff_ns"});
+    fields(p, {"id", "source", "contract_id", "requests_per_minute", "token", "snapshot",
+               "cutoff_ns"});
     if (!task_client)
       throw std::invalid_argument("connect the data and task services first");
     const auto client = task_client;
@@ -452,16 +482,14 @@ void Application::Impl::register_data_commands() {
     const auto& rpm = p.at("requests_per_minute");
     if (!rpm.is_number_integer() || rpm < 1 || rpm > 500)
       throw std::invalid_argument("invalid daily download definition");
-    if (text(p, "source") != history_source ||
-        text(p, "catalog_cutoff_ns") != std::to_string(history_cutoff))
-      throw std::invalid_argument("contract catalog changed; select the contract again");
-    const auto found =
-        std::ranges::find(*history_contracts, text(p, "contract_id"),
-                          [](const HistoryListing& item) { return item.identity.key(); });
-    if (found == history_contracts->end())
+    const auto contract = HistoryIdentity::parse(text(p, "contract_id"));
+    const auto cutoff = download_cutoff(p);
+    const auto listed = (co_await PollFuture{reader->table_contracts(contract_list(p, contract))});
+    const auto found = std::ranges::find(
+        listed, contract.key(), [](const HistoryListing& item) { return item.identity.key(); });
+    if (found == listed.end())
       throw std::invalid_argument("load and select a dated futures contract first");
-    const auto end =
-        std::min(found->delist_date, format_shanghai_time(history_cutoff).substr(0, 10));
+    const auto end = std::min(found->delist_date, format_shanghai_time(cutoff).substr(0, 10));
     data::v1::DailyDownload input;
     input.set_version(2);
     input.set_source(text(p, "source"));
@@ -499,29 +527,48 @@ void Application::Impl::register_data_commands() {
     result.values["history_page"] = std::move(page);
     co_return result;
   });
-  // Contract catalog from a data source; apply it only to the still-selected client.
-  command("data.contracts.load", [this](const json& p) -> PolledTask<Response> {
-    fields(p, {"source", "exchange", "product", "token"});
-    const auto credential = (co_await source_credential(text(p, "source"), text(p, "token", true)));
-    const auto client = data_client;
-    if (!client)
+  // The contracts a history source downloads, from its own data source's
+  // contract list under a snapshot. The reply names the time up to which a
+  // contract still trading would be fetched; a download submits it back.
+  command("data.tables.contracts", [this](const json& p) -> PolledTask<Response> {
+    fields(p, {"snapshot", "source", "exchange", "product"});
+    const auto product = protocol::table_instrument(text(p, "exchange") + "/" + text(p, "product"));
+    if (!product.delivery_month.empty())
+      throw std::invalid_argument("invalid contract list query");
+    const auto query = contract_list(p, HistoryIdentity{product.venue, product.product, "2000-01"});
+    if (!data_client)
       throw std::invalid_argument("connect the data and task services first");
-    auto catalog = (co_await PollFuture{
-        client->catalog(text(p, "source"), credential, text(p, "exchange"), text(p, "product"))});
-    if (data_client != client)
-      throw Error(ErrorCode::conflict, "data connection changed; reload catalog");
-    history_source = text(p, "source");
-    history_contracts = std::make_shared<const std::vector<HistoryListing>>(std::move(catalog));
-    history_exchange = text(p, "exchange");
-    history_product = text(p, "product");
-    history_cutoff = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                         std::chrono::system_clock::now().time_since_epoch())
-                         .count();
-    co_return snapshot();
+    const auto reader = data_client;
+    const auto generation = data_task_generation;
+    const auto cutoff = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+    const auto listed = (co_await PollFuture{reader->table_contracts(query)});
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
+    json items = json::array();
+    for (const auto& item : listed)
+      items.push_back(
+          {{"code", item.identity.key()},
+           {"name", item.name},
+           {"list_date", item.list_date},
+           {"delist_date", item.delist_date},
+           {"multiplier", item.multiplier ? json(item.multiplier->str()) : json(nullptr)},
+           {"per_unit", item.per_unit ? json(item.per_unit->str()) : json(nullptr)},
+           {"trade_unit", item.trade_unit ? json(*item.trade_unit) : json(nullptr)},
+           {"quote_unit", item.quote_unit ? json(*item.quote_unit) : json(nullptr)}});
+    auto result = read_published(json::object());
+    result.values["table_contracts"] = {{"source", query.source()},
+                                        {"snapshot", query.snapshot()},
+                                        {"exchange", query.exchange()},
+                                        {"product", query.product()},
+                                        {"cutoff_ns", std::to_string(cutoff)},
+                                        {"items", std::move(items)}};
+    co_return result;
   });
   command("data.download.minutes.submit", [this](const json& p) -> PolledTask<Response> {
     fields(p, {"id", "source", "contract_id", "interval_minutes", "requests_per_minute", "token",
-               "catalog_cutoff_ns"});
+               "snapshot", "cutoff_ns"});
     if (!task_client)
       throw std::invalid_argument("connect the data and task services first");
     const auto client = task_client;
@@ -539,17 +586,16 @@ void Application::Impl::register_data_commands() {
     input.set_contract_id(text(p, "contract_id"));
     input.set_interval_minutes(p.at("interval_minutes").get<unsigned>());
     input.set_requests_per_minute(p.at("requests_per_minute").get<unsigned>());
-    if (text(p, "source") != history_source ||
-        text(p, "catalog_cutoff_ns") != std::to_string(history_cutoff))
-      throw std::invalid_argument("contract catalog changed; select the contract again");
-    const auto found =
-        std::ranges::find(*history_contracts, input.contract_id(),
-                          [](const HistoryListing& item) { return item.identity.key(); });
-    if (found == history_contracts->end())
+    const auto contract = HistoryIdentity::parse(input.contract_id());
+    const auto cutoff = download_cutoff(p);
+    const auto listed = (co_await PollFuture{reader->table_contracts(contract_list(p, contract))});
+    const auto found = std::ranges::find(
+        listed, contract.key(), [](const HistoryListing& item) { return item.identity.key(); });
+    if (found == listed.end())
       throw std::invalid_argument("load and select a dated futures contract first");
     input.set_source_instrument(found->source_instrument);
     input.set_begin_ns(parse_shanghai_time(found->list_date + " 00:00:00"));
-    input.set_end_ns(std::min(history_cutoff / 1000000000 * 1000000000,
+    input.set_end_ns(std::min(cutoff / 1000000000 * 1000000000,
                               parse_shanghai_time(found->delist_date + " 23:59:59")));
     data::v1::DownloadAuthorizationRequest authorization;
     authorization.set_task_instance(client->endpoint().session);

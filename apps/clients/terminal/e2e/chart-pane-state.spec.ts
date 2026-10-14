@@ -9,7 +9,6 @@ test("chart panes retain intervals and indicators across contracts without subst
   const pageRequests: { id: string; offset: number }[] = [];
   let online = true;
   let service = "fixture-a";
-  let catalogName = "";
   const start = 1790582400000000000n;
   const datasets: { symbol: string; period: number; rows?: number; version?: number }[] = [
     { symbol: "rb2610", period: 1, rows: 250 },
@@ -42,25 +41,6 @@ test("chart panes retain intervals and indicators across contracts without subst
         interval_minutes: period,
         rows: rows ?? 80,
       }));
-    if (catalogName)
-      data.result.history_contracts = {
-        source: "tushare.ft_mins",
-        exchange: "SHFE",
-        product: "RB",
-        cutoff_ns: "0",
-        items: [
-          {
-            code: "SHFE/rb/2027-05",
-            name: catalogName,
-            list_date: "20260101",
-            delist_date: "20270515",
-            multiplier: null,
-            per_unit: "5.00000001",
-            trade_unit: "吨",
-            quote_unit: "元/吨",
-          },
-        ],
-      };
     data.result.market = {
       ...data.result.market!,
       catalog: {
@@ -350,9 +330,9 @@ test("chart panes retain intervals and indicators across contracts without subst
   await expect(historyBoard.locator(".market-chart-title strong")).toHaveText("SHFE/rb/2027-05");
   await expect(historyBoard.getByRole("img", { name: "合约历史 K 线", exact: true })).toBeVisible();
   await page.screenshot({ path: "build/history-market-retained-selection.png" });
-  catalogName = "螺纹钢2705";
-  await expect(selectedHistory).toContainText(catalogName);
-  await historySearch.fill("螺纹钢");
+  // An archived contract is named by its product's label and delivery month.
+  await expect(selectedHistory).toContainText("螺纹钢2705");
+  await historySearch.fill("螺纹钢2705");
   await expect(
     historyBoard.getByRole("group", { name: "历史合约" }).getByRole("button"),
   ).toHaveCount(1);

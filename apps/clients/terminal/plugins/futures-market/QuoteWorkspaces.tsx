@@ -108,7 +108,7 @@ function useQuotes(context: TerminalContext, watchlistOnly = false) {
     )
     .map(row => ({
       ...row,
-      displayName: contractName(row, context.snapshot?.history_contracts, market?.catalog),
+      displayName: contractName(row, market?.catalog),
     }))
     .filter(row =>
       `${quoteId(row)} ${row.displayName ?? ""}`

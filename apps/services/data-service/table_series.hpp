@@ -79,6 +79,13 @@ std::map<std::string, Decimal> contract_multipliers(const history_files::TableSt
 v1::TableSeriesGroup table_series(const history_files::TableStore&, const v1::TableSeriesRequest&);
 // The products of every exchange the snapshot holds a contract list of.
 v1::TableProducts table_products(const history_files::TableStore&, const v1::TableProductsQuery&);
+// The contracts of one product of one exchange in a snapshot's contract list
+// that have a listing day, a delisting day and the source's code for them,
+// ascending; what a download of one of them asks for. `source` names the
+// reply; the list read is `contracts_source`.
+v1::HistoryCatalog table_contracts(const history_files::TableStore&, const std::string& snapshot,
+                                   const std::string& source, const std::string& contracts_source,
+                                   const std::string& exchange, const std::string& product);
 // The part of [first, last] the snapshot's daily table holds of a contract's
 // exchange, from the first such day to the last, and the days of it the
 // contract traded in the auction, ascending. Empty when the table holds none

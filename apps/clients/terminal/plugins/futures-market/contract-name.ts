@@ -1,4 +1,4 @@
-import type { HistoryContractCatalog, LiveMarket } from "../../src/bridge/client";
+import type { LiveMarket } from "../../src/bridge/client";
 
 // Display labels verified against the supplied reference market screenshot.
 // These never change instrument identifiers or synthesize continuous contracts.
@@ -104,11 +104,7 @@ export function productLabel(row: { venue: string; symbol: string }, live?: Live
 
 // Prefer provider names; known display labels supplement code-only live names.
 // Quote identity remains venue + symbol; names never become request identifiers.
-export function contractName(
-  row: { venue: string; symbol: string },
-  catalog: HistoryContractCatalog | undefined,
-  live?: LiveMarket["catalog"],
-) {
+export function contractName(row: { venue: string; symbol: string }, live?: LiveMarket["catalog"]) {
   const contract = live?.contracts.find(
     item => item.venue === row.venue && item.symbol === row.symbol,
   );
@@ -117,9 +113,13 @@ export function contractName(
   const label = contract && productLabels[`${row.venue}.${contract.product}`];
   if (label && liveName === row.symbol && row.symbol.startsWith(contract.product))
     return `${label}${row.symbol.slice(contract.product.length)}`;
-  if (catalog?.exchange.toUpperCase() !== row.venue.toUpperCase()) return undefined;
-  const name = catalog.items
-    .find(item => !!contract?.contract_id && item.code === contract.contract_id)
-    ?.name.trim();
-  return name || undefined;
+  return undefined;
+}
+
+// A label for a contract identity no live catalog lists, e.g. 沪铜2310 for
+// SHFE/cu/2023-10: the product's label and the delivery month.
+export function identityName(contract: string) {
+  const [venue, product, month] = contract.split("/");
+  const label = productLabels[`${venue}.${product}`];
+  return label && month ? `${label}${month.slice(2, 4)}${month.slice(5, 7)}` : undefined;
 }

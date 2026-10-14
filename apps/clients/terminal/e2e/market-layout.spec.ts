@@ -120,25 +120,6 @@ test("dense market board links real dataset commands, sorting, pagination and co
       postData: { version: 1, method: "runtime.snapshot", params: {} },
     });
     const data = (await response.json()) as { result: Snapshot };
-    if (catalogNames)
-      data.result.history_contracts = {
-        source: "tushare.ft_mins",
-        exchange: "SHFE",
-        product: "RB",
-        cutoff_ns: "0",
-        items: [
-          {
-            code: "SHFE/rb/2026-01",
-            name: catalogLabel,
-            list_date: "20250101",
-            delist_date: "20260115",
-            multiplier: null,
-            per_unit: "5.00000001",
-            trade_unit: "吨",
-            quote_unit: "元/吨",
-          },
-        ],
-      };
     // The fixture represents a continuing feed while online. Reusing its
     // initial receipt time makes a slow layout run correctly look stale.
     if (marketOnline) {
@@ -174,7 +155,8 @@ test("dense market board links real dataset commands, sorting, pagination and co
           expiry: "20260930",
           multiplier: 10,
           price_tick: "1",
-          name: "",
+          // The live catalog names rb2601 once the test turns names on.
+          name: catalogNames && row.symbol === "rb2601" ? catalogLabel : "",
         })),
       },
       subscriptions,

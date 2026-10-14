@@ -339,6 +339,11 @@ message DailyPage {
 message HistoryCatalogQuery { string source = 1; string venue = 2; string product = 3; string credential = 4; }
 message HistoryListing { string source_instrument = 1; string contract_id = 2; string name = 3; string list_date = 4; string delist_date = 5; asterion.protocol.v1.Decimal multiplier = 6; asterion.protocol.v1.Decimal per_unit = 7; optional string trade_unit = 8; optional string quote_unit = 9; }
 message HistoryCatalog { string source = 1; repeated HistoryListing items = 2; }
+// The contracts a history source downloads, as its own data source's contract
+// list holds them under a snapshot of the market-wide tables: those of one
+// product of one exchange that have a listing day, a delisting day and the
+// source's code. The reply's source is the history source asked about.
+message TableContractsQuery { string snapshot = 1; string source = 2; string exchange = 3; string product = 4; }
 
 // Service-owned archive record. Definitions and verified immutable results contain no credentials.
 message HistoryRecord { uint32 version = 1; oneof definition { MinuteDownload minutes = 2; DailyDownload daily = 3; } oneof result { MinuteDownloadResult minute_result = 4; DailyDownloadResult daily_result = 5; } }

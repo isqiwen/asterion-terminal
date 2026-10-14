@@ -6,6 +6,7 @@ import {
   type TerminalContext,
 } from "../contract";
 import { ContractHistory } from "./ContractHistory";
+import { identityName } from "./contract-name";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
 export function MarketPanel({ context }: { context: TerminalContext }) {
@@ -18,11 +19,7 @@ export function MarketPanel({ context }: { context: TerminalContext }) {
   const catalogContract = (instrument: string) =>
     context.snapshot?.market?.catalog.contracts.find(item => item.contract_id === instrument);
   const nameFor = (instrument: string) =>
-    context.snapshot?.history_contracts?.items
-      .find(item => item.code === instrument)
-      ?.name.trim() ||
-    catalogContract(instrument)?.name.trim() ||
-    undefined;
+    catalogContract(instrument)?.name.trim() || identityName(instrument);
   const visible = instruments.filter(instrument =>
     `${instrument} ${catalogContract(instrument)?.symbol ?? ""} ${nameFor(instrument) ?? ""}`
       .toUpperCase()

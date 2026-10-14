@@ -360,6 +360,43 @@ TEST(TableSeries, ProductsAreThoseOfTheContractListsOfASnapshot) {
                            {"first_listed", "2025-05-16"},
                            {"last_delisted", "2026-10-15"}}})));
 }
+// What a download picks from: one product's contracts that have a listing
+// day, a delisting day and the source's code, with the units the list gives.
+TEST(TableSeries, AContractListGivesTheContractsOfAProductThatCanBeDownloaded) {
+  Folder folder("ast-ts-");
+  TableStore store(folder.path / "tables");
+  auto rebar = listing("SHFE/rb/2026-10", "2025-10-16", "2026-10-15");
+  rebar[1] = "RB2610.SHF";
+  rebar[2] = "螺纹钢2610";
+  rebar[7] = "10";
+  rebar[8] = "吨";
+  rebar[9] = "元/吨";
+  auto undated = listing("SHFE/rb/2026-11", "2025-11-17", "2026-11-16");
+  undated[1] = "RB2611.SHF";
+  undated[4] = std::nullopt;
+  auto copper = listing("SHFE/cu/2026-04", "2025-04-16", "2026-04-15");
+  copper[1] = "CU2604.SHF";
+  const auto snapshot = keep(store, contracts, "all", {copper, rebar, undated}, 1000);
+  const auto list =
+      data::table_contracts(store, snapshot, "fixture.minutes", contracts.source, "SHFE", "rb");
+  EXPECT_EQ(list.source(), "fixture.minutes");
+  ASSERT_EQ(list.items_size(), 1);
+  const auto& item = list.items(0);
+  EXPECT_EQ(item.contract_id(), "SHFE/rb/2026-10");
+  EXPECT_EQ(item.source_instrument(), "RB2610.SHF");
+  EXPECT_EQ(item.name(), "螺纹钢2610");
+  EXPECT_EQ(item.list_date(), "2025-10-16");
+  EXPECT_EQ(item.delist_date(), "2026-10-15");
+  EXPECT_FALSE(item.has_multiplier());
+  EXPECT_EQ(item.per_unit().units(), Decimal::parse("10").raw());
+  EXPECT_EQ(item.trade_unit(), "吨");
+  EXPECT_EQ(item.quote_unit(), "元/吨");
+  EXPECT_EQ(refusal([&] {
+              (void)data::table_contracts(store, snapshot, "fixture.minutes", contracts.source,
+                                          "DCE", "m");
+            }),
+            "no contract list of DCE is stored");
+}
 TEST(TableSeries, AChartDrawsTheDaysAContractTradedFromItsListingOn) {
   Folder folder("ast-ts-");
   TableStore store(folder.path / "tables");

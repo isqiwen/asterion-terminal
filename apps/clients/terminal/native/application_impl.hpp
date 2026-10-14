@@ -121,11 +121,6 @@ struct Application::Impl {
   // contract outside a series ({venue, symbol, cost_schedule, slippage_ticks})
   // and one for each series ({venue, product, ...}), which all its months take.
   std::vector<json> selection_costs(const json& members) const;
-  std::shared_ptr<const std::vector<HistoryListing>> history_contracts =
-      std::make_shared<const std::vector<HistoryListing>>();
-  std::string history_source;
-  std::string history_exchange, history_product;
-  std::int64_t history_cutoff = 0;
   std::shared_ptr<MarketClient> market;
   // Open CTP trading accounts by account id; each has its own service.
   struct LiveAccount {
@@ -241,7 +236,6 @@ struct Application::Impl {
     std::map<std::string, TradingClient::Read> live;
     std::optional<TaskClient::Read> tasks;
     MarketProjection market;
-    std::shared_ptr<const std::vector<HistoryListing>> history;
     std::shared_ptr<const json> task_result, plugins;
     std::uint64_t revision = 0;
     std::int64_t refreshed_at_ms = 0;

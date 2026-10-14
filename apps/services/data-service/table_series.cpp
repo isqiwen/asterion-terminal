@@ -430,6 +430,46 @@ v1::TableProducts table_products(const TableStore& store, const v1::TableProduct
   }
   return result;
 }
+v1::HistoryCatalog table_contracts(const TableStore& store, const std::string& snapshot,
+                                   const std::string& source, const std::string& contracts_source,
+                                   const std::string& exchange, const std::string& product) {
+  const auto lists = store.revisions(series_of(contracts_table, contracts_source), exchange, "all",
+                                     "all", held(store, snapshot));
+  if (lists.empty())
+    throw Error(ErrorCode::conflict, "no contract list of " + exchange + " is stored");
+  const auto& table = history_table(contracts_table);
+  const auto column = [&](std::string_view name) { return table_column(table, name); };
+  const auto contract = column("contract"), code = column("source_instrument"),
+             name = column("name"), listed = column("list_date"), delisted = column("delist_date"),
+             multiplier = column("multiplier"), per_unit = column("per_unit"),
+             trade_unit = column("trade_unit"), quote_unit = column("quote_unit");
+  v1::HistoryCatalog result;
+  result.set_source(source);
+  for (const auto& row : store.rows(lists.front())) {
+    const auto& key = std::get<std::string>(row[contract]);
+    const auto* first = std::get_if<std::int64_t>(&row[listed]);
+    const auto* last = std::get_if<std::int64_t>(&row[delisted]);
+    const auto* instrument = std::get_if<std::string>(&row[code]);
+    if (HistoryIdentity::parse(key).product != product || !first || !last || !instrument)
+      continue;
+    auto* item = result.add_items();
+    item->set_contract_id(key);
+    item->set_source_instrument(*instrument);
+    if (const auto* text = std::get_if<std::string>(&row[name]))
+      item->set_name(*text);
+    item->set_list_date(date_text(*first));
+    item->set_delist_date(date_text(*last));
+    if (const auto* units = std::get_if<std::int64_t>(&row[multiplier]))
+      item->mutable_multiplier()->set_units(*units);
+    if (const auto* units = std::get_if<std::int64_t>(&row[per_unit]))
+      item->mutable_per_unit()->set_units(*units);
+    if (const auto* text = std::get_if<std::string>(&row[trade_unit]))
+      item->set_trade_unit(*text);
+    if (const auto* text = std::get_if<std::string>(&row[quote_unit]))
+      item->set_quote_unit(*text);
+  }
+  return result;
+}
 TradedDays traded_days(const TableStore& store, const v1::DailyTable& table,
                        const std::string& contract, const std::string& first,
                        const std::string& last) {

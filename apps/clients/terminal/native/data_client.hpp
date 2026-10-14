@@ -35,10 +35,8 @@ public:
   history_update_plan(const data::v1::HistoryUpdateQuery&);
   [[nodiscard]] std::future<Json> datasets(const data::v1::HistoryFilter&);
   [[nodiscard]] std::future<Json> coverage(const data::v1::HistoryCoverageQuery&);
-  [[nodiscard]] std::future<std::vector<HistoryListing>> catalog(const std::string& source,
-                                                                 const std::string& credential,
-                                                                 const std::string& venue,
-                                                                 const std::string& product);
+  [[nodiscard]] std::future<std::vector<HistoryListing>>
+  table_contracts(const data::v1::TableContractsQuery&);
   [[nodiscard]] std::future<Json> daily_page(const data::v1::DailyPageQuery&);
   [[nodiscard]] std::future<Json> minute_page(const data::v1::MinutePageQuery&);
   [[nodiscard]] std::future<Json> history_usage(const std::string&);

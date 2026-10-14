@@ -32,30 +32,37 @@ def close(process):
 process = launch()
 try:
     call(process, "node.data_tasks.local.open")
-    params = {"id": "tushare-invalid-token-fixture", "ts_code": "CU2310.SHF", "interval_minutes": 1,
-              "catalog_cutoff_ns": "0", "requests_per_minute": 60, "token": "asterion-invalid-token-fixture"}
+    params = {"id": "tushare-invalid-token-fixture", "source": "tushare.ft_mins",
+              "contract_id": "SHFE/cu/2023-10", "interval_minutes": 1, "snapshot": "0" * 64,
+              "cutoff_ns": "1", "requests_per_minute": 60, "token": "asterion-invalid-token-fixture"}
     for field in ("interval_minutes", "requests_per_minute"):
         for invalid in (0, -1, 1.5, 4294967297):
             process.stdin.write(json.dumps({"version": 1, "method": "data.download.minutes.submit", "params": dict(params, **{field: invalid})}) + "\n")
             process.stdin.flush()
             response = json.loads(process.stdout.readline())
             assert response["error"]["code"] == "invalid_request", response
-    for method, values in [
-        ("data.download.minutes.submit", params),
-        ("data.download.minutes.submit", dict(params, start="2023-08-25 09:00:00", end="2023-08-25 09:02:00")),
-        ("data.contracts.load", {"exchange": "SHFE", "product": "CU", "token": params["token"]}),
-    ]:
-        process.stdin.write(json.dumps({"version": 1, "method": method, "params": values}) + "\n")
+    # A download takes its contract from the stored contract list; a snapshot
+    # the store never had is refused before any request reaches the source.
+    for values in (params, dict(params, start="2023-08-25 09:00:00", end="2023-08-25 09:02:00")):
+        process.stdin.write(json.dumps({"version": 1, "method": "data.download.minutes.submit", "params": values}) + "\n")
         process.stdin.flush()
         response = json.loads(process.stdout.readline())
         assert "error" in response, response
         assert params["token"] not in json.dumps(response), response
+    # The source itself rejects the token over HTTPS.
+    provider = call(process, "runtime.snapshot")["data"]["sources"][0]["plugin_id"]
+    call(process, "data.credentials.save", {"provider": provider, "credential": params["token"],
+                                             "remember": False, "requests_per_minute": 60})
+    verification = call(process, "data.credentials.verify", {"provider": provider})
+    checks = verification["credential_verification"]["checks"]
+    assert checks and all(check["state"] != 0 for check in checks), checks
+    assert params["token"] not in json.dumps(verification), verification
+    call(process, "data.credentials.clear", {"provider": provider})
     snapshot = call(process, "runtime.snapshot")
-    assert not snapshot["history_contracts"]["items"], snapshot
     assert not any(task["id"] == params["id"] for task in snapshot["task_service"]["tasks"])
     for file in Path(os.environ["ASTERION_NODE_DIRECTORY"]).rglob("*"):
         if file.is_file() and not file.is_symlink() and file.suffix in {".json", ".log"}:
             assert params["token"].encode() not in file.read_bytes(), file.name
-    print("Whole-contract lookup rejection, unsupported range rejection and credential exclusion passed")
+    print("Unsupported range rejection, online token rejection and credential exclusion passed")
 finally:
     close(process)

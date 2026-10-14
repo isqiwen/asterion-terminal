@@ -7,11 +7,6 @@ void Application::Impl::adopt_data_tasks(std::shared_ptr<TaskClient> next,
     selections.clear();
     dataset_series.clear();
     ++dataset_selection_generation;
-    history_contracts = std::make_shared<const std::vector<HistoryListing>>();
-    history_source.clear();
-    history_exchange.clear();
-    history_product.clear();
-    history_cutoff = 0;
   }
   task_client = std::move(next);
   data_client = std::move(next_data);

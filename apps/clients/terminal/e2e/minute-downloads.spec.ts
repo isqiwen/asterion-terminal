@@ -1,17 +1,24 @@
 import { test, expect, type Page } from "./test";
-import type { Snapshot } from "../src/bridge/client";
+import type { Snapshot, TableContracts } from "../src/bridge/client";
 
-const catalogFixture = {
-  source: "tushare.ft_mins",
+// A poll may still be in a route handler when a test ends; let it finish
+// before the page goes.
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "wait" });
+});
+
+const snapshot = "c".repeat(64);
+const contractsFixture = {
+  snapshot,
   exchange: "SHFE",
-  product: "CU",
+  product: "cu",
   cutoff_ns: "1790582400000000000",
   items: [
     {
       code: "SHFE/cu/2023-10",
       name: "Copper 2310",
-      list_date: "20221017",
-      delist_date: "20231016",
+      list_date: "2022-10-17",
+      delist_date: "2023-10-16",
       multiplier: null,
       per_unit: "5.00000001",
       trade_unit: "吨",
@@ -19,24 +26,77 @@ const catalogFixture = {
     },
   ],
 };
-async function mockCatalog(page: Page, identity?: { connection?: string }) {
-  let loaded = false;
-  let source = "tushare.ft_mins";
+// The market-wide tables hold the data source's contract list of SHFE, whose
+// copper months are `items`; every other command reaches the real core.
+async function mockContracts(
+  page: Page,
+  identity?: { connection?: string },
+  items = contractsFixture.items,
+) {
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (!["data.contracts.load", "runtime.snapshot"].includes(request.method))
-      return route.continue();
-    if (request.method === "data.contracts.load") {
-      expect(request.params.exchange).toBe("SHFE");
-      expect(request.params.product).toBe("CU");
-      loaded = true;
-      source = request.params.source;
-    }
+    if (
+      ![
+        "runtime.snapshot",
+        "data.tables.coverage",
+        "data.tables.products",
+        "data.tables.contracts",
+      ].includes(request.method)
+    )
+      return route.fallback();
     const response = await route.fetch({
       postData: { version: 1, method: "runtime.snapshot", params: {} },
     });
     const data = (await response.json()) as { result: Snapshot };
-    if (loaded) data.result.history_contracts = { ...catalogFixture, source };
+    const plugin = data.result.data?.sources[0]?.plugin_id ?? "";
+    if (request.method === "data.tables.coverage")
+      data.result.table_coverage = {
+        snapshot,
+        sources: [
+          {
+            table: "futures.contracts",
+            schema: 1,
+            source: "tushare.fut_basic.v1",
+            plugin_id: plugin,
+            venues: ["SHFE"],
+          },
+        ],
+        rows: [
+          {
+            table: "futures.contracts",
+            schema: 1,
+            source: "tushare.fut_basic.v1",
+            exchange: "SHFE",
+            partitions: 1,
+            rows: 1000,
+            first_period: "all",
+            last_period: "all",
+            acquired_at_ns: "1791717000000000000",
+            missing_days: null,
+            missing_examples: [],
+          },
+        ],
+      };
+    if (request.method === "data.tables.products") {
+      expect(request.params).toEqual({ snapshot, contracts_source: "tushare.fut_basic.v1" });
+      data.result.table_products = [
+        {
+          exchange: "SHFE",
+          product: "cu",
+          contracts: items.length,
+          first_listed: "2022-10-17",
+          last_delisted: "2023-11-15",
+        },
+      ];
+    }
+    if (request.method === "data.tables.contracts") {
+      expect(request.params).toMatchObject({ snapshot, exchange: "SHFE", product: "cu" });
+      data.result.table_contracts = {
+        ...contractsFixture,
+        source: request.params.source,
+        items,
+      } satisfies TableContracts;
+    }
     if (identity?.connection && data.result.task_service)
       data.result.task_service.connection_id = identity.connection;
     await route.fulfill({ response, json: data });
@@ -47,16 +107,14 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
   page,
 }) => {
   const identity: { connection?: string } = {};
-  await mockCatalog(page, identity);
+  await mockContracts(page, identity);
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   const section = page.getByRole("region", { name: "历史数据", exact: true });
-  await section.getByLabel("品种代码", { exact: true }).fill("CU");
-  await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");
-  await section.getByRole("button", { name: "查询月份合约", exact: true }).click();
+  await section.getByLabel("品种", { exact: true }).selectOption("cu");
   await section.getByLabel("月份合约", { exact: true }).selectOption("SHFE/cu/2023-10");
   await expect(section.locator('input[type="datetime-local"]')).toHaveCount(0);
-  await expect(section.getByText(/20221017/)).toBeVisible();
+  await expect(section.getByText(/2022-10-17 — 最后交易日 2023-10-16/)).toBeVisible();
   await section.getByText("合约计量信息", { exact: true }).click();
   const units = section
     .locator("details")
@@ -87,7 +145,8 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
     expect(request.params.interval_minutes).toBe(5);
     expect(request.params).not.toHaveProperty("start");
     expect(request.params).not.toHaveProperty("end");
-    expect(request.params.catalog_cutoff_ns).toBe(catalogFixture.cutoff_ns);
+    expect(request.params.cutoff_ns).toBe(contractsFixture.cutoff_ns);
+    expect(request.params.snapshot).toBe(snapshot);
     expect(request.params.token).toBe("ui-fixture-secret");
     submissions.push(request.params.id);
     if (submissions.length === 1 || submissions.length === 3)
@@ -96,7 +155,6 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
       postData: { version: 1, method: "runtime.snapshot", params: {} },
     });
     const data = (await response.json()) as { result: Snapshot };
-    data.result.history_contracts = catalogFixture;
     if (identity.connection) data.result.task_service!.connection_id = identity.connection;
     data.result.task_service!.tasks.push({
       kind: "minute_download",
@@ -151,6 +209,7 @@ test("minute download keeps query drafts but never tokens and confirms uncertain
 test("history is a dedicated source-aware page and clears credentials on subpage navigation", async ({
   page,
 }) => {
+  await mockContracts(page);
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   const history = page.getByRole("region", { name: "历史数据", exact: true });
@@ -167,13 +226,13 @@ test("history is a dedicated source-aware page and clears credentials on subpage
     "30 min",
     "60 min",
   ]);
-  await history.getByLabel("品种代码", { exact: true }).fill("CU");
+  await history.getByLabel("品种", { exact: true }).selectOption("cu");
   await history.getByLabel("Tushare Token", { exact: true }).fill("subpage-fixture-secret");
   await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
   await expect(history).toHaveCount(0);
   await expect(page.getByLabel("CSV 文件路径")).toHaveCount(0);
   await page.getByRole("button", { name: "历史数据", exact: true }).click();
-  await expect(history.getByLabel("品种代码", { exact: true })).toHaveValue("CU");
+  await expect(history.getByLabel("品种", { exact: true })).toHaveValue("cu");
   await expect(history.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
   await page.screenshot({ path: "build/history-page-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 800, height: 900 });
@@ -257,26 +316,26 @@ test("completed dataset exposes provenance and honest coverage separately from a
   await expect(history.getByText("/fixture/history", { exact: true })).toBeVisible();
 });
 
-test("daily adapter submits catalog scope without minute fields and clears credentials on source changes", async ({
+test("daily adapter submits the contract list's scope without minute fields and clears credentials on source changes", async ({
   page,
 }) => {
-  await mockCatalog(page);
+  await mockContracts(page);
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   const section = page.getByRole("region", { name: "历史数据", exact: true });
   await section
     .getByRole("combobox", { name: "数据源", exact: true })
     .selectOption("tushare.fut_daily");
-  await section.getByLabel("品种代码", { exact: true }).fill("CU");
+  await section.getByLabel("品种", { exact: true }).selectOption("cu");
   await section.getByLabel("Tushare Token", { exact: true }).fill("daily-test-secret");
-  await section.getByRole("button", { name: "查询月份合约", exact: true }).click();
   await section.getByLabel("月份合约", { exact: true }).selectOption("SHFE/cu/2023-10");
   let submitted = false;
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
     if (request.method !== "data.download.daily.submit") return route.fallback();
     expect(request.params.contract_id).toBe("SHFE/cu/2023-10");
-    expect(request.params.catalog_cutoff_ns).toBe(catalogFixture.cutoff_ns);
+    expect(request.params.cutoff_ns).toBe(contractsFixture.cutoff_ns);
+    expect(request.params.snapshot).toBe(snapshot);
     expect(request.params.token).toBe("daily-test-secret");
     expect(request.params).not.toHaveProperty("interval_minutes");
     expect(request.params).not.toHaveProperty("start");
@@ -307,40 +366,26 @@ test("daily adapter submits catalog scope without minute fields and clears crede
 test("all contract months retain per-task pacing without changing the shared budget", async ({
   page,
 }) => {
-  const months = {
-    ...catalogFixture,
-    items: [
-      catalogFixture.items[0],
-      { ...catalogFixture.items[0], code: "SHFE/cu/2023-11", name: "Copper 2311" },
-    ],
-  };
-  let loaded = false;
   let budgetConfigurations = 0;
   const submissions: Record<string, unknown>[] = [];
+  await mockContracts(page, undefined, [
+    contractsFixture.items[0],
+    { ...contractsFixture.items[0], code: "SHFE/cu/2023-11", name: "Copper 2311" },
+  ]);
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
-    if (request.method === "data.contracts.load") loaded = true;
     if (request.method === "data.download.budget.configure") ++budgetConfigurations;
-    if (request.method === "data.download.minutes.submit") submissions.push(request.params);
-    if (
-      !["data.contracts.load", "data.download.minutes.submit", "runtime.snapshot"].includes(
-        request.method,
-      )
-    )
-      return route.continue();
+    if (request.method !== "data.download.minutes.submit") return route.fallback();
+    submissions.push(request.params);
     const response = await route.fetch({
       postData: { version: 1, method: "runtime.snapshot", params: {} },
     });
-    const data = (await response.json()) as { result: Snapshot };
-    if (loaded) data.result.history_contracts = months;
-    await route.fulfill({ response, json: data });
+    await route.fulfill({ response });
   });
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   const section = page.getByRole("region", { name: "历史数据", exact: true });
-  await section.getByLabel("品种代码", { exact: true }).fill("CU");
-  await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");
-  await section.getByRole("button", { name: "查询月份合约", exact: true }).click();
+  await section.getByLabel("品种", { exact: true }).selectOption("cu");
   await section.getByLabel("月份合约", { exact: true }).selectOption("*");
   await section.getByLabel("每分钟请求上限", { exact: true }).fill("60");
   await section.getByLabel("Tushare Token", { exact: true }).fill("ui-fixture-secret");

@@ -121,6 +121,8 @@ data::v1::DataResponse decode_data_response(const data::v1::DataRequest& request
       return Response::kTableProducts;
     case Request::kTableDaily:
       return Response::kTableDaily;
+    case Request::kTableContracts:
+      return Response::kTableContracts;
     case Request::OPERATION_NOT_SET:
       return Response::RESULT_NOT_SET;
     }

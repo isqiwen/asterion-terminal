@@ -62,6 +62,7 @@ export type TerminalContext = {
       | "data.tables.page"
       | "data.tables.products"
       | "data.tables.daily"
+      | "data.tables.contracts"
       | "market.minutes",
     params: Record<string, unknown>,
   ) => Promise<Snapshot>;

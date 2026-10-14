@@ -188,7 +188,6 @@
   "connect the data and task services first": "请先连接数据与任务服务",
   "connect the node before deployment": "请先连接节点再部署服务",
   "connect the node before updating": "更新前请先连接节点。",
-  "contract catalog changed; select the contract again": "合约目录已更新，请重新选择合约。",
   "contract is not allowed in this live session": "该合约不在本实盘会话的可交易合约中。",
   "contract is not in the CTP contract catalog": "该合约不在 CTP 合约目录中。",
   "contract is not part of this account": "该合约不属于此账户。",
@@ -210,7 +209,6 @@
   "daily dataset row count mismatch": "日线数据记录数不匹配。",
   "data and task service bindings disagree": "数据服务与任务服务的绑定不一致",
   "data binding only belongs to task service": "数据实例绑定仅用于任务服务",
-  "data connection changed; reload catalog": "数据连接已改变，请重新加载目录",
   "data connection changed; retry verification": "数据连接已改变，请重新验证",
   "data connection closed": "数据服务连接已关闭",
   "data persistence failed; restart data service": "数据持久化失败，请重启数据服务。",
@@ -294,7 +292,6 @@
   "historical archive requires existing directories": "历史仓库目录缺失，无法完成检查",
   "historical archive revision mismatch": "历史仓库版本校验不一致。",
   "historical bars must be strictly ascending": "历史 K 线时间必须严格递增。",
-  "historical catalog identity mismatch": "返回的合约目录与所选数据源不一致。",
   "historical data source is unavailable": "历史数据源不可用。",
   "historical dataset is unavailable": "历史数据版本不可用。",
   "historical dataset outside archive": "历史数据不在指定仓库中。",
@@ -950,5 +947,6 @@
   "全市场日线表里没有该合约在某个交易日的结算价；详情里是合约和日期": "全市场日线表里没有该合约在某个交易日的结算价；详情里是合约和日期",
   "这个交易所的合约表还没有入库，不知道合约在哪些交易日上市，画不出日线。请先在「数据 → 全市场数据」更新": "这个交易所的合约表还没有入库，不知道合约在哪些交易日上市，画不出日线。请先在「数据 → 全市场数据」更新",
   "合约表里没有这个合约，画不出它的日线：合约表可能早于它上市，请先在「数据 → 全市场数据」更新合约表；详情里是合约": "合约表里没有这个合约，画不出它的日线：合约表可能早于它上市，请先在「数据 → 全市场数据」更新合约表；详情里是合约",
-  "合约表没有给出这个合约的上市和退市日期，画不出它的日线；详情里是合约": "合约表没有给出这个合约的上市和退市日期，画不出它的日线；详情里是合约"
+  "合约表没有给出这个合约的上市和退市日期，画不出它的日线；详情里是合约": "合约表没有给出这个合约的上市和退市日期，画不出它的日线；详情里是合约",
+  "contract list identity mismatch": "返回的合约表与所选数据源不一致。"
 }

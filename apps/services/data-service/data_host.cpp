@@ -274,7 +274,25 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
     *response.mutable_table_products() = table_products(store_->tables(), request.table_products());
   else if (request.has_table_daily())
     *response.mutable_table_daily() = table_daily(store_->tables(), request.table_daily());
-  else
+  else if (request.has_table_contracts()) {
+    // A history source downloads the contracts its own data source lists:
+    // their codes are that provider's.
+    const auto& query = request.table_contracts();
+    const auto sources = history_providers::sources();
+    const auto source = std::ranges::find(sources, query.source(), &history_providers::Source::id);
+    if (source == sources.end())
+      throw std::invalid_argument("unsupported historical data source");
+    const auto offers = store_->table_offers();
+    const auto lists = std::ranges::find_if(offers, [&](const TableOffer& offer) {
+      return offer.plugin_id == source->plugin_id && offer.series.table == contracts_table;
+    });
+    if (lists == offers.end())
+      throw Error(ErrorCode::conflict,
+                  "the data source of " + query.source() + " offers no contract list");
+    *response.mutable_table_contracts() =
+        table_contracts(store_->tables(), query.snapshot(), query.source(), lists->series.source,
+                        query.exchange(), query.product());
+  } else
     throw std::invalid_argument("missing data operation");
   return {};
 }

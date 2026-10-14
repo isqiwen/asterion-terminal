@@ -1,8 +1,7 @@
 import { getLocale, translate } from "../../src/i18n";
 import type {
-  HistoryContractCatalog,
   NativeHistorySource,
-  Snapshot,
+  TableContracts,
   TaskResult,
   TaskRecord,
   TerminalCommand,
@@ -13,12 +12,12 @@ import type {
 export type HistorySource = {
   id: string;
   name: string;
+  // The data source it belongs to: its contracts are that source's contract list's.
+  pluginId: string;
   asset: string;
   dataType: string;
   description: string;
-  catalogCommand: TerminalCommand;
   exchanges: readonly string[];
-  catalog: (snapshot: Snapshot | null) => HistoryContractCatalog | null;
   credential: { label: string; required: boolean; maxLength: number; help: string };
   intervals: readonly (number | "day")[];
   timeAxis: "instant" | "trading-day";
@@ -28,7 +27,7 @@ export type HistorySource = {
   parameters: (
     query: HistoryQuery,
     credential: string,
-    catalog: HistoryContractCatalog,
+    contracts: TableContracts,
   ) => Record<string, unknown>;
   ownsTask: (task: TaskRecord) => boolean;
   dataset: (result: TaskResult) => HistoryDataset | null;
@@ -55,12 +54,12 @@ export function historySources(declared: readonly NativeHistorySource[]): Histor
     return {
       id: info.id,
       name: info.name,
+      pluginId: info.plugin_id,
       asset: "期货",
       dataType: daily ? "日 K 线" : "分钟 K 线",
       description: daily
-        ? "选择具体月份合约，下载存续期内按交易日期记录的日线。需要合约资料与日线数据权限。"
-        : "选择具体月份合约，自动下载整个存续期的分钟数据。需要合约资料与分钟数据权限。",
-      catalogCommand: "data.contracts.load",
+        ? "选择具体月份合约，下载存续期内按交易日期记录的日线。合约取自这个数据源的合约表，需要日线数据权限。"
+        : "选择具体月份合约，自动下载整个存续期的分钟数据。合约取自这个数据源的合约表，需要分钟数据权限。",
       exchanges: info.venues,
       intervals: daily ? ["day"] : info.intervals,
       timeAxis: daily ? "trading-day" : "instant",
@@ -81,13 +80,12 @@ export function historySources(declared: readonly NativeHistorySource[]): Histor
         maxLength: info.connection?.credential_max_length ?? 256,
         help: "只用于这一次查询和下载，提交后清空。",
       },
-      catalog: snapshot =>
-        snapshot?.history_contracts?.source === info.id ? snapshot.history_contracts : null,
       command: daily ? "data.download.daily.submit" : "data.download.minutes.submit",
-      parameters: (query, token, catalog) => ({
+      parameters: (query, token, contracts) => ({
         source: info.id,
         contract_id: query.code,
-        catalog_cutoff_ns: catalog.cutoff_ns,
+        snapshot: contracts.snapshot,
+        cutoff_ns: contracts.cutoff_ns,
         ...(daily ? {} : { interval_minutes: Number(query.frequency) }),
         requests_per_minute: Number(query.rate),
         token,

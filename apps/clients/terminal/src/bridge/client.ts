@@ -307,7 +307,6 @@ export type TerminalCommand =
   | "data.download.daily.submit"
   | "data.minutes.page"
   | "data.download.minutes.submit"
-  | "data.contracts.load"
   | "data.datasets"
   | "data.dataset.saved"
   | "data.dataset.save"
@@ -321,6 +320,7 @@ export type TerminalCommand =
   | "data.tables.page"
   | "data.tables.products"
   | "data.tables.daily"
+  | "data.tables.contracts"
   | "data.dataset.select"
   | "data.dataset.series"
   | "data.dataset.daily"
@@ -1077,8 +1077,12 @@ export type HistoryDatasetRecord = {
   interval_minutes: number;
   rows: number;
 };
-export type HistoryContractCatalog = {
+// The contracts a history source downloads, from its own data source's
+// contract list under a snapshot of the market-wide tables. A download sends
+// the snapshot and cutoff back: a contract still trading is fetched up to it.
+export type TableContracts = {
   source: string;
+  snapshot: string;
   exchange: string;
   product: string;
   cutoff_ns: string;
@@ -1159,7 +1163,6 @@ export type Snapshot = {
   };
   daily_page: DailyPage | null;
   history_page: HistoryPage | null;
-  history_contracts: HistoryContractCatalog;
   history_datasets?: HistoryDatasetRecord[];
   saved_datasets?: SavedNamedDataset[];
   // Datasets another version saved: kept by the data service, not listed.
@@ -1171,6 +1174,7 @@ export type Snapshot = {
   table_page?: TablePage;
   table_products?: TableProduct[];
   table_daily?: TableDailyPage;
+  table_contracts?: TableContracts;
   // Present when the core answered from its last snapshot because another operation was running.
   // Revision of the core's published state and when the core last refreshed it.
   revision: number;
