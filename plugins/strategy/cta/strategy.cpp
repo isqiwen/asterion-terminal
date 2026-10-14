@@ -6,10 +6,7 @@
 #include <deque>
 #include <stdexcept>
 namespace asterion {
-Strategy::Strategy(Instrument instrument, Decimal quantity, PositionSides sides)
-    : instrument_(std::move(instrument)), quantity_(quantity), sides_(sides) {
-  instrument_.validate();
-}
+Strategy::Strategy(Decimal quantity, PositionSides sides) : quantity_(quantity), sides_(sides) {}
 void Strategy::start() {
   if (running_)
     throw std::logic_error("strategy already started");
@@ -23,7 +20,6 @@ void Strategy::stop() noexcept {
 std::optional<Decimal> Strategy::on_bar(const MarketBar& bar) {
   if (!running_)
     throw std::logic_error("strategy is stopped");
-  bar.validate(instrument_);
   if (bar.timestamp_ns <= last_time_)
     throw std::invalid_argument("strategy events are out of order");
   // A rule changes its state only once it has accepted the bar.
@@ -87,9 +83,8 @@ private:
 };
 class MovingAverageCross final : public Strategy {
 public:
-  MovingAverageCross(Instrument instrument, Decimal quantity, PositionSides sides, std::size_t fast,
-                     std::size_t slow)
-      : Strategy(std::move(instrument), quantity, sides), fast_(fast), slow_(slow) {}
+  MovingAverageCross(Decimal quantity, PositionSides sides, std::size_t fast, std::size_t slow)
+      : Strategy(quantity, sides), fast_(fast), slow_(slow) {}
 
 private:
   void reset() override {
@@ -108,9 +103,8 @@ private:
 };
 class ChannelBreakout final : public Strategy {
 public:
-  ChannelBreakout(Instrument instrument, Decimal quantity, PositionSides sides, std::size_t entry,
-                  std::size_t exit)
-      : Strategy(std::move(instrument), quantity, sides), entry_(entry), exit_(exit) {}
+  ChannelBreakout(Decimal quantity, PositionSides sides, std::size_t entry, std::size_t exit)
+      : Strategy(quantity, sides), entry_(entry), exit_(exit) {}
 
 private:
   void reset() override {
@@ -149,8 +143,8 @@ private:
 };
 class Momentum final : public Strategy {
 public:
-  Momentum(Instrument instrument, Decimal quantity, PositionSides sides, std::size_t lookback)
-      : Strategy(std::move(instrument), quantity, sides), lookback_(lookback) {}
+  Momentum(Decimal quantity, PositionSides sides, std::size_t lookback)
+      : Strategy(quantity, sides), lookback_(lookback) {}
 
 private:
   void reset() override { closes_.clear(); }
@@ -168,9 +162,8 @@ private:
 };
 class BandReversion final : public Strategy {
 public:
-  BandReversion(Instrument instrument, Decimal quantity, PositionSides sides, std::size_t window,
-                Decimal width)
-      : Strategy(std::move(instrument), quantity, sides), window_(window),
+  BandReversion(Decimal quantity, PositionSides sides, std::size_t window, Decimal width)
+      : Strategy(quantity, sides), window_(window),
         width_(static_cast<long double>(width.raw()) / 100000000) {}
 
 private:
@@ -212,25 +205,23 @@ private:
 };
 } // namespace
 std::unique_ptr<Strategy> make_strategy(const protocol::v1::Strategy& definition,
-                                        Instrument instrument) {
+                                        const Instrument& instrument) {
+  instrument.validate();
   protocol::validate_strategy(definition, instrument.quantity_increment);
   const auto quantity = Decimal::from_raw(definition.quantity().units());
   const auto sides = protocol::position_sides(definition.sides());
   switch (definition.rule_case()) {
   case protocol::v1::Strategy::kMovingAverage:
-    return std::make_unique<MovingAverageCross>(std::move(instrument), quantity, sides,
-                                                definition.moving_average().fast(),
+    return std::make_unique<MovingAverageCross>(quantity, sides, definition.moving_average().fast(),
                                                 definition.moving_average().slow());
   case protocol::v1::Strategy::kBreakout:
-    return std::make_unique<ChannelBreakout>(std::move(instrument), quantity, sides,
-                                             definition.breakout().entry(),
+    return std::make_unique<ChannelBreakout>(quantity, sides, definition.breakout().entry(),
                                              definition.breakout().exit());
   case protocol::v1::Strategy::kMomentum:
-    return std::make_unique<Momentum>(std::move(instrument), quantity, sides,
-                                      definition.momentum().lookback());
+    return std::make_unique<Momentum>(quantity, sides, definition.momentum().lookback());
   case protocol::v1::Strategy::kReversion:
     return std::make_unique<BandReversion>(
-        std::move(instrument), quantity, sides, definition.reversion().window(),
+        quantity, sides, definition.reversion().window(),
         Decimal::from_raw(definition.reversion().width().units()));
   case protocol::v1::Strategy::kCross:
     throw std::invalid_argument("a rule over several contracts runs in backtests only");

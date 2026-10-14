@@ -1,5 +1,6 @@
 #pragma once
 #include <asterion/domain/daily_bars.hpp>
+#include <asterion/domain/history_identity.hpp>
 #include <asterion/domain/market.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/v1/data.pb.h>
@@ -31,8 +32,8 @@ struct TableInstrument {
 // What one request may ask for: more than there are futures products.
 inline constexpr int max_table_instruments = 100;
 TableInstrument table_instrument(std::string_view text);
-// Where daily facts are read: a snapshot of the table store and the sources
-// of its daily table and calendar.
+// Where daily facts and contract units are read: a snapshot of the table
+// store and the sources of its daily table, calendar and contract list.
 void validate_daily_table(const data::v1::DailyTable&);
 data::v1::DailyTable encode_daily_table(const Json&);
 Json decode_daily_table(const data::v1::DailyTable&);
@@ -58,15 +59,20 @@ data::v1::HistoryVersionEvidence encode_history_evidence(const Json&);
 inline constexpr int max_dataset_sources = 32;
 inline constexpr std::size_t max_dataset_bars = 200000;
 Instrument instrument(const v1::Contract&);
+// The contract as history names it: SHFE/rb/2026-10.
+HistoryIdentity history_identity(const v1::Contract&);
 v1::Bar encode_bar(const MarketBar&);
 MarketBar market_bar(const v1::Bar&);
-// Content identity: SHA-256 of contract, interval, bars and days.
+// Content identity: SHA-256 of contract, interval, bars, days and price
+// increment changes.
 std::string bar_dataset_revision(const data::v1::BarDataset&);
-// Validates structure, order, contract units, that every bar falls on one of
-// the days, and the revision.
-inline constexpr unsigned bar_dataset_version = 4;
+// Validates structure, order, contract units, that every bar is on the price
+// increment of its day and falls on one of the days, and the revision.
+inline constexpr unsigned bar_dataset_version = 5;
 void validate_bar_dataset(const data::v1::BarDataset&);
 std::vector<MarketBar> dataset_bars(const data::v1::BarDataset&);
+// The days its price increment changes after the first bar's, ascending.
+std::vector<PriceIncrementChange> dataset_price_increment_changes(const data::v1::BarDataset&);
 std::vector<DaySettlement> dataset_days(const data::v1::BarDataset&);
 // Both views validate the entire dataset; metadata omits bars and settlements.
 Json decode_bar_dataset(const data::v1::BarDataset&, DatasetView view = DatasetView::full);
@@ -76,13 +82,13 @@ data::v1::BarDataset encode_bar_dataset(const Json&);
 data::v1::BarDatasetRequest encode_bar_dataset_request(const Json&);
 Json decode_bar_dataset_request(const data::v1::BarDatasetRequest&);
 // A product whose month contracts the daily table names: exchange and product
-// as history writes them, positive units, and a range with both days.
+// as history writes them, and a range with both days.
 void validate_product_bars_request(const data::v1::ProductBarsRequest&);
 data::v1::ProductBarsRequest encode_product_bars_request(const Json&);
 Json decode_product_bars_request(const data::v1::ProductBarsRequest&);
 // A dominant series over `contracts`, which its rolls name by index: later
-// months of one product with the same terms, each from a later trading day,
-// with positive factors that end in 1. Its term points, at most one a day
+// months of one product, each from a later trading day, with positive
+// factors that end in 1. Its term points, at most one a day
 // from its first, compare positive settlements with a later delivery month.
 void validate_dominant_schedule(const data::v1::DominantSchedule& schedule,
                                 std::span<const v1::Contract* const> contracts);
@@ -103,7 +109,7 @@ std::map<std::string, Decimal> term_carries(const data::v1::DominantSchedule& sc
                                             std::span<const v1::Contract* const> contracts);
 Json decode_term_points(const data::v1::DominantSchedule& schedule);
 std::string named_dataset_revision(const data::v1::NamedDataset&);
-inline constexpr unsigned named_dataset_version = 3;
+inline constexpr unsigned named_dataset_version = 4;
 void validate_named_dataset(const data::v1::NamedDataset&);
 Json decode_named_dataset(const data::v1::NamedDataset&);
 } // namespace asterion::protocol

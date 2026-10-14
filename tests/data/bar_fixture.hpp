@@ -62,6 +62,7 @@ inline data::v1::BarDataset dataset(const std::vector<MarketBar>& bars,
   result.mutable_daily()->set_snapshot(std::string(64, 'b'));
   result.mutable_daily()->set_daily_source("fixture.daily.v1");
   result.mutable_daily()->set_calendar_source("fixture.calendar.v1");
+  result.mutable_daily()->set_contracts_source("fixture.contracts.v1");
   result.set_daily_acquired_at_ns(1790000000000000000);
   result.set_revision(protocol::bar_dataset_revision(result));
   protocol::validate_bar_dataset(result);

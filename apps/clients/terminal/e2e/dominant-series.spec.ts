@@ -40,8 +40,6 @@ test("a product's months backtest as its dominant series and roll at real prices
     "SHFE/rb · 1 分钟 · tushare.ft_mins · 2 个月份",
   ]);
   await product.selectOption({ label: "SHFE/rb · 1 分钟 · tushare.ft_mins · 2 个月份" });
-  await series.getByLabel("最小变动价位").fill("1");
-  await series.getByLabel("合约乘数").fill("10");
   await series.getByRole("button", { name: "使用主力连续（2 个月份）", exact: true }).click();
   const selected = workspace.getByRole("list", { name: "已选合约" });
   await expect(selected).toContainText("SHFE · rb 主力连续");

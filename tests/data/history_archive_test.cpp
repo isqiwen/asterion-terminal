@@ -46,7 +46,8 @@ public:
 data::v1::DailyTable daily_table() {
   return protocol::encode_daily_table({{"snapshot", std::string(64, 'd')},
                                        {"daily_source", "fixture.daily.v1"},
-                                       {"calendar_source", "fixture.calendar.v1"}});
+                                       {"calendar_source", "fixture.calendar.v1"},
+                                       {"contracts_source", "fixture.contracts.v1"}});
 }
 data::v1::HistoryRecord publish(history_files::Archive& archive, AlternateDaily& provider,
                                 const HistoryIdentity& identity, const std::string& acquisition) {
@@ -198,7 +199,7 @@ TEST(HistoryArchive, DataResolvesPublishedVersionsWithoutDownloadTasks) {
   data::v1::BarDatasetRequest request;
   request.add_source_dataset_ids("first");
   *request.mutable_daily() = daily_table();
-  *request.mutable_contract() = test::contract("SHFE", "cu2403", "cu", "2024-03");
+  request.set_contract("SHFE/cu/2024-03");
   EXPECT_THROW(store.sources(request), std::invalid_argument);
 }
 
@@ -213,7 +214,7 @@ TEST(HistoryArchive, NamedDatasetsAreImmutableAndSurviveRestart) {
   auto* input = saved.add_selections();
   input->add_source_dataset_ids(original.daily_result().manifest_sha256());
   *input->mutable_daily() = daily_table();
-  *input->mutable_contract() = test::contract("SHFE", "cu2403", "cu", "2024-03");
+  input->set_contract("SHFE/cu/2024-03");
   saved.add_content_revisions(std::string(64, 'a'));
   saved.set_id(protocol::named_dataset_revision(saved));
   archive.save_named_dataset(saved);
@@ -223,8 +224,7 @@ TEST(HistoryArchive, NamedDatasetsAreImmutableAndSurviveRestart) {
   archive.save_named_dataset(saved);
   ASSERT_EQ(archive.named_datasets().items_size(), 1);
   auto changed = saved;
-  changed.mutable_selections(0)->mutable_contract()->mutable_multiplier()->set_units(
-      Decimal::parse("20").raw());
+  changed.mutable_selections(0)->set_end_day("2024-03-15");
   changed.set_id(protocol::named_dataset_revision(changed));
   EXPECT_NE(changed.id(), saved.id());
   archive.save_named_dataset(changed);
@@ -247,7 +247,7 @@ TEST(HistoryArchive, NamedDatasetsRejectInvalidNamesDuplicateContractsAndMissing
   auto* input = value.add_selections();
   input->add_source_dataset_ids(std::string(64, 'a'));
   *input->mutable_daily() = daily_table();
-  *input->mutable_contract() = test::contract();
+  input->set_contract("SHFE/rb/2026-10");
   value.add_content_revisions(std::string(64, 'c'));
   value.set_id(protocol::named_dataset_revision(value));
   EXPECT_THROW(archive.save_named_dataset(value), std::invalid_argument);

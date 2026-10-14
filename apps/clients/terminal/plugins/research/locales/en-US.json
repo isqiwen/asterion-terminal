@@ -314,6 +314,7 @@
   "截面比较至少需要 3 个品种或合约；只分析一个时请只保留一个。": "A comparison needs at least 3 products or contracts; to study one, keep only one.",
   "期限结构只在品种的主力连续上评价：请去掉单个合约。": "The term structure is evaluated on a product's dominant series only: remove the single contracts.",
   "交易日历来源": "Calendar source",
+  "合约表来源": "Contract list source",
   "数据表快照": "Table snapshot",
   "添加范围内有合约在市的全部品种": "Add every product with a contract listed in the range",
   "没有成交的品种每天的收盘价等于结算价，价格不动：它们的动量和未来收益都是 0，并且一起排在波动率最低的一端。做截面比较时请把不活跃的品种从列表里移除。": "A product nobody trades closes at its settlement price every day and does not move: its momentum and its forward return are zero, and such products gather at the low end of volatility. Remove inactive products from the list before comparing.",

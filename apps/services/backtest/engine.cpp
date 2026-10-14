@@ -282,9 +282,10 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
           }
         };
         if (roll) {
+          // On the price increment of the bar's day, which the account trades at.
           const auto seen =
               adjusted(bar, decimal(roll->factor()),
-                       execution.contract(current.contract).terms.instrument.price_increment);
+                       account.contracts()[current.contract].instrument.price_increment);
           observe(seen);
         } else
           observe(bar);

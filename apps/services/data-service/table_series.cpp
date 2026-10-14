@@ -7,6 +7,9 @@
 #include <asterion/protocol/data.hpp>
 #include <algorithm>
 #include <chrono>
+#include <numeric>
+#include <optional>
+#include <set>
 namespace asterion::data {
 namespace {
 using history_files::TableRevision;
@@ -156,6 +159,116 @@ DailyFacts daily_facts(const TableStore& store, const v1::DailyTable& table,
     if (trades)
       result.trades.emplace(contract, std::move(month.trades));
   }
+  return result;
+}
+std::map<std::string, Decimal>
+price_increments(const TableStore& store, const v1::DailyTable& table, const std::string& venue,
+                 const std::string& product, const std::string& begin_day,
+                 const std::string& end_day) {
+  protocol::validate_daily_table(table);
+  // Three months either side hold the stored days the windows reach.
+  const auto shifted = [](const std::string& day, int by) {
+    using namespace std::chrono;
+    return format_trading_date(year_month_day(sys_days(parse_trading_date(day)) + days(by)));
+  };
+  const auto stored =
+      store.revisions(series_of(daily_table, table.daily_source()), venue, shifted(begin_day, -92),
+                      shifted(end_day, 92), held(store, table.snapshot()));
+  const auto first = std::ranges::lower_bound(stored, begin_day, {}, &TableRevision::period);
+  const auto last = std::ranges::upper_bound(stored, end_day, {}, &TableRevision::period);
+  const std::vector<TableRevision> read(
+      first - std::min<std::ptrdiff_t>(first - stored.begin(), increment_days),
+      last + std::min<std::ptrdiff_t>(stored.end() - last, increment_days));
+  const auto& definition = history_table(daily_table);
+  const std::size_t columns[] = {table_column(definition, "contract"),
+                                 table_column(definition, "open"), table_column(definition, "high"),
+                                 table_column(definition, "low"),
+                                 table_column(definition, "close")};
+  const std::string prefixes[] = {venue + "/" + product + "/"};
+  // By trading day, the greatest common divisor of the prices it traded at
+  // in the auction: a month that did not has no open, high or low.
+  std::map<std::string, std::int64_t> divisors;
+  store.scan(read, columns, prefixes, [&](std::size_t revision, auto& cells) {
+    std::int64_t divisor = 0;
+    for (std::size_t c = 1; c < std::size(columns); ++c) {
+      const auto* units = std::get_if<std::int64_t>(&cells[c]);
+      if (!units)
+        return;
+      divisor = std::gcd(divisor, *units);
+    }
+    auto& day = divisors[read[revision].period];
+    day = std::gcd(day, divisor);
+  });
+  const std::vector<std::pair<std::string, std::int64_t>> traded(divisors.begin(), divisors.end());
+  const auto window = std::min(increment_days, traded.size());
+  const auto divisor = [&](std::size_t from) {
+    std::int64_t result = 0;
+    for (auto i = from; i < from + window; ++i)
+      result = std::gcd(result, traded[i].second);
+    return result;
+  };
+  std::map<std::string, Decimal> result;
+  for (std::size_t i = 0; i < traded.size(); ++i)
+    if (traded[i].first >= begin_day && traded[i].first <= end_day)
+      result.emplace(traded[i].first,
+                     Decimal::from_raw(std::max(divisor(i + 1 >= window ? i + 1 - window : 0),
+                                                divisor(std::min(i, traded.size() - window)))));
+  return result;
+}
+namespace {
+// A lot in units of what the price is quoted per, by the units the contract
+// table names: one where the price is per the unit the contract trades in, or
+// per no unit at all (index points, yuan of a bond), the multiplier saying
+// the rest; two where it is per 500 kg of a contract traded in tonnes. The
+// table's own pairs are these; another is not guessed at.
+std::optional<Decimal> quoted_lots(const TableCell& trade_unit, const TableCell& quote_unit) {
+  const auto* traded = std::get_if<std::string>(&trade_unit);
+  const auto* quoted = std::get_if<std::string>(&quote_unit);
+  if (!traded || !quoted)
+    return std::nullopt;
+  const auto slash = quoted->find('/');
+  if (slash == std::string::npos)
+    return Decimal::parse("1");
+  const auto per = std::string_view(*quoted).substr(slash + 1);
+  if (per == *traded)
+    return Decimal::parse("1");
+  if (per == "500千克" && *traded == "吨")
+    return Decimal::parse("2");
+  return std::nullopt;
+}
+} // namespace
+std::map<std::string, Decimal> contract_multipliers(const TableStore& store,
+                                                    const v1::DailyTable& table,
+                                                    const std::string& venue,
+                                                    const std::vector<std::string>& contracts) {
+  protocol::validate_daily_table(table);
+  const auto revisions = store.revisions(series_of(contracts_table, table.contracts_source()),
+                                         venue, "all", "all", held(store, table.snapshot()));
+  if (revisions.empty())
+    throw Error(ErrorCode::conflict, "the contract table of " + venue + " is not stored");
+  const auto& definition = history_table(contracts_table);
+  const auto contract = table_column(definition, "contract"),
+             multiplier = table_column(definition, "multiplier"),
+             per_unit = table_column(definition, "per_unit"),
+             trade_unit = table_column(definition, "trade_unit"),
+             quote_unit = table_column(definition, "quote_unit");
+  const std::set<std::string> wanted(contracts.begin(), contracts.end());
+  std::map<std::string, Decimal> result;
+  for (const auto& row : store.rows(revisions.front())) {
+    const auto& name = std::get<std::string>(row[contract]);
+    if (!wanted.contains(name))
+      continue;
+    const auto* lot = std::get_if<std::int64_t>(&row[per_unit]);
+    const auto lots = quoted_lots(row[trade_unit], row[quote_unit]);
+    if (!lot || *lot <= 0 || !lots)
+      throw std::invalid_argument("the contract table's units of " + name + " cannot be read");
+    const auto* scale = std::get_if<std::int64_t>(&row[multiplier]);
+    result.emplace(name, (scale ? Decimal::from_raw(*scale) : Decimal::parse("1")) *
+                             Decimal::from_raw(*lot) * *lots);
+  }
+  for (const auto& name : wanted)
+    if (!result.contains(name))
+      throw std::invalid_argument("the contract table has no " + name);
   return result;
 }
 v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeriesRequest& request) {

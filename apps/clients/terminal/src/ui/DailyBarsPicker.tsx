@@ -57,8 +57,6 @@ export function DailyBarsPicker({
   const [instrument, setInstrument] = useState("");
   const [begin, setBegin] = useState("");
   const [end, setEnd] = useState("");
-  const [tick, setTick] = useState("");
-  const [multiplier, setMultiplier] = useState("");
   if (!daily) return <p role="status">{t(words.empty)}</p>;
   const named = words.pattern.test(instrument.trim());
   const exchange = named ? instrument.trim().split("/")[0] : undefined;
@@ -73,8 +71,6 @@ export function DailyBarsPicker({
           daily: daily.table,
           begin_day: begin,
           end_day: end,
-          price_increment: tick,
-          multiplier,
         });
       }}
     >
@@ -102,22 +98,6 @@ export function DailyBarsPicker({
               onChange={event => setEnd(event.target.value)}
             />
           </label>
-          <label>
-            {t("最小变动价位")}
-            <input
-              inputMode="decimal"
-              value={tick}
-              onChange={event => setTick(event.target.value)}
-            />
-          </label>
-          <label>
-            {t("合约乘数")}
-            <input
-              inputMode="decimal"
-              value={multiplier}
-              onChange={event => setMultiplier(event.target.value)}
-            />
-          </label>
         </div>
         {named && settled && (
           <p className="subtle">
@@ -142,12 +122,13 @@ export function DailyBarsPicker({
           <button
             type="submit"
             className="primary"
-            disabled={!named || !settled || !begin || !end || begin > end || !tick || !multiplier}
+            disabled={!named || !settled || !begin || !end || begin > end}
           >
             {t(words.submit)}
           </button>
           <span className="subtle">
-            {t("起止交易日都要填写；范围内日线表缺的交易日会被拒绝并列出日期。")}
+            {t("起止交易日都要填写；范围内日线表缺的交易日会被拒绝并列出日期。")}{" "}
+            {t("合约乘数取自合约表，最小变动价位按每个交易日的成交价推出。")}
           </span>
         </div>
       </fieldset>

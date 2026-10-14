@@ -5,6 +5,7 @@
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <optional>
 #include <stdexcept>
@@ -56,11 +57,19 @@ Json bar_json(const MarketBar& bar) {
           {"low", bar.low.str()},           {"close", bar.close.str()},
           {"volume", bar.volume.str()}};
 }
+Json increment_changes(const data::v1::BarDataset& dataset) {
+  auto changes = Json::array();
+  for (const auto& change : dataset.price_increment_changes())
+    changes.push_back(
+        {{"trading_day", change.trading_day()}, {"value", value(change.value()).str()}});
+  return changes;
+}
 // Canonical content: the fields that define what the bars are, not where they came from.
 Json contents(const data::v1::BarDataset& dataset, DatasetView view) {
   auto contract = decode_contract(dataset.contract());
-  Json result{{"version", 2},
+  Json result{{"version", 3},
               {"contract", std::move(contract)},
+              {"price_increment_changes", increment_changes(dataset)},
               {"interval_minutes", dataset.interval_minutes()}};
   if (view == DatasetView::metadata)
     return result;
@@ -98,6 +107,14 @@ data::v1::HistoryVersionEvidence encode_history_evidence(const Json& json) {
   result.set_source_availability(data::v1::SOURCE_AVAILABILITY_UNKNOWN);
   validate_history_evidence(result);
   return result;
+}
+HistoryIdentity history_identity(const v1::Contract& contract) {
+  auto product = contract.product();
+  std::ranges::transform(product, product.begin(),
+                         [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  HistoryIdentity identity{contract.venue(), product, contract.delivery_month()};
+  identity.validate();
+  return identity;
 }
 Instrument instrument(const v1::Contract& c) {
   if (!c.has_price_increment() || !c.has_quantity_increment() || !c.has_multiplier())
@@ -174,7 +191,9 @@ std::string bar_dataset_revision(const data::v1::BarDataset& dataset) {
   }
   canonical += "],\"interval_minutes\":";
   canonical += std::to_string(dataset.interval_minutes());
-  canonical += ",\"version\":2}";
+  canonical += ",\"price_increment_changes\":";
+  canonical += increment_changes(dataset).dump();
+  canonical += ",\"version\":3}";
   return sha256_bytes(canonical);
 }
 void validate_bar_dataset(const data::v1::BarDataset& dataset) {
@@ -206,7 +225,20 @@ void validate_bar_dataset(const data::v1::BarDataset& dataset) {
       (dataset.source_dataset_ids().empty() &&
        (interval != 0 || dataset.source() != dataset.daily().daily_source())))
     throw std::invalid_argument("invalid bar dataset provenance");
-  const auto spec = instrument(dataset.contract());
+  auto spec = instrument(dataset.contract());
+  // Each change is of a later day than the first bar's and the change before
+  // it, no later than the last bar's, and to another increment.
+  auto increment = spec.price_increment;
+  const auto* changed = &dataset.bars(0).trading_day();
+  for (const auto& change : dataset.price_increment_changes()) {
+    (void)parse_trading_date(change.trading_day());
+    if (!change.has_value() || value(change.value()) <= Decimal{} ||
+        value(change.value()) == increment || change.trading_day() <= *changed ||
+        change.trading_day() > dataset.bars(dataset.bars_size() - 1).trading_day())
+      throw std::invalid_argument("invalid dataset price increment change");
+    increment = value(change.value());
+    changed = &change.trading_day();
+  }
   const std::string* before = nullptr;
   for (const auto& day : dataset.days()) {
     (void)parse_trading_date(day.trading_day());
@@ -222,8 +254,14 @@ void validate_bar_dataset(const data::v1::BarDataset& dataset) {
   // its bars are missing. A bar needs a day: what is traded is settled.
   std::optional<MarketBar> previous;
   auto day = dataset.days().begin();
+  auto change = dataset.price_increment_changes().begin();
   for (const auto& row : dataset.bars()) {
     auto bar = market_bar(row);
+    // A bar is on the increment of its day.
+    for (; change != dataset.price_increment_changes().end() &&
+           change->trading_day() <= bar.trading_day;
+         ++change)
+      spec.price_increment = value(change->value());
     bar.validate(spec);
     if (previous &&
         (bar.timestamp_ns <= previous->timestamp_ns || bar.trading_day < previous->trading_day))
@@ -243,6 +281,14 @@ std::vector<MarketBar> dataset_bars(const data::v1::BarDataset& dataset) {
   result.reserve(static_cast<std::size_t>(dataset.bars_size()));
   for (const auto& bar : dataset.bars())
     result.push_back(market_bar(bar));
+  return result;
+}
+std::vector<PriceIncrementChange>
+dataset_price_increment_changes(const data::v1::BarDataset& dataset) {
+  validate_bar_dataset(dataset);
+  std::vector<PriceIncrementChange> result;
+  for (const auto& change : dataset.price_increment_changes())
+    result.push_back({change.trading_day(), value(change.value())});
   return result;
 }
 std::vector<DaySettlement> dataset_days(const data::v1::BarDataset& dataset) {
@@ -282,17 +328,25 @@ Json decode_bar_dataset(const data::v1::BarDataset& dataset, DatasetView view) {
   return result;
 }
 data::v1::BarDataset encode_bar_dataset(const Json& json) {
-  require_fields(json,
-                 {"version", "revision", "contract", "interval_minutes", "bars", "days", "source",
-                  "source_dataset_ids", "history_evidence", "daily", "daily_acquired_at_ns"});
+  require_fields(json, {"version", "revision", "contract", "price_increment_changes",
+                        "interval_minutes", "bars", "days", "source", "source_dataset_ids",
+                        "history_evidence", "daily", "daily_acquired_at_ns"});
   if (!json.at("version").is_number_integer() || json.at("version") != bar_dataset_version ||
       !json.at("interval_minutes").is_number_unsigned() || !json.at("bars").is_array() ||
-      !json.at("days").is_array() || json.at("bars").size() > max_dataset_bars)
+      !json.at("days").is_array() || json.at("bars").size() > max_dataset_bars ||
+      !json.at("price_increment_changes").is_array() ||
+      json.at("price_increment_changes").size() > max_dataset_bars)
     throw std::invalid_argument("unsupported bar dataset format");
   data::v1::BarDataset result;
   result.set_version(bar_dataset_version);
   result.set_revision(json.at("revision").get<std::string>());
   *result.mutable_contract() = encode_contract(json.at("contract"));
+  for (const auto& row : json.at("price_increment_changes")) {
+    require_fields(row, {"trading_day", "value"});
+    auto* change = result.add_price_increment_changes();
+    change->set_trading_day(row.at("trading_day").get<std::string>());
+    set(change->mutable_value(), decimal(row, "value"));
+  }
   result.set_interval_minutes(json.at("interval_minutes").get<std::uint32_t>());
   for (const auto& row : json.at("bars")) {
     require_fields(row, {"trading_day", "timestamp_ns", "open", "high", "low", "close", "volume"});
@@ -326,7 +380,7 @@ data::v1::BarDatasetRequest encode_bar_dataset_request(const Json& json) {
   *result.mutable_daily() = encode_daily_table(json.at("daily"));
   result.set_begin_day(json.at("begin_day").get<std::string>());
   result.set_end_day(json.at("end_day").get<std::string>());
-  *result.mutable_contract() = encode_contract(json.at("contract"));
+  result.set_contract(json.at("contract").get<std::string>());
   (void)decode_bar_dataset_request(result);
   return result;
 }
@@ -335,19 +389,14 @@ void validate_product_bars_request(const data::v1::ProductBarsRequest& request) 
   validate_daily_table(request.daily());
   // A product is named as a contract is, without the delivery month.
   HistoryIdentity{request.venue(), request.product(), "2000-01"}.validate();
-  if (!request.has_price_increment() || !request.has_multiplier() ||
-      value(request.price_increment()) <= Decimal{} || value(request.multiplier()) <= Decimal{} ||
-      parse_trading_date(request.begin_day()) > parse_trading_date(request.end_day()))
+  if (parse_trading_date(request.begin_day()) > parse_trading_date(request.end_day()))
     throw std::invalid_argument("invalid product bars request");
 }
 data::v1::ProductBarsRequest encode_product_bars_request(const Json& json) {
-  require_fields(
-      json, {"venue", "product", "price_increment", "multiplier", "begin_day", "end_day", "daily"});
+  require_fields(json, {"venue", "product", "begin_day", "end_day", "daily"});
   data::v1::ProductBarsRequest result;
   result.set_venue(json.at("venue").get<std::string>());
   result.set_product(json.at("product").get<std::string>());
-  set(result.mutable_price_increment(), decimal(json, "price_increment"));
-  set(result.mutable_multiplier(), decimal(json, "multiplier"));
   result.set_begin_day(json.at("begin_day").get<std::string>());
   result.set_end_day(json.at("end_day").get<std::string>());
   *result.mutable_daily() = encode_daily_table(json.at("daily"));
@@ -358,8 +407,6 @@ Json decode_product_bars_request(const data::v1::ProductBarsRequest& request) {
   validate_product_bars_request(request);
   return {{"venue", request.venue()},
           {"product", request.product()},
-          {"price_increment", value(request.price_increment()).str()},
-          {"multiplier", value(request.multiplier()).str()},
           {"begin_day", request.begin_day()},
           {"end_day", request.end_day()},
           {"daily", decode_daily_table(request.daily())}};
@@ -378,14 +425,14 @@ Json decode_bar_dataset_request(const data::v1::BarDatasetRequest& request) {
   if (request.source_dataset_ids().empty() &&
       (request.begin_day().empty() || request.end_day().empty()))
     throw std::invalid_argument("daily bars of the daily table require a begin and an end day");
-  (void)instrument(request.contract());
-  // Evaluated before the braced initializer (GCC < 13 PR66139 leak).
-  auto contract = decode_contract(request.contract());
+  // Named exactly as history writes it.
+  if (HistoryIdentity::parse(request.contract()).key() != request.contract())
+    throw std::invalid_argument("invalid dataset contract");
   return {{"source_dataset_ids", versions(request.source_dataset_ids())},
           {"daily", decode_daily_table(request.daily())},
           {"begin_day", request.begin_day()},
           {"end_day", request.end_day()},
-          {"contract", std::move(contract)}};
+          {"contract", request.contract()}};
 }
 void validate_dominant_schedule(const data::v1::DominantSchedule& schedule,
                                 std::span<const v1::Contract* const> contracts) {
@@ -402,9 +449,7 @@ void validate_dominant_schedule(const data::v1::DominantSchedule& schedule,
       // One product, later months only, each from a later day.
       if (roll.trading_day() <= previous->trading_day() || contract.venue() != before.venue() ||
           contract.product() != before.product() ||
-          contract.delivery_month() <= before.delivery_month() ||
-          contract.price_increment().units() != before.price_increment().units() ||
-          contract.multiplier().units() != before.multiplier().units())
+          contract.delivery_month() <= before.delivery_month())
         throw std::invalid_argument("invalid dominant series schedule");
     }
     previous = &roll;
@@ -504,8 +549,7 @@ void validate_named_dataset(const data::v1::NamedDataset& value) {
   for (int i = 0; i < value.selections_size(); ++i) {
     const auto& request = value.selections(i);
     (void)decode_bar_dataset_request(request);
-    if (!contracts.insert(request.contract().venue() + "/" + request.contract().symbol()).second ||
-        !digest(value.content_revisions(i)))
+    if (!contracts.insert(request.contract()).second || !digest(value.content_revisions(i)))
       throw std::invalid_argument("invalid saved dataset");
   }
   if (!digest(value.id()) || value.id() != named_dataset_revision(value))

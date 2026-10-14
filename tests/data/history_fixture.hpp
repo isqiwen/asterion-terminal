@@ -11,11 +11,13 @@
 #include <cctype>
 #include <map>
 namespace asterion::test {
-// The sources of the market-wide daily table and its calendar. The test
-// provider's by default; a test of the real Terminal seeds under the sources
-// the installed data source offers, which are the ones its pages read.
+// The sources of the market-wide daily table, its calendar and its contract
+// list. The test provider's by default; a test of the real Terminal seeds
+// under the sources the installed data source offers, which are the ones its
+// pages read.
 struct DailyTableSources {
-  std::string daily = "fixture.daily.v1", calendar = "fixture.calendar.v1";
+  std::string daily = "fixture.daily.v1", calendar = "fixture.calendar.v1",
+              contracts = "fixture.contracts.v1";
 };
 // What a contract traded at on a day, and what the lots were worth in all
 // where the row publishes it.
@@ -35,14 +37,16 @@ struct DailyRow {
   std::optional<DailyTrade> trade = {};
   int off_auction_volume = 0;
 };
-// Adds one SHFE contract's days to the daily table and to the calendar, keeping
-// what other contracts already have on those days. Returns where a dataset
+// Adds one SHFE contract's days to the daily table and to the calendar, and
+// the contract to the contract list as `lot` tonnes a lot quoted per tonne,
+// keeping what other contracts already have there. Returns where a dataset
 // reads them, under the snapshot that now holds them.
 inline Json seed_daily_table(const std::filesystem::path& root, const std::string& contract_id,
                              const std::vector<DailyRow>& days,
-                             const DailyTableSources& sources = {}) {
+                             const DailyTableSources& sources = {}, int lot = 10) {
   const history_files::TableSeries daily{"futures.daily", 1, sources.daily},
-      calendar{"futures.calendar", 1, sources.calendar};
+      calendar{"futures.calendar", 1, sources.calendar},
+      contracts{"futures.contracts", 1, sources.contracts};
   history_files::TableStore tables(root / "tables");
   const auto merge = [&](const history_files::TableSeries& series, const std::string& period,
                          const std::vector<TableSourceRow>& added) {
@@ -88,19 +92,25 @@ inline Json seed_daily_table(const std::filesystem::path& root, const std::strin
   }
   for (const auto& [year, open] : years)
     merge(calendar, year, open);
+  TableSourceRow listed(history_table("futures.contracts").columns.size());
+  listed[0] = contract_id;
+  listed[7] = std::to_string(lot);
+  listed[8] = "吨";
+  listed[9] = "人民币元/吨";
+  merge(contracts, "all", {listed});
   return {{"snapshot", tables.head()},
           {"daily_source", daily.source},
-          {"calendar_source", calendar.source}};
+          {"calendar_source", calendar.source},
+          {"contracts_source", contracts.source}};
 }
 // Every day settles at `settlement` with `open_interest` held, having traded
-// from 100 between 90 and 200 to 110: the daily bar the fixtures have always
-// had.
+// from 100 between 90 and 201 to 110: prices whose increment is 1.
 inline Json seed_daily_table(const std::filesystem::path& root, const std::string& contract_id,
                              const std::vector<std::string>& days, int settlement,
                              int open_interest, const DailyTableSources& sources = {}) {
   std::vector<DailyRow> rows;
   for (const auto& day : days)
-    rows.push_back({day, settlement, open_interest, DailyTrade{100, 200, 90, 110, 10000}});
+    rows.push_back({day, settlement, open_interest, DailyTrade{100, 201, 90, 110, 10000}});
   return seed_daily_table(root, contract_id, rows, sources);
 }
 // Of several seeded histories, the daily table as the last of them left it:
@@ -115,8 +125,9 @@ inline Json latest_daily(const std::vector<Json>& selections) {
 // Minute bars spread evenly over `minute_days` (09:00 onwards, bar end, each
 // with its trading day), published as one download; the contract's settlement
 // 110 on `daily_days` in the market-wide daily table, which is where a dataset
-// reads it. The same daily rows are also published as the contract's own daily
-// download (`daily_dataset_id`), for what still reads one.
+// reads it, and the contract in the contract list at ten tonnes a lot. The
+// same daily rows are also published as the contract's own daily download
+// (`daily_dataset_id`), for what still reads one.
 // The contract is SHFE `product` of delivery `month`, e.g. rb2610; every daily
 // row reports `open_interest`.
 inline Json seed_history(
@@ -238,8 +249,6 @@ inline Json seed_history(
                                  .value()},
           {"daily_dataset_id", settlement},
           {"begin_day", ""},
-          {"end_day", ""},
-          {"price_increment", "1"},
-          {"multiplier", "10"}};
+          {"end_day", ""}};
 }
 } // namespace asterion::test

@@ -37,8 +37,6 @@ test("a contract's days and a product's months backtest from the daily table", a
   await contract.getByLabel("合约", { exact: true }).fill("SHFE/ag/2026-10");
   await contract.getByLabel("开始交易日", { exact: true }).fill("2026-09-21");
   await contract.getByLabel("结束交易日", { exact: true }).fill("2026-09-25");
-  await contract.getByLabel("最小变动价位", { exact: true }).fill("1");
-  await contract.getByLabel("合约乘数", { exact: true }).fill("10");
   await contract.getByRole("button", { name: "使用这个合约的日线", exact: true }).click();
   await expect(selected).toContainText("SHFE · ag2610 · 日线 · 5 根 · 5 个交易日");
   await expect(selected).toContainText("日线和结算价取自全市场日线表");
@@ -54,8 +52,6 @@ test("a contract's days and a product's months backtest from the daily table", a
   await series.getByLabel("品种", { exact: true }).fill("SHFE/ag");
   await series.getByLabel("开始交易日", { exact: true }).fill("2026-09-21");
   await series.getByLabel("结束交易日", { exact: true }).fill("2026-09-28");
-  await series.getByLabel("最小变动价位", { exact: true }).fill("1");
-  await series.getByLabel("合约乘数", { exact: true }).fill("10");
   await series.getByRole("button", { name: "使用这个品种的日线主力连续", exact: true }).click();
   await expect(selected).toContainText("SHFE · ag 主力连续");
   // ag2610 from the second day to the roll day, ag2701 from the day before it

@@ -24,6 +24,7 @@ int main(int argc, char** argv) {
   app.add_option("--settlement", settlement, "Settlement price of every daily row");
   app.add_option("--daily-source", tables.daily, "Source of the market-wide daily table");
   app.add_option("--calendar-source", tables.calendar, "Source of the trading calendar");
+  app.add_option("--contracts-source", tables.contracts, "Source of the contract list");
   CLI11_PARSE(app, argc, argv);
   try {
     asterion::validate_id(data_instance);

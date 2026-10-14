@@ -788,7 +788,7 @@ TEST(PaperExecution, SlippageMovesEveryFillAgainstTheOrderAndNotWhetherItFills) 
                                     test::bar("2026-09-28", 4, "99", "104", "98", "103", "100"),
                                     test::bar("2026-09-28", 5, "104", "105", "101", "102", "100"),
                                     test::bar("2026-09-28", 6, "107", "108", "106", "107", "100")};
-  PaperExecution execution(d("100000"), {{{instrument(), costs()}, bars, {}, d("2")}}, risk());
+  PaperExecution execution(d("100000"), {{{instrument(), costs()}, bars, {}, {}, 2}}, risk());
   execution.start();
   execution.advance();
   // A target decided at 100 is placed at 102, the worst price it accepts.
@@ -826,14 +826,52 @@ TEST(PaperExecution, SlippageMovesEveryFillAgainstTheOrderAndNotWhetherItFills) 
   ASSERT_EQ(execution.account().fills().size(), 4U);
   EXPECT_EQ(execution.account().fills()[3].price.str(), "106");
 
-  // Slippage is a whole number of increments and leaves a sale a price.
-  const auto with = [&](const char* slippage) {
-    return PaperExecution(d("100000"), {{{instrument(), costs()}, bars, {}, d(slippage)}}, risk());
+  // Slippage leaves a sale a price.
+  const auto with = [&](unsigned ticks) {
+    return PaperExecution(d("100000"), {{{instrument(), costs()}, bars, {}, {}, ticks}}, risk());
   };
-  EXPECT_THROW(with("0.5"), std::invalid_argument);
-  EXPECT_THROW(with("-1"), std::invalid_argument);
-  EXPECT_THROW(with("98"), std::invalid_argument);
-  EXPECT_NO_THROW(with("97"));
+  EXPECT_THROW(with(98), std::invalid_argument);
+  EXPECT_NO_THROW(with(97));
+}
+
+// The exchange moved the contract from 5 to 2 for the 29th: what is traded
+// that day is on 2, and a fill gives up two of each day's increments.
+TEST(PaperExecution, EachDayTradesOnTheIncrementOfThatDay) {
+  auto five = instrument();
+  five.price_increment = d("5");
+  const std::vector<MarketBar> bars{test::bar("2026-09-28", 1, "1000", "1010", "995", "1005"),
+                                    test::bar("2026-09-28", 2, "1005", "1130", "1000", "1125"),
+                                    test::bar("2026-09-29", 3, "1124", "1130", "1118", "1128"),
+                                    test::bar("2026-09-29", 4, "1128", "1132", "1120", "1130")};
+  const std::vector<PriceIncrementChange> changed{{"2026-09-29", d("2")}};
+  PaperExecution execution(d("100000"), {{{five, costs()}, bars, {}, changed, 2}}, risk());
+  execution.start();
+  execution.advance();
+  // Bought at 1005 and ten more.
+  execution.reconcile_target("long", five.id, d("1"), d("1005"));
+  execution.advance();
+  ASSERT_EQ(execution.account().fills().size(), 1U);
+  EXPECT_EQ(execution.account().fills()[0].price.str(), "1015");
+  execution.cancel_open_orders();
+  execution.settle_scheduled("2026-09-28", {d("1125")});
+  // Sold on the 29th at a price decided on the 28th, 1125, which is not on 2:
+  // taken down to 1124, the limit four below it, filled at 1124 less four.
+  execution.advance(PaperExecution::Target{"flat", d("0"), d("1125")});
+  EXPECT_EQ(execution.account().contracts()[0].instrument.price_increment, d("2"));
+  EXPECT_EQ(execution.snapshot().at("orders").back().at("limit_price"), "1120");
+  ASSERT_EQ(execution.account().fills().size(), 2U);
+  EXPECT_EQ(execution.account().fills()[1].price.str(), "1120");
+  // Bought again at 1125: taken up to 1126, filled at 1126 and four more.
+  execution.advance(PaperExecution::Target{"again", d("1"), d("1125")});
+  ASSERT_EQ(execution.account().fills().size(), 3U);
+  EXPECT_EQ(execution.account().fills()[2].price.str(), "1130");
+  // 105 points on the first lot at ten a point.
+  EXPECT_EQ(execution.account().realized().str(), "1050");
+  // A bar is on the increment of its own day: 1125 is on 5, not on 2.
+  auto off = bars;
+  off[2].close = d("1125");
+  EXPECT_THROW(PaperExecution(d("100000"), {{{five, costs()}, off, {}, changed, 2}}, risk()),
+               std::invalid_argument);
 }
 
 TEST(SqliteJournal, OnlyDeclaredRealSidecarDirectoriesAreAccepted) {
@@ -869,9 +907,10 @@ TEST(BarDataset, RevisionRetainsExactCanonicalBytesAndExcludesProvenance) {
   std::vector<MarketBar> bars{test::flat("2026-09-25", 1790384400000000000LL, "100", "0"),
                               test::flat("2026-09-28", 1790643600000000000LL, "105", "7")};
   auto dataset = test::dataset(bars);
-  auto canonical = Json{{"version", 2},
+  auto canonical = Json{{"version", 3},
                         {"interval_minutes", dataset.interval_minutes()},
                         {"contract", protocol::decode_contract(dataset.contract())},
+                        {"price_increment_changes", Json::array()},
                         {"bars", Json::array()},
                         {"days", Json::array()}};
   for (const auto& bar : bars)
@@ -889,6 +928,13 @@ TEST(BarDataset, RevisionRetainsExactCanonicalBytesAndExcludesProvenance) {
   EXPECT_EQ(protocol::bar_dataset_revision(dataset), sha256_bytes(canonical.dump()));
   dataset.set_source("another-provider");
   dataset.set_source_dataset_ids(0, std::string(64, 'a'));
+  EXPECT_EQ(protocol::bar_dataset_revision(dataset), sha256_bytes(canonical.dump()));
+  // The increment the bars are on is content: the same bars on another one
+  // are another dataset.
+  auto* change = dataset.add_price_increment_changes();
+  change->set_trading_day("2026-09-28");
+  change->mutable_value()->set_units(Decimal::parse("5").raw());
+  canonical["price_increment_changes"].push_back({{"trading_day", "2026-09-28"}, {"value", "5"}});
   EXPECT_EQ(protocol::bar_dataset_revision(dataset), sha256_bytes(canonical.dump()));
   // Canonical identity is also used while constructing a dataset, before
   // semantic validation. Escapes and exact signed decimals remain unambiguous.

@@ -264,8 +264,8 @@ DataClient::dominant_series(const std::vector<data::v1::BarDatasetRequest>& mont
           protocol::validate_bar_dataset(preview.datasets(i));
           if (preview.months(i) >= static_cast<unsigned>(months.size()) ||
               preview.schedule().rolls(i).contract() != unsigned(i) ||
-              preview.datasets(i).contract().SerializeAsString() !=
-                  months[preview.months(i)].contract().SerializeAsString())
+              protocol::history_identity(preview.datasets(i).contract()).key() !=
+                  months[preview.months(i)].contract())
             throw Error(ErrorCode::unavailable, "bar dataset identity mismatch");
         }
         return std::move(preview);
@@ -288,10 +288,10 @@ DataClient::dominant_series(const data::v1::ProductBarsRequest& product) {
           const auto& dataset = preview.datasets(i);
           protocol::validate_bar_dataset(dataset);
           // Daily bars of the product asked for, under the snapshot asked for.
+          const auto month = protocol::history_identity(dataset.contract());
           if (preview.schedule().rolls(i).contract() != unsigned(i) ||
-              dataset.source_dataset_ids_size() || dataset.contract().venue() != product.venue() ||
-              dataset.contract().price_increment().units() != product.price_increment().units() ||
-              dataset.contract().multiplier().units() != product.multiplier().units() ||
+              dataset.source_dataset_ids_size() || month.venue != product.venue() ||
+              month.product != product.product() ||
               dataset.daily().SerializeAsString() != product.daily().SerializeAsString())
             throw Error(ErrorCode::unavailable, "bar dataset identity mismatch");
         }
@@ -310,7 +310,7 @@ DataClient::bar_dataset(const data::v1::BarDatasetRequest& query) {
         protocol::validate_bar_dataset(dataset);
         if (!std::ranges::equal(dataset.source_dataset_ids(), query.source_dataset_ids()) ||
             dataset.daily().SerializeAsString() != query.daily().SerializeAsString() ||
-            dataset.contract().SerializeAsString() != query.contract().SerializeAsString())
+            protocol::history_identity(dataset.contract()).key() != query.contract())
           throw Error(ErrorCode::unavailable, "bar dataset identity mismatch");
         return std::move(dataset);
       });

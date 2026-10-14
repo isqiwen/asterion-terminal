@@ -106,7 +106,7 @@ export function SavedDatasets({
             {selected.selections
               .map(
                 input =>
-                  `${input.contract.venue} · ${input.contract.symbol} · ${!input.begin_day && !input.end_day ? t("全部交易日") : `${input.begin_day || "…"} — ${input.end_day || "…"}`}`,
+                  `${input.contract} · ${!input.begin_day && !input.end_day ? t("全部交易日") : `${input.begin_day || "…"} — ${input.end_day || "…"}`}`,
               )
               .join("； ")}
           </p>

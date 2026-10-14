@@ -23,27 +23,46 @@ void same_semantics(std::optional<HistorySemantics>& expected, const HistorySema
     throw std::invalid_argument("dataset versions have different data semantics");
   expected = actual;
 }
-// The contract as history names it, which is how the daily table keys its rows.
-HistoryIdentity history_identity(const protocol::v1::Contract& contract) {
-  auto product = contract.product();
-  std::ranges::transform(product, product.begin(),
-                         [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  const HistoryIdentity identity{protocol::instrument(contract).id.venue, product,
-                                 contract.delivery_month()};
-  identity.validate();
-  return identity;
-}
 template <class Values>
 const Values& of(const std::map<std::string, Values>& all, const std::string& contract) {
   static const Values none;
   const auto found = all.find(contract);
   return found == all.end() ? none : found->second;
 }
+// The contract of a dataset with the units the data give it: the contract
+// table's multiplier, and the price increment of each of its bars' days, as
+// that of the first and the changes after it.
+void set_units(data::v1::BarDataset& result, const HistoryIdentity& identity, Decimal multiplier,
+               const std::map<std::string, Decimal>& increments, const Bars& bars) {
+  const auto id = identity.exchange_id();
+  auto& contract = *result.mutable_contract();
+  contract.set_venue(id.venue);
+  contract.set_symbol(id.symbol);
+  contract.set_currency("CNY");
+  contract.mutable_quantity_increment()->set_units(Decimal::parse("1").raw());
+  contract.mutable_multiplier()->set_units(multiplier.raw());
+  contract.set_product(id.symbol.substr(0, identity.product.size()));
+  contract.set_delivery_month(identity.delivery_month);
+  std::optional<Decimal> current;
+  for (const auto& [timestamp, bar] : bars) {
+    const auto increment = increments.find(bar.trading_day);
+    if (increment == increments.end())
+      throw std::invalid_argument("futures.daily has no auction prices of " + identity.venue + "/" +
+                                  identity.product + " on " + bar.trading_day);
+    if (!current)
+      contract.mutable_price_increment()->set_units(increment->second.raw());
+    else if (increment->second != *current) {
+      auto* change = result.add_price_increment_changes();
+      change->set_trading_day(bar.trading_day);
+      change->mutable_value()->set_units(increment->second.raw());
+    }
+    current = increment->second;
+  }
+}
 // Completes a dataset from its bars: every day of [first, last] the contract
 // has a settlement price on, with bars or without, and when the daily
-// partitions it speaks of were acquired. The contract's multiplier, which
-// only the user gives, is checked against what its lots were worth on those
-// days.
+// partitions it speaks of were acquired. The contract table's multiplier is
+// checked against what its lots were worth on those days.
 void settle(data::v1::BarDataset& result, const Bars& bars, const DailyFacts& facts,
             const std::string& first, const std::string& last, const std::string& contract) {
   const auto& settlements = of(facts.settlement, contract);
@@ -97,9 +116,11 @@ void settle(data::v1::BarDataset& result, const Bars& bars, const DailyFacts& fa
 }
 // The daily bars of one contract over [begin, end], as `facts` read them from
 // the daily table: a day is a bar where the contract traded.
-data::v1::BarDataset tabled(const protocol::v1::Contract& spec, const data::v1::DailyTable& daily,
-                            const DailyFacts& facts, const std::string& contract,
+data::v1::BarDataset tabled(const HistoryIdentity& identity, Decimal multiplier,
+                            const std::map<std::string, Decimal>& increments,
+                            const data::v1::DailyTable& daily, const DailyFacts& facts,
                             const std::string& begin, const std::string& end) {
+  const auto contract = identity.key();
   Bars bars;
   const auto& trades = of(facts.trades, contract);
   for (auto day = trades.lower_bound(begin); day != trades.end() && day->first <= end; ++day) {
@@ -111,7 +132,7 @@ data::v1::BarDataset tabled(const protocol::v1::Contract& spec, const data::v1::
     throw std::invalid_argument("no bars fall inside the requested trading days");
   data::v1::BarDataset result;
   result.set_version(protocol::bar_dataset_version);
-  *result.mutable_contract() = spec;
+  set_units(result, identity, multiplier, increments, bars);
   settle(result, bars, facts, begin, end, contract);
   result.set_interval_minutes(0);
   result.set_source(daily.daily_source());
@@ -126,15 +147,18 @@ data::v1::BarDataset resolve_bar_dataset(const history_files::TableStore& tables
   protocol::decode_bar_dataset_request(in.request);
   if (in.sources.size() != static_cast<std::size_t>(in.request.source_dataset_ids_size()))
     throw std::invalid_argument("dataset archive changed during resolution");
-  const auto identity = history_identity(in.request.contract());
+  const auto identity = HistoryIdentity::parse(in.request.contract());
   const auto contract = identity.key();
+  const auto& daily = in.request.daily();
   const auto begin = in.request.begin_day(), end = in.request.end_day();
+  const auto multiplier =
+      contract_multipliers(tables, daily, identity.venue, {contract}).at(contract);
   // Without archive versions the bars are the daily table's own.
   if (in.sources.empty())
-    return tabled(
-        in.request.contract(), in.request.daily(),
-        daily_facts(tables, in.request.daily(), identity.venue, begin, end, {contract}, true),
-        contract, begin, end);
+    return tabled(identity, multiplier,
+                  price_increments(tables, daily, identity.venue, identity.product, begin, end),
+                  daily, daily_facts(tables, daily, identity.venue, begin, end, {contract}, true),
+                  begin, end);
   const auto inside = [&](const std::string& day) {
     return (begin.empty() || day >= begin) && (end.empty() || day <= end);
   };
@@ -186,14 +210,14 @@ data::v1::BarDataset resolve_bar_dataset(const history_files::TableStore& tables
     throw std::invalid_argument("no bars fall inside the requested trading days");
   const auto first = begin.empty() ? bars.begin()->second.trading_day : begin,
              last = end.empty() ? bars.rbegin()->second.trading_day : end;
-  const auto facts =
-      daily_facts(tables, in.request.daily(), identity.venue, first, last, {contract});
-  *result.mutable_contract() = in.request.contract();
+  const auto facts = daily_facts(tables, daily, identity.venue, first, last, {contract});
+  set_units(result, identity, multiplier,
+            price_increments(tables, daily, identity.venue, identity.product, first, last), bars);
   settle(result, bars, facts, first, last, contract);
   result.set_interval_minutes(*interval);
   result.set_source(source_semantics->source);
   *result.mutable_source_dataset_ids() = in.request.source_dataset_ids();
-  *result.mutable_daily() = in.request.daily();
+  *result.mutable_daily() = daily;
   for (const auto& [id, time] : acquisition) {
     auto* evidence = result.add_history_evidence();
     evidence->set_dataset_id(id);
@@ -224,9 +248,10 @@ std::string left_until(const std::set<std::string>& bars, const std::string& rol
 }
 // What a month is to the dominant rule: its settlements and open interest as
 // the daily table has them, on days it traded and days it did not.
-DominantMonth dominant_month(const protocol::v1::Contract& contract, const DailyFacts& facts,
-                             const std::string& name, const std::set<std::string>& bars) {
-  return {contract.symbol(), contract.delivery_month(), of(facts.settlement, name),
+DominantMonth dominant_month(const HistoryIdentity& month, const DailyFacts& facts,
+                             const std::set<std::string>& bars) {
+  const auto name = month.key();
+  return {month.exchange_id().symbol, month.delivery_month, of(facts.settlement, name),
           of(facts.open_interest, name), *bars.rbegin()};
 }
 } // namespace
@@ -250,22 +275,22 @@ DominantSeries resolve_dominant_series(const history_files::TableStore& tables,
     const auto& contract = months[i].contract;
     const auto& first = months.front().contract;
     if (contract.venue() != first.venue() || contract.product() != first.product() ||
-        contract.price_increment().units() != first.price_increment().units() ||
-        contract.multiplier().units() != first.multiplier().units() ||
         months[i].interval != months.front().interval ||
         months[i].source != months.front().source ||
         inputs[i].request.daily().SerializeAsString() != daily.SerializeAsString())
       throw std::invalid_argument(
-          "a dominant series requires months of one product with the same terms and bars");
+          "a dominant series requires months of one product with bars of one interval and source");
   }
   // What every month settled at and held, from the first day any of them has
   // bars to the last. The table says which month is dominant and when one
   // stops trading; the bars say only where it can be traded. A month whose
   // bars end before it does is not left early for that.
+  std::vector<HistoryIdentity> identities;
   std::vector<std::string> names;
   auto first_day = *months.front().bars.begin(), last_day = first_day;
   for (const auto& month : months) {
-    names.push_back(history_identity(month.contract).key());
+    identities.push_back(protocol::history_identity(month.contract));
+    names.push_back(identities.back().key());
     first_day = std::min(first_day, *month.bars.begin());
     last_day = std::max(last_day, *month.bars.rbegin());
   }
@@ -273,7 +298,7 @@ DominantSeries resolve_dominant_series(const history_files::TableStore& tables,
       daily_facts(tables, daily, months.front().contract.venue(), first_day, last_day, names);
   std::vector<DominantMonth> facts;
   for (std::size_t i = 0; i < months.size(); ++i)
-    facts.push_back(dominant_month(months[i].contract, table, names[i], months[i].bars));
+    facts.push_back(dominant_month(identities[i], table, months[i].bars));
   const auto plan = plan_dominant(facts, SeriesUse::traded);
   const auto& segments = plan.segments;
   DominantSeries result;
@@ -308,8 +333,7 @@ DominantSeries resolve_product_series(const history_files::TableStore& tables,
   const auto facts = daily_facts(tables, request.daily(), request.venue(), request.begin_day(),
                                  request.end_day(), {prefix}, true);
   struct Traded {
-    std::string name;
-    protocol::v1::Contract contract;
+    HistoryIdentity identity;
     // The days it has bars on: those it traded on, and settled.
     std::set<std::string> bars;
   };
@@ -324,36 +348,33 @@ DominantSeries resolve_product_series(const history_files::TableStore& tables,
         bars.insert(day);
     if (bars.empty())
       continue;
-    const auto identity = HistoryIdentity::parse(name);
-    const auto id = identity.exchange_id();
-    Traded month{name, {}, std::move(bars)};
-    month.contract.set_venue(id.venue);
-    month.contract.set_symbol(id.symbol);
-    month.contract.set_currency("CNY");
-    *month.contract.mutable_price_increment() = request.price_increment();
-    month.contract.mutable_quantity_increment()->set_units(Decimal::parse("1").raw());
-    *month.contract.mutable_multiplier() = request.multiplier();
-    month.contract.set_product(id.symbol.substr(0, identity.product.size()));
-    month.contract.set_delivery_month(identity.delivery_month);
-    months.push_back(std::move(month));
+    months.push_back({HistoryIdentity::parse(name), std::move(bars)});
   }
   if (months.size() < 2)
     throw std::invalid_argument("a dominant series requires at least two month contracts");
   std::vector<DominantMonth> dominant;
   for (const auto& month : months)
-    dominant.push_back(dominant_month(month.contract, facts, month.name, month.bars));
+    dominant.push_back(dominant_month(month.identity, facts, month.bars));
   const auto plan = plan_dominant(dominant, SeriesUse::traded);
   const auto& segments = plan.segments;
+  // The units of the months that are dominant, and the product's increments.
+  std::vector<std::string> names;
+  for (const auto& segment : segments)
+    names.push_back(months[segment.month].identity.key());
+  const auto multipliers = contract_multipliers(tables, request.daily(), request.venue(), names);
+  const auto increments =
+      price_increments(tables, request.daily(), request.venue(), request.product(),
+                       request.begin_day(), request.end_day());
   DominantSeries result;
   for (std::size_t i = 0; i < segments.size(); ++i) {
     const auto& month = months[segments[i].month];
     // The first month starts the series; a later one begins a day early.
     result.months.push_back(segments[i].month);
-    result.datasets.push_back(tabled(month.contract, request.daily(), facts, month.name,
-                                     i ? segments[i].before : segments[i].begin,
-                                     i + 1 < segments.size()
-                                         ? left_until(month.bars, segments[i + 1].begin)
-                                         : plan.days.back()));
+    result.datasets.push_back(
+        tabled(month.identity, multipliers.at(names[i]), increments, request.daily(), facts,
+               i ? segments[i].before : segments[i].begin,
+               i + 1 < segments.size() ? left_until(month.bars, segments[i + 1].begin)
+                                       : plan.days.back()));
     auto* roll = result.schedule.add_rolls();
     roll->set_trading_day(segments[i].begin);
     roll->set_contract(static_cast<unsigned>(i));

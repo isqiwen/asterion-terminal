@@ -640,7 +640,7 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData) {
   selection.set_begin_day("2026-09-01");
   selection.set_end_day("2026-10-10");
   *selection.mutable_daily() = daily;
-  *selection.mutable_contract() = test::contract();
+  selection.set_contract("SHFE/rb/2026-10");
   protocol::DataClient data(data_endpoint, "data-one");
   await_ready(data);
   data::v1::DataRequest query;
@@ -755,7 +755,7 @@ TEST(DataInputs, PrivateDatasetReplySupportsTheMaximumTaskInput) {
   Folder warehouse, sockets;
   data::v1::DataRequest query;
   auto* selection = query.mutable_bar_dataset();
-  *selection->mutable_contract() = test::contract();
+  selection->set_contract("SHFE/rb/2026-10");
   {
     data::Store store(warehouse.path, "historical-data", "task");
     data::v1::MinuteDownload request;

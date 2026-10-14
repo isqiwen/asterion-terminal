@@ -22,8 +22,16 @@ DatasetSelection resolved_selection(const data::v1::BarDatasetRequest& request,
     if (bar == bars.end() || bar->trading_day() != day.trading_day())
       uncovered.push_back(day.trading_day());
   }
+  // The contract with the units the data gave it, and the days its price
+  // increment changed.
+  json changes = json::array();
+  for (const auto& change : dataset.price_increment_changes())
+    changes.push_back({{"trading_day", change.trading_day()},
+                       {"value", Decimal::from_raw(change.value().units()).str()}});
   json summary = protocol::decode_bar_dataset_request(request);
-  summary.update({{"venue", dataset.contract().venue()},
+  summary.update({{"contract", protocol::decode_contract(dataset.contract())},
+                  {"price_increment_changes", std::move(changes)},
+                  {"venue", dataset.contract().venue()},
                   {"symbol", dataset.contract().symbol()},
                   {"revision", dataset.revision()},
                   {"source", dataset.source()},
@@ -38,27 +46,16 @@ DatasetSelection resolved_selection(const data::v1::BarDatasetRequest& request,
                   {"uncovered_days", uncovered}});
   return DatasetSelection{request, std::move(dataset), std::move(summary)};
 }
-// The request for one contract. Its units, which a data source does not
-// provide, come from the user, and its daily facts from the market-wide table
-// under the snapshot the user saw; `sources` are archive versions of its
-// minute bars, or none for its daily bars in that table.
+// The request for one contract. Its daily facts and units come from the
+// market-wide tables under the snapshot the user saw; `sources` are archive
+// versions of its minute bars, or none for its daily bars in that table.
 data::v1::BarDatasetRequest contract_request(const HistoryIdentity& identity, const json& sources,
                                              const json& p) {
-  const auto id = identity.exchange_id();
-  auto product = id.symbol.substr(0, identity.product.size());
   return protocol::encode_bar_dataset_request({{"source_dataset_ids", sources},
                                                {"daily", p.at("daily")},
                                                {"begin_day", p.at("begin_day")},
                                                {"end_day", p.at("end_day")},
-                                               {"contract",
-                                                {{"venue", id.venue},
-                                                 {"symbol", id.symbol},
-                                                 {"currency", "CNY"},
-                                                 {"price_increment", p.at("price_increment")},
-                                                 {"quantity_increment", "1"},
-                                                 {"multiplier", p.at("multiplier")},
-                                                 {"product", std::move(product)},
-                                                 {"delivery_month", identity.delivery_month}}}});
+                                               {"contract", identity.key()}});
 }
 // The contract an archive version is of: a selection takes its identity from
 // the archive, not from the user.
@@ -568,11 +565,10 @@ void Application::Impl::register_data_commands() {
     co_return snapshot();
   });
   // Adds a contract's bars to the portfolio selection, or replaces the same
-  // contract. The contract comes from the archive's unified identity; only the
-  // units a data source does not provide are entered by the user.
+  // contract. The contract comes from the archive's unified identity, its
+  // units from the market-wide tables.
   command("data.dataset.select", [this](const json& p) -> PolledTask<Response> {
-    fields(p, {"source_dataset_ids", "daily", "begin_day", "end_day", "price_increment",
-               "multiplier"});
+    fields(p, {"source_dataset_ids", "daily", "begin_day", "end_day"});
     if (!data_client)
       throw std::invalid_argument("data service is not connected");
     const auto selection_generation = dataset_selection_generation;
@@ -595,7 +591,7 @@ void Application::Impl::register_data_commands() {
   // A contract's daily bars in the market-wide daily table: the days it traded
   // on from the first day to the last. No archive version is chosen.
   command("data.dataset.daily", [this](const json& p) -> PolledTask<Response> {
-    fields(p, {"contract_id", "daily", "begin_day", "end_day", "price_increment", "multiplier"});
+    fields(p, {"contract_id", "daily", "begin_day", "end_day"});
     if (!data_client)
       throw std::invalid_argument("data service is not connected");
     const auto request =
@@ -616,8 +612,7 @@ void Application::Impl::register_data_commands() {
   // what the daily table says each month settled at and held; the months that
   // trade become the selection.
   command("data.dataset.series", [this](const json& p) -> PolledTask<Response> {
-    fields(p, {"source_dataset_ids", "daily", "begin_day", "end_day", "price_increment",
-               "multiplier"});
+    fields(p, {"source_dataset_ids", "daily", "begin_day", "end_day"});
     if (!data_client)
       throw std::invalid_argument("data service is not connected");
     const auto& sources = p.at("source_dataset_ids");
@@ -654,20 +649,17 @@ void Application::Impl::register_data_commands() {
   // A product's daily bars in the market-wide daily table as its dominant
   // series: the data service finds the months that traded in the range.
   command("data.dataset.product", [this](const json& p) -> PolledTask<Response> {
-    fields(p, {"product", "daily", "begin_day", "end_day", "price_increment", "multiplier"});
+    fields(p, {"product", "daily", "begin_day", "end_day"});
     if (!data_client)
       throw std::invalid_argument("data service is not connected");
     const auto instrument = protocol::table_instrument(text(p, "product"));
     if (!instrument.delivery_month.empty())
       throw std::invalid_argument("a dominant series is read of a product, not of a contract");
-    const auto request =
-        protocol::encode_product_bars_request({{"venue", instrument.venue},
-                                               {"product", instrument.product},
-                                               {"price_increment", p.at("price_increment")},
-                                               {"multiplier", p.at("multiplier")},
-                                               {"begin_day", p.at("begin_day")},
-                                               {"end_day", p.at("end_day")},
-                                               {"daily", p.at("daily")}});
+    const auto request = protocol::encode_product_bars_request({{"venue", instrument.venue},
+                                                                {"product", instrument.product},
+                                                                {"begin_day", p.at("begin_day")},
+                                                                {"end_day", p.at("end_day")},
+                                                                {"daily", p.at("daily")}});
     const auto selection_generation = dataset_selection_generation;
     const auto client = data_client;
     const auto generation = data_task_generation;

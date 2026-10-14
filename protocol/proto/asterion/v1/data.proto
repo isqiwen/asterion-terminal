@@ -11,19 +11,28 @@ message HistoryVersionEvidence {
   SourceAvailability source_availability = 3;
 }
 
-// Where a dataset's daily facts are read: the market-wide daily table and the
-// calendar as one snapshot of the table store holds them.
-message DailyTable { string snapshot = 1; string daily_source = 2; string calendar_source = 3; }
+// Where a dataset's daily facts and units are read: the market-wide daily
+// table, the calendar and the contract list as one snapshot of the table
+// store holds them.
+message DailyTable {
+  string snapshot = 1; string daily_source = 2; string calendar_source = 3;
+  string contracts_source = 4;
+}
+// From trading_day on, a contract's prices are whole multiples of value.
+message PriceIncrement { string trading_day = 1; asterion.protocol.v1.Decimal value = 2; }
 // Bars resolved by the data service: minute bars from immutable archive
 // versions, or daily bars from the market-wide daily table (no source
 // versions, and the table's source as `source`). Each trading day's
 // settlement price is the daily table's.
-// revision is the SHA-256 of contract, interval, bars and days; provenance
-// fields identify where they were read and are not part of content identity.
+// revision is the SHA-256 of contract, interval, bars, days and price
+// increment changes; provenance fields identify where they were read and are
+// not part of content identity.
 message BarDataset {
   reserved 9, 11;
-  uint32 version = 1; // 4
+  uint32 version = 1; // 5
   string revision = 2;
+  // Its units are the data's: the multiplier of the contract table, and the
+  // price increment of its first bar's day.
   asterion.protocol.v1.Contract contract = 3;
   uint32 interval_minutes = 4; // 0 for daily bars
   repeated asterion.protocol.v1.Bar bars = 5;
@@ -38,9 +47,14 @@ message BarDataset {
   // The most recent of the daily partitions from the first of the days to the
   // last.
   int64 daily_acquired_at_ns = 13;
+  // The days after the first bar's whose bars are on another price increment
+  // than the bars before them, ascending, each with the increment from then
+  // on: an exchange changes it between trading days.
+  repeated PriceIncrement price_increment_changes = 14;
 }
-// Clients select published archive versions and a contract specification; they
-// cannot upload bars. Days are inclusive; empty means the dataset bounds.
+// Clients select published archive versions and a contract; they cannot
+// upload bars, and the contract's units are the data's. Days are inclusive;
+// empty means the dataset bounds.
 // A named immutable portfolio of exact archive inputs; no market rows are copied.
 message NamedDataset {
   uint32 version = 1; string id = 2; string name = 3;
@@ -50,15 +64,15 @@ message NamedDataset {
 // `unsupported` counts the datasets saved by another version: kept, not listed.
 message NamedDatasets { repeated NamedDataset items = 1; uint32 unsupported = 2; }
 message BarDatasetRequest {
-  reserved 2;
+  reserved 2, 5;
   // Sorted unique immutable versions of minute bars, at most 32, of the same
   // contract and semantics. None for the contract's daily bars in the daily
   // table, which need both days.
   repeated string source_dataset_ids = 1;
   string begin_day = 3;
   string end_day = 4;
-  asterion.protocol.v1.Contract contract = 5;
   DailyTable daily = 6;
+  string contract = 7; // As history names it: SHFE/rb/2026-10.
 }
 // From trading_day on, the contract is the dominant month of a series: an
 // index into the contracts the schedule is kept with (a backtest's
@@ -86,11 +100,10 @@ message TermPoint {
 // none when no later month settled the day before.
 message DominantSchedule { repeated DominantRoll rolls = 1; repeated TermPoint terms = 2; }
 // A product read from the market-wide daily table: every month contract of it
-// that traded in the range takes part, with the units given here.
+// that traded in the range takes part, each with the units the data give it.
 message ProductBarsRequest {
+  reserved 3, 4;
   string venue = 1; string product = 2; // As history names them: SHFE, rb.
-  asterion.protocol.v1.Decimal price_increment = 3;
-  asterion.protocol.v1.Decimal multiplier = 4;
   string begin_day = 5; string end_day = 6; // Inclusive.
   DailyTable daily = 7;
 }

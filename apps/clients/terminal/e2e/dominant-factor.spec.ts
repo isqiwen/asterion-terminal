@@ -39,8 +39,6 @@ test("a factor reads a product's months as one dominant series", async ({ page }
   await series
     .getByLabel("品种", { exact: true })
     .selectOption({ label: "SHFE/rb · 1 分钟 · tushare.ft_mins · 2 个月份" });
-  await series.getByLabel("最小变动价位").fill("1");
-  await series.getByLabel("合约乘数").fill("10");
   await series.getByRole("button", { name: "使用主力连续（2 个月份）", exact: true }).click();
   await expect(workspace.getByRole("list", { name: "已选合约" })).toContainText(
     "SHFE · rb 主力连续",
@@ -135,8 +133,6 @@ test("the term structure of a dominant series is evaluated as a factor", async (
   await series
     .getByLabel("品种", { exact: true })
     .selectOption({ label: "SHFE/hc · 1 分钟 · tushare.ft_mins · 2 个月份" });
-  await series.getByLabel("最小变动价位").fill("1");
-  await series.getByLabel("合约乘数").fill("10");
   await series.getByRole("button", { name: "使用主力连续（2 个月份）", exact: true }).click();
   await expect(workspace.getByRole("list", { name: "已选合约" })).toContainText(
     "SHFE · hc 主力连续",
@@ -224,8 +220,6 @@ test("a backtest ranks dominant series by their term structure", async ({ page }
     await series
       .getByLabel("品种", { exact: true })
       .selectOption({ label: `SHFE/${product} · 1 分钟 · tushare.ft_mins · 2 个月份` });
-    await series.getByLabel("最小变动价位").fill("1");
-    await series.getByLabel("合约乘数").fill("10");
     await series.getByRole("button", { name: "使用主力连续（2 个月份）", exact: true }).click();
     await expect(workspace.getByRole("list", { name: "已选合约" })).toContainText(
       `SHFE · ${product} 主力连续`,

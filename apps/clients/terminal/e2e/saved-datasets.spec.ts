@@ -15,16 +15,8 @@ test(
       product: "cu",
       keep: true,
     });
-    await rpc(page.request, "data.dataset.select", {
-      ...one,
-      price_increment: "2",
-      multiplier: "10",
-    });
-    const seeded = await rpc(page.request, "data.dataset.select", {
-      ...two,
-      price_increment: "5",
-      multiplier: "5",
-    });
+    await rpc(page.request, "data.dataset.select", one);
+    const seeded = await rpc(page.request, "data.dataset.select", two);
     await page.reload();
     await page
       .locator(".workspace-tabs")
@@ -45,8 +37,8 @@ test(
     expect(
       original.selections.map((item: { source_dataset_ids: string[] }) => item.source_dataset_ids),
     ).toEqual([one.source_dataset_ids, two.source_dataset_ids]);
-    // A same-name save with changed contract units creates another fixed revision.
-    await rpc(page.request, "data.dataset.select", { ...one, multiplier: "20" });
+    // A same-name save with a changed range creates another fixed revision.
+    await rpc(page.request, "data.dataset.select", { ...one, begin_day: "2026-09-25" });
     await rpc(page.request, "data.dataset.save", { name: "金属组合" });
     expect(
       (await rpc(page.request, "data.dataset.saved")).saved_datasets.filter(
@@ -87,7 +79,10 @@ test(
     expect((await rpc(page.request, "runtime.snapshot")).datasets).toEqual(restored);
     // The first contract can resolve successfully while the second has corrupt storage.
     // Nothing from that partial restore may replace a newer current selection.
-    const current = await rpc(page.request, "data.dataset.select", { ...one, multiplier: "30" });
+    const current = await rpc(page.request, "data.dataset.select", {
+      ...one,
+      end_day: "2026-09-25",
+    });
     // Seeded versions belong to Data, not to a synthetic completed Task.
     // Locate the exact owned fixture by the published manifest digest.
     const history = resolve(

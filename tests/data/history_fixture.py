@@ -8,7 +8,7 @@ import time
 
 
 # What data.dataset.select takes of what the fixture program prints.
-SELECTION = {"source_dataset_ids", "daily", "begin_day", "end_day", "price_increment", "multiplier"}
+SELECTION = {"source_dataset_ids", "daily", "begin_day", "end_day"}
 
 
 def seed(call, prices, identity="fixture"):

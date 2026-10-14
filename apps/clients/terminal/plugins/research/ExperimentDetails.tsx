@@ -2,6 +2,8 @@ import { HistoryAvailability } from "./HistoryAvailability";
 import {
   CostScheduleDetails,
   getLocale,
+  multipliers,
+  priceIncrements,
   RollSchedule,
   strategyRows,
   strategyRule,
@@ -56,11 +58,12 @@ type Traded = { schedule: CostVersion[]; slippage: number };
 // One contract of the experiment: its terms, input range and, for backtests, costs.
 function contractRows(dataset: DatasetEvidence, data: ExperimentData, traded?: Traded): Block {
   const contract = dataset.contract;
+  const units = [{ ...dataset, first_day: data.first_day }];
   const rows: Rows = [
     ["品种代码", contract.product],
     ["交割月份", contract.delivery_month],
-    ["合约乘数", contract.multiplier],
-    ["价格步长", contract.price_increment],
+    ["合约乘数", multipliers(units)],
+    ["价格步长", priceIncrements(units)],
     ["数量步长", contract.quantity_increment],
     ["币种", contract.currency],
     ["K 线周期（分钟）", data.interval_minutes],
@@ -73,6 +76,7 @@ function contractRows(dataset: DatasetEvidence, data: ExperimentData, traded?: T
     ["数据表快照", dataset.daily.snapshot],
     ["日线来源", dataset.daily.daily_source],
     ["交易日历来源", dataset.daily.calendar_source],
+    ["合约表来源", dataset.daily.contracts_source],
   ];
   if (traded) rows.push(...costRows(traded.schedule, traded.slippage, data.first_day));
   return {
@@ -101,11 +105,12 @@ function dominantRows(
   const versions = [
     ...new Set(input.months.flatMap(month => month.dataset.source_dataset_ids)),
   ].join(" · ");
+  const units = input.months.map(month => ({ ...month.dataset, first_day: month.data.first_day }));
   const rows: Rows = [
     ["品种代码", contract.product],
     ["月份合约", monthsRead(input.months.map(month => month.dataset.contract.symbol))],
-    ["合约乘数", contract.multiplier],
-    ["价格步长", contract.price_increment],
+    ["合约乘数", multipliers(units)],
+    ["价格步长", priceIncrements(units)],
     ["K 线周期（分钟）", first.data.interval_minutes],
     ["输入 K 线", input.count],
     // Counted where the series was read for a factor.
@@ -117,6 +122,7 @@ function dominantRows(
     ["数据表快照", first.dataset.daily.snapshot],
     ["日线来源", first.dataset.daily.daily_source],
     ["交易日历来源", first.dataset.daily.calendar_source],
+    ["合约表来源", first.dataset.daily.contracts_source],
   ];
   if (traded) rows.push(...costRows(traded.schedule, traded.slippage, first.data.first_day));
   return {

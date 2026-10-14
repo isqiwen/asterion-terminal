@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { translate, type MessageValues } from "../i18n";
-import type { HistoryDatasetRecord, Snapshot } from "../bridge/client";
+import type { HistoryDatasetRecord } from "../bridge/client";
 import type { dailyTableOf } from "./useDailyTable";
 import { DailyTableGaps } from "./DailyTableGaps";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
@@ -43,13 +43,11 @@ function groups(versions: HistoryDatasetRecord[]): Group[] {
 // service works out which month is dominant on each day from the previous
 // day's open interest; nothing here decides the schedule.
 export function DominantSeriesPicker({
-  snapshot,
   versions,
   daily,
   disabled,
   select,
 }: {
-  snapshot: Snapshot | null;
   // The minute downloads of the archive.
   versions: HistoryDatasetRecord[];
   daily: ReturnType<typeof dailyTableOf>;
@@ -60,8 +58,6 @@ export function DominantSeriesPicker({
   const [key, setKey] = useState("");
   const [begin, setBegin] = useState("");
   const [end, setEnd] = useState("");
-  const [tick, setTick] = useState("");
-  const [multiplier, setMultiplier] = useState("");
   if (!available.length)
     return <p className="subtle">{t("分钟线的主力连续需要同一品种至少两个月份的分钟线下载。")}</p>;
   const group = available.find(item => item.key === key);
@@ -74,16 +70,6 @@ export function DominantSeriesPicker({
       (!begin || month.bars.end.slice(0, 10) >= begin) &&
       (!end || month.bars.begin.slice(0, 10) <= end),
   );
-  const choose = (next: string) => {
-    setKey(next);
-    const first = available.find(item => item.key === next)?.months[0];
-    const listed = snapshot?.market?.catalog.contracts.find(
-      contract => contract.contract_id === first?.contract,
-    );
-    // Never reuse another product's manually entered exchange units.
-    setTick(listed?.price_tick ?? "");
-    setMultiplier(listed ? String(listed.multiplier) : "");
-  };
   return (
     <form
       aria-label={t("分钟线主力连续")}
@@ -95,8 +81,6 @@ export function DominantSeriesPicker({
             daily: daily.table,
             begin_day: begin,
             end_day: end,
-            price_increment: tick,
-            multiplier,
           });
       }}
     >
@@ -109,7 +93,7 @@ export function DominantSeriesPicker({
         <div className="futures-fields">
           <label className="dataset-version-field">
             {t("品种")}
-            <select aria-label={t("品种")} value={key} onChange={e => choose(e.target.value)}>
+            <select aria-label={t("品种")} value={key} onChange={e => setKey(e.target.value)}>
               <option value="">{t("选择品种")}</option>
               {available.map(item => (
                 <option key={item.key} value={item.key}>
@@ -126,18 +110,6 @@ export function DominantSeriesPicker({
           <label>
             {t("结束交易日")}
             <input type="date" value={end} onChange={e => setEnd(e.target.value)} />
-          </label>
-          <label>
-            {t("最小变动价位")}
-            <input inputMode="decimal" value={tick} onChange={e => setTick(e.target.value)} />
-          </label>
-          <label>
-            {t("合约乘数")}
-            <input
-              inputMode="decimal"
-              value={multiplier}
-              onChange={e => setMultiplier(e.target.value)}
-            />
           </label>
         </div>
         {group && months.length > maxMonths && (
@@ -177,14 +149,7 @@ export function DominantSeriesPicker({
           <button
             type="submit"
             className="primary"
-            disabled={
-              !group ||
-              !settled ||
-              months.length < 2 ||
-              months.length > maxMonths ||
-              !tick ||
-              !multiplier
-            }
+            disabled={!group || !settled || months.length < 2 || months.length > maxMonths}
           >
             {t("使用主力连续（{n} 个月份）", { n: months.length })}
           </button>

@@ -16,6 +16,7 @@ export { useHistoryDatasets } from "../src/ui/useHistoryDatasets";
 export { dailyTableOf } from "../src/ui/useDailyTable";
 export { DatasetPicker } from "../src/ui/DatasetPicker";
 export { RollSchedule } from "../src/ui/RollSchedule";
+export { multipliers, priceIncrements } from "../src/ui/contractUnits";
 export { explicitCloseBuckets } from "../src/ui/closePolicy";
 export { DataTaskAccess } from "../src/ui/DataTaskAccess";
 export {

@@ -2,6 +2,7 @@ import { BackendError } from "../i18n/errors";
 import { translate, type MessageValues, getLocale } from "../i18n";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 import { desktop, save } from "./desktop";
+import type { PriceIncrementChange } from "../ui/contractUnits";
 import { nativeDesktop } from "./desktop";
 export type FuturesContract = {
   venue: string;
@@ -13,16 +14,25 @@ export type FuturesContract = {
   quantity_increment: string;
   multiplier: string;
 };
-// Where a dataset's settlement prices, trading days and open interest are
-// read: the market-wide daily table and its calendar under one snapshot.
-export type DailyTable = { snapshot: string; daily_source: string; calendar_source: string };
+// Where a dataset's settlement prices, trading days, open interest and units
+// are read: the market-wide daily table, its calendar and the contract list
+// under one snapshot.
+export type DailyTable = {
+  snapshot: string;
+  daily_source: string;
+  calendar_source: string;
+  contracts_source: string;
+};
 // Bars resolved by Data from immutable provider downloads.
 export type DatasetSelection = {
   source_dataset_ids: string[];
   daily: DailyTable;
   begin_day: string;
   end_day: string;
+  // With the units the data give it: its price increment is that of the first
+  // bar's day, and changes on the days listed.
   contract: FuturesContract;
+  price_increment_changes: PriceIncrementChange[];
   venue: string;
   symbol: string;
   revision: string;
@@ -67,6 +77,7 @@ export type DatasetEvidence = {
   daily_acquired_at_ns: string;
   interval_minutes: number;
   contract: FuturesContract;
+  price_increment_changes: PriceIncrementChange[];
 };
 export type ContractCosts = {
   margin_per_lot: string;
@@ -998,10 +1009,12 @@ export type HistoryCoverage = {
 export type SavedNamedDataset = {
   id: string;
   name: string;
-  selections: Pick<
+  // Each contract as history names it (SHFE/rb/2026-10): its units are the
+  // data's and are read again when the dataset is used.
+  selections: (Pick<
     DatasetSelection,
-    "source_dataset_ids" | "daily" | "begin_day" | "end_day" | "contract" | "revision"
-  >[];
+    "source_dataset_ids" | "daily" | "begin_day" | "end_day" | "revision"
+  > & { contract: string })[];
 };
 export type HistoryReference = {
   kind: "download" | "backtest" | "factor" | "saved_dataset";

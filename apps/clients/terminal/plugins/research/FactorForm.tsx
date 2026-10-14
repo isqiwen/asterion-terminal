@@ -508,7 +508,17 @@ export function TableFactorForm({
     !!range.end &&
     range.begin <= range.end &&
     !unavailable;
-  const series = complete ? { kind: "tables", ...daily.table, end_day: range.end, ranges } : null;
+  // A factor reads closes only: the contract list is not part of its request.
+  const series = complete
+    ? {
+        kind: "tables",
+        snapshot: daily.table.snapshot,
+        daily_source: daily.table.daily_source,
+        calendar_source: daily.table.calendar_source,
+        end_day: range.end,
+        ranges,
+      }
+    : null;
   return (
     <>
       <h3>{t("数据表因子设置")}</h3>

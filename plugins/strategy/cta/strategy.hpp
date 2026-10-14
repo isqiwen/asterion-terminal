@@ -8,7 +8,8 @@
 #include <vector>
 namespace asterion {
 // A trading rule applied to one contract's completed bars. It has no clock,
-// data source or execution: its host feeds the bars and routes the targets.
+// data source or execution: its host feeds the bars, valid and each on the
+// price increment of its day, and routes the targets.
 class Strategy {
 public:
   virtual ~Strategy() = default;
@@ -22,14 +23,13 @@ public:
   std::optional<Decimal> on_bar(const MarketBar& bar);
 
 protected:
-  Strategy(Instrument instrument, Decimal quantity, PositionSides sides);
+  Strategy(Decimal quantity, PositionSides sides);
 
 private:
   // Forget every bar seen.
   virtual void reset() = 0;
   // The side the rule takes after this bar: 1 long, -1 short, 0 none.
   virtual std::optional<int> decide(const MarketBar& bar) = 0;
-  Instrument instrument_;
   Decimal quantity_;
   PositionSides sides_;
   std::int64_t last_time_ = -1;
@@ -38,7 +38,7 @@ private:
 // The definition is valid for the contract or this throws. A rule over
 // several contracts is not a strategy for one.
 std::unique_ptr<Strategy> make_strategy(const protocol::v1::Strategy& definition,
-                                        Instrument instrument);
+                                        const Instrument& instrument);
 // A rule over several units at once, each a contract or a product's dominant
 // series: it ranks them on the bars they all have and says which to hold long
 // and which short: the highest long and the lowest short, or the other way

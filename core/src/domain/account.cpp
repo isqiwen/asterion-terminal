@@ -48,6 +48,14 @@ void FuturesAccount::update_costs(const std::vector<FuturesCosts>& costs) {
     throw;
   }
 }
+void FuturesAccount::update_price_increments(const std::vector<Decimal>& increments) {
+  if (increments.size() != contracts_.size() || has_working_orders() ||
+      std::ranges::any_of(increments, [](Decimal increment) { return increment <= Decimal{}; }))
+    throw std::invalid_argument(
+        "price increment changes require every contract, positive, and no working orders");
+  for (std::size_t i = 0; i < increments.size(); ++i)
+    contracts_[i].instrument.price_increment = increments[i];
+}
 namespace {
 const auto zero = Decimal{};
 const auto one = Decimal::parse("1");
@@ -152,6 +160,7 @@ struct FuturesAccount::Transaction::State {
   FuturesAccount* owner;
   std::vector<Decimal> marks;
   std::vector<FuturesCosts> costs;
+  std::vector<Decimal> increments;
   std::vector<PositionLot> lots;
   std::vector<std::pair<std::size_t, AccountOrder>> orders;
   std::set<std::size_t> working;
@@ -162,8 +171,10 @@ struct FuturesAccount::Transaction::State {
         working(account.working_orders_), order_count(account.orders_.size()),
         fill_count(account.fills_.size()), balance(account.balance_), fees(account.fees_),
         realized(account.realized_) {
-    for (const auto& contract : account.contracts_)
+    for (const auto& contract : account.contracts_) {
       costs.push_back(contract.costs);
+      increments.push_back(contract.instrument.price_increment);
+    }
     orders.reserve(working.size());
     for (const auto index : working)
       orders.emplace_back(index, account.orders_[index]);
@@ -185,8 +196,10 @@ struct FuturesAccount::Transaction::State {
     account.working_orders_.swap(working);
     account.marks_.swap(marks);
     account.lots_.swap(lots);
-    for (std::size_t i = 0; i < costs.size(); ++i)
+    for (std::size_t i = 0; i < costs.size(); ++i) {
       account.contracts_[i].costs = costs[i];
+      account.contracts_[i].instrument.price_increment = increments[i];
+    }
     account.balance_ = balance;
     account.fees_ = fees;
     account.realized_ = realized;

@@ -13,8 +13,8 @@ message RiskLimits { Decimal max_order_quantity = 1; Decimal max_gross_quantity 
 // One contract of a backtest portfolio: its bars, trading days and costs. The
 // contract is the dataset's contract.
 // slippage_ticks: what every fill of the contract gives up, in price
-// increments: a buy fills that much above and a sell that much below the
-// price the matching rule finds.
+// increments of the fill's day: a buy fills that much above and a sell that
+// much below the price the matching rule finds.
 message PaperContract { asterion.data.v1.BarDataset dataset = 1; CostSchedule cost_schedule = 2; uint32 slippage_ticks = 3; }
 // Every contract shares the same trading days; each day ends with the
 // dataset settlement prices.

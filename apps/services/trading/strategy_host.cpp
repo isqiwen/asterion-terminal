@@ -88,6 +88,8 @@ void run(const std::stop_token& stop, const StrategyHost::Definition& definition
                             Decimal::parse(source.low()),
                             Decimal::parse(source.close()),
                             Decimal::parse(std::to_string(source.volume()))};
+        // What the market service observed is a bar of the contract's units.
+        bar.validate(definition.instrument);
         const auto target = strategy.on_bar(bar);
         fed = source.start_ms();
         latest = StrategyHost::Bar{day, fed, bar.close, target, latest ? latest->count + 1 : 1};

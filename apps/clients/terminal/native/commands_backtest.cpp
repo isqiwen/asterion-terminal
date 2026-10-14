@@ -42,8 +42,8 @@ void Application::Impl::register_backtest_commands() {
       for (const auto& month : item.months) {
         std::optional<json> cost;
         for (std::size_t i = 0; i < selected().size(); ++i)
-          if (selected()[i].dataset.contract().venue() == month.contract().venue() &&
-              selected()[i].dataset.contract().symbol() == month.contract().symbol())
+          if (protocol::history_identity(selected()[i].dataset.contract()).key() ==
+              month.contract())
             cost = costs[i];
         if (cost && !any)
           any = cost;

@@ -24,10 +24,12 @@ struct BarDatasetSources {
 // rather than reads around a trading day the table lacks, and when the range
 // exceeds max_dataset_bars.
 //
-// The contract's multiplier is the request's and nothing else of a dataset
-// says it is right: it is checked against the daily table's turnover of the
-// days read, and refused when fewer than half of the days that have one
-// agree with it.
+// The contract's units are the data's. Its multiplier is the contract
+// table's, checked against the daily table's turnover of the days read and
+// refused when fewer than half of the days that have one agree with it (the
+// table has today's lot of a contract that has since changed it). Its price
+// increment is that of each bar's day, as price_increments finds it from the
+// product's prices.
 data::v1::BarDataset resolve_bar_dataset(const history_files::TableStore&,
                                          const BarDatasetSources&);
 // Month contracts of one product as its dominant series. The dominant month

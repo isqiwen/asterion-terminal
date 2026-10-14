@@ -1210,23 +1210,22 @@ TEST(Factor, ADominantSeriesIsFixedWithItsScheduleAndRefusedWhenThatIsNotOneSeri
   });
 
   // A request names the months of a product; one month is no series.
-  const auto month = [](const char* symbol, const char* delivery) {
-    return Json{
-        {"source_dataset_ids", {std::string(64, 'a')}},
-        {"daily",
-         {{"snapshot", std::string(64, 'b')},
-          {"daily_source", "fixture.daily.v1"},
-          {"calendar_source", "fixture.calendar.v1"}}},
-        {"begin_day", "2026-09-25"},
-        {"end_day", "2026-09-30"},
-        {"contract", protocol::decode_contract(test::contract("SHFE", symbol, "rb", delivery))}};
+  const auto month = [](const char* delivery) {
+    return Json{{"source_dataset_ids", {std::string(64, 'a')}},
+                {"daily",
+                 {{"snapshot", std::string(64, 'b')},
+                  {"daily_source", "fixture.daily.v1"},
+                  {"calendar_source", "fixture.calendar.v1"},
+                  {"contracts_source", "fixture.contracts.v1"}}},
+                {"begin_day", "2026-09-25"},
+                {"end_day", "2026-09-30"},
+                {"contract", std::string("SHFE/rb/") + delivery}};
   };
-  Json request{
-      {"series", {{{"dominant", {month("rb2610", "2026-10"), month("rb2701", "2027-01")}}}}},
-      {"factor", "momentum"},
-      {"lookbacks", {2}},
-      {"horizon", 1},
-      {"evaluation", {{"mode", "full_sample"}}}};
+  Json request{{"series", {{{"dominant", {month("2026-10"), month("2027-01")}}}}},
+               {"factor", "momentum"},
+               {"lookbacks", {2}},
+               {"horizon", 1},
+               {"evaluation", {{"mode", "full_sample"}}}};
   const auto encoded = protocol::encode_factor_request(request);
   ASSERT_TRUE(encoded.series(0).has_dominant());
   EXPECT_EQ(encoded.series(0).dominant().months_size(), 2);
@@ -1238,11 +1237,9 @@ TEST(Factor, ADominantSeriesIsFixedWithItsScheduleAndRefusedWhenThatIsNotOneSeri
   request["series"][0]["dominant"] = Json{{"product",
                                            {{"venue", "SHFE"},
                                             {"product", "rb"},
-                                            {"price_increment", "1"},
-                                            {"multiplier", "10"},
                                             {"begin_day", "2026-09-25"},
                                             {"end_day", "2026-09-30"},
-                                            {"daily", month("rb2610", "2026-10").at("daily")}}}};
+                                            {"daily", month("2026-10").at("daily")}}}};
   const auto asked =
       protocol::factor_series_query(protocol::encode_factor_request(request).series(0))
           .dominant_series();

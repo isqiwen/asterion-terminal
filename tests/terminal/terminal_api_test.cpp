@@ -168,7 +168,7 @@ TEST(TerminalApi, Contracts) {
   EXPECT_EQ(dataset["last_close"], "101");
   EXPECT_TRUE(dataset["last_timestamp_ns"].is_string());
   auto invalid = params;
-  invalid["price_increment"] = "0";
+  invalid["begin_day"] = "2026-02-30";
   EXPECT_TRUE(call(runtime.get(), request("data.dataset.select", invalid)).contains("error"));
   EXPECT_EQ(call(runtime.get(), request("runtime.snapshot"))["result"]["datasets"],
             json::array({dataset}));

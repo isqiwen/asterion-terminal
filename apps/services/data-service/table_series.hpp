@@ -34,6 +34,34 @@ DailyFacts daily_facts(const history_files::TableStore&, const v1::DailyTable&,
                        const std::string& venue, const std::string& begin_day,
                        const std::string& end_day, const std::vector<std::string>& names,
                        bool trades = false);
+// A product's price increment on each day of [begin_day, end_day] it traded
+// on, as its prices show it: the contract table has only today's, and an
+// exchange changes it (gold traded on 0.05 until 2019-12-09, on 0.02 since).
+//
+// Every price of every month that traded in the auction on a day is a whole
+// multiple of the day's increment; their greatest common divisor over a few
+// days can be a multiple of it by chance, over twenty never was in the data.
+// So a day's increment is the greatest common divisor of the prices of the
+// increment_days days the product traded on up to it, or of those from it
+// on, whichever is coarser: across a change the window that reaches over it
+// divides both increments, and the other is all on one. Near either end of
+// what is read a window takes the first or the last of those days, and with
+// fewer than that, all of them. What is read is the range and the
+// increment_days stored days of the exchange on either side of it, so that a
+// day's increment does not depend on the range it is read in.
+inline constexpr std::size_t increment_days = 20;
+std::map<std::string, Decimal> price_increments(const history_files::TableStore&,
+                                                const v1::DailyTable&, const std::string& venue,
+                                                const std::string& product,
+                                                const std::string& begin_day,
+                                                const std::string& end_day);
+// What a lot of each contract is worth per unit of its price, from the
+// snapshot's contract table: its multiplier (one where it has none) times its
+// lot in the unit it is traded in, taken to the unit its price is quoted per.
+// Fails for a contract the table lacks, and for units it cannot read.
+std::map<std::string, Decimal> contract_multipliers(const history_files::TableStore&,
+                                                    const v1::DailyTable&, const std::string& venue,
+                                                    const std::vector<std::string>& contracts);
 // The series of a request's instruments, read from the market-wide daily table
 // as the request's snapshot holds it. Nothing is read of another snapshot, so
 // the same request always makes the same series.

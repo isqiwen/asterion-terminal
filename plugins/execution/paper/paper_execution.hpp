@@ -8,14 +8,18 @@ namespace asterion {
 inline const Decimal paper_bar_participation = Decimal::parse("0.1");
 // One contract of a replayed portfolio: its terms and its ascending bars.
 struct ContractBars {
+  // Its price increment is that of its first bar's day.
   ContractTerms terms;
   std::vector<MarketBar> bars;
   // Empty only for explicitly fixed-cost in-memory callers. Persisted inputs
   // always carry a validated, nonempty schedule through the protocol.
   std::vector<FuturesCostVersion> cost_schedule;
-  // What every fill of the contract gives up: a whole number of price
-  // increments, or none.
-  Decimal slippage = {};
+  // The days after the first bar's on which its price increment changes,
+  // ascending: each bar is on the increment of its day.
+  std::vector<PriceIncrementChange> price_increment_changes;
+  // What every fill of the contract gives up, in price increments of the
+  // fill's day.
+  unsigned slippage_ticks = 0;
 };
 // Historical bar replay of a futures portfolio. The contracts' bars form one
 // event stream ordered by bar time (then contract order); each advance
@@ -25,12 +29,18 @@ struct ContractBars {
 // when the high reaches it, at max(open, limit). Fills share at most
 // paper_bar_participation of that bar's volume.
 //
-// A contract's slippage moves every fill against the order by that much and
-// leaves whether it fills alone. An order's limit is the worst price it
-// accepts, so the price the bar must reach lies the slippage inside it: a buy
-// at limit L fills when the low reaches L - slippage, at
-// min(open, L - slippage) + slippage. A target decided at a price is placed
-// that much beyond it, and so fills when the bar reaches the price itself.
+// A contract's slippage moves every fill against the order by that many price
+// increments of the day and leaves whether it fills alone. An order's limit
+// is the worst price it accepts, so the price the bar must reach lies the
+// slippage inside it: a buy at limit L fills when the low reaches
+// L - slippage, at min(open, L - slippage) + slippage. A target decided at a
+// price is placed that much beyond it, and so fills when the bar reaches the
+// price itself.
+//
+// Each day's first bar, or its settlement when no contract has a bar that
+// day, brings the day's costs and price increments. A price decided before
+// an increment changed is moved onto the new one against the order: a buy
+// up, a sale down.
 class PaperExecution final {
 public:
   struct Event {
@@ -91,8 +101,11 @@ private:
     std::vector<Event> events;
   };
   void require_running() const;
-  // What every contract costs on a trading day, by its schedule.
-  std::vector<FuturesCosts> costs_on_day(const std::string& trading_day) const;
+  // What every contract costs and trades at on a trading day: its costs by
+  // its schedule, its price increment by its changes. Within a transaction.
+  void enter_day(const std::string& trading_day);
+  // Whether a new day can bring other costs or price increments.
+  bool changes_terms() const;
   FuturesAccount account_;
   std::shared_ptr<const RiskPort> risk_;
   std::shared_ptr<const Data> data_;

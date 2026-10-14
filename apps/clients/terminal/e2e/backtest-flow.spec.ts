@@ -34,8 +34,6 @@ test(
         /^结算价和交易日取自全市场日线表：SHFE 已入库 .* 读取，之后入库的数据不影响这次选择。$/,
       ),
     ).toBeVisible();
-    await minute.getByLabel("最小变动价位", { exact: true }).fill(selected.price_increment);
-    await minute.getByLabel("合约乘数", { exact: true }).fill(selected.multiplier);
     await minute.getByLabel("开始交易日", { exact: true }).fill("2026-09-25");
     await page
       .locator(".workspace-tabs")
@@ -109,11 +107,7 @@ test("data handoff stays bound to its service and never reuses another contract'
     .click();
   await expect(page.getByRole("button", { name: "下一步", exact: true })).toBeDisabled();
   const minute = page.getByRole("form", { name: "分钟线合约", exact: true });
-  await minute.getByLabel("最小变动价位", { exact: true }).fill("17");
-  await minute.getByLabel("合约乘数", { exact: true }).fill("99");
   await minute.getByLabel("K 线来源", { exact: true }).selectOption(two.source_dataset_ids[0]);
-  await expect(minute.getByLabel("最小变动价位", { exact: true })).not.toHaveValue("17");
-  await expect(minute.getByLabel("合约乘数", { exact: true })).not.toHaveValue("99");
   identity = "other-service-with-same-task-ids";
   await expect(
     page.getByText("数据版本不属于当前数据服务，请重新选择数据。", { exact: true }),
@@ -248,8 +242,6 @@ test("archive versions remain selectable without any download tasks", async ({ p
     selected.source_dataset_ids[0],
   );
   await expect(minute.getByText(/^结算价和交易日取自全市场日线表：SHFE 已入库 /)).toBeVisible();
-  await minute.getByLabel("最小变动价位", { exact: true }).fill("1");
-  await minute.getByLabel("合约乘数", { exact: true }).fill("10");
   await minute.getByRole("button", { name: "使用此数据集", exact: true }).click();
   await expect(page.getByRole("list", { name: "已选合约" })).toContainText("4 根 · 1 个交易日");
   await expect(page.getByRole("button", { name: "下一步", exact: true })).toBeEnabled();

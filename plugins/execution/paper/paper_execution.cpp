@@ -10,6 +10,22 @@ template <class Data>
 const MarketBar& bar_of(const Data& data, const PaperExecution::Event& event) {
   return data.contracts[event.contract].bars[event.bar];
 }
+// A contract's price increment on a trading day: that of the last change on
+// or before it, or of its first bar's day.
+Decimal increment_on(const ContractBars& contract, const std::string& trading_day) {
+  auto result = contract.terms.instrument.price_increment;
+  for (const auto& change : contract.price_increment_changes) {
+    if (change.trading_day > trading_day)
+      break;
+    result = change.price_increment;
+  }
+  return result;
+}
+// What a fill gives up on a day.
+Decimal slippage_on(const ContractBars& contract, const std::string& trading_day) {
+  return increment_on(contract, trading_day) *
+         Decimal::parse(std::to_string(contract.slippage_ticks));
+}
 std::vector<ContractTerms> terms_of(const std::vector<ContractBars>& contracts) {
   std::vector<ContractTerms> result;
   for (const auto& contract : contracts) {
@@ -34,17 +50,27 @@ PaperExecution::PaperExecution(Decimal deposit, std::vector<ContractBars> contra
   std::size_t total = 0;
   for (std::size_t c = 0; c < data->contracts.size(); ++c) {
     const auto& contract = data->contracts[c];
-    if (contract.slippage < Decimal{} ||
-        !contract.slippage.multiple_of(contract.terms.instrument.price_increment))
-      throw std::invalid_argument("slippage is a whole number of price increments");
+    // Each change follows the first bar's day and the change before it, and
+    // is to another increment.
+    auto instrument = contract.terms.instrument;
+    for (const std::string* after = nullptr;
+         const auto& change : contract.price_increment_changes) {
+      if (contract.bars.empty() || change.trading_day <= contract.bars.front().trading_day ||
+          (after && change.trading_day <= *after) || change.price_increment <= Decimal{} ||
+          change.price_increment == instrument.price_increment)
+        throw std::invalid_argument("invalid price increment change");
+      instrument.price_increment = change.price_increment;
+      after = &change.trading_day;
+    }
     const MarketBar* previous = nullptr;
     for (std::size_t b = 0; b < contract.bars.size(); ++b) {
       const auto& bar = contract.bars[b];
-      bar.validate(contract.terms.instrument);
+      instrument.price_increment = increment_on(contract, bar.trading_day);
+      bar.validate(instrument);
       if (bar.low <= Decimal{})
         throw std::invalid_argument("futures paper model requires positive market prices");
       // A sale that gives the slippage up must still have a price.
-      if (bar.low <= contract.slippage)
+      if (bar.low <= slippage_on(contract, bar.trading_day))
         throw std::invalid_argument("slippage reaches a contract's lowest price");
       if (previous &&
           (bar.timestamp_ns <= previous->timestamp_ns || bar.trading_day < previous->trading_day))
@@ -114,16 +140,14 @@ void PaperExecution::advance(const std::optional<Target>& target) {
   const auto& bar = this->bar(current);
   const auto& terms = data_->contracts[current.contract].terms;
   const auto& instrument = terms.instrument.id;
-  const auto slippage = data_->contracts[current.contract].slippage;
+  const auto slippage = slippage_on(data_->contracts[current.contract], bar.trading_day);
   const auto fills = [&](const AccountOrder& item) {
     return item.order.request().instrument == instrument &&
            fill_price(item, bar, slippage).has_value();
   };
-  const bool changes_day = cursor_ && bar.trading_day != this->bar(event(cursor_ - 1)).trading_day;
-  const bool changes_costs =
-      changes_day &&
-      std::ranges::any_of(data_->contracts, [](const auto& c) { return !c.cost_schedule.empty(); });
-  if (!target && !changes_costs &&
+  const bool new_terms =
+      cursor_ && bar.trading_day != this->bar(event(cursor_ - 1)).trading_day && changes_terms();
+  if (!target && !new_terms &&
       std::ranges::none_of(account_.working_orders(),
                            [&](const auto index) { return fills(account_.orders()[index]); })) {
     // Nothing can fill: marking alone has a strong guarantee, no ledger copy.
@@ -136,8 +160,8 @@ void PaperExecution::advance(const std::optional<Target>& target) {
   auto batch = account_.transaction();
   try {
     auto& next = account_;
-    if (changes_costs)
-      next.update_costs(costs_on_day(bar.trading_day));
+    if (new_terms)
+      enter_day(bar.trading_day);
     if (target)
       reconcile_target(target->order_id, instrument, target->quantity, target->limit_price);
     auto sequence = execution_sequence_;
@@ -174,13 +198,22 @@ void PaperExecution::advance(const std::optional<Target>& target) {
     throw;
   }
 }
-std::vector<FuturesCosts> PaperExecution::costs_on_day(const std::string& trading_day) const {
+bool PaperExecution::changes_terms() const {
+  return std::ranges::any_of(data_->contracts, [](const auto& c) {
+    return !c.cost_schedule.empty() || !c.price_increment_changes.empty();
+  });
+}
+void PaperExecution::enter_day(const std::string& trading_day) {
   std::vector<FuturesCosts> costs;
-  for (const auto& contract : data_->contracts)
+  std::vector<Decimal> increments;
+  for (const auto& contract : data_->contracts) {
     costs.push_back(contract.cost_schedule.empty()
                         ? contract.terms.costs
                         : costs_on(contract.cost_schedule, trading_day).values);
-  return costs;
+    increments.push_back(increment_on(contract, trading_day));
+  }
+  account_.update_costs(costs);
+  account_.update_price_increments(increments);
 }
 void PaperExecution::settle_scheduled(const std::string& trading_day,
                                       const std::vector<std::optional<Decimal>>& prices) {
@@ -190,15 +223,13 @@ void PaperExecution::settle_scheduled(const std::string& trading_day,
       (cursor_ < size() && bar(event(cursor_)).trading_day <= trading_day))
     throw std::invalid_argument(
         "a day is settled once, after its bars and before those of a later day");
-  // The first bar of a day brings the day's costs. A day after the first bar
+  // The first bar of a day brings the day's terms. A day after the first bar
   // that has none of its own follows the calendar here: the schedules cover
   // the days from that bar on.
-  const bool idle =
-      cursor_ && bar(event(cursor_ - 1)).trading_day < trading_day &&
-      std::ranges::any_of(data_->contracts, [](const auto& c) { return !c.cost_schedule.empty(); });
+  const bool idle = cursor_ && bar(event(cursor_ - 1)).trading_day < trading_day && changes_terms();
   auto batch = account_.transaction();
   if (idle)
-    account_.update_costs(costs_on_day(trading_day));
+    enter_day(trading_day);
   account_.settle_traded(prices);
   batch.commit();
   last_settled_day_ = trading_day;
@@ -229,7 +260,8 @@ void PaperExecution::reconcile_target(const std::string& order_id, const Instrum
   require_running();
   if (order_id.empty() || order_id.size() > 128)
     throw std::invalid_argument("invalid target order identity");
-  const auto& spec = account_.contracts()[account_.contract_index(instrument)].instrument;
+  const auto index = account_.contract_index(instrument);
+  const auto& spec = account_.contracts()[index].instrument;
   if (!target.multiple_of(spec.quantity_increment))
     throw std::invalid_argument("target must be lot aligned");
   HeldPosition held;
@@ -242,7 +274,11 @@ void PaperExecution::reconcile_target(const std::string& order_id, const Instrum
     auto& bucket = lot.today ? held.today : held.yesterday;
     bucket = bucket + lot.quantity;
   }
-  const auto slippage = data_->contracts[account_.contract_index(instrument)].slippage;
+  // On the increment the account trades the contract at now: a price decided
+  // before it changed is moved onto it against the order.
+  const auto increment = spec.price_increment;
+  const auto slippage =
+      increment * Decimal::parse(std::to_string(data_->contracts[index].slippage_ticks));
   const auto orders = target_orders(target, held, account_.close_policy(instrument));
   const auto working = std::ranges::any_of(account_.working_orders(), [&](const auto index) {
     return account_.orders()[index].order.request().instrument == instrument;
@@ -264,7 +300,8 @@ void PaperExecution::reconcile_target(const std::string& order_id, const Instrum
     for (const auto& order : orders)
       // The limit lies the slippage beyond the price a bar must reach.
       submit({order_id + std::string(order.suffix), instrument, order.side, order.quantity,
-              order.side == Side::buy ? price + slippage : price - slippage},
+              order.side == Side::buy ? quantize(price, increment, Rounding::ceiling) + slippage
+                                      : quantize(price, increment, Rounding::floor) - slippage},
              order.offset);
   } catch (...) {
     revision_ = previous_revision;

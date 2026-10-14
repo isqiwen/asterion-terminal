@@ -139,8 +139,14 @@ Observed observed(const factor::v1::FactorSeries& data, v1::Factor factor) {
     for (int i = 0; i < rolls.size(); ++i) {
       const auto& month = data.dominant().months(static_cast<int>(rolls[i].contract()));
       const auto scale = Decimal::from_raw(rolls[i].factor().units());
-      const auto increment = Decimal::from_raw(month.contract().price_increment().units());
+      auto increment = Decimal::from_raw(month.contract().price_increment().units());
+      auto change = month.price_increment_changes().begin();
       for (const auto& bar : month.bars()) {
+        // Back on the price increment of the bar's day.
+        for (; change != month.price_increment_changes().end() &&
+               change->trading_day() <= bar.trading_day();
+             ++change)
+          increment = Decimal::from_raw(change->value().units());
         if (bar.trading_day() < rolls[i].trading_day() ||
             (i + 1 < rolls.size() && bar.trading_day() >= rolls[i + 1].trading_day()))
           continue;

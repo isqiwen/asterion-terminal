@@ -63,10 +63,16 @@ export async function seedHistory(
     await rpc(request, "data.tables.coverage", {})
   ).table_coverage.sources;
   const dailySource = offered.find(item => item.table === "futures.daily")!;
-  const calendarSource = offered.find(
-    item => item.table === "futures.calendar" && item.plugin_id === dailySource.plugin_id,
-  )!;
-  const tables = ["--daily-source", dailySource.source, "--calendar-source", calendarSource.source];
+  const of = (table: string) =>
+    offered.find(item => item.table === table && item.plugin_id === dailySource.plugin_id)!;
+  const tables = [
+    "--daily-source",
+    dailySource.source,
+    "--calendar-source",
+    of("futures.calendar").source,
+    "--contracts-source",
+    of("futures.contracts").source,
+  ];
   const snapshot: Snapshot = await rpc(request, "node.action", {
     id: "local",
     service: "historical-data",
@@ -107,23 +113,18 @@ export async function seedHistory(
   await expect
     .poll(async () => (await rpc(request, "runtime.snapshot")).data?.online, { timeout: 10000 })
     .toBe(true);
-  const {
-    source_dataset_ids,
-    daily,
-    daily_dataset_id,
-    begin_day,
-    end_day,
-    price_increment,
-    multiplier,
-  } = JSON.parse(output);
+  const { source_dataset_ids, daily, daily_dataset_id, begin_day, end_day } = JSON.parse(output);
   const selection: {
     source_dataset_ids: string[];
-    daily: { snapshot: string; daily_source: string; calendar_source: string };
+    daily: {
+      snapshot: string;
+      daily_source: string;
+      calendar_source: string;
+      contracts_source: string;
+    };
     begin_day: string;
     end_day: string;
-    price_increment: string;
-    multiplier: string;
-  } = { source_dataset_ids, daily, begin_day, end_day, price_increment, multiplier };
+  } = { source_dataset_ids, daily, begin_day, end_day };
   // The contract's own daily download: bars for a daily dataset, and what the
   // archive pages compare minute downloads with. It is not a parameter of
   // data.dataset.select, so it does not travel when the selection is spread.

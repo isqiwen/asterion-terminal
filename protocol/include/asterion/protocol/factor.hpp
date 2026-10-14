@@ -6,7 +6,7 @@
 #include <asterion/v1/factor.pb.h>
 namespace asterion::protocol {
 // Identifies how features, labels, partitions and selection are computed.
-inline constexpr char factor_engine_version[] = "asterion.factor.v9";
+inline constexpr char factor_engine_version[] = "asterion.factor.v10";
 // A cross-section compares at most this many series: every product of the
 // market-wide table at once.
 inline constexpr int max_factor_series = max_table_instruments;

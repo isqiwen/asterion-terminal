@@ -2,16 +2,22 @@ import { useEffect, useRef, useState } from "react";
 import type { Snapshot, TableCoverage, TableCoverageRow } from "../bridge/client";
 import { asDisplayError, type DisplayError } from "../i18n/errors";
 
-// Where a dataset reads settlement prices, trading days and open interest: the
-// market-wide daily table and its calendar, under the snapshot the user saw.
-export type DailyTable = { snapshot: string; daily_source: string; calendar_source: string };
+// Where a dataset reads settlement prices, trading days, open interest and
+// units: the market-wide daily table, its calendar and its contract list,
+// under the snapshot the user saw.
+export type DailyTable = {
+  snapshot: string;
+  daily_source: string;
+  calendar_source: string;
+  contracts_source: string;
+};
 export type DailyTableQuery = (
   method: "data.tables.coverage",
   params: Record<string, unknown>,
 ) => Promise<Snapshot>;
 
-// The daily table that holds data, and the calendar of the same data source,
-// with what the table holds of each exchange.
+// The daily table that holds data, and the calendar and contract list of the
+// same data source, with what the table holds of each exchange.
 export function dailyTableOf(
   coverage: TableCoverage | undefined,
 ): { table: DailyTable; stored: TableCoverageRow[] } | null {
@@ -20,15 +26,19 @@ export function dailyTableOf(
       source.table === "futures.daily" &&
       coverage.rows.some(row => row.table === source.table && row.source === source.source),
   );
-  const calendar = coverage?.sources.find(
-    source => source.table === "futures.calendar" && source.plugin_id === daily?.plugin_id,
-  );
-  if (!coverage?.snapshot || !daily || !calendar) return null;
+  const of = (table: string) =>
+    coverage?.sources.find(
+      source => source.table === table && source.plugin_id === daily?.plugin_id,
+    );
+  const calendar = of("futures.calendar");
+  const contracts = of("futures.contracts");
+  if (!coverage?.snapshot || !daily || !calendar || !contracts) return null;
   return {
     table: {
       snapshot: coverage.snapshot,
       daily_source: daily.source,
       calendar_source: calendar.source,
+      contracts_source: contracts.source,
     },
     stored: coverage.rows.filter(
       row => row.table === "futures.daily" && row.source === daily.source,

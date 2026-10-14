@@ -51,10 +51,8 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
     process=launch()
     try:
         invoke=lambda method,params=None:call(process,method,params)
-        selections["short"] = {k:v for k,v in seed(invoke,[100,101,102,101,104,103,102,103],"short")["datasets"][0].items() if k in {"source_dataset_ids","daily","begin_day","end_day","price_increment","multiplier"}}
-        selections["short"].update(price_increment="1",multiplier="10")
+        selections["short"] = {k:v for k,v in seed(invoke,[100,101,102,101,104,103,102,103],"short")["datasets"][0].items() if k in {"source_dataset_ids","daily","begin_day","end_day"}}
         selections["long"] = {k:v for k,v in seed(invoke,[100+i+i%3 for i in range(160)],"long")["datasets"][0].items() if k in {"source_dataset_ids","daily","begin_day","end_day"}}
-        selections["long"].update(price_increment="1",multiplier="10")
         select(process,"short")
         call(process,"backtest.submit",{"id":"agent-recovery","strategies": [{"quantity": "1", "sides": "long", "rule": {"kind": "moving_average", "fast": 1, "slow": 3}}], "holdout_from": "", "walk_forward": None,"deposit":"10000","contracts": contracts(),"max_order_quantity":"100","max_gross_quantity":"100","max_working_orders":"100"})
         select(process,"long")

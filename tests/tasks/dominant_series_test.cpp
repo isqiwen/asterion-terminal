@@ -326,14 +326,13 @@ data::v1::ProductBarsRequest product_bars(const data::Store& store, const std::s
                                           const std::string& begin, const std::string& end) {
   return protocol::encode_product_bars_request({{"venue", "SHFE"},
                                                 {"product", product},
-                                                {"price_increment", "1"},
-                                                {"multiplier", "10"},
                                                 {"begin_day", begin},
                                                 {"end_day", end},
                                                 {"daily",
                                                  {{"snapshot", store.tables().head()},
                                                   {"daily_source", "fixture.daily.v1"},
-                                                  {"calendar_source", "fixture.calendar.v1"}}}});
+                                                  {"calendar_source", "fixture.calendar.v1"},
+                                                  {"contracts_source", "fixture.contracts.v1"}}}});
 }
 // Its dominant series of daily bars over [begin, end].
 data::DominantSeries series_of(const std::filesystem::path& root, const std::string& product,
@@ -528,9 +527,7 @@ TEST(DominantSeries, AMonthOfMinuteBarsIsDominantByTheTableNotByItsDownload) {
       data::v1::BarDatasetRequest request;
       request.add_source_dataset_ids(months[m].at("source_dataset_ids").at(0).get<std::string>());
       *request.mutable_daily() = protocol::encode_daily_table(daily);
-      *request.mutable_contract() =
-          test::contract("SHFE", (product + (m ? "2701" : "2610")).c_str(), product.c_str(),
-                         m ? "2027-01" : "2026-10");
+      request.set_contract("SHFE/" + product + (m ? "/2027-01" : "/2026-10"));
       inputs.push_back(store.sources(request));
     }
     return data::resolve_dominant_series(store.tables(), inputs);
@@ -701,8 +698,7 @@ TEST(DailyBars, ASettlementPriceNeedNotBeOnThePriceIncrement) {
   data::Store store(directory.path, "historical-data", "task");
   data::v1::BarDatasetRequest request;
   *request.mutable_daily() = protocol::encode_daily_table(table);
-  *request.mutable_contract() = test::contract();
-  request.mutable_contract()->mutable_price_increment()->set_units(d("2").raw());
+  request.set_contract("SHFE/rb/2026-10");
   request.set_begin_day(day(0));
   request.set_end_day(day(3));
   const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
@@ -720,6 +716,45 @@ TEST(DailyBars, ASettlementPriceNeedNotBeOnThePriceIncrement) {
   off.mutable_bars(0)->mutable_close()->set_units(d("101").raw());
   off.set_revision(protocol::bar_dataset_revision(off));
   EXPECT_THROW(protocol::validate_bar_dataset(off), std::invalid_argument);
+}
+// The exchange moved the contract from 5 to 2 for the 26th of fifty days.
+// Each day's bars are on that day's increment, the strategy reads them all,
+// and a sale decided at the 25th's close of 1115, which is not on 2, is
+// placed and filled at 1114 on the 26th.
+TEST(DailyBars, ABacktestCrossesAChangeOfThePriceIncrement) {
+  Directory directory;
+  {
+    data::Store created(directory.path, "historical-data", "task");
+  }
+  const auto day = [](int index) { return daily_bar(index).trading_day; };
+  // Rising five a day on 5, the 25th closing five below its open; then two a
+  // day on 2 from 1110.
+  std::vector<test::DailyRow> rows;
+  for (int i = 0; i < 50; ++i) {
+    const auto step = i < 25 ? 5 : 2;
+    const auto open = i < 25 ? 1000 + 5 * i : 1110 + 2 * (i - 25);
+    const auto close = i == 24 ? open - 5 : open + step;
+    rows.push_back(
+        {day(i), close, 100, test::DailyTrade{open, open + 2 * step, open - step, close, 100}});
+  }
+  const auto table = test::seed_daily_table(directory.path, "SHFE/rb/2026-10", rows);
+  data::Store store(directory.path, "historical-data", "task");
+  data::v1::BarDatasetRequest request;
+  *request.mutable_daily() = protocol::encode_daily_table(table);
+  request.set_contract("SHFE/rb/2026-10");
+  request.set_begin_day(day(0));
+  request.set_end_day(day(49));
+  const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
+  EXPECT_EQ(dataset.contract().price_increment().units(), d("5").raw());
+  ASSERT_EQ(dataset.price_increment_changes_size(), 1);
+  EXPECT_EQ(dataset.price_increment_changes(0).trading_day(), day(25));
+  Json contracts = Json::array(
+      {{{"dataset", protocol::decode_bar_dataset(dataset)}, {"cost_schedule", fixed_costs}}});
+  const auto result = backtest::run(traded(std::move(contracts)));
+  // Bought at the second day's close of 1010 on the third; sold on the 26th.
+  ASSERT_GE(result.account().fills_size(), 2);
+  EXPECT_EQ(result.account().fills(0).price().units(), d("1010").raw());
+  EXPECT_EQ(result.account().fills(1).price().units(), d("1114").raw());
 }
 TEST(DominantSeries, ASeriesBringsEveryMonthItTradesAndIsOneOfThePortfoliosTwenty) {
   const auto result = backtest::run(rolling_daily(24));
@@ -875,8 +910,8 @@ TEST(DominantSeries, DailySeriesOfTwoProductsAreRankedRolledAndComparedByRolling
         year_month_day{sys_days{year{2026} / June / 1} + std::chrono::days{index}});
   };
   // Sixty days. rb rises ten a day to day 30 and falls from there; hc does
-  // the opposite. A bar ranges 15 either side of its close, so a limit at
-  // the close before it is always reached.
+  // the opposite. A bar ranges 13 either side of its close, so a limit at
+  // the close before it is always reached, and its prices are on 1.
   const auto rb = [](int i) { return i < 30 ? 3000 + 10 * i : 3300 - 10 * (i - 30); };
   const auto hc = [](int i) { return i < 30 ? 4000 - 10 * i : 3700 + 10 * (i - 30); };
   const auto rows = [&](const auto& price, int spread, int taken_over_from) {
@@ -892,10 +927,10 @@ TEST(DominantSeries, DailySeriesOfTwoProductsAreRankedRolledAndComparedByRolling
   };
   // rb2701, 50 dearer, has the larger interest from day 43 and is dominant
   // from day 44; hc2701, 30 cheaper, from day 51 and day 52.
-  month(data, "2026-10", rows(rb, 0, 0), "rb", 15);
-  month(data, "2027-01", rows(rb, 50, 43), "rb", 15);
-  month(data, "2026-10", rows(hc, 0, 0), "hc", 15);
-  month(data, "2027-01", rows(hc, -30, 51), "hc", 15);
+  month(data, "2026-10", rows(rb, 0, 0), "rb", 13);
+  month(data, "2027-01", rows(rb, 50, 43), "rb", 13);
+  month(data, "2026-10", rows(hc, 0, 0), "hc", 13);
+  month(data, "2027-01", rows(hc, -30, 51), "hc", 13);
   const auto rb_series = series_of(data, "rb", day(0), day(59));
   const auto hc_series = series_of(data, "hc", day(0), day(59));
   ASSERT_EQ(rb_series.schedule.rolls_size(), 2);

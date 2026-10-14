@@ -1,9 +1,10 @@
 #include <asterion/protocol/task_execution.hpp>
+#include <asterion/protocol/data.hpp>
 #include <stdexcept>
 namespace asterion::protocol {
 data::v1::BarDatasetRequest bar_dataset_selection(const data::v1::BarDataset& dataset) {
   data::v1::BarDatasetRequest result;
-  *result.mutable_contract() = dataset.contract();
+  result.set_contract(history_identity(dataset.contract()).key());
   *result.mutable_source_dataset_ids() = dataset.source_dataset_ids();
   *result.mutable_daily() = dataset.daily();
   // Its days are every day of the range it settled on, with bars or without.

@@ -58,14 +58,17 @@ test("a factor reads instruments of the daily table over the range given for eac
   for (let at = Date.UTC(2026, 7, 17); days.length < 40; at += 86400000)
     if (new Date(at).getUTCDay() % 6 !== 0) days.push(new Date(at).toISOString().slice(0, 10));
   let daily = { snapshot: "", daily_source: "", calendar_source: "" };
-  for (const product of ["rb", "hc", "al"])
-    daily = (
+  for (const product of ["rb", "hc", "al"]) {
+    // A factor reads closes only: the contract list is not part of its request.
+    const { snapshot, daily_source, calendar_source } = (
       await seedHistory(page.request, [100], `tables-${product}`, {
         product,
         minuteDays: [days[0]],
         dailyDays: days,
       })
     ).daily;
+    daily = { snapshot, daily_source, calendar_source };
+  }
   await rpc(page.request, "factor.submit", {
     id: "tables-factor",
     series: {

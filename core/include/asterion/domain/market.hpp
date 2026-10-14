@@ -40,4 +40,11 @@ struct DaySettlement {
   Decimal settlement_price;
 };
 
+// From trading_day on, an instrument's prices are whole multiples of
+// price_increment: an exchange changes it between trading days.
+struct PriceIncrementChange {
+  std::string trading_day;
+  Decimal price_increment;
+};
+
 } // namespace asterion

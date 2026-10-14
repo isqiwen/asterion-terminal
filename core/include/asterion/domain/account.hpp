@@ -68,7 +68,8 @@ class FuturesAccount {
 public:
   FuturesAccount(Decimal deposit, std::vector<ContractTerms> contracts);
   // Roll back a group of mutations unless committed. Captures mutable positions,
-  // marks, costs and working orders; immutable completed history stays in place.
+  // marks, costs, price increments and working orders; immutable completed
+  // history stays in place.
   // The account must outlive its transaction and remain at the same address.
   class Transaction {
   public:
@@ -100,6 +101,10 @@ public:
   // At a trading-day boundary, after cancelling orders. Revalues margin on
   // existing positions without changing balances or past fees.
   void update_costs(const std::vector<FuturesCosts>& costs);
+  // At a trading-day boundary, after cancelling orders: the price increment
+  // each contract trades at from then on. Orders, fills and marks are on it;
+  // prices before stay what they were.
+  void update_price_increments(const std::vector<Decimal>& increments);
   Json snapshot() const;
   const std::vector<ContractTerms>& contracts() const noexcept { return contracts_; }
   // Index of a contract in contracts(); throws for a contract outside the account.

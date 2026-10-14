@@ -1448,7 +1448,7 @@ struct TaskProcess : testing::Test {
     for (const auto& version : selection.at("source_dataset_ids"))
       request.add_source_dataset_ids(version.get<std::string>());
     *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
-    *request.mutable_contract() = test::contract();
+    request.set_contract("SHFE/rb/2026-10");
     data::v1::BarDataset dataset;
     {
       data::Store store(warehouse.path, "historical-data", "task");
@@ -1531,8 +1531,6 @@ TEST_F(TaskProcess, ABacktestOfAProductTradesTheMonthsTheDailyTableNames) {
   auto* product = backtest->add_series()->mutable_product();
   *product->mutable_data() = protocol::encode_product_bars_request({{"venue", "SHFE"},
                                                                     {"product", "rb"},
-                                                                    {"price_increment", "1"},
-                                                                    {"multiplier", "10"},
                                                                     {"begin_day", days[0]},
                                                                     {"end_day", days[5]},
                                                                     {"daily", table}});
@@ -2784,15 +2782,7 @@ TEST(NamedDatasets, ASettlementDayWithoutMinuteBarsIsADayOfTheDataset) {
                      {"daily", selection.at("daily")},
                      {"begin_day", ""},
                      {"end_day", ""},
-                     {"contract",
-                      {{"venue", "SHFE"},
-                       {"symbol", "rb2610"},
-                       {"product", "rb"},
-                       {"delivery_month", "2026-10"},
-                       {"currency", "CNY"},
-                       {"price_increment", "1"},
-                       {"quantity_increment", "1"},
-                       {"multiplier", "10"}}}};
+                     {"contract", "SHFE/rb/2026-10"}};
   const auto sources = store.sources(protocol::encode_bar_dataset_request(request));
   const auto dataset = data::resolve_bar_dataset(store.tables(), sources);
   ASSERT_EQ(dataset.bars_size(), 4);
@@ -2969,7 +2959,7 @@ TEST(NamedDatasets, RequestedWindowExcludesUnrelatedMissingSettlement) {
   data::v1::BarDatasetRequest request;
   request.add_source_dataset_ids(selection.at("source_dataset_ids").at(0).get<std::string>());
   *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
-  *request.mutable_contract() = test::contract();
+  request.set_contract("SHFE/rb/2026-10");
   EXPECT_THROW(data::resolve_bar_dataset(store.tables(), store.sources(request)),
                std::invalid_argument);
   request.set_begin_day("2026-09-25");
@@ -3002,7 +2992,7 @@ TEST(NamedDatasets, ATradingDayTheDailyTableLacksIsNamedAndASnapshotKeepsWhatItR
   data::v1::BarDatasetRequest request;
   request.add_source_dataset_ids(selection.at("source_dataset_ids").at(0).get<std::string>());
   *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
-  *request.mutable_contract() = test::contract();
+  request.set_contract("SHFE/rb/2026-10");
   // Under the snapshot it was selected with, the dataset is what it was.
   const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
   ASSERT_EQ(dataset.days_size(), 2);
@@ -3036,7 +3026,7 @@ TEST(NamedDatasets, ADailyBarIsADayTheContractTradedAndADownloadOfDailyBarsIsNoS
   data::Store store(directory.path, "historical-data", "task");
   data::v1::BarDatasetRequest request;
   *request.mutable_daily() = protocol::encode_daily_table(table);
-  *request.mutable_contract() = test::contract();
+  request.set_contract("SHFE/rb/2026-10");
   // The table does not bound the days as an archive version does.
   EXPECT_THROW(store.sources(request), std::invalid_argument);
   request.set_begin_day("2026-09-22");
@@ -3074,43 +3064,93 @@ TEST(NamedDatasets, ADailyBarIsADayTheContractTradedAndADownloadOfDailyBarsIsNoS
   }
 }
 
-// A multiplier is the user's to give, and a wrong one moves every profit and
-// loss without failing anything. The daily table's turnover says what a lot
-// was worth.
+// The contract table has today's lot of a contract, and a wrong multiplier
+// moves every profit and loss without failing anything. The daily table's
+// turnover says what a lot was worth.
 TEST(NamedDatasets, AMultiplierTheTurnoverContradictsIsRefused) {
-  TaskDirectory directory;
-  {
-    data::Store created(directory.path, "historical-data", "task");
-  }
   // Copper is five tonnes a lot. 1,200 lots at an average of 70,010 are worth
   // 420,060,000 and 1,000 at 70,480 are worth 352,400,000. On the third day
   // lots changed hands far from the day's prices, as in a delivery month: 800
   // lots worth 304,000,000 are 76,000 a tonne against a settlement of 70,300.
-  const auto table = test::seed_daily_table(
-      directory.path, "SHFE/cu/2026-10",
-      {{"2026-09-23", 70000, 500, test::DailyTrade{69900, 70200, 69800, 70100, 1200, 420060000}},
-       {"2026-09-24", 70500, 500, test::DailyTrade{70100, 70700, 70000, 70600, 1000, 352400000}},
-       {"2026-09-25", 70300, 500, test::DailyTrade{70600, 70700, 70100, 70200, 800, 304000000}}});
-  data::Store store(directory.path, "historical-data", "task");
-  const auto ask = [&](const char* multiplier) {
+  const auto ask = [](int lot) {
+    TaskDirectory directory;
+    {
+      data::Store created(directory.path, "historical-data", "task");
+    }
+    const auto table = test::seed_daily_table(
+        directory.path, "SHFE/cu/2026-10",
+        {{"2026-09-23", 70000, 500, test::DailyTrade{69900, 70200, 69800, 70100, 1200, 420060000}},
+         {"2026-09-24", 70500, 500, test::DailyTrade{70100, 70700, 70000, 70600, 1000, 352400000}},
+         {"2026-09-25", 70300, 500, test::DailyTrade{70600, 70700, 70100, 70200, 800, 304000000}}},
+        {}, lot);
+    data::Store store(directory.path, "historical-data", "task");
     data::v1::BarDatasetRequest request;
     *request.mutable_daily() = protocol::encode_daily_table(table);
-    *request.mutable_contract() = test::contract("SHFE", "cu2610", "cu", "2026-10");
-    request.mutable_contract()->mutable_multiplier()->set_units(Decimal::parse(multiplier).raw());
+    request.set_contract("SHFE/cu/2026-10");
     request.set_begin_day("2026-09-23");
     request.set_end_day("2026-09-25");
     return data::resolve_bar_dataset(store.tables(), store.sources(request));
   };
   // Two of the three days are within a twentieth of five.
-  EXPECT_EQ(ask("5").bars_size(), 3);
+  const auto dataset = ask(5);
+  EXPECT_EQ(dataset.bars_size(), 3);
+  EXPECT_EQ(dataset.contract().multiplier().units(), Decimal::parse("5").raw());
   try {
-    (void)ask("10");
+    (void)ask(10);
     FAIL() << "a multiplier twice what the turnover implies was taken";
   } catch (const std::invalid_argument& error) {
     // The middle of 4.99858, 5.00071 and 5.40541.
     EXPECT_STREQ(error.what(), "the contract multiplier does not match the turnover of "
                                "SHFE/cu/2026-10: its days imply about 5.00071");
   }
+}
+// The contract table has today's price increment only: each day's is the one
+// its prices show. Here the exchange moved the product from 5 to 2 for the
+// 26th of fifty trading days.
+TEST(NamedDatasets, EachDayTakesThePriceIncrementItsPricesShow) {
+  TaskDirectory directory;
+  {
+    data::Store created(directory.path, "historical-data", "task");
+  }
+  std::vector<std::string> days;
+  for (auto day = std::chrono::sys_days(std::chrono::year(2026) / 7 / 1); days.size() < 50;
+       day += std::chrono::days(1))
+    if (const std::chrono::weekday weekday(day);
+        weekday != std::chrono::Saturday && weekday != std::chrono::Sunday)
+      days.push_back(format_trading_date(std::chrono::year_month_day(day)));
+  std::vector<test::DailyRow> rows;
+  for (int i = 0; i < 50; ++i) {
+    const auto step = i < 25 ? 5 : 2, open = 1000 + step * i;
+    rows.push_back({days[static_cast<std::size_t>(i)], open + step, 100,
+                    test::DailyTrade{open, open + 2 * step, open - step, open + step, 100}});
+  }
+  const auto table = test::seed_daily_table(directory.path, "SHFE/rb/2026-10", rows);
+  data::Store store(directory.path, "historical-data", "task");
+  const auto read = [&](std::size_t first, std::size_t last) {
+    data::v1::BarDatasetRequest request;
+    *request.mutable_daily() = protocol::encode_daily_table(table);
+    request.set_contract("SHFE/rb/2026-10");
+    request.set_begin_day(days[first]);
+    request.set_end_day(days[last]);
+    return data::resolve_bar_dataset(store.tables(), store.sources(request));
+  };
+  const auto changes = [](const data::v1::BarDataset& dataset) {
+    std::vector<std::pair<std::string, std::string>> result;
+    for (const auto& change : dataset.price_increment_changes())
+      result.emplace_back(change.trading_day(), Decimal::from_raw(change.value().units()).str());
+    return result;
+  };
+  const std::vector<std::pair<std::string, std::string>> moved{{days[25], "2"}};
+  const auto whole = read(0, 49);
+  EXPECT_EQ(whole.contract().price_increment().units(), d("5").raw());
+  EXPECT_EQ(changes(whole), moved);
+  // The multiplier is the contract table's: ten tonnes a lot.
+  EXPECT_EQ(whole.contract().multiplier().units(), d("10").raw());
+  // Five days around the change read the same: the days on either side of a
+  // range are read with it, and the five alone divide by 1 only.
+  const auto around = read(23, 27);
+  EXPECT_EQ(around.contract().price_increment().units(), d("5").raw());
+  EXPECT_EQ(changes(around), moved);
 }
 TEST(NamedDatasets, RequestedWindowReportsMissingBoundaryDays) {
   TaskDirectory directory;
@@ -3123,7 +3163,7 @@ TEST(NamedDatasets, RequestedWindowReportsMissingBoundaryDays) {
   *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
   request.set_begin_day("2026-09-23");
   request.set_end_day("2026-09-25");
-  *request.mutable_contract() = test::contract();
+  request.set_contract("SHFE/rb/2026-10");
   const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
   EXPECT_EQ(days_without_bars(dataset), (std::vector<std::string>{"2026-09-23", "2026-09-25"}));
   task::v1::Task calculation;
@@ -3150,12 +3190,11 @@ data::v1::BarDatasetRequest composed_request(const std::vector<Json>& selections
   for (const auto& selected : selections)
     for (const auto& id : selected.at("source_dataset_ids"))
       ids.insert(id.get<std::string>());
-  return protocol::encode_bar_dataset_request(
-      {{"source_dataset_ids", ids},
-       {"daily", test::latest_daily(selections)},
-       {"begin_day", ""},
-       {"end_day", ""},
-       {"contract", protocol::decode_contract(test::contract())}});
+  return protocol::encode_bar_dataset_request({{"source_dataset_ids", ids},
+                                               {"daily", test::latest_daily(selections)},
+                                               {"begin_day", ""},
+                                               {"end_day", ""},
+                                               {"contract", "SHFE/rb/2026-10"}});
 }
 } // namespace
 TEST(NamedDatasets, ComposesDownloadsDeduplicatesAndRestoresFixedVersions) {

@@ -90,7 +90,20 @@ const prefixedDiagnostics = [
   ],
   [
     "the contract multiplier does not match the turnover of ",
-    "所填的合约乘数与日线表里这个合约的成交额对不上；详情里是合约和按成交额推出的乘数",
+    "合约表里的合约乘数与日线表里这个合约的成交额对不上（合约改过交易单位时，合约表只有现在的值）；详情里是合约和按成交额推出的乘数",
+  ],
+  [
+    "the contract table of ",
+    "这个交易所的合约表还没有入库，算不出合约乘数。请先在「数据 → 全市场数据」更新",
+  ],
+  ["the contract table has no ", "合约表里没有这个合约，算不出它的合约乘数；详情里是合约"],
+  [
+    "the contract table's units of ",
+    "合约表里这个合约的交易单位和报价单位读不懂，算不出合约乘数；详情里是合约",
+  ],
+  [
+    "futures.daily has no auction prices of ",
+    "全市场日线表里这个品种在某个交易日没有竞价成交价，推不出当天的最小变动价位；详情里是品种和日期",
   ],
   [
     "futures.daily has no settlement price for ",

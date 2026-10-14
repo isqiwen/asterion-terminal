@@ -10,6 +10,7 @@ import { DominantSeriesPicker } from "./DominantSeriesPicker";
 import { DailyBarsPicker } from "./DailyBarsPicker";
 import { DailyTableGaps } from "./DailyTableGaps";
 import { RollSchedule, daysWithoutBars } from "./RollSchedule";
+import { contractUnits } from "./contractUnits";
 const t = (key: string, values?: MessageValues) => translate("host", key, values);
 
 // A minute download, as the lists of them name it.
@@ -32,9 +33,9 @@ const methods = [
 // Chooses the data of backtests and factors; a portfolio holds one dataset per
 // contract and all of them share the same trading days. Daily bars are the
 // market-wide daily table's own; minute bars come from published archive
-// versions, whose contract identity is the archive's. Only units a data source
-// does not provide are entered here. Settlement prices and trading days are
-// always the daily table's, under the snapshot read when the picker opened.
+// versions, whose contract identity is the archive's. Settlement prices,
+// trading days and contract units are always the market-wide tables', under
+// the snapshot read when the picker opened.
 export function DatasetPicker({
   snapshot,
   busy,
@@ -73,12 +74,10 @@ export function DatasetPicker({
       extraSources: [] as string[],
       begin_day: "",
       end_day: "",
-      price_increment: "",
-      multiplier: "",
       consumed: "",
     },
   );
-  const { source, extraSources, begin_day, end_day, price_increment, multiplier } = draft;
+  const { source, extraSources, begin_day, end_day } = draft;
   // What is already chosen stays above every way of adding to it.
   const [method, setMethod] = useWorkspaceDraft<(typeof methods)[number][0]>(
     "dataset-picker:method",
@@ -111,18 +110,12 @@ export function DatasetPicker({
     }));
   }
   function selection(id: string) {
-    const item = versions.find(item => item.id === id);
-    const listed = snapshot?.market?.catalog.contracts.find(
-      contract => contract.contract_id === item?.contract_id,
-    );
-    // Never reuse another contract's manually entered exchange units or dates.
+    // Never reuse another contract's dates.
     return {
-      source: item?.id ?? "",
+      source: versions.find(item => item.id === id)?.id ?? "",
       extraSources: [],
       begin_day: "",
       end_day: "",
-      price_increment: listed?.price_tick ?? "",
-      multiplier: listed ? String(listed.multiplier) : "",
     };
   }
   function choose(id: string) {
@@ -185,11 +178,7 @@ export function DatasetPicker({
             · {t("{count} 根 · {days} 个交易日", { count: item.count, days: item.days })}
           </p>
           <p className="subtle">
-            {item.first_day} → {item.last_day} · {item.source} ·{" "}
-            {t("最小变动价位 {tick} · 合约乘数 {multiplier}", {
-              tick: item.contract.price_increment,
-              multiplier: item.contract.multiplier,
-            })}
+            {item.first_day} → {item.last_day} · {item.source} · {contractUnits([item])}
           </p>
           <p className="subtle">
             {item.source_dataset_ids.length
@@ -249,10 +238,7 @@ export function DatasetPicker({
             </p>
             <p className="subtle">
               {group.rolls[0]?.trading_day} → {months.at(-1)?.last_day} · {months[0]?.source} ·{" "}
-              {t("最小变动价位 {tick} · 合约乘数 {multiplier}", {
-                tick: months[0]?.contract.price_increment ?? "",
-                multiplier: months[0]?.contract.multiplier ?? "",
-              })}
+              {contractUnits(months)}
             </p>
             <RollSchedule name={name} rolls={group.rolls} />
             {idle.length > 0 && (
@@ -379,8 +365,6 @@ export function DatasetPicker({
                     daily: daily.held.table,
                     begin_day,
                     end_day,
-                    price_increment,
-                    multiplier,
                   });
                 }}
               >
@@ -416,26 +400,6 @@ export function DatasetPicker({
                         type="date"
                         value={end_day}
                         onChange={event => setDraft({ ...draft, end_day: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      {t("最小变动价位")}
-                      <input
-                        inputMode="decimal"
-                        value={price_increment}
-                        onChange={event =>
-                          setDraft({ ...draft, price_increment: event.target.value })
-                        }
-                        required
-                      />
-                    </label>
-                    <label>
-                      {t("合约乘数")}
-                      <input
-                        inputMode="decimal"
-                        value={multiplier}
-                        onChange={event => setDraft({ ...draft, multiplier: event.target.value })}
-                        required
                       />
                     </label>
                   </div>
@@ -500,7 +464,7 @@ export function DatasetPicker({
                     </button>
                     <span className="subtle">
                       {t(
-                        "交易日区间留空表示全部；组合内合约须覆盖相同交易日；合约单位以交易所公布为准。",
+                        "交易日区间留空表示全部；组合内合约须覆盖相同交易日；合约乘数取自合约表，最小变动价位按每个交易日的成交价推出。",
                       )}
                     </span>
                   </div>
@@ -511,7 +475,6 @@ export function DatasetPicker({
           <div hidden={method !== "minute-series"}>
             <DominantSeriesPicker
               key={data.connection_id}
-              snapshot={snapshot}
               versions={versions}
               disabled={busy || !data.online || loading}
               daily={daily.held}

@@ -18,8 +18,6 @@ test("combine downloads, reject conflicts, save and run the restored input", asy
   await picker.getByRole("button", { name: "分钟线合约", exact: true }).click();
   const minute = picker.getByRole("form", { name: "分钟线合约", exact: true });
   await minute.getByLabel("K 线来源", { exact: true }).selectOption(first.source_dataset_ids[0]);
-  await minute.getByLabel("最小变动价位", { exact: true }).fill("1");
-  await minute.getByLabel("合约乘数", { exact: true }).fill("10");
   await picker.getByText("拼接更多下载", { exact: false }).click();
   // Both days settle from the daily table; only the bars are put together.
   const bars = picker.getByRole("group", { name: "补充 K 线", exact: true });

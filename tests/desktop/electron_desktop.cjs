@@ -199,12 +199,12 @@ async function closeDesktop(application) {
     };
     await call("node.data_tasks.local.open");
     // The daily table is seeded under the sources the installed data source
-    // offers: those are the ones the dataset picker reads settlement prices of.
+    // offers: those are the ones the dataset picker reads settlement prices
+    // and contract units of.
     const offered = (await call("data.tables.coverage", {})).table_coverage.sources;
     const dailySource = offered.find(source => source.table === "futures.daily");
-    const calendarSource = offered.find(
-      source => source.table === "futures.calendar" && source.plugin_id === dailySource.plugin_id,
-    );
+    const offeredBy = table =>
+      offered.find(source => source.table === table && source.plugin_id === dailySource.plugin_id);
     const stopped = await call("node.action", {
       id: "local",
       service: "historical-data",
@@ -232,7 +232,9 @@ async function closeDesktop(application) {
         "--daily-source",
         dailySource.source,
         "--calendar-source",
-        calendarSource.source,
+        offeredBy("futures.calendar").source,
+        "--contracts-source",
+        offeredBy("futures.contracts").source,
       ],
       {
         env: { ...process.env, ASTERION_NODE_DIRECTORY: root, ...testNode },
@@ -273,8 +275,6 @@ async function closeDesktop(application) {
     await minuteBars
       .getByLabel("K 线来源", { exact: true })
       .selectOption(historySelection.source_dataset_ids[0]);
-    await minuteBars.getByLabel("最小变动价位", { exact: true }).fill("1");
-    await minuteBars.getByLabel("合约乘数", { exact: true }).fill("10");
     await minuteBars.getByRole("button", { name: "使用此数据集", exact: true }).click();
     await expect(backtestData.getByRole("list", { name: "已选合约", exact: true })).toContainText(
       "3 根 · 1 个交易日",
