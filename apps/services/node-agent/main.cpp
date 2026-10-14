@@ -103,7 +103,11 @@ class Agent {
   unsigned worker_reservations_ = 0;
   std::optional<ResourceBudget> resource_budget_;
   std::map<std::string, PolledTask<void>> observations_;
-  std::optional<PolledTask<void>> upgrading_, initializing_;
+  std::optional<PolledTask<void>> upgrading_, initializing_, recording_;
+  // The services that hold a reservation, as last written to the node's
+  // directory. The Agent's own stop, a crash or an upgrade does not take a
+  // service out of it; the owner stopping it, or it having to wait, does.
+  std::set<std::string> reserved_;
   std::chrono::steady_clock::time_point next_supervision_{};
   std::size_t preparing_ = 0;
   template <class F> PolledTask<void> prepare(F work) {
@@ -500,9 +504,11 @@ class Agent {
       auto next = *upgrade_;
       next.phase = Phase::restoring;
       co_await save_upgrade(std::move(next));
-      for (auto& [name, s] : services_)
-        if (s.configuration.desired)
-          co_await start(name, s);
+      // Those that held a reservation before the upgrade take it again first.
+      for (const bool held : {true, false})
+        for (auto& [name, s] : services_)
+          if (s.configuration.desired && reserved_.contains(name) == held)
+            co_await start(name, s);
     } else if (request.action() == "complete") {
       if (phase != Phase::restoring)
         throw std::runtime_error("upgrade services have not resumed");
@@ -588,7 +594,7 @@ class Agent {
   }
   unsigned worker_allowance() const {
     for (const auto& [name, service] : services_)
-      if (service.configuration.desired && service.waiting_capacity) {
+      if (service.configuration.desired && service.waiting_capacity && !yields(name)) {
         const auto wanted = claim(service);
         // Let existing workers finish so a queued service can acquire its reservation.
         if (resource_budget_->fits(committed(wanted.workers, true), wanted.services))
@@ -596,6 +602,42 @@ class Agent {
       }
     const auto count = owned_workers() + worker_reservations_;
     return resource_budget_->worker_slots(resource_usage(), worker_limit - count);
+  }
+  // What the record of reservations should say now. A service joins when it
+  // takes its reservation. It stays while it is wanted and has not been made
+  // to wait, also while it has no process: across a stop of the Agent, and
+  // between a crash and its restart.
+  std::set<std::string> reservations() const {
+    std::set<std::string> result;
+    for (const auto& [name, service] : services_)
+      if (service.configuration.desired &&
+          (holds(service) || (reserved_.contains(name) && !service.waiting_capacity)))
+        result.insert(name);
+    return result;
+  }
+  // Built outside the coroutine below: GCC 13, which builds the Linux service
+  // bundle, fails on a braced initializer list inside a co_await expression.
+  static std::string reservation_record(const std::set<std::string>& services) {
+    return Json{{"version", 1}, {"services", services}}.dump();
+  }
+  PolledTask<void> record(std::set<std::string> next) {
+    co_await persist([path = root_ / "reservations.json", bytes = reservation_record(next)] {
+      require_managed_path(path);
+      replace_file_durably(path, bytes);
+    });
+    reserved_ = std::move(next);
+  }
+  // Which services run when not all fit is decided by who asks first. A
+  // service that held its reservation and is due back, after a start of the
+  // Agent or a crash of its own, asks before one that was waiting: the
+  // supervision of the latter leaves it be until the former has had its turn.
+  // Three failed restarts end that turn, as they end the restarts.
+  bool yields(const std::string& name) const {
+    return !reserved_.contains(name) && std::ranges::any_of(services_, [&](const auto& entry) {
+      const auto& [other, service] = entry;
+      return reserved_.contains(other) && service.configuration.desired && !holds(service) &&
+             !service.waiting_capacity && service.restarts < 3;
+    });
   }
   bool dispatch_ready(const std::string& name, const Service& service) const {
     return name != mutating_service_ && service.configuration.kind == wire::TASK_SERVICE &&
@@ -807,13 +849,15 @@ class Agent {
     }
     if (phase_ == wire::Status::READY && !stopping_ && !node_mutation_ &&
         name != mutating_service_ && service->configuration.desired && !service->process &&
-        service->restarts < 3 && std::chrono::steady_clock::now() >= service->retry) {
+        service->restarts < 3 && std::chrono::steady_clock::now() >= service->retry &&
+        !yields(name)) {
       co_await start(name, *service, true);
     }
   }
 
   struct Loaded {
     std::map<std::string, Service> services;
+    std::set<std::string> reserved;
     std::optional<agent::UpgradePlan> upgrade;
     HostCapacity capacity;
   };
@@ -840,6 +884,22 @@ class Agent {
     for (const auto& [name, service] : loaded.services)
       validate_binding(loaded.services, name, service.configuration.kind,
                        service.configuration.task_service, service.configuration.data_service);
+    // A node that has not recorded reservations yet has none to give back.
+    const auto reservations_path = root_ / "reservations.json";
+    require_managed_path(reservations_path);
+    if (fs::exists(reservations_path)) {
+      if (fs::file_size(reservations_path) > 65536)
+        throw std::runtime_error("invalid reservation record size");
+      std::ifstream file(reservations_path);
+      const auto record = parse_json(std::string(std::istreambuf_iterator<char>(file), {}));
+      if (record.size() != 2 || record.at("version") != 1)
+        throw std::invalid_argument("unsupported reservation record");
+      for (const auto& name : record.at("services").get<std::vector<std::string>>()) {
+        validate_service_id(name);
+        if (loaded.services.contains(name))
+          loaded.reserved.insert(name);
+      }
+    }
     const auto upgrade_path = root_ / "maintenance-plan.json";
     require_managed_path(upgrade_path);
     if (fs::exists(upgrade_path)) {
@@ -872,6 +932,7 @@ class Agent {
         loaded = load();
       });
       services_ = std::move(loaded.services);
+      reserved_ = std::move(loaded.reserved);
       // A local node shares its machine with the Terminal that manages it.
       resource_budget_.emplace(loaded.capacity, local_);
       upgrade_ = std::move(loaded.upgrade);
@@ -1260,12 +1321,23 @@ public:
       }
       upgrading_.reset();
     }
+    if (recording_ && recording_->poll()) {
+      try {
+        recording_->take();
+      } catch (const std::exception&) {
+        // A failed commit has already put the Agent into recovery.
+      }
+      recording_.reset();
+    }
     if (initializing_ || stopping_ || !maintenance_.empty() || node_mutation_)
       return;
     const auto now = std::chrono::steady_clock::now();
     if (now < next_supervision_)
       return;
     next_supervision_ = now + 200ms;
+    if (phase_ == wire::Status::READY && !recording_)
+      if (auto current = reservations(); current != reserved_)
+        recording_.emplace(record(std::move(current)));
     if (upgrade_active() && upgrade_->phase != agent::UpgradePlan::Phase::restoring) {
       if (phase_ == wire::Status::READY && !mutation_active_ && !upgrading_ &&
           observations_.empty() && upgrade_->phase == agent::UpgradePlan::Phase::draining)
@@ -1283,7 +1355,9 @@ public:
         observations_.emplace(name, supervise(name));
     }
   }
-  bool background_idle() const { return observations_.empty() && !upgrading_ && !initializing_; }
+  bool background_idle() const {
+    return observations_.empty() && !upgrading_ && !initializing_ && !recording_;
+  }
   PolledTask<void> shutdown() {
     co_await PollUntil{[&] { return background_idle(); }};
     // Stop workers before their task service, and task services before data.

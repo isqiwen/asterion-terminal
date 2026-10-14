@@ -10,6 +10,7 @@
 #include <asterion/protocol/data_client.hpp>
 #include <gtest/gtest.h>
 #include <csignal>
+#include <fstream>
 #include <future>
 #include <thread>
 
@@ -29,6 +30,9 @@ protected:
     root = fs::temp_directory_path() / ("ast-probe-" + unique_process_id().substr(0, 8));
     fs::create_directories(root / "agent");
     endpoint = (root / "agent.sock").string();
+    launch();
+  }
+  void launch() {
     agent = std::make_unique<ChildProcess>(
         ASTERION_AGENT_PATH,
         std::vector<std::string>{"--directory", (root / "agent").string(), "--endpoint", endpoint});
@@ -43,6 +47,12 @@ protected:
         std::this_thread::sleep_for(20ms);
       }
     }
+  }
+  // The Agent stops, its services with it, and starts again on its directory.
+  void restart() {
+    client.reset();
+    agent.reset();
+    launch();
   }
   void TearDown() override {
     client.reset();
@@ -496,6 +506,66 @@ TEST_F(NodeSupervision, NeitherHalfOfAPairStartsWithoutRoomForBoth) {
   // Nothing is left over: three markets, the pair and its worker fill the node.
   const auto budget = health().at("resource_budget");
   EXPECT_EQ(budget.at("committed").at("cpu_slots"), budget.at("limit").at("cpu_slots"));
+}
+
+// When not everything fits, who runs is not reshuffled by a start of the Agent
+// or by a crash: a service that held its reservation takes it again before
+// one that was waiting is tried, whatever their names.
+TEST_F(NodeSupervision, AServiceThatHeldItsReservationTakesItAgainBeforeOneThatWaited) {
+  const auto limit = health().at("resource_budget").at("limit");
+  const auto held = [](unsigned index) { return "held-" + std::to_string(index); };
+  deploy_fixture(false, held(0));
+  const auto request = state(held(0)).at("resource_request");
+  const auto count =
+      std::min({limit.at("cpu_slots").get<unsigned>() / request.at("cpu_slots").get<unsigned>(),
+                limit.at("memory_mib").get<unsigned>() / request.at("memory_mib").get<unsigned>(),
+                limit.at("io_slots").get<unsigned>() / request.at("io_slots").get<unsigned>()});
+  for (unsigned index = 1; index < count; ++index)
+    deploy_fixture(false, held(index));
+  // The node is full. One more waits; supervision visits it first, by its name.
+  deploy_fixture(false, "a-waiting");
+  ASSERT_EQ(state("a-waiting").at("state"), "waiting_capacity");
+  const auto running = [&] {
+    unsigned result = 0;
+    for (unsigned index = 0; index < count; ++index)
+      result += state(held(index)).at("state") == "running" ? 1U : 0U;
+    return result;
+  };
+  ASSERT_EQ(running(), count);
+  // The Agent writes down who holds a reservation; then it is stopped.
+  const auto record = root / "agent" / "reservations.json";
+  const auto recorded = [&] {
+    std::ifstream file(record);
+    const auto text = std::string(std::istreambuf_iterator<char>(file), {});
+    return fs::exists(record) && !text.empty() && parse_json(text).at("services").size() == count;
+  };
+  const auto written = std::chrono::steady_clock::now() + 5s;
+  while (!recorded() && std::chrono::steady_clock::now() < written)
+    std::this_thread::sleep_for(20ms);
+  ASSERT_TRUE(recorded());
+  restart();
+  // The waiting service is left be until the others have had their turn, and
+  // then finds the node as full as it was.
+  const auto back = std::chrono::steady_clock::now() + 15s;
+  while ((running() != count || state("a-waiting").at("state") != "waiting_capacity") &&
+         std::chrono::steady_clock::now() < back)
+    std::this_thread::sleep_for(50ms);
+  EXPECT_EQ(running(), count);
+  EXPECT_EQ(state("a-waiting").at("state"), "waiting_capacity");
+  EXPECT_EQ(state("a-waiting").at("pid"), 0);
+  // One of them crashes moments after it started, so its restart has to wait
+  // for its turn while the waiting service asks again every second.
+  const auto crashed = state(held(0)).at("pid").get<std::uint64_t>();
+  ASSERT_EQ(::kill(static_cast<pid_t>(crashed), SIGKILL), 0);
+  const auto restarted = std::chrono::steady_clock::now() + 15s;
+  const auto returned = [&] {
+    const auto service = state(held(0));
+    return service.at("state") == "running" && service.at("pid") != crashed;
+  };
+  while (!returned() && std::chrono::steady_clock::now() < restarted)
+    std::this_thread::sleep_for(50ms);
+  EXPECT_TRUE(returned());
+  EXPECT_EQ(state("a-waiting").at("state"), "waiting_capacity");
 }
 
 TEST_F(NodeSupervision, DataInstanceRunsIndependentlyAndKeepsItsBindingOnRestart) {
