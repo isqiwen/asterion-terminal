@@ -6392,3 +6392,25 @@ at cp/call.cc:11096`）。用一个二十几行的样例在同一个容器镜像
 
 - 没有在真实的多组节点上重启机器；重启由用例里停掉再启动 Agent 进程扮演。
 - 没有在 macOS 上运行。
+
+#### 验证（两项合起来）
+
+对 `50606be`（重试用例 `75ef1d4` 之后，Agent 改动连同编译器修正）做的一次完整验证。Ubuntu 26.04.1，
+GCC 15.2；服务包在 Ubuntu 24.04 的 GCC 13.3 下编译。
+
+- `ctest` Debug 604/604（337.0 秒）、Release 604/604（298.6 秒），比上一组多 Agent 的 1 个。依赖服务包
+  的两个用例在新服务包生成之后各又跑了一次，通过。
+  - 修正编译器问题之前的那次 Debug 全量是 603/604：`RpcHost.PendingRepliesLeaveReadAndControlConnectionsAvailable`
+    （核心的 RPC 宿主用例，这两天没有改动）在 `ctest -j 6` 和容器编译同时占满机器时失败一次
+    （`IPC peer disconnected`）；在同样的负载下单独重跑 20 次全部通过，修正后的全量也通过。
+- 服务源码指纹 `f3d0c5882c4edd6c722938a8f0acad776b6e70b9c2163255e3e2de260951eb12`；服务包
+  `asterion-services-linux-x86_64.zip` 重建，SHA-256 为
+  `0481febd327e7a8fe1a0f135d5e107887621ce5040de54c0138c828495d6cf56`。
+- `pnpm test:unit` 41/41；类型检查、lint、两项格式检查通过。
+- `pnpm test:desktop`、`pnpm desktop:check`、`pnpm desktop:build` 通过；安装包
+  `Asterion-Terminal-0.1.0-linux-amd64.deb` 的 SHA-256 为
+  `45402b8146783481a194ff0ee2415b6299f79ce28f83a96d2dd9f1cd1810bedc`。
+- 全量端到端 87/87（15.7 分钟），不与别的任务同时跑。
+- 随后把界面的轮询间隔临时改成 50 毫秒（不提交）再跑一遍全量：87/87（15.0 分钟）。前一天这样跑是
+  84/87，三条失败现在都已处理。
+- 全量端到端和三项桌面检查在无头合成器上运行。
