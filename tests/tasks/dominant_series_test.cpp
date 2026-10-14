@@ -1057,7 +1057,7 @@ TEST(DominantSeries, DailySeriesOfTwoProductsAreRankedRolledAndComparedByRolling
   const auto factor_of = [](const data::DominantSeries& resolved, protocol::v1::Factor factor,
                             unsigned lookback) {
     factor::v1::FactorInput value;
-    value.set_version(8);
+    value.set_version(9);
     value.set_factor(factor);
     value.set_full_sample(true);
     value.add_lookbacks(lookback);

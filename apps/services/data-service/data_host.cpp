@@ -1,5 +1,4 @@
 #include "data_host.hpp"
-#include "daily_factor_source.hpp"
 #include "history_coverage.hpp"
 #include "history_daily.hpp"
 #include "history_minutes.hpp"
@@ -170,9 +169,6 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
   } else if (request.has_bar_dataset())
     *response.mutable_bar_dataset() =
         resolve_bar_dataset(store_->tables(), store_->sources(request.bar_dataset()));
-  else if (request.has_daily_factor_dataset())
-    *response.mutable_daily_factor_dataset() =
-        daily_factor_dataset(store_->archive().get(request.daily_factor_dataset().id()));
   else if (request.has_dominant_series()) {
     if (request.dominant_series().months_size() > 20)
       throw std::invalid_argument("a dominant series requires 2 to 20 month contracts");
@@ -410,8 +406,6 @@ void DataHost::admit(Work& admitted, bool worker) {
     history(request.minute_page().dataset_id());
   else if (request.has_daily_page())
     history(request.daily_page().dataset_id());
-  else if (request.has_daily_factor_dataset())
-    history(request.daily_factor_dataset().id());
   else if (request.has_bar_dataset())
     selection(request.bar_dataset());
   else if (request.has_dominant_series())

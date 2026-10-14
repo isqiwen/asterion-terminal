@@ -776,19 +776,6 @@ export type FactorSeriesEvidence =
         terms: number;
         count: number;
       };
-    }
-  | {
-      kind: "daily";
-      data: {
-        history_evidence: HistoryVersionEvidence;
-        source_dataset_id: string;
-        source: string;
-        contract_id: string;
-        manifest_sha256: string;
-        count: number;
-        first_day: string;
-        last_day: string;
-      };
     };
 // What a factor's feature is: price momentum over a window, the mean over a
 // window of the carry a dominant series' term structure shows each day, or

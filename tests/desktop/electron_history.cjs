@@ -277,64 +277,6 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
   await expect(viewer.locator("tbody tr")).toHaveCount(10);
   await expect(viewer.locator("tbody tr").first()).toContainText("2023-04-11");
   await capture(page, "native-daily-viewer");
-  await page.getByRole("button", { name: "返回数据集", exact: true }).click();
-  await page.getByRole("button", { name: "日线因子分析", exact: true }).click();
-  for (const name of ["因子", "日线"])
-    await expect(page.getByRole("button", { name, exact: true })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-  await expect(page.getByLabel("日线来源", { exact: true })).toHaveValue(
-    dailyTask.history_dataset_id,
-  );
-  await page.getByLabel("回看日线数", { exact: true }).fill("5");
-  await page.getByLabel("未来日线数", { exact: true }).fill("1");
-  await page.getByLabel("评价方式", { exact: true }).selectOption("holdout");
-  await page.getByLabel("前段日线数", { exact: true }).fill("60");
-  await page.getByRole("button", { name: "开始分析", exact: true }).click();
-  await expect
-    .poll(
-      async () =>
-        (await call("runtime.snapshot")).task_service.tasks.find(task => task.kind === "factor")
-          ?.state,
-      { timeout: 20000 },
-    )
-    .toBe("succeeded");
-  const factorTask = (await call("runtime.snapshot")).task_service.tasks.find(
-    task => task.kind === "factor",
-  );
-  assert.equal(factorTask.attempt, 1);
-  const taskTable = page.getByRole("region", { name: "研究任务", exact: true });
-  await taskTable.getByRole("button", { name: "查看结果", exact: true }).click();
-  const factorView = page.getByRole("region", { name: "因子结果", exact: true });
-  await expect(factorView).toContainText("按日线计算 · 价格动量 · 时间留出评价");
-  await factorView.getByText("结果详情", { exact: true }).click();
-  await expect(factorView).toContainText("有效样本: 113");
-  await expect(factorView).toContainText("剔除跨界标签: 1");
-  await expect(factorView.getByRole("region", { name: "前段", exact: true })).toContainText("54");
-  await expect(factorView.getByRole("region", { name: "留出段", exact: true })).toContainText("59");
-  await factorView.getByText("样本明细", { exact: true }).click();
-  const rows = factorView.getByRole("table", { name: "样本明细" }).locator("tbody tr");
-  await expect(rows).toHaveCount(50);
-  await expect(rows.first()).toContainText("2023-01-06");
-  await factorView.getByRole("button", { name: "下一页", exact: true }).click();
-  await expect(rows.first()).toContainText("2023-02-25");
-  await capture(page, "native-daily-factor");
-  await call("node.action", { id: "local", service: "task", action: "stop" });
-  await call("node.data_tasks.local.open");
-  await expect
-    .poll(
-      async () => {
-        try {
-          return (await call("task.result", { id: factorTask.id })).task_result?.result.samples
-            .length;
-        } catch {
-          return 0;
-        }
-      },
-      { timeout: 20000 },
-    )
-    .toBe(113);
   console.log(
     "Electron minute/daily history: Agent-dispatched daily worker, real Task Service persistence, native parallel queries, exact decimals, paging, service restart and MACD charts passed",
   );

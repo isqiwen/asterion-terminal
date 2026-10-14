@@ -5,7 +5,6 @@
 #include "bar_dataset_source.hpp"
 #include "data/history_fixture.hpp"
 #include "data_store.hpp"
-#include "daily_factor_source.hpp"
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -187,14 +186,13 @@ TEST(HistoryArchive, DataResolvesPublishedVersionsWithoutDownloadTasks) {
   AlternateDaily provider;
   const auto original = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "first");
   const auto id = original.daily_result().manifest_sha256();
-  const auto before = data::daily_factor_dataset(archive.get(id));
-  EXPECT_EQ(before.source_dataset_id(), id);
+  const auto before = archive.get(id);
+  EXPECT_EQ(before.daily_result().manifest_sha256(), id);
   // A later publication is another version: the first reads as it did.
   provider.normalization = "fixture.normalization.v2";
   const auto newer = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "second");
   EXPECT_NE(newer.daily_result().manifest_sha256(), id);
-  EXPECT_EQ(data::daily_factor_dataset(archive.get(id)).SerializeAsString(),
-            before.SerializeAsString());
+  EXPECT_EQ(archive.get(id).SerializeAsString(), before.SerializeAsString());
   // A selection names versions by their identity, not by the task that made them.
   data::v1::BarDatasetRequest request;
   request.add_source_dataset_ids("first");

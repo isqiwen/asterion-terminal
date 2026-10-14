@@ -32,10 +32,9 @@ const pageSize = 50;
 /** One result page for every factor task, whatever its series is made of. */
 export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { kind: "factor" }> }) {
   const { id, result, experiment } = evidence;
-  // A dominant series of bars is read bar by bar, like a contract; a daily
-  // version and the market-wide table are read by trading day.
-  const first = experiment.series[0];
-  const kind = first.kind === "daily" || first.kind === "table" ? "daily" : "bars";
+  // A dominant series of bars is read bar by bar, like a contract; the
+  // market-wide table is read by trading day.
+  const kind = experiment.series[0].kind === "table" ? "tables" : "bars";
   const words = factorWords[kind];
   const cross = experiment.series.length > 1;
   const names = statistics[cross ? "cross" : "series"];

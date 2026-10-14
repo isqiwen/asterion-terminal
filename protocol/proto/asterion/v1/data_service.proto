@@ -1,7 +1,6 @@
 syntax = "proto3";
 package asterion.data.v1;
 import "asterion/v1/data.proto";
-import "asterion/v1/factor.proto";
 import "asterion/v1/trading.proto";
 import "asterion/v1/node.proto";
 
@@ -75,6 +74,7 @@ message TablePartitionReceipt {
   bool unchanged = 3;
 }
 message DataRequest {
+  reserved 26;
   uint32 version = 1; string service_id = 2; string correlation_id = 3;
   oneof operation {
     asterion.protocol.v1.Empty heartbeat = 10;
@@ -93,7 +93,6 @@ message DataRequest {
     asterion.protocol.v1.Empty saved_datasets = 23;
     HistoryUpdateQuery update_plan = 24;
     DominantSeriesRequest dominant_series = 25;
-    DataId daily_factor_dataset = 26;
     DataId history_usage = 27;
     DownloadAuthorizationRequest authorize_download = 28;
     DataId download_authorization = 29;
@@ -113,6 +112,7 @@ message DataRequest {
   }
 }
 message DataResponse {
+  reserved 25;
   uint32 version = 1; string service_id = 2; string correlation_id = 3;
   oneof result {
     asterion.protocol.v1.Error error = 10;
@@ -130,7 +130,6 @@ message DataResponse {
     NamedDatasets saved_datasets = 22;
     HistoryUpdatePlan update_plan = 23;
     DominantSeriesPreview dominant_series = 24;
-    asterion.factor.v1.DailyFactorDataset daily_factor_dataset = 25;
     HistoryUsage history_usage = 26;
     DownloadAuthorization download_authorization = 27;
     DownloadDirectory download_directory = 28;

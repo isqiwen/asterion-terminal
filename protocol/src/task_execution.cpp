@@ -38,8 +38,6 @@ task::v1::TaskExecution task_execution(const task::v1::Task& task,
     for (const auto& series : input.series()) {
       if (series.has_bars())
         *parameters->add_series()->mutable_bars() = bar_dataset_selection(series.bars());
-      else if (series.has_daily())
-        parameters->add_series()->set_daily_dataset_id(series.daily().source_dataset_id());
       else if (series.has_table()) {
         // Instruments read under one snapshot and range are asked for together.
         const auto& table = series.table();

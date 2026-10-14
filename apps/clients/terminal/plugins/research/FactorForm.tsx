@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   useWorkspaceDraft,
   useWorkspaceRequestId,
-  useHistoryDatasets,
   dailyTableOf,
   DatasetPicker,
   ErrorNotice,
@@ -282,80 +281,6 @@ export function BarFactorForm({
         series={(count === 1 || count > 2) && !unavailable ? { kind: "bars" } : null}
         identity={JSON.stringify(datasets.map(item => item.revision))}
         observations={cross ? undefined : alone[0]?.count}
-        snapshot={snapshot}
-        busy={busy}
-        run={run}
-      />
-    </>
-  );
-}
-
-/** Momentum on the daily closes of one version published in the archive. */
-export function DailyFactorForm({
-  snapshot,
-  query,
-  busy,
-  navigate,
-  run,
-  workspaceParams,
-}: Pick<TerminalContext, "query" | "snapshot" | "busy" | "navigate" | "workspaceParams"> & {
-  run: Run;
-}) {
-  const dataConnection = snapshot?.data?.connection_id;
-  const destination = JSON.stringify([dataConnection, snapshot?.task_service?.connection_id]);
-  const [source, setSource] = useWorkspaceDraft(`daily-source:${destination}`, "");
-  // A version handed over from the data page belongs to the service it was listed by.
-  const matchesService =
-    !workspaceParams?.source_dataset_id || workspaceParams.connection_id === dataConnection;
-  useEffect(() => {
-    if (workspaceParams?.source_dataset_id)
-      setSource(matchesService ? workspaceParams.source_dataset_id : "");
-  }, [workspaceParams, matchesService, setSource]);
-  const navigationKey = JSON.stringify([destination, workspaceParams]);
-  const [acknowledged, setAcknowledged] = useState("");
-  const archive = useHistoryDatasets(snapshot, query);
-  const sources = archive.items.filter(item => item.interval_minutes === 0);
-  const selected = sources.find(item => item.id === source);
-  return (
-    <>
-      {!matchesService && acknowledged !== navigationKey && (
-        <p role="alert">{t("数据连接已改变，请重新选择当前服务中的日线。")}</p>
-      )}
-      <h3>{t("日线因子设置")}</h3>
-      <p className="subtle">{t("按实际日线观测计算收盘价动量，不补齐缺失日期。")}</p>
-      {archive.error && (
-        <p role="alert">
-          <ErrorNotice error={archive.error} />
-        </p>
-      )}
-      {!archive.loading && !sources.length && <p>{t("当前数据服务没有已发布的日线数据。")}</p>}
-      <button disabled={busy} onClick={() => navigate("workspace.data", { page: "history" })}>
-        {t("下载历史日线")}
-      </button>
-      <label>
-        {t("日线来源")}
-        <select
-          aria-label={t("日线来源")}
-          disabled={busy}
-          value={selected ? source : ""}
-          onChange={event => {
-            setSource(event.target.value);
-            setAcknowledged(navigationKey);
-          }}
-        >
-          <option value="">{t("选择日线数据版本")}</option>
-          {sources.map(item => (
-            <option key={item.id} value={item.id}>
-              {item.contract_id} · {item.begin} — {item.end} · {item.source} · {item.id.slice(0, 8)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <FactorParameters
-        kind="daily"
-        series={selected ? { kind: "daily", dataset_id: selected.id } : null}
-        identity={source}
-        observations={selected?.rows}
         snapshot={snapshot}
         busy={busy}
         run={run}

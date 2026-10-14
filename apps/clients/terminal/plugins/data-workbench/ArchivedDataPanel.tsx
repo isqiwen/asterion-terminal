@@ -288,19 +288,6 @@ export function ArchivedDataPanel(context: TerminalContext) {
                   {t("用于回测")}
                 </button>
               )}
-              {item.interval_minutes === 0 && (
-                <button
-                  disabled={!online || context.busy}
-                  onClick={() =>
-                    context.navigate("workspace.research", {
-                      page: "factor",
-                      params: { source_dataset_id: item.id, connection_id: connection ?? "" },
-                    })
-                  }
-                >
-                  {t("日线因子分析")}
-                </button>
-              )}
             </div>
             <details>
               <summary>{t("内容版本")}</summary>

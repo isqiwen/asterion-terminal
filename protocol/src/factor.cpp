@@ -14,8 +14,6 @@ bool digest(const std::string& value) {
 std::size_t held_bars(const factor::v1::FactorSeries& data) {
   if (data.has_bars())
     return static_cast<std::size_t>(data.bars().bars_size());
-  if (data.has_daily())
-    return static_cast<std::size_t>(data.daily().bars_size());
   std::size_t bars = 0;
   for (const auto& month : data.table().months())
     bars += static_cast<std::size_t>(month.closes_size());
@@ -29,13 +27,12 @@ unsigned period(const factor::v1::FactorSeries& data) {
     return data.bars().interval_minutes();
   if (data.has_dominant() && data.dominant().months_size())
     return data.dominant().months(0).interval_minutes();
-  if (data.has_daily() || data.has_table())
+  if (data.has_table())
     return 0;
   throw std::invalid_argument("factor series must be of one kind and one period");
 }
 // Series are compared only with series observed the same way: bars with bars
-// (a dominant series is bars), daily versions with daily versions, and the
-// market-wide table with itself.
+// (a dominant series is bars), and the market-wide table with itself.
 factor::v1::FactorSeries::SourceCase observed_as(const factor::v1::FactorSeries& data) {
   return data.has_dominant() ? factor::v1::FactorSeries::kBars : data.source_case();
 }
@@ -122,9 +119,6 @@ Observed observed(const factor::v1::FactorSeries& data, v1::Factor factor) {
   } else if (data.has_bars()) {
     for (const auto& bar : data.bars().bars())
       add(bar.timestamp_ns(), Decimal::from_raw(bar.close().units()));
-  } else if (data.has_daily()) {
-    for (const auto& bar : daily_factor_bars(data.daily()))
-      add(std::chrono::sys_days(bar.trading_day).time_since_epoch().count(), bar.close);
   } else {
     const auto& schedule = data.dominant().schedule();
     const auto& rolls = schedule.rolls();
@@ -167,60 +161,6 @@ unsigned observation_count(const factor::v1::FactorInput& input) {
   return static_cast<unsigned>(factor_observations(input).order.size());
 }
 } // namespace
-std::vector<HistoricalDailyBar> daily_factor_bars(const factor::v1::DailyFactorDataset& input) {
-  validate_message(input);
-  if (input.source_dataset_id() != input.manifest_sha256())
-    throw std::invalid_argument("invalid historical dataset revision");
-  validate_history_evidence(input.history_evidence());
-  if (input.history_evidence().dataset_id() != input.source_dataset_id())
-    throw std::invalid_argument("historical evidence does not match dataset versions");
-  validate_history_source(input.source());
-  (void)HistoryIdentity::parse(input.contract_id());
-  if (input.version() != 2 || input.source().empty() || input.contract_id().empty() ||
-      input.contract_id().size() > 64 ||
-      input.contract_id().find_first_not_of(
-          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/-") !=
-          std::string::npos ||
-      !digest(input.manifest_sha256()) || input.bars_size() < 1 || input.bars_size() > 20 * 366 + 1)
-    throw std::invalid_argument("invalid daily factor dataset identity");
-  std::vector<HistoricalDailyBar> result;
-  for (const auto& row : input.bars()) {
-    auto bar = daily_bar(row);
-    if (row.has_macd() || bar.close <= Decimal{} ||
-        (!result.empty() && bar.trading_day <= result.back().trading_day) ||
-        bar.volume.raw() % 100000000 || bar.open_interest.raw() % 100000000)
-      throw std::invalid_argument("invalid daily factor observations");
-    result.push_back(std::move(bar));
-  }
-  return result;
-}
-std::string daily_factor_revision(const factor::v1::DailyFactorDataset& input) {
-  const auto bars = daily_factor_bars(input);
-  Json rows = Json::array();
-  const auto optional = [](const std::optional<Decimal>& value) -> Json {
-    return value ? Json(value->str()) : Json(nullptr);
-  };
-  for (const auto& bar : bars)
-    rows.push_back({{"date", format_trading_date(bar.trading_day)},
-                    {"open", bar.open.str()},
-                    {"high", bar.high.str()},
-                    {"low", bar.low.str()},
-                    {"close", bar.close.str()},
-                    {"volume", bar.volume.str()},
-                    {"amount", bar.amount.str()},
-                    {"open_interest", bar.open_interest.str()},
-                    {"previous_close", optional(bar.previous_close)},
-                    {"previous_settlement", optional(bar.previous_settlement)},
-                    {"settlement", optional(bar.settlement)}});
-  return sha256_bytes(Json{
-      {"version", 1},
-      {"kind", "futures.daily-close"},
-      {"source_dataset_id", input.source_dataset_id()},
-      {"source", input.source()},
-      {"contract_id", input.contract_id()},
-      {"manifest_sha256", input.manifest_sha256()},
-      {"bars", rows}}.dump());
-}
 factor::v1::FactorRequest encode_factor_request(const Json& input) {
   require_fields(input, {"series", "factor", "lookbacks", "horizon", "evaluation"});
   factor::v1::FactorRequest result;
@@ -236,9 +176,6 @@ factor::v1::FactorRequest encode_factor_request(const Json& input) {
       *result.add_series()->mutable_tables() = encode_table_series_request(source.at("tables"));
     else if (source.contains("bars"))
       *result.add_series()->mutable_bars() = encode_bar_dataset_request(source.at("bars"));
-    else if (source.contains("daily_dataset_id") && source.at("daily_dataset_id").is_string() &&
-             digest(source.at("daily_dataset_id").get<std::string>()))
-      result.add_series()->set_daily_dataset_id(source.at("daily_dataset_id").get<std::string>());
     else if (source.contains("dominant") && source.at("dominant").is_object()) {
       // A product of the daily table: Data finds its months.
       require_fields(source.at("dominant"), {"product"});
@@ -253,11 +190,9 @@ factor::v1::FactorRequest encode_factor_request(const Json& input) {
         *series->add_months() = encode_bar_dataset_request(month);
     } else
       throw std::invalid_argument("invalid factor series");
-    // Bars and dominant series are read alike; provider trading dates are not,
-    // and neither is the market-wide table.
+    // Bars and dominant series are read alike; the market-wide table is not.
     const auto& added = result.series(result.series_size() - 1);
-    if (added.has_daily_dataset_id() != result.series(0).has_daily_dataset_id() ||
-        added.has_tables() != result.series(0).has_tables())
+    if (added.has_tables() != result.series(0).has_tables())
       throw std::invalid_argument("factor series must be of one kind and one period");
   }
   (void)factor_input(result);
@@ -305,8 +240,6 @@ data::v1::DataRequest factor_series_query(const factor::v1::FactorSeriesRequest&
   data::v1::DataRequest query;
   if (source.has_bars())
     *query.mutable_bar_dataset() = source.bars();
-  else if (source.has_daily_dataset_id())
-    query.mutable_daily_factor_dataset()->set_id(source.daily_dataset_id());
   else if (source.has_dominant())
     *query.mutable_dominant_series() = source.dominant();
   else if (source.has_tables())
@@ -333,8 +266,6 @@ std::vector<factor::v1::FactorSeries> factor_series(const factor::v1::FactorSeri
   auto& one = result.emplace_back();
   if (source.has_bars() && reply.has_bar_dataset())
     *one.mutable_bars() = std::move(*reply.mutable_bar_dataset());
-  else if (source.has_daily_dataset_id() && reply.has_daily_factor_dataset())
-    *one.mutable_daily() = std::move(*reply.mutable_daily_factor_dataset());
   else if (source.has_dominant() && reply.has_dominant_series()) {
     // Data returns the months that are dominant at some point, in roll order.
     auto& resolved = *reply.mutable_dominant_series();
@@ -352,7 +283,7 @@ factor::v1::FactorInput factor_input(const factor::v1::FactorRequest& request) {
   if (count != 1 && (count < 3 || count > max_factor_series))
     throw std::invalid_argument("factor analysis studies one series or 3..100 contracts");
   factor::v1::FactorInput input;
-  input.set_version(8);
+  input.set_version(9);
   input.set_factor(request.factor());
   *input.mutable_lookbacks() = request.lookbacks();
   input.set_horizon(request.horizon());
@@ -379,8 +310,6 @@ factor_revision(const google::protobuf::RepeatedPtrField<factor::v1::FactorSerie
   for (const auto& data : series) {
     if (data.has_bars())
       revisions.push_back(data.bars().revision());
-    else if (data.has_daily())
-      revisions.push_back(daily_factor_revision(data.daily()));
     else if (data.has_table())
       revisions.push_back(table_series_revision(data.table()));
     else {
@@ -432,7 +361,7 @@ FactorObservations factor_observations(const factor::v1::FactorInput& input) {
 namespace {
 Json factor_definition(const factor::v1::FactorInput& input) {
   validate_message(input);
-  if (input.version() != 8)
+  if (input.version() != 9)
     throw std::invalid_argument("unsupported factor input version");
   const std::string factor = factor_name(input.factor());
   const auto count = observation_count(input);
@@ -607,10 +536,8 @@ void validate_factor_input(const factor::v1::FactorInput& input) {
         validate_bar_dataset(month);
       const auto& contract = data.dominant().months(0).contract();
       contracts.insert(contract.venue() + '\n' + contract.product() + "\ndominant");
-    } else if (data.has_table()) {
-      contracts.insert(data.table().instrument());
     } else {
-      contracts.insert(data.daily().contract_id());
+      contracts.insert(data.table().instrument());
     }
     bars += held_bars(data);
     for (const auto close : observed(data, input.factor()).closes)
@@ -621,7 +548,6 @@ void validate_factor_input(const factor::v1::FactorInput& input) {
     throw std::invalid_argument("dataset exceeds 200000 bars; narrow the date range");
   if (contracts.size() != static_cast<std::size_t>(input.series_size()))
     throw std::invalid_argument("factor series must be different contracts");
-  // Recomputing a daily revision validates its observations too.
   if (input.dataset_revision() != factor_revision(input.series()))
     throw std::invalid_argument("factor dataset revision mismatch");
   const auto count = observation_count(input);
@@ -768,23 +694,7 @@ Json decode_factor(const factor::v1::FactorInput& input, DatasetView view) {
                                   {"rolls", decode_dominant_schedule(data.dominant().schedule())},
                                   {"terms", data.dominant().schedule().terms_size()},
                                   {"count", observed(data, input.factor()).order.size()}});
-      continue;
     }
-    const auto& daily = data.daily();
-    const auto count = daily.bars_size();
-    if (count < 1)
-      throw std::invalid_argument("invalid daily factor dataset identity");
-    result["series"].push_back(
-        {{"kind", "daily"},
-         {"data",
-          {{"source_dataset_id", daily.source_dataset_id()},
-           {"history_evidence", decode_history_evidence(daily.history_evidence())},
-           {"source", daily.source()},
-           {"contract_id", daily.contract_id()},
-           {"manifest_sha256", daily.manifest_sha256()},
-           {"count", count},
-           {"first_day", daily.bars(0).trading_day()},
-           {"last_day", daily.bars(count - 1).trading_day()}}}});
   }
   return result;
 }
@@ -797,7 +707,7 @@ Json decode_factor_result(const factor::v1::FactorInput& input,
   const auto order = factor_observations(input).order;
   const auto when = [&](unsigned index) {
     const auto at = order[static_cast<std::size_t>(index)];
-    return input.series(0).has_daily() || input.series(0).has_table()
+    return input.series(0).has_table()
                ? format_trading_date(std::chrono::sys_days{std::chrono::days{at}})
                : std::to_string(at);
   };

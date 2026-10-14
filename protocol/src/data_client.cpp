@@ -90,8 +90,6 @@ data::v1::DataResponse decode_data_response(const data::v1::DataRequest& request
       return Response::kUpdatePlan;
     case Request::kDominantSeries:
       return Response::kDominantSeries;
-    case Request::kDailyFactorDataset:
-      return Response::kDailyFactorDataset;
     case Request::kAuthorizeDownload:
     case Request::kDownloadAuthorization:
       return Response::kDownloadAuthorization;

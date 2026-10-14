@@ -44,8 +44,8 @@ export const factorNames = {
 } as const;
 // A factor counts in observations of its series: the same parameters read as
 // bars or as trading days, by what the series is made of.
-// Series kept by provider trading dates: a published daily version, or
-// instruments of the market-wide daily table.
+// Series kept by provider trading dates: instruments of the market-wide daily
+// table.
 const dated = {
   computed: "按日线计算",
   lookback: "回看日线数",
@@ -75,7 +75,6 @@ export const factorWords = {
     observed: "因子时间",
     label: "标签结束时间",
   },
-  daily: dated,
   tables: dated,
 } as const;
 type TaskService = NonNullable<NonNullable<TerminalContext["snapshot"]>["task_service"]>;

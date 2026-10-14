@@ -1,41 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { useWorkspaceDraft, type TerminalContext } from "../contract";
-import { BarFactorForm, DailyFactorForm, TableFactorForm } from "./FactorForm";
+import { BarFactorForm, TableFactorForm } from "./FactorForm";
 import { FactorResults } from "./FactorResults";
 import { ResearchPage, t, TaskRecords, useRun } from "./shared";
 
-const inputs = { bars: "K 线", daily: "日线", tables: "全市场数据表" };
+const inputs = { bars: "K 线", tables: "全市场数据表" };
 
 /**
- * Factor evaluation. The series come from datasets of contracts' bars, from a
- * daily version published in the archive, or from instruments of the
- * market-wide daily table; the task, its parameters and its result are the
- * same either way.
+ * Factor evaluation. The series come from datasets of contracts' bars or from
+ * instruments of the market-wide daily table; the task, its parameters and
+ * its result are the same either way.
  */
-export function Factor({
-  snapshot,
-  busy,
-  trade,
-  query,
-  navigate,
-  workspacePage,
-  workspaceParams,
-}: TerminalContext) {
+export function Factor({ snapshot, busy, trade, query, navigate }: TerminalContext) {
   const taskService = snapshot?.task_service;
   const { error, run } = useRun(trade);
   const [input, setInput] = useWorkspaceDraft<keyof typeof inputs>("factor-input", "bars");
-  // A daily version handed over from the data page selects the daily input once.
-  const handed =
-    workspacePage === "factor" && workspaceParams?.source_dataset_id
-      ? JSON.stringify([workspaceParams.source_dataset_id, workspaceParams.connection_id])
-      : "";
-  const [received, setReceived] = useWorkspaceDraft("factor-source-request", "");
-  useEffect(() => {
-    if (handed && received !== handed) {
-      setReceived(handed);
-      setInput("daily");
-    }
-  }, [handed, received, setReceived, setInput]);
   // A result opens below the records; asking for one scrolls to it.
   const results = useRef<HTMLDivElement>(null);
   const [shown, setShown] = useState(false);
@@ -67,15 +46,6 @@ export function Factor({
               busy={busy}
               navigate={navigate}
               run={run}
-            />
-          ) : input === "daily" ? (
-            <DailyFactorForm
-              query={query}
-              snapshot={snapshot}
-              busy={busy}
-              navigate={navigate}
-              run={run}
-              workspaceParams={workspaceParams}
             />
           ) : (
             <BarFactorForm

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
-import type { TableCoverage, TableProduct } from "../../src/bridge/client";
+import type { Snapshot, TableCoverage, TableProduct } from "../../src/bridge/client";
 import { registerTerminalPlugins } from "../../src/host/plugin-registry";
 import { createWorkspaceDrafts, WorkspaceDraftScope } from "../../src/host/workspace/drafts";
 import { readySnapshot } from "../../src/testing/core";
@@ -176,4 +176,38 @@ test("with no daily table stored the form says so and has nothing to start", asy
   expect((screen.getByRole("button", { name: "开始分析" }) as HTMLButtonElement).disabled).toBe(
     true,
   );
+});
+
+test("what is chosen and submitted belongs to the services it was made on", async () => {
+  const query: TerminalContext["query"] = async method =>
+    method === "data.tables.products"
+      ? { ...readySnapshot(), table_products: products }
+      : { ...readySnapshot(), table_coverage: coverage };
+  const drafts = createWorkspaceDrafts();
+  const form = (snapshot: Snapshot) => (
+    <WorkspaceDraftScope store={drafts} namespace="test">
+      <TableFactorForm
+        snapshot={snapshot}
+        query={query}
+        busy={false}
+        navigate={() => {}}
+        run={async () => true}
+      />
+    </WorkspaceDraftScope>
+  );
+  const view = render(form(readySnapshot()));
+  fireEvent.change(await screen.findByLabelText("品种或合约"), { target: { value: "SHFE/rb" } });
+  fireEvent.click(screen.getByRole("button", { name: "添加" }));
+  fireEvent.change(screen.getByLabelText("起始日期"), { target: { value: "2026-09-21" } });
+  fireEvent.change(screen.getByLabelText("结束日期"), { target: { value: "2026-10-09" } });
+  fireEvent.click(screen.getByRole("button", { name: "开始分析" }));
+  expect(await screen.findByText("任务已提交，可在任务中心查看进度。")).toBeTruthy();
+  // Another data service: its store is read anew, and neither the choice nor
+  // the submission made on the first carries over.
+  const other = readySnapshot();
+  other.data = { ...other.data!, connection_id: "other" };
+  view.rerender(form(other));
+  await screen.findByLabelText("品种或合约");
+  expect(screen.getByRole("list", { name: "已选的品种和合约" }).textContent).toBe("");
+  expect(screen.queryByText("任务已提交，可在任务中心查看进度。")).toBeNull();
 });

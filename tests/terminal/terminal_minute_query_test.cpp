@@ -719,7 +719,7 @@ TEST(TerminalDailyQueries, SubmissionRequiresCurrentCatalogAndSendsTypedDatesToS
   }
 }
 
-TEST(TerminalDailyFactor, SubmissionDoesNotBlockOtherWindowsAndRejectsChangedService) {
+TEST(TerminalTableFactor, SubmissionDoesNotBlockOtherWindowsAndRejectsChangedService) {
   MinuteService source, replacement;
   terminal::Application app;
   terminal::ApplicationTestAccess::attach(app, source.address(), source.data_address());
@@ -730,12 +730,19 @@ TEST(TerminalDailyFactor, SubmissionDoesNotBlockOtherWindowsAndRejectsChangedSer
   EXPECT_EQ(app.dispatch(request("runtime.snapshot")).at("task_service").at("connection_id"),
             first_id);
   const auto submit = request(
-      "factor.submit", {{"id", "analysis"},
-                        {"series", {{"kind", "daily"}, {"dataset_id", std::string(64, 'a')}}},
-                        {"factor", "momentum"},
-                        {"lookbacks", {20}},
-                        {"horizon", 5},
-                        {"evaluation", {{"mode", "full_sample"}}}});
+      "factor.submit",
+      {{"id", "analysis"},
+       {"series",
+        {{"kind", "tables"},
+         {"snapshot", std::string(64, 'b')},
+         {"daily_source", "fixture.daily.v1"},
+         {"calendar_source", "fixture.calendar.v1"},
+         {"end_day", "2023-03-31"},
+         {"ranges", {{{"begin_day", "2023-01-01"}, {"instruments", {"SHFE/cu/2024-03"}}}}}}},
+       {"factor", "momentum"},
+       {"lookbacks", {20}},
+       {"horizon", 5},
+       {"evaluation", {{"mode", "full_sample"}}}});
   auto pending = std::async(std::launch::async, [&] { return app.dispatch(submit); });
   ASSERT_TRUE(source.wait(1));
   EXPECT_TRUE(app.dispatch(request("market.disconnect")).contains("protocol"));
@@ -755,17 +762,21 @@ TEST(TerminalDailyFactor, SubmissionDoesNotBlockOtherWindowsAndRejectsChangedSer
   EXPECT_TRUE(app.dispatch(submit).contains("protocol"));
   const auto& accepted = replacement.submitted.factor_request();
   ASSERT_EQ(accepted.series_size(), 1);
-  EXPECT_EQ(accepted.series(0).daily_dataset_id(), std::string(64, 'a'));
+  EXPECT_EQ(accepted.series(0).tables().snapshot(), std::string(64, 'b'));
   EXPECT_EQ(accepted.lookbacks(0), 20U);
   auto bad = submit;
   bad["params"]["lookbacks"] = {1.5};
   EXPECT_THROW(app.dispatch(bad), std::invalid_argument);
-  // A client names a published version; it cannot hand in observations.
+  // A client names what Data reads; it cannot hand in observations.
   bad = submit;
   bad["params"]["series"]["bars"] = Json::array();
   EXPECT_THROW(app.dispatch(bad), std::invalid_argument);
   bad = submit;
   bad["params"]["series"] = {{"kind", "uploaded"}};
+  EXPECT_THROW(app.dispatch(bad), std::invalid_argument);
+  // A published daily version is no factor series any more.
+  bad = submit;
+  bad["params"]["series"] = {{"kind", "daily"}, {"dataset_id", std::string(64, 'a')}};
   EXPECT_THROW(app.dispatch(bad), std::invalid_argument);
 }
 

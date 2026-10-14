@@ -40,7 +40,7 @@ const data::v1::BarDataset& bars(const factor::v1::FactorInput& value) {
 void revision(factor::v1::FactorInput&);
 factor::v1::FactorInput input() {
   factor::v1::FactorInput result;
-  result.set_version(8);
+  result.set_version(9);
   result.set_factor(protocol::v1::PRICE_MOMENTUM);
   result.set_full_sample(true);
   result.add_lookbacks(2);
@@ -631,47 +631,59 @@ TEST_F(FactorTasks, RollingEvidencePersistsAndRejectsChangedWindowsOrInvalidScor
 }
 
 namespace {
-// Daily closes of one published version: `count` consecutive dates from
-// 2023-01-01, closing at `close(i)`.
-template <class Close> factor::v1::FactorInput daily_input(int count, Close close) {
+std::string day_of(int i) {
   using namespace std::chrono;
+  return format_trading_date(year_month_day{sys_days{year{2023} / January / 1} + days{i}});
+}
+// A contract's closes in the market-wide daily table: `count` consecutive
+// dates from 2023-01-01, closing at `close(i)`.
+template <class Close>
+data::v1::TableSeries table_closes(const std::string& contract, int count, Close close) {
+  data::v1::TableSeries series;
+  series.set_version(1);
+  series.set_snapshot(std::string(64, 'b'));
+  series.set_daily_source("fixture.daily.v1");
+  series.set_calendar_source("fixture.calendar.v1");
+  series.set_begin_day(day_of(0));
+  series.set_end_day(day_of(count - 1));
+  series.set_instrument(contract);
+  series.set_acquired_at_ns(1790000000000000000);
+  auto* month = series.add_months();
+  month->set_contract(contract);
+  for (int i = 0; i < count; ++i) {
+    auto* row = month->add_closes();
+    row->set_trading_day(day_of(i));
+    row->mutable_close()->set_units(Decimal::parse(std::to_string(close(i))).raw());
+  }
+  return series;
+}
+template <class Close> factor::v1::FactorInput table_input(int count, Close close) {
   factor::v1::FactorInput input;
-  input.set_version(8);
+  input.set_version(9);
   input.set_factor(protocol::v1::PRICE_MOMENTUM);
   input.add_lookbacks(2);
   input.set_horizon(2);
   input.set_holdout_start(40);
-  auto& dataset = *input.add_series()->mutable_daily();
-  dataset.set_version(2);
-  dataset.mutable_history_evidence()->set_dataset_id(std::string(64, 'a'));
-  dataset.mutable_history_evidence()->set_acquired_at_ns(1790000000000000000);
-  dataset.mutable_history_evidence()->set_source_availability(
-      data::v1::SOURCE_AVAILABILITY_UNKNOWN);
-  dataset.set_source_dataset_id(std::string(64, 'a'));
-  dataset.set_source("tushare.fut_daily");
-  dataset.set_contract_id("SHFE/cu/2024-03");
-  dataset.set_manifest_sha256(std::string(64, 'a'));
-  for (int i = 0; i < count; ++i) {
-    auto* bar = dataset.add_bars();
-    bar->set_trading_day(
-        format_trading_date(year_month_day{sys_days{year{2023} / January / 1} + days{i}}));
-    const auto price = Decimal::parse(std::to_string(close(i)));
-    for (auto* value :
-         {bar->mutable_open(), bar->mutable_high(), bar->mutable_low(), bar->mutable_close()})
-      value->set_units(price.raw());
-    bar->mutable_volume()->set_units(d("1").raw());
-    bar->mutable_amount()->set_units(d("100.00000001").raw());
-    bar->mutable_open_interest()->set_units(d("3").raw());
-  }
-  input.set_dataset_revision(protocol::daily_factor_revision(dataset));
+  *input.add_series()->mutable_table() = table_closes("SHFE/cu/2024-03", count, close);
+  input.set_dataset_revision(protocol::factor_revision(input.series()));
   return input;
 }
-factor::v1::FactorInput daily_input() {
-  return daily_input(80, [](int i) { return 100 + i + i % 3; });
+factor::v1::FactorInput table_input() {
+  return table_input(80, [](int i) { return 100 + i + i % 3; });
+}
+// A request's entry for instruments of the daily table.
+Json tables_request(Json instruments = Json::array({"SHFE/cu/2024-03"})) {
+  return Json{{"tables",
+               {{"snapshot", std::string(64, 'b')},
+                {"daily_source", "fixture.daily.v1"},
+                {"calendar_source", "fixture.calendar.v1"},
+                {"begin_day", "2023-01-01"},
+                {"end_day", "2023-03-31"},
+                {"instruments", std::move(instruments)}}}};
 }
 } // namespace
-TEST(Factor, DailySeriesKeepsProviderDatesBindsItsVersionAndPurgesHoldoutLabels) {
-  auto input = daily_input();
+TEST(Factor, TableSeriesKeepsTradingDatesAndPurgesHoldoutLabels) {
+  auto input = table_input();
   const auto result = factor::run(input);
   EXPECT_EQ(result.engine_version(), protocol::factor_engine_version);
   EXPECT_EQ(result.input_count(), 80U);
@@ -683,13 +695,13 @@ TEST(Factor, DailySeriesKeepsProviderDatesBindsItsVersionAndPurgesHoldoutLabels)
     EXPECT_TRUE(row.event_index() >= 40 || row.event_index() + 2 < 40);
   const auto experiment = protocol::decode_factor(input, protocol::DatasetView::metadata);
   const auto& series = experiment.at("series").at(0);
-  EXPECT_EQ(series.at("kind"), "daily");
+  EXPECT_EQ(series.at("kind"), "table");
   EXPECT_EQ(series.at("data").at("count"), 80);
-  EXPECT_EQ(series.at("data").at("first_day"), "2023-01-01");
-  EXPECT_EQ(series.at("data").at("source_dataset_id"), std::string(64, 'a'));
+  EXPECT_EQ(series.at("data").at("months").at(0).at("first_day"), "2023-01-01");
+  EXPECT_EQ(series.at("data").at("snapshot"), std::string(64, 'b'));
   const auto decoded = protocol::decode_factor_result(input, result);
   ASSERT_EQ(decoded.at("samples").size(), 74U);
-  // Dates are the provider's; no intraday time is invented for them.
+  // Dates are the trading days; no intraday time is invented for them.
   EXPECT_EQ(decoded.at("samples").at(0).at("observed"), "2023-01-03");
   EXPECT_EQ(decoded.at("samples").at(0).at("label"), "2023-01-05");
   auto invalid = result;
@@ -704,26 +716,28 @@ TEST(Factor, DailySeriesKeepsProviderDatesBindsItsVersionAndPurgesHoldoutLabels)
   invalid = result;
   invalid.set_purged_count(0);
   EXPECT_THROW(protocol::decode_factor_result(input, invalid), std::invalid_argument);
-  // The revision covers every stored value of the version, not the windows.
+  // The revision covers every close, not the windows.
   auto changed = input;
   changed.set_lookbacks(0, 3);
   EXPECT_EQ(protocol::factor_revision(changed.series()), input.dataset_revision());
-  auto& bars = *changed.mutable_series(0)->mutable_daily();
-  bars.mutable_bars(0)->mutable_amount()->set_units(d("100.00000002").raw());
+  changed.mutable_series(0)
+      ->mutable_table()
+      ->mutable_months(0)
+      ->mutable_closes(0)
+      ->mutable_close()
+      ->set_units(d("100.00000001").raw());
   EXPECT_NE(protocol::factor_revision(changed.series()), input.dataset_revision());
   EXPECT_THROW(factor::run(changed), std::invalid_argument);
+  // Where the closes were read from is evidence, not identity.
   changed = input;
-  changed.mutable_series(0)->mutable_daily()->set_source_dataset_id("another-source");
-  EXPECT_THROW(factor::run(changed), std::invalid_argument);
-  changed = input;
-  changed.mutable_series(0)->mutable_daily()->mutable_bars(0)->clear_volume();
-  EXPECT_THROW(factor::run(changed), std::invalid_argument);
+  changed.mutable_series(0)->mutable_table()->set_snapshot(std::string(64, 'c'));
+  EXPECT_EQ(protocol::factor_revision(changed.series()), input.dataset_revision());
   changed = input;
   *changed.add_series() = input.series(0);
   EXPECT_THROW(factor::run(changed), std::invalid_argument) << "one series per factor";
   input.set_full_sample(true);
   EXPECT_EQ(factor::run(input).samples_size(), 76);
-  const auto constant = daily_input(80, [](int) { return 100; });
+  const auto constant = table_input(80, [](int) { return 100; });
   const auto flat = factor::run(constant);
   EXPECT_FALSE(flat.partitions(0).has_pearson());
   EXPECT_TRUE(protocol::decode_factor_result(constant, flat)
@@ -732,8 +746,8 @@ TEST(Factor, DailySeriesKeepsProviderDatesBindsItsVersionAndPurgesHoldoutLabels)
                   .at("pearson")
                   .is_null());
 }
-TEST(Factor, DailySeriesComparesWindowsAndRollsLikeBars) {
-  auto search = daily_input(100, [](int i) { return 100 + i + i % 7; });
+TEST(Factor, TableSeriesComparesWindowsAndRollsLikeBars) {
+  auto search = table_input(100, [](int i) { return 100 + i + i % 7; });
   search.set_horizon(3);
   search.set_holdout_start(50);
   search.add_lookbacks(5);
@@ -751,7 +765,7 @@ TEST(Factor, DailySeriesComparesWindowsAndRollsLikeBars) {
     EXPECT_EQ(as_days.partitions(i).SerializeAsString(), as_bars.partitions(i).SerializeAsString());
   EXPECT_EQ(as_days.samples_size(), as_bars.samples_size());
   EXPECT_NO_THROW(protocol::validate_factor_result(search, as_days));
-  auto rolling = daily_input(160, [](int i) { return 100 + i + (i * i % 17); });
+  auto rolling = table_input(160, [](int i) { return 100 + i + (i * i % 17); });
   rolling.set_horizon(3);
   rolling.add_lookbacks(5);
   rolling.add_lookbacks(10);
@@ -764,22 +778,23 @@ TEST(Factor, DailySeriesComparesWindowsAndRollsLikeBars) {
     EXPECT_EQ(folds.folds(i).SerializeAsString(), bar_folds.folds(i).SerializeAsString());
   EXPECT_EQ(protocol::decode_factor_result(rolling, folds).at("folds").size(), 2U);
 }
-TEST(Factor, RequestNamesOneSeriesOfBarsOrOneDailyVersion) {
-  Json request = {{"series", Json::array({Json{{"daily_dataset_id", std::string(64, 'a')}}})},
+TEST(Factor, RequestNamesOneSeriesOfBarsOrOfTheDailyTable) {
+  Json request = {{"series", Json::array({tables_request()})},
                   {"factor", "momentum"},
                   {"lookbacks", {2, 5}},
                   {"horizon", 2},
                   {"evaluation", {{"mode", "holdout"}, {"split_index", 40}}}};
   const auto encoded = protocol::encode_factor_request(request);
   ASSERT_EQ(encoded.series_size(), 1);
-  EXPECT_EQ(encoded.series(0).daily_dataset_id(), std::string(64, 'a'));
+  EXPECT_EQ(encoded.series(0).tables().instruments(0), "SHFE/cu/2024-03");
   EXPECT_EQ(encoded.holdout_start(), 40U);
-  EXPECT_TRUE(protocol::factor_series_query(encoded.series(0)).has_daily_factor_dataset());
+  EXPECT_TRUE(protocol::factor_series_query(encoded.series(0)).has_table_series());
   for (const Json& mutation :
        {Json{{"series", Json::array()}},
-        Json{{"series", Json::array({Json{{"daily_dataset_id", "short"}}})}},
-        Json{{"series", Json::array({Json{{"daily_dataset_id", std::string(64, 'a')}},
-                                     Json{{"daily_dataset_id", std::string(64, 'b')}}})}},
+        Json{{"series", Json::array({tables_request({"SHFE/cu/2024-13"})})}},
+        Json{{"series", Json::array({tables_request({"SHFE/cu/2024-03", "SHFE/cu/2024-04"})})}},
+        // A published daily version is no factor series any more.
+        Json{{"series", Json::array({Json{{"daily_dataset_id", std::string(64, 'a')}}})}},
         Json{{"series", Json::array({Json{{"uploaded_bars", Json::array()}}})}},
         Json{{"factor", "carry"}}, Json{{"lookbacks", {5, 2}}}, Json{{"lookbacks", {2.5}}},
         Json{{"horizon", 0}}, Json{{"evaluation", {{"mode", "walk_forward"}}}}}) {
@@ -797,7 +812,7 @@ namespace {
 // second lacks the bar at `missing`.
 factor::v1::FactorInput cross_input(int count = 41, int missing = 10) {
   factor::v1::FactorInput result;
-  result.set_version(8);
+  result.set_version(9);
   result.set_factor(protocol::v1::PRICE_MOMENTUM);
   result.set_full_sample(true);
   result.add_lookbacks(2);
@@ -1054,18 +1069,17 @@ TEST_F(FactorTasks, CrossSectionHoldoutAndRollingResultsSurviveTheStore) {
 }
 TEST(Factor, ADailyCrossSectionReadsEveryTradingDayAnyContractHas) {
   factor::v1::FactorInput value;
-  value.set_version(8);
+  value.set_version(9);
   value.set_factor(protocol::v1::PRICE_MOMENTUM);
   value.set_full_sample(true);
   value.add_lookbacks(2);
   value.set_horizon(2);
   for (int k = 0; k < 3; ++k) {
-    auto one = daily_input(60, [k](int i) { return 100 * (k + 1) + (k + 2) * i + i % (k + 3); });
-    auto& daily = *one.mutable_series(0)->mutable_daily();
-    daily.set_contract_id("SHFE/cu/2024-0" + std::to_string(3 + k));
-    if (k == 2) // The third contract has no bar on 2023-01-21.
-      daily.mutable_bars()->DeleteSubrange(20, 1);
-    *value.add_series() = one.series(0);
+    auto table = table_closes("SHFE/cu/2024-0" + std::to_string(3 + k), 60,
+                              [k](int i) { return 100 * (k + 1) + (k + 2) * i + i % (k + 3); });
+    if (k == 2) // The third contract has no close on 2023-01-21.
+      table.mutable_months(0)->mutable_closes()->DeleteSubrange(20, 1);
+    *value.add_series()->mutable_table() = std::move(table);
   }
   value.set_dataset_revision(protocol::factor_revision(value.series()));
   EXPECT_NO_THROW(protocol::validate_factor_input(value));
@@ -1107,7 +1121,7 @@ std::vector<MarketBar> bars_of(int first_day, int days, int price, int step) {
 }
 factor::v1::FactorInput dominant_input() {
   factor::v1::FactorInput result;
-  result.set_version(8);
+  result.set_version(9);
   result.set_factor(protocol::v1::PRICE_MOMENTUM);
   result.set_full_sample(true);
   result.add_lookbacks(2);
@@ -1268,8 +1282,8 @@ TEST(Factor, ADominantSeriesIsComparedWithContractsOnTheBarsEachHas) {
   EXPECT_EQ(result.cross_sections(36).series(), 3U);
   EXPECT_EQ(result.cross_sections(37).series(), 2U) << "its last bar has no label";
 
-  // Provider trading dates are another kind of observation.
-  *value.mutable_series(2) = daily_input().series(0);
+  // Trading days of the daily table are another kind of observation.
+  *value.mutable_series(2) = table_input().series(0);
   EXPECT_THROW(protocol::factor_revision(value.series()), std::invalid_argument);
 }
 namespace {
@@ -1379,7 +1393,7 @@ TEST(Factor, TheTermStructureNeedsDominantSeriesAndTermPointsThatAreFixedWithThe
   sparse.set_dataset_revision(protocol::factor_revision(sparse.series()));
   EXPECT_THROW(protocol::validate_factor_input(sparse), std::invalid_argument);
   // A request names the factor.
-  Json request{{"series", Json::array({Json{{"daily_dataset_id", std::string(64, 'a')}}})},
+  Json request{{"series", Json::array({tables_request()})},
                {"factor", "term_structure"},
                {"lookbacks", {2}},
                {"horizon", 1},
@@ -1434,7 +1448,7 @@ TEST(Factor, VolatilityIsTheDeviationOfAWindowsReturns) {
   EXPECT_NO_THROW(protocol::validate_factor_result(value, result));
   EXPECT_EQ(protocol::decode_factor(value, protocol::DatasetView::metadata).at("factor"),
             "volatility");
-  Json request{{"series", Json::array({Json{{"daily_dataset_id", std::string(64, 'a')}}})},
+  Json request{{"series", Json::array({tables_request()})},
                {"factor", "volatility"},
                {"lookbacks", {2}},
                {"horizon", 1},

@@ -1,7 +1,6 @@
 #pragma once
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/trading.hpp>
-#include <asterion/domain/daily_bars.hpp>
 #include <asterion/v1/data_service.pb.h>
 #include <asterion/v1/factor.pb.h>
 namespace asterion::protocol {
@@ -10,8 +9,6 @@ inline constexpr char factor_engine_version[] = "asterion.factor.v10";
 // A cross-section compares at most this many series: every product of the
 // market-wide table at once.
 inline constexpr int max_factor_series = max_table_instruments;
-std::vector<HistoricalDailyBar> daily_factor_bars(const factor::v1::DailyFactorDataset&);
-std::string daily_factor_revision(const factor::v1::DailyFactorDataset&);
 factor::v1::FactorRequest encode_factor_request(const Json& input);
 // What Data is asked for one entry of a request, and the fixed series its
 // reply makes: one, or one for each instrument of the market-wide table.

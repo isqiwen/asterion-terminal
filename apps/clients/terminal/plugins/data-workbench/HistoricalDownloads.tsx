@@ -337,7 +337,7 @@ function SourceDownloads({
           <p className="subtle">
             {t(
               source.timeAxis === "trading-day"
-                ? "日线保存供应商交易日期与结算价，可在这里查看，也可直接用于日线因子分析。回测和因子的日线 K 线与结算价取自全市场日线表，不取这里的下载。不补造缺失的交易日。"
+                ? "日线保存供应商交易日期与结算价，可在这里查看。回测和因子的日线取自全市场日线表，不取这里的下载。不补造缺失的交易日。"
                 : "分钟数据按 K 线结束时间保存，交易日来自交易所交易日历，可用于回测与因子分析。不补造缺失的 K 线或主力连续合约。",
             )}
           </p>
@@ -442,23 +442,6 @@ function SourceDownloads({
                   }}
                 >
                   {t("用于回测")}
-                </button>
-              )}
-              {task.kind === "daily_download" && (
-                <button
-                  disabled={busy || !taskService?.online || !task.history_dataset_id}
-                  onClick={() => {
-                    setToken("");
-                    navigate("workspace.research", {
-                      page: "factor",
-                      params: {
-                        source_dataset_id: task.history_dataset_id!,
-                        connection_id: snapshot?.data?.connection_id ?? "",
-                      },
-                    });
-                  }}
-                >
-                  {t("日线因子分析")}
                 </button>
               )}
               <button

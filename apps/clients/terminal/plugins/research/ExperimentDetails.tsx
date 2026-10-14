@@ -229,25 +229,13 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
       rows.push(["候选策略数", strategies.length], ["留出起始日", evidence.experiment.holdout_day]);
   } else {
     const { series, lookbacks, horizon, evaluation } = evidence.experiment;
-    const words =
-      factorWords[series[0].kind === "daily" || series[0].kind === "table" ? "daily" : "bars"];
+    const words = factorWords[series[0].kind === "table" ? "tables" : "bars"];
     contracts = series.map(input =>
       input.kind === "bars"
         ? contractRows(input.dataset, input.data)
         : input.kind === "dominant"
           ? dominantRows(input)
-          : input.kind === "table"
-            ? tableRows(input)
-            : {
-                name: input.data.contract_id,
-                rows: [
-                  ["交易日范围", `${input.data.first_day} – ${input.data.last_day}`],
-                  [words.input, input.data.count],
-                  ["数据源", input.data.source],
-                  ["来源数据版本", input.data.source_dataset_id],
-                  ["来源摘要", input.data.manifest_sha256],
-                ] as Rows,
-              },
+          : tableRows(input),
     );
     rows.push(
       ["因子", t(factorNames[evidence.experiment.factor])],
@@ -292,9 +280,7 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
         ? dataset(input.dataset)
         : input.kind === "dominant"
           ? input.months.flatMap(month => dataset(month.dataset))
-          : input.kind === "table"
-            ? [snapshot(input.data.snapshot, input.data.acquired_at_ns)]
-            : [input.data.history_evidence],
+          : [snapshot(input.data.snapshot, input.data.acquired_at_ns)],
     );
   // Once each; of a snapshot read several times, the most recent partition.
   const acquired = new Map<string, (typeof versions)[number]>();

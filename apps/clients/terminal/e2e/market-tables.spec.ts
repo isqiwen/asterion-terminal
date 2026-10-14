@@ -34,16 +34,54 @@ test("the market tables page lists what the data source offers", async ({ page }
   ]);
 });
 
-// The research plugin reads the same store through the real core.
-test("a factor on the market-wide table leads to the update page", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "研究", exact: true }).click();
-  await page.getByRole("button", { name: "因子", exact: true }).click();
-  await page.getByRole("button", { name: "全市场数据表", exact: true }).click();
-  await expect(page.getByRole("button", { name: "开始分析", exact: true })).toBeDisabled();
-  await page.getByRole("button", { name: "更新全市场数据", exact: true }).click();
-  await expect(page.getByRole("region", { name: "全市场数据", exact: true })).toBeVisible();
-});
+// The research plugin reads the same store through the real core. Parameters
+// stay while another source is shown, and the page fits a narrow window.
+for (const locale of ["zh-CN", "en-US"]) {
+  test(`a factor on the market-wide table keeps its parameters and fits ${locale}`, async ({
+    page,
+  }) => {
+    const en = locale === "en-US";
+    await page.addInitScript(value => localStorage.setItem("asterion.locale", value), locale);
+    await page.goto("/");
+    await page.getByRole("button", { name: en ? "Research" : "研究", exact: true }).click();
+    await page.getByRole("button", { name: en ? "Factors" : "因子", exact: true }).click();
+    const tables = page.getByRole("button", {
+      name: en ? "Market-wide table" : "全市场数据表",
+      exact: true,
+    });
+    await tables.click();
+    await expect(
+      page.getByRole("button", { name: en ? "Analyze" : "开始分析", exact: true }),
+    ).toBeDisabled();
+    const lookback = page.getByLabel(en ? "Lookback daily bars" : "回看日线数", { exact: true });
+    await lookback.fill("17");
+    await page.getByLabel(en ? "Evaluation" : "评价方式", { exact: true }).selectOption("holdout");
+    await page.getByLabel(en ? "Leading daily bars" : "前段日线数", { exact: true }).fill("60");
+    await page.getByRole("button", { name: en ? "Bars" : "K 线", exact: true }).click();
+    await tables.click();
+    await expect(lookback).toHaveValue("17");
+    for (const width of [1440, 800]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(
+        await page
+          .locator(".research-workspace")
+          .evaluate(el => el.scrollWidth <= el.clientWidth + 1),
+      ).toBe(true);
+      await page.screenshot({
+        path: `apps/clients/terminal/test-results/table-factor-${locale}-${width}.png`,
+      });
+    }
+    await page
+      .getByRole("button", {
+        name: en ? "Update market-wide data" : "更新全市场数据",
+        exact: true,
+      })
+      .click();
+    await expect(
+      page.getByRole("region", { name: en ? "Market tables" : "全市场数据", exact: true }),
+    ).toBeVisible();
+  });
+}
 
 // The factor command asks the daily table of each range by itself: instruments
 // of an exchange that began inside the days asked for are read from that day.

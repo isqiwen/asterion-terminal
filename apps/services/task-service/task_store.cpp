@@ -89,14 +89,11 @@ void prepare(wire::Task& task) {
         instruments += separator + series_name(*months.begin(), *months.rbegin());
         for (const auto& month : months)
           name_source(sources, month);
-      } else if (series.has_table()) {
+      } else {
         // Every instrument of one snapshot names it once.
         instruments += separator + series.table().instrument();
         if (!sources.ends_with(series.table().snapshot()))
           sources += separator + series.table().snapshot();
-      } else {
-        instruments += separator + series.daily().contract_id();
-        sources += separator + series.daily().source_dataset_id();
       }
     }
     task.set_instrument(instruments);
@@ -1362,8 +1359,6 @@ void Store::HistoryRead::load_page() {
       for (const auto& series : task.factor().series()) {
         if (series.has_bars())
           inspect(series.bars());
-        else if (series.has_daily())
-          market |= series.daily().source_dataset_id() == dataset_id;
         for (const auto& month : series.dominant().months())
           inspect(month);
       }

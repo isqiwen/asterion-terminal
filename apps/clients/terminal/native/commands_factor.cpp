@@ -6,9 +6,8 @@ void Application::Impl::register_factor_commands() {
   command("factor.submit", [this](const json& p) -> PolledTask<Response> {
     fields(p, {"id", "series", "factor", "lookbacks", "horizon", "evaluation"});
     validate_id(text(p, "id"));
-    // A factor reads the bars this window has selected, a daily version
-    // published in the archive, or instruments of the market-wide daily table
-    // over the ranges given for them.
+    // A factor reads the bars this window has selected, or instruments of the
+    // market-wide daily table over the ranges given for them.
     // Each selected contract is a series, and so is each dominant series, which
     // sends every month it was resolved from, or the product whose months Data
     // finds in the daily table.
@@ -30,9 +29,6 @@ void Application::Impl::register_factor_commands() {
           months.push_back(protocol::decode_bar_dataset_request(month));
         sources.push_back({{"dominant", std::move(months)}});
       }
-    } else if (series.is_object() && series.value("kind", "") == "daily") {
-      fields(series, {"kind", "dataset_id"});
-      sources.push_back({{"daily_dataset_id", series.at("dataset_id")}});
     } else if (series.is_object() && series.value("kind", "") == "tables") {
       fields(series, {"kind", "snapshot", "daily_source", "calendar_source", "end_day", "ranges"});
       // Each range is asked of Data by itself: instruments of an exchange that

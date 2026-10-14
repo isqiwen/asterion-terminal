@@ -165,7 +165,7 @@ TEST(TableSeries, AProductIsReadThroughItsDominantMonthsUnderOneSnapshot) {
 
   // What a factor reads of them: the product at the level of its last month.
   factor::v1::FactorInput input;
-  input.set_version(8);
+  input.set_version(9);
   input.set_factor(protocol::v1::PRICE_MOMENTUM);
   *input.add_series()->mutable_table() = product;
   const auto observed = protocol::factor_observations(input);
