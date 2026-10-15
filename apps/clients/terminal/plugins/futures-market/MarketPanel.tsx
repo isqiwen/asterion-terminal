@@ -5,11 +5,32 @@ import {
   ErrorNotice,
   type TerminalContext,
 } from "../contract";
+import { DailyMarketPanel } from "./DailyMarketPanel";
 import { ContractHistory } from "./ContractHistory";
 import { identityName } from "./contract-name";
 const t = (key: string) => translate("asterion.terminal.futures-market", key);
 
 export function MarketPanel({ context }: { context: TerminalContext }) {
+  const [mode, setMode] = useWorkspaceDraft<"minutes" | "daily">("history-market-mode", "minutes");
+  return (
+    <>
+      <div className="market-periods" aria-label={t("历史行情来源")}>
+        <button aria-pressed={mode === "minutes"} onClick={() => setMode("minutes")}>
+          {t("分钟档案")}
+        </button>
+        <button aria-pressed={mode === "daily"} onClick={() => setMode("daily")}>
+          {t("日线合约")}
+        </button>
+      </div>
+      {mode === "daily" ? (
+        <DailyMarketPanel context={context} />
+      ) : (
+        <MinuteMarketPanel context={context} />
+      )}
+    </>
+  );
+}
+function MinuteMarketPanel({ context }: { context: TerminalContext }) {
   const [selected, setSelected] = useWorkspaceDraft("history-market-selected", "");
   const [search, setSearch] = useWorkspaceDraft("history-market-search", "");
   const offline = !context.snapshot?.data?.online;

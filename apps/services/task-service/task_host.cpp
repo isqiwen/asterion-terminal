@@ -1,10 +1,14 @@
 #include "task_host.hpp"
+#include "risk_module.hpp"
 #include <asterion/kernel/logger.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/trace.hpp>
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/data_client.hpp>
 #include <asterion/protocol/factor.hpp>
+#include <asterion/protocol/task_execution.hpp>
+#include <asterion/kernel/process/artifact.hpp>
+#include <set>
 #include <asterion/protocol/rpc_diagnostics.hpp>
 #include <algorithm>
 #include <stdexcept>
@@ -15,6 +19,10 @@ namespace {
 // The existing task an operation names. Submissions and retries are admitted
 // by the store itself and wait for no earlier change of their own.
 std::string named_task(const wire::TaskRequest& request) {
+  if (request.has_metadata_get())
+    return request.metadata_get().id();
+  if (request.has_metadata_edit())
+    return request.metadata_edit().id();
   if (request.has_get())
     return request.get().id();
   if (request.has_cancel())
@@ -400,9 +408,167 @@ PolledTask<> TaskHost::submit_backtest(Call& call) {
         return storage_->submission(p.id(), std::move(input));
       })).task();
 }
+PolledTask<> TaskHost::reuse_backtest(Call& call) {
+  const auto& p = call.request.submit();
+  const auto& reuse = p.backtest_reuse();
+  using Choice = backtest::v1::BacktestReuse;
+  if (p.id() == reuse.source_id())
+    throw std::invalid_argument("experiment reuse requires a new task id");
+  if ((reuse.choice() != Choice::FIXED && reuse.choice() != Choice::NEW_SNAPSHOT) ||
+      (reuse.choice() == Choice::FIXED
+           ? !reuse.snapshot().empty()
+           : reuse.snapshot().size() != 64 ||
+                 reuse.snapshot().find_first_not_of("0123456789abcdef") != std::string::npos))
+    throw std::invalid_argument("explicit experiment data choice required");
+  if (reuse.has_slippage_ticks() && reuse.choice() != Choice::FIXED)
+    throw std::invalid_argument("slippage sensitivity requires the original fixed data");
+  co_await wait_for_store(reuse.source_id());
+  auto source_slot = verification_slots_.acquire(false, reuse.source_id());
+  auto read = storage_->prepare_result(reuse.source_id());
+  co_await file_work([&] { read.verify(); });
+  co_await ready(call);
+  call.input_in_time();
+  auto verified = storage_->confirm_result(std::move(read));
+  const auto& task = verified.result_task();
+  if (task.kind() != wire::BACKTEST || !task.has_input() || !verified.has_backtest())
+    throw std::invalid_argument("backtest reuse requires a compatible backtest result");
+  if (task.result_digest() != reuse.source_result_digest())
+    throw std::invalid_argument("experiment evidence changed; reopen its result before reuse");
+  backtest::v1::BacktestInput original, input;
+  std::string original_bytes;
+  co_await file_work([&] {
+    if (reuse.has_slippage_ticks() &&
+        task.risk_artifact() != risk_providers::Module::selected().artifact())
+      throw std::invalid_argument("slippage sensitivity requires the original risk implementation");
+    original = std::move(*verified.mutable_result_task()->mutable_input());
+    original_bytes = original.SerializeAsString();
+    if (sha256_bytes(original_bytes) != reuse.source_input_sha256())
+      throw std::invalid_argument("experiment evidence changed; reopen its result before reuse");
+    verified.Clear();
+    if (reuse.choice() == Choice::FIXED)
+      input = std::move(original);
+    else {
+      input = original;
+      input.mutable_paper()->clear_contracts();
+      input.clear_series();
+    }
+  });
+  co_await ready(call);
+  call.input_in_time();
+  const auto selected = [&](const data::v1::BarDataset& dataset) {
+    auto selection = protocol::bar_dataset_selection(dataset);
+    if (reuse.choice() == Choice::NEW_SNAPSHOT)
+      selection.mutable_daily()->set_snapshot(reuse.snapshot());
+    return selection;
+  };
+  const auto keep = [&](const protocol::v1::PaperContract& source, data::v1::BarDataset dataset) {
+    if (dataset.contract().SerializeAsString() != source.dataset().contract().SerializeAsString())
+      throw std::invalid_argument(
+          "new snapshot changes contract specifications; configure a new backtest");
+    auto* target = input.mutable_paper()->add_contracts();
+    *target->mutable_cost_schedule() = source.cost_schedule();
+    target->set_slippage_ticks(source.slippage_ticks());
+    *target->mutable_dataset() = std::move(dataset);
+  };
+  if (reuse.choice() == Choice::FIXED) {
+    for (int c = 0; c < input.paper().contracts_size(); ++c) {
+      data::v1::DataRequest query;
+      *query.mutable_bar_dataset() = selected(input.paper().contracts(c).dataset());
+      auto reply = co_await data_input(call, std::move(query));
+      *input.mutable_paper()->mutable_contracts(c)->mutable_dataset() =
+          std::move(*reply.mutable_bar_dataset());
+    }
+  } else {
+    // Preserve the original actual-month universe and each month's own costs.
+    // A new snapshot can change the schedule, not invent costs for new months.
+    input.mutable_paper()->clear_contracts();
+    input.clear_series();
+    std::vector<bool> in_series(original.paper().contracts_size());
+    std::vector<std::vector<unsigned>> members;
+    for (const auto& schedule : original.series()) {
+      std::set<unsigned> indexes;
+      for (const auto& roll : schedule.rolls())
+        indexes.insert(roll.contract());
+      members.emplace_back(indexes.begin(), indexes.end());
+      for (const auto index : indexes)
+        in_series[index] = true;
+    }
+    for (int c = 0; c < original.paper().contracts_size(); ++c) {
+      if (in_series[c])
+        continue;
+      data::v1::DataRequest query;
+      *query.mutable_bar_dataset() = selected(original.paper().contracts(c).dataset());
+      auto reply = co_await data_input(call, std::move(query));
+      keep(original.paper().contracts(c), std::move(*reply.mutable_bar_dataset()));
+    }
+    for (std::size_t group = 0; group < members.size(); ++group) {
+      const auto& indexes = members[group];
+      data::v1::DataRequest query;
+      query.mutable_dominant_series()->set_first_day(
+          original.series(static_cast<int>(group)).rolls(0).trading_day());
+      for (const auto index : indexes)
+        *query.mutable_dominant_series()->add_months() =
+            selected(original.paper().contracts(index).dataset());
+      auto reply = co_await data_input(call, std::move(query));
+      auto& resolved = *reply.mutable_dominant_series();
+      if (resolved.months_size() != resolved.datasets_size())
+        throw std::invalid_argument("dominant series response has inconsistent months");
+      const auto offset = static_cast<unsigned>(input.paper().contracts_size());
+      for (int m = 0; m < resolved.months_size(); ++m) {
+        if (resolved.months(m) >= indexes.size())
+          throw std::invalid_argument("dominant series response has an unknown month");
+        keep(original.paper().contracts(indexes[resolved.months(m)]),
+             std::move(*resolved.mutable_datasets(m)));
+      }
+      for (auto& roll : *resolved.mutable_schedule()->mutable_rolls())
+        roll.set_contract(roll.contract() + offset);
+      *input.add_series() = std::move(*resolved.mutable_schedule());
+    }
+  }
+  co_await ready(call);
+  call.input_in_time();
+  refuse_during_upgrade(quiescing_);
+  *call.response.mutable_task() =
+      (co_await submit(call, [&] {
+        input.set_dataset_revision(protocol::dataset_revision(input.paper()));
+        if (reuse.choice() == Choice::FIXED && input.SerializeAsString() != original_bytes)
+          throw std::invalid_argument(
+              "reused backtest input does not match original fixed evidence");
+        if (reuse.has_slippage_ticks())
+          input = protocol::backtest_slippage_variant(input, reuse.slippage_ticks());
+        auto submission = storage_->submission(p.id(), std::move(input));
+        wire::TaskDerivation source;
+        source.set_source_id(reuse.source_id());
+        source.set_source_result_digest(reuse.source_result_digest());
+        source.set_data_choice(reuse.choice() == Choice::FIXED ? "fixed" : "snapshot");
+        source.set_snapshot(reuse.snapshot());
+        submission.set_derivation(std::move(source));
+        return submission;
+      })).task();
+}
 PolledTask<> TaskHost::submit_factor(Call& call) {
   const auto& p = call.request.submit();
   const auto& f = p.factor_request();
+  if (p.has_derivation()) {
+    co_await wait_for_store(p.derivation().source_id());
+    auto source_slot = verification_slots_.acquire(false, p.derivation().source_id());
+    auto read = storage_->prepare_result(p.derivation().source_id());
+    co_await file_work([&] { read.verify(); });
+    co_await ready(call);
+    auto source = storage_->confirm_result(std::move(read));
+    co_await file_work([&] {
+      if (!source.has_factor() ||
+          source.result_task().result_digest() != p.derivation().source_result_digest())
+        throw std::invalid_argument("invalid experiment derivation");
+      const auto evidence = protocol::decode_task_result(source, p.derivation().source_id());
+      const auto expected = protocol::reuse_daily_factor(
+          evidence.at("experiment"), p.derivation().snapshot(),
+          std::vector<unsigned>(f.lookbacks().begin(), f.lookbacks().end()));
+      if (expected.SerializeAsString() != f.SerializeAsString())
+        throw std::invalid_argument("invalid experiment derivation");
+    });
+    co_await ready(call);
+  }
   auto input = protocol::factor_input(f);
   for (const auto& source : f.series()) {
     auto prepared = co_await data_input(call, protocol::factor_series_query(source));
@@ -416,7 +582,13 @@ PolledTask<> TaskHost::submit_factor(Call& call) {
       (co_await submit(call, [&] {
         // Hashing a daily series is file-worker work, like the rest of the submission.
         input.set_dataset_revision(protocol::factor_revision(input.series()));
-        return storage_->submission(p.id(), std::move(input));
+        if (!f.expected_dataset_revision().empty() &&
+            input.dataset_revision() != f.expected_dataset_revision())
+          throw std::invalid_argument("reused factor data does not match the original revision");
+        auto submission = storage_->submission(p.id(), std::move(input));
+        if (p.has_derivation())
+          submission.set_derivation(p.derivation());
+        return submission;
       })).task();
 }
 PolledTask<> TaskHost::claim(Call& call) {
@@ -443,8 +615,7 @@ PolledTask<> TaskHost::claim(Call& call) {
     attempt->set_token(token);
     attempt->set_data_endpoint(configuration_.data_endpoint);
     attempt->set_data_instance(configuration_.data_instance);
-    if (attempt->task().has_minutes() || attempt->task().has_daily() ||
-        attempt->task().has_table_update()) {
+    if (attempt->task().has_minutes() || attempt->task().has_table_update()) {
       data::v1::DataRequest allocation;
       auto* download = allocation.mutable_allocate_download();
       download->set_authorization_id(attempt->task().download_authorization());
@@ -453,9 +624,7 @@ PolledTask<> TaskHost::claim(Call& call) {
       identity->set_task_instance(configuration_.service);
       identity->set_task_id(attempt->task().id());
       identity->set_attempt(attempt->task().attempt());
-      if (attempt->task().has_daily())
-        *download->mutable_daily() = attempt->task().daily();
-      else if (attempt->task().has_minutes())
+      if (attempt->task().has_minutes())
         *download->mutable_minutes() = attempt->task().minutes();
       else
         *download->mutable_table_update() = attempt->task().table_update();
@@ -491,8 +660,7 @@ PolledTask<> TaskHost::finish(Call& call) {
   call.verified_in_time();
   expire_leases();
   co_await ready(call);
-  if ((p.has_minutes() || p.has_daily()) &&
-      storage_->describe(p.id()).state() != wire::CANCEL_REQUESTED) {
+  if (p.has_minutes() && storage_->describe(p.id()).state() != wire::CANCEL_REQUESTED) {
     data::v1::DataRequest preparation;
     *preparation.mutable_prepare_download() = completion.download_preparation();
     const auto prepared = co_await data_call(
@@ -557,13 +725,13 @@ PolledTask<> TaskHost::handle(Call& call, std::string frame) {
   call.report_token = report_token(request);
   co_await ready(call);
   call.admitted();
-  if (request.has_submit() || request.has_retry() || request.has_dispatch() ||
-      (call.lane != Lane::worker && request.has_claim()))
+  if (request.has_submit() || request.has_metadata_edit() || request.has_retry() ||
+      request.has_dispatch() || (call.lane != Lane::worker && request.has_claim()))
     refuse_during_upgrade(quiescing_);
   std::optional<VerificationSlots::Lease> preparation;
   if (request.has_submit() &&
-      (request.submit().has_backtest() || request.submit().has_factor_request() ||
-       request.submit().has_download_authorization()))
+      (request.submit().has_backtest() || request.submit().has_backtest_reuse() ||
+       request.submit().has_factor_request() || request.submit().has_download_authorization()))
     preparation.emplace(input_slots_.acquire(false, request.correlation_id()));
   if (request.has_history_usage())
     co_await history_usage(call);
@@ -575,10 +743,17 @@ PolledTask<> TaskHost::handle(Call& call, std::string frame) {
       co_await submit_download(call);
     else if (p.has_backtest())
       co_await submit_backtest(call);
+    else if (p.has_backtest_reuse())
+      co_await reuse_backtest(call);
     else if (p.has_factor_request())
       co_await submit_factor(call);
     else
       throw std::invalid_argument("missing task input");
+  } else if (request.has_metadata_get()) {
+    *response.mutable_task() = storage_->describe(request.metadata_get().id());
+  } else if (request.has_metadata_edit()) {
+    *response.mutable_task() =
+        (co_await commit(storage_->edit_metadata(request.metadata_edit()))).task();
   } else if (request.has_get()) {
     auto slot = input_slots_.acquire(false, request.get().id());
     auto read = storage_->prepare_input(request.get().id());
@@ -622,7 +797,7 @@ PolledTask<> TaskHost::handle(Call& call, std::string frame) {
     if (!parse_error_code(p.error_code()))
       throw std::invalid_argument("invalid task failure error code");
     *response.mutable_task() =
-        (co_await commit(storage_->fail(p.id(), p.token(), p.error()))).task();
+        (co_await commit(storage_->fail(p.id(), p.token(), p.error(), p.error_code()))).task();
   } else if (request.has_cancel_ack()) {
     const auto& p = request.cancel_ack();
     *response.mutable_task() =

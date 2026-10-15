@@ -21,9 +21,10 @@ using DownloadProgress =
 // before the manifest advances. No credentials belong to this specification.
 Json download_minutes(HistoricalBarPort&, const HistoricalBarRange&, const std::filesystem::path&,
                       std::stop_token = {}, DownloadProgress = {});
-// Trading days present in a complete dataset; every segment digest is checked.
-std::vector<std::string> minute_trading_days(const std::filesystem::path&,
-                                             const std::string& expected_revision);
+// All observed days of a completed download; every segment digest is checked.
+// The service slices this result for presentation; no session dates are inferred.
+data::v1::MinuteEvidence minute_evidence(const std::filesystem::path&,
+                                         const std::string& expected_revision);
 Json inspect_minutes(const std::filesystem::path&);
 // Validates every page/hash, only complete datasets are consumable by task.
 void read_minutes(const std::filesystem::path&, const std::function<void(const HistoricalBar&)>&);

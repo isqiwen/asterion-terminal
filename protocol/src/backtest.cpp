@@ -1,4 +1,4 @@
-#include <asterion/domain/daily_bars.hpp>
+#include <asterion/domain/trading_days.hpp>
 #include <asterion/foundation/decimal.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
@@ -216,10 +216,23 @@ Json decode_backtest(const backtest::v1::BacktestInput& input, DatasetView view)
 }
 Json decode_backtest_result(const backtest::v1::BacktestResult& result) {
   validate_message(result);
-  if (result.version() != 5 || !result.has_account() || !result.has_max_drawdown() ||
+  if (result.version() != 6 || !result.has_account() || !result.has_max_drawdown() ||
       result.equity().empty() || result.settlements().empty() ||
       static_cast<std::size_t>(result.settlements_size()) > max_dataset_bars)
     throw std::invalid_argument("incomplete backtest result");
+  if (result.fill_days_size() && result.fill_days_size() != result.account().fills_size())
+    throw std::invalid_argument("invalid backtest fill-day evidence");
+  Json fill_days = Json::array();
+  std::string previous_day;
+  for (int i = 0; i < result.fill_days_size(); ++i) {
+    const auto& observed = result.fill_days(i);
+    (void)parse_trading_date(observed.trading_day());
+    if (observed.fill_id() != result.account().fills(i).id() ||
+        observed.trading_day() < previous_day)
+      throw std::invalid_argument("invalid backtest fill-day evidence");
+    previous_day = observed.trading_day();
+    fill_days.push_back({{"fill_id", observed.fill_id()}, {"trading_day", observed.trading_day()}});
+  }
   Json curve = Json::array(), settlements = Json::array();
   for (const auto& point : result.equity()) {
     if (!point.has_equity() || point.timestamp_ns() < 0 ||
@@ -236,15 +249,41 @@ Json decode_backtest_result(const backtest::v1::BacktestResult& result) {
         day.contracts().empty())
       throw std::invalid_argument("incomplete settlement result");
     Json contracts = Json::array();
+    Decimal recorded_margin;
     for (const auto& c : day.contracts()) {
       if (!c.has_price() || !c.has_position_quantity())
         throw std::invalid_argument("incomplete settlement result");
       InstrumentId{c.venue(), c.symbol()}.validate();
+      if (c.has_gross_quantity() != day.has_occupancy() || c.has_margin() != day.has_occupancy())
+        throw std::invalid_argument("invalid settlement occupancy evidence");
+      if (day.has_occupancy()) {
+        const auto gross = Decimal::from_raw(c.gross_quantity().units());
+        const auto net = Decimal::from_raw(c.position_quantity().units());
+        const auto margin = Decimal::from_raw(c.margin().units());
+        if (gross < (net < Decimal{} ? Decimal{} - net : net) || margin < Decimal{})
+          throw std::invalid_argument("invalid settlement occupancy evidence");
+        recorded_margin = recorded_margin + margin;
+      }
       contracts.push_back(
           {{"venue", c.venue()},
            {"symbol", c.symbol()},
            {"price", Decimal::from_raw(c.price().units()).str()},
            {"position_quantity", Decimal::from_raw(c.position_quantity().units()).str()}});
+      if (day.has_occupancy()) {
+        contracts.back()["gross_quantity"] = Decimal::from_raw(c.gross_quantity().units()).str();
+        contracts.back()["margin"] = Decimal::from_raw(c.margin().units()).str();
+      }
+    }
+    if (day.has_occupancy()) {
+      const auto& funds = day.occupancy();
+      if (!funds.has_margin() || !funds.has_available() || !funds.has_frozen() ||
+          Decimal::from_raw(funds.margin().units()) != recorded_margin ||
+          funds.frozen().units() < 0 ||
+          Decimal::from_raw(funds.available().units()) !=
+              std::min(Decimal::from_raw(day.balance().units()),
+                       Decimal::from_raw(day.equity().units())) -
+                  recorded_margin - Decimal::from_raw(funds.frozen().units()))
+        throw std::invalid_argument("invalid settlement occupancy evidence");
     }
     settlements.push_back({{"trading_day", day.trading_day()},
                            {"timestamp_ns", std::to_string(day.timestamp_ns())},
@@ -253,6 +292,11 @@ Json decode_backtest_result(const backtest::v1::BacktestResult& result) {
                            {"realized", Decimal::from_raw(day.realized().units()).str()},
                            {"fees", Decimal::from_raw(day.fees().units()).str()},
                            {"contracts", std::move(contracts)}});
+    if (day.has_occupancy())
+      settlements.back()["occupancy"] = {
+          {"margin", Decimal::from_raw(day.occupancy().margin().units()).str()},
+          {"available", Decimal::from_raw(day.occupancy().available().units()).str()},
+          {"frozen", Decimal::from_raw(day.occupancy().frozen().units()).str()}};
   }
   auto account = protocol::decode_snapshot(result.account());
   account["mode"] = "backtest";
@@ -296,15 +340,35 @@ Json decode_backtest_result(const backtest::v1::BacktestResult& result) {
                      {"candidates", std::move(compared)},
                      {"selected", chosen ? Json(*chosen) : Json(nullptr)}});
   }
-  return {{"candidates", std::move(candidates)},
-          {"selected", result.selected()},
-          {"folds", std::move(folds)},
-          {"version", result.version()},
-          {"dataset_revision", result.dataset_revision()},
-          {"engine_version", result.engine_version()},
-          {"account", account},
-          {"equity", curve},
-          {"settlements", settlements},
-          {"max_drawdown", Decimal::from_raw(result.max_drawdown().units()).str()}};
+  Json shown = {{"candidates", std::move(candidates)},
+                {"selected", result.selected()},
+                {"folds", std::move(folds)},
+                {"version", result.version()},
+                {"dataset_revision", result.dataset_revision()},
+                {"engine_version", result.engine_version()},
+                {"account", account},
+                {"equity", curve},
+                {"settlements", settlements},
+                {"max_drawdown", Decimal::from_raw(result.max_drawdown().units()).str()}};
+  if (!fill_days.empty())
+    shown["fill_days"] = std::move(fill_days);
+  return shown;
+}
+backtest::v1::BacktestInput backtest_slippage_variant(const backtest::v1::BacktestInput& original,
+                                                      unsigned ticks) {
+  (void)decode_backtest(original);
+  if (ticks > max_slippage_ticks)
+    throw std::invalid_argument("slippage is 0 to 100 price increments");
+  if (original.paper().contracts_size() != 1 || original.series_size() != 0 ||
+      original.paper().contracts(0).dataset().interval_minutes() != 0 ||
+      original.strategies_size() != 1 || !original.strategies(0).has_momentum() ||
+      !original.holdout_day().empty() || original.has_walk_forward())
+    throw std::invalid_argument(
+        "slippage sensitivity requires a single-contract full-sample daily momentum backtest");
+  if (ticks == original.paper().contracts(0).slippage_ticks())
+    throw std::invalid_argument("slippage variant must differ from its baseline");
+  auto result = original;
+  result.mutable_paper()->mutable_contracts(0)->set_slippage_ticks(ticks);
+  return result;
 }
 } // namespace asterion::protocol

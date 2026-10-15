@@ -42,7 +42,7 @@ typedef struct {
    * each key once. A partition the vendor has not published is zero rows and
    * AST_OK. AST_INVALID means the vendor answered but the partition cannot be
    * used; any other failure means the request did not complete. The budget is
-   * acquired before EACH external request, as for AstHistoryV2. */
+   * acquired before EACH external request, as for AstHistoryV3. */
   AstStatus (*read)(void* instance, const char* table, const char* const* columns,
                     uint32_t column_count, const char* venue, const char* period, AstCancellation,
                     AstRequestBudget, AstDiagnostics, void* context,

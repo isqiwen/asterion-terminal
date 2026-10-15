@@ -4,10 +4,12 @@
 namespace asterion::protocol {
 // Identity of the backtest semantics (matching, costs, close rules). Stored
 // results from another identity are refused, never recomputed or migrated.
-inline constexpr const char* backtest_engine_version = "asterion.backtest.v18";
+inline constexpr const char* backtest_engine_version = "asterion.backtest.v19";
 // Fewer development days say too little to choose a strategy by.
 inline constexpr std::size_t backtest_development_days = 20;
 backtest::v1::BacktestRequest encode_backtest_request(const Json& input);
+backtest::v1::BacktestInput backtest_slippage_variant(const backtest::v1::BacktestInput&,
+                                                      unsigned ticks);
 // Every trading day of the input's contracts, ascending.
 std::vector<std::string> backtest_trading_days(const backtest::v1::BacktestInput& input);
 // Takes the strategies of a request into an input that already has its

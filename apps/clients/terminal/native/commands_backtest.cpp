@@ -1,8 +1,76 @@
 #include "application_impl.hpp"
+#include "portfolio_budget_review.hpp"
 #include <asterion/protocol/factor.hpp>
 
 namespace asterion::terminal {
 void Application::Impl::register_backtest_commands() {
+  command("backtest.budget.review", [this](const json& p) -> PolledTask<Response> {
+    fields(p, {"id", "input_sha256", "result_digest", "limits"});
+    validate_id(text(p, "id"));
+    if (!task_client)
+      throw std::invalid_argument("task service is not connected");
+    const auto client = task_client;
+    const auto generation = data_task_generation;
+    auto source = co_await PollFuture{client->result(text(p, "id"))};
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during operation; "
+                                       "inspect the original services before retrying");
+    if (source.value("input_sha256", json(nullptr)) != p.at("input_sha256") ||
+        source.at("task").at("result_digest") != p.at("result_digest"))
+      throw Error(ErrorCode::conflict,
+                  "portfolio budget evidence changed; reload result before review");
+    auto review = portfolio_budget_review(source, p.at("limits"));
+    review["source"]["task_instance"] = client->owner_view().connection.at("service");
+    auto reply = snapshot();
+    reply.values["portfolio_budget_review"] = std::move(review);
+    co_return reply;
+  });
+  command("backtest.reuse", [this](const json& p) -> PolledTask<Response> {
+    auto required = p;
+    required.erase("slippage_ticks");
+    fields(required,
+           {"id", "source_id", "source_result_digest", "source_input_sha256", "mode", "snapshot"});
+    validate_id(text(p, "id"));
+    validate_id(text(p, "source_id"));
+    if (text(p, "id") == text(p, "source_id"))
+      throw std::invalid_argument("experiment reuse requires a new task id");
+    if (!p.at("snapshot").is_string())
+      throw std::invalid_argument("explicit experiment data choice required");
+    const auto mode = text(p, "mode"), selected = p.at("snapshot").get<std::string>();
+    if ((mode != "fixed" && mode != "snapshot") ||
+        (mode == "fixed" ? !selected.empty() : selected.empty()))
+      throw std::invalid_argument("explicit experiment data choice required");
+    if (!task_client)
+      throw std::invalid_argument("task service is not connected");
+    const auto client = task_client;
+    const auto generation = data_task_generation;
+    const auto source = co_await PollFuture{client->result(text(p, "source_id"))};
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during operation; "
+                                       "inspect the original services before retrying");
+    if (source.at("kind") != "backtest" ||
+        source.at("task").at("result_digest") != p.at("source_result_digest") ||
+        source.at("input_sha256") != p.at("source_input_sha256"))
+      throw std::invalid_argument("experiment evidence changed; reopen its result before reuse");
+    backtest::v1::BacktestReuse reuse;
+    reuse.set_source_id(text(p, "source_id"));
+    reuse.set_source_result_digest(text(p, "source_result_digest"));
+    reuse.set_source_input_sha256(text(p, "source_input_sha256"));
+    reuse.set_choice(mode == "fixed" ? backtest::v1::BacktestReuse::FIXED
+                                     : backtest::v1::BacktestReuse::NEW_SNAPSHOT);
+    reuse.set_snapshot(selected);
+    if (p.contains("slippage_ticks")) {
+      const auto& ticks = p.at("slippage_ticks");
+      if (!ticks.is_number_integer() || ticks < 0 || ticks > 100)
+        throw std::invalid_argument("slippage is 0 to 100 price increments");
+      reuse.set_slippage_ticks(ticks.get<unsigned>());
+    }
+    co_await PollFuture{client->reuse_backtest(text(p, "id"), reuse)};
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during operation; "
+                                       "inspect the original services before retrying");
+    co_return snapshot();
+  });
   command("backtest.submit", [this](const json& p) -> PolledTask<Response> {
     fields_with_risk(p,
                      {"id", "strategies", "holdout_from", "walk_forward", "deposit", "contracts"});

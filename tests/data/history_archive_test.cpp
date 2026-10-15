@@ -1,6 +1,5 @@
 #include "history_archive.hpp"
 #include "data/history_requests.hpp"
-#include "history_daily.hpp"
 #include "history_minutes.hpp"
 #include "bar_dataset_source.hpp"
 #include "data/history_fixture.hpp"
@@ -21,24 +20,15 @@ struct Folder {
   }
 };
 // An unrelated provider proves that storage never assumes a Tushare plugin or code.
-class AlternateDaily final : public HistoricalDailyPort {
+class AlternateMinutes final : public HistoricalBarPort {
 public:
   std::string source = "fixture.exchange", normalization = "fixture.normalization.v1";
   HistorySemantics semantics() const override {
-    return {source, normalization, "Asia/Shanghai", "trading_day"};
+    return {source, normalization, "Asia/Shanghai", "bar_end"};
   }
-  std::vector<HistoricalDailyBar> read(const HistoricalDailyRange& r, std::stop_token) override {
-    return {{r.begin,
-             test::dec("1.00000001"),
-             test::dec("2"),
-             test::dec("1"),
-             test::dec("2"),
-             test::dec("1"),
-             test::dec("2"),
-             test::dec("1"),
-             {},
-             {},
-             test::dec("2")}};
+  std::vector<HistoricalBar> read(const HistoricalBarRange& r, std::stop_token) override {
+    return {{r.begin_ns, test::dec("1.00000001"), test::dec("2"), test::dec("1"), test::dec("2"),
+             test::dec("1"), test::dec("2"), test::dec("1"), "2024-01-02"}};
   }
 };
 // Where a saved selection reads its daily facts; nothing is read of it here.
@@ -48,25 +38,34 @@ data::v1::DailyTable daily_table() {
                                        {"calendar_source", "fixture.calendar.v1"},
                                        {"contracts_source", "fixture.contracts.v1"}});
 }
-data::v1::HistoryRecord publish(history_files::Archive& archive, AlternateDaily& provider,
+// The one bar of 2024-01-02 09:01.
+const auto minute = parse_shanghai_time("2024-01-02 09:01:00");
+data::v1::HistoryRecord publish(history_files::Archive& archive, AlternateMinutes& provider,
                                 const HistoryIdentity& identity, const std::string& acquisition) {
   const auto input =
-      asterion::testing_support::daily_request({{"version", 2},
-                                                {"contract_id", identity.key()},
-                                                {"source", provider.source},
-                                                {"source_instrument", identity.key()},
-                                                {"begin_day", "2024-01-02"},
-                                                {"end_day", "2024-01-02"},
-                                                {"requests_per_minute", 500}});
-  const auto path = archive.directory(identity, provider.source, 0, acquisition);
-  history_files::download_daily(provider, history_files::daily_range(input), path);
+      asterion::testing_support::minute_request({{"version", 2},
+                                                 {"contract_id", identity.key()},
+                                                 {"source", provider.source},
+                                                 {"source_instrument", identity.key()},
+                                                 {"interval_minutes", 1},
+                                                 {"begin_ns", std::to_string(minute)},
+                                                 {"end_ns", std::to_string(minute)},
+                                                 {"requests_per_minute", 500}});
+  const auto path = archive.directory(identity, provider.source, 1, acquisition);
+  history_files::download_minutes(provider, history_files::minute_range(input), path);
   data::v1::HistoryRecord record;
   record.set_version(1);
-  *record.mutable_daily() = input;
-  *record.mutable_daily_result() = history_files::daily_result(path);
-  history_files::verify_daily_result(record.daily(), record.daily_result());
+  *record.mutable_minutes() = input;
+  *record.mutable_minute_result() = history_files::minute_result(path);
+  history_files::verify_minute_result(record.minutes(), record.minute_result());
   archive.publish_verified(record);
   return record;
+}
+data::v1::MinutePageQuery first_page(const data::v1::HistoryRecord& record) {
+  data::v1::MinutePageQuery query;
+  query.set_dataset_id(record.minute_result().manifest_sha256());
+  query.set_limit(10);
+  return query;
 }
 } // namespace
 TEST(HistoryIdentity, DistinguishesDecadesAndRejectsAliasesAndTraversal) {
@@ -86,56 +85,74 @@ TEST(HistoryArchive, IndependentSourcesContractsVersionsAndRepositoryQueries) {
                std::invalid_argument);
   EXPECT_THROW(archive.directory({"SHFE", "cu", "2024-03"}, "fixture", 0, ".."),
                std::invalid_argument);
-  AlternateDaily provider;
+  AlternateMinutes provider;
   auto first = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "one");
   provider.source = "fixture.second";
   auto second = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "two");
   publish(archive, provider, {"DCE", "m", "2024-03"}, "three");
   const auto& store = archive;
-  EXPECT_EQ(store.datasets({}).size(), 3);
-  EXPECT_EQ(store.datasets({"SHFE", "cu", "", ""}).size(), 2);
-  EXPECT_EQ(store.datasets({"", "", "SHFE/cu/2024-03", "fixture.second"}).size(), 1);
-  EXPECT_NE(first.daily_result().manifest_sha256(), second.daily_result().manifest_sha256());
-  data::v1::DailyPageQuery query;
-  query.set_dataset_id(first.daily_result().manifest_sha256());
-  query.set_limit(10);
-  const auto loaded = archive.get(query.dataset_id());
-  const auto page = history_files::read_daily_page(loaded.daily(), loaded.daily_result(), query);
+  EXPECT_EQ(store.datasets({}).items.size(), 3);
+  EXPECT_EQ(store.datasets({"SHFE", "cu", "", ""}).items.size(), 2);
+  EXPECT_EQ(store.datasets({"", "", "SHFE/cu/2024-03", "fixture.second"}).items.size(), 1);
+  EXPECT_NE(first.minute_result().manifest_sha256(), second.minute_result().manifest_sha256());
+  const auto loaded = archive.get(first.minute_result().manifest_sha256());
+  const auto page =
+      history_files::read_minute_page(loaded.minutes(), loaded.minute_result(), first_page(first));
   ASSERT_EQ(page.bars_size(), 1);
   EXPECT_EQ(page.bars(0).open().units(), 100000001);
   // A new acquisition has independent time evidence; both originals remain intact.
   provider.source = "fixture.exchange";
   const auto repeated = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "four");
-  EXPECT_NE(repeated.daily_result().manifest_sha256(), first.daily_result().manifest_sha256());
-  EXPECT_EQ(store.datasets({}).size(), 4);
+  EXPECT_NE(repeated.minute_result().manifest_sha256(), first.minute_result().manifest_sha256());
+  EXPECT_EQ(store.datasets({}).items.size(), 4);
   history_files::Archive reopened(root.path);
-  EXPECT_EQ(reopened.datasets({}).size(), 4);
+  EXPECT_EQ(reopened.datasets({}).items.size(), 4);
 }
 TEST(HistoryArchive, NormalizationChangesCreateNewRevisionAndRejectResume) {
   Folder root;
   history_files::Archive archive(root.path);
-  AlternateDaily provider;
+  AlternateMinutes provider;
   const auto record = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "one");
   provider.normalization = "fixture.normalization.v2";
-  EXPECT_THROW(history_files::download_daily(provider, history_files::daily_range(record.daily()),
-                                             record.daily_result().directory()),
+  EXPECT_THROW(history_files::download_minutes(provider,
+                                               history_files::minute_range(record.minutes()),
+                                               record.minute_result().directory()),
                std::invalid_argument);
   const auto next = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "two");
-  EXPECT_NE(record.daily_result().manifest_sha256(), next.daily_result().manifest_sha256());
-  EXPECT_EQ(archive.datasets({}).size(), 2);
+  EXPECT_NE(record.minute_result().manifest_sha256(), next.minute_result().manifest_sha256());
+  EXPECT_EQ(archive.datasets({}).items.size(), 2);
+}
+TEST(HistoryArchive, AVersionOfADailyDownloadIsCountedAndKeptButNotListed) {
+  Folder root;
+  history_files::Archive archive(root.path);
+  AlternateMinutes provider;
+  const auto record = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "one");
+  // What an earlier release indexed for a per-contract daily download: the
+  // record's version and its definition and result under their old numbers.
+  const std::string old_record{'\x08', '\x01', '\x1a', '\x00', '\x2a', '\x00'};
+  const auto old_id = std::string(64, 'e');
+  const auto old_index = root.path / "index" / (old_id + ".pb");
+  replace_file_durably(old_index, old_record);
+  const auto listed = archive.datasets({});
+  ASSERT_EQ(listed.items.size(), 1U);
+  EXPECT_EQ(listed.items[0].id, record.minute_result().manifest_sha256());
+  EXPECT_EQ(listed.unsupported, 1U);
+  EXPECT_THROW(archive.get(old_id), std::invalid_argument);
+  std::ifstream kept(old_index, std::ios::binary);
+  EXPECT_EQ(std::string(std::istreambuf_iterator<char>(kept), {}), old_record);
 }
 TEST(HistoryArchive, UnsynchronizedAncestorsCannotPublishADatasetReference) {
   Folder root;
   history_files::Archive archive(root.path / "history");
-  AlternateDaily provider;
+  AlternateMinutes provider;
   fail_next_directory_syncs_for_testing(1);
   EXPECT_THROW(publish(archive, provider, {"SHFE", "cu", "2024-03"}, "one"), std::runtime_error);
-  EXPECT_TRUE(archive.datasets({}).empty());
+  EXPECT_TRUE(archive.datasets({}).items.empty());
   // The retry synchronizes the directory left by the failed attempt before
   // writing any dataset or authoritative index record.
   const auto record = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "one");
-  EXPECT_EQ(archive.datasets({}).size(), 1U);
-  EXPECT_EQ(archive.get(record.daily_result().manifest_sha256()).SerializeAsString(),
+  EXPECT_EQ(archive.datasets({}).items.size(), 1U);
+  EXPECT_EQ(archive.get(record.minute_result().manifest_sha256()).SerializeAsString(),
             record.SerializeAsString());
   // Reconfirming an existing record must complete its directory barrier too.
   fail_next_directory_syncs_for_testing(1);
@@ -146,22 +163,21 @@ TEST(HistoryArchive, UnsynchronizedAncestorsCannotPublishADatasetReference) {
 TEST(HistoryArchive, RejectsUnsupportedVersionAndCorruptChunksWithoutOverwriting) {
   Folder root;
   history_files::Archive archive(root.path);
-  AlternateDaily provider;
+  AlternateMinutes provider;
   const auto record = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "one");
-  auto unsupported = record.daily();
+  auto unsupported = record.minutes();
   unsupported.set_version(1);
-  EXPECT_THROW(history_files::daily_range(unsupported), std::invalid_argument);
-  const auto chunk = std::filesystem::path(record.daily_result().directory()) / "daily-0.parquet";
+  EXPECT_THROW(history_files::minute_range(unsupported), std::invalid_argument);
+  const auto chunk =
+      std::filesystem::path(record.minute_result().directory()) / "minutes-0.parquet";
   replace_file_durably(chunk, "corrupted");
-  data::v1::DailyPageQuery query;
-  query.set_dataset_id(record.daily_result().manifest_sha256());
-  query.set_limit(10);
-  EXPECT_THROW(history_files::read_daily_page(record.daily(), record.daily_result(), query),
+  const auto query = first_page(record);
+  EXPECT_THROW(history_files::read_minute_page(record.minutes(), record.minute_result(), query),
                std::exception);
   // Republishing a known version checks only its index record: corruption is
   // reported when the data is read, and nothing is overwritten.
   EXPECT_NO_THROW(archive.publish_verified(record));
-  EXPECT_THROW(history_files::read_daily_page(record.daily(), record.daily_result(), query),
+  EXPECT_THROW(history_files::read_minute_page(record.minutes(), record.minute_result(), query),
                std::exception);
   std::ifstream in(chunk);
   std::string content;
@@ -170,12 +186,9 @@ TEST(HistoryArchive, RejectsUnsupportedVersionAndCorruptChunksWithoutOverwriting
 }
 TEST(HistoryArchive, RejectsUnconfirmedSourceAndPartialDataset) {
   Folder root;
-  AlternateDaily provider;
-  const HistoricalDailyRange range{{"SHFE", "cu", "2024-03"},
-                                   parse_trading_date("2024-01-02"),
-                                   parse_trading_date("2024-01-02"),
-                                   "fixture.other"};
-  EXPECT_THROW(history_files::download_daily(provider, range, root.path), std::invalid_argument);
+  AlternateMinutes provider;
+  const HistoricalBarRange range{{"SHFE", "cu", "2024-03"}, 1, minute, minute, "fixture.other"};
+  EXPECT_THROW(history_files::download_minutes(provider, range, root.path), std::invalid_argument);
   EXPECT_TRUE(std::filesystem::is_empty(root.path));
 }
 
@@ -183,15 +196,15 @@ TEST(HistoryArchive, DataResolvesPublishedVersionsWithoutDownloadTasks) {
   Folder root;
   data::Store store(root.path, "historical-data", "task");
   history_files::Archive archive(root.path / "history");
-  AlternateDaily provider;
+  AlternateMinutes provider;
   const auto original = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "first");
-  const auto id = original.daily_result().manifest_sha256();
+  const auto id = original.minute_result().manifest_sha256();
   const auto before = archive.get(id);
-  EXPECT_EQ(before.daily_result().manifest_sha256(), id);
+  EXPECT_EQ(before.minute_result().manifest_sha256(), id);
   // A later publication is another version: the first reads as it did.
   provider.normalization = "fixture.normalization.v2";
   const auto newer = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "second");
-  EXPECT_NE(newer.daily_result().manifest_sha256(), id);
+  EXPECT_NE(newer.minute_result().manifest_sha256(), id);
   EXPECT_EQ(archive.get(id).SerializeAsString(), before.SerializeAsString());
   // A selection names versions by their identity, not by the task that made them.
   data::v1::BarDatasetRequest request;
@@ -204,13 +217,13 @@ TEST(HistoryArchive, DataResolvesPublishedVersionsWithoutDownloadTasks) {
 TEST(HistoryArchive, NamedDatasetsAreImmutableAndSurviveRestart) {
   Folder root;
   history_files::Archive archive(root.path / "history");
-  AlternateDaily provider;
+  AlternateMinutes provider;
   const auto original = publish(archive, provider, {"SHFE", "cu", "2024-03"}, "named");
   data::v1::NamedDataset saved;
   saved.set_version(protocol::named_dataset_version);
-  saved.set_name("铜日线研究");
+  saved.set_name("铜分钟研究");
   auto* input = saved.add_selections();
-  input->add_source_dataset_ids(original.daily_result().manifest_sha256());
+  input->add_source_dataset_ids(original.minute_result().manifest_sha256());
   *input->mutable_daily() = daily_table();
   input->set_contract("SHFE/cu/2024-03");
   saved.add_content_revisions(std::string(64, 'a'));

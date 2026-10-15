@@ -183,7 +183,6 @@ Application::Impl::Publication Application::Impl::capture() {
       {"data", data},
       {"credential_verification", credential_verification},
       {"history_page", nullptr},
-      {"daily_page", nullptr},
       {"ssh_key", ssh_key},
       {"agent_program", agent_program},
       {"firewall_plan", firewall_plan},

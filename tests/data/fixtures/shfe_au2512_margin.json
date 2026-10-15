@@ -1,0 +1,272 @@
+{
+  "scope": "au2512 only, four labelled events; current official historical content, not original publication proof",
+  "fixture_source": "fixture.shfe.au2512.official.v1",
+  "contract": "SHFE/au/2025-12",
+  "unit": "fraction",
+  "basis": "exchange_speculation",
+  "publication_known": false,
+  "events": [
+    {
+      "kind": "settlement",
+      "day": "2025-10-20",
+      "source": {
+        "file": "raw/settlement-20251020.dat",
+        "url": "https://www.shfe.com.cn/data/busiparamdata/future/Settlement20251020.dat",
+        "final_url": "https://www.shfe.com.cn/data/busiparamdata/future/Settlement20251020.dat",
+        "retrieved_at_utc": "2026-10-15T06:42:25.660246+00:00",
+        "http_status": 200,
+        "sha256": "77b4794d58bcf5cb26f22af9781af1317091d38b3a4f259ce31307c690cbc099",
+        "bytes": 107277,
+        "response_last_modified": "Mon, 20 Oct 2025 08:00:00 GMT",
+        "response_date": "Thu, 15 Oct 2026 06:42:21 GMT"
+      },
+      "report_date": "20251020",
+      "update_date": "20251020 16:00:00",
+      "raw_au2512_row": {
+        "INSTRUMENTID": "au2512",
+        "COMMODITYDELIVERYFEEUNIT": "0",
+        "TRADEFEERATION": "0",
+        "SHORTMARGINRATIO": "0.13",
+        "SPEC_LONGMARGINRATIO": "0.14",
+        "TRADINGDAY": "20251020",
+        "HTRADEFEERATIO": "0",
+        "DISCOUNTRATE": "0",
+        "TRADEFEEUNIT": "20",
+        "SPEC_SHORTMARGINRATIO": "0.14",
+        "SETTLEMENTPRICE": "974.4",
+        "LONGMARGINRATIO": "0.13",
+        "COMMODITYDELIVERYFEERATION": "0",
+        "HTRADEFEEUNIT": "10"
+      },
+      "long_field": "SPEC_LONGMARGINRATIO",
+      "short_field": "SPEC_SHORTMARGINRATIO",
+      "long_rate": "0.14",
+      "short_rate": "0.14"
+    },
+    {
+      "kind": "trading_parameters",
+      "day": "2025-10-21",
+      "source": {
+        "file": "raw/trade-20251021.dat",
+        "url": "https://www.shfe.com.cn/data/busiparamdata/future/ContractDailyTradeArgument20251021.dat",
+        "final_url": "https://www.shfe.com.cn/data/busiparamdata/future/ContractDailyTradeArgument20251021.dat",
+        "retrieved_at_utc": "2026-10-15T06:42:29.705973+00:00",
+        "http_status": 200,
+        "sha256": "dc1f5ed6f81c8a2e1a719d90fe9d514f1241c6748d8b9f9f7dbe82b6425c139e",
+        "bytes": 69561,
+        "response_last_modified": "Tue, 21 Oct 2025 07:50:12 GMT",
+        "response_date": "Thu, 15 Oct 2026 06:42:22 GMT"
+      },
+      "report_date": "20251021",
+      "update_date": "20251021 15:50:12",
+      "raw_au2512_row": {
+        "INSTRUMENTID": "au2512",
+        "SPEC_SHORTMARGINRATIO": "0.14",
+        "LOWER_VALUE": "0.12",
+        "HDEGE_SHORTMARGINRATIO": "0.13",
+        "PRICE_LIMITS": "",
+        "UPPER_VALUE": "0.12",
+        "SPEC_LONGMARGINRATIO": "0.14",
+        "TRADINGDAY": "20251021",
+        "HDEGE_LONGMARGINRATIO": "0.13"
+      },
+      "long_field": "SPEC_LONGMARGINRATIO",
+      "short_field": "SPEC_SHORTMARGINRATIO",
+      "long_rate": "0.14",
+      "short_rate": "0.14"
+    },
+    {
+      "kind": "settlement",
+      "day": "2025-10-21",
+      "source": {
+        "file": "raw/settlement-20251021.dat",
+        "url": "https://www.shfe.com.cn/data/busiparamdata/future/Settlement20251021.dat",
+        "final_url": "https://www.shfe.com.cn/data/busiparamdata/future/Settlement20251021.dat",
+        "retrieved_at_utc": "2026-10-15T06:42:29.086780+00:00",
+        "http_status": 200,
+        "sha256": "08bddb1b2d32f43610a87ff88a08564e1b43b085be853c8a0f00bbd15cb6636d",
+        "bytes": 107273,
+        "response_last_modified": "Tue, 21 Oct 2025 07:50:00 GMT",
+        "response_date": "Thu, 15 Oct 2026 06:42:21 GMT"
+      },
+      "report_date": "20251021",
+      "update_date": "20251021 15:50:00",
+      "raw_au2512_row": {
+        "INSTRUMENTID": "au2512",
+        "COMMODITYDELIVERYFEEUNIT": "0",
+        "TRADEFEERATION": "0",
+        "SHORTMARGINRATIO": "0.15",
+        "SPEC_LONGMARGINRATIO": "0.16",
+        "TRADINGDAY": "20251021",
+        "HTRADEFEERATIO": "0",
+        "DISCOUNTRATE": "0",
+        "TRADEFEEUNIT": "20",
+        "SPEC_SHORTMARGINRATIO": "0.16",
+        "SETTLEMENTPRICE": "991.44",
+        "LONGMARGINRATIO": "0.15",
+        "COMMODITYDELIVERYFEERATION": "0",
+        "HTRADEFEEUNIT": "10"
+      },
+      "long_field": "SPEC_LONGMARGINRATIO",
+      "short_field": "SPEC_SHORTMARGINRATIO",
+      "long_rate": "0.16",
+      "short_rate": "0.16"
+    },
+    {
+      "kind": "trading_parameters",
+      "day": "2025-10-22",
+      "source": {
+        "file": "raw/trade-20251022.dat",
+        "url": "https://www.shfe.com.cn/data/busiparamdata/future/ContractDailyTradeArgument20251022.dat",
+        "final_url": "https://www.shfe.com.cn/data/busiparamdata/future/ContractDailyTradeArgument20251022.dat",
+        "retrieved_at_utc": "2026-10-15T06:42:29.973294+00:00",
+        "http_status": 200,
+        "sha256": "448a7c808f399d3b17fb20f472e5b53f6f2176d124b901f743137bc7d00b880d",
+        "bytes": 69563,
+        "response_last_modified": "Wed, 22 Oct 2025 07:55:13 GMT",
+        "response_date": "Thu, 15 Oct 2026 06:42:22 GMT"
+      },
+      "report_date": "20251022",
+      "update_date": "20251022 15:55:12",
+      "raw_au2512_row": {
+        "INSTRUMENTID": "au2512",
+        "SPEC_SHORTMARGINRATIO": "0.16",
+        "LOWER_VALUE": "0.14",
+        "HDEGE_SHORTMARGINRATIO": "0.15",
+        "PRICE_LIMITS": "",
+        "UPPER_VALUE": "0.14",
+        "SPEC_LONGMARGINRATIO": "0.16",
+        "TRADINGDAY": "20251022",
+        "HDEGE_LONGMARGINRATIO": "0.15"
+      },
+      "long_field": "SPEC_LONGMARGINRATIO",
+      "short_field": "SPEC_SHORTMARGINRATIO",
+      "long_rate": "0.16",
+      "short_rate": "0.16"
+    },
+    {
+      "kind": "settlement_crosscheck",
+      "day": "2025-10-21",
+      "source": {
+        "file": "raw/daily-20251021.dat",
+        "url": "https://www.shfe.com.cn/data/tradedata/future/dailydata/js20251021.dat",
+        "final_url": "https://www.shfe.com.cn/data/tradedata/future/dailydata/js20251021.dat",
+        "retrieved_at_utc": "2026-10-15T06:42:29.399810+00:00",
+        "http_status": 200,
+        "sha256": "02cba5c4adb49335cddafea69bab8a365b6013953c7e27e6e56d7ee868bbc08a",
+        "bytes": 108533,
+        "response_last_modified": "Tue, 21 Oct 2025 07:25:02 GMT",
+        "response_date": "Thu, 15 Oct 2026 06:42:22 GMT"
+      },
+      "report_date": "20251021",
+      "update_date": "20251021 15:25:02",
+      "raw_au2512_row": {
+        "INSTRUMENTID": "au2512",
+        "TRADEFEERATIO": 0,
+        "TTRADEFEERATIO": 0,
+        "COMMODITYDELIVFEEUNIT": 0,
+        "SPECLONGMARGINRATIO": "0.16",
+        "HEDGLONGMARGINRATIO": "0.15",
+        "COMMODITYDELIVFEERATIO": 0,
+        "PRODUCTID": "au_f",
+        "PRODUCTNAME": "黄金",
+        "TTRADEFEEUNIT": 10,
+        "TRADEFEEUNIT": 20,
+        "HEDGSHORTMARGINRATIO": "0.15",
+        "SETTLEMENTPRICE": "991.44",
+        "UNIDIRECT": "1",
+        "SPECSHORTMARGINRATIO": "0.16",
+        "ISUNITODAY": 0
+      },
+      "long_field": "SPECLONGMARGINRATIO",
+      "short_field": "SPECSHORTMARGINRATIO",
+      "long_rate": "0.16",
+      "short_rate": "0.16"
+    }
+  ],
+  "unit_reference": "https://www.shfe.com.cn/reports/businessdata/prmsummary/",
+  "phase_reference": "https://www.shfe.com.cn/publicnotice/notice/202510/t20251017_829279.html",
+  "report_note": {
+    "seqno": 10315,
+    "propkey": "report_1_note_total",
+    "propvalue": "<div style='font-size:12px; line-height:20px; margin:10px;'> \n\t注： \n\t<br>1、交易时段内本表数据为上一交易日的结算参数，当日结算参数将在当日日终结算完成后正式发布。 \n\t<br>2、交割手续费报价单位：铜、铝、锌、铅、镍、锡、氧化铝、铸造铝合金、螺纹钢、线材、热轧卷板、不锈钢、燃料油、石油沥青、丁二烯橡胶、天然橡胶、纸浆、胶版印刷纸为元/吨；黄金为元/克；白银为元/千克；原油为元(人民币)/桶（交易报价为不含税价格）；低硫燃料油、20号胶、铜(BC)为元（人民币）/吨（交易报价为不含税价格）。交割手续费率报价单位：SCFIS欧线期货为 ‰ 。 \n\t<br>3、平今折扣率用于计算平今仓手续费率（或平今仓手续费额），平今仓手续费率=平今折扣率*交易手续费率；平今仓手续费额=平今仓折扣率*交易手续费额。若平今折扣率为0则说明该合约免收平今仓手续费。例：X品种的平今折扣率为1.00，交易手续费率为0.1‰，则其对应平今仓手续费率为1.00*0.0001=0.0001。 \n\t<br>4、品种：铜、铜(BC)、铅、氧化铝、铸造铝合金、白银、螺纹钢、线材、热轧卷板、低硫燃料油、燃料油、石油沥青、天然橡胶、纸浆、不锈钢、丁二烯橡胶、胶版印刷纸、SCFIS欧线期货，交易手续费参照交易手续费率。 \n\t<br>5、品种：铝、锌、镍、锡、黄金、原油、20号胶，交易手续费参照交易手续费额。 \n\t</div>",
+    "propdesc": "结算参数表1备注-胶版印刷纸",
+    "begineffectivedate": "20230818",
+    "endeffectivedate": "99991231"
+  },
+  "references": [
+    {
+      "file": "raw/prmsummary.html",
+      "url": "https://www.shfe.com.cn/reports/businessdata/prmsummary/",
+      "final_url": "https://www.shfe.com.cn/reports/businessdata/prmsummary/",
+      "retrieved_at_utc": "2026-10-15T06:42:30.561441+00:00",
+      "http_status": 200,
+      "sha256": "a99d4a660ff2681526a4b5e1fc22c7d1015500e8f73e994221aff8b4cd870e54",
+      "bytes": 235160,
+      "response_last_modified": null,
+      "response_date": "Thu, 15 Oct 2026 06:42:23 GMT"
+    },
+    {
+      "file": "raw/api.js",
+      "url": "https://www.shfe.com.cn/images/api.js",
+      "final_url": "https://www.shfe.com.cn/images/api.js",
+      "retrieved_at_utc": "2026-10-15T06:43:43.430042+00:00",
+      "http_status": 200,
+      "sha256": "888923e303b7178af9b3bfac83621c60f2f6ae0871894bf1ebe75a3a2708f86b",
+      "bytes": 16823
+    },
+    {
+      "file": "raw/generateData_settlement_f.js",
+      "url": "https://www.shfe.com.cn/images/generateData_settlement_f.js",
+      "final_url": "https://www.shfe.com.cn/images/generateData_settlement_f.js",
+      "retrieved_at_utc": "2026-10-15T06:43:43.616583+00:00",
+      "http_status": 200,
+      "sha256": "e3d65c2bde9eab0ed57931b90601ec9fd386d0d0b99915473a0ef906d719953c",
+      "bytes": 13961
+    },
+    {
+      "file": "raw/report-config.dat",
+      "url": "https://www.shfe.com.cn/data/config/report_config_cn.dat",
+      "final_url": "https://www.shfe.com.cn/data/config/report_config_cn.dat",
+      "retrieved_at_utc": "2026-10-15T06:42:30.213412+00:00",
+      "http_status": 200,
+      "sha256": "92d3c4527c37a250a11d0773e7ae1fc06305e833799b586b53505625c134f49c",
+      "bytes": 143202,
+      "response_last_modified": "Thu, 15 Oct 2026 06:40:00 GMT",
+      "response_date": "Thu, 15 Oct 2026 06:42:22 GMT"
+    },
+    {
+      "file": "raw/notice.html",
+      "url": "https://www.shfe.com.cn/publicnotice/notice/202510/t20251017_829279.html",
+      "final_url": "https://www.shfe.com.cn/publicnotice/notice/202510/t20251017_829279.html",
+      "retrieved_at_utc": "2026-10-15T06:42:30.958318+00:00",
+      "http_status": 200,
+      "sha256": "e81e03e3171edd52be3e2da65019c92ec17ff6cb84134cdb51a1fc1f96278bfb",
+      "bytes": 120545,
+      "response_last_modified": null,
+      "response_date": "Thu, 15 Oct 2026 06:42:23 GMT"
+    },
+    {
+      "file": "raw/risk-rules.html",
+      "url": "https://www.shfe.com.cn/regulation/exchangerules/historicalversion/202508/t20250807_828524.html",
+      "final_url": "https://www.shfe.com.cn/regulation/exchangerules/historicalversion/202508/t20250807_828524.html",
+      "retrieved_at_utc": "2026-10-15T06:42:31.253890+00:00",
+      "http_status": 200,
+      "sha256": "9722a7401caf4cc9492e008782cad311f71fbb26d36cce6ec407c9fdcc81b3d1",
+      "bytes": 378835,
+      "response_last_modified": null,
+      "response_date": "Thu, 15 Oct 2026 06:42:23 GMT"
+    },
+    {
+      "file": "raw/gold-rules.html",
+      "url": "https://www.shfe.com.cn/regulation/exchangerules/historicalversion/202508/t20250807_828540.html",
+      "final_url": "https://www.shfe.com.cn/regulation/exchangerules/historicalversion/202508/t20250807_828540.html",
+      "retrieved_at_utc": "2026-10-15T06:42:31.778636+00:00",
+      "http_status": 200,
+      "sha256": "2ffa14cea9097c82469b44e76436466d5e2b316052082ae4c1c5f9f1b1ce5a3c",
+      "bytes": 239453,
+      "response_last_modified": null,
+      "response_date": "Thu, 15 Oct 2026 06:42:24 GMT"
+    }
+  ]
+}

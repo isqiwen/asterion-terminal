@@ -59,6 +59,12 @@ struct AccountOrder {
   Order order;
   Offset offset;
 };
+// The execution report together with what this account actually charged.
+// Fees belong to the ledger, not to the execution connector's report.
+struct AccountFill {
+  Fill execution;
+  Decimal fee;
+};
 // Single-currency futures portfolio ledger over a fixed set of contracts.
 // Funds, margin, frozen amounts and fees are account-wide; positions, marks
 // and close rules belong to each contract. Host serializes access. Mutations
@@ -114,7 +120,7 @@ public:
   // the ledger but do not participate in matching, reservations or risk scans.
   const std::set<std::size_t>& working_orders() const noexcept { return working_orders_; }
   const std::vector<PositionLot>& positions() const noexcept { return lots_; }
-  const std::vector<Fill>& fills() const noexcept { return fills_; }
+  const std::vector<AccountFill>& fills() const noexcept { return fills_; }
   Decimal balance() const noexcept { return balance_; }
   Decimal fees() const noexcept { return fees_; }
   Decimal realized() const noexcept { return realized_; }
@@ -139,7 +145,7 @@ private:
   std::vector<PositionLot> lots_;
   std::vector<AccountOrder> orders_;
   std::set<std::size_t> working_orders_;
-  std::vector<Fill> fills_;
+  std::vector<AccountFill> fills_;
   // Identity indexes into orders_ and fills_; both vectors only grow.
   std::unordered_map<std::string, std::size_t> order_index_;
   std::unordered_map<std::string, std::size_t> fill_index_;

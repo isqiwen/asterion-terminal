@@ -52,6 +52,7 @@ public:
     Submission(const Submission&) = delete;
     // File worker only: owns its definition and an optional existing-input snapshot.
     void prepare_files();
+    void set_derivation(task::v1::TaskDerivation);
 
   private:
     friend class Store;
@@ -68,6 +69,7 @@ public:
   Submission submission(const std::string&, backtest::v1::BacktestInput) const;
   Submission submission(const std::string&, factor::v1::FactorInput) const;
   Submission submission(const data::v1::DownloadAuthorization&) const;
+  [[nodiscard]] Change edit_metadata(const task::v1::TaskMetadataEdit&);
   void admit_submission(Submission&);
   [[nodiscard]] Change register_submission(Submission&);
   // Release an unconfirmed reservation, retaining any created directory.
@@ -181,7 +183,7 @@ public:
   [[nodiscard]] Change cancel(const std::string& id);
   [[nodiscard]] Change retry(const std::string& id);
   [[nodiscard]] Change fail(const std::string& id, const std::string& token,
-                            const std::string& error);
+                            const std::string& error, const std::string& error_code = {});
   [[nodiscard]] Change interrupt(const std::string& id, const std::string& token,
                                  const std::string& error);
   [[nodiscard]] Change acknowledge_cancel(const std::string& id, const std::string& token);

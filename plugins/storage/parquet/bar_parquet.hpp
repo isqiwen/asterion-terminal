@@ -1,5 +1,4 @@
 #pragma once
-#include <asterion/domain/daily_bars.hpp>
 #include <asterion/domain/historical_bars.hpp>
 #include <filesystem>
 #include <vector>
@@ -12,10 +11,12 @@ namespace asterion::parquet {
 // Writes a sibling temporary file, syncs it and renames it over `path`.
 void write_minute_bars(const std::filesystem::path& path, const std::vector<HistoricalBar>& bars);
 std::vector<HistoricalBar> read_minute_bars(const std::filesystem::path& path);
-void write_daily_bars(const std::filesystem::path& path,
-                      const std::vector<HistoricalDailyBar>& bars);
-std::vector<HistoricalDailyBar> read_daily_bars(const std::filesystem::path& path);
-// Distinct trading days ("YYYY-MM-DD", ascending) across verified minute or
-// daily files, aggregated by DuckDB without materializing the bars.
-std::vector<std::string> trading_days(const std::vector<std::filesystem::path>& files, bool minute);
+struct MinuteDayEvidence {
+  std::string trading_day; // Empty means the provider supplied no trading day.
+  std::uint64_t rows;
+  std::int64_t first_ns, last_ns;
+};
+// Observations grouped by provider-assigned trading day, ascending. These
+// counts and timestamp bounds do not establish session completeness.
+std::vector<MinuteDayEvidence> minute_evidence(const std::vector<std::filesystem::path>& files);
 } // namespace asterion::parquet

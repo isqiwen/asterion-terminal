@@ -35,6 +35,9 @@ void validate_table_period(const HistoryTable&, std::string_view period);
 // A typed cell. Text and contract columns hold text; the others hold units:
 // decimal units at the column's scale, days since 1970-01-01, or 0 and 1.
 using TableCell = std::variant<std::monostate, std::int64_t, std::string>;
+// Type one nonmissing source cell exactly; never round. Used by partition typing
+// and read-only source/partition reconciliation.
+TableCell table_cell(const TableColumn&, std::string_view exchange, const std::string& value);
 // The cell as readers are shown it; missing cells have no text.
 std::optional<std::string> table_cell_text(const TableColumn&, const TableCell&);
 

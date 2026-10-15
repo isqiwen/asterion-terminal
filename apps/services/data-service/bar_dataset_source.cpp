@@ -3,7 +3,7 @@
 #include "table_series.hpp"
 #include "history_minutes.hpp"
 #include "history_metadata.hpp"
-#include <asterion/domain/daily_bars.hpp>
+#include <asterion/domain/trading_days.hpp>
 #include <algorithm>
 #include <cmath>
 #include <format>
@@ -256,9 +256,23 @@ DominantMonth dominant_month(const HistoryIdentity& month, const DailyFacts& fac
 }
 } // namespace
 DominantSeries resolve_dominant_series(const history_files::TableStore& tables,
-                                       const std::vector<BarDatasetSources>& inputs) {
-  if (inputs.size() < 2)
+                                       const std::vector<BarDatasetSources>& selections,
+                                       const std::string& anchor) {
+  auto inputs = selections;
+  if (inputs.empty() || (anchor.empty() && inputs.size() < 2))
     throw std::invalid_argument("a dominant series requires at least two month contracts");
+  if (!anchor.empty()) {
+    const auto identity = HistoryIdentity::parse(inputs.front().request.contract());
+    const auto previous =
+        previous_trading_day(tables, inputs.front().request.daily(), identity.venue, anchor);
+    std::string end;
+    for (const auto& source : inputs)
+      end = std::max(end, source.request.end_day());
+    for (auto& source : inputs) {
+      source.request.set_begin_day(previous);
+      source.request.set_end_day(end);
+    }
+  }
   std::vector<Month> months;
   for (std::size_t i = 0; i < inputs.size(); ++i) {
     // Verify one complete selection at a time. The schedule needs daily facts,
@@ -294,12 +308,19 @@ DominantSeries resolve_dominant_series(const history_files::TableStore& tables,
     first_day = std::min(first_day, *month.bars.begin());
     last_day = std::max(last_day, *month.bars.rbegin());
   }
+  if (!anchor.empty()) {
+    first_day = inputs.front().request.begin_day();
+    last_day = inputs.front().request.end_day();
+  }
   const auto table =
       daily_facts(tables, daily, months.front().contract.venue(), first_day, last_day, names);
   std::vector<DominantMonth> facts;
   for (std::size_t i = 0; i < months.size(); ++i)
     facts.push_back(dominant_month(identities[i], table, months[i].bars));
   const auto plan = plan_dominant(facts, SeriesUse::traded);
+  if (!anchor.empty() && (plan.segments.empty() || plan.segments.front().begin != anchor))
+    throw std::invalid_argument(
+        "new snapshot cannot preserve the dominant replay anchor; configure a new backtest");
   const auto& segments = plan.segments;
   DominantSeries result;
   std::size_t total_bars = 0;

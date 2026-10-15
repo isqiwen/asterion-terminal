@@ -1,7 +1,6 @@
 #include <asterion/kernel/logger.hpp>
 #include <asterion/kernel/native_plugin.hpp>
 #include "history_minutes.hpp"
-#include "history_daily.hpp"
 #include "history_providers.hpp"
 #include <CLI/CLI.hpp>
 #include <asterion/protocol/task_client.hpp>
@@ -14,11 +13,10 @@ using namespace asterion;
 // Reads what a table update still lacks and hands each partition to the data
 // service, which validates and publishes it. Nothing delivered is taken back:
 // whatever ends this run, the partitions before it stay.
-data::v1::TableUpdateResult update_tables(protocol::DataClient& data,
-                                          const data::v1::DownloadIdentity& identity,
-                                          history_providers::TableReader& reader,
-                                          std::stop_token stop,
-                                          const std::function<void(unsigned)>& percent) {
+data::v1::TableUpdateResult
+update_tables(protocol::DataClient& data, const data::v1::DownloadIdentity& identity,
+              const data::v1::TableUpdate& update, history_providers::TableReader& reader,
+              std::stop_token stop, const std::function<void(unsigned)>& percent) {
   // Rejections of one kind repeat: stop before they use up the request budget.
   constexpr int rejection_limit = 10, example_limit = 100;
   enum class Outcome { stored, rejected, unpublished };
@@ -53,12 +51,23 @@ data::v1::TableUpdateResult update_tables(protocol::DataClient& data,
       reason = error.what();
       return Outcome::rejected;
     }
+    if (const auto response = reader.response()) {
+      auto* captured = delivery->mutable_response();
+      captured->set_format(response->format);
+      captured->set_received_at_ns(response->received_at_ns);
+      captured->set_body(response->body);
+    }
     if (delivery->rows().empty())
       return Outcome::unpublished;
     const auto receipt = data.call(request).table_partition();
     if (receipt.has_rejection()) {
       reason = receipt.rejection();
       return Outcome::rejected;
+    }
+    if (update.has_refresh()) {
+      *result.mutable_refreshed_revision() = receipt.revision();
+      if (receipt.has_observation())
+        *result.mutable_refresh_observation() = receipt.observation();
     }
     if (receipt.unchanged())
       result.set_unchanged(result.unchanged() + 1);
@@ -99,6 +108,8 @@ data::v1::TableUpdateResult update_tables(protocol::DataClient& data,
     case Outcome::stored:
       break;
     case Outcome::rejected: {
+      if (update.has_refresh())
+        throw Error(ErrorCode::operation_failed, reason);
       auto* rejected = result.add_rejected();
       *rejected->mutable_partition() = key;
       rejected->set_reason(reason);
@@ -134,8 +145,7 @@ int main(int argc, char** argv) {
   app.add_option("--tls-key", tls.private_key_file);
   app.add_option("--session", service);
   app.add_option("--task", task);
-  bool minute_worker = false, daily_worker = false, table_worker = false;
-  app.add_flag("--daily-download", daily_worker, "Run a managed daily-data download");
+  bool minute_worker = false, table_worker = false;
   app.add_flag("--minute-download", minute_worker, "Run a managed minute-data download");
   app.add_flag("--table-update", table_worker, "Run a managed update of market-wide tables");
   argv = app.ensure_utf8(argv);
@@ -145,23 +155,18 @@ int main(int argc, char** argv) {
   try {
     if (!plugin_directory.empty())
       asterion::configure_native_plugins(plugin_directory);
-    if (minute_worker + daily_worker + table_worker != 1)
-      throw std::invalid_argument(
-          "choose exactly one of --minute-download, --daily-download or --table-update");
+    if (minute_worker + table_worker != 1)
+      throw std::invalid_argument("choose exactly one of --minute-download or --table-update");
     {
       return asterion::protocol::run_task_worker(
           endpoint, host, port, tls, service, task,
-          table_worker   ? asterion::task::v1::TABLE_UPDATE
-          : daily_worker ? asterion::task::v1::DAILY_DOWNLOAD
-                         : asterion::task::v1::MINUTE_DOWNLOAD,
-          [daily_worker, table_worker, &service](const auto& attempt, auto stop,
-                                                 const auto& progress) {
+          table_worker ? asterion::task::v1::TABLE_UPDATE : asterion::task::v1::MINUTE_DOWNLOAD,
+          [table_worker, &service](const auto& attempt, auto stop, const auto& progress) {
             const auto& input = attempt.task();
             if (input.provider_artifact() !=
                 (table_worker
                      ? asterion::history_providers::table_artifact(input.table_update().provider())
-                     : asterion::history_providers::artifact(
-                           daily_worker ? input.daily().source() : input.minutes().source())))
+                     : asterion::history_providers::artifact(input.minutes().source())))
               throw std::invalid_argument("download provider artifact does not match task");
             asterion::protocol::DataClient data(attempt.data_endpoint(), attempt.data_instance());
             asterion::data::v1::DataRequest query;
@@ -177,9 +182,8 @@ int main(int argc, char** argv) {
               throw std::invalid_argument("download credentials do not match attempt");
             asterion::data::v1::DataRequest permit_request;
             *permit_request.mutable_acquire_download_permit() = *identity;
-            const auto rpm = table_worker   ? input.table_update().requests_per_minute()
-                             : daily_worker ? input.daily().requests_per_minute()
-                                            : input.minutes().requests_per_minute();
+            const auto rpm = table_worker ? input.table_update().requests_per_minute()
+                                          : input.minutes().requests_per_minute();
             auto next_request = std::chrono::steady_clock::now();
             auto budget = [&](std::stop_token cancelled) {
               std::mutex mutex;
@@ -208,28 +212,18 @@ int main(int argc, char** argv) {
               auto reader = asterion::history_providers::tables(input.table_update().provider(),
                                                                 credentials.credential(), budget);
               *result.mutable_table_update() =
-                  update_tables(data, *identity, *reader, stop,
+                  update_tables(data, *identity, input.table_update(), *reader, stop,
                                 [&](unsigned percent) { progress(percent, 100); });
               return result;
             }
             const auto directory = std::filesystem::path(std::u8string(
                 attempt.output_directory().begin(), attempt.output_directory().end()));
-            if (daily_worker) {
-              auto provider = asterion::history_providers::daily(input.daily().source(),
+            auto provider = asterion::history_providers::minutes(input.minutes().source(),
                                                                  credentials.credential(), budget);
-              (void)asterion::history_files::download_daily(
-                  *provider, asterion::history_files::daily_range(input.daily()), directory, stop,
-                  [&](unsigned value, unsigned total, std::uint64_t) { progress(value, total); });
-              *result.mutable_daily() = asterion::history_files::daily_result(directory);
-            } else {
-              auto provider = asterion::history_providers::minutes(
-                  input.minutes().source(), credentials.credential(), budget);
-              (void)asterion::history_files::download_minutes(
-                  *provider, asterion::history_files::minute_range(input.minutes()), directory,
-                  stop,
-                  [&](unsigned value, unsigned total, std::uint64_t) { progress(value, total); });
-              *result.mutable_minutes() = asterion::history_files::minute_result(directory);
-            }
+            (void)asterion::history_files::download_minutes(
+                *provider, asterion::history_files::minute_range(input.minutes()), directory, stop,
+                [&](unsigned value, unsigned total, std::uint64_t) { progress(value, total); });
+            *result.mutable_minutes() = asterion::history_files::minute_result(directory);
             return result;
           },
           owner_pid);

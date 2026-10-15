@@ -2,7 +2,7 @@
 #include "macd.hpp"
 #include "history_metadata.hpp"
 #include "bar_parquet.hpp"
-#include <asterion/domain/daily_bars.hpp>
+#include <asterion/domain/trading_days.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
@@ -344,8 +344,8 @@ Json download_minutes(HistoricalBarPort& provider, const HistoricalBarRange& ran
   }
   return manifest;
 }
-std::vector<std::string> minute_trading_days(const std::filesystem::path& dir,
-                                             const std::string& expected_revision) {
+data::v1::MinuteEvidence minute_evidence(const std::filesystem::path& dir,
+                                         const std::string& expected_revision) {
   directory_check(dir);
   FileLock lock(dir, "minutes.lock", FileLock::Access::shared);
   if (sha256_file(dir / manifest_name) != expected_revision)
@@ -362,7 +362,27 @@ std::vector<std::string> minute_trading_days(const std::filesystem::path& dir,
       throw std::invalid_argument("minute dataset digest mismatch");
     files.push_back(path);
   }
-  return parquet::trading_days(files, true);
+  data::v1::MinuteEvidence evidence;
+  evidence.set_dataset_id(expected_revision);
+  for (const auto& day : parquet::minute_evidence(files)) {
+    evidence.set_total_rows(evidence.total_rows() + day.rows);
+    if (day.trading_day.empty()) {
+      evidence.set_unknown_rows(day.rows);
+      continue;
+    }
+    auto* row = evidence.add_days();
+    row->set_trading_day(day.trading_day);
+    row->set_rows(day.rows);
+    row->set_first_ns(day.first_ns);
+    row->set_last_ns(day.last_ns);
+  }
+  if (evidence.total_rows() != manifest.at("rows").get<std::uint64_t>())
+    throw std::invalid_argument("minute dataset row count mismatch");
+  evidence.set_total_days(evidence.days_size());
+  const auto range = range_of(manifest.at("request"));
+  evidence.set_begin_ns(range.begin_ns);
+  evidence.set_end_ns(range.end_ns);
+  return evidence;
 }
 Json inspect_minutes(const std::filesystem::path& dir) {
   directory_check(dir);

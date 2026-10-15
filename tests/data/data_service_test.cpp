@@ -4,11 +4,11 @@
 #include "data/data_fixture.hpp"
 #include "data/history_fixture.hpp"
 #include "task_store.hpp"
+#include "sqlite_database.hpp"
 #include "tasks/task_store_support.hpp"
 #include "data/bar_fixture.hpp"
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/ipc/local_channel.hpp>
-#include "history_daily.hpp"
 #include <asterion/kernel/process/child.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/data_client.hpp>
@@ -27,33 +27,26 @@ struct Folder {
     fs::remove_all(path, error);
   }
 };
-struct Daily : HistoricalDailyPort {
-  explicit Daily(std::string source = "fixture.daily") : source(std::move(source)) {}
-  std::string source;
+// A bar every minute of the requested range, on the day it falls in.
+struct Minutes final : HistoricalBarPort {
   HistorySemantics semantics() const override {
-    return {source, "fixture.v1", "Asia/Shanghai", "trading_day"};
+    return {"tushare.ft_mins", "fixture.v1", "Asia/Shanghai", "bar_end"};
   }
-  std::vector<HistoricalDailyBar> read(const HistoricalDailyRange& range,
-                                       std::stop_token) override {
-    std::vector<HistoricalDailyBar> bars;
-    for (auto day = std::chrono::sys_days(range.begin); day <= std::chrono::sys_days(range.end);
-         day += std::chrono::days(1)) {
-      const auto price = Decimal::parse(std::to_string(10 + bars.size()));
-      bars.push_back({std::chrono::year_month_day(day),
-                      price,
-                      price,
-                      price,
-                      price,
-                      price,
-                      price,
-                      price,
-                      {},
-                      {},
-                      price});
+  std::vector<HistoricalBar> read(const HistoricalBarRange& range, std::stop_token) override {
+    using namespace std::chrono;
+    std::vector<HistoricalBar> bars;
+    const auto price = Decimal::parse("100");
+    for (auto t = range.begin_ns; t <= range.end_ns; t += 60'000'000'000) {
+      const auto day =
+          year_month_day(floor<days>(sys_time<nanoseconds>(nanoseconds(t)) + hours(8)));
+      bars.push_back(
+          {t, price, price, price, price, price, price, price, format_trading_date(day)});
     }
     return bars;
   }
 };
+// The one bar the downloads here ask for.
+const auto minute = parse_shanghai_time("2026-09-25 09:01:00");
 // Every calendar day from the first to the last, as the fixtures here trade.
 std::vector<std::string> every_day(const char* first, const char* last) {
   std::vector<std::string> days;
@@ -69,26 +62,28 @@ data::v1::DownloadAllocation allocation() {
   identity->set_task_instance("tasks-one");
   identity->set_task_id("download-one");
   identity->set_attempt(1);
-  *request.mutable_daily() =
-      asterion::testing_support::daily_request({{"version", 2},
-                                                {"contract_id", "SHFE/rb/2026-10"},
-                                                {"source", "tushare.fut_daily"},
-                                                {"source_instrument", "rb2610"},
-                                                {"begin_day", "2026-09-25"},
-                                                {"end_day", "2026-09-25"},
-                                                {"requests_per_minute", 60}});
+  *request.mutable_minutes() =
+      asterion::testing_support::minute_request({{"version", 2},
+                                                 {"contract_id", "SHFE/rb/2026-10"},
+                                                 {"source", "tushare.ft_mins"},
+                                                 {"source_instrument", "RB2610.SHF"},
+                                                 {"interval_minutes", 1},
+                                                 {"begin_ns", std::to_string(minute)},
+                                                 {"end_ns", std::to_string(minute)},
+                                                 {"requests_per_minute", 60}});
   return request;
 }
 data::v1::DownloadPreparation download(const data::v1::DownloadAllocation& request,
                                        const std::string& directory) {
-  Daily provider(request.daily().source());
-  history_files::download_daily(provider, history_files::daily_range(request.daily()), directory);
+  Minutes provider;
+  history_files::download_minutes(provider, history_files::minute_range(request.minutes()),
+                                  directory);
   data::v1::DownloadPreparation prepared;
   *prepared.mutable_identity() = request.identity();
   auto* record = prepared.mutable_record();
   record->set_version(1);
-  *record->mutable_daily() = request.daily();
-  *record->mutable_daily_result() = history_files::daily_result(directory);
+  *record->mutable_minutes() = request.minutes();
+  *record->mutable_minute_result() = history_files::minute_result(directory);
   return prepared;
 }
 void await_ready(protocol::DataClient& client) {
@@ -173,9 +168,7 @@ TEST(DataAuthorization, CapturesFixedPrivateCredentialsAndRejectsReplacement) {
   request.set_task_instance("tasks-one");
   request.set_task_id("download-one");
   request.set_credential("fixture-private-token");
-  *request.mutable_daily() = allocation().daily();
-  request.mutable_daily()->set_source("tushare.fut_daily");
-  request.mutable_daily()->set_source_instrument("RB2610.SHF");
+  *request.mutable_minutes() = allocation().minutes();
   data::v1::DownloadAuthorization authorization;
   {
     data::Store store(root.path, "data-one", "tasks-one");
@@ -183,7 +176,7 @@ TEST(DataAuthorization, CapturesFixedPrivateCredentialsAndRejectsReplacement) {
     EXPECT_EQ(authorization.data_instance(), "data-one");
     EXPECT_EQ(authorization.task_instance(), "tasks-one");
     EXPECT_EQ(authorization.task_id(), "download-one");
-    EXPECT_EQ(authorization.daily().SerializeAsString(), request.daily().SerializeAsString());
+    EXPECT_EQ(authorization.minutes().SerializeAsString(), request.minutes().SerializeAsString());
     EXPECT_EQ(authorization.provider_artifact().size(), 64);
     EXPECT_EQ(authorization.SerializeAsString().find(request.credential()), std::string::npos);
     EXPECT_EQ(store.authorize(store.verify_authorization(request)).SerializeAsString(),
@@ -192,7 +185,7 @@ TEST(DataAuthorization, CapturesFixedPrivateCredentialsAndRejectsReplacement) {
     changed.set_credential("different-fixture-token");
     EXPECT_THROW(store.authorize(store.verify_authorization(changed)), Error);
     changed = request;
-    changed.mutable_daily()->set_end_day("2026-09-26");
+    changed.mutable_minutes()->set_end_ns(minute + 60'000'000'000);
     EXPECT_THROW(store.authorize(store.verify_authorization(changed)), Error);
     changed = request;
     changed.set_task_instance("different-task-service");
@@ -213,9 +206,7 @@ TEST(DataAuthorization, FailedDurableCaptureCannotBeAcknowledgedUntilItsBarrierC
   request.set_task_instance("tasks-one");
   request.set_task_id("download-one");
   request.set_credential("fixture-private-token");
-  *request.mutable_daily() = allocation().daily();
-  request.mutable_daily()->set_source("tushare.fut_daily");
-  request.mutable_daily()->set_source_instrument("RB2610.SHF");
+  *request.mutable_minutes() = allocation().minutes();
   const auto verified = store.verify_authorization(request);
   fail_next_directory_syncs_for_testing(1);
   EXPECT_THROW(store.authorize(verified), std::runtime_error);
@@ -276,13 +267,13 @@ TEST(DataService, PreparationIsPrivateAndPublicationKeepsItsIdentityAcrossRestar
     const auto directory = test::allocate_download(store, request).directory();
     EXPECT_EQ(test::allocate_download(store, request).directory(), directory);
     auto conflict = request;
-    conflict.mutable_daily()->set_end_day("2026-09-26");
+    conflict.mutable_minutes()->set_end_ns(minute + 60'000'000'000);
     EXPECT_THROW(store.allocate(store.verify_allocation(conflict)), Error);
     prepared = download(request, directory);
     accepted = store.prepare(store.verify_download(prepared));
     EXPECT_EQ(store.prepare(store.verify_download(prepared)).SerializeAsString(),
               accepted.SerializeAsString());
-    EXPECT_TRUE(store.archive().datasets({}).empty());
+    EXPECT_TRUE(store.archive().datasets({}).items.empty());
   }
   data::v1::DownloadPublication decision;
   *decision.mutable_identity() = request.identity();
@@ -290,12 +281,12 @@ TEST(DataService, PreparationIsPrivateAndPublicationKeepsItsIdentityAcrossRestar
   decision.set_publication_id("publish-one");
   {
     data::Store store(root.path, "data-one", "tasks-one");
-    EXPECT_TRUE(store.archive().datasets({}).empty());
+    EXPECT_TRUE(store.archive().datasets({}).items.empty());
     auto wrong = decision;
     wrong.set_candidate_digest(std::string(64, 'a'));
     EXPECT_THROW(store.publish(store.verify_publication(wrong)), Error);
     const auto result = store.publish(store.verify_publication(decision));
-    EXPECT_EQ(result.record().daily_result().manifest_sha256(), accepted.dataset_id());
+    EXPECT_EQ(result.record().minute_result().manifest_sha256(), accepted.dataset_id());
     EXPECT_EQ(store.publish(store.verify_publication(decision)).SerializeAsString(),
               result.SerializeAsString());
     wrong = decision;
@@ -305,7 +296,7 @@ TEST(DataService, PreparationIsPrivateAndPublicationKeepsItsIdentityAcrossRestar
   {
     data::Store store(root.path, "data-one", "tasks-one");
     EXPECT_EQ(store.published(request.identity()).decision().publication_id(), "publish-one");
-    EXPECT_EQ(store.archive().datasets({}).size(), 1);
+    EXPECT_EQ(store.archive().datasets({}).items.size(), 1);
   }
   EXPECT_THROW((data::Store(root.path, "another-data", "tasks-one")), std::invalid_argument);
   EXPECT_THROW((data::Store(root.path, "data-one", "another-task")), std::invalid_argument);
@@ -348,9 +339,7 @@ TEST(DataService, SeparateProcessServesPublishedHistoryWithoutATaskService) {
   authorization_request->set_task_instance("tasks-one");
   authorization_request->set_task_id("authorized-download");
   authorization_request->set_credential("fixture-rpc-private-token");
-  *authorization_request->mutable_daily() = request.daily();
-  authorization_request->mutable_daily()->set_source("tushare.fut_daily");
-  authorization_request->mutable_daily()->set_source_instrument("RB2610.SHF");
+  *authorization_request->mutable_minutes() = request.minutes();
   data::v1::DataResponse captured;
   {
     std::array<data::v1::DataRequest, 2> requests{capture, capture};
@@ -394,7 +383,6 @@ TEST(DataService, SeparateProcessServesPublishedHistoryWithoutATaskService) {
   budget.mutable_configure_download_budget()->set_credential("fixture");
   budget.mutable_configure_download_budget()->set_requests_per_minute(1);
   EXPECT_EQ(public_client.call(budget).download_budget().requests_per_minute(), 1);
-  // Minute and daily sources of this account share the same provider budget.
   EXPECT_TRUE(coordinator.call(permit).download_permit().granted());
   EXPECT_GT(coordinator.call(permit).download_permit().retry_after_ms(), 0);
   data::v1::DataRequest publish;
@@ -405,12 +393,12 @@ TEST(DataService, SeparateProcessServesPublishedHistoryWithoutATaskService) {
   EXPECT_THROW(public_client.call(publish), Error);
   EXPECT_TRUE(coordinator.call(publish).has_published_download());
   data::v1::DataRequest query;
-  query.mutable_daily_page()->set_dataset_id(accepted.dataset_id());
-  query.mutable_daily_page()->set_limit(10);
+  query.mutable_minute_page()->set_dataset_id(accepted.dataset_id());
+  query.mutable_minute_page()->set_limit(10);
   const auto page = public_client.call(query);
-  ASSERT_TRUE(page.has_daily_page());
-  ASSERT_EQ(page.daily_page().bars_size(), 1);
-  EXPECT_EQ(page.daily_page().bars(0).trading_day(), "2026-09-25");
+  ASSERT_TRUE(page.has_minute_page());
+  ASSERT_EQ(page.minute_page().bars_size(), 1);
+  EXPECT_EQ(page.minute_page().bars(0).timestamp_ns(), minute);
   data::v1::DataRequest heartbeat;
   heartbeat.mutable_heartbeat();
   const auto health = public_client.call(heartbeat).health();
@@ -444,9 +432,8 @@ TEST(DownloadPublication, CancellationBeforeDecisionKeepsTheCandidatePrivate) {
   data::Store data(warehouse.path, "data-one", "tasks-one");
   tasks::Store store(tasks.path, tasks::Identity{"tasks-one", "data-one"});
   auto request = allocation();
-  request.mutable_daily()->set_source("tushare.fut_daily");
   const auto id = request.identity().task_id();
-  tasks::submit(store, test::authorize_download(data, "tasks-one", id, request.daily()));
+  tasks::submit(store, test::authorize_download(data, "tasks-one", id, request.minutes()));
   task::v1::TaskFinish finish;
   finish.set_id(id);
   finish.set_token(store.commit(store.claim(id)).token());
@@ -461,7 +448,7 @@ TEST(DownloadPublication, CancellationBeforeDecisionKeepsTheCandidatePrivate) {
   foreign_attempt.set_attempt(foreign_attempt.attempt() + 1);
   EXPECT_THROW(data.credentials(foreign_attempt), std::invalid_argument);
 
-  *finish.mutable_daily() = candidate.record().daily_result();
+  *finish.mutable_minutes() = candidate.record().minute_result();
   auto completion = store.prepare_finish(finish);
   completion.prepare_payload();
   const auto prepared = data.prepare(data.verify_download(candidate));
@@ -471,23 +458,79 @@ TEST(DownloadPublication, CancellationBeforeDecisionKeepsTheCandidatePrivate) {
        asterion::task::v1::PUBLISHING));
   EXPECT_EQ(store.describe(id).state(), task::v1::CANCELLED);
   EXPECT_TRUE(store.pending_publications().empty());
-  EXPECT_TRUE(data.archive().datasets({}).empty());
+  EXPECT_TRUE(data.archive().datasets({}).items.empty());
+}
+
+TEST(DownloadPublication, UnsupportedDailyRecordsKeepTheirPublicationEvidenceWithoutResuming) {
+  for (const bool completed : {false, true}) {
+    SCOPED_TRACE(completed);
+    Folder tasks, warehouse;
+    auto request = allocation();
+    const auto id = request.identity().task_id();
+    {
+      data::Store data(warehouse.path, "data-one", "tasks-one");
+      tasks::Store store(tasks.path, tasks::Identity{"tasks-one", "data-one"});
+      tasks::submit(store, test::authorize_download(data, "tasks-one", id, request.minutes()));
+      task::v1::TaskFinish finish;
+      finish.set_id(id);
+      finish.set_token(store.commit(store.claim(id)).token());
+      const auto candidate = download(request, test::allocate_download(data, request).directory());
+      *finish.mutable_minutes() = candidate.record().minute_result();
+      auto completion = store.prepare_finish(finish);
+      completion.prepare_payload();
+      store.commit(store.prepare_publication(std::move(completion),
+                                             data.prepare(data.verify_download(candidate))));
+      if (completed)
+        store.commit(store.confirm_publication(
+            data.publish(data.verify_publication(store.pending_publications().front()))));
+    }
+    // Publication metadata has the same durable contract for both kinds.
+    // Mark these bytes as an unsupported kind; no old payload reader is needed.
+    {
+      sqlite::Database db(tasks.path / "tasks.sqlite");
+      Json manifest;
+      task::v1::StoredTaskRecord record;
+      {
+        sqlite::Database::Statement read(db, "SELECT manifest, record FROM tasks WHERE id=?");
+        read.bind(1, id);
+        ASSERT_TRUE(read.step());
+        manifest = Json::parse(read.text(0));
+        ASSERT_TRUE(record.ParseFromString(read.blob(1)));
+      }
+      manifest["type"] = "daily.task";
+      record.mutable_task()->set_kind(task::v1::DAILY_DOWNLOAD);
+      sqlite::Database::Statement write(db, "UPDATE tasks SET manifest=?, record=? WHERE id=?");
+      write.bind(1, manifest.dump()).bind_blob(2, record.SerializeAsString()).bind(3, id).step();
+    }
+    const auto input = tasks.path / id / "input.pb";
+    const auto result = tasks.path / id / "results/1.pb";
+    const auto input_digest = sha256_file(input), result_digest = sha256_file(result);
+    tasks::Store restored(tasks.path, tasks::Identity{"tasks-one", "data-one"});
+    ASSERT_EQ(restored.list().tasks_size(), 1);
+    EXPECT_EQ(restored.describe(id).state(),
+              completed ? task::v1::SUCCEEDED : task::v1::PUBLISHING);
+    EXPECT_TRUE(restored.describe(id).has_publication());
+    EXPECT_TRUE(restored.pending_publications().empty());
+    EXPECT_THROW(restored.get(id), std::invalid_argument);
+    EXPECT_THROW(tasks::verified_result(restored, id), std::invalid_argument);
+    EXPECT_EQ(sha256_file(input), input_digest);
+    EXPECT_EQ(sha256_file(result), result_digest);
+  }
 }
 
 TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataStartupDependency) {
   using namespace std::chrono_literals;
   Folder tasks, warehouse, sockets;
   auto request = allocation();
-  request.mutable_daily()->set_source("tushare.fut_daily");
   const auto id = request.identity().task_id();
   std::string token, dataset_id;
   data::v1::DownloadPublication decision;
   {
     data::Store data(warehouse.path, "data-one", "tasks-one");
     tasks::Store store(tasks.path, tasks::Identity{"tasks-one", "data-one"});
-    tasks::submit(store, test::authorize_download(data, "tasks-one", id, request.daily()));
-    tasks::submit(store,
-                  test::authorize_download(data, "tasks-one", "queued-download", request.daily()));
+    tasks::submit(store, test::authorize_download(data, "tasks-one", id, request.minutes()));
+    tasks::submit(
+        store, test::authorize_download(data, "tasks-one", "queued-download", request.minutes()));
     token = store.commit(store.claim(id)).token();
     const auto candidate = download(request, test::allocate_download(data, request).directory());
     const auto prepared = data.prepare(data.verify_download(candidate));
@@ -495,7 +538,7 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataS
     task::v1::TaskFinish finish;
     finish.set_id(id);
     finish.set_token(token);
-    *finish.mutable_daily() = candidate.record().daily_result();
+    *finish.mutable_minutes() = candidate.record().minute_result();
     auto completion = store.prepare_finish(finish);
     completion.prepare_payload();
     ASSERT_TRUE(
@@ -506,7 +549,7 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataS
     EXPECT_THROW(store.commit(store.interrupt(id, token, "worker exited")), std::invalid_argument);
     EXPECT_THROW(store.commit(store.retry(id)).task(), std::invalid_argument);
     decision = store.pending_publications().at(0);
-    EXPECT_TRUE(data.archive().datasets({}).empty());
+    EXPECT_TRUE(data.archive().datasets({}).items.empty());
   }
   const auto task_endpoint = (sockets.path / "task.sock").string();
   const auto data_endpoint = (sockets.path / "data.sock").string();
@@ -575,35 +618,23 @@ TEST(DownloadPublication, RestartResumesTheOriginalDecisionWithoutAWorkerOrDataS
   *published.mutable_published_download() = decision.identity();
   const auto receipt = data.call(published).published_download();
   EXPECT_EQ(receipt.decision().SerializeAsString(), decision.SerializeAsString());
-  EXPECT_EQ(receipt.record().daily_result().manifest_sha256(), dataset_id);
+  EXPECT_EQ(receipt.record().minute_result().manifest_sha256(), dataset_id);
   data_process.reset();
   // Historical file access belongs to Data. Task still serves its confirmed
   // result evidence while the warehouse process and its files are unavailable.
   fs::rename(warehouse.path / "history", warehouse.path / "offline-history");
   task::v1::TaskRequest result;
   result.mutable_result()->set_id(id);
-  EXPECT_EQ(call(result).daily().manifest_sha256(), dataset_id);
+  EXPECT_EQ(call(result).minutes().manifest_sha256(), dataset_id);
 }
 
 TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData) {
   using namespace std::chrono_literals;
   Folder tasks, warehouse, sockets;
-  auto request = allocation();
-  request.mutable_daily()->set_begin_day("2026-09-01");
-  request.mutable_daily()->set_end_day("2026-10-10");
-  std::string dataset_id;
   {
     data::Store data(warehouse.path, "data-one", "tasks-one");
-    const auto prepared = data.prepare(data.verify_download(
-        download(request, test::allocate_download(data, request).directory())));
-    data::v1::DownloadPublication decision;
-    *decision.mutable_identity() = prepared.identity();
-    decision.set_candidate_digest(prepared.candidate_digest());
-    decision.set_publication_id("fixture-publication");
-    data.publish(data.verify_publication(decision));
-    dataset_id = prepared.dataset_id();
   }
-  // The days of those daily bars settle in the market-wide table.
+  // The contract's days in the market-wide daily table.
   const auto daily = protocol::encode_daily_table(test::seed_daily_table(
       warehouse.path, "SHFE/rb/2026-10", every_day("2026-09-01", "2026-10-10"), 110, 100));
   const auto data_endpoint = (sockets.path / "data.sock").string();
@@ -657,10 +688,6 @@ TEST(DataInputs, WorkersReadFixedVersionsAndResultsRemainReadableWithoutData) {
   query.Clear();
   *query.mutable_save_dataset() = saved;
   ASSERT_EQ(data.call(query).saved_dataset().id(), saved.id());
-  // Daily bars and settlements are the table's: the saved dataset reads no
-  // archive version, the contract's own daily download included.
-  query.mutable_history_usage()->set_id(dataset_id);
-  EXPECT_EQ(data.call(query).history_usage().references_size(), 0);
 
   task::v1::TaskRequest submit;
   submit.mutable_submit()->set_id("backtest");
@@ -736,22 +763,7 @@ TEST(DataInputs, PrivateDatasetReplySupportsTheMaximumTaskInput) {
   constexpr unsigned count = 200000;
   const auto begin =
       duration_cast<nanoseconds>(sys_days(year(2026) / January / 1).time_since_epoch()).count();
-  struct Minutes final : HistoricalBarPort {
-    HistorySemantics semantics() const override {
-      return {"tushare.ft_mins", "fixture.v1", "Asia/Shanghai", "bar_end"};
-    }
-    std::vector<HistoricalBar> read(const HistoricalBarRange& range, std::stop_token) override {
-      std::vector<HistoricalBar> bars;
-      const auto price = Decimal::parse("100");
-      for (auto t = range.begin_ns; t <= range.end_ns; t += minute_ns) {
-        const auto day =
-            year_month_day(floor<days>(sys_time<nanoseconds>(nanoseconds(t)) + hours(8)));
-        bars.push_back(
-            {t, price, price, price, price, price, price, price, format_trading_date(day)});
-      }
-      return bars;
-    }
-  } minutes;
+  Minutes minutes;
   Folder warehouse, sockets;
   data::v1::DataRequest query;
   auto* selection = query.mutable_bar_dataset();

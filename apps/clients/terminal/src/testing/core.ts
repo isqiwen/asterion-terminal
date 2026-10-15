@@ -67,7 +67,6 @@ const connection = (service: string) => ({
 // datasets, tasks or quotes. A test changes the parts its case is about.
 export function readySnapshot(): Snapshot {
   return {
-    daily_page: null,
     history_page: null,
     revision: 1,
     refreshed_at_ms: Date.now(),

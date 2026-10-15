@@ -2,7 +2,7 @@
 #include <asterion/protocol/data.hpp>
 #include "strategy.hpp"
 #include "performance.hpp"
-#include <asterion/domain/daily_bars.hpp>
+#include <asterion/domain/trading_days.hpp>
 #include "order_limits.hpp"
 #include "risk_module.hpp"
 #include "paper_execution.hpp"
@@ -178,7 +178,7 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
                                [&](const auto& lot) { return lot.instrument == id; });
   };
   backtest::v1::BacktestResult result;
-  result.set_version(5);
+  result.set_version(6);
   result.set_dataset_revision(input.dataset_revision());
   result.set_engine_version(protocol::backtest_engine_version);
   auto peak = decimal(p.deposit());
@@ -210,7 +210,9 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     took_over[rolls.rolls(0).contract()] = true;
   const auto total = execution.size();
   const auto& account = execution.account();
-  std::size_t index = 0;
+  std::size_t index = 0, recorded_fills = 0;
+  const bool record_fill_days =
+      p.contracts_size() == 1 && p.contracts(0).dataset().interval_minutes() == 0;
   // Every day one of the contracts settles on, in order: its bars, where any
   // contract has some, then its settlement.
   for (std::size_t d = 0; d < schedule.days(); ++d) {
@@ -327,6 +329,12 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
         }
         together.clear();
       }
+      if (record_fill_days)
+        while (recorded_fills < account.fills().size()) {
+          auto* observed = result.add_fill_days();
+          observed->set_fill_id(account.fills()[recorded_fills++].execution.execution_id);
+          observed->set_trading_day(bar.trading_day);
+        }
       add_equity(bar.timestamp_ns, backtest::v1::TRADE_MARK, account);
       settled_at = bar.timestamp_ns;
       step();
@@ -341,21 +349,32 @@ backtest::v1::BacktestResult replay(const backtest::v1::BacktestInput& input,
     settled->mutable_equity()->set_units((account.balance() + account.unrealized()).raw());
     settled->mutable_realized()->set_units(account.realized().raw());
     settled->mutable_fees()->set_units(account.fees().raw());
+    auto* occupancy = settled->mutable_occupancy();
+    occupancy->mutable_margin()->set_units(account.margin().raw());
+    occupancy->mutable_available()->set_units(account.available().raw());
+    occupancy->mutable_frozen()->set_units(account.frozen().raw());
     for (std::size_t c = 0; c < account.contracts().size(); ++c) {
       // A month of a series has no row on the days it is not in the replay.
       if (!day.prices[c])
         continue;
       const auto& id = account.contracts()[c].instrument.id;
       // Net lots: long positive, short negative.
-      Decimal quantity;
+      Decimal quantity, gross_quantity, margin;
       for (const auto& lot : account.positions())
-        if (lot.instrument == id)
+        if (lot.instrument == id) {
           quantity = lot.side == Side::buy ? quantity + lot.quantity : quantity - lot.quantity;
+          gross_quantity = gross_quantity + lot.quantity;
+          const auto& terms = account.contracts()[c];
+          margin = margin +
+                   terms.costs.margin(lot.quantity, *day.prices[c], terms.instrument.multiplier);
+        }
       auto* row = settled->add_contracts();
       row->set_venue(id.venue);
       row->set_symbol(id.symbol);
       row->mutable_price()->set_units(day.prices[c]->raw());
       row->mutable_position_quantity()->set_units(quantity.raw());
+      row->mutable_gross_quantity()->set_units(gross_quantity.raw());
+      row->mutable_margin()->set_units(margin.raw());
     }
     // From the next day the account may follow another strategy: what that one
     // wanted after each contract's last bar is what its next bar fills.

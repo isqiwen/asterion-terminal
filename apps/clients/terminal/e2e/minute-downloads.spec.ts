@@ -217,7 +217,6 @@ test("history is a dedicated source-aware page and clears credentials on subpage
   await expect(page.getByLabel("CSV 文件路径")).toHaveCount(0);
   await expect(history.getByLabel("数据源", { exact: true }).locator("option")).toHaveText([
     "Tushare · 分钟 K 线",
-    "Tushare · 日 K 线",
   ]);
   await expect(history.getByLabel("分钟周期", { exact: true }).locator("option")).toHaveText([
     "1 min",
@@ -314,53 +313,6 @@ test("completed dataset exposes provenance and honest coverage separately from a
   await expect(history.getByText("/fixture/history", { exact: true })).not.toBeVisible();
   await history.getByText("存储与校验", { exact: true }).click();
   await expect(history.getByText("/fixture/history", { exact: true })).toBeVisible();
-});
-
-test("daily adapter submits the contract list's scope without minute fields and clears credentials on source changes", async ({
-  page,
-}) => {
-  await mockContracts(page);
-  await page.goto("/");
-  await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
-  const section = page.getByRole("region", { name: "历史数据", exact: true });
-  await section
-    .getByRole("combobox", { name: "数据源", exact: true })
-    .selectOption("tushare.fut_daily");
-  await section.getByLabel("品种", { exact: true }).selectOption("cu");
-  await section.getByLabel("Tushare Token", { exact: true }).fill("daily-test-secret");
-  await section.getByLabel("月份合约", { exact: true }).selectOption("SHFE/cu/2023-10");
-  let submitted = false;
-  await page.route("**/__asterion/api", async route => {
-    const request = route.request().postDataJSON();
-    if (request.method !== "data.download.daily.submit") return route.fallback();
-    expect(request.params.contract_id).toBe("SHFE/cu/2023-10");
-    expect(request.params.cutoff_ns).toBe(contractsFixture.cutoff_ns);
-    expect(request.params.snapshot).toBe(snapshot);
-    expect(request.params.token).toBe("daily-test-secret");
-    expect(request.params).not.toHaveProperty("interval_minutes");
-    expect(request.params).not.toHaveProperty("start");
-    expect(request.params).not.toHaveProperty("end");
-    submitted = true;
-    const response = await route.fetch({
-      postData: { version: 1, method: "runtime.snapshot", params: {} },
-    });
-    await route.fulfill({ response });
-  });
-  await section.getByRole("button", { name: "下载整个合约", exact: true }).click();
-  await expect.poll(() => submitted).toBe(true);
-  await expect(section.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
-  await section.getByLabel("Tushare Token", { exact: true }).fill("daily-test-secret");
-  await section
-    .getByRole("combobox", { name: "数据源", exact: true })
-    .selectOption("tushare.ft_mins");
-  await expect(section.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
-  await section
-    .getByRole("combobox", { name: "数据源", exact: true })
-    .selectOption("tushare.fut_daily");
-  await expect(section.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
-  expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain(
-    "daily-test-secret",
-  );
 });
 
 test("all contract months retain per-task pacing without changing the shared budget", async ({

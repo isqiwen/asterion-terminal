@@ -1,6 +1,7 @@
 #pragma once
 #include <asterion/domain/market.hpp>
 #include <functional>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <stop_token>
@@ -111,10 +112,11 @@ using FactorValues = std::vector<std::optional<Decimal>>;
 // stage are computed from the first `split` observations alone. `progress`
 // receives completed and total work: one unit per observation, and per
 // development observation for each compared window.
-FactorEvaluation
-evaluate_factor(std::span<const std::span<const std::optional<Decimal>>> closes,
-                std::span<const std::span<const std::optional<Decimal>>> values, Feature feature,
-                std::span<const unsigned> lookbacks, std::size_t horizon,
-                std::optional<std::size_t> split, std::stop_token stop = {},
-                const std::function<void(std::size_t, std::size_t)>& progress = {});
+FactorEvaluation evaluate_factor(std::span<const std::span<const std::optional<Decimal>>> closes,
+                                 std::span<const std::span<const std::optional<Decimal>>> values,
+                                 Feature feature, std::span<const unsigned> lookbacks,
+                                 std::size_t horizon, std::optional<std::size_t> split,
+                                 std::stop_token stop = {},
+                                 const std::function<void(std::size_t, std::size_t)>& progress = {},
+                                 std::span<const std::span<const std::uint8_t>> eligibility = {});
 } // namespace asterion

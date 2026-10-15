@@ -2,11 +2,23 @@
 #include <asterion/protocol/data.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <cmath>
+#include <charconv>
 #include <algorithm>
 #include <set>
 #include <stdexcept>
 namespace asterion::protocol {
 namespace {
+void validate_liquidity(const factor::v1::LiquidityRule& rule) {
+  if (!rule.minimum_history() || rule.minimum_history() > 10000 || rule.minimum_volume() < 0 ||
+      rule.minimum_open_interest() < 0)
+    throw std::invalid_argument("invalid liquidity eligibility rule");
+}
+Json liquidity_definition(const factor::v1::LiquidityRule& rule) {
+  validate_liquidity(rule);
+  return {{"minimum_history", rule.minimum_history()},
+          {"minimum_volume", std::to_string(rule.minimum_volume())},
+          {"minimum_open_interest", std::to_string(rule.minimum_open_interest())}};
+}
 bool digest(const std::string& value) {
   return value.size() == 64 && value.find_first_not_of("0123456789abcdef") == std::string::npos;
 }
@@ -162,7 +174,9 @@ unsigned observation_count(const factor::v1::FactorInput& input) {
 }
 } // namespace
 factor::v1::FactorRequest encode_factor_request(const Json& input) {
-  require_fields(input, {"series", "factor", "lookbacks", "horizon", "evaluation"});
+  auto required = input;
+  required.erase("liquidity");
+  require_fields(required, {"series", "factor", "lookbacks", "horizon", "evaluation"});
   factor::v1::FactorRequest result;
   const auto& series = input.at("series");
   if (!series.is_array() || series.empty() ||
@@ -194,6 +208,28 @@ factor::v1::FactorRequest encode_factor_request(const Json& input) {
     const auto& added = result.series(result.series_size() - 1);
     if (added.has_tables() != result.series(0).has_tables())
       throw std::invalid_argument("factor series must be of one kind and one period");
+  }
+  if (input.contains("liquidity")) {
+    const auto& source = input.at("liquidity");
+    require_fields(source, {"minimum_history", "minimum_volume", "minimum_open_interest"});
+    if (!source.at("minimum_history").is_number_integer() || source.at("minimum_history") < 1 ||
+        source.at("minimum_history") > 10000)
+      throw std::invalid_argument("invalid liquidity eligibility rule");
+    auto* rule = result.mutable_liquidity();
+    rule->set_minimum_history(source.at("minimum_history").get<unsigned>());
+    const auto lots = [&](const char* key) {
+      if (!source.at(key).is_string())
+        throw std::invalid_argument("invalid liquidity eligibility rule");
+      const auto text = source.at(key).get<std::string>();
+      std::int64_t value = 0;
+      const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+      if (text.empty() || text.front() == '-' || error != std::errc{} ||
+          end != text.data() + text.size() || value < 0)
+        throw std::invalid_argument("invalid liquidity eligibility rule");
+      return value;
+    };
+    rule->set_minimum_volume(lots("minimum_volume"));
+    rule->set_minimum_open_interest(lots("minimum_open_interest"));
   }
   (void)factor_input(result);
   const auto& windows = input.at("lookbacks");
@@ -275,7 +311,54 @@ std::vector<factor::v1::FactorSeries> factor_series(const factor::v1::FactorSeri
     throw std::invalid_argument("data reply does not match the requested factor series");
   return result;
 }
+factor::v1::FactorRequest reuse_daily_factor(const Json& experiment, const std::string& snapshot,
+                                             const Json& lookbacks) {
+  if (experiment.at("version") != 9)
+    throw std::invalid_argument("unsupported factor input version");
+  if (!snapshot.empty() && !digest(snapshot))
+    throw std::invalid_argument("invalid table snapshot");
+  if (!lookbacks.is_null() && lookbacks != experiment.at("lookbacks") &&
+      (experiment.at("factor") != "momentum" ||
+       experiment.at("evaluation").at("mode") != "full_sample" ||
+       experiment.at("lookbacks").size() != 1 || !lookbacks.is_array() || lookbacks.size() != 1))
+    throw std::invalid_argument(
+        "parameter derivation requires a single-window full-sample daily momentum experiment");
+  Json sources = Json::array();
+  for (const auto& series : experiment.at("series")) {
+    if (series.at("kind") != "table")
+      throw std::invalid_argument("experiment reuse currently requires daily table factor inputs");
+    const auto& data = series.at("data");
+    Json selection{{"snapshot", snapshot.empty() ? data.at("snapshot") : Json(snapshot)},
+                   {"daily_source", data.at("daily_source")},
+                   {"calendar_source", data.at("calendar_source")},
+                   {"begin_day", data.at("begin_day")},
+                   {"end_day", data.at("end_day")}};
+    bool same = !sources.empty();
+    if (same)
+      for (const auto& [key, value] : selection.items())
+        same = same && sources.back().at("tables").at(key) == value;
+    if (same)
+      sources.back()["tables"]["instruments"].push_back(data.at("instrument"));
+    else {
+      selection["instruments"] = Json::array({data.at("instrument")});
+      sources.push_back({{"tables", std::move(selection)}});
+    }
+  }
+  Json parameters{{"series", std::move(sources)},
+                  {"factor", experiment.at("factor")},
+                  {"lookbacks", lookbacks.is_null() ? experiment.at("lookbacks") : lookbacks},
+                  {"horizon", experiment.at("horizon")},
+                  {"evaluation", experiment.at("evaluation")}};
+  if (!experiment.at("liquidity").is_null())
+    parameters["liquidity"] = experiment.at("liquidity");
+  auto result = encode_factor_request(parameters);
+  if (snapshot.empty())
+    result.set_expected_dataset_revision(experiment.at("dataset_revision").get<std::string>());
+  return result;
+}
 factor::v1::FactorInput factor_input(const factor::v1::FactorRequest& request) {
+  if (!request.expected_dataset_revision().empty() && !digest(request.expected_dataset_revision()))
+    throw std::invalid_argument("invalid fixed experiment data revision");
   // An entry of the market-wide table asks for one series per instrument.
   int count = 0;
   for (const auto& source : request.series())
@@ -283,7 +366,14 @@ factor::v1::FactorInput factor_input(const factor::v1::FactorRequest& request) {
   if (count != 1 && (count < 3 || count > max_factor_series))
     throw std::invalid_argument("factor analysis studies one series or 3..100 contracts");
   factor::v1::FactorInput input;
-  input.set_version(9);
+  input.set_version(10);
+  if (request.has_liquidity()) {
+    validate_liquidity(request.liquidity());
+    if (count < 3 || std::ranges::any_of(
+                         request.series(), [](const auto& series) { return !series.has_tables(); }))
+      throw std::invalid_argument("liquidity filtering requires a daily cross-section");
+    *input.mutable_liquidity() = request.liquidity();
+  }
   input.set_factor(request.factor());
   *input.mutable_lookbacks() = request.lookbacks();
   input.set_horizon(request.horizon());
@@ -326,27 +416,51 @@ factor_revision(const google::protobuf::RepeatedPtrField<factor::v1::FactorSerie
   return revisions.size() == 1 ? revisions.at(0).get<std::string>()
                                : sha256_bytes(revisions.dump());
 }
-FactorObservations factor_observations(const factor::v1::FactorInput& input) {
+namespace {
+FactorObservations read_observations(const factor::v1::FactorInput& input, v1::Factor kind) {
   validate_series(input.series());
   std::vector<Observed> all;
   std::set<std::int64_t> times;
   for (const auto& data : input.series()) {
-    all.push_back(observed(data, input.factor()));
+    all.push_back(observed(data, kind));
     const auto& order = all.back().order;
     if (std::ranges::adjacent_find(order, std::ranges::greater_equal()) != order.end())
       throw std::invalid_argument("factor observations must be in ascending order");
     times.insert(order.begin(), order.end());
   }
-  const bool terms = input.factor() == v1::TERM_STRUCTURE;
+  const bool terms = kind == v1::TERM_STRUCTURE;
   FactorObservations result;
   result.order.assign(times.begin(), times.end());
   result.closes.resize(all.size());
   result.terms.resize(terms ? all.size() : 0);
+  const bool daily = input.series(0).has_table();
+  if (daily) {
+    result.volumes.resize(all.size());
+    result.open_interests.resize(all.size());
+  }
   for (std::size_t s = 0; s < all.size(); ++s) {
     // Each series ascends, so one pass places what it has.
     result.closes[s].resize(result.order.size());
     if (terms)
       result.terms[s].resize(result.order.size());
+    if (daily) {
+      result.volumes[s].resize(result.order.size());
+      result.open_interests[s].resize(result.order.size());
+      for (const auto& month : input.series(static_cast<int>(s)).table().months())
+        for (const auto& close : month.closes()) {
+          const auto when = std::chrono::sys_days(parse_trading_date(close.trading_day()))
+                                .time_since_epoch()
+                                .count();
+          const auto found = std::ranges::lower_bound(result.order, when);
+          if (found == result.order.end() || *found != when)
+            continue; // Term observations may omit a day without a term point.
+          const auto index = static_cast<std::size_t>(found - result.order.begin());
+          if (close.has_volume_contracts())
+            result.volumes[s][index] = close.volume_contracts();
+          if (close.has_open_interest_contracts())
+            result.open_interests[s][index] = close.open_interest_contracts();
+        }
+    }
     std::size_t at = 0;
     for (std::size_t i = 0; i < all[s].order.size(); ++i) {
       while (result.order[at] != all[s].order[i])
@@ -358,11 +472,26 @@ FactorObservations factor_observations(const factor::v1::FactorInput& input) {
   }
   return result;
 }
+} // namespace
+FactorObservations factor_observations(const factor::v1::FactorInput& input) {
+  return read_observations(input, input.factor());
+}
+FactorObservations factor_daily_observations(const factor::v1::FactorInput& input) {
+  if (std::ranges::any_of(input.series(), [](const auto& series) { return !series.has_table(); }))
+    throw std::invalid_argument("liquidity filtering requires a daily cross-section");
+  return read_observations(input, v1::PRICE_MOMENTUM);
+}
 namespace {
 Json factor_definition(const factor::v1::FactorInput& input) {
   validate_message(input);
-  if (input.version() != 9)
+  if (input.version() != 10)
     throw std::invalid_argument("unsupported factor input version");
+  if (input.has_liquidity()) {
+    validate_liquidity(input.liquidity());
+    if (input.series_size() < 3 ||
+        std::ranges::any_of(input.series(), [](const auto& series) { return !series.has_table(); }))
+      throw std::invalid_argument("liquidity filtering requires a daily cross-section");
+  }
   const std::string factor = factor_name(input.factor());
   const auto count = observation_count(input);
   if (!input.horizon() || input.horizon() > 10000 || input.lookbacks_size() < 1 ||
@@ -381,11 +510,13 @@ Json factor_definition(const factor::v1::FactorInput& input) {
     throw std::invalid_argument("volatility lookback must be 2..10000 observations");
   if (input.lookbacks_size() > 1 && !input.has_holdout_start() && !input.has_walk_forward())
     throw std::invalid_argument("factor parameter comparison requires a holdout");
-  Json result{{"version", 8},
-              {"factor", factor},
-              {"dataset_revision", input.dataset_revision()},
-              {"lookbacks", windows},
-              {"horizon", input.horizon()}};
+  Json result{
+      {"version", 9},
+      {"factor", factor},
+      {"dataset_revision", input.dataset_revision()},
+      {"lookbacks", windows},
+      {"horizon", input.horizon()},
+      {"liquidity", input.has_liquidity() ? liquidity_definition(input.liquidity()) : Json()}};
   if (input.has_full_sample() && input.full_sample())
     result["evaluation"] = {{"mode", "full_sample"}};
   else if (input.has_holdout_start() && input.holdout_start() > 0 && input.holdout_start() < count)
@@ -404,7 +535,7 @@ Json factor_definition(const factor::v1::FactorInput& input) {
 // The structure of a result, without reference to the input it belongs to.
 Json result_structure(const factor::v1::FactorResult& result) {
   validate_message(result);
-  if (result.version() != 8)
+  if (result.version() != 9)
     throw std::invalid_argument("unsupported factor result version");
   for (const auto& row : result.samples())
     if (!std::isfinite(row.value()) || !std::isfinite(row.forward_return()))
@@ -489,7 +620,7 @@ Json result_structure(const factor::v1::FactorResult& result) {
           !fold.lookback())
         throw std::invalid_argument("invalid walk-forward fold");
       factor::v1::FactorResult metadata;
-      metadata.set_version(8);
+      metadata.set_version(9);
       metadata.set_input_count(result.input_count());
       metadata.set_selection_rule("fixed");
       *metadata.add_partitions() = fold.development();
@@ -509,7 +640,7 @@ Json result_structure(const factor::v1::FactorResult& result) {
       throw std::invalid_argument("incomplete walk-forward coverage");
   } else if (result.selection_rule().starts_with("rolling_"))
     throw std::invalid_argument("missing walk-forward folds");
-  return {{"version", 6},
+  return {{"version", 7},
           {"folds", folds},
           {"dataset_revision", result.dataset_revision()},
           {"engine_version", result.engine_version()},
@@ -594,6 +725,35 @@ void validate_factor_result(const factor::v1::FactorInput& input,
   const auto reject = [] {
     throw std::invalid_argument("factor result evidence does not match its input");
   };
+  std::map<std::string, unsigned> eligible;
+  int membership = 0;
+  if (input.has_liquidity()) {
+    for (int series = 0; series < input.series_size(); ++series)
+      for (const auto& month : input.series(series).table().months())
+        for (const auto& close : month.closes()) {
+          if (membership == result.memberships_size())
+            reject();
+          const auto& row = result.memberships(membership++);
+          if (row.series_index() != static_cast<unsigned>(series) ||
+              row.trading_day() != close.trading_day() ||
+              !factor::v1::MembershipReason_IsValid(row.reason()) ||
+              row.reason() == factor::v1::MEMBERSHIP_UNSPECIFIED ||
+              row.reason() == factor::v1::MEMBERSHIP_UNOBSERVED)
+            reject();
+          eligible[row.trading_day()] += row.reason() == factor::v1::MEMBERSHIP_ELIGIBLE;
+        }
+  }
+  if (membership != result.memberships_size())
+    reject();
+  const auto order = factor_observations(input).order;
+  for (const auto& row : result.cross_sections()) {
+    if (row.event_index() >= order.size() ||
+        row.series() > static_cast<unsigned>(input.series_size()))
+      reject();
+    if (input.has_liquidity() && row.series() > eligible[format_trading_date(std::chrono::sys_days{
+                                                    std::chrono::days{order[row.event_index()]}})])
+      reject();
+  }
   const auto count = observation_count(input);
   const auto warmup = input.lookbacks(input.lookbacks_size() - 1);
   const auto horizon = input.horizon();
@@ -725,6 +885,12 @@ Json decode_factor_result(const factor::v1::FactorInput& input,
                         {"series", row.series()},
                         {"pearson", row.has_pearson() ? Json(row.pearson()) : Json(nullptr)},
                         {"spearman", row.has_spearman() ? Json(row.spearman()) : Json(nullptr)}});
+  Json memberships = Json::array();
+  for (const auto& row : result.memberships())
+    memberships.push_back({{"series_index", row.series_index()},
+                           {"trading_day", row.trading_day()},
+                           {"reason", factor::v1::MembershipReason_Name(row.reason())}});
+  decoded["memberships"] = std::move(memberships);
   decoded["samples"] = std::move(samples);
   decoded["cross_sections"] = std::move(sections);
   return decoded;

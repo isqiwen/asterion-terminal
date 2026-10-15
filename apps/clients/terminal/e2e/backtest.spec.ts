@@ -1,4 +1,4 @@
-import { seedDataset } from "./dataset-fixture";
+import { seedDataset, rpc } from "./dataset-fixture";
 import { openSettingsWindow, closeSettingsWindow } from "./settings-helper";
 import { test, expect } from "./test";
 import { join } from "node:path";
@@ -430,7 +430,9 @@ test("several strategies are compared before a holdout and one is replayed", asy
   await expect(parameter("留出起始日")).toHaveText("2026-09-21");
 });
 
-test("a ranking rule holds the strongest contract long and the weakest short", async ({ page }) => {
+test("a ranking rule holds the strongest contract long and the weakest short", async ({
+  page,
+}, info) => {
   test.setTimeout(60000);
   await page.goto("/");
   await expect(page.locator(".workspace-tabs")).toBeVisible();
@@ -524,10 +526,40 @@ test("a ranking rule holds the strongest contract long and the weakest short", a
       .filter({ has: page.getByText(name, { exact: true }) })
       .locator("strong");
   await expect(trade("平仓笔数")).toHaveText("2");
-  await expect(trade("盈利笔数占比")).toHaveText("0.00%");
-  await expect(trade("平均亏损")).toHaveText("-100.00");
-  await expect(trade("平均盈利")).toHaveText("—");
-  await expect(trade("盈亏比")).toHaveText("—");
+  await expect(trade("净盈利笔数占比")).toHaveText("0.00%");
+  await expect(trade("平均净亏损")).toHaveText("-105.00");
+  await expect(trade("平均净盈利")).toHaveText("—");
+  await expect(trade("净盈亏比")).toHaveText("—");
+  await expect(trade("已平仓手续费")).toHaveText("10");
+  await expect(trade("已平仓净盈亏")).toHaveText("-210");
+  await expect(trade("未闭合持仓手续费")).toHaveText("4");
+  await result.getByText("按月收益贡献", { exact: true }).click();
+  const monthly = result.getByRole("table", { name: "按月收益贡献", exact: true });
+  await expect(monthly.getByRole("row")).toHaveCount(2);
+  // The account's monthly net includes the 4 in fees on still-open positions.
+  await expect(monthly.getByRole("row").nth(1).getByRole("cell")).toHaveText([
+    "2026-09",
+    "2026-09-25 – 2026-09-25",
+    "1",
+    "100000",
+    "99786",
+    "-200",
+    "14",
+    "-214",
+    "-0.21",
+  ]);
+  await result.getByText("按合约已平仓贡献", { exact: true }).click();
+  const contributions = result.getByRole("table", { name: "按合约已平仓贡献", exact: true });
+  await expect(contributions.getByRole("row")).toHaveCount(3);
+  await expect(contributions.getByRole("row").nth(1)).toContainText("rb2610");
+  await expect(contributions.getByRole("row").nth(1)).toContainText("-115");
+  await expect(contributions.getByRole("row").nth(2)).toContainText("zn2610");
+  await expect(contributions.getByRole("row").nth(2)).toContainText("-95");
+  await result.getByText("逐笔费用与净盈亏", { exact: true }).click();
+  const closed = result.getByRole("table", { name: "逐笔费用与净盈亏", exact: true });
+  await expect(closed.getByRole("row")).toHaveCount(3);
+  await expect(closed).toContainText("-115");
+  await expect(closed).toContainText("-95");
   await result.getByText("逐日结算", { exact: true }).click();
   const settlements = result.locator(".research-settlements tbody tr");
   await expect(settlements).toHaveCount(4);
@@ -547,6 +579,102 @@ test("a ranking rule holds the strongest contract long and the weakest short", a
   await expect(parameter("每个合约的名义金额")).toHaveText("1000");
   await expect(parameter("排序方向")).toHaveText("做多最高、做空最低");
   await expect(parameter("波动窗口")).toHaveText("0");
+  const original = (await rpc(page.request, "runtime.snapshot")).task_result;
+  expect(original.portfolio.contracts).toHaveLength(4);
+  expect(original.portfolio.net_notional).toBe("0");
+  expect(original.portfolio.gross_notional).toBe("2200");
+  expect(original.portfolio.model_margin).toBe("200");
+  expect(original.portfolio.margin_difference).toBe("0");
+  expect(original.portfolio.gross_quantity).toBe("2");
+  expect(original.portfolio.risk.final_lot_headroom).toBe("98");
+  expect(
+    original.portfolio.contracts.every(
+      (row: { quantities_on_grid: boolean }) => row.quantities_on_grid,
+    ),
+  ).toBe(true);
+  const tasksBefore = (await rpc(page.request, "runtime.snapshot")).task_service.tasks
+    .map((task: { id: string }) => task.id)
+    .sort();
+  await result.getByText("组合敞口与预算复核", { exact: true }).click();
+  await expect(
+    result.getByRole("table", { name: "逐合约期末敞口", exact: true }).getByRole("row"),
+  ).toHaveCount(5);
+  const gross = result.getByLabel("总名义限额（期末与结算点复核）", { exact: true });
+  const margin = result.getByLabel("模型保证金限额（期末与结算点复核）", { exact: true });
+  const reviewButton = result.getByRole("button", { name: "复核记录点预算", exact: true });
+  await expect(gross).toHaveValue("");
+  await expect(margin).toHaveValue("");
+  await expect(reviewButton).toBeDisabled();
+  await gross.fill("2100");
+  await margin.fill("250");
+  await reviewButton.click();
+  const reviewed = result.getByRole("table", { name: "期末预算复核结果", exact: true });
+  await expect(reviewed.getByRole("row").nth(1).getByRole("cell")).toHaveText([
+    "期末总名义",
+    "2200",
+    "2100",
+    "-100",
+    "复核超限（非执行拦截）",
+  ]);
+  await expect(reviewed.getByRole("row").nth(2).getByRole("cell")).toHaveText([
+    "期末模型保证金",
+    "200",
+    "250",
+    "50",
+    "复核范围内（非执行许可）",
+  ]);
+  await reviewed.scrollIntoViewIfNeeded();
+  const shot = info.outputPath("portfolio-budget-review.png");
+  await page.screenshot({ path: shot, fullPage: true });
+  await info.attach("explicit final budget review", { path: shot, contentType: "image/png" });
+  const review = await rpc(page.request, "backtest.budget.review", {
+    id: original.id,
+    input_sha256: original.input_sha256,
+    result_digest: original.task.result_digest,
+    limits: { gross_notional: "2100", margin: "250" },
+  });
+  expect(review.portfolio_budget_review.portfolio).toEqual(original.portfolio);
+  const evidencePath = info.outputPath("portfolio-budget-review.json");
+  await import("node:fs/promises").then(fs =>
+    fs.writeFile(evidencePath, JSON.stringify(review.portfolio_budget_review, null, 2)),
+  );
+  await info.attach("fixed portfolio budget evidence", {
+    path: evidencePath,
+    contentType: "application/json",
+  });
+  await gross.fill("2200");
+  await margin.fill("");
+  await expect(reviewed).toHaveCount(0);
+  await reviewButton.click();
+  await expect(reviewed.getByRole("row").nth(1).getByRole("cell")).toHaveText([
+    "期末总名义",
+    "2200",
+    "2200",
+    "0",
+    "复核范围内（非执行许可）",
+  ]);
+  await expect(reviewed.getByRole("row").nth(2)).toContainText("未设置");
+  const stale = await page.request.post("/__asterion/api", {
+    data: {
+      version: 1,
+      method: "backtest.budget.review",
+      params: {
+        id: original.id,
+        input_sha256: original.input_sha256,
+        result_digest: "0".repeat(64),
+        limits: { gross_notional: "1", margin: null },
+      },
+    },
+  });
+  expect((await stale.json()).error).toBeTruthy();
+  expect((await rpc(page.request, "task.result.read", { id: original.id })).task_result).toEqual(
+    original,
+  );
+  expect(
+    (await rpc(page.request, "runtime.snapshot")).task_service.tasks
+      .map((task: { id: string }) => task.id)
+      .sort(),
+  ).toEqual(tasksBefore);
   await page.screenshot({ path: join(__dirname, "../test-results/backtest-ranked.png") });
 });
 

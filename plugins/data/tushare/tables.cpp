@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <ranges>
+#include <chrono>
 namespace asterion::tushare {
 namespace {
 constexpr const char* every_exchange[] = {"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"};
@@ -126,6 +127,7 @@ struct Tables::Listing {
 // One vendor table: where each field is, and the rows.
 struct Tables::Answer {
   Json root;
+  std::optional<SourceResponse> raw;
   std::map<std::string, std::size_t> fields;
   const Json& rows() const { return root.at("data").at("items"); }
   const Json& at(const Json& row, const char* field) const { return row.at(fields.at(field)); }
@@ -149,6 +151,11 @@ Tables::Answer Tables::request(const char* interface, const Json& parameters, co
   if (stop.stop_requested())
     throw std::runtime_error("Tushare download cancelled");
   Answer answer;
+  if (std::string_view(interface) == "fut_daily")
+    answer.raw = SourceResponse{daily_response_format, raw,
+                                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                    std::chrono::system_clock::now().time_since_epoch())
+                                    .count()};
   try {
     answer.root = parse_response(raw);
     // The vendor's own message can repeat the token: it is never passed on.
@@ -296,6 +303,7 @@ const Tables::Listing& Tables::listed(const std::string& venue, const std::strin
 std::vector<TableRow> Tables::read(std::string_view table, Columns columns,
                                    const std::string& venue, const std::string& period,
                                    std::stop_token stop) {
+  response_.reset();
   if (table == "futures.contracts") {
     std::vector<TableRow> rows;
     for (const auto& listing : catalogue(venue, stop))
@@ -379,10 +387,27 @@ std::vector<TableRow> Tables::daily(Columns columns, const std::string& venue,
                               {"delivery_settlement", number(answer.at(row, "delv_settle"))}},
                              columns));
     } catch (const std::invalid_argument& error) {
+      if (code.find(token_) != std::string::npos ||
+          std::string_view(error.what()).find(token_) != std::string_view::npos)
+        throw TableError("source response contains private text; raw evidence was not retained");
       throw TableError(partition + ": " + (code.empty() ? "a row without a code" : code) + " " +
                        error.what());
     }
   }
+  // The request credential never leaves this source. Reject retained bytes
+  // if any parsed scalar echoes it, including an escaped request_id value.
+  const auto echoes = [&](const auto& self, const Json& value) -> bool {
+    if (value.is_string())
+      return value.get_ref<const std::string&>().find(token_) != std::string::npos;
+    if (value.is_structured())
+      for (const auto& child : value)
+        if (self(self, child))
+          return true;
+    return false;
+  };
+  if (answer.raw && allow_daily_response(answer.raw->body, venue, period) &&
+      !echoes(echoes, answer.root))
+    response_ = answer.raw;
   return rows;
 }
 std::vector<TableRow> Tables::settlement(Columns columns, const std::string& venue,

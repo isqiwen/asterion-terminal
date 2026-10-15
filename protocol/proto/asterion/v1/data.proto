@@ -109,7 +109,7 @@ message ProductBarsRequest {
 }
 // Resolves month contracts of one product as its dominant series: the months
 // listed, or the product's own in the daily table.
-message DominantSeriesRequest { repeated BarDatasetRequest months = 1; ProductBarsRequest product = 2; }
+message DominantSeriesRequest { repeated BarDatasetRequest months = 1; ProductBarsRequest product = 2; string first_day = 3; /* Explicit replay anchor; Data reads the preceding calendar trading day. */ }
 // months: indexes of the months that are dominant at some point, in
 // delivery-month order, among the request's months or, of a product, among
 // those of its months that traded; datasets and schedule contracts follow
@@ -181,15 +181,32 @@ message MinutePage {
   repeated MinuteBar bars = 15;
 }
 
-// Daily bars retain provider trading dates; no synthetic intraday timestamps.
-message DailyDownload { uint32 version = 1; string contract_id = 2; string source = 3; string source_instrument = 4; string begin_day = 5; string end_day = 6; uint32 requests_per_minute = 7; }
-message DailyDownloadResult { uint32 version = 1; string directory = 2; string manifest_sha256 = 3; uint64 rows = 4; uint32 pages = 5; }
 
 // Market-wide tables. A partition is one exchange and one period of a table:
 // the whole table ("all"), a year or a trading day, as the table defines. An
 // update reads the partitions the store lacks; each becomes visible when the
 // data service has validated it, whatever becomes of the task that read it.
 // Credentials are not part of this durable task definition.
+message TableRefreshTarget {
+  TablePartitionKey partition = 1;
+  string source = 2;
+  string previous_snapshot = 3;
+  string previous_content = 4;
+  string provider_artifact = 5;
+}
+message TableRefreshQuery {
+  string provider = 1;
+  string source = 2;
+  TablePartitionKey partition = 3;
+  string previous_snapshot = 4;
+  uint32 requests_per_minute = 5;
+}
+message TableRefreshPlan {
+  string id = 1;
+  TableRefreshQuery query = 2;
+  TableRevision previous = 3;
+  TableUpdate update = 4;
+}
 message TableUpdate {
   uint32 version = 1;
   string provider = 2; // the plugin whose tables are read
@@ -199,6 +216,7 @@ message TableUpdate {
   string begin_day = 4; // empty: continue after what each exchange already holds
   string end_day = 5;   // empty: through the last day that has ended in Asia/Shanghai
   uint32 requests_per_minute = 6;
+  TableRefreshTarget refresh = 7; // explicit single existing day partition, not missing-only
 }
 message TablePartitionKey { string table = 1; string exchange = 2; string period = 3; }
 message TablePartitionOutcome { TablePartitionKey partition = 1; string reason = 2; }
@@ -213,6 +231,8 @@ message TableUpdateResult {
   // "table exchange" pairs that hold nothing yet while the update names no begin day.
   repeated string waiting = 7;
   string snapshot = 8; // the store after the last partition of this run
+  TableRevision refreshed_revision = 9; // exact receipt for an explicit refresh, when published/unchanged
+  TableRefreshObservation refresh_observation = 10;
 }
 // One entry of the store's ledger: the content a partition held from this
 // sequence on. snapshot identifies the ledger up to and including the entry.
@@ -237,9 +257,41 @@ message TableCoverageRow {
 }
 message TableCoverage { repeated TableCoverageRow rows = 1; string snapshot = 2; repeated TableSource sources = 3; }
 message TablePageQuery { TablePartitionKey partition = 1; string source = 2; uint64 offset = 3; uint32 limit = 4; }
+// Exact retained response bytes and verified association, not a projection.
+message SourceResponse { string format = 1; int64 received_at_ns = 2; bytes body = 3; }
+message TableResponseEvidence {
+  SourceResponse response = 1; string sha256 = 2; uint64 bytes = 3;
+  string revision_snapshot = 4; string normalized_content = 5; string normalized_object = 6;
+  string provider_artifact = 7;
+}
+// Derived on read from the complete stored partition; never persisted.
+message TableResponseDifference {
+  string kind = 1; string key = 2; string field = 3;
+  optional string raw = 4; optional string expected = 5; optional string actual = 6;
+}
+message TableResponseReview {
+  string status = 1; string reason = 2;
+  uint64 response_fields = 3; uint64 response_rows = 4; uint64 normalized_rows = 5;
+  uint64 dated_rows = 6; uint64 matched_rows = 7; uint64 compared_cells = 8;
+  repeated string skipped_keys = 9; repeated string unknown_keys = 10;
+  repeated TableResponseDifference differences = 11;
+}
+// Post-fetch evidence, independent of the revision hash chain and original import.
+message TableRefreshObservation {
+  string id = 1; string operation = 2;
+  string data_instance = 3; string task_instance = 4; string task_id = 5; uint32 attempt = 6;
+  string provider = 7; string provider_artifact = 8;
+  string selected_snapshot = 9; string selected_content = 10;
+  TableRevision revision = 11; SourceResponse response = 12;
+  string response_sha256 = 13; uint64 response_bytes = 14; int64 recorded_at_ns = 15;
+  bool unchanged = 16;
+}
 message TablePage {
   TableRevision revision = 1; repeated string columns = 2; repeated TableRow rows = 3;
   uint64 offset = 4;
+  TableResponseEvidence response_evidence = 5; // absent means no raw evidence recorded
+  TableResponseReview response_review = 6;
+  TableRefreshObservation latest_refresh_observation = 7;
 }
 // Series read from the market-wide daily table under one snapshot of its
 // ledger. An instrument is one contract (SHFE/rb/2026-10) or a product
@@ -251,7 +303,14 @@ message TableSeriesRequest {
   string begin_day = 4; string end_day = 5; // Inclusive.
   repeated string instruments = 6; // 1..100, each once.
 }
-message TableClose { string trading_day = 1; asterion.protocol.v1.Decimal close = 2; }
+message TableClose {
+  string trading_day = 1;
+  asterion.protocol.v1.Decimal close = 2;
+  // Raw lots of the actual month, never adjusted by a dominant price factor.
+  // Absent means the source did not supply the fact; zero is an observed zero.
+  optional int64 volume_contracts = 3;
+  optional int64 open_interest_contracts = 4;
+}
 // One month contract's closes on the days it is read, ascending. A day the
 // contract has no close on is not there.
 message TableMonth { string contract = 1; repeated TableClose closes = 2; }
@@ -260,7 +319,7 @@ message TableMonth { string contract = 1; repeated TableClose closes = 2; }
 // roll's contract is an index into them), each with its closes while it is
 // dominant. Prices are raw; the schedule's factors adjust them.
 message TableSeries {
-  uint32 version = 1; // 1
+  uint32 version = 1; // 2
   string snapshot = 2; string daily_source = 3; string calendar_source = 4;
   string begin_day = 5; string end_day = 6;
   string instrument = 7;
@@ -277,6 +336,17 @@ message TableProduct {
   string first_listed = 4; string last_delisted = 5;
 }
 message TableProducts { repeated TableProduct products = 1; }
+// Chart selection needs dated contracts, independently of a minute provider's
+// download codes. Presence in this catalog does not imply stored candles.
+message TableListedContractsQuery {
+  string snapshot = 1; string contracts_source = 2; string exchange = 3; string product = 4;
+}
+message TableListedContract {
+  string contract_id = 1; string name = 2; string list_date = 3; string delist_date = 4;
+}
+message TableListedContracts {
+  TableListedContractsQuery query = 1; repeated TableListedContract items = 2;
+}
 
 enum DailyPeriod { DAY = 0; WEEK = 1; MONTH = 2; QUARTER = 3; YEAR = 4; }
 // One contract of the market-wide daily table as a chart draws it, under a
@@ -303,40 +373,6 @@ message TableDailyPage {
   uint64 total = 4; uint64 offset = 5; uint32 limit = 6;
   repeated TableCandle candles = 7;
 }
-message DailyPageQuery { reserved 7, 8; string dataset_id = 1; string task_id = 2; uint64 offset = 3; uint32 limit = 4; string begin_day = 5; string end_day = 6; }
-message DailyBar {
-  reserved 12;
-  string trading_day = 1;
-  asterion.protocol.v1.Decimal open = 2;
-  asterion.protocol.v1.Decimal high = 3;
-  asterion.protocol.v1.Decimal low = 4;
-  asterion.protocol.v1.Decimal close = 5;
-  asterion.protocol.v1.Decimal volume = 6;
-  asterion.protocol.v1.Decimal amount = 7;
-  asterion.protocol.v1.Decimal open_interest = 8;
-  asterion.protocol.v1.Decimal previous_close = 9;
-  asterion.protocol.v1.Decimal previous_settlement = 10;
-  asterion.protocol.v1.Decimal settlement = 11;
-}
-message DailyPage {
-  reserved 15;
-  uint32 version = 1;
-  string task_id = 2;
-  string source = 3;
-  string contract_id = 4;
-  string manifest_sha256 = 5;
-  uint64 total_rows = 6;
-  uint64 matched_rows = 7;
-  uint64 offset = 8;
-  uint32 limit = 9;
-  string first_day = 10;
-  string last_day = 11;
-  string begin_day = 12;
-  string end_day = 13;
-  repeated DailyBar bars = 14;
-}
-
-message HistoryCatalogQuery { string source = 1; string venue = 2; string product = 3; string credential = 4; }
 message HistoryListing { string source_instrument = 1; string contract_id = 2; string name = 3; string list_date = 4; string delist_date = 5; asterion.protocol.v1.Decimal multiplier = 6; asterion.protocol.v1.Decimal per_unit = 7; optional string trade_unit = 8; optional string quote_unit = 9; }
 message HistoryCatalog { string source = 1; repeated HistoryListing items = 2; }
 // The contracts a history source downloads, as its own data source's contract
@@ -346,12 +382,14 @@ message HistoryCatalog { string source = 1; repeated HistoryListing items = 2; }
 message TableContractsQuery { string snapshot = 1; string source = 2; string exchange = 3; string product = 4; }
 
 // Service-owned archive record. Definitions and verified immutable results contain no credentials.
-message HistoryRecord { uint32 version = 1; oneof definition { MinuteDownload minutes = 2; DailyDownload daily = 3; } oneof result { MinuteDownloadResult minute_result = 4; DailyDownloadResult daily_result = 5; } }
+// A minute version. A per-contract daily download an earlier version published
+// (fields 3 and 5) is not read: its files stay where they are.
+message HistoryRecord { reserved 3, 5; uint32 version = 1; MinuteDownload minutes = 2; MinuteDownloadResult minute_result = 4; }
 message HistoryFilter { string venue = 1; string product = 2; string contract_id = 3; string source = 4; }
 message HistoryDataset { string id = 1; string contract_id = 2; string source = 3; string revision = 4; string begin = 5; string end = 6; uint32 interval_minutes = 7; uint64 rows = 8; }
-message HistoryDatasets { repeated HistoryDataset items = 1; }
-// Compare exact minute/daily versions of one contract. Never merge periods,
-// sources or revisions. Missing whole trading days do not assess intraday quality.
+// `unsupported` counts the versions an earlier version published that this one
+// does not read.
+message HistoryDatasets { repeated HistoryDataset items = 1; uint32 unsupported = 2; }
 // One minute version of a contract against the market-wide daily table: of
 // the version's days, the part the table holds under the snapshot asked for
 // runs from compared_first to compared_last; the contract traded in the
@@ -363,9 +401,72 @@ message HistoryCoverage {
   uint32 uncovered = 8; repeated string uncovered_days = 9; // At most the first 50.
   string minute_dataset_id = 10; string minute_source = 12; uint32 interval_minutes = 14;
   string compared_first = 15; string compared_last = 16; uint32 traded_days = 17;
+  uint64 unknown_rows = 18; // Nonzero means whole-day comparison is unavailable.
 }
 message HistoryCoverages { repeated HistoryCoverage items = 1; }
 message HistoryCoverageQuery { HistoryFilter filter = 1; DailyTable daily = 2; }
+
+// Stored observations, never a declaration of complete sessions. Trading days
+// come from the provider, including for night bars; unknown labels are counted
+// separately. begin/end are the immutable download request, not observed bounds.
+message MinuteDayEvidence {
+  string trading_day = 1; uint64 rows = 2; int64 first_ns = 3; int64 last_ns = 4;
+}
+message MinuteEvidenceQuery { string dataset_id = 1; uint32 offset = 2; uint32 limit = 3; }
+message MinuteEvidence {
+  string dataset_id = 1; int64 begin_ns = 2; int64 end_ns = 3;
+  uint64 total_rows = 4; uint64 unknown_rows = 5;
+  uint32 total_days = 6; uint32 offset = 7; uint32 limit = 8;
+  repeated MinuteDayEvidence days = 9;
+}
+
+// Explicit research trading-day range, separate from the original timestamp request.
+message SessionClosureEvidence {
+  string rule_id = 1;
+  uint32 version = 2;
+  string exchange = 3;
+  string first_day = 4;
+  string last_day = 5;
+  string published_day = 6;
+  string source_url = 7;
+}
+message MinuteRangeQuery {
+  string dataset_id = 1;
+  DailyTable daily = 2;
+  string begin_day = 3;
+  string end_day = 4;
+  uint32 session_rules_version = 5;
+}
+enum MinuteRangeState {
+  MINUTE_RANGE_UNSPECIFIED = 0;
+  RANGE_OBSERVED = 1;
+  RANGE_UNCOVERED = 2;
+  RANGE_CLOSED = 3;
+  RANGE_UNKNOWN_CALENDAR = 4;
+  RANGE_UNKNOWN_DAILY = 5;
+  RANGE_NO_AUCTION = 6;
+  RANGE_UNKNOWN_LABELS = 7;
+  RANGE_CALENDAR_CONFLICT = 8;
+  RANGE_OFFICIAL_CLOSED = 9;
+  RANGE_RULE_CONFLICT = 10;
+}
+message MinuteRangeDay {
+  string trading_day = 1;
+  MinuteRangeState state = 2;
+  MinuteDayEvidence observed = 3;
+  SessionClosureEvidence official_closure = 4;
+  SessionClosureEvidence evening_closure = 5;
+}
+message MinuteRangeEvidence {
+  MinuteRangeQuery query = 1;
+  string contract_id = 2;
+  string minute_source = 3;
+  uint32 interval_minutes = 4;
+  int64 request_begin_ns = 5;
+  int64 request_end_ns = 6;
+  uint64 unknown_rows = 7;
+  repeated MinuteRangeDay days = 8;
+}
 
 // Installed native capabilities; account permissions are checked by the provider.
 message HistorySource {
@@ -395,10 +496,20 @@ message HistoryUpdateQuery {
   HistoryUpdateMode mode = 3; string end_day = 4; uint32 requests_per_minute = 5;
   DailyTable daily = 6; // REPAIR only
 }
+message HistoryRepairConflict {
+  string day = 1;
+  SessionClosureEvidence closure = 2;
+  bool observed_minutes = 3;
+  bool calendar_open = 4;
+  bool daily_auction = 5;
+}
 message HistoryUpdatePlan {
   string id = 1; HistoryUpdateQuery query = 2;
-  oneof download { MinuteDownload minutes = 3; DailyDownload daily = 4; }
+  reserved 4;
+  MinuteDownload minutes = 3;
   repeated string missing_days = 5;
+  repeated HistoryRepairConflict conflicts = 6;
+  uint32 session_rules_version = 7;
 }
 
 // Observed references from one owner only. This is not a deletion

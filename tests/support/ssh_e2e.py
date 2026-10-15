@@ -16,6 +16,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-ssh-ui-", ignore_cleanup_error
     root = Path(folder); tools = root / "tools"; tools.mkdir(); remote = root / "remote"; remote.mkdir()
     resources=make_bundle(root / "resources", BUILD)
     env = dict(os.environ, ASTERION_REMOTE_RESOURCES=str(resources),
+               ASTERION_TABLE_FIXTURE_CONTROL=str(root / "table-source-control"),
                ASTERION_KEYCHAIN_EXECUTABLE=install_keychain(root / "keychain"))
     # Editors such as VS Code export this; Electron would then start as plain Node.
     env.pop("ELECTRON_RUN_AS_NODE", None)

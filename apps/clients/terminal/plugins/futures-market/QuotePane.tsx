@@ -17,6 +17,7 @@ import {
   type TerminalContext,
 } from "../contract";
 import { ContractHistory } from "./ContractHistory";
+import { MinuteContinuity } from "./MinuteContinuity";
 import { QuoteChart } from "./QuoteChart";
 import { quoteChange, quoteStatus } from "./QuoteTable";
 import { chartTime } from "./chart-time";
@@ -166,13 +167,40 @@ function MinuteCandles({
   market,
   row,
   minutes,
+  pane,
 }: {
   context: TerminalContext;
   market: LiveMarket;
   row: Row;
   minutes: number;
+  pane: string;
 }) {
   const { series, error } = useIntraday(context, market, row);
+  if (minutes === 1)
+    return (
+      <MinuteContinuity
+        pane={pane}
+        context={context}
+        market={market}
+        row={row}
+        series={series}
+        error={error}
+        renderLive={segment => <ObservedCandles series={segment} error="" minutes={1} row={row} />}
+      />
+    );
+  return <ObservedCandles series={series} error={error} minutes={minutes} row={row} />;
+}
+function ObservedCandles({
+  series,
+  error,
+  minutes,
+  row,
+}: {
+  series: IntradaySeries | null;
+  error: DisplayError;
+  minutes: number;
+  row: Row;
+}) {
   if (error && !series)
     return (
       <div className="market-chart-empty" role="alert">
@@ -334,6 +362,7 @@ export function QuotePane({
             market={market}
             row={row}
             minutes={Number.parseInt(period, 10)}
+            pane={pane}
           />
         ) : (
           <ContractHistory

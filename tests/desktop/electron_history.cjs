@@ -66,39 +66,39 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
       timeout: 10000,
     },
   );
-  assert.match(seeded.stdout, /queued daily fixture/);
+  assert.match(seeded.stdout, /queued minute fixture/);
   assert.ok((await fs.stat(path.join(service.directory, "tasks.sqlite"))).isFile());
   await call("node.data_tasks.local.open");
   await expect
     .poll(
       async () => {
         const snapshot = await call("runtime.snapshot");
-        const task = snapshot.task_service?.tasks.find(task => task.id === "native-daily-fixture");
+        const task = snapshot.task_service?.tasks.find(task => task.id === "native-queued-minutes");
         return task && { state: task.state, error: task.error || snapshot.task_service.error };
       },
       {
         timeout: 20000,
-        message: "Agent must dispatch the queued daily worker and publish its result",
+        message: "Agent must dispatch the queued minute worker and publish its result",
       },
     )
     .toEqual({ state: "succeeded", error: "" });
-  const dailyTask = (await call("runtime.snapshot")).task_service.tasks.find(
-    task => task.id === "native-daily-fixture",
+  const queuedTask = (await call("runtime.snapshot")).task_service.tasks.find(
+    task => task.id === "native-queued-minutes",
   );
-  assert.equal(dailyTask.attempt, 1);
-  assert.equal(dailyTask.completed, dailyTask.total);
-  assert.match(dailyTask.result_digest, /^[0-9a-f]{64}$/);
+  assert.equal(queuedTask.attempt, 1);
+  assert.equal(queuedTask.completed, queuedTask.total);
+  assert.match(queuedTask.result_digest, /^[0-9a-f]{64}$/);
   // Read through the owning service: SQLite uses an exclusive writer lock.
   await call("node.action", { id: "local", service: "task", action: "stop" });
   await call("node.data_tasks.local.open");
   await expect
     .poll(async () =>
-      (await call("runtime.snapshot")).task_service.tasks.find(t => t.id === dailyTask.id),
+      (await call("runtime.snapshot")).task_service.tasks.find(t => t.id === queuedTask.id),
     )
     .toMatchObject({
       state: "succeeded",
       attempt: 1,
-      result_digest: dailyTask.result_digest,
+      result_digest: queuedTask.result_digest,
     });
   const minuteDatasetId = (await call("runtime.snapshot")).task_service.tasks.find(
     task => task.id === "native-minute-fixture",
@@ -140,7 +140,10 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
   const nav = page.getByRole("navigation", { name: "业务工作区" });
   await nav.getByRole("button", { name: "数据", exact: true }).click();
   await page.getByRole("button", { name: "历史数据", exact: true }).click();
-  await page.getByRole("button", { name: "查看数据", exact: true }).click({ timeout: 15000 });
+  const openMinutes = page
+    .locator('[data-task-id="native-minute-fixture"]')
+    .getByRole("button", { name: "查看数据", exact: true });
+  await openMinutes.click({ timeout: 15000 });
   const viewer = page.getByRole("region", { name: "历史数据查看", exact: true });
   await expect(viewer.getByRole("img", { name: "合约 K 线与成交量" })).toBeVisible();
   await expect(viewer.locator("tbody tr")).toHaveCount(100);
@@ -154,7 +157,7 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
   await expect(viewer.getByRole("button", { name: "上一页", exact: true })).toBeDisabled();
   await call("node.data_tasks.local.open");
   await expect(viewer).toHaveCount(0, { timeout: 15000 });
-  await page.getByRole("button", { name: "查看数据", exact: true }).click();
+  await openMinutes.click();
   await expect(viewer.locator("tbody tr")).toHaveCount(100);
   await viewer.getByLabel("开始时间（北京时间）").fill("2023-08-25T13:00");
   await viewer.getByLabel("结束时间（北京时间）").fill("2023-08-25T13:09");
@@ -280,24 +283,7 @@ module.exports = async function checkNativeHistory(page, temp, capture, pluginDi
     });
   assert.ok(dateAlignment < 1, "the single date label must align with its candle");
   await capture(page, "native-yearly-market");
-  await nav.getByRole("button", { name: "数据", exact: true }).click();
-  // Close the previously retained minute viewer before selecting another source.
-  const back = page.getByRole("button", { name: "返回数据集", exact: true });
-  if (await back.count()) await back.click();
-  await page
-    .getByRole("combobox", { name: "数据源", exact: true })
-    .selectOption("tushare.fut_daily");
-  await page.getByRole("button", { name: "查看数据", exact: true }).click();
-  await expect(viewer.getByRole("region", { name: "日线数据表", exact: true })).toBeVisible();
-  await expect(viewer.locator("tbody tr").first()).toContainText("2023-01-01");
-  await expect(viewer.locator("tbody tr").first().locator("td").nth(10)).toHaveText("—");
-  await viewer.getByLabel("开始交易日期", { exact: true }).fill("2023-04-11");
-  await viewer.getByLabel("结束交易日期", { exact: true }).fill("2023-04-20");
-  await viewer.getByRole("button", { name: "查看区间", exact: true }).click();
-  await expect(viewer.locator("tbody tr")).toHaveCount(10);
-  await expect(viewer.locator("tbody tr").first()).toContainText("2023-04-11");
-  await capture(page, "native-daily-viewer");
   console.log(
-    "Electron minute/daily history: Agent-dispatched daily worker, real Task Service persistence, native parallel queries, exact decimals, paging, service restart and MACD charts passed",
+    "Electron minute/daily history: Agent-dispatched minute worker, real Task Service persistence, native parallel queries, exact decimals, paging, service restart and MACD charts passed",
   );
 };

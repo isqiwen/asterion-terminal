@@ -1,6 +1,9 @@
 #include "table_update.hpp"
-#include <asterion/domain/daily_bars.hpp>
+#include "history_providers.hpp"
+#include "response_evidence.hpp"
+#include <asterion/domain/trading_days.hpp>
 #include <asterion/protocol/data.hpp>
+#include <asterion/kernel/process/artifact.hpp>
 #include <algorithm>
 #include <chrono>
 #include <map>
@@ -19,6 +22,18 @@ const TableOffer& offer(const std::vector<TableOffer>& offers, std::string_view 
   if (found == offers.end() || std::ranges::find(found->venues, venue) == found->venues.end())
     throw std::invalid_argument("the source does not provide " + std::string(table) + " for " +
                                 venue);
+  return *found;
+}
+const TableOffer& refresh_offer(const std::vector<TableOffer>& offers, const std::string& provider,
+                                const std::string& source, const v1::TablePartitionKey& key) {
+  const auto found = std::ranges::find_if(offers, [&](const auto& item) {
+    return item.plugin_id == provider && item.series.source == source &&
+           item.series.table == key.table() &&
+           std::ranges::find(item.venues, key.exchange()) != item.venues.end();
+  });
+  if (found == offers.end())
+    throw Error(ErrorCode::conflict,
+                "table refresh source is not available from the selected provider");
   return *found;
 }
 std::string shifted(const std::string& day, int offset) {
@@ -80,8 +95,48 @@ void add(v1::TableUpdatePlan& plan, std::string_view table, const std::string& v
   partition->set_period(period);
 }
 } // namespace
+v1::TableRefreshPlan table_refresh_plan(const TableStore& store,
+                                        const std::vector<TableOffer>& offers,
+                                        const v1::TableRefreshQuery& query,
+                                        const std::string& artifact, const std::string& today) {
+  (void)protocol::decode_table_refresh_query(query);
+  (void)parse_trading_date(today);
+  if (query.partition().period() >= today)
+    throw std::invalid_argument("table refresh requires a completed trading date");
+  const auto& selected = refresh_offer(offers, query.provider(), query.source(), query.partition());
+  const auto previous =
+      reference(store, selected.series, query.partition().exchange(), query.partition().period());
+  if (previous.snapshot != query.previous_snapshot())
+    throw Error(ErrorCode::conflict, "selected table partition changed; read it and preview again");
+  v1::TableRefreshPlan plan;
+  *plan.mutable_query() = query;
+  *plan.mutable_previous() = encode_table_revision(previous);
+  auto* update = plan.mutable_update();
+  update->set_version(1);
+  update->set_provider(query.provider());
+  update->add_tables(query.partition().table());
+  update->set_begin_day(query.partition().period());
+  update->set_end_day(query.partition().period());
+  update->set_requests_per_minute(query.requests_per_minute());
+  auto* target = update->mutable_refresh();
+  *target->mutable_partition() = query.partition();
+  target->set_source(query.source());
+  target->set_previous_snapshot(previous.snapshot);
+  target->set_previous_content(previous.content);
+  target->set_provider_artifact(artifact);
+  protocol::validate_table_update(*update);
+  plan.set_id(sha256_bytes(plan.SerializeAsString()));
+  return plan;
+}
 bool table_update_covers(const std::vector<TableOffer>& offers, const v1::TableUpdate& update,
                          const v1::TablePartitionKey& partition) {
+  if (update.has_refresh())
+    return partition.SerializeAsString() == update.refresh().partition().SerializeAsString() &&
+           std::ranges::any_of(offers, [&](const auto& item) {
+             return item.plugin_id == update.provider() && item.series.table == partition.table() &&
+                    item.series.source == update.refresh().source() &&
+                    std::ranges::find(item.venues, partition.exchange()) != item.venues.end();
+           });
   const auto& table = partition.table();
   if (table != contracts_table && table != calendar_table &&
       std::ranges::find(update.tables(), table) == update.tables().end())
@@ -103,6 +158,15 @@ v1::TableUpdatePlan table_update_plan(const TableStore& store,
   const auto ended = shifted(today, -1);
   const auto end = update.end_day().empty() ? ended : std::min(update.end_day(), ended);
   v1::TableUpdatePlan plan;
+  if (update.has_refresh()) {
+    const auto& target = update.refresh();
+    (void)refresh_offer(offers, update.provider(), target.source(), target.partition());
+    if (target.partition().period() >= today)
+      throw std::invalid_argument("table refresh requires a completed trading date");
+    if (step == v1::TABLE_PLAN_DAYS)
+      *plan.add_partitions() = target.partition();
+    return plan;
+  }
   // Where each exchange of each table starts, and which exchanges take part.
   struct Start {
     std::string table, venue, first;
@@ -262,6 +326,32 @@ v1::TableCoverage table_coverage(const TableStore& store,
   }
   return result;
 }
+v1::TableRefreshObservation
+encode_refresh_observation(const history_files::TableRefreshObservation& o) {
+  history_providers::validate_response(o.revision.series.table, o.revision.exchange,
+                                       o.revision.period, o.response);
+  v1::TableRefreshObservation value;
+  value.set_id(o.id);
+  value.set_operation(o.operation);
+  value.set_data_instance(o.context.data_instance);
+  value.set_task_instance(o.context.task_instance);
+  value.set_task_id(o.context.task_id);
+  value.set_attempt(o.context.attempt);
+  value.set_provider(o.context.provider);
+  value.set_provider_artifact(o.context.provider_artifact);
+  value.set_selected_snapshot(o.context.selected_snapshot);
+  value.set_selected_content(o.context.selected_content);
+  *value.mutable_revision() = encode_table_revision(o.revision);
+  auto* raw = value.mutable_response();
+  raw->set_format(o.response.format);
+  raw->set_body(o.response.body);
+  raw->set_received_at_ns(o.response.received_at_ns);
+  value.set_response_sha256(sha256_bytes(o.response.body));
+  value.set_response_bytes(o.response.body.size());
+  value.set_recorded_at_ns(o.recorded_at_ns);
+  value.set_unchanged(o.unchanged);
+  return value;
+}
 v1::TablePage table_page(const TableStore& store, const v1::TablePageQuery& query) {
   protocol::validate_message(query);
   const auto& table = history_table(query.partition().table());
@@ -271,11 +361,58 @@ v1::TablePage table_page(const TableStore& store, const v1::TablePageQuery& quer
                                       query.partition().exchange(), query.partition().period());
   if (!revision)
     throw Error(ErrorCode::not_found, "history table partition is not stored");
-  const auto rows = store.rows(*revision);
+  const TablePartition partition{&table, revision->exchange, revision->period,
+                                 store.rows(*revision), revision->content};
+  const auto& rows = partition.rows;
   if (query.offset() > rows.size() || (query.offset() == rows.size() && !rows.empty()))
     throw std::invalid_argument("history table page offset is out of range");
   v1::TablePage page;
   *page.mutable_revision() = encode_table_revision(*revision);
+  const auto response = store.response(*revision);
+  if (response) {
+    history_providers::validate_response(revision->series.table, revision->exchange,
+                                         revision->period, *response);
+    auto* evidence = page.mutable_response_evidence();
+    auto* raw = evidence->mutable_response();
+    raw->set_format(response->format);
+    raw->set_received_at_ns(response->received_at_ns);
+    raw->set_body(response->body);
+    evidence->set_sha256(sha256_bytes(response->body));
+    evidence->set_bytes(response->body.size());
+    evidence->set_revision_snapshot(revision->snapshot);
+    evidence->set_normalized_content(revision->content);
+    evidence->set_normalized_object(revision->object);
+    evidence->set_provider_artifact(revision->provider_artifact);
+  }
+  const auto review = tushare::review_daily_response(response, partition);
+  auto* checked = page.mutable_response_review();
+  checked->set_status(review.status);
+  checked->set_reason(review.reason);
+  checked->set_response_fields(review.response_fields);
+  checked->set_response_rows(review.response_rows);
+  checked->set_normalized_rows(review.normalized_rows);
+  checked->set_dated_rows(review.dated_rows);
+  checked->set_matched_rows(review.matched_rows);
+  checked->set_compared_cells(review.compared_cells);
+  for (const auto& key : review.skipped_keys)
+    checked->add_skipped_keys(key);
+  for (const auto& key : review.unknown_keys)
+    checked->add_unknown_keys(key);
+  for (const auto& issue : review.differences) {
+    auto* difference = checked->add_differences();
+    difference->set_kind(issue.kind);
+    difference->set_key(issue.key);
+    difference->set_field(issue.field);
+    if (issue.raw)
+      difference->set_raw(*issue.raw);
+    if (issue.expected)
+      difference->set_expected(*issue.expected);
+    if (issue.actual)
+      difference->set_actual(*issue.actual);
+  }
+  if (const auto observation =
+          store.latest_refresh_observation(revision->series, revision->exchange, revision->period))
+    *page.mutable_latest_refresh_observation() = encode_refresh_observation(*observation);
   page.set_offset(query.offset());
   for (const auto& column : table.columns)
     page.add_columns(std::string(column.name));

@@ -74,6 +74,73 @@ TEST(Performance, UndefinedFiguresStayAbsentAndInvalidRecordsAreRefused) {
   std::swap(record[3].day, record[4].day);
   EXPECT_THROW(performance(d("100000"), record, marks), std::invalid_argument);
 }
+TEST(MonthlyContributions, PartialMonthsAndYearBoundariesReconcileExactEquityAndFees) {
+  const auto deposit = d("90000000");
+  const std::vector<SettlementDay> days{
+      {sys_days{2025y / December / 30}, d("90000100.00000001"), d("1.00000001")},
+      {sys_days{2025y / December / 31}, d("90000080"), d("3.00000001")},
+      {sys_days{2026y / January / 5}, d("89999999.99999999"), d("4.00000002")},
+      // No February evidence: no synthetic February row.
+      {sys_days{2026y / March / 2}, d("90000020"), d("4.00000002")},
+  };
+  const auto months = monthly_contributions(deposit, days);
+  ASSERT_EQ(months.size(), 3U);
+  EXPECT_EQ(months[0].first_day, days[0].day);
+  EXPECT_EQ(months[0].last_day, days[1].day);
+  EXPECT_EQ(months[0].trading_days, 2U);
+  EXPECT_EQ(months[0].opening_equity, deposit);
+  EXPECT_EQ(months[0].closing_equity, d("90000080"));
+  EXPECT_EQ(months[0].net, d("80"));
+  EXPECT_EQ(months[0].fees, d("3.00000001"));
+  EXPECT_EQ(months[0].gross, d("83.00000001"));
+  EXPECT_EQ(months[1].first_day, days[2].day);
+  EXPECT_EQ(months[1].last_day, days[2].day);
+  EXPECT_EQ(months[1].trading_days, 1U);
+  EXPECT_EQ(months[1].opening_equity, months[0].closing_equity);
+  EXPECT_EQ(months[1].net, d("-80.00000001"));
+  EXPECT_EQ(months[1].fees, d("1.00000001"));
+  EXPECT_EQ(months[1].gross, d("-79"));
+  EXPECT_EQ(months[2].net, d("20.00000001"));
+  EXPECT_EQ(months[2].fees, Decimal{});
+  Decimal net, fees, gross;
+  double contribution = 0;
+  for (const auto& month : months) {
+    net = net + month.net;
+    fees = fees + month.fees;
+    gross = gross + month.gross;
+    contribution += month.return_contribution;
+  }
+  EXPECT_EQ(net, days.back().equity - deposit);
+  EXPECT_EQ(fees, days.back().fees);
+  EXPECT_EQ(gross, net + fees);
+  EXPECT_NEAR(contribution, 20.0 / 90000000, 1e-20);
+}
+TEST(MonthlyContributions, NonpositiveEquityDoesNotMakeDepositBasedContributionsUndefined) {
+  const std::vector<SettlementDay> days{
+      {sys_days{2026y / January / 30}, d("-10"), d("2")},
+      {sys_days{2026y / February / 2}, d("0"), d("3")},
+      {sys_days{2026y / March / 2}, d("20"), d("4")},
+  };
+  const auto months = monthly_contributions(d("100"), days);
+  ASSERT_EQ(months.size(), 3U);
+  EXPECT_DOUBLE_EQ(months[0].return_contribution, -1.1);
+  EXPECT_DOUBLE_EQ(months[1].return_contribution, 0.1);
+  EXPECT_DOUBLE_EQ(months[2].return_contribution, 0.2);
+  EXPECT_EQ(months[1].opening_equity, d("-10"));
+  EXPECT_EQ(months[2].opening_equity, d("0"));
+}
+TEST(MonthlyContributions, InvalidSettlementEvidenceIsRejected) {
+  std::vector<SettlementDay> days{
+      {sys_days{2026y / January / 5}, d("100"), d("2")},
+      {sys_days{2026y / January / 6}, d("100"), d("1")},
+  };
+  EXPECT_THROW(monthly_contributions(d("100"), days), std::invalid_argument);
+  days[1].fees = d("2");
+  days[1].day = days[0].day;
+  EXPECT_THROW(monthly_contributions(d("100"), days), std::invalid_argument);
+  EXPECT_THROW(monthly_contributions(d("100"), {}), std::invalid_argument);
+  EXPECT_THROW(monthly_contributions(d("0"), std::span(days).first(1)), std::invalid_argument);
+}
 TEST(Trades, ATradeIsOneContractsPositionFromFlatToFlatAgain) {
   const std::vector<Decimal> multipliers{d("10"), d("5")};
   const std::vector<TradedFill> fills{
@@ -92,19 +159,87 @@ TEST(Trades, ATradeIsOneContractsPositionFromFlatToFlatAgain) {
       {0, false, d("3"), d("130")},
   };
   const auto result = trades(fills, multipliers);
-  EXPECT_EQ(result.count, 3U);
+  EXPECT_EQ(result.closed.size(), 3U);
+  EXPECT_EQ(result.closed[0].first_fill, 0U);
+  EXPECT_EQ(result.closed[0].last_fill, 3U);
+  EXPECT_EQ(result.closed[1].first_fill, 4U);
+  EXPECT_EQ(result.closed[1].last_fill, 5U);
+  ASSERT_EQ(result.open.size(), 1U);
+  EXPECT_EQ(result.open[0].contract, 1U);
+  EXPECT_EQ(result.open[0].first_fill, 1U);
   EXPECT_EQ(result.winning, 1U);
   EXPECT_EQ(result.losing, 1U);
   EXPECT_DOUBLE_EQ(*result.average_win, 300);
   EXPECT_DOUBLE_EQ(*result.average_loss, -50);
   EXPECT_DOUBLE_EQ(*result.payoff, 6);
 }
+TEST(Trades, ActualFillFeesDetermineNetWinsAndStayWithUnclosedPositions) {
+  const std::vector<Decimal> multipliers{d("10"), d("5")};
+  const std::vector<TradedFill> fills{
+      {0, true, d("2"), d("100"), d("4")},
+      // A different contract remains open. None of its fees belongs to a closed round.
+      {1, true, d("1"), d("50"), d("7")},
+      {0, false, d("1"), d("100.2"), d("3")},
+      {0, false, d("1"), d("100.4"), d("3")},
+      // Another short round makes 20 gross and 15 net.
+      {0, false, d("1"), d("102"), d("2")},
+      {0, true, d("1"), d("100"), d("3")},
+      {0, true, d("1"), d("100"), d("2")},
+  };
+  const auto result = trades(fills, multipliers);
+  ASSERT_EQ(result.closed.size(), 2U);
+  EXPECT_EQ(result.closed[0].gross, d("6"));
+  EXPECT_EQ(result.closed[0].fees, d("10"));
+  EXPECT_EQ(result.closed[0].net, d("-4"));
+  EXPECT_EQ(result.closed[1].net, d("15"));
+  EXPECT_EQ(result.winning, 1U);
+  EXPECT_EQ(result.losing, 1U);
+  EXPECT_DOUBLE_EQ(*result.average_win, 15);
+  EXPECT_DOUBLE_EQ(*result.average_loss, -4);
+  EXPECT_DOUBLE_EQ(*result.payoff, 3.75);
+  EXPECT_EQ(result.open_fees, d("9"));
+  EXPECT_EQ(result.closed[0].fees + result.closed[1].fees + result.open_fees, d("24"));
+}
+TEST(Trades, ContractContributionsReconcileClosedRoundsWithoutOpenFees) {
+  const std::vector<Decimal> multipliers{d("10"), d("5"), d("1")};
+  const std::vector<TradedFill> fills{
+      {0, true, d("1"), d("100"), d("0.00000001")}, {1, false, d("1"), d("50"), d("2")},
+      {0, false, d("1"), d("101"), d("1")},         {1, true, d("1"), d("51"), d("3")},
+      {0, false, d("1"), d("102"), d("1")},         {0, true, d("1"), d("100"), d("1")},
+      {0, true, d("1"), d("100"), d("7")},          {2, true, d("1"), d("10"), d("8")},
+  };
+  const auto result = trades(fills, multipliers);
+  ASSERT_EQ(result.by_contract.size(), 2U);
+  const auto& first = result.by_contract[0];
+  EXPECT_EQ(first.contract, 0U);
+  EXPECT_EQ(first.count, 2U);
+  EXPECT_EQ(first.gross, d("30"));
+  EXPECT_EQ(first.fees, d("3.00000001"));
+  EXPECT_EQ(first.net, d("26.99999999"));
+  const auto& second = result.by_contract[1];
+  EXPECT_EQ(second.contract, 1U);
+  EXPECT_EQ(second.count, 1U);
+  EXPECT_EQ(second.gross, d("-5"));
+  EXPECT_EQ(second.fees, d("5"));
+  EXPECT_EQ(second.net, d("-10"));
+  Decimal gross, fees, net;
+  for (const auto& trade : result.closed) {
+    gross = gross + trade.gross;
+    fees = fees + trade.fees;
+    net = net + trade.net;
+  }
+  EXPECT_EQ(first.gross + second.gross, gross);
+  EXPECT_EQ(first.fees + second.fees, fees);
+  EXPECT_EQ(first.net + second.net, net);
+  EXPECT_EQ(result.open_fees, d("15"));
+}
 TEST(Trades, AveragesNeedTradesOfTheirKindAndAFillNeverCrossesFlat) {
   const std::vector<Decimal> multipliers{d("10")};
   // Nothing closed: no trade and nothing to average.
   const std::vector<TradedFill> open{{0, true, d("1"), d("100")}};
   auto result = trades(open, multipliers);
-  EXPECT_EQ(result.count, 0U);
+  EXPECT_EQ(result.closed.size(), 0U);
+  EXPECT_TRUE(result.by_contract.empty());
   EXPECT_FALSE(result.average_win || result.average_loss || result.payoff);
   // Two wins, of 10 and of 30: an average, and no ratio without a loss.
   const std::vector<TradedFill> wins{{0, true, d("1"), d("100")},

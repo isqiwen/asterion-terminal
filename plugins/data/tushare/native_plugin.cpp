@@ -2,6 +2,7 @@
 #include <asterion/plugin/history.h>
 #include <asterion/plugin/history_connection.h>
 #include <asterion/plugin/history_tables.h>
+#include <asterion/plugin/history_response.h>
 #include <asterion/plugin/sdk.hpp>
 #include <algorithm>
 #include <thread>
@@ -11,7 +12,6 @@ namespace {
 struct Instance {
   std::string source, credential;
   std::unique_ptr<tushare::Minutes> minutes;
-  std::unique_ptr<tushare::Daily> daily;
   std::unique_ptr<tushare::Tables> tables;
   bool running = false;
   AstRequestBudget budget{};
@@ -57,7 +57,7 @@ AstStatus sources(void*, void* context,
     if (!emit)
       throw AstStatus(AST_INVALID);
     static const char* venues[] = {"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"};
-    static const uint32_t minutes[] = {1, 5, 15, 30, 60}, daily[] = {0};
+    static const uint32_t minutes[] = {1, 5, 15, 30, 60};
     const AstHistorySource m{"tushare.ft_mins",
                              "Tushare",
                              "tushare.minutes.v3",
@@ -69,55 +69,7 @@ AstStatus sources(void*, void* context,
                              5,
                              500,
                              1};
-    const AstHistorySource d{"tushare.fut_daily",
-                             "Tushare",
-                             "tushare.daily.v2",
-                             "Asia/Shanghai",
-                             "trading_day",
-                             venues,
-                             6,
-                             daily,
-                             1,
-                             500,
-                             1};
     sdk::check(emit(context, &m));
-    sdk::check(emit(context, &d));
-  });
-}
-AstStatus catalog(void* object, const char* venue, const char* product, AstCancellation cancel,
-                  void* context, AstStatus (*emit)(void*, const AstListing*)) noexcept {
-  return sdk::boundary([&] {
-    if (!venue || !product || !emit)
-      throw AstStatus(AST_INVALID);
-    auto* self = static_cast<Instance*>(object);
-    active(self);
-    Cancellation cancellation(cancel);
-    std::string code(product);
-    std::ranges::transform(code, code.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-    auto date = [](const std::string& value) {
-      return value.substr(0, 4) + "-" + value.substr(4, 2) + "-" + value.substr(6, 2);
-    };
-    const auto rows =
-        tushare::contracts(self->credential, venue, code, cancellation.source.get_token());
-    for (const auto& item : rows) {
-      if (cancellation.source.stop_requested())
-        throw AstStatus(AST_CANCELLED);
-      const auto begin = date(item.list_date), end = date(item.delist_date);
-      AstListing row{{item.identity.venue.c_str(), item.identity.product.c_str(),
-                      item.identity.delivery_month.c_str()},
-                     item.name.c_str(),
-                     begin.c_str(),
-                     end.c_str(),
-                     item.ts_code.c_str(),
-                     item.multiplier ? 1u : 0u,
-                     item.per_unit ? 1u : 0u,
-                     item.multiplier ? item.multiplier->raw() : 0,
-                     item.per_unit ? item.per_unit->raw() : 0,
-                     item.trade_unit ? item.trade_unit->c_str() : nullptr,
-                     item.quote_unit ? item.quote_unit->c_str() : nullptr};
-      sdk::check(emit(context, &row));
-    }
   });
 }
 HistoryIdentity identity(const AstContract& c) {
@@ -155,44 +107,6 @@ AstStatus minutes(void* object, const AstHistoryQuery* query, AstCancellation ca
                     item.amount.raw(),
                     item.open_interest.raw(),
                     item.trading_day.empty() ? nullptr : item.trading_day.c_str()};
-      sdk::check(emit(context, &row));
-    }
-  });
-}
-AstStatus daily(void* object, const AstHistoryQuery* query, AstCancellation cancel,
-                AstRequestBudget budget, void* context,
-                AstStatus (*emit)(void*, const AstDaily*)) noexcept {
-  return sdk::boundary([&] {
-    if (!query || !query->source_instrument || !query->begin_day || !query->end_day || !emit)
-      throw AstStatus(AST_INVALID);
-    auto* self = static_cast<Instance*>(object);
-    active(self);
-    if (!self->daily)
-      throw AstStatus(AST_UNSUPPORTED);
-    BudgetScope admission(*self, budget);
-    Cancellation cancellation(cancel);
-    const auto rows = self->daily->read(
-        {identity(query->contract), parse_trading_date(query->begin_day),
-         parse_trading_date(query->end_day), self->source, query->source_instrument},
-        cancellation.source.get_token());
-    for (const auto& item : rows) {
-      if (cancellation.source.stop_requested())
-        throw AstStatus(AST_CANCELLED);
-      const auto day = format_trading_date(item.trading_day);
-      AstDaily row{day.c_str(),
-                   item.open.raw(),
-                   item.high.raw(),
-                   item.low.raw(),
-                   item.close.raw(),
-                   item.volume.raw(),
-                   item.amount.raw(),
-                   item.open_interest.raw(),
-                   item.previous_close ? 1u : 0u,
-                   item.previous_settlement ? 1u : 0u,
-                   item.settlement ? 1u : 0u,
-                   item.previous_close ? item.previous_close->raw() : 0,
-                   item.previous_settlement ? item.previous_settlement->raw() : 0,
-                   item.settlement ? item.settlement->raw() : 0};
       sdk::check(emit(context, &row));
     }
   });
@@ -268,9 +182,7 @@ AstStatus describe_connection(void*, const char* source, void* context,
                               AstStatus (*emit)(void*,
                                                 const AstHistoryConnectionSchema*)) noexcept {
   return sdk::boundary([&] {
-    if (!source || !emit ||
-        (std::string_view(source) != "tushare.ft_mins" &&
-         std::string_view(source) != "tushare.fut_daily"))
+    if (!source || !emit || std::string_view(source) != "tushare.ft_mins")
       throw AstStatus(AST_INVALID);
     const AstHistoryConnectionSchema schema{"Tushare Token", "Tushare Token", 1, 256, 1, 60, 500};
     sdk::check(emit(context, &schema));
@@ -280,9 +192,7 @@ AstStatus verify_connection(void*, const char* source, const char* credential,
                             AstCancellation cancel, void* context,
                             AstStatus (*emit)(void*, const AstConnectionCheck*)) noexcept {
   return sdk::boundary([&] {
-    if (!source || !credential || !emit ||
-        (std::string_view(source) != "tushare.ft_mins" &&
-         std::string_view(source) != "tushare.fut_daily"))
+    if (!source || !credential || !emit || std::string_view(source) != "tushare.ft_mins")
       throw AstStatus(AST_INVALID);
     Cancellation cancellation(cancel);
     uint32_t catalog_state = AST_CHECK_NOT_CHECKED, history_state = AST_CHECK_NOT_CHECKED;
@@ -325,20 +235,12 @@ AstStatus verify_connection(void*, const char* source, const char* credential,
             day = contract.delist_date.substr(0, 4) + "-" + contract.delist_date.substr(4, 2) +
                   "-" + contract.delist_date.substr(6, 2);
           history_state = check([&] {
-            if (std::string_view(source) == "tushare.fut_daily") {
-              tushare::Daily provider(token);
-              provider.start();
-              (void)provider.read({contract.identity, parse_trading_date(day),
-                                   parse_trading_date(day), source, contract.ts_code},
-                                  cancellation.source.get_token());
-            } else {
-              tushare::Minutes provider(token);
-              provider.start();
-              const auto begin = tushare::parse_time(day + " 09:00:00");
-              (void)provider.read(
-                  {contract.identity, 1, begin, begin + 60000000000LL, source, contract.ts_code},
-                  cancellation.source.get_token());
-            }
+            tushare::Minutes provider(token);
+            provider.start();
+            const auto begin = tushare::parse_time(day + " 09:00:00");
+            (void)provider.read(
+                {contract.identity, 1, begin, begin + 60000000000LL, source, contract.ts_code},
+                cancellation.source.get_token());
           });
         }
       }
@@ -352,7 +254,7 @@ AstStatus verify_connection(void*, const char* source, const char* credential,
 }
 const AstHistoryConnectionV1 connection{sizeof(AstHistoryConnectionV1), 1, describe_connection,
                                         verify_connection};
-const AstHistoryV2 history{sizeof(AstHistoryV2), 2, sources, catalog, minutes, daily};
+const AstHistoryV3 history{sizeof(AstHistoryV3), 3, sources, minutes};
 const AstHistoryTablesV1 history_tables{sizeof(AstHistoryTablesV1), 1, tables, read_table};
 AstStatus create(const char* capability, const AstSetting* settings, uint32_t count,
                  void** out) noexcept {
@@ -360,7 +262,7 @@ AstStatus create(const char* capability, const AstSetting* settings, uint32_t co
     return AST_INVALID;
   *out = nullptr;
   return sdk::boundary([&] {
-    if (!capability || (std::string_view(capability) != AST_HISTORY_V2 &&
+    if (!capability || (std::string_view(capability) != AST_HISTORY_V3 &&
                         std::string_view(capability) != AST_HISTORY_CONNECTION_V1 &&
                         std::string_view(capability) != AST_HISTORY_TABLES_V1))
       throw AstStatus(AST_UNSUPPORTED);
@@ -374,8 +276,7 @@ AstStatus create(const char* capability, const AstSetting* settings, uint32_t co
     auto result = std::make_unique<Instance>();
     result->source = sdk::setting(settings, count, "source");
     result->credential = sdk::setting(settings, count, "credential");
-    if (!result->source.empty() && result->source != "tushare.ft_mins" &&
-        result->source != "tushare.fut_daily")
+    if (!result->source.empty() && result->source != "tushare.ft_mins")
       throw AstStatus(AST_UNSUPPORTED);
     auto post = [instance = result.get(), transport = tushare::https_transport()](
                     const std::string& body, std::stop_token stop) {
@@ -386,8 +287,6 @@ AstStatus create(const char* capability, const AstSetting* settings, uint32_t co
     };
     if (result->source == "tushare.ft_mins")
       result->minutes = std::make_unique<tushare::Minutes>(result->credential, post);
-    if (result->source == "tushare.fut_daily")
-      result->daily = std::make_unique<tushare::Daily>(result->credential, post);
     // A metadata instance has no credential and only lists the tables.
     if (std::string_view(capability) == AST_HISTORY_TABLES_V1 && !result->credential.empty())
       result->tables = std::make_unique<tushare::Tables>(result->credential, post);
@@ -401,8 +300,6 @@ AstStatus start(void* object) noexcept {
       throw AstStatus(AST_INVALID);
     if (self->minutes)
       self->minutes->start();
-    if (self->daily)
-      self->daily->start();
     self->running = true;
   });
 }
@@ -412,17 +309,35 @@ void stop(void* object) noexcept {
     return;
   if (self->minutes)
     self->minutes->stop();
-  if (self->daily)
-    self->daily->stop();
   self->running = false;
 }
 void destroy(void* object) noexcept {
   delete static_cast<Instance*>(object);
 }
+AstStatus response_get(void* object, void* context,
+                       AstStatus (*emit)(void*, const char*, const uint8_t*, uint32_t,
+                                         int64_t)) noexcept {
+  return sdk::boundary([&] {
+    const auto* self = static_cast<Instance*>(object);
+    if (!self || !self->tables || !emit)
+      throw AstStatus(AST_INVALID);
+    const auto& response = self->tables->response();
+    if (response)
+      sdk::check(emit(context, response->format.c_str(),
+                      reinterpret_cast<const uint8_t*>(response->body.data()),
+                      static_cast<uint32_t>(response->body.size()), response->received_at_ns));
+  });
+}
+const AstHistoryResponseV1 response_evidence{sizeof(AstHistoryResponseV1), 1, response_get};
 AstStatus query(void*, const char* id, uint32_t version, uint32_t size, const void** out) noexcept {
   if (!out)
     return AST_INVALID;
   *out = nullptr;
+  if (id && std::string_view(id) == AST_HISTORY_RESPONSE_V1 && version == 1 &&
+      size == sizeof(AstHistoryResponseV1)) {
+    *out = &response_evidence;
+    return AST_OK;
+  }
   if (id && std::string_view(id) == AST_HISTORY_CONNECTION_V1 && version == 1 &&
       size == sizeof(AstHistoryConnectionV1)) {
     *out = &connection;
@@ -433,21 +348,22 @@ AstStatus query(void*, const char* id, uint32_t version, uint32_t size, const vo
     *out = &history_tables;
     return AST_OK;
   }
-  if (!id || std::string_view(id) != AST_HISTORY_V2 || version != 2 || size != sizeof(AstHistoryV2))
+  if (!id || std::string_view(id) != AST_HISTORY_V3 || version != 3 || size != sizeof(AstHistoryV3))
     return AST_UNSUPPORTED;
   *out = &history;
   return AST_OK;
 }
-const AstCapability capabilities[] = {{AST_HISTORY_V2, 2, "data"},
+const AstCapability capabilities[] = {{AST_HISTORY_V3, 3, "data"},
                                       {AST_HISTORY_CONNECTION_V1, 1, "data"},
-                                      {AST_HISTORY_TABLES_V1, 1, "data"}};
+                                      {AST_HISTORY_TABLES_V1, 1, "data"},
+                                      {AST_HISTORY_RESPONSE_V1, 1, "data"}};
 const AstPluginV1 plugin{sizeof(AstPluginV1),
                          ASTERION_PLUGIN_ABI_VERSION,
                          "asterion.data.tushare",
                          "1.0.0",
                          ASTERION_PLUGIN_PLATFORM,
                          capabilities,
-                         3,
+                         4,
                          create,
                          start,
                          stop,

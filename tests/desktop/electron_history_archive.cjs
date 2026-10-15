@@ -90,29 +90,30 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
       .poll(
         async () =>
           (await call("runtime.snapshot")).task_service?.tasks.find(
-            t => t.id === "native-daily-fixture",
+            t => t.id === "native-queued-minutes",
           )?.state,
         { timeout: 30000 },
       )
       .toBe("succeeded");
     const archive = await call("data.datasets", {
       venue: "SHFE",
-      product: "cu",
+      product: "",
       contract_id: "",
       source: "",
     });
     assert.equal(archive.history_datasets.length, 2);
-    const daily = archive.history_datasets.find(x => x.interval_minutes === 0);
-    assert.equal(daily.contract_id, "SHFE/cu/2023-10");
-    const reply = await call("data.daily.page", {
-      id: daily.id,
+    const minute = archive.history_datasets.find(x => x.contract_id === "SHFE/cu/2023-10");
+    assert.equal(minute.contract_id, "SHFE/cu/2023-10");
+    const reply = await call("data.minutes.page", {
+      id: minute.id,
       offset: 0,
       limit: 10,
       start: "",
       end: "",
+      include_macd: false,
     });
-    assert.equal(reply.daily_page.bars.length, 10);
-    assert.equal(reply.daily_page.id, daily.id);
+    assert.equal(reply.history_page.bars.length, 10);
+    assert.equal(reply.history_page.id, minute.id);
     await page
       .getByRole("navigation", { name: "业务工作区" })
       .getByRole("button", { name: "数据", exact: true })
@@ -120,7 +121,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
     const panel = page.getByRole("region", { name: "历史数据仓库", exact: true });
     await expect(panel.locator(".publication-row")).toHaveCount(2);
-    await panel.getByLabel("数据源", { exact: true }).fill("tushare.fut_daily");
+    await panel.getByLabel("合约身份", { exact: true }).fill("SHFE/cu/2023-10");
     await panel.getByRole("button", { name: "查询", exact: true }).click();
     await expect(panel.locator(".publication-row")).toHaveCount(1);
     await panel.getByRole("button", { name: "查看数据", exact: true }).click();
@@ -131,8 +132,13 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     assert.deepEqual(errors, []);
     // Historical versions belong to Data and remain readable while Task is stopped.
     await call("node.action", { id: "local", service: "task", action: "stop" });
-    const filter = { venue: "", product: "", contract_id: daily.contract_id, source: daily.source };
-    assert.equal((await call("data.datasets", filter)).history_datasets[0].id, daily.id);
+    const filter = {
+      venue: "",
+      product: "",
+      contract_id: minute.contract_id,
+      source: minute.source,
+    };
+    assert.equal((await call("data.datasets", filter)).history_datasets[0].id, minute.id);
     const stoppedTask = (await call("runtime.snapshot")).nodes
       .find(node => node.id === "local")
       .health.services.find(item => item.id === "task");
@@ -140,7 +146,7 @@ const execFile = require("node:util").promisify(require("node:child_process").ex
     await call("node.action", { id: "local", service: "historical-data", action: "stop" });
     await call("node.data_tasks.local.open");
     await expect.poll(async () => (await call("runtime.snapshot")).data?.online).toBe(true);
-    assert.deepEqual((await call("data.datasets", filter)).history_datasets, [daily]);
+    assert.deepEqual((await call("data.datasets", filter)).history_datasets, [minute]);
     assert.deepEqual(errors, []);
     console.log(
       "Native history archive: source-isolated immutable revisions, filtered UI, Protobuf pages, independent ownership and restart passed",

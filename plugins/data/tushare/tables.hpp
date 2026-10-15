@@ -1,5 +1,7 @@
 #pragma once
 #include "tushare.hpp"
+#include "margin_definition.hpp"
+#include "response_evidence.hpp"
 #include <span>
 namespace asterion::tushare {
 // The vendor answered, but the partition cannot be used. The text is made of
@@ -23,6 +25,7 @@ class Tables final {
 public:
   explicit Tables(std::string token, Post post = https_transport());
   ~Tables();
+  const std::optional<SourceResponse>& response() const { return response_; }
   // Cells in the order of `columns`; no rows when the vendor has none yet.
   std::vector<TableRow> read(std::string_view table, std::span<const std::string> columns,
                              const std::string& venue, const std::string& period,
@@ -63,6 +66,7 @@ private:
                                  std::stop_token);
   std::vector<TableRow> rankings(Columns, const std::string& venue, const std::string& period,
                                  std::stop_token);
+  std::optional<SourceResponse> response_;
   std::string token_;
   Post post_;
   // fut_basic by venue: dated contracts only, kept for the life of the reader.

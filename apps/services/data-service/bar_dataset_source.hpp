@@ -62,7 +62,8 @@ struct DominantSeries {
 // when the two months lack a common settlement on the day before a roll (the
 // adjustment ratio).
 DominantSeries resolve_dominant_series(const history_files::TableStore&,
-                                       const std::vector<BarDatasetSources>& months);
+                                       const std::vector<BarDatasetSources>& months,
+                                       const std::string& first_day = {});
 // A product's daily bars from the daily table as its dominant series: the
 // months are those that have bars in the range, read once together; `months`
 // index them in delivery order. Each dataset is what resolve_bar_dataset

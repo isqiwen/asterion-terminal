@@ -1,11 +1,11 @@
 #include "data_store.hpp"
-#include "history_daily.hpp"
 #include "history_providers.hpp"
 #include "history_minutes.hpp"
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/data.hpp>
 #include <fstream>
+#include <chrono>
 
 namespace asterion::data {
 namespace fs = std::filesystem;
@@ -32,8 +32,7 @@ template <class Message> Message read_message(const fs::path& path) {
   return message;
 }
 std::string dataset_id(const v1::HistoryRecord& record) {
-  return record.has_minutes() ? record.minute_result().manifest_sha256()
-                              : record.daily_result().manifest_sha256();
+  return record.minute_result().manifest_sha256();
 }
 void store_once(const fs::path& path, const std::string& bytes) {
   if (fs::exists(path)) {
@@ -114,8 +113,6 @@ Store::verify_authorization(const v1::DownloadAuthorizationRequest& request) con
     const bool same_definition =
         request.has_minutes() ? fixed.has_minutes() && request.minutes().SerializeAsString() ==
                                                            fixed.minutes().SerializeAsString()
-        : request.has_daily() ? fixed.has_daily() && request.daily().SerializeAsString() ==
-                                                         fixed.daily().SerializeAsString()
                               : request.has_table_update() && fixed.has_table_update() &&
                                     request.table_update().SerializeAsString() ==
                                         fixed.table_update().SerializeAsString();
@@ -138,14 +135,6 @@ Store::verify_authorization(const v1::DownloadAuthorizationRequest& request) con
     auto provider = history_providers::minutes(input.source(), request.credential());
     authorization->set_provider_artifact(history_providers::artifact(input.source()));
     *authorization->mutable_minutes() = input;
-  } else if (request.has_daily()) {
-    const auto& input = request.daily();
-    const auto range = history_files::daily_range(input);
-    history_providers::validate_request(input.source(), range.instrument, 0,
-                                        input.requests_per_minute());
-    auto provider = history_providers::daily(input.source(), request.credential());
-    authorization->set_provider_artifact(history_providers::artifact(input.source()));
-    *authorization->mutable_daily() = input;
   } else if (request.has_table_update()) {
     const auto& input = request.table_update();
     protocol::validate_table_update(input);
@@ -155,6 +144,22 @@ Store::verify_authorization(const v1::DownloadAuthorizationRequest& request) con
             return item.plugin_id == input.provider() && item.table == table;
           }))
         throw std::invalid_argument("history table is unavailable from this source");
+    if (input.has_refresh()) {
+      v1::TableRefreshQuery query;
+      query.set_provider(input.provider());
+      query.set_source(input.refresh().source());
+      *query.mutable_partition() = input.refresh().partition();
+      query.set_previous_snapshot(input.refresh().previous_snapshot());
+      query.set_requests_per_minute(input.requests_per_minute());
+      const auto expected = table_refresh_plan(
+          tables_, table_offers(), query, history_providers::table_artifact(input.provider()),
+          format_shanghai_time(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count())
+              .substr(0, 10));
+      if (expected.update().SerializeAsString() != input.SerializeAsString())
+        throw Error(ErrorCode::conflict, "table refresh plan changed; preview again");
+    }
     // Starting the provider checks the credential's shape, as for the other downloads.
     auto provider = history_providers::tables(input.provider(), request.credential());
     authorization->set_provider_artifact(history_providers::table_artifact(input.provider()));
@@ -162,9 +167,7 @@ Store::verify_authorization(const v1::DownloadAuthorizationRequest& request) con
     *authorization->mutable_table_update() = input;
   } else
     throw std::invalid_argument("download definition is missing");
-  const auto source = request.has_minutes() ? request.minutes().source()
-                      : request.has_daily() ? request.daily().source()
-                                            : std::string();
+  const auto source = request.has_minutes() ? request.minutes().source() : std::string();
   for (const auto& item : history_providers::sources())
     if (item.id == source) {
       authorization->set_provider_id(item.plugin_id);
@@ -198,8 +201,6 @@ v1::StoredDownloadAuthorization Store::read_authorization(const std::string& id)
   // Metadata reads do not load the provider or depend on its current availability.
   if (value.has_minutes())
     (void)history_files::minute_range(value.minutes());
-  else if (value.has_daily())
-    (void)history_files::daily_range(value.daily());
   else if (value.has_table_update())
     protocol::validate_table_update(value.table_update());
   else
@@ -259,9 +260,6 @@ Store::VerifiedAllocation Store::verify_allocation(const v1::DownloadAllocation&
       (authorized.has_minutes()
            ? !request.has_minutes() ||
                  authorized.minutes().SerializeAsString() != request.minutes().SerializeAsString()
-       : authorized.has_daily()
-           ? !request.has_daily() ||
-                 authorized.daily().SerializeAsString() != request.daily().SerializeAsString()
            : !request.has_table_update() || authorized.table_update().SerializeAsString() !=
                                                 request.table_update().SerializeAsString()))
     throw Error(ErrorCode::conflict, "download allocation does not match authorization");
@@ -281,10 +279,6 @@ Store::VerifiedAllocation Store::verify_allocation(const v1::DownloadAllocation&
     const auto range = history_files::minute_range(request.minutes());
     return VerifiedAllocation(request, range.instrument, range.source, range.interval_minutes,
                               std::move(directory));
-  }
-  if (request.has_daily()) {
-    const auto range = history_files::daily_range(request.daily());
-    return VerifiedAllocation(request, range.instrument, range.source, 0, std::move(directory));
   }
   throw std::invalid_argument("download definition is missing");
 }
@@ -344,11 +338,6 @@ Store::VerifiedDownload Store::verify_download(const v1::DownloadPreparation& re
         record.minute_result().directory() != owned)
       throw std::invalid_argument("download candidate does not match its allocation");
     history_files::verify_minute_result(record.minutes(), record.minute_result());
-  } else if (allocation.has_daily() && record.has_daily() && record.has_daily_result()) {
-    if (record.daily().SerializeAsString() != allocation.daily().SerializeAsString() ||
-        record.daily_result().directory() != owned)
-      throw std::invalid_argument("download candidate does not match its allocation");
-    history_files::verify_daily_result(record.daily(), record.daily_result());
   } else
     throw std::invalid_argument("download candidate does not match its allocation");
   return VerifiedDownload(request);
@@ -473,6 +462,13 @@ Store::verify_partition(const v1::TablePartitionRows& request) const {
   }
   v1::TablePartitionReceipt receipt;
   VerifiedPartition verified;
+  if (request.has_response()) {
+    const auto& captured = request.response();
+    verified.response_ =
+        SourceResponse{captured.format(), captured.body(), captured.received_at_ns()};
+    history_providers::validate_response(key.table(), key.exchange(), key.period(),
+                                         *verified.response_);
+  }
   try {
     verified.partition_ = table_partition(table, key.exchange(), key.period(), rows);
   } catch (const std::invalid_argument& error) {
@@ -484,11 +480,47 @@ Store::verify_partition(const v1::TablePartitionRows& request) const {
       std::ranges::find(offers, key.table(), [](const TableOffer& item) -> const std::string& {
         return item.series.table;
       })->series;
+  verified.provider_artifact_ = history_providers::table_artifact(update.provider());
+  if (update.has_refresh() && verified.response_ && key.table() == "futures.daily" &&
+      key.exchange() == "SHFE") {
+    const auto& identity = request.identity();
+    verified.observation_context_ =
+        history_files::TableObservationContext{identity.data_instance(),
+                                               identity.task_instance(),
+                                               identity.task_id(),
+                                               identity.attempt(),
+                                               update.provider(),
+                                               verified.provider_artifact_,
+                                               update.refresh().previous_snapshot(),
+                                               update.refresh().previous_content()};
+    verified.previous_observation_ = tables_.refresh_observation(
+        *verified.observation_context_, verified.series_, key.exchange(), key.period());
+    if (verified.previous_observation_)
+      return verified; // replay is checked again on the serialized writer
+  }
   if (const auto held = tables_.current(verified.series_, key.exchange(), key.period());
       held && held->content == verified.partition_.content) {
+    if (verified.observation_context_) {
+      verified.expected_snapshot_ = update.refresh().previous_snapshot();
+      return verified;
+    }
     *receipt.mutable_revision() = encode_table_revision(*held);
     receipt.set_unchanged(true);
     return receipt;
+  }
+  verified.missing_only_day_ = !update.has_refresh() && table.period == TablePeriod::day;
+  if (verified.missing_only_day_ &&
+      tables_.current(verified.series_, key.exchange(), key.period())) {
+    receipt.set_rejection("day partition is already stored; use explicit refresh");
+    return receipt;
+  }
+  if (update.has_refresh()) {
+    const auto held = tables_.current(verified.series_, key.exchange(), key.period());
+    if (!held || held->snapshot != update.refresh().previous_snapshot()) {
+      receipt.set_rejection("selected table partition changed; read it and preview again");
+      return receipt;
+    }
+    verified.expected_snapshot_ = update.refresh().previous_snapshot();
   }
   verified.object_ = tables_.write(verified.partition_);
   verified.provider_artifact_ = history_providers::table_artifact(update.provider());
@@ -496,11 +528,44 @@ Store::verify_partition(const v1::TablePartitionRows& request) const {
 }
 v1::TablePartitionReceipt Store::record_partition(const VerifiedPartition& verified,
                                                   std::int64_t now_ns) {
+  const auto observed = [&](const history_files::TableRevision& revision, bool unchanged) {
+    v1::TablePartitionReceipt receipt;
+    *receipt.mutable_revision() = encode_table_revision(revision);
+    receipt.set_unchanged(unchanged);
+    if (verified.observation_context_) {
+      const auto observation = tables_.record_refresh_observation(
+          *verified.observation_context_, revision, *verified.response_, now_ns, unchanged);
+      *receipt.mutable_observation() = encode_refresh_observation(observation);
+      receipt.set_unchanged(observation.unchanged);
+    }
+    return receipt;
+  };
+  if (verified.previous_observation_) {
+    if (verified.previous_observation_->revision.content != verified.partition_.content)
+      throw std::invalid_argument(
+          "table refresh observation identity conflicts with recorded response");
+    return observed(verified.previous_observation_->revision,
+                    verified.previous_observation_->unchanged);
+  }
+  if (!verified.expected_snapshot_.empty() || verified.missing_only_day_) {
+    const auto held =
+        tables_.current(verified.series_, verified.partition_.exchange, verified.partition_.period);
+    if (held && held->content == verified.partition_.content) {
+      return observed(*held, true);
+    }
+    if (verified.missing_only_day_ && held) {
+      v1::TablePartitionReceipt receipt;
+      receipt.set_rejection("day partition is already stored; use explicit refresh");
+      return receipt;
+    }
+    if (!verified.missing_only_day_ && (!held || held->snapshot != verified.expected_snapshot_)) {
+      v1::TablePartitionReceipt receipt;
+      receipt.set_rejection("selected table partition changed; read it and preview again");
+      return receipt;
+    }
+  }
   const auto recorded = tables_.record(verified.partition_, verified.series_, verified.object_,
-                                       verified.provider_artifact_, now_ns);
-  v1::TablePartitionReceipt receipt;
-  *receipt.mutable_revision() = encode_table_revision(recorded.revision);
-  receipt.set_unchanged(recorded.unchanged);
-  return receipt;
+                                       verified.provider_artifact_, now_ns, verified.response_);
+  return observed(recorded.revision, recorded.unchanged);
 }
 } // namespace asterion::data

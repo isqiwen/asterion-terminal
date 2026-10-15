@@ -1,5 +1,7 @@
 #include "factor_engine.hpp"
 #include "evaluation.hpp"
+#include "universe.hpp"
+#include <algorithm>
 #include "walk_forward.hpp"
 #include <stdexcept>
 namespace asterion::factor {
@@ -56,12 +58,43 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
   const std::vector<unsigned> lookbacks(input.lookbacks().begin(), input.lookbacks().end());
   const bool search = lookbacks.size() > 1;
   factor::v1::FactorResult result;
-  result.set_version(8);
+  result.set_version(9);
   result.set_dataset_revision(input.dataset_revision());
   result.set_engine_version(protocol::factor_engine_version);
   result.set_horizon(input.horizon());
   result.set_input_count(static_cast<unsigned>(observations.order.size()));
   result.set_evaluation_warmup(lookbacks.back());
+  std::vector<std::vector<std::uint8_t>> masks;
+  std::vector<std::span<const std::uint8_t>> eligibility;
+  if (input.has_liquidity()) {
+    const auto raw = protocol::factor_daily_observations(input);
+    masks.resize(input.series_size(), std::vector<std::uint8_t>(observations.order.size()));
+    const auto& rule = input.liquidity();
+    for (int s = 0; s < input.series_size(); ++s) {
+      std::vector<LiquidityObservation> facts;
+      facts.reserve(raw.order.size());
+      for (std::size_t i = 0; i < raw.order.size(); ++i)
+        facts.push_back(
+            {raw.closes[s][i].has_value(), raw.volumes[s][i], raw.open_interests[s][i]});
+      const auto reasons = liquidity_membership(
+          facts, {rule.minimum_history(), rule.minimum_volume(), rule.minimum_open_interest()});
+      for (std::size_t i = 0; i < raw.order.size(); ++i) {
+        if (!raw.closes[s][i])
+          continue;
+        auto* row = result.add_memberships();
+        row->set_series_index(s);
+        row->set_trading_day(
+            format_trading_date(std::chrono::sys_days{std::chrono::days{raw.order[i]}}));
+        row->set_reason(
+            static_cast<factor::v1::MembershipReason>(static_cast<int>(reasons[i]) + 1));
+        const auto found = std::ranges::lower_bound(observations.order, raw.order[i]);
+        if (found != observations.order.end() && *found == raw.order[i])
+          masks[s][static_cast<std::size_t>(found - observations.order.begin())] =
+              reasons[i] == UniverseReason::eligible;
+      }
+    }
+    eligibility.assign(masks.begin(), masks.end());
+  }
   // Rows from `first` on, as observations of the whole input.
   const auto rows = [&](const FactorEvaluation& evaluation, std::size_t first, std::size_t offset) {
     for (const auto& row : evaluation.samples) {
@@ -89,7 +122,7 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
                                             input.has_holdout_start()
                                                 ? std::optional<std::size_t>(input.holdout_start())
                                                 : std::nullopt,
-                                            stop, progress);
+                                            stop, progress, eligibility);
     result.set_selection_rule(search ? "development_abs_spearman" : "fixed");
     result.set_lookback(evaluation.lookback);
     fill(*result.mutable_candidates(), evaluation.candidates);
@@ -117,13 +150,17 @@ factor::v1::FactorResult run(const factor::v1::FactorInput& input, std::stop_tok
         series = series.subspan(range.training_begin, range.validation_end - range.training_begin);
       return all;
     };
-    const auto evaluation =
-        evaluate_factor(within(closes), within(values), feature, lookbacks, input.horizon(),
-                        training, stop, [&](std::size_t done, std::size_t all) {
-                          units = all;
-                          if (progress)
-                            progress(completed + done, total);
-                        });
+    auto fold_eligibility = eligibility;
+    for (auto& mask : fold_eligibility)
+      mask = mask.subspan(range.training_begin, range.validation_end - range.training_begin);
+    const auto evaluation = evaluate_factor(
+        within(closes), within(values), feature, lookbacks, input.horizon(), training, stop,
+        [&](std::size_t done, std::size_t all) {
+          units = all;
+          if (progress)
+            progress(completed + done, total);
+        },
+        fold_eligibility);
     completed += units;
     auto* fold = result.add_folds();
     fold->set_training_begin(range.training_begin);

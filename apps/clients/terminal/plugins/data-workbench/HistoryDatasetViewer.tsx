@@ -1,13 +1,7 @@
-import { dailyChartBar, dailyChartDate } from "../../src/ui/charts/daily-chart";
 import { PriceChart } from "@asterion/client-ui/PriceChart";
+import { MinuteEvidencePanel } from "./MinuteEvidencePanel";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  timestamp,
-  type HistoryBar,
-  type HistoryPage,
-  type DailyPage,
-  type DailyBar,
-} from "../../src/bridge/client";
+import { timestamp, type HistoryBar, type HistoryPage } from "../../src/bridge/client";
 import {
   type TerminalContext,
   translate,
@@ -51,7 +45,6 @@ export function HistoryDatasetViewer({
   id,
   source,
   sourceLabel,
-  timeAxis,
   snapshot,
   busy,
   query,
@@ -60,21 +53,19 @@ export function HistoryDatasetViewer({
   id: string;
   source: string;
   sourceLabel: string;
-  timeAxis: "instant" | "trading-day";
   onClose: () => void;
 }) {
   const [error, setError] = useState<DisplayError>("");
   const [filter, setFilter] = useState({ start: "", end: "" });
   const [applied, setApplied] = useState({ start: "", end: "" });
-  const [page, setPage] = useState<HistoryPage | DailyPage | null>(null);
+  const [page, setPage] = useState<HistoryPage | null>(null);
   const [loading, setLoading] = useState(false);
   const sequence = useRef(0);
   const invoke = useRef(query);
   useEffect(() => {
     invoke.current = query;
   }, [query]);
-  const daily = timeAxis === "trading-day";
-  const formatTime = daily ? dailyChartDate : timestamp;
+  const formatTime = timestamp;
   const offline = !snapshot?.data?.online;
   const disabled = busy || loading || offline;
   const fetchPage = useCallback(
@@ -83,16 +74,16 @@ export function HistoryDatasetViewer({
       setError("");
       setLoading(true);
       try {
-        const result = await invoke.current(daily ? "data.daily.page" : "data.minutes.page", {
-          ...(daily ? {} : { include_macd: false }),
+        const result = await invoke.current("data.minutes.page", {
+          include_macd: false,
           id,
           offset,
           limit,
-          start: daily ? range.start : wall(range.start),
-          end: daily ? range.end : wall(range.end),
+          start: wall(range.start),
+          end: wall(range.end),
         });
         if (current !== sequence.current) return;
-        const next = daily ? result.daily_page : result.history_page;
+        const next = result.history_page;
         if (!next || next.id !== id || next.source !== source)
           throw new Error(t("返回的数据与所选数据集不匹配"));
         setPage(next);
@@ -104,7 +95,7 @@ export function HistoryDatasetViewer({
         if (current === sequence.current) setLoading(false);
       }
     },
-    [id, source, daily],
+    [id, source],
   );
   const cancelPending = useCallback(() => {
     sequence.current++;
@@ -115,24 +106,18 @@ export function HistoryDatasetViewer({
     return cancelPending;
   }, [fetchPage, cancelPending]);
   const load = (offset: number, limit: number, range = applied) => fetchPage(offset, limit, range);
-  const rows: (HistoryBar & Partial<DailyBar>)[] =
-    page?.bars.map(bar => ("trading_day" in bar ? dailyChartBar(bar) : bar)) ?? [];
-  const first = page ? ("first_day" in page ? page.first_day : timestamp(page.first_ns)) : "";
-  const last = page ? ("last_day" in page ? page.last_day : timestamp(page.last_ns)) : "";
-  const begin = page ? ("begin_day" in page ? page.begin_day : timestamp(page.begin_ns)) : "";
-  const end = page ? ("end_day" in page ? page.end_day : timestamp(page.end_ns)) : "";
+  const rows = page?.bars ?? [];
+  const first = page ? timestamp(page.first_ns) : "";
+  const last = page ? timestamp(page.last_ns) : "";
+  const begin = page ? timestamp(page.begin_ns) : "";
+  const end = page ? timestamp(page.end_ns) : "";
   return (
     <section className="history-viewer" aria-label={t("历史数据查看")} aria-busy={loading}>
       <div className="history-viewer-heading">
         <button onClick={onClose}>{t("返回数据集")}</button>
         <strong>{page?.contract_id ?? id}</strong>
         <span>
-          {daily
-            ? t("日K")
-            : page && "interval_minutes" in page
-              ? `${page.interval_minutes} min`
-              : ""}{" "}
-          · {sourceLabel}
+          {page ? `${page.interval_minutes} min` : ""} · {sourceLabel}
         </span>
       </div>
       {offline && (
@@ -163,11 +148,11 @@ export function HistoryDatasetViewer({
               <dd>{page.total_rows.toLocaleString(getLocale())}</dd>
             </div>
             <div>
-              <dt>{t(daily ? "首个交易日期" : "实际首条（北京时间）")}</dt>
+              <dt>{t("实际首条（北京时间）")}</dt>
               <dd>{page.total_rows ? first : "—"}</dd>
             </div>
             <div>
-              <dt>{t(daily ? "末个交易日期" : "实际末条（北京时间）")}</dt>
+              <dt>{t("实际末条（北京时间）")}</dt>
               <dd>{page.total_rows ? last : "—"}</dd>
             </div>
             <div>
@@ -178,6 +163,7 @@ export function HistoryDatasetViewer({
               </dd>
             </div>
           </dl>
+          <p className="subtle">{t("下载处理已完成；首尾交易日覆盖与日内完整性尚未验证。")}</p>
           <form
             className="history-view-controls"
             onSubmit={event => {
@@ -186,9 +172,9 @@ export function HistoryDatasetViewer({
             }}
           >
             <label>
-              {t(daily ? "开始交易日期" : "开始时间（北京时间）")}
+              {t("开始时间（北京时间）")}
               <input
-                type={daily ? "date" : "datetime-local"}
+                type="datetime-local"
                 value={filter.start}
                 onChange={event =>
                   setFilter(previous => ({ ...previous, start: event.target.value }))
@@ -196,9 +182,9 @@ export function HistoryDatasetViewer({
               />
             </label>
             <label>
-              {t(daily ? "结束交易日期" : "结束时间（北京时间）")}
+              {t("结束时间（北京时间）")}
               <input
-                type={daily ? "date" : "datetime-local"}
+                type="datetime-local"
                 min={filter.start}
                 value={filter.end}
                 onChange={event =>
@@ -283,13 +269,13 @@ export function HistoryDatasetViewer({
             className="history-bars-table"
             tabIndex={0}
             role="region"
-            aria-label={t(daily ? "日线数据表" : "分钟数据表")}
+            aria-label={t("分钟数据表")}
           >
             <table className="data-table">
               <thead>
                 <tr>
                   {[
-                    daily ? "交易日期" : "时间（北京时间）",
+                    "时间（北京时间）",
                     "开盘",
                     "最高",
                     "最低",
@@ -297,7 +283,6 @@ export function HistoryDatasetViewer({
                     "成交量",
                     "成交额",
                     "持仓量",
-                    ...(daily ? ["昨收", "昨结算", "结算价"] : []),
                   ].map((key, index) => (
                     <th className={index ? "numeric" : undefined} key={key}>
                       {t(key)}
@@ -317,13 +302,6 @@ export function HistoryDatasetViewer({
                       bar.volume,
                       bar.amount,
                       bar.open_interest,
-                      ...("settlement" in bar
-                        ? [
-                            bar.previous_close ?? "—",
-                            bar.previous_settlement ?? "—",
-                            bar.settlement ?? "—",
-                          ]
-                        : []),
                     ].map((value, index) => (
                       <td className="numeric" key={index}>
                         {value}
@@ -336,13 +314,13 @@ export function HistoryDatasetViewer({
           </div>
           <details className="history-notes">
             <summary>{t("质量与来源")}</summary>
-            <p>
-              {t(
-                daily
-                  ? "清单与日线分段摘要、交易日期顺序及 OHLC 关系已校验。"
-                  : "清单与已读取分段的摘要、时间顺序、重复时间戳及 OHLC 关系已校验。",
-              )}
-            </p>
+            <MinuteEvidencePanel
+              key={`${id}:${snapshot?.data?.connection_id}:${offline}`}
+              id={id}
+              query={query}
+              disabled={busy || offline}
+            />
+            <p>{t("清单与已读取分段的摘要、时间顺序、重复时间戳及 OHLC 关系已校验。")}</p>
             <p>{t("未校验交易日历完整性；缺失、休市与无成交尚不能自动区分。")}</p>
             <p>{t("价格与数量保留精确原值；图表仅用于可视化。")}</p>
             <p>

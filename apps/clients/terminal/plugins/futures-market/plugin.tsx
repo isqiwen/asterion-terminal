@@ -24,6 +24,8 @@ export const plugin: TerminalPlugin = {
     "data.datasets",
     "data.tables.coverage",
     "data.tables.daily",
+    "data.tables.products",
+    "data.tables.listed_contracts",
   ],
   languageResources: { "zh-CN": zh, "en-US": en },
   workspace: {

@@ -91,7 +91,7 @@ data::v1::BarDatasetRequest contract_request(const HistoryIdentity& identity, co
 HistoryIdentity archived_contract(const Json& archive, const json& sources) {
   if (!sources.is_array() || sources.empty())
     throw std::invalid_argument("dataset requires 1..32 source versions");
-  for (const auto& item : archive)
+  for (const auto& item : archive.at("items"))
     if (item.at("id") == sources.at(0))
       return HistoryIdentity::parse(item.at("contract_id").get<std::string>());
   throw std::invalid_argument("historical dataset is unavailable");
@@ -118,26 +118,6 @@ data::v1::MinutePageQuery minute_page_query(const json& p) {
   return query;
 }
 
-data::v1::DailyPageQuery daily_page_query(const json& p) {
-  fields(p, {"id", "offset", "limit", "start", "end"});
-  if (!p.at("offset").is_number_integer() || p.at("offset") < 0 || p.at("offset") > 20 * 366 + 1 ||
-      !p.at("limit").is_number_integer() || p.at("limit") < 1 || p.at("limit") > 200 ||
-      !p.at("start").is_string() || !p.at("end").is_string())
-    throw std::invalid_argument("invalid daily dataset page query");
-  data::v1::DailyPageQuery query;
-  query.set_dataset_id(text(p, "id"));
-  validate_id(text(p, "id"));
-  query.set_offset(p.at("offset").get<std::uint64_t>());
-  query.set_limit(p.at("limit").get<unsigned>());
-  query.set_begin_day(p.at("start").get<std::string>());
-  query.set_end_day(p.at("end").get<std::string>());
-  for (const auto& date : {query.begin_day(), query.end_day()})
-    if (!date.empty())
-      (void)parse_trading_date(date);
-  if (!query.begin_day().empty() && !query.end_day().empty() && query.begin_day() > query.end_day())
-    throw std::invalid_argument("invalid daily dataset page query");
-  return query;
-}
 void Application::Impl::adopt_selection(DatasetSelection next) {
   if (series_of(next.dataset.contract()))
     throw std::invalid_argument(
@@ -254,16 +234,16 @@ void Application::Impl::register_data_commands() {
       throw std::invalid_argument("history update plan changed; preview again");
     if (generation != data_task_generation)
       throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
-    const auto source = plan.has_minutes() ? plan.minutes().source() : plan.daily().source();
-    const auto credential = (co_await source_credential(source, text(p, "token", true)));
+    if (!plan.conflicts().empty())
+      throw Error(ErrorCode::conflict,
+                  "repair preview is blocked by reviewed closure conflicts; inspect the preview");
+    const auto credential =
+        (co_await source_credential(plan.minutes().source(), text(p, "token", true)));
     data::v1::DownloadAuthorizationRequest authorization;
     authorization.set_task_instance(client->endpoint().session);
     authorization.set_task_id(text(p, "id"));
     authorization.set_credential(credential);
-    if (plan.has_minutes())
-      *authorization.mutable_minutes() = plan.minutes();
-    else
-      *authorization.mutable_daily() = plan.daily();
+    *authorization.mutable_minutes() = plan.minutes();
     if (generation != data_task_generation)
       throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
     (co_await run<void>([&]() -> PolledTask<void> {
@@ -278,6 +258,44 @@ void Application::Impl::register_data_commands() {
   });
   // Market-wide tables. An update only names what to read; the data service
   // plans the partitions when the task runs and publishes each as it arrives.
+  command("data.tables.refresh.plan", [this](const json& p) -> PolledTask<Response> {
+    const auto query = protocol::encode_table_refresh_query(p);
+    if (!data_client)
+      throw std::invalid_argument("connect the data and task services first");
+    const auto reader = data_client;
+    const auto generation = data_task_generation;
+    auto plan = co_await PollFuture{reader->table_refresh_plan(query)};
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
+    auto result = read_published(json::object());
+    result.values["table_refresh_plan"] = protocol::decode_table_refresh_plan(plan);
+    co_return result;
+  });
+  command("data.tables.refresh.submit", [this](const json& p) -> PolledTask<Response> {
+    fields(p, {"id", "query", "plan_id", "token"});
+    const auto query = protocol::encode_table_refresh_query(p.at("query"));
+    if (!task_client || !data_client)
+      throw std::invalid_argument("connect the data and task services first");
+    const auto reader = data_client;
+    const auto client = task_client;
+    const auto generation = data_task_generation;
+    const auto plan = co_await PollFuture{reader->table_refresh_plan(query)};
+    if (plan.id() != text(p, "plan_id"))
+      throw Error(ErrorCode::conflict, "table refresh plan changed; preview again");
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
+    data::v1::DownloadAuthorizationRequest authorization;
+    authorization.set_task_instance(client->endpoint().session);
+    authorization.set_task_id(text(p, "id"));
+    *authorization.mutable_table_update() = plan.update();
+    authorization.set_credential(
+        co_await provider_credential(query.provider(), text(p, "token", true)));
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
+    const auto reference = co_await PollFuture{reader->authorize_download(authorization)};
+    co_await PollFuture{client->submit_download(text(p, "id"), reference)};
+    co_return snapshot();
+  });
   command("data.tables.update.submit", [this](const json& p) -> PolledTask<Response> {
     fields(p, {"id", "provider", "tables", "begin_day", "end_day", "requests_per_minute", "token"});
     if (!task_client || !data_client)
@@ -343,6 +361,19 @@ void Application::Impl::register_data_commands() {
       throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
     auto result = read_published(json::object());
     result.values["table_daily"] = std::move(page);
+    co_return result;
+  });
+  command("data.tables.listed_contracts", [this](const json& p) -> PolledTask<Response> {
+    const auto query = protocol::encode_table_listed_contracts_query(p);
+    if (!data_client)
+      throw std::invalid_argument("connect the data and task services first");
+    const auto reader = data_client;
+    const auto generation = data_task_generation;
+    auto catalog = (co_await PollFuture{reader->table_listed_contracts(query)});
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
+    auto result = read_published(json::object());
+    result.values["table_listed_contracts"] = std::move(catalog);
     co_return result;
   });
   command("data.tables.products", [this](const json& p) -> PolledTask<Response> {
@@ -455,64 +486,39 @@ void Application::Impl::register_data_commands() {
                 throw Error(ErrorCode::conflict,
                             "data/task service selection changed during archive query");
               auto result = snapshot();
-              result.values[coverage ? "history_coverage" : "history_datasets"] = std::move(rows);
+              if (coverage) {
+                result.values["history_coverage"] = std::move(rows);
+              } else {
+                result.values["history_datasets"] = std::move(rows.at("items"));
+                result.values["history_datasets_unsupported"] = rows.at("unsupported");
+              }
               co_return result;
             });
-  command("data.daily.page", [this](const json& p) -> PolledTask<Response> {
-    const auto query = daily_page_query(p);
+  command("data.minutes.range", [this](const json& p) -> PolledTask<Response> {
+    const auto query = protocol::encode_minute_range_query(p);
     if (!data_client)
       throw std::invalid_argument("connect the data and task services first");
     const auto reader = data_client;
     const auto generation = data_task_generation;
-    auto page = (co_await PollFuture{reader->daily_page(query)});
+    auto evidence = (co_await PollFuture{reader->minute_range(query)});
     if (generation != data_task_generation)
-      throw Error(ErrorCode::conflict, "data service selection changed during daily query");
+      throw Error(ErrorCode::conflict, "data service selection changed during minute query");
     auto result = read_published(json::object());
-    result.values["daily_page"] = std::move(page);
+    result.values["minute_range"] = std::move(evidence);
     co_return result;
   });
-  command("data.download.daily.submit", [this](const json& p) -> PolledTask<Response> {
-    fields(p, {"id", "source", "contract_id", "requests_per_minute", "token", "snapshot",
-               "cutoff_ns"});
-    if (!task_client)
+  command("data.minutes.evidence", [this](const json& p) -> PolledTask<Response> {
+    const auto query = protocol::encode_minute_evidence_query(p);
+    if (!data_client)
       throw std::invalid_argument("connect the data and task services first");
-    const auto client = task_client;
     const auto reader = data_client;
     const auto generation = data_task_generation;
-    const auto& rpm = p.at("requests_per_minute");
-    if (!rpm.is_number_integer() || rpm < 1 || rpm > 500)
-      throw std::invalid_argument("invalid daily download definition");
-    const auto contract = HistoryIdentity::parse(text(p, "contract_id"));
-    const auto cutoff = download_cutoff(p);
-    const auto listed = (co_await PollFuture{reader->table_contracts(contract_list(p, contract))});
-    const auto found = std::ranges::find(
-        listed, contract.key(), [](const HistoryListing& item) { return item.identity.key(); });
-    if (found == listed.end())
-      throw std::invalid_argument("load and select a dated futures contract first");
-    const auto end = std::min(found->delist_date, format_shanghai_time(cutoff).substr(0, 10));
-    data::v1::DailyDownload input;
-    input.set_version(2);
-    input.set_source(text(p, "source"));
-    input.set_contract_id(found->identity.key());
-    input.set_source_instrument(found->source_instrument);
-    input.set_begin_day(found->list_date);
-    input.set_end_day(end);
-    input.set_requests_per_minute(rpm.get<unsigned>());
-    data::v1::DownloadAuthorizationRequest authorization;
-    authorization.set_task_instance(client->endpoint().session);
-    authorization.set_task_id(text(p, "id"));
-    authorization.set_credential(
-        (co_await source_credential(input.source(), text(p, "token", true))));
-    *authorization.mutable_daily() = input;
+    auto evidence = (co_await PollFuture{reader->minute_evidence(query)});
     if (generation != data_task_generation)
-      throw Error(ErrorCode::conflict, "data/task service selection changed during archive query");
-    const auto reference = co_await PollFuture{reader->authorize_download(authorization)};
-    co_await PollFuture{client->submit_download(text(p, "id"), reference)};
-    if (generation != data_task_generation)
-      throw Error(ErrorCode::conflict,
-                  "data/task service selection changed during operation; inspect the "
-                  "original services before retrying");
-    co_return snapshot();
+      throw Error(ErrorCode::conflict, "data service selection changed during minute query");
+    auto result = read_published(json::object());
+    result.values["minute_evidence"] = std::move(evidence);
+    co_return result;
   });
   command("data.minutes.page", [this](const json& p) -> PolledTask<Response> {
     const auto query = minute_page_query(p);

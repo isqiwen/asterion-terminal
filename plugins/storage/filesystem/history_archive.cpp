@@ -1,6 +1,5 @@
 #include "history_archive.hpp"
 #include "history_minutes.hpp"
-#include "history_daily.hpp"
 #include <asterion/foundation/id.hpp>
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/file_lock.hpp>
@@ -37,35 +36,25 @@ void digest(const std::string& id) {
 struct UnsupportedVersion : std::invalid_argument {
   UnsupportedVersion() : std::invalid_argument("unsupported saved dataset version") {}
 };
+// A version of a kind this one does not read, such as a per-contract daily
+// download: its files stay where they are.
+struct UnsupportedRecord : std::invalid_argument {
+  UnsupportedRecord() : std::invalid_argument("unsupported historical archive record") {}
+};
 HistoryDataset summary(const data::v1::HistoryRecord& record) {
+  if (record.version() != 1 || !record.has_minutes() || !record.has_minute_result())
+    throw UnsupportedRecord();
   protocol::validate_message(record);
-  if (record.version() != 1)
-    throw std::invalid_argument("unsupported historical archive record");
-  if (record.has_minutes() && record.has_minute_result()) {
-    const auto range = minute_range(record.minutes());
-    const auto& result = record.minute_result();
-    return {result.manifest_sha256(),
-            range.instrument,
-            range.source,
-            result.manifest_sha256(),
-            format_shanghai_time(range.begin_ns),
-            format_shanghai_time(range.end_ns),
-            range.interval_minutes,
-            result.rows()};
-  }
-  if (record.has_daily() && record.has_daily_result()) {
-    const auto range = daily_range(record.daily());
-    const auto& result = record.daily_result();
-    return {result.manifest_sha256(),
-            range.instrument,
-            range.source,
-            result.manifest_sha256(),
-            format_trading_date(range.begin),
-            format_trading_date(range.end),
-            0,
-            result.rows()};
-  }
-  throw std::invalid_argument("invalid historical archive record");
+  const auto range = minute_range(record.minutes());
+  const auto& result = record.minute_result();
+  return {result.manifest_sha256(),
+          range.instrument,
+          range.source,
+          result.manifest_sha256(),
+          format_shanghai_time(range.begin_ns),
+          format_shanghai_time(range.end_ns),
+          range.interval_minutes,
+          result.rows()};
 }
 } // namespace
 Archive::Archive(std::filesystem::path root, Access access)
@@ -106,7 +95,7 @@ std::filesystem::path Archive::directory(const HistoryIdentity& contract, const 
   auto p = root_;
   for (const auto& part :
        std::vector<std::string>{contract.venue, contract.product, contract.delivery_month, source,
-                                interval ? std::to_string(interval) + "m" : "daily", acquisition}) {
+                                std::to_string(interval) + "m", acquisition}) {
     p /= part;
     safe(p);
     create_directories_durably(p);
@@ -117,8 +106,7 @@ void Archive::publish_verified(const data::v1::HistoryRecord& record) {
   writable();
   const auto item = summary(record);
   digest(item.id);
-  const auto path = std::filesystem::path(record.has_minutes() ? record.minute_result().directory()
-                                                               : record.daily_result().directory());
+  const auto path = std::filesystem::path(record.minute_result().directory());
   require_owned_directory(root_, path);
   FileLock lock(root_, "archive.lock");
   const auto index = root_ / "index" / (item.id + ".pb");
@@ -143,12 +131,11 @@ data::v1::HistoryRecord Archive::get(const std::string& id) const {
   data::v1::HistoryRecord record;
   if (!record.ParseFromString(bytes) || summary(record).id != id)
     throw std::invalid_argument("historical archive revision mismatch");
-  const auto path = std::filesystem::path(record.has_minutes() ? record.minute_result().directory()
-                                                               : record.daily_result().directory());
+  const auto path = std::filesystem::path(record.minute_result().directory());
   require_owned_directory(root_, path);
   return record;
 }
-std::vector<HistoryDataset> Archive::datasets(const HistoryFilter& filter) const {
+Archive::Listing Archive::datasets(const HistoryFilter& filter) const {
   if (!filter.contract_id.empty())
     (void)HistoryIdentity::parse(filter.contract_id);
   if (!filter.source.empty())
@@ -161,21 +148,27 @@ std::vector<HistoryDataset> Archive::datasets(const HistoryFilter& filter) const
                                            : FileLock::Access::shared_existing);
   else if (!std::filesystem::is_empty(root_ / "index"))
     throw std::invalid_argument("historical archive coordination file is missing");
-  std::vector<HistoryDataset> result;
+  Listing result;
   for (const auto& file : std::filesystem::directory_iterator(root_ / "index")) {
     safe(file.path());
     if (file.path().extension() != ".pb")
       throw std::invalid_argument("unknown historical archive entry");
-    const auto item = summary(get(file.path().stem().string()));
+    HistoryDataset item;
+    try {
+      item = summary(get(file.path().stem().string()));
+    } catch (const UnsupportedRecord&) {
+      ++result.unsupported;
+      continue;
+    }
     if ((filter.venue.empty() || filter.venue == item.contract.venue) &&
         (filter.product.empty() || filter.product == item.contract.product) &&
         (filter.contract_id.empty() || filter.contract_id == item.contract.key()) &&
         (filter.source.empty() || filter.source == item.source))
-      result.push_back(item);
-    if (result.size() > 10000)
+      result.items.push_back(item);
+    if (result.items.size() > 10000)
       throw std::invalid_argument("historical archive query exceeds limit; narrow filters");
   }
-  std::ranges::sort(result, {}, &HistoryDataset::id);
+  std::ranges::sort(result.items, {}, &HistoryDataset::id);
   return result;
 }
 void Archive::save_named_dataset(const data::v1::NamedDataset& value) {

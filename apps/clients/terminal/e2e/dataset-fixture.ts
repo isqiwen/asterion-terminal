@@ -1,11 +1,10 @@
 import { expect, type APIRequestContext } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
-// Test-only history: verified minute and daily versions published by the
-// compiled test provider into the isolated data warehouse, and the same daily
-// rows in the market-wide daily table, which is where a dataset reads its
-// settlement prices. It is not a client workflow; production history comes
-// only from data-source plugins.
+// Test-only history: minute versions and market-wide daily tables supplied by
+// the compiled fixture into the isolated data warehouse. The daily table is
+// where a dataset reads its settlement prices. This is not a client workflow;
+// production history comes only from data-source plugins.
 const build = process.env.ASTERION_CPP_BUILD ?? resolve(__dirname, "../../../../build/Debug");
 
 export async function rpc(
@@ -25,29 +24,34 @@ export async function rpc(
 type Service = { id: string; directory: string };
 type Snapshot = { nodes: { id: string; health: { services: Service[] } }[] };
 
-// Returns the data.dataset.select parameters for the seeded downloads of
-// the SHFE `product` 2026-10 contract, and beside them the contract's own
-// daily download. `keep` adds to the current selection instead of starting a
-// new one.
+// Returns the data.dataset.select parameters for the seeded minute versions
+// and daily table snapshot of the SHFE `product` contract. `keep` adds to the
+// current selection instead of starting a new one.
 export async function seedHistory(
   request: APIRequestContext,
   prices: number[],
   id: string,
   {
     product = "rb",
+    provider,
     keep = false,
     day = "2026-09-25",
     minuteDays = [],
     dailyDays = [],
+    tablesOnly = false,
+    dailyPrices = false,
     month = "2026-10",
     openInterest = 100,
     settlement = 110,
   }: {
     product?: string;
+    provider?: string;
     keep?: boolean;
     day?: string;
     minuteDays?: string[];
     dailyDays?: string[];
+    tablesOnly?: boolean;
+    dailyPrices?: boolean;
     month?: string;
     openInterest?: number;
     settlement?: number;
@@ -62,7 +66,9 @@ export async function seedHistory(
   const offered: { table: string; source: string; plugin_id: string }[] = (
     await rpc(request, "data.tables.coverage", {})
   ).table_coverage.sources;
-  const dailySource = offered.find(item => item.table === "futures.daily")!;
+  const dailySource = offered.find(
+    item => item.table === "futures.daily" && (!provider || item.plugin_id === provider),
+  )!;
   const of = (table: string) =>
     offered.find(item => item.table === table && item.plugin_id === dailySource.plugin_id)!;
   const tables = [
@@ -99,6 +105,8 @@ export async function seedHistory(
       ...prices.map(String),
       ...(minuteDays.length ? ["--minute-days", ...minuteDays] : []),
       ...(dailyDays.length ? ["--daily-days", ...dailyDays] : []),
+      ...(tablesOnly ? ["--tables-only"] : []),
+      ...(dailyPrices ? ["--daily-prices"] : []),
       "--month",
       month,
       "--open-interest",
@@ -113,7 +121,7 @@ export async function seedHistory(
   await expect
     .poll(async () => (await rpc(request, "runtime.snapshot")).data?.online, { timeout: 10000 })
     .toBe(true);
-  const { source_dataset_ids, daily, daily_dataset_id, begin_day, end_day } = JSON.parse(output);
+  const { source_dataset_ids, daily, begin_day, end_day } = JSON.parse(output);
   const selection: {
     source_dataset_ids: string[];
     daily: {
@@ -125,12 +133,7 @@ export async function seedHistory(
     begin_day: string;
     end_day: string;
   } = { source_dataset_ids, daily, begin_day, end_day };
-  // The contract's own daily download: bars for a daily dataset, and what the
-  // archive pages compare minute downloads with. It is not a parameter of
-  // data.dataset.select, so it does not travel when the selection is spread.
-  return Object.defineProperty(selection, "daily_dataset_id", {
-    value: daily_dataset_id,
-  }) as typeof selection & { readonly daily_dataset_id: string };
+  return selection;
 }
 
 export async function seedDataset(

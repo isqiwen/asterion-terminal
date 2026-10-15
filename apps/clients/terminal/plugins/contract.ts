@@ -11,6 +11,7 @@ export {
   type StrategyDraft,
 } from "../src/ui/StrategyFields";
 export { useWorkspaceDraft, useWorkspaceRequestId } from "../src/host/workspace/drafts";
+export { save, nativeDesktop } from "../src/bridge/desktop";
 export { Icon } from "../src/ui/Icon";
 export { useHistoryDatasets } from "../src/ui/useHistoryDatasets";
 export { dailyTableOf, useDailyTable } from "../src/ui/useDailyTable";
@@ -51,16 +52,24 @@ export type TerminalContext = {
   openSettings: (page?: "preferences" | "connections" | "ctp" | "sources") => void;
   query: (
     method:
+      | "task.result.read"
+      | "backtest.budget.review"
+      | "task.metadata.read"
+      | "task.evidence.export"
+      | "task.comparison.export"
       | "data.minutes.page"
-      | "data.daily.page"
+      | "data.minutes.range"
+      | "data.minutes.evidence"
       | "data.datasets"
       | "data.dataset.saved"
       | "data.coverage"
       | "data.history.usage"
       | "data.download.update.plan"
+      | "data.tables.refresh.plan"
       | "data.tables.coverage"
       | "data.tables.page"
       | "data.tables.products"
+      | "data.tables.listed_contracts"
       | "data.tables.daily"
       | "data.tables.contracts"
       | "market.minutes",

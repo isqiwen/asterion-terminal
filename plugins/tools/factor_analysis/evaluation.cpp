@@ -260,7 +260,8 @@ FactorEvaluation evaluate_factor(std::span<const std::span<const std::optional<D
                                  Feature feature, std::span<const unsigned> lookbacks,
                                  std::size_t horizon, std::optional<std::size_t> split,
                                  std::stop_token stop,
-                                 const std::function<void(std::size_t, std::size_t)>& progress) {
+                                 const std::function<void(std::size_t, std::size_t)>& progress,
+                                 std::span<const std::span<const std::uint8_t>> eligibility) {
   if (series.empty() || values.size() != series.size())
     throw std::invalid_argument("factor evaluation needs a series and its values");
   const auto count = series.front().size();
@@ -268,6 +269,11 @@ FactorEvaluation evaluate_factor(std::span<const std::span<const std::optional<D
     throw std::invalid_argument("factor evaluation needs windows and, to compare them, a "
                                 "boundary inside the series");
   const bool cross = series.size() > 1;
+  if (!eligibility.empty() && (!cross || eligibility.size() != series.size()))
+    throw std::invalid_argument("eligibility must match a cross-section");
+  for (const auto mask : eligibility)
+    if (mask.size() != count)
+      throw std::invalid_argument("eligibility must match a cross-section");
   for (std::size_t s = 0; s < series.size(); ++s) {
     if (series[s].size() != count || values[s].size() != count)
       throw std::invalid_argument("factor series must share their observations");
@@ -303,10 +309,16 @@ FactorEvaluation evaluate_factor(std::span<const std::span<const std::optional<D
   };
   const auto featured = [&](std::size_t end, std::size_t window) {
     std::vector<Column> result;
-    for (const auto input : values)
-      result.push_back(unbroken(input.first(end), [&](std::span<const Decimal> stretch) {
+    for (std::size_t s = 0; s < values.size(); ++s) {
+      auto computed = unbroken(values[s].first(end), [&](std::span<const Decimal> stretch) {
         return feature(stretch, window);
-      }));
+      });
+      if (!eligibility.empty())
+        for (std::size_t i = 0; i < end; ++i)
+          if (!eligibility[s][i])
+            computed[i].reset();
+      result.push_back(std::move(computed));
+    }
     return result;
   };
   // The observations of [begin, end) that are evaluated: after the largest

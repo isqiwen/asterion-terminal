@@ -69,8 +69,7 @@ export function HistoryUsagePanel({
         </button>
       </div>
       <p>
-        {item.contract_id} · {item.interval_minutes ? `${item.interval_minutes}m` : t("日线")} ·{" "}
-        {item.source}
+        {item.contract_id} · {`${item.interval_minutes}m`} · {item.source}
       </p>
       <p className="subtle">
         {item.begin} — {item.end}

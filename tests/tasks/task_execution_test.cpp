@@ -1,6 +1,7 @@
 #include <asterion/protocol/data_client.hpp>
 #include "tasks/paper_input.hpp"
 #include "performance.hpp"
+#include "portfolio_budget.hpp"
 #include "support/local_listener.hpp"
 #include <asterion/protocol/factor.hpp>
 #include "history_update.hpp"
@@ -145,7 +146,7 @@ data::v1::BarDataset* factor_bars(factor::v1::FactorInput& input) {
 }
 factor::v1::FactorInput maximum_factor_input() {
   factor::v1::FactorInput spec;
-  spec.set_version(9);
+  spec.set_version(10);
   spec.set_factor(protocol::v1::PRICE_MOMENTUM);
   spec.set_full_sample(true);
   spec.add_lookbacks(2);
@@ -188,6 +189,17 @@ TEST(Backtest, DeterministicNextTickExecutionFeesAndDrawdown) {
   EXPECT_EQ(result.account().fills(0).price().units(), d("101").raw());
   EXPECT_EQ(result.account().fills(1).price().units(), d("101").raw());
   EXPECT_EQ(result.account().fees().units(), d("5").raw());
+  EXPECT_EQ(result.account().fills(0).fee().units(), d("2").raw());
+  EXPECT_EQ(result.account().fills(1).fee().units(), d("3").raw());
+  auto missing_fee = result;
+  missing_fee.mutable_account()->mutable_fills(0)->clear_fee();
+  EXPECT_THROW(protocol::decode_backtest_result(missing_fee), std::invalid_argument);
+  auto inconsistent_fee = result;
+  inconsistent_fee.mutable_account()->mutable_fills(0)->mutable_fee()->set_units(d("1").raw());
+  EXPECT_THROW(protocol::decode_backtest_result(inconsistent_fee), std::invalid_argument);
+  auto old = result;
+  old.set_version(5);
+  EXPECT_THROW(protocol::decode_backtest_result(old), std::invalid_argument);
   EXPECT_EQ(result.account().equity().units(), d("9995").raw());
   EXPECT_EQ(result.max_drawdown().units(), d("12").raw());
   ASSERT_EQ(result.equity_size(), 8);
@@ -217,13 +229,69 @@ TEST(Backtest, DailySignalsTradeNextDayWithNewCostsAndYesterdayPositions) {
   cost->mutable_values()->mutable_close_yesterday_fee()->set_units(d("9").raw());
   spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
   const auto result = backtest::run(spec);
+  const auto original_bytes = result.SerializeAsString();
+  for (const auto& settled : result.settlements()) {
+    ASSERT_TRUE(settled.has_occupancy());
+    ASSERT_TRUE(settled.occupancy().has_margin());
+    ASSERT_TRUE(settled.occupancy().has_available());
+    Decimal margin;
+    for (const auto& row : settled.contracts()) {
+      ASSERT_TRUE(row.has_gross_quantity());
+      ASSERT_TRUE(row.has_margin());
+      margin = margin + Decimal::from_raw(row.margin().units());
+    }
+    EXPECT_EQ(margin.raw(), settled.occupancy().margin().units());
+  }
+  auto old_result = result;
+  for (auto& settled : *old_result.mutable_settlements()) {
+    settled.clear_occupancy();
+    for (auto& row : *settled.mutable_contracts()) {
+      row.clear_gross_quantity();
+      row.clear_margin();
+    }
+  }
+  const auto old_bytes = old_result.SerializeAsString();
+  const auto old_decoded = protocol::decode_backtest_result(old_result);
+  EXPECT_FALSE(old_decoded.at("settlements").at(0).contains("occupancy"));
+  const auto old_path = settlement_exposure(spec, old_result),
+             new_path = settlement_exposure(spec, result);
+  ASSERT_EQ(old_path.size(), days.size());
+  for (std::size_t i = 0; i < days.size(); ++i) {
+    EXPECT_FALSE(old_path[i].gross_notional);
+    EXPECT_FALSE(old_path[i].margin);
+    EXPECT_FALSE(old_path[i].available);
+    EXPECT_EQ(old_path[i].net_notional, new_path[i].net_notional);
+    EXPECT_TRUE(new_path[i].gross_notional);
+  }
+  EXPECT_EQ(old_result.SerializeAsString(), old_bytes);
+  EXPECT_EQ(result.SerializeAsString(), original_bytes);
+  auto partial = result;
+  partial.mutable_settlements(3)->mutable_contracts(0)->clear_margin();
+  EXPECT_THROW(protocol::decode_backtest_result(partial), std::invalid_argument);
+  auto inconsistent = result;
+  inconsistent.mutable_settlements(3)->mutable_occupancy()->mutable_margin()->set_units(1);
+  EXPECT_THROW(protocol::decode_backtest_result(inconsistent), std::invalid_argument);
   ASSERT_EQ(result.account().fills_size(), 2);
+  ASSERT_EQ(result.fill_days_size(), 2);
+  EXPECT_EQ(result.fill_days(0).fill_id(), result.account().fills(0).id());
+  EXPECT_EQ(result.fill_days(0).trading_day(), days[3]);
+  EXPECT_EQ(result.fill_days(1).trading_day(), days[4]);
+  auto without_dates = result;
+  without_dates.clear_fill_days();
+  const auto old_view = protocol::decode_backtest_result(without_dates);
+  EXPECT_FALSE(old_view.contains("fill_days"));
+  EXPECT_EQ(old_view.at("account"), protocol::decode_backtest_result(result).at("account"));
+  auto partial_dates = result;
+  partial_dates.mutable_fill_days()->RemoveLast();
+  EXPECT_THROW(protocol::decode_backtest_result(partial_dates), std::invalid_argument);
   EXPECT_EQ(result.account().fills(0).price().units(), d("100").raw());
   EXPECT_EQ(result.account().fills(1).price().units(), d("101").raw());
   EXPECT_EQ(result.account().orders(1).offset(), protocol::v1::CLOSE_YESTERDAY);
   EXPECT_EQ(result.settlements(2).contracts(0).position_quantity().units(), 0);
   EXPECT_EQ(result.settlements(3).contracts(0).position_quantity().units(), d("1").raw());
   EXPECT_EQ(result.account().fees().units(), d("16").raw());
+  EXPECT_EQ(result.account().fills(0).fee().units(), d("7").raw());
+  EXPECT_EQ(result.account().fills(1).fee().units(), d("9").raw());
   EXPECT_EQ(result.account().equity().units(), d("9994").raw());
   EXPECT_EQ(result.account().positions_size(), 0);
   EXPECT_EQ(result.account().frozen().units(), 0);
@@ -744,6 +812,73 @@ struct TaskDirectory {
   }
 };
 } // namespace
+TEST(TaskMetadata, DescriptionAndDerivationSurviveRestartWithoutChangingCalculationEvidence) {
+  TaskDirectory directory;
+  const auto spec = input();
+  const auto expected = backtest::run(spec);
+  std::string input_hash, result_hash, digest;
+  {
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    tasks::submit(store, "original", spec);
+    const auto token = store.commit(store.claim("original")).token();
+    store.commit(tasks::finish(store, "original", token, expected));
+    EXPECT_FALSE(store.describe("original").has_metadata());
+    input_hash = sha256_file(directory.path / "original/input.pb");
+    result_hash = sha256_file(directory.path / "original/results/1.pb");
+    digest = store.describe("original").result_digest();
+    auto submission = store.submission("derived", spec);
+    task::v1::TaskDerivation source;
+    source.set_source_id("original");
+    source.set_source_result_digest(digest);
+    source.set_data_choice("fixed");
+    submission.set_derivation(source);
+    store.admit_submission(submission);
+    submission.prepare_files();
+    store.commit(store.register_submission(submission));
+    task::v1::TaskMetadataEdit edit;
+    edit.set_id("original");
+    edit.set_name("baseline");
+    edit.set_note("first line\nsecond line");
+    const auto before = store.describe("original");
+    const auto changed = store.commit(store.edit_metadata(edit)).task();
+    EXPECT_EQ(changed.metadata().revision(), 1U);
+    EXPECT_EQ(changed.state(), before.state());
+    EXPECT_EQ(changed.attempt(), before.attempt());
+    EXPECT_EQ(changed.updated_at_ms(), before.updated_at_ms());
+    EXPECT_EQ(changed.result_digest(), digest);
+    EXPECT_THROW(store.edit_metadata(edit), Error);
+    const auto derived_token = store.commit(store.claim("derived")).token();
+    edit.set_id("derived");
+    edit.set_name("candidate");
+    edit.set_note("fixed evidence");
+    store.commit(store.edit_metadata(edit));
+    EXPECT_EQ(store.describe("derived").metadata().derivation().source_id(), "original");
+    EXPECT_EQ(store.describe("derived").metadata().derivation().source_instance(), "task");
+    edit.set_expected_revision(1);
+    edit.set_note("must not be committed");
+    auto change = store.edit_metadata(edit);
+    sqlite::fail_next_commits_for_testing(1);
+    EXPECT_THROW(change.persist(), std::runtime_error);
+    sqlite::fail_next_commits_for_testing(0);
+    EXPECT_EQ(store.describe("derived").metadata().note(), "fixed evidence");
+    store.commit(store.progress("derived", derived_token, 1));
+    store.commit(tasks::finish(store, "derived", derived_token, expected));
+  }
+  {
+    tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
+    const auto original = restored.describe("original"), derived = restored.describe("derived");
+    EXPECT_EQ(original.metadata().name(), "baseline");
+    EXPECT_EQ(original.metadata().note(), "first line\nsecond line");
+    EXPECT_EQ(derived.metadata().name(), "candidate");
+    EXPECT_EQ(derived.metadata().revision(), 1U);
+    EXPECT_EQ(derived.metadata().derivation().source_result_digest(), digest);
+    EXPECT_EQ(derived.metadata().derivation().data_choice(), "fixed");
+    EXPECT_EQ(tasks::result(restored, "original").SerializeAsString(),
+              expected.SerializeAsString());
+    EXPECT_EQ(sha256_file(directory.path / "original/input.pb"), input_hash);
+    EXPECT_EQ(sha256_file(directory.path / "original/results/1.pb"), result_hash);
+  }
+}
 TEST(TaskEventSegments, FailedIndexCommitKeepsActiveEvidenceAndConfirmsOnlyTheOriginalSegment) {
   TaskDirectory directory;
   const auto root = std::filesystem::canonical(directory.path);
@@ -1572,7 +1707,137 @@ TEST_F(TaskProcess, ABacktestOfAProductTradesTheMonthsTheDailyTableNames) {
   task_wire::TaskRequest result;
   result.mutable_result()->set_id("product");
   // Settled every day from the second, on which the series begins.
-  EXPECT_EQ(call(result).backtest().settlements_size(), 5);
+  const auto original_result = call(result);
+  EXPECT_EQ(original_result.backtest().settlements_size(), 5);
+  const auto original_bytes = task.input().SerializeAsString();
+  const auto reuse = [&](const std::string& id, bool fresh, const std::string& snapshot,
+                         const std::string& digest) {
+    task_wire::TaskRequest request;
+    request.mutable_submit()->set_id(id);
+    auto* ref = request.mutable_submit()->mutable_backtest_reuse();
+    ref->set_source_id("product");
+    ref->set_source_result_digest(task.result_digest());
+    ref->set_source_input_sha256(digest);
+    ref->set_choice(fresh ? backtest::v1::BacktestReuse::NEW_SNAPSHOT
+                          : backtest::v1::BacktestReuse::FIXED);
+    ref->set_snapshot(snapshot);
+    return call(request);
+  };
+  const auto digest = sha256_bytes(original_bytes);
+  EXPECT_THROW(reuse("stale", false, "", std::string(64, 'f')), std::runtime_error);
+  EXPECT_EQ(reuse("fixed", false, "", digest).task().state(), task_wire::QUEUED);
+  ChildProcess fixed(ASTERION_BACKTEST_PATH,
+                     {"--endpoint", endpoint, "--session", "task", "--task", "fixed"});
+  ASSERT_TRUE(fixed.wait(15s));
+  ASSERT_EQ(fixed.exit_code(), 0);
+  result.mutable_result()->set_id("fixed");
+  const auto fixed_result = call(result);
+  EXPECT_EQ(fixed_result.result_task().input().SerializeAsString(), original_bytes);
+  EXPECT_EQ(fixed_result.backtest().SerializeAsString(),
+            original_result.backtest().SerializeAsString());
+  data_service.reset();
+  const auto revised = test::seed_daily_table(warehouse.path, "SHFE/rb/2027-01",
+                                              traded(100, {10, 200, 90, 95, 99, 99}));
+  start_data();
+  EXPECT_EQ(
+      reuse("revised", true, revised.at("snapshot").get<std::string>(), digest).task().state(),
+      task_wire::QUEUED);
+  ChildProcess revised_worker(ASTERION_BACKTEST_PATH,
+                              {"--endpoint", endpoint, "--session", "task", "--task", "revised"});
+  ASSERT_TRUE(revised_worker.wait(15s));
+  ASSERT_EQ(revised_worker.exit_code(), 0);
+  result.mutable_result()->set_id("revised");
+  const auto revised_result = call(result);
+  const auto& revised_input = revised_result.result_task().input();
+  EXPECT_NE(revised_input.dataset_revision(), task.input().dataset_revision());
+  ASSERT_EQ(revised_input.series(0).rolls_size(), 2);
+  EXPECT_EQ(revised_input.series(0).rolls(0).trading_day(), days[1]);
+  EXPECT_EQ(revised_input.series(0).rolls(1).trading_day(), days[2]);
+  EXPECT_EQ(revised_input.strategies(0).SerializeAsString(),
+            task.input().strategies(0).SerializeAsString());
+  EXPECT_EQ(revised_input.paper().risk().SerializeAsString(), paper.risk().SerializeAsString());
+  for (const auto& contract : revised_input.paper().contracts()) {
+    EXPECT_EQ(contract.cost_schedule().SerializeAsString(),
+              product->cost_schedule().SerializeAsString());
+    EXPECT_EQ(contract.slippage_ticks(), 1U);
+  }
+  get.mutable_get()->set_id("product");
+  EXPECT_EQ(call(get).task().input().SerializeAsString(), original_bytes);
+  result.mutable_result()->set_id("product");
+  EXPECT_EQ(call(result).backtest().SerializeAsString(),
+            original_result.backtest().SerializeAsString());
+}
+TEST_F(TaskProcess, BacktestReuseRejectsOldInputWithoutCreatingANewTask) {
+  submit("legacy");
+  ChildProcess worker(ASTERION_BACKTEST_PATH,
+                      {"--endpoint", endpoint, "--session", "task", "--task", "legacy"});
+  ASSERT_TRUE(worker.wait(15s));
+  ASSERT_EQ(worker.exit_code(), 0);
+  task_wire::TaskRequest get;
+  get.mutable_get()->set_id("legacy");
+  const auto original = call(get).task();
+  service.reset();
+  auto old = original.input();
+  old.set_version(9);
+  const auto raw = old.SerializeAsString();
+  replace_file_durably(directory.path / "legacy" / "input.pb", raw);
+  {
+    sqlite::Database db(directory.path / "tasks.sqlite");
+    Json manifest;
+    task::v1::StoredTaskRecord record;
+    {
+      sqlite::Database::Statement read(db, "SELECT manifest, record FROM tasks WHERE id='legacy'");
+      ASSERT_TRUE(read.step());
+      manifest = Json::parse(read.text(0));
+      ASSERT_TRUE(record.ParseFromString(read.blob(1)));
+    }
+    manifest["input_sha256"] = sha256_bytes(raw);
+    manifest["input_bytes"] = raw.size();
+    record.set_input_digest(sha256_bytes(raw));
+    record.set_input_bytes(raw.size());
+    sqlite::Database::Statement write(db,
+                                      "UPDATE tasks SET manifest=?, record=? WHERE id='legacy'");
+    write.bind(1, manifest.dump()).bind_blob(2, record.SerializeAsString()).step();
+  }
+  start();
+  task_wire::TaskRequest request;
+  request.mutable_submit()->set_id("not-created");
+  auto* reuse = request.mutable_submit()->mutable_backtest_reuse();
+  reuse->set_source_id("legacy");
+  reuse->set_source_result_digest(original.result_digest());
+  reuse->set_source_input_sha256(sha256_bytes(raw));
+  reuse->set_choice(backtest::v1::BacktestReuse::FIXED);
+  try {
+    (void)call(request);
+    FAIL() << "old backtest input was accepted";
+  } catch (const std::runtime_error& error) {
+    EXPECT_NE(std::string(error.what()).find("unsupported backtest input version"),
+              std::string::npos);
+  }
+  task_wire::TaskRequest export_source;
+  export_source.mutable_result()->set_id("legacy");
+  try {
+    (void)call(export_source);
+    FAIL() << "old result was exported";
+  } catch (const std::runtime_error& error) {
+    EXPECT_NE(std::string(error.what()).find("unsupported backtest input version"),
+              std::string::npos);
+  }
+  task_wire::TaskRequest description;
+  description.mutable_metadata_get()->set_id("legacy");
+  EXPECT_EQ(call(description).task().metadata().revision(), 0U);
+  task_wire::TaskRequest edit;
+  auto* metadata = edit.mutable_metadata_edit();
+  metadata->set_id("legacy");
+  metadata->set_name("legacy description");
+  metadata->set_note("input retained");
+  EXPECT_EQ(call(edit).task().result_digest(), original.result_digest());
+  service.reset();
+  start();
+  EXPECT_EQ(call(description).task().metadata().note(), "input retained");
+  EXPECT_FALSE(std::filesystem::exists(directory.path / "not-created" / "input.pb"));
+  std::ifstream file(directory.path / "legacy" / "input.pb", std::ios::binary);
+  EXPECT_EQ(std::string((std::istreambuf_iterator<char>(file)), {}), raw);
 }
 TEST_F(TaskProcess, WorkerRejectsDataEvidenceDifferentFromTheAcceptedInput) {
   auto spec = process_input();
@@ -3075,14 +3340,6 @@ TEST(NamedDatasets, ADailyBarIsADayTheContractTradedAndADownloadOfDailyBarsIsNoS
   EXPECT_EQ(dataset.days(2).settlement_price().units(), Decimal::parse("3012").raw());
   EXPECT_EQ(dataset.days(3).settlement_price().units(), Decimal::parse("3030").raw());
   EXPECT_EQ(days_without_bars(dataset), (std::vector<std::string>{"2026-09-22", "2026-09-24"}));
-  // The contract's own download of daily bars is not where bars come from.
-  request.add_source_dataset_ids(seeded.at("daily_dataset_id").get<std::string>());
-  try {
-    (void)data::resolve_bar_dataset(store.tables(), store.sources(request));
-    FAIL() << "a download of daily bars was read as a bar source";
-  } catch (const std::invalid_argument& error) {
-    EXPECT_STREQ(error.what(), "bar source must be a completed minute download");
-  }
 }
 
 // The contract table has today's lot of a contract, and a wrong multiplier
@@ -3189,7 +3446,7 @@ TEST(NamedDatasets, RequestedWindowReportsMissingBoundaryDays) {
   EXPECT_EQ(days_without_bars(dataset), (std::vector<std::string>{"2026-09-23", "2026-09-25"}));
   task::v1::Task calculation;
   *factor_bars(*calculation.mutable_factor()) = dataset;
-  calculation.mutable_factor()->set_version(9);
+  calculation.mutable_factor()->set_version(10);
   calculation.mutable_factor()->set_factor(protocol::v1::PRICE_MOMENTUM);
   calculation.mutable_factor()->set_dataset_revision(dataset.revision());
   calculation.mutable_factor()->add_lookbacks(1);
@@ -3317,7 +3574,7 @@ TEST(NamedDatasets, CompositionReportsGapsAndRejectsInvalidVersionLists) {
   EXPECT_THROW(protocol::decode_bar_dataset_request(request), std::invalid_argument);
 }
 
-TEST(HistoryUpdate, IncrementalMinuteAndDailyPlansStartAfterFixedBoundaries) {
+TEST(HistoryUpdate, IncrementalMinutePlansStartAfterFixedBoundaries) {
   TaskDirectory directory;
   const auto seeded = test::seed_history(directory.path, {100, 101}, "update-base");
   history_files::Archive archive(directory.path / "history");
@@ -3338,16 +3595,13 @@ TEST(HistoryUpdate, IncrementalMinuteAndDailyPlansStartAfterFixedBoundaries) {
   EXPECT_EQ(protocol::decode_history_update_plan(plan).at("query"),
             protocol::decode_history_update_query(query));
   EXPECT_EQ(archive.get(query.dataset_id()).SerializeAsString(), before);
-  query.set_dataset_id(seeded.at("daily_dataset_id").get<std::string>());
-  const auto day = data::history_update_plan(archive, tables, query, now);
-  EXPECT_EQ(day.daily().begin_day(), "2026-09-26");
-  EXPECT_EQ(day.daily().end_day(), "2026-09-26");
-  auto changed = day;
-  changed.mutable_daily()->set_end_day("2026-09-27");
+  auto changed = plan;
+  changed.mutable_minutes()->set_end_ns(plan.minutes().end_ns() + 1);
   EXPECT_THROW(protocol::decode_history_update_plan(changed), std::invalid_argument);
   query.set_end_day("2026-09-28");
   EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
-  query.set_end_day("2026-09-25");
+  // A day before the version's last bar asks for nothing later.
+  query.set_end_day("2026-09-24");
   EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
 }
 // The days to fetch again are those the daily table shows the contract traded
@@ -3356,9 +3610,9 @@ TEST(HistoryUpdate, RepairPinsTheDailyTableAndPreservesNightSessionWindow) {
   TaskDirectory directory;
   const auto seeded =
       test::seed_history(directory.path, {100, 101, 102, 103}, "update-gaps",
-                         {"2026-09-23", "2026-09-25"}, {"2026-09-23", "2026-09-24", "2026-09-25"});
+                         {"2026-09-21", "2026-09-23"}, {"2026-09-21", "2026-09-22", "2026-09-23"});
   const auto other =
-      test::seed_history(directory.path, {100, 101}, "update-other", {"2026-09-25"}, {}, "cu");
+      test::seed_history(directory.path, {100, 101}, "update-other", {"2026-09-23"}, {}, "cu");
   history_files::Archive archive(directory.path / "history");
   history_files::TableStore tables(directory.path / "tables");
   auto query =
@@ -3371,7 +3625,7 @@ TEST(HistoryUpdate, RepairPinsTheDailyTableAndPreservesNightSessionWindow) {
   const auto source = archive.get(query.dataset_id());
   const auto plan = data::history_update_plan(archive, tables, query, now);
   ASSERT_EQ(plan.missing_days_size(), 1);
-  EXPECT_EQ(plan.missing_days(0), "2026-09-24");
+  EXPECT_EQ(plan.missing_days(0), "2026-09-22");
   EXPECT_EQ(plan.minutes().begin_ns(), source.minutes().begin_ns());
   EXPECT_EQ(plan.minutes().end_ns(), source.minutes().end_ns());
   EXPECT_EQ(plan.minutes().requests_per_minute(), 60);
@@ -3381,8 +3635,6 @@ TEST(HistoryUpdate, RepairPinsTheDailyTableAndPreservesNightSessionWindow) {
   EXPECT_THROW(data::history_update_plan(archive, tables, unknown, now), Error);
   // Copper's one minute day is the one day it traded: nothing to fetch.
   query.set_dataset_id(other.at("source_dataset_ids").at(0).get<std::string>());
-  EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
-  query.set_dataset_id(other.at("daily_dataset_id").get<std::string>());
   EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
 }
 TEST(HistoryUpdate, CorruptBaseAndMalformedQueryCannotProducePlans) {
@@ -3474,7 +3726,7 @@ TEST_F(TaskProcess, HistoryUsageKeepsTaskReferencesAfterCancellationAndRestart) 
     tasks::submit(store, "usage-backtest", backtest);
     store.commit(store.cancel("usage-backtest")).task();
     factor::v1::FactorInput factor;
-    factor.set_version(9);
+    factor.set_version(10);
     factor.set_factor(protocol::v1::PRICE_MOMENTUM);
     *factor_bars(factor) = data;
     factor.set_dataset_revision(data.revision());
@@ -3500,10 +3752,6 @@ TEST_F(TaskProcess, HistoryUsageKeepsTaskReferencesAfterCancellationAndRestart) 
   service.reset();
   start();
   EXPECT_EQ(call(query).history_usage().SerializeAsString(), first.SerializeAsString());
-  // Settlements come from the daily table: the contract's own daily download
-  // is not something a dataset reads.
-  query.mutable_history_usage()->set_id(seeded.at("daily_dataset_id").get<std::string>());
-  EXPECT_EQ(call(query).history_usage().references_size(), 0);
   query.mutable_history_usage()->set_id(std::string(64, '0'));
   EXPECT_EQ(call(query).history_usage().references_size(), 0);
   query.mutable_history_usage()->set_id("../escape");
@@ -3737,7 +3985,7 @@ TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTa
   const auto source = data::resolve_bar_dataset(data_store.tables(),
                                                 data_store.sources(composed_request({selection})));
   factor::v1::FactorInput spec;
-  spec.set_version(9);
+  spec.set_version(10);
   spec.set_factor(protocol::v1::PRICE_MOMENTUM);
   *factor_bars(spec) = source;
   spec.set_dataset_revision(source.revision());
@@ -3813,7 +4061,7 @@ TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTa
 TEST(TaskStore, ActiveCapacityAppliesToNewAdmissionsAndExplicitRetries) {
   TaskDirectory directory;
   factor::v1::FactorInput spec;
-  spec.set_version(9);
+  spec.set_version(10);
   spec.set_factor(protocol::v1::PRICE_MOMENTUM);
   *factor_bars(spec) = input().paper().contracts(0).dataset();
   auto* data = factor_bars(spec);
@@ -3907,4 +4155,121 @@ TEST(TaskStore, ARollingComparisonKeepsItsRoundsAndRefusesOthers) {
   }
   tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
   EXPECT_EQ(restored.get("rolled").state(), task::v1::SUCCEEDED);
+}
+
+TEST(TaskStore, FailureCodeRemainsAnOptionalObservationAcrossRestartAndExplicitRetry) {
+  TaskDirectory directory;
+  const auto spec = input();
+  std::string original;
+  {
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    tasks::submit(store, "typed-failure", spec);
+    original = store.get("typed-failure").input().SerializeAsString();
+    const auto token = store.commit(store.claim("typed-failure")).token();
+    store.commit(store.fail("typed-failure", token, "fixture source unavailable", "unavailable"));
+    tasks::submit(store, "unknown-failure", spec);
+    const auto other = store.commit(store.claim("unknown-failure")).token();
+    // The same words in a diagnostic are not structured failure evidence.
+    store.commit(store.fail("unknown-failure", other, "fixture source unavailable"));
+  }
+  {
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    EXPECT_EQ(store.get("typed-failure").error_code(), "unavailable");
+    EXPECT_TRUE(store.get("unknown-failure").error_code().empty());
+    EXPECT_EQ(store.list().tasks(0).error_code(), "unavailable");
+    const auto queued = store.commit(store.retry("typed-failure")).task();
+    EXPECT_EQ(queued.state(), task::v1::QUEUED);
+    EXPECT_TRUE(queued.error_code().empty());
+    EXPECT_EQ(store.get("typed-failure").input().SerializeAsString(), original);
+  }
+  {
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    EXPECT_TRUE(store.get("typed-failure").error_code().empty());
+    EXPECT_EQ(store.get("typed-failure").state(), task::v1::QUEUED);
+  }
+}
+
+TEST(SlippageSensitivity, AVariantPreservesEveryOtherFixedInputByte) {
+  std::vector<MarketBar> bars;
+  for (int i = 0; i < 6; ++i) {
+    const auto day = "2026-09-" + std::to_string(21 + i);
+    bars.push_back(test::flat(day, 1790000000000000000LL + i * 86400000000000LL, "100"));
+  }
+  auto dataset = test::dataset(bars);
+  dataset.set_interval_minutes(0);
+  dataset.clear_source_dataset_ids();
+  dataset.clear_history_evidence();
+  dataset.set_source(dataset.daily().daily_source());
+  dataset.set_revision(protocol::bar_dataset_revision(dataset));
+  protocol::validate_bar_dataset(dataset);
+  auto original = input_of(dataset);
+  original.mutable_strategies(0)->clear_rule();
+  original.mutable_strategies(0)->mutable_momentum()->set_lookback(2);
+  const auto bytes = original.SerializeAsString();
+  auto changed = protocol::backtest_slippage_variant(original, 2);
+  EXPECT_EQ(changed.paper().contracts(0).slippage_ticks(), 2);
+  changed.mutable_paper()->mutable_contracts(0)->set_slippage_ticks(0);
+  EXPECT_EQ(changed.SerializeAsString(), bytes);
+  EXPECT_EQ(original.SerializeAsString(), bytes);
+  EXPECT_THROW(protocol::backtest_slippage_variant(original, 0), std::invalid_argument);
+  EXPECT_THROW(protocol::backtest_slippage_variant(original, 101), std::invalid_argument);
+  auto wrong = input();
+  EXPECT_THROW(protocol::backtest_slippage_variant(wrong, 2), std::invalid_argument);
+}
+
+TEST(TaskStore, RefreshTargetsAndResultsSurviveRecoveryWithoutChangingEvidence) {
+  TaskDirectory directory;
+  data::v1::DownloadAuthorization authorization;
+  authorization.set_version(2);
+  authorization.set_id(std::string(64, 'a'));
+  authorization.set_provider_artifact(std::string(64, 'b'));
+  authorization.set_data_instance("historical-data");
+  authorization.set_task_instance("task");
+  authorization.set_task_id("completed-refresh");
+  *authorization.mutable_table_update() = protocol::encode_table_update(
+      {{"provider", "test.independent.c"},
+       {"tables", {"futures.daily"}},
+       {"begin_day", "2024-03-01"},
+       {"end_day", "2024-03-01"},
+       {"requests_per_minute", 60},
+       {"refresh",
+        {{"partition",
+          {{"table", "futures.daily"}, {"exchange", "SHFE"}, {"period", "2024-03-01"}}},
+         {"source", "fixture.daily.v1"},
+         {"previous_snapshot", std::string(64, 'c')},
+         {"previous_content", std::string(64, 'd')},
+         {"provider_artifact", std::string(64, 'b')}}}});
+  std::string completed, failed, result;
+  {
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    tasks::submit(store, authorization);
+    const auto token = store.commit(store.claim("completed-refresh")).token();
+    task::v1::TaskFinish finish;
+    finish.set_id("completed-refresh");
+    finish.set_token(token);
+    finish.mutable_table_update()->set_version(1);
+    finish.mutable_table_update()->set_unpublished(1);
+    store.commit(tasks::finish(store, finish));
+    completed = store.get("completed-refresh").SerializeAsString();
+    result = tasks::verified_result(store, "completed-refresh").SerializeAsString();
+    authorization.set_task_id("failed-refresh");
+    authorization.set_id(std::string(64, 'e'));
+    tasks::submit(store, authorization);
+    const auto other = store.commit(store.claim("failed-refresh")).token();
+    store.commit(store.fail("failed-refresh", other, "fixture unavailable", "unavailable"));
+    failed = store.get("failed-refresh").SerializeAsString();
+  }
+  {
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    EXPECT_EQ(store.get("completed-refresh").SerializeAsString(), completed);
+    EXPECT_EQ(store.get("failed-refresh").SerializeAsString(), failed);
+    EXPECT_EQ(tasks::verified_result(store, "completed-refresh").SerializeAsString(), result);
+    ASSERT_EQ(store.list().tasks_size(), 2);
+    EXPECT_TRUE(store.list().tasks(0).has_table_refresh());
+    EXPECT_EQ(store.list().tasks(0).table_refresh().SerializeAsString(),
+              authorization.table_update().refresh().SerializeAsString());
+    const auto retried = store.commit(store.retry("failed-refresh")).task();
+    EXPECT_TRUE(retried.has_table_refresh());
+    EXPECT_EQ(retried.state(), task::v1::QUEUED);
+  }
 }

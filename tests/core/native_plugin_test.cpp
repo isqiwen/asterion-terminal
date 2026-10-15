@@ -16,7 +16,7 @@ TEST(NativePlugin, InstancePinsLibraryAndOwnsDestruction) {
   {
     NativeLibrary library(PLUGIN_GOOD);
     EXPECT_EQ(library.descriptor().id, "test.independent.c");
-    EXPECT_EQ(library.descriptor().capabilities.size(), 4);
+    EXPECT_EQ(library.descriptor().capabilities.size(), 5);
     instance = library.create(AST_TEST_LIFETIME, {});
   }
   const auto& api = table(*instance);
@@ -82,9 +82,9 @@ TEST(NativePlugin, SdkContainsExceptionsWithoutLeakingProviderText) {
 }
 TEST(NativePlugin, TushareIsDiscoveredWithoutCredentialsOrNetwork) {
   NativeLibrary library(PLUGIN_TUSHARE);
-  auto instance = library.create(AST_HISTORY_V2, {});
+  auto instance = library.create(AST_HISTORY_V3, {});
   auto* api =
-      static_cast<const AstHistoryV2*>(instance->query(AST_HISTORY_V2, 2, sizeof(AstHistoryV2)));
+      static_cast<const AstHistoryV3*>(instance->query(AST_HISTORY_V3, 3, sizeof(AstHistoryV3)));
   std::vector<std::string> sources;
   EXPECT_EQ(api->sources(instance->handle(), &sources,
                          [](void* context, const AstHistorySource* source) noexcept -> AstStatus {
@@ -94,31 +94,32 @@ TEST(NativePlugin, TushareIsDiscoveredWithoutCredentialsOrNetwork) {
                            });
                          }),
             AST_OK);
-  EXPECT_EQ(sources, (std::vector<std::string>{"tushare.ft_mins", "tushare.fut_daily"}));
+  EXPECT_EQ(sources, (std::vector<std::string>{"tushare.ft_mins"}));
   EXPECT_EQ(api->sources(instance->handle(), nullptr, nullptr), AST_INVALID);
-  EXPECT_THROW(library.create(AST_HISTORY_V2, {{"unknown", "x"}}), Error);
+  EXPECT_THROW(library.create(AST_HISTORY_V3, {{"unknown", "x"}}), Error);
   instance->start();
   EXPECT_EQ(api->minutes(instance->handle(), nullptr, {}, {}, nullptr, nullptr), AST_INVALID);
 }
 TEST(NativePlugin, TushareRequiresAdmissionBeforeSendingDownloadRequests) {
   NativeLibrary library(PLUGIN_TUSHARE);
   auto instance =
-      library.create(AST_HISTORY_V2, {{"source", "tushare.fut_daily"}, {"credential", "fixture"}});
+      library.create(AST_HISTORY_V3, {{"source", "tushare.ft_mins"}, {"credential", "fixture"}});
   instance->start();
   const auto* api =
-      static_cast<const AstHistoryV2*>(instance->query(AST_HISTORY_V2, 2, sizeof(AstHistoryV2)));
+      static_cast<const AstHistoryV3*>(instance->query(AST_HISTORY_V3, 3, sizeof(AstHistoryV3)));
+  const auto begin = 1709254800000000000LL; // 2024-03-01 09:00 Asia/Shanghai
   const AstHistoryQuery query{
-      {"SHFE", "cu", "2024-03"}, "CU2403.SHF", 0, 0, 0, "2024-03-01", "2024-03-01"};
+      {"SHFE", "cu", "2024-03"}, "CU2403.SHF", 1, begin, begin + 60000000000LL};
   unsigned requests = 0, emitted = 0;
   const AstRequestBudget budget{&requests, [](void* value) noexcept -> AstStatus {
                                   ++*static_cast<unsigned*>(value);
                                   return AST_LIMIT;
                                 }};
-  const auto emit = [](void* value, const AstDaily*) noexcept -> AstStatus {
+  const auto emit = [](void* value, const AstMinute*) noexcept -> AstStatus {
     ++*static_cast<unsigned*>(value);
     return AST_OK;
   };
-  EXPECT_EQ(api->daily(instance->handle(), &query, {}, budget, &emitted, emit), AST_LIMIT);
+  EXPECT_EQ(api->minutes(instance->handle(), &query, {}, budget, &emitted, emit), AST_LIMIT);
   EXPECT_EQ(requests, 1);
   EXPECT_EQ(emitted, 0);
 }

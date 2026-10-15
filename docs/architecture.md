@@ -89,7 +89,7 @@ Data 拥有历史版本和来源证据；Task 拥有固定任务、尝试及结�
 | 风控 | `risk/order-limits`（交易前限额） |
 | 工具 | `tools/chart_indicators`（均线、MACD）、`tools/factor_analysis` |
 
-Domain 只为确有多个实现的能力保留端口：交易前风控（`RiskPort`，内置订单限额与原生风控）和历史分钟线、日线读取（`HistoricalBarPort`、`HistoricalDailyPort`，Tushare 与原生历史适配器）。只有一个实现的能力不设端口，宿主直接使用具体类型：CTP 行情 `ctp::Feed`、CTP 交易 `ctp::Trader`、回测撮合 `PaperExecution`、`SqliteJournal` 与历史仓库 `Archive`。交易策略是例外：四条规则共用插件内的 `Strategy` 接口（`plugins/strategy/cta`），由 `make_strategy` 按策略定义创建，回测引擎和实盘策略运行都通过它使用。Kernel 不再有统一的插件生命周期基类；需要启停的插件自行提供 `start`/`stop`，原生历史适配器由自身持有的 `NativeInstance` 完成启停。
+Domain 只为确有多个实现的能力保留端口：交易前风控（`RiskPort`，内置订单限额与原生风控）和历史分钟线读取（`HistoricalBarPort`，Tushare 与原生历史适配器）。全市场数据表通过插件注册层的 `history_providers::TableReader` 读取；日线与合约目录统一来自这些表，没有单独的日线端口。只有一个实现的能力不设端口，宿主直接使用具体类型：CTP 行情 `ctp::Feed`、CTP 交易 `ctp::Trader`、回测撮合 `PaperExecution`、`SqliteJournal` 与历史仓库 `Archive`。交易策略是例外：四条规则共用插件内的 `Strategy` 接口（`plugins/strategy/cta`），由 `make_strategy` 按策略定义创建，回测引擎和实盘策略运行都通过它使用。Kernel 不再有统一的插件生命周期基类；需要启停的插件自行提供 `start`/`stop`，原生历史适配器由自身持有的 `NativeInstance` 完成启停。
 
 存储与回测插件直接读写 Protobuf 契约类型（数据集、任务事件、回测输入），因此依赖 `asterion_protocol`；这是持久格式的类型化表示，不是对服务或传输的依赖。
 

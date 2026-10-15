@@ -83,6 +83,7 @@ private:
   PolledTask<> dispatch(Call& call);
   PolledTask<> submit_download(Call& call);
   PolledTask<> submit_backtest(Call& call);
+  PolledTask<> reuse_backtest(Call& call);
   PolledTask<> submit_factor(Call& call);
   PolledTask<> claim(Call& call);
   PolledTask<> finish(Call& call);

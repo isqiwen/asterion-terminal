@@ -4,4 +4,4 @@ target_link_libraries(asterion_task_store PUBLIC asterion_history_files asterion
 add_executable(asterion-task-service main.cpp task_host.cpp)
 target_compile_features(asterion-task-service PRIVATE cxx_std_20)
 target_compile_definitions(asterion-task-service PRIVATE ASTERION_PRODUCT_VERSION="${PROJECT_VERSION}")
-target_link_libraries(asterion-task-service PRIVATE asterion_task_store asterion_data_client CLI11::CLI11)
+target_link_libraries(asterion-task-service PRIVATE asterion_task_store asterion_data_client asterion_risk_providers CLI11::CLI11)

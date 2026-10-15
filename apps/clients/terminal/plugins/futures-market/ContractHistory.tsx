@@ -1,3 +1,4 @@
+import type { DailyTable } from "../../src/ui/useDailyTable";
 import { dailyChartBar, dailyChartDate } from "../../src/ui/charts/daily-chart";
 import { chartTime } from "./chart-time";
 import { averagePeriods, historyLookback, movingAverage } from "./indicators";
@@ -33,10 +34,15 @@ export function ContractHistory({
   preferLongest = false,
   preferenceKey = preferLongest ? "history-long" : "history-main",
   fixedPeriod,
+  dailyTable,
+  fixedMinuteVersion,
 }: {
   venue: string;
   symbol: string;
   historyContractId?: string;
+  dailyTable?: DailyTable;
+  // Parent fixes an immutable minute version for an explicit source segment.
+  fixedMinuteVersion?: string;
   context: TerminalContext;
   preferLongest?: boolean;
   preferenceKey?: string;
@@ -85,14 +91,16 @@ export function ContractHistory({
   const minutes =
     catalog.key === catalogKey ? catalog.items.filter(task => task.interval_minutes > 0) : [];
   const periods = [...new Set(minutes.map(task => task.interval_minutes))].sort((a, b) => a - b);
-  const table = useDailyTable(snapshot, query);
+  const table = useDailyTable(snapshot, query, dailyTable);
   const held = table.held?.table;
-  const [selection, setSelection] = useState<{ connection: string | undefined; id: string }>({
-    connection,
-    id: "",
-  });
-  const selected = selection.connection === connection ? selection.id : "";
-  const setSelected = (id: string) => setSelection({ connection, id });
+  const [selection, setSelection] = useWorkspaceDraft<{
+    connection: string | undefined;
+    contract: string | undefined;
+    id: string;
+  }>(`${preferenceKey}.dataset`, { connection, contract: contractId, id: "" });
+  const selected =
+    selection.connection === connection && selection.contract === contractId ? selection.id : "";
+  const setSelected = (id: string) => setSelection({ connection, contract: contractId, id });
   // The chart pane keeps its display choices when a different contract is selected.
   // Dataset IDs and paging remain contract-local; unavailable periods never fall back.
   const [period, setPeriod] = useWorkspaceDraft<
@@ -116,17 +124,22 @@ export function ContractHistory({
   const daily = typeof activePeriod === "string";
   const id = daily
     ? ""
-    : (minutes.find(task => task.id === selected && task.interval_minutes === activePeriod)?.id ??
-      minutes.find(task => task.interval_minutes === activePeriod)?.id ??
+    : (minutes.find(
+        task =>
+          task.id === (fixedMinuteVersion ?? selected) && task.interval_minutes === activePeriod,
+      )?.id ??
+      (fixedMinuteVersion === undefined
+        ? minutes.find(task => task.interval_minutes === activePeriod)?.id
+        : undefined) ??
       "");
   // What is drawn: a minute download, or the contract in the daily table.
   const source = daily ? (held && contractId ? JSON.stringify([held, contractId]) : "") : id;
   const datasetKey = JSON.stringify([connection, source, activePeriod]);
-  const [paging, setPaging] = useState({ key: "", offset: 0 });
+  // Keep the last page in this chart pane when navigating to research/data.
+  // An unresolved catalog must not overwrite it during remount. A different
+  // service, contract, version, snapshot or period never inherits its offset.
+  const [paging, setPaging] = useWorkspaceDraft(`${preferenceKey}.paging`, { key: "", offset: 0 });
   const offset = paging.key === datasetKey ? paging.offset : 0;
-  useEffect(() => {
-    setPaging({ key: datasetKey, offset: 0 });
-  }, [datasetKey]);
   const setOffset = (offset: number) => setPaging({ key: datasetKey, offset });
   const [showMacd, setShowMacd] = useWorkspaceDraft(`${preferenceKey}.macd`, true);
   const [showAverages, setShowAverages] = useWorkspaceDraft(`${preferenceKey}.averages`, true);
@@ -348,6 +361,10 @@ export function ContractHistory({
                 {daily ? (
                   <p>
                     {t("全市场日线表")} · <code>{held!.snapshot.slice(0, 12)}</code>
+                  </p>
+                ) : fixedMinuteVersion !== undefined ? (
+                  <p>
+                    {t("固定分钟档案版本")} · <code>{fixedMinuteVersion}</code>
                   </p>
                 ) : (
                   <select

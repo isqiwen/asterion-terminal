@@ -3,6 +3,10 @@
 #include "task_store.hpp"
 #include "tasks/task_store_support.hpp"
 #include "evaluation.hpp"
+#include "universe.hpp"
+#include "sqlite_database.hpp"
+#include <asterion/kernel/durable_file.hpp>
+#include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/task_execution.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <cmath>
@@ -40,7 +44,7 @@ const data::v1::BarDataset& bars(const factor::v1::FactorInput& value) {
 void revision(factor::v1::FactorInput&);
 factor::v1::FactorInput input() {
   factor::v1::FactorInput result;
-  result.set_version(9);
+  result.set_version(10);
   result.set_factor(protocol::v1::PRICE_MOMENTUM);
   result.set_full_sample(true);
   result.add_lookbacks(2);
@@ -640,7 +644,7 @@ std::string day_of(int i) {
 template <class Close>
 data::v1::TableSeries table_closes(const std::string& contract, int count, Close close) {
   data::v1::TableSeries series;
-  series.set_version(1);
+  series.set_version(2);
   series.set_snapshot(std::string(64, 'b'));
   series.set_daily_source("fixture.daily.v1");
   series.set_calendar_source("fixture.calendar.v1");
@@ -659,7 +663,7 @@ data::v1::TableSeries table_closes(const std::string& contract, int count, Close
 }
 template <class Close> factor::v1::FactorInput table_input(int count, Close close) {
   factor::v1::FactorInput input;
-  input.set_version(9);
+  input.set_version(10);
   input.set_factor(protocol::v1::PRICE_MOMENTUM);
   input.add_lookbacks(2);
   input.set_horizon(2);
@@ -812,7 +816,7 @@ namespace {
 // second lacks the bar at `missing`.
 factor::v1::FactorInput cross_input(int count = 41, int missing = 10) {
   factor::v1::FactorInput result;
-  result.set_version(9);
+  result.set_version(10);
   result.set_factor(protocol::v1::PRICE_MOMENTUM);
   result.set_full_sample(true);
   result.add_lookbacks(2);
@@ -1069,7 +1073,7 @@ TEST_F(FactorTasks, CrossSectionHoldoutAndRollingResultsSurviveTheStore) {
 }
 TEST(Factor, ADailyCrossSectionReadsEveryTradingDayAnyContractHas) {
   factor::v1::FactorInput value;
-  value.set_version(9);
+  value.set_version(10);
   value.set_factor(protocol::v1::PRICE_MOMENTUM);
   value.set_full_sample(true);
   value.add_lookbacks(2);
@@ -1121,7 +1125,7 @@ std::vector<MarketBar> bars_of(int first_day, int days, int price, int step) {
 }
 factor::v1::FactorInput dominant_input() {
   factor::v1::FactorInput result;
-  result.set_version(9);
+  result.set_version(10);
   result.set_factor(protocol::v1::PRICE_MOMENTUM);
   result.set_full_sample(true);
   result.add_lookbacks(2);
@@ -1459,4 +1463,302 @@ TEST(Factor, VolatilityIsTheDeviationOfAWindowsReturns) {
   // Its smallest window is two.
   value.set_lookbacks(0, 1);
   EXPECT_THROW(protocol::validate_factor_input(value), std::invalid_argument);
+}
+
+TEST(FactorUniverse, OnlyPriorFactsDetermineInclusiveLiquidityThresholds) {
+  using R = UniverseReason;
+  const LiquidityRule rule{2, 100, 50};
+  std::vector<LiquidityObservation> facts{
+      {true, 100, 50}, {true, 100, 50}, {true, 0, 0}, {true, 500, 500}};
+  const auto membership = liquidity_membership(facts, rule);
+  EXPECT_EQ(membership, (std::vector<R>{R::insufficient_history, R::insufficient_history,
+                                        R::eligible, R::below_volume}));
+  facts[2].volume_contracts = 500;
+  facts[2].open_interest_contracts = 500;
+  facts.push_back({true, 999999, 999999});
+  const auto changed = liquidity_membership(facts, rule);
+  EXPECT_EQ(changed[2], membership[2])
+      << "same-day and future liquidity cannot select today's member";
+  EXPECT_EQ(changed[3], R::eligible);
+}
+TEST(FactorUniverse, UnknownFactsAndBrokenHistoryHaveExplicitReasons) {
+  using R = UniverseReason;
+  const std::vector<LiquidityObservation> facts{{true, std::nullopt, 100},
+                                                {true, 100, std::nullopt},
+                                                {true, 100, 49},
+                                                {true, 100, 100},
+                                                {false, std::nullopt, std::nullopt},
+                                                {true, 100, 100},
+                                                {true, 0, 0},
+                                                {true, 100, 100}};
+  EXPECT_EQ(liquidity_membership(facts, {1, 100, 50}),
+            (std::vector<R>{R::insufficient_history, R::unknown_volume, R::unknown_open_interest,
+                            R::below_open_interest, R::unobserved, R::insufficient_history,
+                            R::eligible, R::below_volume}));
+  const auto zero = liquidity_membership(facts, {1, 0, 0});
+  EXPECT_EQ(zero[1], R::unknown_volume);
+  EXPECT_EQ(zero[7], R::eligible) << "known zero is different from missing";
+  EXPECT_THROW(liquidity_membership(facts, {0, 0, 0}), std::invalid_argument);
+}
+TEST(FactorUniverse, FixedTableFactsAlignWithClosesAndEnterTheRevision) {
+  auto input = table_input(40, [](int i) { return 100 + i; });
+  input.set_full_sample(true);
+  auto* row = input.mutable_series(0)->mutable_table()->mutable_months(0)->mutable_closes(1);
+  row->set_volume_contracts(123);
+  row->set_open_interest_contracts(456);
+  const auto changed = protocol::factor_revision(input.series());
+  EXPECT_NE(changed, input.dataset_revision());
+  input.set_dataset_revision(changed);
+  protocol::validate_factor_input(input);
+  const auto facts = protocol::factor_observations(input);
+  ASSERT_EQ(facts.volumes.size(), 1U);
+  EXPECT_EQ(facts.volumes[0].size(), facts.order.size());
+  EXPECT_FALSE(facts.volumes[0][0]);
+  EXPECT_EQ(facts.volumes[0][1], 123);
+  EXPECT_EQ(facts.open_interests[0][1], 456);
+  row->set_volume_contracts(0);
+  EXPECT_NE(protocol::factor_revision(input.series()), changed);
+  row->set_volume_contracts(-1);
+  EXPECT_THROW(protocol::factor_revision(input.series()), std::invalid_argument);
+  row->clear_volume_contracts();
+  input.mutable_series(0)->mutable_table()->set_version(1);
+  EXPECT_THROW(protocol::factor_revision(input.series()), std::invalid_argument);
+}
+
+namespace {
+factor::v1::FactorInput liquidity_input(int count = 60) {
+  factor::v1::FactorInput result;
+  result.set_version(10);
+  result.set_factor(protocol::v1::PRICE_MOMENTUM);
+  result.set_full_sample(true);
+  result.add_lookbacks(5);
+  result.set_horizon(1);
+  for (int s = 0; s < 3; ++s) {
+    auto table = table_closes("SHFE/cu/2024-0" + std::to_string(3 + s), count,
+                              [s](int i) { return 100 * (s + 1) + (s + 2) * i + i % (s + 3); });
+    for (auto& close : *table.mutable_months(0)->mutable_closes()) {
+      close.set_volume_contracts(100);
+      close.set_open_interest_contracts(50);
+    }
+    *result.add_series()->mutable_table() = std::move(table);
+  }
+  auto* rule = result.mutable_liquidity();
+  rule->set_minimum_history(3);
+  rule->set_minimum_volume(100);
+  rule->set_minimum_open_interest(50);
+  result.set_dataset_revision(protocol::factor_revision(result.series()));
+  return result;
+}
+} // namespace
+TEST(FactorUniverse, EvaluationFiltersMembersWithoutCuttingPriceWindowsOrUsingLabels) {
+  auto spec = liquidity_input();
+  auto* rows = spec.mutable_series(0)->mutable_table()->mutable_months(0)->mutable_closes();
+  rows->Mutable(20)->set_volume_contracts(0);
+  rows->Mutable(30)->clear_open_interest_contracts();
+  spec.set_dataset_revision(protocol::factor_revision(spec.series()));
+  const auto result = factor::run(spec);
+  EXPECT_NO_THROW(protocol::validate_factor_result(spec, result));
+  ASSERT_EQ(result.memberships_size(), 180);
+  const auto section = [&](unsigned index) -> const factor::v1::FactorCrossSection& {
+    return *std::ranges::find(result.cross_sections(), index,
+                              &factor::v1::FactorCrossSection::event_index);
+  };
+  EXPECT_EQ(section(20).series(), 3U) << "current low volume cannot exclude today's member";
+  EXPECT_EQ(section(21).series(), 2U);
+  EXPECT_EQ(section(22).series(), 3U)
+      << "qualification does not reset the five-observation feature window";
+  EXPECT_EQ(result.memberships(21).reason(), factor::v1::MEMBERSHIP_BELOW_VOLUME);
+  EXPECT_EQ(result.memberships(31).reason(), factor::v1::MEMBERSHIP_UNKNOWN_OPEN_INTEREST);
+  EXPECT_EQ(result.memberships(59).reason(), factor::v1::MEMBERSHIP_ELIGIBLE)
+      << "tail membership exists even without a future return";
+  auto volatility = spec;
+  volatility.set_factor(protocol::v1::VOLATILITY);
+  const auto other = factor::run(volatility);
+  for (int i = 0; i < result.memberships_size(); ++i)
+    EXPECT_EQ(result.memberships(i).SerializeAsString(), other.memberships(i).SerializeAsString());
+  auto future = spec;
+  future.mutable_series(0)
+      ->mutable_table()
+      ->mutable_months(0)
+      ->mutable_closes(50)
+      ->set_volume_contracts(0);
+  future.mutable_series(0)
+      ->mutable_table()
+      ->mutable_months(0)
+      ->mutable_closes(50)
+      ->mutable_close()
+      ->set_units(d("999").raw());
+  future.set_dataset_revision(protocol::factor_revision(future.series()));
+  const auto changed = factor::run(future);
+  for (int i = 0; i <= 50; ++i)
+    EXPECT_EQ(result.memberships(i).SerializeAsString(),
+              changed.memberships(i).SerializeAsString());
+  auto zero = spec;
+  zero.mutable_liquidity()->set_minimum_volume(0);
+  EXPECT_EQ(factor::run(zero).memberships(21).reason(), factor::v1::MEMBERSHIP_ELIGIBLE);
+  EXPECT_EQ(factor::run(zero).memberships(31).reason(),
+            factor::v1::MEMBERSHIP_UNKNOWN_OPEN_INTEREST);
+  auto invalid = result;
+  invalid.mutable_memberships()->RemoveLast();
+  EXPECT_THROW(protocol::validate_factor_result(spec, invalid), std::invalid_argument);
+  invalid = result;
+  invalid.mutable_memberships(0)->set_reason(factor::v1::MEMBERSHIP_UNSPECIFIED);
+  EXPECT_THROW(protocol::validate_factor_result(spec, invalid), std::invalid_argument);
+}
+TEST(FactorUniverse, DailyQualificationTimelineIsIndependentOfTermPointAvailability) {
+  auto spec = liquidity_input();
+  const auto raw = protocol::factor_daily_observations(spec);
+  spec.set_factor(protocol::v1::TERM_STRUCTURE);
+  const auto changed = protocol::factor_daily_observations(spec);
+  EXPECT_EQ(raw.order, changed.order);
+  EXPECT_EQ(raw.volumes, changed.volumes);
+  EXPECT_EQ(raw.open_interests, changed.open_interests);
+}
+TEST_F(FactorTasks, FixedLiquidityRuleAndMemberEvidenceSurviveRecoveryAndExecutionDefinition) {
+  const auto spec = liquidity_input();
+  const auto result = factor::run(spec);
+  {
+    tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
+    const auto admitted = tasks::submit(store, "eligible", spec);
+    const auto execution =
+        protocol::task_execution(admitted, sha256_bytes(spec.SerializeAsString()));
+    EXPECT_EQ(execution.factor().liquidity().SerializeAsString(),
+              spec.liquidity().SerializeAsString());
+    EXPECT_EQ(protocol::factor_input(execution.factor()).liquidity().SerializeAsString(),
+              spec.liquidity().SerializeAsString());
+    store.commit(
+        tasks::finish(store, "eligible", store.commit(store.claim("eligible")).token(), result));
+  }
+  tasks::Store restored(root, tasks::Identity{"factor-tests", "fixture-data"});
+  EXPECT_EQ(restored.get("eligible").factor().liquidity().SerializeAsString(),
+            spec.liquidity().SerializeAsString());
+  EXPECT_EQ(tasks::factor_result(restored, "eligible").SerializeAsString(),
+            result.SerializeAsString());
+}
+TEST_F(FactorTasks, OldFixedTableInputStaysListedAndUntouchedWhenANewExperimentIsCreated) {
+  auto spec = liquidity_input();
+  spec.clear_liquidity();
+  const auto result = factor::run(spec);
+  {
+    tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
+    tasks::submit(store, "legacy", spec);
+    store.commit(
+        tasks::finish(store, "legacy", store.commit(store.claim("legacy")).token(), result));
+  }
+  auto old = spec;
+  old.set_version(9);
+  old.mutable_series(0)->mutable_table()->set_version(1);
+  const auto raw = old.SerializeAsString();
+  const auto file = root / "legacy/input.pb";
+  replace_file_durably(file, raw);
+  {
+    sqlite::Database db(root / "tasks.sqlite");
+    Json manifest;
+    task::v1::StoredTaskRecord record;
+    {
+      sqlite::Database::Statement read(db, "SELECT manifest, record FROM tasks WHERE id='legacy'");
+      ASSERT_TRUE(read.step());
+      manifest = Json::parse(read.text(0));
+      ASSERT_TRUE(record.ParseFromString(read.blob(1)));
+    }
+    manifest["input_sha256"] = sha256_bytes(raw);
+    manifest["input_bytes"] = raw.size();
+    record.set_input_digest(sha256_bytes(raw));
+    record.set_input_bytes(raw.size());
+    sqlite::Database::Statement write(db,
+                                      "UPDATE tasks SET manifest=?, record=? WHERE id='legacy'");
+    write.bind(1, manifest.dump()).bind_blob(2, record.SerializeAsString()).step();
+  }
+  const auto input_hash = sha256_file(file),
+             result_hash = sha256_file(root / "legacy/results/1.pb");
+  tasks::Store restored(root, tasks::Identity{"factor-tests", "fixture-data"});
+  EXPECT_EQ(restored.describe("legacy").state(), task::v1::SUCCEEDED);
+  try {
+    (void)tasks::factor_result(restored, "legacy");
+    FAIL() << "old table format must be refused";
+  } catch (const std::invalid_argument& error) {
+    EXPECT_STREQ(error.what(), "unsupported factor input version");
+  }
+  tasks::submit(restored, "new-experiment", spec);
+  restored.commit(tasks::finish(restored, "new-experiment",
+                                restored.commit(restored.claim("new-experiment")).token(), result));
+  EXPECT_EQ(tasks::factor_result(restored, "new-experiment").SerializeAsString(),
+            result.SerializeAsString());
+  EXPECT_EQ(sha256_file(file), input_hash);
+  EXPECT_EQ(sha256_file(root / "legacy/results/1.pb"), result_hash);
+  EXPECT_EQ(restored.describe("legacy").state(), task::v1::SUCCEEDED);
+}
+
+TEST(FactorUniverse, RollingEligibilityUsesFixedPriorHistoryAcrossFoldBoundaries) {
+  auto spec = liquidity_input(150);
+  spec.clear_full_sample();
+  spec.mutable_walk_forward()->set_training_events(80);
+  spec.mutable_walk_forward()->set_validation_events(35);
+  spec.mutable_liquidity()->set_minimum_history(100);
+  const auto result = factor::run(spec);
+  EXPECT_NO_THROW(protocol::validate_factor_result(spec, result));
+  ASSERT_EQ(result.folds_size(), 2);
+  const auto early =
+      std::ranges::find(result.cross_sections(), 80U, &factor::v1::FactorCrossSection::event_index);
+  const auto later = std::ranges::find(result.cross_sections(), 115U,
+                                       &factor::v1::FactorCrossSection::event_index);
+  ASSERT_NE(early, result.cross_sections().end());
+  ASSERT_NE(later, result.cross_sections().end());
+  EXPECT_EQ(early->series(), 0U);
+  EXPECT_EQ(later->series(), 3U) << "the second fold must not reset the fixed prior history";
+  EXPECT_EQ(result.memberships(99).reason(), factor::v1::MEMBERSHIP_INSUFFICIENT_HISTORY);
+  EXPECT_EQ(result.memberships(100).reason(), factor::v1::MEMBERSHIP_ELIGIBLE);
+}
+
+TEST(FactorReuse, FixedAndExplicitNewSnapshotsPreserveParametersAndOriginalEvidence) {
+  const auto spec = liquidity_input();
+  const auto experiment = protocol::decode_factor(spec);
+  const auto before = experiment.dump();
+  const auto fixed = protocol::reuse_daily_factor(experiment, "");
+  EXPECT_EQ(fixed.expected_dataset_revision(), spec.dataset_revision());
+  ASSERT_EQ(fixed.series_size(), 1);
+  EXPECT_EQ(fixed.series(0).tables().instruments_size(), 3);
+  EXPECT_EQ(fixed.series(0).tables().snapshot(), spec.series(0).table().snapshot());
+  EXPECT_EQ(fixed.factor(), spec.factor());
+  EXPECT_EQ(fixed.horizon(), spec.horizon());
+  EXPECT_EQ(fixed.lookbacks(0), spec.lookbacks(0));
+  EXPECT_EQ(fixed.liquidity().SerializeAsString(), spec.liquidity().SerializeAsString());
+  const auto fresh = protocol::reuse_daily_factor(experiment, std::string(64, 'c'));
+  EXPECT_TRUE(fresh.expected_dataset_revision().empty());
+  EXPECT_EQ(fresh.series(0).tables().snapshot(), std::string(64, 'c'));
+  EXPECT_EQ(fresh.series(0).tables().begin_day(), fixed.series(0).tables().begin_day());
+  EXPECT_EQ(fresh.liquidity().SerializeAsString(), fixed.liquidity().SerializeAsString());
+  EXPECT_EQ(experiment.dump(), before);
+  auto old = experiment;
+  old["version"] = 8;
+  EXPECT_THROW(protocol::reuse_daily_factor(old, ""), std::invalid_argument);
+  EXPECT_THROW(protocol::reuse_daily_factor(experiment, "latest"), std::invalid_argument);
+  EXPECT_THROW(protocol::reuse_daily_factor(protocol::decode_factor(input()), ""),
+               std::invalid_argument);
+}
+
+TEST(FactorReuse, AWindowVariantChangesOnlyTheAllowedParameterAndKeepsFixedEvidence) {
+  auto spec = liquidity_input();
+  spec.clear_lookbacks();
+  spec.add_lookbacks(2);
+  spec.set_full_sample(true);
+  const auto experiment = protocol::decode_factor(spec);
+  const auto before = experiment.dump();
+  const auto original = protocol::reuse_daily_factor(experiment, "");
+  auto edited = protocol::reuse_daily_factor(experiment, "", Json::array({5}));
+  ASSERT_EQ(edited.lookbacks_size(), 1);
+  EXPECT_EQ(edited.lookbacks(0), 5);
+  edited.set_lookbacks(0, 2);
+  EXPECT_EQ(edited.SerializeAsString(), original.SerializeAsString());
+  EXPECT_EQ(experiment.dump(), before);
+  EXPECT_THROW(protocol::reuse_daily_factor(experiment, "", Json::array({0})),
+               std::invalid_argument);
+  EXPECT_THROW(protocol::reuse_daily_factor(experiment, "", Json::array({2, 5})),
+               std::invalid_argument);
+  auto holdout = experiment;
+  holdout["evaluation"] = {{"mode", "holdout"}, {"split_index", 40}};
+  EXPECT_THROW(protocol::reuse_daily_factor(holdout, "", Json::array({5})), std::invalid_argument);
+  auto other = experiment;
+  other["factor"] = "volatility";
+  EXPECT_THROW(protocol::reuse_daily_factor(other, "", Json::array({5})), std::invalid_argument);
 }

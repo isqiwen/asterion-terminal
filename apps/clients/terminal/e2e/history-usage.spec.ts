@@ -12,7 +12,8 @@ test("usage shows fixed source and saved references and refreshes the draft", as
   await page.getByRole("button", { name: "历史数据仓库", exact: true }).click();
   const archive = page.getByRole("region", { name: "历史数据仓库", exact: true });
   const minute = archive.locator(`[data-dataset-id="${seeded.source_dataset_ids[0]}"]`);
-  const daily = archive.locator(`[data-dataset-id="${seeded.daily_dataset_id}"]`);
+  // The daily table is not a second archive version.
+  await expect(archive.locator("[data-dataset-id]")).toHaveCount(1);
   await minute.getByRole("button", { name: "使用情况", exact: true }).click();
   const usage = archive.getByRole("region", { name: "使用情况", exact: true });
   // Published fixture versions have no fabricated download tasks.
@@ -29,10 +30,6 @@ test("usage shows fixed source and saved references and refreshes the draft", as
   await expect(usage).toContainText("未检查停止的远程数据服务");
   await page.screenshot({ path: "build/history-usage-browser.png", fullPage: true });
   await usage.getByRole("button", { name: "关闭", exact: true }).click();
-  // A dataset reads nothing of the contract's daily download: daily bars and
-  // settlement prices are the daily table's, which is not an archive version.
-  await daily.getByRole("button", { name: "使用情况", exact: true }).click();
-  await expect(usage).toContainText("当前数据服务中未发现关联记录");
 });
 
 // Explicit UI fixture: real mTLS inventory and failures are covered by native tests.

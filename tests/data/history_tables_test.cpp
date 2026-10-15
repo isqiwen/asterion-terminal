@@ -1,8 +1,11 @@
 #include "history_tables.hpp"
 #include "sqlite_database.hpp"
 #include "table_parquet.hpp"
+#include "table_update.hpp"
+#include <asterion/protocol/data.hpp>
 #include <asterion/kernel/process/child.hpp>
 #include <fstream>
+#include <asterion/kernel/process/artifact.hpp>
 #include <gtest/gtest.h>
 using namespace asterion;
 using history_files::TableSeries;
@@ -221,4 +224,204 @@ TEST(HistoryTableStore, RefusesALedgerItDidNotWrite) {
   }
   EXPECT_THROW(TableStore(folder.path / "tables"), std::invalid_argument);
   EXPECT_THROW(TableStore("relative"), std::invalid_argument);
+}
+
+TEST(RawResponseStore, NewRevisionBindsExactBytesAndOldOrUnchangedPartitionsAreNotBackfilled) {
+  Folder folder;
+  const TableSeries series{"futures.daily", daily.schema, "test.raw.daily.v1"};
+  history_files::TableRevision old, held;
+  const SourceResponse captured{"tushare.fut_daily.raw.v1", "{ \"code\":0 }\n",
+                                1790000000000000000LL};
+  {
+    TableStore store(folder.path);
+    const auto first =
+        table_partition(daily, "SHFE", "2025-07-25", {row("SHFE/rb/2025-10", "100", "1", "1")});
+    old = store.record(first, series, store.write(first), std::string(64, 'a'), 100).revision;
+    EXPECT_FALSE(store.response(old));
+    EXPECT_TRUE(store.record(first, series, store.write(first), std::string(64, 'a'), 101, captured)
+                    .unchanged);
+    EXPECT_FALSE(store.response(old));
+    const auto changed =
+        table_partition(daily, "SHFE", "2025-07-25", {row("SHFE/rb/2025-10", "101", "1", "1")});
+    held = store.record(changed, series, store.write(changed), std::string(64, 'a'), 102, captured)
+               .revision;
+    ASSERT_TRUE(store.response(held));
+    EXPECT_EQ(store.response(held)->body, captured.body);
+    EXPECT_NE(held.snapshot, old.snapshot);
+    EXPECT_FALSE(store.response(old));
+  }
+  TableStore reopened(folder.path);
+  EXPECT_EQ(reopened.response(held)->body, captured.body);
+  EXPECT_FALSE(reopened.response(old));
+  const auto object =
+      folder.path / "responses" / "objects" / (sha256_bytes(captured.body) + ".json");
+  {
+    std::ofstream output(object, std::ios::app);
+    output << " ";
+  }
+  EXPECT_THROW(reopened.response(held), std::invalid_argument);
+  {
+    std::ofstream output(object, std::ios::trunc);
+    output << captured.body;
+  }
+  std::filesystem::remove(folder.path / "responses" / "revisions" / (held.snapshot + ".json"));
+  EXPECT_THROW(reopened.response(held), std::invalid_argument);
+}
+
+TEST(ResponseReview, PageQueryChecksOffPageRowsAndLeavesEveryStoredByteAndHeadUnchanged) {
+  Folder folder;
+  TableStore store(folder.path);
+  const TableSeries series{"futures.daily", daily.schema, "test.quality.daily.v1"};
+  const auto partition = table_partition(
+      daily, "SHFE", "2025-07-25",
+      {row("SHFE/cu/2025-10", "100", "1", "1"), row("SHFE/rb/2025-10", "101", "1", "1")});
+  const SourceResponse response{
+      "tushare.fut_daily.raw.v1",
+      R"({"code":0,"data":{"fields":["ts_code","trade_date","pre_close","pre_settle","open","high","low","close","settle","vol","amount","oi","oi_chg","delv_settle"],"items":[["CU2510.SHF","20250725",null,null,null,null,null,100,null,1,0.0001,null,null,null],["RB2510.SHF","20250725",null,null,null,null,null,100,null,1,0.0001,null,null,null]]}})",
+      1};
+  const auto object = store.write(partition);
+  store.record(partition, series, object, std::string(64, 'a'), 1, response);
+  const TableSeries old_series{"futures.daily", daily.schema, "test.quality.old.v1"};
+  store.record(partition, old_series, object, std::string(64, 'a'), 1);
+  const auto before = [&] {
+    std::map<std::string, std::string> hashes;
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(folder.path)) {
+      if (!entry.is_regular_file())
+        continue;
+      std::ifstream file(entry.path(), std::ios::binary);
+      hashes.emplace(entry.path().lexically_relative(folder.path).string(),
+                     sha256_bytes(std::string(std::istreambuf_iterator<char>(file), {})));
+    }
+    return hashes;
+  };
+  const auto hashes = before();
+  const auto head = store.head();
+  data::v1::TablePageQuery query;
+  query.mutable_partition()->set_table("futures.daily");
+  query.mutable_partition()->set_exchange("SHFE");
+  query.mutable_partition()->set_period("2025-07-25");
+  query.set_source(series.source);
+  query.set_limit(1);
+  const auto page = data::table_page(store, query);
+  ASSERT_EQ(page.rows_size(), 1);
+  EXPECT_EQ(page.rows(0).cells(0).text(), "SHFE/cu/2025-10");
+  const auto json = protocol::decode_table_page(page);
+  const auto& review = json.at("response_review");
+  EXPECT_EQ(review.at("status"), "differences");
+  EXPECT_EQ(review.at("normalized_rows"), 2);
+  EXPECT_EQ(review.at("matched_rows"), 2);
+  EXPECT_EQ(review.at("compared_cells"), 24);
+  ASSERT_EQ(review.at("differences").size(), 1);
+  EXPECT_EQ(review.at("differences")[0], (Json{{"kind", "value_mismatch"},
+                                               {"key", "RB2510.SHF"},
+                                               {"field", "close"},
+                                               {"raw", "100"},
+                                               {"expected", "100"},
+                                               {"actual", "101"}}));
+  query.set_source(old_series.source);
+  EXPECT_EQ(data::table_page(store, query).response_review().reason(), "raw_missing");
+  EXPECT_EQ(store.head(), head);
+  EXPECT_EQ(before(), hashes);
+}
+
+namespace {
+SourceResponse observation_body(const char* close, std::int64_t received) {
+  return {
+      "tushare.fut_daily.raw.v1",
+      std::string(
+          R"({"code":0,"data":{"fields":["ts_code","trade_date","pre_close","pre_settle","open","high","low","close","settle","vol","amount","oi","oi_chg","delv_settle"],"items":[["RB2510.SHF","20250725",null,null,null,null,null,)") +
+          close + ",null,1,0.0001,null,null,null]]}}",
+      received};
+}
+} // namespace
+TEST(RefreshObservation, SameContentHasSeparateImmutableEvidenceAndReplaySurvivesLaterRevision) {
+  Folder folder;
+  auto owner = std::make_unique<TableStore>(folder.path);
+  auto& store = *owner;
+  const TableSeries series{"futures.daily", daily.schema, "tushare.fut_daily.v3"};
+  const auto partition =
+      table_partition(daily, "SHFE", "2025-07-25", {row("SHFE/rb/2025-10", "100", "1", "1")});
+  const auto old =
+      store.record(partition, series, store.write(partition), std::string(64, 'a'), 1).revision;
+  const auto old_file =
+      folder.path / "objects" / old.object.substr(0, 2) / (old.object + ".parquet");
+  const auto old_bytes = sha256_file(old_file);
+  history_files::TableObservationContext context{
+      "data", "tasks", "same", 1, "fixture", std::string(64, 'b'), old.snapshot, old.content};
+  const auto raw = observation_body("100", 10);
+  const auto first = store.record_refresh_observation(context, old, raw, 20, true);
+  EXPECT_EQ(store.head(), old.snapshot);
+  EXPECT_FALSE(store.response(old));
+  data::v1::TablePageQuery query;
+  query.mutable_partition()->set_table("futures.daily");
+  query.mutable_partition()->set_exchange("SHFE");
+  query.mutable_partition()->set_period("2025-07-25");
+  query.set_source(series.source);
+  query.set_limit(1);
+  const auto page = data::table_page(store, query);
+  EXPECT_FALSE(page.has_response_evidence());
+  EXPECT_EQ(page.response_review().reason(), "raw_missing");
+  EXPECT_EQ(page.latest_refresh_observation().id(), first.id);
+  EXPECT_EQ(first.response.received_at_ns, 10);
+  EXPECT_EQ(first.recorded_at_ns, 20);
+  const auto replay = store.record_refresh_observation(context, old, raw, 30, false);
+  EXPECT_EQ(replay.id, first.id);
+  EXPECT_EQ(replay.recorded_at_ns, 20);
+  EXPECT_TRUE(replay.unchanged);
+  auto next_context = context;
+  next_context.task_id = "same-again";
+  const auto second =
+      store.record_refresh_observation(next_context, old, observation_body("100", 40), 50, true);
+  EXPECT_NE(second.id, first.id);
+  EXPECT_EQ(store.latest_refresh_observation(series, "SHFE", "2025-07-25")->id, second.id);
+  const auto changed =
+      table_partition(daily, "SHFE", "2025-07-25", {row("SHFE/rb/2025-10", "101", "1", "1")});
+  const auto revision = store
+                            .record(changed, series, store.write(changed), std::string(64, 'b'), 60,
+                                    observation_body("101", 55))
+                            .revision;
+  auto changed_context = context;
+  changed_context.task_id = "changed";
+  const auto third = store.record_refresh_observation(changed_context, revision,
+                                                      observation_body("101", 55), 65, false);
+  EXPECT_NE(third.id, first.id);
+  EXPECT_FALSE(third.unchanged);
+  EXPECT_EQ(third.context.selected_snapshot, old.snapshot);
+  EXPECT_NE(third.revision.content, third.context.selected_content);
+  EXPECT_EQ(store.refresh_observation(context, series, "SHFE", "2025-07-25")->id, first.id);
+  EXPECT_EQ(store.record_refresh_observation(context, old, raw, 70, true).id, first.id);
+  EXPECT_EQ(store.head(), revision.snapshot);
+  EXPECT_EQ(store.latest_refresh_observation(series, "SHFE", "2025-07-25")->id, third.id);
+  EXPECT_EQ(store.rows(old), partition.rows);
+  EXPECT_EQ(sha256_file(old_file), old_bytes);
+  EXPECT_FALSE(store.response(old));
+  owner.reset(); // release the single-writer lock before reopening
+  TableStore reopened(folder.path);
+  EXPECT_EQ(reopened.latest_refresh_observation(series, "SHFE", "2025-07-25")->id, third.id);
+  EXPECT_EQ(reopened.refresh_observation(context, series, "SHFE", "2025-07-25")->id, first.id);
+}
+TEST(RefreshObservation, ConflictingReplayAndCorruptObjectAreRejectedWithoutChangingRevision) {
+  Folder folder;
+  TableStore store(folder.path);
+  const TableSeries series{"futures.daily", daily.schema, "tushare.fut_daily.v3"};
+  const auto partition =
+      table_partition(daily, "SHFE", "2025-07-25", {row("SHFE/rb/2025-10", "100", "1", "1")});
+  const auto old =
+      store.record(partition, series, store.write(partition), std::string(64, 'a'), 1).revision;
+  const history_files::TableObservationContext context{
+      "data", "tasks", "one", 1, "fixture", std::string(64, 'b'), old.snapshot, old.content};
+  const auto held =
+      store.record_refresh_observation(context, old, observation_body("100", 10), 20, true);
+  EXPECT_THROW(
+      store.record_refresh_observation(context, old, observation_body("101", 10), 30, true),
+      std::invalid_argument);
+  EXPECT_EQ(store.refresh_observation(context, series, "SHFE", "2025-07-25")->id, held.id);
+  EXPECT_EQ(store.head(), old.snapshot);
+  const auto object = folder.path / "observations" / "objects" / (held.id + ".json");
+  std::ofstream(object, std::ios::app) << " ";
+  EXPECT_THROW(store.refresh_observation(context, series, "SHFE", "2025-07-25"),
+               std::invalid_argument);
+  EXPECT_THROW(store.latest_refresh_observation(series, "SHFE", "2025-07-25"),
+               std::invalid_argument);
+  EXPECT_EQ(store.head(), old.snapshot);
 }

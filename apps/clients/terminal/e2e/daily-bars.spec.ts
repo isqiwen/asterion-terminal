@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { rpc, seedHistory } from "./dataset-fixture";
 import { test, expect } from "./test";
 import { checkSnapshot } from "./snapshot-schema";
@@ -118,6 +120,187 @@ test("a contract's days and a product's months backtest from the daily table", a
   await expect(details).toContainText("ag2610 – ag2701（2 个）");
   await expect(details).toContainText("取自全市场日线表");
   await expect(result.getByRole("region", { name: "SHFE · ag2610", exact: true })).toHaveCount(0);
+  const panel = result.getByRole("region", { name: "按此回测创建", exact: true });
+  const create = panel.getByRole("button", { name: "创建独立回测任务", exact: true });
+  await expect(create).toBeDisabled();
+  await panel.getByLabel("沿用原固定快照", { exact: true }).check();
+  await create.click();
+  const fixedId = await panel.getByRole("status").locator("code").textContent();
+  await expect
+    .poll(
+      async () =>
+        (await rpc(page.request, "runtime.snapshot")).task_service.tasks.find(
+          (item: { id: string }) => item.id === fixedId,
+        )?.state,
+    )
+    .toBe("succeeded");
+  const fixed = (await rpc(page.request, "task.result", { id: fixedId })).task_result;
+  expect(fixed.input_sha256).toBe(evidence.input_sha256);
+  expect(fixed.experiment).toEqual(evidence.experiment);
+  expect(fixed.result).toEqual(evidence.result);
+  await seedHistory(page.request, [100], "daily-far-revised", {
+    product: "ag",
+    keep: true,
+    tablesOnly: true,
+    month: "2027-01",
+    dailyDays: ["2026-09-24", "2026-09-25", "2026-09-28"],
+    openInterest: 200,
+    settlement: 230,
+  });
+  await page.reload();
+  await rpc(page.request, "task.result", { id: task.id });
+  await page.locator(".workspace-tabs").getByRole("button", { name: "研究", exact: true }).click();
+  const originalRow = workspace
+    .getByRole("region", { name: "研究任务", exact: true })
+    .getByRole("row")
+    .filter({ has: page.getByText(task.id, { exact: true }) });
+  await originalRow.getByRole("button", { name: "查看结果", exact: true }).click();
+  await panel.getByLabel("选择当前服务的新快照", { exact: true }).check();
+  await expect(create).toBeEnabled();
+  await create.click();
+  const revisedId = await panel.getByRole("status").locator("code").textContent();
+  expect(revisedId).not.toBe(fixedId);
+  await expect
+    .poll(
+      async () =>
+        (await rpc(page.request, "runtime.snapshot")).task_service.tasks.find(
+          (item: { id: string }) => item.id === revisedId,
+        )?.state,
+    )
+    .toBe("succeeded");
+  const revised = (await rpc(page.request, "task.result", { id: revisedId })).task_result;
+  expect(revised.input_sha256).not.toBe(evidence.input_sha256);
+  expect(revised.experiment.dataset_revision).not.toBe(evidence.experiment.dataset_revision);
+  expect(revised.experiment.strategies).toEqual(evidence.experiment.strategies);
+  expect(revised.experiment.paper.risk).toEqual(evidence.experiment.paper.risk);
+  expect(revised.result).not.toEqual(evidence.result);
+  expect((await rpc(page.request, "task.result", { id: task.id })).task_result).toEqual(evidence);
+  const comparison = workspace.getByRole("region", { name: "回测实验比较", exact: true });
+  for (const id of [task.id, fixedId, revisedId])
+    await comparison.getByLabel(id + " · " + evidence.task.instrument, { exact: true }).check();
+  const selectedBefore = (await rpc(page.request, "runtime.snapshot")).task_result;
+  await comparison.getByRole("button", { name: "读取并比较", exact: true }).click();
+  const matrix = comparison.getByRole("table", { name: "回测实验对照", exact: true });
+  await expect(matrix).toBeVisible();
+  const method = matrix
+    .getByRole("row")
+    .filter({ has: page.getByRole("rowheader", { name: "比较口径", exact: true }) });
+  await expect(method).toContainText("同口径对照");
+  await expect(method).toContainText("仅独立列示");
+  await expect(method).toContainText("固定快照不同");
+  await expect(matrix).toContainText(evidence.experiment.paper.contracts[0].dataset.daily.snapshot);
+  await expect(matrix).toContainText(revised.experiment.paper.contracts[0].dataset.daily.snapshot);
+  await expect(
+    matrix.getByRole("rowheader", { name: "逐日费用与保证金", exact: true }),
+  ).toBeVisible();
+  await expect(matrix.getByRole("rowheader", { name: "风险实现摘要", exact: true })).toBeVisible();
+  await expect(matrix.getByRole("rowheader", { name: "换月日程", exact: true })).toBeVisible();
+  const visibleMatrixRows = await matrix.evaluate(element => {
+    const table = element as HTMLTableElement;
+    return Array.from(table.tBodies[0].rows).map(row => ({
+      label: row.cells[0].textContent?.trim() ?? "",
+      cells: Array.from(row.cells)
+        .slice(1)
+        .map(cell => ({
+          text: cell.textContent?.trim() ?? "",
+          state: cell.dataset.valueState ?? "display_only",
+          metrics: Array.from(cell.querySelectorAll<HTMLElement>("dd[data-value-state]")).map(
+            value => ({
+              label: value.previousElementSibling?.textContent?.trim() ?? "",
+              text: value.textContent?.trim() ?? "",
+              state: value.dataset.valueState!,
+            }),
+          ),
+        })),
+    }));
+  });
+  const comparisonExport = comparison.getByRole("region", { name: "比较证据导出", exact: true });
+  const comparisonDownloadEvent = page.waitForEvent("download");
+  await comparisonExport.getByRole("button", { name: "导出当前比较证据", exact: true }).click();
+  const comparisonDownload = await comparisonDownloadEvent;
+  const comparisonBytes = await readFile((await comparisonDownload.path())!);
+  const comparisonDocument = JSON.parse(comparisonBytes.toString("utf8"));
+  expect(comparisonDocument).toMatchObject({
+    format: "asterion.research.comparison.evidence",
+    version: 1,
+  });
+  expect(comparisonDocument.matrix.columns.map((column: { id: string }) => column.id)).toEqual([
+    task.id,
+    fixedId,
+    revisedId,
+  ]);
+  expect(comparisonDocument.matrix.rows).toEqual(visibleMatrixRows);
+  expect(comparisonDocument.matrix.columns[2].methodology).toBe("independent");
+  expect(comparisonDocument.matrix.columns[2].reasons).toContain("固定快照不同");
+  const methodRow = comparisonDocument.matrix.rows.find(
+    (row: { label: string }) => row.label === "比较口径",
+  );
+  for (const reason of comparisonDocument.matrix.columns[2].reasons)
+    expect(methodRow.cells[2].text).toContain(reason);
+  const originals = [evidence, fixed, revised];
+  comparisonDocument.experiments.forEach(
+    (member: { experiment: unknown; result: unknown }, i: number) => {
+      expect(member.experiment).toEqual(originals[i].experiment);
+      expect(member.result).toEqual(originals[i].result);
+    },
+  );
+  await expect(comparisonExport.getByRole("status")).toContainText(
+    createHash("sha256").update(comparisonBytes).digest("hex"),
+  );
+
+  expect((await rpc(page.request, "runtime.snapshot")).task_result).toEqual(selectedBefore);
+  expect((await rpc(page.request, "task.result.read", { id: task.id })).task_result).toEqual(
+    evidence,
+  );
+  expect((await rpc(page.request, "task.result.read", { id: revisedId })).task_result).toEqual(
+    revised,
+  );
+  expect((await rpc(page.request, "runtime.snapshot")).task_result).toEqual(selectedBefore);
+  const exportPanel = workspace.getByRole("region", { name: "研究证据导出", exact: true });
+  const downloadEvent = page.waitForEvent("download");
+  await exportPanel.getByRole("button", { name: "导出研究证据", exact: true }).click();
+  const download = await downloadEvent;
+  const bytes = await readFile((await download.path())!);
+  const document = JSON.parse(bytes.toString("utf8"));
+  expect(document).toMatchObject({
+    format: "asterion.research.evidence",
+    version: 1,
+    source: {
+      task_id: task.id,
+      kind: "backtest",
+      input_sha256: evidence.input_sha256,
+      result_sha256: evidence.task.result_digest,
+    },
+  });
+  expect(document.experiment).toEqual(evidence.experiment);
+  expect(document.result).toEqual(evidence.result);
+  expect(document.performance).toEqual(evidence.performance);
+  expect(document.trades).toEqual(evidence.trades);
+  await expect(exportPanel.getByRole("status")).toContainText(
+    createHash("sha256").update(bytes).digest("hex"),
+  );
+  expect((await rpc(page.request, "task.result.read", { id: task.id })).task_result).toEqual(
+    evidence,
+  );
+  const missing = await page.request.post("/__asterion/api", {
+    data: {
+      version: 1,
+      method: "task.evidence.export",
+      params: { id: "missing-export", path: "" },
+    },
+  });
+  expect((await missing.json()).error).toBeTruthy();
+  expect(fixed.task.metadata).toMatchObject({
+    source_id: task.id,
+    source_result_digest: evidence.task.result_digest,
+    data_choice: "fixed",
+    snapshot: "",
+  });
+  expect(revised.task.metadata).toMatchObject({
+    source_id: task.id,
+    data_choice: "snapshot",
+    snapshot: revised.experiment.paper.contracts[0].dataset.daily.snapshot,
+  });
 });
 
 // The market chart reads a contract's days from the daily table through the
@@ -125,16 +308,23 @@ test("a contract's days and a product's months backtest from the daily table", a
 test("the market chart draws a contract's days from the daily table", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".workspace-tabs")).toBeVisible();
-  // Forty weekdays, eight whole weeks, of lead's October month; one minute
-  // download puts it on the history board.
+  // Forty weekdays, eight whole weeks, of lead's October month, with no
+  // minute download or live CTP catalog entry.
   const days: string[] = [];
   for (let at = Date.UTC(2026, 7, 17); days.length < 40; at += 86400000)
     if (new Date(at).getUTCDay() % 6 !== 0) days.push(new Date(at).toISOString().slice(0, 10));
   const { daily } = await seedHistory(page.request, [100], "chart-pb", {
     product: "pb",
-    minuteDays: [days[39]],
+    tablesOnly: true,
     dailyDays: days,
   });
+  const archives = await rpc(page.request, "data.datasets", {
+    venue: "",
+    product: "",
+    contract_id: "SHFE/pb/2026-10",
+    source: "",
+  });
+  expect(archives.history_datasets).toEqual([]);
   const weeks = await rpc(page.request, "data.tables.daily", {
     daily,
     contract: "SHFE/pb/2026-10",
@@ -155,10 +345,15 @@ test("the market chart draws a contract's days from the daily table", async ({ p
   await page.reload();
   await page.locator(".workspace-tabs").getByRole("button", { name: "市场", exact: true }).click();
   await page.getByRole("tab", { name: "历史行情", exact: true }).click();
+  await page.getByRole("button", { name: "日线合约", exact: true }).click();
   const board = page.locator(".history-market-board");
-  await board.getByRole("searchbox", { name: "搜索历史合约" }).fill("pb");
-  await board.getByRole("button", { name: /SHFE · pb\/2026-10/ }).click();
-  await board.getByRole("button", { name: "日K", exact: true }).click();
+  await board.getByRole("combobox", { name: "交易所", exact: true }).selectOption("SHFE");
+  await board.getByRole("combobox", { name: "品种", exact: true }).selectOption("pb");
+  await board
+    .getByRole("combobox", { name: "合约月份", exact: true })
+    .selectOption("SHFE/pb/2026-10");
   await expect(board.locator(".market-history-pages")).toContainText("1–40 / 40");
   await expect(board.locator(".market-chart-source")).toContainText("全市场日线表");
+  await board.getByRole("button", { name: "周线", exact: true }).click();
+  await expect(board.locator(".market-history-pages")).toContainText("1–8 / 8");
 });

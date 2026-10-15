@@ -254,7 +254,7 @@ async function closeDesktop(application) {
       .click();
     await page.getByRole("button", { name: "历史数据", exact: true }).click();
     const minuteDownloads = page.getByRole("region", { name: "历史数据", exact: true });
-    await minuteDownloads.getByLabel("品种代码", { exact: true }).fill("CU");
+    await minuteDownloads.getByLabel("品种", { exact: true }).selectOption("cu");
     await minuteDownloads
       .getByLabel("Tushare Token", { exact: true })
       .fill("electron-fixture-secret");
@@ -290,7 +290,7 @@ async function closeDesktop(application) {
     await expect(page.getByLabel("CSV 文件路径", { exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "历史数据", exact: true }).click();
     await expect(minuteDownloads.getByLabel("Tushare Token", { exact: true })).toHaveValue("");
-    await expect(minuteDownloads.getByLabel("品种代码", { exact: true })).toHaveValue("CU");
+    await expect(minuteDownloads.getByLabel("品种", { exact: true })).toHaveValue("cu");
 
     await page
       .locator(".workspace-tabs")
@@ -329,7 +329,7 @@ async function closeDesktop(application) {
       .click();
 
     await page.getByRole("button", { name: "历史数据", exact: true }).click();
-    await expect(page.getByLabel("品种代码", { exact: true })).toHaveValue("CU");
+    await expect(page.getByLabel("品种", { exact: true })).toHaveValue("cu");
 
     const modifier = process.platform === "darwin" ? "Meta" : "Control";
     await page.keyboard.press(`${modifier}+b`);
@@ -390,7 +390,7 @@ async function closeDesktop(application) {
     assert.equal(application.windows().length, 2);
     assert.equal(await settings.evaluate(() => window.retainedDraft), "retained");
     await expect.poll(bounds).toEqual(placed);
-    assert.equal(await page.getByLabel("品种代码", { exact: true }).inputValue(), "CU");
+    assert.equal(await page.getByLabel("品种", { exact: true }).inputValue(), "cu");
     // Real Chromium zoom exercises the installed host's layout, not a CSS transform.
     for (const window of [page, settings]) {
       const contents = await application.browserWindow(window);
@@ -454,9 +454,9 @@ async function closeDesktop(application) {
     await settings.getByRole("button", { name: "偏好设置", exact: true }).click();
     await capture(settings, "native-settings");
     await settings.getByLabel("语言", { exact: true }).selectOption("en-US");
-    await expect(page.getByLabel("Product Code", { exact: true })).toHaveValue("CU");
+    await expect(page.getByLabel("Product", { exact: true })).toHaveValue("cu");
     await settings.getByLabel("Language", { exact: true }).selectOption("zh-CN");
-    await expect(page.getByLabel("品种代码", { exact: true })).toHaveValue("CU");
+    await expect(page.getByLabel("品种", { exact: true })).toHaveValue("cu");
     // Exercise renderer -> preload -> validated IPC -> native dialog adapter.
     await application.evaluate(({ dialog }) => {
       dialog.showOpenDialog = async (_owner, opts) => ({

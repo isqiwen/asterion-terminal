@@ -1,5 +1,7 @@
 #include "task_client.hpp"
 #include "performance.hpp"
+#include "account_reconciliation.hpp"
+#include "portfolio_budget.hpp"
 #include <asterion/kernel/ipc/rpc_client.hpp>
 #include <asterion/kernel/trace.hpp>
 #include <asterion/kernel/process/child.hpp>
@@ -55,6 +57,23 @@ Json backtest_performance(const backtest::v1::BacktestInput& input,
                                std::span(marks).subspan(begin, day_end[end - 1] - begin)));
   };
   auto value = span_of(0, days.size());
+  std::vector<SettlementDay> settlements;
+  for (const auto& day : result.settlements())
+    settlements.push_back({std::chrono::sys_days(parse_trading_date(day.trading_day())),
+                           Decimal::from_raw(day.equity().units()),
+                           Decimal::from_raw(day.fees().units())});
+  value["by_month"] = Json::array();
+  for (const auto& month : monthly_contributions(deposit, settlements))
+    value["by_month"].push_back(
+        {{"first_day", format_trading_date(std::chrono::year_month_day{month.first_day})},
+         {"last_day", format_trading_date(std::chrono::year_month_day{month.last_day})},
+         {"trading_days", month.trading_days},
+         {"opening_equity", month.opening_equity.str()},
+         {"closing_equity", month.closing_equity.str()},
+         {"gross", month.gross.str()},
+         {"fees", month.fees.str()},
+         {"net", month.net.str()},
+         {"return_contribution", month.return_contribution}});
   value["development"] = nullptr;
   value["holdout"] = nullptr;
   value["out_of_sample"] = nullptr;
@@ -95,18 +114,228 @@ Json backtest_trades(const backtest::v1::BacktestInput& input,
     });
     fills.push_back({static_cast<std::size_t>(contract - contracts.begin()),
                      buys.at(fill.order_id()), Decimal::from_raw(fill.quantity().units()),
-                     Decimal::from_raw(fill.price().units())});
+                     Decimal::from_raw(fill.price().units()),
+                     Decimal::from_raw(fill.fee().units())});
   }
   const auto value = trades(fills, multipliers);
   const auto optional = [](const std::optional<double>& statistic) {
     return statistic ? Json(*statistic) : Json(nullptr);
   };
-  return {{"count", value.count},
+  const auto holding = [&](std::size_t contract, std::size_t first_fill,
+                           const std::string& last) -> Json {
+    if (result.fill_days().empty())
+      return nullptr;
+    const auto& begin = result.fill_days(static_cast<int>(first_fill)).trading_day();
+    const auto& days = contracts[static_cast<int>(contract)].dataset().days();
+    const auto find_day = [&](const auto& day) {
+      return std::lower_bound(
+          days.begin(), days.end(), day,
+          [](const auto& item, const auto& label) { return item.trading_day() < label; });
+    };
+    const auto first = find_day(begin), end = find_day(last);
+    if (first == days.end() || end == days.end() || first->trading_day() != begin ||
+        end->trading_day() != last || end < first)
+      throw std::invalid_argument("invalid backtest fill-day evidence");
+    const auto calendar = (std::chrono::sys_days(parse_trading_date(last)) -
+                           std::chrono::sys_days(parse_trading_date(begin)))
+                              .count();
+    const auto settlements = end - first;
+    return {{"opened_day", begin},
+            {"ended_day", last},
+            {"calendar_days", calendar},
+            {"settlement_days", settlements}};
+  };
+  Json closed = Json::array(), open = Json::array();
+  std::vector<double> calendar_spans, settlement_spans;
+  Decimal gross, fees, net;
+  for (const auto& trade : value.closed) {
+    const auto& contract = contracts[static_cast<int>(trade.contract)].dataset().contract();
+    closed.push_back({{"venue", contract.venue()},
+                      {"symbol", contract.symbol()},
+                      {"gross", trade.gross.str()},
+                      {"fees", trade.fees.str()},
+                      {"net", trade.net.str()}});
+    auto period = result.fill_days().empty()
+                      ? Json(nullptr)
+                      : holding(trade.contract, trade.first_fill,
+                                result.fill_days(static_cast<int>(trade.last_fill)).trading_day());
+    if (!period.is_null()) {
+      calendar_spans.push_back(period.at("calendar_days").get<double>());
+      settlement_spans.push_back(period.at("settlement_days").get<double>());
+    }
+    closed.back()["holding"] = std::move(period);
+    gross = gross + trade.gross;
+    fees = fees + trade.fees;
+    net = net + trade.net;
+  }
+  for (const auto& trade : value.open) {
+    const auto& contract = contracts[static_cast<int>(trade.contract)].dataset().contract();
+    open.push_back(
+        {{"venue", contract.venue()},
+         {"symbol", contract.symbol()},
+         {"direction", trade.quantity > Decimal{} ? "long" : "short"},
+         {"quantity",
+          (trade.quantity > Decimal{} ? trade.quantity : Decimal{} - trade.quantity).str()},
+         {"fees", trade.fees.str()},
+         {"as_of_day", result.settlements(result.settlements_size() - 1).trading_day()},
+         {"holding", holding(trade.contract, trade.first_fill,
+                             result.settlements(result.settlements_size() - 1).trading_day())}});
+  }
+  const auto spans = [](const std::vector<double>& values) -> Json {
+    if (values.empty())
+      return {{"minimum", nullptr}, {"mean", nullptr}, {"maximum", nullptr}};
+    double total = 0;
+    for (auto value : values)
+      total += value;
+    return {{"minimum", *std::ranges::min_element(values)},
+            {"mean", total / values.size()},
+            {"maximum", *std::ranges::max_element(values)}};
+  };
+  Json by_contract = Json::array();
+  for (const auto& contribution : value.by_contract) {
+    const auto& contract = contracts[static_cast<int>(contribution.contract)].dataset().contract();
+    by_contract.push_back({{"venue", contract.venue()},
+                           {"symbol", contract.symbol()},
+                           {"count", contribution.count},
+                           {"gross", contribution.gross.str()},
+                           {"fees", contribution.fees.str()},
+                           {"net", contribution.net.str()}});
+  }
+  return {{"count", value.closed.size()},
+          {"by_contract", std::move(by_contract)},
+          {"holding_summary",
+           {{"known", calendar_spans.size()},
+            {"unknown", value.closed.size() - calendar_spans.size()},
+            {"calendar_days", spans(calendar_spans)},
+            {"settlement_days", spans(settlement_spans)}}},
+          {"open", std::move(open)},
+          {"closed", std::move(closed)},
+          {"gross", gross.str()},
+          {"fees", fees.str()},
+          {"net", net.str()},
+          {"open_fees", value.open_fees.str()},
           {"winning", value.winning},
           {"losing", value.losing},
           {"average_win", optional(value.average_win)},
           {"average_loss", optional(value.average_loss)},
           {"payoff", optional(value.payoff)}};
+}
+Json backtest_portfolio(const backtest::v1::BacktestInput& input,
+                        const backtest::v1::BacktestResult& result) {
+  const auto exposure = portfolio_exposure(input, result);
+  Json rows = Json::array();
+  for (const auto& row : exposure.contracts) {
+    const auto share =
+        exposure.gross_notional == Decimal{}
+            ? Json(nullptr)
+            : Json(static_cast<double>(
+                       divide(row.gross_notional, exposure.gross_notional, Rounding::half_up)
+                           .raw()) /
+                   100000000.0);
+    rows.push_back({{"venue", row.venue},
+                    {"symbol", row.symbol},
+                    {"mark", row.mark.str()},
+                    {"multiplier", row.multiplier.str()},
+                    {"quantity_increment", row.quantity_increment.str()},
+                    {"net_quantity", row.net_quantity.str()},
+                    {"gross_quantity", row.gross_quantity.str()},
+                    {"net_notional", row.net_notional.str()},
+                    {"gross_notional", row.gross_notional.str()},
+                    {"gross_notional_share", share},
+                    {"margin", row.margin.str()},
+                    {"cost_source", row.cost_source},
+                    {"cost_effective_from", row.cost_effective_from},
+                    {"margin_per_lot", row.costs.margin_per_lot.str()},
+                    {"margin_rate", row.costs.margin_rate.str()},
+                    {"quantities_on_grid", row.quantities_on_grid}});
+  }
+  Json points = Json::array();
+  const auto optional = [](const std::optional<Decimal>& value) {
+    return value ? Json(value->str()) : Json(nullptr);
+  };
+  for (const auto& point : settlement_exposure(input, result))
+    points.push_back({{"day", point.day},
+                      {"net_notional", point.net_notional.str()},
+                      {"gross_notional", optional(point.gross_notional)},
+                      {"model_margin", optional(point.margin)},
+                      {"balance", point.balance.str()},
+                      {"equity", point.equity.str()},
+                      {"available", optional(point.available)},
+                      {"frozen", optional(point.frozen)}});
+  return {
+      {"settlement_path", {{"scope", "recorded_settlement_points"}, {"points", std::move(points)}}},
+      {"scope", "final_saved_account"},
+      {"contracts", std::move(rows)},
+      {"net_notional", exposure.net_notional.str()},
+      {"gross_notional", exposure.gross_notional.str()},
+      {"gross_quantity", exposure.gross_quantity.str()},
+      {"model_margin", exposure.margin.str()},
+      {"recorded_margin", exposure.recorded_margin.str()},
+      {"margin_difference", (exposure.recorded_margin - exposure.margin).str()},
+      {"balance", exposure.balance.str()},
+      {"equity", exposure.equity.str()},
+      {"available", exposure.available.str()},
+      {"frozen", exposure.frozen.str()},
+      {"risk",
+       {{"max_order_quantity", exposure.max_order_quantity.str()},
+        {"max_gross_quantity", exposure.max_gross_quantity.str()},
+        {"max_working_orders", exposure.max_working_orders},
+        {"final_lot_headroom", (exposure.max_gross_quantity - exposure.gross_quantity).str()}}}};
+}
+Json backtest_reconciliation(const backtest::v1::BacktestInput& input,
+                             const backtest::v1::BacktestResult& result) {
+  const auto audit = reconcile_backtest(input, result);
+  const auto checks = [](const std::vector<AccountCheck>& items) {
+    Json rows = Json::array();
+    for (const auto& item : items)
+      rows.push_back({{"metric", item.metric},
+                      {"expected", item.expected.str()},
+                      {"recorded", item.recorded.str()},
+                      {"difference", (item.recorded - item.expected).str()},
+                      {"matches", item.recorded == item.expected}});
+    return rows;
+  };
+  Json value{{"state", audit.state == AccountReconciliation::State::available ? "available"
+                       : audit.state == AccountReconciliation::State::missing_fill_days
+                           ? "missing_fill_days"
+                           : "unsupported_input"},
+             {"days", Json::array()},
+             {"final_checks", checks(audit.final_checks)}};
+  if (audit.state != AccountReconciliation::State::available)
+    return value;
+  value["model"] = {{"venue", audit.venue},
+                    {"symbol", audit.symbol},
+                    {"deposit", audit.deposit.str()},
+                    {"multiplier", audit.multiplier.str()},
+                    {"cost_source", audit.cost_source},
+                    {"cost_effective_from", audit.cost_effective_from},
+                    {"margin_per_lot", audit.costs.margin_per_lot.str()},
+                    {"margin_rate", audit.costs.margin_rate.str()},
+                    {"signed_notional", audit.signed_notional.str()},
+                    {"gross_notional", audit.gross_notional.str()}};
+  for (const auto& day : audit.days) {
+    Json fills = Json::array();
+    for (const auto& fill : day.fills)
+      fills.push_back({{"id", fill.id},
+                       {"order_id", fill.order_id},
+                       {"side", fill.buy ? "buy" : "sell"},
+                       {"quantity", fill.quantity.str()},
+                       {"price", fill.price.str()},
+                       {"fee", fill.fee.str()}});
+    value["days"].push_back({{"day", day.day},
+                             {"opening_quantity", day.opening_quantity.str()},
+                             {"quantity_change", day.quantity_change.str()},
+                             {"closing_quantity", day.closing_quantity.str()},
+                             {"settlement", day.settlement.str()},
+                             {"opening_balance", day.opening_balance.str()},
+                             {"gross", day.gross.str()},
+                             {"fees", day.fees.str()},
+                             {"expected_balance", day.expected_balance.str()},
+                             {"recorded_balance", day.recorded_balance.str()},
+                             {"fills", std::move(fills)},
+                             {"checks", checks(day.checks)}});
+  }
+  return value;
 }
 wire::TaskResponse decode_task_response(const wire::TaskRequest& request, const std::string& raw) {
   wire::TaskResponse response;
@@ -120,10 +349,9 @@ wire::TaskResponse decode_task_response(const wire::TaskRequest& request, const 
     throw_remote_error(response.error().code(), response.error().message());
   if (request.has_history_usage() ? !response.has_history_usage()
       : request.has_list()        ? !response.has_tasks()
-      : request.has_result()
-          ? (!response.has_backtest() && !response.has_factor() && !response.has_minutes() &&
-             !response.has_daily() && !response.has_table_update())
-          : !response.has_task())
+      : request.has_result()      ? (!response.has_backtest() && !response.has_factor() &&
+                                     !response.has_minutes() && !response.has_table_update())
+                                  : !response.has_task())
     throw Error(ErrorCode::unavailable, "unexpected task response");
   return response;
 }
@@ -257,7 +485,8 @@ struct TaskClient::Impl : std::enable_shared_from_this<Impl> {
       if (timeout <= 0ms)
         throw Error(ErrorCode::unavailable, "task reference inspection timed out");
     }
-    const auto lane = request.has_result() || request.has_get() || request.has_history_usage()
+    const auto lane = request.has_result() || request.has_get() || request.has_metadata_get() ||
+                              request.has_history_usage()
                           ? Lane::read
                           : Lane::control;
     const auto send_timeout = request.has_submit() || request.has_history_usage() ? 30s : 5s;
@@ -273,12 +502,18 @@ struct TaskClient::Impl : std::enable_shared_from_this<Impl> {
     auto raw = co_await request_bytes(request, stop, deadline);
     co_return co_await io.read<Json>([request = std::move(request), raw = std::move(raw)] {
       const auto response = decode_task_response(request, *raw);
+      if (request.has_metadata_get())
+        return protocol::decode_task(response.task());
       if (request.has_result()) {
         auto evidence = protocol::decode_task_result(response, request.result().id());
         if (response.has_backtest()) {
+          evidence["portfolio"] =
+              backtest_portfolio(response.result_task().input(), response.backtest());
           evidence["performance"] =
               backtest_performance(response.result_task().input(), response.backtest());
           evidence["trades"] = backtest_trades(response.result_task().input(), response.backtest());
+          evidence["reconciliation"] =
+              backtest_reconciliation(response.result_task().input(), response.backtest());
         }
         return evidence;
       }
@@ -393,10 +628,33 @@ std::future<void> TaskClient::submit(const std::string& id,
   return impl_->mutate(std::move(request));
 }
 std::future<void> TaskClient::submit(const std::string& id,
-                                     const asterion::factor::v1::FactorRequest& input) {
+                                     const asterion::factor::v1::FactorRequest& input,
+                                     const wire::TaskDerivation& source) {
   wire::TaskRequest request;
   request.mutable_submit()->set_id(id);
   *request.mutable_submit()->mutable_factor_request() = input;
+  if (!source.source_id().empty())
+    *request.mutable_submit()->mutable_derivation() = source;
+  return impl_->mutate(std::move(request));
+}
+std::future<nlohmann::json> TaskClient::metadata(const std::string& id) {
+  wire::TaskRequest request;
+  request.mutable_metadata_get()->set_id(id);
+  return impl_->io.submit<Json>([state = impl_, request = std::move(request)](
+                                    std::stop_token stop) mutable -> PolledTask<Json> {
+    co_return co_await state->read(std::move(request), stop);
+  });
+}
+std::future<void> TaskClient::edit_metadata(const wire::TaskMetadataEdit& edit) {
+  wire::TaskRequest request;
+  *request.mutable_metadata_edit() = edit;
+  return impl_->mutate(std::move(request));
+}
+std::future<void> TaskClient::reuse_backtest(const std::string& id,
+                                             const backtest::v1::BacktestReuse& reuse) {
+  wire::TaskRequest request;
+  request.mutable_submit()->set_id(id);
+  *request.mutable_submit()->mutable_backtest_reuse() = reuse;
   return impl_->mutate(std::move(request));
 }
 std::future<void> TaskClient::submit_download(const std::string& id,

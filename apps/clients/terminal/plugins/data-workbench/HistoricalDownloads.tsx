@@ -174,7 +174,6 @@ function SourceDownloads({
         id={viewId}
         source={source.id}
         sourceLabel={source.name}
-        timeAxis={source.timeAxis}
         snapshot={snapshot}
         busy={busy}
         query={query}
@@ -197,7 +196,7 @@ function SourceDownloads({
             void (async () => {
               let count = 0;
               for (const [index, item] of targets.entries()) {
-                const ok = await run(source.command, {
+                const ok = await run("data.download.minutes.submit", {
                   // Stable per contract, so resubmitting the batch is idempotent.
                   id: all ? `${id}-${index}` : id,
                   ...source.parameters(
@@ -340,15 +339,15 @@ function SourceDownloads({
                   </select>
                 </label>
                 <label>
-                  {t(source.timeAxis === "trading-day" ? "数据周期" : "分钟周期")}
+                  {t("分钟周期")}
                   <select
-                    aria-label={t(source.timeAxis === "trading-day" ? "数据周期" : "分钟周期")}
+                    aria-label={t("分钟周期")}
                     value={form.frequency}
                     onChange={event => update("frequency", event.target.value)}
                   >
                     {source.intervals.map(value => (
                       <option key={value} value={value}>
-                        {value === "day" ? t("日K") : `${value} min`}
+                        {`${value} min`}
                       </option>
                     ))}
                   </select>
@@ -437,9 +436,7 @@ function SourceDownloads({
           <summary>{t("数据说明")}</summary>
           <p className="subtle">
             {t(
-              source.timeAxis === "trading-day"
-                ? "日线保存供应商交易日期与结算价，可在这里查看。回测和因子的日线取自全市场日线表，不取这里的下载。不补造缺失的交易日。"
-                : "分钟数据按 K 线结束时间保存，交易日来自交易所交易日历，可用于回测与因子分析。不补造缺失的 K 线或主力连续合约。",
+              "分钟数据按 K 线结束时间保存，交易日来自交易所交易日历，可用于回测与因子分析。不补造缺失的 K 线或主力连续合约。",
             )}
           </p>
         </details>
@@ -456,10 +453,7 @@ function SourceDownloads({
           <p className="history-empty">{t("暂无进行中的下载")}</p>
         )}
         {tasks.length > 0 && (
-          <div
-            className="publication-list"
-            aria-label={t(source.timeAxis === "trading-day" ? "日线下载任务" : "分钟下载任务")}
-          >
+          <div className="publication-list" aria-label={t("分钟下载任务")}>
             {[...tasks]
               .reverse()
               .filter(task => task.state !== "succeeded")
@@ -555,18 +549,15 @@ function SourceDownloads({
           ))}
         {result && (
           <details open className="futures-help">
-            <summary>{t(source.timeAxis === "trading-day" ? "日线数据集" : "分钟数据集")}</summary>
+            <summary>{t("分钟数据集")}</summary>
             <p>
-              {result.contract} · {result.interval === "day" ? t("日K") : `${result.interval} min`}{" "}
-              · {result.rows} {t("根 K 线")}
+              {result.contract} · {`${result.interval} min`} · {result.rows} {t("根 K 线")}
             </p>
             <p>
               {source.name} · {source.timezone}
             </p>
             <p>
-              {t("请求范围")} ·{" "}
-              {source.timeAxis === "trading-day" ? result.begin : timestamp(result.begin)} —{" "}
-              {source.timeAxis === "trading-day" ? result.end : timestamp(result.end)}
+              {t("请求范围")} · {timestamp(result.begin)} — {timestamp(result.end)}
             </p>
             <p>
               {t("质量状态")} · {t("结构与摘要已校验；交易时段覆盖未校验")}
@@ -590,6 +581,11 @@ function SourceDownloads({
 
 export function HistoricalDownloads(context: TerminalContext) {
   const sources = historySources(context.snapshot?.data?.sources ?? []);
+  // Only the summaries remain; there is no reader or worker for these records.
+  const unsupported = (context.snapshot?.task_service?.tasks ?? []).filter(
+    task => task.kind === "daily_download",
+  );
+  const [error, setError] = useState<DisplayError>("");
   const [sourceId, setSourceId] = useWorkspaceDraft("historySource", "");
   const source = sources.find(item => item.id === sourceId) ?? sources[0];
   return (
@@ -615,16 +611,38 @@ export function HistoricalDownloads(context: TerminalContext) {
           </select>
         </label>
       </header>
+      {unsupported.length > 0 && (
+        <section aria-label={t("不支持的下载记录")}>
+          <p>{t("按合约日线下载已停止支持，任务与文件仍保留。日线请查看全市场数据。")}</p>
+          {unsupported.map(task => (
+            <div className="publication-row" key={task.id}>
+              <span>
+                {task.instrument} · {task.id} · {t(states[task.state])}
+              </span>
+              {task.state === "queued" && (
+                <button
+                  disabled={context.busy || !context.snapshot?.task_service?.online}
+                  onClick={() => {
+                    setError("");
+                    void context
+                      .trade("task.action", { id: task.id, action: "cancel" })
+                      .catch(reason => setError(asDisplayError(reason)));
+                  }}
+                >
+                  {t("取消")}
+                </button>
+              )}
+            </div>
+          ))}
+          {error && <ErrorNotice error={error} namespace="asterion.terminal.data-workbench" />}
+        </section>
+      )}
       {source ? (
         <>
           <div className="history-capabilities">
             <span>{t(source.asset)}</span>
             <span>{t(source.dataType)}</span>
-            <span>
-              {source.intervals
-                .map(value => (value === "day" ? t("日K") : `${value} min`))
-                .join(" / ")}
-            </span>
+            <span>{source.intervals.map(value => `${value} min`).join(" / ")}</span>
             <span>{source.timezone}</span>
           </div>
           <SourceDownloads

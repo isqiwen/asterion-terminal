@@ -137,7 +137,6 @@ export function HistoryUpdatePanel({
         id={task.history_dataset_id}
         source={item.source}
         sourceLabel={item.source}
-        timeAxis={item.interval_minutes ? "instant" : "trading-day"}
         onClose={() => setView(false)}
       />
     );
@@ -154,8 +153,7 @@ export function HistoryUpdatePanel({
         </button>
       </div>
       <p>
-        {item.contract_id} · {item.interval_minutes ? `${item.interval_minutes}m` : t("日线")} ·{" "}
-        {item.source}
+        {item.contract_id} · {`${item.interval_minutes}m`} · {item.source}
       </p>
       <p className="subtle">
         {t("当前版本：{begin} — {end}", { begin: item.begin, end: item.end })}
@@ -167,6 +165,11 @@ export function HistoryUpdatePanel({
             : "从所选版本结束处继续，最多下载到已结束的日期；不会自动合并其他下载或更改已保存数据集。",
         )}
       </p>
+      {daily && (
+        <p className="subtle">
+          {t("公告门禁只覆盖已核实日期；其他日期的历史时段仍未知。通过预览不证明夜盘或日内完整。")}
+        </p>
+      )}
       {!source && <p role="status">{t("数据源不可用")}</p>}
       <form
         onSubmit={event => {
@@ -207,7 +210,59 @@ export function HistoryUpdatePanel({
           </button>
         </fieldset>
       </form>
-      {plan && (
+      {plan && plan.conflicts.length > 0 && (
+        <div role="alert" className="history-update-preview">
+          <h4>{t("公告冲突阻止整日补齐预览")}</h4>
+          <p>
+            {t(
+              "所选版本或参考在公告明确休市的日期存在交易记录或开市标记，不能将其作为可补齐缺口。未创建下载任务，也未申请额度。",
+            )}
+          </p>
+          <p>
+            {t("固定参考快照")}：<code>{daily?.snapshot}</code>
+          </p>
+          <table className="data-table">
+            <thead>
+              <tr>
+                {["冲突日期", "冲突依据", "官方休市公告"].map(key => (
+                  <th key={key}>{t(key)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {plan.conflicts.map(conflict => (
+                <tr key={conflict.day}>
+                  <td>{conflict.day}</td>
+                  <td>
+                    {[
+                      conflict.observed_minutes && t("分钟标签包含该交易日"),
+                      conflict.calendar_open && t("所选日历标记开市"),
+                      conflict.daily_auction && t("所选日线报告竞价成交"),
+                    ]
+                      .filter(Boolean)
+                      .join("；")}
+                  </td>
+                  <td>
+                    <a href={conflict.closure.source_url} target="_blank" rel="noreferrer">
+                      {conflict.closure.rule_id} v{conflict.closure.version}
+                    </a>{" "}
+                    · {t("发布日期")} {conflict.closure.published_day}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p>
+            {t(
+              "关闭预览，先到全市场数据核实日历和日线，并检查分钟标签来源。若已有可信更正，重新打开历史数据仓库、覆盖核对并预览新参考快照；没有可信更正时保持阻止，保留旧版本。",
+            )}
+          </p>
+          <button type="button" onClick={onClose}>
+            {t("关闭预览并检查参考")}
+          </button>
+        </div>
+      )}
+      {plan && plan.conflicts.length === 0 && (
         <div className="history-update-preview">
           <p>
             <strong>{t("本次下载：{begin} — {end}", { begin: plan.begin, end: plan.end })}</strong>

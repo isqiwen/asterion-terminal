@@ -3,7 +3,7 @@
 #include "dominant_plan.hpp"
 #include "macd.hpp"
 #include "table_update.hpp"
-#include <asterion/domain/daily_bars.hpp>
+#include <asterion/domain/trading_days.hpp>
 #include <asterion/domain/history_identity.hpp>
 #include <asterion/foundation/error.hpp>
 #include <asterion/protocol/data.hpp>
@@ -57,6 +57,7 @@ std::vector<std::string> open_days(const TableStore& store, const TableSeries& c
 // What one contract did on the days of the range.
 struct Month {
   std::map<std::string, Decimal> close, settlement, open_interest;
+  std::map<std::string, std::int64_t> volume_contracts, interest_contracts;
   std::map<std::string, long double> lot_value; // where they were read
   std::map<std::string, DailyTrade> trades;     // where they were read
 };
@@ -76,9 +77,10 @@ Days read_days(const TableStore& store, const TableSeries& daily, const TableSer
   const auto& table = history_table(daily_table);
   std::vector<std::size_t> columns{table_column(table, "contract"), table_column(table, "close"),
                                    table_column(table, "settlement"),
-                                   table_column(table, "open_interest")};
+                                   table_column(table, "open_interest"),
+                                   table_column(table, "volume")};
   if (read != Read::settled)
-    for (const auto* name : {"volume", "amount"})
+    for (const auto* name : {"amount"})
       columns.push_back(table_column(table, name));
   // The other prices are read only for bars.
   if (read == Read::traded)
@@ -112,6 +114,10 @@ Days read_days(const TableStore& store, const TableSeries& daily, const TableSer
     keep(month.settlement, cells[2]);
     // Kept in lots; only compared, so the scale does not matter.
     keep(month.open_interest, cells[3]);
+    if (const auto* value = std::get_if<std::int64_t>(&cells[3]))
+      month.interest_contracts.emplace(day, *value);
+    if (const auto* value = std::get_if<std::int64_t>(&cells[4]))
+      month.volume_contracts.emplace(day, *value);
     if (read == Read::settled)
       return;
     const auto value = [&](std::size_t cell) { return std::get_if<std::int64_t>(&cells[cell]); };
@@ -137,6 +143,49 @@ Days read_days(const TableStore& store, const TableSeries& daily, const TableSer
   return result;
 }
 } // namespace
+historical_costs::MarginFact settlement_margin_fact(const TableStore& store,
+                                                    const std::string& snapshot,
+                                                    const TableSeries& series,
+                                                    const std::string& contract,
+                                                    const std::string& observed_day) {
+  if (series.table != "futures.settlement" || series.schema != 1 || series.source.empty())
+    throw std::invalid_argument("historical margin source evidence is missing");
+  (void)parse_trading_date(observed_day);
+  const auto identity = HistoryIdentity::parse(contract);
+  const auto until = store.sequence(snapshot);
+  if (!until)
+    throw std::invalid_argument("historical margin snapshot is unavailable");
+  const auto revisions =
+      store.revisions(series, identity.venue, observed_day, observed_day, *until);
+  if (revisions.empty())
+    throw std::invalid_argument("historical margin partition is missing");
+  const auto& revision = revisions.front();
+  const auto& schema = history_table("futures.settlement");
+  const auto key = table_column(schema, "contract"),
+             long_column = table_column(schema, "long_margin_rate"),
+             short_column = table_column(schema, "short_margin_rate");
+  for (const auto& row : store.rows(revision)) {
+    if (std::get<std::string>(row[key]) != contract)
+      continue;
+    const auto value = [&](std::size_t column) -> std::optional<Decimal> {
+      if (const auto* number = std::get_if<std::int64_t>(&row[column]))
+        return Decimal::from_raw(*number);
+      return {};
+    };
+    return {contract,
+            observed_day,
+            series.source,
+            snapshot,
+            revision.snapshot,
+            revision.content,
+            revision.object,
+            revision.provider_artifact,
+            revision.acquired_at_ns,
+            value(long_column),
+            value(short_column)};
+  }
+  throw std::invalid_argument("historical margin contract row is missing");
+}
 DailyFacts daily_facts(const TableStore& store, const v1::DailyTable& table,
                        const std::string& venue, const std::string& begin_day,
                        const std::string& end_day, const std::vector<std::string>& names,
@@ -273,6 +322,24 @@ std::map<std::string, Decimal> contract_multipliers(const TableStore& store,
       throw std::invalid_argument("the contract table has no " + name);
   return result;
 }
+std::string previous_trading_day(const TableStore& store, const v1::DailyTable& table,
+                                 const std::string& venue, const std::string& first_day) {
+  protocol::validate_daily_table(table);
+  const auto date = parse_trading_date(first_day);
+  const auto until = held(store, table.snapshot());
+  const auto calendar = series_of(calendar_table, table.calendar_source());
+  if (open_days(store, calendar, venue, first_day, first_day, until).empty())
+    throw std::invalid_argument("dominant replay anchor is not an open trading day");
+  const auto year = static_cast<int>(date.year());
+  auto days = open_days(store, calendar, venue, std::to_string(year) + "-01-01", first_day, until);
+  if (days.size() > 1)
+    return days[days.size() - 2];
+  days = open_days(store, calendar, venue, std::to_string(year - 1) + "-01-01",
+                   std::to_string(year - 1) + "-12-31", until);
+  if (days.empty())
+    throw std::invalid_argument("dominant replay lacks the previous calendar trading day");
+  return days.back();
+}
 v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeriesRequest& request) {
   protocol::validate_table_series_request(request);
   const auto until = held(store, request.snapshot());
@@ -308,7 +375,7 @@ v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeries
       const auto& name = request.instruments(index);
       const auto& instrument = instruments[static_cast<std::size_t>(index)];
       auto& series = *group.mutable_series(index);
-      series.set_version(1);
+      series.set_version(2);
       series.set_snapshot(request.snapshot());
       series.set_daily_source(request.daily_source());
       series.set_calendar_source(request.calendar_source());
@@ -323,6 +390,12 @@ v1::TableSeriesGroup table_series(const TableStore& store, const v1::TableSeries
           auto* row = target.add_closes();
           row->set_trading_day(close->first);
           row->mutable_close()->set_units(close->second.raw());
+          if (const auto value = month.volume_contracts.find(close->first);
+              value != month.volume_contracts.end())
+            row->set_volume_contracts(value->second);
+          if (const auto value = month.interest_contracts.find(close->first);
+              value != month.interest_contracts.end())
+            row->set_open_interest_contracts(value->second);
           ++total;
         }
       };
@@ -427,6 +500,34 @@ v1::TableProducts table_products(const TableStore& store, const v1::TableProduct
       row->set_first_listed(date_text(*product.first));
       row->set_last_delisted(date_text(*product.last));
     }
+  }
+  return result;
+}
+v1::TableListedContracts table_listed_contracts(const TableStore& store,
+                                                const v1::TableListedContractsQuery& query) {
+  protocol::validate_table_listed_contracts_query(query);
+  const auto lists = store.revisions(series_of(contracts_table, query.contracts_source()),
+                                     query.exchange(), "all", "all", held(store, query.snapshot()));
+  if (lists.empty())
+    throw Error(ErrorCode::conflict, "no contract list of " + query.exchange() + " is stored");
+  const auto& table = history_table(contracts_table);
+  const auto contract = table_column(table, "contract"), name = table_column(table, "name"),
+             listed = table_column(table, "list_date"),
+             delisted = table_column(table, "delist_date");
+  v1::TableListedContracts result;
+  *result.mutable_query() = query;
+  for (const auto& row : store.rows(lists.front())) {
+    const auto& key = std::get<std::string>(row[contract]);
+    const auto* first = std::get_if<std::int64_t>(&row[listed]);
+    const auto* last = std::get_if<std::int64_t>(&row[delisted]);
+    if (HistoryIdentity::parse(key).product != query.product() || !first || !last)
+      continue;
+    auto* item = result.add_items();
+    item->set_contract_id(key);
+    if (const auto* text = std::get_if<std::string>(&row[name]))
+      item->set_name(*text);
+    item->set_list_date(date_text(*first));
+    item->set_delist_date(date_text(*last));
   }
   return result;
 }

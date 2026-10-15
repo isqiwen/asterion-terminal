@@ -1,5 +1,5 @@
 #include <asterion/domain/history_identity.hpp>
-#include <asterion/domain/daily_bars.hpp>
+#include <asterion/domain/trading_days.hpp>
 #include <algorithm>
 #include <array>
 #include <charconv>

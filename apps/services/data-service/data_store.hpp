@@ -73,10 +73,7 @@ public:
     v1::HistoryRecord record_;
 
   public:
-    const std::string& dataset_id() const {
-      return record_.has_minutes() ? record_.minute_result().manifest_sha256()
-                                   : record_.daily_result().manifest_sha256();
-    }
+    const std::string& dataset_id() const { return record_.minute_result().manifest_sha256(); }
   };
   VerifiedPublication verify_publication(const v1::DownloadPublication&) const;
   v1::PublishedDownload publish(const VerifiedPublication&);
@@ -92,6 +89,11 @@ public:
     history_files::TableSeries series_;
     history_files::TableStore::Object object_;
     std::string provider_artifact_;
+    std::optional<SourceResponse> response_;
+    std::optional<history_files::TableObservationContext> observation_context_;
+    std::optional<history_files::TableRefreshObservation> previous_observation_;
+    std::string expected_snapshot_;
+    bool missing_only_day_ = false;
   };
   // Types the delivered rows and writes their file. The receipt is final when
   // the rows are rejected or the partition already holds them; otherwise the

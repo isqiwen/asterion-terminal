@@ -1,3 +1,6 @@
+#include "../apps/clients/terminal/native/research_export.hpp"
+#include "../apps/clients/terminal/native/portfolio_budget_review.hpp"
+#include <asterion/kernel/process/artifact.hpp>
 #include "../apps/clients/terminal/native/market_history.hpp"
 #include "support/timing.hpp"
 #include "data/history_fixture.hpp"
@@ -90,6 +93,99 @@ json history(void* runtime, const std::vector<int>& prices, const std::string& i
   return selection;
 }
 } // namespace
+TEST(ResearchComparisonExport, PreservesColumnOrderStatesAndReasonsAndRejectsUnrelatedFields) {
+  const json task = {
+      {"attempt", 1}, {"result_digest", std::string(64, 'a')}, {"metadata", json::object()}};
+  const json first = {{"id", "first"},
+                      {"kind", "factor"},
+                      {"task", task},
+                      {"experiment", {{"dataset_revision", std::string(64, 'b')}}},
+                      {"result", {{"version", 9}}}};
+  auto second = first;
+  second["id"] = "second";
+  const json matrix = {
+      {"language", "en-US"},
+      {"reference_id", "first"},
+      {"columns",
+       json::array(
+           {json{{"id", "first"}, {"methodology", "comparable"}, {"reasons", json::array()}},
+            json{{"id", "second"},
+                 {"methodology", "independent"},
+                 {"reasons", json::array({"Fixed snapshots differ"})}}})},
+      {"rows",
+       json::array({json{
+           {"label", "Pearson"},
+           {"cells",
+            json::array({json{{"text", "0.0000"}, {"state", "defined"}, {"metrics", json::array()}},
+                         json{{"text", "Undefined"},
+                              {"state", "undefined"},
+                              {"metrics", json::array()}}})}}})}};
+  const auto content =
+      asterion::terminal::comparison_evidence_document({first, second}, "research-task", matrix);
+  const auto document = json::parse(content);
+  EXPECT_EQ(document.at("format"), "asterion.research.comparison.evidence");
+  EXPECT_EQ(document.at("matrix"), matrix);
+  EXPECT_EQ(document.at("experiments").at(0).at("source").at("task_id"), "first");
+  EXPECT_EQ(document.at("experiments").at(1).at("source").at("task_id"), "second");
+  EXPECT_THROW(
+      asterion::terminal::comparison_evidence_document({second, first}, "research-task", matrix),
+      std::invalid_argument);
+  auto unrelated = matrix;
+  unrelated["settings"] = {{"password", "must-not-export"}};
+  EXPECT_THROW(
+      asterion::terminal::comparison_evidence_document({first, second}, "research-task", unrelated),
+      asterion::Error);
+  auto invalid = matrix;
+  invalid["rows"][0]["cells"][0]["state"] = "unknown";
+  EXPECT_THROW(
+      asterion::terminal::comparison_evidence_document({first, second}, "research-task", invalid),
+      std::invalid_argument);
+}
+TEST(ResearchEvidenceExport, ContainsOnlyResearchEvidenceAndNeverOverwritesAnExistingFile) {
+  Fixture fixture;
+  const json task = {
+      {"attempt", 1},
+      {"result_digest", std::string(64, 'a')},
+      {"metadata", {{"name", "test"}, {"note", "notes"}, {"source_id", "original"}}}};
+  const json source = {{"id", "factor-test"},
+                       {"kind", "factor"},
+                       {"task", task},
+                       {"experiment", {{"dataset_revision", std::string(64, 'b')}}},
+                       {"result", {{"version", 9}, {"samples", json::array()}}},
+                       {"settings", {{"password", "not-exported"}}},
+                       {"nodes", {{"host", "not-exported"}}}};
+  const auto content = asterion::terminal::research_evidence_document(source, "research-task");
+  const auto document = json::parse(content);
+  EXPECT_EQ(document.at("format"), "asterion.research.evidence");
+  EXPECT_EQ(document.at("version"), 1);
+  EXPECT_EQ(document.at("experiment"), source.at("experiment"));
+  EXPECT_EQ(document.at("result"), source.at("result"));
+  EXPECT_EQ(document.at("description"), task.at("metadata"));
+  EXPECT_TRUE(document.at("source").at("input_sha256").is_null());
+  EXPECT_FALSE(document.contains("settings"));
+  auto backtest = source;
+  backtest["kind"] = "backtest";
+  backtest["portfolio"] = json::object();
+  backtest["performance"] = json::object();
+  backtest["trades"] = json::object();
+  backtest["reconciliation"] = {{"state", "missing_fill_days"}, {"days", json::array()}};
+  const auto backtest_document =
+      json::parse(asterion::terminal::research_evidence_document(backtest, "research-task"));
+  EXPECT_EQ(backtest_document.at("reconciliation"), backtest.at("reconciliation"));
+
+  EXPECT_FALSE(document.contains("nodes"));
+  EXPECT_EQ(content.find("not-exported"), std::string::npos);
+  const auto path = fixture.directory / "evidence.json";
+  asterion::terminal::save_research_evidence(path, content);
+  EXPECT_EQ(asterion::sha256_file(path), asterion::sha256_bytes(content));
+  EXPECT_THROW(asterion::terminal::save_research_evidence(path, "replacement"),
+               std::invalid_argument);
+  EXPECT_EQ(asterion::sha256_file(path), asterion::sha256_bytes(content));
+  auto unsupported = source;
+  unsupported["kind"] = "minute_download";
+  EXPECT_THROW(asterion::terminal::research_evidence_document(unsupported, "research-task"),
+               std::invalid_argument);
+}
 TEST(TerminalApi, CreationPreservesTypedFailureAndClearsTheOutput) {
   const char* value = std::getenv("ASTERION_LOG_DIRECTORY");
   const std::optional<std::string> saved = value ? std::optional<std::string>(value) : std::nullopt;
@@ -619,4 +715,67 @@ TEST(TerminalApi, LongNodeOperationsDoNotBlockOtherCommands) {
   slow.join();
   ::close(listener);
   std::filesystem::remove_all(folder);
+}
+
+TEST(PortfolioBudgetReview, ExplicitReviewIsTraceableAndDoesNotMutateTheSource) {
+  json source = {{"id", "fixed"},
+                 {"kind", "backtest"},
+                 {"input_sha256", std::string(64, 'a')},
+                 {"task", {{"result_digest", std::string(64, 'b')}}},
+                 {"portfolio", {{"gross_notional", "5130"}, {"model_margin", "1123"}}}};
+  source["portfolio"]["settlement_path"] = {{"points", json::array()}};
+  const auto original = source.dump();
+  auto review = asterion::terminal::portfolio_budget_review(
+      source, {{"gross_notional", "5000"}, {"margin", nullptr}});
+  EXPECT_EQ(review.at("checks").at("gross_notional").at("headroom"), "-130");
+  EXPECT_EQ(review.at("checks").at("gross_notional").at("state"), "exceeded");
+  EXPECT_EQ(review.at("checks").at("margin").at("state"), "unset");
+  EXPECT_EQ(review.at("source").at("input_sha256"), source.at("input_sha256"));
+  EXPECT_EQ(source.dump(), original);
+  EXPECT_THROW(asterion::terminal::portfolio_budget_review(
+                   source, {{"gross_notional", nullptr}, {"margin", nullptr}}),
+               std::invalid_argument);
+  EXPECT_THROW(asterion::terminal::portfolio_budget_review(
+                   source, {{"gross_notional", "-1"}, {"margin", nullptr}}),
+               std::invalid_argument);
+  EXPECT_THROW(asterion::terminal::portfolio_budget_review(
+                   source, {{"gross_notional", "1.000000001"}, {"margin", nullptr}}),
+               std::exception);
+}
+
+TEST(PortfolioBudgetReview,
+     EarlierRecordedExcessRemainsVisibleWhenFinalIsWithinAndMissingPointsStayUnknown) {
+  json source = {{"id", "fixed"},
+                 {"kind", "backtest"},
+                 {"input_sha256", std::string(64, 'a')},
+                 {"task", {{"result_digest", std::string(64, 'b')}}},
+                 {"portfolio", {{"gross_notional", "2000"}, {"model_margin", "100"}}}};
+  const auto point = [](const char* day, json gross, json margin) {
+    return json{{"day", day},
+                {"net_notional", "0"},
+                {"gross_notional", gross},
+                {"model_margin", margin},
+                {"balance", "10000"},
+                {"equity", "10000"},
+                {"available", nullptr},
+                {"frozen", nullptr}};
+  };
+  source["portfolio"]["settlement_path"] = {
+      {"points",
+       {point("2026-09-21", "2200", "100"), point("2026-09-22", nullptr, nullptr),
+        point("2026-09-23", "2000", "100")}}};
+  const auto original = source.dump();
+  const auto review = asterion::terminal::portfolio_budget_review(
+      source, {{"gross_notional", "2100"}, {"margin", nullptr}});
+  EXPECT_EQ(review.at("checks").at("gross_notional").at("state"), "within");
+  const auto& summary = review.at("settlement_summary").at("gross_notional");
+  EXPECT_EQ(summary.at("checked_points"), 2);
+  EXPECT_EQ(summary.at("exceeded_points"), 1);
+  EXPECT_EQ(summary.at("unknown_points"), 1);
+  EXPECT_EQ(review.at("settlement_checks").at(0).at("checks").at("gross_notional").at("headroom"),
+            "-100");
+  EXPECT_EQ(review.at("settlement_checks").at(1).at("checks").at("gross_notional").at("state"),
+            "unknown");
+  EXPECT_TRUE(review.at("settlement_summary").at("margin").at("exceeded_points").is_null());
+  EXPECT_EQ(source.dump(), original);
 }

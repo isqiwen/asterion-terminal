@@ -5,6 +5,8 @@
 #include <asterion/kernel/durable_file.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <map>
+#include <fstream>
+#include <nlohmann/json.hpp>
 #include <stdexcept>
 namespace asterion::history_files {
 namespace {
@@ -13,6 +15,25 @@ using Statement = sqlite::Database::Statement;
 constexpr int ledger_version = 1;
 constexpr auto fields = "sequence, dataset, schema, source, exchange, period, content, object, "
                         "rows, bytes, acquired_at_ns, provider_artifact, snapshot";
+std::string snapshot_bytes(const TableRevision& next, const std::string& previous) {
+  return previous + "\n" + std::to_string(next.sequence) + "\t" + next.series.table + "\t" +
+         std::to_string(next.series.schema) + "\t" + next.series.source + "\t" + next.exchange +
+         "\t" + next.period + "\t" + next.content + "\t" + next.object + "\t" +
+         std::to_string(next.rows) + "\t" + std::to_string(next.bytes) + "\t" +
+         std::to_string(next.acquired_at_ns) + "\t" + next.provider_artifact;
+}
+std::string response_link(const SourceResponse& response) {
+  return "\traw-response-v1\t" + response.format + "\t" + std::to_string(response.received_at_ns) +
+         "\t" + sha256_bytes(response.body);
+}
+std::string read_response_file(const fs::path& path, std::uintmax_t bound) {
+  if (fs::is_symlink(path) || !fs::is_regular_file(path) || fs::file_size(path) > bound)
+    throw std::invalid_argument("source response evidence is missing or corrupt");
+  std::ifstream input(path, std::ios::binary);
+  if (!input)
+    throw std::invalid_argument("source response evidence is missing or corrupt");
+  return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
 // The newest entry of each partition: what the head snapshot holds.
 constexpr auto newest =
     "sequence = (SELECT max(sequence) FROM table_revisions x WHERE x.dataset = r.dataset AND "
@@ -121,7 +142,8 @@ TableStore::Object TableStore::write(const TablePartition& partition) const {
 }
 TableStore::Recorded TableStore::record(const TablePartition& partition, const TableSeries& series,
                                         const Object& object, const std::string& provider_artifact,
-                                        std::int64_t acquired_at_ns) {
+                                        std::int64_t acquired_at_ns,
+                                        const std::optional<SourceResponse>& response) {
   validate(series);
   if (!partition.table || partition.table->id != series.table || partition.rows.empty() ||
       !digest(partition.content) || !digest(provider_artifact) || acquired_at_ns <= 0 ||
@@ -160,12 +182,34 @@ TableStore::Recorded TableStore::record(const TablePartition& partition, const T
   next.acquired_at_ns = acquired_at_ns;
   next.provider_artifact = provider_artifact;
   // No field can contain a tab: identifiers, digests and numbers only.
-  next.snapshot =
-      sha256_bytes(previous + "\n" + std::to_string(next.sequence) + "\t" + series.table + "\t" +
-                   std::to_string(series.schema) + "\t" + series.source + "\t" + next.exchange +
-                   "\t" + next.period + "\t" + next.content + "\t" + next.object + "\t" +
-                   std::to_string(next.rows) + "\t" + std::to_string(next.bytes) + "\t" +
-                   std::to_string(next.acquired_at_ns) + "\t" + next.provider_artifact);
+  next.snapshot = sha256_bytes(snapshot_bytes(next, previous) +
+                               (response ? response_link(*response) : std::string{}));
+  if (response) {
+    if (response->body.empty() || response->body.size() > max_source_response_bytes ||
+        response->received_at_ns <= 0 || response->format != "tushare.fut_daily.raw.v1")
+      throw std::invalid_argument("invalid source response evidence");
+    const auto hash = sha256_bytes(response->body);
+    const auto object_path = root_ / "responses" / "objects" / (hash + ".json");
+    const auto reference_path = root_ / "responses" / "revisions" / (next.snapshot + ".json");
+    create_directories_durably(object_path.parent_path());
+    create_directories_durably(reference_path.parent_path());
+    if (fs::exists(object_path)) {
+      if (read_response_file(object_path, max_source_response_bytes) != response->body)
+        throw std::invalid_argument("source response evidence is missing or corrupt");
+    } else
+      replace_file_durably(object_path, response->body);
+    const nlohmann::json reference = {{"version", 1},
+                                      {"kind", "raw_response_body"},
+                                      {"format", response->format},
+                                      {"received_at_ns", std::to_string(response->received_at_ns)},
+                                      {"sha256", hash},
+                                      {"bytes", response->body.size()},
+                                      {"revision_snapshot", next.snapshot},
+                                      {"normalized_content", next.content},
+                                      {"normalized_object", next.object},
+                                      {"provider_artifact", next.provider_artifact}};
+    replace_file_durably(reference_path, reference.dump(2) + "\n");
+  }
   Statement insert(*ledger_, std::string("INSERT INTO table_revisions(") + fields +
                                  ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
   insert.bind(1, static_cast<std::int64_t>(next.sequence))
@@ -184,6 +228,55 @@ TableStore::Recorded TableStore::record(const TablePartition& partition, const T
   insert.step();
   transaction.commit();
   return {std::move(next), false};
+}
+std::optional<SourceResponse> TableStore::response(const TableRevision& revision) const {
+  if (!digest(revision.snapshot))
+    throw std::invalid_argument("invalid source response evidence");
+  std::lock_guard lock(mutex_);
+  Statement older(
+      *ledger_,
+      "SELECT snapshot FROM table_revisions WHERE sequence < ? ORDER BY sequence DESC LIMIT 1");
+  older.bind(1, static_cast<std::int64_t>(revision.sequence));
+  std::string previous;
+  if (older.step())
+    previous = older.text(0);
+  const auto path = root_ / "responses" / "revisions" / (revision.snapshot + ".json");
+  if (!fs::exists(path)) {
+    if (sha256_bytes(snapshot_bytes(revision, previous)) != revision.snapshot)
+      throw std::invalid_argument("source response evidence is missing or corrupt");
+    return {};
+  }
+  try {
+    const auto reference = nlohmann::json::parse(read_response_file(path, 8192));
+    const auto hash = reference.at("sha256").get<std::string>();
+    if (!digest(hash) || reference.at("version") != 1 ||
+        reference.at("kind") != "raw_response_body" ||
+        reference.at("revision_snapshot") != revision.snapshot ||
+        reference.at("normalized_content") != revision.content ||
+        reference.at("normalized_object") != revision.object ||
+        reference.at("provider_artifact") != revision.provider_artifact)
+      throw std::invalid_argument("source response evidence is missing or corrupt");
+    SourceResponse response{reference.at("format").get<std::string>(),
+                            read_response_file(root_ / "responses" / "objects" / (hash + ".json"),
+                                               max_source_response_bytes),
+                            std::stoll(reference.at("received_at_ns").get<std::string>())};
+    if (response.format != "tushare.fut_daily.raw.v1" || response.received_at_ns <= 0 ||
+        reference.at("bytes") != response.body.size() || hash != sha256_bytes(response.body) ||
+        sha256_bytes(snapshot_bytes(revision, previous) + response_link(response)) !=
+            revision.snapshot)
+      throw std::invalid_argument("source response evidence is missing or corrupt");
+    return response;
+  } catch (...) {
+    throw std::invalid_argument("source response evidence is missing or corrupt");
+  }
+}
+std::optional<TableRevision> TableStore::revision_unlocked(const std::string& snapshot) const {
+  Statement statement(*ledger_,
+                      std::string("SELECT ") + fields + " FROM table_revisions WHERE snapshot = ?");
+  statement.bind(1, snapshot);
+  if (!statement.step())
+    return {};
+  return revision(statement);
 }
 std::string TableStore::head() const {
   std::lock_guard lock(mutex_);

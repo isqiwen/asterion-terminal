@@ -12,12 +12,14 @@ import {
   type DisplayError,
 } from "../contract";
 import type { DailyTable, HistoryCoverage, HistoryDatasetRecord } from "../../src/bridge/client";
+import { MinuteRangePanel } from "./MinuteRangePanel";
 import { HistoryDatasetViewer } from "./HistoryDatasetViewer";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
 export function ArchivedDataPanel(context: TerminalContext) {
   const [filter, setFilter] = useState({ venue: "", product: "", contract_id: "", source: "" });
   const [items, setItems] = useState<HistoryDatasetRecord[]>([]);
+  const [unsupported, setUnsupported] = useState(0);
   const [selected, setSelected] = useState<HistoryDatasetRecord | null>(null);
   const [update, setUpdate] = useState<{ item: HistoryDatasetRecord; daily?: DailyTable } | null>(
     null,
@@ -51,7 +53,10 @@ export function ArchivedDataPanel(context: TerminalContext) {
     setError("");
     try {
       const response = await query.current("data.datasets", values);
-      if (current === sequence.current) setItems(response.history_datasets ?? []);
+      if (current === sequence.current) {
+        setItems(response.history_datasets ?? []);
+        setUnsupported(response.history_datasets_unsupported ?? 0);
+      }
     } catch (e) {
       if (current === sequence.current) setError(asDisplayError(e));
     } finally {
@@ -69,6 +74,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
       ]);
       if (current === sequence.current) {
         setItems(archives.history_datasets ?? []);
+        setUnsupported(archives.history_datasets_unsupported ?? 0);
         setCoverage(response.history_coverage ?? []);
         setSelected(null);
         setUpdate(null);
@@ -86,6 +92,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
   useEffect(() => {
     setFilter({ venue: "", product: "", contract_id: "", source: "" });
     setItems([]);
+    setUnsupported(0);
     setCoverage(null);
     setSelected(null);
     setUpdate(null);
@@ -141,7 +148,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
           <h3>{t("覆盖核对")}</h3>
           <p className="subtle">
             {t(
-              "每个分钟线版本分别与全市场日线表核对：表中这个合约有成交、版本里却没有分钟线的交易日。只比较表里已经有的交易日；这里只检查整日缺口，不代表日内数据完整。",
+              "仅在这个版本已标记的首末交易日之间，与全市场日线表核对整日缺口。首尾交易日覆盖与日内完整性尚未验证；有记录缺少交易日标记时，无法核对整日缺口。",
             )}
           </p>
           {!coverage.length ? (
@@ -174,7 +181,11 @@ export function ArchivedDataPanel(context: TerminalContext) {
                     <td>
                       {row.compared_first
                         ? `${row.traded_days} · ${row.compared_first} — ${row.compared_last}`
-                        : t("表中没有这段时间的日线")}
+                        : row.unknown_rows
+                          ? t("有 {n} 条记录缺少交易日标记，无法核对整日缺口", {
+                              n: row.unknown_rows,
+                            })
+                          : t("表中没有这段时间的日线")}
                     </td>
                     <td>
                       {row.compared_first
@@ -223,6 +234,13 @@ export function ArchivedDataPanel(context: TerminalContext) {
         </p>
       )}
       <p className="subtle">{t("历史仓库说明")}</p>
+      {unsupported > 0 && (
+        <p role="status">
+          {t("仓库中有 {n} 个版本不支持读取，原文件仍保留。日线请查看全市场数据。", {
+            n: unsupported,
+          })}
+        </p>
+      )}
       {!items.length && <p>{t("暂无历史数据版本")}</p>}
       <div className="publication-list">
         {items.map(item => (
@@ -230,7 +248,7 @@ export function ArchivedDataPanel(context: TerminalContext) {
             <div>
               <strong>{item.contract_id}</strong>
               <p>
-                {item.source} · {item.interval_minutes ? `${item.interval_minutes}m` : t("日线")}
+                {item.source} · {`${item.interval_minutes}m`}
               </p>
               <p>
                 {item.begin} — {item.end} · {item.rows} {t("记录数")}
@@ -314,14 +332,22 @@ export function ArchivedDataPanel(context: TerminalContext) {
                   />
                 )}
                 {selected?.id === item.id && (
-                  <HistoryDatasetViewer
-                    {...context}
-                    id={selected.id}
-                    source={selected.source}
-                    sourceLabel={selected.source}
-                    timeAxis={selected.interval_minutes ? "instant" : "trading-day"}
-                    onClose={() => setSelected(null)}
-                  />
+                  <>
+                    <MinuteRangePanel
+                      key={`${connection}:${selected.id}:${JSON.stringify(held)}`}
+                      id={selected.id}
+                      daily={held ?? null}
+                      query={context.query}
+                      disabled={!online || context.busy}
+                    />
+                    <HistoryDatasetViewer
+                      {...context}
+                      id={selected.id}
+                      source={selected.source}
+                      sourceLabel={selected.source}
+                      onClose={() => setSelected(null)}
+                    />
+                  </>
                 )}
               </div>
             )}

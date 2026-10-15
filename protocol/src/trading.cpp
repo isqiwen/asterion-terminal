@@ -665,6 +665,7 @@ v1::Snapshot encode_snapshot(const Json& s) {
     item->set_symbol(f.at("symbol").get<std::string>());
     set(item->mutable_quantity(), f.at("quantity"));
     set(item->mutable_price(), f.at("price"));
+    set(item->mutable_fee(), f.at("fee"));
   }
   return result;
 }
@@ -731,14 +732,21 @@ Json decode_snapshot(const v1::Snapshot& s) {
                  {"state", state(o.state())}});
     result["orders"].push_back(std::move(item));
   }
+  Decimal fill_fees;
   for (const auto& f : s.fills()) {
+    if (!f.has_fee() || f.fee().units() < 0)
+      throw std::invalid_argument("account fill fee is missing or invalid");
+    fill_fees = fill_fees + Decimal::from_raw(f.fee().units());
     auto item = instrument_fields(f.venue(), f.symbol());
     item.update({{"id", f.id()},
                  {"order_id", f.order_id()},
                  {"quantity", get(f.quantity())},
-                 {"price", get(f.price())}});
+                 {"price", get(f.price())},
+                 {"fee", get(f.fee())}});
     result["fills"].push_back(std::move(item));
   }
+  if (fill_fees != Decimal::from_raw(s.fees().units()))
+    throw std::invalid_argument("account fill fees differ from ledger total");
   return result;
 }
 namespace {

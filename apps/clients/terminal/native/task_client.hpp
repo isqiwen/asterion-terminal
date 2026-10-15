@@ -17,13 +17,18 @@ public:
   [[nodiscard]] std::future<void> page(unsigned before_sequence);
   ServiceEndpoint endpoint() const;
   [[nodiscard]] std::future<void> submit(const std::string&, const backtest::v1::BacktestRequest&);
-  [[nodiscard]] std::future<void> submit(const std::string&, const factor::v1::FactorRequest&);
+  [[nodiscard]] std::future<void> submit(const std::string&, const factor::v1::FactorRequest&,
+                                         const task::v1::TaskDerivation& = {});
+  [[nodiscard]] std::future<void> reuse_backtest(const std::string&,
+                                                 const backtest::v1::BacktestReuse&);
   [[nodiscard]] std::future<void> submit_download(const std::string& id,
                                                   const std::string& authorization);
   [[nodiscard]] std::future<Json> history_usage(const std::string&);
   [[nodiscard]] static std::future<Json>
   inspect_history_usage(ServiceIo&, const ServiceEndpoint&, const std::string&,
                         std::chrono::steady_clock::time_point deadline);
+  [[nodiscard]] std::future<nlohmann::json> metadata(const std::string&);
+  [[nodiscard]] std::future<void> edit_metadata(const task::v1::TaskMetadataEdit&);
   [[nodiscard]] std::future<void> action(const std::string& id, const std::string& action);
   [[nodiscard]] std::future<Json> result(const std::string& id);
 

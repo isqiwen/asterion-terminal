@@ -12,7 +12,7 @@
 namespace asterion::terminal {
 bool PluginCatalogEntry::supports_history() const {
   return std::ranges::any_of(descriptor.capabilities, [](const NativeCapability& capability) {
-    return capability.id == "asterion.history.v2" && capability.version == 2;
+    return capability.id == "asterion.history.v3" && capability.version == 3;
   });
 }
 PluginCatalog PluginCatalog::inspect(const std::filesystem::path& directory) {

@@ -147,6 +147,7 @@ export type BacktestAccount = {
     symbol: string;
     quantity: string;
     price: string;
+    fee: string;
   }[];
 };
 // A live CTP session; the broker reports the account, the session owns the
@@ -302,10 +303,13 @@ export type TerminalCommand =
   | "node.data_tasks.local.open"
   | "node.data_tasks.attach"
   | "backtest.submit"
+  | "backtest.reuse"
+  | "backtest.budget.review"
   | "factor.submit"
-  | "data.daily.page"
-  | "data.download.daily.submit"
+  | "factor.reuse"
   | "data.minutes.page"
+  | "data.minutes.range"
+  | "data.minutes.evidence"
   | "data.download.minutes.submit"
   | "data.datasets"
   | "data.dataset.saved"
@@ -315,10 +319,13 @@ export type TerminalCommand =
   | "data.history.usage"
   | "data.download.update.plan"
   | "data.download.update.submit"
+  | "data.tables.refresh.plan"
+  | "data.tables.refresh.submit"
   | "data.tables.update.submit"
   | "data.tables.coverage"
   | "data.tables.page"
   | "data.tables.products"
+  | "data.tables.listed_contracts"
   | "data.tables.daily"
   | "data.tables.contracts"
   | "data.dataset.select"
@@ -329,6 +336,11 @@ export type TerminalCommand =
   | "data.dataset.clear"
   | "task.action"
   | "task.result"
+  | "task.result.read"
+  | "task.metadata.read"
+  | "task.metadata.edit"
+  | "task.evidence.export"
+  | "task.comparison.export"
   | "market.local"
   | "market.attach"
   | "market.connect"
@@ -525,7 +537,21 @@ export type IntradaySeries = {
     open_interest: string | null;
   }[];
 };
+export type FactorLiquidityRule = {
+  minimum_history: number;
+  minimum_volume: string;
+  minimum_open_interest: string;
+};
+export type FactorMembershipReason =
+  | "MEMBERSHIP_ELIGIBLE"
+  | "MEMBERSHIP_UNOBSERVED"
+  | "MEMBERSHIP_INSUFFICIENT_HISTORY"
+  | "MEMBERSHIP_UNKNOWN_VOLUME"
+  | "MEMBERSHIP_UNKNOWN_OPEN_INTEREST"
+  | "MEMBERSHIP_BELOW_VOLUME"
+  | "MEMBERSHIP_BELOW_OPEN_INTEREST";
 export type FactorResult = {
+  memberships: { series_index: number; trading_day: string; reason: FactorMembershipReason }[];
   version: number;
   dataset_revision: string;
   engine_version: string;
@@ -647,7 +673,20 @@ export type NativeHistorySource = {
   credential_required: boolean;
   connection?: HistoryConnectionSchema | null;
 };
+export type ExperimentMetadata = {
+  revision: number;
+  name: string;
+  note: string;
+  source_id: string;
+  source_instance: string;
+  source_result_digest: string;
+  data_choice: string;
+  snapshot: string;
+};
 export type TaskRecord = {
+  error_code?: string; // absent when the task has no structured failure observation
+  table_refresh?: TableRefreshTarget;
+  metadata?: ExperimentMetadata;
   provider_artifact?: string;
   risk_artifact?: string;
   data_source?: string;
@@ -676,7 +715,126 @@ export type TaskRecord = {
   submitted_at_ms: number;
   updated_at_ms: number;
 };
+export type SettlementExposure = {
+  day: string;
+  net_notional: string;
+  gross_notional: string | null;
+  model_margin: string | null;
+  balance: string;
+  equity: string;
+  available: string | null;
+  frozen: string | null;
+};
+export type PortfolioBudgetCheck = {
+  used: string | null;
+  limit: string | null;
+  headroom: string | null;
+  state: "unset" | "exceeded" | "within" | "unknown";
+};
+export type PortfolioExposure = {
+  settlement_path: { scope: "recorded_settlement_points"; points: SettlementExposure[] };
+  scope: "final_saved_account";
+  contracts: {
+    venue: string;
+    symbol: string;
+    mark: string;
+    multiplier: string;
+    quantity_increment: string;
+    net_quantity: string;
+    gross_quantity: string;
+    net_notional: string;
+    gross_notional: string;
+    gross_notional_share: number | null;
+    margin: string;
+    cost_source: string;
+    cost_effective_from: string;
+    margin_per_lot: string;
+    margin_rate: string;
+    quantities_on_grid: boolean;
+  }[];
+  net_notional: string;
+  gross_notional: string;
+  gross_quantity: string;
+  model_margin: string;
+  recorded_margin: string;
+  margin_difference: string;
+  balance: string;
+  equity: string;
+  available: string;
+  frozen: string;
+  risk: {
+    max_order_quantity: string;
+    max_gross_quantity: string;
+    max_working_orders: number;
+    final_lot_headroom: string;
+  };
+};
+export type PortfolioBudgetReview = {
+  scope: "saved_account_and_settlement_points_review_only";
+  settlement_checks: (SettlementExposure & {
+    checks: Record<"gross_notional" | "margin", PortfolioBudgetCheck>;
+  })[];
+  settlement_summary: Record<
+    "gross_notional" | "margin",
+    { checked_points: number; unknown_points: number; exceeded_points: number | null }
+  >;
+  source: {
+    task_id: string;
+    input_sha256: string;
+    result_digest: string;
+    risk_artifact: string;
+    task_instance: string;
+  };
+  limits: { gross_notional: string | null; margin: string | null };
+  checks: Record<"gross_notional" | "margin", PortfolioBudgetCheck>;
+  portfolio: PortfolioExposure;
+};
+export type AccountCheck = {
+  metric: string;
+  expected: string;
+  recorded: string;
+  difference: string;
+  matches: boolean;
+};
+export type BacktestReconciliation = {
+  state: "available" | "unsupported_input" | "missing_fill_days";
+  model?: {
+    venue: string;
+    symbol: string;
+    deposit: string;
+    multiplier: string;
+    cost_source: string;
+    cost_effective_from: string;
+    margin_per_lot: string;
+    margin_rate: string;
+    signed_notional: string;
+    gross_notional: string;
+  };
+  final_checks: AccountCheck[];
+  days: {
+    day: string;
+    opening_quantity: string;
+    quantity_change: string;
+    closing_quantity: string;
+    settlement: string;
+    opening_balance: string;
+    gross: string;
+    fees: string;
+    expected_balance: string;
+    recorded_balance: string;
+    fills: {
+      id: string;
+      order_id: string;
+      side: "buy" | "sell";
+      quantity: string;
+      price: string;
+      fee: string;
+    }[];
+    checks: AccountCheck[];
+  }[];
+};
 export type BacktestResult = {
+  fill_days?: { fill_id: string; trading_day: string }[];
   version: number;
   dataset_revision: string;
   engine_version: string;
@@ -701,7 +859,15 @@ export type BacktestResult = {
     equity: string;
     realized: string;
     fees: string;
-    contracts: { venue: string; symbol: string; price: string; position_quantity: string }[];
+    contracts: {
+      venue: string;
+      symbol: string;
+      price: string;
+      position_quantity: string;
+      gross_quantity?: string;
+      margin?: string;
+    }[];
+    occupancy?: { margin: string; available: string; frozen: string };
   }[];
 };
 export type ExperimentData = {
@@ -783,6 +949,7 @@ export type FactorSeriesEvidence =
 // the deviation of a window's returns.
 export type FactorKind = "momentum" | "term_structure" | "volatility";
 export type FactorExperiment = {
+  liquidity: FactorLiquidityRule | null;
   version: number;
   factor: FactorKind;
   dataset_revision: string;
@@ -827,7 +994,48 @@ export type StrategyDefinition =
 // What a backtest's closed positions say. A trade is one contract's position
 // from flat to flat again; profits are before fees. The averages are null
 // without a trade of their kind, the ratio of the two unless there are both.
+export type HoldingSpan = {
+  opened_day: string;
+  ended_day: string;
+  calendar_days: number;
+  settlement_days: number;
+};
 export type BacktestTrades = {
+  holding_summary?: {
+    known: number;
+    unknown: number;
+    calendar_days: { minimum: number | null; mean: number | null; maximum: number | null };
+    settlement_days: { minimum: number | null; mean: number | null; maximum: number | null };
+  };
+  open?: {
+    venue: string;
+    symbol: string;
+    direction: "long" | "short";
+    quantity: string;
+    fees: string;
+    as_of_day: string;
+    holding: HoldingSpan | null;
+  }[];
+  by_contract: {
+    venue: string;
+    symbol: string;
+    count: number;
+    gross: string;
+    fees: string;
+    net: string;
+  }[];
+  closed: {
+    venue: string;
+    symbol: string;
+    gross: string;
+    fees: string;
+    net: string;
+    holding?: HoldingSpan | null;
+  }[];
+  gross: string;
+  fees: string;
+  net: string;
+  open_fees: string;
   count: number;
   winning: number;
   losing: number;
@@ -848,6 +1056,19 @@ export type PerformanceFigures = {
   sharpe: number | null;
   calmar: number | null;
 };
+// Read-time attribution of the fixed settlement history, including open positions.
+export type BacktestMonth = {
+  first_day: string;
+  last_day: string;
+  trading_days: number;
+  opening_equity: string;
+  closing_equity: string;
+  gross: string;
+  fees: string;
+  net: string;
+  // Net divided by the original deposit, additive to the full result's return.
+  return_contribution: number;
+};
 // The figures of all days and, where strategies were compared, of the days
 // before and from the holdout; the holdout starts from the equity the
 // development days ended with.
@@ -855,6 +1076,7 @@ export type PerformanceFigures = {
 // the first round's validation days on, and of each round's validation days;
 // a span that begins with an empty account has none.
 export type BacktestPerformance = PerformanceFigures & {
+  by_month: BacktestMonth[];
   out_of_sample: PerformanceFigures | null;
   folds: (PerformanceFigures | null)[];
   development: PerformanceFigures | null;
@@ -864,11 +1086,14 @@ export type TaskResult =
   | {
       id: string;
       kind: "backtest";
+      input_sha256: string;
       task: TaskRecord;
       experiment: BacktestExperiment;
       result: BacktestResult;
       performance: BacktestPerformance;
       trades: BacktestTrades;
+      reconciliation: BacktestReconciliation;
+      portfolio: PortfolioExposure;
     }
   | {
       id: string;
@@ -891,13 +1116,6 @@ export type TaskResult =
     }
   | {
       id: string;
-      kind: "daily_download";
-      task: TaskRecord;
-      experiment: { contract_id: string; begin_day: string; end_day: string };
-      result: { directory: string; manifest_sha256: string; rows: number; pages: number };
-    }
-  | {
-      id: string;
       kind: "table_update";
       task: TaskRecord;
       experiment: TableUpdate;
@@ -909,7 +1127,31 @@ export type TablePartitionKey = { table: string; exchange: string; period: strin
 // What an update of market-wide tables was asked to read. An empty begin day
 // continues after what each exchange already holds; an empty end day reads
 // through the last day that has ended.
+export type TableRevision = TablePage["revision"];
+export type TableRefreshTarget = {
+  partition: TablePartitionKey;
+  source: string;
+  previous_snapshot: string;
+  previous_content: string;
+  provider_artifact: string;
+};
+export type TableRefreshQuery = {
+  provider: string;
+  source: string;
+  table: string;
+  exchange: string;
+  period: string;
+  previous_snapshot: string;
+  requests_per_minute: number;
+};
+export type TableRefreshPlan = {
+  id: string;
+  query: TableRefreshQuery;
+  previous: TableRevision;
+  update: TableUpdate;
+};
 export type TableUpdate = {
+  refresh?: TableRefreshTarget;
   provider: string;
   tables: string[];
   begin_day: string;
@@ -918,7 +1160,33 @@ export type TableUpdate = {
 };
 // What one update did, partition by partition. Stored partitions stay whatever
 // became of the rest.
+export type TableRefreshObservation = {
+  kind: "explicit_refresh_response_observation";
+  version: 1;
+  id: string;
+  operation: string;
+  data_instance: string;
+  task_instance: string;
+  task_id: string;
+  attempt: number;
+  provider: string;
+  provider_artifact: string;
+  selected_snapshot: string;
+  selected_content: string;
+  revision: TableRevision;
+  normalized_object: string;
+  format: string;
+  body: string;
+  response_sha256: string;
+  response_bytes: number;
+  received_at_ns: string;
+  recorded_at_ns: string;
+  unchanged: boolean;
+  content_changed_from_selected: boolean;
+};
 export type TableUpdateResult = {
+  refresh_observation?: TableRefreshObservation;
+  refreshed_revision?: TableRevision;
   stored: number;
   unchanged: number;
   rejected: (TablePartitionKey & { reason: string })[];
@@ -960,6 +1228,10 @@ export type TableProduct = {
   first_listed: string;
   last_delisted: string;
 };
+export type TableListedContracts = {
+  query: { snapshot: string; contracts_source: string; exchange: string; product: string };
+  items: { contract_id: string; name: string; list_date: string; delist_date: string }[];
+};
 // A day a contract traded in the auction, or the last such day of the week,
 // month, quarter or year it groups. Display data only.
 export type TableCandle = {
@@ -983,6 +1255,39 @@ export type TableDailyPage = {
 };
 // One page of a stored partition. Cells are text as stored; null is a missing value.
 export type TablePage = {
+  latest_refresh_observation?: TableRefreshObservation | null;
+  response_review?: null | {
+    status: "consistent" | "differences" | "unknown";
+    reason: string;
+    response_fields: number;
+    response_rows: number;
+    normalized_rows: number;
+    dated_rows: number;
+    matched_rows: number;
+    compared_cells: number;
+    skipped_keys: string[];
+    unknown_keys: string[];
+    differences: {
+      kind: string;
+      key: string;
+      field: string;
+      raw: string | null;
+      expected: string | null;
+      actual: string | null;
+    }[];
+  };
+  response_evidence?: null | {
+    kind: "raw_response_body";
+    format: string;
+    received_at_ns: string;
+    sha256: string;
+    bytes: number;
+    revision_snapshot: string;
+    normalized_content: string;
+    normalized_object: string;
+    provider_artifact: string;
+    body: string;
+  };
   revision: TablePartitionKey & {
     sequence: number;
     schema: number;
@@ -998,7 +1303,6 @@ export type TablePage = {
   rows: (string | null)[][];
   offset: number;
 };
-// Trading days per contract across archived minute and daily versions.
 // A minute version against the market-wide daily table: of its days, the
 // part the table holds (compared_first to compared_last, empty when none),
 // the days the contract traded on in it, and those without minute bars.
@@ -1015,6 +1319,58 @@ export type HistoryCoverage = {
   traded_days: number;
   uncovered: number;
   uncovered_days: string[];
+  unknown_rows: number;
+};
+export type SessionClosureEvidence = {
+  rule_id: string;
+  version: number;
+  exchange: string;
+  first_day: string;
+  last_day: string;
+  published_day: string;
+  source_url: string;
+};
+export type MinuteRangeEvidence = {
+  session_rules_version: number;
+  dataset_id: string;
+  daily: DailyTable;
+  begin_day: string;
+  end_day: string;
+  contract_id: string;
+  minute_source: string;
+  interval_minutes: number;
+  request_begin_ns: string;
+  request_end_ns: string;
+  unknown_rows: number;
+  request_session_coverage: "unverified";
+  days: {
+    trading_day: string;
+    state:
+      | "RANGE_OBSERVED"
+      | "RANGE_UNCOVERED"
+      | "RANGE_CLOSED"
+      | "RANGE_UNKNOWN_CALENDAR"
+      | "RANGE_UNKNOWN_DAILY"
+      | "RANGE_NO_AUCTION"
+      | "RANGE_UNKNOWN_LABELS"
+      | "RANGE_CALENDAR_CONFLICT"
+      | "RANGE_OFFICIAL_CLOSED"
+      | "RANGE_RULE_CONFLICT";
+    observed: { rows: number; first_ns: string; last_ns: string } | null;
+    official_closure: SessionClosureEvidence | null;
+    evening_closure: SessionClosureEvidence | null;
+  }[];
+};
+export type MinuteEvidence = {
+  dataset_id: string;
+  begin_ns: string;
+  end_ns: string;
+  total_rows: number;
+  unknown_rows: number;
+  total_days: number;
+  offset: number;
+  limit: number;
+  days: { trading_day: string; rows: number; first_ns: string; last_ns: string }[];
 };
 export type SavedNamedDataset = {
   id: string;
@@ -1052,7 +1408,7 @@ export type HistoryUsage = {
 };
 export type HistoryUpdateQuery = {
   dataset_id: string;
-  calendar_dataset_id: string;
+  daily: DailyTable | null;
   mode: "extend" | "repair";
   end_day: string;
   requests_per_minute: number;
@@ -1066,6 +1422,14 @@ export type HistoryUpdatePlan = {
   begin: string;
   end: string;
   missing_days: string[];
+  session_rules_version: number;
+  conflicts: {
+    day: string;
+    closure: SessionClosureEvidence;
+    observed_minutes: boolean;
+    calendar_open: boolean;
+    daily_auction: boolean;
+  }[];
 };
 export type HistoryDatasetRecord = {
   id: string;
@@ -1124,22 +1488,6 @@ export type HistoryPage = {
   end_ns: string;
   bars: HistoryBar[];
 };
-export type DailyBar = Omit<HistoryBar, "timestamp_ns"> & {
-  trading_day: string;
-  previous_close: string | null;
-  previous_settlement: string | null;
-  settlement: string | null;
-};
-export type DailyPage = Omit<
-  HistoryPage,
-  "interval_minutes" | "first_ns" | "last_ns" | "begin_ns" | "end_ns" | "bars"
-> & {
-  first_day: string;
-  last_day: string;
-  begin_day: string;
-  end_day: string;
-  bars: DailyBar[];
-};
 export type NativePluginInfo = {
   managed?: boolean;
   file: string;
@@ -1161,18 +1509,23 @@ export type Snapshot = {
     provider: string;
     checks: { source: string; scope: string; state: number }[];
   };
-  daily_page: DailyPage | null;
   history_page: HistoryPage | null;
   history_datasets?: HistoryDatasetRecord[];
+  // Preserved versions this release cannot read; never silently removed.
+  history_datasets_unsupported?: number;
   saved_datasets?: SavedNamedDataset[];
   // Datasets another version saved: kept by the data service, not listed.
   saved_datasets_unsupported?: number;
   history_coverage?: HistoryCoverage[];
+  minute_evidence?: MinuteEvidence;
+  minute_range?: MinuteRangeEvidence;
   history_update_plan?: HistoryUpdatePlan;
   history_usage?: HistoryUsage;
   table_coverage?: TableCoverage;
   table_page?: TablePage;
+  table_refresh_plan?: TableRefreshPlan;
   table_products?: TableProduct[];
+  table_listed_contracts?: TableListedContracts;
   table_daily?: TableDailyPage;
   table_contracts?: TableContracts;
   // Present when the core answered from its last snapshot because another operation was running.
@@ -1210,6 +1563,15 @@ export type Snapshot = {
     error: string;
     sources: NativeHistorySource[];
   };
+  portfolio_budget_review?: PortfolioBudgetReview;
+  research_export?: {
+    name: string;
+    sha256: string;
+    bytes: number;
+    path?: string;
+    content?: string;
+  };
+  task_description?: TaskRecord;
   task_result: null | TaskResult;
   market: LiveMarket | null;
   intraday?: IntradaySeries;

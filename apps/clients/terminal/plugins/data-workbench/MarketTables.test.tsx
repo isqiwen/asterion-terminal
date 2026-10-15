@@ -15,14 +15,14 @@ function ready(change: (snapshot: Snapshot) => void = () => {}): Snapshot {
   const snapshot = readySnapshot();
   snapshot.data!.sources = [
     {
-      id: "tushare.fut_daily",
+      id: "tushare.ft_mins",
       name: "Tushare",
       plugin_id: provider,
-      normalization: "tushare.daily.v2",
+      normalization: "tushare.minutes.v2",
       timezone: "Asia/Shanghai",
-      timestamp_semantics: "trading_day",
+      timestamp_semantics: "bar_end",
       venues: ["SHFE", "DCE"],
-      intervals: [0],
+      intervals: [1],
       max_requests_per_minute: 500,
       credential_required: true,
       connection: {

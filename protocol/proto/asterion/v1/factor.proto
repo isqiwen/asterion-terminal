@@ -23,8 +23,30 @@ message FactorSeries {
     asterion.data.v1.TableSeries table = 4;
   }
 }
+message LiquidityRule {
+  uint32 minimum_history = 1;
+  int64 minimum_volume = 2;
+  int64 minimum_open_interest = 3;
+}
+enum MembershipReason {
+  MEMBERSHIP_UNSPECIFIED = 0;
+  MEMBERSHIP_ELIGIBLE = 1;
+  MEMBERSHIP_UNOBSERVED = 2;
+  MEMBERSHIP_INSUFFICIENT_HISTORY = 3;
+  MEMBERSHIP_UNKNOWN_VOLUME = 4;
+  MEMBERSHIP_UNKNOWN_OPEN_INTEREST = 5;
+  MEMBERSHIP_BELOW_VOLUME = 6;
+  MEMBERSHIP_BELOW_OPEN_INTEREST = 7;
+}
+// One row for each raw fixed daily close, including warm-up and the tail.
+// A series absent on a date is unobserved, not a fabricated zero observation.
+message FactorMembership {
+  uint32 series_index = 1;
+  string trading_day = 2;
+  MembershipReason reason = 3;
+}
 message FactorInput {
-  uint32 version = 1; // 9
+  uint32 version = 1; // 10
   string dataset_revision = 2; // The revision of the series.
   // One series is evaluated over its own observations. Three to a hundred of
   // the same period, each a different contract or product, are evaluated
@@ -32,6 +54,7 @@ message FactorInput {
   // Nothing is filled in. Windows, horizon and boundaries count the
   // observations of them all.
   repeated FactorSeries series = 3;
+  LiquidityRule liquidity = 10; // Optional; market-wide daily cross-sections only.
   // The feature. The term structure is read of dominant series alone, on the
   // trading days that have a term point.
   asterion.protocol.v1.Factor factor = 4;
@@ -58,6 +81,9 @@ message FactorSeriesRequest {
 }
 // Client submission: Task obtains the fixed series from Data before persisting input.
 message FactorRequest {
+  LiquidityRule liquidity = 8;
+  // Admission-only guard for explicit reuse of fixed data; not a new input identity.
+  string expected_dataset_revision = 9;
   repeated FactorSeriesRequest series = 1;
   asterion.protocol.v1.Factor factor = 2;
   repeated uint32 lookbacks = 3;
@@ -89,6 +115,7 @@ message FactorCrossSection {
   uint32 series = 4;
 }
 message FactorResult {
+  repeated FactorMembership memberships = 15;
   uint32 version = 1;
   string dataset_revision = 2;
   string engine_version = 3;

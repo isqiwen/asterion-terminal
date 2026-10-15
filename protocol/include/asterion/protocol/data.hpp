@@ -1,5 +1,5 @@
 #pragma once
-#include <asterion/domain/daily_bars.hpp>
+#include <asterion/domain/trading_days.hpp>
 #include <asterion/domain/history_identity.hpp>
 #include <asterion/domain/market.hpp>
 #include <asterion/protocol/trading.hpp>
@@ -7,16 +7,22 @@
 #include <map>
 #include <span>
 namespace asterion::protocol {
-data::v1::DailyBar encode_daily_bar(const HistoricalDailyBar&);
-HistoricalDailyBar daily_bar(const data::v1::DailyBar&);
-Json decode_daily_page(const data::v1::DailyPage&);
 data::v1::HistoryUpdateQuery encode_history_update_query(const Json&);
 Json decode_history_update_query(const data::v1::HistoryUpdateQuery&);
 Json decode_history_usage(const data::v1::HistoryUsage&);
 Json decode_history_update_plan(const data::v1::HistoryUpdatePlan&);
 Json decode_minute_page(const data::v1::MinutePage&);
+void validate_minute_range_query(const data::v1::MinuteRangeQuery&);
+data::v1::MinuteRangeQuery encode_minute_range_query(const Json&);
+Json decode_minute_range_evidence(const data::v1::MinuteRangeEvidence&);
+void validate_minute_evidence_query(const data::v1::MinuteEvidenceQuery&);
+data::v1::MinuteEvidenceQuery encode_minute_evidence_query(const Json&);
+Json decode_minute_evidence(const data::v1::MinuteEvidence&);
 // Market-wide table updates: the definition both services keep, and what the
 // Terminal shows of the store.
+data::v1::TableRefreshQuery encode_table_refresh_query(const Json&);
+Json decode_table_refresh_query(const data::v1::TableRefreshQuery&);
+Json decode_table_refresh_plan(const data::v1::TableRefreshPlan&);
 void validate_table_update(const data::v1::TableUpdate&);
 data::v1::TableUpdate encode_table_update(const Json&);
 Json decode_table_update(const data::v1::TableUpdate&);
@@ -49,6 +55,9 @@ std::string table_series_revision(const data::v1::TableSeries&);
 Json decode_table_series(const data::v1::TableSeries&);
 data::v1::TableProductsQuery encode_table_products_query(const Json&);
 Json decode_table_products(const data::v1::TableProducts&);
+void validate_table_listed_contracts_query(const data::v1::TableListedContractsQuery&);
+data::v1::TableListedContractsQuery encode_table_listed_contracts_query(const Json&);
+Json decode_table_listed_contracts(const data::v1::TableListedContracts&);
 // A chart of one contract of the daily table: its candles of a period, a page
 // of them at a time.
 void validate_table_daily_query(const data::v1::TableDailyQuery&);

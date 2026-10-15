@@ -1,4 +1,4 @@
-#include <asterion/domain/daily_bars.hpp>
+#include <asterion/domain/trading_days.hpp>
 #include <asterion/domain/market.hpp>
 
 #include <algorithm>

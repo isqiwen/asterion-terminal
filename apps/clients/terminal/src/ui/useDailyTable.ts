@@ -48,7 +48,11 @@ export function dailyTableOf(
 
 // Read again when the data service changes or a table update finishes; the
 // snapshot read stays what it was, whatever is stored after it.
-export function useDailyTable(snapshot: Snapshot | null, query: DailyTableQuery) {
+export function useDailyTable(
+  snapshot: Snapshot | null,
+  query: DailyTableQuery,
+  selection?: DailyTable,
+) {
   const ref = useRef(query);
   ref.current = query;
   const connection = snapshot?.data?.connection_id;
@@ -63,6 +67,7 @@ export function useDailyTable(snapshot: Snapshot | null, query: DailyTableQuery)
     loading: boolean;
   }>({ held: null, error: "", loading: true });
   useEffect(() => {
+    if (selection) return;
     let active = true;
     setState({ connection, held: null, error: "", loading: online });
     if (online)
@@ -84,6 +89,7 @@ export function useDailyTable(snapshot: Snapshot | null, query: DailyTableQuery)
     return () => {
       active = false;
     };
-  }, [connection, online, updated]);
+  }, [connection, online, updated, selection]);
+  if (selection) return { held: { table: selection, stored: [] }, error: "", loading: false };
   return state.connection === connection ? state : { held: null, error: "", loading: true };
 }

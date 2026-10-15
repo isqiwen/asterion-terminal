@@ -334,20 +334,21 @@ DataClient::history_update_plan(const data::v1::HistoryUpdateQuery& query) {
 std::future<Json> DataClient::datasets(const data::v1::HistoryFilter& filter) {
   wire::DataRequest request;
   *request.mutable_datasets() = filter;
-  return impl_->invoke<Json>(std::move(request),
-                             [](const wire::DataRequest&, wire::DataResponse& response) -> Json {
-                               Json items = Json::array();
-                               for (const auto& row : response.datasets().items())
-                                 items.push_back({{"id", row.id()},
-                                                  {"contract_id", row.contract_id()},
-                                                  {"source", row.source()},
-                                                  {"revision", row.revision()},
-                                                  {"begin", row.begin()},
-                                                  {"end", row.end()},
-                                                  {"interval_minutes", row.interval_minutes()},
-                                                  {"rows", row.rows()}});
-                               return items;
-                             });
+  return impl_->invoke<Json>(
+      std::move(request), [](const wire::DataRequest&, wire::DataResponse& response) -> Json {
+        Json items = Json::array();
+        for (const auto& row : response.datasets().items())
+          items.push_back({{"id", row.id()},
+                           {"contract_id", row.contract_id()},
+                           {"source", row.source()},
+                           {"revision", row.revision()},
+                           {"begin", row.begin()},
+                           {"end", row.end()},
+                           {"interval_minutes", row.interval_minutes()},
+                           {"rows", row.rows()}});
+        // Versions this one does not read are kept and not listed.
+        return {{"items", std::move(items)}, {"unsupported", response.datasets().unsupported()}};
+      });
 }
 std::future<Json> DataClient::coverage(const data::v1::HistoryCoverageQuery& query) {
   wire::DataRequest request;
@@ -370,6 +371,7 @@ std::future<Json> DataClient::coverage(const data::v1::HistoryCoverageQuery& que
                                                   {"compared_last", row.compared_last()},
                                                   {"traded_days", row.traded_days()},
                                                   {"uncovered", row.uncovered()},
+                                                  {"unknown_rows", row.unknown_rows()},
                                                   {"uncovered_days", std::move(days)}});
                                }
                                return items;
@@ -407,6 +409,32 @@ DataClient::table_contracts(const data::v1::TableContractsQuery& query) {
         return result;
       });
 }
+std::future<Json> DataClient::minute_range(const data::v1::MinuteRangeQuery& query) {
+  wire::DataRequest request;
+  *request.mutable_minute_range() = query;
+  return impl_->invoke<Json>(
+      std::move(request),
+      [](const wire::DataRequest& request, wire::DataResponse& response) -> Json {
+        if (request.minute_range().SerializeAsString() !=
+            response.minute_range().query().SerializeAsString())
+          throw Error(ErrorCode::unavailable, "minute range identity mismatch");
+        return protocol::decode_minute_range_evidence(response.minute_range());
+      });
+}
+std::future<Json> DataClient::minute_evidence(const data::v1::MinuteEvidenceQuery& query) {
+  wire::DataRequest request;
+  *request.mutable_minute_evidence() = query;
+  return impl_->invoke<Json>(
+      std::move(request),
+      [](const wire::DataRequest& request, wire::DataResponse& response) -> Json {
+        const auto& query = request.minute_evidence();
+        const auto& evidence = response.minute_evidence();
+        if (evidence.dataset_id() != query.dataset_id() || evidence.limit() != query.limit() ||
+            evidence.offset() != std::min(query.offset(), evidence.total_days()))
+          throw Error(ErrorCode::unavailable, "minute evidence identity mismatch");
+        return protocol::decode_minute_evidence(evidence);
+      });
+}
 std::future<Json> DataClient::minute_page(const data::v1::MinutePageQuery& query) {
   wire::DataRequest request;
   *request.mutable_minute_page() = query;
@@ -423,20 +451,17 @@ std::future<Json> DataClient::minute_page(const data::v1::MinutePageQuery& query
         return protocol::decode_minute_page(page);
       });
 }
-std::future<Json> DataClient::daily_page(const data::v1::DailyPageQuery& query) {
+std::future<data::v1::TableRefreshPlan>
+DataClient::table_refresh_plan(const data::v1::TableRefreshQuery& query) {
   wire::DataRequest request;
-  *request.mutable_daily_page() = query;
-  return impl_->invoke<Json>(
-      std::move(request),
-      [](const wire::DataRequest& request, wire::DataResponse& response) -> Json {
-        const auto& query = request.daily_page();
-        const auto& page = response.daily_page();
-        if (page.task_id() != query.dataset_id() || page.offset() != query.offset() ||
-            page.limit() != query.limit() ||
-            (!query.begin_day().empty() && page.begin_day() != query.begin_day()) ||
-            (!query.end_day().empty() && page.end_day() != query.end_day()))
-          throw Error(ErrorCode::unavailable, "daily dataset page identity mismatch");
-        return protocol::decode_daily_page(page);
+  *request.mutable_table_refresh_plan() = query;
+  return impl_->invoke<data::v1::TableRefreshPlan>(
+      std::move(request), [](const wire::DataRequest& request, wire::DataResponse& response) {
+        auto& plan = *response.mutable_table_refresh_plan();
+        (void)protocol::decode_table_refresh_plan(plan);
+        if (plan.query().SerializeAsString() != request.table_refresh_plan().SerializeAsString())
+          throw Error(ErrorCode::unavailable, "table refresh plan changed; preview again");
+        return std::move(plan);
       });
 }
 std::future<Json> DataClient::table_coverage() {
@@ -471,6 +496,20 @@ std::future<Json> DataClient::table_products(const data::v1::TableProductsQuery&
                              [](const wire::DataRequest&, wire::DataResponse& response) -> Json {
                                return protocol::decode_table_products(response.table_products());
                              });
+}
+std::future<Json>
+DataClient::table_listed_contracts(const data::v1::TableListedContractsQuery& query) {
+  wire::DataRequest request;
+  *request.mutable_table_listed_contracts() = query;
+  return impl_->invoke<Json>(
+      std::move(request),
+      [](const wire::DataRequest& request, wire::DataResponse& response) -> Json {
+        const auto& catalog = response.table_listed_contracts();
+        if (catalog.query().SerializeAsString() !=
+            request.table_listed_contracts().SerializeAsString())
+          throw Error(ErrorCode::unavailable, "listed contract catalog identity mismatch");
+        return protocol::decode_table_listed_contracts(catalog);
+      });
 }
 std::future<Json> DataClient::table_daily(const data::v1::TableDailyQuery& query) {
   wire::DataRequest request;

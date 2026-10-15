@@ -5,11 +5,15 @@
 #include <asterion/v1/factor.pb.h>
 namespace asterion::protocol {
 // Identifies how features, labels, partitions and selection are computed.
-inline constexpr char factor_engine_version[] = "asterion.factor.v10";
+inline constexpr char factor_engine_version[] = "asterion.factor.v11";
 // A cross-section compares at most this many series: every product of the
 // market-wide table at once.
 inline constexpr int max_factor_series = max_table_instruments;
 factor::v1::FactorRequest encode_factor_request(const Json& input);
+// Reuses the parameters of a currently decoded daily experiment. Empty snapshot
+// keeps each original snapshot; a supplied snapshot replaces them explicitly.
+factor::v1::FactorRequest reuse_daily_factor(const Json& experiment, const std::string& snapshot,
+                                             const Json& lookbacks = nullptr);
 // What Data is asked for one entry of a request, and the fixed series its
 // reply makes: one, or one for each instrument of the market-wide table.
 data::v1::DataRequest factor_series_query(const factor::v1::FactorSeriesRequest& source);
@@ -31,8 +35,12 @@ factor_revision(const google::protobuf::RepeatedPtrField<factor::v1::FactorSerie
 struct FactorObservations {
   std::vector<std::vector<std::optional<Decimal>>> closes, terms;
   std::vector<std::int64_t> order;
+  // Table daily facts only; empty for bar inputs. Missing source values stay absent.
+  std::vector<std::vector<std::optional<std::int64_t>>> volumes, open_interests;
 };
 FactorObservations factor_observations(const factor::v1::FactorInput& input);
+// Raw daily timeline, independent of factor type and forward labels.
+FactorObservations factor_daily_observations(const factor::v1::FactorInput& input);
 void validate_factor_input(const factor::v1::FactorInput& input);
 // Input is validated before admission. Progress units are part of the task contract.
 std::size_t factor_work_units(const factor::v1::FactorInput& input);

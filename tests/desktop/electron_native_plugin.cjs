@@ -78,7 +78,7 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
     await call("node.data_tasks.local.open");
     await expect
       .poll(async () => (await call("runtime.snapshot")).data?.sources.map(item => item.id))
-      .toEqual(["fixture.minutes", "fixture.daily"]);
+      .toEqual(["fixture.minutes"]);
     assert.deepEqual(service(await call("runtime.snapshot"), "task").plugin_artifacts, []);
     // This value is a test fixture token, never a real provider credential.
     const credential = "fixture-session-secret";
@@ -88,7 +88,7 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
       remember: false,
       requests_per_minute: 30,
     });
-    // Both sources share this provider/account budget owned by Data.
+    // Downloads share this provider/account budget owned by Data.
     await call("data.download.budget.configure", {
       source: "fixture.minutes",
       token: "",
@@ -119,61 +119,63 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
     });
     await succeeded("native-tables");
     const { snapshot } = (await call("data.tables.coverage")).table_coverage;
-    const completed = {};
-    for (const [source, method, id, extra] of [
-      [
-        "fixture.minutes",
-        "data.download.minutes.submit",
-        "native-minutes",
-        { interval_minutes: 1 },
-      ],
-      ["fixture.daily", "data.download.daily.submit", "native-daily", {}],
-    ]) {
-      const listed = (
-        await call("data.tables.contracts", { snapshot, source, exchange: "SHFE", product: "cu" })
-      ).table_contracts;
-      assert.deepEqual(
-        listed.items.map(item => item.code),
-        ["SHFE/cu/2024-03"],
-      );
-      await call(method, {
-        id,
-        source,
-        contract_id: "SHFE/cu/2024-03",
-        snapshot,
-        cutoff_ns: listed.cutoff_ns,
-        requests_per_minute: 30,
-        token: "",
-        ...extra,
-      });
-      await succeeded(id);
-      completed[id] = tasks(await call("runtime.snapshot")).find(item => item.id === id);
-      assert.equal(completed[id].provider_artifact, hash);
-    }
+    const id = "native-minutes";
+    const source = "fixture.minutes";
+    const listed = (
+      await call("data.tables.contracts", { snapshot, source, exchange: "SHFE", product: "cu" })
+    ).table_contracts;
+    assert.deepEqual(
+      listed.items.map(item => item.code),
+      ["SHFE/cu/2024-03"],
+    );
+    await call("data.download.minutes.submit", {
+      id,
+      source,
+      contract_id: "SHFE/cu/2024-03",
+      snapshot,
+      cutoff_ns: listed.cutoff_ns,
+      requests_per_minute: 30,
+      token: "",
+      interval_minutes: 1,
+    });
+    await succeeded(id);
+    const completed = tasks(await call("runtime.snapshot")).find(item => item.id === id);
+    assert.equal(completed.provider_artifact, hash);
+    const table = (
+      await call("data.tables.page", {
+        table: "futures.daily",
+        source: "fixture.daily.v1",
+        exchange: "SHFE",
+        period: "2024-03-04",
+        offset: 0,
+        limit: 10,
+      })
+    ).table_page;
+    assert.equal(table.rows[0][table.columns.indexOf("close")], "72000.5");
     const current = await call("runtime.snapshot");
     assert.ok(!JSON.stringify(current).includes(credential));
     const taskDirectory = service(current, "task").directory;
-    for (const id of Object.keys(completed))
-      await assert.rejects(fs.access(path.join(taskDirectory, id, "provider.credential")), {
-        code: "ENOENT",
-      });
+    await assert.rejects(fs.access(path.join(taskDirectory, id, "provider.credential")), {
+      code: "ENOENT",
+    });
     const filter = { venue: "", product: "", contract_id: "", source: "" };
     const archive = (await call("data.datasets", filter)).history_datasets;
-    assert.equal(archive.length, 2);
-    const daily = archive.find(item => item.source === "fixture.daily");
-    const readDaily = async () =>
+    assert.equal(archive.length, 1);
+    const minute = archive[0];
+    const readMinutes = async () =>
       (
-        await call("data.daily.page", {
-          id: daily.id,
+        await call("data.minutes.page", {
+          id: minute.id,
           offset: 0,
           limit: 10,
           start: "",
           end: "",
+          include_macd: false,
         })
-      ).daily_page;
-    assert.equal((await readDaily()).bars[0].close, "2");
+      ).history_page;
+    assert.equal((await readMinutes()).bars[0].close, "2");
     await call("node.action", { id: "local", service: "task", action: "stop" });
-    assert.equal((await readDaily()).id, daily.id);
+    assert.equal((await readMinutes()).id, minute.id);
     await call("node.action", { id: "local", service: "historical-data", action: "stop" });
     // Removing the upload cannot remove the service's or submitted task's pinned bytes.
     await fs.unlink(original);
@@ -192,20 +194,18 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
       throw error;
     }
     await call("node.data_tasks.local.open");
-    await expect.poll(async () => (await call("runtime.snapshot")).data?.sources.length).toBe(2);
+    await expect.poll(async () => (await call("runtime.snapshot")).data?.sources.length).toBe(1);
     const restored = await call("runtime.snapshot");
     assert.deepEqual(service(restored, "historical-data").plugin_artifacts, [hash]);
-    for (const id of Object.keys(completed)) {
-      const task = tasks(restored).find(item => item.id === id);
-      assert.equal(task.state, "succeeded");
-      assert.equal(task.provider_artifact, hash);
-      assert.equal(task.history_dataset_id, completed[id].history_dataset_id);
-    }
+    const task = tasks(restored).find(item => item.id === id);
+    assert.equal(task.state, "succeeded");
+    assert.equal(task.provider_artifact, hash);
+    assert.equal(task.history_dataset_id, completed.history_dataset_id);
     assert.deepEqual((await call("data.datasets", filter)).history_datasets, archive);
-    assert.equal((await readDaily()).bars[0].close, "2");
+    assert.equal((await readMinutes()).bars[0].close, "2");
     assert.deepEqual(errors, []);
     console.log(
-      "Native third-party plugin: Data discovery, managed minute/daily workers, independent archive and pinned restart passed",
+      "Native third-party plugin: Data discovery, managed minute and table workers, independent archive and pinned restart passed",
     );
   } finally {
     if (application) await application.close();

@@ -1,6 +1,5 @@
 #include "risk_module.hpp"
 #include "history_minutes.hpp"
-#include "history_daily.hpp"
 #include <asterion/kernel/durable_file.hpp>
 #include <fstream>
 #include "task_store.hpp"
@@ -48,13 +47,7 @@ void name_source(std::string& sources, const data::v1::BarDataset& dataset) {
     sources += (sources.empty() ? "" : " + ") + name;
 }
 void prepare(wire::Task& task) {
-  if (task.has_daily()) {
-    const auto range = history_files::daily_range(task.daily());
-    task.set_kind(wire::DAILY_DOWNLOAD);
-    task.set_source_name(task.daily().source() + " " + task.daily().contract_id());
-    task.set_instrument(range.instrument.key());
-    task.set_total(history_files::daily_work_units(task.daily()));
-  } else if (task.has_minutes()) {
+  if (task.has_minutes()) {
     const auto range = history_files::minute_range(task.minutes());
     task.set_kind(wire::MINUTE_DOWNLOAD);
     task.set_source_name(task.minutes().source() + " " + task.minutes().contract_id());
@@ -67,6 +60,11 @@ void prepare(wire::Task& task) {
     std::string tables;
     for (const auto& table : update.tables())
       tables += (tables.empty() ? "" : " + ") + table;
+    if (update.has_refresh()) {
+      *task.mutable_table_refresh() = update.refresh();
+      tables += " " + update.refresh().partition().exchange() + " " +
+                update.refresh().partition().period();
+    }
     task.set_source_name(update.provider());
     task.set_instrument(tables);
     task.set_trading_day(update.begin_day().empty() && update.end_day().empty()
@@ -140,15 +138,12 @@ void prepare(wire::Task& task) {
   } else
     throw std::invalid_argument("task requires an explicit input type");
   task.set_data_source(task.has_minutes()        ? task.minutes().source()
-                       : task.has_daily()        ? task.daily().source()
                        : task.has_table_update() ? task.table_update().provider()
                                                  : std::string{});
   task.set_minute_interval_minutes(task.has_minutes() ? task.minutes().interval_minutes() : 0);
   task.set_state(wire::QUEUED);
 }
 const google::protobuf::Message& definition(const wire::Task& task) {
-  if (task.kind() == wire::DAILY_DOWNLOAD && task.has_daily())
-    return task.daily();
   if (task.kind() == wire::MINUTE_DOWNLOAD && task.has_minutes())
     return task.minutes();
   if (task.kind() == wire::TABLE_UPDATE && task.has_table_update())
@@ -164,19 +159,22 @@ const google::protobuf::Message& definition(const wire::Task& task) {
 wire::Task summary(const wire::Task& task) {
   wire::Task result;
   result.set_id(task.id());
+  if (task.has_metadata())
+    *result.mutable_metadata() = task.metadata();
+  if (task.has_table_refresh())
+    *result.mutable_table_refresh() = task.table_refresh();
   result.set_kind(task.kind());
   result.set_state(task.state());
   result.set_attempt(task.attempt());
   result.set_completed(task.completed());
   result.set_total(task.total());
   result.set_error(task.error());
+  result.set_error_code(task.error_code());
   result.set_result_digest(task.result_digest());
   result.set_trading_day(task.trading_day());
   result.set_instrument(task.instrument());
   result.set_source_name(task.source_name());
-  result.set_data_source(task.has_minutes() ? task.minutes().source()
-                         : task.has_daily() ? task.daily().source()
-                                            : task.data_source());
+  result.set_data_source(task.has_minutes() ? task.minutes().source() : task.data_source());
   result.set_history_dataset_id(task.history_dataset_id());
   if (task.has_publication())
     *result.mutable_publication() = task.publication();
@@ -192,7 +190,39 @@ wire::Task summary(const wire::Task& task) {
 }
 // What a definition was admitted as. prepare() derives it once, when the task is
 // submitted; the index keeps it from then on.
+void validate_metadata(const wire::TaskMetadata& metadata) {
+  if (metadata.name().size() > 256 || metadata.note().size() > 8192 ||
+      metadata.name().find_first_of("\r\n") != std::string::npos ||
+      metadata.name().find('\0') != std::string::npos ||
+      metadata.note().find('\0') != std::string::npos)
+    throw std::invalid_argument("invalid experiment name or note");
+  if (metadata.has_derivation()) {
+    const auto& source = metadata.derivation();
+    validate_id(source.source_id());
+    validate_id(source.source_instance());
+    payload::validate_digest(source.source_result_digest());
+    if (source.data_choice() == "snapshot")
+      payload::validate_digest(source.snapshot());
+    else if (source.data_choice() != "fixed" || !source.snapshot().empty())
+      throw std::invalid_argument("invalid experiment derivation");
+  }
+}
+Json metadata_json(const wire::TaskMetadata& metadata) {
+  std::string value;
+  if (!google::protobuf::util::MessageToJsonString(metadata, &value).ok())
+    throw std::invalid_argument("invalid experiment metadata");
+  return Json::parse(value);
+}
+wire::TaskMetadata read_metadata(const Json& value) {
+  wire::TaskMetadata metadata;
+  if (!google::protobuf::util::JsonStringToMessage(value.dump(), &metadata).ok())
+    throw std::invalid_argument("invalid experiment metadata");
+  validate_metadata(metadata);
+  return metadata;
+}
 void admit_as(wire::Task& task, const wire::Task& admitted) {
+  if (admitted.has_table_refresh())
+    *task.mutable_table_refresh() = admitted.table_refresh();
   task.set_total(admitted.total());
   task.set_trading_day(admitted.trading_day());
   task.set_instrument(admitted.instrument());
@@ -233,6 +263,8 @@ void transition(const wire::Task& before, const std::string& old_token, const wi
       throw std::invalid_argument("inactive attempt retains token");
   } else if (token != old_token)
     throw std::invalid_argument("task token changed mid-attempt");
+  // Recovery validates the recorded publication of an unsupported daily
+  // download too; it does not parse its payload or resume its publication.
   const bool download =
       after.kind() == wire::MINUTE_DOWNLOAD || after.kind() == wire::DAILY_DOWNLOAD;
   if (b == wire::PUBLISHING || (download && b == wire::SUCCEEDED)) {
@@ -272,7 +304,7 @@ void verify_result(const wire::Task& task, const asterion::backtest::v1::Backtes
   // The task may have been stored by another version: its input is read as
   // this one admits it before a result is held against it.
   (void)protocol::decode_backtest(task.input(), protocol::DatasetView::metadata);
-  if (result.version() != 5 || result.engine_version() != protocol::backtest_engine_version)
+  if (result.version() != 6 || result.engine_version() != protocol::backtest_engine_version)
     throw std::invalid_argument("unsupported backtest result version");
   const auto& paper = task.input().paper();
   // The replay settles every day any contract settles on, with bars that day
@@ -401,9 +433,9 @@ struct OtherVersion : std::invalid_argument {
 wire::Task parse_input(wire::Task task, const std::string& raw) {
   try {
     switch (task.kind()) {
+    // A per-contract daily download an earlier version stored: listed, never read.
     case wire::DAILY_DOWNLOAD:
-      payload::parse(raw, *task.mutable_daily());
-      break;
+      throw OtherVersion();
     case wire::MINUTE_DOWNLOAD:
       payload::parse(raw, *task.mutable_minutes());
       break;
@@ -430,9 +462,6 @@ wire::Task read_input(wire::Task task, const fs::path& path, const std::string& 
 }
 wire::Task attach_definition(wire::Task task, wire::Task source) {
   switch (task.kind()) {
-  case wire::DAILY_DOWNLOAD:
-    *task.mutable_daily() = std::move(*source.mutable_daily());
-    break;
   case wire::MINUTE_DOWNLOAD:
     *task.mutable_minutes() = std::move(*source.mutable_minutes());
     break;
@@ -632,9 +661,12 @@ struct Store::Impl {
       Entry entry;
       if (!manifest.is_object() || manifest.value("version", 0) != 7)
         throw std::invalid_argument("unsupported task manifest");
-      require_fields(manifest, {"version", "type", "input_sha256", "input_bytes", "id",
-                                "submission_sequence", "submitted_at_ms", "provider_artifact",
-                                "risk_artifact", "download_authorization"});
+      auto manifest_fields = manifest;
+      manifest_fields.erase("derivation");
+      require_fields(manifest_fields,
+                     {"version", "type", "input_sha256", "input_bytes", "id", "submission_sequence",
+                      "submitted_at_ms", "provider_artifact", "risk_artifact",
+                      "download_authorization"});
       if (manifest.at("id") != id)
         throw std::invalid_argument("unsupported task manifest");
       if (!manifest.at("submission_sequence").is_number_unsigned() ||
@@ -700,6 +732,10 @@ struct Store::Impl {
       // the store agrees with itself, not that this version would admit it.
       payload::check(root / id / "input.pb", entry.input_digest, payload::max_input_bytes,
                      entry.input_bytes);
+      if (manifest.contains("derivation")) {
+        auto metadata = read_metadata(Json{{"derivation", manifest.at("derivation")}});
+        *entry.task.mutable_metadata() = std::move(metadata);
+      }
       const auto indexed = find(id);
       admit_as(entry.task, indexed.task);
       entry.task.set_state(wire::QUEUED);
@@ -708,7 +744,24 @@ struct Store::Impl {
             if (sequence != ++entry.event_sequence)
               throw std::invalid_argument("task state history has a gap");
             inspect_size(static_cast<std::int64_t>(raw.size()), 65536);
-            const auto event = parse_json(raw, 65536);
+            auto event = parse_json(raw, 65536);
+            if (event.at("version") == 4) {
+              require_fields(event, {"version", "metadata"});
+              auto metadata = read_metadata(event.at("metadata"));
+              if (metadata.revision() != entry.task.metadata().revision() + 1 ||
+                  metadata.derivation().SerializeAsString() !=
+                      entry.task.metadata().derivation().SerializeAsString())
+                throw std::invalid_argument("invalid experiment metadata revision");
+              *entry.task.mutable_metadata() = std::move(metadata);
+              return;
+            }
+            // Failure codes are optional observations; older events and service interruptions
+            // have no such evidence. Keep them unknown rather than guessing from text.
+            const auto code = event.value("error_code", std::string());
+            if (!code.empty() && !parse_error_code(code))
+              throw std::invalid_argument("invalid task failure error code");
+            event.erase("error_code");
+            entry.task.set_error_code(code);
             require_fields(event, {"version", "state", "attempt", "token", "completed", "error",
                                    "digest", "updated_at_ms", "publication", "history_dataset_id"});
             if (event.at("version") != 3)
@@ -853,17 +906,19 @@ struct Store::Impl {
         throw std::logic_error("cannot encode task publication decision");
       publication = parse_json(json);
     }
-    change.event = Json{{"version", 3},
-                        {"publication", publication},
-                        {"history_dataset_id", task.history_dataset_id()},
-                        {"updated_at_ms", task.updated_at_ms()},
-                        {"state", static_cast<int>(task.state())},
-                        {"attempt", task.attempt()},
-                        {"token", token},
-                        {"completed", task.completed()},
-                        {"error", task.error()},
-                        {"digest", task.result_digest()}}
-                       .dump();
+    auto event = Json{{"version", 3},
+                      {"publication", publication},
+                      {"history_dataset_id", task.history_dataset_id()},
+                      {"updated_at_ms", task.updated_at_ms()},
+                      {"state", static_cast<int>(task.state())},
+                      {"attempt", task.attempt()},
+                      {"token", token},
+                      {"completed", task.completed()},
+                      {"error", task.error()},
+                      {"digest", task.result_digest()}};
+    if (!task.error_code().empty())
+      event["error_code"] = task.error_code();
+    change.event = event.dump();
     return change;
   }
   // Persistence consumes an already decided and encoded transition. It neither
@@ -1035,7 +1090,7 @@ void Store::ResultRead::verify() {
   if (!verify && !include_input_)
     payload::check(directory_ / "input.pb", input_digest_, payload::max_input_bytes, input_bytes_);
   if (task_.kind() == wire::DAILY_DOWNLOAD) {
-    payload::parse(raw, *result.mutable_daily());
+    throw OtherVersion();
 
   } else if (task_.kind() == wire::MINUTE_DOWNLOAD) {
     payload::parse(raw, *result.mutable_minutes());
@@ -1073,6 +1128,8 @@ wire::TaskResponse Store::confirm_result(ResultRead read) const {
       entry.task.result_digest() != read.task_.result_digest() ||
       entry.input_digest != read.input_digest_)
     throw std::invalid_argument("task result changed during verification");
+  if (entry.task.has_metadata())
+    *read.response_.mutable_result_task()->mutable_metadata() = entry.task.metadata();
   return std::move(read.response_);
 }
 
@@ -1116,9 +1173,7 @@ Store::Submission Store::submission(const data::v1::DownloadAuthorization& autho
   task.set_id(authorization.task_id());
   task.set_download_authorization(authorization.id());
   task.set_provider_artifact(authorization.provider_artifact());
-  if (authorization.has_daily())
-    *task.mutable_daily() = authorization.daily();
-  else if (authorization.has_minutes())
+  if (authorization.has_minutes())
     *task.mutable_minutes() = authorization.minutes();
   else if (authorization.has_table_update())
     *task.mutable_table_update() = authorization.table_update();
@@ -1127,10 +1182,51 @@ Store::Submission Store::submission(const data::v1::DownloadAuthorization& autho
   return Submission(impl_.get(), impl_->root, std::move(task));
 }
 
+void Store::Submission::set_derivation(wire::TaskDerivation derivation) {
+  if (admitted_)
+    throw std::logic_error("task submission already admitted");
+  *task_.mutable_metadata()->mutable_derivation() = std::move(derivation);
+}
+Store::Change Store::edit_metadata(const wire::TaskMetadataEdit& edit) {
+  impl_->writable();
+  const auto entry = impl_->find(edit.id());
+  if (entry.task.kind() != wire::BACKTEST && entry.task.kind() != wire::FACTOR)
+    throw std::invalid_argument("experiment metadata requires a research task");
+  if (edit.expected_revision() != entry.task.metadata().revision())
+    throw Error(ErrorCode::conflict, "experiment metadata changed; reload before saving");
+  auto next = entry;
+  auto* metadata = next.task.mutable_metadata();
+  if (metadata->revision() == std::numeric_limits<std::uint32_t>::max())
+    throw std::invalid_argument("experiment metadata revision exhausted");
+  metadata->set_revision(metadata->revision() + 1);
+  metadata->set_name(edit.name());
+  metadata->set_note(edit.note());
+  validate_metadata(*metadata);
+  auto state = std::make_unique<Change::State>();
+  state->owner = impl_.get();
+  auto& change = state->pending.emplace();
+  next.event_sequence++;
+  change.next = std::move(next);
+  change.record = Impl::encode(change.next);
+  change.active_entry = Impl::active_entry(change.next);
+  change.event =
+      Json{{"version", 4}, {"metadata", metadata_json(change.next.task.metadata())}}.dump();
+  return Change(std::move(state));
+}
 void Store::admit_submission(Submission& input) {
   impl_->writable();
   if (input.owner_ != impl_.get() || input.admitted_)
     throw std::logic_error("invalid task submission admission");
+  if (input.task_.metadata().has_derivation()) {
+    auto* source = input.task_.mutable_metadata()->mutable_derivation();
+    source->set_source_instance(impl_->identity.instance);
+    validate_metadata(input.task_.metadata());
+    const auto original = impl_->find(source->source_id()).task;
+    if (source->source_id() == input.task_.id() || original.state() != wire::SUCCEEDED ||
+        original.kind() != input.task_.kind() ||
+        original.result_digest() != source->source_result_digest())
+      throw std::invalid_argument("invalid experiment derivation");
+  }
   const auto& id = input.task_.id();
   if (impl_->contains(id)) {
     const auto entry = impl_->find(id);
@@ -1161,6 +1257,8 @@ void Store::Submission::prepare_files() {
     if (current.kind() != task_.kind() ||
         current.download_authorization() != task_.download_authorization() ||
         current.provider_artifact() != task_.provider_artifact() ||
+        current.metadata().derivation().SerializeAsString() !=
+            task_.metadata().derivation().SerializeAsString() ||
         definition(current).SerializeAsString() != definition(task_).SerializeAsString())
       throw std::invalid_argument("task id already belongs to different input");
   } else {
@@ -1200,11 +1298,10 @@ Store::Change Store::register_submission(Submission& input) {
   change.next = {summary(task), input.digest_, input.bytes_, "", 0};
   change.record = Impl::encode(change.next);
   change.active_entry = Impl::active_entry(change.next);
-  change.kind = task.kind() == wire::DAILY_DOWNLOAD    ? "daily.task"
-                : task.kind() == wire::MINUTE_DOWNLOAD ? "minutes.task"
-                : task.kind() == wire::TABLE_UPDATE    ? "tables.task"
-                : task.kind() == wire::FACTOR          ? "factor.task"
-                                                       : "backtest.task";
+  change.kind = task.kind() == wire::MINUTE_DOWNLOAD ? "minutes.task"
+                : task.kind() == wire::TABLE_UPDATE  ? "tables.task"
+                : task.kind() == wire::FACTOR        ? "factor.task"
+                                                     : "backtest.task";
   change.manifest = Json{
       {"version", 7},
       {"provider_artifact", task.provider_artifact()},
@@ -1216,6 +1313,11 @@ Store::Change Store::register_submission(Submission& input) {
       {"input_sha256", input.digest_},
       {"input_bytes", input.bytes_},
       {"id", task.id()}}.dump();
+  if (task.metadata().has_derivation()) {
+    auto manifest = Json::parse(change.manifest);
+    manifest["derivation"] = metadata_json(task.metadata()).at("derivation");
+    change.manifest = manifest.dump();
+  }
   return Change(std::move(state));
 }
 bool Store::abandon_submission(Submission& input) {
@@ -1363,8 +1465,7 @@ void Store::HistoryRead::load_page() {
           inspect(month);
       }
     }
-    const bool output =
-        task.history_dataset_id() == dataset_id && (task.has_minutes() || task.has_daily());
+    const bool output = task.history_dataset_id() == dataset_id && task.has_minutes();
     if (!market && !output)
       continue;
     auto* row = result.add_references();
@@ -1436,7 +1537,10 @@ wire::TaskLaunches Store::dispatch(const wire::TaskDispatch& processes, bool dat
     if (static_cast<unsigned>(result.launches_size()) >= processes.launch_slots() ||
         running.size() + static_cast<std::size_t>(result.launches_size()) >= concurrency)
       break;
-    if (task.state() != wire::QUEUED || running.contains(task.id()) || !data_available)
+    // No worker runs a per-contract daily download an earlier version
+    // queued: it waits to be cancelled.
+    if (task.state() != wire::QUEUED || running.contains(task.id()) || !data_available ||
+        task.kind() == wire::DAILY_DOWNLOAD)
       continue;
     auto* launch = result.add_launches();
     launch->set_task_id(task.id());
@@ -1448,12 +1552,10 @@ wire::TaskLaunches Store::dispatch(const wire::TaskDispatch& processes, bool dat
     case wire::FACTOR:
       launch->set_program(wire::FACTOR_PROGRAM);
       break;
-    case wire::DAILY_DOWNLOAD:
     case wire::MINUTE_DOWNLOAD:
       launch->set_program(wire::DATA_PIPELINE_PROGRAM);
       launch->set_provider_artifact(task.provider_artifact());
-      launch->set_minute_download(task.kind() == wire::MINUTE_DOWNLOAD);
-      launch->set_daily_download(task.kind() == wire::DAILY_DOWNLOAD);
+      launch->set_minute_download(true);
       break;
     case wire::TABLE_UPDATE:
       launch->set_program(wire::DATA_PIPELINE_PROGRAM);
@@ -1481,6 +1583,7 @@ Store::Change Store::claim(const InputRead& read) {
   next.set_attempt(next.attempt() + 1);
   next.set_completed(0);
   next.clear_error();
+  next.clear_error_code();
   next.clear_result_digest();
   const auto token = unique_process_id();
   return impl_->change(entry, std::move(next), token);
@@ -1508,6 +1611,8 @@ Store::Change Store::cancel(const std::string& id) {
 }
 Store::Change Store::retry(const std::string& id) {
   auto entry = impl_->find(id);
+  if (entry.task.kind() == wire::DAILY_DOWNLOAD)
+    throw OtherVersion();
   if (entry.task.state() != wire::FAILED && entry.task.state() != wire::INTERRUPTED &&
       entry.task.state() != wire::CANCELLED)
     throw std::invalid_argument("task is not retryable");
@@ -1518,6 +1623,7 @@ Store::Change Store::retry(const std::string& id) {
   next.set_state(wire::QUEUED);
   next.set_completed(0);
   next.clear_error();
+  next.clear_error_code();
   next.clear_result_digest();
   return impl_->change(entry, std::move(next), "");
 }
@@ -1531,9 +1637,7 @@ void Store::Completion::prepare_payload() {
   prepared_ = false;
   if (task_.state() != wire::CANCEL_REQUESTED) {
     task_ = read_input(std::move(task_), directory_ / "input.pb", input_digest_, input_bytes_);
-    if (result_.has_daily() && task_.kind() == wire::DAILY_DOWNLOAD && task_.has_daily())
-      protocol::validate_message(result_.daily());
-    else if (result_.has_minutes() && task_.kind() == wire::MINUTE_DOWNLOAD && task_.has_minutes())
+    if (result_.has_minutes() && task_.kind() == wire::MINUTE_DOWNLOAD && task_.has_minutes())
       protocol::validate_message(result_.minutes());
     else if (result_.has_table_update() && task_.kind() == wire::TABLE_UPDATE &&
              task_.has_table_update())
@@ -1546,9 +1650,6 @@ void Store::Completion::prepare_payload() {
       throw std::invalid_argument("task result kind does not match its input");
     const google::protobuf::Message* output = nullptr;
     switch (result_.output_case()) {
-    case wire::TaskFinish::kDaily:
-      output = &result_.daily();
-      break;
     case wire::TaskFinish::kMinutes:
       output = &result_.minutes();
       break;
@@ -1589,7 +1690,7 @@ Store::Change Store::finish(Completion completion) {
   if (entry.task.state() == wire::CANCEL_REQUESTED) {
     return acknowledge_cancel(result.id(), result.token());
   }
-  if (result.has_minutes() || result.has_daily())
+  if (result.has_minutes())
     throw std::invalid_argument("download completion requires a prepared publication");
   auto next = summary(entry.task);
   next.set_state(wire::SUCCEEDED);
@@ -1598,7 +1699,7 @@ Store::Change Store::finish(Completion completion) {
   return impl_->change(entry, std::move(next), entry.token);
 }
 data::v1::DownloadPreparation Store::Completion::download_preparation() const {
-  if (!prepared_ || (!result_.has_daily() && !result_.has_minutes()))
+  if (!prepared_ || !result_.has_minutes())
     throw std::invalid_argument("download result has not been verified");
   data::v1::DownloadPreparation preparation;
   auto* identity = preparation.mutable_identity();
@@ -1608,13 +1709,8 @@ data::v1::DownloadPreparation Store::Completion::download_preparation() const {
   identity->set_attempt(task_.attempt());
   auto* record = preparation.mutable_record();
   record->set_version(1);
-  if (result_.has_daily()) {
-    *record->mutable_daily() = task_.daily();
-    *record->mutable_daily_result() = result_.daily();
-  } else {
-    *record->mutable_minutes() = task_.minutes();
-    *record->mutable_minute_result() = result_.minutes();
-  }
+  *record->mutable_minutes() = task_.minutes();
+  *record->mutable_minute_result() = result_.minutes();
   return preparation;
 }
 Store::Change Store::prepare_publication(Completion completion,
@@ -1626,8 +1722,7 @@ Store::Change Store::prepare_publication(Completion completion,
   }
   protocol::validate_message(prepared);
   const auto preparation = completion.download_preparation();
-  const auto dataset =
-      result.has_daily() ? result.daily().manifest_sha256() : result.minutes().manifest_sha256();
+  const auto& dataset = result.minutes().manifest_sha256();
   if (preparation.identity().SerializeAsString() != prepared.identity().SerializeAsString() ||
       sha256_bytes(preparation.SerializeAsString()) != prepared.candidate_digest() ||
       dataset != prepared.dataset_id())
@@ -1648,7 +1743,7 @@ Store::Change Store::prepare_publication(Completion completion,
 std::vector<data::v1::DownloadPublication> Store::pending_publications() const {
   std::vector<data::v1::DownloadPublication> result;
   for (const auto& task : active_tasks())
-    if (task.state() == wire::PUBLISHING)
+    if (task.state() == wire::PUBLISHING && task.kind() == wire::MINUTE_DOWNLOAD)
       result.push_back(task.publication());
   return result;
 }
@@ -1671,14 +1766,17 @@ Store::Change Store::confirm_publication(const data::v1::PublishedDownload& publ
   return impl_->change(entry, std::move(next), "");
 }
 
-Store::Change Store::fail(const std::string& id, const std::string& token,
-                          const std::string& error) {
+Store::Change Store::fail(const std::string& id, const std::string& token, const std::string& error,
+                          const std::string& error_code) {
+  if (!error_code.empty() && !parse_error_code(error_code))
+    throw std::invalid_argument("invalid task failure error code");
   auto entry = impl_->fenced(id, token);
   if (error.empty() || error.size() > 1024)
     throw std::invalid_argument("invalid task error");
   auto next = summary(entry.task);
   next.set_state(entry.task.state() == wire::CANCEL_REQUESTED ? wire::CANCELLED : wire::FAILED);
   next.set_error(error);
+  next.set_error_code(next.state() == wire::FAILED ? error_code : std::string());
   return impl_->change(entry, std::move(next), token);
 }
 Store::Change Store::interrupt(const std::string& id, const std::string& token,

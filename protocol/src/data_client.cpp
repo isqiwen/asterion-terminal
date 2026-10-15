@@ -64,8 +64,6 @@ data::v1::DataResponse decode_data_response(const data::v1::DataRequest& request
       return Response::kHealth;
     case Request::kSources:
       return Response::kSources;
-    case Request::kCatalog:
-      return Response::kCatalog;
     case Request::kVerifyConnection:
       return Response::kConnectionVerification;
     case Request::kDatasets:
@@ -74,8 +72,12 @@ data::v1::DataResponse decode_data_response(const data::v1::DataRequest& request
       return Response::kRecord;
     case Request::kMinutePage:
       return Response::kMinutePage;
-    case Request::kDailyPage:
-      return Response::kDailyPage;
+    case Request::kTableRefreshPlan:
+      return Response::kTableRefreshPlan;
+    case Request::kMinuteRange:
+      return Response::kMinuteRange;
+    case Request::kMinuteEvidence:
+      return Response::kMinuteEvidence;
     case Request::kBarDataset:
       return Response::kBarDataset;
     case Request::kCoverage:
@@ -123,6 +125,8 @@ data::v1::DataResponse decode_data_response(const data::v1::DataRequest& request
       return Response::kTableDaily;
     case Request::kTableContracts:
       return Response::kTableContracts;
+    case Request::kTableListedContracts:
+      return Response::kTableListedContracts;
     case Request::OPERATION_NOT_SET:
       return Response::RESULT_NOT_SET;
     }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { FactorMembership } from "./FactorMembership";
 import { timestamp, type TaskResult } from "../../src/bridge/client";
 import { ExperimentDetails } from "./ExperimentDetails";
 import { factorWords, t, factorNames } from "./shared";
@@ -37,7 +38,10 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
   const kind = experiment.series[0].kind === "table" ? "tables" : "bars";
   const words = factorWords[kind];
   const cross = experiment.series.length > 1;
-  const names = statistics[cross ? "cross" : "series"];
+  const names = {
+    ...statistics[cross ? "cross" : "series"],
+    rows: experiment.liquidity ? "评价截面数" : statistics[cross ? "cross" : "series"].rows,
+  };
   const rows = cross ? result.cross_sections : result.samples;
   // Bars are labelled with timestamps, daily closes with the provider's dates.
   const when = (value: string | undefined) =>
@@ -63,6 +67,14 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
             series.kind === "dominant" || (series.kind === "table" && series.data.rolls.length),
         ) && <> · {t("主力连续")}</>}
       </p>
+      <FactorMembership experiment={experiment} result={result} />
+      {experiment.liquidity && (
+        <p className="subtle">
+          {t(
+            "评价截面数按观测计数，包含成员不足或相关性未定义的截面。选参、IC 与分组收益仅使用有资格且特征、标签完整的成员；资格不足不删除预热价格。",
+          )}
+        </p>
+      )}
       {cross && (
         <p className="subtle">
           {t(

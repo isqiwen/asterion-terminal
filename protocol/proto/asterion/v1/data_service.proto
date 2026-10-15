@@ -19,12 +19,14 @@ message DownloadPermit { bool granted = 1; uint32 retry_after_ms = 2; }
 // part of the public authorization or immutable task definition.
 message DownloadAuthorizationRequest {
   string task_instance = 1; string task_id = 2; string credential = 3;
-  oneof definition { MinuteDownload minutes = 4; DailyDownload daily = 5; TableUpdate table_update = 6; }
+  reserved 5;
+  oneof definition { MinuteDownload minutes = 4; TableUpdate table_update = 6; }
 }
 message DownloadAuthorization {
   uint32 version = 1; string id = 2; string data_instance = 3;
   string task_instance = 4; string task_id = 5; string provider_artifact = 6; string provider_id = 7;
-  oneof definition { MinuteDownload minutes = 8; DailyDownload daily = 9; TableUpdate table_update = 10; }
+  reserved 9;
+  oneof definition { MinuteDownload minutes = 8; TableUpdate table_update = 10; }
 }
 // Private on-disk representation. Never returned through DataResponse.
 message StoredDownloadAuthorization {
@@ -40,7 +42,8 @@ message DownloadCredentials { DownloadIdentity identity = 1; string authorizatio
 message DownloadAllocation {
   string authorization_id = 1;
   DownloadIdentity identity = 2;
-  oneof definition { MinuteDownload minutes = 3; DailyDownload daily = 4; TableUpdate table_update = 5; }
+  reserved 4;
+  oneof definition { MinuteDownload minutes = 3; TableUpdate table_update = 5; }
 }
 message DownloadDirectory { string directory = 1; }
 message AllocatedDownload { DownloadAllocation request = 1; string directory = 2; }
@@ -68,24 +71,24 @@ message TableUpdatePlan { repeated TablePartitionKey partitions = 1; repeated st
 // answer about the data, not a failed request.
 message TablePartitionRows {
   DownloadIdentity identity = 1; TablePartitionKey partition = 2; repeated TableRow rows = 3;
+  SourceResponse response = 4;
 }
 message TablePartitionReceipt {
   oneof outcome { TableRevision revision = 1; string rejection = 2; }
   bool unchanged = 3;
+  TableRefreshObservation observation = 4;
 }
 message DataRequest {
-  reserved 20, 26;
+  reserved 13, 18, 20, 26;
   uint32 version = 1; string service_id = 2; string correlation_id = 3;
   oneof operation {
     asterion.protocol.v1.Empty heartbeat = 10;
     asterion.node.v1.Quiesce quiesce = 11;
     asterion.protocol.v1.Empty sources = 12;
-    HistoryCatalogQuery catalog = 13;
     HistoryConnectionVerify verify_connection = 14;
     HistoryFilter datasets = 15;
     DataId record = 16;
     MinutePageQuery minute_page = 17;
-    DailyPageQuery daily_page = 18;
     BarDatasetRequest bar_dataset = 19;
     NamedDataset save_dataset = 21;
     DataId saved_dataset = 22;
@@ -111,21 +114,23 @@ message DataRequest {
     TableDailyQuery table_daily = 43;
     HistoryCoverageQuery coverage = 44;
     TableContractsQuery table_contracts = 45;
+    TableListedContractsQuery table_listed_contracts = 46;
+    MinuteEvidenceQuery minute_evidence = 47;
+    MinuteRangeQuery minute_range = 48;
+    TableRefreshQuery table_refresh_plan = 49;
   }
 }
 message DataResponse {
-  reserved 25;
+  reserved 13, 18, 25;
   uint32 version = 1; string service_id = 2; string correlation_id = 3;
   oneof result {
     asterion.protocol.v1.Error error = 10;
     DataHealth health = 11;
     DataSources sources = 12;
-    HistoryCatalog catalog = 13;
     HistoryConnectionVerification connection_verification = 14;
     HistoryDatasets datasets = 15;
     HistoryRecord record = 16;
     MinutePage minute_page = 17;
-    DailyPage daily_page = 18;
     BarDataset bar_dataset = 19;
     HistoryCoverages coverage = 20;
     NamedDataset saved_dataset = 21;
@@ -148,5 +153,9 @@ message DataResponse {
     TableProducts table_products = 39;
     TableDailyPage table_daily = 40;
     HistoryCatalog table_contracts = 41;
+    TableListedContracts table_listed_contracts = 42;
+    MinuteEvidence minute_evidence = 43;
+    MinuteRangeEvidence minute_range = 44;
+    TableRefreshPlan table_refresh_plan = 45;
   }
 }

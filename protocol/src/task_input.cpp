@@ -8,8 +8,7 @@
 namespace asterion::protocol {
 void resolve_task_input(task::v1::TaskAttempt& attempt, std::stop_token stop) {
   auto& task = *attempt.mutable_task();
-  if (task.kind() == task::v1::MINUTE_DOWNLOAD || task.kind() == task::v1::DAILY_DOWNLOAD ||
-      task.kind() == task::v1::TABLE_UPDATE) {
+  if (task.kind() == task::v1::MINUTE_DOWNLOAD || task.kind() == task::v1::TABLE_UPDATE) {
     if (attempt.has_execution())
       throw std::invalid_argument("unexpected calculation definition");
     return;

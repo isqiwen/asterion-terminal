@@ -46,6 +46,16 @@ message BacktestContract {
   // Price increments every fill of the contract gives up.
   uint32 slippage_ticks = 3;
 }
+// Reuse is resolved from Task-owned verified input, never client observations.
+message BacktestReuse {
+  enum DataChoice { DATA_CHOICE_UNSPECIFIED = 0; FIXED = 1; NEW_SNAPSHOT = 2; }
+  string source_id = 1;
+  string source_result_digest = 2;
+  string source_input_sha256 = 3;
+  DataChoice choice = 4;
+  string snapshot = 5;
+  optional uint32 slippage_ticks = 6; // fixed-data single-contract sensitivity only
+}
 message BacktestRequest {
   repeated BacktestContract contracts = 1;
   asterion.protocol.v1.Decimal deposit = 2;
@@ -68,6 +78,15 @@ message ContractSettlement {
   string symbol = 2;
   asterion.protocol.v1.Decimal price = 3;
   asterion.protocol.v1.Decimal position_quantity = 4; // Net lots: long positive, short negative.
+  // Optional gross lots and per-position-lot margin observed after settlement.
+  // Absent on earlier results; net lots alone cannot reconstruct these.
+  asterion.protocol.v1.Decimal gross_quantity = 5;
+  asterion.protocol.v1.Decimal margin = 6;
+}
+message SettlementOccupancy {
+  asterion.protocol.v1.Decimal margin = 1;
+  asterion.protocol.v1.Decimal available = 2;
+  asterion.protocol.v1.Decimal frozen = 3;
 }
 message DaySettlement {
   string trading_day = 1;
@@ -77,6 +96,7 @@ message DaySettlement {
   asterion.protocol.v1.Decimal realized = 5;
   asterion.protocol.v1.Decimal fees = 6;
   repeated ContractSettlement contracts = 7;
+  SettlementOccupancy occupancy = 8; // optional observed model funds, not intraday peaks
 }
 // What the days before the holdout showed of one compared strategy. Nothing
 // from the holdout is recorded for a strategy that was not chosen.
@@ -94,6 +114,8 @@ message BacktestFold {
   repeated BacktestCandidate candidates = 2;
   optional uint32 selected = 3;
 }
+// Optional observations, recorded only for single-contract daily replays.
+message BacktestFillDay { string fill_id = 1; string trading_day = 2; }
 message BacktestResult {
   uint32 version = 1;
   string dataset_revision = 2;
@@ -110,5 +132,6 @@ message BacktestResult {
   // With a rolling comparison instead: its rounds, and the rest of this
   // result is the one account that followed each round's strategy in turn.
   repeated BacktestFold folds = 10;
+  repeated BacktestFillDay fill_days = 11; // empty means no fill-date evidence
 }
 

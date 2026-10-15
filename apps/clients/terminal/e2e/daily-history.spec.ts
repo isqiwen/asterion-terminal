@@ -1,9 +1,10 @@
 import { test, expect, type Page } from "./test";
-import type { Snapshot, DailyPage, TableDailyPage } from "../src/bridge/client";
+import { writeFile } from "node:fs/promises";
+import type { Snapshot, TableDailyPage } from "../src/bridge/client";
 
 const date = (i: number) => new Date(Date.UTC(2023, 0, 1 + i)).toISOString().slice(0, 10);
-// A data and task service with one daily download of rb2610 and, beside it,
-// the market-wide daily table under one snapshot; `answer` fills in the reply
+// A data service with the market-wide daily table under one snapshot;
+// `answer` fills in the reply
 // to a page request. The connection can be changed while the page is open.
 async function fixture(
   page: Page,
@@ -13,13 +14,9 @@ async function fixture(
   await page.route("**/__asterion/api", async route => {
     const request = route.request().postDataJSON();
     if (
-      ![
-        "runtime.snapshot",
-        "data.daily.page",
-        "data.datasets",
-        "data.tables.coverage",
-        "data.tables.daily",
-      ].includes(request.method)
+      !["runtime.snapshot", "data.datasets", "data.tables.coverage", "data.tables.daily"].includes(
+        request.method,
+      )
     )
       return route.continue();
     const response = await route.fetch({
@@ -34,26 +31,7 @@ async function fixture(
       connection_id: state.connection,
       online: true,
       remote: false,
-      tasks: [
-        {
-          id: "daily-fixture",
-          kind: "daily_download",
-          data_source: "tushare.fut_daily",
-          state: "succeeded",
-          attempt: 1,
-          instrument: "SHFE/rb/2026-10",
-          submission_sequence: 1,
-          source_name: "Explicit daily fixture",
-          result_digest: "b".repeat(64),
-          history_dataset_id: "daily-fixture",
-          completed: 1,
-          total: 1,
-          error: "",
-          trading_day: "",
-          submitted_at_ms: 1,
-          updated_at_ms: 1,
-        },
-      ],
+      tasks: [],
     };
     data.result.market = {
       ...data.result.market!,
@@ -82,19 +60,7 @@ async function fixture(
         { venue: "SHFE", symbol: "rb2610", state: "subscribed", error_code: 0, quote: null },
       ],
     };
-    data.result.history_datasets = [
-      {
-        id: "daily-fixture",
-        contract_id: "SHFE/rb/2026-10",
-        source: "tushare.fut_daily",
-        revision: "b".repeat(64),
-        begin: date(0),
-        end: date(119),
-        interval_minutes: 0,
-        rows: 120,
-      },
-    ];
-    data.result.daily_page = null;
+    data.result.history_datasets = [];
     data.result.table_coverage = {
       snapshot: "c".repeat(64),
       sources: (
@@ -132,86 +98,9 @@ async function fixture(
   return state;
 }
 
-test("daily source viewer preserves dates, missing settlement and paging", async ({ page }) => {
-  const calls: { start: string; end: string; offset: number }[] = [];
-  let mismatch = false;
-  const state = await fixture(page, (method, params, result) => {
-    if (method !== "data.daily.page") return;
-    expect(params.id).toBe("daily-fixture");
-    expect(params).not.toHaveProperty("period");
-    calls.push(params as (typeof calls)[number]);
-    const count = params.start ? 0 : 120;
-    const offset = params.offset as number;
-    const limit = params.limit as number;
-    result.daily_page = {
-      id: mismatch ? "wrong-dataset" : "daily-fixture",
-      source: "tushare.fut_daily",
-      contract_id: "SHFE/rb/2026-10",
-      manifest_sha256: "b".repeat(64),
-      total_rows: 120,
-      matched_rows: count,
-      offset,
-      limit,
-      first_day: date(0),
-      last_day: date(119),
-      begin_day: (params.start as string) || date(0),
-      end_day: (params.end as string) || date(119),
-      bars: Array.from({ length: Math.max(0, Math.min(limit, count - offset)) }, (_, i) => ({
-        trading_day: date(offset + i),
-        open: "100.00000001",
-        high: "102",
-        low: "99",
-        close: "101.5",
-        volume: "20",
-        amount: "12345678.12345678",
-        open_interest: "1000",
-        previous_close: null,
-        previous_settlement: "99.5",
-        settlement: null,
-      })),
-    } satisfies DailyPage;
-    mismatch = false;
-  });
-  await page.goto("/");
-  const nav = page.getByRole("navigation", { name: "业务工作区" });
-  await nav.getByRole("button", { name: "数据", exact: true }).click();
-  await page
-    .getByRole("combobox", { name: "数据源", exact: true })
-    .selectOption("tushare.fut_daily");
-  await expect(page.getByRole("combobox", { name: "数据周期", exact: true })).toHaveValue("day");
-  await page.getByRole("button", { name: "查看数据", exact: true }).click();
-  const viewer = page.getByRole("region", { name: "历史数据查看", exact: true });
-  await expect(viewer.getByRole("img")).toBeVisible();
-  const table = viewer.getByRole("region", { name: "日线数据表" });
-  await expect(table.getByRole("columnheader", { name: "交易日期", exact: true })).toBeVisible();
-  await expect(table.getByRole("row").nth(1)).toContainText("2023-01-01");
-  await expect(table.getByRole("row").nth(1)).toContainText("100.00000001");
-  await expect(table.getByRole("row").nth(1).getByRole("cell").nth(8)).toHaveText("—");
-  await expect(table.getByRole("row").nth(1).getByRole("cell").nth(9)).toHaveText("99.5");
-  await expect(table.getByRole("row").nth(1).getByRole("cell").nth(10)).toHaveText("—");
-  await viewer.getByRole("button", { name: "下一页", exact: true }).click();
-  await expect(table.getByRole("row").nth(1)).toContainText(date(100));
-  await viewer.getByLabel("开始交易日期", { exact: true }).fill("2023-05-01");
-  await viewer.getByLabel("结束交易日期", { exact: true }).fill("2023-05-02");
-  await viewer.getByRole("button", { name: "查看区间", exact: true }).click();
-  await expect(viewer).toContainText("此范围没有记录");
-  expect(calls.at(-1)?.start).toBe("2023-05-01");
-  expect(calls.at(-1)?.end).toBe("2023-05-02");
-  await viewer.getByRole("button", { name: "全部时间", exact: true }).click();
-  await expect(table.getByRole("row").nth(1)).toContainText("2023-01-01");
-  mismatch = true;
-  await viewer.getByRole("button", { name: "下一页", exact: true }).click();
-  await expect(viewer.getByRole("alert")).toContainText("返回的数据与所选数据集不匹配");
-  await expect(table.getByRole("row").nth(1)).toContainText("2023-01-01");
-  state.connection = "viewer-new-connection";
-  await expect(viewer).toHaveCount(0);
-  await page.getByRole("button", { name: "查看数据", exact: true }).click();
-  await expect(table.getByRole("row").nth(1)).toContainText("2023-01-01");
-});
-
 test("the daily chart reads the contract from the daily table, by period and page", async ({
   page,
-}) => {
+}, info) => {
   const calls: { contract: string; period: string; offset: number }[] = [];
   const state = await fixture(page, (method, params, result) => {
     if (method !== "data.tables.daily") return;
@@ -276,6 +165,39 @@ test("the daily chart reads the contract from the daily table, by period and pag
     offset: 41,
     daily: { snapshot: "c".repeat(64), daily_source: "tushare.fut_daily.v3" },
   });
+  // A real workbench navigation unmounts this chart. Returning from research
+  // must retain the source-bound data page, including a second round trip.
+  for (let i = 0; i < 2; i++) {
+    const beforeReturn = calls.length;
+    await nav.getByRole("button", { name: "研究", exact: true }).click();
+    await expect(page.locator(".watchlist-chart-pane")).toHaveCount(0);
+    await nav.getByRole("button", { name: "自选", exact: true }).click();
+    await expect(chart.getByRole("button", { name: "日K", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(chart.locator(".market-history-pages")).toContainText("101–120 / 120");
+    expect(
+      calls.slice(beforeReturn).some(call => call.period === "day" && call.offset === 41),
+    ).toBe(true);
+  }
+  await chart.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath("history-resume.png"), fullPage: true });
+  await writeFile(
+    info.outputPath("history-resume.json"),
+    JSON.stringify(
+      {
+        restored_page: "101–120 / 120",
+        round_trips: 2,
+        restored_upper_pane_request: calls
+          .filter(call => call.period === "day" && call.offset === 41)
+          .at(-1),
+        calls_before_service_change: calls.length,
+      },
+      null,
+      2,
+    ),
+  );
   const previousCalls = calls.length;
   state.connection = "same-named-service-new-connection";
   await expect(chart.locator(".market-history-pages")).toContainText("1–100 / 120");
@@ -307,9 +229,4 @@ test("the daily chart reads the contract from the daily table, by period and pag
     expect(calls.at(-1)?.offset).toBe(0);
   }
   await expect(chart.getByRole("button", { name: "1 min", exact: true })).toBeDisabled();
-  // The history board opens the contract on its days as well.
-  await nav.getByRole("button", { name: "市场", exact: true }).click();
-  await page.getByRole("tab", { name: "历史行情", exact: true }).click();
-  await expect(page.locator(".history-market-contracts")).toContainText("螺纹钢2610");
-  await expect(page.locator(".history-market-board").getByRole("img")).toBeVisible();
 });

@@ -123,7 +123,8 @@ message Request {
 message ContractState { Contract contract = 1; Costs costs = 2; Decimal mark = 3; CostSchedule cost_schedule = 4; }
 message Position { string venue = 1; string symbol = 2; Side side = 3; bool today = 4; Decimal quantity = 5; Decimal basis = 6; }
 message Order { string id = 1; string venue = 2; string symbol = 3; Side side = 4; Offset offset = 5; Decimal quantity = 6; Decimal limit_price = 7; Decimal filled = 8; OrderState state = 9; }
-message Fill { string id = 1; string order_id = 2; string venue = 3; string symbol = 4; Decimal quantity = 5; Decimal price = 6; }
+// A paper account's execution and the fee it actually charged, after close-bucket allocation.
+message Fill { string id = 1; string order_id = 2; string venue = 3; string symbol = 4; Decimal quantity = 5; Decimal price = 6; Decimal fee = 7; }
 message Snapshot {
   repeated ContractState contracts = 1;
   Decimal balance = 2; Decimal equity = 3; Decimal available = 4;

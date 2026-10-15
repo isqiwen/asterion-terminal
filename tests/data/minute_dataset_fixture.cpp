@@ -1,10 +1,8 @@
 #include <chrono>
 #include "data/history_fixture.hpp"
-#include "data/history_requests.hpp"
 #include <cstdio>
 // Seed only an isolated, stopped Data/Task pair through their persistence APIs.
 #include "history_minutes.hpp"
-#include "history_daily.hpp"
 #include "task_store.hpp"
 #include "tasks/task_store_support.hpp"
 #include "data_store.hpp"
@@ -93,14 +91,16 @@ int main(int argc, char** argv) {
       identity->set_attempt(attempt.task().attempt());
       *allocation.mutable_minutes() = input;
       attempt.set_output_directory(test::allocate_download(warehouse, allocation).directory());
+      // The requested contract's bars, whichever it is.
       tushare::Minutes provider(
-          "explicit-test-fixture", calendar([begin](const auto&, auto) {
+          "explicit-test-fixture", calendar([begin](const std::string& body, auto) {
+            const auto code = Json::parse(body).at("params").at("ts_code").get<std::string>();
             std::string response =
                 R"({"code":0,"data":{"fields":["ts_code","trade_time","open","high","low","close","vol","amount","oi"],"items":[)";
             for (int i = 0; i < 120; ++i) {
               if (i)
                 response += ',';
-              response += "[\"CU2310.SHF\",\"" + tushare::format_time(begin + i * 60000000000LL) +
+              response += "[\"" + code + "\",\"" + tushare::format_time(begin + i * 60000000000LL) +
                           "\",100.00000001," + std::to_string(102 + i % 7) + ",99," +
                           std::to_string(101 + i % 7) + ".5,20,12345678.12345678,1000]";
             }
@@ -123,47 +123,26 @@ int main(int argc, char** argv) {
       store.commit(store.confirm_publication(
           warehouse.publish(warehouse.verify_publication(store.pending_publications().front()))));
 
-      const auto daily =
-          asterion::testing_support::daily_request({{"version", 2},
-                                                    {"contract_id", "SHFE/cu/2023-10"},
-                                                    {"source", "tushare.fut_daily"},
-                                                    {"source_instrument", "CU2310.SHF"},
-                                                    {"begin_day", "2023-01-01"},
-                                                    {"end_day", "2023-04-30"},
-                                                    {"requests_per_minute", 500}});
-      const std::string daily_id = "native-daily-fixture";
-      tasks::submit(store, test::authorize_download(warehouse, "task", daily_id, daily));
-      // Leave the task QUEUED. Only the real Agent-dispatched worker may claim
-      // and finish it after Electron starts the isolated task service.
-      allocation.mutable_identity()->set_task_id(daily_id);
+      // Another contract's download, left QUEUED: only the real Agent-dispatched
+      // worker may claim and finish it after Electron starts the isolated task
+      // service. Its source pages are durable already, so that worker asks the
+      // provider for nothing.
+      auto queued = input;
+      queued.set_contract_id("SHFE/zn/2023-10");
+      queued.set_source_instrument("ZN2310.SHF");
+      const std::string queued_id = "native-queued-minutes";
+      tasks::submit(store, test::authorize_download(warehouse, "task", queued_id, queued));
+      allocation.mutable_identity()->set_task_id(queued_id);
       allocation.mutable_identity()->set_attempt(1);
-      *allocation.mutable_daily() = daily;
-      const auto daily_directory = test::allocate_download(warehouse, allocation).directory();
-      tushare::Daily daily_provider("explicit-test-fixture", [](const auto&, auto) {
-        std::string response =
-            R"({"code":0,"data":{"fields":["ts_code","trade_date","pre_close","pre_settle","open","high","low","close","settle","vol","amount","oi"],"items":[)";
-        for (int i = 0; i < 120; ++i) {
-          if (i)
-            response += ',';
-          using namespace std::chrono;
-          auto date =
-              format_trading_date(year_month_day(sys_days(year(2023) / January / 1) + days(i)));
-          std::erase(date, '-');
-          response += "[\"CU2310.SHF\",\"" + date + "\",null,99.5,100.00000001," +
-                      std::to_string(102 + i % 7) + ",99," + std::to_string(101 + i % 7) +
-                      ".5,null,20,1234.567812345678,1000]";
-        }
-        return response + "]}}";
-      });
-      daily_provider.start();
-      history_files::download_daily(daily_provider, history_files::daily_range(daily),
-                                    daily_directory);
-      if (store.get(daily_id).state() != task::v1::QUEUED || store.get(daily_id).attempt() != 0)
-        throw std::runtime_error("daily fixture must remain queued for Agent dispatch");
+      *allocation.mutable_minutes() = queued;
+      history_files::download_minutes(provider, history_files::minute_range(queued),
+                                      test::allocate_download(warehouse, allocation).directory());
+      if (store.get(queued_id).state() != task::v1::QUEUED || store.get(queued_id).attempt() != 0)
+        throw std::runtime_error("queued fixture must remain queued for Agent dispatch");
     }
-    // The same contract's days in the market-wide daily table, which the
-    // market chart reads: one store owns the table ledger at a time, so after
-    // the data store above has closed.
+    // The completed download's contract's days in the market-wide daily
+    // table, which the market chart reads: one store owns the table ledger at
+    // a time, so after the data store above has closed.
     std::vector<test::DailyRow> days;
     for (int i = 0; i < 120; ++i) {
       using namespace std::chrono;
@@ -172,7 +151,7 @@ int main(int argc, char** argv) {
                       std::nullopt, 1000, test::DailyTrade{100, 102 + i % 7, 99, 101 + i % 7, 20}});
     }
     (void)test::seed_daily_table(data_directory, "SHFE/cu/2023-10", days, tables, 5);
-    std::cout << "Created completed minute fixture, queued daily fixture with durable source "
+    std::cout << "Created completed minute fixture, queued minute fixture with durable source "
                  "pages and the contract's days in the daily table\n";
     return 0;
   } catch (const std::exception& error) {

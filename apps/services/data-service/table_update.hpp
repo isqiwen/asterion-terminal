@@ -20,6 +20,10 @@ inline constexpr std::string_view calendar_table = "futures.calendar";
 v1::TableUpdatePlan table_update_plan(const history_files::TableStore&,
                                       const std::vector<TableOffer>& offers, const v1::TableUpdate&,
                                       v1::TablePlanStep, const std::string& today);
+v1::TableRefreshPlan table_refresh_plan(const history_files::TableStore&,
+                                        const std::vector<TableOffer>&,
+                                        const v1::TableRefreshQuery&, const std::string& artifact,
+                                        const std::string& today);
 // Whether a partition is one this update may deliver.
 bool table_update_covers(const std::vector<TableOffer>& offers, const v1::TableUpdate&,
                          const v1::TablePartitionKey&);
@@ -27,4 +31,6 @@ v1::TableCoverage table_coverage(const history_files::TableStore&,
                                  const std::vector<TableOffer>& installed);
 v1::TablePage table_page(const history_files::TableStore&, const v1::TablePageQuery&);
 v1::TableRevision encode_table_revision(const history_files::TableRevision&);
+v1::TableRefreshObservation
+encode_refresh_observation(const history_files::TableRefreshObservation&);
 } // namespace asterion::data

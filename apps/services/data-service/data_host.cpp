@@ -1,6 +1,5 @@
 #include "data_host.hpp"
 #include "history_coverage.hpp"
-#include "history_daily.hpp"
 #include "history_minutes.hpp"
 #include "history_providers.hpp"
 #include "history_update.hpp"
@@ -140,8 +139,10 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
   else if (request.has_datasets()) {
     const auto& filter = request.datasets();
     auto* result = response.mutable_datasets();
-    for (const auto& item : store_->archive().datasets(
-             {filter.venue(), filter.product(), filter.contract_id(), filter.source()})) {
+    const auto listed = store_->archive().datasets(
+        {filter.venue(), filter.product(), filter.contract_id(), filter.source()});
+    result->set_unsupported(listed.unsupported);
+    for (const auto& item : listed.items) {
       auto* row = result->add_items();
       row->set_id(item.id);
       row->set_contract_id(item.contract.key());
@@ -159,18 +160,19 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
     const auto record = store_->archive().get(query.dataset_id());
     *response.mutable_minute_page() =
         history_files::read_minute_page(record.minutes(), record.minute_result(), query);
-  } else if (request.has_daily_page()) {
-    const auto& query = request.daily_page();
-    if (query.dataset_id().empty() || !query.task_id().empty())
-      throw std::invalid_argument("data query requires a published dataset identity");
-    const auto record = store_->archive().get(query.dataset_id());
-    *response.mutable_daily_page() =
-        history_files::read_daily_page(record.daily(), record.daily_result(), query);
-  } else if (request.has_bar_dataset())
+  } else if (request.has_minute_range())
+    *response.mutable_minute_range() =
+        minute_range_evidence(store_->archive(), store_->tables(), request.minute_range());
+  else if (request.has_minute_evidence())
+    *response.mutable_minute_evidence() =
+        minute_evidence(store_->archive(), request.minute_evidence());
+  else if (request.has_bar_dataset())
     *response.mutable_bar_dataset() =
         resolve_bar_dataset(store_->tables(), store_->sources(request.bar_dataset()));
   else if (request.has_dominant_series()) {
-    if (request.dominant_series().months_size() > 20)
+    if (request.dominant_series().months_size() > (request.dominant_series().first_day().empty()
+                                                       ? 20
+                                                       : static_cast<int>(max_account_contracts)))
       throw std::invalid_argument("a dominant series requires 2 to 20 month contracts");
     // The months a request lists, or the product's own in the daily table.
     DominantSeries resolved;
@@ -182,7 +184,8 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
       std::vector<BarDatasetSources> months;
       for (const auto& month : request.dominant_series().months())
         months.push_back(store_->sources(month));
-      resolved = resolve_dominant_series(store_->tables(), months);
+      resolved =
+          resolve_dominant_series(store_->tables(), months, request.dominant_series().first_day());
     }
     auto* preview = response.mutable_dominant_series();
     for (const auto index : resolved.months)
@@ -204,27 +207,6 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
       auto* row = result->add_checks();
       row->set_scope(check.scope);
       row->set_state(check.state);
-    }
-  } else if (request.has_catalog()) {
-    const auto& query = request.catalog();
-    auto* result = response.mutable_catalog();
-    result->set_source(query.source());
-    for (const auto& item : history_providers::catalog(query.source(), query.credential(),
-                                                       query.venue(), query.product(), stop)) {
-      auto* row = result->add_items();
-      row->set_contract_id(item.identity.key());
-      row->set_source_instrument(item.source_instrument);
-      row->set_name(item.name);
-      row->set_list_date(item.list_date);
-      row->set_delist_date(item.delist_date);
-      if (item.multiplier)
-        row->mutable_multiplier()->set_units(item.multiplier->raw());
-      if (item.per_unit)
-        row->mutable_per_unit()->set_units(item.per_unit->raw());
-      if (item.trade_unit)
-        row->set_trade_unit(*item.trade_unit);
-      if (item.quote_unit)
-        row->set_quote_unit(*item.quote_unit);
     }
   } else if (request.has_sources()) {
     auto* result = response.mutable_sources();
@@ -264,6 +246,11 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
   } else if (request.has_table_plan())
     *response.mutable_table_plan() =
         store_->table_plan(request.table_plan(), format_shanghai_time(now_ns()).substr(0, 10));
+  else if (request.has_table_refresh_plan())
+    *response.mutable_table_refresh_plan() = table_refresh_plan(
+        store_->tables(), store_->table_offers(), request.table_refresh_plan(),
+        history_providers::table_artifact(request.table_refresh_plan().provider()),
+        format_shanghai_time(now_ns()).substr(0, 10));
   else if (request.has_table_coverage())
     *response.mutable_table_coverage() = table_coverage(store_->tables(), store_->table_offers());
   else if (request.has_table_page())
@@ -272,6 +259,9 @@ std::function<void()> DataHost::prepare(const wire::DataRequest& request,
     *response.mutable_table_series() = table_series(store_->tables(), request.table_series());
   else if (request.has_table_products())
     *response.mutable_table_products() = table_products(store_->tables(), request.table_products());
+  else if (request.has_table_listed_contracts())
+    *response.mutable_table_listed_contracts() =
+        table_listed_contracts(store_->tables(), request.table_listed_contracts());
   else if (request.has_table_daily())
     *response.mutable_table_daily() = table_daily(store_->tables(), request.table_daily());
   else if (request.has_table_contracts()) {
@@ -425,8 +415,10 @@ void DataHost::admit(Work& admitted, bool worker) {
     history(request.record().id());
   else if (request.has_minute_page())
     history(request.minute_page().dataset_id());
-  else if (request.has_daily_page())
-    history(request.daily_page().dataset_id());
+  else if (request.has_minute_range())
+    history(request.minute_range().dataset_id());
+  else if (request.has_minute_evidence())
+    history(request.minute_evidence().dataset_id());
   else if (request.has_bar_dataset())
     selection(request.bar_dataset());
   else if (request.has_dominant_series())

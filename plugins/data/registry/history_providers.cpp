@@ -1,4 +1,6 @@
 #include "history_providers.hpp"
+#include "response_evidence.hpp"
+#include <asterion/plugin/history_response.h>
 #include <asterion/kernel/native_plugin.hpp>
 #include <asterion/plugin/history.h>
 #include <asterion/plugin/history_connection.h>
@@ -15,11 +17,10 @@ std::string text(const char* s) {
     throw std::invalid_argument("invalid native history text");
   return s;
 }
-const AstHistoryV2& table(const NativeInstance& instance) {
+const AstHistoryV3& table(const NativeInstance& instance) {
   const auto* t =
-      static_cast<const AstHistoryV2*>(instance.query(AST_HISTORY_V2, 2, sizeof(AstHistoryV2)));
-  if (t->size != sizeof(AstHistoryV2) || t->version != 2 || !t->sources || !t->catalog ||
-      !t->minutes || !t->daily)
+      static_cast<const AstHistoryV3*>(instance.query(AST_HISTORY_V3, 3, sizeof(AstHistoryV3)));
+  if (t->size != sizeof(AstHistoryV3) || t->version != 3 || !t->sources || !t->minutes)
     throw std::invalid_argument("invalid native history capability");
   return *t;
 }
@@ -92,17 +93,17 @@ const std::vector<Installed>& registry() {
     for (auto& library : discover_native_plugins(native_plugin_directory())) {
       const auto& descriptor = library.descriptor();
       if (std::ranges::none_of(descriptor.capabilities, [](const auto& c) {
-            return c.id == AST_HISTORY_V2 && c.version == 2;
+            return c.id == AST_HISTORY_V3 && c.version == 3;
           }))
         continue;
-      auto instance = library.create(AST_HISTORY_V2, {});
+      auto instance = library.create(AST_HISTORY_V3, {});
       Output<Source> out;
       const auto status = table(*instance).sources(
           instance->handle(), &out,
           [](void* context, const AstHistorySource* row) noexcept -> AstStatus {
             return static_cast<Output<Source>*>(context)->emit([&] {
               if (!row || !row->venues || !row->venue_count || row->venue_count > 64 ||
-                  !row->intervals || !row->interval_count || row->interval_count > 1441 ||
+                  !row->intervals || !row->interval_count || row->interval_count > 1440 ||
                   !row->max_requests_per_minute || row->max_requests_per_minute > 500 ||
                   row->credential_required > 1)
                 throw std::invalid_argument("invalid native history source");
@@ -129,13 +130,12 @@ const std::vector<Installed>& registry() {
                 s.venues.push_back(venue);
               }
               for (uint32_t i = 0; i < row->interval_count; ++i) {
-                if (row->intervals[i] > 1440 || !intervals.insert(row->intervals[i]).second)
+                if (!row->intervals[i] || row->intervals[i] > 1440 ||
+                    !intervals.insert(row->intervals[i]).second)
                   throw std::invalid_argument("invalid native history interval");
                 s.intervals.push_back(row->intervals[i]);
               }
-              const bool daily = intervals.contains(0);
-              if ((daily && intervals.size() != 1) ||
-                  daily != (s.semantics.timestamp_semantics == "trading_day"))
+              if (s.semantics.timestamp_semantics == "trading_day")
                 throw std::invalid_argument("invalid native history source");
               return s;
             });
@@ -171,7 +171,7 @@ struct Provider {
             throw std::invalid_argument("invalid native plugin credential");
           source = item;
           instance = installed.library.create(
-              AST_HISTORY_V2, {{"source", id.c_str()}, {"credential", credential.c_str()}});
+              AST_HISTORY_V3, {{"source", id.c_str()}, {"credential", credential.c_str()}});
           return;
         }
     throw std::invalid_argument("historical data source is unavailable");
@@ -223,8 +223,6 @@ class Minutes final : public HistoricalBarPort {
 public:
   Minutes(const std::string& source, const std::string& credential, RequestBudget budget)
       : provider_(source, credential), budget_(std::move(budget)) {
-    if (provider_.source.intervals.front() == 0)
-      throw std::invalid_argument("historical source interval is unavailable");
     provider_.instance->start();
   }
   HistorySemantics semantics() const override { return provider_.source.semantics; }
@@ -235,13 +233,8 @@ public:
       throw std::invalid_argument("invalid native history query");
     if (range.source != provider_.source.id || stop.stop_requested())
       check_plugin_status(stop.stop_requested() ? AST_CANCELLED : AST_INVALID);
-    AstHistoryQuery query{contract(range.instrument),
-                          range.source_instrument.c_str(),
-                          range.interval_minutes,
-                          range.begin_ns,
-                          range.end_ns,
-                          nullptr,
-                          nullptr};
+    AstHistoryQuery query{contract(range.instrument), range.source_instrument.c_str(),
+                          range.interval_minutes, range.begin_ns, range.end_ns};
     // A stored segment: every minute of 31 days.
     Output<HistoricalBar> out{.limit = 31 * 1440};
     const auto& instance = *provider_.instance;
@@ -273,72 +266,6 @@ public:
           row.timestamp_ns <= previous)
         throw std::invalid_argument("invalid native history row");
       previous = row.timestamp_ns;
-    }
-    return rows;
-  }
-};
-class Daily final : public HistoricalDailyPort {
-  Provider provider_;
-  RequestBudget budget_;
-
-public:
-  Daily(const std::string& source, const std::string& credential, RequestBudget budget)
-      : provider_(source, credential), budget_(std::move(budget)) {
-    provider_.interval(0);
-    provider_.instance->start();
-  }
-  HistorySemantics semantics() const override { return provider_.source.semantics; }
-  std::vector<HistoricalDailyBar> read(const HistoricalDailyRange& range,
-                                       std::stop_token stop) override {
-    range.instrument.validate();
-    if (range.end < range.begin || range.source_instrument.empty())
-      throw std::invalid_argument("invalid native history query");
-    if (range.source != provider_.source.id || stop.stop_requested())
-      check_plugin_status(stop.stop_requested() ? AST_CANCELLED : AST_INVALID);
-    auto begin = format_trading_date(range.begin), end = format_trading_date(range.end);
-    AstHistoryQuery query{contract(range.instrument),
-                          range.source_instrument.c_str(),
-                          0,
-                          0,
-                          0,
-                          begin.c_str(),
-                          end.c_str()};
-    Output<HistoricalDailyBar> out;
-    const auto& instance = *provider_.instance;
-    Admission admission{budget_, stop, {}};
-    const auto status = table(instance).daily(
-        instance.handle(), &query, cancellation(stop), admission.callback(), &out,
-        [](void* c, const AstDaily* row) noexcept -> AstStatus {
-          return static_cast<Output<HistoricalDailyBar>*>(c)->emit([&] {
-            if (!row || row->has_previous_close > 1 || row->has_previous_settlement > 1 ||
-                row->has_settlement > 1)
-              throw std::invalid_argument("invalid native history row");
-            auto optional = [](uint32_t present, int64_t value) -> std::optional<Decimal> {
-              return present ? std::optional(Decimal::from_raw(value)) : std::nullopt;
-            };
-            HistoricalDailyBar b{parse_trading_date(text(row->trading_day)),
-                                 Decimal::from_raw(row->open),
-                                 Decimal::from_raw(row->high),
-                                 Decimal::from_raw(row->low),
-                                 Decimal::from_raw(row->close),
-                                 Decimal::from_raw(row->volume),
-                                 Decimal::from_raw(row->amount),
-                                 Decimal::from_raw(row->open_interest),
-                                 optional(row->has_previous_close, row->previous_close),
-                                 optional(row->has_previous_settlement, row->previous_settlement),
-                                 optional(row->has_settlement, row->settlement)};
-            b.validate();
-            return b;
-          });
-        });
-    admission.finish();
-    auto rows = out.finish(status, stop);
-    std::optional<std::chrono::year_month_day> previous;
-    for (const auto& row : rows) {
-      if (row.trading_day < range.begin || row.trading_day > range.end ||
-          (previous && row.trading_day <= *previous))
-        throw std::invalid_argument("invalid native history row");
-      previous = row.trading_day;
     }
     return rows;
   }
@@ -406,61 +333,6 @@ void validate_request(const std::string& source, const HistoryIdentity& identity
 std::unique_ptr<HistoricalBarPort> minutes(const std::string& source, const std::string& credential,
                                            RequestBudget budget) {
   return std::make_unique<Minutes>(source, credential, std::move(budget));
-}
-std::unique_ptr<HistoricalDailyPort> daily(const std::string& source, const std::string& credential,
-                                           RequestBudget budget) {
-  return std::make_unique<Daily>(source, credential, std::move(budget));
-}
-std::vector<HistoryListing> catalog(const std::string& source, const std::string& credential,
-                                    const std::string& venue, const std::string& product,
-                                    std::stop_token stop) {
-  auto canonical_product = product;
-  std::ranges::transform(canonical_product, canonical_product.begin(),
-                         [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  HistoryIdentity{venue, canonical_product, "2026-01"}.validate();
-  Provider provider(source, credential);
-  if (std::ranges::find(provider.source.venues, venue) == provider.source.venues.end())
-    throw std::invalid_argument("historical request exceeds source capabilities");
-  provider.instance->start();
-  Output<HistoryListing> out;
-  const auto& instance = *provider.instance;
-  const auto status = table(instance).catalog(
-      instance.handle(), venue.c_str(), canonical_product.c_str(), cancellation(stop), &out,
-      [](void* c, const AstListing* row) noexcept -> AstStatus {
-        return static_cast<Output<HistoryListing>*>(c)->emit([&] {
-          if (!row || row->has_multiplier > 1 || row->has_per_unit > 1)
-            throw std::invalid_argument("invalid native history listing");
-          HistoryListing item{{text(row->contract.venue), text(row->contract.product),
-                               text(row->contract.delivery_month)},
-                              text(row->name),
-                              text(row->list_date),
-                              text(row->delist_date),
-                              text(row->source_instrument)};
-          item.identity.validate();
-          if (parse_trading_date(item.list_date) > parse_trading_date(item.delist_date) ||
-              item.source_instrument.empty())
-            throw std::invalid_argument("invalid native history listing");
-          if (row->has_multiplier)
-            item.multiplier = Decimal::from_raw(row->multiplier);
-          if (row->has_per_unit)
-            item.per_unit = Decimal::from_raw(row->per_unit);
-          if (row->trade_unit)
-            item.trade_unit = text(row->trade_unit);
-          if (row->quote_unit)
-            item.quote_unit = text(row->quote_unit);
-          if ((item.multiplier && *item.multiplier <= Decimal{}) ||
-              (item.per_unit && *item.per_unit <= Decimal{}))
-            throw std::invalid_argument("invalid native history listing");
-          return item;
-        });
-      });
-  auto result = out.finish(status, stop);
-  std::set<HistoryIdentity> identities;
-  for (const auto& item : result)
-    if (item.identity.venue != venue || item.identity.product != canonical_product ||
-        !identities.insert(item.identity).second)
-      throw std::invalid_argument("invalid native history listing");
-  return result;
 }
 namespace {
 const AstHistoryTablesV1& tables_table(const NativeInstance& instance) {
@@ -540,8 +412,10 @@ public:
         installed_.library.create(AST_HISTORY_TABLES_V1, {{"credential", credential.c_str()}});
     instance_->start();
   }
+  std::optional<SourceResponse> response() const override { return response_; }
   std::vector<TableSourceRow> read(const HistoryTable& table, const std::string& venue,
                                    const std::string& period, std::stop_token stop) override {
+    response_.reset();
     const auto offered = std::ranges::find(installed_.tables, table.id, &TableSource::table);
     if (offered == installed_.tables.end() ||
         std::ranges::find(offered->venues, venue) == offered->venues.end())
@@ -617,10 +491,47 @@ public:
         throw;
       throw Error(error.code(), diagnostic);
     }
+    const auto& caps = installed_.library.descriptor().capabilities;
+    if (std::ranges::any_of(caps, [](const auto& cap) {
+          return cap.id == AST_HISTORY_RESPONSE_V1 && cap.version == 1;
+        })) {
+      const auto* api = static_cast<const AstHistoryResponseV1*>(
+          instance_->query(AST_HISTORY_RESPONSE_V1, 1, sizeof(AstHistoryResponseV1)));
+      if (!api || api->size != sizeof(AstHistoryResponseV1) || api->version != 1 || !api->get)
+        throw std::invalid_argument("invalid source response evidence");
+      struct Observation {
+        std::optional<SourceResponse> value;
+        std::exception_ptr error;
+      } observation;
+      const auto result = api->get(
+          instance_->handle(), &observation,
+          [](void* context, const char* format, const uint8_t* bytes, uint32_t count,
+             int64_t received) noexcept -> AstStatus {
+            auto& observed = *static_cast<Observation*>(context);
+            try {
+              if (observed.value || !bytes || count == 0 || count > max_source_response_bytes ||
+                  received <= 0)
+                throw std::invalid_argument("invalid source response evidence");
+              observed.value = SourceResponse{
+                  text(format), std::string(reinterpret_cast<const char*>(bytes), count), received};
+              return AST_OK;
+            } catch (...) {
+              observed.error = std::current_exception();
+              return AST_INVALID;
+            }
+          });
+      if (observation.error)
+        std::rethrow_exception(observation.error);
+      check_plugin_status(result);
+      if (observation.value)
+        validate_response(id, venue, period, *observation.value);
+      response_ = std::move(observation.value);
+    }
     return std::move(out.rows);
   }
 
 private:
+  std::optional<SourceResponse> response_;
   const InstalledTables& installed_;
   RequestBudget budget_;
   std::unique_ptr<NativeInstance> instance_;
@@ -634,6 +545,12 @@ std::vector<TableSource> table_sources() {
 }
 std::string table_artifact(const std::string& plugin_id) {
   return table_provider(plugin_id).library.sha256();
+}
+void validate_response(const std::string& table, const std::string& venue,
+                       const std::string& period, const SourceResponse& response) {
+  if (table != "futures.daily" || response.format != tushare::daily_response_format ||
+      response.received_at_ns <= 0 || !tushare::allow_daily_response(response.body, venue, period))
+    throw std::invalid_argument("invalid source response evidence");
 }
 std::unique_ptr<TableReader> tables(const std::string& plugin_id, const std::string& credential,
                                     RequestBudget budget) {

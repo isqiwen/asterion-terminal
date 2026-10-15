@@ -1,5 +1,5 @@
 #include <asterion/domain/history_tables.hpp>
-#include <asterion/domain/daily_bars.hpp>
+#include <asterion/domain/trading_days.hpp>
 #include <asterion/domain/history_identity.hpp>
 #include <asterion/kernel/process/artifact.hpp>
 #include <algorithm>
@@ -139,7 +139,13 @@ std::int64_t exact_units(std::string_view value, unsigned scale) {
 std::int64_t day_number(std::string_view value) {
   return std::chrono::sys_days(parse_trading_date(value)).time_since_epoch().count();
 }
-TableCell typed(const TableColumn& column, std::string_view exchange, const std::string& value) {
+std::string shown(std::string_view value) {
+  constexpr std::size_t limit = 64;
+  return '"' + std::string(value.substr(0, limit)) + (value.size() > limit ? "..." : "") + '"';
+}
+} // namespace
+TableCell table_cell(const TableColumn& column, std::string_view exchange,
+                     const std::string& value) {
   switch (column.type) {
   case text:
     if (value.empty() || value.size() > max_text_bytes ||
@@ -169,11 +175,6 @@ TableCell typed(const TableColumn& column, std::string_view exchange, const std:
   }
   throw std::logic_error("unknown table column type");
 }
-std::string shown(std::string_view value) {
-  constexpr std::size_t limit = 64;
-  return '"' + std::string(value.substr(0, limit)) + (value.size() > limit ? "..." : "") + '"';
-}
-} // namespace
 std::span<const HistoryTable> history_tables() {
   return tables;
 }
@@ -261,7 +262,7 @@ TablePartition table_partition(const HistoryTable& table, std::string_view excha
         continue;
       }
       try {
-        cells.push_back(typed(column, exchange, *source[c]));
+        cells.push_back(table_cell(column, exchange, *source[c]));
       } catch (const std::invalid_argument& error) {
         throw std::invalid_argument(at + ": " + shown(*source[c]) + " " + error.what());
       }

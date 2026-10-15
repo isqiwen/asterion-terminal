@@ -1,7 +1,8 @@
 #include <asterion/protocol/task.hpp>
+#include <asterion/kernel/process/artifact.hpp>
 #include <asterion/protocol/factor.hpp>
 #include <asterion/protocol/data.hpp>
-#include <asterion/domain/daily_bars.hpp>
+#include <asterion/domain/trading_days.hpp>
 #include <stdexcept>
 namespace asterion::protocol {
 Json decode_task(const task::v1::Task& task) {
@@ -49,6 +50,16 @@ Json decode_task(const task::v1::Task& task) {
                           : task.kind() == task::v1::FACTOR          ? "factor"
                                                                      : "backtest"},
                  {"id", task.id()},
+                 {"metadata",
+                  {{"revision", task.metadata().revision()},
+                   {"name", task.metadata().name()},
+                   {"note", task.metadata().note()},
+                   {"source_id", task.metadata().derivation().source_id()},
+                   {"source_instance", task.metadata().derivation().source_instance()},
+                   {"source_result_digest", task.metadata().derivation().source_result_digest()},
+                   {"data_choice", task.metadata().derivation().data_choice()},
+                   {"snapshot", task.metadata().derivation().snapshot()}}},
+
                  {"provider_artifact", task.provider_artifact()},
                  {"risk_artifact", task.risk_artifact()},
                  {"state", state},
@@ -61,12 +72,23 @@ Json decode_task(const task::v1::Task& task) {
                  {"instrument", task.instrument()},
                  {"source_name", task.source_name()},
                  {"history_dataset_id", task.history_dataset_id()},
-                 {"data_source", task.has_daily()     ? task.daily().source()
-                                 : task.has_minutes() ? task.minutes().source()
-                                                      : task.data_source()},
+                 {"data_source", task.has_minutes() ? task.minutes().source() : task.data_source()},
                  {"submission_sequence", task.submission_sequence()},
                  {"submitted_at_ms", task.submitted_at_ms()},
                  {"updated_at_ms", task.updated_at_ms()}};
+  if (!task.error_code().empty())
+    output["error_code"] = task.error_code();
+  if (task.has_table_refresh()) {
+    const auto& ref = task.table_refresh();
+    output["table_refresh"] = {{"partition",
+                                {{"table", ref.partition().table()},
+                                 {"exchange", ref.partition().exchange()},
+                                 {"period", ref.partition().period()}}},
+                               {"source", ref.source()},
+                               {"previous_snapshot", ref.previous_snapshot()},
+                               {"previous_content", ref.previous_content()},
+                               {"provider_artifact", ref.provider_artifact()}};
+  }
   if (task.kind() == task::v1::MINUTE_DOWNLOAD) {
     const auto interval =
         task.has_minutes() ? task.minutes().interval_minutes() : task.minute_interval_minutes();
@@ -89,28 +111,7 @@ Json decode_task_result(const task::v1::TaskResponse& response, const std::strin
     throw std::invalid_argument("task result task identity or completion mismatch");
   const auto kind = metadata.at("kind");
   Json envelope = {{"id", id}, {"kind", kind}, {"task", metadata}};
-  if (task.kind() == task::v1::DAILY_DOWNLOAD && task.has_daily() && response.has_daily()) {
-    const auto& result = response.daily();
-    const auto& input = task.daily();
-    const auto begin = parse_trading_date(input.begin_day());
-    const auto end = parse_trading_date(input.end_day());
-    const auto span = (std::chrono::sys_days(end) - std::chrono::sys_days(begin)).count();
-    if (input.version() != 2 || input.contract_id().empty() || span < 0 || span > 20 * 366 ||
-        result.version() != 2 || result.manifest_sha256().size() != 64 ||
-        result.manifest_sha256().find_first_not_of("0123456789abcdef") != std::string::npos ||
-        result.directory().empty() || result.pages() != static_cast<unsigned>(span / 366 + 1) ||
-        result.rows() > static_cast<std::uint64_t>(span + 1))
-      throw std::invalid_argument("invalid daily download result");
-    envelope["result"] = {{"directory", result.directory()},
-                          {"manifest_sha256", result.manifest_sha256()},
-                          {"rows", result.rows()},
-                          {"pages", result.pages()}};
-    envelope["experiment"] = {{"source", input.source()},
-                              {"contract_id", input.contract_id()},
-                              {"begin_day", input.begin_day()},
-                              {"end_day", input.end_day()}};
-  } else if (task.kind() == task::v1::MINUTE_DOWNLOAD && task.has_minutes() &&
-             response.has_minutes()) {
+  if (task.kind() == task::v1::MINUTE_DOWNLOAD && task.has_minutes() && response.has_minutes()) {
     const auto& result = response.minutes();
     const auto& input = task.minutes();
     if (result.version() != 2 || result.manifest_sha256().size() != 64 ||
@@ -130,6 +131,7 @@ Json decode_task_result(const task::v1::TaskResponse& response, const std::strin
     envelope["result"] = decode_table_update_result(response.table_update());
     envelope["experiment"] = decode_table_update(task.table_update());
   } else if (task.kind() == task::v1::BACKTEST && task.has_input() && response.has_backtest()) {
+    envelope["input_sha256"] = sha256_bytes(task.input().SerializeAsString());
     auto experiment = decode_backtest(task.input(), DatasetView::metadata);
     if (response.backtest().dataset_revision() != task.input().dataset_revision())
       throw std::invalid_argument("backtest result does not belong to input data");

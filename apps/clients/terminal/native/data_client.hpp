@@ -37,13 +37,18 @@ public:
   [[nodiscard]] std::future<Json> coverage(const data::v1::HistoryCoverageQuery&);
   [[nodiscard]] std::future<std::vector<HistoryListing>>
   table_contracts(const data::v1::TableContractsQuery&);
-  [[nodiscard]] std::future<Json> daily_page(const data::v1::DailyPageQuery&);
   [[nodiscard]] std::future<Json> minute_page(const data::v1::MinutePageQuery&);
+  [[nodiscard]] std::future<Json> minute_range(const data::v1::MinuteRangeQuery&);
+  [[nodiscard]] std::future<Json> minute_evidence(const data::v1::MinuteEvidenceQuery&);
   [[nodiscard]] std::future<Json> history_usage(const std::string&);
   // Market-wide tables: what the store holds, and one page of a partition.
+  [[nodiscard]] std::future<data::v1::TableRefreshPlan>
+  table_refresh_plan(const data::v1::TableRefreshQuery&);
   [[nodiscard]] std::future<Json> table_coverage();
   [[nodiscard]] std::future<Json> table_page(const data::v1::TablePageQuery&);
   [[nodiscard]] std::future<Json> table_products(const data::v1::TableProductsQuery&);
+  [[nodiscard]] std::future<Json>
+  table_listed_contracts(const data::v1::TableListedContractsQuery&);
   [[nodiscard]] std::future<Json> table_daily(const data::v1::TableDailyQuery&);
   [[nodiscard]] static std::future<Json>
   inspect_history_usage(ServiceIo&, const ServiceEndpoint&, const std::string&,

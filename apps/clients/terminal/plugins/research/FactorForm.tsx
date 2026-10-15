@@ -33,6 +33,7 @@ function FactorParameters({
   series,
   identity,
   observations,
+  selectionCount = 0,
   snapshot,
   busy,
   run,
@@ -42,19 +43,27 @@ function FactorParameters({
   series: Record<string, unknown> | null;
   identity: string;
   observations?: number;
+  selectionCount?: number;
   run: Run;
 }) {
   const words = factorWords[kind];
   const taskService = snapshot?.task_service;
   const destination = JSON.stringify([snapshot?.data?.connection_id, taskService?.connection_id]);
   const [parameters, setParameters] = useWorkspaceDraft(`factor:${kind}`, defaults);
+  const [liquidity, setLiquidity] = useWorkspaceDraft(`factor:${kind}:liquidity`, {
+    enabled: false,
+    history: "5",
+    volume: "0",
+    interest: "0",
+  });
+  const filtered = kind === "tables" && liquidity.enabled;
   const [submitted, setSubmitted] = useWorkspaceDraft(
     `submitted:${destination}:factor:${kind}`,
     "",
   );
   const [pendingId, setPendingId] = useWorkspaceRequestId(
     `factor-submission:${kind}`,
-    JSON.stringify([destination, identity, factor, parameters]),
+    JSON.stringify([destination, identity, factor, parameters, filtered ? liquidity : null]),
   );
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -66,6 +75,15 @@ function FactorParameters({
       factor,
       lookbacks: parameters.lookback.split(",").map(value => Number(value.trim())),
       horizon: Number(parameters.horizon),
+      ...(filtered
+        ? {
+            liquidity: {
+              minimum_history: Number(liquidity.history),
+              minimum_volume: liquidity.volume,
+              minimum_open_interest: liquidity.interest,
+            },
+          }
+        : {}),
       evaluation:
         parameters.evaluation === "full_sample"
           ? { mode: "full_sample" }
@@ -107,6 +125,64 @@ function FactorParameters({
               </label>
             ))}
           </div>
+          {kind === "tables" && (
+            <fieldset>
+              <legend>{t("历史流动性筛选")}</legend>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={liquidity.enabled}
+                  onChange={e => setLiquidity({ ...liquidity, enabled: e.target.checked })}
+                />
+                {t("启用历史流动性筛选")}
+              </label>
+              {filtered && (
+                <>
+                  <div className="research-fields">
+                    <label>
+                      {t("此前连续观测数")}
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        step="1"
+                        required
+                        value={liquidity.history}
+                        onChange={e => setLiquidity({ ...liquidity, history: e.target.value })}
+                      />
+                    </label>
+                    <label>
+                      {t("上一观测最低成交量（手）")}
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]+"
+                        required
+                        value={liquidity.volume}
+                        onChange={e => setLiquidity({ ...liquidity, volume: e.target.value })}
+                      />
+                    </label>
+                    <label>
+                      {t("上一观测最低持仓量（手）")}
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]+"
+                        required
+                        value={liquidity.interest}
+                        onChange={e => setLiquidity({ ...liquidity, interest: e.target.value })}
+                      />
+                    </label>
+                  </div>
+                  <p className="subtle">
+                    {t(
+                      "筛选仅支持至少 3 个品种或合约的日线截面。使用此前连续收盘观测及上一观测的原始合约数量；未知不当作零，阈值包含等号。输入起点之前的历史不假定存在，固定快照不证明历史发布时点。",
+                    )}
+                  </p>
+                </>
+              )}
+            </fieldset>
+          )}
           <label>
             {t("评价方式")}
             <select
@@ -166,7 +242,12 @@ function FactorParameters({
             <button
               className="primary"
               type="submit"
-              disabled={!taskService?.online || !snapshot?.data?.online || !series}
+              disabled={
+                !taskService?.online ||
+                !snapshot?.data?.online ||
+                !series ||
+                (filtered && selectionCount < 3)
+              }
             >
               {pendingId ? t("确认提交状态") : t("开始分析")}
             </button>
@@ -591,7 +672,7 @@ export function TableFactorForm({
           {instruments.length > 2 && (
             <p className="subtle">
               {t(
-                "没有成交的品种每天的收盘价等于结算价，价格不动：它们的动量和未来收益都是 0，并且一起排在波动率最低的一端。做截面比较时请把不活跃的品种从列表里移除。",
+                "可启用历史流动性筛选，按此前已知的成交量、持仓量和连续观测数量决定每日资格；不用整个研究区间的成交结果提前剔除品种。",
               )}
             </p>
           )}
@@ -609,6 +690,7 @@ export function TableFactorForm({
       )}
       <FactorParameters
         kind="tables"
+        selectionCount={instruments.length}
         factor={factor}
         series={series}
         identity={JSON.stringify(series)}

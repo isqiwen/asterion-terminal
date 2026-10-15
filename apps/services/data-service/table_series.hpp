@@ -1,11 +1,18 @@
 #pragma once
 #include "history_tables.hpp"
+#include "historical_margin.hpp"
 #include <asterion/foundation/decimal.hpp>
 #include <asterion/v1/data.pb.h>
 #include <map>
 #include <string>
 #include <vector>
 namespace asterion::data {
+// Read one immutable settlement observation without assigning units/effective dates.
+historical_costs::MarginFact settlement_margin_fact(const history_files::TableStore&,
+                                                    const std::string& snapshot,
+                                                    const history_files::TableSeries&,
+                                                    const std::string& contract,
+                                                    const std::string& observed_day);
 // A day a contract traded on in the auction: the table has all five of these
 // for it.
 struct DailyTrade {
@@ -79,6 +86,8 @@ std::map<std::string, Decimal> contract_multipliers(const history_files::TableSt
 v1::TableSeriesGroup table_series(const history_files::TableStore&, const v1::TableSeriesRequest&);
 // The products of every exchange the snapshot holds a contract list of.
 v1::TableProducts table_products(const history_files::TableStore&, const v1::TableProductsQuery&);
+v1::TableListedContracts table_listed_contracts(const history_files::TableStore&,
+                                                const v1::TableListedContractsQuery&);
 // The contracts of one product of one exchange in a snapshot's contract list
 // that have a listing day, a delisting day and the source's code for them,
 // ascending; what a download of one of them asks for. `source` names the
@@ -95,6 +104,8 @@ struct TradedDays {
   std::string first, last;
   std::vector<std::string> traded;
 };
+std::string previous_trading_day(const history_files::TableStore&, const v1::DailyTable&,
+                                 const std::string& venue, const std::string& first_day);
 TradedDays traded_days(const history_files::TableStore&, const v1::DailyTable&,
                        const std::string& contract, const std::string& first,
                        const std::string& last);

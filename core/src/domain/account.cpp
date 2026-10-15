@@ -1,5 +1,5 @@
 #include <asterion/domain/account.hpp>
-#include <asterion/domain/daily_bars.hpp>
+#include <asterion/domain/trading_days.hpp>
 #include <algorithm>
 #include <stdexcept>
 #include <type_traits>
@@ -184,7 +184,7 @@ struct FuturesAccount::Transaction::State {
       return;
     auto& account = *owner;
     while (account.fills_.size() > fill_count) {
-      account.fill_index_.erase(account.fills_.back().execution_id);
+      account.fill_index_.erase(account.fills_.back().execution.execution_id);
       account.fills_.pop_back();
     }
     while (account.orders_.size() > order_count) {
@@ -365,10 +365,10 @@ void FuturesAccount::cancel(const std::string& id) {
   working_orders_.erase(index);
 }
 static_assert(std::is_nothrow_move_assignable_v<Order>);
-static_assert(std::is_nothrow_move_constructible_v<Fill>);
+static_assert(std::is_nothrow_move_constructible_v<AccountFill>);
 bool FuturesAccount::fill(const Fill& report) {
   if (const auto previous = fill_index_.find(report.execution_id); previous != fill_index_.end()) {
-    if (fills_[previous->second] == report)
+    if (fills_[previous->second].execution == report)
       return false;
     throw std::invalid_argument("execution identity conflicts with an earlier report");
   }
@@ -431,7 +431,7 @@ bool FuturesAccount::fill(const Fill& report) {
       throw std::logic_error("fill exceeds closable position");
     std::erase_if(lots, [](const auto& lot) { return lot.quantity == zero; });
   }
-  auto recorded = report;
+  AccountFill recorded{report, fees - fees_};
   // Prepare capacity before publishing ledger changes, with geometric growth.
   // reserve(size + 1) reallocates the entire fill history on every execution.
   if (fills_.size() == fills_.max_size())
@@ -532,14 +532,16 @@ Json FuturesAccount::snapshot() const {
                       {"filled", item.order.filled_quantity().str()},
                       {"state", state_name(item.order.state())}});
   }
-  for (const auto& f : fills_) {
+  for (const auto& recorded : fills_) {
+    const auto& f = recorded.execution;
     const auto& r = orders_[index_of(f.order_id)].order.request();
     fills.push_back({{"id", f.execution_id},
                      {"order_id", f.order_id},
                      {"venue", r.instrument.venue},
                      {"symbol", r.instrument.symbol},
                      {"quantity", f.quantity.str()},
-                     {"price", f.price.str()}});
+                     {"price", f.price.str()},
+                     {"fee", recorded.fee.str()}});
   }
   return {{"balance", balance_.str()},
           {"equity", (balance_ + unrealized()).str()},

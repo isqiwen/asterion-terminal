@@ -17,6 +17,9 @@ import type {
   TablePage,
   TableSource,
 } from "../../src/bridge/client";
+import { TableRefreshPanel } from "./TableRefreshPanel";
+import { ResponseQuality } from "./ResponseQuality";
+import { RefreshObservation } from "./RefreshObservation";
 import { tableNames } from "./table-names";
 const t = (key: string, values?: MessageValues) =>
   translate("asterion.terminal.data-workbench", key, values);
@@ -273,6 +276,7 @@ export function MarketTables(context: TerminalContext) {
           key={`${opened.source.table}:${opened.source.source}:${opened.exchange}`}
           context={context}
           row={held(opened.source, opened.exchange)!}
+          source={opened.source}
           onClose={() => setOpened(null)}
         />
       )}
@@ -340,7 +344,7 @@ function TableUpdateForm({
   // This page's own request, or else the latest update: one started before
   // the page was opened is still worth watching.
   const updates = (snapshot?.task_service?.tasks ?? []).filter(
-    item => item.kind === "table_update",
+    item => item.kind === "table_update" && !item.table_refresh,
   );
   const task = id
     ? updates.find(item => item.id === id)
@@ -649,10 +653,12 @@ function TableUpdateForm({
 function PartitionViewer({
   context,
   row,
+  source,
   onClose,
 }: {
   context: TerminalContext;
   row: TableCoverageRow;
+  source: TableSource;
   onClose: () => void;
 }) {
   const limit = 100;
@@ -755,6 +761,59 @@ function PartitionViewer({
               content: page.revision.content.slice(0, 12),
             })}
           </p>
+          <RefreshObservation observation={page.latest_refresh_observation} />
+          <ResponseQuality review={page.response_review} />
+          <details>
+            <summary>{t("原始响应体证据")}</summary>
+            {page.response_evidence ? (
+              <>
+                <p className="subtle">
+                  {t(
+                    "这是来源接收到并通过允许结构检查的原始响应体字节，不是脱敏投影或规范化分区；不含请求、HTTP头或鉴权信息，也不能单独复现整个任务。",
+                  )}
+                </p>
+                <p>
+                  {page.response_evidence.format} · {t("接收时间")}{" "}
+                  {acquired(page.response_evidence.received_at_ns)} ·{" "}
+                  {page.response_evidence.received_at_ns} ns · {page.response_evidence.bytes} bytes
+                </p>
+                <p className="subtle">SHA-256 {page.response_evidence.sha256}</p>
+                <p className="subtle">
+                  {t("关联修订快照")} {page.response_evidence.revision_snapshot}
+                </p>
+                <p className="subtle">
+                  {t("规范化内容摘要")} {page.response_evidence.normalized_content} ·{" "}
+                  {t("规范化对象摘要")} {page.response_evidence.normalized_object}
+                </p>
+                <p className="subtle">
+                  {t("来源实现摘要")} {page.response_evidence.provider_artifact}
+                </p>
+                <div className="history-usage-table">
+                  <pre
+                    style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+                    aria-label={t("原始响应体原文")}
+                  >
+                    {page.response_evidence.body}
+                  </pre>
+                </div>
+              </>
+            ) : (
+              <p>
+                {t(
+                  "本修订未留存原始响应体：来源未提供、本期结构不支持或早期记录均可能如此；不从规范化行补造，也不把新请求挂回旧修订。",
+                )}
+              </p>
+            )}
+          </details>
+          {kind === "day" && (
+            <TableRefreshPanel
+              key={`${context.snapshot?.data?.connection_id}:${page.revision.snapshot}`}
+              context={context}
+              source={source}
+              revision={page.revision}
+              onReadCurrent={() => void fetchPage(page.revision.period, 0)}
+            />
+          )}
           <div className="history-usage-table">
             <table className="coverage-table" aria-label={t("分区数据")}>
               <thead>

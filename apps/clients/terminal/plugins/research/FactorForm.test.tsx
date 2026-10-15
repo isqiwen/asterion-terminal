@@ -130,6 +130,12 @@ test("instruments of the market-wide table are submitted together under the stor
   expect(screen.getByRole("status").textContent).toBe(
     "交易所在起始日期之后才有合约上市的，它的品种从第一个上市日起读取：GFEX 2026-09-28。",
   );
+  fireEvent.click(screen.getByLabelText("启用历史流动性筛选"));
+  fireEvent.change(screen.getByLabelText("此前连续观测数"), { target: { value: "3" } });
+  fireEvent.change(screen.getByLabelText("上一观测最低成交量（手）"), {
+    target: { value: "9007199254740993" },
+  });
+  fireEvent.change(screen.getByLabelText("上一观测最低持仓量（手）"), { target: { value: "100" } });
   fireEvent.click(start);
   await waitFor(() => expect(run).toHaveBeenCalled());
   expect(run).toHaveBeenCalledWith("factor.submit", {
@@ -149,6 +155,11 @@ test("instruments of the market-wide table are submitted together under the stor
     lookbacks: [5],
     horizon: 1,
     evaluation: { mode: "full_sample" },
+    liquidity: {
+      minimum_history: 3,
+      minimum_volume: "9007199254740993",
+      minimum_open_interest: "100",
+    },
   });
 });
 

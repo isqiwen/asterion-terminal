@@ -3,7 +3,6 @@
 #include "data/bar_fixture.hpp"
 #include "data/history_requests.hpp"
 #include "history_minutes.hpp"
-#include "history_daily.hpp"
 #include "history_tables.hpp"
 #include "data/data_fixture.hpp"
 #include <asterion/domain/history_identity.hpp>
@@ -130,9 +129,7 @@ inline Json latest_daily(const std::vector<Json>& selections) {
 // Minute bars spread evenly over `minute_days` (09:00 onwards, bar end, each
 // with its trading day), published as one download; the contract's settlement
 // 110 on `daily_days` in the market-wide daily table, which is where a dataset
-// reads it, and the contract in the contract list at ten tonnes a lot. The
-// same daily rows are also published as the contract's own daily download
-// (`daily_dataset_id`), for what still reads one.
+// reads it, and the contract in the contract list at ten tonnes a lot.
 // The contract is SHFE `product` of delivery `month`, e.g. rb2610; every daily
 // row reports `open_interest`.
 inline Json seed_history(
@@ -174,43 +171,11 @@ inline Json seed_history(
       return rows;
     }
   } minutes;
-  class Daily final : public HistoricalDailyPort {
-  public:
-    int settlement_price = 110, open_interest = 100;
-    std::string normalization;
-    HistorySemantics semantics() const override {
-      return {"tushare.fut_daily", normalization, "Asia/Shanghai", "trading_day"};
-    }
-    std::vector<std::string> days;
-    std::vector<HistoricalDailyBar> read(const HistoricalDailyRange& r, std::stop_token) override {
-      std::vector<HistoricalDailyBar> rows;
-      for (const auto& text : days) {
-        const auto day = parse_trading_date(text);
-        if (day >= r.begin && day <= r.end)
-          rows.push_back({day,
-                          dec("100"),
-                          dec("200"),
-                          dec("90"),
-                          dec("110"),
-                          dec("10000"),
-                          dec("1000000"),
-                          Decimal::parse(std::to_string(open_interest)),
-                          {},
-                          {},
-                          Decimal::parse(std::to_string(settlement_price))});
-      }
-      return rows;
-    }
-  } daily;
   if (prices.empty() || prices.size() > 200000)
     throw std::invalid_argument("invalid test prices");
   minutes.normalization = normalization;
-  daily.normalization = normalization;
-  daily.settlement_price = settlement_price;
-  daily.open_interest = open_interest;
   minutes.prices = prices;
   minutes.days = minute_days;
-  daily.days = daily_days;
   const auto contract_id = "SHFE/" + product + "/" + month;
   auto upper = product;
   std::ranges::transform(upper, upper.begin(), [](unsigned char c) { return std::toupper(c); });
@@ -229,21 +194,11 @@ inline Json seed_history(
                                                  {"begin_ns", std::to_string(begin)},
                                                  {"end_ns", std::to_string(end)},
                                                  {"requests_per_minute", 500}});
-  const auto day =
-      asterion::testing_support::daily_request({{"version", 2},
-                                                {"contract_id", contract_id},
-                                                {"source", "tushare.fut_daily"},
-                                                {"source_instrument", source_instrument},
-                                                {"begin_day", daily_days.front()},
-                                                {"end_day", daily_days.back()},
-                                                {"requests_per_minute", 500}});
-  std::string bars, settlement;
+  std::string bars;
   {
     // One process owns the table ledger: the store goes before the tables open.
     data::Store store(root, data_instance, "task");
     bars = publish_download(store, id + "-bars", minute, minutes).minute_result().manifest_sha256();
-    settlement =
-        publish_download(store, id + "-settlement", day, daily).daily_result().manifest_sha256();
   }
   const auto table =
       seed_daily_table(root, contract_id, daily_days, settlement_price, open_interest, tables);
@@ -252,7 +207,6 @@ inline Json seed_history(
           {"daily_sequence", history_files::TableStore(root / "tables")
                                  .sequence(table.at("snapshot").get<std::string>())
                                  .value()},
-          {"daily_dataset_id", settlement},
           {"begin_day", ""},
           {"end_day", ""}};
 }

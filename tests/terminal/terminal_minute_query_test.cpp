@@ -247,13 +247,14 @@ struct MinuteService {
             }
             auto* plan = response.mutable_update_plan();
             *plan->mutable_query() = request.update_plan();
-            auto* input = plan->mutable_daily();
-            input->set_source("tushare.fut_daily");
+            auto* input = plan->mutable_minutes();
+            input->set_source("tushare.ft_mins");
             input->set_source_instrument("CU2403.SHF");
             input->set_version(2);
             input->set_contract_id("SHFE/cu/2024-03");
-            input->set_begin_day("2024-03-01");
-            input->set_end_day(plan->query().end_day());
+            input->set_interval_minutes(1);
+            input->set_begin_ns(parse_shanghai_time("2024-03-01 00:00:00"));
+            input->set_end_ns(parse_shanghai_time(plan->query().end_day() + " 23:59:59"));
             input->set_requests_per_minute(plan->query().requests_per_minute());
             plan->set_id(sha256_bytes(plan->SerializeAsString()));
           } else if (request.has_minute_page()) {
@@ -276,25 +277,6 @@ struct MinuteService {
             page->set_manifest_sha256(std::string(64, 'a'));
             page->set_begin_ns(query.begin_ns() ? query.begin_ns() : 1);
             page->set_end_ns(query.end_ns() ? query.end_ns() : 2);
-          } else if (request.has_daily_page()) {
-            {
-              std::unique_lock lock(mutex);
-              ++entered;
-              condition.notify_all();
-              if (!condition.wait_for(lock, 4s, [&] { return released; }))
-                throw std::runtime_error("fixture query was not released");
-            }
-            const auto& query = request.daily_page();
-            auto* page = response.mutable_daily_page();
-            page->set_version(2);
-            page->set_task_id(wrong_identity ? "wrong" : query.dataset_id());
-            page->set_offset(query.offset());
-            page->set_limit(query.limit());
-            page->set_source("tushare.fut_daily");
-            page->set_contract_id("SHFE/cu/2024-03");
-            page->set_manifest_sha256(std::string(64, 'a'));
-            page->set_begin_day(query.begin_day().empty() ? "2023-01-01" : query.begin_day());
-            page->set_end_day(query.end_day().empty() ? "2024-01-01" : query.end_day());
           } else if (request.has_table_contracts()) {
             // Copper's March month, as the source's contract list lists it.
             const auto& query = request.table_contracts();
@@ -368,10 +350,6 @@ Json query(const std::string& id) {
                                        {"start", ""},
                                        {"end", ""},
                                        {"include_macd", true}});
-}
-Json daily_query(const std::string& id) {
-  return request("data.daily.page",
-                 {{"id", id}, {"offset", 0}, {"limit", 100}, {"start", ""}, {"end", ""}});
 }
 } // namespace
 namespace {
@@ -502,7 +480,7 @@ TEST(TerminalServiceClients, ReadPoolBackpressureLeavesTaskAndDataControlsAvaila
     EXPECT_NO_THROW(cancel.get());
     EXPECT_TRUE(client->status().get().at("online"));
     data::v1::DownloadBudgetConfiguration budget;
-    budget.set_source("tushare.fut_daily");
+    budget.set_source("tushare.ft_mins");
     budget.set_requests_per_minute(60);
     auto configure = data->configure_download_budget(budget);
     ASSERT_EQ(configure.wait_for(testing_support::bound(500ms)), std::future_status::ready);
@@ -602,75 +580,6 @@ TEST(TerminalMinuteQueries, OptionalTimeBoundsAreTypedAndDoNotRelaxOtherFields) 
   EXPECT_THROW(app.dispatch(invalid), std::invalid_argument);
 }
 
-TEST(TerminalDailyQueries, ConcurrentDailyAndMinuteReadersDoNotBlockOrPublishStalePages) {
-  MinuteService source;
-  MinuteService replacement;
-  terminal::Application app;
-  terminal::ApplicationTestAccess::attach(app, source.address(), source.data_address());
-  auto daily = daily_query("daily");
-  auto first = std::async(std::launch::async, [&] { return app.dispatch(daily); });
-  EXPECT_TRUE(source.wait(1));
-  auto minute = std::async(std::launch::async, [&] { return app.dispatch(query("minute")); });
-  EXPECT_TRUE(source.wait(2));
-  const auto before = std::chrono::steady_clock::now();
-  const auto snapshot = app.dispatch(request("runtime.snapshot"));
-  EXPECT_TRUE(snapshot.at("daily_page").is_null());
-  EXPECT_TRUE(snapshot.at("history_page").is_null());
-  EXPECT_TRUE(app.dispatch(request("market.disconnect")).contains("protocol"));
-  EXPECT_LT(std::chrono::steady_clock::now() - before, testing_support::bound(500ms));
-  source.release();
-  EXPECT_EQ(first.get().at("daily_page").at("id"), "daily");
-  EXPECT_EQ(minute.get().at("history_page").at("id"), "minute");
-  EXPECT_TRUE(app.dispatch(request("runtime.snapshot")).at("daily_page").is_null());
-  source.reset();
-  auto obsolete = std::async(std::launch::async, [&] { return app.dispatch(daily); });
-  EXPECT_TRUE(source.wait(1));
-  terminal::ApplicationTestAccess::attach(app, replacement.address(), replacement.data_address());
-  source.release();
-  try {
-    (void)obsolete.get();
-    FAIL() << "old service reply accepted";
-  } catch (const Error& error) {
-    EXPECT_EQ(error.code(), ErrorCode::conflict);
-    EXPECT_EQ(std::string(error.what()), "data service selection changed during daily query");
-  }
-  replacement.release();
-  EXPECT_EQ(app.dispatch(daily).at("daily_page").at("id"), "daily");
-  replacement.wrong_identity = true;
-  EXPECT_THROW(app.dispatch(daily), Error);
-}
-TEST(TerminalDailyQueries, DatesAndParametersAreValidatedBeforeServiceIO) {
-  MinuteService source;
-  source.release();
-  terminal::Application app;
-  terminal::ApplicationTestAccess::attach(app, source.address(), source.data_address());
-  auto daily = daily_query("daily");
-  EXPECT_EQ(app.dispatch(daily).at("daily_page").at("begin_day"), "2023-01-01");
-  daily["params"]["start"] = "2023-02-01";
-  EXPECT_EQ(app.dispatch(daily).at("daily_page").at("begin_day"), "2023-02-01");
-  // A download is read by day: there is no period to ask for.
-  for (const auto& change : std::vector<Json>{{{"period", "week"}},
-                                              {{"start", 0}},
-                                              {{"start", "2023-02-29"}},
-                                              {{"start", "2023-01-01 09:00:00"}},
-                                              {{"start", "2024-01-01"}, {"end", "2023-01-01"}},
-                                              {{"id", "../daily"}},
-                                              {{"offset", -1}},
-                                              {{"offset", 99999}},
-                                              {{"limit", 201}},
-                                              {{"unknown", true}}}) {
-    auto bad = daily;
-    bad["params"].update(change);
-    if (change.contains("id"))
-      EXPECT_THROW(app.dispatch(bad), Error);
-    else
-      EXPECT_THROW(app.dispatch(bad), std::invalid_argument);
-  }
-  {
-    std::lock_guard lock(source.mutex);
-    EXPECT_EQ(source.entered, 2);
-  }
-}
 TEST(TerminalDailyQueries, AChartOfTheDailyTableIsTypedAndOnlyItsOwnReplyIsPublished) {
   MinuteService source;
   source.release();
@@ -708,18 +617,17 @@ TEST(TerminalDailyQueries, AChartOfTheDailyTableIsTypedAndOnlyItsOwnReplyIsPubli
 }
 // A download takes its contract's code and days from the contract list of
 // the source's own data source, under the snapshot it was chosen from.
-TEST(TerminalDailyQueries, SubmissionReadsTheContractListAndSendsTypedDatesToService) {
+TEST(TerminalMinuteDownloads, SubmissionReadsTheContractListAndSendsTypedTimesToService) {
   MinuteService source;
   source.release();
   terminal::Application app;
   terminal::ApplicationTestAccess::attach(app, source.address(), source.data_address());
   const auto snapshot = std::string(64, 'b');
-  const auto listed =
-      app.dispatch(request("data.tables.contracts", {{"snapshot", snapshot},
-                                                     {"source", "tushare.fut_daily"},
-                                                     {"exchange", "SHFE"},
-                                                     {"product", "cu"}}))
-          .at("table_contracts");
+  const auto listed = app.dispatch(request("data.tables.contracts", {{"snapshot", snapshot},
+                                                                     {"source", "tushare.ft_mins"},
+                                                                     {"exchange", "SHFE"},
+                                                                     {"product", "cu"}}))
+                          .at("table_contracts");
   EXPECT_EQ(listed.at("snapshot"), snapshot);
   const auto& item = listed.at("items").at(0);
   EXPECT_EQ(item.at("code"), "SHFE/cu/2024-03");
@@ -728,17 +636,19 @@ TEST(TerminalDailyQueries, SubmissionReadsTheContractListAndSendsTypedDatesToSer
   EXPECT_EQ(item.at("trade_unit"), "tonne");
   EXPECT_EQ(item.at("quote_unit"), "CNY/tonne");
   const auto cutoff = parse_shanghai_time("2023-06-01 10:00:00");
-  auto submission = request("data.download.daily.submit", {{"id", "daily"},
-                                                           {"contract_id", "SHFE/cu/2024-04"},
-                                                           {"source", "tushare.fut_daily"},
-                                                           {"requests_per_minute", 60},
-                                                           {"token", "fixture-secret"},
-                                                           {"snapshot", snapshot},
-                                                           {"cutoff_ns", std::to_string(cutoff)}});
+  auto submission =
+      request("data.download.minutes.submit", {{"id", "minutes"},
+                                               {"contract_id", "SHFE/cu/2024-04"},
+                                               {"source", "tushare.ft_mins"},
+                                               {"interval_minutes", 5},
+                                               {"requests_per_minute", 60},
+                                               {"token", "fixture-secret"},
+                                               {"snapshot", snapshot},
+                                               {"cutoff_ns", std::to_string(cutoff + 500000000)}});
   // A month the list does not have cannot be downloaded.
   EXPECT_THROW(app.dispatch(submission), std::invalid_argument);
   submission["params"]["contract_id"] = "SHFE/cu/2024-03";
-  EXPECT_EQ(app.dispatch(request("data.download.budget.configure", {{"source", "tushare.fut_daily"},
+  EXPECT_EQ(app.dispatch(request("data.download.budget.configure", {{"source", "tushare.ft_mins"},
                                                                     {"token", "fixture-secret"},
                                                                     {"requests_per_minute", 20}}))
                 .dump()
@@ -748,13 +658,17 @@ TEST(TerminalDailyQueries, SubmissionReadsTheContractListAndSendsTypedDatesToSer
   EXPECT_EQ(result.dump().find("fixture-secret"), std::string::npos);
   {
     std::lock_guard lock(source.mutex);
-    ASSERT_TRUE(source.captured_authorization.has_daily());
+    ASSERT_TRUE(source.captured_authorization.has_minutes());
     EXPECT_EQ(source.configured_budget.credential(), "fixture-secret");
     EXPECT_EQ(source.configured_budget.requests_per_minute(), 20);
     // Submitting a task with its own pacing does not overwrite the shared budget.
-    EXPECT_EQ(source.captured_authorization.daily().requests_per_minute(), 60);
-    EXPECT_EQ(source.captured_authorization.daily().begin_day(), "2023-01-01");
-    EXPECT_EQ(source.captured_authorization.daily().end_day(), "2023-06-01");
+    const auto& minutes = source.captured_authorization.minutes();
+    EXPECT_EQ(minutes.requests_per_minute(), 60);
+    EXPECT_EQ(minutes.interval_minutes(), 5U);
+    EXPECT_EQ(minutes.source_instrument(), "CU2403.SHF");
+    // From the day it was listed to the whole second of the cutoff.
+    EXPECT_EQ(minutes.begin_ns(), parse_shanghai_time("2023-01-01 00:00:00"));
+    EXPECT_EQ(minutes.end_ns(), cutoff);
     EXPECT_EQ(source.captured_authorization.credential(), "fixture-secret");
     EXPECT_EQ(source.submitted.download_authorization(), std::string(64, 'a'));
     EXPECT_EQ(source.submitted.SerializeAsString().find("fixture-secret"), std::string::npos);
@@ -765,6 +679,7 @@ TEST(TerminalDailyQueries, SubmissionReadsTheContractListAndSendsTypedDatesToSer
                                               {{"contract_id", "CU9999.SHF"}},
                                               {{"requests_per_minute", 501}},
                                               {{"requests_per_minute", 1.5}},
+                                              {{"interval_minutes", 0}},
                                               {{"start", "2020-01-01"}}}) {
     auto bad = submission;
     bad["params"].update(change);
@@ -1310,7 +1225,7 @@ TEST(TerminalApplication, DelayedSnapshotKeepsItsRevisionWithoutReplacingANewerP
                       });
     // This owner operation follows capture of the old request, while its renderer
     // is still waiting. Publishing cannot depend on the response worker.
-    terminal::ApplicationTestAccess::verification(app, {{"source", "tushare.fut_daily"}});
+    terminal::ApplicationTestAccess::verification(app, {{"source", "tushare.ft_mins"}});
     EXPECT_EQ(old.wait_for(0s), std::future_status::timeout);
   }
   old.get();
@@ -1318,7 +1233,7 @@ TEST(TerminalApplication, DelayedSnapshotKeepsItsRevisionWithoutReplacingANewerP
   const auto delayed = parse_json(*encoded).at("result");
   const auto current = app.dispatch(request("runtime.snapshot", {{"since", std::uint64_t{0}}}));
   EXPECT_EQ(delayed.at("credential_verification"), initial.at("credential_verification"));
-  EXPECT_EQ(current.at("credential_verification").at("source"), "tushare.fut_daily");
+  EXPECT_EQ(current.at("credential_verification").at("source"), "tushare.ft_mins");
   EXPECT_GT(current.at("revision"), delayed.at("revision"));
 }
 

@@ -1,5 +1,5 @@
 #include <asterion/domain/historical_bars.hpp>
-#include <asterion/domain/daily_bars.hpp>
+#include <asterion/domain/trading_days.hpp>
 #include <stdexcept>
 #include <charconv>
 #include <iomanip>
@@ -43,11 +43,5 @@ std::int64_t trading_day_close_ns(std::string_view day) {
   return duration_cast<nanoseconds>(
              (sys_days(parse_trading_date(day)) + hours(7)).time_since_epoch())
       .count();
-}
-void HistoricalDailyBar::validate() const {
-  if (!trading_day.ok() || trading_day.year() < std::chrono::year(1970) ||
-      trading_day.year() > std::chrono::year(9999))
-    throw std::invalid_argument("invalid historical daily trading date");
-  HistoricalBar{0, open, high, low, close, volume, amount, open_interest}.validate();
 }
 } // namespace asterion

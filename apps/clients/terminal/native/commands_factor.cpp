@@ -3,8 +3,50 @@
 
 namespace asterion::terminal {
 void Application::Impl::register_factor_commands() {
+  command("factor.reuse", [this](const json& p) -> PolledTask<Response> {
+    auto required = p;
+    required.erase("lookbacks");
+    fields(required, {"id", "source_id", "source_result_digest", "experiment", "mode", "snapshot"});
+    validate_id(text(p, "id"));
+    validate_id(text(p, "source_id"));
+    if (text(p, "id") == text(p, "source_id"))
+      throw std::invalid_argument("experiment reuse requires a new task id");
+    const auto mode = text(p, "mode");
+    if (!p.at("snapshot").is_string())
+      throw std::invalid_argument("explicit experiment data choice required");
+    const auto selected = p.at("snapshot").get<std::string>();
+    if ((mode != "fixed" && mode != "snapshot") ||
+        (mode == "fixed" ? !selected.empty() : selected.empty()))
+      throw std::invalid_argument("explicit experiment data choice required");
+    if (!task_client)
+      throw std::invalid_argument("task service is not connected");
+    const auto client = task_client;
+    const auto generation = data_task_generation;
+    const auto source = co_await PollFuture{client->result(text(p, "source_id"))};
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during operation; "
+                                       "inspect the original services before retrying");
+    if (source.at("kind") != "factor" ||
+        source.at("task").at("result_digest") != p.at("source_result_digest") ||
+        source.at("experiment") != p.at("experiment"))
+      throw std::invalid_argument("experiment evidence changed; reopen its result before reuse");
+    const auto request = protocol::reuse_daily_factor(source.at("experiment"), selected,
+                                                      p.value("lookbacks", json(nullptr)));
+    task::v1::TaskDerivation derivation;
+    derivation.set_source_id(text(p, "source_id"));
+    derivation.set_source_result_digest(text(p, "source_result_digest"));
+    derivation.set_data_choice(mode);
+    derivation.set_snapshot(selected);
+    co_await PollFuture{client->submit(text(p, "id"), request, derivation)};
+    if (generation != data_task_generation)
+      throw Error(ErrorCode::conflict, "data/task service selection changed during operation; "
+                                       "inspect the original services before retrying");
+    co_return snapshot();
+  });
   command("factor.submit", [this](const json& p) -> PolledTask<Response> {
-    fields(p, {"id", "series", "factor", "lookbacks", "horizon", "evaluation"});
+    auto required = p;
+    required.erase("liquidity");
+    fields(required, {"id", "series", "factor", "lookbacks", "horizon", "evaluation"});
     validate_id(text(p, "id"));
     // A factor reads the bars this window has selected, or instruments of the
     // market-wide daily table over the ranges given for them.
@@ -48,11 +90,14 @@ void Application::Impl::register_factor_commands() {
       }
     } else
       throw std::invalid_argument("invalid factor series");
-    const auto request = protocol::encode_factor_request({{"series", std::move(sources)},
-                                                          {"factor", p.at("factor")},
-                                                          {"lookbacks", p.at("lookbacks")},
-                                                          {"horizon", p.at("horizon")},
-                                                          {"evaluation", p.at("evaluation")}});
+    json parameters{{"series", std::move(sources)},
+                    {"factor", p.at("factor")},
+                    {"lookbacks", p.at("lookbacks")},
+                    {"horizon", p.at("horizon")},
+                    {"evaluation", p.at("evaluation")}};
+    if (p.contains("liquidity"))
+      parameters["liquidity"] = p.at("liquidity");
+    const auto request = protocol::encode_factor_request(parameters);
     if (!task_client)
       throw std::invalid_argument("task service is not connected");
     const auto client = task_client;

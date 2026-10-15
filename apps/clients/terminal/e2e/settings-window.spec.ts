@@ -105,7 +105,7 @@ test("settings shows a busy command without automatically retrying or losing dra
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await page.getByRole("button", { name: "历史数据", exact: true }).click();
-  await page.getByLabel("品种代码").fill("CU");
+  await page.getByLabel("每分钟请求上限").fill("17");
   const settings = await openSettingsWindow(page);
   await settings.getByRole("button", { name: "连接与部署", exact: true }).click();
   await settings.getByRole("button", { name: "机器管理", exact: true }).click();
@@ -130,7 +130,7 @@ test("settings shows a busy command without automatically retrying or losing dra
   await expect(settings.getByRole("alert")).toContainText("已有操作正在进行，请完成后重试");
   await expect(inspect).toBeEnabled();
   expect(inspections).toBe(1);
-  await expect(page.getByLabel("品种代码")).toHaveValue("CU");
+  await expect(page.getByLabel("每分钟请求上限")).toHaveValue("17");
   await inspect.click();
   await expect(settings.getByRole("alert")).toHaveCount(0);
   expect(inspections).toBe(2);
@@ -141,11 +141,11 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
   await page.goto("/");
   await page.locator(".workspace-tabs").getByRole("button", { name: "数据", exact: true }).click();
   await page.getByRole("button", { name: "历史数据", exact: true }).click();
-  await page.getByLabel("品种代码").fill("CU");
+  await page.getByLabel("每分钟请求上限").fill("17");
   const settings = await openSettingsWindow(page);
   await settings.setViewportSize({ width: 760, height: 540 });
   await expect(settings.getByRole("heading", { name: "偏好设置", exact: true })).toBeVisible();
-  await expect(page.getByLabel("品种代码")).toHaveValue("CU");
+  await expect(page.getByLabel("每分钟请求上限")).toHaveValue("17");
   await settings.getByLabel("语言", { exact: true }).selectOption("en-US");
   await expect(page.locator("html")).toHaveAttribute("lang", "en-US");
   await settings.getByLabel("Display Density").selectOption("comfortable");
@@ -155,7 +155,7 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
   await expect(settings.getByRole("heading", { name: "About", exact: true })).toBeVisible();
   await settings.keyboard.press("Control+,");
   await expect(settings.getByRole("heading", { name: "About", exact: true })).toBeVisible();
-  await page.getByLabel("Product Code").fill("RB");
+  await page.getByLabel("Requests per minute", { exact: true }).fill("19");
   await settings.getByRole("button", { name: "Preferences", exact: true }).click();
   expect(page.context().pages()).toHaveLength(2);
   await settings.getByLabel("Language").selectOption("zh-CN");
@@ -170,7 +170,7 @@ test("settings reuses its window and preserves workbench drafts", async ({ page 
     true,
   );
   await closeSettingsWindow(settings);
-  await expect(page.getByLabel("品种代码")).toHaveValue("RB");
+  await expect(page.getByLabel("每分钟请求上限")).toHaveValue("19");
   const reopened = await openSettingsWindow(page);
   await expect(reopened.getByRole("heading", { name: "连接与部署", exact: true })).toBeVisible();
   await reopened.setViewportSize({ width: 640, height: 440 });

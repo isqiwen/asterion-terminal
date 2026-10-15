@@ -93,3 +93,26 @@ TEST(IntradayBars, ProtocolRoundTripValidatesBars) {
   encoded.mutable_bars(0)->set_high("1");
   EXPECT_THROW(protocol::decode_minutes(encoded), std::invalid_argument);
 }
+
+TEST(IntradayBars, IsolatedReplayDoesNotInflateDuplicatesOrFillMissingMinutes) {
+  IntradayBars bars;
+  const InstrumentId id{"SHFE", "br2611"};
+  bars.observe(quote(base + 1000, "100", 50));
+  bars.observe(quote(base + 20000, "103", 60));
+  bars.observe(quote(base + 20000, "103", 60)); // duplicate cumulative quote: no new volume
+  bars.observe(quote(base + 61000, "101", 70));
+  bars.observe(quote(base + 1000, "999", 50)); // earlier minute: never overwrite the current series
+  bars.interrupt(); // replay a lost event batch, as market-data/session.cpp does
+  bars.observe(quote(base + 241000, "104", 80));
+  const auto series = bars.series(id);
+  ASSERT_TRUE(series);
+  ASSERT_EQ(series->bars.size(), 3);
+  EXPECT_TRUE(series->interrupted);
+  EXPECT_EQ(series->bars[0].close.str(), "103");
+  EXPECT_EQ(series->bars[0].volume, 10);
+  EXPECT_EQ(series->bars[1].volume, 10);
+  EXPECT_EQ(series->bars[2].volume, 10);
+  EXPECT_EQ(series->bars[2].start_ms - series->bars[1].start_ms, 180000);
+  const auto decoded = protocol::decode_minutes(protocol::encode_minutes(*series));
+  EXPECT_EQ(decoded.at("bars").size(), 3);
+}

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <optional>
 #include <span>
+#include <vector>
 namespace asterion {
 // What a day-by-day equity record says about a strategy. These are statistics
 // for judging a result, not ledger values.
@@ -28,15 +29,51 @@ struct EquityDay {
 // observation in order, settlements included, and decides the drawdown.
 Performance performance(Decimal deposit, std::span<const EquityDay> days,
                         std::span<const Decimal> marks);
+// Fixed day-end account evidence. Fees are cumulative since the initial deposit.
+struct SettlementDay {
+  std::chrono::sys_days day;
+  Decimal equity, fees;
+};
+struct MonthlyContribution {
+  std::chrono::sys_days first_day, last_day;
+  std::size_t trading_days;
+  Decimal opening_equity, closing_equity, gross, fees, net;
+  // Net P&L divided by the original deposit: additive contributions to the
+  // full result's return, not compounded monthly returns or shares of profit.
+  double return_contribution;
+};
+// Group recorded trading dates by calendar month, including partial months.
+// Missing months are not filled. All positions contribute through settlement
+// equity, whether closed or still held; gross adds back fees, not slippage.
+// A backtest has no deposits/withdrawals after its initial deposit.
+std::vector<MonthlyContribution> monthly_contributions(Decimal deposit,
+                                                       std::span<const SettlementDay> days);
 // What the closed positions of a result say. A trade is one contract's
 // position from flat to flat again, however many fills built and closed it.
-// Its profit is what its sells brought in less what its buys cost, times the
-// contract multiplier: before fees, and the same however lots are paired. A
-// position still open at the end is no trade.
+// Gross profit is sells less buys times the multiplier. Net profit subtracts
+// the fees the account charged on every fill of the round. A position still
+// open at the end is no closed trade; its fees remain separate.
+struct ClosedTrade {
+  std::size_t contract;
+  Decimal gross, fees, net;
+  std::size_t first_fill, last_fill;
+};
+struct OpenTrade {
+  std::size_t contract, first_fill;
+  Decimal quantity, fees;
+};
+struct TradeContribution {
+  std::size_t contract, count;
+  Decimal gross, fees, net;
+};
 struct Trades {
-  // Closed trades, and those with a profit and with a loss; one that broke
-  // even is neither.
-  std::size_t count, winning, losing;
+  std::vector<ClosedTrade> closed;
+  std::vector<OpenTrade> open;
+  // Closed rounds only, in contract order; no unrealized P&L or open fees.
+  std::vector<TradeContribution> by_contract;
+  Decimal open_fees;
+  // Net winners and losers; a net break-even round is neither.
+  std::size_t winning, losing;
   // The average profit of the winning trades and the average loss, a negative
   // amount, of the losing ones; absent without any.
   std::optional<double> average_win, average_loss;
@@ -47,7 +84,7 @@ struct Trades {
 struct TradedFill {
   std::size_t contract; // An index into the multipliers.
   bool buy;
-  Decimal quantity, price;
+  Decimal quantity, price, fee;
 };
 // `fills` are in the order they happened. A fill that takes a position
 // through flat to the other side is refused: closing and opening are

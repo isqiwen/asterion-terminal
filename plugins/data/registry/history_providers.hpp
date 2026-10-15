@@ -1,6 +1,6 @@
 #pragma once
+#include <asterion/domain/source_response.hpp>
 #include <asterion/domain/historical_bars.hpp>
-#include <asterion/domain/daily_bars.hpp>
 #include <asterion/domain/history_tables.hpp>
 #include <memory>
 #include <functional>
@@ -35,11 +35,6 @@ using RequestBudget = std::function<void(std::stop_token)>;
 // plugin start/stop.
 std::unique_ptr<HistoricalBarPort> minutes(const std::string& source, const std::string& credential,
                                            RequestBudget budget = {});
-std::unique_ptr<HistoricalDailyPort> daily(const std::string& source, const std::string& credential,
-                                           RequestBudget budget = {});
-std::vector<HistoryListing> catalog(const std::string& source, const std::string& credential,
-                                    const std::string& venue, const std::string& product,
-                                    std::stop_token = {});
 // A market-wide table one installed plugin provides.
 struct TableSource {
   std::string table;
@@ -59,11 +54,16 @@ public:
 class TableReader {
 public:
   virtual ~TableReader() = default;
-  // Rows of one partition in the table's column order; none while the source
-  // has not published it. Any other failure means the request did not complete.
+  virtual std::optional<SourceResponse> response() const { return {}; }
+  // Rows of one partition in the table's column order; none when the source
+  // returns no rows. An empty response does not establish historical coverage
+  // or whether the source has published data. Other failures did not complete.
   virtual std::vector<TableSourceRow> read(const HistoryTable&, const std::string& venue,
                                            const std::string& period, std::stop_token) = 0;
 };
+// Source-specific retention policy; no credentials or requests are accepted.
+void validate_response(const std::string& table, const std::string& venue,
+                       const std::string& period, const SourceResponse&);
 // One reader serves every table of the plugin; reads acquire the request budget.
 std::unique_ptr<TableReader> tables(const std::string& plugin_id, const std::string& credential,
                                     RequestBudget budget = {});

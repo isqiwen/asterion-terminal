@@ -112,7 +112,9 @@ void validate_table_series(const data::v1::TableSeries& series) {
   validate_message(series);
   validate_selection(series);
   const auto reject = [] { throw std::invalid_argument("invalid table series"); };
-  if (series.version() != 1 || series.acquired_at_ns() <= 0 || series.months().empty())
+  if (series.version() != 2)
+    throw std::invalid_argument("unsupported table series version");
+  if (series.acquired_at_ns() <= 0 || series.months().empty())
     reject();
   const auto instrument = table_instrument(series.instrument());
   const auto months = table_series_months(series);
@@ -143,7 +145,9 @@ void validate_table_series(const data::v1::TableSeries& series) {
     bool any = false;
     for (const auto& close : series.months(m).closes()) {
       (void)parse_trading_date(close.trading_day());
-      if (close.close().units() <= 0 || close.trading_day() > series.end_day() ||
+      if ((close.has_volume_contracts() && close.volume_contracts() < 0) ||
+          (close.has_open_interest_contracts() && close.open_interest_contracts() < 0) ||
+          close.close().units() <= 0 || close.trading_day() > series.end_day() ||
           (any ? close.trading_day() <= *previous : close.trading_day() < first) ||
           (product && m + 1 < series.months_size() &&
            close.trading_day() >= series.schedule().rolls(m + 1).trading_day()))
@@ -159,12 +163,15 @@ std::string table_series_revision(const data::v1::TableSeries& series) {
   for (const auto& month : series.months()) {
     Json closes = Json::array();
     for (const auto& close : month.closes())
-      closes.push_back({close.trading_day(), Decimal::from_raw(close.close().units()).str()});
+      closes.push_back(
+          {close.trading_day(), Decimal::from_raw(close.close().units()).str(),
+           close.has_volume_contracts() ? Json(close.volume_contracts()) : Json(),
+           close.has_open_interest_contracts() ? Json(close.open_interest_contracts()) : Json()});
     months.push_back({{"contract", month.contract()}, {"closes", std::move(closes)}});
   }
   // Content only: where and when it was read from is evidence, not identity.
   return sha256_bytes(
-      Json{{"version", 1},
+      Json{{"version", 2},
            {"kind", "futures.table-series"},
            {"instrument", series.instrument()},
            {"months", std::move(months)},
@@ -223,6 +230,47 @@ Json decode_table_products(const data::v1::TableProducts& products) {
                     {"last_delisted", product.last_delisted()}});
   }
   return rows;
+}
+void validate_table_listed_contracts_query(const data::v1::TableListedContractsQuery& query) {
+  validate_message(query);
+  validate_history_source(query.contracts_source());
+  const auto product = table_instrument(query.exchange() + "/" + query.product());
+  if (!digest(query.snapshot()) || !product.delivery_month.empty())
+    throw std::invalid_argument("invalid listed contract query");
+}
+data::v1::TableListedContractsQuery encode_table_listed_contracts_query(const Json& value) {
+  require_fields(value, {"snapshot", "contracts_source", "exchange", "product"});
+  data::v1::TableListedContractsQuery query;
+  query.set_snapshot(value.at("snapshot").get<std::string>());
+  query.set_contracts_source(value.at("contracts_source").get<std::string>());
+  query.set_exchange(value.at("exchange").get<std::string>());
+  query.set_product(value.at("product").get<std::string>());
+  validate_table_listed_contracts_query(query);
+  return query;
+}
+Json decode_table_listed_contracts(const data::v1::TableListedContracts& catalog) {
+  validate_message(catalog);
+  const auto& query = catalog.query();
+  validate_table_listed_contracts_query(query);
+  Json items = Json::array();
+  for (const auto& item : catalog.items()) {
+    const auto identity = HistoryIdentity::parse(item.contract_id());
+    (void)parse_trading_date(item.list_date());
+    (void)parse_trading_date(item.delist_date());
+    if (identity.venue != query.exchange() || identity.product != query.product() ||
+        item.list_date() > item.delist_date())
+      throw std::invalid_argument("invalid listed contract catalog");
+    items.push_back({{"contract_id", item.contract_id()},
+                     {"name", item.name()},
+                     {"list_date", item.list_date()},
+                     {"delist_date", item.delist_date()}});
+  }
+  return {{"query",
+           {{"snapshot", query.snapshot()},
+            {"contracts_source", query.contracts_source()},
+            {"exchange", query.exchange()},
+            {"product", query.product()}}},
+          {"items", std::move(items)}};
 }
 void validate_table_daily_query(const data::v1::TableDailyQuery& query) {
   validate_message(query);

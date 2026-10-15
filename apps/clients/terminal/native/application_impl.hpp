@@ -39,7 +39,6 @@ json risk_parameters(const json& p);
 void fields_with_risk(const json& object, std::initializer_list<std::string_view> names);
 std::string text(const json& object, const char* name, bool allow_empty = false);
 unsigned short port_number(const json& p, const char* name);
-data::v1::DailyPageQuery daily_page_query(const json& params);
 data::v1::MinutePageQuery minute_page_query(const json& params);
 // Bars selected for backtests and factors: completed downloads resolved by
 // the data service, never local files.

@@ -1,5 +1,6 @@
 #pragma once
 #include <asterion/domain/history_tables.hpp>
+#include <asterion/domain/source_response.hpp>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -27,6 +28,21 @@ struct TableRevision {
   std::int64_t acquired_at_ns = 0;
   std::string provider_artifact;
   std::string snapshot; // identifies the ledger up to and including this entry
+};
+// Separate evidence of one explicit refresh attempt, not an original import.
+struct TableObservationContext {
+  std::string data_instance, task_instance, task_id;
+  std::uint32_t attempt = 0;
+  std::string provider, provider_artifact, selected_snapshot, selected_content;
+  auto operator<=>(const TableObservationContext&) const = default;
+};
+struct TableRefreshObservation {
+  std::string id, operation;
+  TableObservationContext context;
+  TableRevision revision;
+  SourceResponse response;
+  std::int64_t recorded_at_ns = 0;
+  bool unchanged = false; // receipt of this delivery, not a claim about original import
 };
 struct TableCoverage {
   TableSeries series;
@@ -61,7 +77,21 @@ public:
     bool unchanged = false; // the partition already held this content
   };
   Recorded record(const TablePartition&, const TableSeries&, const Object&,
-                  const std::string& provider_artifact, std::int64_t acquired_at_ns);
+                  const std::string& provider_artifact, std::int64_t acquired_at_ns,
+                  const std::optional<SourceResponse>& response = {});
+  // Verifies exact bytes and their hash-chain binding; absent only for
+  // revisions that were originally recorded without raw evidence.
+  std::optional<SourceResponse> response(const TableRevision&) const;
+  std::optional<TableRefreshObservation> refresh_observation(const TableObservationContext&,
+                                                             const TableSeries&,
+                                                             const std::string& exchange,
+                                                             const std::string& period) const;
+  TableRefreshObservation record_refresh_observation(const TableObservationContext&,
+                                                     const TableRevision&, const SourceResponse&,
+                                                     std::int64_t recorded_at_ns, bool unchanged);
+  std::optional<TableRefreshObservation>
+  latest_refresh_observation(const TableSeries&, const std::string& exchange,
+                             const std::string& period) const;
   // The snapshot after the last entry; empty for an empty ledger.
   std::string head() const;
   std::vector<TableCoverage> coverage() const;
@@ -87,6 +117,9 @@ public:
             const std::function<void(std::size_t, std::vector<TableCell>&)>& visit) const;
 
 private:
+  std::optional<TableRevision> revision_unlocked(const std::string& snapshot) const;
+  TableRefreshObservation observation_unlocked(const std::string& id,
+                                               const std::string& operation) const;
   std::filesystem::path object_path(const std::string& object) const;
   std::filesystem::path root_;
   mutable std::mutex mutex_;

@@ -1,6 +1,5 @@
 #pragma once
 #include <asterion/domain/historical_bars.hpp>
-#include <asterion/domain/daily_bars.hpp>
 #include <asterion/foundation/serialization.hpp>
 #include <chrono>
 #include <functional>
@@ -65,18 +64,5 @@ private:
   // trade_cal rows by venue, loaded one calendar year at a time.
   std::map<std::string, std::map<std::chrono::sys_days, bool>> calendar_;
   std::set<std::pair<std::string, int>> calendar_years_;
-};
-class Daily final : public HistoricalDailyPort {
-public:
-  explicit Daily(std::string token, Post post = https_transport());
-  HistorySemantics semantics() const override;
-  void start();
-  void stop() noexcept;
-  std::vector<HistoricalDailyBar> read(const HistoricalDailyRange&, std::stop_token) override;
-
-private:
-  std::string token_;
-  Post post_;
-  bool started_ = false;
 };
 } // namespace asterion::tushare

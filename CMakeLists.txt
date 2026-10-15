@@ -60,13 +60,13 @@ add_library(Asterion::Domain ALIAS asterion_domain)
 target_link_libraries(asterion_domain PUBLIC Asterion::Kernel)
 
 
-add_library(asterion_tushare STATIC plugins/data/tushare/tushare.cpp plugins/data/tushare/tables.cpp plugins/data/tushare/https.cpp)
+add_library(asterion_tushare STATIC plugins/data/tushare/tushare.cpp plugins/data/tushare/tables.cpp plugins/data/tushare/https.cpp plugins/data/tushare/response_evidence.cpp)
 target_include_directories(asterion_tushare PUBLIC plugins/data/tushare)
 target_link_libraries(asterion_tushare PUBLIC Asterion::Domain PRIVATE httplib::httplib)
 
 add_library(asterion_history_providers STATIC plugins/data/registry/history_providers.cpp)
 target_include_directories(asterion_history_providers PUBLIC plugins/data/registry)
-target_link_libraries(asterion_history_providers PUBLIC Asterion::Domain)
+target_link_libraries(asterion_history_providers PUBLIC Asterion::Domain PRIVATE asterion_tushare)
 add_library(asterion_tushare_plugin SHARED plugins/data/tushare/native_plugin.cpp)
 target_link_libraries(asterion_tushare_plugin PRIVATE asterion_tushare)
 set_target_properties(asterion_tushare_plugin PROPERTIES PREFIX "" OUTPUT_NAME "asterion-tushare" LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins" CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
@@ -83,11 +83,11 @@ add_library(asterion_chart_indicators STATIC plugins/tools/chart_indicators/macd
 target_include_directories(asterion_chart_indicators PUBLIC plugins/tools/chart_indicators)
 target_link_libraries(asterion_chart_indicators PUBLIC Asterion::Domain)
 
-add_library(asterion_performance STATIC plugins/tools/performance/performance.cpp)
+add_library(asterion_performance STATIC plugins/tools/performance/performance.cpp plugins/tools/performance/account_reconciliation.cpp plugins/tools/performance/portfolio_budget.cpp)
 target_include_directories(asterion_performance PUBLIC plugins/tools/performance)
-target_link_libraries(asterion_performance PUBLIC Asterion::Foundation)
+target_link_libraries(asterion_performance PUBLIC asterion_protocol)
 
-add_library(asterion_factor_analysis STATIC plugins/tools/factor_analysis/evaluation.cpp plugins/tools/factor_analysis/walk_forward.cpp)
+add_library(asterion_factor_analysis STATIC plugins/tools/factor_analysis/evaluation.cpp plugins/tools/factor_analysis/walk_forward.cpp plugins/tools/factor_analysis/universe.cpp)
 target_include_directories(asterion_factor_analysis PUBLIC plugins/tools/factor_analysis)
 target_link_libraries(asterion_factor_analysis PUBLIC Asterion::Domain)
 
@@ -136,7 +136,7 @@ target_include_directories(asterion_protocol PUBLIC protocol/include ${ASTERION_
 target_link_libraries(asterion_protocol PUBLIC Asterion::Domain protobuf::libprotobuf)
 
 # Storage plugins that persist protocol-typed records.
-add_library(asterion_history_files STATIC plugins/storage/filesystem/history_archive.cpp plugins/storage/filesystem/history_minutes.cpp plugins/storage/filesystem/history_daily.cpp plugins/storage/filesystem/history_tables.cpp)
+add_library(asterion_history_files STATIC plugins/storage/filesystem/history_archive.cpp plugins/storage/filesystem/history_minutes.cpp plugins/storage/filesystem/history_tables.cpp plugins/storage/filesystem/table_observations.cpp)
 target_include_directories(asterion_history_files PUBLIC plugins/storage/filesystem)
 target_link_libraries(asterion_history_files PUBLIC asterion_protocol PRIVATE asterion_chart_indicators asterion_bar_parquet asterion_sqlite)
 add_library(asterion_task_events STATIC plugins/storage/sqlite/task_events.cpp)
