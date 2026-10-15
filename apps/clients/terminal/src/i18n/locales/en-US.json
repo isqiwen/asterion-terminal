@@ -545,7 +545,6 @@
   "结算价、交易日和持仓量取自全市场日线表：{exchange} 已入库 {first} — {last}，按快照 {snapshot} 读取。": "Settlement prices, trading days and open interest come from the market-wide daily table: {exchange} is stored from {first} to {last}, read under snapshot {snapshot}.",
   "结算价和交易日取自全市场日线表：{exchange} 已入库 {first} — {last}，按快照 {snapshot} 读取，之后入库的数据不影响这次选择。": "Settlement prices and trading days come from the market-wide daily table: {exchange} is stored from {first} to {last}, read under snapshot {snapshot}. Data stored afterwards does not affect this selection.",
   "选择同合约、同周期的其他下载；相同记录去重，冲突记录拒绝使用。最多 32 份。": "Choose other downloads of the same contract and interval. Identical records are merged; conflicting ones are refused. At most 32.",
-  "另有 {count} 个数据集是其他版本保存的，当前版本不能使用；文件仍保留，请重新选择数据并保存。": "{count} more datasets were saved by another version and cannot be used by this one. Their files are kept; select the data again and save it.",
   "{exchange} 的日线已入库 {first} — {last}，按快照 {snapshot} 读取，之后入库的数据不影响这次选择。": "Daily bars of {exchange} are stored from {first} to {last}, read under snapshot {snapshot}. Data stored afterwards does not affect this selection.",
   "使用这个合约的日线": "Use this contract's daily bars",
   "使用这个品种的日线主力连续": "Use this product's dominant series of daily bars",

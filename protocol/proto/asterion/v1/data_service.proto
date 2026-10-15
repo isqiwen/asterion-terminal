@@ -4,83 +4,158 @@ import "asterion/v1/data.proto";
 import "asterion/v1/trading.proto";
 import "asterion/v1/node.proto";
 
-message DataId { string id = 1; }
-message DataSources { repeated HistorySource sources = 1; }
+message DataId {
+  string id = 1;
+}
+message DataSources {
+  repeated HistorySource sources = 1;
+}
 // Stable instance identity belongs to the warehouse, not to an OS process.
 message DataHealth {
-  string instance_id = 1; string process_id = 2; string version = 3;
-  uint64 uptime_ms = 4; bool initialized = 5; bool recovery_required = 6; string task_instance = 7;
+  string instance_id = 1;
+  string process_id = 2;
+  string version = 3;
+  uint64 uptime_ms = 4;
+  bool initialized = 5;
+  bool recovery_required = 6;
+  string task_instance = 7;
 }
 // Configured share for this Data instance, not an inferred provider entitlement.
-message DownloadBudgetPolicy { uint32 version = 1; string provider_id = 2; uint32 requests_per_minute = 3; }
-message DownloadBudgetConfiguration { string source = 1; string credential = 2; uint32 requests_per_minute = 3; }
-message DownloadPermit { bool granted = 1; uint32 retry_after_ms = 2; }
+message DownloadBudgetPolicy {
+  reserved 1;
+  string provider_id = 2;
+  uint32 requests_per_minute = 3;
+}
+message DownloadBudgetConfiguration {
+  string source = 1;
+  string credential = 2;
+  uint32 requests_per_minute = 3;
+}
+message DownloadPermit {
+  bool granted = 1;
+  uint32 retry_after_ms = 2;
+}
 // Captured by Data before a download is submitted to Task. Secrets never form
 // part of the public authorization or immutable task definition.
 message DownloadAuthorizationRequest {
-  string task_instance = 1; string task_id = 2; string credential = 3;
+  string task_instance = 1;
+  string task_id = 2;
+  string credential = 3;
   reserved 5;
-  oneof definition { MinuteDownload minutes = 4; TableUpdate table_update = 6; }
+  oneof definition {
+    MinuteDownload minutes = 4;
+    TableUpdate table_update = 6;
+  }
 }
 message DownloadAuthorization {
-  uint32 version = 1; string id = 2; string data_instance = 3;
-  string task_instance = 4; string task_id = 5; string provider_artifact = 6; string provider_id = 7;
+  reserved 1;
+  string id = 2;
+  string data_instance = 3;
+  string task_instance = 4;
+  string task_id = 5;
+  string provider_artifact = 6;
+  string provider_id = 7;
   reserved 9;
-  oneof definition { MinuteDownload minutes = 8; TableUpdate table_update = 10; }
+  oneof definition {
+    MinuteDownload minutes = 8;
+    TableUpdate table_update = 10;
+  }
 }
 // Private on-disk representation. Never returned through DataResponse.
 message StoredDownloadAuthorization {
-  DownloadAuthorization authorization = 1; string credential = 2;
+  DownloadAuthorization authorization = 1;
+  string credential = 2;
 }
 // A candidate has one task coordinator and one attempt. This identity survives
 // response loss; callers may confirm this same operation, never invent another.
 message DownloadIdentity {
-  string data_instance = 1; string task_instance = 2; string task_id = 3;
+  string data_instance = 1;
+  string task_instance = 2;
+  string task_id = 3;
   uint32 attempt = 4;
 }
-message DownloadCredentials { DownloadIdentity identity = 1; string authorization_id = 2; string credential = 3; }
+message DownloadCredentials {
+  DownloadIdentity identity = 1;
+  string authorization_id = 2;
+  string credential = 3;
+}
 message DownloadAllocation {
   string authorization_id = 1;
   DownloadIdentity identity = 2;
   reserved 4;
-  oneof definition { MinuteDownload minutes = 3; TableUpdate table_update = 5; }
+  oneof definition {
+    MinuteDownload minutes = 3;
+    TableUpdate table_update = 5;
+  }
 }
-message DownloadDirectory { string directory = 1; }
-message AllocatedDownload { DownloadAllocation request = 1; string directory = 2; }
-message DownloadPreparation { DownloadIdentity identity = 1; HistoryRecord record = 2; }
+message DownloadDirectory {
+  string directory = 1;
+}
+message AllocatedDownload {
+  DownloadAllocation request = 1;
+  string directory = 2;
+}
+message DownloadPreparation {
+  DownloadIdentity identity = 1;
+  HistoryRecord record = 2;
+}
 message PreparedDownload {
-  DownloadIdentity identity = 1; string candidate_digest = 2; string dataset_id = 3;
+  DownloadIdentity identity = 1;
+  string candidate_digest = 2;
+  string dataset_id = 3;
 }
 // The task coordinator persists this decision before requesting publication.
 message DownloadPublication {
-  DownloadIdentity identity = 1; string candidate_digest = 2; string publication_id = 3;
+  DownloadIdentity identity = 1;
+  string candidate_digest = 2;
+  string publication_id = 3;
 }
-message PublishedDownload { DownloadPublication decision = 1; HistoryRecord record = 2; }
+message PublishedDownload {
+  DownloadPublication decision = 1;
+  HistoryRecord record = 2;
+}
+
 // What a table update still has to read, in order. It is planned in steps,
 // each from what the step before stored: the contract lists say when an
 // exchange began, its calendar from that year on which days it was open, and
 // those days are read last.
 enum TablePlanStep {
   TABLE_PLAN_STEP_UNSPECIFIED = 0;
-  TABLE_PLAN_CONTRACTS = 1; TABLE_PLAN_CALENDAR = 2; TABLE_PLAN_DAYS = 3;
+  TABLE_PLAN_CONTRACTS = 1;
+  TABLE_PLAN_CALENDAR = 2;
+  TABLE_PLAN_DAYS = 3;
 }
-message TablePlanQuery { DownloadIdentity identity = 1; TablePlanStep step = 2; }
-message TableUpdatePlan { repeated TablePartitionKey partitions = 1; repeated string waiting = 2; }
+
+message TablePlanQuery {
+  DownloadIdentity identity = 1;
+  TablePlanStep step = 2;
+}
+message TableUpdatePlan {
+  repeated TablePartitionKey partitions = 1;
+  repeated string waiting = 2;
+}
 // One partition as the source delivered it. The reply is the revision the
 // partition now holds, or why its rows cannot be stored; a rejection is an
 // answer about the data, not a failed request.
 message TablePartitionRows {
-  DownloadIdentity identity = 1; TablePartitionKey partition = 2; repeated TableRow rows = 3;
+  DownloadIdentity identity = 1;
+  TablePartitionKey partition = 2;
+  repeated TableRow rows = 3;
   SourceResponse response = 4;
 }
 message TablePartitionReceipt {
-  oneof outcome { TableRevision revision = 1; string rejection = 2; }
+  oneof outcome {
+    TableRevision revision = 1;
+    string rejection = 2;
+  }
   bool unchanged = 3;
   TableRefreshObservation observation = 4;
 }
 message DataRequest {
   reserved 13, 18, 20, 26;
-  uint32 version = 1; string service_id = 2; string correlation_id = 3;
+  uint32 version = 1;
+  string service_id = 2;
+  string correlation_id = 3;
   oneof operation {
     asterion.protocol.v1.Empty heartbeat = 10;
     asterion.node.v1.Quiesce quiesce = 11;
@@ -122,7 +197,9 @@ message DataRequest {
 }
 message DataResponse {
   reserved 13, 18, 25;
-  uint32 version = 1; string service_id = 2; string correlation_id = 3;
+  uint32 version = 1;
+  string service_id = 2;
+  string correlation_id = 3;
   oneof result {
     asterion.protocol.v1.Error error = 10;
     DataHealth health = 11;

@@ -19,13 +19,6 @@ export function backtestComparisonReasons(
   const a = base.experiment,
     b = value.experiment;
   const reasons: string[] = [];
-  if (
-    a.version !== b.version ||
-    a.paper.version !== b.paper.version ||
-    base.result.version !== value.result.version ||
-    base.result.engine_version !== value.result.engine_version
-  )
-    reasons.push("输入、结果或引擎版本不同");
   if (a.dataset_revision !== b.dataset_revision) reasons.push("固定数据内容不同");
   const datasets = (v: BacktestEvidence) => v.experiment.paper.contracts.map(c => c.dataset);
   if (
@@ -462,10 +455,6 @@ export function BacktestComparison({
                       )
                       .join("; "),
                   ),
-                )}
-                {row(
-                  "引擎版本",
-                  loaded.map(v => v.result.engine_version),
                 )}
                 {row(
                   "固定输入摘要",

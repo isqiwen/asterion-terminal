@@ -15,6 +15,7 @@
 #include "data/history_fixture.hpp"
 #include "bar_dataset_source.hpp"
 #include "task_store.hpp"
+#include "task_host.hpp"
 #include "tasks/task_store_support.hpp"
 #include "support/timing.hpp"
 #include "verification_slots.hpp"
@@ -27,1294 +28,1516 @@
 #include <future>
 #include <gtest/gtest.h>
 using namespace asterion;
+
 namespace {
-Decimal d(const char* text) {
-  return Decimal::parse(text);
+
+Decimal d(const char* text)
+{
+    return Decimal::parse(text);
 }
+
 // One contract's bars on an account of 10000 with fixed costs, traded by a
 // long-only moving average of 1 and 3.
-backtest::v1::BacktestInput input_of(const data::v1::BarDataset& dataset) {
-  const auto manifest =
-      Json{{"version", 4},
-           {"type", "historical_paper"},
-           {"risk",
+backtest::v1::BacktestInput input_of(const data::v1::BarDataset& dataset)
+{
+    const auto manifest = Json{
+        {"type", "historical_paper"},
+        {"risk",
             {{"max_order_quantity", "100"},
-             {"max_gross_quantity", "100"},
-             {"max_working_orders", std::uint64_t{100}}}},
-           {"deposit", "10000"},
-           {"contracts",
+                {"max_gross_quantity", "100"},
+                {"max_working_orders", std::uint64_t{100}}}},
+        {"deposit", "10000"},
+        {"contracts",
             {{{"dataset", protocol::decode_bar_dataset(dataset)},
-              {"cost_schedule", test::cost_schedule({{"margin_per_lot", "100"},
-                                                     {"open_fee", "2"},
-                                                     {"close_today_fee", "3"},
-                                                     {"close_yesterday_fee", "4"},
-                                                     {"margin_rate", "0"},
-                                                     {"open_fee_rate", "0"},
-                                                     {"close_today_fee_rate", "0"},
-                                                     {"close_yesterday_fee_rate", "0"}})}}}}};
-  backtest::v1::BacktestInput result;
-  result.set_version(10);
-  *result.mutable_paper() = testing_support::paper_input(manifest);
-  *result.add_strategies() = testing_support::moving_average(1, 3);
-  result.set_dataset_revision(protocol::dataset_revision(result.paper()));
-  return result;
+                {"cost_schedule",
+                    test::cost_schedule(
+                        {{"margin_per_lot", "100"},
+                            {"open_fee", "2"},
+                            {"close_today_fee", "3"},
+                            {"close_yesterday_fee", "4"},
+                            {"margin_rate", "0"},
+                            {"open_fee_rate", "0"},
+                            {"close_today_fee_rate", "0"},
+                            {"close_yesterday_fee_rate", "0"}})}}}}
+    };
+    backtest::v1::BacktestInput result;
+    *result.mutable_paper() = testing_support::paper_input(manifest);
+    *result.add_strategies() = testing_support::moving_average(1, 3);
+    result.set_dataset_revision(protocol::dataset_revision(result.paper()));
+    return result;
 }
+
 // Compares the input's strategies as a request for them would: before a
 // holdout from `from`, or by rolling when training days are given.
-void compare(backtest::v1::BacktestInput& input, const std::string& from, unsigned training = 0,
-             unsigned validation = 0) {
-  backtest::v1::BacktestRequest request;
-  *request.mutable_strategies() = input.strategies();
-  request.set_holdout_from(from);
-  if (training) {
-    request.mutable_walk_forward()->set_training_days(training);
-    request.mutable_walk_forward()->set_validation_days(validation);
-  }
-  protocol::set_backtest_strategies(input, request);
+void compare(
+    backtest::v1::BacktestInput& input,
+    const std::string& from,
+    unsigned training = 0,
+    unsigned validation = 0)
+{
+    backtest::v1::BacktestRequest request;
+    *request.mutable_strategies() = input.strategies();
+    request.set_holdout_from(from);
+    if (training) {
+        request.mutable_walk_forward()->set_training_days(training);
+        request.mutable_walk_forward()->set_validation_days(validation);
+    }
+    protocol::set_backtest_strategies(input, request);
 }
-backtest::v1::BacktestInput input(const std::vector<int>& prices = {100, 101, 102, 101, 100, 101,
-                                                                    103},
-                                  const char* settlement = "103") {
-  std::vector<MarketBar> bars;
-  std::int64_t time = 1790298000000000000LL;
-  for (const auto price : prices) {
-    bars.push_back(test::flat("2026-09-25", time, std::to_string(price).c_str(), "10"));
-    time += 1000000000;
-  }
-  return input_of(test::dataset(bars, {{"2026-09-25", d(settlement)}}));
+
+backtest::v1::BacktestInput input(
+    const std::vector<int>& prices = {100, 101, 102, 101, 100, 101, 103},
+    const char* settlement = "103")
+{
+    std::vector<MarketBar> bars;
+    std::int64_t time = 1790298000000000000LL;
+    for (const auto price : prices) {
+        bars.push_back(test::flat("2026-09-25", time, std::to_string(price).c_str(), "10"));
+        time += 1000000000;
+    }
+    return input_of(test::dataset(bars, {{"2026-09-25", d(settlement)}}));
 }
+
 // Thirty trading days of one bar each, rising two a day with a dip every
 // third. A bar opens at the close before it and trades one below, so a limit
 // at that close fills. Two moving averages of 1 and 2 are compared on the 25
 // days before 2026-10-20: one may only be short, the other only long.
-backtest::v1::BacktestInput comparison() {
-  using namespace std::chrono;
-  std::vector<MarketBar> bars;
-  std::vector<DaySettlement> settlements;
-  int previous = 100;
-  for (int i = 0; i < 30; ++i) {
-    const int close = 100 + 2 * i - (i % 3 == 2 ? 3 : 0);
-    const auto day =
-        format_trading_date(year_month_day{sys_days{year{2026} / September / 25} + days{i}});
-    const auto text = [](int value) { return std::to_string(value); };
-    bars.push_back(test::bar(day, 1790298000000000000LL + i * 86400LL * 1000000000,
-                             text(previous).c_str(), text(std::max(previous, close)).c_str(),
-                             text(std::min(previous, close) - 1).c_str(), text(close).c_str(),
-                             "10"));
-    settlements.push_back({day, d(text(close).c_str())});
-    previous = close;
-  }
-  auto result = input_of(test::dataset(bars, settlements));
-  *result.mutable_strategies(0) = testing_support::moving_average(1, 2, "1", "short");
-  *result.add_strategies() = testing_support::moving_average(1, 2, "1", "long");
-  compare(result, "2026-10-20");
-  return result;
+backtest::v1::BacktestInput comparison()
+{
+    using namespace std::chrono;
+    std::vector<MarketBar> bars;
+    std::vector<DaySettlement> settlements;
+    int previous = 100;
+    for (int i = 0; i < 30; ++i) {
+        const int close = 100 + 2 * i - (i % 3 == 2 ? 3 : 0);
+        const auto day =
+            format_trading_date(year_month_day{sys_days{year{2026} / September / 25} + days{i}});
+        const auto text = [](int value) {
+            return std::to_string(value);
+        };
+        bars.push_back(
+            test::bar(
+                day,
+                1790298000000000000LL + i * 86400LL * 1000000000,
+                text(previous).c_str(),
+                text(std::max(previous, close)).c_str(),
+                text(std::min(previous, close) - 1).c_str(),
+                text(close).c_str(),
+                "10"));
+        settlements.push_back({day, d(text(close).c_str())});
+        previous = close;
+    }
+    auto result = input_of(test::dataset(bars, settlements));
+    *result.mutable_strategies(0) = testing_support::moving_average(1, 2, "1", "short");
+    *result.add_strategies() = testing_support::moving_average(1, 2, "1", "long");
+    compare(result, "2026-10-20");
+    return result;
 }
+
 // Sixty such days: the first thirty rise as above, the last thirty fall two a
 // day with a bump every third. The same two averages are compared by rolling,
 // twenty days of training and ten of validation: four rounds, the
 // last of which trains on falling days alone.
-backtest::v1::BacktestInput rolling_comparison() {
-  using namespace std::chrono;
-  std::vector<MarketBar> bars;
-  std::vector<DaySettlement> settlements;
-  int previous = 100;
-  for (int i = 0; i < 60; ++i) {
-    const int close =
-        i < 30 ? 100 + 2 * i - (i % 3 == 2 ? 3 : 0) : 158 - 2 * (i - 29) + (i % 3 == 2 ? 3 : 0);
-    const auto day =
-        format_trading_date(year_month_day{sys_days{year{2026} / September / 25} + days{i}});
-    const auto text = [](int value) { return std::to_string(value); };
-    bars.push_back(test::bar(day, 1790298000000000000LL + i * 86400LL * 1000000000,
-                             text(previous).c_str(), text(std::max(previous, close)).c_str(),
-                             text(std::min(previous, close) - 1).c_str(), text(close).c_str(),
-                             "10"));
-    settlements.push_back({day, d(text(close).c_str())});
-    previous = close;
-  }
-  auto result = input_of(test::dataset(bars, settlements));
-  *result.mutable_strategies(0) = testing_support::moving_average(1, 2, "1", "short");
-  *result.add_strategies() = testing_support::moving_average(1, 2, "1", "long");
-  compare(result, "", 20, 10);
-  return result;
-}
-// The bars of a factor input's one series, which is added when there is none yet.
-data::v1::BarDataset* factor_bars(factor::v1::FactorInput& input) {
-  if (input.series().empty())
-    input.add_series();
-  return input.mutable_series(0)->mutable_bars();
-}
-factor::v1::FactorInput maximum_factor_input() {
-  factor::v1::FactorInput spec;
-  spec.set_version(10);
-  spec.set_factor(protocol::v1::PRICE_MOMENTUM);
-  spec.set_full_sample(true);
-  spec.add_lookbacks(2);
-  spec.set_horizon(1);
-  auto* dataset = factor_bars(spec);
-  *dataset = input().paper().contracts(0).dataset();
-  const auto first = dataset->bars(0);
-  dataset->clear_bars();
-  for (std::size_t i = 0; i < protocol::max_dataset_bars; ++i) {
-    auto* bar = dataset->add_bars();
-    *bar = first;
-    bar->set_timestamp_ns(first.timestamp_ns() + static_cast<std::int64_t>(i) * 1000000);
-  }
-  dataset->set_revision(protocol::bar_dataset_revision(*dataset));
-  spec.set_dataset_revision(dataset->revision());
-  return spec;
-}
-} // namespace
-TEST(Backtest, HashUsesExactSnapshotAndExcludesExperimentCosts) {
-  EXPECT_EQ(sha256_bytes("abc"),
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-  auto spec = input();
-  const auto revision = spec.dataset_revision();
-  spec.mutable_paper()->mutable_deposit()->set_units(d("20000").raw());
-  EXPECT_EQ(protocol::dataset_revision(spec.paper()), revision);
-  spec.mutable_paper()
-      ->mutable_contracts(0)
-      ->mutable_dataset()
-      ->mutable_bars(0)
-      ->mutable_close()
-      ->set_units(d("99").raw());
-  EXPECT_THROW(protocol::dataset_revision(spec.paper()), std::invalid_argument);
-  EXPECT_THROW(backtest::validate(spec), std::invalid_argument);
-}
-TEST(Backtest, DeterministicNextTickExecutionFeesAndDrawdown) {
-  const auto spec = input();
-  const auto result = backtest::run(spec);
-  EXPECT_EQ(result.SerializeAsString(), backtest::run(spec).SerializeAsString());
-  ASSERT_EQ(result.account().fills_size(), 2);
-  EXPECT_EQ(result.account().fills(0).price().units(), d("101").raw());
-  EXPECT_EQ(result.account().fills(1).price().units(), d("101").raw());
-  EXPECT_EQ(result.account().fees().units(), d("5").raw());
-  EXPECT_EQ(result.account().fills(0).fee().units(), d("2").raw());
-  EXPECT_EQ(result.account().fills(1).fee().units(), d("3").raw());
-  auto missing_fee = result;
-  missing_fee.mutable_account()->mutable_fills(0)->clear_fee();
-  EXPECT_THROW(protocol::decode_backtest_result(missing_fee), std::invalid_argument);
-  auto inconsistent_fee = result;
-  inconsistent_fee.mutable_account()->mutable_fills(0)->mutable_fee()->set_units(d("1").raw());
-  EXPECT_THROW(protocol::decode_backtest_result(inconsistent_fee), std::invalid_argument);
-  auto old = result;
-  old.set_version(5);
-  EXPECT_THROW(protocol::decode_backtest_result(old), std::invalid_argument);
-  EXPECT_EQ(result.account().equity().units(), d("9995").raw());
-  EXPECT_EQ(result.max_drawdown().units(), d("12").raw());
-  ASSERT_EQ(result.equity_size(), 8);
-  EXPECT_EQ(result.equity(2).equity().units(), d("10000").raw());
-  EXPECT_EQ(result.equity(3).equity().units(), d("9998").raw());
-  // A sell limit at 101 must not fill on the following 100 trade.
-  EXPECT_EQ(result.equity(4).equity().units(), d("9988").raw());
-  EXPECT_EQ(result.account().frozen().units(), 0);
-  EXPECT_EQ(result.account().positions_size(), 0);
-}
-TEST(Backtest, DailySignalsTradeNextDayWithNewCostsAndYesterdayPositions) {
-  auto spec = input();
-  std::vector<MarketBar> bars;
-  const std::vector<std::string> days{"2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24",
-                                      "2026-09-25"};
-  const std::vector<const char*> prices{"100", "102", "104", "100", "101"};
-  for (std::size_t i = 0; i < days.size(); ++i)
-    bars.push_back(test::flat(
-        days[i], 1'790'000'000'000'000'000LL + static_cast<std::int64_t>(i) * 86'400'000'000'000LL,
-        prices[i]));
-  auto* item = spec.mutable_paper()->mutable_contracts(0);
-  *item->mutable_dataset() = test::dataset(bars, {}, test::contract(), 0);
-  auto* cost = item->mutable_cost_schedule()->add_versions();
-  *cost = item->cost_schedule().versions(0);
-  cost->set_effective_from(days[3]);
-  cost->mutable_values()->mutable_open_fee()->set_units(d("7").raw());
-  cost->mutable_values()->mutable_close_yesterday_fee()->set_units(d("9").raw());
-  spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
-  const auto result = backtest::run(spec);
-  const auto original_bytes = result.SerializeAsString();
-  for (const auto& settled : result.settlements()) {
-    ASSERT_TRUE(settled.has_occupancy());
-    ASSERT_TRUE(settled.occupancy().has_margin());
-    ASSERT_TRUE(settled.occupancy().has_available());
-    Decimal margin;
-    for (const auto& row : settled.contracts()) {
-      ASSERT_TRUE(row.has_gross_quantity());
-      ASSERT_TRUE(row.has_margin());
-      margin = margin + Decimal::from_raw(row.margin().units());
-    }
-    EXPECT_EQ(margin.raw(), settled.occupancy().margin().units());
-  }
-  auto old_result = result;
-  for (auto& settled : *old_result.mutable_settlements()) {
-    settled.clear_occupancy();
-    for (auto& row : *settled.mutable_contracts()) {
-      row.clear_gross_quantity();
-      row.clear_margin();
-    }
-  }
-  const auto old_bytes = old_result.SerializeAsString();
-  const auto old_decoded = protocol::decode_backtest_result(old_result);
-  EXPECT_FALSE(old_decoded.at("settlements").at(0).contains("occupancy"));
-  const auto old_path = settlement_exposure(spec, old_result),
-             new_path = settlement_exposure(spec, result);
-  ASSERT_EQ(old_path.size(), days.size());
-  for (std::size_t i = 0; i < days.size(); ++i) {
-    EXPECT_FALSE(old_path[i].gross_notional);
-    EXPECT_FALSE(old_path[i].margin);
-    EXPECT_FALSE(old_path[i].available);
-    EXPECT_EQ(old_path[i].net_notional, new_path[i].net_notional);
-    EXPECT_TRUE(new_path[i].gross_notional);
-  }
-  EXPECT_EQ(old_result.SerializeAsString(), old_bytes);
-  EXPECT_EQ(result.SerializeAsString(), original_bytes);
-  auto partial = result;
-  partial.mutable_settlements(3)->mutable_contracts(0)->clear_margin();
-  EXPECT_THROW(protocol::decode_backtest_result(partial), std::invalid_argument);
-  auto inconsistent = result;
-  inconsistent.mutable_settlements(3)->mutable_occupancy()->mutable_margin()->set_units(1);
-  EXPECT_THROW(protocol::decode_backtest_result(inconsistent), std::invalid_argument);
-  ASSERT_EQ(result.account().fills_size(), 2);
-  ASSERT_EQ(result.fill_days_size(), 2);
-  EXPECT_EQ(result.fill_days(0).fill_id(), result.account().fills(0).id());
-  EXPECT_EQ(result.fill_days(0).trading_day(), days[3]);
-  EXPECT_EQ(result.fill_days(1).trading_day(), days[4]);
-  auto without_dates = result;
-  without_dates.clear_fill_days();
-  const auto old_view = protocol::decode_backtest_result(without_dates);
-  EXPECT_FALSE(old_view.contains("fill_days"));
-  EXPECT_EQ(old_view.at("account"), protocol::decode_backtest_result(result).at("account"));
-  auto partial_dates = result;
-  partial_dates.mutable_fill_days()->RemoveLast();
-  EXPECT_THROW(protocol::decode_backtest_result(partial_dates), std::invalid_argument);
-  EXPECT_EQ(result.account().fills(0).price().units(), d("100").raw());
-  EXPECT_EQ(result.account().fills(1).price().units(), d("101").raw());
-  EXPECT_EQ(result.account().orders(1).offset(), protocol::v1::CLOSE_YESTERDAY);
-  EXPECT_EQ(result.settlements(2).contracts(0).position_quantity().units(), 0);
-  EXPECT_EQ(result.settlements(3).contracts(0).position_quantity().units(), d("1").raw());
-  EXPECT_EQ(result.account().fees().units(), d("16").raw());
-  EXPECT_EQ(result.account().fills(0).fee().units(), d("7").raw());
-  EXPECT_EQ(result.account().fills(1).fee().units(), d("9").raw());
-  EXPECT_EQ(result.account().equity().units(), d("9994").raw());
-  EXPECT_EQ(result.account().positions_size(), 0);
-  EXPECT_EQ(result.account().frozen().units(), 0);
-  // Submission must use the new day's margin, before it can match.
-  cost->mutable_values()->mutable_margin_per_lot()->set_units(d("20000").raw());
-  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
-}
-TEST(Backtest, RejectsUnsupportedDaysAndStopsCooperatively) {
-  auto spec = input();
-  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_bars(6)->set_trading_day(
-      "2026-09-26");
-  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_bars(6)->set_timestamp_ns(
-      spec.paper().contracts(0).dataset().bars(6).timestamp_ns() + 86400LL * 1000000000);
-  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
-      protocol::bar_dataset_revision(spec.paper().contracts(0).dataset()));
-  spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
-  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
-  spec = input();
-  spec.mutable_strategies(0)->mutable_moving_average()->set_fast(3);
-  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
-  spec = input();
-  std::stop_source stop;
-  std::size_t done = 0;
-  EXPECT_THROW(backtest::run(spec, stop.get_token(),
-                             [&](auto n, auto) {
-                               done = n;
-                               stop.request_stop();
-                             }),
-               std::runtime_error);
-  EXPECT_EQ(done, 1U);
-}
-TEST(Backtest, ShortTargetsSellToOpenAndSettleAsNegativePositions) {
-  // The close falls below its average at the third bar; the fourth lets the sell fill.
-  auto spec = input({103, 102, 101, 101, 99}, "99");
-  spec.mutable_strategies(0)->set_sides(protocol::v1::LONG_AND_SHORT);
-  const auto result = backtest::run(spec);
-  ASSERT_EQ(result.account().fills_size(), 1);
-  EXPECT_EQ(result.account().fills(0).price().units(), d("101").raw());
-  // At its target the run sends nothing more.
-  ASSERT_EQ(result.account().orders_size(), 1);
-  EXPECT_EQ(result.account().orders(0).side(), protocol::v1::SELL);
-  EXPECT_EQ(result.account().orders(0).offset(), protocol::v1::OPEN);
-  ASSERT_EQ(result.account().positions_size(), 1);
-  EXPECT_EQ(result.account().positions(0).side(), protocol::v1::SELL);
-  ASSERT_EQ(result.settlements_size(), 1);
-  EXPECT_EQ(result.settlements(0).contracts(0).position_quantity().units(), d("-1").raw());
-  // One lot sold at 101 and settled at 99, ten per point, less the opening fee.
-  EXPECT_EQ(result.account().equity().units(), d("10018").raw());
-  // The same bars with long positions only: nothing to hold.
-  spec.mutable_strategies(0)->set_sides(protocol::v1::LONG_ONLY);
-  const auto flat = backtest::run(spec);
-  EXPECT_EQ(flat.account().fills_size(), 0);
-  EXPECT_EQ(flat.account().equity().units(), d("10000").raw());
-  // No sides is not a strategy.
-  spec.mutable_strategies(0)->clear_sides();
-  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
-}
-TEST(Backtest, AReversalBuysTheShortBackBeforeItBuysToOpen) {
-  // Short from the fourth bar; the close rises above its average at the seventh.
-  auto spec = input({103, 102, 101, 101, 99, 98, 100, 100, 100}, "100");
-  spec.mutable_strategies(0)->set_sides(protocol::v1::LONG_AND_SHORT);
-  const auto result = backtest::run(spec);
-  std::vector<std::pair<protocol::v1::Side, protocol::v1::Offset>> filled;
-  for (const auto& order : result.account().orders())
-    if (order.state() == protocol::v1::FILLED)
-      filled.emplace_back(order.side(), order.offset());
-  using Filled = std::vector<std::pair<protocol::v1::Side, protocol::v1::Offset>>;
-  EXPECT_EQ(filled, (Filled{{protocol::v1::SELL, protocol::v1::OPEN},
-                            {protocol::v1::BUY, protocol::v1::CLOSE_TODAY},
-                            {protocol::v1::BUY, protocol::v1::OPEN}}));
-  ASSERT_EQ(result.account().positions_size(), 1);
-  EXPECT_EQ(result.account().positions(0).side(), protocol::v1::BUY);
-  EXPECT_EQ(result.settlements(0).contracts(0).position_quantity().units(), d("1").raw());
-  // Sold at 101 and bought back at 100, less an open, a close and another open.
-  EXPECT_EQ(result.account().equity().units(), d("10003").raw());
-}
-TEST(Backtest, ARuleOtherThanAveragesRunsThroughTheSameEngine) {
-  auto spec = input();
-  *spec.mutable_strategies(0) = protocol::encode_strategy(
-      {{"quantity", "1"}, {"sides", "both"}, {"rule", {{"kind", "momentum"}, {"lookback", 2}}}});
-  const auto result = backtest::run(spec);
-  // 102 is above the close two bars before it: bought at the next bar's 101.
-  // 100 is below 102: the long is sold at the following 101, and no later
-  // bar lets the short open.
-  ASSERT_EQ(result.account().fills_size(), 2);
-  EXPECT_EQ(result.account().fills(0).price().units(), d("101").raw());
-  EXPECT_EQ(result.account().fills(1).price().units(), d("101").raw());
-  EXPECT_EQ(result.account().positions_size(), 0);
-  EXPECT_EQ(result.account().equity().units(), d("9995").raw());
-  EXPECT_EQ(protocol::decode_backtest(spec, protocol::DatasetView::metadata)
-                .at("strategies")
-                .at(0)
-                .at("rule"),
-            Json({{"kind", "momentum"}, {"lookback", 2}}));
-  // With one price increment of slippage the same two orders fill a point
-  // worse each: bought at 102 and sold at 100, twenty less at ten a point.
-  auto slipped = spec;
-  slipped.mutable_paper()->mutable_contracts(0)->set_slippage_ticks(1);
-  const auto worse = backtest::run(slipped);
-  ASSERT_EQ(worse.account().fills_size(), 2);
-  EXPECT_EQ(worse.account().fills(0).price().units(), d("102").raw());
-  EXPECT_EQ(worse.account().fills(1).price().units(), d("100").raw());
-  EXPECT_EQ(worse.account().fees().units(), result.account().fees().units());
-  EXPECT_EQ(worse.account().equity().units(), d("9975").raw());
-  EXPECT_EQ(protocol::decode_backtest(slipped, protocol::DatasetView::metadata)
-                .at("paper")
-                .at("contracts")
-                .at(0)
-                .at("slippage_ticks"),
-            1);
-  // What a worker is told to give up is what the input fixed.
-  task::v1::Task task;
-  *task.mutable_input() = slipped;
-  EXPECT_EQ(
-      protocol::task_execution(task, std::string(64, '0')).backtest().contracts(0).slippage_ticks(),
-      1U);
-  slipped.mutable_paper()->mutable_contracts(0)->set_slippage_ticks(101);
-  EXPECT_THROW(backtest::validate(slipped), std::invalid_argument);
-  // Seven bars cannot give a rule its first target at the eighth.
-  spec.mutable_strategies(0)->mutable_momentum()->set_lookback(7);
-  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
-}
-TEST(Backtest, ARankingRuleTradesTheStrongestAndWeakestOfSeveralContracts) {
-  // Four contracts on the same six bars of one day, each settled at its last
-  // price. A lookback of 1 ranks them at the second bar and again at the
-  // fourth: first rb leads and zn trails, then the two change places. A bar
-  // trades 100 lots, of which an order may take ten.
-  const auto contract = [](const char* symbol, const char* product,
-                           std::initializer_list<const char*> prices) {
+backtest::v1::BacktestInput rolling_comparison()
+{
+    using namespace std::chrono;
     std::vector<MarketBar> bars;
-    std::int64_t time = 1790298000000000000LL;
-    for (const auto* price : prices) {
-      bars.push_back(test::flat("2026-09-25", time, price, "100"));
-      time += 1000000000;
+    std::vector<DaySettlement> settlements;
+    int previous = 100;
+    for (int i = 0; i < 60; ++i) {
+        const int close =
+            i < 30 ? 100 + 2 * i - (i % 3 == 2 ? 3 : 0) : 158 - 2 * (i - 29) + (i % 3 == 2 ? 3 : 0);
+        const auto day =
+            format_trading_date(year_month_day{sys_days{year{2026} / September / 25} + days{i}});
+        const auto text = [](int value) {
+            return std::to_string(value);
+        };
+        bars.push_back(
+            test::bar(
+                day,
+                1790298000000000000LL + i * 86400LL * 1000000000,
+                text(previous).c_str(),
+                text(std::max(previous, close)).c_str(),
+                text(std::min(previous, close) - 1).c_str(),
+                text(close).c_str(),
+                "10"));
+        settlements.push_back({day, d(text(close).c_str())});
+        previous = close;
     }
-    return test::dataset(bars, {{"2026-09-25", bars.back().close}},
-                         test::contract("SHFE", symbol, product, "2026-10"));
-  };
-  auto spec = input_of(contract("rb2610", "rb", {"100", "110", "110", "99", "99", "99"}));
-  for (const auto& dataset : {contract("hc2610", "hc", {"100", "102", "102", "102", "102", "102"}),
-                              contract("al2610", "al", {"100", "100", "100", "100", "100", "100"}),
-                              contract("zn2610", "zn", {"100", "90", "90", "99", "99", "99"})}) {
+    auto result = input_of(test::dataset(bars, settlements));
+    *result.mutable_strategies(0) = testing_support::moving_average(1, 2, "1", "short");
+    *result.add_strategies() = testing_support::moving_average(1, 2, "1", "long");
+    compare(result, "", 20, 10);
+    return result;
+}
+
+// The bars of a factor input's one series, which is added when there is none yet.
+data::v1::BarDataset* factor_bars(factor::v1::FactorInput& input)
+{
+    if (input.series().empty())
+        input.add_series();
+    return input.mutable_series(0)->mutable_bars();
+}
+
+factor::v1::FactorInput maximum_factor_input()
+{
+    factor::v1::FactorInput spec;
+    spec.set_factor(protocol::v1::PRICE_MOMENTUM);
+    spec.set_full_sample(true);
+    spec.add_lookbacks(2);
+    spec.set_horizon(1);
+    auto* dataset = factor_bars(spec);
+    *dataset = input().paper().contracts(0).dataset();
+    const auto first = dataset->bars(0);
+    dataset->clear_bars();
+    for (std::size_t i = 0; i < protocol::max_dataset_bars; ++i) {
+        auto* bar = dataset->add_bars();
+        *bar = first;
+        bar->set_timestamp_ns(first.timestamp_ns() + static_cast<std::int64_t>(i) * 1000000);
+    }
+    dataset->set_revision(protocol::bar_dataset_revision(*dataset));
+    spec.set_dataset_revision(dataset->revision());
+    return spec;
+}
+
+} // namespace
+
+TEST(Backtest, HashUsesExactSnapshotAndExcludesExperimentCosts)
+{
+    EXPECT_EQ(
+        sha256_bytes("abc"),
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    auto spec = input();
+    const auto revision = spec.dataset_revision();
+    spec.mutable_paper()->mutable_deposit()->set_units(d("20000").raw());
+    EXPECT_EQ(protocol::dataset_revision(spec.paper()), revision);
+    spec.mutable_paper()
+        ->mutable_contracts(0)
+        ->mutable_dataset()
+        ->mutable_bars(0)
+        ->mutable_close()
+        ->set_units(d("99").raw());
+    EXPECT_THROW(protocol::dataset_revision(spec.paper()), std::invalid_argument);
+    EXPECT_THROW(backtest::validate(spec), std::invalid_argument);
+}
+
+TEST(Backtest, DeterministicNextTickExecutionFeesAndDrawdown)
+{
+    const auto spec = input();
+    const auto result = backtest::run(spec);
+    EXPECT_EQ(result.SerializeAsString(), backtest::run(spec).SerializeAsString());
+    ASSERT_EQ(result.account().fills_size(), 2);
+    EXPECT_EQ(result.account().fills(0).price().units(), d("101").raw());
+    EXPECT_EQ(result.account().fills(1).price().units(), d("101").raw());
+    EXPECT_EQ(result.account().fees().units(), d("5").raw());
+    EXPECT_EQ(result.account().fills(0).fee().units(), d("2").raw());
+    EXPECT_EQ(result.account().fills(1).fee().units(), d("3").raw());
+    auto missing_fee = result;
+    missing_fee.mutable_account()->mutable_fills(0)->clear_fee();
+    EXPECT_THROW(protocol::decode_backtest_result(missing_fee), std::invalid_argument);
+    auto inconsistent_fee = result;
+    inconsistent_fee.mutable_account()->mutable_fills(0)->mutable_fee()->set_units(d("1").raw());
+    EXPECT_THROW(protocol::decode_backtest_result(inconsistent_fee), std::invalid_argument);
+    EXPECT_EQ(result.account().equity().units(), d("9995").raw());
+    EXPECT_EQ(result.max_drawdown().units(), d("12").raw());
+    ASSERT_EQ(result.equity_size(), 8);
+    EXPECT_EQ(result.equity(2).equity().units(), d("10000").raw());
+    EXPECT_EQ(result.equity(3).equity().units(), d("9998").raw());
+    // A sell limit at 101 must not fill on the following 100 trade.
+    EXPECT_EQ(result.equity(4).equity().units(), d("9988").raw());
+    EXPECT_EQ(result.account().frozen().units(), 0);
+    EXPECT_EQ(result.account().positions_size(), 0);
+}
+
+TEST(Backtest, DailySignalsTradeNextDayWithNewCostsAndYesterdayPositions)
+{
+    auto spec = input();
+    std::vector<MarketBar> bars;
+    const std::vector<std::string>
+        days{"2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25"};
+    const std::vector<const char*> prices{"100", "102", "104", "100", "101"};
+    for (std::size_t i = 0; i < days.size(); ++i)
+        bars.push_back(
+            test::flat(
+                days[i],
+                1'790'000'000'000'000'000LL + static_cast<std::int64_t>(i) * 86'400'000'000'000LL,
+                prices[i]));
+    auto* item = spec.mutable_paper()->mutable_contracts(0);
+    *item->mutable_dataset() = test::dataset(bars, {}, test::contract(), 0);
+    auto* cost = item->mutable_cost_schedule()->add_versions();
+    *cost = item->cost_schedule().versions(0);
+    cost->set_effective_from(days[3]);
+    cost->mutable_values()->mutable_open_fee()->set_units(d("7").raw());
+    cost->mutable_values()->mutable_close_yesterday_fee()->set_units(d("9").raw());
+    spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
+    const auto result = backtest::run(spec);
+    const auto original_bytes = result.SerializeAsString();
+    for (const auto& settled : result.settlements()) {
+        ASSERT_TRUE(settled.has_occupancy());
+        ASSERT_TRUE(settled.occupancy().has_margin());
+        ASSERT_TRUE(settled.occupancy().has_available());
+        Decimal margin;
+        for (const auto& row : settled.contracts()) {
+            ASSERT_TRUE(row.has_gross_quantity());
+            ASSERT_TRUE(row.has_margin());
+            margin = margin + Decimal::from_raw(row.margin().units());
+        }
+        EXPECT_EQ(margin.raw(), settled.occupancy().margin().units());
+    }
+    auto old_result = result;
+    for (auto& settled : *old_result.mutable_settlements()) {
+        settled.clear_occupancy();
+        for (auto& row : *settled.mutable_contracts()) {
+            row.clear_gross_quantity();
+            row.clear_margin();
+        }
+    }
+    const auto old_bytes = old_result.SerializeAsString();
+    const auto old_decoded = protocol::decode_backtest_result(old_result);
+    EXPECT_FALSE(old_decoded.at("settlements").at(0).contains("occupancy"));
+    const auto old_path = settlement_exposure(spec, old_result),
+               new_path = settlement_exposure(spec, result);
+    ASSERT_EQ(old_path.size(), days.size());
+    for (std::size_t i = 0; i < days.size(); ++i) {
+        EXPECT_FALSE(old_path[i].gross_notional);
+        EXPECT_FALSE(old_path[i].margin);
+        EXPECT_FALSE(old_path[i].available);
+        EXPECT_EQ(old_path[i].net_notional, new_path[i].net_notional);
+        EXPECT_TRUE(new_path[i].gross_notional);
+    }
+    EXPECT_EQ(old_result.SerializeAsString(), old_bytes);
+    EXPECT_EQ(result.SerializeAsString(), original_bytes);
+    auto partial = result;
+    partial.mutable_settlements(3)->mutable_contracts(0)->clear_margin();
+    EXPECT_THROW(protocol::decode_backtest_result(partial), std::invalid_argument);
+    auto inconsistent = result;
+    inconsistent.mutable_settlements(3)->mutable_occupancy()->mutable_margin()->set_units(1);
+    EXPECT_THROW(protocol::decode_backtest_result(inconsistent), std::invalid_argument);
+    ASSERT_EQ(result.account().fills_size(), 2);
+    ASSERT_EQ(result.fill_days_size(), 2);
+    EXPECT_EQ(result.fill_days(0).fill_id(), result.account().fills(0).id());
+    EXPECT_EQ(result.fill_days(0).trading_day(), days[3]);
+    EXPECT_EQ(result.fill_days(1).trading_day(), days[4]);
+    auto without_dates = result;
+    without_dates.clear_fill_days();
+    const auto old_view = protocol::decode_backtest_result(without_dates);
+    EXPECT_FALSE(old_view.contains("fill_days"));
+    EXPECT_EQ(old_view.at("account"), protocol::decode_backtest_result(result).at("account"));
+    auto partial_dates = result;
+    partial_dates.mutable_fill_days()->RemoveLast();
+    EXPECT_THROW(protocol::decode_backtest_result(partial_dates), std::invalid_argument);
+    EXPECT_EQ(result.account().fills(0).price().units(), d("100").raw());
+    EXPECT_EQ(result.account().fills(1).price().units(), d("101").raw());
+    EXPECT_EQ(result.account().orders(1).offset(), protocol::v1::CLOSE_YESTERDAY);
+    EXPECT_EQ(result.settlements(2).contracts(0).position_quantity().units(), 0);
+    EXPECT_EQ(result.settlements(3).contracts(0).position_quantity().units(), d("1").raw());
+    EXPECT_EQ(result.account().fees().units(), d("16").raw());
+    EXPECT_EQ(result.account().fills(0).fee().units(), d("7").raw());
+    EXPECT_EQ(result.account().fills(1).fee().units(), d("9").raw());
+    EXPECT_EQ(result.account().equity().units(), d("9994").raw());
+    EXPECT_EQ(result.account().positions_size(), 0);
+    EXPECT_EQ(result.account().frozen().units(), 0);
+    // Submission must use the new day's margin, before it can match.
+    cost->mutable_values()->mutable_margin_per_lot()->set_units(d("20000").raw());
+    EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+}
+
+TEST(Backtest, RejectsUnsupportedDaysAndStopsCooperatively)
+{
+    auto spec = input();
+    spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_bars(6)->set_trading_day(
+        "2026-09-26");
+    spec.mutable_paper()
+        ->mutable_contracts(0)
+        ->mutable_dataset()
+        ->mutable_bars(6)
+        ->set_timestamp_ns(
+            spec.paper().contracts(0).dataset().bars(6).timestamp_ns() + 86400LL * 1000000000);
+    spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
+        protocol::bar_dataset_revision(spec.paper().contracts(0).dataset()));
+    spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
+    EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+    spec = input();
+    spec.mutable_strategies(0)->mutable_moving_average()->set_fast(3);
+    EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+    spec = input();
+    std::stop_source stop;
+    std::size_t done = 0;
+    EXPECT_THROW(
+        backtest::run(
+            spec,
+            stop.get_token(),
+            [&](auto n, auto) {
+                done = n;
+                stop.request_stop();
+            }),
+        std::runtime_error);
+    EXPECT_EQ(done, 1U);
+}
+
+TEST(Backtest, ShortTargetsSellToOpenAndSettleAsNegativePositions)
+{
+    // The close falls below its average at the third bar; the fourth lets the sell fill.
+    auto spec = input({103, 102, 101, 101, 99}, "99");
+    spec.mutable_strategies(0)->set_sides(protocol::v1::LONG_AND_SHORT);
+    const auto result = backtest::run(spec);
+    ASSERT_EQ(result.account().fills_size(), 1);
+    EXPECT_EQ(result.account().fills(0).price().units(), d("101").raw());
+    // At its target the run sends nothing more.
+    ASSERT_EQ(result.account().orders_size(), 1);
+    EXPECT_EQ(result.account().orders(0).side(), protocol::v1::SELL);
+    EXPECT_EQ(result.account().orders(0).offset(), protocol::v1::OPEN);
+    ASSERT_EQ(result.account().positions_size(), 1);
+    EXPECT_EQ(result.account().positions(0).side(), protocol::v1::SELL);
+    ASSERT_EQ(result.settlements_size(), 1);
+    EXPECT_EQ(result.settlements(0).contracts(0).position_quantity().units(), d("-1").raw());
+    // One lot sold at 101 and settled at 99, ten per point, less the opening fee.
+    EXPECT_EQ(result.account().equity().units(), d("10018").raw());
+    // The same bars with long positions only: nothing to hold.
+    spec.mutable_strategies(0)->set_sides(protocol::v1::LONG_ONLY);
+    const auto flat = backtest::run(spec);
+    EXPECT_EQ(flat.account().fills_size(), 0);
+    EXPECT_EQ(flat.account().equity().units(), d("10000").raw());
+    // No sides is not a strategy.
+    spec.mutable_strategies(0)->clear_sides();
+    EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+}
+
+TEST(Backtest, AReversalBuysTheShortBackBeforeItBuysToOpen)
+{
+    // Short from the fourth bar; the close rises above its average at the seventh.
+    auto spec = input({103, 102, 101, 101, 99, 98, 100, 100, 100}, "100");
+    spec.mutable_strategies(0)->set_sides(protocol::v1::LONG_AND_SHORT);
+    const auto result = backtest::run(spec);
+    std::vector<std::pair<protocol::v1::Side, protocol::v1::Offset>> filled;
+    for (const auto& order : result.account().orders())
+        if (order.state() == protocol::v1::FILLED)
+            filled.emplace_back(order.side(), order.offset());
+    using Filled = std::vector<std::pair<protocol::v1::Side, protocol::v1::Offset>>;
+    EXPECT_EQ(
+        filled,
+        (Filled{
+            {protocol::v1::SELL, protocol::v1::OPEN},
+            {protocol::v1::BUY, protocol::v1::CLOSE_TODAY},
+            {protocol::v1::BUY, protocol::v1::OPEN}
+        }));
+    ASSERT_EQ(result.account().positions_size(), 1);
+    EXPECT_EQ(result.account().positions(0).side(), protocol::v1::BUY);
+    EXPECT_EQ(result.settlements(0).contracts(0).position_quantity().units(), d("1").raw());
+    // Sold at 101 and bought back at 100, less an open, a close and another open.
+    EXPECT_EQ(result.account().equity().units(), d("10003").raw());
+}
+
+TEST(Backtest, ARuleOtherThanAveragesRunsThroughTheSameEngine)
+{
+    auto spec = input();
+    *spec.mutable_strategies(0) = protocol::encode_strategy(
+        {{"quantity", "1"}, {"sides", "both"}, {"rule", {{"kind", "momentum"}, {"lookback", 2}}}});
+    const auto result = backtest::run(spec);
+    // 102 is above the close two bars before it: bought at the next bar's 101.
+    // 100 is below 102: the long is sold at the following 101, and no later
+    // bar lets the short open.
+    ASSERT_EQ(result.account().fills_size(), 2);
+    EXPECT_EQ(result.account().fills(0).price().units(), d("101").raw());
+    EXPECT_EQ(result.account().fills(1).price().units(), d("101").raw());
+    EXPECT_EQ(result.account().positions_size(), 0);
+    EXPECT_EQ(result.account().equity().units(), d("9995").raw());
+    EXPECT_EQ(
+        protocol::decode_backtest(spec, protocol::DatasetView::metadata)
+            .at("strategies")
+            .at(0)
+            .at("rule"),
+        Json({{"kind", "momentum"}, {"lookback", 2}}));
+    // With one price increment of slippage the same two orders fill a point
+    // worse each: bought at 102 and sold at 100, twenty less at ten a point.
+    auto slipped = spec;
+    slipped.mutable_paper()->mutable_contracts(0)->set_slippage_ticks(1);
+    const auto worse = backtest::run(slipped);
+    ASSERT_EQ(worse.account().fills_size(), 2);
+    EXPECT_EQ(worse.account().fills(0).price().units(), d("102").raw());
+    EXPECT_EQ(worse.account().fills(1).price().units(), d("100").raw());
+    EXPECT_EQ(worse.account().fees().units(), result.account().fees().units());
+    EXPECT_EQ(worse.account().equity().units(), d("9975").raw());
+    EXPECT_EQ(
+        protocol::decode_backtest(slipped, protocol::DatasetView::metadata)
+            .at("paper")
+            .at("contracts")
+            .at(0)
+            .at("slippage_ticks"),
+        1);
+    // What a worker is told to give up is what the input fixed.
+    task::v1::Task task;
+    *task.mutable_input() = slipped;
+    EXPECT_EQ(
+        protocol::task_execution(task, std::string(64, '0'))
+            .backtest()
+            .contracts(0)
+            .slippage_ticks(),
+        1U);
+    slipped.mutable_paper()->mutable_contracts(0)->set_slippage_ticks(101);
+    EXPECT_THROW(backtest::validate(slipped), std::invalid_argument);
+    // Seven bars cannot give a rule its first target at the eighth.
+    spec.mutable_strategies(0)->mutable_momentum()->set_lookback(7);
+    EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+}
+
+TEST(Backtest, ARankingRuleTradesTheStrongestAndWeakestOfSeveralContracts)
+{
+    // Four contracts on the same six bars of one day, each settled at its last
+    // price. A lookback of 1 ranks them at the second bar and again at the
+    // fourth: first rb leads and zn trails, then the two change places. A bar
+    // trades 100 lots, of which an order may take ten.
+    const auto contract =
+        [](const char* symbol, const char* product, std::initializer_list<const char*> prices) {
+            std::vector<MarketBar> bars;
+            std::int64_t time = 1790298000000000000LL;
+            for (const auto* price : prices) {
+                bars.push_back(test::flat("2026-09-25", time, price, "100"));
+                time += 1000000000;
+            }
+            return test::dataset(
+                bars,
+                {{"2026-09-25", bars.back().close}},
+                test::contract("SHFE", symbol, product, "2026-10"));
+        };
+    auto spec = input_of(contract("rb2610", "rb", {"100", "110", "110", "99", "99", "99"}));
+    for (const auto& dataset :
+        {contract("hc2610", "hc", {"100", "102", "102", "102", "102", "102"}),
+            contract("al2610", "al", {"100", "100", "100", "100", "100", "100"}),
+            contract("zn2610", "zn", {"100", "90", "90", "99", "99", "99"})}) {
+        auto* added = spec.mutable_paper()->add_contracts();
+        *added = spec.paper().contracts(0);
+        *added->mutable_dataset() = dataset;
+    }
+    spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
+    // A lot is worth ten times its price; each held contract is sized to 2500.
+    const Json rule{
+        {"kind", "cross_momentum"},
+        {"reverse", false},
+        {"lookback", 1},
+        {"rebalance", 2},
+        {"count", 1},
+        {"notional", "2500"},
+        {"volatility", 0}
+    };
+    *spec.mutable_strategies(0) = protocol::encode_strategy({{"sides", "both"}, {"rule", rule}});
+    const auto result = backtest::run(spec);
+    // Decided at the second bar and filled at the third: 2500 is nearest two
+    // lots of rb at 110 and three of zn at 90. Decided again at the fourth,
+    // when both are at 99 and three lots each: closed at the fifth bar and
+    // opened the other way at the sixth. hc and al never trade.
+    ASSERT_EQ(result.account().fills_size(), 6);
+    const auto fill_of = [](const backtest::v1::BacktestResult& run, int index) {
+        const auto& value = run.account().fills(index);
+        const auto order =
+            std::ranges::find(run.account().orders(), value.order_id(), [](const auto& item) {
+                return item.id();
+            });
+        return value.symbol() + (order->side() == protocol::v1::BUY ? " buy " : " sell ")
+            + Decimal::from_raw(value.quantity().units()).str() + " at "
+            + Decimal::from_raw(value.price().units()).str();
+    };
+    const auto fill = [&](int index) {
+        return fill_of(result, index);
+    };
+    EXPECT_EQ(fill(0), "rb2610 buy 2 at 110");
+    EXPECT_EQ(fill(1), "zn2610 sell 3 at 90");
+    EXPECT_EQ(fill(2), "rb2610 sell 2 at 99");
+    EXPECT_EQ(fill(3), "zn2610 buy 3 at 99");
+    EXPECT_EQ(fill(4), "rb2610 sell 3 at 99");
+    EXPECT_EQ(fill(5), "zn2610 buy 3 at 99");
+    // Lost 11 a unit on two lots of rb and 9 on three of zn at a multiplier of
+    // 10; eleven lots opened at 2 and five closed the same day at 3.
+    EXPECT_EQ(result.account().realized().units(), d("-490").raw());
+    EXPECT_EQ(result.account().fees().units(), d("37").raw());
+    EXPECT_EQ(result.account().equity().units(), d("9473").raw());
+    ASSERT_EQ(result.settlements(0).contracts_size(), 4);
+    EXPECT_EQ(result.settlements(0).contracts(0).position_quantity().units(), d("-3").raw());
+    EXPECT_EQ(result.settlements(0).contracts(1).position_quantity().units(), 0);
+    EXPECT_EQ(result.settlements(0).contracts(3).position_quantity().units(), d("3").raw());
+    EXPECT_EQ(
+        protocol::decode_backtest(spec, protocol::DatasetView::metadata).at("strategies").at(0),
+        (Json{{"sides", "both"}, {"rule", rule}}));
+    // Reversed, the same ranking holds the weakest long and the strongest
+    // short: rb is sold and zn bought.
+    auto reversed = spec;
+    reversed.mutable_strategies(0)->mutable_cross()->set_reversed(true);
+    const auto mirrored = backtest::run(reversed);
+    ASSERT_EQ(mirrored.account().fills_size(), 6);
+    EXPECT_EQ(fill_of(mirrored, 0), "rb2610 sell 2 at 110");
+    EXPECT_EQ(fill_of(mirrored, 1), "zn2610 buy 3 at 90");
+    // What the first lost the second gains, less the same fees.
+    EXPECT_EQ(mirrored.account().realized().units(), d("490").raw());
+    EXPECT_EQ(mirrored.account().equity().units(), d("10453").raw());
+    // A contract whose one lot is worth more than twice the notional is ranked
+    // and not held: 400 against lots of about 1000.
+    auto small = spec;
+    small.mutable_strategies(0)->mutable_cross()->mutable_notional()->set_units(d("400").raw());
+    EXPECT_EQ(backtest::run(small).account().fills_size(), 0);
+    // One contract a side of four leaves two flat; two a side needs them all,
+    // and three a side has no one to hold.
+    spec.mutable_strategies(0)->mutable_cross()->set_count(2);
+    EXPECT_NO_THROW(backtest::validate(spec));
+    spec.mutable_strategies(0)->mutable_cross()->set_count(3);
+    EXPECT_THROW(backtest::validate(spec), std::invalid_argument);
+}
+
+TEST(Backtest, ARankingRuleSizedByVolatilityHoldsLessOfWhatMovesMore)
+{
+    // rb moves by a tenth a bar where hc moves by a hundredth, at a hundredth of
+    // its price. A bar trades 1000 lots, of which an order may take a hundred.
+    const auto contract =
+        [](const char* symbol, const char* product, std::initializer_list<const char*> prices) {
+            std::vector<MarketBar> bars;
+            std::int64_t time = 1790298000000000000LL;
+            for (const auto* price : prices) {
+                bars.push_back(test::flat("2026-09-25", time, price, "1000"));
+                time += 1000000000;
+            }
+            return test::dataset(
+                bars,
+                {{"2026-09-25", bars.back().close}},
+                test::contract("SHFE", symbol, product, "2026-10"));
+        };
+    auto spec = input_of(contract("rb2610", "rb", {"100", "110", "99", "99", "99"}));
     auto* added = spec.mutable_paper()->add_contracts();
     *added = spec.paper().contracts(0);
-    *added->mutable_dataset() = dataset;
-  }
-  spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
-  // A lot is worth ten times its price; each held contract is sized to 2500.
-  const Json rule{{"kind", "cross_momentum"}, {"reverse", false}, {"lookback", 1},
-                  {"rebalance", 2},           {"count", 1},       {"notional", "2500"},
-                  {"volatility", 0}};
-  *spec.mutable_strategies(0) = protocol::encode_strategy({{"sides", "both"}, {"rule", rule}});
-  const auto result = backtest::run(spec);
-  // Decided at the second bar and filled at the third: 2500 is nearest two
-  // lots of rb at 110 and three of zn at 90. Decided again at the fourth,
-  // when both are at 99 and three lots each: closed at the fifth bar and
-  // opened the other way at the sixth. hc and al never trade.
-  ASSERT_EQ(result.account().fills_size(), 6);
-  const auto fill_of = [](const backtest::v1::BacktestResult& run, int index) {
-    const auto& value = run.account().fills(index);
-    const auto order = std::ranges::find(run.account().orders(), value.order_id(),
-                                         [](const auto& item) { return item.id(); });
-    return value.symbol() + (order->side() == protocol::v1::BUY ? " buy " : " sell ") +
-           Decimal::from_raw(value.quantity().units()).str() + " at " +
-           Decimal::from_raw(value.price().units()).str();
-  };
-  const auto fill = [&](int index) { return fill_of(result, index); };
-  EXPECT_EQ(fill(0), "rb2610 buy 2 at 110");
-  EXPECT_EQ(fill(1), "zn2610 sell 3 at 90");
-  EXPECT_EQ(fill(2), "rb2610 sell 2 at 99");
-  EXPECT_EQ(fill(3), "zn2610 buy 3 at 99");
-  EXPECT_EQ(fill(4), "rb2610 sell 3 at 99");
-  EXPECT_EQ(fill(5), "zn2610 buy 3 at 99");
-  // Lost 11 a unit on two lots of rb and 9 on three of zn at a multiplier of
-  // 10; eleven lots opened at 2 and five closed the same day at 3.
-  EXPECT_EQ(result.account().realized().units(), d("-490").raw());
-  EXPECT_EQ(result.account().fees().units(), d("37").raw());
-  EXPECT_EQ(result.account().equity().units(), d("9473").raw());
-  ASSERT_EQ(result.settlements(0).contracts_size(), 4);
-  EXPECT_EQ(result.settlements(0).contracts(0).position_quantity().units(), d("-3").raw());
-  EXPECT_EQ(result.settlements(0).contracts(1).position_quantity().units(), 0);
-  EXPECT_EQ(result.settlements(0).contracts(3).position_quantity().units(), d("3").raw());
-  EXPECT_EQ(protocol::decode_backtest(spec, protocol::DatasetView::metadata).at("strategies").at(0),
-            (Json{{"sides", "both"}, {"rule", rule}}));
-  // Reversed, the same ranking holds the weakest long and the strongest
-  // short: rb is sold and zn bought.
-  auto reversed = spec;
-  reversed.mutable_strategies(0)->mutable_cross()->set_reversed(true);
-  const auto mirrored = backtest::run(reversed);
-  ASSERT_EQ(mirrored.account().fills_size(), 6);
-  EXPECT_EQ(fill_of(mirrored, 0), "rb2610 sell 2 at 110");
-  EXPECT_EQ(fill_of(mirrored, 1), "zn2610 buy 3 at 90");
-  // What the first lost the second gains, less the same fees.
-  EXPECT_EQ(mirrored.account().realized().units(), d("490").raw());
-  EXPECT_EQ(mirrored.account().equity().units(), d("10453").raw());
-  // A contract whose one lot is worth more than twice the notional is ranked
-  // and not held: 400 against lots of about 1000.
-  auto small = spec;
-  small.mutable_strategies(0)->mutable_cross()->mutable_notional()->set_units(d("400").raw());
-  EXPECT_EQ(backtest::run(small).account().fills_size(), 0);
-  // One contract a side of four leaves two flat; two a side needs them all,
-  // and three a side has no one to hold.
-  spec.mutable_strategies(0)->mutable_cross()->set_count(2);
-  EXPECT_NO_THROW(backtest::validate(spec));
-  spec.mutable_strategies(0)->mutable_cross()->set_count(3);
-  EXPECT_THROW(backtest::validate(spec), std::invalid_argument);
+    *added->mutable_dataset() =
+        contract("hc2610", "hc", {"10000", "10100", "9999", "9999", "9999"});
+    spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
+    // Ranked once, at the third bar: the window of two returns needs it.
+    const Json rule{
+        {"kind", "cross_momentum"},
+        {"reverse", false},
+        {"lookback", 1},
+        {"rebalance", 10},
+        {"count", 1},
+        {"notional", "110000"},
+        {"volatility", 2}
+    };
+    *spec.mutable_strategies(0) = protocol::encode_strategy({{"sides", "both"}, {"rule", rule}});
+    const auto result = backtest::run(spec);
+    // hc fell less and is held long, rb short. Of the 220000 the two hold
+    // together rb takes one eleventh, 20000 against lots of 990, and hc the
+    // rest, 200000 against lots of 99990.
+    ASSERT_EQ(result.account().fills_size(), 2);
+    const auto fill = [&](int index) {
+        const auto& value = result.account().fills(index);
+        return value.symbol() + " " + Decimal::from_raw(value.quantity().units()).str() + " at "
+            + Decimal::from_raw(value.price().units()).str();
+    };
+    EXPECT_EQ(fill(0), "rb2610 20 at 99");
+    EXPECT_EQ(fill(1), "hc2610 2 at 9999");
+    // Nothing moved after the fills: only the 22 lots' opening fees are gone.
+    EXPECT_EQ(result.account().equity().units(), d("9956").raw());
+    // Split alike, the same notional asks for a hundred lots of rb and one of
+    // hc at the second bar: more than the account may hold, and refused.
+    spec.mutable_strategies(0)->mutable_cross()->set_volatility(0);
+    EXPECT_THROW(backtest::run(spec), std::invalid_argument);
 }
-TEST(Backtest, ARankingRuleSizedByVolatilityHoldsLessOfWhatMovesMore) {
-  // rb moves by a tenth a bar where hc moves by a hundredth, at a hundredth of
-  // its price. A bar trades 1000 lots, of which an order may take a hundred.
-  const auto contract = [](const char* symbol, const char* product,
-                           std::initializer_list<const char*> prices) {
-    std::vector<MarketBar> bars;
-    std::int64_t time = 1790298000000000000LL;
-    for (const auto* price : prices) {
-      bars.push_back(test::flat("2026-09-25", time, price, "1000"));
-      time += 1000000000;
-    }
-    return test::dataset(bars, {{"2026-09-25", bars.back().close}},
-                         test::contract("SHFE", symbol, product, "2026-10"));
-  };
-  auto spec = input_of(contract("rb2610", "rb", {"100", "110", "99", "99", "99"}));
-  auto* added = spec.mutable_paper()->add_contracts();
-  *added = spec.paper().contracts(0);
-  *added->mutable_dataset() = contract("hc2610", "hc", {"10000", "10100", "9999", "9999", "9999"});
-  spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
-  // Ranked once, at the third bar: the window of two returns needs it.
-  const Json rule{{"kind", "cross_momentum"}, {"reverse", false}, {"lookback", 1},
-                  {"rebalance", 10},          {"count", 1},       {"notional", "110000"},
-                  {"volatility", 2}};
-  *spec.mutable_strategies(0) = protocol::encode_strategy({{"sides", "both"}, {"rule", rule}});
-  const auto result = backtest::run(spec);
-  // hc fell less and is held long, rb short. Of the 220000 the two hold
-  // together rb takes one eleventh, 20000 against lots of 990, and hc the
-  // rest, 200000 against lots of 99990.
-  ASSERT_EQ(result.account().fills_size(), 2);
-  const auto fill = [&](int index) {
-    const auto& value = result.account().fills(index);
-    return value.symbol() + " " + Decimal::from_raw(value.quantity().units()).str() + " at " +
-           Decimal::from_raw(value.price().units()).str();
-  };
-  EXPECT_EQ(fill(0), "rb2610 20 at 99");
-  EXPECT_EQ(fill(1), "hc2610 2 at 9999");
-  // Nothing moved after the fills: only the 22 lots' opening fees are gone.
-  EXPECT_EQ(result.account().equity().units(), d("9956").raw());
-  // Split alike, the same notional asks for a hundred lots of rb and one of
-  // hc at the second bar: more than the account may hold, and refused.
-  spec.mutable_strategies(0)->mutable_cross()->set_volatility(0);
-  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
-}
-TEST(Backtest, SeveralStrategiesAreComparedOnTheDaysBeforeTheHoldoutAlone) {
-  const auto spec = comparison();
-  EXPECT_EQ(spec.holdout_day(), "2026-10-20");
-  std::size_t reported = 0, units = 0;
-  const auto result = backtest::run(spec, {}, [&](auto done, auto total) {
-    EXPECT_GE(done, reported);
-    reported = done;
-    units = total;
-  });
-  // Every bar once, and the 25 development bars once more for each strategy.
-  EXPECT_EQ(units, 30U + 2 * 25);
-  EXPECT_EQ(reported, units);
-  EXPECT_EQ(protocol::backtest_work_units(spec), units);
-  // In a rising market selling the dips loses and holding the rises gains:
-  // the long-only average has the higher ratio and is replayed over all
-  // thirty days.
-  ASSERT_EQ(result.candidates_size(), 2);
-  EXPECT_LT(result.candidates(0).total_return(), 0);
-  EXPECT_GT(result.candidates(1).total_return(), 0);
-  EXPECT_GT(result.candidates(1).sharpe(), result.candidates(0).sharpe());
-  EXPECT_EQ(result.selected(), 1U);
-  auto alone = spec;
-  alone.mutable_strategies()->DeleteSubrange(0, 1);
-  alone.clear_holdout_day();
-  const auto single = backtest::run(alone);
-  EXPECT_EQ(result.account().SerializeAsString(), single.account().SerializeAsString());
-  EXPECT_EQ(result.settlements_size(), 30);
-  EXPECT_EQ(single.candidates_size(), 0);
-  for (int i = 0; i < result.equity_size(); ++i)
-    ASSERT_EQ(result.equity(i).equity().units(), single.equity(i).equity().units());
-  // What was recorded of a strategy is what its first 25 days alone show.
-  std::vector<EquityDay> days;
-  for (int i = 0; i < 25; ++i)
-    days.push_back({std::chrono::sys_days(parse_trading_date(single.settlements(i).trading_day())),
-                    Decimal::from_raw(single.settlements(i).equity().units())});
-  std::vector<Decimal> marks;
-  for (int i = 0; i < 50; ++i) // a mark and a settlement for each day
-    marks.push_back(Decimal::from_raw(single.equity(i).equity().units()));
-  const auto record = performance(d("10000"), days, marks);
-  EXPECT_DOUBLE_EQ(result.candidates(1).total_return(), record.total_return);
-  EXPECT_DOUBLE_EQ(result.candidates(1).sharpe(), *record.sharpe);
-  EXPECT_DOUBLE_EQ(result.candidates(1).max_drawdown(), record.max_drawdown);
 
-  // The holdout decides nothing: other prices from its first day on leave
-  // the scores and the choice as they were.
-  auto changed = spec;
-  auto* dataset = changed.mutable_paper()->mutable_contracts(0)->mutable_dataset();
-  for (int i = 25; i < 30; ++i) {
-    auto* bar = dataset->mutable_bars(i);
-    for (auto* price :
-         {bar->mutable_open(), bar->mutable_high(), bar->mutable_low(), bar->mutable_close()})
-      price->set_units(d(std::to_string(90 - i).c_str()).raw());
-    dataset->mutable_days(i)->mutable_settlement_price()->set_units(
-        d(std::to_string(90 - i).c_str()).raw());
-  }
-  dataset->set_revision(protocol::bar_dataset_revision(*dataset));
-  changed.set_dataset_revision(protocol::dataset_revision(changed.paper()));
-  const auto other = backtest::run(changed);
-  EXPECT_EQ(other.selected(), result.selected());
-  for (int i = 0; i < 2; ++i)
-    EXPECT_EQ(other.candidates(i).SerializeAsString(), result.candidates(i).SerializeAsString());
-  EXPECT_NE(other.account().equity().units(), result.account().equity().units());
-}
-TEST(Backtest, ARollingComparisonFollowsEachRoundsBestStrategyOverTheDaysAfterIt) {
-  const auto spec = rolling_comparison();
-  ASSERT_TRUE(spec.has_walk_forward());
-  std::size_t reported = 0, units = 0;
-  const auto result = backtest::run(spec, {}, [&](auto done, auto total) {
-    reported = done;
-    units = total;
-  });
-  // Each strategy alone over every bar, and the account once more.
-  EXPECT_EQ(units, 3U * 60);
-  EXPECT_EQ(reported, units);
-  EXPECT_EQ(protocol::backtest_work_units(spec), units);
-  ASSERT_EQ(result.folds_size(), 4);
-  EXPECT_EQ(result.candidates_size(), 0);
-  // Each strategy as it trades alone, to compare the rounds with.
-  std::vector<backtest::v1::BacktestResult> alone;
-  for (const auto& strategy : spec.strategies()) {
-    auto single = spec;
-    single.clear_walk_forward();
-    single.clear_strategies();
-    *single.add_strategies() = strategy;
-    alone.push_back(backtest::run(single));
-  }
-  const auto position = [](const backtest::v1::BacktestResult& run, int day) {
-    return run.settlements(day).contracts(0).position_quantity().units();
-  };
-  // Nothing is held before the first round has anything to follow.
-  for (int day = 0; day < 20; ++day) {
-    EXPECT_EQ(position(result, day), 0) << day;
-    EXPECT_EQ(result.settlements(day).equity().units(), d("10000").raw()) << day;
-  }
-  for (int round = 0; round < 4; ++round) {
-    const auto& fold = result.folds(round);
-    const int first = 20 + 10 * round;
-    EXPECT_EQ(fold.first_day(), result.settlements(first).trading_day());
-    ASSERT_EQ(fold.candidates_size(), 2);
-    // What a round records of a strategy is what its twenty training days
-    // alone show of that strategy trading alone.
-    std::optional<unsigned> best;
-    for (int k = 0; k < 2; ++k) {
-      std::vector<EquityDay> days;
-      for (int day = first - 20; day < first; ++day)
+TEST(Backtest, SeveralStrategiesAreComparedOnTheDaysBeforeTheHoldoutAlone)
+{
+    const auto spec = comparison();
+    EXPECT_EQ(spec.holdout_day(), "2026-10-20");
+    std::size_t reported = 0, units = 0;
+    const auto result = backtest::run(spec, {}, [&](auto done, auto total) {
+        EXPECT_GE(done, reported);
+        reported = done;
+        units = total;
+    });
+    // Every bar once, and the 25 development bars once more for each strategy.
+    EXPECT_EQ(units, 30U + 2 * 25);
+    EXPECT_EQ(reported, units);
+    EXPECT_EQ(protocol::backtest_work_units(spec), units);
+    // In a rising market selling the dips loses and holding the rises gains:
+    // the long-only average has the higher ratio and is replayed over all
+    // thirty days.
+    ASSERT_EQ(result.candidates_size(), 2);
+    EXPECT_LT(result.candidates(0).total_return(), 0);
+    EXPECT_GT(result.candidates(1).total_return(), 0);
+    EXPECT_GT(result.candidates(1).sharpe(), result.candidates(0).sharpe());
+    EXPECT_EQ(result.selected(), 1U);
+    auto alone = spec;
+    alone.mutable_strategies()->DeleteSubrange(0, 1);
+    alone.clear_holdout_day();
+    const auto single = backtest::run(alone);
+    EXPECT_EQ(result.account().SerializeAsString(), single.account().SerializeAsString());
+    EXPECT_EQ(result.settlements_size(), 30);
+    EXPECT_EQ(single.candidates_size(), 0);
+    for (int i = 0; i < result.equity_size(); ++i)
+        ASSERT_EQ(result.equity(i).equity().units(), single.equity(i).equity().units());
+    // What was recorded of a strategy is what its first 25 days alone show.
+    std::vector<EquityDay> days;
+    for (int i = 0; i < 25; ++i)
         days.push_back(
-            {std::chrono::sys_days(parse_trading_date(alone[k].settlements(day).trading_day())),
-             Decimal::from_raw(alone[k].settlements(day).equity().units())});
-      std::vector<Decimal> marks; // a mark and a settlement for each day
-      for (int i = 2 * (first - 20); i < 2 * first; ++i)
-        marks.push_back(Decimal::from_raw(alone[k].equity(i).equity().units()));
-      const auto base = first == 20
-                            ? d("10000")
-                            : Decimal::from_raw(alone[k].settlements(first - 21).equity().units());
-      const auto record = performance(base, days, marks);
-      EXPECT_DOUBLE_EQ(fold.candidates(k).total_return(), record.total_return) << round << k;
-      ASSERT_EQ(fold.candidates(k).has_sharpe(), record.sharpe.has_value()) << round << k;
-      if (record.sharpe) {
-        EXPECT_DOUBLE_EQ(fold.candidates(k).sharpe(), *record.sharpe) << round << k;
-        if (!best || *record.sharpe > fold.candidates(static_cast<int>(*best)).sharpe())
-          best = static_cast<unsigned>(k);
-      }
-    }
-    ASSERT_TRUE(best);
-    ASSERT_TRUE(fold.has_selected());
-    EXPECT_EQ(fold.selected(), *best);
-    // Through its validation days the account holds what that strategy holds:
-    // the target it had the evening before fills on the first of them.
-    for (int day = first; day < first + 10; ++day)
-      EXPECT_EQ(position(result, day), position(alone[fold.selected()], day)) << day;
-  }
-  // The rising days favour the long average and the falling ones the short.
-  EXPECT_EQ(result.folds(0).selected(), 1U);
-  EXPECT_EQ(result.folds(3).selected(), 0U);
+            {std::chrono::sys_days(parse_trading_date(single.settlements(i).trading_day())),
+                Decimal::from_raw(single.settlements(i).equity().units())});
+    std::vector<Decimal> marks;
+    for (int i = 0; i < 50; ++i) // a mark and a settlement for each day
+        marks.push_back(Decimal::from_raw(single.equity(i).equity().units()));
+    const auto record = performance(d("10000"), days, marks);
+    EXPECT_DOUBLE_EQ(result.candidates(1).total_return(), record.total_return);
+    EXPECT_DOUBLE_EQ(result.candidates(1).sharpe(), *record.sharpe);
+    EXPECT_DOUBLE_EQ(result.candidates(1).max_drawdown(), record.max_drawdown);
 
-  // A round reads nothing from its validation days on: other prices from the
-  // last round's first day leave every round as it was.
-  auto changed = spec;
-  auto* dataset = changed.mutable_paper()->mutable_contracts(0)->mutable_dataset();
-  for (int i = 50; i < 60; ++i) {
-    auto* bar = dataset->mutable_bars(i);
-    const auto price = d(std::to_string(300 + i).c_str()).raw();
-    for (auto* field :
-         {bar->mutable_open(), bar->mutable_high(), bar->mutable_low(), bar->mutable_close()})
-      field->set_units(price);
-    dataset->mutable_days(i)->mutable_settlement_price()->set_units(price);
-  }
-  dataset->set_revision(protocol::bar_dataset_revision(*dataset));
-  changed.set_dataset_revision(protocol::dataset_revision(changed.paper()));
-  const auto other = backtest::run(changed);
-  for (int round = 0; round < 4; ++round)
-    EXPECT_EQ(other.folds(round).SerializeAsString(), result.folds(round).SerializeAsString());
-  EXPECT_NE(other.account().equity().units(), result.account().equity().units());
+    // The holdout decides nothing: other prices from its first day on leave
+    // the scores and the choice as they were.
+    auto changed = spec;
+    auto* dataset = changed.mutable_paper()->mutable_contracts(0)->mutable_dataset();
+    for (int i = 25; i < 30; ++i) {
+        auto* bar = dataset->mutable_bars(i);
+        for (auto* price :
+            {bar->mutable_open(), bar->mutable_high(), bar->mutable_low(), bar->mutable_close()})
+            price->set_units(d(std::to_string(90 - i).c_str()).raw());
+        dataset->mutable_days(i)->mutable_settlement_price()->set_units(
+            d(std::to_string(90 - i).c_str()).raw());
+    }
+    dataset->set_revision(protocol::bar_dataset_revision(*dataset));
+    changed.set_dataset_revision(protocol::dataset_revision(changed.paper()));
+    const auto other = backtest::run(changed);
+    EXPECT_EQ(other.selected(), result.selected());
+    for (int i = 0; i < 2; ++i)
+        EXPECT_EQ(
+            other.candidates(i).SerializeAsString(),
+            result.candidates(i).SerializeAsString());
+    EXPECT_NE(other.account().equity().units(), result.account().equity().units());
 }
-TEST(Backtest, ARollingComparisonNeedsTwentyTrainingDaysAndDaysAfterThem) {
-  const auto spec = rolling_comparison();
-  EXPECT_NO_THROW(backtest::validate(spec));
-  const auto refused = [&](unsigned training, unsigned validation) {
+
+TEST(Backtest, ARollingComparisonFollowsEachRoundsBestStrategyOverTheDaysAfterIt)
+{
+    const auto spec = rolling_comparison();
+    ASSERT_TRUE(spec.has_walk_forward());
+    std::size_t reported = 0, units = 0;
+    const auto result = backtest::run(spec, {}, [&](auto done, auto total) {
+        reported = done;
+        units = total;
+    });
+    // Each strategy alone over every bar, and the account once more.
+    EXPECT_EQ(units, 3U * 60);
+    EXPECT_EQ(reported, units);
+    EXPECT_EQ(protocol::backtest_work_units(spec), units);
+    ASSERT_EQ(result.folds_size(), 4);
+    EXPECT_EQ(result.candidates_size(), 0);
+    // Each strategy as it trades alone, to compare the rounds with.
+    std::vector<backtest::v1::BacktestResult> alone;
+    for (const auto& strategy : spec.strategies()) {
+        auto single = spec;
+        single.clear_walk_forward();
+        single.clear_strategies();
+        *single.add_strategies() = strategy;
+        alone.push_back(backtest::run(single));
+    }
+    const auto position = [](const backtest::v1::BacktestResult& run, int day) {
+        return run.settlements(day).contracts(0).position_quantity().units();
+    };
+    // Nothing is held before the first round has anything to follow.
+    for (int day = 0; day < 20; ++day) {
+        EXPECT_EQ(position(result, day), 0) << day;
+        EXPECT_EQ(result.settlements(day).equity().units(), d("10000").raw()) << day;
+    }
+    for (int round = 0; round < 4; ++round) {
+        const auto& fold = result.folds(round);
+        const int first = 20 + 10 * round;
+        EXPECT_EQ(fold.first_day(), result.settlements(first).trading_day());
+        ASSERT_EQ(fold.candidates_size(), 2);
+        // What a round records of a strategy is what its twenty training days
+        // alone show of that strategy trading alone.
+        std::optional<unsigned> best;
+        for (int k = 0; k < 2; ++k) {
+            std::vector<EquityDay> days;
+            for (int day = first - 20; day < first; ++day)
+                days.push_back(
+                    {std::chrono::sys_days(
+                         parse_trading_date(alone[k].settlements(day).trading_day())),
+                        Decimal::from_raw(alone[k].settlements(day).equity().units())});
+            std::vector<Decimal> marks; // a mark and a settlement for each day
+            for (int i = 2 * (first - 20); i < 2 * first; ++i)
+                marks.push_back(Decimal::from_raw(alone[k].equity(i).equity().units()));
+            const auto base = first == 20
+                ? d("10000")
+                : Decimal::from_raw(alone[k].settlements(first - 21).equity().units());
+            const auto record = performance(base, days, marks);
+            EXPECT_DOUBLE_EQ(fold.candidates(k).total_return(), record.total_return) << round << k;
+            ASSERT_EQ(fold.candidates(k).has_sharpe(), record.sharpe.has_value()) << round << k;
+            if (record.sharpe) {
+                EXPECT_DOUBLE_EQ(fold.candidates(k).sharpe(), *record.sharpe) << round << k;
+                if (!best || *record.sharpe > fold.candidates(static_cast<int>(*best)).sharpe())
+                    best = static_cast<unsigned>(k);
+            }
+        }
+        ASSERT_TRUE(best);
+        ASSERT_TRUE(fold.has_selected());
+        EXPECT_EQ(fold.selected(), *best);
+        // Through its validation days the account holds what that strategy holds:
+        // the target it had the evening before fills on the first of them.
+        for (int day = first; day < first + 10; ++day)
+            EXPECT_EQ(position(result, day), position(alone[fold.selected()], day)) << day;
+    }
+    // The rising days favour the long average and the falling ones the short.
+    EXPECT_EQ(result.folds(0).selected(), 1U);
+    EXPECT_EQ(result.folds(3).selected(), 0U);
+
+    // A round reads nothing from its validation days on: other prices from the
+    // last round's first day leave every round as it was.
+    auto changed = spec;
+    auto* dataset = changed.mutable_paper()->mutable_contracts(0)->mutable_dataset();
+    for (int i = 50; i < 60; ++i) {
+        auto* bar = dataset->mutable_bars(i);
+        const auto price = d(std::to_string(300 + i).c_str()).raw();
+        for (auto* field :
+            {bar->mutable_open(), bar->mutable_high(), bar->mutable_low(), bar->mutable_close()})
+            field->set_units(price);
+        dataset->mutable_days(i)->mutable_settlement_price()->set_units(price);
+    }
+    dataset->set_revision(protocol::bar_dataset_revision(*dataset));
+    changed.set_dataset_revision(protocol::dataset_revision(changed.paper()));
+    const auto other = backtest::run(changed);
+    for (int round = 0; round < 4; ++round)
+        EXPECT_EQ(other.folds(round).SerializeAsString(), result.folds(round).SerializeAsString());
+    EXPECT_NE(other.account().equity().units(), result.account().equity().units());
+}
+
+TEST(Backtest, ARollingComparisonNeedsTwentyTrainingDaysAndDaysAfterThem)
+{
+    const auto spec = rolling_comparison();
+    EXPECT_NO_THROW(backtest::validate(spec));
+    const auto refused = [&](unsigned training, unsigned validation) {
+        auto invalid = spec;
+        invalid.mutable_walk_forward()->set_training_days(training);
+        invalid.mutable_walk_forward()->set_validation_days(validation);
+        EXPECT_THROW(backtest::validate(invalid), std::invalid_argument)
+            << training << " " << validation;
+    };
+    refused(19, 10); // too few days for a yearly ratio
+    refused(20, 0);
+    refused(60, 10); // no day left to trade
+    // The last round takes what remains: 59 training days leave one.
+    auto last = spec;
+    last.mutable_walk_forward()->set_training_days(59);
+    EXPECT_NO_THROW(backtest::validate(last));
+    EXPECT_EQ(protocol::backtest_folds(last).size(), 1U);
+    auto uneven = spec;
+    uneven.mutable_walk_forward()->set_validation_days(7);
+    const auto rounds = protocol::backtest_folds(uneven);
+    ASSERT_EQ(rounds.size(), 6U); // 20-26, 27-33, 34-40, 41-47, 48-54, 55-59
+    EXPECT_EQ(rounds.back().first, 55U);
+    EXPECT_EQ(rounds.back().end, 60U);
+    // One way of comparing at a time, and only several strategies are compared.
+    auto both = spec;
+    both.set_holdout_day("2026-10-20");
+    EXPECT_THROW(backtest::validate(both), std::invalid_argument);
+    auto single = spec;
+    single.mutable_strategies()->RemoveLast();
+    EXPECT_THROW(backtest::validate(single), std::invalid_argument);
+    auto requested = spec;
+    requested.clear_walk_forward();
+    EXPECT_THROW(compare(requested, "2026-10-20", 20, 10), std::invalid_argument);
+    // What a worker is told, and what a client reads back.
+    task::v1::Task task;
+    *task.mutable_input() = spec;
+    EXPECT_EQ(
+        protocol::task_execution(task, std::string(64, '0'))
+            .backtest()
+            .walk_forward()
+            .SerializeAsString(),
+        spec.walk_forward().SerializeAsString());
+    EXPECT_EQ(
+        protocol::decode_backtest(spec, protocol::DatasetView::metadata).at("walk_forward"),
+        (Json{{"training_days", 20}, {"validation_days", 10}}));
+}
+
+TEST(Backtest, AComparisonNeedsDifferentStrategiesAndTwentyDaysBeforeItsHoldout)
+{
+    const auto spec = comparison();
+    EXPECT_NO_THROW(backtest::validate(spec));
     auto invalid = spec;
-    invalid.mutable_walk_forward()->set_training_days(training);
-    invalid.mutable_walk_forward()->set_validation_days(validation);
-    EXPECT_THROW(backtest::validate(invalid), std::invalid_argument)
-        << training << " " << validation;
-  };
-  refused(19, 10); // too few days for a yearly ratio
-  refused(20, 0);
-  refused(60, 10); // no day left to trade
-  // The last round takes what remains: 59 training days leave one.
-  auto last = spec;
-  last.mutable_walk_forward()->set_training_days(59);
-  EXPECT_NO_THROW(backtest::validate(last));
-  EXPECT_EQ(protocol::backtest_folds(last).size(), 1U);
-  auto uneven = spec;
-  uneven.mutable_walk_forward()->set_validation_days(7);
-  const auto rounds = protocol::backtest_folds(uneven);
-  ASSERT_EQ(rounds.size(), 6U); // 20-26, 27-33, 34-40, 41-47, 48-54, 55-59
-  EXPECT_EQ(rounds.back().first, 55U);
-  EXPECT_EQ(rounds.back().end, 60U);
-  // One way of comparing at a time, and only several strategies are compared.
-  auto both = spec;
-  both.set_holdout_day("2026-10-20");
-  EXPECT_THROW(backtest::validate(both), std::invalid_argument);
-  auto single = spec;
-  single.mutable_strategies()->RemoveLast();
-  EXPECT_THROW(backtest::validate(single), std::invalid_argument);
-  auto requested = spec;
-  requested.clear_walk_forward();
-  EXPECT_THROW(compare(requested, "2026-10-20", 20, 10), std::invalid_argument);
-  // What a worker is told, and what a client reads back.
-  task::v1::Task task;
-  *task.mutable_input() = spec;
-  EXPECT_EQ(protocol::task_execution(task, std::string(64, '0'))
-                .backtest()
-                .walk_forward()
-                .SerializeAsString(),
-            spec.walk_forward().SerializeAsString());
-  EXPECT_EQ(protocol::decode_backtest(spec, protocol::DatasetView::metadata).at("walk_forward"),
-            (Json{{"training_days", 20}, {"validation_days", 10}}));
+    invalid.clear_holdout_day();
+    EXPECT_THROW(backtest::validate(invalid), std::invalid_argument);
+    invalid = spec;
+    invalid.set_holdout_day("2026-10-14"); // the twentieth day: nineteen before it
+    EXPECT_THROW(backtest::validate(invalid), std::invalid_argument);
+    invalid.set_holdout_day("2026-10-15");
+    EXPECT_NO_THROW(backtest::validate(invalid));
+    invalid.set_holdout_day("2026-11-30"); // not one of the trading days
+    EXPECT_THROW(backtest::validate(invalid), std::invalid_argument);
+    invalid = spec;
+    *invalid.mutable_strategies(1) = invalid.strategies(0);
+    EXPECT_THROW(backtest::validate(invalid), std::invalid_argument);
+    invalid = spec;
+    invalid.mutable_strategies()->RemoveLast();
+    EXPECT_THROW(backtest::validate(invalid), std::invalid_argument) << "one strategy, a holdout";
+    // A date that is no trading day begins the holdout on the next one; one
+    // strategy takes no date; a date after the data has no day to begin on.
+    auto dated = spec;
+    compare(dated, "2026-10-19");
+    EXPECT_EQ(dated.holdout_day(), "2026-10-19");
+    EXPECT_THROW(compare(dated, "2026-12-01"), std::invalid_argument);
+    EXPECT_THROW(compare(dated, "soon"), std::invalid_argument);
+    dated.mutable_strategies()->RemoveLast();
+    EXPECT_THROW(compare(dated, "2026-10-19"), std::invalid_argument);
+    // Rules that take their first side only after the development days leave
+    // the account untouched there: nothing varies, so there is nothing to
+    // choose by.
+    auto idle = spec;
+    for (int i = 0; i < 2; ++i)
+        *idle.mutable_strategies(i) = protocol::encode_strategy(
+            {{"quantity", "1"},
+                {"sides", "both"},
+                {"rule", {{"kind", "momentum"}, {"lookback", 28 + i}}}});
+    EXPECT_THROW(backtest::run(idle), std::invalid_argument);
 }
-TEST(Backtest, AComparisonNeedsDifferentStrategiesAndTwentyDaysBeforeItsHoldout) {
-  const auto spec = comparison();
-  EXPECT_NO_THROW(backtest::validate(spec));
-  auto invalid = spec;
-  invalid.clear_holdout_day();
-  EXPECT_THROW(backtest::validate(invalid), std::invalid_argument);
-  invalid = spec;
-  invalid.set_holdout_day("2026-10-14"); // the twentieth day: nineteen before it
-  EXPECT_THROW(backtest::validate(invalid), std::invalid_argument);
-  invalid.set_holdout_day("2026-10-15");
-  EXPECT_NO_THROW(backtest::validate(invalid));
-  invalid.set_holdout_day("2026-11-30"); // not one of the trading days
-  EXPECT_THROW(backtest::validate(invalid), std::invalid_argument);
-  invalid = spec;
-  *invalid.mutable_strategies(1) = invalid.strategies(0);
-  EXPECT_THROW(backtest::validate(invalid), std::invalid_argument);
-  invalid = spec;
-  invalid.mutable_strategies()->RemoveLast();
-  EXPECT_THROW(backtest::validate(invalid), std::invalid_argument) << "one strategy, a holdout";
-  // A date that is no trading day begins the holdout on the next one; one
-  // strategy takes no date; a date after the data has no day to begin on.
-  auto dated = spec;
-  compare(dated, "2026-10-19");
-  EXPECT_EQ(dated.holdout_day(), "2026-10-19");
-  EXPECT_THROW(compare(dated, "2026-12-01"), std::invalid_argument);
-  EXPECT_THROW(compare(dated, "soon"), std::invalid_argument);
-  dated.mutable_strategies()->RemoveLast();
-  EXPECT_THROW(compare(dated, "2026-10-19"), std::invalid_argument);
-  // Rules that take their first side only after the development days leave
-  // the account untouched there: nothing varies, so there is nothing to
-  // choose by.
-  auto idle = spec;
-  for (int i = 0; i < 2; ++i)
-    *idle.mutable_strategies(i) =
-        protocol::encode_strategy({{"quantity", "1"},
-                                   {"sides", "both"},
-                                   {"rule", {{"kind", "momentum"}, {"lookback", 28 + i}}}});
-  EXPECT_THROW(backtest::run(idle), std::invalid_argument);
-}
-TEST(Backtest, InputDecodingRejectsCorruptOldOrIncompleteInputs) {
-  const auto spec = input();
-  const auto json = protocol::decode_backtest(spec);
-  auto metadata = json;
-  for (auto& contract : metadata.at("paper").at("contracts")) {
-    contract.at("dataset").erase("bars");
-    contract.at("dataset").erase("days");
-  }
-  EXPECT_EQ(protocol::decode_backtest(spec, protocol::DatasetView::metadata), metadata);
-  auto corrupt = spec;
-  corrupt.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_bars(0)->clear_close();
-  EXPECT_THROW(protocol::decode_backtest(corrupt, protocol::DatasetView::metadata),
-               std::invalid_argument);
-  auto old = spec;
-  old.set_version(1);
-  EXPECT_THROW(protocol::decode_backtest(old), std::invalid_argument);
-  auto missing = spec;
-  missing.mutable_strategies(0)->clear_quantity();
-  EXPECT_THROW(protocol::decode_backtest(missing), std::invalid_argument);
+
+TEST(Backtest, InputDecodingRejectsCorruptOrIncompleteInputs)
+{
+    const auto spec = input();
+    const auto json = protocol::decode_backtest(spec);
+    auto metadata = json;
+    for (auto& contract : metadata.at("paper").at("contracts")) {
+        contract.at("dataset").erase("bars");
+        contract.at("dataset").erase("days");
+    }
+    EXPECT_EQ(protocol::decode_backtest(spec, protocol::DatasetView::metadata), metadata);
+    auto corrupt = spec;
+    corrupt.mutable_paper()
+        ->mutable_contracts(0)
+        ->mutable_dataset()
+        ->mutable_bars(0)
+        ->clear_close();
+    EXPECT_THROW(
+        protocol::decode_backtest(corrupt, protocol::DatasetView::metadata),
+        std::invalid_argument);
+    auto missing = spec;
+    missing.mutable_strategies(0)->clear_quantity();
+    EXPECT_THROW(protocol::decode_backtest(missing), std::invalid_argument);
 }
 
 namespace {
-struct TaskDirectory {
-  std::filesystem::path path =
-      std::filesystem::temp_directory_path() / ("asterion-backtest-factor-" + unique_process_id());
-  TaskDirectory() { std::filesystem::create_directory(path); }
-  ~TaskDirectory() {
-    std::error_code ignored;
-    std::filesystem::remove_all(path, ignored);
-  }
+
+struct TaskDirectory
+{
+    std::filesystem::path path = std::filesystem::temp_directory_path()
+        / ("asterion-backtest-factor-" + unique_process_id());
+
+    TaskDirectory()
+    {
+        std::filesystem::create_directory(path);
+    }
+
+    ~TaskDirectory()
+    {
+        std::error_code ignored;
+        std::filesystem::remove_all(path, ignored);
+    }
 };
+
 } // namespace
-TEST(TaskMetadata, DescriptionAndDerivationSurviveRestartWithoutChangingCalculationEvidence) {
-  TaskDirectory directory;
-  const auto spec = input();
-  const auto expected = backtest::run(spec);
-  std::string input_hash, result_hash, digest;
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "original", spec);
-    const auto token = store.commit(store.claim("original")).token();
-    store.commit(tasks::finish(store, "original", token, expected));
-    EXPECT_FALSE(store.describe("original").has_metadata());
-    input_hash = sha256_file(directory.path / "original/input.pb");
-    result_hash = sha256_file(directory.path / "original/results/1.pb");
-    digest = store.describe("original").result_digest();
-    auto submission = store.submission("derived", spec);
-    task::v1::TaskDerivation source;
-    source.set_source_id("original");
-    source.set_source_result_digest(digest);
-    source.set_data_choice("fixed");
-    submission.set_derivation(source);
-    store.admit_submission(submission);
-    submission.prepare_files();
-    store.commit(store.register_submission(submission));
-    task::v1::TaskMetadataEdit edit;
-    edit.set_id("original");
-    edit.set_name("baseline");
-    edit.set_note("first line\nsecond line");
-    const auto before = store.describe("original");
-    const auto changed = store.commit(store.edit_metadata(edit)).task();
-    EXPECT_EQ(changed.metadata().revision(), 1U);
-    EXPECT_EQ(changed.state(), before.state());
-    EXPECT_EQ(changed.attempt(), before.attempt());
-    EXPECT_EQ(changed.updated_at_ms(), before.updated_at_ms());
-    EXPECT_EQ(changed.result_digest(), digest);
-    EXPECT_THROW(store.edit_metadata(edit), Error);
-    const auto derived_token = store.commit(store.claim("derived")).token();
-    edit.set_id("derived");
-    edit.set_name("candidate");
-    edit.set_note("fixed evidence");
-    store.commit(store.edit_metadata(edit));
-    EXPECT_EQ(store.describe("derived").metadata().derivation().source_id(), "original");
-    EXPECT_EQ(store.describe("derived").metadata().derivation().source_instance(), "task");
-    edit.set_expected_revision(1);
-    edit.set_note("must not be committed");
-    auto change = store.edit_metadata(edit);
-    sqlite::fail_next_commits_for_testing(1);
-    EXPECT_THROW(change.persist(), std::runtime_error);
-    sqlite::fail_next_commits_for_testing(0);
-    EXPECT_EQ(store.describe("derived").metadata().note(), "fixed evidence");
-    store.commit(store.progress("derived", derived_token, 1));
-    store.commit(tasks::finish(store, "derived", derived_token, expected));
-  }
-  {
-    tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-    const auto original = restored.describe("original"), derived = restored.describe("derived");
-    EXPECT_EQ(original.metadata().name(), "baseline");
-    EXPECT_EQ(original.metadata().note(), "first line\nsecond line");
-    EXPECT_EQ(derived.metadata().name(), "candidate");
-    EXPECT_EQ(derived.metadata().revision(), 1U);
-    EXPECT_EQ(derived.metadata().derivation().source_result_digest(), digest);
-    EXPECT_EQ(derived.metadata().derivation().data_choice(), "fixed");
-    EXPECT_EQ(tasks::result(restored, "original").SerializeAsString(),
-              expected.SerializeAsString());
-    EXPECT_EQ(sha256_file(directory.path / "original/input.pb"), input_hash);
-    EXPECT_EQ(sha256_file(directory.path / "original/results/1.pb"), result_hash);
-  }
-}
-TEST(TaskEventSegments, FailedIndexCommitKeepsActiveEvidenceAndConfirmsOnlyTheOriginalSegment) {
-  TaskDirectory directory;
-  const auto root = std::filesystem::canonical(directory.path);
-  const auto segments = root / "event-segments";
-  {
-    sqlite::Database database(root / "events.sqlite");
-    database.execute("CREATE TABLE task_events(task_id TEXT, sequence INTEGER, body TEXT)");
-    sqlite::TaskEvents log(database, segments, false);
-    {
-      sqlite::Database::Transaction transaction(database);
-      for (unsigned sequence = 1; sequence <= 1000; ++sequence)
-        log.append("fixture-task", sequence, "fixture event");
-      transaction.commit();
-    }
-    sqlite::fail_next_commits_for_testing(1);
-    EXPECT_THROW(log.rotate(), std::runtime_error);
-    sqlite::fail_next_commits_for_testing(0);
-    ASSERT_TRUE(std::filesystem::exists(segments / "1.pb"));
-    const auto hash = sha256_file(segments / "1.pb");
-    unsigned count = 0;
-    log.read([&](const auto& id, auto sequence, const auto& body) {
-      EXPECT_EQ(id, "fixture-task");
-      EXPECT_EQ(sequence, ++count);
-      EXPECT_EQ(body, "fixture event");
-    });
-    EXPECT_EQ(count, 1000);
-    log.rotate();
-    EXPECT_EQ(sha256_file(segments / "1.pb"), hash);
-    sqlite::Database::Transaction transaction(database);
-    log.append("fixture-task", 1001, "last event");
-    transaction.commit();
-  }
-  sqlite::Database database(root / "events.sqlite", sqlite::Database::Access::read_only);
-  sqlite::TaskEvents restored(database, segments, true);
-  unsigned count = 0;
-  restored.read([&](const auto&, auto sequence, const auto&) { EXPECT_EQ(sequence, ++count); });
-  EXPECT_EQ(count, 1001);
-  const auto database_hash = sha256_file(root / "events.sqlite");
-  replace_file_durably(segments / "1.pb", "corrupted fixture");
-  EXPECT_THROW(restored.read([](const auto&, auto, const auto&) {}), std::invalid_argument);
-  EXPECT_EQ(sha256_file(root / "events.sqlite"), database_hash);
-}
 
-TEST(TaskStore, SegmentedEventsKeepAttemptFencingAndOwnedResultsAcrossRecovery) {
-  TaskDirectory directory;
-  auto spec = input();
-  auto* dataset = spec.mutable_paper()->mutable_contracts(0)->mutable_dataset();
-  const auto first = dataset->bars(0);
-  dataset->clear_bars();
-  for (std::int64_t i = 0; i < 1100; ++i) {
-    auto* bar = dataset->add_bars();
-    *bar = first;
-    bar->set_timestamp_ns(first.timestamp_ns() + i * 1000000000);
-  }
-  dataset->set_revision(protocol::bar_dataset_revision(*dataset));
-  spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
-  const auto expected = backtest::run(spec);
-  std::string token, input_hash, result_hash, segment_hash;
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "long-run", spec);
-    input_hash = sha256_file(directory.path / "long-run/input.pb");
-    token = store.commit(store.claim("long-run")).token();
-    for (unsigned completed = 1; completed <= 1001; ++completed)
-      store.commit(store.progress("long-run", token, completed));
-    store.commit(tasks::finish(store, "long-run", token, expected));
-    EXPECT_EQ(store.describe("long-run").state(), task::v1::SUCCEEDED);
-    result_hash = sha256_file(directory.path / "long-run/results/1.pb");
-    segment_hash = sha256_file(directory.path / "event-segments/1.pb");
-  }
-  {
-    tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-    EXPECT_EQ(restored.describe("long-run").submission_sequence(), 1);
-    EXPECT_EQ(restored.describe("long-run").attempt(), 1);
-    EXPECT_EQ(tasks::result(restored, "long-run").SerializeAsString(),
-              expected.SerializeAsString());
-    EXPECT_THROW(restored.commit(restored.progress("long-run", token, 1002)),
-                 std::invalid_argument);
-    EXPECT_EQ(sha256_file(directory.path / "long-run/input.pb"), input_hash);
-    EXPECT_EQ(sha256_file(directory.path / "long-run/results/1.pb"), result_hash);
-    EXPECT_EQ(sha256_file(directory.path / "event-segments/1.pb"), segment_hash);
-  }
-  {
-    sqlite::Database database(directory.path / "tasks.sqlite");
-    database.execute("DELETE FROM task_events WHERE task_id='long-run' AND sequence="
-                     "(SELECT MAX(sequence) FROM task_events WHERE task_id='long-run')");
-  }
-  const auto database_hash = sha256_file(directory.path / "tasks.sqlite");
-  EXPECT_THROW((tasks::Store(directory.path, tasks::Identity{"task", "historical-data"})),
-               std::invalid_argument);
-  EXPECT_EQ(sha256_file(directory.path / "tasks.sqlite"), database_hash);
-}
-
-TEST(TaskStore, HistoryPageCursorDoesNotHideQueuedWorkOrShiftAfterNewSubmissions) {
-  TaskDirectory directory;
-  tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-  const auto spec = input();
-  tasks::submit(store, "first", spec);
-  tasks::submit(store, "second", spec);
-  const auto token = store.commit(store.claim("second")).token();
-  store.commit(store.fail("second", token, "fixture failure"));
-  tasks::submit(store, "third", spec);
-  store.commit(store.cancel("third")).task();
-  const auto recent = store.list(2);
-  ASSERT_EQ(recent.tasks_size(), 2);
-  EXPECT_EQ(recent.tasks(0).id(), "second");
-  EXPECT_EQ(recent.tasks(1).id(), "third");
-  EXPECT_EQ(recent.next_before_sequence(), 2);
-  EXPECT_EQ(recent.failed_count(), 1);
-  ASSERT_EQ(recent.active_tasks_size(), 1);
-  EXPECT_EQ(recent.active_tasks(0).id(), "first");
-  tasks::submit(store, "new-arrival", spec);
-  const auto earlier = store.list(2, recent.next_before_sequence());
-  ASSERT_EQ(earlier.tasks_size(), 1);
-  EXPECT_EQ(earlier.tasks(0).id(), "first");
-  EXPECT_EQ(earlier.next_before_sequence(), 0);
-  EXPECT_EQ(earlier.failed_count(), 1);
-  EXPECT_EQ(earlier.active_tasks_size(), 2);
-  task::v1::TaskDispatch allowance;
-  allowance.set_launch_slots(2);
-  const auto launches = store.dispatch(allowance);
-  ASSERT_EQ(launches.launches_size(), 2);
-  EXPECT_EQ(launches.launches(0).task_id(), "first");
-  EXPECT_EQ(launches.launches(1).task_id(), "new-arrival");
-  EXPECT_THROW(store.list(0), std::invalid_argument);
-  EXPECT_THROW(store.list(201), std::invalid_argument);
-}
-
-TEST(TaskStore, DuplicateSubmissionAndStaleAttemptsAreFenced) {
-  TaskDirectory directory;
-  tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-  auto spec = input();
-  const auto first = tasks::submit(store, "job1", spec);
-  EXPECT_EQ(tasks::submit(store, "job1", spec).SerializeAsString(), first.SerializeAsString());
-  spec.mutable_strategies(0)->mutable_quantity()->set_units(d("2").raw());
-  EXPECT_THROW(tasks::submit(store, "job1", spec), std::invalid_argument);
-  const auto old = store.commit(store.claim("job1")).token();
-  store.commit(store.progress("job1", old, 2));
-  EXPECT_THROW(store.commit(store.progress("job1", old, 1)), std::invalid_argument);
-  EXPECT_EQ(store.commit(store.cancel("job1")).task().state(), task::v1::CANCEL_REQUESTED);
-  store.commit(tasks::finish(store, "job1", old, backtest::run(input())));
-  EXPECT_EQ(store.get("job1").state(), task::v1::CANCELLED);
-  EXPECT_THROW(tasks::result(store, "job1"), std::invalid_argument);
-  store.commit(store.retry("job1")).task();
-  const auto next = store.commit(store.claim("job1")).token();
-  EXPECT_NE(old, next);
-  EXPECT_THROW(store.commit(tasks::finish(store, "job1", old, backtest::run(input()))),
-               std::invalid_argument);
-  store.commit(tasks::finish(store, "job1", next, backtest::run(input())));
-  EXPECT_EQ(store.get("job1").attempt(), 2U);
-  EXPECT_EQ(store.get("job1").state(), task::v1::SUCCEEDED);
-  EXPECT_EQ(tasks::result(store, "job1").SerializeAsString(),
-            backtest::run(input()).SerializeAsString());
-  EXPECT_THROW(store.commit(store.retry("job1")).task(), std::invalid_argument);
-}
-TEST(TaskStore, DispatchOwnsSubmissionOrderCapacityAndDoesNotClaimBeforeLaunch) {
-  TaskDirectory directory;
-  tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-  for (const auto* id : {"z-first", "a-second", "m-third"})
-    tasks::submit(store, id, input());
-  task::v1::TaskDispatch processes;
-  EXPECT_THROW(store.dispatch(processes), std::invalid_argument);
-  processes.set_launch_slots(0);
-  EXPECT_EQ(store.dispatch(processes).launches_size(), 0);
-  processes.set_launch_slots(1);
-  ASSERT_EQ(store.dispatch(processes).launches_size(), 1);
-  EXPECT_EQ(store.dispatch(processes).launches(0).task_id(), "z-first");
-  processes.set_launch_slots(2);
-  auto launches = store.dispatch(processes);
-  ASSERT_EQ(launches.launches_size(), 2);
-  EXPECT_EQ(launches.launches(0).task_id(), "z-first");
-  EXPECT_EQ(launches.launches(1).task_id(), "a-second");
-  EXPECT_EQ(launches.launches(0).program(), task::v1::BACKTEST_PROGRAM);
-
-  EXPECT_EQ(store.dispatch(processes, false).launches_size(), 0);
-  EXPECT_EQ(store.get("z-first").state(), task::v1::QUEUED);
-  EXPECT_EQ(store.get("z-first").attempt(), 0U);
-  // An OS process may be running before it claims its attempt.
-  processes.add_running("z-first");
-  launches = store.dispatch(processes);
-  ASSERT_EQ(launches.launches_size(), 1);
-  EXPECT_EQ(launches.launches(0).task_id(), "a-second");
-  processes.add_running("a-second");
-  EXPECT_EQ(store.dispatch(processes).launches_size(), 0);
-  processes.clear_running();
-  store.commit(store.cancel("z-first")).task();
-  const auto token = store.commit(store.claim("a-second")).token();
-  launches = store.dispatch(processes);
-  ASSERT_EQ(launches.launches_size(), 1);
-  EXPECT_EQ(launches.launches(0).task_id(), "m-third");
-  store.commit(store.interrupt("a-second", token, "test worker exited"));
-  EXPECT_EQ(store.dispatch(processes).launches_size(), 1);
-  store.commit(store.retry("a-second")).task();
-  launches = store.dispatch(processes);
-  EXPECT_EQ(launches.launches(0).task_id(), "a-second");
-  processes.add_running("a-second");
-  processes.add_running("a-second");
-  EXPECT_THROW(store.dispatch(processes), std::invalid_argument);
-}
-TEST(TaskStore, RestartRetainsQueueAndResultsButInterruptsUnconfirmedWork) {
-  TaskDirectory directory;
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "queued", input());
-    tasks::submit(store, "working", input());
-    tasks::submit(store, "done", input());
-    const auto token = store.commit(store.claim("working")).token();
-    store.commit(store.progress("working", token, 2));
-    store.commit(tasks::finish(store, "done", store.commit(store.claim("done")).token(),
-                               backtest::run(input())));
-    EXPECT_THROW(tasks::Store other(directory.path, tasks::Identity{"task", "historical-data"}),
-                 std::runtime_error);
-  }
-  {
-    tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-    EXPECT_EQ(restored.get("queued").state(), task::v1::QUEUED);
-    EXPECT_EQ(restored.get("working").state(), task::v1::INTERRUPTED);
-    EXPECT_EQ(restored.get("working").completed(), 2U);
-    EXPECT_EQ(restored.get("done").state(), task::v1::SUCCEEDED);
-    EXPECT_EQ(tasks::result(restored, "done").SerializeAsString(),
-              backtest::run(input()).SerializeAsString());
-    restored.commit(restored.retry("working")).task();
-    EXPECT_EQ(restored.get("working").state(), task::v1::QUEUED);
-  }
-  tasks::Store again(directory.path, tasks::Identity{"task", "historical-data"});
-  EXPECT_EQ(again.get("working").state(), task::v1::QUEUED);
-}
-TEST(TaskStore, InstanceBindingRejectsWrongOwnerBeforeRecovery) {
-  TaskDirectory directory;
-  const tasks::Identity identity{"task-one", "data-one"};
-  {
-    tasks::Store store(directory.path, identity);
-    tasks::submit(store, "working", input());
-    (void)store.commit(store.claim("working")).token();
-  }
-  const auto database = directory.path / "tasks.sqlite";
-  const auto seal = directory.path / "instance.json";
-  const auto database_hash = sha256_file(database);
-  const auto seal_hash = sha256_file(seal);
-  for (const tasks::Identity wrong :
-       {tasks::Identity{"task-two", "data-one"}, tasks::Identity{"task-one", "data-two"}}) {
-    EXPECT_THROW(tasks::Store rejected(directory.path, wrong), std::invalid_argument);
-    EXPECT_THROW(tasks::Store::inspect_history_usage(directory.path, wrong, std::string(64, 'a')),
-                 std::invalid_argument);
-    EXPECT_EQ(sha256_file(database), database_hash);
-    EXPECT_EQ(sha256_file(seal), seal_hash);
-  }
-  tasks::Store restored(directory.path, identity);
-  EXPECT_EQ(restored.get("working").state(), task::v1::INTERRUPTED);
-  EXPECT_EQ(sha256_file(seal), seal_hash);
-}
-
-TEST(TaskStore, MissingOrUnsupportedIdentityIsNeverFilledIntoExistingStore) {
-  for (const bool missing : {true, false}) {
-    SCOPED_TRACE(missing);
+TEST(TaskMetadata, DescriptionAndDerivationSurviveRestartWithoutChangingCalculationEvidence)
+{
     TaskDirectory directory;
-    const tasks::Identity identity{"task-one", "data-one"};
+    const auto spec = input();
+    const auto expected = backtest::run(spec);
+    std::string input_hash, result_hash, digest;
     {
-      tasks::Store store(directory.path, identity);
-      tasks::submit(store, "working", input());
-      (void)store.commit(store.claim("working")).token();
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "original", spec);
+        const auto token = store.commit(store.claim("original")).token();
+        store.commit(tasks::finish(store, "original", token, expected));
+        EXPECT_FALSE(store.describe("original").has_metadata());
+        input_hash = sha256_file(directory.path / "original/input.pb");
+        result_hash = sha256_file(directory.path / "original/results/1.pb");
+        digest = store.describe("original").result_digest();
+        auto submission = store.submission("derived", spec);
+        task::v1::TaskDerivation source;
+        source.set_source_id("original");
+        source.set_source_result_digest(digest);
+        source.set_data_choice("fixed");
+        submission.set_derivation(source);
+        store.admit_submission(submission);
+        submission.prepare_files();
+        store.commit(store.register_submission(submission));
+        task::v1::TaskMetadataEdit edit;
+        edit.set_id("original");
+        edit.set_name("baseline");
+        edit.set_note("first line\nsecond line");
+        const auto before = store.describe("original");
+        const auto changed = store.commit(store.edit_metadata(edit)).task();
+        EXPECT_EQ(changed.metadata().revision(), 1U);
+        EXPECT_EQ(changed.state(), before.state());
+        EXPECT_EQ(changed.attempt(), before.attempt());
+        EXPECT_EQ(changed.updated_at_ms(), before.updated_at_ms());
+        EXPECT_EQ(changed.result_digest(), digest);
+        EXPECT_THROW(store.edit_metadata(edit), Error);
+        const auto derived_token = store.commit(store.claim("derived")).token();
+        edit.set_id("derived");
+        edit.set_name("candidate");
+        edit.set_note("fixed evidence");
+        store.commit(store.edit_metadata(edit));
+        EXPECT_EQ(store.describe("derived").metadata().derivation().source_id(), "original");
+        EXPECT_EQ(store.describe("derived").metadata().derivation().source_instance(), "task");
+        edit.set_expected_revision(1);
+        edit.set_note("must not be committed");
+        auto change = store.edit_metadata(edit);
+        sqlite::fail_next_commits_for_testing(1);
+        EXPECT_THROW(change.persist(), std::runtime_error);
+        sqlite::fail_next_commits_for_testing(0);
+        EXPECT_EQ(store.describe("derived").metadata().note(), "fixed evidence");
+        store.commit(store.progress("derived", derived_token, 1));
+        store.commit(tasks::finish(store, "derived", derived_token, expected));
     }
-    const auto seal = directory.path / "instance.json";
-    if (missing)
-      std::filesystem::remove(seal);
-    else
-      replace_file_durably(seal, Json{{"version", 0},
-                                      {"task_instance", identity.instance},
-                                      {"data_instance", identity.data_instance}}
-                                     .dump());
+    {
+        tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
+        const auto original = restored.describe("original"), derived = restored.describe("derived");
+        EXPECT_EQ(original.metadata().name(), "baseline");
+        EXPECT_EQ(original.metadata().note(), "first line\nsecond line");
+        EXPECT_EQ(derived.metadata().name(), "candidate");
+        EXPECT_EQ(derived.metadata().revision(), 1U);
+        EXPECT_EQ(derived.metadata().derivation().source_result_digest(), digest);
+        EXPECT_EQ(derived.metadata().derivation().data_choice(), "fixed");
+        EXPECT_EQ(
+            tasks::result(restored, "original").SerializeAsString(),
+            expected.SerializeAsString());
+        EXPECT_EQ(sha256_file(directory.path / "original/input.pb"), input_hash);
+        EXPECT_EQ(sha256_file(directory.path / "original/results/1.pb"), result_hash);
+    }
+}
+
+TEST(TaskEventSegments, FailedIndexCommitKeepsActiveEvidenceAndConfirmsOnlyTheOriginalSegment)
+{
+    TaskDirectory directory;
+    const auto root = std::filesystem::canonical(directory.path);
+    const auto segments = root / "event-segments";
+    {
+        sqlite::Database database(root / "events.sqlite");
+        database.execute("CREATE TABLE task_events(task_id TEXT, sequence INTEGER, body TEXT)");
+        sqlite::TaskEvents log(database, segments, false);
+        {
+            sqlite::Database::Transaction transaction(database);
+            for (unsigned sequence = 1; sequence <= 1000; ++sequence)
+                log.append("fixture-task", sequence, "fixture event");
+            transaction.commit();
+        }
+        sqlite::fail_next_commits_for_testing(1);
+        EXPECT_THROW(log.rotate(), std::runtime_error);
+        sqlite::fail_next_commits_for_testing(0);
+        ASSERT_TRUE(std::filesystem::exists(segments / "1.pb"));
+        const auto hash = sha256_file(segments / "1.pb");
+        unsigned count = 0;
+        log.read([&](const auto& id, auto sequence, const auto& body) {
+            EXPECT_EQ(id, "fixture-task");
+            EXPECT_EQ(sequence, ++count);
+            EXPECT_EQ(body, "fixture event");
+        });
+        EXPECT_EQ(count, 1000);
+        log.rotate();
+        EXPECT_EQ(sha256_file(segments / "1.pb"), hash);
+        sqlite::Database::Transaction transaction(database);
+        log.append("fixture-task", 1001, "last event");
+        transaction.commit();
+    }
+    sqlite::Database database(root / "events.sqlite", sqlite::Database::Access::read_only);
+    sqlite::TaskEvents restored(database, segments, true);
+    unsigned count = 0;
+    restored.read([&](const auto&, auto sequence, const auto&) {
+        EXPECT_EQ(sequence, ++count);
+    });
+    EXPECT_EQ(count, 1001);
+    const auto database_hash = sha256_file(root / "events.sqlite");
+    replace_file_durably(segments / "1.pb", "corrupted fixture");
+    EXPECT_THROW(restored.read([](const auto&, auto, const auto&) {}), std::invalid_argument);
+    EXPECT_EQ(sha256_file(root / "events.sqlite"), database_hash);
+}
+
+TEST(TaskStore, SegmentedEventsKeepAttemptFencingAndOwnedResultsAcrossRecovery)
+{
+    TaskDirectory directory;
+    auto spec = input();
+    auto* dataset = spec.mutable_paper()->mutable_contracts(0)->mutable_dataset();
+    const auto first = dataset->bars(0);
+    dataset->clear_bars();
+    for (std::int64_t i = 0; i < 1100; ++i) {
+        auto* bar = dataset->add_bars();
+        *bar = first;
+        bar->set_timestamp_ns(first.timestamp_ns() + i * 1000000000);
+    }
+    dataset->set_revision(protocol::bar_dataset_revision(*dataset));
+    spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
+    const auto expected = backtest::run(spec);
+    std::string token, input_hash, result_hash, segment_hash;
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "long-run", spec);
+        input_hash = sha256_file(directory.path / "long-run/input.pb");
+        token = store.commit(store.claim("long-run")).token();
+        for (unsigned completed = 1; completed <= 1001; ++completed)
+            store.commit(store.progress("long-run", token, completed));
+        store.commit(tasks::finish(store, "long-run", token, expected));
+        EXPECT_EQ(store.describe("long-run").state(), task::v1::SUCCEEDED);
+        result_hash = sha256_file(directory.path / "long-run/results/1.pb");
+        segment_hash = sha256_file(directory.path / "event-segments/1.pb");
+    }
+    {
+        tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
+        EXPECT_EQ(restored.describe("long-run").submission_sequence(), 1);
+        EXPECT_EQ(restored.describe("long-run").attempt(), 1);
+        EXPECT_EQ(
+            tasks::result(restored, "long-run").SerializeAsString(),
+            expected.SerializeAsString());
+        EXPECT_THROW(
+            restored.commit(restored.progress("long-run", token, 1002)),
+            std::invalid_argument);
+        EXPECT_EQ(sha256_file(directory.path / "long-run/input.pb"), input_hash);
+        EXPECT_EQ(sha256_file(directory.path / "long-run/results/1.pb"), result_hash);
+        EXPECT_EQ(sha256_file(directory.path / "event-segments/1.pb"), segment_hash);
+    }
+    {
+        sqlite::Database database(directory.path / "tasks.sqlite");
+        database.execute(
+            "DELETE FROM task_events WHERE task_id='long-run' AND sequence=" "(SELECT MAX(sequence) FROM task_events WHERE task_id='long-run')");
+    }
     const auto database_hash = sha256_file(directory.path / "tasks.sqlite");
-    const auto seal_hash = missing ? std::string{} : sha256_file(seal);
-    EXPECT_THROW(tasks::Store rejected(directory.path, identity), std::invalid_argument);
     EXPECT_THROW(
-        tasks::Store::inspect_history_usage(directory.path, identity, std::string(64, 'a')),
+        (tasks::Store(directory.path, tasks::Identity{"task", "historical-data"})),
         std::invalid_argument);
     EXPECT_EQ(sha256_file(directory.path / "tasks.sqlite"), database_hash);
-    EXPECT_EQ(std::filesystem::exists(seal), !missing);
-    if (!missing)
-      EXPECT_EQ(sha256_file(seal), seal_hash);
-  }
 }
 
-TEST(TaskStore, ModifiedResultNeverLoadsAsSuccess) {
-  TaskDirectory directory;
-  {
+TEST(TaskStore, HistoryPageCursorDoesNotHideQueuedWorkOrShiftAfterNewSubmissions)
+{
+    TaskDirectory directory;
     tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "done", input());
-    store.commit(tasks::finish(store, "done", store.commit(store.claim("done")).token(),
-                               backtest::run(input())));
-  }
-  {
-    std::ofstream file(directory.path / "done" / "results" / "1.pb", std::ios::app);
-    file << " ";
-  }
-  EXPECT_THROW(tasks::Store corrupted(directory.path, tasks::Identity{"task", "historical-data"}),
-               std::invalid_argument);
+    const auto spec = input();
+    tasks::submit(store, "first", spec);
+    tasks::submit(store, "second", spec);
+    const auto token = store.commit(store.claim("second")).token();
+    store.commit(store.fail("second", token, "fixture failure"));
+    tasks::submit(store, "third", spec);
+    store.commit(store.cancel("third")).task();
+    const auto recent = store.list(2);
+    ASSERT_EQ(recent.tasks_size(), 2);
+    EXPECT_EQ(recent.tasks(0).id(), "second");
+    EXPECT_EQ(recent.tasks(1).id(), "third");
+    EXPECT_EQ(recent.next_before_sequence(), 2);
+    EXPECT_EQ(recent.failed_count(), 1);
+    ASSERT_EQ(recent.active_tasks_size(), 1);
+    EXPECT_EQ(recent.active_tasks(0).id(), "first");
+    tasks::submit(store, "new-arrival", spec);
+    const auto earlier = store.list(2, recent.next_before_sequence());
+    ASSERT_EQ(earlier.tasks_size(), 1);
+    EXPECT_EQ(earlier.tasks(0).id(), "first");
+    EXPECT_EQ(earlier.next_before_sequence(), 0);
+    EXPECT_EQ(earlier.failed_count(), 1);
+    EXPECT_EQ(earlier.active_tasks_size(), 2);
+    task::v1::TaskDispatch allowance;
+    allowance.set_launch_slots(2);
+    const auto launches = store.dispatch(allowance);
+    ASSERT_EQ(launches.launches_size(), 2);
+    EXPECT_EQ(launches.launches(0).task_id(), "first");
+    EXPECT_EQ(launches.launches(1).task_id(), "new-arrival");
+    EXPECT_THROW(store.list(0), std::invalid_argument);
+    EXPECT_THROW(store.list(201), std::invalid_argument);
 }
-TEST(TaskStore, DirectorySyncFailureCannotCommitTaskSubmissionOrSuccessfulResult) {
-  {
+
+TEST(TaskStore, DuplicateSubmissionAndStaleAttemptsAreFenced)
+{
+    TaskDirectory directory;
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    auto spec = input();
+    const auto first = tasks::submit(store, "job1", spec);
+    EXPECT_EQ(tasks::submit(store, "job1", spec).SerializeAsString(), first.SerializeAsString());
+    spec.mutable_strategies(0)->mutable_quantity()->set_units(d("2").raw());
+    EXPECT_THROW(tasks::submit(store, "job1", spec), std::invalid_argument);
+    const auto old = store.commit(store.claim("job1")).token();
+    store.commit(store.progress("job1", old, 2));
+    EXPECT_THROW(store.commit(store.progress("job1", old, 1)), std::invalid_argument);
+    EXPECT_EQ(store.commit(store.cancel("job1")).task().state(), task::v1::CANCEL_REQUESTED);
+    store.commit(tasks::finish(store, "job1", old, backtest::run(input())));
+    EXPECT_EQ(store.get("job1").state(), task::v1::CANCELLED);
+    EXPECT_THROW(tasks::result(store, "job1"), std::invalid_argument);
+    store.commit(store.retry("job1")).task();
+    const auto next = store.commit(store.claim("job1")).token();
+    EXPECT_NE(old, next);
+    EXPECT_THROW(
+        store.commit(tasks::finish(store, "job1", old, backtest::run(input()))),
+        std::invalid_argument);
+    store.commit(tasks::finish(store, "job1", next, backtest::run(input())));
+    EXPECT_EQ(store.get("job1").attempt(), 2U);
+    EXPECT_EQ(store.get("job1").state(), task::v1::SUCCEEDED);
+    EXPECT_EQ(
+        tasks::result(store, "job1").SerializeAsString(),
+        backtest::run(input()).SerializeAsString());
+    EXPECT_THROW(store.commit(store.retry("job1")).task(), std::invalid_argument);
+}
+
+TEST(TaskStore, DispatchOwnsSubmissionOrderCapacityAndDoesNotClaimBeforeLaunch)
+{
+    TaskDirectory directory;
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    for (const auto* id : {"z-first", "a-second", "m-third"})
+        tasks::submit(store, id, input());
+    task::v1::TaskDispatch processes;
+    EXPECT_THROW(store.dispatch(processes), std::invalid_argument);
+    processes.set_launch_slots(0);
+    EXPECT_EQ(store.dispatch(processes).launches_size(), 0);
+    processes.set_launch_slots(1);
+    ASSERT_EQ(store.dispatch(processes).launches_size(), 1);
+    EXPECT_EQ(store.dispatch(processes).launches(0).task_id(), "z-first");
+    processes.set_launch_slots(2);
+    auto launches = store.dispatch(processes);
+    ASSERT_EQ(launches.launches_size(), 2);
+    EXPECT_EQ(launches.launches(0).task_id(), "z-first");
+    EXPECT_EQ(launches.launches(1).task_id(), "a-second");
+    EXPECT_EQ(launches.launches(0).program(), task::v1::BACKTEST_PROGRAM);
+
+    EXPECT_EQ(store.dispatch(processes, false).launches_size(), 0);
+    EXPECT_EQ(store.get("z-first").state(), task::v1::QUEUED);
+    EXPECT_EQ(store.get("z-first").attempt(), 0U);
+    // An OS process may be running before it claims its attempt.
+    processes.add_running("z-first");
+    launches = store.dispatch(processes);
+    ASSERT_EQ(launches.launches_size(), 1);
+    EXPECT_EQ(launches.launches(0).task_id(), "a-second");
+    processes.add_running("a-second");
+    EXPECT_EQ(store.dispatch(processes).launches_size(), 0);
+    processes.clear_running();
+    store.commit(store.cancel("z-first")).task();
+    const auto token = store.commit(store.claim("a-second")).token();
+    launches = store.dispatch(processes);
+    ASSERT_EQ(launches.launches_size(), 1);
+    EXPECT_EQ(launches.launches(0).task_id(), "m-third");
+    store.commit(store.interrupt("a-second", token, "test worker exited"));
+    EXPECT_EQ(store.dispatch(processes).launches_size(), 1);
+    store.commit(store.retry("a-second")).task();
+    launches = store.dispatch(processes);
+    EXPECT_EQ(launches.launches(0).task_id(), "a-second");
+    processes.add_running("a-second");
+    processes.add_running("a-second");
+    EXPECT_THROW(store.dispatch(processes), std::invalid_argument);
+}
+
+TEST(TaskStore, RestartRetainsQueueAndResultsButInterruptsUnconfirmedWork)
+{
+    TaskDirectory directory;
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "queued", input());
+        tasks::submit(store, "working", input());
+        tasks::submit(store, "done", input());
+        const auto token = store.commit(store.claim("working")).token();
+        store.commit(store.progress("working", token, 2));
+        store.commit(
+            tasks::finish(
+                store,
+                "done",
+                store.commit(store.claim("done")).token(),
+                backtest::run(input())));
+        EXPECT_THROW(
+            tasks::Store other(directory.path, tasks::Identity{"task", "historical-data"}),
+            std::runtime_error);
+    }
+    {
+        tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
+        EXPECT_EQ(restored.get("queued").state(), task::v1::QUEUED);
+        EXPECT_EQ(restored.get("working").state(), task::v1::INTERRUPTED);
+        EXPECT_EQ(restored.get("working").completed(), 2U);
+        EXPECT_EQ(restored.get("done").state(), task::v1::SUCCEEDED);
+        EXPECT_EQ(
+            tasks::result(restored, "done").SerializeAsString(),
+            backtest::run(input()).SerializeAsString());
+        restored.commit(restored.retry("working")).task();
+        EXPECT_EQ(restored.get("working").state(), task::v1::QUEUED);
+    }
+    tasks::Store again(directory.path, tasks::Identity{"task", "historical-data"});
+    EXPECT_EQ(again.get("working").state(), task::v1::QUEUED);
+}
+
+TEST(TaskStore, InstanceBindingRejectsWrongOwnerBeforeRecovery)
+{
     TaskDirectory directory;
     const tasks::Identity identity{"task-one", "data-one"};
-    fail_next_directory_syncs_for_testing(1);
-    EXPECT_THROW(tasks::Store store(directory.path, identity), std::runtime_error);
-    fail_next_directory_syncs_for_testing(0);
-    EXPECT_FALSE(std::filesystem::exists(directory.path / "tasks.sqlite"));
+    {
+        tasks::Store store(directory.path, identity);
+        tasks::submit(store, "working", input());
+        (void)store.commit(store.claim("working")).token();
+    }
+    const auto database = directory.path / "tasks.sqlite";
+    const auto seal = directory.path / "instance.json";
+    const auto database_hash = sha256_file(database);
+    const auto seal_hash = sha256_file(seal);
+    for (const tasks::Identity wrong :
+        {tasks::Identity{"task-two", "data-one"}, tasks::Identity{"task-one", "data-two"}}) {
+        EXPECT_THROW(tasks::Store rejected(directory.path, wrong), std::invalid_argument);
+        EXPECT_THROW(
+            tasks::Store::inspect_history_usage(directory.path, wrong, std::string(64, 'a')),
+            std::invalid_argument);
+        EXPECT_EQ(sha256_file(database), database_hash);
+        EXPECT_EQ(sha256_file(seal), seal_hash);
+    }
     tasks::Store restored(directory.path, identity);
-    EXPECT_TRUE(restored.list().tasks().empty());
-  }
-  {
+    EXPECT_EQ(restored.get("working").state(), task::v1::INTERRUPTED);
+    EXPECT_EQ(sha256_file(seal), seal_hash);
+}
+
+TEST(TaskStore, MissingOrUnsupportedIdentityIsNeverFilledIntoExistingStore)
+{
+    for (const bool missing : {true, false}) {
+        SCOPED_TRACE(missing);
+        TaskDirectory directory;
+        const tasks::Identity identity{"task-one", "data-one"};
+        {
+            tasks::Store store(directory.path, identity);
+            tasks::submit(store, "working", input());
+            (void)store.commit(store.claim("working")).token();
+        }
+        const auto seal = directory.path / "instance.json";
+        if (missing)
+            std::filesystem::remove(seal);
+        else
+            replace_file_durably(
+                seal,
+                Json{{"task_instance", "different-task"}, {"data_instance", identity.data_instance}}
+                    .dump());
+        const auto database_hash = sha256_file(directory.path / "tasks.sqlite");
+        const auto seal_hash = missing ? std::string{} : sha256_file(seal);
+        EXPECT_THROW(tasks::Store rejected(directory.path, identity), std::invalid_argument);
+        EXPECT_THROW(
+            tasks::Store::inspect_history_usage(directory.path, identity, std::string(64, 'a')),
+            std::invalid_argument);
+        EXPECT_EQ(sha256_file(directory.path / "tasks.sqlite"), database_hash);
+        EXPECT_EQ(std::filesystem::exists(seal), !missing);
+        if (!missing)
+            EXPECT_EQ(sha256_file(seal), seal_hash);
+    }
+}
+
+TEST(TaskStore, ModifiedResultNeverLoadsAsSuccess)
+{
+    TaskDirectory directory;
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "done", input());
+        store.commit(
+            tasks::finish(
+                store,
+                "done",
+                store.commit(store.claim("done")).token(),
+                backtest::run(input())));
+    }
+    {
+        std::ofstream file(directory.path / "done" / "results" / "1.pb", std::ios::app);
+        file << " ";
+    }
+    EXPECT_THROW(
+        tasks::Store corrupted(directory.path, tasks::Identity{"task", "historical-data"}),
+        std::invalid_argument);
+}
+
+TEST(TaskStore, DirectorySyncFailureCannotCommitTaskSubmissionOrSuccessfulResult)
+{
+    {
+        TaskDirectory directory;
+        const tasks::Identity identity{"task-one", "data-one"};
+        fail_next_directory_syncs_for_testing(1);
+        EXPECT_THROW(tasks::Store store(directory.path, identity), std::runtime_error);
+        fail_next_directory_syncs_for_testing(0);
+        EXPECT_FALSE(std::filesystem::exists(directory.path / "tasks.sqlite"));
+        tasks::Store restored(directory.path, identity);
+        EXPECT_TRUE(restored.list().tasks().empty());
+    }
+    {
+        TaskDirectory directory;
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        fail_next_directory_syncs_for_testing(1);
+        EXPECT_THROW(tasks::submit(store, "unpublished", input()), std::runtime_error);
+        fail_next_directory_syncs_for_testing(0);
+        EXPECT_TRUE(store.list().tasks().empty());
+        EXPECT_EQ(store.list().capacity().retained_tasks(), 0U);
+        EXPECT_EQ(store.list().capacity().uncommitted(), 1U);
+        EXPECT_EQ(store.list().capacity().active_reserved(), 0U);
+        EXPECT_EQ(store.list().capacity().active_limit(), 1000U);
+    }
+    TaskDirectory directory;
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "job", input());
+        const auto token = store.commit(store.claim("job")).token();
+        const auto result = backtest::run(input());
+        fail_next_directory_syncs_for_testing(1);
+        EXPECT_THROW(store.commit(tasks::finish(store, "job", token, result)), std::runtime_error);
+        fail_next_directory_syncs_for_testing(0);
+        EXPECT_EQ(store.get("job").state(), task::v1::RUNNING);
+        EXPECT_THROW(tasks::result(store, "job"), std::invalid_argument);
+    }
+    tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
+    EXPECT_EQ(restored.get("job").state(), task::v1::INTERRUPTED);
+    EXPECT_TRUE(std::filesystem::is_regular_file(directory.path / "job/results/1.pb"));
+    restored.commit(restored.retry("job")).task();
+    restored.commit(
+        tasks::finish(
+            restored,
+            "job",
+            restored.commit(restored.claim("job")).token(),
+            backtest::run(input())));
+    EXPECT_EQ(restored.get("job").state(), task::v1::SUCCEEDED);
+}
+
+TEST(TaskStore, SubmissionPreparationLeavesConfirmedStateAvailable)
+{
     TaskDirectory directory;
     tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    fail_next_directory_syncs_for_testing(1);
-    EXPECT_THROW(tasks::submit(store, "unpublished", input()), std::runtime_error);
-    fail_next_directory_syncs_for_testing(0);
-    EXPECT_TRUE(store.list().tasks().empty());
-    EXPECT_EQ(store.list().capacity().retained_tasks(), 0U);
-    EXPECT_EQ(store.list().capacity().uncommitted(), 1U);
-    EXPECT_EQ(store.list().capacity().active_reserved(), 0U);
-    EXPECT_EQ(store.list().capacity().active_limit(), 1000U);
-  }
-  TaskDirectory directory;
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "job", input());
-    const auto token = store.commit(store.claim("job")).token();
-    const auto result = backtest::run(input());
-    fail_next_directory_syncs_for_testing(1);
-    EXPECT_THROW(store.commit(tasks::finish(store, "job", token, result)), std::runtime_error);
-    fail_next_directory_syncs_for_testing(0);
-    EXPECT_EQ(store.get("job").state(), task::v1::RUNNING);
-    EXPECT_THROW(tasks::result(store, "job"), std::invalid_argument);
-  }
-  tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-  EXPECT_EQ(restored.get("job").state(), task::v1::INTERRUPTED);
-  EXPECT_TRUE(std::filesystem::is_regular_file(directory.path / "job/results/1.pb"));
-  restored.commit(restored.retry("job")).task();
-  restored.commit(tasks::finish(restored, "job", restored.commit(restored.claim("job")).token(),
-                                backtest::run(input())));
-  EXPECT_EQ(restored.get("job").state(), task::v1::SUCCEEDED);
-}
-TEST(TaskStore, SubmissionPreparationLeavesConfirmedStateAvailable) {
-  TaskDirectory directory;
-  tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-  tasks::submit(store, "existing", input());
-  auto pending = store.submission("new", input());
-  store.admit_submission(pending);
-  EXPECT_TRUE(store.has_submission());
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "new"));
-  EXPECT_EQ(store.list().capacity().active_reserved(), 1U);
-  EXPECT_EQ(store.list().capacity().active_used(), 1U);
-  EXPECT_EQ(store.list().capacity().retained_tasks(), 1U);
-  EXPECT_EQ(store.list().capacity().uncommitted(), 0U);
-  auto prepared = std::async(std::launch::async, [&] { pending.prepare_files(); });
-  store.commit(store.cancel("existing"));
-  prepared.get();
-  EXPECT_TRUE(store.active_tasks().empty());
-  auto registered = store.register_submission(pending);
-  auto persisted = std::async(std::launch::async, [&] { registered.persist(); });
-  persisted.get();
-  EXPECT_TRUE(store.active_tasks().empty());
-  EXPECT_TRUE(store.has_submission());
-  store.confirm(registered);
-  EXPECT_FALSE(store.has_submission());
-  EXPECT_EQ(store.describe("new").submission_sequence(), 2U);
-  EXPECT_EQ(store.list().capacity().active_reserved(), 0U);
-  EXPECT_EQ(store.list().capacity().active_used(), 1U);
-
-  // Duplicate input verification cannot restore an obsolete state snapshot.
-  auto duplicate = store.submission("new", input());
-  store.admit_submission(duplicate);
-  auto verified = std::async(std::launch::async, [&] { duplicate.prepare_files(); });
-  store.commit(store.cancel("new"));
-  verified.get();
-  EXPECT_EQ(store.commit(store.register_submission(duplicate)).task().state(), task::v1::CANCELLED);
-  EXPECT_TRUE(store.active_tasks().empty());
-}
-TEST(TaskStore, JournalWaitKeepsActiveStateAvailableAndRequiresOwnerConfirmation) {
-  using namespace std::chrono_literals;
-  TaskDirectory directory;
-  tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-  tasks::submit(store, "job", input());
-  tasks::submit(store, "other", input());
-  auto claimed = store.claim("job");
-  sqlite::hold_commits_for_testing(true);
-  auto persisted = std::async(std::launch::async, [&] { claimed.persist(); });
-  struct Release {
-    ~Release() { sqlite::hold_commits_for_testing(false); }
-  } release;
-  const auto deadline = std::chrono::steady_clock::now() + 3s;
-  while (!sqlite::commit_waiting_for_testing() && std::chrono::steady_clock::now() < deadline)
-    std::this_thread::sleep_for(1ms);
-  ASSERT_TRUE(sqlite::commit_waiting_for_testing());
-  EXPECT_EQ(store.describe("job").state(), task::v1::QUEUED);
-  EXPECT_EQ(store.active_tasks().size(), 2U);
-  // Another task can be decided while the writer is held at its durable barrier.
-  auto cancelled = store.cancel("other");
-  EXPECT_EQ(cancelled.task().state(), task::v1::CANCELLED);
-  EXPECT_EQ(store.describe("other").state(), task::v1::QUEUED);
-  sqlite::hold_commits_for_testing(false);
-  persisted.get();
-  EXPECT_EQ(store.describe("job").state(), task::v1::QUEUED);
-  store.confirm(claimed);
-  EXPECT_EQ(store.describe("job").state(), task::v1::RUNNING);
-  store.commit(std::move(cancelled));
-  ASSERT_EQ(store.active_tasks().size(), 1U);
-  EXPECT_EQ(store.active_tasks().front().id(), "job");
-}
-TEST(TaskStore, FailedStateCommitKeepsTheLastConfirmedActiveState) {
-  TaskDirectory directory;
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "job", input());
-    const auto token = store.commit(store.claim("job")).token();
-    store.commit(store.progress("job", token, 1));
-    const auto confirmed = store.describe("job").SerializeAsString();
-    sqlite::fail_next_commits_for_testing(1);
-    EXPECT_THROW(store.commit(store.cancel("job")).task(), std::runtime_error);
-    sqlite::fail_next_commits_for_testing(0);
-    EXPECT_EQ(store.describe("job").SerializeAsString(), confirmed);
-    const auto active = store.active_tasks();
-    ASSERT_EQ(active.size(), 1);
-    EXPECT_EQ(active.front().SerializeAsString(), confirmed);
+    tasks::submit(store, "existing", input());
+    auto pending = store.submission("new", input());
+    store.admit_submission(pending);
+    EXPECT_TRUE(store.has_submission());
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "new"));
+    EXPECT_EQ(store.list().capacity().active_reserved(), 1U);
     EXPECT_EQ(store.list().capacity().active_used(), 1U);
-    EXPECT_THROW(store.commit(store.progress("job", token, 2)), std::runtime_error);
-  }
-  tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-  EXPECT_EQ(restored.describe("job").state(), task::v1::INTERRUPTED);
-  EXPECT_EQ(restored.describe("job").completed(), 1U);
-  EXPECT_TRUE(restored.active_tasks().empty());
-  restored.commit(restored.retry("job")).task();
-  EXPECT_EQ(restored.active_tasks().size(), 1U);
+    EXPECT_EQ(store.list().capacity().retained_tasks(), 1U);
+    EXPECT_EQ(store.list().capacity().uncommitted(), 0U);
+    auto prepared = std::async(std::launch::async, [&] {
+        pending.prepare_files();
+    });
+    store.commit(store.cancel("existing"));
+    prepared.get();
+    EXPECT_TRUE(store.active_tasks().empty());
+    auto registered = store.register_submission(pending);
+    auto persisted = std::async(std::launch::async, [&] {
+        registered.persist();
+    });
+    persisted.get();
+    EXPECT_TRUE(store.active_tasks().empty());
+    EXPECT_TRUE(store.has_submission());
+    store.confirm(registered);
+    EXPECT_FALSE(store.has_submission());
+    EXPECT_EQ(store.describe("new").submission_sequence(), 2U);
+    EXPECT_EQ(store.list().capacity().active_reserved(), 0U);
+    EXPECT_EQ(store.list().capacity().active_used(), 1U);
+
+    // Duplicate input verification cannot restore an obsolete state snapshot.
+    auto duplicate = store.submission("new", input());
+    store.admit_submission(duplicate);
+    auto verified = std::async(std::launch::async, [&] {
+        duplicate.prepare_files();
+    });
+    store.commit(store.cancel("new"));
+    verified.get();
+    EXPECT_EQ(
+        store.commit(store.register_submission(duplicate)).task().state(),
+        task::v1::CANCELLED);
+    EXPECT_TRUE(store.active_tasks().empty());
 }
-TEST(TaskStore, PreparedPayloadCannotBypassCancellationOrANewerAttempt) {
-  for (const bool retry : {false, true}) {
-    SCOPED_TRACE(retry);
+
+TEST(TaskStore, JournalWaitKeepsActiveStateAvailableAndRequiresOwnerConfirmation)
+{
+    using namespace std::chrono_literals;
+    TaskDirectory directory;
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    tasks::submit(store, "job", input());
+    tasks::submit(store, "other", input());
+    auto claimed = store.claim("job");
+    sqlite::hold_commits_for_testing(true);
+    auto persisted = std::async(std::launch::async, [&] {
+        claimed.persist();
+    });
+
+    struct Release
+    {
+        ~Release()
+        {
+            sqlite::hold_commits_for_testing(false);
+        }
+    } release;
+
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    while (!sqlite::commit_waiting_for_testing() && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(1ms);
+    ASSERT_TRUE(sqlite::commit_waiting_for_testing());
+    EXPECT_EQ(store.describe("job").state(), task::v1::QUEUED);
+    EXPECT_EQ(store.active_tasks().size(), 2U);
+    // Another task can be decided while the writer is held at its durable barrier.
+    auto cancelled = store.cancel("other");
+    EXPECT_EQ(cancelled.task().state(), task::v1::CANCELLED);
+    EXPECT_EQ(store.describe("other").state(), task::v1::QUEUED);
+    sqlite::hold_commits_for_testing(false);
+    persisted.get();
+    EXPECT_EQ(store.describe("job").state(), task::v1::QUEUED);
+    store.confirm(claimed);
+    EXPECT_EQ(store.describe("job").state(), task::v1::RUNNING);
+    store.commit(std::move(cancelled));
+    ASSERT_EQ(store.active_tasks().size(), 1U);
+    EXPECT_EQ(store.active_tasks().front().id(), "job");
+}
+
+TEST(TaskStore, FailedStateCommitKeepsTheLastConfirmedActiveState)
+{
+    TaskDirectory directory;
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "job", input());
+        const auto token = store.commit(store.claim("job")).token();
+        store.commit(store.progress("job", token, 1));
+        const auto confirmed = store.describe("job").SerializeAsString();
+        sqlite::fail_next_commits_for_testing(1);
+        EXPECT_THROW(store.commit(store.cancel("job")).task(), std::runtime_error);
+        sqlite::fail_next_commits_for_testing(0);
+        EXPECT_EQ(store.describe("job").SerializeAsString(), confirmed);
+        const auto active = store.active_tasks();
+        ASSERT_EQ(active.size(), 1);
+        EXPECT_EQ(active.front().SerializeAsString(), confirmed);
+        EXPECT_EQ(store.list().capacity().active_used(), 1U);
+        EXPECT_THROW(store.commit(store.progress("job", token, 2)), std::runtime_error);
+    }
+    tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
+    EXPECT_EQ(restored.describe("job").state(), task::v1::INTERRUPTED);
+    EXPECT_EQ(restored.describe("job").completed(), 1U);
+    EXPECT_TRUE(restored.active_tasks().empty());
+    restored.commit(restored.retry("job")).task();
+    EXPECT_EQ(restored.active_tasks().size(), 1U);
+}
+
+TEST(TaskStore, PreparedPayloadCannotBypassCancellationOrANewerAttempt)
+{
+    for (const bool retry : {false, true}) {
+        SCOPED_TRACE(retry);
+        TaskDirectory directory;
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "job", input());
+        task::v1::TaskFinish request;
+        request.set_id("job");
+        request.set_token(store.commit(store.claim("job")).token());
+        *request.mutable_result() = backtest::run(input());
+        auto pending = store.prepare_finish(request);
+        EXPECT_THROW(store.commit(store.finish(pending)), std::invalid_argument);
+        // File preparation owns only copies. The state owner can process progress,
+        // cancellation and a new attempt while the old attempt writes its payload.
+        auto preparation = std::async(std::launch::async, [&] {
+            pending.prepare_payload();
+        });
+        store.commit(store.progress("job", request.token(), 1));
+        store.commit(store.cancel("job")).task();
+        if (retry) {
+            store.commit(store.acknowledge_cancel("job", request.token()));
+            store.commit(store.retry("job")).task();
+            EXPECT_NE(store.commit(store.claim("job")).token(), request.token());
+        }
+        preparation.get();
+        EXPECT_TRUE(store.describe("job").result_digest().empty());
+        if (retry) {
+            EXPECT_THROW(store.commit(store.finish(std::move(pending))), std::invalid_argument);
+            EXPECT_EQ(store.get("job").state(), task::v1::RUNNING);
+            EXPECT_EQ(store.get("job").attempt(), 2U);
+        } else {
+            store.commit(store.finish(std::move(pending)));
+            EXPECT_EQ(store.get("job").state(), task::v1::CANCELLED);
+        }
+        EXPECT_TRUE(std::filesystem::exists(directory.path / "job" / "results" / "1.pb"));
+        EXPECT_THROW(tasks::result(store, "job"), std::invalid_argument);
+    }
+}
+
+TEST(TaskStore, PreparedPayloadIsOwnedAndExpiredAttemptCannotCommit)
+{
     TaskDirectory directory;
     tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
     tasks::submit(store, "job", input());
@@ -1323,2953 +1546,3572 @@ TEST(TaskStore, PreparedPayloadCannotBypassCancellationOrANewerAttempt) {
     request.set_token(store.commit(store.claim("job")).token());
     *request.mutable_result() = backtest::run(input());
     auto pending = store.prepare_finish(request);
-    EXPECT_THROW(store.commit(store.finish(pending)), std::invalid_argument);
-    // File preparation owns only copies. The state owner can process progress,
-    // cancellation and a new attempt while the old attempt writes its payload.
-    auto preparation = std::async(std::launch::async, [&] { pending.prepare_payload(); });
-    store.commit(store.progress("job", request.token(), 1));
-    store.commit(store.cancel("job")).task();
-    if (retry) {
-      store.commit(store.acknowledge_cancel("job", request.token()));
-      store.commit(store.retry("job")).task();
-      EXPECT_NE(store.commit(store.claim("job")).token(), request.token());
-    }
-    preparation.get();
-    EXPECT_TRUE(store.describe("job").result_digest().empty());
-    if (retry) {
-      EXPECT_THROW(store.commit(store.finish(std::move(pending))), std::invalid_argument);
-      EXPECT_EQ(store.get("job").state(), task::v1::RUNNING);
-      EXPECT_EQ(store.get("job").attempt(), 2U);
-    } else {
-      store.commit(store.finish(std::move(pending)));
-      EXPECT_EQ(store.get("job").state(), task::v1::CANCELLED);
-    }
+    request.mutable_result()->set_dataset_revision("changed.after.prepare");
+    EXPECT_NO_THROW(pending.prepare_payload());
+    store.commit(store.interrupt("job", request.token(), "test lease expired"));
+    EXPECT_THROW(store.commit(store.finish(std::move(pending))), std::invalid_argument);
+    EXPECT_EQ(store.get("job").state(), task::v1::INTERRUPTED);
     EXPECT_TRUE(std::filesystem::exists(directory.path / "job" / "results" / "1.pb"));
     EXPECT_THROW(tasks::result(store, "job"), std::invalid_argument);
-  }
 }
-TEST(TaskStore, PreparedPayloadIsOwnedAndExpiredAttemptCannotCommit) {
-  TaskDirectory directory;
-  tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-  tasks::submit(store, "job", input());
-  task::v1::TaskFinish request;
-  request.set_id("job");
-  request.set_token(store.commit(store.claim("job")).token());
-  *request.mutable_result() = backtest::run(input());
-  auto pending = store.prepare_finish(request);
-  request.mutable_result()->set_dataset_revision("changed.after.prepare");
-  EXPECT_NO_THROW(pending.prepare_payload());
-  store.commit(store.interrupt("job", request.token(), "test lease expired"));
-  EXPECT_THROW(store.commit(store.finish(std::move(pending))), std::invalid_argument);
-  EXPECT_EQ(store.get("job").state(), task::v1::INTERRUPTED);
-  EXPECT_TRUE(std::filesystem::exists(directory.path / "job" / "results" / "1.pb"));
-  EXPECT_THROW(tasks::result(store, "job"), std::invalid_argument);
+
+TEST(TaskStore, InputReadPreservesConcurrentCancellationAndRejectsForeignOrChangedFiles)
+{
+    TaskDirectory directory;
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    tasks::submit(store, "job", input());
+    auto read = store.prepare_input("job");
+    EXPECT_THROW(store.confirm_input(read), std::invalid_argument);
+    EXPECT_THROW((void)store.claim(read), std::invalid_argument);
+    auto loading = std::async(std::launch::async, [&] {
+        read.load();
+    });
+    store.commit(store.cancel("job")).task();
+    loading.get();
+    TaskDirectory foreign_directory;
+    tasks::Store foreign(foreign_directory.path, tasks::Identity{"task", "historical-data"});
+    tasks::submit(foreign, "job", input());
+    EXPECT_THROW(foreign.confirm_input(read), std::invalid_argument);
+    EXPECT_THROW((void)foreign.claim(read), std::invalid_argument);
+    EXPECT_THROW((void)store.claim(read), std::invalid_argument);
+    const auto value = store.confirm_input(std::move(read));
+    EXPECT_EQ(value.state(), task::v1::CANCELLED);
+    EXPECT_EQ(value.input().SerializeAsString(), input().SerializeAsString());
+    EXPECT_THROW(store.commit(store.claim("job")).token(), std::invalid_argument);
+    auto changed = store.prepare_input("job");
+    std::ofstream(directory.path / "job/input.pb", std::ios::binary | std::ios::trunc) << "bad";
+    EXPECT_THROW(changed.load(), std::invalid_argument);
+    EXPECT_THROW(store.confirm_input(std::move(changed)), std::invalid_argument);
 }
-TEST(TaskStore, InputReadPreservesConcurrentCancellationAndRejectsForeignOrChangedFiles) {
-  TaskDirectory directory;
-  tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-  tasks::submit(store, "job", input());
-  auto read = store.prepare_input("job");
-  EXPECT_THROW(store.confirm_input(read), std::invalid_argument);
-  EXPECT_THROW((void)store.claim(read), std::invalid_argument);
-  auto loading = std::async(std::launch::async, [&] { read.load(); });
-  store.commit(store.cancel("job")).task();
-  loading.get();
-  TaskDirectory foreign_directory;
-  tasks::Store foreign(foreign_directory.path, tasks::Identity{"task", "historical-data"});
-  tasks::submit(foreign, "job", input());
-  EXPECT_THROW(foreign.confirm_input(read), std::invalid_argument);
-  EXPECT_THROW((void)foreign.claim(read), std::invalid_argument);
-  EXPECT_THROW((void)store.claim(read), std::invalid_argument);
-  const auto value = store.confirm_input(std::move(read));
-  EXPECT_EQ(value.state(), task::v1::CANCELLED);
-  EXPECT_EQ(value.input().SerializeAsString(), input().SerializeAsString());
-  EXPECT_THROW(store.commit(store.claim("job")).token(), std::invalid_argument);
-  auto changed = store.prepare_input("job");
-  std::ofstream(directory.path / "job/input.pb", std::ios::binary | std::ios::trunc) << "bad";
-  EXPECT_THROW(changed.load(), std::invalid_argument);
-  EXPECT_THROW(store.confirm_input(std::move(changed)), std::invalid_argument);
+
+TEST(TaskStore, ResultReadOwnsItsSnapshotAndChecksFilesBeforeCacheConfirmation)
+{
+    TaskDirectory directory;
+    const auto expected = backtest::run(input());
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "done", input());
+        store.commit(
+            tasks::finish(store, "done", store.commit(store.claim("done")).token(), expected));
+    }
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    tasks::submit(store, "other", input());
+    const auto token = store.commit(store.claim("other")).token();
+    auto read = store.prepare_result("done");
+    EXPECT_THROW(store.confirm_result(read), std::invalid_argument);
+    auto verifying = std::async(std::launch::async, [&] {
+        read.verify();
+    });
+    store.commit(store.progress("other", token, 1));
+    store.commit(store.cancel("other")).task();
+    verifying.get();
+    TaskDirectory other_directory;
+    tasks::Store other(other_directory.path, tasks::Identity{"task", "historical-data"});
+    tasks::submit(other, "done", input());
+    other.commit(tasks::finish(other, "done", other.commit(other.claim("done")).token(), expected));
+    EXPECT_THROW(other.confirm_result(read), std::invalid_argument);
+    const auto response = store.confirm_result(std::move(read));
+    EXPECT_EQ(response.backtest().SerializeAsString(), expected.SerializeAsString());
+    EXPECT_EQ(response.result_task().input().SerializeAsString(), input().SerializeAsString());
+    auto cached = store.prepare_result("done");
+    std::ofstream(directory.path / "done/input.pb", std::ios::binary | std::ios::trunc) << "bad";
+    EXPECT_THROW(cached.verify(), std::invalid_argument);
+    EXPECT_THROW(store.confirm_result(std::move(cached)), std::invalid_argument);
 }
-TEST(TaskStore, ResultReadOwnsItsSnapshotAndChecksFilesBeforeCacheConfirmation) {
-  TaskDirectory directory;
-  const auto expected = backtest::run(input());
-  {
+
+TEST(TaskStore, VerificationAdmissionReservesBothWorkersAndReleasesAfterFailure)
+{
+    tasks::VerificationSlots slots;
+    {
+        auto read = slots.acquire(false, "read");
+        auto first = slots.acquire(true, "first");
+        auto second = slots.acquire(true, "second");
+        EXPECT_THROW(slots.acquire(false, "another-read"), Error);
+        EXPECT_THROW(slots.acquire(true, "third"), Error);
+        auto moved = std::move(second);
+        EXPECT_THROW(slots.acquire(true, "second"), Error);
+    }
+    EXPECT_THROW(
+        {
+            auto read = slots.acquire(false, "failed-read");
+            throw std::runtime_error("verification failed");
+        },
+        std::runtime_error);
+    EXPECT_NO_THROW(slots.acquire(false, "next-read"));
+    auto first = slots.acquire(true, "first");
+    EXPECT_THROW(slots.acquire(true, "first"), Error);
+    EXPECT_NO_THROW(slots.acquire(true, "second"));
+}
+
+TEST(TaskStore, RepeatedVerifiedReadsStillDetectChangedResultBytes)
+{
+    TaskDirectory directory;
     tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
     tasks::submit(store, "done", input());
+    const auto expected = backtest::run(input());
     store.commit(tasks::finish(store, "done", store.commit(store.claim("done")).token(), expected));
-  }
-  tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-  tasks::submit(store, "other", input());
-  const auto token = store.commit(store.claim("other")).token();
-  auto read = store.prepare_result("done");
-  EXPECT_THROW(store.confirm_result(read), std::invalid_argument);
-  auto verifying = std::async(std::launch::async, [&] { read.verify(); });
-  store.commit(store.progress("other", token, 1));
-  store.commit(store.cancel("other")).task();
-  verifying.get();
-  TaskDirectory other_directory;
-  tasks::Store other(other_directory.path, tasks::Identity{"task", "historical-data"});
-  tasks::submit(other, "done", input());
-  other.commit(tasks::finish(other, "done", other.commit(other.claim("done")).token(), expected));
-  EXPECT_THROW(other.confirm_result(read), std::invalid_argument);
-  const auto response = store.confirm_result(std::move(read));
-  EXPECT_EQ(response.backtest().SerializeAsString(), expected.SerializeAsString());
-  EXPECT_EQ(response.result_task().input().SerializeAsString(), input().SerializeAsString());
-  auto cached = store.prepare_result("done");
-  std::ofstream(directory.path / "done/input.pb", std::ios::binary | std::ios::trunc) << "bad";
-  EXPECT_THROW(cached.verify(), std::invalid_argument);
-  EXPECT_THROW(store.confirm_result(std::move(cached)), std::invalid_argument);
+    for (int i = 0; i < 3; ++i)
+        EXPECT_EQ(tasks::result(store, "done").SerializeAsString(), expected.SerializeAsString());
+    {
+        std::ofstream file(directory.path / "done" / "results" / "1.pb", std::ios::app);
+        file << " ";
+    }
+    EXPECT_THROW(tasks::result(store, "done"), std::invalid_argument);
 }
-TEST(TaskStore, VerificationAdmissionReservesBothWorkersAndReleasesAfterFailure) {
-  tasks::VerificationSlots slots;
-  {
-    auto read = slots.acquire(false, "read");
-    auto first = slots.acquire(true, "first");
-    auto second = slots.acquire(true, "second");
-    EXPECT_THROW(slots.acquire(false, "another-read"), Error);
-    EXPECT_THROW(slots.acquire(true, "third"), Error);
-    auto moved = std::move(second);
-    EXPECT_THROW(slots.acquire(true, "second"), Error);
-  }
-  EXPECT_THROW(
-      {
-        auto read = slots.acquire(false, "failed-read");
-        throw std::runtime_error("verification failed");
-      },
-      std::runtime_error);
-  EXPECT_NO_THROW(slots.acquire(false, "next-read"));
-  auto first = slots.acquire(true, "first");
-  EXPECT_THROW(slots.acquire(true, "first"), Error);
-  EXPECT_NO_THROW(slots.acquire(true, "second"));
-}
-TEST(TaskStore, RepeatedVerifiedReadsStillDetectChangedResultBytes) {
-  TaskDirectory directory;
-  tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-  tasks::submit(store, "done", input());
-  const auto expected = backtest::run(input());
-  store.commit(tasks::finish(store, "done", store.commit(store.claim("done")).token(), expected));
-  for (int i = 0; i < 3; ++i)
-    EXPECT_EQ(tasks::result(store, "done").SerializeAsString(), expected.SerializeAsString());
-  {
-    std::ofstream file(directory.path / "done" / "results" / "1.pb", std::ios::app);
-    file << " ";
-  }
-  EXPECT_THROW(tasks::result(store, "done"), std::invalid_argument);
-}
-TEST(TaskStore, InvalidInputAndQueuedCancellationDoNotRunAnything) {
-  TaskDirectory directory;
-  tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-  auto spec = input();
-  spec.set_dataset_revision("invalid");
-  EXPECT_THROW(tasks::submit(store, "invalid", spec), std::invalid_argument);
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "invalid"));
-  EXPECT_THROW(tasks::submit(store, "../outside", input()), std::exception);
-  tasks::submit(store, "queued", input());
-  EXPECT_EQ(store.commit(store.cancel("queued")).task().state(), task::v1::CANCELLED);
-  EXPECT_THROW(store.commit(store.claim("queued")).token(), std::invalid_argument);
-  EXPECT_EQ(store.get("queued").attempt(), 0U);
+
+TEST(TaskStore, InvalidInputAndQueuedCancellationDoNotRunAnything)
+{
+    TaskDirectory directory;
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    auto spec = input();
+    spec.set_dataset_revision("invalid");
+    EXPECT_THROW(tasks::submit(store, "invalid", spec), std::invalid_argument);
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "invalid"));
+    EXPECT_THROW(tasks::submit(store, "../outside", input()), std::exception);
+    tasks::submit(store, "queued", input());
+    EXPECT_EQ(store.commit(store.cancel("queued")).task().state(), task::v1::CANCELLED);
+    EXPECT_THROW(store.commit(store.claim("queued")).token(), std::invalid_argument);
+    EXPECT_EQ(store.get("queued").attempt(), 0U);
 }
 
 #include <asterion/kernel/ipc/local_channel.hpp>
 #include <thread>
+
 namespace {
+
 using namespace std::chrono_literals;
 namespace task_wire = task::v1;
-struct TaskProcess : testing::Test {
-  TaskDirectory directory, warehouse;
-  std::unique_ptr<ChildProcess> service, data_service;
-  std::filesystem::path sockets;
-  std::string endpoint;
-  unsigned lease_seconds = 2;
-  void SetUp() override {
-    sockets = std::filesystem::path("/tmp") / ("ast-r-" + unique_process_id().substr(0, 12));
-    std::filesystem::create_directory(sockets);
-    std::filesystem::permissions(sockets, std::filesystem::perms::owner_all);
-    endpoint = (sockets / "task.sock").string();
-    start();
-  }
-  void TearDown() override {
-    service.reset();
-    data_service.reset();
-    if (!sockets.empty()) {
-      std::error_code ec;
-      std::filesystem::remove_all(sockets, ec);
-    }
-  }
-  task_wire::TaskResponse call(task_wire::TaskRequest request, const std::string& target = "",
-                               std::chrono::milliseconds timeout = 2s) {
-    request.set_version(1);
-    request.set_service_id("task");
-    request.set_correlation_id(unique_process_id());
-    auto channel = ipc::Channel::connect(target.empty() ? endpoint : target, 2s);
-    channel.send(request.SerializeAsString(), 2s);
-    task_wire::TaskResponse response;
-    if (!response.ParseFromString(channel.receive(timeout)))
-      throw std::runtime_error("bad task response");
-    protocol::validate_message(response);
-    if (response.version() != 1 || response.service_id() != request.service_id() ||
-        response.correlation_id() != request.correlation_id())
-      throw std::runtime_error("wrong task response identity");
-    if (response.has_error())
-      throw std::runtime_error(response.error().message());
-    return response;
-  }
-  void start_data() {
-    data_service = std::make_unique<ChildProcess>(
-        ASTERION_DATA_SERVICE_PATH,
-        std::vector<std::string>{"--directory", warehouse.path.string(), "--session",
-                                 "historical-data", "--task-instance", "task", "--endpoint",
-                                 endpoint + ".data", "--worker-endpoint",
-                                 endpoint + ".data-workers", "--file-workers", "1"});
-    protocol::DataClient client(endpoint + ".data", "historical-data");
-    const auto until = std::chrono::steady_clock::now() + 10s;
-    for (;;) {
-      if (std::chrono::steady_clock::now() >= until)
-        throw std::runtime_error("data fixture did not initialize");
-      try {
-        data::v1::DataRequest request;
-        request.mutable_heartbeat();
-        if (client.call(request, 1s).health().initialized())
-          return;
-      } catch (const Error&) {
-        if (data_service->exited() || std::chrono::steady_clock::now() >= until)
-          throw;
-      }
-      std::this_thread::sleep_for(20ms);
-    }
-  }
-  void launch() {
-    std::filesystem::remove(endpoint); // This test exclusively owns the private directory.
-    std::filesystem::remove(endpoint + ".worker");
-    std::filesystem::remove(endpoint + ".health");
-    const auto directory_utf8 = directory.path.u8string();
-    service = std::make_unique<ChildProcess>(
-        ASTERION_TASK_SERVICE_PATH,
-        std::vector<std::string>{
-            "--directory", std::string(directory_utf8.begin(), directory_utf8.end()), "--endpoint",
-            endpoint, "--worker-endpoint", endpoint + ".worker", "--health-endpoint",
-            endpoint + ".health", "--session", "task", "--data-instance", "historical-data",
-            "--data-endpoint", endpoint + ".data-workers", "--worker-timeout",
-            std::to_string(lease_seconds), "--file-workers", "1"});
-  }
-  void start(std::chrono::milliseconds timeout = 10s) {
-    launch();
-    const auto deadline = std::chrono::steady_clock::now() + timeout;
-    for (;;) {
-      try {
-        task_wire::TaskRequest req;
-        req.mutable_heartbeat();
-        if (call(req).health().initialized())
-          break;
-      } catch (const std::exception&) {
-        if (service->exited())
-          throw;
-      }
-      if (std::chrono::steady_clock::now() > deadline)
-        throw std::runtime_error("task fixture did not initialize");
-      std::this_thread::sleep_for(20ms);
-    }
-  }
-  std::optional<backtest::v1::BacktestInput> fixed_input;
-  data::v1::BarDataset published_dataset(const std::vector<int>& prices, const std::string& id) {
-    data_service.reset();
-    std::vector<std::string> days;
-    const auto first = std::chrono::sys_days(std::chrono::year(2024) / 1 / 1);
-    for (std::size_t day = 0; day < (prices.size() + 239) / 240; ++day)
-      days.push_back(
-          format_trading_date(std::chrono::year_month_day(first + std::chrono::days(day))));
-    const auto selection = test::seed_history(warehouse.path, prices, id, days);
-    data::v1::BarDatasetRequest request;
-    for (const auto& version : selection.at("source_dataset_ids"))
-      request.add_source_dataset_ids(version.get<std::string>());
-    *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
-    request.set_contract("SHFE/rb/2026-10");
-    data::v1::BarDataset dataset;
+
+struct TaskProcess : testing::Test
+{
+    TaskDirectory directory, warehouse;
+    std::unique_ptr<ChildProcess> service, data_service;
+    std::filesystem::path sockets;
+    std::string endpoint;
+    unsigned lease_seconds = 2;
+
+    void SetUp() override
     {
-      data::Store store(warehouse.path, "historical-data", "task");
-      dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
+        sockets = std::filesystem::path("/tmp") / ("ast-r-" + unique_process_id().substr(0, 12));
+        std::filesystem::create_directory(sockets);
+        std::filesystem::permissions(sockets, std::filesystem::perms::owner_all);
+        endpoint = (sockets / "task.sock").string();
+        start();
     }
-    start_data();
-    return dataset;
-  }
-  const backtest::v1::BacktestInput& process_input() {
-    if (!fixed_input) {
-      fixed_input = input();
-      *fixed_input->mutable_paper()->mutable_contracts(0)->mutable_dataset() =
-          published_dataset({100, 101, 102, 101, 100, 101, 103}, "worker-input");
-      fixed_input->set_dataset_revision(protocol::dataset_revision(fixed_input->paper()));
-    }
-    return *fixed_input;
-  }
-  void submit(const std::string& id) {
-    service.reset();
+
+    void TearDown() override
     {
-      tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-      tasks::submit(store, id, process_input());
+        service.reset();
+        data_service.reset();
+        if (!sockets.empty()) {
+            std::error_code ec;
+            std::filesystem::remove_all(sockets, ec);
+        }
     }
-    start();
-  }
+
+    task_wire::TaskResponse call(
+        task_wire::TaskRequest request,
+        const std::string& target = "",
+        std::chrono::milliseconds timeout = 2s)
+    {
+        request.set_version(1);
+        request.set_service_id("task");
+        request.set_correlation_id(unique_process_id());
+        auto channel = ipc::Channel::connect(target.empty() ? endpoint : target, 2s);
+        channel.send(request.SerializeAsString(), 2s);
+        task_wire::TaskResponse response;
+        if (!response.ParseFromString(channel.receive(timeout)))
+            throw std::runtime_error("bad task response");
+        protocol::validate_message(response);
+        if (response.version() != 1 || response.service_id() != request.service_id()
+            || response.correlation_id() != request.correlation_id())
+            throw std::runtime_error("wrong task response identity");
+        if (response.has_error())
+            throw std::runtime_error(response.error().message());
+        return response;
+    }
+
+    void start_data()
+    {
+        data_service = std::make_unique<ChildProcess>(
+            ASTERION_DATA_SERVICE_PATH,
+            std::vector<std::string>{
+                "--directory",
+                warehouse.path.string(),
+                "--session",
+                "historical-data",
+                "--task-instance",
+                "task",
+                "--endpoint",
+                endpoint + ".data",
+                "--worker-endpoint",
+                endpoint + ".data-workers",
+                "--file-workers",
+                "1"
+            });
+        protocol::DataClient client(endpoint + ".data", "historical-data");
+        const auto until = std::chrono::steady_clock::now() + 10s;
+        for (;;) {
+            if (std::chrono::steady_clock::now() >= until)
+                throw std::runtime_error("data fixture did not initialize");
+            try {
+                data::v1::DataRequest request;
+                request.mutable_heartbeat();
+                if (client.call(request, 1s).health().initialized())
+                    return;
+            } catch (const Error&) {
+                if (data_service->exited() || std::chrono::steady_clock::now() >= until)
+                    throw;
+            }
+            std::this_thread::sleep_for(20ms);
+        }
+    }
+
+    void launch()
+    {
+        std::filesystem::remove(endpoint); // This test exclusively owns the private directory.
+        std::filesystem::remove(endpoint + ".worker");
+        std::filesystem::remove(endpoint + ".health");
+        const auto directory_utf8 = directory.path.u8string();
+        service = std::make_unique<ChildProcess>(
+            ASTERION_TASK_SERVICE_PATH,
+            std::vector<std::string>{
+                "--directory",
+                std::string(directory_utf8.begin(), directory_utf8.end()),
+                "--endpoint",
+                endpoint,
+                "--worker-endpoint",
+                endpoint + ".worker",
+                "--health-endpoint",
+                endpoint + ".health",
+                "--session",
+                "task",
+                "--data-instance",
+                "historical-data",
+                "--data-endpoint",
+                endpoint + ".data-workers",
+                "--worker-timeout",
+                std::to_string(lease_seconds),
+                "--file-workers",
+                "1"
+            });
+    }
+
+    void start(std::chrono::milliseconds timeout = 10s)
+    {
+        launch();
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        for (;;) {
+            try {
+                task_wire::TaskRequest req;
+                req.mutable_heartbeat();
+                if (call(req).health().initialized())
+                    break;
+            } catch (const std::exception&) {
+                if (service->exited())
+                    throw;
+            }
+            if (std::chrono::steady_clock::now() > deadline)
+                throw std::runtime_error("task fixture did not initialize");
+            std::this_thread::sleep_for(20ms);
+        }
+    }
+
+    std::optional<backtest::v1::BacktestInput> fixed_input;
+
+    data::v1::BarDataset published_dataset(const std::vector<int>& prices, const std::string& id)
+    {
+        data_service.reset();
+        std::vector<std::string> days;
+        const auto first = std::chrono::sys_days(std::chrono::year(2024) / 1 / 1);
+        for (std::size_t day = 0; day < (prices.size() + 239) / 240; ++day)
+            days.push_back(
+                format_trading_date(std::chrono::year_month_day(first + std::chrono::days(day))));
+        const auto selection = test::seed_history(warehouse.path, prices, id, days);
+        data::v1::BarDatasetRequest request;
+        for (const auto& version : selection.at("source_dataset_ids"))
+            request.add_source_dataset_ids(version.get<std::string>());
+        *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
+        request.set_contract("SHFE/rb/2026-10");
+        data::v1::BarDataset dataset;
+        {
+            data::Store store(warehouse.path, "historical-data", "task");
+            dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
+        }
+        start_data();
+        return dataset;
+    }
+
+    const backtest::v1::BacktestInput& process_input()
+    {
+        if (!fixed_input) {
+            fixed_input = input();
+            *fixed_input->mutable_paper()->mutable_contracts(0)->mutable_dataset() =
+                published_dataset({100, 101, 102, 101, 100, 101, 103}, "worker-input");
+            fixed_input->set_dataset_revision(protocol::dataset_revision(fixed_input->paper()));
+        }
+        return *fixed_input;
+    }
+
+    void submit(const std::string& id)
+    {
+        service.reset();
+        {
+            tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+            tasks::submit(store, id, process_input());
+        }
+        start();
+    }
 };
+
 } // namespace
-TEST_F(TaskProcess, WorkerRunsWithoutSubmittingClientAndResultSurvivesRestart) {
-  submit("run1"); // Every request closes its connection; no UI client remains.
-  ChildProcess worker(ASTERION_BACKTEST_PATH,
-                      {"--endpoint", endpoint, "--session", "task", "--task", "run1"});
-  ASSERT_TRUE(worker.wait(15s));
-  ASSERT_EQ(worker.exit_code(), 0);
-  task_wire::TaskRequest result;
-  result.mutable_result()->set_id("run1");
-  EXPECT_EQ(call(result).backtest().SerializeAsString(),
-            backtest::run(process_input()).SerializeAsString());
-  task_wire::TaskRequest list;
-  list.mutable_list()->set_limit(200);
-  auto response = call(list);
-  ASSERT_EQ(response.tasks().tasks_size(), 1);
-  EXPECT_FALSE(response.tasks().tasks(0).has_input());
-  service.reset();
-  start();
-  EXPECT_EQ(call(result).backtest().SerializeAsString(),
-            backtest::run(process_input()).SerializeAsString());
-  submit("run1"); // Same task ID after restart remains idempotent.
-  EXPECT_EQ(call(list).tasks().tasks_size(), 1);
-}
-TEST_F(TaskProcess, ABacktestOfAProductTradesTheMonthsTheDailyTableNames) {
-  // Rebar over six days of the daily table: October is the most held until
-  // the third day, January from the fourth; May never trades.
-  const char* days[] = {"2026-09-21", "2026-09-22", "2026-09-23",
-                        "2026-09-24", "2026-09-25", "2026-09-28"};
-  const auto traded = [&](int base, std::vector<int> held) {
-    std::vector<test::DailyRow> rows;
-    for (int i = 0; i < 6; ++i) {
-      const int price = base + 2 * i;
-      rows.push_back({days[i], price, held[static_cast<std::size_t>(i)],
-                      test::DailyTrade{price, price + 5, price - 5, price, 100}});
-    }
-    return rows;
-  };
-  data_service.reset();
-  {
-    data::Store created(warehouse.path, "historical-data", "task");
-  }
-  (void)test::seed_daily_table(warehouse.path, "SHFE/rb/2026-10",
-                               traded(200, {100, 100, 40, 30, 20, 10}));
-  (void)test::seed_daily_table(warehouse.path, "SHFE/rb/2027-01",
-                               traded(100, {10, 60, 90, 95, 99, 99}));
-  std::vector<test::DailyRow> idle;
-  for (const auto* day : days)
-    idle.push_back({day, 150, 5});
-  const auto table = test::seed_daily_table(warehouse.path, "SHFE/rb/2027-05", idle);
-  start_data();
-  task_wire::TaskRequest submit;
-  submit.mutable_submit()->set_id("product");
-  auto* backtest = submit.mutable_submit()->mutable_backtest();
-  auto* product = backtest->add_series()->mutable_product();
-  *product->mutable_data() = protocol::encode_product_bars_request({{"venue", "SHFE"},
-                                                                    {"product", "rb"},
-                                                                    {"begin_day", days[0]},
-                                                                    {"end_day", days[5]},
-                                                                    {"daily", table}});
-  *product->mutable_cost_schedule() = input().paper().contracts(0).cost_schedule();
-  product->set_slippage_ticks(1);
-  *backtest->mutable_deposit() = input().paper().deposit();
-  *backtest->mutable_risk() = input().paper().risk();
-  *backtest->add_strategies() = input().strategies(0);
-  EXPECT_EQ(call(submit).task().state(), task_wire::QUEUED);
-  ChildProcess worker(ASTERION_BACKTEST_PATH,
-                      {"--endpoint", endpoint, "--session", "task", "--task", "product"});
-  ASSERT_TRUE(worker.wait(15s));
-  ASSERT_EQ(worker.exit_code(), 0);
-  task_wire::TaskRequest get;
-  get.mutable_get()->set_id("product");
-  const auto task = call(get).task();
-  EXPECT_EQ(task.state(), task_wire::SUCCEEDED);
-  // The months that trade are the contracts, each with the product's costs;
-  // the month nobody traded is not among them.
-  const auto& paper = task.input().paper();
-  ASSERT_EQ(paper.contracts_size(), 2);
-  EXPECT_EQ(paper.contracts(0).dataset().contract().symbol(), "rb2610");
-  EXPECT_EQ(paper.contracts(1).dataset().contract().symbol(), "rb2701");
-  for (const auto& contract : paper.contracts()) {
-    EXPECT_EQ(contract.dataset().interval_minutes(), 0U);
-    EXPECT_EQ(contract.dataset().source_dataset_ids_size(), 0);
-    EXPECT_EQ(contract.slippage_ticks(), 1U);
-    EXPECT_EQ(contract.cost_schedule().SerializeAsString(),
-              product->cost_schedule().SerializeAsString());
-  }
-  ASSERT_EQ(task.input().series_size(), 1);
-  ASSERT_EQ(task.input().series(0).rolls_size(), 2);
-  EXPECT_EQ(task.input().series(0).rolls(1).trading_day(), days[3]);
-  // A list names the series once, over all its days, and the snapshot its
-  // months were read under once.
-  EXPECT_EQ(task.instrument(), "SHFE/rb (rb2610-rb2701)");
-  EXPECT_EQ(task.trading_day(), std::string(days[1]) + " / " + days[5]);
-  EXPECT_EQ(task.source_name(), table.at("snapshot").get<std::string>());
-  task_wire::TaskRequest result;
-  result.mutable_result()->set_id("product");
-  // Settled every day from the second, on which the series begins.
-  const auto original_result = call(result);
-  EXPECT_EQ(original_result.backtest().settlements_size(), 5);
-  const auto original_bytes = task.input().SerializeAsString();
-  const auto reuse = [&](const std::string& id, bool fresh, const std::string& snapshot,
-                         const std::string& digest) {
-    task_wire::TaskRequest request;
-    request.mutable_submit()->set_id(id);
-    auto* ref = request.mutable_submit()->mutable_backtest_reuse();
-    ref->set_source_id("product");
-    ref->set_source_result_digest(task.result_digest());
-    ref->set_source_input_sha256(digest);
-    ref->set_choice(fresh ? backtest::v1::BacktestReuse::NEW_SNAPSHOT
-                          : backtest::v1::BacktestReuse::FIXED);
-    ref->set_snapshot(snapshot);
-    return call(request);
-  };
-  const auto digest = sha256_bytes(original_bytes);
-  EXPECT_THROW(reuse("stale", false, "", std::string(64, 'f')), std::runtime_error);
-  EXPECT_EQ(reuse("fixed", false, "", digest).task().state(), task_wire::QUEUED);
-  ChildProcess fixed(ASTERION_BACKTEST_PATH,
-                     {"--endpoint", endpoint, "--session", "task", "--task", "fixed"});
-  ASSERT_TRUE(fixed.wait(15s));
-  ASSERT_EQ(fixed.exit_code(), 0);
-  result.mutable_result()->set_id("fixed");
-  const auto fixed_result = call(result);
-  EXPECT_EQ(fixed_result.result_task().input().SerializeAsString(), original_bytes);
-  EXPECT_EQ(fixed_result.backtest().SerializeAsString(),
-            original_result.backtest().SerializeAsString());
-  data_service.reset();
-  const auto revised = test::seed_daily_table(warehouse.path, "SHFE/rb/2027-01",
-                                              traded(100, {10, 200, 90, 95, 99, 99}));
-  start_data();
-  EXPECT_EQ(
-      reuse("revised", true, revised.at("snapshot").get<std::string>(), digest).task().state(),
-      task_wire::QUEUED);
-  ChildProcess revised_worker(ASTERION_BACKTEST_PATH,
-                              {"--endpoint", endpoint, "--session", "task", "--task", "revised"});
-  ASSERT_TRUE(revised_worker.wait(15s));
-  ASSERT_EQ(revised_worker.exit_code(), 0);
-  result.mutable_result()->set_id("revised");
-  const auto revised_result = call(result);
-  const auto& revised_input = revised_result.result_task().input();
-  EXPECT_NE(revised_input.dataset_revision(), task.input().dataset_revision());
-  ASSERT_EQ(revised_input.series(0).rolls_size(), 2);
-  EXPECT_EQ(revised_input.series(0).rolls(0).trading_day(), days[1]);
-  EXPECT_EQ(revised_input.series(0).rolls(1).trading_day(), days[2]);
-  EXPECT_EQ(revised_input.strategies(0).SerializeAsString(),
-            task.input().strategies(0).SerializeAsString());
-  EXPECT_EQ(revised_input.paper().risk().SerializeAsString(), paper.risk().SerializeAsString());
-  for (const auto& contract : revised_input.paper().contracts()) {
-    EXPECT_EQ(contract.cost_schedule().SerializeAsString(),
-              product->cost_schedule().SerializeAsString());
-    EXPECT_EQ(contract.slippage_ticks(), 1U);
-  }
-  get.mutable_get()->set_id("product");
-  EXPECT_EQ(call(get).task().input().SerializeAsString(), original_bytes);
-  result.mutable_result()->set_id("product");
-  EXPECT_EQ(call(result).backtest().SerializeAsString(),
-            original_result.backtest().SerializeAsString());
-}
-TEST_F(TaskProcess, BacktestReuseRejectsOldInputWithoutCreatingANewTask) {
-  submit("legacy");
-  ChildProcess worker(ASTERION_BACKTEST_PATH,
-                      {"--endpoint", endpoint, "--session", "task", "--task", "legacy"});
-  ASSERT_TRUE(worker.wait(15s));
-  ASSERT_EQ(worker.exit_code(), 0);
-  task_wire::TaskRequest get;
-  get.mutable_get()->set_id("legacy");
-  const auto original = call(get).task();
-  service.reset();
-  auto old = original.input();
-  old.set_version(9);
-  const auto raw = old.SerializeAsString();
-  replace_file_durably(directory.path / "legacy" / "input.pb", raw);
-  {
-    sqlite::Database db(directory.path / "tasks.sqlite");
-    Json manifest;
-    task::v1::StoredTaskRecord record;
-    {
-      sqlite::Database::Statement read(db, "SELECT manifest, record FROM tasks WHERE id='legacy'");
-      ASSERT_TRUE(read.step());
-      manifest = Json::parse(read.text(0));
-      ASSERT_TRUE(record.ParseFromString(read.blob(1)));
-    }
-    manifest["input_sha256"] = sha256_bytes(raw);
-    manifest["input_bytes"] = raw.size();
-    record.set_input_digest(sha256_bytes(raw));
-    record.set_input_bytes(raw.size());
-    sqlite::Database::Statement write(db,
-                                      "UPDATE tasks SET manifest=?, record=? WHERE id='legacy'");
-    write.bind(1, manifest.dump()).bind_blob(2, record.SerializeAsString()).step();
-  }
-  start();
-  task_wire::TaskRequest request;
-  request.mutable_submit()->set_id("not-created");
-  auto* reuse = request.mutable_submit()->mutable_backtest_reuse();
-  reuse->set_source_id("legacy");
-  reuse->set_source_result_digest(original.result_digest());
-  reuse->set_source_input_sha256(sha256_bytes(raw));
-  reuse->set_choice(backtest::v1::BacktestReuse::FIXED);
-  try {
-    (void)call(request);
-    FAIL() << "old backtest input was accepted";
-  } catch (const std::runtime_error& error) {
-    EXPECT_NE(std::string(error.what()).find("unsupported backtest input version"),
-              std::string::npos);
-  }
-  task_wire::TaskRequest export_source;
-  export_source.mutable_result()->set_id("legacy");
-  try {
-    (void)call(export_source);
-    FAIL() << "old result was exported";
-  } catch (const std::runtime_error& error) {
-    EXPECT_NE(std::string(error.what()).find("unsupported backtest input version"),
-              std::string::npos);
-  }
-  task_wire::TaskRequest description;
-  description.mutable_metadata_get()->set_id("legacy");
-  EXPECT_EQ(call(description).task().metadata().revision(), 0U);
-  task_wire::TaskRequest edit;
-  auto* metadata = edit.mutable_metadata_edit();
-  metadata->set_id("legacy");
-  metadata->set_name("legacy description");
-  metadata->set_note("input retained");
-  EXPECT_EQ(call(edit).task().result_digest(), original.result_digest());
-  service.reset();
-  start();
-  EXPECT_EQ(call(description).task().metadata().note(), "input retained");
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "not-created" / "input.pb"));
-  std::ifstream file(directory.path / "legacy" / "input.pb", std::ios::binary);
-  EXPECT_EQ(std::string((std::istreambuf_iterator<char>(file)), {}), raw);
-}
-TEST_F(TaskProcess, WorkerRejectsDataEvidenceDifferentFromTheAcceptedInput) {
-  auto spec = process_input();
-  auto* evidence =
-      spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_history_evidence(0);
-  evidence->set_acquired_at_ns(evidence->acquired_at_ns() + 1);
-  service.reset();
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "different-evidence", spec);
-  }
-  start();
-  ChildProcess worker(ASTERION_BACKTEST_PATH, {"--endpoint", endpoint, "--session", "task",
-                                               "--task", "different-evidence"});
-  ASSERT_TRUE(worker.wait(15s));
-  EXPECT_NE(worker.exit_code(), 0);
-  task_wire::TaskRequest get;
-  get.mutable_get()->set_id("different-evidence");
-  const auto task = call(get).task();
-  EXPECT_EQ(task.state(), task_wire::FAILED);
-  EXPECT_EQ(task.error(), "calculation input does not match fixed task evidence");
-  EXPECT_TRUE(task.result_digest().empty());
-}
-TEST_F(TaskProcess, TasksStoredByAnotherVersionStayListedAndTheirAttemptsFailWithTheReason) {
-  const auto spec = process_input();
-  service.reset();
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "other-rules", spec);
-    tasks::submit(store, "other-messages", spec);
-  }
-  // Another version's messages need not be this one's: here the stored input
-  // has a field this version does not know. The bytes are what the index says.
-  {
-    const auto path = directory.path / "other-messages" / "input.pb";
-    std::ifstream stream(path, std::ios::binary);
-    std::string raw((std::istreambuf_iterator<char>(stream)), {});
-    stream.close();
-    raw += "\xb8\x3e\x01"; // field 999, a varint
-    replace_file_durably(path, raw);
-    sqlite::Database db(directory.path / "tasks.sqlite");
-    Json manifest;
-    task::v1::StoredTaskRecord record;
-    {
-      sqlite::Database::Statement read(
-          db, "SELECT manifest, record FROM tasks WHERE id='other-messages'");
-      ASSERT_TRUE(read.step());
-      manifest = Json::parse(read.text(0));
-      ASSERT_TRUE(record.ParseFromString(read.blob(1)));
-    }
-    manifest["input_sha256"] = sha256_bytes(raw);
-    manifest["input_bytes"] = raw.size();
-    record.set_input_digest(sha256_bytes(raw));
-    record.set_input_bytes(raw.size());
-    sqlite::Database::Statement write(
-        db, "UPDATE tasks SET manifest=?, record=? WHERE id='other-messages'");
-    write.bind(1, manifest.dump()).bind_blob(2, record.SerializeAsString()).step();
-  }
-  // The version that stored a task may have read its input otherwise: here it
-  // counted one unit of work more than this one does.
-  unsigned admitted = 0;
-  {
-    sqlite::Database db(directory.path / "tasks.sqlite");
-    task::v1::StoredTaskRecord record;
-    {
-      sqlite::Database::Statement read(db, "SELECT record FROM tasks WHERE id='other-rules'");
-      ASSERT_TRUE(read.step());
-      ASSERT_TRUE(record.ParseFromString(read.blob(0)));
-    }
-    admitted = record.task().total() + 1;
-    record.mutable_task()->set_total(admitted);
-    sqlite::Database::Statement write(db, "UPDATE tasks SET record=? WHERE id='other-rules'");
-    write.bind_blob(1, record.SerializeAsString()).step();
-  }
-  // The store agrees with itself, so the service opens it and lists the task
-  // as it was stored.
-  start();
-  task_wire::TaskRequest get;
-  get.mutable_get()->set_id("other-rules");
-  EXPECT_EQ(call(get).task().state(), task_wire::QUEUED);
-  EXPECT_EQ(call(get).task().total(), admitted);
-  // Running it is this version's to refuse: the attempt fails with the reason
-  // and the task leaves the queue, so no worker is launched for it again.
-  ChildProcess worker(ASTERION_BACKTEST_PATH,
-                      {"--endpoint", endpoint, "--session", "task", "--task", "other-rules"});
-  ASSERT_TRUE(worker.wait(15s));
-  EXPECT_NE(worker.exit_code(), 0);
-  const auto refused = call(get).task();
-  EXPECT_EQ(refused.state(), task_wire::FAILED);
-  EXPECT_EQ(refused.attempt(), 1U);
-  EXPECT_EQ(refused.total(), admitted);
-  EXPECT_EQ(refused.error(), "task input reads differently in this version; submit it again");
-  // What the unreadable input reads cannot be told: it is counted, and the
-  // task that can be read is still found.
-  task_wire::TaskRequest usage;
-  usage.mutable_history_usage()->set_id(spec.paper().contracts(0).dataset().source_dataset_ids(0));
-  const auto used = call(usage).history_usage();
-  EXPECT_EQ(used.unreadable(), 1U);
-  ASSERT_EQ(used.references_size(), 1);
-  EXPECT_EQ(used.references(0).id(), "other-rules");
-  ChildProcess unreadable(ASTERION_BACKTEST_PATH, {"--endpoint", endpoint, "--session", "task",
-                                                   "--task", "other-messages"});
-  ASSERT_TRUE(unreadable.wait(15s));
-  EXPECT_NE(unreadable.exit_code(), 0);
-  // Asking for the task with its input is refused for the same reason; the
-  // list, which reads the index, shows how its attempt ended.
-  get.mutable_get()->set_id("other-messages");
-  EXPECT_THROW(call(get), std::runtime_error);
-  task_wire::TaskRequest list;
-  list.mutable_list()->set_limit(200);
-  const auto tasks = call(list).tasks().tasks();
-  const auto listed = std::ranges::find(tasks, "other-messages", &task_wire::Task::id);
-  ASSERT_NE(listed, tasks.end());
-  EXPECT_EQ(listed->state(), task_wire::FAILED);
-  EXPECT_EQ(listed->error(), "task input was stored by another version; submit the task again");
-  task_wire::TaskRequest dispatch;
-  dispatch.mutable_dispatch()->set_launch_slots(2);
-  EXPECT_EQ(call(dispatch, endpoint + ".worker").launches().launches_size(), 0);
-  service.reset();
-  start();
-  get.mutable_get()->set_id("other-rules");
-  EXPECT_EQ(call(get).task().SerializeAsString(), refused.SerializeAsString());
-}
-TEST_F(TaskProcess, RestartFencesClaimedWorkAndQueuedCancelStaysCancelled) {
-  submit("interrupted");
-  task_wire::TaskRequest claim;
-  claim.mutable_claim()->set_kind(task::v1::BACKTEST);
-  claim.mutable_claim()->set_id("interrupted");
-  const auto attempt = call(claim).attempt();
-  EXPECT_FALSE(attempt.task().has_input());
-  EXPECT_TRUE(attempt.has_execution());
-  EXPECT_LT(attempt.ByteSizeLong(), 4096U);
-  EXPECT_EQ(attempt.data_instance(), "historical-data");
-  const auto token = attempt.token();
-  service.reset();
-  start();
-  task_wire::TaskRequest get;
-  get.mutable_get()->set_id("interrupted");
-  EXPECT_EQ(call(get).task().state(), task_wire::INTERRUPTED);
-  task_wire::TaskRequest finish;
-  auto* f = finish.mutable_finish();
-  f->set_id("interrupted");
-  f->set_token(token);
-  *f->mutable_result() = backtest::run(process_input());
-  EXPECT_THROW(call(finish), std::runtime_error);
-  submit("cancelled");
-  task_wire::TaskRequest cancel;
-  cancel.mutable_cancel()->set_id("cancelled");
-  EXPECT_EQ(call(cancel).task().state(), task_wire::CANCELLED);
-  ChildProcess worker(ASTERION_BACKTEST_PATH,
-                      {"--endpoint", endpoint, "--session", "task", "--task", "cancelled"});
-  ASSERT_TRUE(worker.wait(10s));
-  EXPECT_NE(worker.exit_code(), 0);
-}
-TEST_F(TaskProcess, ListenerServesRepeatedConnectionsAndRetainsOwnership) {
-  for (int i = 0; i < 5; ++i) {
-    task_wire::TaskRequest request;
-    request.mutable_heartbeat();
-    EXPECT_TRUE(call(request).has_health());
-  }
-  EXPECT_THROW(testing_support::LocalListener duplicate(endpoint), Error);
+
+TEST_F(TaskProcess, WorkerRunsWithoutSubmittingClientAndResultSurvivesRestart)
+{
+    submit("run1"); // Every request closes its connection; no UI client remains.
+    ChildProcess worker(
+        ASTERION_BACKTEST_PATH,
+        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "run1"});
+    ASSERT_TRUE(worker.wait(15s));
+    ASSERT_EQ(worker.exit_code(), 0);
+    task_wire::TaskRequest result;
+    result.mutable_result()->set_id("run1");
+    EXPECT_EQ(
+        call(result).backtest().SerializeAsString(),
+        backtest::run(process_input()).SerializeAsString());
+    task_wire::TaskRequest list;
+    list.mutable_list()->set_limit(200);
+    auto response = call(list);
+    ASSERT_EQ(response.tasks().tasks_size(), 1);
+    EXPECT_FALSE(response.tasks().tasks(0).has_input());
+    service.reset();
+    start();
+    EXPECT_EQ(
+        call(result).backtest().SerializeAsString(),
+        backtest::run(process_input()).SerializeAsString());
+    submit("run1"); // Same task ID after restart remains idempotent.
+    EXPECT_EQ(call(list).tasks().tasks_size(), 1);
 }
 
-TEST_F(TaskProcess, WorkerLeaseExpiryInterruptsWithoutAutomaticRetry) {
-  submit("lost");
-  task_wire::TaskRequest claim;
-  claim.mutable_claim()->set_kind(task::v1::BACKTEST);
-  claim.mutable_claim()->set_id("lost");
-  const auto token = call(claim).attempt().token();
-  task_wire::TaskRequest get;
-  get.mutable_get()->set_id("lost");
-  const auto deadline = std::chrono::steady_clock::now() + 5s;
-  while (call(get).task().state() == task_wire::RUNNING &&
-         std::chrono::steady_clock::now() < deadline)
-    std::this_thread::sleep_for(50ms);
-  EXPECT_EQ(call(get).task().state(), task_wire::INTERRUPTED);
-  EXPECT_EQ(call(get).task().attempt(), 1U);
-  task_wire::TaskRequest progress;
-  progress.mutable_progress()->set_id("lost");
-  progress.mutable_progress()->set_token(token);
-  progress.mutable_progress()->set_completed(1);
-  EXPECT_THROW(call(progress), std::runtime_error);
+TEST_F(TaskProcess, ABacktestOfAProductTradesTheMonthsTheDailyTableNames)
+{
+    // Rebar over six days of the daily table: October is the most held until
+    // the third day, January from the fourth; May never trades.
+    const char* days[] =
+        {"2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25", "2026-09-28"};
+    const auto traded = [&](int base, std::vector<int> held) {
+        std::vector<test::DailyRow> rows;
+        for (int i = 0; i < 6; ++i) {
+            const int price = base + 2 * i;
+            rows.push_back(
+                {days[i],
+                    price,
+                    held[static_cast<std::size_t>(i)],
+                    test::DailyTrade{price, price + 5, price - 5, price, 100}});
+        }
+        return rows;
+    };
+    data_service.reset();
+    {
+        data::Store created(warehouse.path, "historical-data", "task");
+    }
+    (void)test::seed_daily_table(
+        warehouse.path,
+        "SHFE/rb/2026-10",
+        traded(200, {100, 100, 40, 30, 20, 10}));
+    (void)test::seed_daily_table(
+        warehouse.path,
+        "SHFE/rb/2027-01",
+        traded(100, {10, 60, 90, 95, 99, 99}));
+    std::vector<test::DailyRow> idle;
+    for (const auto* day : days)
+        idle.push_back({day, 150, 5});
+    const auto table = test::seed_daily_table(warehouse.path, "SHFE/rb/2027-05", idle);
+    start_data();
+    task_wire::TaskRequest submit;
+    submit.mutable_submit()->set_id("product");
+    auto* backtest = submit.mutable_submit()->mutable_backtest();
+    auto* product = backtest->add_series()->mutable_product();
+    *product->mutable_data() = protocol::encode_product_bars_request(
+        {{"venue", "SHFE"},
+            {"product", "rb"},
+            {"begin_day", days[0]},
+            {"end_day", days[5]},
+            {"daily", table}});
+    *product->mutable_cost_schedule() = input().paper().contracts(0).cost_schedule();
+    product->set_slippage_ticks(1);
+    *backtest->mutable_deposit() = input().paper().deposit();
+    *backtest->mutable_risk() = input().paper().risk();
+    *backtest->add_strategies() = input().strategies(0);
+    EXPECT_EQ(call(submit).task().state(), task_wire::QUEUED);
+    ChildProcess worker(
+        ASTERION_BACKTEST_PATH,
+        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "product"});
+    ASSERT_TRUE(worker.wait(15s));
+    ASSERT_EQ(worker.exit_code(), 0);
+    task_wire::TaskRequest get;
+    get.mutable_get()->set_id("product");
+    const auto task = call(get).task();
+    EXPECT_EQ(task.state(), task_wire::SUCCEEDED);
+    // The months that trade are the contracts, each with the product's costs;
+    // the month nobody traded is not among them.
+    const auto& paper = task.input().paper();
+    ASSERT_EQ(paper.contracts_size(), 2);
+    EXPECT_EQ(paper.contracts(0).dataset().contract().symbol(), "rb2610");
+    EXPECT_EQ(paper.contracts(1).dataset().contract().symbol(), "rb2701");
+    for (const auto& contract : paper.contracts()) {
+        EXPECT_EQ(contract.dataset().interval_minutes(), 0U);
+        EXPECT_EQ(contract.dataset().source_dataset_ids_size(), 0);
+        EXPECT_EQ(contract.slippage_ticks(), 1U);
+        EXPECT_EQ(
+            contract.cost_schedule().SerializeAsString(),
+            product->cost_schedule().SerializeAsString());
+    }
+    ASSERT_EQ(task.input().series_size(), 1);
+    ASSERT_EQ(task.input().series(0).rolls_size(), 2);
+    EXPECT_EQ(task.input().series(0).rolls(1).trading_day(), days[3]);
+    // A list names the series once, over all its days, and the snapshot its
+    // months were read under once.
+    EXPECT_EQ(task.instrument(), "SHFE/rb (rb2610-rb2701)");
+    EXPECT_EQ(task.trading_day(), std::string(days[1]) + " / " + days[5]);
+    EXPECT_EQ(task.source_name(), table.at("snapshot").get<std::string>());
+    task_wire::TaskRequest result;
+    result.mutable_result()->set_id("product");
+    // Settled every day from the second, on which the series begins.
+    const auto original_result = call(result);
+    EXPECT_EQ(original_result.backtest().settlements_size(), 5);
+    const auto original_bytes = task.input().SerializeAsString();
+    const auto reuse = [&](const std::string& id,
+                           bool fresh,
+                           const std::string& snapshot,
+                           const std::string& digest) {
+        task_wire::TaskRequest request;
+        request.mutable_submit()->set_id(id);
+        auto* ref = request.mutable_submit()->mutable_backtest_reuse();
+        ref->set_source_id("product");
+        ref->set_source_result_digest(task.result_digest());
+        ref->set_source_input_sha256(digest);
+        ref->set_choice(
+            fresh ? backtest::v1::BacktestReuse::NEW_SNAPSHOT : backtest::v1::BacktestReuse::FIXED);
+        ref->set_snapshot(snapshot);
+        return call(request);
+    };
+    const auto digest = sha256_bytes(original_bytes);
+    EXPECT_THROW(reuse("stale", false, "", std::string(64, 'f')), std::runtime_error);
+    EXPECT_EQ(reuse("fixed", false, "", digest).task().state(), task_wire::QUEUED);
+    ChildProcess fixed(
+        ASTERION_BACKTEST_PATH,
+        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "fixed"});
+    ASSERT_TRUE(fixed.wait(15s));
+    ASSERT_EQ(fixed.exit_code(), 0);
+    result.mutable_result()->set_id("fixed");
+    const auto fixed_result = call(result);
+    EXPECT_EQ(fixed_result.result_task().input().SerializeAsString(), original_bytes);
+    EXPECT_EQ(
+        fixed_result.backtest().SerializeAsString(),
+        original_result.backtest().SerializeAsString());
+    data_service.reset();
+    const auto revised = test::seed_daily_table(
+        warehouse.path,
+        "SHFE/rb/2027-01",
+        traded(100, {10, 200, 90, 95, 99, 99}));
+    start_data();
+    EXPECT_EQ(
+        reuse("revised", true, revised.at("snapshot").get<std::string>(), digest).task().state(),
+        task_wire::QUEUED);
+    ChildProcess revised_worker(
+        ASTERION_BACKTEST_PATH,
+        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "revised"});
+    ASSERT_TRUE(revised_worker.wait(15s));
+    ASSERT_EQ(revised_worker.exit_code(), 0);
+    result.mutable_result()->set_id("revised");
+    const auto revised_result = call(result);
+    const auto& revised_input = revised_result.result_task().input();
+    EXPECT_NE(revised_input.dataset_revision(), task.input().dataset_revision());
+    ASSERT_EQ(revised_input.series(0).rolls_size(), 2);
+    EXPECT_EQ(revised_input.series(0).rolls(0).trading_day(), days[1]);
+    EXPECT_EQ(revised_input.series(0).rolls(1).trading_day(), days[2]);
+    EXPECT_EQ(
+        revised_input.strategies(0).SerializeAsString(),
+        task.input().strategies(0).SerializeAsString());
+    EXPECT_EQ(revised_input.paper().risk().SerializeAsString(), paper.risk().SerializeAsString());
+    for (const auto& contract : revised_input.paper().contracts()) {
+        EXPECT_EQ(
+            contract.cost_schedule().SerializeAsString(),
+            product->cost_schedule().SerializeAsString());
+        EXPECT_EQ(contract.slippage_ticks(), 1U);
+    }
+    get.mutable_get()->set_id("product");
+    EXPECT_EQ(call(get).task().input().SerializeAsString(), original_bytes);
+    result.mutable_result()->set_id("product");
+    EXPECT_EQ(
+        call(result).backtest().SerializeAsString(),
+        original_result.backtest().SerializeAsString());
 }
-TEST_F(TaskProcess, WorkerHeartbeatsWithoutEngineProgressAndObservesCancellation) {
-  for (const bool cancel : {false, true}) {
-    const auto id = cancel ? "cancel-initializing" : "initializing";
-    submit(id);
+
+TEST_F(TaskProcess, WorkerRejectsDataEvidenceDifferentFromTheAcceptedInput)
+{
+    auto spec = process_input();
+    auto* evidence =
+        spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_history_evidence(0);
+    evidence->set_acquired_at_ns(evidence->acquired_at_ns() + 1);
+    service.reset();
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "different-evidence", spec);
+    }
+    start();
+    ChildProcess worker(
+        ASTERION_BACKTEST_PATH,
+        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "different-evidence"});
+    ASSERT_TRUE(worker.wait(15s));
+    EXPECT_NE(worker.exit_code(), 0);
+    task_wire::TaskRequest get;
+    get.mutable_get()->set_id("different-evidence");
+    const auto task = call(get).task();
+    EXPECT_EQ(task.state(), task_wire::FAILED);
+    EXPECT_EQ(task.error(), "calculation input does not match fixed task evidence");
+    EXPECT_TRUE(task.result_digest().empty());
+}
+
+TEST_F(TaskProcess, InvalidFixedInputsFailTheirAttemptWithoutRequeueing)
+{
+    const auto spec = process_input();
+    service.reset();
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "other-rules", spec);
+        tasks::submit(store, "other-messages", spec);
+    }
+    // A digest-matched input with an unknown field is still invalid.
+    {
+        const auto path = directory.path / "other-messages" / "input.pb";
+        std::ifstream stream(path, std::ios::binary);
+        std::string raw((std::istreambuf_iterator<char>(stream)), {});
+        stream.close();
+        raw += "\xb8\x3e\x01"; // field 999, a varint
+        replace_file_durably(path, raw);
+        sqlite::Database db(directory.path / "tasks.sqlite");
+        Json manifest;
+        task::v1::StoredTaskRecord record;
+        {
+            sqlite::Database::Statement read(
+                db,
+                "SELECT manifest, record FROM tasks WHERE id='other-messages'");
+            ASSERT_TRUE(read.step());
+            manifest = Json::parse(read.text(0));
+            ASSERT_TRUE(record.ParseFromString(read.blob(1)));
+        }
+        manifest["input_sha256"] = sha256_bytes(raw);
+        manifest["input_bytes"] = raw.size();
+        record.set_input_digest(sha256_bytes(raw));
+        record.set_input_bytes(raw.size());
+        sqlite::Database::Statement write(
+            db,
+            "UPDATE tasks SET manifest=?, record=? WHERE id='other-messages'");
+        write.bind(1, manifest.dump()).bind_blob(2, record.SerializeAsString()).step();
+    }
+    // A consistent index can still disagree with the fixed input's work.
+    unsigned admitted = 0;
+    {
+        sqlite::Database db(directory.path / "tasks.sqlite");
+        task::v1::StoredTaskRecord record;
+        {
+            sqlite::Database::Statement read(db, "SELECT record FROM tasks WHERE id='other-rules'");
+            ASSERT_TRUE(read.step());
+            ASSERT_TRUE(record.ParseFromString(read.blob(0)));
+        }
+        admitted = record.task().total() + 1;
+        record.mutable_task()->set_total(admitted);
+        sqlite::Database::Statement write(db, "UPDATE tasks SET record=? WHERE id='other-rules'");
+        write.bind_blob(1, record.SerializeAsString()).step();
+    }
+    // The store agrees with itself, so the service opens it and lists the task
+    // as it was stored.
+    start();
+    task_wire::TaskRequest get;
+    get.mutable_get()->set_id("other-rules");
+    EXPECT_EQ(call(get).task().state(), task_wire::QUEUED);
+    EXPECT_EQ(call(get).task().total(), admitted);
+    // The invalid attempt fails once and leaves the queue.
+    ChildProcess worker(
+        ASTERION_BACKTEST_PATH,
+        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "other-rules"});
+    ASSERT_TRUE(worker.wait(15s));
+    EXPECT_NE(worker.exit_code(), 0);
+    const auto refused = call(get).task();
+    EXPECT_EQ(refused.state(), task_wire::FAILED);
+    EXPECT_EQ(refused.attempt(), 1U);
+    EXPECT_EQ(refused.total(), admitted);
+    EXPECT_EQ(refused.error(), "task input does not match admitted work");
+    // Reference inspection fails explicitly rather than returning a partial answer.
+    task_wire::TaskRequest usage;
+    usage.mutable_history_usage()->set_id(
+        spec.paper().contracts(0).dataset().source_dataset_ids(0));
+    EXPECT_THROW(call(usage), std::runtime_error);
+    ChildProcess unreadable(
+        ASTERION_BACKTEST_PATH,
+        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "other-messages"});
+    ASSERT_TRUE(unreadable.wait(15s));
+    EXPECT_NE(unreadable.exit_code(), 0);
+    // Asking for the task with its input is refused for the same reason; the
+    // list, which reads the index, shows how its attempt ended.
+    get.mutable_get()->set_id("other-messages");
+    EXPECT_THROW(call(get), std::runtime_error);
+    task_wire::TaskRequest list;
+    list.mutable_list()->set_limit(200);
+    const auto tasks = call(list).tasks().tasks();
+    const auto listed = std::ranges::find(tasks, "other-messages", &task_wire::Task::id);
+    ASSERT_NE(listed, tasks.end());
+    EXPECT_EQ(listed->state(), task_wire::FAILED);
+    EXPECT_EQ(listed->error(), "unknown Protobuf field");
+    task_wire::TaskRequest dispatch;
+    dispatch.mutable_dispatch()->set_launch_slots(2);
+    EXPECT_EQ(call(dispatch, endpoint + ".worker").launches().launches_size(), 0);
+    service.reset();
+    start();
+    get.mutable_get()->set_id("other-rules");
+    EXPECT_EQ(call(get).task().SerializeAsString(), refused.SerializeAsString());
+}
+
+TEST_F(TaskProcess, RestartFencesClaimedWorkAndQueuedCancelStaysCancelled)
+{
+    submit("interrupted");
+    task_wire::TaskRequest claim;
+    claim.mutable_claim()->set_kind(task::v1::BACKTEST);
+    claim.mutable_claim()->set_id("interrupted");
+    const auto attempt = call(claim, endpoint + ".worker").attempt();
+    EXPECT_FALSE(attempt.task().has_input());
+    EXPECT_TRUE(attempt.has_execution());
+    EXPECT_LT(attempt.ByteSizeLong(), 4096U);
+    EXPECT_EQ(attempt.data_instance(), "historical-data");
+    const auto token = attempt.token();
+    service.reset();
+    start();
+    task_wire::TaskRequest get;
+    get.mutable_get()->set_id("interrupted");
+    EXPECT_EQ(call(get).task().state(), task_wire::INTERRUPTED);
+    task_wire::TaskRequest finish;
+    auto* f = finish.mutable_finish();
+    f->set_id("interrupted");
+    f->set_token(token);
+    *f->mutable_result() = backtest::run(process_input());
+    EXPECT_THROW(call(finish, endpoint + ".worker"), std::runtime_error);
+    submit("cancelled");
+    task_wire::TaskRequest cancel;
+    cancel.mutable_cancel()->set_id("cancelled");
+    EXPECT_EQ(call(cancel).task().state(), task_wire::CANCELLED);
+    ChildProcess worker(
+        ASTERION_BACKTEST_PATH,
+        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "cancelled"});
+    ASSERT_TRUE(worker.wait(10s));
+    EXPECT_NE(worker.exit_code(), 0);
+}
+
+TEST_F(TaskProcess, ListenerServesRepeatedConnectionsAndRetainsOwnership)
+{
+    for (int i = 0; i < 5; ++i) {
+        task_wire::TaskRequest request;
+        request.mutable_heartbeat();
+        EXPECT_TRUE(call(request).has_health());
+    }
+    EXPECT_THROW(testing_support::LocalListener duplicate(endpoint), Error);
+}
+
+TEST_F(TaskProcess, WorkerLeaseExpiryInterruptsWithoutAutomaticRetry)
+{
+    submit("lost");
+    task_wire::TaskRequest claim;
+    claim.mutable_claim()->set_kind(task::v1::BACKTEST);
+    claim.mutable_claim()->set_id("lost");
+    const auto token = call(claim, endpoint + ".worker").attempt().token();
+    task_wire::TaskRequest get;
+    get.mutable_get()->set_id("lost");
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (call(get).task().state() == task_wire::RUNNING
+        && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(50ms);
+    EXPECT_EQ(call(get).task().state(), task_wire::INTERRUPTED);
+    EXPECT_EQ(call(get).task().attempt(), 1U);
+    task_wire::TaskRequest progress;
+    progress.mutable_progress()->set_id("lost");
+    progress.mutable_progress()->set_token(token);
+    progress.mutable_progress()->set_completed(1);
+    EXPECT_THROW(call(progress, endpoint + ".worker"), std::runtime_error);
+}
+
+TEST_F(TaskProcess, WorkerHeartbeatsWithoutEngineProgressAndObservesCancellation)
+{
+    for (const bool cancel : {false, true}) {
+        const auto id = cancel ? "cancel-initializing" : "initializing";
+        submit(id);
+        std::promise<void> entered;
+        auto ready = entered.get_future();
+        auto worker = std::async(std::launch::async, [&] {
+            return protocol::run_task_worker(
+                endpoint + ".worker",
+                "",
+                0,
+                {},
+                "task",
+                id,
+                task::v1::BACKTEST,
+                [&](const auto& attempt, std::stop_token stop, const auto&) {
+                    entered.set_value();
+                    // No engine progress for longer than this service's two-second lease.
+                    const auto deadline = std::chrono::steady_clock::now() + 3500ms;
+                    while (!stop.stop_requested() && std::chrono::steady_clock::now() < deadline)
+                        std::this_thread::sleep_for(10ms);
+                    if (stop.stop_requested())
+                        throw std::runtime_error("initialization cancelled");
+                    task::v1::TaskFinish result;
+                    *result.mutable_result() = backtest::run(attempt.task().input());
+                    return result;
+                },
+                0);
+        });
+        ASSERT_EQ(ready.wait_for(5s), std::future_status::ready);
+        std::this_thread::sleep_for(2500ms);
+        task_wire::TaskRequest get;
+        get.mutable_get()->set_id(id);
+        ASSERT_EQ(call(get).task().state(), task::v1::RUNNING);
+        if (cancel) {
+            task_wire::TaskRequest request;
+            request.mutable_cancel()->set_id(id);
+            EXPECT_EQ(call(request).task().state(), task::v1::CANCEL_REQUESTED);
+        }
+        ASSERT_EQ(worker.wait_for(5s), std::future_status::ready);
+        EXPECT_EQ(worker.get(), cancel ? 2 : 0);
+        EXPECT_EQ(call(get).task().state(), cancel ? task::v1::CANCELLED : task::v1::SUCCEEDED);
+    }
+}
+
+TEST_F(TaskProcess, WorkerLivenessFailureDoesNotPretendToBeUserCancellation)
+{
+    submit("lost-service");
     std::promise<void> entered;
     auto ready = entered.get_future();
     auto worker = std::async(std::launch::async, [&] {
-      return protocol::run_task_worker(
-          endpoint + ".worker", "", 0, {}, "task", id, task::v1::BACKTEST,
-          [&](const auto& attempt, std::stop_token stop, const auto&) {
-            entered.set_value();
-            // No engine progress for longer than this service's two-second lease.
-            const auto deadline = std::chrono::steady_clock::now() + 3500ms;
-            while (!stop.stop_requested() && std::chrono::steady_clock::now() < deadline)
-              std::this_thread::sleep_for(10ms);
-            if (stop.stop_requested())
-              throw std::runtime_error("initialization cancelled");
-            task::v1::TaskFinish result;
-            *result.mutable_result() = backtest::run(attempt.task().input());
-            return result;
-          },
-          0);
+        return protocol::run_task_worker(
+            endpoint + ".worker",
+            "",
+            0,
+            {},
+            "task",
+            "lost-service",
+            task::v1::BACKTEST,
+            [&](const auto&, std::stop_token stop, const auto&) -> task::v1::TaskFinish {
+                entered.set_value();
+                const auto deadline = std::chrono::steady_clock::now() + 10s;
+                while (!stop.stop_requested() && std::chrono::steady_clock::now() < deadline)
+                    std::this_thread::sleep_for(10ms);
+                if (!stop.stop_requested())
+                    throw std::runtime_error("worker did not notice lost liveness");
+                throw std::runtime_error("runner stopped after losing service");
+            },
+            0);
     });
     ASSERT_EQ(ready.wait_for(5s), std::future_status::ready);
-    std::this_thread::sleep_for(2500ms);
+    service.reset();
+    start();
+    ASSERT_EQ(worker.wait_for(10s), std::future_status::ready);
+    EXPECT_THROW(static_cast<void>(worker.get()), std::exception);
     task_wire::TaskRequest get;
-    get.mutable_get()->set_id(id);
-    ASSERT_EQ(call(get).task().state(), task::v1::RUNNING);
-    if (cancel) {
-      task_wire::TaskRequest request;
-      request.mutable_cancel()->set_id(id);
-      EXPECT_EQ(call(request).task().state(), task::v1::CANCEL_REQUESTED);
+    get.mutable_get()->set_id("lost-service");
+    EXPECT_EQ(call(get).task().state(), task::v1::INTERRUPTED);
+}
+
+TEST_F(TaskProcess, MaximumFactorInputCompletesAndRestartedResultReadKeepsControlsAvailable)
+{
+    service.reset();
+    auto spec = maximum_factor_input();
+    *factor_bars(spec) =
+        published_dataset(std::vector<int>(protocol::max_dataset_bars, 100), "maximum");
+    spec.set_dataset_revision(spec.series(0).bars().revision());
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "maximum", spec);
+        tasks::submit(store, "other", input());
     }
-    ASSERT_EQ(worker.wait_for(5s), std::future_status::ready);
-    EXPECT_EQ(worker.get(), cancel ? 2 : 0);
-    EXPECT_EQ(call(get).task().state(), cancel ? task::v1::CANCELLED : task::v1::SUCCEEDED);
-  }
-}
-TEST_F(TaskProcess, WorkerLivenessFailureDoesNotPretendToBeUserCancellation) {
-  submit("lost-service");
-  std::promise<void> entered;
-  auto ready = entered.get_future();
-  auto worker = std::async(std::launch::async, [&] {
-    return protocol::run_task_worker(
-        endpoint + ".worker", "", 0, {}, "task", "lost-service", task::v1::BACKTEST,
-        [&](const auto&, std::stop_token stop, const auto&) -> task::v1::TaskFinish {
-          entered.set_value();
-          const auto deadline = std::chrono::steady_clock::now() + 10s;
-          while (!stop.stop_requested() && std::chrono::steady_clock::now() < deadline)
-            std::this_thread::sleep_for(10ms);
-          if (!stop.stop_requested())
-            throw std::runtime_error("worker did not notice lost liveness");
-          throw std::runtime_error("runner stopped after losing service");
-        },
-        0);
-  });
-  ASSERT_EQ(ready.wait_for(5s), std::future_status::ready);
-  service.reset();
-  start();
-  ASSERT_EQ(worker.wait_for(10s), std::future_status::ready);
-  EXPECT_THROW(static_cast<void>(worker.get()), std::exception);
-  task_wire::TaskRequest get;
-  get.mutable_get()->set_id("lost-service");
-  EXPECT_EQ(call(get).task().state(), task::v1::INTERRUPTED);
-}
-TEST_F(TaskProcess, MaximumFactorInputCompletesAndRestartedResultReadKeepsControlsAvailable) {
-  service.reset();
-  auto spec = maximum_factor_input();
-  *factor_bars(spec) =
-      published_dataset(std::vector<int>(protocol::max_dataset_bars, 100), "maximum");
-  spec.set_dataset_revision(spec.series(0).bars().revision());
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "maximum", spec);
-    tasks::submit(store, "other", input());
-  }
-  lease_seconds = 30; // The production lease, independent of verification time.
-  start(testing_support::bound(10s));
-  // Diagnostics must stay outside the strictly owned task-store contents.
-  const auto worker_log = std::filesystem::temp_directory_path() /
-                          ("asterion-maximum-worker-" + unique_process_id() + ".log");
-  ChildProcess worker(
-      ASTERION_FACTOR_PATH,
-      {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "maximum"}, false,
-      worker_log, true);
-  const auto worker_deadline =
-      std::chrono::steady_clock::now() + protocol::task_verification_timeout + 30s;
-  unsigned worker_observations = 0;
-  std::chrono::steady_clock::duration worker_longest{};
-  while (!worker.wait(20ms) && std::chrono::steady_clock::now() < worker_deadline) {
-    task_wire::TaskRequest list;
-    list.mutable_list()->set_limit(200);
-    const auto begin = std::chrono::steady_clock::now();
-    EXPECT_EQ(call(list).tasks().tasks_size(), 2);
-    worker_longest = std::max(worker_longest, std::chrono::steady_clock::now() - begin);
-    ++worker_observations;
-  }
-  ASSERT_TRUE(worker.exited());
-  EXPECT_GT(worker_observations, 0U);
-  EXPECT_LT(worker_longest, testing_support::bound(1s));
-  RecordProperty("worker_status_observations", worker_observations);
-  RecordProperty("worker_longest_status_ms",
-                 std::chrono::duration_cast<std::chrono::milliseconds>(worker_longest).count());
-  if (worker.exit_code() != 0) {
-    std::ifstream log(worker_log);
-    const std::string diagnostic{std::istreambuf_iterator<char>(log), {}};
-    task_wire::TaskRequest list;
-    list.mutable_list()->set_limit(200);
+    lease_seconds = 30; // The production lease, independent of verification time.
+    start(testing_support::bound(10s));
+    // Diagnostics must stay outside the strictly owned task-store contents.
+    const auto worker_log = std::filesystem::temp_directory_path()
+        / ("asterion-maximum-worker-" + unique_process_id() + ".log");
+    ChildProcess worker(
+        ASTERION_FACTOR_PATH,
+        {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "maximum"},
+        false,
+        worker_log,
+        true);
+    const auto worker_deadline =
+        std::chrono::steady_clock::now() + protocol::task_verification_timeout + 30s;
+    unsigned worker_observations = 0;
+    std::chrono::steady_clock::duration worker_longest{};
+    while (!worker.wait(20ms) && std::chrono::steady_clock::now() < worker_deadline) {
+        task_wire::TaskRequest list;
+        list.mutable_list()->set_limit(200);
+        const auto begin = std::chrono::steady_clock::now();
+        EXPECT_EQ(call(list).tasks().tasks_size(), 2);
+        worker_longest = std::max(worker_longest, std::chrono::steady_clock::now() - begin);
+        ++worker_observations;
+    }
+    ASSERT_TRUE(worker.exited());
+    EXPECT_GT(worker_observations, 0U);
+    EXPECT_LT(worker_longest, testing_support::bound(1s));
+    RecordProperty("worker_status_observations", worker_observations);
+    RecordProperty(
+        "worker_longest_status_ms",
+        std::chrono::duration_cast<std::chrono::milliseconds>(worker_longest).count());
+    if (worker.exit_code() != 0) {
+        std::ifstream log(worker_log);
+        const std::string diagnostic{std::istreambuf_iterator<char>(log), {}};
+        task_wire::TaskRequest list;
+        list.mutable_list()->set_limit(200);
+        std::filesystem::remove(worker_log);
+        FAIL() << diagnostic << '\n' << call(list).tasks().DebugString();
+    }
     std::filesystem::remove(worker_log);
-    FAIL() << diagnostic << '\n' << call(list).tasks().DebugString();
-  }
-  std::filesystem::remove(worker_log);
-  service.reset();
-  start(testing_support::bound(10s));
-  // The first read after restart validates saved result evidence without running the engine.
-  task_wire::TaskRequest request;
-  request.mutable_result()->set_id("maximum");
-  auto pending = std::async(std::launch::async, [&] {
-    return call(request, "", protocol::task_verification_timeout + 5s);
-  });
-  unsigned observations = 0;
-  std::chrono::steady_clock::duration longest{};
-  while (pending.wait_for(10ms) != std::future_status::ready) {
-    task_wire::TaskRequest list;
-    list.mutable_list()->set_limit(200);
-    const auto begin = std::chrono::steady_clock::now();
-    EXPECT_EQ(call(list).tasks().tasks_size(), 2);
-    longest = std::max(longest, std::chrono::steady_clock::now() - begin);
-    ++observations;
-  }
-  const auto response = pending.get();
-  EXPECT_GT(observations, 0U);
-  EXPECT_LT(longest, testing_support::bound(1s));
-  EXPECT_EQ(response.factor().samples_size(), static_cast<int>(protocol::max_dataset_bars) - 3);
-  EXPECT_EQ(response.result_task().factor().SerializeAsString(), spec.SerializeAsString());
-  RecordProperty("factor_json_bytes",
-                 protocol::decode_factor_result(spec, response.factor()).dump().size());
-  task_wire::TaskRequest cancel;
-  cancel.mutable_cancel()->set_id("other");
-  EXPECT_EQ(call(cancel).task().state(), task::v1::CANCELLED);
-  RecordProperty("concurrent_status_observations", observations);
-  RecordProperty("longest_status_ms",
-                 std::chrono::duration_cast<std::chrono::milliseconds>(longest).count());
+    service.reset();
+    start(testing_support::bound(10s));
+    // The first read after restart validates saved result evidence without running the engine.
+    task_wire::TaskRequest request;
+    request.mutable_result()->set_id("maximum");
+    auto pending = std::async(std::launch::async, [&] {
+        return call(request, "", protocol::task_verification_timeout + 5s);
+    });
+    unsigned observations = 0;
+    std::chrono::steady_clock::duration longest{};
+    while (pending.wait_for(10ms) != std::future_status::ready) {
+        task_wire::TaskRequest list;
+        list.mutable_list()->set_limit(200);
+        const auto begin = std::chrono::steady_clock::now();
+        EXPECT_EQ(call(list).tasks().tasks_size(), 2);
+        longest = std::max(longest, std::chrono::steady_clock::now() - begin);
+        ++observations;
+    }
+    const auto response = pending.get();
+    EXPECT_GT(observations, 0U);
+    EXPECT_LT(longest, testing_support::bound(1s));
+    EXPECT_EQ(response.factor().samples_size(), static_cast<int>(protocol::max_dataset_bars) - 3);
+    EXPECT_EQ(response.result_task().factor().SerializeAsString(), spec.SerializeAsString());
+    RecordProperty(
+        "factor_json_bytes",
+        protocol::decode_factor_result(spec, response.factor()).dump().size());
+    task_wire::TaskRequest cancel;
+    cancel.mutable_cancel()->set_id("other");
+    EXPECT_EQ(call(cancel).task().state(), task::v1::CANCELLED);
+    RecordProperty("concurrent_status_observations", observations);
+    RecordProperty(
+        "longest_status_ms",
+        std::chrono::duration_cast<std::chrono::milliseconds>(longest).count());
 }
 
-TEST(TaskStore, RejectsMismatchedResultContractAndMetrics) {
-  TaskDirectory directory;
-  tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-  tasks::submit(store, "job", input());
-  const auto token = store.commit(store.claim("job")).token();
-  auto result = backtest::run(input());
-  result.mutable_account()->mutable_contracts(0)->mutable_contract()->set_symbol("rb2611");
-  EXPECT_THROW(store.commit(tasks::finish(store, "job", token, result)), std::invalid_argument);
-  result = backtest::run(input());
-  result.mutable_max_drawdown()->set_units(0);
-  EXPECT_THROW(store.commit(tasks::finish(store, "job", token, result)), std::invalid_argument);
-  EXPECT_EQ(store.get("job").state(), task::v1::RUNNING);
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "job" / "results" / "1.pb"));
-  store.commit(tasks::finish(store, "job", token, backtest::run(input())));
+TEST(TaskStore, RejectsMismatchedResultContractAndMetrics)
+{
+    TaskDirectory directory;
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    tasks::submit(store, "job", input());
+    const auto token = store.commit(store.claim("job")).token();
+    auto result = backtest::run(input());
+    result.mutable_account()->mutable_contracts(0)->mutable_contract()->set_symbol("rb2611");
+    EXPECT_THROW(store.commit(tasks::finish(store, "job", token, result)), std::invalid_argument);
+    result = backtest::run(input());
+    result.mutable_max_drawdown()->set_units(0);
+    EXPECT_THROW(store.commit(tasks::finish(store, "job", token, result)), std::invalid_argument);
+    EXPECT_EQ(store.get("job").state(), task::v1::RUNNING);
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "job" / "results" / "1.pb"));
+    store.commit(tasks::finish(store, "job", token, backtest::run(input())));
 }
 
-TEST(TaskStore, RejectsResultWithDifferentRiskConfiguration) {
-  TaskDirectory directory;
-  tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-  const auto spec = input();
-  tasks::submit(store, "risk-result", spec);
-  const auto token = store.commit(store.claim("risk-result")).token();
-  auto result = backtest::run(spec);
-  result.mutable_account()->mutable_risk()->set_max_working_orders(999);
-  EXPECT_THROW(store.commit(tasks::finish(store, "risk-result", token, result)),
-               std::invalid_argument);
-  EXPECT_EQ(store.get("risk-result").state(), task::v1::RUNNING);
-  store.commit(tasks::finish(store, "risk-result", token, backtest::run(spec)));
-  EXPECT_EQ(tasks::result(store, "risk-result").account().risk().SerializeAsString(),
-            spec.paper().risk().SerializeAsString());
+TEST(TaskStore, RejectsResultWithDifferentRiskConfiguration)
+{
+    TaskDirectory directory;
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    const auto spec = input();
+    tasks::submit(store, "risk-result", spec);
+    const auto token = store.commit(store.claim("risk-result")).token();
+    auto result = backtest::run(spec);
+    result.mutable_account()->mutable_risk()->set_max_working_orders(999);
+    EXPECT_THROW(
+        store.commit(tasks::finish(store, "risk-result", token, result)),
+        std::invalid_argument);
+    EXPECT_EQ(store.get("risk-result").state(), task::v1::RUNNING);
+    store.commit(tasks::finish(store, "risk-result", token, backtest::run(spec)));
+    EXPECT_EQ(
+        tasks::result(store, "risk-result").account().risk().SerializeAsString(),
+        spec.paper().risk().SerializeAsString());
 }
 
 namespace {
-struct TaskClock final : Clock {
-  Nanoseconds value = 1790298000000000000LL;
-  Nanoseconds utc_now() const override { return value; }
-  Nanoseconds monotonic_now() const override { return 0; }
-};
-} // namespace
-TEST(TaskStore, SubmissionOrderSurvivesEqualTimesClockRollbackAndRestart) {
-  TaskDirectory directory;
-  auto clock = std::make_shared<TaskClock>();
-  task::v1::Task first, latest;
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"}, clock);
-    first = tasks::submit(store, "z-first", input());
-    tasks::submit(store, "a-second", input()); // Same millisecond, opposite ID order.
-    clock->value -= 60000000000LL;
-    latest = tasks::submit(store, "m-latest", input());
-    EXPECT_LT(latest.submitted_at_ms(), first.submitted_at_ms());
-    ASSERT_EQ(store.list().tasks_size(), 3);
-    EXPECT_EQ(store.list().tasks(0).id(), "z-first");
-    EXPECT_EQ(store.list().tasks(1).id(), "a-second");
-    EXPECT_EQ(store.list().tasks(2).id(), "m-latest");
-    EXPECT_EQ(tasks::submit(store, "z-first", input()).SerializeAsString(),
-              first.SerializeAsString());
-    EXPECT_EQ(latest.submission_sequence(), 3U);
-  }
-  tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"}, clock);
-  EXPECT_EQ(restored.get("z-first").SerializeAsString(), first.SerializeAsString());
-  EXPECT_EQ(restored.get("m-latest").SerializeAsString(), latest.SerializeAsString());
-  EXPECT_EQ(restored.list().tasks(2).id(), "m-latest");
-  EXPECT_EQ(tasks::submit(restored, "b-next", input()).submission_sequence(), 4U);
-  EXPECT_EQ(restored.list().tasks(3).id(), "b-next");
-}
-TEST(TaskStore, MetadataUpdatesPreserveLargeImmutableInputsAcrossRecovery) {
-  TaskDirectory directory;
-  auto spec = input();
-  auto* dataset = spec.mutable_paper()->mutable_contracts(0)->mutable_dataset();
-  const auto first = dataset->bars(0);
-  dataset->clear_bars();
-  for (std::int64_t i = 0; i < 10000; ++i) {
-    auto* bar = dataset->add_bars();
-    *bar = first;
-    bar->set_timestamp_ns(first.timestamp_ns() + i * 1000000000);
-  }
-  dataset->set_revision(protocol::bar_dataset_revision(*dataset));
-  spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
-  const auto original = spec.SerializeAsString();
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "large", spec);
-    EXPECT_EQ(store.list().capacity().retained_tasks(), 1U);
-    EXPECT_EQ(store.list().capacity().uncommitted(), 0U);
-    auto expected = store.get("large");
-    expected.clear_definition();
-    const auto begin = std::chrono::steady_clock::now();
-    for (unsigned i = 0; i < 128; ++i) {
-      const auto list = store.list();
-      ASSERT_EQ(list.tasks_size(), 1);
-      EXPECT_EQ(list.tasks(0).SerializeAsString(), expected.SerializeAsString());
-      task::v1::TaskDispatch allowance;
-      allowance.set_launch_slots(1);
-      EXPECT_EQ(store.dispatch(allowance).launches_size(), 1);
+
+struct TaskClock final : Clock
+{
+    Nanoseconds value = 1790298000000000000LL;
+
+    Nanoseconds utc_now() const override
+    {
+        return value;
     }
-    RecordProperty("metadata_128_polls_us",
-                   std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(
-                                      std::chrono::steady_clock::now() - begin)
-                                      .count()));
-    RecordProperty("immutable_input_bytes", std::to_string(original.size()));
-    auto token = store.commit(store.claim("large")).token();
-    for (unsigned completed = 1; completed <= 50; ++completed)
-      store.commit(store.progress("large", token, completed));
-    EXPECT_EQ(store.list().tasks(0).completed(), 50U);
-    task::v1::TaskDispatch allowance;
-    allowance.set_launch_slots(1);
-    EXPECT_EQ(store.dispatch(allowance).launches_size(), 0);
-    EXPECT_EQ(store.commit(store.cancel("large")).task().state(), task::v1::CANCEL_REQUESTED);
-    store.commit(store.acknowledge_cancel("large", token));
-    store.commit(store.retry("large")).task();
-    token = store.commit(store.claim("large")).token();
-    store.commit(store.progress("large", token, 40));
-    store.commit(store.fail("large", token, "explicit test failure"));
-    EXPECT_EQ(store.list().tasks(0).error(), "explicit test failure");
-    store.commit(store.retry("large")).task();
-    token = store.commit(store.claim("large")).token();
-    store.commit(store.progress("large", token, 55));
-    EXPECT_EQ(store.get("large").input().SerializeAsString(), original);
-  }
-  tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-  const auto recovered = restored.get("large");
-  EXPECT_EQ(recovered.state(), task::v1::INTERRUPTED);
-  EXPECT_EQ(recovered.attempt(), 3U);
-  EXPECT_EQ(recovered.completed(), 55U);
-  EXPECT_EQ(recovered.input().SerializeAsString(), original);
-  EXPECT_EQ(restored.commit(restored.retry("large")).task().definition_case(),
-            task::v1::Task::DEFINITION_NOT_SET);
-  EXPECT_EQ(restored.get("large").input().SerializeAsString(), original);
-  const auto queued = restored.list().tasks(0);
-  EXPECT_EQ(restored.list().capacity().retained_tasks(), 1U);
-  EXPECT_EQ(queued.state(), task::v1::QUEUED);
-  EXPECT_EQ(queued.total(), 10000U);
-  EXPECT_EQ(queued.completed(), 0U);
-  EXPECT_TRUE(queued.error().empty());
-  EXPECT_EQ(queued.definition_case(), task::v1::Task::DEFINITION_NOT_SET);
-}
-TEST(TaskStore, BinaryPayloadsRemainCompactAndDefinitionsLoadOnDemand) {
-  TaskDirectory directory;
-  const auto spec = input();
-  const auto original = spec.SerializeAsString();
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "binary", spec);
-  }
-  const auto path = directory.path / "binary/input.pb";
-  EXPECT_EQ(std::filesystem::file_size(path), original.size());
-  EXPECT_EQ(sha256_file(path), sha256_bytes(original));
-  {
-    sqlite::Database db(directory.path / "tasks.sqlite", sqlite::Database::Access::read_only);
-    sqlite::Database::Statement read(db, "SELECT manifest FROM tasks WHERE id='binary'");
-    ASSERT_TRUE(read.step());
-    const auto manifest = Json::parse(read.text(0));
-    EXPECT_EQ(manifest.at("input_bytes"), original.size());
-    EXPECT_EQ(manifest.at("input_sha256"), sha256_bytes(original));
-    EXPECT_FALSE(manifest.contains("input"));
-    EXPECT_LT(read.text(0).size(), 1024U);
-  }
-  tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-  // Metadata operations never read or retain the input. Explicit input reads
-  // and worker claims must still reject missing or changed owned bytes.
-  std::filesystem::remove(path);
-  EXPECT_EQ(store.list().tasks(0).total(), 7U);
-  EXPECT_EQ(store.commit(store.cancel("binary")).task().state(), task::v1::CANCELLED);
-  EXPECT_EQ(store.commit(store.retry("binary")).task().definition_case(),
-            task::v1::Task::DEFINITION_NOT_SET);
-  EXPECT_THROW(store.get("binary"), std::invalid_argument);
-  EXPECT_THROW(store.commit(store.claim("binary")).token(), std::invalid_argument);
-  EXPECT_EQ(store.describe("binary").state(), task::v1::QUEUED);
-  write_file_durably(path, original);
-  EXPECT_EQ(store.get("binary").input().SerializeAsString(), original);
-  const auto expected = backtest::run(spec);
-  store.commit(
-      tasks::finish(store, "binary", store.commit(store.claim("binary")).token(), expected));
-  EXPECT_EQ(std::filesystem::file_size(directory.path / "binary/results/1.pb"),
-            expected.ByteSizeLong());
-  EXPECT_EQ(tasks::result(store, "binary").SerializeAsString(), expected.SerializeAsString());
-  auto corrupt = original;
-  corrupt.back() ^= 1;
-  write_file_durably(path, corrupt);
-  EXPECT_THROW(store.get("binary"), std::invalid_argument);
-  EXPECT_THROW(tasks::result(store, "binary"), std::invalid_argument);
+
+    Nanoseconds monotonic_now() const override
+    {
+        return 0;
+    }
+};
+
+} // namespace
+
+TEST(TaskStore, SubmissionOrderSurvivesEqualTimesClockRollbackAndRestart)
+{
+    TaskDirectory directory;
+    auto clock = std::make_shared<TaskClock>();
+    task::v1::Task first, latest;
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"}, clock);
+        first = tasks::submit(store, "z-first", input());
+        tasks::submit(store, "a-second", input()); // Same millisecond, opposite ID order.
+        clock->value -= 60000000000LL;
+        latest = tasks::submit(store, "m-latest", input());
+        EXPECT_LT(latest.submitted_at_ms(), first.submitted_at_ms());
+        ASSERT_EQ(store.list().tasks_size(), 3);
+        EXPECT_EQ(store.list().tasks(0).id(), "z-first");
+        EXPECT_EQ(store.list().tasks(1).id(), "a-second");
+        EXPECT_EQ(store.list().tasks(2).id(), "m-latest");
+        EXPECT_EQ(
+            tasks::submit(store, "z-first", input()).SerializeAsString(),
+            first.SerializeAsString());
+        EXPECT_EQ(latest.submission_sequence(), 3U);
+    }
+    tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"}, clock);
+    EXPECT_EQ(restored.get("z-first").SerializeAsString(), first.SerializeAsString());
+    EXPECT_EQ(restored.get("m-latest").SerializeAsString(), latest.SerializeAsString());
+    EXPECT_EQ(restored.list().tasks(2).id(), "m-latest");
+    EXPECT_EQ(tasks::submit(restored, "b-next", input()).submission_sequence(), 4U);
+    EXPECT_EQ(restored.list().tasks(3).id(), "b-next");
 }
 
-TEST(TaskStore, InvalidPayloadOrPreviousManifestIsRejectedWithoutRewritingFiles) {
-  for (const auto& mode : {"missing", "truncated", "changed", "symlink", "protobuf", "old"}) {
-    SCOPED_TRACE(mode);
+TEST(TaskStore, MetadataUpdatesPreserveLargeImmutableInputsAcrossRecovery)
+{
     TaskDirectory directory;
+    auto spec = input();
+    auto* dataset = spec.mutable_paper()->mutable_contracts(0)->mutable_dataset();
+    const auto first = dataset->bars(0);
+    dataset->clear_bars();
+    for (std::int64_t i = 0; i < 10000; ++i) {
+        auto* bar = dataset->add_bars();
+        *bar = first;
+        bar->set_timestamp_ns(first.timestamp_ns() + i * 1000000000);
+    }
+    dataset->set_revision(protocol::bar_dataset_revision(*dataset));
+    spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
+    const auto original = spec.SerializeAsString();
     {
-      tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-      tasks::submit(store, "first", input()); // Same digest exercises restored metadata reuse.
-      tasks::submit(store, "preserve", input());
-      (void)store.commit(store.claim("preserve")).token();
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "large", spec);
+        EXPECT_EQ(store.list().capacity().retained_tasks(), 1U);
+        EXPECT_EQ(store.list().capacity().uncommitted(), 0U);
+        auto expected = store.get("large");
+        expected.clear_definition();
+        const auto begin = std::chrono::steady_clock::now();
+        for (unsigned i = 0; i < 128; ++i) {
+            const auto list = store.list();
+            ASSERT_EQ(list.tasks_size(), 1);
+            EXPECT_EQ(list.tasks(0).SerializeAsString(), expected.SerializeAsString());
+            task::v1::TaskDispatch allowance;
+            allowance.set_launch_slots(1);
+            EXPECT_EQ(store.dispatch(allowance).launches_size(), 1);
+        }
+        RecordProperty(
+            "metadata_128_polls_us",
+            std::to_string(
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - begin)
+                    .count()));
+        RecordProperty("immutable_input_bytes", std::to_string(original.size()));
+        auto token = store.commit(store.claim("large")).token();
+        for (unsigned completed = 1; completed <= 50; ++completed)
+            store.commit(store.progress("large", token, completed));
+        EXPECT_EQ(store.list().tasks(0).completed(), 50U);
+        task::v1::TaskDispatch allowance;
+        allowance.set_launch_slots(1);
+        EXPECT_EQ(store.dispatch(allowance).launches_size(), 0);
+        EXPECT_EQ(store.commit(store.cancel("large")).task().state(), task::v1::CANCEL_REQUESTED);
+        store.commit(store.acknowledge_cancel("large", token));
+        store.commit(store.retry("large")).task();
+        token = store.commit(store.claim("large")).token();
+        store.commit(store.progress("large", token, 40));
+        store.commit(store.fail("large", token, "explicit test failure"));
+        EXPECT_EQ(store.list().tasks(0).error(), "explicit test failure");
+        store.commit(store.retry("large")).task();
+        token = store.commit(store.claim("large")).token();
+        store.commit(store.progress("large", token, 55));
+        EXPECT_EQ(store.get("large").input().SerializeAsString(), original);
     }
-    const auto path = directory.path / "preserve/input.pb";
-    const std::string kind = mode;
-    if (kind == "missing")
-      std::filesystem::remove(path);
-    else if (kind == "truncated")
-      std::filesystem::resize_file(path, 1);
-    else if (kind == "changed") {
-      auto raw = input().SerializeAsString();
-      raw.back() ^= 1;
-      write_file_durably(path, raw);
-    } else if (kind == "symlink") {
-      std::filesystem::rename(path, directory.path / "preserve/other.pb");
-      std::filesystem::create_symlink("other.pb", path);
-    } else {
-      sqlite::Database db(directory.path / "tasks.sqlite");
-      Json manifest;
-      {
-        sqlite::Database::Statement read(db, "SELECT manifest FROM tasks WHERE id='preserve'");
+    tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
+    const auto recovered = restored.get("large");
+    EXPECT_EQ(recovered.state(), task::v1::INTERRUPTED);
+    EXPECT_EQ(recovered.attempt(), 3U);
+    EXPECT_EQ(recovered.completed(), 55U);
+    EXPECT_EQ(recovered.input().SerializeAsString(), original);
+    EXPECT_EQ(
+        restored.commit(restored.retry("large")).task().definition_case(),
+        task::v1::Task::DEFINITION_NOT_SET);
+    EXPECT_EQ(restored.get("large").input().SerializeAsString(), original);
+    const auto queued = restored.list().tasks(0);
+    EXPECT_EQ(restored.list().capacity().retained_tasks(), 1U);
+    EXPECT_EQ(queued.state(), task::v1::QUEUED);
+    EXPECT_EQ(queued.total(), 10000U);
+    EXPECT_EQ(queued.completed(), 0U);
+    EXPECT_TRUE(queued.error().empty());
+    EXPECT_EQ(queued.definition_case(), task::v1::Task::DEFINITION_NOT_SET);
+}
+
+TEST(TaskStore, BinaryPayloadsRemainCompactAndDefinitionsLoadOnDemand)
+{
+    TaskDirectory directory;
+    const auto spec = input();
+    const auto original = spec.SerializeAsString();
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "binary", spec);
+    }
+    const auto path = directory.path / "binary/input.pb";
+    EXPECT_EQ(std::filesystem::file_size(path), original.size());
+    EXPECT_EQ(sha256_file(path), sha256_bytes(original));
+    {
+        sqlite::Database db(directory.path / "tasks.sqlite", sqlite::Database::Access::read_only);
+        sqlite::Database::Statement read(db, "SELECT manifest FROM tasks WHERE id='binary'");
         ASSERT_TRUE(read.step());
-        manifest = Json::parse(read.text(0));
-      }
-      if (kind == "old")
-        manifest["version"] = 4;
-      else {
-        // A matching digest cannot make malformed Protobuf a valid definition.
-        write_file_durably(path, "\xff");
-        manifest["input_bytes"] = 1;
-        manifest["input_sha256"] = sha256_bytes("\xff");
-      }
-      sqlite::Database::Statement update(db, "UPDATE tasks SET manifest=? WHERE id='preserve'");
-      update.bind(1, manifest.dump()).step();
+        const auto manifest = Json::parse(read.text(0));
+        EXPECT_EQ(manifest.at("input_bytes"), original.size());
+        EXPECT_EQ(manifest.at("input_sha256"), sha256_bytes(original));
+        EXPECT_FALSE(manifest.contains("input"));
+        EXPECT_LT(read.text(0).size(), 1024U);
     }
-    const auto db_hash = sha256_file(directory.path / "tasks.sqlite");
-    const auto input_hash =
-        std::filesystem::is_regular_file(path) && !std::filesystem::is_symlink(path)
+    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+    // Metadata operations never read or retain the input. Explicit input reads
+    // and worker claims must still reject missing or changed owned bytes.
+    std::filesystem::remove(path);
+    EXPECT_EQ(store.list().tasks(0).total(), 7U);
+    EXPECT_EQ(store.commit(store.cancel("binary")).task().state(), task::v1::CANCELLED);
+    EXPECT_EQ(
+        store.commit(store.retry("binary")).task().definition_case(),
+        task::v1::Task::DEFINITION_NOT_SET);
+    EXPECT_THROW(store.get("binary"), std::invalid_argument);
+    EXPECT_THROW(store.commit(store.claim("binary")).token(), std::invalid_argument);
+    EXPECT_EQ(store.describe("binary").state(), task::v1::QUEUED);
+    write_file_durably(path, original);
+    EXPECT_EQ(store.get("binary").input().SerializeAsString(), original);
+    const auto expected = backtest::run(spec);
+    store.commit(
+        tasks::finish(store, "binary", store.commit(store.claim("binary")).token(), expected));
+    EXPECT_EQ(
+        std::filesystem::file_size(directory.path / "binary/results/1.pb"),
+        expected.ByteSizeLong());
+    EXPECT_EQ(tasks::result(store, "binary").SerializeAsString(), expected.SerializeAsString());
+    auto corrupt = original;
+    corrupt.back() ^= 1;
+    write_file_durably(path, corrupt);
+    EXPECT_THROW(store.get("binary"), std::invalid_argument);
+    EXPECT_THROW(tasks::result(store, "binary"), std::invalid_argument);
+}
+
+TEST(TaskStore, InvalidPayloadOrPreviousManifestIsRejectedWithoutRewritingFiles)
+{
+    for (const auto& mode : {"missing", "truncated", "changed", "symlink", "protobuf", "old"}) {
+        SCOPED_TRACE(mode);
+        TaskDirectory directory;
+        {
+            tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+            tasks::submit(
+                store,
+                "first",
+                input()); // Same digest exercises restored metadata reuse.
+            tasks::submit(store, "preserve", input());
+            (void)store.commit(store.claim("preserve")).token();
+        }
+        const auto path = directory.path / "preserve/input.pb";
+        const std::string kind = mode;
+        if (kind == "missing")
+            std::filesystem::remove(path);
+        else if (kind == "truncated")
+            std::filesystem::resize_file(path, 1);
+        else if (kind == "changed") {
+            auto raw = input().SerializeAsString();
+            raw.back() ^= 1;
+            write_file_durably(path, raw);
+        } else if (kind == "symlink") {
+            std::filesystem::rename(path, directory.path / "preserve/other.pb");
+            std::filesystem::create_symlink("other.pb", path);
+        } else {
+            sqlite::Database db(directory.path / "tasks.sqlite");
+            Json manifest;
+            {
+                sqlite::Database::Statement read(
+                    db,
+                    "SELECT manifest FROM tasks WHERE id='preserve'");
+                ASSERT_TRUE(read.step());
+                manifest = Json::parse(read.text(0));
+            }
+
+            // A matching digest cannot make malformed Protobuf a valid definition.
+            write_file_durably(path, "\xff");
+            manifest["input_bytes"] = 1;
+            manifest["input_sha256"] = sha256_bytes("\xff");
+            sqlite::Database::Statement update(
+                db,
+                "UPDATE tasks SET manifest=? WHERE id='preserve'");
+            update.bind(1, manifest.dump()).step();
+        }
+        const auto db_hash = sha256_file(directory.path / "tasks.sqlite");
+        const auto input_hash =
+            std::filesystem::is_regular_file(path) && !std::filesystem::is_symlink(path)
             ? sha256_file(path)
             : std::string{};
-    EXPECT_THROW(tasks::Store rejected(directory.path, tasks::Identity{"task", "historical-data"}),
-                 std::exception);
-    EXPECT_THROW(tasks::Store::inspect_history_usage(directory.path,
-                                                     tasks::Identity{"task", "historical-data"},
-                                                     std::string(64, 'a')),
-                 std::exception);
-    EXPECT_EQ(sha256_file(directory.path / "tasks.sqlite"), db_hash);
-    if (!input_hash.empty())
-      EXPECT_EQ(sha256_file(path), input_hash);
-    if (kind == "missing")
-      EXPECT_FALSE(std::filesystem::exists(path));
-    if (kind == "symlink")
-      EXPECT_TRUE(std::filesystem::is_symlink(path));
-  }
+        EXPECT_THROW(
+            tasks::Store rejected(directory.path, tasks::Identity{"task", "historical-data"}),
+            std::exception);
+        EXPECT_THROW(
+            tasks::Store::inspect_history_usage(
+                directory.path,
+                tasks::Identity{"task", "historical-data"},
+                std::string(64, 'a')),
+            std::exception);
+        EXPECT_EQ(sha256_file(directory.path / "tasks.sqlite"), db_hash);
+        if (!input_hash.empty())
+            EXPECT_EQ(sha256_file(path), input_hash);
+        if (kind == "missing")
+            EXPECT_FALSE(std::filesystem::exists(path));
+        if (kind == "symlink")
+            EXPECT_TRUE(std::filesystem::is_symlink(path));
+    }
 }
 
-TEST(TaskStore, BacktestBeyondTwentyThousandBarsHasReadableResult) {
-  TaskDirectory directory;
-  auto spec = input();
-  auto* dataset = spec.mutable_paper()->mutable_contracts(0)->mutable_dataset();
-  const auto first = dataset->bars(0);
-  dataset->clear_bars();
-  for (int i = 0; i < 20001; ++i) {
-    auto* bar = dataset->add_bars();
-    *bar = first;
-    bar->set_timestamp_ns(first.timestamp_ns() + static_cast<std::int64_t>(i) * 1000000);
-  }
-  dataset->set_revision(protocol::bar_dataset_revision(*dataset));
-  spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
-  const auto expected = backtest::run(spec);
-  tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-  tasks::submit(store, "beyond-old-limit", spec);
-  store.commit(tasks::finish(store, "beyond-old-limit",
-                             store.commit(store.claim("beyond-old-limit")).token(), expected));
-  EXPECT_EQ(tasks::result(store, "beyond-old-limit").SerializeAsString(),
-            expected.SerializeAsString());
-  auto maximum = expected.account();
-  maximum.set_total(static_cast<unsigned>(protocol::max_dataset_bars));
-  maximum.set_cursor(maximum.total());
-  EXPECT_NO_THROW(protocol::decode_snapshot(maximum));
-  maximum.set_total(maximum.total() + 1);
-  EXPECT_THROW(protocol::decode_snapshot(maximum), std::invalid_argument);
-}
-
-TEST_F(TaskProcess, DistinctMaximumInputsExposeRecoveryHealthBeforeAdmissions) {
-  service.reset();
-  constexpr int count = 8;
-  auto spec = maximum_factor_input();
-  std::vector<std::string> expected;
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    for (int i = 0; i < count; ++i) {
-      auto* dataset = factor_bars(spec);
-      auto* last = dataset->mutable_bars(dataset->bars_size() - 1);
-      const auto units = d("100").raw() + static_cast<std::int64_t>(i) * d("1").raw();
-      for (auto* price :
-           {last->mutable_open(), last->mutable_high(), last->mutable_low(), last->mutable_close()})
-        price->set_units(units);
-      dataset->set_revision(protocol::bar_dataset_revision(*dataset));
-      spec.set_dataset_revision(dataset->revision());
-      expected.push_back(dataset->revision());
-      tasks::submit(store, "unique-" + std::to_string(i), spec);
+TEST(TaskStore, BacktestBeyondTwentyThousandBarsHasReadableResult)
+{
+    TaskDirectory directory;
+    auto spec = input();
+    auto* dataset = spec.mutable_paper()->mutable_contracts(0)->mutable_dataset();
+    const auto first = dataset->bars(0);
+    dataset->clear_bars();
+    for (int i = 0; i < 20001; ++i) {
+        auto* bar = dataset->add_bars();
+        *bar = first;
+        bar->set_timestamp_ns(first.timestamp_ns() + static_cast<std::int64_t>(i) * 1000000);
     }
-  }
-  const auto begin = std::chrono::steady_clock::now();
-  launch();
-  unsigned recovering = 0;
-  std::string instance;
-  const auto deadline = begin + testing_support::bound(60s);
-  while (std::chrono::steady_clock::now() < deadline) {
-    task_wire::TaskRequest ping;
-    ping.mutable_heartbeat();
-    task_wire::TaskResponse response;
-    try {
-      response = call(ping, endpoint + ".health");
-    } catch (const std::exception&) {
-      ASSERT_FALSE(service->exited());
-      std::this_thread::sleep_for(10ms);
-      continue;
-    }
-    ASSERT_TRUE(response.has_health());
-    const auto& health = response.health();
-    if (instance.empty())
-      instance = health.instance_id();
-    EXPECT_EQ(health.instance_id(), instance);
-    EXPECT_FALSE(health.recovery_required());
-    if (health.initialized())
-      break;
-    ++recovering;
-    task_wire::TaskRequest dispatch;
-    dispatch.mutable_dispatch()->set_launch_slots(2);
-    EXPECT_THROW(call(dispatch, endpoint + ".health"), std::runtime_error);
-    std::this_thread::sleep_for(20ms);
-  }
-  ASSERT_LT(std::chrono::steady_clock::now(), deadline);
-  EXPECT_GT(recovering, 0U);
-  task_wire::TaskRequest list;
-  list.mutable_list()->set_limit(200);
-  const auto tasks = call(list).tasks();
-  ASSERT_EQ(tasks.tasks_size(), count);
-  for (int i = 0; i < count; ++i) {
-    EXPECT_EQ(tasks.tasks(i).state(), task::v1::QUEUED);
-    EXPECT_EQ(tasks.tasks(i).attempt(), 0U);
-    EXPECT_EQ(tasks.tasks(i).source_name(), expected[static_cast<std::size_t>(i)]);
-    EXPECT_EQ(tasks.tasks(i).definition_case(), task::v1::Task::DEFINITION_NOT_SET);
-  }
-  RecordProperty("distinct_maximum_input_count", count);
-  RecordProperty("recovery_heartbeats", recovering);
-  RecordProperty("recovery_ms", std::chrono::duration_cast<std::chrono::milliseconds>(
-                                    std::chrono::steady_clock::now() - begin)
-                                    .count());
-}
-TEST(TaskStore, ManyCompletedMaximumInputsRestoreWithOnePayloadWorkingSet) {
-  TaskDirectory directory;
-  const auto spec = maximum_factor_input();
-  const auto expected = factor::run(spec);
-  {
+    dataset->set_revision(protocol::bar_dataset_revision(*dataset));
+    spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
+    const auto expected = backtest::run(spec);
     tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "batch-0", spec);
+    tasks::submit(store, "beyond-old-limit", spec);
     store.commit(
-        tasks::finish(store, "batch-0", store.commit(store.claim("batch-0")).token(), expected));
-  }
-  // Build a current-format fixture of independent completed task identities.
-  // Hard links only make the test setup cheaper; every task owns its path and
-  // the reader must still check every referenced file, digest and transition.
-  constexpr int count = 24;
-  const auto input_bytes = std::filesystem::file_size(directory.path / "batch-0/input.pb");
-  ASSERT_GT(input_bytes * count, 256ULL * 1024 * 1024);
-  {
-    sqlite::Database db(directory.path / "tasks.sqlite");
-    Json base;
-    task::v1::StoredTaskRecord base_record;
-    {
-      sqlite::Database::Statement read(db, "SELECT manifest, record FROM tasks WHERE id='batch-0'");
-      ASSERT_TRUE(read.step());
-      base = Json::parse(read.text(0));
-      ASSERT_TRUE(base_record.ParseFromString(read.blob(1)));
-    }
-    sqlite::Database::Transaction transaction(db);
-    for (int i = 1; i < count; ++i) {
-      const auto id = "batch-" + std::to_string(i);
-      const auto dest = directory.path / id;
-      std::filesystem::create_directory(dest);
-      for (const auto& item :
-           std::filesystem::recursive_directory_iterator(directory.path / "batch-0")) {
-        const auto target = dest / item.path().lexically_relative(directory.path / "batch-0");
-        if (item.is_directory())
-          std::filesystem::create_directory(target);
-        else
-          std::filesystem::create_hard_link(item.path(), target);
-      }
-      auto manifest = base;
-      manifest["id"] = id;
-      manifest["submission_sequence"] = i + 1;
-      auto record = base_record;
-      record.mutable_task()->set_id(id);
-      record.mutable_task()->set_submission_sequence(i + 1);
-      sqlite::Database::Statement add(
-          db, "INSERT INTO tasks SELECT ?1, ?2, kind, ?3, state, attempt, updated_at_ms, ?4 "
-              "FROM tasks WHERE id='batch-0'");
-      add.bind(1, id)
-          .bind(2, i + 1)
-          .bind(3, manifest.dump())
-          .bind_blob(4, record.SerializeAsString())
-          .step();
-      sqlite::Database::Statement events(db, "INSERT INTO task_events SELECT ?1, sequence, body "
-                                             "FROM task_events WHERE task_id='batch-0'");
-      events.bind(1, id).step();
-    }
-    transaction.commit();
-  }
-  const auto start = std::chrono::steady_clock::now();
-  {
-    tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-    const auto list = restored.list();
-    EXPECT_EQ(list.tasks_size(), count);
-    for (const auto& task : list.tasks()) {
-      EXPECT_EQ(task.state(), task::v1::SUCCEEDED);
-      EXPECT_EQ(task.total(), static_cast<unsigned>(protocol::max_dataset_bars));
-      EXPECT_EQ(task.definition_case(), task::v1::Task::DEFINITION_NOT_SET);
-    }
-    EXPECT_EQ(restored.get("batch-23").factor().SerializeAsString(), spec.SerializeAsString());
-    EXPECT_EQ(tasks::factor_result(restored, "batch-23").SerializeAsString(),
-              expected.SerializeAsString());
-    RecordProperty("completed_payload_bytes", std::to_string(input_bytes * count));
-    RecordProperty("single_payload_bytes", std::to_string(input_bytes));
-    RecordProperty("completed_task_count", std::to_string(count));
-    RecordProperty("restore_and_verify_ms",
-                   std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                      std::chrono::steady_clock::now() - start)
-                                      .count()));
-  }
-  // Bounded stopped-service reference inspection still fails closed, but its
-  // total-I/O budget must not prevent a valid writer from reopening its store.
-  EXPECT_THROW(tasks::Store::inspect_history_usage(directory.path,
-                                                   tasks::Identity{"task", "historical-data"},
-                                                   std::string(64, 'a')),
-               std::invalid_argument);
+        tasks::finish(
+            store,
+            "beyond-old-limit",
+            store.commit(store.claim("beyond-old-limit")).token(),
+            expected));
+    EXPECT_EQ(
+        tasks::result(store, "beyond-old-limit").SerializeAsString(),
+        expected.SerializeAsString());
+    auto maximum = expected.account();
+    maximum.set_total(static_cast<unsigned>(protocol::max_dataset_bars));
+    maximum.set_cursor(maximum.total());
+    EXPECT_NO_THROW(protocol::decode_snapshot(maximum));
+    maximum.set_total(maximum.total() + 1);
+    EXPECT_THROW(protocol::decode_snapshot(maximum), std::invalid_argument);
 }
 
-TEST(TaskStore, DurableUpdatesDoNotChangeSubmissionIdentityOrReorderRetries) {
-  TaskDirectory directory;
-  auto clock = std::make_shared<TaskClock>();
-  task::v1::Task retried;
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"}, clock);
-    const auto original = tasks::submit(store, "first", input());
-    tasks::submit(store, "second", input());
-    clock->value += 1000000000;
-    const auto token = store.commit(store.claim("first")).token();
-    EXPECT_EQ(store.get("first").updated_at_ms(), clock->value / 1000000);
-    clock->value += 1000000000;
-    store.commit(store.progress("first", token, 1));
-    const auto progress = store.get("first");
-    clock->value += 1000000000;
-    store.commit(store.progress("first", token, 1)); // Repeated progress is not a new event.
-    EXPECT_EQ(store.get("first").updated_at_ms(), progress.updated_at_ms());
-    store.commit(store.fail("first", token, "test worker failure"));
-    clock->value += 1000000000;
-    retried = store.commit(store.retry("first")).task();
-    EXPECT_EQ(retried.updated_at_ms(), clock->value / 1000000);
-    EXPECT_EQ(retried.SerializeAsString(), store.describe("first").SerializeAsString());
-    EXPECT_EQ(retried.submitted_at_ms(), original.submitted_at_ms());
-    EXPECT_EQ(retried.submission_sequence(), original.submission_sequence());
-    EXPECT_EQ(store.list().tasks(0).id(), "first");
-    auto json = protocol::decode_task(retried);
-    EXPECT_EQ(json.at("submitted_at_ms"), original.submitted_at_ms());
-    EXPECT_EQ(json.at("updated_at_ms"), retried.updated_at_ms());
-    auto missing = retried;
-    missing.clear_submitted_at_ms();
-    EXPECT_THROW(protocol::decode_task(missing), std::invalid_argument);
-  }
-  tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"}, clock);
-  EXPECT_EQ(restored.describe("first").SerializeAsString(), retried.SerializeAsString());
+TEST_F(TaskProcess, DistinctMaximumInputsExposeRecoveryHealthBeforeAdmissions)
+{
+    service.reset();
+    constexpr int count = 8;
+    auto spec = maximum_factor_input();
+    std::vector<std::string> expected;
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        for (int i = 0; i < count; ++i) {
+            auto* dataset = factor_bars(spec);
+            auto* last = dataset->mutable_bars(dataset->bars_size() - 1);
+            const auto units = d("100").raw() + static_cast<std::int64_t>(i) * d("1").raw();
+            for (auto* price :
+                {last->mutable_open(),
+                    last->mutable_high(),
+                    last->mutable_low(),
+                    last->mutable_close()})
+                price->set_units(units);
+            dataset->set_revision(protocol::bar_dataset_revision(*dataset));
+            spec.set_dataset_revision(dataset->revision());
+            expected.push_back(dataset->revision());
+            tasks::submit(store, "unique-" + std::to_string(i), spec);
+        }
+    }
+    const auto begin = std::chrono::steady_clock::now();
+    launch();
+    unsigned recovering = 0;
+    std::string instance;
+    const auto deadline = begin + testing_support::bound(60s);
+    while (std::chrono::steady_clock::now() < deadline) {
+        task_wire::TaskRequest ping;
+        ping.mutable_heartbeat();
+        task_wire::TaskResponse response;
+        try {
+            response = call(ping, endpoint + ".health");
+        } catch (const std::exception&) {
+            ASSERT_FALSE(service->exited());
+            std::this_thread::sleep_for(10ms);
+            continue;
+        }
+        ASSERT_TRUE(response.has_health());
+        const auto& health = response.health();
+        if (instance.empty())
+            instance = health.instance_id();
+        EXPECT_EQ(health.instance_id(), instance);
+        EXPECT_FALSE(health.recovery_required());
+        if (health.initialized())
+            break;
+        ++recovering;
+        task_wire::TaskRequest dispatch;
+        dispatch.mutable_dispatch()->set_launch_slots(2);
+        EXPECT_THROW(call(dispatch, endpoint + ".health"), std::runtime_error);
+        std::this_thread::sleep_for(20ms);
+    }
+    ASSERT_LT(std::chrono::steady_clock::now(), deadline);
+    EXPECT_GT(recovering, 0U);
+    task_wire::TaskRequest list;
+    list.mutable_list()->set_limit(200);
+    const auto tasks = call(list).tasks();
+    ASSERT_EQ(tasks.tasks_size(), count);
+    for (int i = 0; i < count; ++i) {
+        EXPECT_EQ(tasks.tasks(i).state(), task::v1::QUEUED);
+        EXPECT_EQ(tasks.tasks(i).attempt(), 0U);
+        EXPECT_EQ(tasks.tasks(i).source_name(), expected[static_cast<std::size_t>(i)]);
+        EXPECT_EQ(tasks.tasks(i).definition_case(), task::v1::Task::DEFINITION_NOT_SET);
+    }
+    RecordProperty("distinct_maximum_input_count", count);
+    RecordProperty("recovery_heartbeats", recovering);
+    RecordProperty(
+        "recovery_ms",
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - begin)
+            .count());
 }
-TEST(TaskStore, RejectsMissingOrDuplicateChronologyWithoutRewritingEvidence) {
-  for (const auto& mode : {"old", "missing", "duplicate", "gap", "negative", "overflow"}) {
-    SCOPED_TRACE(mode);
+
+TEST(TaskStore, ManyCompletedMaximumInputsRestoreWithOnePayloadWorkingSet)
+{
+    TaskDirectory directory;
+    const auto spec = maximum_factor_input();
+    const auto expected = factor::run(spec);
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "batch-0", spec);
+        store.commit(
+            tasks::finish(
+                store,
+                "batch-0",
+                store.commit(store.claim("batch-0")).token(),
+                expected));
+    }
+    // Build a current-format fixture of independent completed task identities.
+    // Hard links only make the test setup cheaper; every task owns its path and
+    // the reader must still check every referenced file, digest and transition.
+    constexpr int count = 24;
+    const auto input_bytes = std::filesystem::file_size(directory.path / "batch-0/input.pb");
+    ASSERT_GT(input_bytes * count, 256ULL * 1024 * 1024);
+    {
+        sqlite::Database db(directory.path / "tasks.sqlite");
+        Json base;
+        task::v1::StoredTaskRecord base_record;
+        {
+            sqlite::Database::Statement read(
+                db,
+                "SELECT manifest, record FROM tasks WHERE id='batch-0'");
+            ASSERT_TRUE(read.step());
+            base = Json::parse(read.text(0));
+            ASSERT_TRUE(base_record.ParseFromString(read.blob(1)));
+        }
+        sqlite::Database::Transaction transaction(db);
+        for (int i = 1; i < count; ++i) {
+            const auto id = "batch-" + std::to_string(i);
+            const auto dest = directory.path / id;
+            std::filesystem::create_directory(dest);
+            for (const auto& item :
+                std::filesystem::recursive_directory_iterator(directory.path / "batch-0")) {
+                const auto target =
+                    dest / item.path().lexically_relative(directory.path / "batch-0");
+                if (item.is_directory())
+                    std::filesystem::create_directory(target);
+                else
+                    std::filesystem::create_hard_link(item.path(), target);
+            }
+            auto manifest = base;
+            manifest["id"] = id;
+            manifest["submission_sequence"] = i + 1;
+            auto record = base_record;
+            record.mutable_task()->set_id(id);
+            record.mutable_task()->set_submission_sequence(i + 1);
+            sqlite::Database::Statement add(
+                db,
+                "INSERT INTO tasks SELECT ?1, ?2, kind, ?3, state, attempt, updated_at_ms, ?4 " "FROM tasks WHERE id='batch-0'");
+            add.bind(1, id)
+                .bind(2, i + 1)
+                .bind(3, manifest.dump())
+                .bind_blob(4, record.SerializeAsString())
+                .step();
+            sqlite::Database::Statement events(
+                db,
+                "INSERT INTO task_events SELECT ?1, sequence, body " "FROM task_events WHERE task_id='batch-0'");
+            events.bind(1, id).step();
+        }
+        transaction.commit();
+    }
+    const auto start = std::chrono::steady_clock::now();
+    {
+        tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
+        const auto list = restored.list();
+        EXPECT_EQ(list.tasks_size(), count);
+        for (const auto& task : list.tasks()) {
+            EXPECT_EQ(task.state(), task::v1::SUCCEEDED);
+            EXPECT_EQ(task.total(), static_cast<unsigned>(protocol::max_dataset_bars));
+            EXPECT_EQ(task.definition_case(), task::v1::Task::DEFINITION_NOT_SET);
+        }
+        EXPECT_EQ(restored.get("batch-23").factor().SerializeAsString(), spec.SerializeAsString());
+        EXPECT_EQ(
+            tasks::factor_result(restored, "batch-23").SerializeAsString(),
+            expected.SerializeAsString());
+        RecordProperty("completed_payload_bytes", std::to_string(input_bytes * count));
+        RecordProperty("single_payload_bytes", std::to_string(input_bytes));
+        RecordProperty("completed_task_count", std::to_string(count));
+        RecordProperty(
+            "restore_and_verify_ms",
+            std::to_string(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - start)
+                    .count()));
+    }
+    // Bounded stopped-service reference inspection still fails closed, but its
+    // total-I/O budget must not prevent a valid writer from reopening its store.
+    EXPECT_THROW(
+        tasks::Store::inspect_history_usage(
+            directory.path,
+            tasks::Identity{"task", "historical-data"},
+            std::string(64, 'a')),
+        std::invalid_argument);
+}
+
+TEST(TaskStore, DurableUpdatesDoNotChangeSubmissionIdentityOrReorderRetries)
+{
+    TaskDirectory directory;
+    auto clock = std::make_shared<TaskClock>();
+    task::v1::Task retried;
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"}, clock);
+        const auto original = tasks::submit(store, "first", input());
+        tasks::submit(store, "second", input());
+        clock->value += 1000000000;
+        const auto token = store.commit(store.claim("first")).token();
+        EXPECT_EQ(store.get("first").updated_at_ms(), clock->value / 1000000);
+        clock->value += 1000000000;
+        store.commit(store.progress("first", token, 1));
+        const auto progress = store.get("first");
+        clock->value += 1000000000;
+        store.commit(store.progress("first", token, 1)); // Repeated progress is not a new event.
+        EXPECT_EQ(store.get("first").updated_at_ms(), progress.updated_at_ms());
+        store.commit(store.fail("first", token, "test worker failure"));
+        clock->value += 1000000000;
+        retried = store.commit(store.retry("first")).task();
+        EXPECT_EQ(retried.updated_at_ms(), clock->value / 1000000);
+        EXPECT_EQ(retried.SerializeAsString(), store.describe("first").SerializeAsString());
+        EXPECT_EQ(retried.submitted_at_ms(), original.submitted_at_ms());
+        EXPECT_EQ(retried.submission_sequence(), original.submission_sequence());
+        EXPECT_EQ(store.list().tasks(0).id(), "first");
+        auto json = protocol::decode_task(retried);
+        EXPECT_EQ(json.at("submitted_at_ms"), original.submitted_at_ms());
+        EXPECT_EQ(json.at("updated_at_ms"), retried.updated_at_ms());
+        auto missing = retried;
+        missing.clear_submitted_at_ms();
+        EXPECT_THROW(protocol::decode_task(missing), std::invalid_argument);
+    }
+    tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"}, clock);
+    EXPECT_EQ(restored.describe("first").SerializeAsString(), retried.SerializeAsString());
+}
+
+TEST(TaskStore, RejectsMissingOrDuplicateChronologyWithoutRewritingEvidence)
+{
+    for (const auto& mode : {"missing", "duplicate", "gap", "negative", "overflow"}) {
+        SCOPED_TRACE(mode);
+        TaskDirectory directory;
+        {
+            tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+            tasks::submit(store, "first", input());
+            tasks::submit(store, "second", input());
+        }
+        const auto manifest = [&] {
+            sqlite::Database database(directory.path / "tasks.sqlite");
+            sqlite::Database::Statement read(
+                database,
+                "SELECT manifest FROM tasks WHERE id='second'");
+            EXPECT_TRUE(read.step());
+            return Json::parse(read.text(0));
+        };
+        auto record = manifest();
+        const std::string kind = mode;
+        if (kind == "missing")
+            record.erase("submitted_at_ms");
+        else if (kind == "duplicate")
+            record["submission_sequence"] = 1;
+        else if (kind == "gap")
+            record["submission_sequence"] = 3;
+        else if (kind == "negative")
+            record["submitted_at_ms"] = -1;
+        else
+            record["submitted_at_ms"] = std::numeric_limits<std::uint64_t>::max();
+        {
+            sqlite::Database database(directory.path / "tasks.sqlite");
+            sqlite::Database::Statement write(
+                database,
+                "UPDATE tasks SET manifest=? WHERE id='second'");
+            write.bind(1, record.dump()).step();
+        }
+        EXPECT_THROW(
+            tasks::Store rejected(directory.path, tasks::Identity{"task", "historical-data"}),
+            std::exception);
+        EXPECT_EQ(manifest(), record);
+    }
+}
+
+TEST_F(TaskProcess, SilentExternalPeerDoesNotBlockQueriesAndCancellation)
+{
+    submit("cancel-me");
+    auto silent = ipc::Channel::connect(endpoint, 2s);
+    task_wire::TaskRequest cancel;
+    cancel.mutable_cancel()->set_id("cancel-me");
+    EXPECT_EQ(call(cancel).task().state(), task_wire::CANCELLED);
+}
+
+TEST_F(TaskProcess, SilentWorkerPeerDoesNotBlockWorkerControl)
+{
+    submit("claim-me");
+    auto silent = ipc::Channel::connect(endpoint + ".worker", 2s);
+    task_wire::TaskRequest claim;
+    claim.mutable_claim()->set_id("claim-me");
+    claim.mutable_claim()->set_kind(task_wire::BACKTEST);
+    EXPECT_EQ(call(claim, endpoint + ".worker").attempt().task().state(), task_wire::RUNNING);
+}
+
+TEST_F(TaskProcess, ExternalSaturationPreservesWorkerControlAndLeaseExpiry)
+{
+    submit("expired");
+    task_wire::TaskRequest claim;
+    claim.mutable_claim()->set_id("expired");
+    claim.mutable_claim()->set_kind(task_wire::BACKTEST);
+    const auto token = call(claim, endpoint + ".worker").attempt().token();
+    std::vector<ipc::Channel> silent;
+    for (unsigned i = 0; i < 20; ++i)
+        silent.push_back(ipc::Channel::connect(endpoint, 2s));
+    task_wire::TaskRequest get;
+    get.mutable_get()->set_id("expired");
+    const auto deadline = std::chrono::steady_clock::now() + 4s;
+    while (call(get, endpoint + ".worker").task().state() == task_wire::RUNNING
+        && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(30ms);
+    EXPECT_EQ(call(get, endpoint + ".worker").task().state(), task_wire::INTERRUPTED);
+    task_wire::TaskRequest progress;
+    progress.mutable_progress()->set_id("expired");
+    progress.mutable_progress()->set_token(token);
+    progress.mutable_progress()->set_completed(1);
+    EXPECT_THROW(call(progress, endpoint + ".worker"), std::runtime_error);
+}
+
+TEST(TaskStore, CompletedResultCarriesPersistedExperimentAndRejectsMismatchedEvidence)
+{
     TaskDirectory directory;
     {
-      tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-      tasks::submit(store, "first", input());
-      tasks::submit(store, "second", input());
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "evidence", input());
+        store.commit(
+            tasks::finish(
+                store,
+                "evidence",
+                store.commit(store.claim("evidence")).token(),
+                backtest::run(input())));
     }
-    const auto manifest = [&] {
-      sqlite::Database database(directory.path / "tasks.sqlite");
-      sqlite::Database::Statement read(database, "SELECT manifest FROM tasks WHERE id='second'");
-      EXPECT_TRUE(read.step());
-      return Json::parse(read.text(0));
-    };
-    auto record = manifest();
-    const std::string kind = mode;
-    if (kind == "old")
-      record["version"] = 4;
-    else if (kind == "missing")
-      record.erase("submitted_at_ms");
-    else if (kind == "duplicate")
-      record["submission_sequence"] = 1;
-    else if (kind == "gap")
-      record["submission_sequence"] = 3;
-    else if (kind == "negative")
-      record["submitted_at_ms"] = -1;
-    else
-      record["submitted_at_ms"] = std::numeric_limits<std::uint64_t>::max();
-    {
-      sqlite::Database database(directory.path / "tasks.sqlite");
-      sqlite::Database::Statement write(database, "UPDATE tasks SET manifest=? WHERE id='second'");
-      write.bind(1, record.dump()).step();
-    }
-    EXPECT_THROW(tasks::Store rejected(directory.path, tasks::Identity{"task", "historical-data"}),
-                 std::exception);
-    EXPECT_EQ(manifest(), record);
-  }
+    tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
+    task::v1::TaskResponse response;
+    *response.mutable_backtest() = tasks::result(restored, "evidence");
+    *response.mutable_result_task() = restored.get("evidence");
+    const auto value = protocol::decode_task_result(response, "evidence");
+    EXPECT_EQ(
+        value.at("experiment").at("strategies").at(0),
+        protocol::decode_strategy(testing_support::moving_average(1, 3)));
+    EXPECT_EQ(value.at("experiment").at("paper").at("deposit"), "10000");
+    EXPECT_EQ(
+        value.at("experiment")
+            .at("paper")
+            .at("contracts")
+            .at(0)
+            .at("cost_schedule")
+            .at(0)
+            .at("values")
+            .at("close_today_fee"),
+        "3");
+    EXPECT_EQ(value.at("experiment").at("paper").at("risk").at("max_order_quantity"), "100");
+    EXPECT_FALSE(
+        value.at("experiment").at("paper").at("contracts").at(0).at("dataset").contains("bars"));
+    EXPECT_EQ(value.at("experiment").at("data").at(0).at("count"), 7);
+    EXPECT_EQ(value.at("task").at("result_digest"), restored.get("evidence").result_digest());
+    EXPECT_THROW(protocol::decode_task_result(response, "other"), std::invalid_argument);
+    auto bad = response;
+    bad.clear_result_task();
+    EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
+    bad = response;
+    bad.mutable_result_task()->set_state(task::v1::RUNNING);
+    EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
+    bad = response;
+    bad.mutable_backtest()->set_dataset_revision(std::string(64, '0'));
+    EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
+    bad = response;
+    bad.mutable_result_task()->clear_definition();
+    EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
+    bad = response;
+    bad.mutable_result_task()->set_kind(task::v1::FACTOR);
+    EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
 }
 
-TEST_F(TaskProcess, SilentExternalPeerDoesNotBlockQueriesAndCancellation) {
-  submit("cancel-me");
-  auto silent = ipc::Channel::connect(endpoint, 2s);
-  task_wire::TaskRequest cancel;
-  cancel.mutable_cancel()->set_id("cancel-me");
-  EXPECT_EQ(call(cancel).task().state(), task_wire::CANCELLED);
-}
-TEST_F(TaskProcess, SilentWorkerPeerDoesNotBlockWorkerControl) {
-  submit("claim-me");
-  auto silent = ipc::Channel::connect(endpoint + ".worker", 2s);
-  task_wire::TaskRequest claim;
-  claim.mutable_claim()->set_id("claim-me");
-  claim.mutable_claim()->set_kind(task_wire::BACKTEST);
-  EXPECT_EQ(call(claim, endpoint + ".worker").attempt().task().state(), task_wire::RUNNING);
-}
-TEST_F(TaskProcess, ExternalSaturationPreservesWorkerControlAndLeaseExpiry) {
-  submit("expired");
-  task_wire::TaskRequest claim;
-  claim.mutable_claim()->set_id("expired");
-  claim.mutable_claim()->set_kind(task_wire::BACKTEST);
-  const auto token = call(claim, endpoint + ".worker").attempt().token();
-  std::vector<ipc::Channel> silent;
-  for (unsigned i = 0; i < 20; ++i)
-    silent.push_back(ipc::Channel::connect(endpoint, 2s));
-  task_wire::TaskRequest get;
-  get.mutable_get()->set_id("expired");
-  const auto deadline = std::chrono::steady_clock::now() + 4s;
-  while (call(get, endpoint + ".worker").task().state() == task_wire::RUNNING &&
-         std::chrono::steady_clock::now() < deadline)
-    std::this_thread::sleep_for(30ms);
-  EXPECT_EQ(call(get, endpoint + ".worker").task().state(), task_wire::INTERRUPTED);
-  task_wire::TaskRequest progress;
-  progress.mutable_progress()->set_id("expired");
-  progress.mutable_progress()->set_token(token);
-  progress.mutable_progress()->set_completed(1);
-  EXPECT_THROW(call(progress, endpoint + ".worker"), std::runtime_error);
-}
-
-TEST(TaskStore, CompletedResultCarriesPersistedExperimentAndRejectsMismatchedEvidence) {
-  TaskDirectory directory;
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "evidence", input());
-    store.commit(tasks::finish(store, "evidence", store.commit(store.claim("evidence")).token(),
-                               backtest::run(input())));
-  }
-  tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-  task::v1::TaskResponse response;
-  *response.mutable_backtest() = tasks::result(restored, "evidence");
-  *response.mutable_result_task() = restored.get("evidence");
-  const auto value = protocol::decode_task_result(response, "evidence");
-  EXPECT_EQ(value.at("experiment").at("strategies").at(0),
-            protocol::decode_strategy(testing_support::moving_average(1, 3)));
-  EXPECT_EQ(value.at("experiment").at("paper").at("deposit"), "10000");
-  EXPECT_EQ(value.at("experiment")
-                .at("paper")
-                .at("contracts")
-                .at(0)
-                .at("cost_schedule")
-                .at(0)
-                .at("values")
-                .at("close_today_fee"),
-            "3");
-  EXPECT_EQ(value.at("experiment").at("paper").at("risk").at("max_order_quantity"), "100");
-  EXPECT_FALSE(
-      value.at("experiment").at("paper").at("contracts").at(0).at("dataset").contains("bars"));
-  EXPECT_EQ(value.at("experiment").at("data").at(0).at("count"), 7);
-  EXPECT_EQ(value.at("task").at("result_digest"), restored.get("evidence").result_digest());
-  EXPECT_THROW(protocol::decode_task_result(response, "other"), std::invalid_argument);
-  auto bad = response;
-  bad.clear_result_task();
-  EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
-  bad = response;
-  bad.mutable_result_task()->set_state(task::v1::RUNNING);
-  EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
-  bad = response;
-  bad.mutable_backtest()->set_dataset_revision(std::string(64, '0'));
-  EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
-  bad = response;
-  bad.mutable_result_task()->clear_definition();
-  EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
-  bad = response;
-  bad.mutable_result_task()->set_kind(task::v1::FACTOR);
-  EXPECT_THROW(protocol::decode_task_result(bad, "evidence"), std::invalid_argument);
-}
-
-TEST(Backtest, ExplicitTradingDaysDoNotInferFromWallClock) {
-  auto spec = input();
-  auto* data = spec.mutable_paper()->mutable_contracts(0)->mutable_dataset();
-  data->mutable_bars(0)->set_timestamp_ns(1790254800000000000LL);
-  data->set_revision(protocol::bar_dataset_revision(*data));
-  spec.set_dataset_revision(data->revision());
-  EXPECT_NO_THROW(backtest::run(spec));
-  data->mutable_bars(0)->set_trading_day("2026-09-24");
-  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+TEST(Backtest, ExplicitTradingDaysDoNotInferFromWallClock)
+{
+    auto spec = input();
+    auto* data = spec.mutable_paper()->mutable_contracts(0)->mutable_dataset();
+    data->mutable_bars(0)->set_timestamp_ns(1790254800000000000LL);
+    data->set_revision(protocol::bar_dataset_revision(*data));
+    spec.set_dataset_revision(data->revision());
+    EXPECT_NO_THROW(backtest::run(spec));
+    data->mutable_bars(0)->set_trading_day("2026-09-24");
+    EXPECT_THROW(backtest::run(spec), std::invalid_argument);
 }
 
 namespace {
-backtest::v1::BacktestInput multiday_input() {
-  auto spec = input();
-  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->clear_bars();
-  const std::int64_t first = 1790298000000000000LL;
-  const std::int64_t next = first + 3LL * 86400 * 1000000000;
-  int index = 0;
-  for (const auto price : {100, 101, 102, 101, 104, 103, 102, 103}) {
-    auto* tick = spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->add_bars();
-    tick->set_trading_day(index < 4 ? "2026-09-25" : "2026-09-28");
-    tick->set_timestamp_ns((index < 4 ? first : next) + (index % 4) * 1000000000LL);
-    for (auto* p :
-         {tick->mutable_open(), tick->mutable_high(), tick->mutable_low(), tick->mutable_close()})
-      p->set_units(d(std::to_string(price).c_str()).raw());
-    tick->mutable_volume()->set_units(d("10").raw());
-    ++index;
-  }
-  spec.mutable_paper()
-      ->mutable_contracts(0)
-      ->mutable_dataset()
-      ->mutable_days(0)
-      ->mutable_settlement_price()
-      ->set_units(d("105").raw());
-  auto* day = spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->add_days();
-  *day = spec.paper().contracts(0).dataset().days(0);
-  day->set_trading_day("2026-09-28");
-  day->mutable_settlement_price()->set_units(d("110").raw());
-  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
-      protocol::bar_dataset_revision(spec.paper().contracts(0).dataset()));
-  spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
-  return spec;
+
+backtest::v1::BacktestInput multiday_input()
+{
+    auto spec = input();
+    spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->clear_bars();
+    const std::int64_t first = 1790298000000000000LL;
+    const std::int64_t next = first + 3LL * 86400 * 1000000000;
+    int index = 0;
+    for (const auto price : {100, 101, 102, 101, 104, 103, 102, 103}) {
+        auto* tick = spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->add_bars();
+        tick->set_trading_day(index < 4 ? "2026-09-25" : "2026-09-28");
+        tick->set_timestamp_ns((index < 4 ? first : next) + (index % 4) * 1000000000LL);
+        for (auto* p :
+            {tick->mutable_open(),
+                tick->mutable_high(),
+                tick->mutable_low(),
+                tick->mutable_close()})
+            p->set_units(d(std::to_string(price).c_str()).raw());
+        tick->mutable_volume()->set_units(d("10").raw());
+        ++index;
+    }
+    spec.mutable_paper()
+        ->mutable_contracts(0)
+        ->mutable_dataset()
+        ->mutable_days(0)
+        ->mutable_settlement_price()
+        ->set_units(d("105").raw());
+    auto* day = spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->add_days();
+    *day = spec.paper().contracts(0).dataset().days(0);
+    day->set_trading_day("2026-09-28");
+    day->mutable_settlement_price()->set_units(d("110").raw());
+    spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
+        protocol::bar_dataset_revision(spec.paper().contracts(0).dataset()));
+    spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
+    return spec;
 }
+
 } // namespace
-TEST(Backtest, MultidaySettlementCarriesSmaAndChargesYesterdayClose) {
-  const auto spec = multiday_input();
-  const auto result = backtest::run(spec);
-  ASSERT_EQ(result.settlements_size(), 2);
-  EXPECT_EQ(result.settlements(0).contracts(0).price().units(), d("105").raw());
-  EXPECT_EQ(result.settlements(0).equity().units(), d("10038").raw());
-  EXPECT_EQ(result.settlements(0).contracts(0).position_quantity().units(), d("1").raw());
-  EXPECT_EQ(result.settlements(1).contracts(0).position_quantity().units(), 0);
-  // The first day's closing signal now closes at 104 on the next day,
-  // followed by an intraday round trip at 103 (2 + 4 + 2 + 3 fees).
-  EXPECT_EQ(result.account().balance().units(), d("10019").raw());
-  EXPECT_EQ(result.account().fees().units(), d("11").raw());
-  EXPECT_EQ(result.account().realized().units(), d("30").raw());
-  EXPECT_EQ(result.max_drawdown().units(), d("26").raw());
-  ASSERT_EQ(result.account().orders_size(), 4);
-  EXPECT_EQ(result.account().orders(1).offset(), protocol::v1::CLOSE_YESTERDAY);
-  ASSERT_EQ(result.equity_size(), 10);
-  EXPECT_EQ(result.equity(4).event(), backtest::v1::DAILY_SETTLEMENT);
-  EXPECT_EQ(result.equity(4).timestamp_ns(),
-            spec.paper().contracts(0).dataset().bars(3).timestamp_ns());
-  EXPECT_EQ(result.equity(5).event(), backtest::v1::TRADE_MARK);
-  EXPECT_EQ(result.equity(9).equity().units(), result.account().equity().units());
-  EXPECT_EQ(result.SerializeAsString(), backtest::run(spec).SerializeAsString());
-}
-TEST(Backtest, FinalSettlementRevaluesOpenPositionAndParticipatesInDrawdown) {
-  auto spec = multiday_input();
-  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_days()->DeleteSubrange(1,
-                                                                                                1);
-  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_bars()->DeleteSubrange(4,
-                                                                                                4);
-  spec.mutable_paper()
-      ->mutable_contracts(0)
-      ->mutable_dataset()
-      ->mutable_days(0)
-      ->mutable_settlement_price()
-      ->set_units(d("90").raw());
-  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
-      protocol::bar_dataset_revision(spec.paper().contracts(0).dataset()));
-  spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
-  const auto result = backtest::run(spec);
-  EXPECT_EQ(result.account().equity().units(), d("9888").raw());
-  EXPECT_EQ(result.account().realized().units(), d("-110").raw());
-  EXPECT_EQ(result.account().unrealized().units(), 0);
-  EXPECT_EQ(result.max_drawdown().units(), d("112").raw());
-  ASSERT_EQ(result.account().positions_size(), 1);
-  EXPECT_EQ(result.account().positions(0).basis().units(), d("90").raw());
-  EXPECT_EQ(result.equity(3).equity().units(), d("9998").raw());
-  EXPECT_EQ(result.equity(4).event(), backtest::v1::DAILY_SETTLEMENT);
-}
-TEST(Backtest, MultidayRequiresExplicitValidCompleteEvidence) {
-  const auto original = multiday_input();
-  auto spec = original;
-  spec.mutable_paper()
-      ->mutable_contracts(0)
-      ->mutable_dataset()
-      ->mutable_days(1)
-      ->clear_settlement_price();
-  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
-  spec = original;
-  spec.mutable_paper()
-      ->mutable_contracts(0)
-      ->mutable_dataset()
-      ->mutable_days(1)
-      ->mutable_settlement_price()
-      ->set_units(d("-1").raw());
-  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
 
-  spec = original;
-  spec.mutable_paper()
-      ->mutable_contracts(0)
-      ->mutable_dataset()
-      ->mutable_days(1)
-      ->mutable_settlement_price()
-      ->set_units(d("110.5").raw());
-  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
-  spec = original;
-  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_days(1)->set_trading_day(
-      spec.paper().contracts(0).dataset().days(0).trading_day());
-  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
-
-  // A bar needs a day: what is traded is settled.
-  spec = original;
-  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_days()->RemoveLast();
-  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
-      protocol::bar_dataset_revision(spec.paper().contracts(0).dataset()));
-  spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
-  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
-  spec = original;
-  spec.set_version(3);
-  EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+TEST(Backtest, MultidaySettlementCarriesSmaAndChargesYesterdayClose)
+{
+    const auto spec = multiday_input();
+    const auto result = backtest::run(spec);
+    ASSERT_EQ(result.settlements_size(), 2);
+    EXPECT_EQ(result.settlements(0).contracts(0).price().units(), d("105").raw());
+    EXPECT_EQ(result.settlements(0).equity().units(), d("10038").raw());
+    EXPECT_EQ(result.settlements(0).contracts(0).position_quantity().units(), d("1").raw());
+    EXPECT_EQ(result.settlements(1).contracts(0).position_quantity().units(), 0);
+    // The first day's closing signal now closes at 104 on the next day,
+    // followed by an intraday round trip at 103 (2 + 4 + 2 + 3 fees).
+    EXPECT_EQ(result.account().balance().units(), d("10019").raw());
+    EXPECT_EQ(result.account().fees().units(), d("11").raw());
+    EXPECT_EQ(result.account().realized().units(), d("30").raw());
+    EXPECT_EQ(result.max_drawdown().units(), d("26").raw());
+    ASSERT_EQ(result.account().orders_size(), 4);
+    EXPECT_EQ(result.account().orders(1).offset(), protocol::v1::CLOSE_YESTERDAY);
+    ASSERT_EQ(result.equity_size(), 10);
+    EXPECT_EQ(result.equity(4).event(), backtest::v1::DAILY_SETTLEMENT);
+    EXPECT_EQ(
+        result.equity(4).timestamp_ns(),
+        spec.paper().contracts(0).dataset().bars(3).timestamp_ns());
+    EXPECT_EQ(result.equity(5).event(), backtest::v1::TRADE_MARK);
+    EXPECT_EQ(result.equity(9).equity().units(), result.account().equity().units());
+    EXPECT_EQ(result.SerializeAsString(), backtest::run(spec).SerializeAsString());
 }
+
+TEST(Backtest, FinalSettlementRevaluesOpenPositionAndParticipatesInDrawdown)
+{
+    auto spec = multiday_input();
+    spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_days()->DeleteSubrange(
+        1,
+        1);
+    spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_bars()->DeleteSubrange(
+        4,
+        4);
+    spec.mutable_paper()
+        ->mutable_contracts(0)
+        ->mutable_dataset()
+        ->mutable_days(0)
+        ->mutable_settlement_price()
+        ->set_units(d("90").raw());
+    spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
+        protocol::bar_dataset_revision(spec.paper().contracts(0).dataset()));
+    spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
+    const auto result = backtest::run(spec);
+    EXPECT_EQ(result.account().equity().units(), d("9888").raw());
+    EXPECT_EQ(result.account().realized().units(), d("-110").raw());
+    EXPECT_EQ(result.account().unrealized().units(), 0);
+    EXPECT_EQ(result.max_drawdown().units(), d("112").raw());
+    ASSERT_EQ(result.account().positions_size(), 1);
+    EXPECT_EQ(result.account().positions(0).basis().units(), d("90").raw());
+    EXPECT_EQ(result.equity(3).equity().units(), d("9998").raw());
+    EXPECT_EQ(result.equity(4).event(), backtest::v1::DAILY_SETTLEMENT);
+}
+
+TEST(Backtest, MultidayRequiresExplicitValidCompleteEvidence)
+{
+    const auto original = multiday_input();
+    auto spec = original;
+    spec.mutable_paper()
+        ->mutable_contracts(0)
+        ->mutable_dataset()
+        ->mutable_days(1)
+        ->clear_settlement_price();
+    EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+    spec = original;
+    spec.mutable_paper()
+        ->mutable_contracts(0)
+        ->mutable_dataset()
+        ->mutable_days(1)
+        ->mutable_settlement_price()
+        ->set_units(d("-1").raw());
+    EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+
+    spec = original;
+    spec.mutable_paper()
+        ->mutable_contracts(0)
+        ->mutable_dataset()
+        ->mutable_days(1)
+        ->mutable_settlement_price()
+        ->set_units(d("110.5").raw());
+    EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+    spec = original;
+    spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_days(1)->set_trading_day(
+        spec.paper().contracts(0).dataset().days(0).trading_day());
+    EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+
+    // A bar needs a day: what is traded is settled.
+    spec = original;
+    spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_days()->RemoveLast();
+    spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
+        protocol::bar_dataset_revision(spec.paper().contracts(0).dataset()));
+    spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
+    EXPECT_THROW(backtest::run(spec), std::invalid_argument);
+}
+
 // A day needs no bars. The contract settles on the second day without
 // trading: the lot bought on the first is held over it and settled at its
 // price, when its session closes.
-TEST(Backtest, ADayWithoutBarsIsSettled) {
-  auto spec = multiday_input();
-  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_bars()->DeleteSubrange(4,
-                                                                                                4);
-  spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
-      protocol::bar_dataset_revision(spec.paper().contracts(0).dataset()));
-  spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
-  const auto result = backtest::run(spec);
-  ASSERT_EQ(result.settlements_size(), 2);
-  EXPECT_EQ(result.settlements(0).equity().units(), d("10038").raw());
-  EXPECT_EQ(result.settlements(1).trading_day(), "2026-09-28");
-  EXPECT_EQ(result.settlements(1).timestamp_ns(), parse_shanghai_time("2026-09-28 15:00:00"));
-  EXPECT_EQ(result.settlements(1).contracts(0).price().units(), d("110").raw());
-  EXPECT_EQ(result.settlements(1).contracts(0).position_quantity().units(), d("1").raw());
-  // Five a lot of ten, from the 105 it settled at to 110.
-  EXPECT_EQ(result.account().equity().units(), d("10088").raw());
-  // A mark at each of the four bars and a settlement for each of the two days.
-  ASSERT_EQ(result.equity_size(), 6);
-  EXPECT_EQ(result.equity(5).event(), backtest::v1::DAILY_SETTLEMENT);
-  EXPECT_EQ(result.equity(5).timestamp_ns(), result.settlements(1).timestamp_ns());
-  // The Task service takes this result as that of the input.
-  TaskDirectory root;
-  tasks::Store store(root.path, tasks::Identity{"task", "historical-data"});
-  tasks::submit(store, "idle-day", spec);
-  const auto token = store.commit(store.claim("idle-day")).token();
-  store.commit(tasks::finish(store, "idle-day", token, result));
-  EXPECT_EQ(store.get("idle-day").state(), task::v1::SUCCEEDED);
-}
-TEST(TaskStore, MultidayEvidenceRestoresAndForgedSettlementCannotCommit) {
-  TaskDirectory root;
-  const auto spec = multiday_input();
-  const auto expected = backtest::run(spec);
-  auto altered = spec;
-  altered.mutable_paper()
-      ->mutable_contracts(0)
-      ->mutable_dataset()
-      ->mutable_days(0)
-      ->mutable_settlement_price()
-      ->set_units(d("107").raw());
-  altered.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
-      protocol::bar_dataset_revision(altered.paper().contracts(0).dataset()));
-  altered.set_dataset_revision(altered.paper().contracts(0).dataset().revision());
-  const auto wrong = backtest::run(altered);
-  EXPECT_EQ(wrong.account().equity().units(), expected.account().equity().units());
-  {
+TEST(Backtest, ADayWithoutBarsIsSettled)
+{
+    auto spec = multiday_input();
+    spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->mutable_bars()->DeleteSubrange(
+        4,
+        4);
+    spec.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
+        protocol::bar_dataset_revision(spec.paper().contracts(0).dataset()));
+    spec.set_dataset_revision(spec.paper().contracts(0).dataset().revision());
+    const auto result = backtest::run(spec);
+    ASSERT_EQ(result.settlements_size(), 2);
+    EXPECT_EQ(result.settlements(0).equity().units(), d("10038").raw());
+    EXPECT_EQ(result.settlements(1).trading_day(), "2026-09-28");
+    EXPECT_EQ(result.settlements(1).timestamp_ns(), parse_shanghai_time("2026-09-28 15:00:00"));
+    EXPECT_EQ(result.settlements(1).contracts(0).price().units(), d("110").raw());
+    EXPECT_EQ(result.settlements(1).contracts(0).position_quantity().units(), d("1").raw());
+    // Five a lot of ten, from the 105 it settled at to 110.
+    EXPECT_EQ(result.account().equity().units(), d("10088").raw());
+    // A mark at each of the four bars and a settlement for each of the two days.
+    ASSERT_EQ(result.equity_size(), 6);
+    EXPECT_EQ(result.equity(5).event(), backtest::v1::DAILY_SETTLEMENT);
+    EXPECT_EQ(result.equity(5).timestamp_ns(), result.settlements(1).timestamp_ns());
+    // The Task service takes this result as that of the input.
+    TaskDirectory root;
     tasks::Store store(root.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "multiday", spec);
-    const auto token = store.commit(store.claim("multiday")).token();
-    EXPECT_THROW(store.commit(tasks::finish(store, "multiday", token, wrong)),
-                 std::invalid_argument);
-    auto forged = expected;
-    forged.mutable_settlements(0)->mutable_contracts(0)->mutable_price()->set_units(d("106").raw());
-    EXPECT_THROW(store.commit(tasks::finish(store, "multiday", token, forged)),
-                 std::invalid_argument);
-    forged = expected;
-    forged.mutable_equity(0)->set_timestamp_ns(expected.equity(0).timestamp_ns() + 1);
-    EXPECT_THROW(store.commit(tasks::finish(store, "multiday", token, forged)),
-                 std::invalid_argument);
-    store.commit(tasks::finish(store, "multiday", token, expected));
-  }
-  tasks::Store restored(root.path, tasks::Identity{"task", "historical-data"});
-  EXPECT_EQ(tasks::result(restored, "multiday").SerializeAsString(), expected.SerializeAsString());
-  EXPECT_EQ(restored.get("multiday").input().SerializeAsString(), spec.SerializeAsString());
+    tasks::submit(store, "idle-day", spec);
+    const auto token = store.commit(store.claim("idle-day")).token();
+    store.commit(tasks::finish(store, "idle-day", token, result));
+    EXPECT_EQ(store.get("idle-day").state(), task::v1::SUCCEEDED);
 }
 
-TEST_F(TaskProcess, UpgradeFreezesAdmissionsWaitsForCompletionAndPreservesQueuedWork) {
-  submit("active");
-  submit("queued");
-  task_wire::TaskRequest claim;
-  claim.mutable_claim()->set_id("active");
-  claim.mutable_claim()->set_kind(task_wire::BACKTEST);
-  const auto attempt = call(claim, endpoint + ".worker").attempt();
-  task_wire::TaskRequest freeze;
-  freeze.mutable_quiesce();
-  EXPECT_THROW(call(freeze), std::runtime_error);
-  EXPECT_TRUE(call(freeze, endpoint + ".health").has_health());
-  task_wire::TaskRequest blocked;
-  blocked.mutable_submit()->set_id("blocked");
-  EXPECT_THROW(call(blocked), std::runtime_error);
-  task_wire::TaskRequest stop;
-  stop.mutable_quiesce()->set_stop(true);
-  EXPECT_THROW(call(stop, endpoint + ".health"), std::runtime_error);
-  ASSERT_FALSE(service->exited());
-  task_wire::TaskRequest finish;
-  finish.mutable_finish()->set_id("active");
-  finish.mutable_finish()->set_token(attempt.token());
-  *finish.mutable_finish()->mutable_result() = backtest::run(process_input());
-  call(finish, endpoint + ".worker");
-  EXPECT_TRUE(call(stop, endpoint + ".health").has_health());
-  ASSERT_TRUE(service->wait(15s));
-  EXPECT_EQ(service->exit_code(), 0);
-  start();
-  task_wire::TaskRequest get;
-  get.mutable_get()->set_id("active");
-  EXPECT_EQ(call(get).task().state(), task_wire::SUCCEEDED);
-  get.mutable_get()->set_id("queued");
-  EXPECT_EQ(call(get).task().state(), task_wire::QUEUED);
+TEST(TaskStore, MultidayEvidenceRestoresAndForgedSettlementCannotCommit)
+{
+    TaskDirectory root;
+    const auto spec = multiday_input();
+    const auto expected = backtest::run(spec);
+    auto altered = spec;
+    altered.mutable_paper()
+        ->mutable_contracts(0)
+        ->mutable_dataset()
+        ->mutable_days(0)
+        ->mutable_settlement_price()
+        ->set_units(d("107").raw());
+    altered.mutable_paper()->mutable_contracts(0)->mutable_dataset()->set_revision(
+        protocol::bar_dataset_revision(altered.paper().contracts(0).dataset()));
+    altered.set_dataset_revision(altered.paper().contracts(0).dataset().revision());
+    const auto wrong = backtest::run(altered);
+    EXPECT_EQ(wrong.account().equity().units(), expected.account().equity().units());
+    {
+        tasks::Store store(root.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "multiday", spec);
+        const auto token = store.commit(store.claim("multiday")).token();
+        EXPECT_THROW(
+            store.commit(tasks::finish(store, "multiday", token, wrong)),
+            std::invalid_argument);
+        auto forged = expected;
+        forged.mutable_settlements(0)->mutable_contracts(0)->mutable_price()->set_units(
+            d("106").raw());
+        EXPECT_THROW(
+            store.commit(tasks::finish(store, "multiday", token, forged)),
+            std::invalid_argument);
+        forged = expected;
+        forged.mutable_equity(0)->set_timestamp_ns(expected.equity(0).timestamp_ns() + 1);
+        EXPECT_THROW(
+            store.commit(tasks::finish(store, "multiday", token, forged)),
+            std::invalid_argument);
+        store.commit(tasks::finish(store, "multiday", token, expected));
+    }
+    tasks::Store restored(root.path, tasks::Identity{"task", "historical-data"});
+    EXPECT_EQ(
+        tasks::result(restored, "multiday").SerializeAsString(),
+        expected.SerializeAsString());
+    EXPECT_EQ(restored.get("multiday").input().SerializeAsString(), spec.SerializeAsString());
 }
 
-TEST(TaskStore, PinnedRiskArtifactIsRetainedButResultReadsDoNotLoadAlgorithm) {
-  TaskDirectory directory;
-  std::string artifact;
-  const auto expected = backtest::run(input());
-  const auto file = risk_providers::Module::filename(directory.path / "done");
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    artifact = tasks::submit(store, "done", input()).risk_artifact();
-    EXPECT_EQ(artifact, sha256_file(file));
-    store.commit(tasks::finish(store, "done", store.commit(store.claim("done")).token(), expected));
-    EXPECT_EQ(tasks::result(store, "done").SerializeAsString(), expected.SerializeAsString());
-    const auto saved = directory.path / "original";
-    std::filesystem::rename(file, saved);
-    EXPECT_EQ(tasks::result(store, "done").SerializeAsString(), expected.SerializeAsString());
-    EXPECT_THROW(risk_providers::Module::pinned(directory.path / "done", artifact), std::exception);
-    std::ofstream(file) << "corrupt fixture";
-    EXPECT_EQ(tasks::result(store, "done").SerializeAsString(), expected.SerializeAsString());
-    EXPECT_THROW(risk_providers::Module::pinned(directory.path / "done", artifact), std::exception);
-    EXPECT_EQ(std::filesystem::file_size(file), 15U);
-    std::filesystem::remove(file);
-    std::filesystem::rename(saved, file);
-  }
-  tasks::Store recovered(directory.path, tasks::Identity{"task", "historical-data"});
-  EXPECT_EQ(recovered.get("done").risk_artifact(), artifact);
-  EXPECT_EQ(tasks::result(recovered, "done").SerializeAsString(), expected.SerializeAsString());
+TEST_F(TaskProcess, UpgradeFreezesAdmissionsWaitsForCompletionAndPreservesQueuedWork)
+{
+    submit("active");
+    submit("queued");
+    task_wire::TaskRequest claim;
+    claim.mutable_claim()->set_id("active");
+    claim.mutable_claim()->set_kind(task_wire::BACKTEST);
+    const auto attempt = call(claim, endpoint + ".worker").attempt();
+    task_wire::TaskRequest freeze;
+    freeze.mutable_quiesce();
+    EXPECT_THROW(call(freeze), std::runtime_error);
+    EXPECT_TRUE(call(freeze, endpoint + ".health").has_health());
+    task_wire::TaskRequest blocked;
+    blocked.mutable_submit()->set_id("blocked");
+    EXPECT_THROW(call(blocked), std::runtime_error);
+    task_wire::TaskRequest stop;
+    stop.mutable_quiesce()->set_stop(true);
+    EXPECT_THROW(call(stop, endpoint + ".health"), std::runtime_error);
+    ASSERT_FALSE(service->exited());
+    task_wire::TaskRequest finish;
+    finish.mutable_finish()->set_id("active");
+    finish.mutable_finish()->set_token(attempt.token());
+    *finish.mutable_finish()->mutable_result() = backtest::run(process_input());
+    call(finish, endpoint + ".worker");
+    EXPECT_TRUE(call(stop, endpoint + ".health").has_health());
+    ASSERT_TRUE(service->wait(15s));
+    EXPECT_EQ(service->exit_code(), 0);
+    start();
+    task_wire::TaskRequest get;
+    get.mutable_get()->set_id("active");
+    EXPECT_EQ(call(get).task().state(), task_wire::SUCCEEDED);
+    get.mutable_get()->set_id("queued");
+    EXPECT_EQ(call(get).task().state(), task_wire::QUEUED);
+}
+
+TEST(TaskStore, PinnedRiskArtifactIsRetainedButResultReadsDoNotLoadAlgorithm)
+{
+    TaskDirectory directory;
+    std::string artifact;
+    const auto expected = backtest::run(input());
+    const auto file = risk_providers::Module::filename(directory.path / "done");
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        artifact = tasks::submit(store, "done", input()).risk_artifact();
+        EXPECT_EQ(artifact, sha256_file(file));
+        store.commit(
+            tasks::finish(store, "done", store.commit(store.claim("done")).token(), expected));
+        EXPECT_EQ(tasks::result(store, "done").SerializeAsString(), expected.SerializeAsString());
+        const auto saved = directory.path / "original";
+        std::filesystem::rename(file, saved);
+        EXPECT_EQ(tasks::result(store, "done").SerializeAsString(), expected.SerializeAsString());
+        EXPECT_THROW(
+            risk_providers::Module::pinned(directory.path / "done", artifact),
+            std::exception);
+        std::ofstream(file) << "corrupt fixture";
+        EXPECT_EQ(tasks::result(store, "done").SerializeAsString(), expected.SerializeAsString());
+        EXPECT_THROW(
+            risk_providers::Module::pinned(directory.path / "done", artifact),
+            std::exception);
+        EXPECT_EQ(std::filesystem::file_size(file), 15U);
+        std::filesystem::remove(file);
+        std::filesystem::rename(saved, file);
+    }
+    tasks::Store recovered(directory.path, tasks::Identity{"task", "historical-data"});
+    EXPECT_EQ(recovered.get("done").risk_artifact(), artifact);
+    EXPECT_EQ(tasks::result(recovered, "done").SerializeAsString(), expected.SerializeAsString());
 }
 
 #include "bar_dataset_source.hpp"
 #include "data/history_fixture.hpp"
+
 namespace {
+
 // The days a dataset settles on without bars: the contract did not trade on
 // them, or their bars are missing.
-std::vector<std::string> days_without_bars(const data::v1::BarDataset& dataset) {
-  std::set<std::string> traded;
-  for (const auto& bar : dataset.bars())
-    traded.insert(bar.trading_day());
-  std::vector<std::string> result;
-  for (const auto& day : dataset.days())
-    if (!traded.contains(day.trading_day()))
-      result.push_back(day.trading_day());
-  return result;
+std::vector<std::string> days_without_bars(const data::v1::BarDataset& dataset)
+{
+    std::set<std::string> traded;
+    for (const auto& bar : dataset.bars())
+        traded.insert(bar.trading_day());
+    std::vector<std::string> result;
+    for (const auto& day : dataset.days())
+        if (!traded.contains(day.trading_day()))
+            result.push_back(day.trading_day());
+    return result;
 }
+
 } // namespace
-TEST(NamedDatasets, ASettlementDayWithoutMinuteBarsIsADayOfTheDataset) {
-  TaskDirectory directory;
-  const auto selection =
-      test::seed_history(directory.path, {100, 101, 102, 103}, "gap", {"2026-09-23", "2026-09-25"},
-                         {"2026-09-23", "2026-09-24", "2026-09-25"});
-  data::Store store(directory.path, "historical-data", "task");
-  const Json request{{"source_dataset_ids", selection.at("source_dataset_ids")},
-                     {"daily", selection.at("daily")},
-                     {"begin_day", ""},
-                     {"end_day", ""},
-                     {"contract", "SHFE/rb/2026-10"}};
-  const auto sources = store.sources(protocol::encode_bar_dataset_request(request));
-  const auto dataset = data::resolve_bar_dataset(store.tables(), sources);
-  ASSERT_EQ(dataset.bars_size(), 4);
-  // A position held over the 24th is settled on it, bars or none.
-  EXPECT_EQ(dataset.days_size(), 3);
-  EXPECT_EQ(days_without_bars(dataset), std::vector<std::string>{"2026-09-24"});
-  EXPECT_EQ(dataset.revision(), protocol::bar_dataset_revision(dataset));
+
+TEST(NamedDatasets, ASettlementDayWithoutMinuteBarsIsADayOfTheDataset)
+{
+    TaskDirectory directory;
+    const auto selection = test::seed_history(
+        directory.path,
+        {100, 101, 102, 103},
+        "gap",
+        {"2026-09-23", "2026-09-25"},
+        {"2026-09-23", "2026-09-24", "2026-09-25"});
+    data::Store store(directory.path, "historical-data", "task");
+    const Json request{
+        {"source_dataset_ids", selection.at("source_dataset_ids")},
+        {"daily", selection.at("daily")},
+        {"begin_day", ""},
+        {"end_day", ""},
+        {"contract", "SHFE/rb/2026-10"}
+    };
+    const auto sources = store.sources(protocol::encode_bar_dataset_request(request));
+    const auto dataset = data::resolve_bar_dataset(store.tables(), sources);
+    ASSERT_EQ(dataset.bars_size(), 4);
+    // A position held over the 24th is settled on it, bars or none.
+    EXPECT_EQ(dataset.days_size(), 3);
+    EXPECT_EQ(days_without_bars(dataset), std::vector<std::string>{"2026-09-24"});
+    EXPECT_EQ(dataset.revision(), protocol::bar_dataset_revision(dataset));
 }
+
 #include "history_coverage.hpp"
+
 // The days a minute version is compared with are those the market-wide daily
 // table shows the contract traded on: there rebar traded on all three days.
-TEST(NamedDatasets, CoverageCountsTradingDaysPerContractAcrossTheArchive) {
-  TaskDirectory directory;
-  const auto rebar =
-      test::seed_history(directory.path, {100, 101, 102, 103}, "coverage",
-                         {"2026-09-23", "2026-09-25"}, {"2026-09-23", "2026-09-24", "2026-09-25"});
-  // Coil's minutes run to 09-28, past the last day the table holds.
-  const auto coil = test::seed_history(directory.path, {100, 101}, "coverage-later",
-                                       {"2026-09-25", "2026-09-28"}, {"2026-09-25"}, "hc");
-  history_files::Archive archive(directory.path / "history");
-  history_files::TableStore tables(directory.path / "tables");
-  data::v1::HistoryCoverageQuery query;
-  query.mutable_filter()->set_venue("SHFE");
-  query.mutable_filter()->set_product("rb");
-  *query.mutable_daily() = protocol::encode_daily_table(test::latest_daily({rebar, coil}));
-  const auto coverage = data::history_coverage(archive, tables, query);
-  ASSERT_EQ(coverage.items_size(), 1);
-  const auto& row = coverage.items(0);
-  EXPECT_EQ(row.contract_id(), "SHFE/rb/2026-10");
-  EXPECT_EQ(row.minute_days(), 2U);
-  EXPECT_EQ(row.minute_first(), "2026-09-23");
-  EXPECT_EQ(row.compared_first(), "2026-09-23");
-  EXPECT_EQ(row.compared_last(), "2026-09-25");
-  EXPECT_EQ(row.traded_days(), 3U);
-  EXPECT_EQ(row.uncovered(), 1U);
-  ASSERT_EQ(row.uncovered_days_size(), 1);
-  EXPECT_EQ(row.uncovered_days(0), "2026-09-24");
-  // What the table does not hold yet is not compared: no day is missing.
-  query.mutable_filter()->set_product("hc");
-  const auto later = data::history_coverage(archive, tables, query);
-  ASSERT_EQ(later.items_size(), 1);
-  EXPECT_EQ(later.items(0).minute_last(), "2026-09-28");
-  EXPECT_EQ(later.items(0).compared_last(), "2026-09-25");
-  EXPECT_EQ(later.items(0).traded_days(), 1U);
-  EXPECT_EQ(later.items(0).uncovered(), 0U);
-  query.mutable_filter()->set_product("cu");
-  EXPECT_EQ(data::history_coverage(archive, tables, query).items_size(), 0);
-}
-TEST(Backtest, PortfolioOfIdenticalContractsDoublesEveryLedgerEffect) {
-  const auto single = multiday_input();
-  auto pair = single;
-  auto* second = pair.mutable_paper()->add_contracts();
-  *second = single.paper().contracts(0);
-  auto* data = second->mutable_dataset();
-  *data->mutable_contract() = test::contract("SHFE", "hc2610", "hc", "2026-10");
-  data->set_revision(protocol::bar_dataset_revision(*data));
-  pair.set_dataset_revision(protocol::dataset_revision(pair.paper()));
-  EXPECT_NE(pair.dataset_revision(), single.dataset_revision());
-  const auto one = backtest::run(single);
-  const auto two = backtest::run(pair);
-  EXPECT_EQ(two.SerializeAsString(), backtest::run(pair).SerializeAsString());
-  const auto doubled = [](const protocol::v1::Decimal& value) { return value.units() * 2; };
-  EXPECT_EQ(two.account().fees().units(), doubled(one.account().fees()));
-  EXPECT_EQ(two.account().realized().units(), doubled(one.account().realized()));
-  EXPECT_EQ(two.account().fills_size(), one.account().fills_size() * 2);
-  ASSERT_EQ(two.settlements_size(), one.settlements_size());
-  for (int day = 0; day < two.settlements_size(); ++day) {
-    const auto& settled = two.settlements(day);
-    ASSERT_EQ(settled.contracts_size(), 2);
-    EXPECT_EQ(settled.contracts(0).symbol(), "rb2610");
-    EXPECT_EQ(settled.contracts(1).symbol(), "hc2610");
-    EXPECT_EQ(settled.contracts(1).position_quantity().units(),
-              one.settlements(day).contracts(0).position_quantity().units());
-    // Equity moves twice as far from the shared deposit.
-    EXPECT_EQ(settled.equity().units() - d("10000").raw(),
-              (one.settlements(day).equity().units() - d("10000").raw()) * 2);
-  }
-  auto shifted = pair;
-  shifted.mutable_paper()->mutable_contracts(1)->mutable_dataset()->mutable_days()->DeleteSubrange(
-      1, 1);
-  shifted.mutable_paper()->mutable_contracts(1)->mutable_dataset()->mutable_bars()->DeleteSubrange(
-      4, 4);
-  auto* shifted_data = shifted.mutable_paper()->mutable_contracts(1)->mutable_dataset();
-  shifted_data->set_revision(protocol::bar_dataset_revision(*shifted_data));
-  shifted.set_dataset_revision(protocol::dataset_revision(shifted.paper()));
-  EXPECT_THROW(backtest::run(shifted), std::invalid_argument);
-}
-
-TEST(Backtest, FullBarBudgetRunsThroughFinalSettlement) {
-  auto spec = input();
-  std::vector<MarketBar> bars;
-  for (std::size_t i = 0; i < protocol::max_dataset_bars; ++i)
-    bars.push_back(test::flat("2026-09-25", 1790298000000000000LL + i * 1000000LL, "100", "10"));
-  *spec.mutable_paper()->mutable_contracts(0)->mutable_dataset() =
-      test::dataset(bars, {{"2026-09-25", d("100")}});
-  spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
-  const auto result = backtest::run(spec);
-  EXPECT_EQ(result.equity_size(), protocol::max_dataset_bars + 1);
-  ASSERT_EQ(result.settlements_size(), 1);
-  EXPECT_EQ(result.settlements(0).balance().units(), d("10000").raw());
-  EXPECT_EQ(result.account().cursor(), protocol::max_dataset_bars);
-}
-
-TEST(TaskStore, DatedCostsArePinnedSwitchAtSettlementAndRejectForgedResults) {
-  TaskDirectory directory;
-  auto spec = multiday_input();
-  auto* schedule = spec.mutable_paper()->mutable_contracts(0)->mutable_cost_schedule();
-  auto next = schedule->versions(0);
-  next.set_effective_from("2026-09-28");
-  next.set_source("new published schedule");
-  next.mutable_values()->mutable_close_yesterday_fee()->set_units(d("9").raw());
-  next.mutable_values()->mutable_margin_per_lot()->set_units(d("700").raw());
-  *schedule->add_versions() = next;
-  const auto expected = backtest::run(spec);
-  EXPECT_EQ(expected.settlements(0).fees().units(), d("2").raw());
-  EXPECT_EQ(expected.account().fees().units(), d("16").raw());
-  EXPECT_EQ(expected.account().balance().units(), d("10014").raw());
-  EXPECT_EQ(expected.account().contracts(0).costs().margin_per_lot().units(), d("700").raw());
-  EXPECT_EQ(expected.account().contracts(0).cost_schedule().SerializeAsString(),
-            schedule->SerializeAsString());
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "dated", spec);
-    const auto token = store.commit(store.claim("dated")).token();
-    auto forged = expected;
-    forged.mutable_account()
-        ->mutable_contracts(0)
-        ->mutable_cost_schedule()
-        ->mutable_versions(1)
-        ->set_source("unrecorded replacement");
-    EXPECT_THROW(store.commit(tasks::finish(store, "dated", token, forged)), std::invalid_argument);
-    forged = expected;
-    forged.mutable_account()
-        ->mutable_contracts(0)
-        ->mutable_costs()
-        ->mutable_margin_per_lot()
-        ->set_units(d("100").raw());
-    EXPECT_THROW(store.commit(tasks::finish(store, "dated", token, forged)), std::invalid_argument);
-    store.commit(tasks::finish(store, "dated", token, expected));
-  }
-  tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-  EXPECT_EQ(tasks::result(restored, "dated").SerializeAsString(), expected.SerializeAsString());
-  EXPECT_EQ(restored.get("dated").input().SerializeAsString(), spec.SerializeAsString());
-}
-
-TEST(NamedDatasets, CoverageDoesNotMergeIntervalsOrRevisions) {
-  TaskDirectory directory;
-  const auto sparse =
-      test::seed_history(directory.path, {100, 101, 102, 103}, "sparse",
-                         {"2026-09-23", "2026-09-25"}, {"2026-09-23", "2026-09-24", "2026-09-25"});
-  const auto filled = test::seed_history(directory.path, {100, 101, 102, 103, 104, 105}, "filled",
-                                         {"2026-09-23", "2026-09-24", "2026-09-25"}, {}, "rb", 5);
-  history_files::Archive archive(directory.path / "history");
-  history_files::TableStore tables(directory.path / "tables");
-  data::v1::HistoryCoverageQuery query;
-  *query.mutable_daily() = protocol::encode_daily_table(test::latest_daily({sparse, filled}));
-  const auto result = data::history_coverage(archive, tables, query);
-  // One row for each minute version.
-  ASSERT_EQ(result.items_size(), 2);
-  for (const auto& row : result.items()) {
-    if (row.minute_dataset_id() == sparse.at("source_dataset_ids").at(0).get<std::string>()) {
-      EXPECT_EQ(row.interval_minutes(), 1);
-      EXPECT_EQ(row.uncovered(), 1);
-      EXPECT_EQ(row.uncovered_days(0), "2026-09-24");
-    } else {
-      EXPECT_EQ(row.minute_dataset_id(), filled.at("source_dataset_ids").at(0).get<std::string>());
-      EXPECT_EQ(row.interval_minutes(), 5);
-      EXPECT_EQ(row.uncovered(), 0);
-    }
-  }
-}
-
-TEST(NamedDatasets, CoverageRejectsChangedManifestEvenWhenChunksAreValid) {
-  TaskDirectory directory;
-  const auto selected = test::seed_history(directory.path, {100, 101, 102}, "fixed-coverage");
-  history_files::Archive archive(directory.path / "history");
-  const auto record = archive.get(selected.at("source_dataset_ids").at(0).get<std::string>());
-  const auto manifest_path =
-      std::filesystem::path(record.minute_result().directory()) / "minutes.json";
-  std::ifstream stream(manifest_path);
-  const std::string original((std::istreambuf_iterator<char>(stream)), {});
-  stream.close();
-  replace_file_durably(manifest_path, original + "\n");
-  history_files::TableStore tables(directory.path / "tables");
-  data::v1::HistoryCoverageQuery query;
-  *query.mutable_daily() = protocol::encode_daily_table(selected.at("daily"));
-  EXPECT_THROW(data::history_coverage(archive, tables, query), std::invalid_argument);
-}
-
-TEST(NamedDatasets, RequestedWindowExcludesUnrelatedMissingSettlement) {
-  TaskDirectory directory;
-  const auto selection = test::seed_history(directory.path, {100, 101, 102, 103}, "window",
-                                            {"2026-09-23", "2026-09-25"}, {"2026-09-25"});
-  data::Store store(directory.path, "historical-data", "task");
-  data::v1::BarDatasetRequest request;
-  request.add_source_dataset_ids(selection.at("source_dataset_ids").at(0).get<std::string>());
-  *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
-  request.set_contract("SHFE/rb/2026-10");
-  EXPECT_THROW(data::resolve_bar_dataset(store.tables(), store.sources(request)),
-               std::invalid_argument);
-  request.set_begin_day("2026-09-25");
-  request.set_end_day("2026-09-25");
-  const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
-  ASSERT_EQ(dataset.days_size(), 1);
-  EXPECT_EQ(dataset.days(0).trading_day(), "2026-09-25");
-  EXPECT_EQ(dataset.bars_size(), 2);
-}
-
-TEST(NamedDatasets, ATradingDayTheDailyTableLacksIsNamedAndASnapshotKeepsWhatItRead) {
-  TaskDirectory directory;
-  const auto selection = test::seed_history(directory.path, {100, 101, 102, 103}, "hole",
-                                            {"2026-09-23", "2026-09-25"});
-  // The exchange turns out to have been open on the 24th as well, and nothing
-  // of that day is stored.
-  std::string later;
-  {
+TEST(NamedDatasets, CoverageCountsTradingDaysPerContractAcrossTheArchive)
+{
+    TaskDirectory directory;
+    const auto rebar = test::seed_history(
+        directory.path,
+        {100, 101, 102, 103},
+        "coverage",
+        {"2026-09-23", "2026-09-25"},
+        {"2026-09-23", "2026-09-24", "2026-09-25"});
+    // Coil's minutes run to 09-28, past the last day the table holds.
+    const auto coil = test::seed_history(
+        directory.path,
+        {100, 101},
+        "coverage-later",
+        {"2026-09-25", "2026-09-28"},
+        {"2026-09-25"},
+        "hc");
+    history_files::Archive archive(directory.path / "history");
     history_files::TableStore tables(directory.path / "tables");
-    const auto partition = table_partition(history_table("futures.calendar"), "SHFE", "2026",
-                                           {{"2026-09-23", "1", std::nullopt},
-                                            {"2026-09-24", "1", std::nullopt},
-                                            {"2026-09-25", "1", std::nullopt}});
-    later = tables
-                .record(partition, {"futures.calendar", 1, "fixture.calendar.v1"},
-                        tables.write(partition), std::string(64, 'a'), 1790000000000000000)
-                .revision.snapshot;
-  }
-  data::Store store(directory.path, "historical-data", "task");
-  data::v1::BarDatasetRequest request;
-  request.add_source_dataset_ids(selection.at("source_dataset_ids").at(0).get<std::string>());
-  *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
-  request.set_contract("SHFE/rb/2026-10");
-  // Under the snapshot it was selected with, the dataset is what it was.
-  const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
-  ASSERT_EQ(dataset.days_size(), 2);
-  EXPECT_EQ(dataset.days(0).settlement_price().units(), Decimal::parse("110").raw());
-  EXPECT_TRUE(days_without_bars(dataset).empty());
-  EXPECT_EQ(dataset.daily().snapshot(), selection.at("daily").at("snapshot").get<std::string>());
-  EXPECT_EQ(dataset.daily_acquired_at_ns(), 1790000000000000000);
-  // Under the later one the missing day is named, not read around.
-  request.mutable_daily()->set_snapshot(later);
-  try {
-    (void)data::resolve_bar_dataset(store.tables(), store.sources(request));
-    FAIL() << "a dataset was read around a trading day the table lacks";
-  } catch (const Error& error) {
-    EXPECT_STREQ(error.what(),
-                 "futures.daily is missing trading days of the range: SHFE 2026-09-24");
-  }
+    data::v1::HistoryCoverageQuery query;
+    query.mutable_filter()->set_venue("SHFE");
+    query.mutable_filter()->set_product("rb");
+    *query.mutable_daily() = protocol::encode_daily_table(test::latest_daily({rebar, coil}));
+    const auto coverage = data::history_coverage(archive, tables, query);
+    ASSERT_EQ(coverage.items_size(), 1);
+    const auto& row = coverage.items(0);
+    EXPECT_EQ(row.contract_id(), "SHFE/rb/2026-10");
+    EXPECT_EQ(row.minute_days(), 2U);
+    EXPECT_EQ(row.minute_first(), "2026-09-23");
+    EXPECT_EQ(row.compared_first(), "2026-09-23");
+    EXPECT_EQ(row.compared_last(), "2026-09-25");
+    EXPECT_EQ(row.traded_days(), 3U);
+    EXPECT_EQ(row.uncovered(), 1U);
+    ASSERT_EQ(row.uncovered_days_size(), 1);
+    EXPECT_EQ(row.uncovered_days(0), "2026-09-24");
+    // What the table does not hold yet is not compared: no day is missing.
+    query.mutable_filter()->set_product("hc");
+    const auto later = data::history_coverage(archive, tables, query);
+    ASSERT_EQ(later.items_size(), 1);
+    EXPECT_EQ(later.items(0).minute_last(), "2026-09-28");
+    EXPECT_EQ(later.items(0).compared_last(), "2026-09-25");
+    EXPECT_EQ(later.items(0).traded_days(), 1U);
+    EXPECT_EQ(later.items(0).uncovered(), 0U);
+    query.mutable_filter()->set_product("cu");
+    EXPECT_EQ(data::history_coverage(archive, tables, query).items_size(), 0);
 }
 
-TEST(NamedDatasets, ADailyBarIsADayTheContractTradedAndADownloadOfDailyBarsIsNoSource) {
-  TaskDirectory directory;
-  const auto seeded = test::seed_history(directory.path, {100, 101}, "daily-bars");
-  // Traded on the 23rd and the 25th. On the 24th it only settled, and on the
-  // 22nd ten lots changed hands outside the auction: neither day has a price
-  // an order could have been filled at.
-  const auto table = test::seed_daily_table(
-      directory.path, "SHFE/rb/2026-10",
-      {{"2026-09-22", 3005, 500, {}, 10},
-       {"2026-09-23", 3010, 500, test::DailyTrade{3000, 3020, 2990, 3015, 1200}},
-       {"2026-09-24", 3012, 500},
-       {"2026-09-25", 3030, 520, test::DailyTrade{3015, 3040, 3010, 3035, 800}}});
-  data::Store store(directory.path, "historical-data", "task");
-  data::v1::BarDatasetRequest request;
-  *request.mutable_daily() = protocol::encode_daily_table(table);
-  request.set_contract("SHFE/rb/2026-10");
-  // The table does not bound the days as an archive version does.
-  EXPECT_THROW(store.sources(request), std::invalid_argument);
-  request.set_begin_day("2026-09-22");
-  request.set_end_day("2026-09-25");
-  const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
-  EXPECT_EQ(dataset.interval_minutes(), 0U);
-  EXPECT_EQ(dataset.source(), "fixture.daily.v1");
-  EXPECT_EQ(dataset.source_dataset_ids_size(), 0);
-  EXPECT_EQ(dataset.history_evidence_size(), 0);
-  ASSERT_EQ(dataset.bars_size(), 2);
-  const auto bars = protocol::dataset_bars(dataset);
-  EXPECT_EQ(bars[0].trading_day, "2026-09-23");
-  // 15:00 in Shanghai on the trading day.
-  EXPECT_EQ(bars[0].timestamp_ns, parse_shanghai_time("2026-09-23 15:00:00"));
-  EXPECT_EQ(bars[0].open, Decimal::parse("3000"));
-  EXPECT_EQ(bars[0].high, Decimal::parse("3020"));
-  EXPECT_EQ(bars[0].low, Decimal::parse("2990"));
-  EXPECT_EQ(bars[0].close, Decimal::parse("3015"));
-  EXPECT_EQ(bars[0].volume, Decimal::parse("1200"));
-  EXPECT_EQ(bars[1].close, Decimal::parse("3035"));
-  // Every day it settled on is a day of the dataset, at that day's price.
-  ASSERT_EQ(dataset.days_size(), 4);
-  EXPECT_EQ(dataset.days(0).settlement_price().units(), Decimal::parse("3005").raw());
-  EXPECT_EQ(dataset.days(1).settlement_price().units(), Decimal::parse("3010").raw());
-  EXPECT_EQ(dataset.days(2).settlement_price().units(), Decimal::parse("3012").raw());
-  EXPECT_EQ(dataset.days(3).settlement_price().units(), Decimal::parse("3030").raw());
-  EXPECT_EQ(days_without_bars(dataset), (std::vector<std::string>{"2026-09-22", "2026-09-24"}));
+TEST(Backtest, PortfolioOfIdenticalContractsDoublesEveryLedgerEffect)
+{
+    const auto single = multiday_input();
+    auto pair = single;
+    auto* second = pair.mutable_paper()->add_contracts();
+    *second = single.paper().contracts(0);
+    auto* data = second->mutable_dataset();
+    *data->mutable_contract() = test::contract("SHFE", "hc2610", "hc", "2026-10");
+    data->set_revision(protocol::bar_dataset_revision(*data));
+    pair.set_dataset_revision(protocol::dataset_revision(pair.paper()));
+    EXPECT_NE(pair.dataset_revision(), single.dataset_revision());
+    const auto one = backtest::run(single);
+    const auto two = backtest::run(pair);
+    EXPECT_EQ(two.SerializeAsString(), backtest::run(pair).SerializeAsString());
+    const auto doubled = [](const protocol::v1::Decimal& value) {
+        return value.units() * 2;
+    };
+    EXPECT_EQ(two.account().fees().units(), doubled(one.account().fees()));
+    EXPECT_EQ(two.account().realized().units(), doubled(one.account().realized()));
+    EXPECT_EQ(two.account().fills_size(), one.account().fills_size() * 2);
+    ASSERT_EQ(two.settlements_size(), one.settlements_size());
+    for (int day = 0; day < two.settlements_size(); ++day) {
+        const auto& settled = two.settlements(day);
+        ASSERT_EQ(settled.contracts_size(), 2);
+        EXPECT_EQ(settled.contracts(0).symbol(), "rb2610");
+        EXPECT_EQ(settled.contracts(1).symbol(), "hc2610");
+        EXPECT_EQ(
+            settled.contracts(1).position_quantity().units(),
+            one.settlements(day).contracts(0).position_quantity().units());
+        // Equity moves twice as far from the shared deposit.
+        EXPECT_EQ(
+            settled.equity().units() - d("10000").raw(),
+            (one.settlements(day).equity().units() - d("10000").raw()) * 2);
+    }
+    auto shifted = pair;
+    shifted.mutable_paper()
+        ->mutable_contracts(1)
+        ->mutable_dataset()
+        ->mutable_days()
+        ->DeleteSubrange(1, 1);
+    shifted.mutable_paper()
+        ->mutable_contracts(1)
+        ->mutable_dataset()
+        ->mutable_bars()
+        ->DeleteSubrange(4, 4);
+    auto* shifted_data = shifted.mutable_paper()->mutable_contracts(1)->mutable_dataset();
+    shifted_data->set_revision(protocol::bar_dataset_revision(*shifted_data));
+    shifted.set_dataset_revision(protocol::dataset_revision(shifted.paper()));
+    EXPECT_THROW(backtest::run(shifted), std::invalid_argument);
+}
+
+TEST(Backtest, FullBarBudgetRunsThroughFinalSettlement)
+{
+    auto spec = input();
+    std::vector<MarketBar> bars;
+    for (std::size_t i = 0; i < protocol::max_dataset_bars; ++i)
+        bars.push_back(
+            test::flat("2026-09-25", 1790298000000000000LL + i * 1000000LL, "100", "10"));
+    *spec.mutable_paper()->mutable_contracts(0)->mutable_dataset() =
+        test::dataset(bars, {{"2026-09-25", d("100")}});
+    spec.set_dataset_revision(protocol::dataset_revision(spec.paper()));
+    const auto result = backtest::run(spec);
+    EXPECT_EQ(result.equity_size(), protocol::max_dataset_bars + 1);
+    ASSERT_EQ(result.settlements_size(), 1);
+    EXPECT_EQ(result.settlements(0).balance().units(), d("10000").raw());
+    EXPECT_EQ(result.account().cursor(), protocol::max_dataset_bars);
+}
+
+TEST(TaskStore, DatedCostsArePinnedSwitchAtSettlementAndRejectForgedResults)
+{
+    TaskDirectory directory;
+    auto spec = multiday_input();
+    auto* schedule = spec.mutable_paper()->mutable_contracts(0)->mutable_cost_schedule();
+    auto next = schedule->versions(0);
+    next.set_effective_from("2026-09-28");
+    next.set_source("new published schedule");
+    next.mutable_values()->mutable_close_yesterday_fee()->set_units(d("9").raw());
+    next.mutable_values()->mutable_margin_per_lot()->set_units(d("700").raw());
+    *schedule->add_versions() = next;
+    const auto expected = backtest::run(spec);
+    EXPECT_EQ(expected.settlements(0).fees().units(), d("2").raw());
+    EXPECT_EQ(expected.account().fees().units(), d("16").raw());
+    EXPECT_EQ(expected.account().balance().units(), d("10014").raw());
+    EXPECT_EQ(expected.account().contracts(0).costs().margin_per_lot().units(), d("700").raw());
+    EXPECT_EQ(
+        expected.account().contracts(0).cost_schedule().SerializeAsString(),
+        schedule->SerializeAsString());
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "dated", spec);
+        const auto token = store.commit(store.claim("dated")).token();
+        auto forged = expected;
+        forged.mutable_account()
+            ->mutable_contracts(0)
+            ->mutable_cost_schedule()
+            ->mutable_versions(1)
+            ->set_source("unrecorded replacement");
+        EXPECT_THROW(
+            store.commit(tasks::finish(store, "dated", token, forged)),
+            std::invalid_argument);
+        forged = expected;
+        forged.mutable_account()
+            ->mutable_contracts(0)
+            ->mutable_costs()
+            ->mutable_margin_per_lot()
+            ->set_units(d("100").raw());
+        EXPECT_THROW(
+            store.commit(tasks::finish(store, "dated", token, forged)),
+            std::invalid_argument);
+        store.commit(tasks::finish(store, "dated", token, expected));
+    }
+    tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
+    EXPECT_EQ(tasks::result(restored, "dated").SerializeAsString(), expected.SerializeAsString());
+    EXPECT_EQ(restored.get("dated").input().SerializeAsString(), spec.SerializeAsString());
+}
+
+TEST(NamedDatasets, CoverageDoesNotMergeIntervalsOrRevisions)
+{
+    TaskDirectory directory;
+    const auto sparse = test::seed_history(
+        directory.path,
+        {100, 101, 102, 103},
+        "sparse",
+        {"2026-09-23", "2026-09-25"},
+        {"2026-09-23", "2026-09-24", "2026-09-25"});
+    const auto filled = test::seed_history(
+        directory.path,
+        {100, 101, 102, 103, 104, 105},
+        "filled",
+        {"2026-09-23", "2026-09-24", "2026-09-25"},
+        {},
+        "rb",
+        5);
+    history_files::Archive archive(directory.path / "history");
+    history_files::TableStore tables(directory.path / "tables");
+    data::v1::HistoryCoverageQuery query;
+    *query.mutable_daily() = protocol::encode_daily_table(test::latest_daily({sparse, filled}));
+    const auto result = data::history_coverage(archive, tables, query);
+    // One row for each minute version.
+    ASSERT_EQ(result.items_size(), 2);
+    for (const auto& row : result.items()) {
+        if (row.minute_dataset_id() == sparse.at("source_dataset_ids").at(0).get<std::string>()) {
+            EXPECT_EQ(row.interval_minutes(), 1);
+            EXPECT_EQ(row.uncovered(), 1);
+            EXPECT_EQ(row.uncovered_days(0), "2026-09-24");
+        } else {
+            EXPECT_EQ(
+                row.minute_dataset_id(),
+                filled.at("source_dataset_ids").at(0).get<std::string>());
+            EXPECT_EQ(row.interval_minutes(), 5);
+            EXPECT_EQ(row.uncovered(), 0);
+        }
+    }
+}
+
+TEST(NamedDatasets, CoverageRejectsChangedManifestEvenWhenChunksAreValid)
+{
+    TaskDirectory directory;
+    const auto selected = test::seed_history(directory.path, {100, 101, 102}, "fixed-coverage");
+    history_files::Archive archive(directory.path / "history");
+    const auto record = archive.get(selected.at("source_dataset_ids").at(0).get<std::string>());
+    const auto manifest_path =
+        std::filesystem::path(record.minute_result().directory()) / "minutes.json";
+    std::ifstream stream(manifest_path);
+    const std::string original((std::istreambuf_iterator<char>(stream)), {});
+    stream.close();
+    replace_file_durably(manifest_path, original + "\n");
+    history_files::TableStore tables(directory.path / "tables");
+    data::v1::HistoryCoverageQuery query;
+    *query.mutable_daily() = protocol::encode_daily_table(selected.at("daily"));
+    EXPECT_THROW(data::history_coverage(archive, tables, query), std::invalid_argument);
+}
+
+TEST(NamedDatasets, RequestedWindowExcludesUnrelatedMissingSettlement)
+{
+    TaskDirectory directory;
+    const auto selection = test::seed_history(
+        directory.path,
+        {100, 101, 102, 103},
+        "window",
+        {"2026-09-23", "2026-09-25"},
+        {"2026-09-25"});
+    data::Store store(directory.path, "historical-data", "task");
+    data::v1::BarDatasetRequest request;
+    request.add_source_dataset_ids(selection.at("source_dataset_ids").at(0).get<std::string>());
+    *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
+    request.set_contract("SHFE/rb/2026-10");
+    EXPECT_THROW(
+        data::resolve_bar_dataset(store.tables(), store.sources(request)),
+        std::invalid_argument);
+    request.set_begin_day("2026-09-25");
+    request.set_end_day("2026-09-25");
+    const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
+    ASSERT_EQ(dataset.days_size(), 1);
+    EXPECT_EQ(dataset.days(0).trading_day(), "2026-09-25");
+    EXPECT_EQ(dataset.bars_size(), 2);
+}
+
+TEST(NamedDatasets, ATradingDayTheDailyTableLacksIsNamedAndASnapshotKeepsWhatItRead)
+{
+    TaskDirectory directory;
+    const auto selection = test::seed_history(
+        directory.path,
+        {100, 101, 102, 103},
+        "hole",
+        {"2026-09-23", "2026-09-25"});
+    // The exchange turns out to have been open on the 24th as well, and nothing
+    // of that day is stored.
+    std::string later;
+    {
+        history_files::TableStore tables(directory.path / "tables");
+        const auto partition = table_partition(
+            history_table("futures.calendar"),
+            "SHFE",
+            "2026",
+            {{"2026-09-23", "1", std::nullopt},
+                {"2026-09-24", "1", std::nullopt},
+                {"2026-09-25", "1", std::nullopt}});
+        later = tables
+                    .record(
+                        partition,
+                        {"futures.calendar", 1, "fixture.calendar.v1"},
+                        tables.write(partition),
+                        std::string(64, 'a'),
+                        1790000000000000000)
+                    .revision.snapshot;
+    }
+    data::Store store(directory.path, "historical-data", "task");
+    data::v1::BarDatasetRequest request;
+    request.add_source_dataset_ids(selection.at("source_dataset_ids").at(0).get<std::string>());
+    *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
+    request.set_contract("SHFE/rb/2026-10");
+    // Under the snapshot it was selected with, the dataset is what it was.
+    const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
+    ASSERT_EQ(dataset.days_size(), 2);
+    EXPECT_EQ(dataset.days(0).settlement_price().units(), Decimal::parse("110").raw());
+    EXPECT_TRUE(days_without_bars(dataset).empty());
+    EXPECT_EQ(dataset.daily().snapshot(), selection.at("daily").at("snapshot").get<std::string>());
+    EXPECT_EQ(dataset.daily_acquired_at_ns(), 1790000000000000000);
+    // Under the later one the missing day is named, not read around.
+    request.mutable_daily()->set_snapshot(later);
+    try {
+        (void)data::resolve_bar_dataset(store.tables(), store.sources(request));
+        FAIL() << "a dataset was read around a trading day the table lacks";
+    } catch (const Error& error) {
+        EXPECT_STREQ(
+            error.what(),
+            "futures.daily is missing trading days of the range: SHFE 2026-09-24");
+    }
+}
+
+TEST(NamedDatasets, ADailyBarIsADayTheContractTradedAndADownloadOfDailyBarsIsNoSource)
+{
+    TaskDirectory directory;
+    const auto seeded = test::seed_history(directory.path, {100, 101}, "daily-bars");
+    // Traded on the 23rd and the 25th. On the 24th it only settled, and on the
+    // 22nd ten lots changed hands outside the auction: neither day has a price
+    // an order could have been filled at.
+    const auto table = test::seed_daily_table(
+        directory.path,
+        "SHFE/rb/2026-10",
+        {{"2026-09-22", 3005, 500, {}, 10},
+            {"2026-09-23", 3010, 500, test::DailyTrade{3000, 3020, 2990, 3015, 1200}},
+            {"2026-09-24", 3012, 500},
+            {"2026-09-25", 3030, 520, test::DailyTrade{3015, 3040, 3010, 3035, 800}}});
+    data::Store store(directory.path, "historical-data", "task");
+    data::v1::BarDatasetRequest request;
+    *request.mutable_daily() = protocol::encode_daily_table(table);
+    request.set_contract("SHFE/rb/2026-10");
+    // The table does not bound the days as an archive version does.
+    EXPECT_THROW(store.sources(request), std::invalid_argument);
+    request.set_begin_day("2026-09-22");
+    request.set_end_day("2026-09-25");
+    const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
+    EXPECT_EQ(dataset.interval_minutes(), 0U);
+    EXPECT_EQ(dataset.source(), "fixture.daily.v1");
+    EXPECT_EQ(dataset.source_dataset_ids_size(), 0);
+    EXPECT_EQ(dataset.history_evidence_size(), 0);
+    ASSERT_EQ(dataset.bars_size(), 2);
+    const auto bars = protocol::dataset_bars(dataset);
+    EXPECT_EQ(bars[0].trading_day, "2026-09-23");
+    // 15:00 in Shanghai on the trading day.
+    EXPECT_EQ(bars[0].timestamp_ns, parse_shanghai_time("2026-09-23 15:00:00"));
+    EXPECT_EQ(bars[0].open, Decimal::parse("3000"));
+    EXPECT_EQ(bars[0].high, Decimal::parse("3020"));
+    EXPECT_EQ(bars[0].low, Decimal::parse("2990"));
+    EXPECT_EQ(bars[0].close, Decimal::parse("3015"));
+    EXPECT_EQ(bars[0].volume, Decimal::parse("1200"));
+    EXPECT_EQ(bars[1].close, Decimal::parse("3035"));
+    // Every day it settled on is a day of the dataset, at that day's price.
+    ASSERT_EQ(dataset.days_size(), 4);
+    EXPECT_EQ(dataset.days(0).settlement_price().units(), Decimal::parse("3005").raw());
+    EXPECT_EQ(dataset.days(1).settlement_price().units(), Decimal::parse("3010").raw());
+    EXPECT_EQ(dataset.days(2).settlement_price().units(), Decimal::parse("3012").raw());
+    EXPECT_EQ(dataset.days(3).settlement_price().units(), Decimal::parse("3030").raw());
+    EXPECT_EQ(days_without_bars(dataset), (std::vector<std::string>{"2026-09-22", "2026-09-24"}));
 }
 
 // The contract table has today's lot of a contract, and a wrong multiplier
 // moves every profit and loss without failing anything. The daily table's
 // turnover says what a lot was worth.
-TEST(NamedDatasets, AMultiplierTheTurnoverContradictsIsRefused) {
-  // Copper is five tonnes a lot. 1,200 lots at an average of 70,010 are worth
-  // 420,060,000 and 1,000 at 70,480 are worth 352,400,000. On the third day
-  // lots changed hands far from the day's prices, as in a delivery month: 800
-  // lots worth 304,000,000 are 76,000 a tonne against a settlement of 70,300.
-  const auto ask = [](int lot) {
-    TaskDirectory directory;
-    {
-      data::Store created(directory.path, "historical-data", "task");
+TEST(NamedDatasets, AMultiplierTheTurnoverContradictsIsRefused)
+{
+    // Copper is five tonnes a lot. 1,200 lots at an average of 70,010 are worth
+    // 420,060,000 and 1,000 at 70,480 are worth 352,400,000. On the third day
+    // lots changed hands far from the day's prices, as in a delivery month: 800
+    // lots worth 304,000,000 are 76,000 a tonne against a settlement of 70,300.
+    const auto ask = [](int lot) {
+        TaskDirectory directory;
+        {
+            data::Store created(directory.path, "historical-data", "task");
+        }
+        const auto table = test::seed_daily_table(
+            directory.path,
+            "SHFE/cu/2026-10",
+            {{"2026-09-23",
+                 70000,
+                 500,
+                 test::DailyTrade{69900, 70200, 69800, 70100, 1200, 420060000}},
+                {"2026-09-24",
+                    70500,
+                    500,
+                    test::DailyTrade{70100, 70700, 70000, 70600, 1000, 352400000}},
+                {"2026-09-25",
+                    70300,
+                    500,
+                    test::DailyTrade{70600, 70700, 70100, 70200, 800, 304000000}}},
+            {},
+            lot);
+        data::Store store(directory.path, "historical-data", "task");
+        data::v1::BarDatasetRequest request;
+        *request.mutable_daily() = protocol::encode_daily_table(table);
+        request.set_contract("SHFE/cu/2026-10");
+        request.set_begin_day("2026-09-23");
+        request.set_end_day("2026-09-25");
+        return data::resolve_bar_dataset(store.tables(), store.sources(request));
+    };
+    // Two of the three days are within a twentieth of five.
+    const auto dataset = ask(5);
+    EXPECT_EQ(dataset.bars_size(), 3);
+    EXPECT_EQ(dataset.contract().multiplier().units(), Decimal::parse("5").raw());
+    try {
+        (void)ask(10);
+        FAIL() << "a multiplier twice what the turnover implies was taken";
+    } catch (const std::invalid_argument& error) {
+        // The middle of 4.99858, 5.00071 and 5.40541.
+        EXPECT_STREQ(
+            error.what(),
+            "the contract multiplier does not match the turnover of " "SHFE/cu/2026-10: its days imply about 5.00071");
     }
-    const auto table = test::seed_daily_table(
-        directory.path, "SHFE/cu/2026-10",
-        {{"2026-09-23", 70000, 500, test::DailyTrade{69900, 70200, 69800, 70100, 1200, 420060000}},
-         {"2026-09-24", 70500, 500, test::DailyTrade{70100, 70700, 70000, 70600, 1000, 352400000}},
-         {"2026-09-25", 70300, 500, test::DailyTrade{70600, 70700, 70100, 70200, 800, 304000000}}},
-        {}, lot);
-    data::Store store(directory.path, "historical-data", "task");
-    data::v1::BarDatasetRequest request;
-    *request.mutable_daily() = protocol::encode_daily_table(table);
-    request.set_contract("SHFE/cu/2026-10");
-    request.set_begin_day("2026-09-23");
-    request.set_end_day("2026-09-25");
-    return data::resolve_bar_dataset(store.tables(), store.sources(request));
-  };
-  // Two of the three days are within a twentieth of five.
-  const auto dataset = ask(5);
-  EXPECT_EQ(dataset.bars_size(), 3);
-  EXPECT_EQ(dataset.contract().multiplier().units(), Decimal::parse("5").raw());
-  try {
-    (void)ask(10);
-    FAIL() << "a multiplier twice what the turnover implies was taken";
-  } catch (const std::invalid_argument& error) {
-    // The middle of 4.99858, 5.00071 and 5.40541.
-    EXPECT_STREQ(error.what(), "the contract multiplier does not match the turnover of "
-                               "SHFE/cu/2026-10: its days imply about 5.00071");
-  }
 }
+
 // The contract table has today's price increment only: each day's is the one
 // its prices show. Here the exchange moved the product from 5 to 2 for the
 // 26th of fifty trading days.
-TEST(NamedDatasets, EachDayTakesThePriceIncrementItsPricesShow) {
-  TaskDirectory directory;
-  {
-    data::Store created(directory.path, "historical-data", "task");
-  }
-  std::vector<std::string> days;
-  for (auto day = std::chrono::sys_days(std::chrono::year(2026) / 7 / 1); days.size() < 50;
-       day += std::chrono::days(1))
-    if (const std::chrono::weekday weekday(day);
-        weekday != std::chrono::Saturday && weekday != std::chrono::Sunday)
-      days.push_back(format_trading_date(std::chrono::year_month_day(day)));
-  std::vector<test::DailyRow> rows;
-  for (int i = 0; i < 50; ++i) {
-    const auto step = i < 25 ? 5 : 2, open = 1000 + step * i;
-    rows.push_back({days[static_cast<std::size_t>(i)], open + step, 100,
-                    test::DailyTrade{open, open + 2 * step, open - step, open + step, 100}});
-  }
-  const auto table = test::seed_daily_table(directory.path, "SHFE/rb/2026-10", rows);
-  data::Store store(directory.path, "historical-data", "task");
-  const auto read = [&](std::size_t first, std::size_t last) {
-    data::v1::BarDatasetRequest request;
-    *request.mutable_daily() = protocol::encode_daily_table(table);
-    request.set_contract("SHFE/rb/2026-10");
-    request.set_begin_day(days[first]);
-    request.set_end_day(days[last]);
-    return data::resolve_bar_dataset(store.tables(), store.sources(request));
-  };
-  const auto changes = [](const data::v1::BarDataset& dataset) {
-    std::vector<std::pair<std::string, std::string>> result;
-    for (const auto& change : dataset.price_increment_changes())
-      result.emplace_back(change.trading_day(), Decimal::from_raw(change.value().units()).str());
-    return result;
-  };
-  const std::vector<std::pair<std::string, std::string>> moved{{days[25], "2"}};
-  const auto whole = read(0, 49);
-  EXPECT_EQ(whole.contract().price_increment().units(), d("5").raw());
-  EXPECT_EQ(changes(whole), moved);
-  // The multiplier is the contract table's: ten tonnes a lot.
-  EXPECT_EQ(whole.contract().multiplier().units(), d("10").raw());
-  // Five days around the change read the same: the days on either side of a
-  // range are read with it, and the five alone divide by 1 only.
-  const auto around = read(23, 27);
-  EXPECT_EQ(around.contract().price_increment().units(), d("5").raw());
-  EXPECT_EQ(changes(around), moved);
+TEST(NamedDatasets, EachDayTakesThePriceIncrementItsPricesShow)
+{
+    TaskDirectory directory;
+    {
+        data::Store created(directory.path, "historical-data", "task");
+    }
+    std::vector<std::string> days;
+    for (auto day = std::chrono::sys_days(std::chrono::year(2026) / 7 / 1); days.size() < 50;
+        day += std::chrono::days(1))
+        if (const std::chrono::weekday weekday(day);
+            weekday != std::chrono::Saturday && weekday != std::chrono::Sunday)
+            days.push_back(format_trading_date(std::chrono::year_month_day(day)));
+    std::vector<test::DailyRow> rows;
+    for (int i = 0; i < 50; ++i) {
+        const auto step = i < 25 ? 5 : 2, open = 1000 + step * i;
+        rows.push_back(
+            {days[static_cast<std::size_t>(i)],
+                open + step,
+                100,
+                test::DailyTrade{open, open + 2 * step, open - step, open + step, 100}});
+    }
+    const auto table = test::seed_daily_table(directory.path, "SHFE/rb/2026-10", rows);
+    data::Store store(directory.path, "historical-data", "task");
+    const auto read = [&](std::size_t first, std::size_t last) {
+        data::v1::BarDatasetRequest request;
+        *request.mutable_daily() = protocol::encode_daily_table(table);
+        request.set_contract("SHFE/rb/2026-10");
+        request.set_begin_day(days[first]);
+        request.set_end_day(days[last]);
+        return data::resolve_bar_dataset(store.tables(), store.sources(request));
+    };
+    const auto changes = [](const data::v1::BarDataset& dataset) {
+        std::vector<std::pair<std::string, std::string>> result;
+        for (const auto& change : dataset.price_increment_changes())
+            result.emplace_back(
+                change.trading_day(),
+                Decimal::from_raw(change.value().units()).str());
+        return result;
+    };
+    const std::vector<std::pair<std::string, std::string>> moved{{days[25], "2"}};
+    const auto whole = read(0, 49);
+    EXPECT_EQ(whole.contract().price_increment().units(), d("5").raw());
+    EXPECT_EQ(changes(whole), moved);
+    // The multiplier is the contract table's: ten tonnes a lot.
+    EXPECT_EQ(whole.contract().multiplier().units(), d("10").raw());
+    // Five days around the change read the same: the days on either side of a
+    // range are read with it, and the five alone divide by 1 only.
+    const auto around = read(23, 27);
+    EXPECT_EQ(around.contract().price_increment().units(), d("5").raw());
+    EXPECT_EQ(changes(around), moved);
 }
-TEST(NamedDatasets, RequestedWindowReportsMissingBoundaryDays) {
-  TaskDirectory directory;
-  const auto selection =
-      test::seed_history(directory.path, {100, 101, 102, 103}, "boundary", {"2026-09-24"},
-                         {"2026-09-23", "2026-09-24", "2026-09-25"});
-  data::Store store(directory.path, "historical-data", "task");
-  data::v1::BarDatasetRequest request;
-  request.add_source_dataset_ids(selection.at("source_dataset_ids").at(0).get<std::string>());
-  *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
-  request.set_begin_day("2026-09-23");
-  request.set_end_day("2026-09-25");
-  request.set_contract("SHFE/rb/2026-10");
-  const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
-  EXPECT_EQ(days_without_bars(dataset), (std::vector<std::string>{"2026-09-23", "2026-09-25"}));
-  task::v1::Task calculation;
-  *factor_bars(*calculation.mutable_factor()) = dataset;
-  calculation.mutable_factor()->set_version(10);
-  calculation.mutable_factor()->set_factor(protocol::v1::PRICE_MOMENTUM);
-  calculation.mutable_factor()->set_dataset_revision(dataset.revision());
-  calculation.mutable_factor()->add_lookbacks(1);
-  calculation.mutable_factor()->set_horizon(1);
-  calculation.mutable_factor()->set_full_sample(true);
-  const auto execution =
-      protocol::task_execution(calculation, sha256_bytes(calculation.factor().SerializeAsString()));
-  EXPECT_EQ(execution.factor().series(0).bars().begin_day(), "2026-09-23");
-  EXPECT_EQ(execution.factor().series(0).bars().end_day(), "2026-09-25");
-  EXPECT_EQ(
-      data::resolve_bar_dataset(store.tables(), store.sources(execution.factor().series(0).bars()))
-          .SerializeAsString(),
-      dataset.SerializeAsString());
+
+TEST(NamedDatasets, RequestedWindowReportsMissingBoundaryDays)
+{
+    TaskDirectory directory;
+    const auto selection = test::seed_history(
+        directory.path,
+        {100, 101, 102, 103},
+        "boundary",
+        {"2026-09-24"},
+        {"2026-09-23", "2026-09-24", "2026-09-25"});
+    data::Store store(directory.path, "historical-data", "task");
+    data::v1::BarDatasetRequest request;
+    request.add_source_dataset_ids(selection.at("source_dataset_ids").at(0).get<std::string>());
+    *request.mutable_daily() = protocol::encode_daily_table(selection.at("daily"));
+    request.set_begin_day("2026-09-23");
+    request.set_end_day("2026-09-25");
+    request.set_contract("SHFE/rb/2026-10");
+    const auto dataset = data::resolve_bar_dataset(store.tables(), store.sources(request));
+    EXPECT_EQ(days_without_bars(dataset), (std::vector<std::string>{"2026-09-23", "2026-09-25"}));
+    task::v1::Task calculation;
+    *factor_bars(*calculation.mutable_factor()) = dataset;
+    calculation.mutable_factor()->set_factor(protocol::v1::PRICE_MOMENTUM);
+    calculation.mutable_factor()->set_dataset_revision(dataset.revision());
+    calculation.mutable_factor()->add_lookbacks(1);
+    calculation.mutable_factor()->set_horizon(1);
+    calculation.mutable_factor()->set_full_sample(true);
+    const auto execution = protocol::task_execution(
+        calculation,
+        sha256_bytes(calculation.factor().SerializeAsString()));
+    EXPECT_EQ(execution.factor().series(0).bars().begin_day(), "2026-09-23");
+    EXPECT_EQ(execution.factor().series(0).bars().end_day(), "2026-09-25");
+    EXPECT_EQ(
+        data::resolve_bar_dataset(
+            store.tables(),
+            store.sources(execution.factor().series(0).bars()))
+            .SerializeAsString(),
+        dataset.SerializeAsString());
 }
 
 namespace {
-data::v1::BarDatasetRequest composed_request(const std::vector<Json>& selections) {
-  std::set<std::string> ids;
-  for (const auto& selected : selections)
-    for (const auto& id : selected.at("source_dataset_ids"))
-      ids.insert(id.get<std::string>());
-  return protocol::encode_bar_dataset_request({{"source_dataset_ids", ids},
-                                               {"daily", test::latest_daily(selections)},
-                                               {"begin_day", ""},
-                                               {"end_day", ""},
-                                               {"contract", "SHFE/rb/2026-10"}});
-}
-} // namespace
-TEST(NamedDatasets, ComposesDownloadsDeduplicatesAndRestoresFixedVersions) {
-  TaskDirectory directory;
-  const auto first =
-      test::seed_history(directory.path, {100, 101}, "compose-first", {"2026-09-23"});
-  const auto second =
-      test::seed_history(directory.path, {102, 103}, "compose-second", {"2026-09-24"});
-  const auto whole = test::seed_history(directory.path, {100, 101, 102, 103}, "compose-whole",
-                                        {"2026-09-23", "2026-09-24"});
-  auto store = std::make_unique<data::Store>(directory.path, "historical-data", "task");
-  const auto request = composed_request({second, first});
-  const auto result = data::resolve_bar_dataset(store->tables(), store->sources(request));
-  EXPECT_EQ(result.bars_size(), 4);
-  EXPECT_EQ(result.days_size(), 2);
-  EXPECT_EQ(result.source_dataset_ids_size(), 2);
-  EXPECT_TRUE(days_without_bars(result).empty());
-  const auto overlapping = data::resolve_bar_dataset(
-      store->tables(), store->sources(composed_request({first, whole, second})));
-  EXPECT_EQ(overlapping.bars_size(), 4);
-  EXPECT_EQ(overlapping.revision(), result.revision());
-  EXPECT_EQ(data::resolve_bar_dataset(store->tables(), store->sources(composed_request({whole})))
-                .revision(),
-            result.revision());
-  auto json = protocol::decode_bar_dataset_request(request);
-  std::reverse(json["source_dataset_ids"].begin(), json["source_dataset_ids"].end());
-  EXPECT_EQ(protocol::encode_bar_dataset_request(json).SerializeAsString(),
-            request.SerializeAsString());
-  history_files::Archive archive(directory.path / "history");
-  data::v1::NamedDataset saved;
-  saved.set_version(protocol::named_dataset_version);
-  saved.set_name("composed");
-  *saved.add_selections() = request;
-  saved.add_content_revisions(result.revision());
-  saved.set_id(protocol::named_dataset_revision(saved));
-  archive.save_named_dataset(saved);
-  store.reset();
-  data::Store restarted(directory.path, "historical-data", "task");
-  const auto restored = archive.named_dataset(saved.id());
-  EXPECT_EQ(data::resolve_bar_dataset(restarted.tables(), restarted.sources(restored.selections(0)))
-                .SerializeAsString(),
-            result.SerializeAsString());
-  // Without an archive version the bars are the contract's days in the table.
-  auto daily = request;
-  daily.clear_source_dataset_ids();
-  daily.set_begin_day("2026-09-23");
-  daily.set_end_day("2026-09-24");
-  const auto day_result = data::resolve_bar_dataset(restarted.tables(), restarted.sources(daily));
-  EXPECT_EQ(day_result.interval_minutes(), 0);
-  EXPECT_EQ(day_result.bars_size(), 2);
-}
-TEST(NamedDatasets, CompositionRejectsConflictsAndClipsBeforeComparing) {
-  TaskDirectory directory;
-  const auto one = test::seed_history(directory.path, {100, 101, 102, 103}, "conflict-one",
-                                      {"2026-09-23", "2026-09-24"});
-  const auto two = test::seed_history(directory.path, {999, 101}, "conflict-two", {"2026-09-23"});
-  data::Store store(directory.path, "historical-data", "task");
-  auto request = composed_request({one, two});
-  EXPECT_THROW(data::resolve_bar_dataset(store.tables(), store.sources(request)),
-               std::invalid_argument);
-  request.set_begin_day("2026-09-24");
-  EXPECT_EQ(data::resolve_bar_dataset(store.tables(), store.sources(request)).bars_size(), 2);
-}
-TEST(NamedDatasets, CompositionRejectsMixedContractsIntervalsAndSemantics) {
-  TaskDirectory directory;
-  const auto one = test::seed_history(directory.path, {100, 101}, "mix-one");
-  const auto contract =
-      test::seed_history(directory.path, {100, 101}, "mix-contract", {"2026-09-25"}, {}, "cu");
-  const auto interval =
-      test::seed_history(directory.path, {100, 101}, "mix-interval", {"2026-09-25"}, {}, "rb", 5);
-  const auto semantics = test::seed_history(directory.path, {100, 101}, "mix-semantics",
-                                            {"2026-09-25"}, {}, "rb", 1, 110, "test.confirmed.v2");
-  data::Store store(directory.path, "historical-data", "task");
-  for (const auto& other : {contract, interval, semantics}) {
-    auto request = composed_request({one, other});
-    EXPECT_THROW(data::resolve_bar_dataset(store.tables(), store.sources(request)),
-                 std::invalid_argument);
-  }
-}
-TEST(NamedDatasets, CompositionReportsGapsAndRejectsInvalidVersionLists) {
-  TaskDirectory directory;
-  const auto one = test::seed_history(directory.path, {100, 101}, "gap-one", {"2026-09-23"},
-                                      {"2026-09-23", "2026-09-24", "2026-09-25"});
-  const auto two = test::seed_history(directory.path, {102, 103}, "gap-two", {"2026-09-25"});
-  data::Store store(directory.path, "historical-data", "task");
-  auto request = composed_request({one, two});
-  const auto result = data::resolve_bar_dataset(store.tables(), store.sources(request));
-  EXPECT_EQ(days_without_bars(result), std::vector<std::string>{"2026-09-24"});
-  auto json = protocol::decode_bar_dataset_request(request);
-  json["source_dataset_ids"].push_back(json["source_dataset_ids"][0]);
-  EXPECT_THROW(protocol::encode_bar_dataset_request(json), std::invalid_argument);
-  json["source_dataset_ids"] = Json::array();
-  EXPECT_THROW(protocol::encode_bar_dataset_request(json), std::invalid_argument);
-  json["source_dataset_ids"] = std::vector<std::string>(33, std::string(64, 'a'));
-  EXPECT_THROW(protocol::encode_bar_dataset_request(json), std::invalid_argument);
-  // Retired singular wire fields are rejected, not interpreted as a different version list.
-  request.GetReflection()->MutableUnknownFields(&request)->AddLengthDelimited(6,
-                                                                              std::string(64, 'a'));
-  EXPECT_THROW(protocol::decode_bar_dataset_request(request), std::invalid_argument);
+
+data::v1::BarDatasetRequest composed_request(const std::vector<Json>& selections)
+{
+    std::set<std::string> ids;
+    for (const auto& selected : selections)
+        for (const auto& id : selected.at("source_dataset_ids"))
+            ids.insert(id.get<std::string>());
+    return protocol::encode_bar_dataset_request(
+        {{"source_dataset_ids", ids},
+            {"daily", test::latest_daily(selections)},
+            {"begin_day", ""},
+            {"end_day", ""},
+            {"contract", "SHFE/rb/2026-10"}});
 }
 
-TEST(HistoryUpdate, IncrementalMinutePlansStartAfterFixedBoundaries) {
-  TaskDirectory directory;
-  const auto seeded = test::seed_history(directory.path, {100, 101}, "update-base");
-  history_files::Archive archive(directory.path / "history");
-  history_files::TableStore tables(directory.path / "tables");
-  auto query =
-      protocol::encode_history_update_query({{"dataset_id", seeded.at("source_dataset_ids").at(0)},
-                                             {"daily", nullptr},
-                                             {"mode", "extend"},
-                                             {"end_day", "2026-09-26"},
-                                             {"requests_per_minute", 60}});
-  const auto now = parse_shanghai_time("2026-09-28 01:00:00");
-  const auto before = archive.get(query.dataset_id()).SerializeAsString();
-  const auto plan = data::history_update_plan(archive, tables, query, now);
-  EXPECT_EQ(plan.minutes().begin_ns(), parse_shanghai_time("2026-09-25 09:01:01"));
-  EXPECT_EQ(plan.minutes().end_ns(), parse_shanghai_time("2026-09-26 23:59:59"));
-  EXPECT_EQ(plan.minutes().source_instrument(), "RB2610.SHF");
-  EXPECT_EQ(data::history_update_plan(archive, tables, query, now).id(), plan.id());
-  EXPECT_EQ(protocol::decode_history_update_plan(plan).at("query"),
-            protocol::decode_history_update_query(query));
-  EXPECT_EQ(archive.get(query.dataset_id()).SerializeAsString(), before);
-  auto changed = plan;
-  changed.mutable_minutes()->set_end_ns(plan.minutes().end_ns() + 1);
-  EXPECT_THROW(protocol::decode_history_update_plan(changed), std::invalid_argument);
-  query.set_end_day("2026-09-28");
-  EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
-  // A day before the version's last bar asks for nothing later.
-  query.set_end_day("2026-09-24");
-  EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
+} // namespace
+
+TEST(NamedDatasets, ComposesDownloadsDeduplicatesAndRestoresFixedVersions)
+{
+    TaskDirectory directory;
+    const auto first =
+        test::seed_history(directory.path, {100, 101}, "compose-first", {"2026-09-23"});
+    const auto second =
+        test::seed_history(directory.path, {102, 103}, "compose-second", {"2026-09-24"});
+    const auto whole = test::seed_history(
+        directory.path,
+        {100, 101, 102, 103},
+        "compose-whole",
+        {"2026-09-23", "2026-09-24"});
+    auto store = std::make_unique<data::Store>(directory.path, "historical-data", "task");
+    const auto request = composed_request({second, first});
+    const auto result = data::resolve_bar_dataset(store->tables(), store->sources(request));
+    EXPECT_EQ(result.bars_size(), 4);
+    EXPECT_EQ(result.days_size(), 2);
+    EXPECT_EQ(result.source_dataset_ids_size(), 2);
+    EXPECT_TRUE(days_without_bars(result).empty());
+    const auto overlapping = data::resolve_bar_dataset(
+        store->tables(),
+        store->sources(composed_request({first, whole, second})));
+    EXPECT_EQ(overlapping.bars_size(), 4);
+    EXPECT_EQ(overlapping.revision(), result.revision());
+    EXPECT_EQ(
+        data::resolve_bar_dataset(store->tables(), store->sources(composed_request({whole})))
+            .revision(),
+        result.revision());
+    auto json = protocol::decode_bar_dataset_request(request);
+    std::reverse(json["source_dataset_ids"].begin(), json["source_dataset_ids"].end());
+    EXPECT_EQ(
+        protocol::encode_bar_dataset_request(json).SerializeAsString(),
+        request.SerializeAsString());
+    history_files::Archive archive(directory.path / "history");
+    data::v1::NamedDataset saved;
+    saved.set_name("composed");
+    *saved.add_selections() = request;
+    saved.add_content_revisions(result.revision());
+    saved.set_id(protocol::named_dataset_revision(saved));
+    archive.save_named_dataset(saved);
+    store.reset();
+    data::Store restarted(directory.path, "historical-data", "task");
+    const auto restored = archive.named_dataset(saved.id());
+    EXPECT_EQ(
+        data::resolve_bar_dataset(restarted.tables(), restarted.sources(restored.selections(0)))
+            .SerializeAsString(),
+        result.SerializeAsString());
+    // Without an archive version the bars are the contract's days in the table.
+    auto daily = request;
+    daily.clear_source_dataset_ids();
+    daily.set_begin_day("2026-09-23");
+    daily.set_end_day("2026-09-24");
+    const auto day_result = data::resolve_bar_dataset(restarted.tables(), restarted.sources(daily));
+    EXPECT_EQ(day_result.interval_minutes(), 0);
+    EXPECT_EQ(day_result.bars_size(), 2);
 }
+
+TEST(NamedDatasets, CompositionRejectsConflictsAndClipsBeforeComparing)
+{
+    TaskDirectory directory;
+    const auto one = test::seed_history(
+        directory.path,
+        {100, 101, 102, 103},
+        "conflict-one",
+        {"2026-09-23", "2026-09-24"});
+    const auto two = test::seed_history(directory.path, {999, 101}, "conflict-two", {"2026-09-23"});
+    data::Store store(directory.path, "historical-data", "task");
+    auto request = composed_request({one, two});
+    EXPECT_THROW(
+        data::resolve_bar_dataset(store.tables(), store.sources(request)),
+        std::invalid_argument);
+    request.set_begin_day("2026-09-24");
+    EXPECT_EQ(data::resolve_bar_dataset(store.tables(), store.sources(request)).bars_size(), 2);
+}
+
+TEST(NamedDatasets, CompositionRejectsMixedContractsIntervalsAndSemantics)
+{
+    TaskDirectory directory;
+    const auto one = test::seed_history(directory.path, {100, 101}, "mix-one");
+    const auto contract =
+        test::seed_history(directory.path, {100, 101}, "mix-contract", {"2026-09-25"}, {}, "cu");
+    const auto interval =
+        test::seed_history(directory.path, {100, 101}, "mix-interval", {"2026-09-25"}, {}, "rb", 5);
+    const auto semantics = test::seed_history(
+        directory.path,
+        {100, 101},
+        "mix-semantics",
+        {"2026-09-25"},
+        {},
+        "rb",
+        1,
+        110,
+        "test.confirmed.v2");
+    data::Store store(directory.path, "historical-data", "task");
+    for (const auto& other : {contract, interval, semantics}) {
+        auto request = composed_request({one, other});
+        EXPECT_THROW(
+            data::resolve_bar_dataset(store.tables(), store.sources(request)),
+            std::invalid_argument);
+    }
+}
+
+TEST(NamedDatasets, CompositionReportsGapsAndRejectsInvalidVersionLists)
+{
+    TaskDirectory directory;
+    const auto one = test::seed_history(
+        directory.path,
+        {100, 101},
+        "gap-one",
+        {"2026-09-23"},
+        {"2026-09-23", "2026-09-24", "2026-09-25"});
+    const auto two = test::seed_history(directory.path, {102, 103}, "gap-two", {"2026-09-25"});
+    data::Store store(directory.path, "historical-data", "task");
+    auto request = composed_request({one, two});
+    const auto result = data::resolve_bar_dataset(store.tables(), store.sources(request));
+    EXPECT_EQ(days_without_bars(result), std::vector<std::string>{"2026-09-24"});
+    auto json = protocol::decode_bar_dataset_request(request);
+    json["source_dataset_ids"].push_back(json["source_dataset_ids"][0]);
+    EXPECT_THROW(protocol::encode_bar_dataset_request(json), std::invalid_argument);
+    json["source_dataset_ids"] = Json::array();
+    EXPECT_THROW(protocol::encode_bar_dataset_request(json), std::invalid_argument);
+    json["source_dataset_ids"] = std::vector<std::string>(33, std::string(64, 'a'));
+    EXPECT_THROW(protocol::encode_bar_dataset_request(json), std::invalid_argument);
+    // Retired singular wire fields are rejected, not interpreted as a different version list.
+    request.GetReflection()->MutableUnknownFields(&request)->AddLengthDelimited(
+        6,
+        std::string(64, 'a'));
+    EXPECT_THROW(protocol::decode_bar_dataset_request(request), std::invalid_argument);
+}
+
+TEST(HistoryUpdate, IncrementalMinutePlansStartAfterFixedBoundaries)
+{
+    TaskDirectory directory;
+    const auto seeded = test::seed_history(directory.path, {100, 101}, "update-base");
+    history_files::Archive archive(directory.path / "history");
+    history_files::TableStore tables(directory.path / "tables");
+    auto query = protocol::encode_history_update_query(
+        {{"dataset_id", seeded.at("source_dataset_ids").at(0)},
+            {"daily", nullptr},
+            {"mode", "extend"},
+            {"end_day", "2026-09-26"},
+            {"requests_per_minute", 60}});
+    const auto now = parse_shanghai_time("2026-09-28 01:00:00");
+    const auto before = archive.get(query.dataset_id()).SerializeAsString();
+    const auto plan = data::history_update_plan(archive, tables, query, now);
+    EXPECT_EQ(plan.minutes().begin_ns(), parse_shanghai_time("2026-09-25 09:01:01"));
+    EXPECT_EQ(plan.minutes().end_ns(), parse_shanghai_time("2026-09-26 23:59:59"));
+    EXPECT_EQ(plan.minutes().source_instrument(), "RB2610.SHF");
+    EXPECT_EQ(data::history_update_plan(archive, tables, query, now).id(), plan.id());
+    EXPECT_EQ(
+        protocol::decode_history_update_plan(plan).at("query"),
+        protocol::decode_history_update_query(query));
+    EXPECT_EQ(archive.get(query.dataset_id()).SerializeAsString(), before);
+    auto changed = plan;
+    changed.mutable_minutes()->set_end_ns(plan.minutes().end_ns() + 1);
+    EXPECT_THROW(protocol::decode_history_update_plan(changed), std::invalid_argument);
+    query.set_end_day("2026-09-28");
+    EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
+    // A day before the version's last bar asks for nothing later.
+    query.set_end_day("2026-09-24");
+    EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
+}
+
 // The days to fetch again are those the daily table shows the contract traded
 // on that the minute version lacks; the whole original window is fetched.
-TEST(HistoryUpdate, RepairPinsTheDailyTableAndPreservesNightSessionWindow) {
-  TaskDirectory directory;
-  const auto seeded =
-      test::seed_history(directory.path, {100, 101, 102, 103}, "update-gaps",
-                         {"2026-09-21", "2026-09-23"}, {"2026-09-21", "2026-09-22", "2026-09-23"});
-  const auto other =
-      test::seed_history(directory.path, {100, 101}, "update-other", {"2026-09-23"}, {}, "cu");
-  history_files::Archive archive(directory.path / "history");
-  history_files::TableStore tables(directory.path / "tables");
-  auto query =
-      protocol::encode_history_update_query({{"dataset_id", seeded.at("source_dataset_ids").at(0)},
-                                             {"daily", seeded.at("daily")},
-                                             {"mode", "repair"},
-                                             {"end_day", ""},
-                                             {"requests_per_minute", 60}});
-  const auto now = parse_shanghai_time("2026-09-28 01:00:00");
-  const auto source = archive.get(query.dataset_id());
-  const auto plan = data::history_update_plan(archive, tables, query, now);
-  ASSERT_EQ(plan.missing_days_size(), 1);
-  EXPECT_EQ(plan.missing_days(0), "2026-09-22");
-  EXPECT_EQ(plan.minutes().begin_ns(), source.minutes().begin_ns());
-  EXPECT_EQ(plan.minutes().end_ns(), source.minutes().end_ns());
-  EXPECT_EQ(plan.minutes().requests_per_minute(), 60);
-  // A snapshot this store never had is refused, not read as another.
-  auto unknown = query;
-  unknown.mutable_daily()->set_snapshot(std::string(64, 'f'));
-  EXPECT_THROW(data::history_update_plan(archive, tables, unknown, now), Error);
-  // Copper's one minute day is the one day it traded: nothing to fetch.
-  query.set_dataset_id(other.at("source_dataset_ids").at(0).get<std::string>());
-  EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
-}
-TEST(HistoryUpdate, CorruptBaseAndMalformedQueryCannotProducePlans) {
-  TaskDirectory directory;
-  const auto seeded = test::seed_history(directory.path, {100, 101}, "update-corrupt");
-  history_files::Archive archive(directory.path / "history");
-  auto query =
-      protocol::encode_history_update_query({{"dataset_id", seeded.at("source_dataset_ids").at(0)},
-                                             {"daily", nullptr},
-                                             {"mode", "extend"},
-                                             {"end_day", "2026-09-26"},
-                                             {"requests_per_minute", 60}});
-  const auto now = parse_shanghai_time("2026-09-28 01:00:00");
-  const auto path =
-      std::filesystem::path(archive.get(query.dataset_id()).minute_result().directory()) /
-      "minutes.json";
-  std::ifstream file(path);
-  Json manifest;
-  file >> manifest;
-  manifest["rows"] = manifest.at("rows").get<unsigned>() + 1;
-  replace_file_durably(path, manifest.dump());
-  history_files::TableStore tables(directory.path / "tables");
-  EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
-  auto json = protocol::decode_history_update_query(query);
-  json["requests_per_minute"] = 501;
-  EXPECT_THROW(protocol::encode_history_update_query(json), std::invalid_argument);
-  json["requests_per_minute"] = 1;
-  json["mode"] = "automatic";
-  EXPECT_THROW(protocol::encode_history_update_query(json), std::invalid_argument);
-  json["mode"] = "repair";
-  EXPECT_THROW(protocol::encode_history_update_query(json), std::invalid_argument);
+TEST(HistoryUpdate, RepairPinsTheDailyTableAndPreservesNightSessionWindow)
+{
+    TaskDirectory directory;
+    const auto seeded = test::seed_history(
+        directory.path,
+        {100, 101, 102, 103},
+        "update-gaps",
+        {"2026-09-21", "2026-09-23"},
+        {"2026-09-21", "2026-09-22", "2026-09-23"});
+    const auto other =
+        test::seed_history(directory.path, {100, 101}, "update-other", {"2026-09-23"}, {}, "cu");
+    history_files::Archive archive(directory.path / "history");
+    history_files::TableStore tables(directory.path / "tables");
+    auto query = protocol::encode_history_update_query(
+        {{"dataset_id", seeded.at("source_dataset_ids").at(0)},
+            {"daily", seeded.at("daily")},
+            {"mode", "repair"},
+            {"end_day", ""},
+            {"requests_per_minute", 60}});
+    const auto now = parse_shanghai_time("2026-09-28 01:00:00");
+    const auto source = archive.get(query.dataset_id());
+    const auto plan = data::history_update_plan(archive, tables, query, now);
+    ASSERT_EQ(plan.missing_days_size(), 1);
+    EXPECT_EQ(plan.missing_days(0), "2026-09-22");
+    EXPECT_EQ(plan.minutes().begin_ns(), source.minutes().begin_ns());
+    EXPECT_EQ(plan.minutes().end_ns(), source.minutes().end_ns());
+    EXPECT_EQ(plan.minutes().requests_per_minute(), 60);
+    // A snapshot this store never had is refused, not read as another.
+    auto unknown = query;
+    unknown.mutable_daily()->set_snapshot(std::string(64, 'f'));
+    EXPECT_THROW(data::history_update_plan(archive, tables, unknown, now), Error);
+    // Copper's one minute day is the one day it traded: nothing to fetch.
+    query.set_dataset_id(other.at("source_dataset_ids").at(0).get<std::string>());
+    EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
 }
 
-TEST_F(TaskProcess, AuthorizedDownloadPersistsExactReviewedRange) {
-  service.reset();
-  const auto seeded = test::seed_history(warehouse.path, {100, 101}, "update-rpc");
-  start_data();
-  start();
-  protocol::DataClient data(endpoint + ".data", "historical-data");
-  data::v1::DataRequest preview;
-  *preview.mutable_update_plan() =
-      protocol::encode_history_update_query({{"dataset_id", seeded.at("source_dataset_ids").at(0)},
-                                             {"daily", nullptr},
-                                             {"mode", "extend"},
-                                             {"end_day", "2026-09-26"},
-                                             {"requests_per_minute", 60}});
-  const auto plan = data.call(preview).update_plan();
-  task_wire::TaskRequest submit;
-  submit.mutable_submit()->set_id("incremental");
-  data::v1::DataRequest capture;
-  auto* authorization = capture.mutable_authorize_download();
-  authorization->set_task_instance("task");
-  authorization->set_task_id("incremental");
-  authorization->set_credential("fixture");
-  *authorization->mutable_minutes() = plan.minutes();
-  const auto captured = data.call(capture).download_authorization();
-  submit.mutable_submit()->set_download_authorization(captured.id());
-  submit.mutable_submit()->set_id("wrong-task");
-  EXPECT_THROW(call(submit), std::runtime_error);
-  submit.mutable_submit()->set_id("incremental");
-  task_wire::TaskRequest get;
-  get.mutable_get()->set_id("incremental");
-  EXPECT_THROW(call(get), std::runtime_error);
-  const auto created = call(submit).task();
-  EXPECT_EQ(created.state(), task_wire::QUEUED);
-  EXPECT_EQ(created.definition_case(), task_wire::Task::DEFINITION_NOT_SET);
-  EXPECT_EQ(call(get).task().minutes().SerializeAsString(), plan.minutes().SerializeAsString());
-  EXPECT_EQ(call(submit).task().SerializeAsString(), created.SerializeAsString());
-  service.reset();
-  start();
-  EXPECT_EQ(call(get).task().minutes().SerializeAsString(), plan.minutes().SerializeAsString());
-  EXPECT_EQ(data.call(preview).update_plan().id(), plan.id());
+TEST(HistoryUpdate, CorruptBaseAndMalformedQueryCannotProducePlans)
+{
+    TaskDirectory directory;
+    const auto seeded = test::seed_history(directory.path, {100, 101}, "update-corrupt");
+    history_files::Archive archive(directory.path / "history");
+    auto query = protocol::encode_history_update_query(
+        {{"dataset_id", seeded.at("source_dataset_ids").at(0)},
+            {"daily", nullptr},
+            {"mode", "extend"},
+            {"end_day", "2026-09-26"},
+            {"requests_per_minute", 60}});
+    const auto now = parse_shanghai_time("2026-09-28 01:00:00");
+    const auto path =
+        std::filesystem::path(archive.get(query.dataset_id()).minute_result().directory())
+        / "minutes.json";
+    std::ifstream file(path);
+    Json manifest;
+    file >> manifest;
+    manifest["rows"] = manifest.at("rows").get<unsigned>() + 1;
+    replace_file_durably(path, manifest.dump());
+    history_files::TableStore tables(directory.path / "tables");
+    EXPECT_THROW(data::history_update_plan(archive, tables, query, now), std::invalid_argument);
+    auto json = protocol::decode_history_update_query(query);
+    json["requests_per_minute"] = 501;
+    EXPECT_THROW(protocol::encode_history_update_query(json), std::invalid_argument);
+    json["requests_per_minute"] = 1;
+    json["mode"] = "automatic";
+    EXPECT_THROW(protocol::encode_history_update_query(json), std::invalid_argument);
+    json["mode"] = "repair";
+    EXPECT_THROW(protocol::encode_history_update_query(json), std::invalid_argument);
 }
 
-TEST_F(TaskProcess, HistoryUsageKeepsTaskReferencesAfterCancellationAndRestart) {
-  service.reset();
-  std::vector<int> prices(40);
-  for (std::size_t i = 0; i < prices.size(); ++i)
-    prices[i] = 100 + static_cast<int>(i) + static_cast<int>(i % 3);
-  const auto seeded = test::seed_history(warehouse.path, prices, "usage");
-  const auto request = composed_request({seeded});
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+TEST_F(TaskProcess, AuthorizedDownloadPersistsExactReviewedRange)
+{
+    service.reset();
+    const auto seeded = test::seed_history(warehouse.path, {100, 101}, "update-rpc");
+    start_data();
+    start();
+    protocol::DataClient data(endpoint + ".data", "historical-data");
+    data::v1::DataRequest preview;
+    *preview.mutable_update_plan() = protocol::encode_history_update_query(
+        {{"dataset_id", seeded.at("source_dataset_ids").at(0)},
+            {"daily", nullptr},
+            {"mode", "extend"},
+            {"end_day", "2026-09-26"},
+            {"requests_per_minute", 60}});
+    const auto plan = data.call(preview).update_plan();
+    task_wire::TaskRequest submit;
+    submit.mutable_submit()->set_id("incremental");
+    data::v1::DataRequest capture;
+    auto* authorization = capture.mutable_authorize_download();
+    authorization->set_task_instance("task");
+    authorization->set_task_id("incremental");
+    authorization->set_credential("fixture");
+    *authorization->mutable_minutes() = plan.minutes();
+    const auto captured = data.call(capture).download_authorization();
+    submit.mutable_submit()->set_download_authorization(captured.id());
+    submit.mutable_submit()->set_id("wrong-task");
+    EXPECT_THROW(call(submit), std::runtime_error);
+    submit.mutable_submit()->set_id("incremental");
+    task_wire::TaskRequest get;
+    get.mutable_get()->set_id("incremental");
+    EXPECT_THROW(call(get), std::runtime_error);
+    const auto created = call(submit).task();
+    EXPECT_EQ(created.state(), task_wire::QUEUED);
+    EXPECT_EQ(created.definition_case(), task_wire::Task::DEFINITION_NOT_SET);
+    EXPECT_EQ(call(get).task().minutes().SerializeAsString(), plan.minutes().SerializeAsString());
+    EXPECT_EQ(call(submit).task().SerializeAsString(), created.SerializeAsString());
+    service.reset();
+    start();
+    EXPECT_EQ(call(get).task().minutes().SerializeAsString(), plan.minutes().SerializeAsString());
+    EXPECT_EQ(data.call(preview).update_plan().id(), plan.id());
+}
+
+TEST_F(TaskProcess, HistoryUsageKeepsTaskReferencesAfterCancellationAndRestart)
+{
+    service.reset();
+    std::vector<int> prices(40);
+    for (std::size_t i = 0; i < prices.size(); ++i)
+        prices[i] = 100 + static_cast<int>(i) + static_cast<int>(i % 3);
+    const auto seeded = test::seed_history(warehouse.path, prices, "usage");
+    const auto request = composed_request({seeded});
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        data::Store data_store(warehouse.path, "historical-data", "task");
+        const auto data =
+            data::resolve_bar_dataset(data_store.tables(), data_store.sources(request));
+        auto backtest = input();
+        *backtest.mutable_paper()->mutable_contracts(0)->mutable_dataset() = data;
+        backtest.set_dataset_revision(protocol::dataset_revision(backtest.paper()));
+        tasks::submit(store, "usage-backtest", backtest);
+        store.commit(store.cancel("usage-backtest")).task();
+        factor::v1::FactorInput factor;
+        factor.set_factor(protocol::v1::PRICE_MOMENTUM);
+        *factor_bars(factor) = data;
+        factor.set_dataset_revision(data.revision());
+        factor.add_lookbacks(1);
+        factor.set_horizon(1);
+        factor.set_full_sample(true);
+        tasks::submit(store, "usage-factor", factor);
+        store.commit(store.cancel("usage-factor")).task();
+    }
+    start();
+    task_wire::TaskRequest query;
+    query.mutable_history_usage()->set_id(seeded.at("source_dataset_ids").at(0).get<std::string>());
+    const auto first = call(query).history_usage();
+    ASSERT_EQ(first.references_size(), 2);
+    std::set<int> kinds;
+    for (const auto& row : first.references()) {
+        kinds.insert(row.kind());
+        ASSERT_EQ(row.roles_size(), 1);
+        EXPECT_EQ(row.roles(0), data::v1::HISTORY_MARKET);
+    }
+    EXPECT_EQ(kinds, (std::set<int>{data::v1::HISTORY_BACKTEST, data::v1::HISTORY_FACTOR}));
+    EXPECT_EQ(protocol::decode_history_usage(first).at("references").size(), 2);
+    service.reset();
+    start();
+    EXPECT_EQ(call(query).history_usage().SerializeAsString(), first.SerializeAsString());
+    query.mutable_history_usage()->set_id(std::string(64, '0'));
+    EXPECT_EQ(call(query).history_usage().references_size(), 0);
+    query.mutable_history_usage()->set_id("../escape");
+    EXPECT_THROW(call(query), std::runtime_error);
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "history"));
+    data_service.reset();
+    std::filesystem::remove_all(warehouse.path); // Only this test's isolated warehouse.
+    query.mutable_history_usage()->set_id(first.dataset_id());
+    EXPECT_EQ(call(query).history_usage().SerializeAsString(), first.SerializeAsString());
+}
+
+TEST_F(TaskProcess, HistoryUsageFindsImportedTaskWithoutLocalArchiveCopy)
+{
+    service.reset();
+    const auto spec = input();
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "external-origin", spec);
+        store.commit(store.cancel("external-origin")).task();
+    }
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "history"));
+    start();
+    task_wire::TaskRequest query;
+    query.mutable_history_usage()->set_id(
+        spec.paper().contracts(0).dataset().source_dataset_ids(0));
+    const auto result = call(query).history_usage();
+    ASSERT_EQ(result.references_size(), 1);
+    EXPECT_EQ(result.references(0).id(), "external-origin");
+    EXPECT_EQ(result.references(0).kind(), data::v1::HISTORY_BACKTEST);
+    EXPECT_EQ(result.references(0).roles(0), data::v1::HISTORY_MARKET);
+    service.reset();
+    start();
+    EXPECT_EQ(call(query).history_usage().SerializeAsString(), result.SerializeAsString());
+}
+
+TEST(HistoryUsage, RejectsUnknownKindsDuplicateReferencesAndInvalidRoles)
+{
+    data::v1::HistoryUsage usage;
+    usage.set_dataset_id(std::string(64, 'a'));
+    EXPECT_TRUE(protocol::decode_history_usage(usage).at("references").empty());
+    auto* row = usage.add_references();
+    row->set_id("consumer");
+    row->set_kind(data::v1::HISTORY_BACKTEST);
+    row->add_roles(data::v1::HISTORY_MARKET);
+    EXPECT_EQ(protocol::decode_history_usage(usage).at("references").at(0).at("roles").size(), 1);
+    const auto valid = usage;
+    *usage.add_references() = usage.references(0);
+    EXPECT_THROW(protocol::decode_history_usage(usage), std::invalid_argument);
+    usage = valid;
+    usage.mutable_references(0)->set_kind(data::v1::HISTORY_REFERENCE_UNSPECIFIED);
+    EXPECT_THROW(protocol::decode_history_usage(usage), std::invalid_argument);
+    usage = valid;
+    usage.mutable_references(0)->add_roles(data::v1::HISTORY_OUTPUT);
+    EXPECT_THROW(protocol::decode_history_usage(usage), std::invalid_argument);
+}
+
+TEST(HistoryUsage, StoppedLedgerInspectionDoesNotRecoverTasksOrChangeFiles)
+{
+    TaskDirectory directory, warehouse;
+    const auto seeded = test::seed_history(warehouse.path, {100, 101, 102}, "stopped-usage");
+    const auto request = composed_request({seeded});
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        data::Store data_store(warehouse.path, "historical-data", "task");
+        const auto data =
+            data::resolve_bar_dataset(data_store.tables(), data_store.sources(request));
+        auto task = input();
+        *task.mutable_paper()->mutable_contracts(0)->mutable_dataset() = data;
+        task.set_dataset_revision(protocol::dataset_revision(task.paper()));
+        tasks::submit(store, "running", task);
+        (void)store.commit(store.claim("running")).token();
+        EXPECT_THROW(
+            tasks::Store::inspect_history_usage(
+                directory.path,
+                tasks::Identity{"task", "historical-data"},
+                seeded.at("source_dataset_ids")[0]),
+            std::exception);
+    }
+    const auto fingerprints = [&] {
+        std::map<std::string, std::string> files;
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(directory.path))
+            if (entry.is_regular_file())
+                files[entry.path().lexically_relative(directory.path).string()] =
+                    sha256_file(entry.path());
+        return files;
+    };
+    const auto before = fingerprints();
+    const auto usage = tasks::Store::inspect_history_usage(
+        directory.path,
+        tasks::Identity{"task", "historical-data"},
+        seeded.at("source_dataset_ids")[0]);
+    EXPECT_EQ(usage.references_size(), 1); // Only the still-running task owns this reference.
+    auto after = fingerprints();
+    // SQLite READONLY may create its own coordination files; never ignore a pre-existing WAL.
+    if (!before.contains("tasks.sqlite-wal")) {
+        if (after.contains("tasks.sqlite-wal"))
+            EXPECT_EQ(after.at("tasks.sqlite-wal"), sha256_bytes(""));
+        after.erase("tasks.sqlite-wal");
+    }
+    if (!before.contains("tasks.sqlite-shm"))
+        after.erase("tasks.sqlite-shm");
+    EXPECT_EQ(after, before);
+    {
+        sqlite::Database db(directory.path / "tasks.sqlite", sqlite::Database::Access::read_only);
+        sqlite::Database::Statement state(db, "SELECT state FROM tasks WHERE id='running'");
+        ASSERT_TRUE(state.step());
+        EXPECT_EQ(state.integer(0), task::v1::RUNNING);
+    }
+    const auto lock = directory.path / "manager.lock";
+    std::filesystem::remove(lock);
+    EXPECT_THROW(
+        tasks::Store::inspect_history_usage(
+            directory.path,
+            tasks::Identity{"task", "historical-data"},
+            seeded.at("source_dataset_ids")[0]),
+        std::exception);
+    EXPECT_FALSE(std::filesystem::exists(lock));
+    EXPECT_THROW(
+        tasks::Store::inspect_history_usage(
+            directory.path / "missing",
+            tasks::Identity{"task", "historical-data"},
+            std::string(64, 'a')),
+        std::exception);
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "missing"));
+}
+
+TEST(HistoryUsage, StoppedInspectionRejectsCorruptStateWithoutRepair)
+{
+    TaskDirectory directory;
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "bad", input());
+    }
+    {
+        sqlite::Database db(directory.path / "tasks.sqlite");
+        db.execute("UPDATE tasks SET manifest='{}'");
+    }
+    const auto before = sha256_file(directory.path / "tasks.sqlite");
+    EXPECT_THROW(
+        tasks::Store::inspect_history_usage(
+            directory.path,
+            tasks::Identity{"task", "historical-data"},
+            std::string(64, 'a')),
+        std::exception);
+    EXPECT_EQ(sha256_file(directory.path / "tasks.sqlite"), before);
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "history"));
+}
+
+TEST(TaskStore, MixedHistoricalWarehouseIsRejectedWithoutChangingFiles)
+{
+    TaskDirectory directory;
+    std::filesystem::create_directory(directory.path / "history");
+    const auto evidence = directory.path / "history" / "preserve.bin";
+    replace_file_durably(evidence, "owned historical data");
+    EXPECT_THROW(
+        tasks::Store rejected(directory.path, tasks::Identity{"task", "historical-data"}),
+        std::invalid_argument);
+    EXPECT_EQ(sha256_file(evidence), sha256_bytes("owned historical data"));
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "tasks.sqlite"));
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "manager.lock"));
+}
+
+TEST(TaskStore, ForeignStoreIsRejectedBeforeCreatingTaskSchema)
+{
+    TaskDirectory directory;
+    {
+        sqlite::Database database(directory.path / "tasks.sqlite");
+        database.execute("CREATE TABLE foreign_data(value TEXT)");
+        database.execute("INSERT INTO foreign_data VALUES('preserve')");
+    }
+    const auto before = sha256_file(directory.path / "tasks.sqlite");
+    EXPECT_THROW(
+        tasks::Store rejected(directory.path, tasks::Identity{"task", "historical-data"}),
+        std::exception);
+    EXPECT_EQ(sha256_file(directory.path / "tasks.sqlite"), before);
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "manager.lock"));
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "history"));
+    sqlite::Database inspect(directory.path / "tasks.sqlite", sqlite::Database::Access::read_only);
+    sqlite::Database::Statement tables(
+        inspect,
+        "SELECT COUNT(*) FROM sqlite_schema WHERE type='table'");
+    ASSERT_TRUE(tables.step());
+    EXPECT_EQ(tables.integer(0), 1);
+}
+
+TEST_F(TaskProcess, WorkerAttemptJoinsServiceDiagnosticsWithoutItsFenceToken)
+{
+    service.reset();
+    const char* value = std::getenv("ASTERION_LOG_DIRECTORY");
+    const std::optional<std::string> saved =
+        value ? std::optional<std::string>(value) : std::nullopt;
+
+    struct Restore
+    {
+        const std::optional<std::string>& saved;
+
+        ~Restore()
+        {
+            if (saved)
+                ::setenv("ASTERION_LOG_DIRECTORY", saved->c_str(), 1);
+            else
+                ::unsetenv("ASTERION_LOG_DIRECTORY");
+        }
+    } restore{saved};
+
+    const auto logs = directory.path / "logs";
+    ASSERT_EQ(::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1), 0);
+    submit("traced-task");
+    {
+        ChildProcess worker(
+            ASTERION_BACKTEST_PATH,
+            {"--endpoint", endpoint + ".worker", "--session", "task", "--task", "traced-task"});
+        ASSERT_TRUE(worker.wait(asterion::testing_support::bound(15s)));
+        ASSERT_EQ(worker.exit_code(), 0);
+    }
+    service.reset();
+    std::vector<Json> records;
+    for (const auto& entry : std::filesystem::directory_iterator(logs)) {
+        std::ifstream stream(entry.path());
+        std::string line;
+        while (std::getline(stream, line)) {
+            const auto record = Json::parse(line);
+            const auto& fields = record.at("fields");
+            EXPECT_FALSE(fields.contains("token"));
+            EXPECT_FALSE(fields.contains("provider_token"));
+            EXPECT_FALSE(fields.contains("input"));
+            records.push_back(record);
+        }
+    }
+    const auto claimed = std::find_if(records.begin(), records.end(), [](const Json& record) {
+        return record.at("event") == "task.claimed";
+    });
+    ASSERT_NE(claimed, records.end());
+    EXPECT_EQ(claimed->at("fields").at("task_id"), "traced-task");
+    EXPECT_EQ(claimed->at("fields").at("attempt"), 1);
+    const auto trace = claimed->at("fields").at("trace_id");
+    unsigned linked = 0;
+    for (const auto& record : records) {
+        const auto& fields = record.at("fields");
+        if (record.at("logger") != "task-service" || record.at("event") != "rpc.completed"
+            || (fields.at("operation") != "claim" && fields.at("operation") != "finish"))
+            continue;
+        EXPECT_EQ(fields.at("task_id"), "traced-task");
+        EXPECT_EQ(fields.at("attempt"), 1);
+        EXPECT_EQ(fields.at("success"), true);
+        EXPECT_TRUE(std::any_of(records.begin(), records.end(), [&](const Json& link) {
+            return link.at("event") == "rpc.started" && link.at("fields").at("trace_id") == trace
+                && link.at("fields").at("correlation_id") == fields.at("correlation_id");
+        }));
+        ++linked;
+    }
+    EXPECT_EQ(linked, 2U);
+}
+
+TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTasks)
+{
+    TaskDirectory directory, warehouse;
+    std::vector<int> prices(40);
+    for (std::size_t i = 0; i < prices.size(); ++i)
+        prices[i] = 100 + static_cast<int>(i) + static_cast<int>(i % 3);
+    const auto selection = test::seed_history(warehouse.path, prices, "long-lived");
     data::Store data_store(warehouse.path, "historical-data", "task");
-    const auto data = data::resolve_bar_dataset(data_store.tables(), data_store.sources(request));
-    auto backtest = input();
-    *backtest.mutable_paper()->mutable_contracts(0)->mutable_dataset() = data;
-    backtest.set_dataset_revision(protocol::dataset_revision(backtest.paper()));
-    tasks::submit(store, "usage-backtest", backtest);
-    store.commit(store.cancel("usage-backtest")).task();
-    factor::v1::FactorInput factor;
-    factor.set_version(10);
-    factor.set_factor(protocol::v1::PRICE_MOMENTUM);
-    *factor_bars(factor) = data;
-    factor.set_dataset_revision(data.revision());
-    factor.add_lookbacks(1);
-    factor.set_horizon(1);
-    factor.set_full_sample(true);
-    tasks::submit(store, "usage-factor", factor);
-    store.commit(store.cancel("usage-factor")).task();
-  }
-  start();
-  task_wire::TaskRequest query;
-  query.mutable_history_usage()->set_id(seeded.at("source_dataset_ids").at(0).get<std::string>());
-  const auto first = call(query).history_usage();
-  ASSERT_EQ(first.references_size(), 2);
-  std::set<int> kinds;
-  for (const auto& row : first.references()) {
-    kinds.insert(row.kind());
-    ASSERT_EQ(row.roles_size(), 1);
-    EXPECT_EQ(row.roles(0), data::v1::HISTORY_MARKET);
-  }
-  EXPECT_EQ(kinds, (std::set<int>{data::v1::HISTORY_BACKTEST, data::v1::HISTORY_FACTOR}));
-  EXPECT_EQ(protocol::decode_history_usage(first).at("references").size(), 2);
-  service.reset();
-  start();
-  EXPECT_EQ(call(query).history_usage().SerializeAsString(), first.SerializeAsString());
-  query.mutable_history_usage()->set_id(std::string(64, '0'));
-  EXPECT_EQ(call(query).history_usage().references_size(), 0);
-  query.mutable_history_usage()->set_id("../escape");
-  EXPECT_THROW(call(query), std::runtime_error);
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "history"));
-  data_service.reset();
-  std::filesystem::remove_all(warehouse.path); // Only this test's isolated warehouse.
-  query.mutable_history_usage()->set_id(first.dataset_id());
-  EXPECT_EQ(call(query).history_usage().SerializeAsString(), first.SerializeAsString());
-}
-TEST_F(TaskProcess, HistoryUsageFindsImportedTaskWithoutLocalArchiveCopy) {
-  service.reset();
-  const auto spec = input();
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "external-origin", spec);
-    store.commit(store.cancel("external-origin")).task();
-  }
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "history"));
-  start();
-  task_wire::TaskRequest query;
-  query.mutable_history_usage()->set_id(spec.paper().contracts(0).dataset().source_dataset_ids(0));
-  const auto result = call(query).history_usage();
-  ASSERT_EQ(result.references_size(), 1);
-  EXPECT_EQ(result.references(0).id(), "external-origin");
-  EXPECT_EQ(result.references(0).kind(), data::v1::HISTORY_BACKTEST);
-  EXPECT_EQ(result.references(0).roles(0), data::v1::HISTORY_MARKET);
-  service.reset();
-  start();
-  EXPECT_EQ(call(query).history_usage().SerializeAsString(), result.SerializeAsString());
-}
-TEST(HistoryUsage, RejectsUnknownKindsDuplicateReferencesAndInvalidRoles) {
-  data::v1::HistoryUsage usage;
-  usage.set_dataset_id(std::string(64, 'a'));
-  EXPECT_TRUE(protocol::decode_history_usage(usage).at("references").empty());
-  auto* row = usage.add_references();
-  row->set_id("consumer");
-  row->set_kind(data::v1::HISTORY_BACKTEST);
-  row->add_roles(data::v1::HISTORY_MARKET);
-  EXPECT_EQ(protocol::decode_history_usage(usage).at("references").at(0).at("roles").size(), 1);
-  const auto valid = usage;
-  *usage.add_references() = usage.references(0);
-  EXPECT_THROW(protocol::decode_history_usage(usage), std::invalid_argument);
-  usage = valid;
-  usage.mutable_references(0)->set_kind(data::v1::HISTORY_REFERENCE_UNSPECIFIED);
-  EXPECT_THROW(protocol::decode_history_usage(usage), std::invalid_argument);
-  usage = valid;
-  usage.mutable_references(0)->add_roles(data::v1::HISTORY_OUTPUT);
-  EXPECT_THROW(protocol::decode_history_usage(usage), std::invalid_argument);
-}
-
-TEST(HistoryUsage, StoppedLedgerInspectionDoesNotRecoverTasksOrChangeFiles) {
-  TaskDirectory directory, warehouse;
-  const auto seeded = test::seed_history(warehouse.path, {100, 101, 102}, "stopped-usage");
-  const auto request = composed_request({seeded});
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    data::Store data_store(warehouse.path, "historical-data", "task");
-    const auto data = data::resolve_bar_dataset(data_store.tables(), data_store.sources(request));
-    auto task = input();
-    *task.mutable_paper()->mutable_contracts(0)->mutable_dataset() = data;
-    task.set_dataset_revision(protocol::dataset_revision(task.paper()));
-    tasks::submit(store, "running", task);
-    (void)store.commit(store.claim("running")).token();
-    EXPECT_THROW(tasks::Store::inspect_history_usage(directory.path,
-                                                     tasks::Identity{"task", "historical-data"},
-                                                     seeded.at("source_dataset_ids")[0]),
-                 std::exception);
-  }
-  const auto fingerprints = [&] {
-    std::map<std::string, std::string> files;
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(directory.path))
-      if (entry.is_regular_file())
-        files[entry.path().lexically_relative(directory.path).string()] = sha256_file(entry.path());
-    return files;
-  };
-  const auto before = fingerprints();
-  const auto usage = tasks::Store::inspect_history_usage(directory.path,
-                                                         tasks::Identity{"task", "historical-data"},
-                                                         seeded.at("source_dataset_ids")[0]);
-  EXPECT_EQ(usage.references_size(), 1); // Only the still-running task owns this reference.
-  auto after = fingerprints();
-  // SQLite READONLY may create its own coordination files; never ignore a pre-existing WAL.
-  if (!before.contains("tasks.sqlite-wal")) {
-    if (after.contains("tasks.sqlite-wal"))
-      EXPECT_EQ(after.at("tasks.sqlite-wal"), sha256_bytes(""));
-    after.erase("tasks.sqlite-wal");
-  }
-  if (!before.contains("tasks.sqlite-shm"))
-    after.erase("tasks.sqlite-shm");
-  EXPECT_EQ(after, before);
-  {
-    sqlite::Database db(directory.path / "tasks.sqlite", sqlite::Database::Access::read_only);
-    sqlite::Database::Statement state(db, "SELECT state FROM tasks WHERE id='running'");
-    ASSERT_TRUE(state.step());
-    EXPECT_EQ(state.integer(0), task::v1::RUNNING);
-  }
-  const auto lock = directory.path / "manager.lock";
-  std::filesystem::remove(lock);
-  EXPECT_THROW(tasks::Store::inspect_history_usage(directory.path,
-                                                   tasks::Identity{"task", "historical-data"},
-                                                   seeded.at("source_dataset_ids")[0]),
-               std::exception);
-  EXPECT_FALSE(std::filesystem::exists(lock));
-  EXPECT_THROW(tasks::Store::inspect_history_usage(directory.path / "missing",
-                                                   tasks::Identity{"task", "historical-data"},
-                                                   std::string(64, 'a')),
-               std::exception);
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "missing"));
-}
-
-TEST(HistoryUsage, StoppedInspectionRejectsCorruptStateWithoutRepair) {
-  TaskDirectory directory;
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "bad", input());
-  }
-  {
-    sqlite::Database db(directory.path / "tasks.sqlite");
-    db.execute("UPDATE tasks SET manifest='{}'");
-  }
-  const auto before = sha256_file(directory.path / "tasks.sqlite");
-  EXPECT_THROW(tasks::Store::inspect_history_usage(directory.path,
-                                                   tasks::Identity{"task", "historical-data"},
-                                                   std::string(64, 'a')),
-               std::exception);
-  EXPECT_EQ(sha256_file(directory.path / "tasks.sqlite"), before);
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "history"));
-}
-
-TEST(TaskStore, MixedHistoricalWarehouseIsRejectedWithoutChangingFiles) {
-  TaskDirectory directory;
-  std::filesystem::create_directory(directory.path / "history");
-  const auto evidence = directory.path / "history" / "preserve.bin";
-  replace_file_durably(evidence, "owned historical data");
-  EXPECT_THROW(tasks::Store rejected(directory.path, tasks::Identity{"task", "historical-data"}),
-               std::invalid_argument);
-  EXPECT_EQ(sha256_file(evidence), sha256_bytes("owned historical data"));
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "tasks.sqlite"));
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "manager.lock"));
-}
-
-TEST(TaskStore, ForeignStoreIsRejectedBeforeCreatingTaskSchema) {
-  TaskDirectory directory;
-  {
-    sqlite::Database database(directory.path / "tasks.sqlite");
-    database.execute("CREATE TABLE foreign_data(value TEXT)");
-    database.execute("INSERT INTO foreign_data VALUES('preserve')");
-  }
-  const auto before = sha256_file(directory.path / "tasks.sqlite");
-  EXPECT_THROW(tasks::Store rejected(directory.path, tasks::Identity{"task", "historical-data"}),
-               std::exception);
-  EXPECT_EQ(sha256_file(directory.path / "tasks.sqlite"), before);
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "manager.lock"));
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "history"));
-  sqlite::Database inspect(directory.path / "tasks.sqlite", sqlite::Database::Access::read_only);
-  sqlite::Database::Statement tables(inspect,
-                                     "SELECT COUNT(*) FROM sqlite_schema WHERE type='table'");
-  ASSERT_TRUE(tables.step());
-  EXPECT_EQ(tables.integer(0), 1);
-}
-
-TEST_F(TaskProcess, WorkerAttemptJoinsServiceDiagnosticsWithoutItsFenceToken) {
-  service.reset();
-  const char* value = std::getenv("ASTERION_LOG_DIRECTORY");
-  const std::optional<std::string> saved = value ? std::optional<std::string>(value) : std::nullopt;
-  struct Restore {
-    const std::optional<std::string>& saved;
-    ~Restore() {
-      if (saved)
-        ::setenv("ASTERION_LOG_DIRECTORY", saved->c_str(), 1);
-      else
-        ::unsetenv("ASTERION_LOG_DIRECTORY");
+    const auto source = data::resolve_bar_dataset(
+        data_store.tables(),
+        data_store.sources(composed_request({selection})));
+    factor::v1::FactorInput spec;
+    spec.set_factor(protocol::v1::PRICE_MOMENTUM);
+    *factor_bars(spec) = source;
+    spec.set_dataset_revision(source.revision());
+    spec.add_lookbacks(1);
+    spec.set_horizon(1);
+    spec.set_full_sample(true);
+    const auto expected = factor::run(spec);
+    const auto dataset_id = selection.at("source_dataset_ids").at(0).get<std::string>();
+    std::string original_hash;
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        for (unsigned i = 0; i < 1001; ++i) {
+            const auto id = "experiment-" + std::to_string(i);
+            const auto submitted = tasks::submit(store, id, spec);
+            ASSERT_EQ(submitted.submission_sequence(), i + 1);
+            store.commit(tasks::finish(store, id, store.commit(store.claim(id)).token(), expected));
+        }
+        const auto page = store.list();
+        EXPECT_EQ(page.capacity().retained_tasks(), 1001);
+        EXPECT_EQ(page.capacity().active_used(), 0);
+        EXPECT_EQ(page.tasks_size(), 200);
+        EXPECT_EQ(page.tasks(199).submission_sequence(), 1001);
+        EXPECT_NO_THROW(protocol::decode_task(page.tasks(199)));
+        original_hash = sha256_file(directory.path / "experiment-0/results/1.pb");
+        auto usage = store.prepare_history_usage(dataset_id);
+        EXPECT_EQ(tasks::submit(store, "experiment-0", spec).state(), task::v1::SUCCEEDED);
+        tasks::submit(store, "retry-original", spec);
+        store.commit(store.fail(
+            "retry-original",
+            store.commit(store.claim("retry-original")).token(),
+            "fixture failure"));
+        unsigned pages = 0;
+        while (store.next_history_page(usage)) {
+            ++pages;
+            auto reading = std::async(std::launch::async, [&] {
+                usage.load_page();
+            });
+            EXPECT_EQ(store.describe("retry-original").state(), task::v1::FAILED);
+            reading.get();
+        }
+        EXPECT_EQ(pages, 6U);
+        EXPECT_EQ(usage.take().references_size(), 1001);
     }
-  } restore{saved};
-  const auto logs = directory.path / "logs";
-  ASSERT_EQ(::setenv("ASTERION_LOG_DIRECTORY", logs.c_str(), 1), 0);
-  submit("traced-task");
-  {
-    ChildProcess worker(ASTERION_BACKTEST_PATH,
-                        {"--endpoint", endpoint, "--session", "task", "--task", "traced-task"});
-    ASSERT_TRUE(worker.wait(asterion::testing_support::bound(15s)));
-    ASSERT_EQ(worker.exit_code(), 0);
-  }
-  service.reset();
-  std::vector<Json> records;
-  for (const auto& entry : std::filesystem::directory_iterator(logs)) {
-    std::ifstream stream(entry.path());
-    std::string line;
-    while (std::getline(stream, line)) {
-      const auto record = Json::parse(line);
-      const auto& fields = record.at("fields");
-      EXPECT_FALSE(fields.contains("token"));
-      EXPECT_FALSE(fields.contains("provider_token"));
-      EXPECT_FALSE(fields.contains("input"));
-      records.push_back(record);
+    {
+        tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
+        EXPECT_EQ(
+            tasks::factor_result(restored, "experiment-0").SerializeAsString(),
+            expected.SerializeAsString());
+        EXPECT_EQ(
+            tasks::factor_result(restored, "experiment-1000").SerializeAsString(),
+            expected.SerializeAsString());
+        EXPECT_EQ(sha256_file(directory.path / "experiment-0/results/1.pb"), original_hash);
+        EXPECT_EQ(restored.history_usage(dataset_id).references_size(), 1002);
+        const auto retried = restored.commit(restored.retry("retry-original")).task();
+        EXPECT_EQ(retried.submission_sequence(), 1002);
+        EXPECT_EQ(retried.attempt(), 1);
+        EXPECT_EQ(restored.list().capacity().active_used(), 1);
+        restored.commit(
+            tasks::finish(
+                restored,
+                "retry-original",
+                restored.commit(restored.claim("retry-original")).token(),
+                expected));
+        EXPECT_EQ(restored.describe("retry-original").attempt(), 2);
+        EXPECT_EQ(restored.list().capacity().active_used(), 0);
+        EXPECT_EQ(
+            data::resolve_bar_dataset(
+                data_store.tables(),
+                data_store.sources(composed_request({selection})))
+                .SerializeAsString(),
+            source.SerializeAsString());
     }
-  }
-  const auto claimed = std::find_if(records.begin(), records.end(), [](const Json& record) {
-    return record.at("event") == "task.claimed";
-  });
-  ASSERT_NE(claimed, records.end());
-  EXPECT_EQ(claimed->at("fields").at("task_id"), "traced-task");
-  EXPECT_EQ(claimed->at("fields").at("attempt"), 1);
-  const auto trace = claimed->at("fields").at("trace_id");
-  unsigned linked = 0;
-  for (const auto& record : records) {
-    const auto& fields = record.at("fields");
-    if (record.at("logger") != "task-service" || record.at("event") != "rpc.completed" ||
-        (fields.at("operation") != "claim" && fields.at("operation") != "finish"))
-      continue;
-    EXPECT_EQ(fields.at("task_id"), "traced-task");
-    EXPECT_EQ(fields.at("attempt"), 1);
-    EXPECT_EQ(fields.at("success"), true);
-    EXPECT_TRUE(std::any_of(records.begin(), records.end(), [&](const Json& link) {
-      return link.at("event") == "rpc.started" && link.at("fields").at("trace_id") == trace &&
-             link.at("fields").at("correlation_id") == fields.at("correlation_id");
-    }));
-    ++linked;
-  }
-  EXPECT_EQ(linked, 2U);
+    // Membership is part of the recovery index, never authority to silently skip history.
+    {
+        sqlite::Database database(directory.path / "tasks.sqlite");
+        database.execute("DELETE FROM task_event_members WHERE task_id='experiment-0'");
+    }
+    const auto evidence = sha256_file(directory.path / "tasks.sqlite");
+    EXPECT_THROW(
+        (tasks::Store(directory.path, tasks::Identity{"task", "historical-data"})),
+        std::invalid_argument);
+    EXPECT_EQ(sha256_file(directory.path / "tasks.sqlite"), evidence);
 }
 
-TEST(TaskStore, RetainedExperimentsContinueInTheSameWarehouseBeyondOneThousandTasks) {
-  TaskDirectory directory, warehouse;
-  std::vector<int> prices(40);
-  for (std::size_t i = 0; i < prices.size(); ++i)
-    prices[i] = 100 + static_cast<int>(i) + static_cast<int>(i % 3);
-  const auto selection = test::seed_history(warehouse.path, prices, "long-lived");
-  data::Store data_store(warehouse.path, "historical-data", "task");
-  const auto source = data::resolve_bar_dataset(data_store.tables(),
-                                                data_store.sources(composed_request({selection})));
-  factor::v1::FactorInput spec;
-  spec.set_version(10);
-  spec.set_factor(protocol::v1::PRICE_MOMENTUM);
-  *factor_bars(spec) = source;
-  spec.set_dataset_revision(source.revision());
-  spec.add_lookbacks(1);
-  spec.set_horizon(1);
-  spec.set_full_sample(true);
-  const auto expected = factor::run(spec);
-  const auto dataset_id = selection.at("source_dataset_ids").at(0).get<std::string>();
-  std::string original_hash;
-  {
+TEST(TaskStore, ActiveCapacityAppliesToNewAdmissionsAndExplicitRetries)
+{
+    TaskDirectory directory;
+    factor::v1::FactorInput spec;
+    spec.set_factor(protocol::v1::PRICE_MOMENTUM);
+    *factor_bars(spec) = input().paper().contracts(0).dataset();
+    auto* data = factor_bars(spec);
+    const auto first = data->bars(0);
+    data->clear_bars();
+    for (std::int64_t i = 0; i < 40; ++i) {
+        auto* bar = data->add_bars();
+        *bar = first;
+        bar->set_timestamp_ns(first.timestamp_ns() + i * 1000000000);
+    }
+    data->set_revision(protocol::bar_dataset_revision(*data));
+    spec.set_dataset_revision(spec.series(0).bars().revision());
+    spec.add_lookbacks(1);
+    spec.set_horizon(1);
+    spec.set_full_sample(true);
     tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    for (unsigned i = 0; i < 1001; ++i) {
-      const auto id = "experiment-" + std::to_string(i);
-      const auto submitted = tasks::submit(store, id, spec);
-      ASSERT_EQ(submitted.submission_sequence(), i + 1);
-      store.commit(tasks::finish(store, id, store.commit(store.claim(id)).token(), expected));
+    for (unsigned i = 0; i < 1000; ++i)
+        tasks::submit(store, "queued-" + std::to_string(i), spec);
+    EXPECT_EQ(store.list().capacity().active_used(), 1000);
+    EXPECT_THROW(tasks::submit(store, "next", spec), std::invalid_argument);
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "next"));
+    EXPECT_EQ(store.commit(store.cancel("queued-0")).task().state(), task::v1::CANCELLED);
+    EXPECT_EQ(store.list().capacity().active_used(), 999);
+    auto pending = store.submission("next", spec);
+    store.admit_submission(pending);
+    EXPECT_EQ(store.list().capacity().active_reserved(), 1U);
+    EXPECT_FALSE(std::filesystem::exists(directory.path / "next"));
+    EXPECT_THROW(store.commit(store.retry("queued-0")), std::invalid_argument);
+    pending.prepare_files();
+    EXPECT_EQ(store.commit(store.register_submission(pending)).task().submission_sequence(), 1001);
+    EXPECT_EQ(store.list().capacity().active_reserved(), 0U);
+    EXPECT_THROW(store.commit(store.retry("queued-0")).task(), std::invalid_argument);
+    EXPECT_EQ(store.describe("queued-0").state(), task::v1::CANCELLED);
+    store.commit(store.cancel("next")).task();
+    EXPECT_EQ(store.commit(store.retry("queued-0")).task().submission_sequence(), 1);
+    EXPECT_EQ(store.list().capacity().retained_tasks(), 1001);
+    EXPECT_EQ(store.list().capacity().active_used(), 1000);
+}
+
+TEST(TaskStore, AComparisonCountsEveryReplayAndKeepsItsScores)
+{
+    TaskDirectory directory;
+    const auto spec = comparison();
+    const auto result = backtest::run(spec);
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        const auto task = tasks::submit(store, "compared", spec);
+        EXPECT_EQ(task.total(), 80U);
+        const auto token = store.commit(store.claim("compared")).token();
+        // A result without the scores of what it compared is not this task's.
+        auto bare = result;
+        bare.clear_candidates();
+        bare.clear_selected();
+        EXPECT_THROW(
+            store.commit(tasks::finish(store, "compared", token, bare)),
+            std::invalid_argument);
+        // Nor is one that names another strategy than the best of them.
+        auto misnamed = result;
+        misnamed.set_selected(0);
+        EXPECT_THROW(
+            store.commit(tasks::finish(store, "compared", token, misnamed)),
+            std::invalid_argument);
+        store.commit(tasks::finish(store, "compared", token, result));
     }
-    const auto page = store.list();
-    EXPECT_EQ(page.capacity().retained_tasks(), 1001);
-    EXPECT_EQ(page.capacity().active_used(), 0);
-    EXPECT_EQ(page.tasks_size(), 200);
-    EXPECT_EQ(page.tasks(199).submission_sequence(), 1001);
-    EXPECT_NO_THROW(protocol::decode_task(page.tasks(199)));
-    original_hash = sha256_file(directory.path / "experiment-0/results/1.pb");
-    auto usage = store.prepare_history_usage(dataset_id);
-    EXPECT_EQ(tasks::submit(store, "experiment-0", spec).state(), task::v1::SUCCEEDED);
-    tasks::submit(store, "retry-original", spec);
-    store.commit(store.fail("retry-original", store.commit(store.claim("retry-original")).token(),
-                            "fixture failure"));
-    unsigned pages = 0;
-    while (store.next_history_page(usage)) {
-      ++pages;
-      auto reading = std::async(std::launch::async, [&] { usage.load_page(); });
-      EXPECT_EQ(store.describe("retry-original").state(), task::v1::FAILED);
-      reading.get();
-    }
-    EXPECT_EQ(pages, 6U);
-    EXPECT_EQ(usage.take().references_size(), 1001);
-  }
-  {
     tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-    EXPECT_EQ(tasks::factor_result(restored, "experiment-0").SerializeAsString(),
-              expected.SerializeAsString());
-    EXPECT_EQ(tasks::factor_result(restored, "experiment-1000").SerializeAsString(),
-              expected.SerializeAsString());
-    EXPECT_EQ(sha256_file(directory.path / "experiment-0/results/1.pb"), original_hash);
-    EXPECT_EQ(restored.history_usage(dataset_id).references_size(), 1002);
-    const auto retried = restored.commit(restored.retry("retry-original")).task();
-    EXPECT_EQ(retried.submission_sequence(), 1002);
-    EXPECT_EQ(retried.attempt(), 1);
-    EXPECT_EQ(restored.list().capacity().active_used(), 1);
-    restored.commit(tasks::finish(restored, "retry-original",
-                                  restored.commit(restored.claim("retry-original")).token(),
-                                  expected));
-    EXPECT_EQ(restored.describe("retry-original").attempt(), 2);
-    EXPECT_EQ(restored.list().capacity().active_used(), 0);
-    EXPECT_EQ(data::resolve_bar_dataset(data_store.tables(),
-                                        data_store.sources(composed_request({selection})))
-                  .SerializeAsString(),
-              source.SerializeAsString());
-  }
-  // Membership is part of the recovery index, never authority to silently skip history.
-  {
-    sqlite::Database database(directory.path / "tasks.sqlite");
-    database.execute("DELETE FROM task_event_members WHERE task_id='experiment-0'");
-  }
-  const auto evidence = sha256_file(directory.path / "tasks.sqlite");
-  EXPECT_THROW((tasks::Store(directory.path, tasks::Identity{"task", "historical-data"})),
-               std::invalid_argument);
-  EXPECT_EQ(sha256_file(directory.path / "tasks.sqlite"), evidence);
+    EXPECT_EQ(restored.get("compared").state(), task::v1::SUCCEEDED);
 }
 
-TEST(TaskStore, ActiveCapacityAppliesToNewAdmissionsAndExplicitRetries) {
-  TaskDirectory directory;
-  factor::v1::FactorInput spec;
-  spec.set_version(10);
-  spec.set_factor(protocol::v1::PRICE_MOMENTUM);
-  *factor_bars(spec) = input().paper().contracts(0).dataset();
-  auto* data = factor_bars(spec);
-  const auto first = data->bars(0);
-  data->clear_bars();
-  for (std::int64_t i = 0; i < 40; ++i) {
-    auto* bar = data->add_bars();
-    *bar = first;
-    bar->set_timestamp_ns(first.timestamp_ns() + i * 1000000000);
-  }
-  data->set_revision(protocol::bar_dataset_revision(*data));
-  spec.set_dataset_revision(spec.series(0).bars().revision());
-  spec.add_lookbacks(1);
-  spec.set_horizon(1);
-  spec.set_full_sample(true);
-  tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-  for (unsigned i = 0; i < 1000; ++i)
-    tasks::submit(store, "queued-" + std::to_string(i), spec);
-  EXPECT_EQ(store.list().capacity().active_used(), 1000);
-  EXPECT_THROW(tasks::submit(store, "next", spec), std::invalid_argument);
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "next"));
-  EXPECT_EQ(store.commit(store.cancel("queued-0")).task().state(), task::v1::CANCELLED);
-  EXPECT_EQ(store.list().capacity().active_used(), 999);
-  auto pending = store.submission("next", spec);
-  store.admit_submission(pending);
-  EXPECT_EQ(store.list().capacity().active_reserved(), 1U);
-  EXPECT_FALSE(std::filesystem::exists(directory.path / "next"));
-  EXPECT_THROW(store.commit(store.retry("queued-0")), std::invalid_argument);
-  pending.prepare_files();
-  EXPECT_EQ(store.commit(store.register_submission(pending)).task().submission_sequence(), 1001);
-  EXPECT_EQ(store.list().capacity().active_reserved(), 0U);
-  EXPECT_THROW(store.commit(store.retry("queued-0")).task(), std::invalid_argument);
-  EXPECT_EQ(store.describe("queued-0").state(), task::v1::CANCELLED);
-  store.commit(store.cancel("next")).task();
-  EXPECT_EQ(store.commit(store.retry("queued-0")).task().submission_sequence(), 1);
-  EXPECT_EQ(store.list().capacity().retained_tasks(), 1001);
-  EXPECT_EQ(store.list().capacity().active_used(), 1000);
-}
-TEST(TaskStore, AComparisonCountsEveryReplayAndKeepsItsScores) {
-  TaskDirectory directory;
-  const auto spec = comparison();
-  const auto result = backtest::run(spec);
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    const auto task = tasks::submit(store, "compared", spec);
-    EXPECT_EQ(task.total(), 80U);
-    const auto token = store.commit(store.claim("compared")).token();
-    // A result without the scores of what it compared is not this task's.
-    auto bare = result;
-    bare.clear_candidates();
-    bare.clear_selected();
-    EXPECT_THROW(store.commit(tasks::finish(store, "compared", token, bare)),
-                 std::invalid_argument);
-    // Nor is one that names another strategy than the best of them.
-    auto misnamed = result;
-    misnamed.set_selected(0);
-    EXPECT_THROW(store.commit(tasks::finish(store, "compared", token, misnamed)),
-                 std::invalid_argument);
-    store.commit(tasks::finish(store, "compared", token, result));
-  }
-  tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-  EXPECT_EQ(restored.get("compared").state(), task::v1::SUCCEEDED);
-}
-TEST(TaskStore, ARollingComparisonKeepsItsRoundsAndRefusesOthers) {
-  TaskDirectory directory;
-  const auto spec = rolling_comparison();
-  const auto result = backtest::run(spec);
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    const auto task = tasks::submit(store, "rolled", spec);
-    EXPECT_EQ(task.total(), 180U);
-    const auto token = store.commit(store.claim("rolled")).token();
-    // A result without its rounds, or short of one, is not this task's.
-    auto bare = result;
-    bare.clear_folds();
-    EXPECT_THROW(store.commit(tasks::finish(store, "rolled", token, bare)), std::invalid_argument);
-    auto short_of = result;
-    short_of.mutable_folds()->RemoveLast();
-    EXPECT_THROW(store.commit(tasks::finish(store, "rolled", token, short_of)),
-                 std::invalid_argument);
-    // Nor is one whose round followed another strategy than its best, or
-    // that begins on another day.
-    auto misnamed = result;
-    misnamed.mutable_folds(0)->set_selected(1 - result.folds(0).selected());
-    EXPECT_THROW(store.commit(tasks::finish(store, "rolled", token, misnamed)),
-                 std::invalid_argument);
-    auto moved = result;
-    moved.mutable_folds(1)->set_first_day(result.folds(2).first_day());
-    EXPECT_THROW(store.commit(tasks::finish(store, "rolled", token, moved)), std::invalid_argument);
-    store.commit(tasks::finish(store, "rolled", token, result));
-  }
-  tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
-  EXPECT_EQ(restored.get("rolled").state(), task::v1::SUCCEEDED);
+TEST(TaskStore, ARollingComparisonKeepsItsRoundsAndRefusesOthers)
+{
+    TaskDirectory directory;
+    const auto spec = rolling_comparison();
+    const auto result = backtest::run(spec);
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        const auto task = tasks::submit(store, "rolled", spec);
+        EXPECT_EQ(task.total(), 180U);
+        const auto token = store.commit(store.claim("rolled")).token();
+        // A result without its rounds, or short of one, is not this task's.
+        auto bare = result;
+        bare.clear_folds();
+        EXPECT_THROW(
+            store.commit(tasks::finish(store, "rolled", token, bare)),
+            std::invalid_argument);
+        auto short_of = result;
+        short_of.mutable_folds()->RemoveLast();
+        EXPECT_THROW(
+            store.commit(tasks::finish(store, "rolled", token, short_of)),
+            std::invalid_argument);
+        // Nor is one whose round followed another strategy than its best, or
+        // that begins on another day.
+        auto misnamed = result;
+        misnamed.mutable_folds(0)->set_selected(1 - result.folds(0).selected());
+        EXPECT_THROW(
+            store.commit(tasks::finish(store, "rolled", token, misnamed)),
+            std::invalid_argument);
+        auto moved = result;
+        moved.mutable_folds(1)->set_first_day(result.folds(2).first_day());
+        EXPECT_THROW(
+            store.commit(tasks::finish(store, "rolled", token, moved)),
+            std::invalid_argument);
+        store.commit(tasks::finish(store, "rolled", token, result));
+    }
+    tasks::Store restored(directory.path, tasks::Identity{"task", "historical-data"});
+    EXPECT_EQ(restored.get("rolled").state(), task::v1::SUCCEEDED);
 }
 
-TEST(TaskStore, FailureCodeRemainsAnOptionalObservationAcrossRestartAndExplicitRetry) {
-  TaskDirectory directory;
-  const auto spec = input();
-  std::string original;
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, "typed-failure", spec);
-    original = store.get("typed-failure").input().SerializeAsString();
-    const auto token = store.commit(store.claim("typed-failure")).token();
-    store.commit(store.fail("typed-failure", token, "fixture source unavailable", "unavailable"));
-    tasks::submit(store, "unknown-failure", spec);
-    const auto other = store.commit(store.claim("unknown-failure")).token();
-    // The same words in a diagnostic are not structured failure evidence.
-    store.commit(store.fail("unknown-failure", other, "fixture source unavailable"));
-  }
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    EXPECT_EQ(store.get("typed-failure").error_code(), "unavailable");
-    EXPECT_TRUE(store.get("unknown-failure").error_code().empty());
-    EXPECT_EQ(store.list().tasks(0).error_code(), "unavailable");
-    const auto queued = store.commit(store.retry("typed-failure")).task();
-    EXPECT_EQ(queued.state(), task::v1::QUEUED);
-    EXPECT_TRUE(queued.error_code().empty());
-    EXPECT_EQ(store.get("typed-failure").input().SerializeAsString(), original);
-  }
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    EXPECT_TRUE(store.get("typed-failure").error_code().empty());
-    EXPECT_EQ(store.get("typed-failure").state(), task::v1::QUEUED);
-  }
+TEST(TaskStore, FailureCodeRemainsAnOptionalObservationAcrossRestartAndExplicitRetry)
+{
+    TaskDirectory directory;
+    const auto spec = input();
+    std::string original;
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, "typed-failure", spec);
+        original = store.get("typed-failure").input().SerializeAsString();
+        const auto token = store.commit(store.claim("typed-failure")).token();
+        store.commit(
+            store.fail("typed-failure", token, "fixture source unavailable", "unavailable"));
+        tasks::submit(store, "unknown-failure", spec);
+        const auto other = store.commit(store.claim("unknown-failure")).token();
+        // The same words in a diagnostic are not structured failure evidence.
+        store.commit(store.fail("unknown-failure", other, "fixture source unavailable"));
+    }
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        EXPECT_EQ(store.get("typed-failure").error_code(), "unavailable");
+        EXPECT_TRUE(store.get("unknown-failure").error_code().empty());
+        EXPECT_EQ(store.list().tasks(0).error_code(), "unavailable");
+        const auto queued = store.commit(store.retry("typed-failure")).task();
+        EXPECT_EQ(queued.state(), task::v1::QUEUED);
+        EXPECT_TRUE(queued.error_code().empty());
+        EXPECT_EQ(store.get("typed-failure").input().SerializeAsString(), original);
+    }
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        EXPECT_TRUE(store.get("typed-failure").error_code().empty());
+        EXPECT_EQ(store.get("typed-failure").state(), task::v1::QUEUED);
+    }
 }
 
-TEST(SlippageSensitivity, AVariantPreservesEveryOtherFixedInputByte) {
-  std::vector<MarketBar> bars;
-  for (int i = 0; i < 6; ++i) {
-    const auto day = "2026-09-" + std::to_string(21 + i);
-    bars.push_back(test::flat(day, 1790000000000000000LL + i * 86400000000000LL, "100"));
-  }
-  auto dataset = test::dataset(bars);
-  dataset.set_interval_minutes(0);
-  dataset.clear_source_dataset_ids();
-  dataset.clear_history_evidence();
-  dataset.set_source(dataset.daily().daily_source());
-  dataset.set_revision(protocol::bar_dataset_revision(dataset));
-  protocol::validate_bar_dataset(dataset);
-  auto original = input_of(dataset);
-  original.mutable_strategies(0)->clear_rule();
-  original.mutable_strategies(0)->mutable_momentum()->set_lookback(2);
-  const auto bytes = original.SerializeAsString();
-  auto changed = protocol::backtest_slippage_variant(original, 2);
-  EXPECT_EQ(changed.paper().contracts(0).slippage_ticks(), 2);
-  changed.mutable_paper()->mutable_contracts(0)->set_slippage_ticks(0);
-  EXPECT_EQ(changed.SerializeAsString(), bytes);
-  EXPECT_EQ(original.SerializeAsString(), bytes);
-  EXPECT_THROW(protocol::backtest_slippage_variant(original, 0), std::invalid_argument);
-  EXPECT_THROW(protocol::backtest_slippage_variant(original, 101), std::invalid_argument);
-  auto wrong = input();
-  EXPECT_THROW(protocol::backtest_slippage_variant(wrong, 2), std::invalid_argument);
+TEST(SlippageSensitivity, AVariantPreservesEveryOtherFixedInputByte)
+{
+    std::vector<MarketBar> bars;
+    for (int i = 0; i < 6; ++i) {
+        const auto day = "2026-09-" + std::to_string(21 + i);
+        bars.push_back(test::flat(day, 1790000000000000000LL + i * 86400000000000LL, "100"));
+    }
+    auto dataset = test::dataset(bars);
+    dataset.set_interval_minutes(0);
+    dataset.clear_source_dataset_ids();
+    dataset.clear_history_evidence();
+    dataset.set_source(dataset.daily().daily_source());
+    dataset.set_revision(protocol::bar_dataset_revision(dataset));
+    protocol::validate_bar_dataset(dataset);
+    auto original = input_of(dataset);
+    original.mutable_strategies(0)->clear_rule();
+    original.mutable_strategies(0)->mutable_momentum()->set_lookback(2);
+    const auto bytes = original.SerializeAsString();
+    auto changed = protocol::backtest_slippage_variant(original, 2);
+    EXPECT_EQ(changed.paper().contracts(0).slippage_ticks(), 2);
+    changed.mutable_paper()->mutable_contracts(0)->set_slippage_ticks(0);
+    EXPECT_EQ(changed.SerializeAsString(), bytes);
+    EXPECT_EQ(original.SerializeAsString(), bytes);
+    EXPECT_THROW(protocol::backtest_slippage_variant(original, 0), std::invalid_argument);
+    EXPECT_THROW(protocol::backtest_slippage_variant(original, 101), std::invalid_argument);
+    auto wrong = input();
+    EXPECT_THROW(protocol::backtest_slippage_variant(wrong, 2), std::invalid_argument);
 }
 
-TEST(TaskStore, RefreshTargetsAndResultsSurviveRecoveryWithoutChangingEvidence) {
-  TaskDirectory directory;
-  data::v1::DownloadAuthorization authorization;
-  authorization.set_version(2);
-  authorization.set_id(std::string(64, 'a'));
-  authorization.set_provider_artifact(std::string(64, 'b'));
-  authorization.set_data_instance("historical-data");
-  authorization.set_task_instance("task");
-  authorization.set_task_id("completed-refresh");
-  *authorization.mutable_table_update() = protocol::encode_table_update(
-      {{"provider", "test.independent.c"},
-       {"tables", {"futures.daily"}},
-       {"begin_day", "2024-03-01"},
-       {"end_day", "2024-03-01"},
-       {"requests_per_minute", 60},
-       {"refresh",
-        {{"partition",
-          {{"table", "futures.daily"}, {"exchange", "SHFE"}, {"period", "2024-03-01"}}},
-         {"source", "fixture.daily.v1"},
-         {"previous_snapshot", std::string(64, 'c')},
-         {"previous_content", std::string(64, 'd')},
-         {"provider_artifact", std::string(64, 'b')}}}});
-  std::string completed, failed, result;
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    tasks::submit(store, authorization);
-    const auto token = store.commit(store.claim("completed-refresh")).token();
-    task::v1::TaskFinish finish;
-    finish.set_id("completed-refresh");
-    finish.set_token(token);
-    finish.mutable_table_update()->set_version(1);
-    finish.mutable_table_update()->set_unpublished(1);
-    store.commit(tasks::finish(store, finish));
-    completed = store.get("completed-refresh").SerializeAsString();
-    result = tasks::verified_result(store, "completed-refresh").SerializeAsString();
-    authorization.set_task_id("failed-refresh");
-    authorization.set_id(std::string(64, 'e'));
-    tasks::submit(store, authorization);
-    const auto other = store.commit(store.claim("failed-refresh")).token();
-    store.commit(store.fail("failed-refresh", other, "fixture unavailable", "unavailable"));
-    failed = store.get("failed-refresh").SerializeAsString();
-  }
-  {
-    tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
-    EXPECT_EQ(store.get("completed-refresh").SerializeAsString(), completed);
-    EXPECT_EQ(store.get("failed-refresh").SerializeAsString(), failed);
-    EXPECT_EQ(tasks::verified_result(store, "completed-refresh").SerializeAsString(), result);
-    ASSERT_EQ(store.list().tasks_size(), 2);
-    EXPECT_TRUE(store.list().tasks(0).has_table_refresh());
-    EXPECT_EQ(store.list().tasks(0).table_refresh().SerializeAsString(),
-              authorization.table_update().refresh().SerializeAsString());
-    const auto retried = store.commit(store.retry("failed-refresh")).task();
-    EXPECT_TRUE(retried.has_table_refresh());
-    EXPECT_EQ(retried.state(), task::v1::QUEUED);
-  }
+namespace {
+
+data::v1::DownloadAuthorization refresh_authorization(const std::string& id)
+{
+    data::v1::DownloadAuthorization authorization;
+    authorization.set_id(std::string(64, 'a'));
+    authorization.set_provider_artifact(std::string(64, 'b'));
+    authorization.set_data_instance("historical-data");
+    authorization.set_task_instance("task");
+    authorization.set_task_id(id);
+    *authorization.mutable_table_update() = protocol::encode_table_update(
+        {{"provider", "test.independent.c"},
+            {"tables", {"futures.daily"}},
+            {"begin_day", "2024-03-01"},
+            {"end_day", "2024-03-01"},
+            {"requests_per_minute", 60},
+            {"refresh",
+                {{"partition",
+                     {{"table", "futures.daily"}, {"exchange", "SHFE"}, {"period", "2024-03-01"}}},
+                    {"source", "fixture.daily.v1"},
+                    {"previous_snapshot", std::string(64, 'c')},
+                    {"previous_content", std::string(64, 'd')},
+                    {"provider_artifact", std::string(64, 'b')}}}});
+    return authorization;
+}
+
+} // namespace
+
+TEST(TaskStore, RefreshTargetsAndResultsSurviveRecoveryWithoutChangingEvidence)
+{
+    TaskDirectory directory;
+    auto authorization = refresh_authorization("completed-refresh");
+    std::string completed, failed, result;
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        tasks::submit(store, authorization);
+        const auto token = store.commit(store.claim("completed-refresh")).token();
+        task::v1::TaskFinish finish;
+        finish.set_id("completed-refresh");
+        finish.set_token(token);
+        finish.mutable_table_update()->set_unpublished(1);
+        store.commit(tasks::finish(store, finish));
+        completed = store.get("completed-refresh").SerializeAsString();
+        result = tasks::verified_result(store, "completed-refresh").SerializeAsString();
+        authorization.set_task_id("failed-refresh");
+        authorization.set_id(std::string(64, 'e'));
+        tasks::submit(store, authorization);
+        const auto other = store.commit(store.claim("failed-refresh")).token();
+        store.commit(store.fail("failed-refresh", other, "fixture unavailable", "unavailable"));
+        failed = store.get("failed-refresh").SerializeAsString();
+    }
+    {
+        tasks::Store store(directory.path, tasks::Identity{"task", "historical-data"});
+        EXPECT_EQ(store.get("completed-refresh").SerializeAsString(), completed);
+        EXPECT_EQ(store.get("failed-refresh").SerializeAsString(), failed);
+        EXPECT_EQ(tasks::verified_result(store, "completed-refresh").SerializeAsString(), result);
+        ASSERT_EQ(store.list().tasks_size(), 2);
+        EXPECT_TRUE(store.list().tasks(0).has_table_refresh());
+        EXPECT_EQ(
+            store.list().tasks(0).table_refresh().SerializeAsString(),
+            authorization.table_update().refresh().SerializeAsString());
+        const auto retried = store.commit(store.retry("failed-refresh")).task();
+        EXPECT_TRUE(retried.has_table_refresh());
+        EXPECT_EQ(retried.state(), task::v1::QUEUED);
+    }
+}
+
+TEST_F(TaskProcess, PublicClientsCannotClaimOrReportWorkerExecution)
+{
+    service.reset();
+    {
+        tasks::Store store(directory.path, {"task", "historical-data"});
+        for (const auto* id : {"outside-a", "outside-b", "outside-c"})
+            tasks::submit(store, id, input());
+    }
+    lease_seconds = 30;
+    start(); // No Agent or Data is running.
+    const auto refused = [&](const task::v1::TaskRequest& request) {
+        try {
+            call(request);
+            ADD_FAILURE() << "public execution was accepted";
+        } catch (const std::runtime_error& error) {
+            EXPECT_STREQ(error.what(), "task execution requires the private worker channel");
+        }
+    };
+    task::v1::TaskRequest request;
+    for (const auto* id : {"outside-a", "outside-b", "outside-c"}) {
+        request.mutable_claim()->set_id(id);
+        request.mutable_claim()->set_kind(task::v1::BACKTEST);
+        refused(request);
+    }
+    const auto attempt = call(request, endpoint + ".worker").attempt();
+    const auto id = attempt.task().id();
+    request.mutable_dispatch()->set_launch_slots(2);
+    refused(request);
+    auto* progress = request.mutable_progress();
+    progress->set_id(id);
+    progress->set_token(attempt.token());
+    progress->set_completed(1);
+    refused(request);
+    auto* finish = request.mutable_finish();
+    finish->set_id(id);
+    finish->set_token(attempt.token());
+    *finish->mutable_result() = backtest::run(input());
+    refused(request);
+    auto* failure = request.mutable_fail();
+    failure->set_id(id);
+    failure->set_token(attempt.token());
+    failure->set_error("fixture failure");
+    failure->set_error_code("operation_failed");
+    refused(request);
+    request.mutable_cancel()->set_id(id);
+    EXPECT_EQ(call(request).task().state(), task::v1::CANCEL_REQUESTED);
+    auto* ack = request.mutable_cancel_ack();
+    ack->set_id(id);
+    ack->set_token(attempt.token());
+    refused(request);
+    EXPECT_EQ(call(request, endpoint + ".worker").task().state(), task::v1::CANCELLED);
+    request.mutable_list()->set_limit(200);
+    const auto listed = call(request).tasks();
+    ASSERT_EQ(listed.tasks_size(), 3);
+    for (const auto& task : listed.tasks())
+        if (task.id() != id) {
+            EXPECT_EQ(task.state(), task::v1::QUEUED);
+            EXPECT_EQ(task.attempt(), 0U);
+        }
+}
+
+TEST(TaskHost, AdmissionExpiresWithoutAbandoningAnAcceptedCommit)
+{
+    service::reset_stop_request();
+    TaskDirectory directory;
+    {
+        tasks::Store store(directory.path, {"task", "historical-data"});
+        tasks::submit(store, "queued", input());
+    }
+    {
+        tasks::TaskHost host(
+            {directory.path, "task", "historical-data", "/unused-review-data.sock"});
+        host.open();
+        const auto operation = [&](task::v1::TaskRequest request) {
+            request.set_version(1);
+            request.set_service_id("task");
+            request.set_correlation_id(unique_process_id());
+            return host.accept(request.SerializeAsString(), tasks::TaskHost::Lane::client);
+        };
+        const auto poll = [&](service::RpcHost::Reply& request) {
+            host.advance(service::RpcHost::Stage::running);
+            return request();
+        };
+        const auto initial_deadline = std::chrono::steady_clock::now() + 5s;
+        bool initialized = false;
+        while (!initialized && std::chrono::steady_clock::now() < initial_deadline) {
+            task::v1::TaskRequest request;
+            request.mutable_heartbeat();
+            auto health = operation(request);
+            auto answer = poll(health);
+            if (answer) {
+                task::v1::TaskResponse response;
+                response.ParseFromString(answer->payload);
+                initialized = response.health().initialized();
+            }
+            std::this_thread::sleep_for(5ms);
+        }
+        ASSERT_TRUE(initialized);
+
+        struct Release
+        {
+            ~Release()
+            {
+                sqlite::hold_commits_for_testing(false);
+            }
+        } release;
+
+        sqlite::hold_commits_for_testing(true);
+        task::v1::TaskRequest cancel_request;
+        cancel_request.mutable_cancel()->set_id("queued");
+        auto cancel = operation(cancel_request);
+        const auto hold_deadline = std::chrono::steady_clock::now() + 3s;
+        while (!sqlite::commit_waiting_for_testing()
+            && std::chrono::steady_clock::now() < hold_deadline) {
+            poll(cancel);
+            std::this_thread::sleep_for(5ms);
+        }
+        const bool held = sqlite::commit_waiting_for_testing();
+        task::v1::TaskRequest list_request;
+        list_request.mutable_list()->set_limit(200);
+        auto list = operation(list_request);
+        std::optional<service::RpcHost::Message> answer;
+        const auto started = std::chrono::steady_clock::now();
+        while (!answer && std::chrono::steady_clock::now() - started < 11s) {
+            answer = poll(list);
+            std::this_thread::sleep_for(5ms);
+        }
+        const bool timed_out_without_journal = answer.has_value();
+        sqlite::hold_commits_for_testing(false);
+        std::optional<service::RpcHost::Message> cancel_answer;
+        const auto drain = std::chrono::steady_clock::now() + 5s;
+        while ((!answer || !cancel_answer) && std::chrono::steady_clock::now() < drain) {
+            host.advance(service::RpcHost::Stage::running);
+            if (!answer)
+                answer = list();
+            if (!cancel_answer)
+                cancel_answer = cancel();
+            std::this_thread::sleep_for(5ms);
+        }
+        EXPECT_TRUE(held);
+        EXPECT_TRUE(timed_out_without_journal);
+        ASSERT_TRUE(answer.has_value());
+        task::v1::TaskResponse response;
+        ASSERT_TRUE(response.ParseFromString(answer->payload));
+        EXPECT_EQ(response.error().code(), "unavailable");
+        EXPECT_EQ(response.error().message(), "task request admission timed out");
+        ASSERT_TRUE(cancel_answer);
+        ASSERT_TRUE(response.ParseFromString(cancel_answer->payload));
+        EXPECT_FALSE(response.has_error());
+        EXPECT_EQ(response.task().state(), task::v1::CANCELLED);
+    }
+    tasks::Store recovered(directory.path, {"task", "historical-data"});
+    EXPECT_EQ(recovered.describe("queued").state(), task::v1::CANCELLED);
+    EXPECT_EQ(recovered.describe("queued").attempt(), 0U);
+    EXPECT_EQ(recovered.list().tasks_size(), 1);
+}
+
+TEST(TaskStore, RefreshReceiptsMatchFixedTargetsAndAttemptIdentityAtCompletionAndRead)
+{
+    for (const bool unchanged : {false, true}) {
+        SCOPED_TRACE(unchanged);
+        TaskDirectory directory;
+        const auto authorization = refresh_authorization("refresh");
+        auto owned_store = std::make_unique<tasks::Store>(
+            directory.path,
+            tasks::Identity{"task", "historical-data"});
+        auto& store = *owned_store;
+        tasks::submit(store, authorization);
+        const auto token = store.commit(store.claim("refresh")).token();
+        task::v1::TaskFinish finish;
+        finish.set_id("refresh");
+        finish.set_token(token);
+        auto& result = *finish.mutable_table_update();
+        result.set_stored(unchanged ? 0 : 1);
+        result.set_unchanged(unchanged ? 1 : 0);
+        result.set_snapshot(std::string(64, 'e'));
+        auto& receipt = *result.mutable_refreshed_revision();
+        receipt.set_sequence(1);
+        receipt.set_table("futures.daily");
+        receipt.set_schema(1);
+        receipt.set_source("fixture.daily.v1");
+        receipt.set_exchange("SHFE");
+        receipt.set_period("2024-03-01");
+        receipt.set_rows(1);
+        receipt.set_bytes(10);
+        receipt.set_acquired_at_ns(1);
+        receipt.set_content(std::string(64, 'e'));
+        receipt.set_object(std::string(64, 'f'));
+        receipt.set_snapshot(result.snapshot());
+        // Unchanged content can have been stored by an earlier provider artifact.
+        receipt.set_provider_artifact(std::string(64, unchanged ? '9' : 'b'));
+        auto& observation = *result.mutable_refresh_observation();
+        observation.set_id(std::string(64, 'a'));
+        observation.set_operation(std::string(64, 'b'));
+        observation.set_data_instance("historical-data");
+        observation.set_task_instance("task");
+        observation.set_task_id("refresh");
+        observation.set_attempt(1);
+        observation.set_provider(authorization.table_update().provider());
+        observation.set_provider_artifact(authorization.provider_artifact());
+        observation.set_selected_snapshot(
+            authorization.table_update().refresh().previous_snapshot());
+        observation.set_selected_content(authorization.table_update().refresh().previous_content());
+        *observation.mutable_revision() = receipt;
+        observation.set_unchanged(unchanged);
+        observation.mutable_response()->set_format("tushare.fut_daily.raw.v1");
+        observation.mutable_response()->set_body("fixture response");
+        observation.mutable_response()->set_received_at_ns(2);
+        observation.set_recorded_at_ns(3);
+        observation.set_response_bytes(observation.response().body().size());
+        observation.set_response_sha256(sha256_bytes(observation.response().body()));
+        auto wrong = finish;
+        wrong.mutable_table_update()->mutable_refreshed_revision()->set_exchange("DCE");
+        wrong.mutable_table_update()->mutable_refreshed_revision()->set_period("2024-04-01");
+        EXPECT_THROW(tasks::finish(store, wrong), std::invalid_argument);
+        wrong = finish;
+        wrong.mutable_table_update()->mutable_refresh_observation()->set_attempt(2);
+        EXPECT_THROW(tasks::finish(store, wrong), std::invalid_argument);
+        wrong = finish;
+        wrong.mutable_table_update()->mutable_refresh_observation()->set_provider_artifact(
+            std::string(64, '8'));
+        EXPECT_THROW(tasks::finish(store, wrong), std::invalid_argument);
+        wrong = finish;
+        wrong.mutable_table_update()->clear_refreshed_revision();
+        wrong.mutable_table_update()->clear_refresh_observation();
+        EXPECT_THROW(tasks::finish(store, wrong), std::invalid_argument);
+        EXPECT_EQ(store.describe("refresh").state(), task::v1::RUNNING);
+        EXPECT_FALSE(std::filesystem::exists(directory.path / "refresh/results/1.pb"));
+        store.commit(tasks::finish(store, finish));
+        EXPECT_EQ(
+            tasks::verified_result(store, "refresh").table_update().SerializeAsString(),
+            result.SerializeAsString());
+        // Simulate an older writer accepting mismatched evidence with a valid digest.
+        // Offline reads must recheck the task relation, not just file integrity.
+        owned_store.reset();
+        wrong = finish;
+        wrong.mutable_table_update()->mutable_refresh_observation()->set_task_instance(
+            "another-task-service");
+        const auto raw = wrong.table_update().SerializeAsString();
+        replace_file_durably(directory.path / "refresh/results/1.pb", raw);
+        {
+            sqlite::Database db(directory.path / "tasks.sqlite");
+            task::v1::StoredTaskRecord record;
+            Json event;
+            {
+                sqlite::Database::Statement read(db, "SELECT record FROM tasks WHERE id='refresh'");
+                ASSERT_TRUE(read.step());
+                ASSERT_TRUE(record.ParseFromString(read.blob(0)));
+                sqlite::Database::Statement last(
+                    db,
+                    "SELECT body FROM task_events WHERE task_id='refresh' ORDER BY sequence DESC LIMIT 1");
+                ASSERT_TRUE(last.step());
+                event = Json::parse(last.text(0));
+            }
+            record.mutable_task()->set_result_digest(sha256_bytes(raw));
+            event["digest"] = sha256_bytes(raw);
+            sqlite::Database::Statement write(db, "UPDATE tasks SET record=? WHERE id='refresh'");
+            write.bind_blob(1, record.SerializeAsString()).step();
+            sqlite::Database::Statement last(
+                db,
+                "UPDATE task_events SET body=? WHERE task_id='refresh' AND sequence=?");
+            last.bind(1, event.dump())
+                .bind(2, static_cast<std::int64_t>(record.event_sequence()))
+                .step();
+        }
+        tasks::Store recovered(directory.path, {"task", "historical-data"});
+        EXPECT_EQ(recovered.describe("refresh").state(), task::v1::SUCCEEDED);
+        EXPECT_THROW(tasks::verified_result(recovered, "refresh"), std::invalid_argument);
+        EXPECT_EQ(sha256_file(directory.path / "refresh/results/1.pb"), sha256_bytes(raw));
+    }
 }

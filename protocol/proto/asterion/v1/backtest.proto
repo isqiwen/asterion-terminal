@@ -7,7 +7,7 @@ import "asterion/v1/data.proto";
 // Immutable data resolved by Data and captured with calculation parameters by Task. paper.contracts hold the bars
 // and trading days of each contract; the strategy runs on every contract.
 message BacktestInput {
-  uint32 version = 1; // 10
+  reserved 1;
   string dataset_revision = 2;
   asterion.protocol.v1.PaperInput paper = 3;
   // One strategy is replayed as it is. Several, up to 32 and all different,
@@ -26,12 +26,18 @@ message BacktestInput {
 // over the `validation_days` after; the next round begins `validation_days`
 // later, and the last takes the days that remain. Before the first round's
 // validation days the account holds nothing.
-message BacktestWalkForward { uint32 training_days = 1; uint32 validation_days = 2; }
+message BacktestWalkForward {
+  uint32 training_days = 1;
+  uint32 validation_days = 2;
+}
 // Month contracts of one product traded as its dominant series: on each
 // trading day only the dominant month is traded, and one strategy runs on the
 // series. Indexes refer to the contracts of the request; or the series is a
 // product of the daily table, whose months Data finds.
-message DominantSeries { repeated uint32 contracts = 1; ProductSeries product = 2; }
+message DominantSeries {
+  repeated uint32 contracts = 1;
+  ProductSeries product = 2;
+}
 // A product's daily bars in the market-wide daily table, traded as its
 // dominant series. The months that trade become contracts with these costs.
 message ProductSeries {
@@ -48,7 +54,12 @@ message BacktestContract {
 }
 // Reuse is resolved from Task-owned verified input, never client observations.
 message BacktestReuse {
-  enum DataChoice { DATA_CHOICE_UNSPECIFIED = 0; FIXED = 1; NEW_SNAPSHOT = 2; }
+  enum DataChoice {
+    DATA_CHOICE_UNSPECIFIED = 0;
+    FIXED = 1;
+    NEW_SNAPSHOT = 2;
+  }
+
   string source_id = 1;
   string source_result_digest = 2;
   string source_input_sha256 = 3;
@@ -67,7 +78,13 @@ message BacktestRequest {
   string holdout_from = 6;
   BacktestWalkForward walk_forward = 7;
 }
-enum EquityEvent { EQUITY_EVENT_UNSPECIFIED = 0; TRADE_MARK = 1; DAILY_SETTLEMENT = 2; }
+
+enum EquityEvent {
+  EQUITY_EVENT_UNSPECIFIED = 0;
+  TRADE_MARK = 1;
+  DAILY_SETTLEMENT = 2;
+}
+
 message EquityPoint {
   int64 timestamp_ns = 1;
   asterion.protocol.v1.Decimal equity = 2;
@@ -115,11 +132,14 @@ message BacktestFold {
   optional uint32 selected = 3;
 }
 // Optional observations, recorded only for single-contract daily replays.
-message BacktestFillDay { string fill_id = 1; string trading_day = 2; }
+message BacktestFillDay {
+  string fill_id = 1;
+  string trading_day = 2;
+}
 message BacktestResult {
-  uint32 version = 1;
+  reserved 1;
   string dataset_revision = 2;
-  string engine_version = 3;
+  reserved 3;
   asterion.protocol.v1.Snapshot account = 4;
   repeated EquityPoint equity = 5;
   asterion.protocol.v1.Decimal max_drawdown = 6;
@@ -134,4 +154,3 @@ message BacktestResult {
   repeated BacktestFold folds = 10;
   repeated BacktestFillDay fill_days = 11; // empty means no fill-date evidence
 }
-

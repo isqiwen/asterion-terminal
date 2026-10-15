@@ -77,7 +77,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-backtest-factor-agent-", ignor
         factor=saved["factor-recovery"][1]
         assert len(factor["result"]["samples"])==157,factor
         rolling=saved["rolling-recovery"][1]
-        assert rolling["result"]["version"]==7 and rolling["experiment"]["series"][0]["kind"]=="bars",rolling
+        assert rolling["experiment"]["series"][0]["kind"]=="bars",rolling
         assert len(rolling["result"]["folds"])==2 and len(rolling["result"]["samples"])==78,rolling
         call(process,"node.action",{"id":"local","service":"task","action":"stop"})
     finally:close(process)

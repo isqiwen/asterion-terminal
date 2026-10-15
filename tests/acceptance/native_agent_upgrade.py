@@ -144,7 +144,7 @@ with tempfile.TemporaryDirectory(prefix="ast-native-", ignore_cleanup_errors=Tru
         assert invoke("verify-stopped").returncode == 0
         # Exact quiesced checkpoint after a verified stop models the stop/save gap.
         record_path = state / "agent-service-upgrade.json"
-        record = dict(version=1, installed=str(binary), endpoint=endpoint, name=name,
+        record = dict(installed=str(binary), endpoint=endpoint, name=name,
                       before=digest(revision), after=digest(source), phase="quiesced")
         record_path.write_text(json.dumps(record))
         plan_path = state / "maintenance-plan.json"

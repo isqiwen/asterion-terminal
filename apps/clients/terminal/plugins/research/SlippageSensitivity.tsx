@@ -35,8 +35,6 @@ export function matchesSlippageBaseline(base: Evidence, value: Evidence, ticks: 
     !value.task.metadata.snapshot &&
     !!base.task.risk_artifact &&
     base.task.risk_artifact === value.task.risk_artifact &&
-    base.result.engine_version === value.result.engine_version &&
-    base.result.version === value.result.version &&
     JSON.stringify(normalize(base.experiment)) === JSON.stringify(normalize(value.experiment))
   );
 }

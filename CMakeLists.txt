@@ -131,7 +131,7 @@ foreach(schema health domain trading node market task backtest factor data data_
     DEPENDS ${ASTERION_PROTO_FILES} protobuf::protoc VERBATIM)
   list(APPEND ASTERION_PROTO_SOURCES ${ASTERION_PROTO_GEN}/asterion/v1/${schema}.pb.cc)
 endforeach()
-add_library(asterion_protocol STATIC ${ASTERION_PROTO_SOURCES} protocol/src/trading.cpp protocol/src/health.cpp protocol/src/market.cpp protocol/src/bar_dataset.cpp protocol/src/task.cpp protocol/src/task_execution.cpp protocol/src/backtest.cpp protocol/src/factor.cpp protocol/src/data.cpp protocol/src/table_series.cpp)
+add_library(asterion_protocol STATIC ${ASTERION_PROTO_SOURCES} protocol/src/trading.cpp protocol/src/health.cpp protocol/src/market.cpp protocol/src/bar_dataset.cpp protocol/src/task.cpp protocol/src/task_execution.cpp protocol/src/backtest.cpp protocol/src/backtest_result.cpp protocol/src/factor.cpp protocol/src/data.cpp protocol/src/table_series.cpp)
 target_include_directories(asterion_protocol PUBLIC protocol/include ${ASTERION_PROTO_GEN})
 target_link_libraries(asterion_protocol PUBLIC Asterion::Domain protobuf::libprotobuf)
 
@@ -240,7 +240,7 @@ foreach(application IN LISTS ASTERION_SERVICE_APPS)
 endforeach()
 add_dependencies(asterion_terminal_api ${ASTERION_SERVICE_TARGETS})
 
-foreach(target asterion_order_limits_config asterion_risk_providers asterion_order_limits_plugin asterion_tushare asterion_order_limits asterion_ctp_trader asterion_history_files asterion_history_providers asterion_task_client asterion_factor_engine asterion_factor_analysis asterion_performance asterion_task_store asterion_task_events asterion_strategies asterion_backtest_engine ${ASTERION_SERVICE_TARGETS} asterion_ctp asterion-market-data asterion_node_firewall asterion_node_storage asterion_node_supervision asterion_node_operations asterion-node-agent asterion-trading asterion_trading_session asterion_terminal_dev_bridge asterion_paper asterion_sqlite asterion_foundation asterion_kernel asterion_domain asterion_terminal_api)
+foreach(target asterion_order_limits_config asterion_risk_providers asterion_order_limits_plugin asterion_tushare asterion_order_limits asterion_ctp_trader asterion_history_files asterion_history_providers asterion_task_client asterion_factor_engine asterion_factor_analysis asterion_performance asterion_task_store asterion_task_host asterion_task_events asterion_strategies asterion_backtest_engine ${ASTERION_SERVICE_TARGETS} asterion_ctp asterion-market-data asterion_node_firewall asterion_node_storage asterion_node_supervision asterion_node_operations asterion-node-agent asterion-trading asterion_trading_session asterion_terminal_dev_bridge asterion_paper asterion_sqlite asterion_foundation asterion_kernel asterion_domain asterion_terminal_api)
   # Designated initializers omit members on purpose; Clang accepts that and
   # GCC's -Wextra would reject it. GCC 15, optimizing, takes the object behind
   # a structured binding of a co_await, and members an aggregate initializer

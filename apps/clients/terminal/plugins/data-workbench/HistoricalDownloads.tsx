@@ -581,11 +581,6 @@ function SourceDownloads({
 
 export function HistoricalDownloads(context: TerminalContext) {
   const sources = historySources(context.snapshot?.data?.sources ?? []);
-  // Only the summaries remain; there is no reader or worker for these records.
-  const unsupported = (context.snapshot?.task_service?.tasks ?? []).filter(
-    task => task.kind === "daily_download",
-  );
-  const [error, setError] = useState<DisplayError>("");
   const [sourceId, setSourceId] = useWorkspaceDraft("historySource", "");
   const source = sources.find(item => item.id === sourceId) ?? sources[0];
   return (
@@ -611,32 +606,6 @@ export function HistoricalDownloads(context: TerminalContext) {
           </select>
         </label>
       </header>
-      {unsupported.length > 0 && (
-        <section aria-label={t("不支持的下载记录")}>
-          <p>{t("按合约日线下载已停止支持，任务与文件仍保留。日线请查看全市场数据。")}</p>
-          {unsupported.map(task => (
-            <div className="publication-row" key={task.id}>
-              <span>
-                {task.instrument} · {task.id} · {t(states[task.state])}
-              </span>
-              {task.state === "queued" && (
-                <button
-                  disabled={context.busy || !context.snapshot?.task_service?.online}
-                  onClick={() => {
-                    setError("");
-                    void context
-                      .trade("task.action", { id: task.id, action: "cancel" })
-                      .catch(reason => setError(asDisplayError(reason)));
-                  }}
-                >
-                  {t("取消")}
-                </button>
-              )}
-            </div>
-          ))}
-          {error && <ErrorNotice error={error} namespace="asterion.terminal.data-workbench" />}
-        </section>
-      )}
       {source ? (
         <>
           <div className="history-capabilities">

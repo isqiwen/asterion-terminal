@@ -59,14 +59,12 @@ test("other data services retain known references and disclose stopped or failed
             roles: ["market"],
           },
         ],
-        unreadable: 2,
       },
       {
         node: "测试节点 B",
         service: "backtest-factor-b",
         checked: false,
         references: [],
-        unreadable: 0,
         error: "data/task service is not running; references were not inspected",
       },
       {
@@ -74,7 +72,6 @@ test("other data services retain known references and disclose stopped or failed
         service: "",
         checked: false,
         references: [],
-        unreadable: 0,
         error: "historical service inspection timed out",
       },
     ];
@@ -91,10 +88,6 @@ test("other data services retain known references and disclose stopped or failed
   const taskService = archive.getByRole("region", { name: "其他数据服务", exact: true });
   await expect(taskService.getByRole("table")).toContainText("跨服务输入");
   await expect(taskService.getByRole("table")).toContainText("行情输入");
-  // What another version stored there is counted, not read.
-  await expect(taskService).toContainText(
-    "另有 2 个由其他版本保存的任务或数据集无法读取，不能判断它们是否使用了此版本。",
-  );
   await expect(taskService.getByRole("alert")).toHaveCount(2);
   const stopped = taskService.getByRole("region", {
     name: "测试节点 B / backtest-factor-b",

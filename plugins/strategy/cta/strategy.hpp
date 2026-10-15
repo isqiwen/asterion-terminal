@@ -6,78 +6,87 @@
 #include <memory>
 #include <optional>
 #include <vector>
+
 namespace asterion {
+
 // A trading rule applied to one contract's completed bars. It has no clock,
 // data source or execution: its host feeds the bars, valid and each on the
 // price increment of its day, and routes the targets.
-class Strategy {
+class Strategy
+{
 public:
-  virtual ~Strategy() = default;
-  void start();
-  void stop() noexcept;
-  // Called once per completed bar, in order. The returned target is the
-  // position wanted in lots, positive long and negative short: the quantity
-  // on the side the rule takes, where the strategy may hold that side, and
-  // zero otherwise. Absent until the rule has seen enough bars. It is an
-  // intent, never an authorized order.
-  std::optional<Decimal> on_bar(const MarketBar& bar);
+    virtual ~Strategy() = default;
+    void start();
+    void stop() noexcept;
+    // Called once per completed bar, in order. The returned target is the
+    // position wanted in lots, positive long and negative short: the quantity
+    // on the side the rule takes, where the strategy may hold that side, and
+    // zero otherwise. Absent until the rule has seen enough bars. It is an
+    // intent, never an authorized order.
+    std::optional<Decimal> on_bar(const MarketBar& bar);
 
 protected:
-  Strategy(Decimal quantity, PositionSides sides);
+    Strategy(Decimal quantity, PositionSides sides);
 
 private:
-  // Forget every bar seen.
-  virtual void reset() = 0;
-  // The side the rule takes after this bar: 1 long, -1 short, 0 none.
-  virtual std::optional<int> decide(const MarketBar& bar) = 0;
-  Decimal quantity_;
-  PositionSides sides_;
-  std::int64_t last_time_ = -1;
-  bool running_ = false;
+    // Forget every bar seen.
+    virtual void reset() = 0;
+    // The side the rule takes after this bar: 1 long, -1 short, 0 none.
+    virtual std::optional<int> decide(const MarketBar& bar) = 0;
+    Decimal quantity_;
+    PositionSides sides_;
+    std::int64_t last_time_ = -1;
+    bool running_ = false;
 };
+
 // The definition is valid for the contract or this throws. A rule over
 // several contracts is not a strategy for one.
-std::unique_ptr<Strategy> make_strategy(const protocol::v1::Strategy& definition,
-                                        const Instrument& instrument);
+std::unique_ptr<Strategy>
+make_strategy(const protocol::v1::Strategy& definition, const Instrument& instrument);
+
 // A rule over several units at once, each a contract or a product's dominant
 // series: it ranks them on the bars they all have and says which to hold long
 // and which short: the highest long and the lowest short, or the other way
 // round when the rule is reversed. How many lots that is for each is its host's to work out.
 // Like a Strategy it has no clock, data source or execution.
-class CrossSection {
+class CrossSection
+{
 public:
-  // Whether the definition's rule ranks several units.
-  static bool defines(const protocol::v1::Strategy& definition);
-  // The definition ranks `units` units or this throws.
-  CrossSection(const protocol::v1::Strategy& definition, std::size_t units);
-  // One completed bar of one unit: its close, and for a ranking by the term
-  // structure the carry its day began with. Timestamps never go back; a unit
-  // has one bar at a timestamp.
-  void on_bar(std::size_t unit, std::int64_t timestamp_ns, Decimal close, Decimal term = {});
-  // Called when no more bars of the last timestamp will come. Where every
-  // unit had a bar and the rule rebalances, what is wanted of each unit from
-  // now on: positive long, negative short, zero none. The size is the share
-  // of the rule's notional the unit is to hold: one, or with a volatility
-  // window its part of what the held units hold together, split by the
-  // inverse of the standard deviation of their returns. A held unit whose
-  // closes did not vary has no volatility to size by and is not held. Absent
-  // otherwise.
-  std::optional<std::vector<double>> rank();
+    // Whether the definition's rule ranks several units.
+    static bool defines(const protocol::v1::Strategy& definition);
+    // The definition ranks `units` units or this throws.
+    CrossSection(const protocol::v1::Strategy& definition, std::size_t units);
+    // One completed bar of one unit: its close, and for a ranking by the term
+    // structure the carry its day began with. Timestamps never go back; a unit
+    // has one bar at a timestamp.
+    void on_bar(std::size_t unit, std::int64_t timestamp_ns, Decimal close, Decimal term = {});
+    // Called when no more bars of the last timestamp will come. Where every
+    // unit had a bar and the rule rebalances, what is wanted of each unit from
+    // now on: positive long, negative short, zero none. The size is the share
+    // of the rule's notional the unit is to hold: one, or with a volatility
+    // window its part of what the held units hold together, split by the
+    // inverse of the standard deviation of their returns. A held unit whose
+    // closes did not vary has no volatility to size by and is not held. Absent
+    // otherwise.
+    std::optional<std::vector<double>> rank();
 
 private:
-  struct Bar {
-    Decimal close, term;
-  };
-  // What the units are ranked by, computed as a factor evaluation computes
-  // it. `need_` bars every unit had are kept: those the first ranking needs.
-  protocol::v1::Factor factor_;
-  bool reversed_;
-  std::size_t lookback_, volatility_, need_, rebalance_, count_;
-  PositionSides sides_;
-  std::int64_t time_ = -1;
-  // The bars of the current timestamp, and the last bars every unit had.
-  std::vector<std::optional<Bar>> latest_;
-  std::vector<std::deque<Bar>> bars_;
-  std::size_t shared_ = 0;
+    struct Bar
+    {
+        Decimal close, term;
+    };
+
+    // What the units are ranked by, computed as a factor evaluation computes
+    // it. `need_` bars every unit had are kept: those the first ranking needs.
+    protocol::v1::Factor factor_;
+    bool reversed_;
+    std::size_t lookback_, volatility_, need_, rebalance_, count_;
+    PositionSides sides_;
+    std::int64_t time_ = -1;
+    // The bars of the current timestamp, and the last bars every unit had.
+    std::vector<std::optional<Bar>> latest_;
+    std::vector<std::deque<Bar>> bars_;
+    std::size_t shared_ = 0;
 };
+
 } // namespace asterion

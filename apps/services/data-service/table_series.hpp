@@ -6,41 +6,53 @@
 #include <map>
 #include <string>
 #include <vector>
+
 namespace asterion::data {
+
 // Read one immutable settlement observation without assigning units/effective dates.
-historical_costs::MarginFact settlement_margin_fact(const history_files::TableStore&,
-                                                    const std::string& snapshot,
-                                                    const history_files::TableSeries&,
-                                                    const std::string& contract,
-                                                    const std::string& observed_day);
+historical_costs::MarginFact settlement_margin_fact(
+    const history_files::TableStore&,
+    const std::string& snapshot,
+    const history_files::TableSeries&,
+    const std::string& contract,
+    const std::string& observed_day);
+
 // A day a contract traded on in the auction: the table has all five of these
 // for it.
-struct DailyTrade {
-  Decimal open, high, low, close, volume;
+struct DailyTrade
+{
+    Decimal open, high, low, close, volume;
 };
+
 // What contracts of one exchange did on the trading days of a range, as the
 // daily table holds it under a snapshot. A day a contract has no row on, or
 // no value for, is not in its map.
-struct DailyFacts {
-  // By contract, then by trading day.
-  std::map<std::string, std::map<std::string, Decimal>> settlement, open_interest;
-  // Read only where trades are asked for: the days a contract traded on. A
-  // day it did not has a settlement, and a close equal to it, and is not here.
-  std::map<std::string, std::map<std::string, DailyTrade>> trades;
-  // What a lot of a contract was worth on a day it has a turnover: the amount
-  // over the volume, which is a price times the contract's multiplier. It
-  // checks a multiplier and is no ledger figure.
-  std::map<std::string, std::map<std::string, long double>> lot_value;
-  // When the partition of each trading day of the range was acquired.
-  std::map<std::string, std::int64_t> acquired_at_ns;
+struct DailyFacts
+{
+    // By contract, then by trading day.
+    std::map<std::string, std::map<std::string, Decimal>> settlement, open_interest;
+    // Read only where trades are asked for: the days a contract traded on. A
+    // day it did not has a settlement, and a close equal to it, and is not here.
+    std::map<std::string, std::map<std::string, DailyTrade>> trades;
+    // What a lot of a contract was worth on a day it has a turnover: the amount
+    // over the volume, which is a price times the contract's multiplier. It
+    // checks a multiplier and is no ledger figure.
+    std::map<std::string, std::map<std::string, long double>> lot_value;
+    // When the partition of each trading day of the range was acquired.
+    std::map<std::string, std::int64_t> acquired_at_ns;
 };
+
 // A name is a contract (SHFE/rb/2026-10), or a product ending in a slash
 // (SHFE/rb/) for every contract of it. Fails rather than reads around a hole,
 // as table_series does.
-DailyFacts daily_facts(const history_files::TableStore&, const v1::DailyTable&,
-                       const std::string& venue, const std::string& begin_day,
-                       const std::string& end_day, const std::vector<std::string>& names,
-                       bool trades = false);
+DailyFacts daily_facts(
+    const history_files::TableStore&,
+    const v1::DailyTable&,
+    const std::string& venue,
+    const std::string& begin_day,
+    const std::string& end_day,
+    const std::vector<std::string>& names,
+    bool trades = false);
 // A product's price increment on each day of [begin_day, end_day] it traded
 // on, as its prices show it: the contract table has only today's, and an
 // exchange changes it (gold traded on 0.05 until 2019-12-09, on 0.02 since).
@@ -57,18 +69,22 @@ DailyFacts daily_facts(const history_files::TableStore&, const v1::DailyTable&,
 // increment_days stored days of the exchange on either side of it, so that a
 // day's increment does not depend on the range it is read in.
 inline constexpr std::size_t increment_days = 20;
-std::map<std::string, Decimal> price_increments(const history_files::TableStore&,
-                                                const v1::DailyTable&, const std::string& venue,
-                                                const std::string& product,
-                                                const std::string& begin_day,
-                                                const std::string& end_day);
+std::map<std::string, Decimal> price_increments(
+    const history_files::TableStore&,
+    const v1::DailyTable&,
+    const std::string& venue,
+    const std::string& product,
+    const std::string& begin_day,
+    const std::string& end_day);
 // What a lot of each contract is worth per unit of its price, from the
 // snapshot's contract table: its multiplier (one where it has none) times its
 // lot in the unit it is traded in, taken to the unit its price is quoted per.
 // Fails for a contract the table lacks, and for units it cannot read.
-std::map<std::string, Decimal> contract_multipliers(const history_files::TableStore&,
-                                                    const v1::DailyTable&, const std::string& venue,
-                                                    const std::vector<std::string>& contracts);
+std::map<std::string, Decimal> contract_multipliers(
+    const history_files::TableStore&,
+    const v1::DailyTable&,
+    const std::string& venue,
+    const std::vector<std::string>& contracts);
 // The series of a request's instruments, read from the market-wide daily table
 // as the request's snapshot holds it. Nothing is read of another snapshot, so
 // the same request always makes the same series.
@@ -86,33 +102,47 @@ std::map<std::string, Decimal> contract_multipliers(const history_files::TableSt
 v1::TableSeriesGroup table_series(const history_files::TableStore&, const v1::TableSeriesRequest&);
 // The products of every exchange the snapshot holds a contract list of.
 v1::TableProducts table_products(const history_files::TableStore&, const v1::TableProductsQuery&);
-v1::TableListedContracts table_listed_contracts(const history_files::TableStore&,
-                                                const v1::TableListedContractsQuery&);
+v1::TableListedContracts
+table_listed_contracts(const history_files::TableStore&, const v1::TableListedContractsQuery&);
 // The contracts of one product of one exchange in a snapshot's contract list
 // that have a listing day, a delisting day and the source's code for them,
 // ascending; what a download of one of them asks for. `source` names the
 // reply; the list read is `contracts_source`.
-v1::HistoryCatalog table_contracts(const history_files::TableStore&, const std::string& snapshot,
-                                   const std::string& source, const std::string& contracts_source,
-                                   const std::string& exchange, const std::string& product);
+v1::HistoryCatalog table_contracts(
+    const history_files::TableStore&,
+    const std::string& snapshot,
+    const std::string& source,
+    const std::string& contracts_source,
+    const std::string& exchange,
+    const std::string& product);
+
 // The part of [first, last] the snapshot's daily table holds of a contract's
 // exchange, from the first such day to the last, and the days of it the
 // contract traded in the auction, ascending. Empty when the table holds none
 // of them. Fails rather than reads around a hole inside that part, as
 // table_series does.
-struct TradedDays {
-  std::string first, last;
-  std::vector<std::string> traded;
+struct TradedDays
+{
+    std::string first, last;
+    std::vector<std::string> traded;
 };
-std::string previous_trading_day(const history_files::TableStore&, const v1::DailyTable&,
-                                 const std::string& venue, const std::string& first_day);
-TradedDays traded_days(const history_files::TableStore&, const v1::DailyTable&,
-                       const std::string& contract, const std::string& first,
-                       const std::string& last);
+
+std::string previous_trading_day(
+    const history_files::TableStore&,
+    const v1::DailyTable&,
+    const std::string& venue,
+    const std::string& first_day);
+TradedDays traded_days(
+    const history_files::TableStore&,
+    const v1::DailyTable&,
+    const std::string& contract,
+    const std::string& first,
+    const std::string& last);
 // One contract as a chart draws it: the days it traded in the auction, from
 // the day the snapshot's contract list lists it to the day it delists it, and
 // of those the stored ones; grouped by the period asked for, with MACD from
 // the first candle. Unlike a series it does not fail on a day the table lacks:
 // that day is not drawn. A contract the contract list lacks is refused.
 v1::TableDailyPage table_daily(const history_files::TableStore&, const v1::TableDailyQuery&);
+
 } // namespace asterion::data

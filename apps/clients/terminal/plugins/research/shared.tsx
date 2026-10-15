@@ -82,15 +82,6 @@ type TaskService = NonNullable<NonNullable<TerminalContext["snapshot"]>["task_se
 export type ResearchTask = TaskService["tasks"][number];
 export type Run = (method: TerminalCommand, params?: Record<string, unknown>) => Promise<boolean>;
 
-export function requiresNewFactorTask(message: string) {
-  return [
-    "unsupported table series version",
-    "unsupported factor input version",
-    "unsupported factor result version",
-    "task input was stored by another version; submit the task again",
-    "task input reads differently in this version; submit it again",
-  ].includes(message);
-}
 /** Runs commands for one page; a failure becomes the page's error instead of an exception. */
 export function useRun(trade: TerminalContext["trade"]) {
   const [error, setError] = useState<DisplayError>("");
@@ -153,7 +144,6 @@ export function TaskRecords({
   describe,
   onProgress,
   onResult,
-  onRecreate,
 }: Pick<TerminalContext, "busy" | "trade" | "query"> & {
   heading?: string;
   taskService: TaskService | null | undefined;
@@ -162,7 +152,6 @@ export function TaskRecords({
   describe?: (task: ResearchTask) => string;
   onProgress?: (task: ResearchTask) => void;
   onResult: (task: ResearchTask) => void;
-  onRecreate?: (task: ResearchTask) => void;
 }) {
   return (
     <section aria-label={t("研究任务")}>
@@ -247,20 +236,10 @@ export function TaskRecords({
                       )}
                       {["failed", "cancelled", "interrupted"].includes(task.state) && (
                         <button
-                          disabled={
-                            busy || !taskService.online || requiresNewFactorTask(task.error)
-                          }
+                          disabled={busy || !taskService.online}
                           onClick={() => void run("task.action", { id: task.id, action: "retry" })}
                         >
                           {t("重新运行")}
-                        </button>
-                      )}
-                      {onRecreate && requiresNewFactorTask(task.error) && (
-                        <button
-                          disabled={busy || !taskService.online}
-                          onClick={() => onRecreate(task)}
-                        >
-                          {t("创建新实验")}
                         </button>
                       )}
                     </td>

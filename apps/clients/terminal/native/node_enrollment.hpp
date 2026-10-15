@@ -1,6 +1,8 @@
 #pragma once
 #include "node_client.hpp"
+
 namespace asterion::terminal {
+
 // Names only; never reads identities, contacts hosts or creates directories.
 Json registered_node_inventory();
 Json prepare_ssh_key(const std::string& id);
@@ -12,4 +14,5 @@ NodeEndpoint enrolled_node(const std::string& id);
 // Agent and services stop and start on it, and their data is not touched.
 NodeEndpoint replace_node_identity(ServiceIo&, const Json& parameters);
 void create_node_identity(const std::filesystem::path& directory, const std::string& host);
+
 } // namespace asterion::terminal

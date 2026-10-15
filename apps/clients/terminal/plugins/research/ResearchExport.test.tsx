@@ -18,7 +18,7 @@ test("development download reports exact receipt and explains summary-only input
       name: "task.evidence.json",
       sha256: "a".repeat(64),
       bytes: 40,
-      content: '{"version":1}',
+      content: '{"format":"asterion.research.evidence"}',
     },
   }));
   render(<ResearchExport id="task" kind="factor" busy={false} query={query} />);

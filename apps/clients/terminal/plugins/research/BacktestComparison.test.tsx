@@ -47,13 +47,11 @@ function evidence(id: string): BacktestEvidence {
       updated_at_ms: 1,
     },
     experiment: {
-      version: 10,
       dataset_revision: "b".repeat(64),
       strategies: [{ quantity: "1", sides: "both", rule: { kind: "momentum", lookback: 2 } }],
       holdout_day: "",
       walk_forward: null,
       paper: {
-        version: 4,
         type: "historical_paper",
         deposit: "10000",
         risk,
@@ -77,7 +75,6 @@ function evidence(id: string): BacktestEvidence {
               },
             ],
             dataset: {
-              version: 5,
               revision: "b".repeat(64),
               source: "daily",
               source_dataset_ids: [],
@@ -120,9 +117,7 @@ function evidence(id: string): BacktestEvidence {
       series: [[{ trading_day: "2026-09-22", contract: 0, factor: "1" }]],
     },
     result: {
-      version: 6,
       dataset_revision: "b".repeat(64),
-      engine_version: "asterion.backtest.v19",
       candidates: [],
       selected: 0,
       folds: [],
@@ -264,7 +259,7 @@ test("read-only comparison preserves zero, undefined and inapplicable metrics an
     "not_applicable",
   );
 });
-test("different cost, risk, slippage, rolls, validation, data and engine must be independent", async () => {
+test("different cost, risk, slippage, rolls, validation, data must be independent", async () => {
   const a = evidence("base"),
     b = evidence("different");
   b.experiment.paper.contracts[0].cost_schedule[0].values.open_fee = "2";
@@ -275,7 +270,6 @@ test("different cost, risk, slippage, rolls, validation, data and engine must be
   b.experiment.holdout_day = "2026-09-24";
   b.experiment.dataset_revision = "e".repeat(64);
   b.experiment.paper.contracts[0].dataset.daily.snapshot = "e".repeat(64);
-  b.result.engine_version = "other";
   const reasons = backtestComparisonReasons(a, b);
   expect(reasons).toEqual(
     expect.arrayContaining([
@@ -286,7 +280,6 @@ test("different cost, risk, slippage, rolls, validation, data and engine must be
       "训练或验证边界不同",
       "固定数据内容不同",
       "固定快照不同",
-      "输入、结果或引擎版本不同",
     ]),
   );
   const snapshot = readySnapshot();

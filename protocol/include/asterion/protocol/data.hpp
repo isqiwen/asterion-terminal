@@ -4,9 +4,12 @@
 #include <asterion/domain/market.hpp>
 #include <asterion/protocol/trading.hpp>
 #include <asterion/v1/data.pb.h>
+#include <asterion/v1/data_service.pb.h>
 #include <map>
 #include <span>
+
 namespace asterion::protocol {
+
 data::v1::HistoryUpdateQuery encode_history_update_query(const Json&);
 Json decode_history_update_query(const data::v1::HistoryUpdateQuery&);
 Json decode_history_usage(const data::v1::HistoryUsage&);
@@ -26,15 +29,23 @@ Json decode_table_refresh_plan(const data::v1::TableRefreshPlan&);
 void validate_table_update(const data::v1::TableUpdate&);
 data::v1::TableUpdate encode_table_update(const Json&);
 Json decode_table_update(const data::v1::TableUpdate&);
+// Verify completion evidence against the fixed target and execution identity, offline.
+void validate_table_update_result(
+    const data::v1::TableUpdate&,
+    const data::v1::DownloadIdentity&,
+    const data::v1::TableUpdateResult&);
 Json decode_table_update_result(const data::v1::TableUpdateResult&);
 Json decode_table_coverage(const data::v1::TableCoverage&);
 data::v1::TablePageQuery encode_table_page_query(const Json&);
 Json decode_table_page(const data::v1::TablePage&);
+
 // Series of the market-wide daily table. An instrument is a contract
 // (SHFE/rb/2026-10) or a product (SHFE/rb): its delivery month is then empty.
-struct TableInstrument {
-  std::string venue, product, delivery_month;
+struct TableInstrument
+{
+    std::string venue, product, delivery_month;
 };
+
 // What one request may ask for: more than there are futures products.
 inline constexpr int max_table_instruments = 100;
 TableInstrument table_instrument(std::string_view text);
@@ -82,7 +93,6 @@ MarketBar market_bar(const v1::Bar&);
 std::string bar_dataset_revision(const data::v1::BarDataset&);
 // Validates structure, order, contract units, that every bar is on the price
 // increment of its day and falls on one of the days, and the revision.
-inline constexpr unsigned bar_dataset_version = 5;
 void validate_bar_dataset(const data::v1::BarDataset&);
 std::vector<MarketBar> dataset_bars(const data::v1::BarDataset&);
 // The days its price increment changes after the first bar's, ascending.
@@ -104,11 +114,12 @@ Json decode_product_bars_request(const data::v1::ProductBarsRequest&);
 // months of one product, each from a later trading day, with positive
 // factors that end in 1. Its term points, at most one a day
 // from its first, compare positive settlements with a later delivery month.
-void validate_dominant_schedule(const data::v1::DominantSchedule& schedule,
-                                std::span<const v1::Contract* const> contracts);
+void validate_dominant_schedule(
+    const data::v1::DominantSchedule& schedule,
+    std::span<const v1::Contract* const> contracts);
 // The roll in force on a trading day; the first roll before the series begins.
-const data::v1::DominantRoll& dominant_roll(const data::v1::DominantSchedule& schedule,
-                                            const std::string& trading_day);
+const data::v1::DominantRoll&
+dominant_roll(const data::v1::DominantSchedule& schedule, const std::string& trading_day);
 // A month's raw price at the level of the series' latest month, back on the
 // price grid. Signals and factors read it; orders and fills never do.
 Decimal dominant_price(Decimal raw, Decimal factor, Decimal increment);
@@ -119,11 +130,12 @@ Json decode_dominant_schedule(const data::v1::DominantSchedule& schedule);
 Decimal term_carry(const data::v1::TermPoint& point, const std::string& near_month);
 // The carry each trading day of a valid schedule begins with, where it has a
 // term point; `contracts` are those its rolls name by index.
-std::map<std::string, Decimal> term_carries(const data::v1::DominantSchedule& schedule,
-                                            std::span<const v1::Contract* const> contracts);
+std::map<std::string, Decimal> term_carries(
+    const data::v1::DominantSchedule& schedule,
+    std::span<const v1::Contract* const> contracts);
 Json decode_term_points(const data::v1::DominantSchedule& schedule);
 std::string named_dataset_revision(const data::v1::NamedDataset&);
-inline constexpr unsigned named_dataset_version = 4;
 void validate_named_dataset(const data::v1::NamedDataset&);
 Json decode_named_dataset(const data::v1::NamedDataset&);
+
 } // namespace asterion::protocol

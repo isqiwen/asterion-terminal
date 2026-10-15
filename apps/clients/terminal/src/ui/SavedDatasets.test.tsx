@@ -39,9 +39,7 @@ test("a saved dataset names each contract as history does, with its days", async
       busy={false}
       revision={0}
       trade={async () => {}}
-      query={async () =>
-        ({ saved_datasets: [saved], saved_datasets_unsupported: 0 }) as unknown as Snapshot
-      }
+      query={async () => ({ saved_datasets: [saved] }) as unknown as Snapshot}
     />,
   );
   fireEvent.change(await screen.findByRole("combobox", { name: "已保存数据集" }), {

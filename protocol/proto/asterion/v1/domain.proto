@@ -2,7 +2,9 @@ syntax = "proto3";
 package asterion.protocol.v1;
 
 // All authoritative decimal values use exactly eight fractional decimal places.
-message Decimal { sint64 units = 1; }
+message Decimal {
+  sint64 units = 1;
+}
 message Contract {
   string venue = 1;
   string symbol = 2;
@@ -24,4 +26,7 @@ message Bar {
   Decimal volume = 7;
 }
 // Provider settlement price of one trading day.
-message TradingDay { string trading_day = 1; Decimal settlement_price = 2; }
+message TradingDay {
+  string trading_day = 1;
+  Decimal settlement_price = 2;
+}

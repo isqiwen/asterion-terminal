@@ -32,7 +32,6 @@ function evidence(id: string): FactorEvidence {
       updated_at_ms: 1,
     },
     experiment: {
-      version: 9,
       dataset_revision: "a".repeat(64),
       factor: "momentum",
       lookbacks: [2],
@@ -59,9 +58,7 @@ function evidence(id: string): FactorEvidence {
       ],
     },
     result: {
-      version: 9,
       dataset_revision: "a".repeat(64),
-      engine_version: "asterion.factor.v11",
       lookback: 2,
       horizon: 1,
       input_count: 40,
@@ -143,7 +140,7 @@ test("comparison labels parameter differences, preserves zero and undefined, and
   );
   expect(factorComparisonValueState("每侧 1 个的多空差", noObservations)).toBe("no_observations");
 });
-test("data, eligibility, horizon and engine differences cannot appear as comparable methodology", () => {
+test("data, eligibility, horizon differences cannot appear as comparable methodology", () => {
   const a = evidence("a"),
     b = evidence("b");
   b.experiment.dataset_revision = "c".repeat(64);
@@ -151,26 +148,24 @@ test("data, eligibility, horizon and engine differences cannot appear as compara
     b.experiment.series[0].data.snapshot = "e".repeat(64);
   b.experiment.horizon = 2;
   b.experiment.liquidity = { minimum_history: 2, minimum_volume: "0", minimum_open_interest: "0" };
-  b.result.engine_version = "other";
   expect(factorComparisonReasons(a, b)).toEqual(
     expect.arrayContaining([
       "固定数据内容不同",
       "固定快照不同",
       "未来收益跨度不同",
       "资格筛选规则不同",
-      "输入、结果或引擎版本不同",
     ]),
   );
   a.experiment.evaluation = { mode: "holdout", split_index: 20 };
   expect(factorComparisonReasons(a, b)).toContain("仅支持全样本评价");
 });
-test("incompatible old result reads show their error without retries or writes", async () => {
+test("failed result reads show their error without retries or writes", async () => {
   const a = evidence("a"),
     b = evidence("legacy"),
     snapshot = readySnapshot();
   snapshot.task_service!.tasks = [a.task, b.task];
   const query = vi.fn(async (_method: string, params?: Record<string, unknown>) => {
-    if (params?.id === "legacy") throw new Error("unsupported factor input version");
+    if (params?.id === "legacy") throw new Error("invalid factor result");
     return { ...snapshot, task_result: a };
   });
   render(<FactorComparison snapshot={snapshot} busy={false} query={query} />);
@@ -178,7 +173,7 @@ test("incompatible old result reads show their error without retries or writes",
   fireEvent.click(screen.getByRole("button", { name: "读取并比较" }));
   await waitFor(() => expect(query).toHaveBeenCalledTimes(2));
   expect(await screen.findByText("部分结果不可读，以下仅列示已读取结果。")).toBeTruthy();
-  expect(screen.getByText("unsupported factor input version")).toBeTruthy();
+  expect(screen.getByText("invalid factor result")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "导出当前比较证据" })).toBeNull();
 });
 

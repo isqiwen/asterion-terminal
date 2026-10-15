@@ -189,7 +189,6 @@ test("daily factor reuse keeps original snapshots or explicitly chooses revised 
   const comparisonDocument = JSON.parse(comparisonBytes.toString("utf8"));
   expect(comparisonDocument).toMatchObject({
     format: "asterion.research.comparison.evidence",
-    version: 1,
   });
   expect(comparisonDocument.matrix.columns.map((column: { id: string }) => column.id)).toEqual([
     id,
@@ -259,7 +258,6 @@ test("daily factor reuse keeps original snapshots or explicitly chooses revised 
   const document = JSON.parse(bytes.toString("utf8"));
   expect(document).toMatchObject({
     format: "asterion.research.evidence",
-    version: 1,
     source: {
       task_id: id,
       kind: "factor",

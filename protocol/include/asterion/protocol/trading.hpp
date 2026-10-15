@@ -3,7 +3,9 @@
 #include <asterion/domain/position_target.hpp>
 #include <asterion/foundation/serialization.hpp>
 #include <asterion/v1/trading.pb.h>
+
 namespace asterion::protocol {
+
 v1::Contract encode_contract(const Json& input);
 Json decode_contract(const v1::Contract& input);
 // Which sides a strategy may hold: "both", "long" or "short".
@@ -38,7 +40,11 @@ v1::Costs encode_costs(const FuturesCosts& costs);
 ContractTerms contract_terms(const v1::PaperContract& contract);
 // Identity of a portfolio's data; a single dataset's own revision.
 std::string dataset_revision(const v1::PaperInput& input);
-enum class DatasetView { full, metadata };
+enum class DatasetView
+{
+    full,
+    metadata
+};
 // More would say the model no longer fits the contract.
 inline constexpr unsigned max_slippage_ticks = 100;
 Json decode_input(const v1::PaperInput& input, DatasetView view = DatasetView::full);
@@ -46,7 +52,7 @@ v1::Command encode_command(const Json& command);
 Json decode_command(const v1::Command& command);
 v1::Snapshot encode_snapshot(const Json& snapshot);
 Json decode_snapshot(const v1::Snapshot& snapshot);
-// Live manifest version 5 ("live_ctp") and the broker-reported session state.
+// Live manifest ("live_ctp") and the broker-reported session state.
 v1::LivePolicy encode_live_policy(const Json& policy);
 Json decode_live_policy(const v1::LivePolicy& policy);
 v1::LiveInput encode_live_input(const Json& manifest);
@@ -54,4 +60,5 @@ Json decode_live_input(const v1::LiveInput& input);
 v1::LiveSnapshot encode_live_snapshot(const Json& snapshot);
 Json decode_live_snapshot(const v1::LiveSnapshot& snapshot);
 void validate_message(const google::protobuf::Message& message);
+
 } // namespace asterion::protocol

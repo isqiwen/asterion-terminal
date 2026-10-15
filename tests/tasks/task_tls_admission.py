@@ -72,7 +72,7 @@ with tempfile.TemporaryDirectory(prefix="ast-backtest-factor-admission-", ignore
                     if b"task service is initializing" not in response or time.monotonic() >= deadline:
                         break
                     time.sleep(.05)
-                assert b"task dispatch requires the private worker channel" in response, response
+                assert b"task execution requires the private worker channel" in response, response
 
     finally:
         process.kill()

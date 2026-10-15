@@ -18,8 +18,19 @@ philosophy guides implementation within those constraints.
 - No legacy interfaces, protocols, aliases, compatibility layers, parallel
   implementations, migration entry points, or downgrade paths. Update callers,
   tests, and documentation together.
-- Reject unsupported inputs and persisted formats. Version checks reject unsupported
-  formats; they do not restore old implementations. Preserve user data.
+- The project is unreleased and has no historical-data compatibility commitment.
+  Maintain only the current development contract. Git records implementation history.
+- Do not accumulate internal engine or persisted-format version counters, bump them
+  after routine changes, or add old-format readers, migration paths, retained legacy
+  task kinds, or UI flows for rebuilding unsupported historical experiments.
+- Change current producers, consumers, fixtures, and documentation together. Validate
+  the actual structure, identities, content digests, and domain invariants; reject
+  invalid input explicitly. Preserve existing files; never silently convert or delete them.
+- Keep dependency locks, plugin ABI checks, build/artifact identities, the current
+  transport contract, and domain revisions (data snapshots, policy revisions, attempt
+  tokens). These serve current correctness and are not development-history counters.
+- Establish release and compatibility policy when preparing the first release, based
+  on actual distribution and data-retention requirements.
 
 ## Architecture
 
@@ -42,12 +53,12 @@ philosophy guides implementation within those constraints.
 - Core and services emit English diagnostics; cross-process errors carry `ErrorCode`.
   Register new user-facing diagnostics in `apps/clients/terminal/src/i18n/locales/diagnostics.*.json`.
 - Write durable state and keys through `kernel/durable_file.hpp`.
-- Bump the log engine identifier in `apps/services/trading/live_session.cpp` when
-  risk or trading-command semantics change. Bump the backtest engine version when
-  matching, fees, or margin semantics change. Reject mismatched identifiers on recovery.
 - Lock dependencies with Conan and pnpm. No implicit downloads or global include/link
   paths. Use spdlog, CLI11, and GoogleTest + CTest.
-- Follow `.clang-format` and Prettier. Run `pnpm run format` before committing.
+- Follow `.clang-format` (clang-format 23.1.1) and Prettier. C/C++ uses four-space
+  indentation; Protobuf and frontend code use two. Keep nonempty function/lambda
+  bodies expanded and definitions separated as enforced by the formatter.
+  Run `pnpm run format` before committing; `pnpm run format:check` checks both formatters.
 
 ## Data and Trading Safety
 

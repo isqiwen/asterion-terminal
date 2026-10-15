@@ -7,7 +7,6 @@ import type { TableRefreshObservation } from "../../src/bridge/client";
 registerTerminalPlugins([plugin]);
 const observation: TableRefreshObservation = {
   kind: "explicit_refresh_response_observation",
-  version: 1,
   id: "a".repeat(64),
   operation: "b".repeat(64),
   data_instance: "data",

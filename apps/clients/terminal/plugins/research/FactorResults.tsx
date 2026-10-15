@@ -315,7 +315,6 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
         <p>
           {t("数据版本")} <code>{result.dataset_revision}</code>
         </p>
-        <p>{result.engine_version}</p>
       </details>
     </section>
   );

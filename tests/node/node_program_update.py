@@ -63,7 +63,7 @@ with tempfile.TemporaryDirectory(prefix="ast-upgrade-", ignore_cleanup_errors=Tr
     assert replace("0" * 64).returncode != 0
     assert digest(installed) == before
 
-    record = {"version": 1, "installed": str(installed), "before": before, "after": after}
+    record = {"installed": str(installed), "before": before, "after": after}
     journal = root / "agent-upgrade.json"
     pending = root / "agent-upgrade.pending"
     staged = root / "bin" / "agent-upgrade.staged"

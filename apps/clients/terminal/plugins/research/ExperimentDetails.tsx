@@ -321,8 +321,7 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
           </section>
         ))}
         <p>
-          {t("提交时间")}: {new Date(evidence.task.submitted_at_ms).toLocaleString(getLocale())} ·{" "}
-          {t("输入版本")}: {experiment.version}
+          {t("提交时间")}: {new Date(evidence.task.submitted_at_ms).toLocaleString(getLocale())}
         </p>
         <p>
           {t("数据版本")} <code>{experiment.dataset_revision}</code>

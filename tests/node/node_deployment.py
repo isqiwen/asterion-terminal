@@ -66,7 +66,7 @@ with tempfile.TemporaryDirectory(prefix="asterion-agent-中文-", ignore_cleanup
     agent = launch_node()
     enrollment = root / "local/enrollments/task"; enrollment.mkdir(parents=True)
     for file in ("ca.crt", "client.crt", "client.key"): shutil.copyfile(root / file, enrollment / file)
-    (enrollment / "enrollment.json").write_text(json.dumps({"version": 1, "id": "task", "host": "localhost", "port": management, "os": "linux"}))
+    (enrollment / "enrollment.json").write_text(json.dumps({"id": "task", "host": "localhost", "port": management, "os": "linux"}))
     resources=make_bundle(root / "resources", Path(node).resolve().parent, strip_debug=True)
     terminal = subprocess.Popen([bridge], env=dict(os.environ, ASTERION_REMOTE_RESOURCES=str(resources), ASTERION_NODE_DIRECTORY=str(root / "local")), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8")
     try:

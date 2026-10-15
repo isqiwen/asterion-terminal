@@ -10,7 +10,6 @@ registerTerminalPlugins([plugin]);
 test("reuse requires an explicit fixed or new snapshot choice and creates a separate task", async () => {
   const snapshot = readySnapshot();
   const experiment: FactorExperiment = {
-    version: 9,
     factor: "momentum",
     dataset_revision: "a".repeat(64),
     lookbacks: [2],

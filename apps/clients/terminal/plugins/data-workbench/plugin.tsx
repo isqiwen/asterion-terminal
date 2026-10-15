@@ -38,12 +38,7 @@ export const plugin: TerminalPlugin = {
   languageResources: { "zh-CN": zh, "en-US": en },
   tasks: context =>
     (context.snapshot?.task_service?.tasks ?? [])
-      .filter(
-        task =>
-          task.kind === "minute_download" ||
-          task.kind === "daily_download" ||
-          task.kind === "table_update",
-      )
+      .filter(task => task.kind === "minute_download" || task.kind === "table_update")
       .map(task => ({
         id: task.id,
         title:

@@ -28,6 +28,7 @@ message LiquidityRule {
   int64 minimum_volume = 2;
   int64 minimum_open_interest = 3;
 }
+
 enum MembershipReason {
   MEMBERSHIP_UNSPECIFIED = 0;
   MEMBERSHIP_ELIGIBLE = 1;
@@ -38,6 +39,7 @@ enum MembershipReason {
   MEMBERSHIP_BELOW_VOLUME = 6;
   MEMBERSHIP_BELOW_OPEN_INTEREST = 7;
 }
+
 // One row for each raw fixed daily close, including warm-up and the tail.
 // A series absent on a date is unobserved, not a fabricated zero observation.
 message FactorMembership {
@@ -46,7 +48,7 @@ message FactorMembership {
   MembershipReason reason = 3;
 }
 message FactorInput {
-  uint32 version = 1; // 10
+  reserved 1;
   string dataset_revision = 2; // The revision of the series.
   // One series is evaluated over its own observations. Three to a hundred of
   // the same period, each a different contract or product, are evaluated
@@ -116,9 +118,9 @@ message FactorCrossSection {
 }
 message FactorResult {
   repeated FactorMembership memberships = 15;
-  uint32 version = 1;
+  reserved 1;
   string dataset_revision = 2;
-  string engine_version = 3;
+  reserved 3;
   uint32 lookback = 4;
   uint32 horizon = 5;
   uint32 input_count = 6; // Observations any of the series has.
@@ -175,4 +177,3 @@ message FactorFold {
   FactorPartition development = 6;
   FactorPartition holdout = 7;
 }
-

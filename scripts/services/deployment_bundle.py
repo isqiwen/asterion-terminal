@@ -26,7 +26,7 @@ if arch == "x86_64": files.extend([build / "ctp-md.so", build / "ctp-trader.so"]
 files.append(build / "plugins/asterion-tushare.so")
 files.append(build / "plugins/asterion-order-limits.so")
 product_version = json.loads((Path(__file__).resolve().parents[2] / "apps/clients/terminal/electron/package.json").read_text())["version"]
-manifest = {"version": 2, "source_sha256": source_hash, "product_version": product_version, "os": os_name, "arch": arch, "files": {p.relative_to(build).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}}
+manifest = {"source_sha256": source_hash, "product_version": product_version, "os": os_name, "arch": arch, "files": {p.relative_to(build).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}}
 initializer = Path(__file__).resolve().parents[1] / "node/initialize-linux.py"
 manifest["files"]["initialize-linux.py"] = hashlib.sha256(initializer.read_bytes()).hexdigest()
 output = build / "deployment"

@@ -6,7 +6,11 @@ end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
 
-[*.{cpp,hpp,h,ts,tsx,js,mjs,json,css,html,yml,yaml,cmake}]
+[*.{c,cpp,hpp,h}]
+indent_style = space
+indent_size = 4
+
+[*.{ts,tsx,js,mjs,cjs,json,css,html,yml,yaml,cmake,proto}]
 indent_style = space
 indent_size = 2
 

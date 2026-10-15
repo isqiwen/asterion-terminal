@@ -13,12 +13,6 @@ export function factorComparisonReasons(base: FactorEvidence, value: FactorEvide
   if (!daily(base) || !daily(value)) reasons.push("仅支持日线表因子");
   if (a.evaluation.mode !== "full_sample" || b.evaluation.mode !== "full_sample")
     reasons.push("仅支持全样本评价");
-  if (
-    a.version !== b.version ||
-    base.result.version !== value.result.version ||
-    base.result.engine_version !== value.result.engine_version
-  )
-    reasons.push("输入、结果或引擎版本不同");
   if (a.horizon !== b.horizon) reasons.push("未来收益跨度不同");
   const ranges = (v: FactorEvidence) =>
     v.experiment.series.map(s =>
@@ -305,10 +299,6 @@ export function FactorComparison({
                       ? `${t("此前连续历史")}: ${v.experiment.liquidity.minimum_history}; ${t("上一观测成交量")}: ${v.experiment.liquidity.minimum_volume}; ${t("上一观测持仓量")}: ${v.experiment.liquidity.minimum_open_interest}`
                       : t("未启用"),
                   ),
-                )}
-                {row(
-                  "引擎版本",
-                  loaded.map(v => v.result.engine_version),
                 )}
                 {row(
                   "结果摘要",

@@ -47,13 +47,13 @@ test("Agent initialization failure stays on the Agent step and exposes its cause
   failure = {
     code: "invalid_request",
     message:
-      "Agent initialization failed; inspect node logs: unsupported managed service configuration version: test-node/services/market-data/service.json",
+      "Agent initialization failed; inspect node logs: invalid managed service configuration: test-node/services/market-data/service.json",
   };
   await waitFor(() => expect(failedStep()).toBe("服务管理器"));
   const alert = screen.getByRole("alert");
   expect(alert.textContent).toContain("Agent 初始化失败，请检查节点日志");
   fireEvent.click(within(alert).getByRole("button", { name: "详情" }));
-  expect(alert.textContent).toContain("unsupported managed service configuration version");
+  expect(alert.textContent).toContain("invalid managed service configuration");
   expect(sent(calls, "market.local")).toEqual([]);
 });
 

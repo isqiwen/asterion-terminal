@@ -2,7 +2,9 @@
 #include <filesystem>
 #include <string_view>
 #include <stdexcept>
+
 namespace asterion {
+
 // Creates or truncates `path`, writes all of `contents` and forces it to stable
 // storage before returning (F_FULLFSYNC on macOS, fsync on Linux), then
 // synchronizes its directory entry. owner_only creates the file as 0600 and
@@ -10,8 +12,10 @@ namespace asterion {
 // The opened descriptor is checked before truncation: no symbolic links,
 // nonregular files, foreign ownership or multiple hard links are accepted.
 // Throws std::runtime_error; on failure the file content is unspecified.
-void write_file_durably(const std::filesystem::path& path, std::string_view contents,
-                        bool owner_only = true);
+void write_file_durably(
+    const std::filesystem::path& path,
+    std::string_view contents,
+    bool owner_only = true);
 // Flushes an existing file produced by another writer without replacing its
 // inode, changing permissions, or rewriting its bytes; then syncs its directory.
 // POSIX requires a private caller-owned parent and an owned, single-link regular
@@ -26,15 +30,19 @@ void create_directories_durably(const std::filesystem::path& directory);
 // Durable replacement: exclusively create a unique sibling temporary
 // file, write and sync its owned descriptor, then rename and sync the directory.
 // A crash leaves the old or the new content; callers own private parent paths.
-void replace_file_durably(const std::filesystem::path& path, std::string_view contents,
-                          bool owner_only = true);
+void replace_file_durably(
+    const std::filesystem::path& path,
+    std::string_view contents,
+    bool owner_only = true);
 // Publishes a file another writer produced: forces `temporary` to stable
 // storage, verifies the opened regular file still names the same object, renames
 // it to `path` and syncs both parents if different. Callers own private parents;
 // trusted same-user code is not a filesystem security isolation boundary.
-void publish_file_durably(const std::filesystem::path& temporary,
-                          const std::filesystem::path& path);
+void publish_file_durably(
+    const std::filesystem::path& temporary,
+    const std::filesystem::path& path);
 // Test hook: fail the next directory synchronization operations before callers
 // can commit an authoritative database/configuration reference.
 void fail_next_directory_syncs_for_testing(int count);
+
 } // namespace asterion

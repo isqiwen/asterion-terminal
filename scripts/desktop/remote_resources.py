@@ -21,7 +21,7 @@ def files_for(arch):
 
 def validate(manifest, files, arch):
     version = json.loads((ROOT/'apps/clients/terminal/electron/package.json').read_text())['version']
-    if set(manifest) != {'version','product_version','source_sha256','os','arch','files'} or manifest['version'] != 2 or manifest['product_version'] != version or manifest['os'] != 'linux' or manifest['arch'] != arch or set(manifest['files']) != set(files_for(arch)):
+    if set(manifest) != {'product_version','source_sha256','os','arch','files'} or manifest['product_version'] != version or manifest['os'] != 'linux' or manifest['arch'] != arch or set(manifest['files']) != set(files_for(arch)):
         raise ValueError('Linux service manifest/version/architecture mismatch')
     if manifest['source_sha256'] != fingerprint():
         raise ValueError('Linux service source differs from this desktop source; rebuild the remote bundle')

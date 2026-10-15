@@ -22,760 +22,902 @@
 #include <unistd.h>
 
 using nlohmann::json;
+
 namespace {
-struct Fixture {
-  std::filesystem::path directory =
-      std::filesystem::temp_directory_path() /
-      ("asterion-terminal-test-" +
-       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-  Fixture() {
-    EXPECT_TRUE((std::filesystem::create_directory(directory))) << "create temp directory";
-  }
-  ~Fixture() {
-    std::error_code error;
-    std::filesystem::remove_all(directory, error);
-  }
+
+struct Fixture
+{
+    std::filesystem::path directory = std::filesystem::temp_directory_path()
+        / ("asterion-terminal-test-"
+            + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+
+    Fixture()
+    {
+        EXPECT_TRUE((std::filesystem::create_directory(directory))) << "create temp directory";
+    }
+
+    ~Fixture()
+    {
+        std::error_code error;
+        std::filesystem::remove_all(directory, error);
+    }
 };
+
 // The seeded history contract with the costs these tests trade it under.
-json fixture_contracts() {
-  return json::array({{{"venue", "SHFE"},
-                       {"symbol", "rb2610"},
-                       {"slippage_ticks", 0},
-                       {"cost_schedule", json::array({{{"effective_from", "1970-01-01"},
-                                                       {"source", "test fixture"},
-                                                       {"values",
-                                                        {{"margin_per_lot", "100"},
-                                                         {"open_fee", "2"},
-                                                         {"close_today_fee", "3"},
-                                                         {"close_yesterday_fee", "4"},
-                                                         {"margin_rate", "0"},
-                                                         {"open_fee_rate", "0"},
-                                                         {"close_today_fee_rate", "0"},
-                                                         {"close_yesterday_fee_rate", "0"}}}}})}}});
+json fixture_contracts()
+{
+    return json::array(
+        {{{"venue", "SHFE"},
+            {"symbol", "rb2610"},
+            {"slippage_ticks", 0},
+            {"cost_schedule",
+                json::array(
+                    {{{"effective_from", "1970-01-01"},
+                        {"source", "test fixture"},
+                        {"values",
+                            {{"margin_per_lot", "100"},
+                                {"open_fee", "2"},
+                                {"close_today_fee", "3"},
+                                {"close_yesterday_fee", "4"},
+                                {"margin_rate", "0"},
+                                {"open_fee_rate", "0"},
+                                {"close_today_fee_rate", "0"},
+                                {"close_yesterday_fee_rate", "0"}}}}})}}});
 }
-json call(void* runtime, const json& request) {
-  std::unique_ptr<char, decltype(&asterion_terminal_free)> result(
-      asterion_terminal_call(runtime, request.dump().c_str()), asterion_terminal_free);
-  EXPECT_TRUE((result != nullptr)) << "response allocated";
-  return json::parse(result.get());
-}
-json request(std::string method, json params = json::object()) {
-  return {{"version", 1}, {"method", method}, {"params", params}};
-}
-json history(void* runtime, const std::vector<int>& prices, const std::string& id) {
-  auto invoke = [&](const std::string& method, json params = json::object()) {
-    auto result = call(runtime, request(method, std::move(params)));
-    if (result.contains("error"))
-      throw std::runtime_error(result.dump());
-    return result.at("result");
-  };
-  invoke("node.data_tasks.local.open");
-  const auto stopped =
-      invoke("node.action", {{"id", "local"}, {"service", "historical-data"}, {"action", "stop"}});
-  std::string directory;
-  for (const auto& node : stopped.at("nodes"))
-    if (node.at("id") == "local")
-      for (const auto& service : node.at("health").at("services"))
-        if (service.at("id") == "historical-data")
-          directory = service.at("directory").get<std::string>();
-  auto selection = asterion::test::seed_history(directory, prices, id);
-  // What the fixture says beside the selection itself.
-  selection.erase("daily_sequence");
-  selection.erase("daily_dataset_id");
-  invoke("node.data_tasks.local.open");
-  const auto deadline =
-      std::chrono::steady_clock::now() + asterion::testing_support::bound(std::chrono::seconds(10));
-  while (!invoke("runtime.snapshot").at("data").at("online").get<bool>()) {
-    if (std::chrono::steady_clock::now() >= deadline)
-      throw std::runtime_error("isolated data service did not become available");
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-  }
-  return selection;
-}
-} // namespace
-TEST(ResearchComparisonExport, PreservesColumnOrderStatesAndReasonsAndRejectsUnrelatedFields) {
-  const json task = {
-      {"attempt", 1}, {"result_digest", std::string(64, 'a')}, {"metadata", json::object()}};
-  const json first = {{"id", "first"},
-                      {"kind", "factor"},
-                      {"task", task},
-                      {"experiment", {{"dataset_revision", std::string(64, 'b')}}},
-                      {"result", {{"version", 9}}}};
-  auto second = first;
-  second["id"] = "second";
-  const json matrix = {
-      {"language", "en-US"},
-      {"reference_id", "first"},
-      {"columns",
-       json::array(
-           {json{{"id", "first"}, {"methodology", "comparable"}, {"reasons", json::array()}},
-            json{{"id", "second"},
-                 {"methodology", "independent"},
-                 {"reasons", json::array({"Fixed snapshots differ"})}}})},
-      {"rows",
-       json::array({json{
-           {"label", "Pearson"},
-           {"cells",
-            json::array({json{{"text", "0.0000"}, {"state", "defined"}, {"metrics", json::array()}},
-                         json{{"text", "Undefined"},
-                              {"state", "undefined"},
-                              {"metrics", json::array()}}})}}})}};
-  const auto content =
-      asterion::terminal::comparison_evidence_document({first, second}, "research-task", matrix);
-  const auto document = json::parse(content);
-  EXPECT_EQ(document.at("format"), "asterion.research.comparison.evidence");
-  EXPECT_EQ(document.at("matrix"), matrix);
-  EXPECT_EQ(document.at("experiments").at(0).at("source").at("task_id"), "first");
-  EXPECT_EQ(document.at("experiments").at(1).at("source").at("task_id"), "second");
-  EXPECT_THROW(
-      asterion::terminal::comparison_evidence_document({second, first}, "research-task", matrix),
-      std::invalid_argument);
-  auto unrelated = matrix;
-  unrelated["settings"] = {{"password", "must-not-export"}};
-  EXPECT_THROW(
-      asterion::terminal::comparison_evidence_document({first, second}, "research-task", unrelated),
-      asterion::Error);
-  auto invalid = matrix;
-  invalid["rows"][0]["cells"][0]["state"] = "unknown";
-  EXPECT_THROW(
-      asterion::terminal::comparison_evidence_document({first, second}, "research-task", invalid),
-      std::invalid_argument);
-}
-TEST(ResearchEvidenceExport, ContainsOnlyResearchEvidenceAndNeverOverwritesAnExistingFile) {
-  Fixture fixture;
-  const json task = {
-      {"attempt", 1},
-      {"result_digest", std::string(64, 'a')},
-      {"metadata", {{"name", "test"}, {"note", "notes"}, {"source_id", "original"}}}};
-  const json source = {{"id", "factor-test"},
-                       {"kind", "factor"},
-                       {"task", task},
-                       {"experiment", {{"dataset_revision", std::string(64, 'b')}}},
-                       {"result", {{"version", 9}, {"samples", json::array()}}},
-                       {"settings", {{"password", "not-exported"}}},
-                       {"nodes", {{"host", "not-exported"}}}};
-  const auto content = asterion::terminal::research_evidence_document(source, "research-task");
-  const auto document = json::parse(content);
-  EXPECT_EQ(document.at("format"), "asterion.research.evidence");
-  EXPECT_EQ(document.at("version"), 1);
-  EXPECT_EQ(document.at("experiment"), source.at("experiment"));
-  EXPECT_EQ(document.at("result"), source.at("result"));
-  EXPECT_EQ(document.at("description"), task.at("metadata"));
-  EXPECT_TRUE(document.at("source").at("input_sha256").is_null());
-  EXPECT_FALSE(document.contains("settings"));
-  auto backtest = source;
-  backtest["kind"] = "backtest";
-  backtest["portfolio"] = json::object();
-  backtest["performance"] = json::object();
-  backtest["trades"] = json::object();
-  backtest["reconciliation"] = {{"state", "missing_fill_days"}, {"days", json::array()}};
-  const auto backtest_document =
-      json::parse(asterion::terminal::research_evidence_document(backtest, "research-task"));
-  EXPECT_EQ(backtest_document.at("reconciliation"), backtest.at("reconciliation"));
 
-  EXPECT_FALSE(document.contains("nodes"));
-  EXPECT_EQ(content.find("not-exported"), std::string::npos);
-  const auto path = fixture.directory / "evidence.json";
-  asterion::terminal::save_research_evidence(path, content);
-  EXPECT_EQ(asterion::sha256_file(path), asterion::sha256_bytes(content));
-  EXPECT_THROW(asterion::terminal::save_research_evidence(path, "replacement"),
-               std::invalid_argument);
-  EXPECT_EQ(asterion::sha256_file(path), asterion::sha256_bytes(content));
-  auto unsupported = source;
-  unsupported["kind"] = "minute_download";
-  EXPECT_THROW(asterion::terminal::research_evidence_document(unsupported, "research-task"),
-               std::invalid_argument);
-}
-TEST(TerminalApi, CreationPreservesTypedFailureAndClearsTheOutput) {
-  const char* value = std::getenv("ASTERION_LOG_DIRECTORY");
-  const std::optional<std::string> saved = value ? std::optional<std::string>(value) : std::nullopt;
-  ASSERT_EQ(::setenv("ASTERION_LOG_DIRECTORY", "relative", 1), 0);
-  char* failure = nullptr;
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> rejected(
-      asterion_terminal_create(&failure), asterion_terminal_destroy);
-  std::unique_ptr<char, decltype(&asterion_terminal_free)> detail(failure, asterion_terminal_free);
-  if (saved)
-    ::setenv("ASTERION_LOG_DIRECTORY", saved->c_str(), 1);
-  else
-    ::unsetenv("ASTERION_LOG_DIRECTORY");
-  ASSERT_EQ(rejected, nullptr);
-  ASSERT_NE(detail, nullptr);
-  const auto response = json::parse(detail.get());
-  EXPECT_EQ(response.at("error").at("code"), "invalid_request");
-  EXPECT_EQ(response.at("error").at("message"), "invalid log file or retention");
-  failure = detail.get(); // The successful call must clear, not retain, this pointer.
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
-      asterion_terminal_create(&failure), asterion_terminal_destroy);
-  ASSERT_NE(runtime, nullptr);
-  EXPECT_EQ(failure, nullptr);
-}
-TEST(TerminalApi, SnapshotRejectsMalformedQueriesBeforeReadingState) {
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
-      asterion_terminal_create(nullptr), asterion_terminal_destroy);
-  ASSERT_NE(runtime, nullptr);
-  for (const auto& params : std::vector<json>{nullptr,
-                                              json::array(),
-                                              true,
-                                              "invalid",
-                                              {{"extra", true}},
-                                              {{"since", -1}},
-                                              {{"since", 1.5}},
-                                              {{"since", "1"}},
-                                              {{"since", 0}, {"extra", true}}}) {
-    const auto response = call(runtime.get(), request("runtime.snapshot", params));
-    ASSERT_TRUE(response.contains("error")) << params.dump() << ": " << response.dump();
-    EXPECT_EQ(response.at("error").at("code"), "invalid_request");
-  }
-  EXPECT_TRUE(call(runtime.get(), request("runtime.snapshot")).contains("result"));
-}
-TEST(TerminalApi, AutomaticShutdownCannotTargetProductionOrIsolatedFixtures) {
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
-      asterion_terminal_create(nullptr), asterion_terminal_destroy);
-  ASSERT_NE(runtime, nullptr);
-  for (bool recover : {false, true}) {
-    const auto response =
-        call(runtime.get(), request("development.shutdown", {{"recover", recover}}));
-    ASSERT_TRUE(response.contains("error"));
-    EXPECT_EQ(response.at("error").at("code"), "permission_denied");
-  }
-}
-TEST(TerminalApi, Contracts) {
-
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
-      asterion_terminal_create(nullptr), asterion_terminal_destroy);
-  EXPECT_TRUE((runtime != nullptr)) << "runtime allocated";
-  EXPECT_TRUE((call(runtime.get(), request("runtime.snapshot"))["result"]["datasets"].empty()))
-      << "no invented dataset";
-  {
-    std::unique_ptr<char, decltype(&asterion_terminal_free)> response(
-        asterion_terminal_call(
-            runtime.get(),
-            R"({"version":1,"method":"runtime.snapshot","method":"live.close","params":{}})"),
+json call(void* runtime, const json& request)
+{
+    std::unique_ptr<char, decltype(&asterion_terminal_free)> result(
+        asterion_terminal_call(runtime, request.dump().c_str()),
         asterion_terminal_free);
-    EXPECT_TRUE((response && json::parse(response.get())["error"]["code"] == "invalid_request"))
-        << "duplicate method cannot bypass dispatch";
-  }
-  const auto params = history(runtime.get(), {100, 101}, "contracts");
-  auto imported = call(runtime.get(), request("data.dataset.select", params));
-  ASSERT_TRUE(imported.contains("result")) << imported.dump();
-  ASSERT_EQ(imported["result"]["datasets"].size(), 1U);
-  const auto dataset = imported["result"]["datasets"][0];
-  EXPECT_EQ(dataset["count"], 2);
-  EXPECT_EQ(dataset["last_close"], "101");
-  EXPECT_TRUE(dataset["last_timestamp_ns"].is_string());
-  auto invalid = params;
-  invalid["begin_day"] = "2026-02-30";
-  EXPECT_TRUE(call(runtime.get(), request("data.dataset.select", invalid)).contains("error"));
-  EXPECT_EQ(call(runtime.get(), request("runtime.snapshot"))["result"]["datasets"],
-            json::array({dataset}));
-  auto wrong = request("runtime.snapshot");
-  wrong["version"] = 2;
-  EXPECT_TRUE((call(runtime.get(), wrong).contains("error"))) << "unsupported version rejected";
-  EXPECT_TRUE((call(runtime.get(), request("missing")).contains("error")))
-      << "unsupported method rejected";
-  EXPECT_TRUE((call(nullptr, request("runtime.snapshot")).contains("error")))
-      << "null runtime rejected without crossing ABI";
-  auto extra = params;
-  extra["extra"] = true;
-  EXPECT_TRUE((call(runtime.get(), request("data.dataset.select", extra)).contains("error")))
-      << "unknown fields rejected";
-  // Selecting the same contract again replaces it; removal names the contract.
-  EXPECT_EQ(
-      call(runtime.get(), request("data.dataset.select", params))["result"]["datasets"].size(), 1U);
-  EXPECT_TRUE(
-      call(runtime.get(), request("data.dataset.remove", {{"venue", "SHFE"}, {"symbol", "rb2611"}}))
-          .contains("error"));
-  EXPECT_TRUE(
-      call(runtime.get(), request("data.dataset.remove",
-                                  {{"venue", "SHFE"}, {"symbol", "rb2610"}}))["result"]["datasets"]
-          .empty());
-  using namespace asterion;
-  FuturesContract czce{
-      {{"CZCE", "SR609"}, "CNY", Decimal::parse("1"), Decimal::parse("1"), Decimal::parse("10")},
-      "SR",
-      "2026-09"};
-  czce.validate();
-  czce.instrument.id.venue = "NYMEX";
-  EXPECT_THROW(([&] { czce.validate(); })(), std::invalid_argument);
+    EXPECT_TRUE((result != nullptr)) << "response allocated";
+    return json::parse(result.get());
 }
 
-TEST(TerminalApi, DataProgramUpdatePreservesServiceBindingAndPublishedVersions) {
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
-      asterion_terminal_create(nullptr), asterion_terminal_destroy);
-  ASSERT_TRUE(runtime);
-  const auto selection = history(runtime.get(), {100, 101}, "data-update");
-  auto invoke = [&](const std::string& method, json params = json::object()) {
-    const auto response = call(runtime.get(), request(method, std::move(params)));
-    if (response.contains("error"))
-      throw std::runtime_error(response.dump());
-    return response.at("result");
-  };
-  const auto original = invoke("data.dataset.select", selection).at("datasets");
-  auto service = [](const json& snapshot) {
-    for (const auto& node : snapshot.at("nodes"))
-      if (node.at("id") == "local")
-        for (const auto& item : node.at("health").at("services"))
-          if (item.at("id") == "historical-data")
-            return item;
-    throw std::runtime_error("fixture data service not found");
-  };
-  const auto stopped = service(
-      invoke("node.action", {{"id", "local"}, {"service", "historical-data"}, {"action", "stop"}}));
-  const auto updated = service(invoke(
-      "node.update",
-      {{"id", "local"}, {"service", "historical-data"}, {"revision", stopped.at("revision")}}));
-  EXPECT_EQ(updated.at("state"), "stopped");
-  EXPECT_EQ(updated.at("task_service"), stopped.at("task_service"));
-  EXPECT_EQ(updated.at("directory"), stopped.at("directory"));
-  invoke("node.data_tasks.local.open");
-  const auto deadline =
-      std::chrono::steady_clock::now() + asterion::testing_support::bound(std::chrono::seconds(10));
-  while (!invoke("runtime.snapshot").at("data").at("online").get<bool>()) {
-    ASSERT_LT(std::chrono::steady_clock::now(), deadline);
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-  }
-  invoke("data.dataset.clear");
-  EXPECT_EQ(invoke("data.dataset.select", selection).at("datasets"), original);
+json request(std::string method, json params = json::object())
+{
+    return {{"version", 1}, {"method", method}, {"params", params}};
+}
+
+json history(void* runtime, const std::vector<int>& prices, const std::string& id)
+{
+    auto invoke = [&](const std::string& method, json params = json::object()) {
+        auto result = call(runtime, request(method, std::move(params)));
+        if (result.contains("error"))
+            throw std::runtime_error(result.dump());
+        return result.at("result");
+    };
+    invoke("node.data_tasks.local.open");
+    const auto stopped = invoke(
+        "node.action",
+        {{"id", "local"}, {"service", "historical-data"}, {"action", "stop"}});
+    std::string directory;
+    for (const auto& node : stopped.at("nodes"))
+        if (node.at("id") == "local")
+            for (const auto& service : node.at("health").at("services"))
+                if (service.at("id") == "historical-data")
+                    directory = service.at("directory").get<std::string>();
+    auto selection = asterion::test::seed_history(directory, prices, id);
+    // What the fixture says beside the selection itself.
+    selection.erase("daily_sequence");
+    selection.erase("daily_dataset_id");
+    invoke("node.data_tasks.local.open");
+    const auto deadline = std::chrono::steady_clock::now()
+        + asterion::testing_support::bound(std::chrono::seconds(10));
+    while (!invoke("runtime.snapshot").at("data").at("online").get<bool>()) {
+        if (std::chrono::steady_clock::now() >= deadline)
+            throw std::runtime_error("isolated data service did not become available");
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    return selection;
+}
+
+} // namespace
+
+TEST(ResearchComparisonExport, PreservesColumnOrderStatesAndReasonsAndRejectsUnrelatedFields)
+{
+    const json task =
+        {{"attempt", 1}, {"result_digest", std::string(64, 'a')}, {"metadata", json::object()}};
+    const json first = {
+        {"id", "first"},
+        {"kind", "factor"},
+        {"task", task},
+        {"experiment", {{"dataset_revision", std::string(64, 'b')}}},
+        {"result", {{"samples", json::array()}}}
+    };
+    auto second = first;
+    second["id"] = "second";
+    const json matrix = {
+        {"language", "en-US"},
+        {"reference_id", "first"},
+        {"columns",
+            json::array(
+                {json{{"id", "first"}, {"methodology", "comparable"}, {"reasons", json::array()}},
+                    json{
+                        {"id", "second"},
+                        {"methodology", "independent"},
+                        {"reasons", json::array({"Fixed snapshots differ"})}
+                    }})},
+        {"rows",
+            json::array({json{
+                {"label", "Pearson"},
+                {"cells",
+                    json::array(
+                        {json{{"text", "0.0000"}, {"state", "defined"}, {"metrics", json::array()}},
+                            json{
+                                {"text", "Undefined"},
+                                {"state", "undefined"},
+                                {"metrics", json::array()}
+                            }})}
+            }})}
+    };
+    const auto content =
+        asterion::terminal::comparison_evidence_document({first, second}, "research-task", matrix);
+    const auto document = json::parse(content);
+    EXPECT_EQ(document.at("format"), "asterion.research.comparison.evidence");
+    EXPECT_EQ(document.at("matrix"), matrix);
+    EXPECT_EQ(document.at("experiments").at(0).at("source").at("task_id"), "first");
+    EXPECT_EQ(document.at("experiments").at(1).at("source").at("task_id"), "second");
+    EXPECT_THROW(
+        asterion::terminal::comparison_evidence_document({second, first}, "research-task", matrix),
+        std::invalid_argument);
+    auto unrelated = matrix;
+    unrelated["settings"] = {{"password", "must-not-export"}};
+    EXPECT_THROW(
+        asterion::terminal::comparison_evidence_document(
+            {first, second},
+            "research-task",
+            unrelated),
+        asterion::Error);
+    auto invalid = matrix;
+    invalid["rows"][0]["cells"][0]["state"] = "unknown";
+    EXPECT_THROW(
+        asterion::terminal::comparison_evidence_document({first, second}, "research-task", invalid),
+        std::invalid_argument);
+}
+
+TEST(ResearchEvidenceExport, ContainsOnlyResearchEvidenceAndNeverOverwritesAnExistingFile)
+{
+    Fixture fixture;
+    const json task = {
+        {"attempt", 1},
+        {"result_digest", std::string(64, 'a')},
+        {"metadata", {{"name", "test"}, {"note", "notes"}, {"source_id", "original"}}}
+    };
+    const json source = {
+        {"id", "factor-test"},
+        {"kind", "factor"},
+        {"task", task},
+        {"experiment", {{"dataset_revision", std::string(64, 'b')}}},
+        {"result", {{"samples", json::array()}}},
+        {"settings", {{"password", "not-exported"}}},
+        {"nodes", {{"host", "not-exported"}}}
+    };
+    const auto content = asterion::terminal::research_evidence_document(source, "research-task");
+    const auto document = json::parse(content);
+    EXPECT_EQ(document.at("format"), "asterion.research.evidence");
+    EXPECT_EQ(document.at("experiment"), source.at("experiment"));
+    EXPECT_EQ(document.at("result"), source.at("result"));
+    EXPECT_EQ(document.at("description"), task.at("metadata"));
+    EXPECT_TRUE(document.at("source").at("input_sha256").is_null());
+    EXPECT_FALSE(document.contains("settings"));
+    auto backtest = source;
+    backtest["kind"] = "backtest";
+    backtest["portfolio"] = json::object();
+    backtest["performance"] = json::object();
+    backtest["trades"] = json::object();
+    backtest["reconciliation"] = {{"state", "missing_fill_days"}, {"days", json::array()}};
+    const auto backtest_document =
+        json::parse(asterion::terminal::research_evidence_document(backtest, "research-task"));
+    EXPECT_EQ(backtest_document.at("reconciliation"), backtest.at("reconciliation"));
+
+    EXPECT_FALSE(document.contains("nodes"));
+    EXPECT_EQ(content.find("not-exported"), std::string::npos);
+    const auto path = fixture.directory / "evidence.json";
+    asterion::terminal::save_research_evidence(path, content);
+    EXPECT_EQ(asterion::sha256_file(path), asterion::sha256_bytes(content));
+    EXPECT_THROW(
+        asterion::terminal::save_research_evidence(path, "replacement"),
+        std::invalid_argument);
+    EXPECT_EQ(asterion::sha256_file(path), asterion::sha256_bytes(content));
+    auto unsupported = source;
+    unsupported["kind"] = "minute_download";
+    EXPECT_THROW(
+        asterion::terminal::research_evidence_document(unsupported, "research-task"),
+        std::invalid_argument);
+}
+
+TEST(TerminalApi, CreationPreservesTypedFailureAndClearsTheOutput)
+{
+    const char* value = std::getenv("ASTERION_LOG_DIRECTORY");
+    const std::optional<std::string> saved =
+        value ? std::optional<std::string>(value) : std::nullopt;
+    ASSERT_EQ(::setenv("ASTERION_LOG_DIRECTORY", "relative", 1), 0);
+    char* failure = nullptr;
+    std::unique_ptr<void, decltype(&asterion_terminal_destroy)> rejected(
+        asterion_terminal_create(&failure),
+        asterion_terminal_destroy);
+    std::unique_ptr<char, decltype(&asterion_terminal_free)> detail(
+        failure,
+        asterion_terminal_free);
+    if (saved)
+        ::setenv("ASTERION_LOG_DIRECTORY", saved->c_str(), 1);
+    else
+        ::unsetenv("ASTERION_LOG_DIRECTORY");
+    ASSERT_EQ(rejected, nullptr);
+    ASSERT_NE(detail, nullptr);
+    const auto response = json::parse(detail.get());
+    EXPECT_EQ(response.at("error").at("code"), "invalid_request");
+    EXPECT_EQ(response.at("error").at("message"), "invalid log file or retention");
+    failure = detail.get(); // The successful call must clear, not retain, this pointer.
+    std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+        asterion_terminal_create(&failure),
+        asterion_terminal_destroy);
+    ASSERT_NE(runtime, nullptr);
+    EXPECT_EQ(failure, nullptr);
+}
+
+TEST(TerminalApi, SnapshotRejectsMalformedQueriesBeforeReadingState)
+{
+    std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+        asterion_terminal_create(nullptr),
+        asterion_terminal_destroy);
+    ASSERT_NE(runtime, nullptr);
+    for (const auto& params : std::vector<json>{
+             nullptr,
+             json::array(),
+             true,
+             "invalid",
+             {{"extra", true}},
+             {{"since", -1}},
+             {{"since", 1.5}},
+             {{"since", "1"}},
+             {{"since", 0}, {"extra", true}}
+         }) {
+        const auto response = call(runtime.get(), request("runtime.snapshot", params));
+        ASSERT_TRUE(response.contains("error")) << params.dump() << ": " << response.dump();
+        EXPECT_EQ(response.at("error").at("code"), "invalid_request");
+    }
+    EXPECT_TRUE(call(runtime.get(), request("runtime.snapshot")).contains("result"));
+}
+
+TEST(TerminalApi, AutomaticShutdownCannotTargetProductionOrIsolatedFixtures)
+{
+    std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+        asterion_terminal_create(nullptr),
+        asterion_terminal_destroy);
+    ASSERT_NE(runtime, nullptr);
+    for (bool recover : {false, true}) {
+        const auto response =
+            call(runtime.get(), request("development.shutdown", {{"recover", recover}}));
+        ASSERT_TRUE(response.contains("error"));
+        EXPECT_EQ(response.at("error").at("code"), "permission_denied");
+    }
+}
+
+TEST(TerminalApi, Contracts)
+{
+    std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+        asterion_terminal_create(nullptr),
+        asterion_terminal_destroy);
+    EXPECT_TRUE((runtime != nullptr)) << "runtime allocated";
+    EXPECT_TRUE((call(runtime.get(), request("runtime.snapshot"))["result"]["datasets"].empty()))
+        << "no invented dataset";
+    {
+        std::unique_ptr<char, decltype(&asterion_terminal_free)> response(
+            asterion_terminal_call(
+                runtime.get(),
+                R"({"version":1,"method":"runtime.snapshot","method":"live.close","params":{}})"),
+            asterion_terminal_free);
+        EXPECT_TRUE((response && json::parse(response.get())["error"]["code"] == "invalid_request"))
+            << "duplicate method cannot bypass dispatch";
+    }
+    const auto params = history(runtime.get(), {100, 101}, "contracts");
+    auto imported = call(runtime.get(), request("data.dataset.select", params));
+    ASSERT_TRUE(imported.contains("result")) << imported.dump();
+    ASSERT_EQ(imported["result"]["datasets"].size(), 1U);
+    const auto dataset = imported["result"]["datasets"][0];
+    EXPECT_EQ(dataset["count"], 2);
+    EXPECT_EQ(dataset["last_close"], "101");
+    EXPECT_TRUE(dataset["last_timestamp_ns"].is_string());
+    auto invalid = params;
+    invalid["begin_day"] = "2026-02-30";
+    EXPECT_TRUE(call(runtime.get(), request("data.dataset.select", invalid)).contains("error"));
+    EXPECT_EQ(
+        call(runtime.get(), request("runtime.snapshot"))["result"]["datasets"],
+        json::array({dataset}));
+    auto wrong = request("runtime.snapshot");
+    wrong["version"] = 2;
+    EXPECT_TRUE((call(runtime.get(), wrong).contains("error"))) << "unsupported version rejected";
+    EXPECT_TRUE((call(runtime.get(), request("missing")).contains("error")))
+        << "unsupported method rejected";
+    EXPECT_TRUE((call(nullptr, request("runtime.snapshot")).contains("error")))
+        << "null runtime rejected without crossing ABI";
+    auto extra = params;
+    extra["extra"] = true;
+    EXPECT_TRUE((call(runtime.get(), request("data.dataset.select", extra)).contains("error")))
+        << "unknown fields rejected";
+    // Selecting the same contract again replaces it; removal names the contract.
+    EXPECT_EQ(
+        call(runtime.get(), request("data.dataset.select", params))["result"]["datasets"].size(),
+        1U);
+    EXPECT_TRUE(call(
+        runtime.get(),
+        request("data.dataset.remove", {{"venue", "SHFE"}, {"symbol", "rb2611"}}))
+            .contains("error"));
+    EXPECT_TRUE(call(
+        runtime.get(),
+        request(
+            "data.dataset.remove",
+            {{"venue", "SHFE"}, {"symbol", "rb2610"}}))["result"]["datasets"]
+            .empty());
+    using namespace asterion;
+    FuturesContract czce{
+        {{"CZCE", "SR609"}, "CNY", Decimal::parse("1"), Decimal::parse("1"), Decimal::parse("10")},
+        "SR",
+        "2026-09"
+    };
+    czce.validate();
+    czce.instrument.id.venue = "NYMEX";
+    EXPECT_THROW(
+        ([&] {
+            czce.validate();
+        })(),
+        std::invalid_argument);
+}
+
+TEST(TerminalApi, DataProgramUpdatePreservesServiceBindingAndPublishedVersions)
+{
+    std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+        asterion_terminal_create(nullptr),
+        asterion_terminal_destroy);
+    ASSERT_TRUE(runtime);
+    const auto selection = history(runtime.get(), {100, 101}, "data-update");
+    auto invoke = [&](const std::string& method, json params = json::object()) {
+        const auto response = call(runtime.get(), request(method, std::move(params)));
+        if (response.contains("error"))
+            throw std::runtime_error(response.dump());
+        return response.at("result");
+    };
+    const auto original = invoke("data.dataset.select", selection).at("datasets");
+    auto service = [](const json& snapshot) {
+        for (const auto& node : snapshot.at("nodes"))
+            if (node.at("id") == "local")
+                for (const auto& item : node.at("health").at("services"))
+                    if (item.at("id") == "historical-data")
+                        return item;
+        throw std::runtime_error("fixture data service not found");
+    };
+    const auto stopped = service(invoke(
+        "node.action",
+        {{"id", "local"}, {"service", "historical-data"}, {"action", "stop"}}));
+    const auto updated = service(invoke(
+        "node.update",
+        {{"id", "local"}, {"service", "historical-data"}, {"revision", stopped.at("revision")}}));
+    EXPECT_EQ(updated.at("state"), "stopped");
+    EXPECT_EQ(updated.at("task_service"), stopped.at("task_service"));
+    EXPECT_EQ(updated.at("directory"), stopped.at("directory"));
+    invoke("node.data_tasks.local.open");
+    const auto deadline = std::chrono::steady_clock::now()
+        + asterion::testing_support::bound(std::chrono::seconds(10));
+    while (!invoke("runtime.snapshot").at("data").at("online").get<bool>()) {
+        ASSERT_LT(std::chrono::steady_clock::now(), deadline);
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    invoke("data.dataset.clear");
+    EXPECT_EQ(invoke("data.dataset.select", selection).at("datasets"), original);
 }
 
 // A dominant series the data service refuses is an error the user reads.
 // Here the minute bars of both months run a day past what the daily table
 // holds.
-TEST(TerminalApi, ARefusedMinuteSeriesIsAnError) {
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
-      asterion_terminal_create(nullptr), asterion_terminal_destroy);
-  ASSERT_TRUE(runtime);
-  auto invoke = [&](const std::string& method, json params = json::object()) {
-    const auto response = call(runtime.get(), request(method, std::move(params)));
-    if (response.contains("error"))
-      throw std::runtime_error(response.dump());
-    return response.at("result");
-  };
-  invoke("node.data_tasks.local.open");
-  const auto stopped =
-      invoke("node.action", {{"id", "local"}, {"service", "historical-data"}, {"action", "stop"}});
-  std::string directory;
-  for (const auto& node : stopped.at("nodes"))
-    if (node.at("id") == "local")
-      for (const auto& service : node.at("health").at("services"))
-        if (service.at("id") == "historical-data")
-          directory = service.at("directory").get<std::string>();
-  std::vector<json> months;
-  for (const auto* month : {"2026-10", "2026-11"})
-    months.push_back(asterion::test::seed_history(
-        directory, {100, 101, 102, 103}, std::string("refused-") + month,
-        {"2026-09-24", "2026-09-25"}, {"2026-09-24"}, "rb", 1, 110, "test.confirmed.v1", month));
-  invoke("node.data_tasks.local.open");
-  const auto deadline =
-      std::chrono::steady_clock::now() + asterion::testing_support::bound(std::chrono::seconds(10));
-  while (!invoke("runtime.snapshot").at("data").at("online").get<bool>()) {
-    ASSERT_LT(std::chrono::steady_clock::now(), deadline);
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-  }
-  const auto refused = call(runtime.get(), request("data.dataset.series",
-                                                   {{"source_dataset_ids",
-                                                     {months[0].at("source_dataset_ids").at(0),
-                                                      months[1].at("source_dataset_ids").at(0)}},
-                                                    {"daily", asterion::test::latest_daily(months)},
-                                                    {"begin_day", ""},
-                                                    {"end_day", ""}}));
-  ASSERT_TRUE(refused.contains("error")) << refused.dump();
-  EXPECT_TRUE(invoke("runtime.snapshot").at("datasets").empty());
+TEST(TerminalApi, ARefusedMinuteSeriesIsAnError)
+{
+    std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+        asterion_terminal_create(nullptr),
+        asterion_terminal_destroy);
+    ASSERT_TRUE(runtime);
+    auto invoke = [&](const std::string& method, json params = json::object()) {
+        const auto response = call(runtime.get(), request(method, std::move(params)));
+        if (response.contains("error"))
+            throw std::runtime_error(response.dump());
+        return response.at("result");
+    };
+    invoke("node.data_tasks.local.open");
+    const auto stopped = invoke(
+        "node.action",
+        {{"id", "local"}, {"service", "historical-data"}, {"action", "stop"}});
+    std::string directory;
+    for (const auto& node : stopped.at("nodes"))
+        if (node.at("id") == "local")
+            for (const auto& service : node.at("health").at("services"))
+                if (service.at("id") == "historical-data")
+                    directory = service.at("directory").get<std::string>();
+    std::vector<json> months;
+    for (const auto* month : {"2026-10", "2026-11"})
+        months.push_back(
+            asterion::test::seed_history(
+                directory,
+                {100, 101, 102, 103},
+                std::string("refused-") + month,
+                {"2026-09-24", "2026-09-25"},
+                {"2026-09-24"},
+                "rb",
+                1,
+                110,
+                "test.confirmed.v1",
+                month));
+    invoke("node.data_tasks.local.open");
+    const auto deadline = std::chrono::steady_clock::now()
+        + asterion::testing_support::bound(std::chrono::seconds(10));
+    while (!invoke("runtime.snapshot").at("data").at("online").get<bool>()) {
+        ASSERT_LT(std::chrono::steady_clock::now(), deadline);
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    const auto refused = call(
+        runtime.get(),
+        request(
+            "data.dataset.series",
+            {{"source_dataset_ids",
+                 {months[0].at("source_dataset_ids").at(0),
+                     months[1].at("source_dataset_ids").at(0)}},
+                {"daily", asterion::test::latest_daily(months)},
+                {"begin_day", ""},
+                {"end_day", ""}}));
+    ASSERT_TRUE(refused.contains("error")) << refused.dump();
+    EXPECT_TRUE(invoke("runtime.snapshot").at("datasets").empty());
 }
 
-TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations) {
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
-      asterion_terminal_create(nullptr), asterion_terminal_destroy);
-  ASSERT_TRUE(runtime);
-  const auto first = call(runtime.get(), request("runtime.snapshot"));
-  ASSERT_TRUE(first.contains("result"));
-  auto revision = first["result"]["revision"].get<std::uint64_t>();
-  EXPECT_GT(first["result"]["refreshed_at_ms"].get<std::int64_t>(), 0);
-  // The probe's own call count is published by the next background refresh,
-  // so wait for the state to settle; then an unchanged revision carries no state.
-  json same;
-  for (int attempt = 0; attempt < 5; ++attempt) {
-    same = call(runtime.get(), request("runtime.snapshot", {{"since", revision}}));
-    if (same["result"].value("unchanged", false))
-      break;
-    revision = same["result"]["revision"].get<std::uint64_t>();
-    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
-  }
-  EXPECT_EQ(same["result"]["unchanged"], true);
-  EXPECT_EQ(same["result"]["revision"], revision);
-  EXPECT_FALSE(same["result"].contains("datasets"));
-  EXPECT_TRUE(call(runtime.get(), request("runtime.snapshot", {{"since", "x"}})).contains("error"));
-  const auto params = history(runtime.get(), std::vector<int>(20000, 100), "concurrent");
-  ASSERT_TRUE(call(runtime.get(), request("data.dataset.clear")).contains("result"));
-  std::atomic<bool> done{false};
-  json selected;
-  std::thread slow([&] {
-    // Either caller may enter first. Retry only the explicit pre-dispatch
-    // admission conflict; a resolution/selection conflict remains a failure.
-    const auto deadline = std::chrono::steady_clock::now() +
-                          asterion::testing_support::bound(std::chrono::seconds(5));
-    do {
-      selected = call(runtime.get(), request("data.dataset.select", params));
-      if (!selected.contains("error") || selected.at("error").value("code", "") != "conflict" ||
-          selected.at("error").value("message", "") !=
-              "another Terminal operation is in progress; retry after it completes")
-        break;
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    } while (std::chrono::steady_clock::now() < deadline);
-    done = true;
-  });
-  int concurrent_reads = 0;
-  int responsive_commands = 0;
-  while (!done) {
-    const auto invalid = call(runtime.get(), request("runtime.snapshot", {{"extra", true}}));
-    EXPECT_TRUE(invalid.contains("error"));
-    if (invalid.contains("error"))
-      EXPECT_EQ(invalid.at("error").at("code"), "invalid_request");
-    const auto started = std::chrono::steady_clock::now();
-    const auto status = call(runtime.get(), request("runtime.snapshot"));
-    EXPECT_LT(std::chrono::steady_clock::now() - started,
-              asterion::testing_support::bound(std::chrono::milliseconds(500)));
-    // The import may publish between this read and the done flag; either way
-    // a reader sees no dataset or the complete one, never a partial state.
-    const auto& datasets = status["result"]["datasets"];
-    if (datasets.empty())
-      ++concurrent_reads;
-    else
-      EXPECT_EQ(datasets[0]["count"], 20000);
-    const auto command_started = std::chrono::steady_clock::now();
-    const auto inspect = call(runtime.get(), request("node.agent.inspect"));
-    EXPECT_LT(std::chrono::steady_clock::now() - command_started,
-              asterion::testing_support::bound(std::chrono::milliseconds(500)));
-    if (inspect.contains("result"))
-      ++responsive_commands;
-    else
-      EXPECT_EQ(inspect["error"]["code"], "conflict"); // Brief selection commit may own the lock.
-  }
-  slow.join();
-  ASSERT_TRUE(selected.contains("result")) << selected.dump();
-  EXPECT_GT(concurrent_reads, 0) << "import finished before a concurrent read was observed";
-  EXPECT_GT(responsive_commands, 0) << "archive reads must let other commands complete";
-  const auto fresh = call(runtime.get(), request("runtime.snapshot", {{"since", revision}}));
-  EXPECT_FALSE(fresh["result"].contains("unchanged"));
-  EXPECT_GT(fresh["result"]["revision"].get<std::uint64_t>(), revision);
-  EXPECT_EQ(fresh["result"]["datasets"][0]["count"], 20000);
+TEST(TerminalApi, StatusReadsDoNotQueueBehindLongOperations)
+{
+    std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+        asterion_terminal_create(nullptr),
+        asterion_terminal_destroy);
+    ASSERT_TRUE(runtime);
+    const auto first = call(runtime.get(), request("runtime.snapshot"));
+    ASSERT_TRUE(first.contains("result"));
+    auto revision = first["result"]["revision"].get<std::uint64_t>();
+    EXPECT_GT(first["result"]["refreshed_at_ms"].get<std::int64_t>(), 0);
+    // The probe's own call count is published by the next background refresh,
+    // so wait for the state to settle; then an unchanged revision carries no state.
+    json same;
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        same = call(runtime.get(), request("runtime.snapshot", {{"since", revision}}));
+        if (same["result"].value("unchanged", false))
+            break;
+        revision = same["result"]["revision"].get<std::uint64_t>();
+        std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+    }
+    EXPECT_EQ(same["result"]["unchanged"], true);
+    EXPECT_EQ(same["result"]["revision"], revision);
+    EXPECT_FALSE(same["result"].contains("datasets"));
+    EXPECT_TRUE(
+        call(runtime.get(), request("runtime.snapshot", {{"since", "x"}})).contains("error"));
+    const auto params = history(runtime.get(), std::vector<int>(20000, 100), "concurrent");
+    ASSERT_TRUE(call(runtime.get(), request("data.dataset.clear")).contains("result"));
+    std::atomic<bool> done{false};
+    json selected;
+    std::thread slow([&] {
+        // Either caller may enter first. Retry only the explicit pre-dispatch
+        // admission conflict; a resolution/selection conflict remains a failure.
+        const auto deadline = std::chrono::steady_clock::now()
+            + asterion::testing_support::bound(std::chrono::seconds(5));
+        do {
+            selected = call(runtime.get(), request("data.dataset.select", params));
+            if (!selected.contains("error") || selected.at("error").value("code", "") != "conflict"
+                || selected.at("error").value("message", "")
+                    != "another Terminal operation is in progress; retry after it completes")
+                break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        } while (std::chrono::steady_clock::now() < deadline);
+        done = true;
+    });
+    int concurrent_reads = 0;
+    int responsive_commands = 0;
+    while (!done) {
+        const auto invalid = call(runtime.get(), request("runtime.snapshot", {{"extra", true}}));
+        EXPECT_TRUE(invalid.contains("error"));
+        if (invalid.contains("error"))
+            EXPECT_EQ(invalid.at("error").at("code"), "invalid_request");
+        const auto started = std::chrono::steady_clock::now();
+        const auto status = call(runtime.get(), request("runtime.snapshot"));
+        EXPECT_LT(
+            std::chrono::steady_clock::now() - started,
+            asterion::testing_support::bound(std::chrono::milliseconds(500)));
+        // The import may publish between this read and the done flag; either way
+        // a reader sees no dataset or the complete one, never a partial state.
+        const auto& datasets = status["result"]["datasets"];
+        if (datasets.empty())
+            ++concurrent_reads;
+        else
+            EXPECT_EQ(datasets[0]["count"], 20000);
+        const auto command_started = std::chrono::steady_clock::now();
+        const auto inspect = call(runtime.get(), request("node.agent.inspect"));
+        EXPECT_LT(
+            std::chrono::steady_clock::now() - command_started,
+            asterion::testing_support::bound(std::chrono::milliseconds(500)));
+        if (inspect.contains("result"))
+            ++responsive_commands;
+        else
+            EXPECT_EQ(
+                inspect["error"]["code"],
+                "conflict"); // Brief selection commit may own the lock.
+    }
+    slow.join();
+    ASSERT_TRUE(selected.contains("result")) << selected.dump();
+    EXPECT_GT(concurrent_reads, 0) << "import finished before a concurrent read was observed";
+    EXPECT_GT(responsive_commands, 0) << "archive reads must let other commands complete";
+    const auto fresh = call(runtime.get(), request("runtime.snapshot", {{"since", revision}}));
+    EXPECT_FALSE(fresh["result"].contains("unchanged"));
+    EXPECT_GT(fresh["result"]["revision"].get<std::uint64_t>(), revision);
+    EXPECT_EQ(fresh["result"]["datasets"][0]["count"], 20000);
 }
 
-TEST(MarketHistory, BoundsEventsAndBreaksOnGapsFailuresAndDisconnects) {
-  asterion::terminal::MarketHistory history;
-  asterion::market::v1::EventBatch batch;
-  batch.set_stream_id("fixture-stream");
-  batch.set_latest_sequence(520);
-  for (std::uint64_t i = 1; i <= 520; ++i) {
-    auto* event = batch.add_events();
-    event->set_sequence(i);
-    auto* quote = event->mutable_quote()->mutable_quote();
-    quote->mutable_instrument()->set_venue("SHFE");
-    quote->mutable_instrument()->set_symbol("rb2610");
-    quote->set_last("3510.00000001");
-    quote->set_source_ms(1790582400000 + static_cast<std::int64_t>(i));
-  }
-  history.append(batch);
-  auto view = history.snapshot();
-  ASSERT_EQ(view.at("points").size(), 512);
-  EXPECT_EQ(view.at("points").front().at("price"), "3510.00000001");
-  EXPECT_EQ(view.at("points").front().at("timestamp_ns"), "1790582400009000000");
-  EXPECT_EQ(history.cursor, 520);
-  batch.clear_events();
-  batch.set_latest_sequence(530);
-  batch.set_gap(true);
-  auto* event = batch.add_events();
-  event->set_sequence(530);
-  *event->mutable_quote()->mutable_quote() = asterion::market::v1::Quote{};
-  history.append(batch);
-  EXPECT_TRUE(history.snapshot().at("points").empty());
-  EXPECT_TRUE(history.snapshot().at("interrupted"));
-  batch.clear_events();
-  batch.set_gap(false);
-  batch.set_failed(true);
-  history.append(batch);
-  EXPECT_FALSE(history.snapshot().at("available"));
-  history.interrupt();
-  EXPECT_EQ(history.cursor, 0);
-  EXPECT_TRUE(history.stream.empty());
-  batch.set_stream_id("restarted");
-  batch.set_failed(false);
-  batch.set_latest_sequence(1);
-  batch.add_events()->set_sequence(1);
-  batch.mutable_events(0)->mutable_status()->set_phase("disconnected");
-  history.append(batch);
-  EXPECT_TRUE(history.snapshot().at("points").empty());
-}
-TEST(MarketHistory, RejectsBrokenOrderAndSkipsOutOfOrderQuotes) {
-  asterion::terminal::MarketHistory history;
-  asterion::market::v1::EventBatch batch;
-  batch.set_stream_id("fixture-stream");
-  batch.set_latest_sequence(2);
-  batch.add_events()->set_sequence(2);
-  EXPECT_THROW(history.append(batch), std::invalid_argument);
-  EXPECT_EQ(history.cursor, 0);
-  batch.mutable_events(0)->set_sequence(1);
-  auto* observation = batch.mutable_events(0)->mutable_quote();
-  observation->set_out_of_order(true);
-  observation->mutable_quote()->set_last("100");
-  observation->mutable_quote()->set_source_ms(1000);
-  history.append(batch);
-  EXPECT_EQ(history.cursor, 1);
-  EXPECT_TRUE(history.snapshot().at("points").empty());
-  EXPECT_THROW(history.append(batch), std::invalid_argument);
-}
-
-TEST(MarketHistory, VolumeUsesPerContractDayBaselineAndResetsOnDiscontinuity) {
-  asterion::terminal::MarketHistory history;
-  std::uint64_t sequence = 0;
-  const auto append = [&](const char* symbol, const char* day, std::int64_t volume,
-                          bool gap = false, bool out_of_order = false) {
+TEST(MarketHistory, BoundsEventsAndBreaksOnGapsFailuresAndDisconnects)
+{
+    asterion::terminal::MarketHistory history;
     asterion::market::v1::EventBatch batch;
-    batch.set_stream_id("volume-fixture");
-    batch.set_latest_sequence(++sequence);
-    batch.set_gap(gap);
-    auto* event = batch.add_events();
-    event->set_sequence(sequence);
-    auto* observation = event->mutable_quote();
-    observation->set_out_of_order(out_of_order);
-    auto* quote = observation->mutable_quote();
-    quote->mutable_instrument()->set_venue("SHFE");
-    quote->mutable_instrument()->set_symbol(symbol);
-    quote->set_trading_day(day);
-    quote->set_source_ms(1000 + static_cast<std::int64_t>(sequence));
-    quote->set_last("100");
-    quote->set_volume(volume);
+    batch.set_stream_id("fixture-stream");
+    batch.set_latest_sequence(520);
+    for (std::uint64_t i = 1; i <= 520; ++i) {
+        auto* event = batch.add_events();
+        event->set_sequence(i);
+        auto* quote = event->mutable_quote()->mutable_quote();
+        quote->mutable_instrument()->set_venue("SHFE");
+        quote->mutable_instrument()->set_symbol("rb2610");
+        quote->set_last("3510.00000001");
+        quote->set_source_ms(1790582400000 + static_cast<std::int64_t>(i));
+    }
     history.append(batch);
-  };
-  append("rb", "20260929", 1000);
-  EXPECT_FALSE(history.snapshot()["points"].back().contains("volume"));
-  append("cu", "20260929", 9000);
-  append("rb", "20260929", 1007);
-  EXPECT_EQ(history.snapshot()["points"].back()["volume"], "7");
-  append("rb", "20260929", 1007);
-  EXPECT_EQ(history.snapshot()["points"].back()["volume"], "0");
-  append("rb", "20260929", 3000, false, true);
-  append("rb", "20260929", 1010);
-  EXPECT_EQ(history.snapshot()["points"].back()["volume"], "3");
-  append("rb", "20260930", 50);
-  EXPECT_EQ(history.snapshot()["points"].size(), 2); // cu is retained.
-  EXPECT_FALSE(history.snapshot()["points"].back().contains("volume"));
-  append("rb", "20260930", 40);
-  EXPECT_EQ(history.snapshot()["points"].size(), 2);
-  EXPECT_FALSE(history.snapshot()["points"].back().contains("volume"));
-  append("rb", "20260930", 45);
-  EXPECT_EQ(history.snapshot()["points"].back()["volume"], "5");
-  append("rb", "20260930", 100, true);
-  EXPECT_EQ(history.snapshot()["points"].size(), 1);
-  EXPECT_FALSE(history.snapshot()["points"].back().contains("volume"));
-  append("rb", "", 110);
-  append("rb", "", 120);
-  EXPECT_FALSE(history.snapshot()["points"].back().contains("volume"));
-  append("rb", "20260930", -1);
-  append("rb", "20260930", 130);
-  EXPECT_FALSE(history.snapshot()["points"].back().contains("volume"));
+    auto view = history.snapshot();
+    ASSERT_EQ(view.at("points").size(), 512);
+    EXPECT_EQ(view.at("points").front().at("price"), "3510.00000001");
+    EXPECT_EQ(view.at("points").front().at("timestamp_ns"), "1790582400009000000");
+    EXPECT_EQ(history.cursor, 520);
+    batch.clear_events();
+    batch.set_latest_sequence(530);
+    batch.set_gap(true);
+    auto* event = batch.add_events();
+    event->set_sequence(530);
+    *event->mutable_quote()->mutable_quote() = asterion::market::v1::Quote{};
+    history.append(batch);
+    EXPECT_TRUE(history.snapshot().at("points").empty());
+    EXPECT_TRUE(history.snapshot().at("interrupted"));
+    batch.clear_events();
+    batch.set_gap(false);
+    batch.set_failed(true);
+    history.append(batch);
+    EXPECT_FALSE(history.snapshot().at("available"));
+    history.interrupt();
+    EXPECT_EQ(history.cursor, 0);
+    EXPECT_TRUE(history.stream.empty());
+    batch.set_stream_id("restarted");
+    batch.set_failed(false);
+    batch.set_latest_sequence(1);
+    batch.add_events()->set_sequence(1);
+    batch.mutable_events(0)->mutable_status()->set_phase("disconnected");
+    history.append(batch);
+    EXPECT_TRUE(history.snapshot().at("points").empty());
+}
+
+TEST(MarketHistory, RejectsBrokenOrderAndSkipsOutOfOrderQuotes)
+{
+    asterion::terminal::MarketHistory history;
+    asterion::market::v1::EventBatch batch;
+    batch.set_stream_id("fixture-stream");
+    batch.set_latest_sequence(2);
+    batch.add_events()->set_sequence(2);
+    EXPECT_THROW(history.append(batch), std::invalid_argument);
+    EXPECT_EQ(history.cursor, 0);
+    batch.mutable_events(0)->set_sequence(1);
+    auto* observation = batch.mutable_events(0)->mutable_quote();
+    observation->set_out_of_order(true);
+    observation->mutable_quote()->set_last("100");
+    observation->mutable_quote()->set_source_ms(1000);
+    history.append(batch);
+    EXPECT_EQ(history.cursor, 1);
+    EXPECT_TRUE(history.snapshot().at("points").empty());
+    EXPECT_THROW(history.append(batch), std::invalid_argument);
+}
+
+TEST(MarketHistory, VolumeUsesPerContractDayBaselineAndResetsOnDiscontinuity)
+{
+    asterion::terminal::MarketHistory history;
+    std::uint64_t sequence = 0;
+    const auto append = [&](const char* symbol,
+                            const char* day,
+                            std::int64_t volume,
+                            bool gap = false,
+                            bool out_of_order = false) {
+        asterion::market::v1::EventBatch batch;
+        batch.set_stream_id("volume-fixture");
+        batch.set_latest_sequence(++sequence);
+        batch.set_gap(gap);
+        auto* event = batch.add_events();
+        event->set_sequence(sequence);
+        auto* observation = event->mutable_quote();
+        observation->set_out_of_order(out_of_order);
+        auto* quote = observation->mutable_quote();
+        quote->mutable_instrument()->set_venue("SHFE");
+        quote->mutable_instrument()->set_symbol(symbol);
+        quote->set_trading_day(day);
+        quote->set_source_ms(1000 + static_cast<std::int64_t>(sequence));
+        quote->set_last("100");
+        quote->set_volume(volume);
+        history.append(batch);
+    };
+    append("rb", "20260929", 1000);
+    EXPECT_FALSE(history.snapshot()["points"].back().contains("volume"));
+    append("cu", "20260929", 9000);
+    append("rb", "20260929", 1007);
+    EXPECT_EQ(history.snapshot()["points"].back()["volume"], "7");
+    append("rb", "20260929", 1007);
+    EXPECT_EQ(history.snapshot()["points"].back()["volume"], "0");
+    append("rb", "20260929", 3000, false, true);
+    append("rb", "20260929", 1010);
+    EXPECT_EQ(history.snapshot()["points"].back()["volume"], "3");
+    append("rb", "20260930", 50);
+    EXPECT_EQ(history.snapshot()["points"].size(), 2); // cu is retained.
+    EXPECT_FALSE(history.snapshot()["points"].back().contains("volume"));
+    append("rb", "20260930", 40);
+    EXPECT_EQ(history.snapshot()["points"].size(), 2);
+    EXPECT_FALSE(history.snapshot()["points"].back().contains("volume"));
+    append("rb", "20260930", 45);
+    EXPECT_EQ(history.snapshot()["points"].back()["volume"], "5");
+    append("rb", "20260930", 100, true);
+    EXPECT_EQ(history.snapshot()["points"].size(), 1);
+    EXPECT_FALSE(history.snapshot()["points"].back().contains("volume"));
+    append("rb", "", 110);
+    append("rb", "", 120);
+    EXPECT_FALSE(history.snapshot()["points"].back().contains("volume"));
+    append("rb", "20260930", -1);
+    append("rb", "20260930", 130);
+    EXPECT_FALSE(history.snapshot()["points"].back().contains("volume"));
 }
 
 namespace {
+
 // A disposable Agent directory for this process; the Agent it starts is
 // terminated by its recorded PID and the directory removed at exit.
-class IsolatedNode {
+class IsolatedNode
+{
 public:
-  IsolatedNode()
-      : path_(std::filesystem::temp_directory_path() /
-              ("ast-node-test-" + asterion::unique_process_id())) {
-    std::filesystem::create_directory(path_);
-    ::setenv("ASTERION_NODE_DIRECTORY", path_.c_str(), 1);
-    ::setenv("ASTERION_TEST_NODE_ISOLATED", "1", 1);
-    // The Agent exits with this process even if CTest kills it on timeout.
-    ::setenv("ASTERION_TEST_OWNER_PID", std::to_string(::getpid()).c_str(), 1);
-  }
-  ~IsolatedNode() {
-    std::ifstream pidfile(path_ / "agent.pid");
-    if (pid_t pid = 0; pidfile >> pid && pid > 0 && ::kill(pid, SIGTERM) == 0)
-      for (int i = 0; i < 50 && ::kill(pid, 0) == 0; ++i)
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    // The Agent's services stop writing within their supervisor grace period.
-    std::error_code ignored;
-    for (int i = 0; i < 6; ++i) {
-      std::filesystem::remove_all(path_, ignored);
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
-      if (!std::filesystem::exists(path_))
-        break;
+    IsolatedNode()
+        : path_(
+              std::filesystem::temp_directory_path()
+              / ("ast-node-test-" + asterion::unique_process_id()))
+    {
+        std::filesystem::create_directory(path_);
+        ::setenv("ASTERION_NODE_DIRECTORY", path_.c_str(), 1);
+        ::setenv("ASTERION_TEST_NODE_ISOLATED", "1", 1);
+        // The Agent exits with this process even if CTest kills it on timeout.
+        ::setenv("ASTERION_TEST_OWNER_PID", std::to_string(::getpid()).c_str(), 1);
     }
-  }
+
+    ~IsolatedNode()
+    {
+        std::ifstream pidfile(path_ / "agent.pid");
+        if (pid_t pid = 0; pidfile >> pid && pid > 0 && ::kill(pid, SIGTERM) == 0)
+            for (int i = 0; i < 50 && ::kill(pid, 0) == 0; ++i)
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // The Agent's services stop writing within their supervisor grace period.
+        std::error_code ignored;
+        for (int i = 0; i < 6; ++i) {
+            std::filesystem::remove_all(path_, ignored);
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            if (!std::filesystem::exists(path_))
+                break;
+        }
+    }
 
 private:
-  std::filesystem::path path_;
+    std::filesystem::path path_;
 };
+
 } // namespace
-int main(int argc, char** argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-  if (::testing::GTEST_FLAG(list_tests))
+
+int main(int argc, char** argv)
+{
+    ::testing::InitGoogleTest(&argc, argv);
+    if (::testing::GTEST_FLAG(list_tests))
+        return RUN_ALL_TESTS();
+    // CTest runs each case with --isolated-node, so cases run in parallel, each
+    // with its own Agent.
+    std::optional<IsolatedNode> node;
+    for (int i = 1; i < argc; ++i)
+        if (std::string_view(argv[i]) == "--isolated-node")
+            node.emplace();
+    // Direct invocation must never register test sessions in the user's daily Agent.
+    const char* directory = std::getenv("ASTERION_NODE_DIRECTORY");
+    const char* isolated = std::getenv("ASTERION_TEST_NODE_ISOLATED");
+    if (!directory || !*directory || !isolated || std::string_view(isolated) != "1") {
+        std::cerr
+            << "Run terminal tests through CTest, with --isolated-node or " "tests/support/isolated_node.py; an isolated test Agent is required.\n";
+        return 2;
+    }
     return RUN_ALL_TESTS();
-  // CTest runs each case with --isolated-node, so cases run in parallel, each
-  // with its own Agent.
-  std::optional<IsolatedNode> node;
-  for (int i = 1; i < argc; ++i)
-    if (std::string_view(argv[i]) == "--isolated-node")
-      node.emplace();
-  // Direct invocation must never register test sessions in the user's daily Agent.
-  const char* directory = std::getenv("ASTERION_NODE_DIRECTORY");
-  const char* isolated = std::getenv("ASTERION_TEST_NODE_ISOLATED");
-  if (!directory || !*directory || !isolated || std::string_view(isolated) != "1") {
-    std::cerr << "Run terminal tests through CTest, with --isolated-node or "
-                 "tests/support/isolated_node.py; an isolated test Agent is required.\n";
-    return 2;
-  }
-  return RUN_ALL_TESTS();
 }
-TEST(TerminalApi, LargeNamedDatasetsBacktest) {
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
-      asterion_terminal_create(nullptr), asterion_terminal_destroy);
-  auto invoke = [&](std::string method, json params = json::object()) {
-    return call(runtime.get(), request(method, std::move(params)));
-  };
-  std::vector<int> prices(30000);
-  for (std::size_t i = 0; i < prices.size(); ++i)
-    prices[i] = 3000 + static_cast<int>(i % 200);
-  const auto selected = invoke("data.dataset.select", history(runtime.get(), prices, "large"));
-  ASSERT_TRUE(selected.contains("result")) << selected.dump().substr(0, 400);
-  EXPECT_EQ(selected["result"]["datasets"][0]["count"], 30000);
-  const json costs{{"deposit", "1000000"},
-                   {"contracts", fixture_contracts()},
-                   {"max_order_quantity", "10"},
-                   {"max_gross_quantity", "10"},
-                   {"max_working_orders", "10"}};
-  auto backtest = costs;
-  backtest.update(
-      {{"id", "large-backtest"},
-       {"strategies",
-        json::array({{{"quantity", "1"},
-                      {"sides", "long"},
-                      {"rule", {{"kind", "moving_average"}, {"fast", 5}, {"slow", 20}}}}})},
-       {"holdout_from", ""},
-       {"walk_forward", nullptr}});
-  const auto submitted = invoke("backtest.submit", backtest);
-  ASSERT_TRUE(submitted.contains("result")) << submitted.dump().substr(0, 400);
+
+TEST(TerminalApi, LargeNamedDatasetsBacktest)
+{
+    std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+        asterion_terminal_create(nullptr),
+        asterion_terminal_destroy);
+    auto invoke = [&](std::string method, json params = json::object()) {
+        return call(runtime.get(), request(method, std::move(params)));
+    };
+    std::vector<int> prices(30000);
+    for (std::size_t i = 0; i < prices.size(); ++i)
+        prices[i] = 3000 + static_cast<int>(i % 200);
+    const auto selected = invoke("data.dataset.select", history(runtime.get(), prices, "large"));
+    ASSERT_TRUE(selected.contains("result")) << selected.dump().substr(0, 400);
+    EXPECT_EQ(selected["result"]["datasets"][0]["count"], 30000);
+    const json costs{
+        {"deposit", "1000000"},
+        {"contracts", fixture_contracts()},
+        {"max_order_quantity", "10"},
+        {"max_gross_quantity", "10"},
+        {"max_working_orders", "10"}
+    };
+    auto backtest = costs;
+    backtest.update(
+        {{"id", "large-backtest"},
+            {"strategies",
+                json::array(
+                    {{{"quantity", "1"},
+                        {"sides", "long"},
+                        {"rule", {{"kind", "moving_average"}, {"fast", 5}, {"slow", 20}}}}})},
+            {"holdout_from", ""},
+            {"walk_forward", nullptr}});
+    const auto submitted = invoke("backtest.submit", backtest);
+    ASSERT_TRUE(submitted.contains("result")) << submitted.dump().substr(0, 400);
 }
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
-TEST(TerminalApi, LongNodeOperationsDoNotBlockOtherCommands) {
-  // An SSH peer that accepts and never speaks: the probe waits for its timeout.
-  const int listener = ::socket(AF_INET, SOCK_STREAM, 0);
-  ASSERT_GE(listener, 0);
-  sockaddr_in address{};
-  address.sin_family = AF_INET;
-  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  ASSERT_EQ(::bind(listener, reinterpret_cast<sockaddr*>(&address), sizeof address), 0);
-  ASSERT_EQ(::listen(listener, 8), 0);
-  socklen_t size = sizeof address;
-  ASSERT_EQ(::getsockname(listener, reinterpret_cast<sockaddr*>(&address), &size), 0);
-  const auto port = std::to_string(ntohs(address.sin_port));
-  const auto folder =
-      std::filesystem::temp_directory_path() / ("asterion-ssh-" + asterion::unique_process_id());
-  std::filesystem::create_directory(folder);
-  ASSERT_EQ(std::system(
-                ("ssh-keygen -q -t ed25519 -N '' -f '" + (folder / "key").string() + "'").c_str()),
-            0);
-  std::ofstream(folder / "known_hosts") << "";
-  std::ifstream key_file(folder / "key");
-  const std::string key{std::istreambuf_iterator<char>(key_file), {}};
-  const json inspect{{"id", "silent"},
-                     {"host", "127.0.0.1"},
-                     {"ssh_port", port},
-                     {"username", "tester"},
-                     {"key_source", "provided"},
-                     {"private_key", key},
-                     {"known_hosts", (folder / "known_hosts").string()},
-                     {"agent_port", "7443"},
-                     {"firewall_port", "7443"},
-                     {"firewall_action", "allow"}};
-  std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
-      asterion_terminal_create(nullptr), asterion_terminal_destroy);
-  std::atomic<bool> done{false};
-  std::thread slow([&] {
-    (void)call(runtime.get(), request("node.firewall.inspect", inspect));
-    done = true;
-  });
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
-  ASSERT_FALSE(done.load()) << "the probe should still be waiting for the silent peer";
-  const auto started = std::chrono::steady_clock::now();
-  const auto other = call(runtime.get(), request("data.dataset.clear"));
-  EXPECT_TRUE(other.contains("result")) << other.dump();
-  EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(2));
-  const auto second = call(runtime.get(), request("node.firewall.inspect", inspect));
-  ASSERT_TRUE(second.contains("error"));
-  EXPECT_NE(second["error"]["message"].get<std::string>().find("another node operation"),
-            std::string::npos);
-  EXPECT_FALSE(done.load());
-  slow.join();
-  ::close(listener);
-  std::filesystem::remove_all(folder);
+
+TEST(TerminalApi, LongNodeOperationsDoNotBlockOtherCommands)
+{
+    // An SSH peer that accepts and never speaks: the probe waits for its timeout.
+    const int listener = ::socket(AF_INET, SOCK_STREAM, 0);
+    ASSERT_GE(listener, 0);
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    ASSERT_EQ(::bind(listener, reinterpret_cast<sockaddr*>(&address), sizeof address), 0);
+    ASSERT_EQ(::listen(listener, 8), 0);
+    socklen_t size = sizeof address;
+    ASSERT_EQ(::getsockname(listener, reinterpret_cast<sockaddr*>(&address), &size), 0);
+    const auto port = std::to_string(ntohs(address.sin_port));
+    const auto folder =
+        std::filesystem::temp_directory_path() / ("asterion-ssh-" + asterion::unique_process_id());
+    std::filesystem::create_directory(folder);
+    ASSERT_EQ(
+        std::system(
+            ("ssh-keygen -q -t ed25519 -N '' -f '" + (folder / "key").string() + "'").c_str()),
+        0);
+    std::ofstream(folder / "known_hosts") << "";
+    std::ifstream key_file(folder / "key");
+    const std::string key{std::istreambuf_iterator<char>(key_file), {}};
+    const json inspect{
+        {"id", "silent"},
+        {"host", "127.0.0.1"},
+        {"ssh_port", port},
+        {"username", "tester"},
+        {"key_source", "provided"},
+        {"private_key", key},
+        {"known_hosts", (folder / "known_hosts").string()},
+        {"agent_port", "7443"},
+        {"firewall_port", "7443"},
+        {"firewall_action", "allow"}
+    };
+    std::unique_ptr<void, decltype(&asterion_terminal_destroy)> runtime(
+        asterion_terminal_create(nullptr),
+        asterion_terminal_destroy);
+    std::atomic<bool> done{false};
+    std::thread slow([&] {
+        (void)call(runtime.get(), request("node.firewall.inspect", inspect));
+        done = true;
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    ASSERT_FALSE(done.load()) << "the probe should still be waiting for the silent peer";
+    const auto started = std::chrono::steady_clock::now();
+    const auto other = call(runtime.get(), request("data.dataset.clear"));
+    EXPECT_TRUE(other.contains("result")) << other.dump();
+    EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(2));
+    const auto second = call(runtime.get(), request("node.firewall.inspect", inspect));
+    ASSERT_TRUE(second.contains("error"));
+    EXPECT_NE(
+        second["error"]["message"].get<std::string>().find("another node operation"),
+        std::string::npos);
+    EXPECT_FALSE(done.load());
+    slow.join();
+    ::close(listener);
+    std::filesystem::remove_all(folder);
 }
 
-TEST(PortfolioBudgetReview, ExplicitReviewIsTraceableAndDoesNotMutateTheSource) {
-  json source = {{"id", "fixed"},
-                 {"kind", "backtest"},
-                 {"input_sha256", std::string(64, 'a')},
-                 {"task", {{"result_digest", std::string(64, 'b')}}},
-                 {"portfolio", {{"gross_notional", "5130"}, {"model_margin", "1123"}}}};
-  source["portfolio"]["settlement_path"] = {{"points", json::array()}};
-  const auto original = source.dump();
-  auto review = asterion::terminal::portfolio_budget_review(
-      source, {{"gross_notional", "5000"}, {"margin", nullptr}});
-  EXPECT_EQ(review.at("checks").at("gross_notional").at("headroom"), "-130");
-  EXPECT_EQ(review.at("checks").at("gross_notional").at("state"), "exceeded");
-  EXPECT_EQ(review.at("checks").at("margin").at("state"), "unset");
-  EXPECT_EQ(review.at("source").at("input_sha256"), source.at("input_sha256"));
-  EXPECT_EQ(source.dump(), original);
-  EXPECT_THROW(asterion::terminal::portfolio_budget_review(
-                   source, {{"gross_notional", nullptr}, {"margin", nullptr}}),
-               std::invalid_argument);
-  EXPECT_THROW(asterion::terminal::portfolio_budget_review(
-                   source, {{"gross_notional", "-1"}, {"margin", nullptr}}),
-               std::invalid_argument);
-  EXPECT_THROW(asterion::terminal::portfolio_budget_review(
-                   source, {{"gross_notional", "1.000000001"}, {"margin", nullptr}}),
-               std::exception);
+TEST(PortfolioBudgetReview, ExplicitReviewIsTraceableAndDoesNotMutateTheSource)
+{
+    json source = {
+        {"id", "fixed"},
+        {"kind", "backtest"},
+        {"input_sha256", std::string(64, 'a')},
+        {"task", {{"result_digest", std::string(64, 'b')}}},
+        {"portfolio", {{"gross_notional", "5130"}, {"model_margin", "1123"}}}
+    };
+    source["portfolio"]["settlement_path"] = {{"points", json::array()}};
+    const auto original = source.dump();
+    auto review = asterion::terminal::portfolio_budget_review(
+        source,
+        {{"gross_notional", "5000"}, {"margin", nullptr}});
+    EXPECT_EQ(review.at("checks").at("gross_notional").at("headroom"), "-130");
+    EXPECT_EQ(review.at("checks").at("gross_notional").at("state"), "exceeded");
+    EXPECT_EQ(review.at("checks").at("margin").at("state"), "unset");
+    EXPECT_EQ(review.at("source").at("input_sha256"), source.at("input_sha256"));
+    EXPECT_EQ(source.dump(), original);
+    EXPECT_THROW(
+        asterion::terminal::portfolio_budget_review(
+            source,
+            {{"gross_notional", nullptr}, {"margin", nullptr}}),
+        std::invalid_argument);
+    EXPECT_THROW(
+        asterion::terminal::portfolio_budget_review(
+            source,
+            {{"gross_notional", "-1"}, {"margin", nullptr}}),
+        std::invalid_argument);
+    EXPECT_THROW(
+        asterion::terminal::portfolio_budget_review(
+            source,
+            {{"gross_notional", "1.000000001"}, {"margin", nullptr}}),
+        std::exception);
 }
 
-TEST(PortfolioBudgetReview,
-     EarlierRecordedExcessRemainsVisibleWhenFinalIsWithinAndMissingPointsStayUnknown) {
-  json source = {{"id", "fixed"},
-                 {"kind", "backtest"},
-                 {"input_sha256", std::string(64, 'a')},
-                 {"task", {{"result_digest", std::string(64, 'b')}}},
-                 {"portfolio", {{"gross_notional", "2000"}, {"model_margin", "100"}}}};
-  const auto point = [](const char* day, json gross, json margin) {
-    return json{{"day", day},
-                {"net_notional", "0"},
-                {"gross_notional", gross},
-                {"model_margin", margin},
-                {"balance", "10000"},
-                {"equity", "10000"},
-                {"available", nullptr},
-                {"frozen", nullptr}};
-  };
-  source["portfolio"]["settlement_path"] = {
-      {"points",
-       {point("2026-09-21", "2200", "100"), point("2026-09-22", nullptr, nullptr),
-        point("2026-09-23", "2000", "100")}}};
-  const auto original = source.dump();
-  const auto review = asterion::terminal::portfolio_budget_review(
-      source, {{"gross_notional", "2100"}, {"margin", nullptr}});
-  EXPECT_EQ(review.at("checks").at("gross_notional").at("state"), "within");
-  const auto& summary = review.at("settlement_summary").at("gross_notional");
-  EXPECT_EQ(summary.at("checked_points"), 2);
-  EXPECT_EQ(summary.at("exceeded_points"), 1);
-  EXPECT_EQ(summary.at("unknown_points"), 1);
-  EXPECT_EQ(review.at("settlement_checks").at(0).at("checks").at("gross_notional").at("headroom"),
-            "-100");
-  EXPECT_EQ(review.at("settlement_checks").at(1).at("checks").at("gross_notional").at("state"),
-            "unknown");
-  EXPECT_TRUE(review.at("settlement_summary").at("margin").at("exceeded_points").is_null());
-  EXPECT_EQ(source.dump(), original);
+TEST(
+    PortfolioBudgetReview,
+    EarlierRecordedExcessRemainsVisibleWhenFinalIsWithinAndMissingPointsStayUnknown)
+{
+    json source = {
+        {"id", "fixed"},
+        {"kind", "backtest"},
+        {"input_sha256", std::string(64, 'a')},
+        {"task", {{"result_digest", std::string(64, 'b')}}},
+        {"portfolio", {{"gross_notional", "2000"}, {"model_margin", "100"}}}
+    };
+    const auto point = [](const char* day, json gross, json margin) {
+        return json{
+            {"day", day},
+            {"net_notional", "0"},
+            {"gross_notional", gross},
+            {"model_margin", margin},
+            {"balance", "10000"},
+            {"equity", "10000"},
+            {"available", nullptr},
+            {"frozen", nullptr}
+        };
+    };
+    source["portfolio"]["settlement_path"] = {
+        {"points",
+            {point("2026-09-21", "2200", "100"),
+                point("2026-09-22", nullptr, nullptr),
+                point("2026-09-23", "2000", "100")}}
+    };
+    const auto original = source.dump();
+    const auto review = asterion::terminal::portfolio_budget_review(
+        source,
+        {{"gross_notional", "2100"}, {"margin", nullptr}});
+    EXPECT_EQ(review.at("checks").at("gross_notional").at("state"), "within");
+    const auto& summary = review.at("settlement_summary").at("gross_notional");
+    EXPECT_EQ(summary.at("checked_points"), 2);
+    EXPECT_EQ(summary.at("exceeded_points"), 1);
+    EXPECT_EQ(summary.at("unknown_points"), 1);
+    EXPECT_EQ(
+        review.at("settlement_checks").at(0).at("checks").at("gross_notional").at("headroom"),
+        "-100");
+    EXPECT_EQ(
+        review.at("settlement_checks").at(1).at("checks").at("gross_notional").at("state"),
+        "unknown");
+    EXPECT_TRUE(review.at("settlement_summary").at("margin").at("exceeded_points").is_null());
+    EXPECT_EQ(source.dump(), original);
 }

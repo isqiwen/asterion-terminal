@@ -68,7 +68,6 @@ export type HistoryVersionEvidence = {
 // A dataset recorded in experiment evidence; bars and days are omitted.
 export type DatasetEvidence = {
   history_evidence: HistoryVersionEvidence[];
-  version: number;
   revision: string;
   source: string;
   source_dataset_ids: string[];
@@ -552,9 +551,7 @@ export type FactorMembershipReason =
   | "MEMBERSHIP_BELOW_OPEN_INTEREST";
 export type FactorResult = {
   memberships: { series_index: number; trading_day: string; reason: FactorMembershipReason }[];
-  version: number;
   dataset_revision: string;
-  engine_version: string;
   lookback: number;
   horizon: number;
   input_count: number;
@@ -691,7 +688,7 @@ export type TaskRecord = {
   risk_artifact?: string;
   data_source?: string;
   history_dataset_id?: string;
-  kind: "backtest" | "factor" | "minute_download" | "daily_download" | "table_update";
+  kind: "backtest" | "factor" | "minute_download" | "table_update";
   id: string;
   state:
     | "queued"
@@ -835,9 +832,7 @@ export type BacktestReconciliation = {
 };
 export type BacktestResult = {
   fill_days?: { fill_id: string; trading_day: string }[];
-  version: number;
   dataset_revision: string;
-  engine_version: string;
   // With several strategies: what the days before the holdout showed of each,
   // in the order they were given, and which one the rest of the result replays.
   candidates: { total_return: number; max_drawdown: number; sharpe: number | null }[];
@@ -881,7 +876,6 @@ export type ExperimentData = {
   source_dataset_ids: string[];
 };
 export type BacktestExperiment = {
-  version: number;
   dataset_revision: string;
   // One strategy, or the several that were compared before `holdout_day`.
   strategies: StrategyDefinition[];
@@ -891,7 +885,6 @@ export type BacktestExperiment = {
   // `validation_days` after.
   walk_forward: null | { training_days: number; validation_days: number };
   paper: {
-    version: number;
     type: "historical_paper";
     deposit: string;
     risk: RiskLimits;
@@ -950,7 +943,6 @@ export type FactorSeriesEvidence =
 export type FactorKind = "momentum" | "term_structure" | "volatility";
 export type FactorExperiment = {
   liquidity: FactorLiquidityRule | null;
-  version: number;
   factor: FactorKind;
   dataset_revision: string;
   series: FactorSeriesEvidence[];
@@ -1162,7 +1154,6 @@ export type TableUpdate = {
 // became of the rest.
 export type TableRefreshObservation = {
   kind: "explicit_refresh_response_observation";
-  version: 1;
   id: string;
   operation: string;
   data_instance: string;
@@ -1391,9 +1382,6 @@ export type HistoryReference = {
 export type HistoryUsage = {
   dataset_id: string;
   references: HistoryReference[];
-  // Tasks and saved datasets stored by another version, which cannot be read
-  // to tell whether they use this version.
-  unreadable: number;
   selected_roles: "market"[];
   disconnected_nodes: { names: string[]; error?: string };
   other_data_services: {
@@ -1402,7 +1390,6 @@ export type HistoryUsage = {
     checked: boolean;
     stopped?: boolean;
     references: HistoryReference[];
-    unreadable: number;
     error?: string;
   }[];
 };
@@ -1511,11 +1498,7 @@ export type Snapshot = {
   };
   history_page: HistoryPage | null;
   history_datasets?: HistoryDatasetRecord[];
-  // Preserved versions this release cannot read; never silently removed.
-  history_datasets_unsupported?: number;
   saved_datasets?: SavedNamedDataset[];
-  // Datasets another version saved: kept by the data service, not listed.
-  saved_datasets_unsupported?: number;
   history_coverage?: HistoryCoverage[];
   minute_evidence?: MinuteEvidence;
   minute_range?: MinuteRangeEvidence;

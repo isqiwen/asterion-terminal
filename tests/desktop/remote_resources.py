@@ -58,10 +58,10 @@ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
   try: resources.validate(old,payload,arch)
   except ValueError: pass
   else: raise AssertionError('same-version stale source accepted')
-  old=dict(manifest);old['version']=1;old.pop('source_sha256')
+  old=dict(manifest);old.pop('source_sha256')
   try: resources.validate(old,payload,arch)
   except ValueError: pass
-  else: raise AssertionError('old manifest contract accepted')
+  else: raise AssertionError('incomplete manifest accepted')
 
  # No partial staging when an architecture is missing.
  (archives/'asterion-services-linux-x86_64.zip').unlink()

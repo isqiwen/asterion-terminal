@@ -53,6 +53,23 @@ Conan 与 CTP SDK 只接受 macOS armv8 和 Linux x86_64；CMake 拒绝其它系
 
 CMake Tools 使用 Conan 生成的 preset，同样要先跑过一次 `pnpm desktop` 或 `pnpm desktop:check`。
 
+## 代码排版
+
+`.clang-format` 是 C/C++ 与 Protobuf 的排版来源，使用 CI 固定的 clang-format 23.1.1。
+`scripts/format_cpp.py` 在写入前核对工具版本，收集 Git 跟踪的文件和未被忽略的新文件；
+覆盖 `.c/.cpp/.h/.hpp/.proto`，不处理构建目录、生成代码或下载的依赖。
+
+- C/C++ 使用 4 空格缩进、100 列行宽；命名空间不增加缩进，`public/private` 与类型对齐。
+- 函数、类、结构体和枚举的左花括号独立成行；控制语句和 lambda 的左花括号跟随语句。
+  非空函数、lambda、条件和循环展开；函数定义和类型定义之间自动保留空行。
+- 长调用/声明换行后每个参数一行，使用固定续行缩进；构造初始化列表逐项排列。
+- 指针和引用跟随类型；换行的运算符放在下一行开头。保留 include/using 顺序、字符串内容和注释段落。
+- Protobuf 保持 2 空格，展开消息/枚举字段；前端继续使用锁定的 Prettier 和 2 空格。
+
+`pnpm run format` 同时执行 Prettier 与 clang-format，`pnpm run format:check` 检查同一范围，
+CI 和编辑器检查任务统一调用该入口。只检查 C/C++/Protobuf 可运行
+`python3 scripts/format_cpp.py --check`。`.editorconfig` 和 VS Code 的 C/C++ 缩进设置与此一致。
+
 ## 测试
 
 | 命令 | 内容 |
@@ -62,7 +79,7 @@ CMake Tools 使用 Conan 生成的 preset，同样要先跑过一次 `pnpm deskt
 | `pnpm run test:e2e:journeys` | 端到端的关键链路，日常改动后跑这一档 |
 | `pnpm run test:e2e [spec...]` | 全部端到端测试，发布前和 CI 跑 |
 | `pnpm run lint` | ESLint |
-| `pnpm run format:check` / `python3 scripts/format_cpp.py --check` | 格式检查 |
+| `pnpm run format:check` | 前端与 C/C++/Protobuf 格式检查 |
 | `npx tsc --noEmit -p apps/clients/terminal/tsconfig.json` | 类型检查 |
 
 `tests/` 按被测模块分目录，C++ 测试、Python 进程测试和它们的夹具放在一起，由 `tests/CMakeLists.txt` 统一登记：
@@ -140,7 +157,7 @@ scripts/services/build_linux_services.sh
 
 开发入口首次连接本机节点前，先停止遗留的开发 Agent，由新构建的 Agent 离线同步各服务的程序、CTP 库、worker 和已选用内置插件，再更新 Agent 并启动。原运行意愿、服务绑定、账户配置与业务数据保留；相同摘要不重写服务配置。同步失败则阻止启动，并将原因写入开发节点 `logs/development-programs-*.log`。不修改远程节点或安装版服务。安装版服务仍通过“设置 → 连接与部署”停止后更新；行情登录状态不保留，需要重新登录。
 
-原生插件的 ABI、独立编译、安装目录和契约测试见 [原生插件 SDK](native-plugins.md)。修改插件后需要重新构建动态库；首次启动时选择数据服务的插件集合；之后在「设置 → 插件」停止服务、保存启用清单，再启动生效。安装版服务程序升级保留原插件集合。开发入口保留启用的插件身份，将其中的内置插件更新到当前构建；用户安装的其他插件保留原摘要。任何更新都发生在服务停止时，账本锁定的插件和引擎版本校验仍生效，不迁移或改写账本。
+原生插件的 ABI、独立编译、安装目录和契约测试见 [原生插件 SDK](native-plugins.md)。修改插件后需要重新构建动态库；首次启动时选择数据服务的插件集合；之后在「设置 → 插件」停止服务、保存启用清单，再启动生效。安装版服务程序升级保留原插件集合。开发入口保留启用的插件身份，将其中的内置插件更新到当前构建；用户安装的其他插件保留原摘要。任何更新都发生在服务停止时，账本锁定的插件摘要、结构及领域约束校验仍生效，不迁移或改写账本。
 
 
 ## macOS 发行与安装验收

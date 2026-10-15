@@ -834,7 +834,6 @@ export function Backtest({
                   <p>
                     {t("数据版本")} <code>{result.result.dataset_revision}</code>
                   </p>
-                  <p>{result.result.engine_version}</p>
                   <p>{t("未平持仓：{count}", { count: result.result.account.positions.length })}</p>
                 </details>
               </section>

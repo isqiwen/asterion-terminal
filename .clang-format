@@ -1,12 +1,116 @@
-# Asterion C++ style. Include order is significant on Windows; never sort.
+# Asterion C/C++ and Protobuf style; clang-format 23.1.1 (also pinned in CI).
 BasedOnStyle: LLVM
+Standard: c++20
+
+# Four-space scopes and continuations; namespaces do not add another level.
+IndentWidth: 4
+ContinuationIndentWidth: 4
+ConstructorInitializerIndentWidth: 4
+BracedInitializerIndentWidth: 4
+TabWidth: 4
+UseTab: Never
 ColumnLimit: 100
-PointerAlignment: Left
-SortIncludes: Never
-IncludeBlocks: Preserve
+NamespaceIndentation: None
+AccessModifierOffset: -4
+IndentAccessModifiers: false
+IndentCaseLabels: true
+IndentCaseBlocks: false
+IndentPPDirectives: None
+IndentExternBlock: NoIndent
+
+# Definitions stand out; control statements and lambdas keep attached braces.
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: true
+  AfterEnum: true
+  AfterFunction: true
+  AfterStruct: true
+  AfterUnion: true
+  AfterNamespace: false
+  AfterExternBlock: false
+  AfterControlStatement: Never
+  BeforeElse: false
+  BeforeCatch: false
+  BeforeLambdaBody: false
+  IndentBraces: false
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortLambdasOnASingleLine: Empty
+AllowShortBlocksOnASingleLine: Never
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
-AllowShortFunctionsOnASingleLine: Inline
-AllowShortLambdasOnASingleLine: All
-AllowShortBlocksOnASingleLine: Never
 AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+AllowShortNamespacesOnASingleLine: false
+
+# Wrapped calls/declarations use one argument per line, with a fixed indent.
+AlignAfterOpenBracket: false
+PackArguments:
+  BinPack: OnePerLine
+PackParameters:
+  BinPack: OnePerLine
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+BreakAfterOpenBracketFunction: true
+BreakAfterOpenBracketBracedList: true
+BreakBeforeCloseBracketBracedList: true
+BinPackLongBracedList: false
+PackConstructorInitializers: Never
+BreakConstructorInitializers: BeforeColon
+BreakInheritanceList: BeforeColon
+BreakTemplateDeclarations: Yes
+BreakBeforeBinaryOperators: NonAssignment
+BreakBeforeTernaryOperators: true
+AlignOperands: DontAlign
+AlignConsecutiveAssignments: None
+AlignConsecutiveDeclarations: None
+AlignTrailingComments:
+  Kind: Never
+
+# Keep declarations, function bodies and access sections visually distinct.
+SeparateDefinitionBlocks: Always
+EmptyLineBeforeAccessModifier: Always
+EmptyLineAfterAccessModifier: Never
+WrapNamespaceBodyWithEmptyLines: Always
+MaxEmptyLinesToKeep: 1
+KeepEmptyLines:
+  AtStartOfFile: false
+  AtStartOfBlock: false
+  AtEndOfFile: false
+FixNamespaceComments: true
+ShortNamespaceLines: 0
+
+# Type-attached pointers/references and ordinary C++ spacing.
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+SpaceBeforeParens: ControlStatements
+SpaceBeforeCpp11BracedList: false
+SpaceInEmptyBraces: Never
+SpacesInParens: Never
+SpacesInAngles: Never
+SpacesBeforeTrailingComments: 1
+LineEnding: LF
+InsertNewlineAtEOF: true
+
+# Formatting must preserve include dependencies, expressions and literal data.
+SortIncludes: Never
+IncludeBlocks: Preserve
+SortUsingDeclarations: Never
+ReflowComments: IndentOnly
+BreakStringLiterals: false
+BreakAdjacentStringLiterals: false
+QualifierAlignment: Leave
+InsertBraces: false
+RemoveBracesLLVM: false
+RemoveParentheses: Leave
+RemoveSemicolon: false
+
+---
+Language: Proto
+# Schema fields follow the conventional two-space Protobuf layout.
+IndentWidth: 2
+ContinuationIndentWidth: 2
+BreakBeforeBraces: Attach

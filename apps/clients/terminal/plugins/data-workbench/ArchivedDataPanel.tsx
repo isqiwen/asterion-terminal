@@ -19,7 +19,6 @@ const t = (key: string, values?: MessageValues) =>
 export function ArchivedDataPanel(context: TerminalContext) {
   const [filter, setFilter] = useState({ venue: "", product: "", contract_id: "", source: "" });
   const [items, setItems] = useState<HistoryDatasetRecord[]>([]);
-  const [unsupported, setUnsupported] = useState(0);
   const [selected, setSelected] = useState<HistoryDatasetRecord | null>(null);
   const [update, setUpdate] = useState<{ item: HistoryDatasetRecord; daily?: DailyTable } | null>(
     null,
@@ -55,7 +54,6 @@ export function ArchivedDataPanel(context: TerminalContext) {
       const response = await query.current("data.datasets", values);
       if (current === sequence.current) {
         setItems(response.history_datasets ?? []);
-        setUnsupported(response.history_datasets_unsupported ?? 0);
       }
     } catch (e) {
       if (current === sequence.current) setError(asDisplayError(e));
@@ -74,7 +72,6 @@ export function ArchivedDataPanel(context: TerminalContext) {
       ]);
       if (current === sequence.current) {
         setItems(archives.history_datasets ?? []);
-        setUnsupported(archives.history_datasets_unsupported ?? 0);
         setCoverage(response.history_coverage ?? []);
         setSelected(null);
         setUpdate(null);
@@ -92,7 +89,6 @@ export function ArchivedDataPanel(context: TerminalContext) {
   useEffect(() => {
     setFilter({ venue: "", product: "", contract_id: "", source: "" });
     setItems([]);
-    setUnsupported(0);
     setCoverage(null);
     setSelected(null);
     setUpdate(null);
@@ -234,13 +230,6 @@ export function ArchivedDataPanel(context: TerminalContext) {
         </p>
       )}
       <p className="subtle">{t("历史仓库说明")}</p>
-      {unsupported > 0 && (
-        <p role="status">
-          {t("仓库中有 {n} 个版本不支持读取，原文件仍保留。日线请查看全市场数据。", {
-            n: unsupported,
-          })}
-        </p>
-      )}
       {!items.length && <p>{t("暂无历史数据版本")}</p>}
       <div className="publication-list">
         {items.map(item => (

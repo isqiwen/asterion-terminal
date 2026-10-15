@@ -222,7 +222,6 @@ test("a contract's days and a product's months backtest from the daily table", a
   const comparisonDocument = JSON.parse(comparisonBytes.toString("utf8"));
   expect(comparisonDocument).toMatchObject({
     format: "asterion.research.comparison.evidence",
-    version: 1,
   });
   expect(comparisonDocument.matrix.columns.map((column: { id: string }) => column.id)).toEqual([
     task.id,
@@ -264,7 +263,6 @@ test("a contract's days and a product's months backtest from the daily table", a
   const document = JSON.parse(bytes.toString("utf8"));
   expect(document).toMatchObject({
     format: "asterion.research.evidence",
-    version: 1,
     source: {
       task_id: task.id,
       kind: "backtest",

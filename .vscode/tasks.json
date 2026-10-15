@@ -84,7 +84,7 @@
     {
       "label": "Check: types, lint, format",
       "type": "shell",
-      "command": "pnpm exec tsc --noEmit -p apps/clients/terminal/tsconfig.json && pnpm run lint && pnpm run format:check && python3 scripts/format_cpp.py --check",
+      "command": "pnpm exec tsc --noEmit -p apps/clients/terminal/tsconfig.json && pnpm run lint && pnpm run format:check",
       "problemMatcher": ["$tsc"]
     },
     {

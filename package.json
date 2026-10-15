@@ -12,7 +12,7 @@
     "desktop:build": "node scripts/desktop/desktop.mjs build",
     "desktop:check": "node scripts/desktop/desktop.mjs check",
     "format": "prettier --write \"apps/clients/terminal/**/*.{ts,tsx,css,json,cjs}\" \"scripts/desktop/*.{mjs,cjs}\" \"tests/desktop/*.cjs\" \"packages/client-ui/**/*.{ts,tsx,css,json}\" && python3 scripts/format_cpp.py",
-    "format:check": "prettier --check \"apps/clients/terminal/**/*.{ts,tsx,css,json,cjs}\" \"scripts/desktop/*.{mjs,cjs}\" \"tests/desktop/*.cjs\" \"packages/client-ui/**/*.{ts,tsx,css,json}\"",
+    "format:check": "prettier --check \"apps/clients/terminal/**/*.{ts,tsx,css,json,cjs}\" \"scripts/desktop/*.{mjs,cjs}\" \"tests/desktop/*.cjs\" \"packages/client-ui/**/*.{ts,tsx,css,json}\" && python3 scripts/format_cpp.py --check",
     "lint": "eslint \"apps/clients/**/*.{ts,tsx}\" \"packages/client-ui/**/*.{ts,tsx}\" --max-warnings 0",
     "test:desktop": "node tests/desktop/electron_desktop.cjs && node tests/desktop/electron_depth.cjs"
   },
