@@ -111,6 +111,12 @@ CI 和编辑器检查任务统一调用该入口。只检查 C/C++/Protobuf 可�
 
 `ctp_sdk_smoke` 要求真实行情和交易 SDK 同时存在，缺失明确失败。交易 SDK 检查版本与 ABI，通过本机临时回环监听器验证连接、断开、重新创建和释放；安装包验证显式使用包内的两套库。测试只使用临时状态，不提供柜台协议应答，不等于真实认证、成交、跨日或流文件验收。 Linux CTP 库的模块级状态随服务进程保留，避免 SDK 卸载时遗失分配；每个 API 连接仍单独 `Release`，SDK 更新通过停止并重启服务生效。
 
+需要录制界面测试时，设置 `ASTERION_E2E_VIDEO=1` 后运行 `pnpm run test:e2e`，
+所有浏览器场景会保留 1440 × 900 的 WebM 录像。可用 Playwright 的 `--output`
+参数指定本次结果目录，避免覆盖此前证据。Electron 窗口由独立进程创建，需同时将
+`ASTERION_UI_VIDEO_DIR` 设置为绝对目录；此变量也适用于 `pnpm test:desktop`，
+录像按测试脚本分目录，在窗口关闭后写完。默认不录制。
+
 ## 远程 Linux 服务包
 
 桌面安装包内置 Linux x86_64 服务程序，用于远程部署。包的清单记录服务源码指纹（`scripts/services/service_fingerprint.py`，覆盖 `core`、`protocol`、`plugins`、`bindings`、`apps/services`、`conan`、`scripts/node` 和构建脚本）。

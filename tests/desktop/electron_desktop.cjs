@@ -43,6 +43,12 @@ async function closeDesktop(application) {
   };
   const launch = () =>
     electron.launch({
+      recordVideo: process.env.ASTERION_UI_VIDEO_DIR
+        ? {
+            dir: path.join(process.env.ASTERION_UI_VIDEO_DIR, "electron_desktop"),
+            size: { width: 1440, height: 900 },
+          }
+        : undefined,
       chromiumSandbox: true,
       executablePath:
         process.env.ASTERION_TEST_ELECTRON || require("../../scripts/desktop/electron-path.cjs")(),

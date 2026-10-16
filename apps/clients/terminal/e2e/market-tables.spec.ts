@@ -12,8 +12,8 @@ test("the market tables page lists what the data source offers", async ({ page }
   const tables = page.getByRole("region", { name: "全市场数据", exact: true });
   const coverage = tables.getByRole("table", { name: "全市场数据覆盖" });
   // Six tables of six exchanges under one heading row; CFFEX has no warehouse
-  // receipts, so that table has five.
-  await expect(coverage.getByRole("row")).toHaveCount(36);
+  // receipts, so that table has five. SHFE also provides historical margins.
+  await expect(coverage.getByRole("row")).toHaveCount(37);
   await expect(coverage.getByRole("row").filter({ hasText: "仓单日报" })).toHaveCount(5);
   await expect(
     coverage.getByRole("row").filter({ hasText: "日线" }).filter({ hasText: "GFEX" }),
@@ -24,13 +24,14 @@ test("the market tables page lists what the data source offers", async ({ page }
   const state = await rpc(page.request, "data.tables.coverage", {});
   const held = state.table_coverage;
   checkSnapshot("market table coverage", state);
-  expect(held.sources.map((source: { table: string }) => source.table)).toEqual([
-    "futures.contracts",
+  expect(held.sources.map((source: { table: string }) => source.table).sort()).toEqual([
     "futures.calendar",
+    "futures.contracts",
     "futures.daily",
-    "futures.settlement",
-    "futures.receipts",
+    "futures.margin",
     "futures.rankings",
+    "futures.receipts",
+    "futures.settlement",
   ]);
 });
 

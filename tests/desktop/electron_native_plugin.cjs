@@ -27,6 +27,12 @@ const library = process.platform === "darwin" ? ".dylib" : ".so";
     );
     const launch = () =>
       electron.launch({
+        recordVideo: process.env.ASTERION_UI_VIDEO_DIR
+          ? {
+              dir: path.join(process.env.ASTERION_UI_VIDEO_DIR, "electron_native_plugin"),
+              size: { width: 1440, height: 900 },
+            }
+          : undefined,
         executablePath: require("../../scripts/desktop/electron-path.cjs")(),
         args: [path.resolve("apps/clients/terminal/electron"), `--user-data-dir=${temp}/ui`],
         env: {

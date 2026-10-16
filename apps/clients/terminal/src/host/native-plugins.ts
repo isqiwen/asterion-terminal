@@ -7,6 +7,7 @@ export function availableDataTaskPlugins(items: readonly NativePluginInfo[]): Na
       plugin.capabilities.some(
         capability =>
           (capability.id === "asterion.history.v3" && capability.version === 3) ||
+          (capability.id === "asterion.history.tables.v1" && capability.version === 1) ||
           (capability.id === "asterion.risk.pre-trade.v1" && capability.version === 1),
       ),
   );

@@ -9,6 +9,10 @@ export default defineConfig({
     baseURL: origin,
     viewport: { width: 1440, height: 900 },
     trace: "retain-on-failure",
+    video:
+      process.env.ASTERION_E2E_VIDEO === "1"
+        ? { mode: "on", size: { width: 1440, height: 900 } }
+        : "off",
   },
   webServer: [
     {

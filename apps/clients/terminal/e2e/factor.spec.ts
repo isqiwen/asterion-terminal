@@ -213,7 +213,10 @@ test("three contracts are compared with each other at every bar", async ({ page 
   await expect(sections.locator("tbody tr")).toHaveCount(37);
   await expect(sections.getByRole("columnheader", { name: "秩 IC", exact: true })).toBeVisible();
   // All three contracts have every bar.
-  await expect(sections.locator("tbody tr").first().locator("td").last()).toHaveText("3");
+  const countColumn = await sections
+    .getByRole("columnheader", { name: "参与的合约数", exact: true })
+    .evaluate(cell => (cell as HTMLTableCellElement).cellIndex);
+  await expect(sections.locator("tbody tr").first().locator("td").nth(countColumn)).toHaveText("3");
   await result.getByText("实验参数", { exact: true }).click();
   for (const symbol of ["rb2610", "hc2610", "al2610"])
     await expect(result.getByRole("region", { name: `SHFE · ${symbol}` })).toContainText("40");
