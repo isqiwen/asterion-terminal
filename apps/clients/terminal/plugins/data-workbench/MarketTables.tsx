@@ -66,6 +66,12 @@ const shown: Record<string, Record<string, Shown>> = {
     open_interest_change: ["持仓量变化", true],
     delivery_settlement: ["交割结算价", true],
   },
+  "futures.margin": {
+    contract: ["合约"],
+    phase: ["适用阶段"],
+    long_margin_rate: ["买投机保证金率", true],
+    short_margin_rate: ["卖投机保证金率", true],
+  },
   "futures.settlement": {
     contract: ["合约"],
     trading_fee_rate: ["交易手续费率", true],
@@ -108,6 +114,7 @@ const shown: Record<string, Record<string, Shown>> = {
 };
 // What a reader has to know before using a table's numbers.
 const notes: Record<string, string> = {
+  "futures.margin": "上期所保证金范围说明",
   "futures.settlement": "结算参数说明",
   "futures.receipts": "仓单日报说明",
   "futures.rankings": "成交持仓排名说明",
@@ -329,6 +336,7 @@ function TableUpdateForm({
   const snapshot = context.snapshot;
   // The provider's connection rules come with any one of its history sources.
   const connection = snapshot?.data?.sources.find(source => source.plugin_id === provider);
+  const publicMargins = provider === "asterion.data.shfe";
   const saved = savedFor(snapshot, provider);
   const [rate, setRate] = useState(
     String(connection?.connection?.requests_per_minute_default ?? 60),
@@ -381,8 +389,9 @@ function TableUpdateForm({
   const configureBudget = () =>
     act(() =>
       context.trade("data.download.budget.configure", {
-        source: connection?.id ?? "",
-        token: saved ? "" : token,
+        source: publicMargins ? "shfe.au2512.margin" : (connection?.id ?? ""),
+        ...(publicMargins ? { provider } : {}),
+        token: publicMargins || saved ? "" : token,
         requests_per_minute: requests,
       }),
     );
@@ -407,7 +416,7 @@ function TableUpdateForm({
         await context.trade("data.tables.update.submit", {
           id: next,
           ...definition,
-          token: saved ? "" : token,
+          token: publicMargins || saved ? "" : token,
         });
         setRequest({ id: next, definition: key, accepted: true });
       } finally {
@@ -416,6 +425,7 @@ function TableUpdateForm({
     });
   return (
     <section className="history-update" aria-label={t("更新全市场数据")}>
+      {publicMargins && <p>{t("上期所保证金范围说明")}</p>}
       <h3>{t("更新全市场数据")}</h3>
       <form
         onSubmit={event => {
@@ -441,8 +451,9 @@ function TableUpdateForm({
               {t("起始日期")}
               <input
                 type="date"
-                required={empty}
-                max={end || yesterday()}
+                required={empty || publicMargins}
+                min={publicMargins ? "2025-10-20" : undefined}
+                max={end || (publicMargins ? "2025-10-22" : yesterday())}
                 value={begin}
                 onChange={event => setBegin(event.target.value)}
               />
@@ -451,8 +462,9 @@ function TableUpdateForm({
               {t("结束日期")}
               <input
                 type="date"
-                min={begin || undefined}
-                max={yesterday()}
+                required={publicMargins}
+                min={begin || (publicMargins ? "2025-10-20" : undefined)}
+                max={publicMargins ? "2025-10-22" : yesterday()}
                 value={end}
                 onChange={event => setEnd(event.target.value)}
               />
@@ -464,7 +476,9 @@ function TableUpdateForm({
                   required
                   type="number"
                   min="1"
-                  max={connection?.connection?.requests_per_minute_max ?? 500}
+                  max={
+                    publicMargins ? 60 : (connection?.connection?.requests_per_minute_max ?? 500)
+                  }
                   value={rate}
                   onChange={event => setRate(event.target.value)}
                 />
@@ -507,20 +521,25 @@ function TableUpdateForm({
               ))}
             </div>
           )}
-          <p className="subtle">
-            {t(
-              empty
-                ? "还没有数据，第一次下载需要起始日期。结束日期留空则取到上海时间已经结束的最后一天。"
-                : "起始日期留空则接着已有数据往后取；填写后会补齐这一天起缺少的交易日。结束日期留空则取到上海时间已经结束的最后一天。",
-            )}
-          </p>
+          {!publicMargins && (
+            <p className="subtle">
+              {t(
+                empty
+                  ? "还没有数据，第一次下载需要起始日期。结束日期留空则取到上海时间已经结束的最后一天。"
+                  : "起始日期留空则接着已有数据往后取；填写后会补齐这一天起缺少的交易日。结束日期留空则取到上海时间已经结束的最后一天。",
+              )}
+            </p>
+          )}
           <p className="subtle">
             {t("同一账号的下载共享当前数据服务的额度；多节点请分别分配份额。")}
           </p>
           <div className="source-actions">
             <button
               type="button"
-              disabled={!connection || (!saved && !!connection.credential_required && !token)}
+              disabled={
+                (!connection && !publicMargins) ||
+                (!saved && !!connection?.credential_required && !token)
+              }
               onClick={() => void configureBudget()}
             >
               {t("应用共享额度")}

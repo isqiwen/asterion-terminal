@@ -286,3 +286,10 @@ if(ASTERION_SANITIZERS)
 endif()
 
 target_link_libraries(asterion_terminal_tests PRIVATE asterion_performance)
+
+asterion_unit_tests(asterion_shfe_margin_tests data/shfe_margins_test.cpp asterion_data_store)
+target_link_libraries(asterion_shfe_margin_tests PRIVATE asterion_shfe)
+target_link_libraries(asterion_test_history PRIVATE asterion_shfe)
+target_link_libraries(asterion_task_execution_tests PRIVATE asterion_shfe)
+add_executable(asterion_shfe_margin_probe EXCLUDE_FROM_ALL acceptance/shfe_margin_probe.cpp)
+target_link_libraries(asterion_shfe_margin_probe PRIVATE asterion_data_queries asterion_history_providers asterion_shfe CLI11::CLI11)

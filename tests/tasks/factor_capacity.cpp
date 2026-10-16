@@ -158,10 +158,18 @@ int main(int argc, char** argv)
                 result = factor::run(input);
             });
             report["result_sha256"] = sha256_bytes(result.SerializeAsString());
-            if (phase == "result")
+            report["result_bytes"] = result.ByteSizeLong();
+            if (phase == "result") {
                 measure("result_validation_ms", [&] {
                     protocol::validate_factor_result(input, result);
                 });
+                report["result_json_bytes"] =
+                    protocol::decode_factor_result(input, result).dump().size();
+                std::size_t members = 0;
+                for (const auto& section : result.cross_sections())
+                    members += static_cast<std::size_t>(section.members_size());
+                report["result_members"] = members;
+            }
         }
         std::cout << report.dump() << '\n';
         return 0;

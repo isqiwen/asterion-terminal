@@ -594,6 +594,17 @@ std::future<data::v1::TableRefreshPlan> DataClient::table_refresh_plan(
         });
 }
 
+std::future<Json> DataClient::historical_margins(const data::v1::HistoricalMarginQuery& query)
+{
+    wire::DataRequest request;
+    *request.mutable_historical_margins() = query;
+    return impl_->invoke<Json>(
+        std::move(request),
+        [](const wire::DataRequest&, wire::DataResponse& response) {
+            return protocol::decode_historical_margins(response.historical_margins());
+        });
+}
+
 std::future<Json> DataClient::table_coverage()
 {
     wire::DataRequest request;

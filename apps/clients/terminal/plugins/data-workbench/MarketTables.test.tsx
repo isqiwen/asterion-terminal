@@ -295,3 +295,54 @@ test("a column is named for what it means in its table, with what a reader must 
     "行号是当天报表里该品种的第几行，不同日期之间不对应。",
   );
 });
+
+test("a public table-only provider can configure a budget and submit without a minute source or token", async () => {
+  const snapshot = ready(state => {
+    state.data!.sources = [];
+    state.data_credentials = [];
+  });
+  const trade = vi.fn(async () => {});
+  render(
+    page(snapshot, trade, async () => ({
+      ...snapshot,
+      table_coverage: {
+        snapshot: "c".repeat(64),
+        rows: [],
+        sources: [
+          {
+            table: "futures.margin",
+            schema: 1,
+            source: "shfe.au2512.margin",
+            plugin_id: "asterion.data.shfe",
+            venues: ["SHFE"],
+          },
+        ],
+      },
+    })),
+  );
+  await screen.findByRole("table", { name: "全市场数据覆盖" });
+  fireEvent.click(screen.getByRole("button", { name: "应用共享额度" }));
+  await waitFor(() =>
+    expect(trade).toHaveBeenCalledWith("data.download.budget.configure", {
+      source: "shfe.au2512.margin",
+      provider: "asterion.data.shfe",
+      token: "",
+      requests_per_minute: 60,
+    }),
+  );
+  fireEvent.change(screen.getByLabelText("起始日期"), { target: { value: "2025-10-20" } });
+  fireEvent.change(screen.getByLabelText("结束日期"), { target: { value: "2025-10-22" } });
+  fireEvent.click(screen.getByRole("button", { name: "开始更新" }));
+  await waitFor(() =>
+    expect(trade).toHaveBeenCalledWith(
+      "data.tables.update.submit",
+      expect.objectContaining({
+        provider: "asterion.data.shfe",
+        tables: ["futures.margin"],
+        begin_day: "2025-10-20",
+        end_day: "2025-10-22",
+        token: "",
+      }),
+    ),
+  );
+});

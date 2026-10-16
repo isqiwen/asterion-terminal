@@ -24,6 +24,7 @@ arch = "x86_64"
 files = [build / name for name in ("asterion-node-agent", "asterion-trading", "asterion-market-data", "asterion-data-service", "asterion-task-service", "asterion-backtest", "asterion-factor", "asterion-data-pipeline")]
 if arch == "x86_64": files.extend([build / "ctp-md.so", build / "ctp-trader.so"])
 files.append(build / "plugins/asterion-tushare.so")
+files.append(build / "plugins/asterion-shfe.so")
 files.append(build / "plugins/asterion-order-limits.so")
 product_version = json.loads((Path(__file__).resolve().parents[2] / "apps/clients/terminal/electron/package.json").read_text())["version"]
 manifest = {"source_sha256": source_hash, "product_version": product_version, "os": os_name, "arch": arch, "files": {p.relative_to(build).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}}

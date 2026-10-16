@@ -63,6 +63,26 @@ test("daily factor reuse keeps original snapshots or explicitly chooses revised 
   });
   expect(state.task_result.result.memberships).toHaveLength(days.length * 3);
   const id = state.task_result.id;
+  await result.getByText("截面明细", { exact: true }).click();
+  const sections = result.getByRole("table", { name: "截面明细", exact: true });
+  await sections
+    .locator("tbody tr")
+    .filter({ has: page.locator("td:first-child").filter({ hasText: days[5] }) })
+    .getByRole("button", { name: "查看成员", exact: true })
+    .click();
+  const evidence = result.getByRole("region", { name: "截面成员证据", exact: true });
+  await expect(evidence).toContainText(`${days[5]} → ${days[6]}`);
+  await expect(evidence).toContainText("实际窗口: 2");
+  const details = evidence.getByRole("table", { name: "截面成员明细", exact: true });
+  await expect(details.locator("tbody tr")).toHaveCount(2);
+  await expect(details).toContainText("SHFE/rb/2026-10");
+  await expect(details).toContainText("SHFE/al/2026-10");
+  await expect(details).not.toContainText("SHFE/cu/2026-10");
+  await expect(details).toContainText("0.0000%");
+  // The first evaluated observation has not met the prior-history requirement.
+  await sections.getByRole("button", { name: "查看成员", exact: true }).first().click();
+  await expect(evidence).toContainText("此观测没有实际参与成员");
+  await expect(evidence.getByRole("table")).toHaveCount(0);
   const rejected = await page.request.post("/__asterion/api", {
     data: {
       version: 1,
@@ -143,6 +163,7 @@ test("daily factor reuse keeps original snapshots or explicitly chooses revised 
     (row: { observed: string }) => row.observed === days[5],
   );
   expect(section.series).toBe(3);
+  expect(section.members).toHaveLength(3);
   const unchanged = (await rpc(page.request, "task.result", { id })).task_result;
   expect(unchanged.experiment).toEqual(state.task_result.experiment);
   expect(unchanged.result).toEqual(state.task_result.result);

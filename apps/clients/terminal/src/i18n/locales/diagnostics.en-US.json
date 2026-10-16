@@ -1039,5 +1039,15 @@
   "settlement margin requires explicit costs for the next trading day": "settlement margin requires explicit costs for the next trading day",
   "settlement margin events must be a list": "settlement margin events must be a list",
   "invalid settlement margin revaluation evidence": "invalid settlement margin revaluation evidence",
-  "settlement margin result does not match fixed events": "settlement margin result does not match fixed events"
+  "settlement margin result does not match fixed events": "settlement margin result does not match fixed events",
+  "SHFE margin supports AU2512 on 2025-10-20 through 2025-10-22 only": "SHFE margin supports AU2512 on 2025-10-20 through 2025-10-22 only",
+  "invalid SHFE margin report": "invalid SHFE margin report",
+  "SHFE HTTPS margin report is unavailable": "SHFE HTTPS margin report is unavailable",
+  "invalid historical margin evidence": "invalid historical margin evidence",
+  "historical margin source evidence does not match stored rows": "historical margin source evidence does not match stored rows",
+  "historical margin evidence does not match backtest parameters": "historical margin evidence does not match backtest parameters",
+  "historical margins require one contract and no manual settlement events": "historical margins require one contract and no manual settlement events",
+  "historical margins require a percentage cost schedule covering every day": "historical margins require a percentage cost schedule covering every day",
+  "historical margin selection changed; preview again": "historical margin selection changed; preview again",
+  "Historical margin preview is missing": "Historical margin preview is missing"
 }

@@ -1054,8 +1054,8 @@ TEST(TableSeries, AFactorIsEvaluatedAcrossProductsOfTheTable)
         8U,
         &factor::v1::FactorCrossSection::event_index);
     ASSERT_NE(dropped, result.factor().cross_sections().end());
-    EXPECT_EQ(dropped->series(), 2U);
-    EXPECT_EQ((dropped + 1)->series(), 3U);
+    EXPECT_EQ(dropped->members_size(), 2U);
+    EXPECT_EQ((dropped + 1)->members_size(), 3U);
     EXPECT_EQ(input.series(0).table().months_size(), 2) << "rebar rolled";
     EXPECT_EQ(input.series(0).table().schedule().rolls(1).trading_day(), open[19]);
     const auto decoded = protocol::decode_task_result(result, "across");

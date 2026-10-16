@@ -1,4 +1,5 @@
 #include "table_update.hpp"
+#include "margins.hpp"
 #include "history_providers.hpp"
 #include "response_evidence.hpp"
 #include <asterion/domain/trading_days.hpp>
@@ -215,6 +216,20 @@ v1::TableUpdatePlan table_update_plan(
             throw std::invalid_argument("table refresh requires a completed trading date");
         if (step == v1::TABLE_PLAN_DAYS)
             *plan.add_partitions() = target.partition();
+        return plan;
+    }
+
+    if (update.provider() == shfe::provider) {
+        // Only the explicitly reviewed report dates; this provider has no calendar.
+        shfe::validate_scope("SHFE", update.begin_day());
+        shfe::validate_scope("SHFE", update.end_day());
+        if (update.tables_size() != 1 || update.tables(0) != shfe::table)
+            throw std::invalid_argument("history table is unavailable from this source");
+        if (step == v1::TABLE_PLAN_DAYS)
+            for (const auto* day : shfe::days)
+                if (day >= update.begin_day() && day <= end
+                    && !store.current({shfe::table, 1, shfe::source}, "SHFE", day))
+                    add(plan, shfe::table, "SHFE", day);
         return plan;
     }
 

@@ -209,7 +209,7 @@ TableStore::Recorded TableStore::record(
         snapshot_bytes(next, previous) + (response ? response_link(*response) : std::string{}));
     if (response) {
         if (response->body.empty() || response->body.size() > max_source_response_bytes
-            || response->received_at_ns <= 0 || response->format != "tushare.fut_daily.raw.v1")
+            || response->received_at_ns <= 0 || !valid_source_response_format(response->format))
             throw std::invalid_argument("invalid source response evidence");
         const auto hash = sha256_bytes(response->body);
         const auto object_path = root_ / "responses" / "objects" / (hash + ".json");
@@ -290,7 +290,7 @@ std::optional<SourceResponse> TableStore::response(const TableRevision& revision
                 max_source_response_bytes),
             std::stoll(reference.at("received_at_ns").get<std::string>())
         };
-        if (response.format != "tushare.fut_daily.raw.v1" || response.received_at_ns <= 0
+        if (!valid_source_response_format(response.format) || response.received_at_ns <= 0
             || reference.at("bytes") != response.body.size() || hash != sha256_bytes(response.body)
             || sha256_bytes(snapshot_bytes(revision, previous) + response_link(response))
                 != revision.snapshot)

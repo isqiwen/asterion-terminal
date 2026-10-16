@@ -301,6 +301,7 @@ export type TerminalCommand =
   | "node.update"
   | "node.data_tasks.local.open"
   | "node.data_tasks.attach"
+  | "backtest.margins.preview"
   | "backtest.submit"
   | "backtest.reuse"
   | "backtest.budget.review"
@@ -602,6 +603,8 @@ export type FactorResult = {
     pearson: number | null;
     spearman: number | null;
     series: number;
+    // Grouping order: descending feature, input order for ties (not IC ranks).
+    members: { series_index: number; value: number; forward_return: number }[];
   }[];
 };
 export type HistoryConnectionSchema = {
@@ -830,6 +833,33 @@ export type BacktestReconciliation = {
     checks: AccountCheck[];
   }[];
 };
+export type HistoricalMargins = {
+  snapshot: string;
+  contract: string;
+  source: string;
+  unit: "fraction";
+  basis: "exchange_speculation";
+  publication_known: false;
+  unit_reference: string;
+  phase_reference: string;
+  basis_reference: string;
+  days: {
+    trading_day: string;
+    day_start_rate: string;
+    settlement_rate: string;
+    revision_snapshot: string;
+    content: string;
+    object: string;
+    provider_artifact: string;
+    acquired_at_ns: string;
+    day_start_url: string;
+    settlement_url: string;
+    day_start_sha256: string;
+    settlement_sha256: string;
+    day_start_updated: string;
+    settlement_updated: string;
+  }[];
+};
 export type SettlementMargin = { trading_day: string; rate: string; source: string };
 export type BacktestResult = {
   fill_days?: { fill_id: string; trading_day: string }[];
@@ -883,6 +913,7 @@ export type ExperimentData = {
   source_dataset_ids: string[];
 };
 export type BacktestExperiment = {
+  historical_margins?: HistoricalMargins;
   settlement_margins?: SettlementMargin[];
   dataset_revision: string;
   // One strategy, or the several that were compared before `holdout_day`.
@@ -1512,6 +1543,7 @@ export type Snapshot = {
   minute_range?: MinuteRangeEvidence;
   history_update_plan?: HistoryUpdatePlan;
   history_usage?: HistoryUsage;
+  historical_margins?: HistoricalMargins;
   table_coverage?: TableCoverage;
   table_page?: TablePage;
   table_refresh_plan?: TableRefreshPlan;

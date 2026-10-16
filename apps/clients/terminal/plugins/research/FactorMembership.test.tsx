@@ -50,6 +50,7 @@ test("daily member evidence distinguishes qualification, missing facts and evalu
             pearson: null,
             spearman: null,
             series: 1,
+            members: [{ series_index: 0, value: 0, forward_return: 0 }],
           },
         ],
       }}

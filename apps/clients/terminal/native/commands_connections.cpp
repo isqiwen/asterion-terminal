@@ -63,7 +63,9 @@ Application::Impl::Settings Application::Impl::inspect_settings(const Settings& 
 void Application::Impl::register_connection_commands()
 {
     command("data.download.budget.configure", [this](const json& params) -> PolledTask<Response> {
-        fields(params, {"source", "token", "requests_per_minute"});
+        auto required = params;
+        required.erase("provider");
+        fields(required, {"source", "token", "requests_per_minute"});
         const auto client = data_client;
         if (!client)
             throw std::invalid_argument("connect data service first");
@@ -72,8 +74,14 @@ void Application::Impl::register_connection_commands()
             throw std::invalid_argument("invalid download request budget");
         data::v1::DownloadBudgetConfiguration policy;
         policy.set_source(text(params, "source"));
-        policy.set_credential(
-            (co_await source_credential(policy.source(), text(params, "token", true))));
+        if (params.contains("provider"))
+            policy.set_credential(
+                co_await provider_credential(
+                    text(params, "provider"),
+                    text(params, "token", true)));
+        else
+            policy.set_credential(
+                co_await source_credential(policy.source(), text(params, "token", true)));
         policy.set_requests_per_minute(rate.get<unsigned>());
         (co_await PollFuture{client->configure_download_budget(policy)});
         if (data_client != client)

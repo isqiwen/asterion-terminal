@@ -1,4 +1,5 @@
 #include <asterion/domain/trading_days.hpp>
+#include <asterion/domain/source_response.hpp>
 #include <asterion/domain/futures.hpp>
 #include <asterion/domain/historical_bars.hpp>
 #include <asterion/domain/history_tables.hpp>
@@ -809,7 +810,7 @@ Json decode_table_page(const data::v1::TablePage& page)
     if (page.has_response_evidence()) {
         const auto& stored = page.response_evidence();
         const auto& raw = stored.response();
-        if (!stored.has_response() || raw.format() != "tushare.fut_daily.raw.v1"
+        if (!stored.has_response() || !valid_source_response_format(raw.format())
             || raw.received_at_ns() <= 0 || raw.body().empty() || raw.body().size() > 1024 * 1024
             || stored.bytes() != raw.body().size()
             || stored.revision_snapshot() != page.revision().snapshot()
@@ -920,6 +921,63 @@ Json decode_history_usage(const data::v1::HistoryUsage& value)
         rows.push_back({{"kind", kind}, {"id", row.id()}, {"name", row.name()}, {"roles", roles}});
     }
     return {{"dataset_id", value.dataset_id()}, {"references", rows}};
+}
+
+Json decode_historical_margins(const data::v1::HistoricalMargins& input)
+{
+    validate_message(input);
+    const auto hash = [](const std::string& value) {
+        return value.size() == 64
+            && value.find_first_not_of("0123456789abcdef") == std::string::npos;
+    };
+    if (!hash(input.snapshot()) || input.contract().empty() || input.source().empty()
+        || input.unit() != "fraction" || input.basis() != "exchange_speculation"
+        || input.unit_reference().empty() || input.phase_reference().empty()
+        || input.basis_reference().empty() || input.days().empty() || input.days_size() > 3)
+        throw std::invalid_argument("invalid historical margin evidence");
+    Json days = Json::array();
+    std::string previous;
+    for (const auto& day : input.days()) {
+        (void)parse_trading_date(day.trading_day());
+        if (day.trading_day() <= previous || !hash(day.revision_snapshot()) || !hash(day.content())
+            || !hash(day.object()) || !hash(day.provider_artifact())
+            || !hash(day.day_start_sha256()) || !hash(day.settlement_sha256())
+            || day.acquired_at_ns() <= 0 || day.day_start_url().empty()
+            || day.settlement_url().empty() || day.day_start_updated().empty()
+            || day.settlement_updated().empty() || day.day_start_rate().units() <= 0
+            || day.day_start_rate().units() >= Decimal::parse("1").raw()
+            || day.settlement_rate().units() <= 0
+            || day.settlement_rate().units() >= Decimal::parse("1").raw())
+            throw std::invalid_argument("invalid historical margin evidence");
+        days.push_back(
+            {{"trading_day", day.trading_day()},
+                {"day_start_rate", Decimal::from_raw(day.day_start_rate().units()).str()},
+                {"settlement_rate", Decimal::from_raw(day.settlement_rate().units()).str()},
+                {"revision_snapshot", day.revision_snapshot()},
+                {"content", day.content()},
+                {"object", day.object()},
+                {"provider_artifact", day.provider_artifact()},
+                {"acquired_at_ns", std::to_string(day.acquired_at_ns())},
+                {"day_start_url", day.day_start_url()},
+                {"settlement_url", day.settlement_url()},
+                {"day_start_sha256", day.day_start_sha256()},
+                {"settlement_sha256", day.settlement_sha256()},
+                {"day_start_updated", day.day_start_updated()},
+                {"settlement_updated", day.settlement_updated()}});
+        previous = day.trading_day();
+    }
+    return {
+        {"snapshot", input.snapshot()},
+        {"contract", input.contract()},
+        {"source", input.source()},
+        {"unit", input.unit()},
+        {"basis", input.basis()},
+        {"publication_known", false},
+        {"unit_reference", input.unit_reference()},
+        {"phase_reference", input.phase_reference()},
+        {"basis_reference", input.basis_reference()},
+        {"days", std::move(days)}
+    };
 }
 
 } // namespace asterion::protocol

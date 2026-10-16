@@ -1,0 +1,125 @@
+{
+  "2025-10-20": {
+    "trading_day_start": {
+      "ContractDailyTradeArgument": [
+        {
+          "INSTRUMENTID": "au2512",
+          "SPEC_SHORTMARGINRATIO": "0.14",
+          "LOWER_VALUE": "0.12",
+          "HDEGE_SHORTMARGINRATIO": "0.13",
+          "PRICE_LIMITS": "",
+          "UPPER_VALUE": "0.12",
+          "SPEC_LONGMARGINRATIO": "0.14",
+          "TRADINGDAY": "20251020",
+          "HDEGE_LONGMARGINRATIO": "0.13"
+        }
+      ],
+      "update_date": "20251020 16:00:12",
+      "report_date": "20251020"
+    },
+    "settlement": {
+      "Settlement": [
+        {
+          "INSTRUMENTID": "au2512",
+          "COMMODITYDELIVERYFEEUNIT": "0",
+          "TRADEFEERATION": "0",
+          "SHORTMARGINRATIO": "0.13",
+          "SPEC_LONGMARGINRATIO": "0.14",
+          "TRADINGDAY": "20251020",
+          "HTRADEFEERATIO": "0",
+          "DISCOUNTRATE": "0",
+          "TRADEFEEUNIT": "20",
+          "SPEC_SHORTMARGINRATIO": "0.14",
+          "SETTLEMENTPRICE": "974.4",
+          "LONGMARGINRATIO": "0.13",
+          "COMMODITYDELIVERYFEERATION": "0",
+          "HTRADEFEEUNIT": "10"
+        }
+      ],
+      "update_date": "20251020 16:00:00",
+      "report_date": "20251020"
+    }
+  },
+  "2025-10-21": {
+    "trading_day_start": {
+      "ContractDailyTradeArgument": [
+        {
+          "INSTRUMENTID": "au2512",
+          "SPEC_SHORTMARGINRATIO": "0.14",
+          "LOWER_VALUE": "0.12",
+          "HDEGE_SHORTMARGINRATIO": "0.13",
+          "PRICE_LIMITS": "",
+          "UPPER_VALUE": "0.12",
+          "SPEC_LONGMARGINRATIO": "0.14",
+          "TRADINGDAY": "20251021",
+          "HDEGE_LONGMARGINRATIO": "0.13"
+        }
+      ],
+      "update_date": "20251021 15:50:12",
+      "report_date": "20251021"
+    },
+    "settlement": {
+      "Settlement": [
+        {
+          "INSTRUMENTID": "au2512",
+          "COMMODITYDELIVERYFEEUNIT": "0",
+          "TRADEFEERATION": "0",
+          "SHORTMARGINRATIO": "0.15",
+          "SPEC_LONGMARGINRATIO": "0.16",
+          "TRADINGDAY": "20251021",
+          "HTRADEFEERATIO": "0",
+          "DISCOUNTRATE": "0",
+          "TRADEFEEUNIT": "20",
+          "SPEC_SHORTMARGINRATIO": "0.16",
+          "SETTLEMENTPRICE": "991.44",
+          "LONGMARGINRATIO": "0.15",
+          "COMMODITYDELIVERYFEERATION": "0",
+          "HTRADEFEEUNIT": "10"
+        }
+      ],
+      "update_date": "20251021 15:50:00",
+      "report_date": "20251021"
+    }
+  },
+  "2025-10-22": {
+    "trading_day_start": {
+      "ContractDailyTradeArgument": [
+        {
+          "INSTRUMENTID": "au2512",
+          "SPEC_SHORTMARGINRATIO": "0.16",
+          "LOWER_VALUE": "0.14",
+          "HDEGE_SHORTMARGINRATIO": "0.15",
+          "PRICE_LIMITS": "",
+          "UPPER_VALUE": "0.14",
+          "SPEC_LONGMARGINRATIO": "0.16",
+          "TRADINGDAY": "20251022",
+          "HDEGE_LONGMARGINRATIO": "0.15"
+        }
+      ],
+      "update_date": "20251022 15:55:12",
+      "report_date": "20251022"
+    },
+    "settlement": {
+      "Settlement": [
+        {
+          "INSTRUMENTID": "au2512",
+          "COMMODITYDELIVERYFEEUNIT": "0",
+          "TRADEFEERATION": "0",
+          "SHORTMARGINRATIO": "0.15",
+          "SPEC_LONGMARGINRATIO": "0.16",
+          "TRADINGDAY": "20251022",
+          "HTRADEFEERATIO": "0",
+          "DISCOUNTRATE": "0",
+          "TRADEFEEUNIT": "20",
+          "SPEC_SHORTMARGINRATIO": "0.16",
+          "SETTLEMENTPRICE": "949.58",
+          "LONGMARGINRATIO": "0.15",
+          "COMMODITYDELIVERYFEERATION": "0",
+          "HTRADEFEEUNIT": "10"
+        }
+      ],
+      "update_date": "20251022 15:55:00",
+      "report_date": "20251022"
+    }
+  }
+}

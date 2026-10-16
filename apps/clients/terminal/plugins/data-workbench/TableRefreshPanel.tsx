@@ -37,6 +37,7 @@ export function TableRefreshPanel({
   const connection = context.snapshot?.data?.sources.find(
     item => item.plugin_id === source.plugin_id,
   );
+  const publicMargins = source.plugin_id === "asterion.data.shfe";
   const saved = savedCredential(context.snapshot, connection?.id ?? "");
   const [rate, setRate] = useState(
     String(saved?.requests_per_minute ?? connection?.connection?.requests_per_minute_default ?? 60),
@@ -68,7 +69,7 @@ export function TableRefreshPanel({
     !unsupportedVenue &&
     !!context.snapshot?.data?.online &&
     !!context.snapshot?.task_service?.online &&
-    !!connection;
+    (!!connection || publicMargins);
   const read = useRef(context.query);
   read.current = context.query;
   useEffect(() => {
@@ -129,7 +130,7 @@ export function TableRefreshPanel({
           id,
           query: plan.query,
           plan_id: plan.id,
-          token: saved ? "" : token,
+          token: publicMargins || saved ? "" : token,
         });
         if (ticket === generation.current) setAccepted(true);
       } finally {
@@ -175,7 +176,7 @@ export function TableRefreshPanel({
             <input
               type="number"
               min="1"
-              max={connection?.max_requests_per_minute ?? 500}
+              max={publicMargins ? 60 : (connection?.max_requests_per_minute ?? 500)}
               value={rate}
               disabled={working || running || !!saved}
               onChange={event => setRate(event.target.value)}
@@ -237,8 +238,9 @@ export function TableRefreshPanel({
                 onClick={() =>
                   void act(() =>
                     context.trade("data.download.budget.configure", {
-                      source: connection?.id ?? "",
-                      token: saved ? "" : token,
+                      source: publicMargins ? source.source : (connection?.id ?? ""),
+                      ...(publicMargins ? { provider: source.plugin_id } : {}),
+                      token: publicMargins || saved ? "" : token,
                       requests_per_minute: plan.query.requests_per_minute,
                     }),
                   )

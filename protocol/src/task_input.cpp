@@ -57,6 +57,8 @@ void resolve_task_input(task::v1::TaskAttempt& attempt, std::stop_token stop)
             item->set_slippage_ticks(contract.slippage_ticks());
         }
         *input->mutable_settlement_margins() = parameters.settlement_margins();
+        if (execution.has_historical_margins())
+            *input->mutable_historical_margins() = execution.historical_margins();
         set_backtest_strategies(*input, parameters);
         input->set_dataset_revision(dataset_revision(*paper));
         digest = sha256_bytes(input->SerializeAsString());

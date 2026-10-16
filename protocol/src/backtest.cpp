@@ -88,12 +88,78 @@ void validate_settlement_margins(const backtest::v1::BacktestInput& input)
     }
 }
 
+void validate_historical_margin_input(const backtest::v1::BacktestInput& input)
+{
+    if (!input.has_historical_margins())
+        return;
+    const auto& fixed = input.historical_margins();
+    (void)decode_historical_margins(fixed);
+    if (input.paper().contracts_size() != 1)
+        throw std::invalid_argument(
+            "historical margin evidence does not match backtest parameters");
+    const auto& contract = input.paper().contracts(0);
+    if (history_identity(contract.dataset().contract()).key() != fixed.contract()
+        || contract.dataset().days_size() != fixed.days_size()
+        || input.settlement_margins_size() != fixed.days_size()
+        || contract.cost_schedule().versions_size() != fixed.days_size())
+        throw std::invalid_argument(
+            "historical margin evidence does not match backtest parameters");
+    for (int i = 0; i < fixed.days_size(); ++i) {
+        const auto& day = fixed.days(i);
+        const auto& cost = contract.cost_schedule().versions(i);
+        const auto& event = input.settlement_margins(i);
+        if (contract.dataset().days(i).trading_day() != day.trading_day()
+            || cost.effective_from() != day.trading_day()
+            || cost.values().margin_per_lot().units() != 0
+            || cost.values().margin_rate().units() != day.day_start_rate().units()
+            || event.trading_day() != day.trading_day()
+            || event.rate().units() != day.settlement_rate().units()
+            || event.source() != fixed.source())
+            throw std::invalid_argument(
+                "historical margin evidence does not match backtest parameters");
+    }
+}
+
 } // namespace
+
+void apply_historical_margins(
+    backtest::v1::BacktestInput& input,
+    const data::v1::HistoricalMargins& fixed)
+{
+    (void)decode_historical_margins(fixed);
+    if (input.paper().contracts_size() != 1 || !input.settlement_margins().empty())
+        throw std::invalid_argument(
+            "historical margins require one contract and no manual settlement events");
+    auto* contract = input.mutable_paper()->mutable_contracts(0);
+    const auto original = contract->cost_schedule();
+    (void)cost_schedule(original);
+    contract->clear_cost_schedule();
+    for (const auto& day : fixed.days()) {
+        const v1::CostVersion* selected = nullptr;
+        for (const auto& version : original.versions())
+            if (version.effective_from() <= day.trading_day())
+                selected = &version;
+        if (!selected || selected->values().margin_per_lot().units() != 0)
+            throw std::invalid_argument(
+                "historical margins require a percentage cost schedule covering every day");
+        auto* cost = contract->mutable_cost_schedule()->add_versions();
+        *cost = *selected;
+        cost->set_effective_from(day.trading_day());
+        *cost->mutable_values()->mutable_margin_rate() = day.day_start_rate();
+        auto* event = input.add_settlement_margins();
+        event->set_trading_day(day.trading_day());
+        *event->mutable_rate() = day.settlement_rate();
+        event->set_source(fixed.source());
+    }
+    *input.mutable_historical_margins() = fixed;
+    validate_historical_margin_input(input);
+}
 
 backtest::v1::BacktestRequest encode_backtest_request(const Json& input)
 {
     auto required = input;
     required.erase("settlement_margins");
+    required.erase("margin_snapshot");
     require_fields(
         required,
         {"contracts", "deposit", "risk", "strategies", "series", "holdout_from", "walk_forward"});
@@ -116,6 +182,13 @@ backtest::v1::BacktestRequest encode_backtest_request(const Json& input)
         return traded.at("slippage_ticks").get<unsigned>();
     };
     backtest::v1::BacktestRequest result;
+    if (input.contains("margin_snapshot")) {
+        const auto snapshot = input.at("margin_snapshot").get<std::string>();
+        if (snapshot.size() != 64
+            || snapshot.find_first_not_of("0123456789abcdef") != std::string::npos)
+            throw std::invalid_argument("historical margin snapshot is unavailable");
+        result.set_margin_snapshot(snapshot);
+    }
     if (input.contains("settlement_margins")) {
         const auto& events = input.at("settlement_margins");
         if (!events.is_array())
@@ -294,6 +367,7 @@ Json decode_backtest(const backtest::v1::BacktestInput& input, DatasetView view)
             "comparing strategies requires a holdout that begins on a trading day after at least 20 " "others; one strategy takes none");
     validate_series(input);
     validate_settlement_margins(input);
+    validate_historical_margin_input(input);
     Json result{{"dataset_revision", input.dataset_revision()},
         {"paper", std::move(paper)},
         {"strategies", std::move(strategies)},
@@ -309,6 +383,8 @@ Json decode_backtest(const backtest::v1::BacktestInput& input, DatasetView view)
             all.push_back(decode_dominant_schedule(series));
         result["series"] = std::move(all);
     }
+    if (input.has_historical_margins())
+        result["historical_margins"] = decode_historical_margins(input.historical_margins());
     if (!input.settlement_margins().empty()) {
         auto events = Json::array();
         for (const auto& event : input.settlement_margins())

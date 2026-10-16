@@ -27,6 +27,8 @@ task::v1::TaskExecution task_execution(const task::v1::Task& task, const std::st
         *parameters->mutable_risk() = input.paper().risk();
         *parameters->mutable_strategies() = input.strategies();
         *parameters->mutable_settlement_margins() = input.settlement_margins();
+        if (input.has_historical_margins())
+            *result.mutable_historical_margins() = input.historical_margins();
         parameters->set_holdout_from(input.holdout_day());
         if (input.has_walk_forward())
             *parameters->mutable_walk_forward() = input.walk_forward();

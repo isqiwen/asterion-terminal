@@ -48,6 +48,7 @@ public:
     // Market-wide tables: what the store holds, and one page of a partition.
     [[nodiscard]] std::future<data::v1::TableRefreshPlan> table_refresh_plan(
         const data::v1::TableRefreshQuery&);
+    [[nodiscard]] std::future<Json> historical_margins(const data::v1::HistoricalMarginQuery&);
     [[nodiscard]] std::future<Json> table_coverage();
     [[nodiscard]] std::future<Json> table_page(const data::v1::TablePageQuery&);
     [[nodiscard]] std::future<Json> table_products(const data::v1::TableProductsQuery&);

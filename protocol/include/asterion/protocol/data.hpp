@@ -10,6 +10,8 @@
 
 namespace asterion::protocol {
 
+Json decode_historical_margins(const data::v1::HistoricalMargins&);
+
 data::v1::HistoryUpdateQuery encode_history_update_query(const Json&);
 Json decode_history_update_query(const data::v1::HistoryUpdateQuery&);
 Json decode_history_usage(const data::v1::HistoryUsage&);

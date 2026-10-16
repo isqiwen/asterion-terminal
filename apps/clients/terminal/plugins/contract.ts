@@ -54,6 +54,7 @@ export type TerminalContext = {
     method:
       | "task.result.read"
       | "backtest.budget.review"
+      | "backtest.margins.preview"
       | "task.metadata.read"
       | "task.evidence.export"
       | "task.comparison.export"

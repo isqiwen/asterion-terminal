@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { FactorMembership } from "./FactorMembership";
+import { FactorMembers } from "./FactorMembers";
 import { timestamp, type TaskResult } from "../../src/bridge/client";
 import { ExperimentDetails } from "./ExperimentDetails";
 import { factorWords, t, factorNames } from "./shared";
@@ -47,6 +48,8 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
   const when = (value: string | undefined) =>
     kind === "bars" ? timestamp(value ?? null) : (value ?? "—");
   const [page, setPage] = useState(0);
+  const [selectedEvent, setSelectedEvent] = useState<number | null>(null);
+  const selectedSection = result.cross_sections.find(row => row.event_index === selectedEvent);
   const last = Math.max(0, Math.ceil(rows.length / pageSize) - 1);
   const current = Math.min(page, last);
   return (
@@ -249,6 +252,7 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
                 <th>{cross ? "IC" : t(factorNames[experiment.factor])}</th>
                 <th>{cross ? t("秩 IC") : t("未来收益")}</th>
                 {cross && <th>{t("参与的合约数")}</th>}
+                {cross && <th>{t("截面成员证据")}</th>}
               </tr>
             </thead>
             <tbody>
@@ -262,6 +266,11 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
                         <td>{correlation(section.pearson)}</td>
                         <td>{correlation(section.spearman)}</td>
                         <td>{section.series}</td>
+                        <td>
+                          <button onClick={() => setSelectedEvent(section.event_index)}>
+                            {t("查看成员")}
+                          </button>
+                        </td>
                       </tr>
                     ))
                 : result.samples
@@ -277,6 +286,19 @@ export function FactorResults({ evidence }: { evidence: Extract<TaskResult, { ki
             </tbody>
           </table>
         </div>
+        {selectedSection && (
+          <FactorMembers
+            experiment={experiment}
+            section={selectedSection}
+            lookback={
+              result.folds.find(
+                fold =>
+                  selectedSection.event_index >= fold.training_end &&
+                  selectedSection.event_index < fold.validation_end,
+              )?.lookback ?? result.lookback
+            }
+          />
+        )}
         <button disabled={current === 0} onClick={() => setPage(current - 1)}>
           {t("上一页")}
         </button>

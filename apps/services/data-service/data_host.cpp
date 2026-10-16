@@ -1,4 +1,5 @@
 #include "data_host.hpp"
+#include "historical_margins.hpp"
 #include "history_coverage.hpp"
 #include "history_minutes.hpp"
 #include "history_providers.hpp"
@@ -197,6 +198,9 @@ std::function<void()> DataHost::prepare(
     else if (request.has_minute_evidence())
         *response.mutable_minute_evidence() =
             minute_evidence(store_->archive(), request.minute_evidence());
+    else if (request.has_historical_margins())
+        *response.mutable_historical_margins() =
+            historical_margins(store_->tables(), request.historical_margins());
     else if (request.has_bar_dataset())
         *response.mutable_bar_dataset() =
             resolve_bar_dataset(store_->tables(), store_->sources(request.bar_dataset()));

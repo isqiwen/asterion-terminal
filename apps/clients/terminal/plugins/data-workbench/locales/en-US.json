@@ -446,5 +446,8 @@
   "本期独立观测仅覆盖通过既有安全检查的上期所成功日线响应；此选择不承诺留存观测。": "Independent observations currently cover only successful SHFE daily responses passing existing safety checks; this selection does not promise retention.",
   "不会批量回补；每次仍须确认。观测接收时间属于本次请求，不是所选历史修订首次取得时间。": "No bulk backfill; each request still requires confirmation. Receive time belongs to this request, not the original acquisition of the historical revision.",
   "本次独立观测已保存": "Independent observation saved",
-  "对应仅指同批交付的规范化内容，不表示所有原文字段一致或行情真实性已经验证。": "Association refers to the normalized content delivered in this batch; it does not certify every raw field or market truth."
+  "对应仅指同批交付的规范化内容，不表示所有原文字段一致或行情真实性已经验证。": "Association refers to the normalized content delivered in this batch; it does not certify every raw field or market truth.",
+  "历史保证金": "Historical margins",
+  "适用阶段": "Application phase",
+  "上期所保证金范围说明": "SHFE public reports: AU2512 only, 2025-10-20 through 2025-10-22. Enter both dates explicitly. Separate day-start and settlement exchange speculation rates, expressed as fractions. Configure a download budget of at most 60 requests/minute; no token is required."
 }

@@ -364,6 +364,9 @@ create(const char* capability, const AstSetting* settings, uint32_t count, void*
         };
         if (result->source == "tushare.ft_mins")
             result->minutes = std::make_unique<tushare::Minutes>(result->credential, post);
+        if (std::string_view(capability) == AST_HISTORY_TABLES_V1 && count
+            && result->credential.empty())
+            throw AstStatus(AST_INVALID);
         // A metadata instance has no credential and only lists the tables.
         if (std::string_view(capability) == AST_HISTORY_TABLES_V1 && !result->credential.empty())
             result->tables = std::make_unique<tushare::Tables>(result->credential, post);

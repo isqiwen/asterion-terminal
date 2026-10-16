@@ -45,6 +45,7 @@ fs::path checked_bundle(const std::string& arch)
         "asterion-data-pipeline",
         "initialize-linux.py",
         "plugins/asterion-tushare.so",
+        "plugins/asterion-shfe.so",
         "plugins/asterion-order-limits.so"
     };
     if (arch == "x86_64") {

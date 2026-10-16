@@ -6,6 +6,26 @@ namespace asterion::terminal {
 
 void Application::Impl::register_backtest_commands()
 {
+    command("backtest.margins.preview", [this](const json& p) -> PolledTask<Response> {
+        fields(p, {});
+        if (!data_client || selected().size() != 1 || selected()[0].dataset.interval_minutes() != 0)
+            throw std::invalid_argument(
+                "settlement margin requires a single-contract full-sample daily backtest");
+        const auto generation = data_task_generation;
+        const auto dataset = selected()[0].dataset;
+        data::v1::HistoricalMarginQuery query;
+        query.set_contract(protocol::history_identity(dataset.contract()).key());
+        for (const auto& day : dataset.days())
+            query.add_trading_days(day.trading_day());
+        const auto reader = data_client;
+        auto margins = co_await PollFuture{reader->historical_margins(query)};
+        if (generation != data_task_generation || selected().size() != 1
+            || selected()[0].dataset.revision() != dataset.revision())
+            throw Error(ErrorCode::conflict, "historical margin selection changed; preview again");
+        auto reply = snapshot();
+        reply.values["historical_margins"] = std::move(margins);
+        co_return reply;
+    });
     command("backtest.budget.review", [this](const json& p) -> PolledTask<Response> {
         fields(p, {"id", "input_sha256", "result_digest", "limits"});
         validate_id(text(p, "id"));
@@ -83,6 +103,7 @@ void Application::Impl::register_backtest_commands()
     command("backtest.submit", [this](const json& p) -> PolledTask<Response> {
         auto required = p;
         required.erase("settlement_margins");
+        required.erase("margin_snapshot");
         fields_with_risk(
             required,
             {"id", "strategies", "holdout_from", "walk_forward", "deposit", "contracts"});
@@ -144,6 +165,13 @@ void Application::Impl::register_backtest_commands()
                 {"walk_forward", p.at("walk_forward")},
                 {"settlement_margins", p.value("settlement_margins", json::array())},
                 {"series", std::move(series)}});
+        if (p.contains("margin_snapshot")) {
+            const auto value = text(p, "margin_snapshot");
+            if (value.size() != 64
+                || value.find_first_not_of("0123456789abcdef") != std::string::npos)
+                throw std::invalid_argument("historical margin snapshot is unavailable");
+            request.set_margin_snapshot(value);
+        }
         (co_await PollFuture{task_client->submit(text(p, "id"), request)});
         if (generation != data_task_generation)
             throw Error(

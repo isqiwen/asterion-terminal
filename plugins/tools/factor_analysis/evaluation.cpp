@@ -262,37 +262,35 @@ std::vector<FactorCrossSection> across_series(
         const auto series = present(features, labels, row);
         values.clear();
         outcomes.clear();
+        std::vector<FactorMember> members;
         for (const auto s : series) {
             values.push_back(*features[s][row]);
             outcomes.push_back(*labels[s][row]);
+            members.push_back({s, *features[s][row], *labels[s][row]});
         }
+        std::ranges::stable_sort(members, std::greater{}, &FactorMember::value);
         // Two points always lie on a line: a correlation of them says nothing.
         const bool enough = series.size() >= 3;
         sections.push_back(
             {row,
                 enough ? correlation(values, outcomes) : std::nullopt,
                 enough ? rank_correlation(values, outcomes) : std::nullopt,
-                series.size()});
+                std::move(members)});
     }
     return sections;
 }
 
-std::vector<FactorSpread> spreads(
-    std::span<const Column> features,
-    std::span<const Column> labels,
-    std::span<const std::size_t> rows)
+std::vector<FactorSpread>
+spreads(std::span<const FactorCrossSection> sections, std::size_t series_count)
 {
-    std::vector<FactorSpread> result(features.size() / 2);
-    for (const auto row : rows) {
-        auto order = present(features, labels, row);
-        std::ranges::stable_sort(order, [&](auto left, auto right) {
-            return *features[left][row] > *features[right][row];
-        });
+    std::vector<FactorSpread> result(series_count / 2);
+    for (const auto& section : sections) {
+        const auto& members = section.members;
         double highest = 0, lowest = 0;
         // k + 1 on each side, where the row has that many series twice over.
-        for (std::size_t k = 0; 2 * (k + 1) <= order.size(); ++k) {
-            highest += *labels[order[k]][row];
-            lowest += *labels[order[order.size() - 1 - k]][row];
+        for (std::size_t k = 0; 2 * (k + 1) <= members.size(); ++k) {
+            highest += members[k].forward_return;
+            lowest += members[members.size() - 1 - k].forward_return;
             result[k].highest += highest / static_cast<double>(k + 1);
             result[k].lowest += lowest / static_cast<double>(k + 1);
             ++result[k].observations;
@@ -431,7 +429,7 @@ FactorEvaluation evaluate_factor(
                     summary.spearman,
                     summary.pearson_ratio,
                     summary.spearman_ratio,
-                    spreads(features, labels, rows)});
+                    spreads(sections, features.size())});
             result.cross_sections.insert(
                 result.cross_sections.end(),
                 sections.begin(),

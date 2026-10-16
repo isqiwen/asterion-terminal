@@ -40,6 +40,7 @@ export async function seedHistory(
     dailyDays = [],
     tablesOnly = false,
     dailyPrices = false,
+    shfeMargins = false,
     month = "2026-10",
     openInterest = 100,
     settlement = 110,
@@ -52,6 +53,7 @@ export async function seedHistory(
     dailyDays?: string[];
     tablesOnly?: boolean;
     dailyPrices?: boolean;
+    shfeMargins?: boolean;
     month?: string;
     openInterest?: number;
     settlement?: number;
@@ -107,6 +109,7 @@ export async function seedHistory(
       ...(dailyDays.length ? ["--daily-days", ...dailyDays] : []),
       ...(tablesOnly ? ["--tables-only"] : []),
       ...(dailyPrices ? ["--daily-prices"] : []),
+      ...(shfeMargins ? ["--shfe-margins"] : []),
       "--month",
       month,
       "--open-interest",

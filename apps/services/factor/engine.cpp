@@ -122,7 +122,12 @@ factor::v1::FactorResult run(
                     continue;
                 auto* target = result.add_cross_sections();
                 target->set_event_index(static_cast<unsigned>(row.index + offset));
-                target->set_series(static_cast<unsigned>(row.series));
+                for (const auto& member : row.members) {
+                    auto* entry = target->add_members();
+                    entry->set_series_index(static_cast<unsigned>(member.series_index));
+                    entry->set_value(member.value);
+                    entry->set_forward_return(member.forward_return);
+                }
                 if (row.pearson)
                     target->set_pearson(*row.pearson);
                 if (row.spearman)

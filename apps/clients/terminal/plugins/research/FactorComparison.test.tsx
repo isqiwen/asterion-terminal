@@ -92,6 +92,18 @@ test("comparison labels parameter differences, preserves zero and undefined, and
   b.experiment.lookbacks = [3];
   b.result.lookback = 3;
   b.result.partitions[0].pearson = null;
+  const sample = {
+    event_index: 3,
+    observed: "2026-01-04",
+    label: "2026-01-05",
+    value: 0,
+    forward_return: 0,
+  };
+  a.result.samples = [
+    { ...sample, event_index: 2, observed: "2026-01-03", label: "2026-01-04" },
+    sample,
+  ];
+  b.result.samples = [sample];
   const original = JSON.stringify([a, b]);
   const snapshot = readySnapshot();
   snapshot.task_service!.tasks = [a.task, b.task];
@@ -113,6 +125,7 @@ test("comparison labels parameter differences, preserves zero and undefined, and
   expect(row("每侧 1 个的多空差").textContent).toContain("—");
   expect(row("固定快照").textContent).toContain("b".repeat(64));
   expect(row("比较口径").textContent).toContain("同口径对照");
+  expect(row("比较口径").textContent).toContain("仅独立列示: 实际评价观测不同");
   expect(query.mock.calls.map(call => call[0])).toEqual(["task.result.read", "task.result.read"]);
   expect(JSON.stringify([a, b])).toBe(original);
   const matrix = captureComparison(
@@ -121,6 +134,7 @@ test("comparison labels parameter differences, preserves zero and undefined, and
     [factorComparisonReasons(a, a), factorComparisonReasons(a, b)],
   );
   const metric = (label: string) => matrix.rows.find(row => row.label === label)!;
+  expect(metric("比较口径").cells[1].text).toContain("实际评价观测不同");
   expect(metric("Pearson / IC 均值").cells.map(cell => cell.state)).toEqual([
     "defined",
     "undefined",
@@ -158,6 +172,43 @@ test("data, eligibility, horizon differences cannot appear as comparable methodo
   );
   a.experiment.evaluation = { mode: "holdout", split_index: 20 };
   expect(factorComparisonReasons(a, b)).toContain("仅支持全样本评价");
+});
+test("comparability requires the same evaluated observations and member identities, not the same ranking", () => {
+  const a = evidence("a"),
+    b = evidence("b");
+  const sample = {
+    event_index: 2,
+    observed: "2026-01-03",
+    label: "2026-01-04",
+    value: 0,
+    forward_return: 0,
+  };
+  a.result.samples = [sample];
+  expect(factorComparisonReasons(a, b)).toContain("实际评价观测不同");
+  b.result.samples = [{ ...sample, observed: "2026-01-05" }];
+  expect(factorComparisonReasons(a, b)).toContain("实际评价观测不同");
+  for (const v of [a, b]) {
+    v.experiment.series.push(v.experiment.series[0], v.experiment.series[0]);
+    v.result.samples = [];
+    v.result.cross_sections = [
+      {
+        event_index: 2,
+        observed: sample.observed,
+        label: sample.label,
+        pearson: null,
+        spearman: null,
+        series: 2,
+        members: [
+          { series_index: 0, value: 0.1, forward_return: 0 },
+          { series_index: 1, value: 0, forward_return: 0 },
+        ],
+      },
+    ];
+  }
+  b.result.cross_sections[0].members.reverse();
+  expect(factorComparisonReasons(a, b)).toEqual([]);
+  b.result.cross_sections[0].members[0].series_index = 2;
+  expect(factorComparisonReasons(a, b)).toEqual(["实际参与成员不同"]);
 });
 test("failed result reads show their error without retries or writes", async () => {
   const a = evidence("a"),

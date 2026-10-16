@@ -131,6 +131,7 @@ message TaskExecution {
     asterion.factor.v1.FactorRequest factor = 3;
   }
   repeated asterion.data.v1.DominantSchedule schedules = 4;
+  asterion.data.v1.HistoricalMargins historical_margins = 5;
 }
 message TaskAttempt {
   Task task = 1; // Calculation summary only; downloads retain their definition.

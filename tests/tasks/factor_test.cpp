@@ -1033,6 +1033,13 @@ TEST(Factor, SeveralSeriesAreJudgedAcrossContractsAtEachObservation)
         EXPECT_DOUBLE_EQ(*result.cross_sections[i].spearman, i < 2 ? 1 : -1);
     }
     EXPECT_NEAR(*result.cross_sections[0].pearson, 1, 1e-12);
+    const auto& members = result.cross_sections[0].members;
+    ASSERT_EQ(members.size(), 3U);
+    for (std::size_t i = 0; i < members.size(); ++i) {
+        EXPECT_EQ(members[i].series_index, i);
+        EXPECT_NEAR(members[i].value, 0.1 - 0.05 * i, 1e-12);
+        EXPECT_NEAR(members[i].forward_return, members[i].value, 1e-12);
+    }
     ASSERT_EQ(result.partitions.size(), 1U);
     EXPECT_EQ(result.partitions[0].samples, 3U);
     EXPECT_NEAR(*result.partitions[0].spearman, 1.0 / 3, 1e-12);
@@ -1057,6 +1064,9 @@ TEST(Factor, SeveralSeriesAreJudgedAcrossContractsAtEachObservation)
     EXPECT_FALSE(
         undefined.cross_sections[0].spearman || undefined.partitions[0].spearman
         || undefined.partitions[0].pearson);
+    for (std::size_t i = 0; i < 3; ++i)
+        EXPECT_EQ(undefined.cross_sections[0].members[i].series_index, i)
+            << "equal features keep input order for grouping, not average correlation ranks";
     const Panel uneven({a, std::span(b).first(4), c});
     EXPECT_THROW(
         evaluate_factor(uneven, uneven, momentum, std::vector<unsigned>{1}, 1, std::nullopt),
@@ -1086,9 +1096,13 @@ TEST(Factor, AnObservationComparesTheSeriesThatHaveItAndNothingReachesAcrossAGap
         // The broken one has no label where the next observation is missing and
         // no momentum where the one before is: it joins none of the three.
         ASSERT_EQ(result.cross_sections.size(), 3U);
-        EXPECT_EQ(result.cross_sections[0].series, 3U);
-        EXPECT_EQ(result.cross_sections[1].series, 3U);
-        EXPECT_EQ(result.cross_sections[2].series, 4U);
+        EXPECT_EQ(result.cross_sections[0].members.size(), 3U);
+        EXPECT_EQ(result.cross_sections[1].members.size(), 3U);
+        EXPECT_EQ(result.cross_sections[2].members.size(), 4U);
+        EXPECT_EQ(result.cross_sections[2].members[0].series_index, 3U);
+        for (const auto& section : result.cross_sections)
+            for (const auto& member : section.members)
+                EXPECT_NE(member.series_index, 4U) << "no feature or label crosses a gap";
         EXPECT_DOUBLE_EQ(*result.cross_sections[1].spearman, 1);
         // Momentum ranks late, a, b, c; what follows ranks c, b, late, a:
         // 1 - 6 x (4 + 4 + 1 + 9) / (4 x 15).
@@ -1110,7 +1124,7 @@ TEST(Factor, AnObservationComparesTheSeriesThatHaveItAndNothingReachesAcrossAGap
     const std::vector<std::span<const std::optional<Decimal>>> thin(few.begin(), few.end());
     const auto sparse =
         evaluate_factor(thin, thin, momentum, std::vector<unsigned>{1}, 1, std::nullopt);
-    EXPECT_EQ(sparse.cross_sections[0].series, 2U);
+    EXPECT_EQ(sparse.cross_sections[0].members.size(), 2U);
     EXPECT_FALSE(sparse.cross_sections[0].spearman || sparse.cross_sections[0].pearson);
     EXPECT_TRUE(sparse.cross_sections[2].spearman);
     EXPECT_EQ(sparse.partitions[0].spreads[0].observations, 3U);
@@ -1173,7 +1187,7 @@ TEST(Factor, ACrossSectionReadsEveryObservationAndComparesTheContractsThatHaveIt
     // until bar 13: bars 9 to 12 compare the other two, which is no comparison.
     for (int i = 0; i < 38; ++i) {
         const bool without = i >= 7 && i <= 10;
-        EXPECT_EQ(result.cross_sections(i).series(), without ? 2U : 3U) << i;
+        EXPECT_EQ(result.cross_sections(i).members_size(), without ? 2U : 3U) << i;
         EXPECT_EQ(result.cross_sections(i).has_spearman(), !without) << i;
     }
     EXPECT_EQ(result.partitions(0).spreads(0).observations(), 38U);
@@ -1186,6 +1200,12 @@ TEST(Factor, ACrossSectionReadsEveryObservationAndComparesTheContractsThatHaveIt
     const auto& row = decoded.at("cross_sections").at(8);
     EXPECT_EQ(row.at("event_index"), 10);
     EXPECT_EQ(row.at("series"), 2);
+    ASSERT_EQ(row.at("members").size(), 2U);
+    for (const auto& member : row.at("members")) {
+        EXPECT_NE(member.at("series_index"), 1);
+        EXPECT_TRUE(member.at("value").is_number_float());
+        EXPECT_TRUE(member.at("forward_return").is_number_float());
+    }
     EXPECT_TRUE(row.at("spearman").is_null());
     EXPECT_EQ(row.at("observed"), std::to_string(1790298000000000000LL + 10 * 1000000000LL));
     EXPECT_EQ(row.at("label"), std::to_string(1790298000000000000LL + 11 * 1000000000LL));
@@ -1203,6 +1223,23 @@ TEST(Factor, ACrossSectionReadsEveryObservationAndComparesTheContractsThatHaveIt
     wrong = result;
     wrong.mutable_partitions(0)->clear_spreads();
     EXPECT_THROW(protocol::validate_factor_result(value, wrong), std::invalid_argument);
+    wrong = result;
+    wrong.mutable_cross_sections(0)->mutable_members(0)->set_series_index(3);
+    EXPECT_THROW(protocol::validate_factor_result(value, wrong), std::invalid_argument);
+    wrong = result;
+    *wrong.mutable_cross_sections(0)->mutable_members(1) = wrong.cross_sections(0).members(0);
+    EXPECT_THROW(protocol::validate_factor_result(value, wrong), std::invalid_argument);
+    wrong = result;
+    wrong.mutable_cross_sections(0)->mutable_members()->SwapElements(0, 1);
+    EXPECT_THROW(protocol::validate_factor_result(value, wrong), std::invalid_argument);
+    wrong = result;
+    wrong.mutable_cross_sections(0)->mutable_members(0)->set_value(
+        std::numeric_limits<double>::quiet_NaN());
+    EXPECT_THROW(protocol::validate_factor_result(value, wrong), std::invalid_argument);
+    wrong = result;
+    wrong.mutable_cross_sections(8)->mutable_members(0)->set_series_index(1);
+    EXPECT_THROW(protocol::validate_factor_result(value, wrong), std::invalid_argument)
+        << "a member must have this observation in the fixed input";
     auto single = input();
     auto ratio = factor::run(single);
     ratio.mutable_partitions(0)->set_spearman_ratio(1);
@@ -1249,6 +1286,29 @@ TEST_F(FactorTasks, CrossSectionHoldoutAndRollingResultsSurviveTheStore)
     ASSERT_EQ(folds.folds_size(), 2);
     EXPECT_EQ(folds.cross_sections_size(), 68); // two validation windows of 35 - horizon 1
     EXPECT_TRUE(folds.folds(1).holdout().has_spearman());
+    const auto check_members = [](const auto& input, const auto& result) {
+        const auto data = protocol::factor_observations(input);
+        for (const auto& section : result.cross_sections()) {
+            const auto index = section.event_index();
+            const auto window = result.folds().empty()
+                ? result.lookback()
+                : std::ranges::find_if(result.folds(), [&](const auto& fold) {
+                      return index >= fold.training_end() && index < fold.validation_end();
+                  })->lookback();
+            ASSERT_EQ(section.members_size(), 3);
+            for (const auto& member : section.members()) {
+                const auto& closes = data.closes[member.series_index()];
+                EXPECT_DOUBLE_EQ(
+                    member.value(),
+                    price_return(*closes[index - window], *closes[index]));
+                EXPECT_DOUBLE_EQ(
+                    member.forward_return(),
+                    price_return(*closes[index], *closes[index + input.horizon()]));
+            }
+        }
+    };
+    check_members(holdout, selected);
+    check_members(rolling, folds);
     {
         tasks::Store store(root, tasks::Identity{"factor-tests", "fixture-data"});
         const auto task = tasks::submit(store, "selected", holdout);
@@ -1515,8 +1575,8 @@ TEST(Factor, ADominantSeriesIsComparedWithContractsOnTheBarsEachHas)
     EXPECT_FALSE(read.closes[1][40]) << "hc2610 has no sixth day";
     const auto result = factor::run(value);
     ASSERT_EQ(result.cross_sections_size(), 45); // 48 - warmup 2 - horizon 1
-    EXPECT_EQ(result.cross_sections(36).series(), 3U);
-    EXPECT_EQ(result.cross_sections(37).series(), 2U) << "its last bar has no label";
+    EXPECT_EQ(result.cross_sections(36).members_size(), 3U);
+    EXPECT_EQ(result.cross_sections(37).members_size(), 2U) << "its last bar has no label";
 
     // Trading days of the daily table are another kind of observation.
     *value.mutable_series(2) = table_input().series(0);
@@ -1852,9 +1912,11 @@ TEST(FactorUniverse, EvaluationFiltersMembersWithoutCuttingPriceWindowsOrUsingLa
             index,
             &factor::v1::FactorCrossSection::event_index);
     };
-    EXPECT_EQ(section(20).series(), 3U) << "current low volume cannot exclude today's member";
-    EXPECT_EQ(section(21).series(), 2U);
-    EXPECT_EQ(section(22).series(), 3U)
+    EXPECT_EQ(section(20).members_size(), 3U) << "current low volume cannot exclude today's member";
+    EXPECT_EQ(section(21).members_size(), 2U);
+    for (const auto& member : section(21).members())
+        EXPECT_NE(member.series_index(), 0U);
+    EXPECT_EQ(section(22).members_size(), 3U)
         << "qualification does not reset the five-observation feature window";
     EXPECT_EQ(result.memberships(21).reason(), factor::v1::MEMBERSHIP_BELOW_VOLUME);
     EXPECT_EQ(result.memberships(31).reason(), factor::v1::MEMBERSHIP_UNKNOWN_OPEN_INTEREST);
@@ -1961,8 +2023,9 @@ TEST(FactorUniverse, RollingEligibilityUsesFixedPriorHistoryAcrossFoldBoundaries
         &factor::v1::FactorCrossSection::event_index);
     ASSERT_NE(early, result.cross_sections().end());
     ASSERT_NE(later, result.cross_sections().end());
-    EXPECT_EQ(early->series(), 0U);
-    EXPECT_EQ(later->series(), 3U) << "the second fold must not reset the fixed prior history";
+    EXPECT_EQ(early->members_size(), 0U);
+    EXPECT_EQ(later->members_size(), 3U)
+        << "the second fold must not reset the fixed prior history";
     EXPECT_EQ(result.memberships(99).reason(), factor::v1::MEMBERSHIP_INSUFFICIENT_HISTORY);
     EXPECT_EQ(result.memberships(100).reason(), factor::v1::MEMBERSHIP_ELIGIBLE);
 }

@@ -32,6 +32,33 @@ export function factorComparisonReasons(base: FactorEvidence, value: FactorEvide
     v.experiment.series.map(s => (s.kind === "table" ? s.data.snapshot : ""));
   if (!same(snapshots(base), snapshots(value))) reasons.push("固定快照不同");
   if (!same(a.liquidity, b.liquidity)) reasons.push("资格筛选规则不同");
+  const left = a.series.length > 1 ? base.result.cross_sections : base.result.samples;
+  const right = b.series.length > 1 ? value.result.cross_sections : value.result.samples;
+  if (
+    left.length !== right.length ||
+    left.some(
+      (row, i) =>
+        row.event_index !== right[i].event_index ||
+        row.observed !== right[i].observed ||
+        row.label !== right[i].label,
+    )
+  ) {
+    reasons.push("实际评价观测不同");
+  } else if (
+    base.result.cross_sections.some((row, i) => {
+      // Factor rankings may differ; comparable cohorts depend on identities.
+      const members = value.result.cross_sections[i]?.members;
+      return (
+        !members ||
+        !same(
+          row.members.map(m => m.series_index).sort((x, y) => x - y),
+          members.map(m => m.series_index).sort((x, y) => x - y),
+        )
+      );
+    })
+  ) {
+    reasons.push("实际参与成员不同");
+  }
   return reasons;
 }
 export function factorComparisonValueState(label: string, value: FactorEvidence) {
@@ -190,7 +217,7 @@ export function FactorComparison({
           )}
           <p>
             {t(
-              "仅支持日线全样本因子。有效样本可随窗口变化，未重算共同样本；分组收益是因子标签差，不是扣费回测收益。因子无交易费用、保证金或账户风险口径。",
+              "仅支持日线全样本因子。同口径要求实际评价观测和参与成员相同；未重算共同样本。分组收益是因子标签差，不是扣费回测收益。因子无交易费用、保证金或账户风险口径。",
             )}
           </p>
           <div className="research-table">

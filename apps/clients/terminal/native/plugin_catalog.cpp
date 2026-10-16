@@ -15,7 +15,8 @@ namespace asterion::terminal {
 bool PluginCatalogEntry::supports_history() const
 {
     return std::ranges::any_of(descriptor.capabilities, [](const NativeCapability& capability) {
-        return capability.id == "asterion.history.v3" && capability.version == 3;
+        return (capability.id == "asterion.history.v3" && capability.version == 3)
+            || (capability.id == "asterion.history.tables.v1" && capability.version == 1);
     });
 }
 

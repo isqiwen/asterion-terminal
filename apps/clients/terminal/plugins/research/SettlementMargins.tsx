@@ -1,4 +1,4 @@
-import type { BacktestResult, SettlementMargin } from "../../src/bridge/client";
+import type { BacktestResult, SettlementMargin, HistoricalMargins } from "../../src/bridge/client";
 import { t } from "./shared";
 
 const scope =
@@ -64,7 +64,14 @@ export function SettlementMarginEditor({
 }
 
 // The same fixed assumptions are shown before submission and on reopening a task.
-export function SettlementMarginDetails({ events = [] }: { events?: SettlementMargin[] }) {
+export function SettlementMarginDetails({
+  events = [],
+  historical,
+}: {
+  events?: SettlementMargin[];
+  historical?: HistoricalMargins;
+}) {
+  if (historical) return <HistoricalMarginDetails value={historical} />;
   if (!events.length) return null;
   return (
     <section aria-label={t("结算保证金参数")}>
@@ -145,5 +152,77 @@ export function SettlementMarginResults({
         </table>
       </div>
     </details>
+  );
+}
+
+export function HistoricalMarginDetails({ value }: { value: HistoricalMargins }) {
+  return (
+    <section aria-label={t("历史保证金")}>
+      <h4>{t("历史保证金")}</h4>
+      <p>
+        {t(
+          "上期所交易所投机保证金，比例为小数。仅替换日初和结算保证金率，手续费和合约规格仍使用已确认的参数。",
+        )}
+      </p>
+      <p className="subtle">
+        {t("这是当前可取得的历史报表，不证明历史盘中首次公布时间，也不包含期货公司加收。")}
+      </p>
+      <p>
+        {value.contract} · {value.source}
+      </p>
+      <table aria-label={t("历史保证金参数")}>
+        <thead>
+          <tr>
+            {["交易日", "日初保证金比例", "结算保证金比例"].map(label => (
+              <th key={label}>{t(label)}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {value.days.map(day => (
+            <tr key={day.trading_day}>
+              <td>{day.trading_day}</td>
+              <td>{day.day_start_rate}</td>
+              <td>{day.settlement_rate}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <details>
+        <summary>{t("保证金来源证据")}</summary>
+        <p>
+          {t("固定快照")} <code>{value.snapshot}</code>
+        </p>
+        <p>
+          {t("单位依据")} {value.unit_reference}
+        </p>
+        <p>
+          {t("阶段依据")} {value.phase_reference}
+        </p>
+        <p>
+          {t("适用基础依据")} {value.basis_reference}
+        </p>
+        {value.days.map(day => (
+          <div key={day.trading_day}>
+            <strong>{day.trading_day}</strong>
+            <p>
+              {day.day_start_url} · {day.day_start_updated} · SHA-256 {day.day_start_sha256}
+            </p>
+            <p>
+              {day.settlement_url} · {day.settlement_updated} · SHA-256 {day.settlement_sha256}
+            </p>
+            <p>
+              {t("分区修订")} {day.revision_snapshot}
+            </p>
+            <p>
+              {t("内容摘要")} {day.content} · {t("对象摘要")} {day.object}
+            </p>
+            <p>
+              {t("来源实现摘要")} {day.provider_artifact} · {t("取得时间纳秒")} {day.acquired_at_ns}
+            </p>
+          </div>
+        ))}
+      </details>
+    </section>
   );
 }

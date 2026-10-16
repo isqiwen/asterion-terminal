@@ -15,6 +15,7 @@
     "ctp-md",
     "ctp-trader",
     "plugins/asterion-tushare",
+    "plugins/asterion-shfe",
     "plugins/asterion-order-limits"
   ]
 }

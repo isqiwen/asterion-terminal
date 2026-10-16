@@ -13,6 +13,8 @@
 #include "factor_engine.hpp"
 #include "risk_module.hpp"
 #include "data/bar_fixture.hpp"
+#include "data/shfe_margin_fixture.hpp"
+#include "historical_margins.hpp"
 #include "data/history_fixture.hpp"
 #include "bar_dataset_source.hpp"
 #include "task_store.hpp"
@@ -5228,4 +5230,62 @@ TEST(Backtest, SettlementMarginRejectsAmbiguousScheduleAndMismatchedEvidence)
     changed.mutable_settlements(2)->mutable_margin_revaluation()->mutable_rate()->set_units(
         d("0.19").raw());
     EXPECT_THROW(protocol::validate_backtest_result(input, changed), std::invalid_argument);
+}
+
+TEST(Backtest, HistoricalMarginsPinBothPhasesThroughRestartAndWorkerProjection)
+{
+    TaskDirectory directory;
+    const auto snapshot = test::seed_shfe_margins(directory.path);
+    history_files::TableStore tables(directory.path / "tables");
+    data::v1::HistoricalMarginQuery query;
+    query.set_snapshot(snapshot);
+    query.set_contract(shfe::contract);
+    std::vector<MarketBar> bars;
+    int price = 100;
+    for (const auto* day : shfe::days) {
+        query.add_trading_days(day);
+        const auto value = std::to_string(price++);
+        bars.push_back(test::flat(day, trading_day_close_ns(day), value.c_str()));
+    }
+    const auto fixed = data::historical_margins(tables, query);
+    auto input =
+        input_of(test::dataset(bars, {}, test::contract("SHFE", "au2512", "au", "2025-12"), 0));
+    *input.mutable_strategies(0) = testing_support::moving_average(1, 2);
+    auto* cost = input.mutable_paper()
+                     ->mutable_contracts(0)
+                     ->mutable_cost_schedule()
+                     ->mutable_versions(0)
+                     ->mutable_values();
+    cost->mutable_margin_per_lot()->set_units(0);
+    cost->mutable_margin_rate()->set_units(d("0.1").raw());
+    protocol::apply_historical_margins(input, fixed);
+    input.set_dataset_revision(protocol::dataset_revision(input.paper()));
+    const auto result = backtest::run(input);
+    protocol::validate_backtest_result(input, result);
+    EXPECT_EQ(result.settlements(1).margin_revaluation().previous_rate().units(), d("0.14").raw());
+    EXPECT_EQ(result.settlements(1).margin_revaluation().rate().units(), d("0.16").raw());
+    EXPECT_EQ(
+        input.paper().contracts(0).cost_schedule().versions(2).values().margin_rate().units(),
+        d("0.16").raw());
+    EXPECT_EQ(
+        input.paper().contracts(0).cost_schedule().versions(2).values().open_fee().units(),
+        d("2").raw());
+    const auto task_directory = directory.path / "task";
+    std::filesystem::create_directory(task_directory);
+    {
+        tasks::Store store(task_directory, {"task", "historical-data"});
+        tasks::submit(store, "official-margin", input);
+        const auto token = store.commit(store.claim("official-margin")).token();
+        store.commit(tasks::finish(store, "official-margin", token, result));
+    }
+    tasks::Store restored(task_directory, {"task", "historical-data"});
+    const auto task = restored.get("official-margin");
+    EXPECT_EQ(task.input().SerializeAsString(), input.SerializeAsString());
+    const auto execution = protocol::task_execution(task, sha256_bytes(input.SerializeAsString()));
+    EXPECT_EQ(execution.historical_margins().SerializeAsString(), fixed.SerializeAsString());
+    EXPECT_EQ(
+        protocol::decode_backtest(input).at("historical_margins"),
+        protocol::decode_historical_margins(fixed));
+    input.mutable_settlement_margins(1)->mutable_rate()->set_units(d("0.18").raw());
+    EXPECT_THROW(protocol::decode_backtest(input), std::invalid_argument);
 }

@@ -308,7 +308,10 @@ export function ExperimentDetails({ evidence }: { evidence: Evidence }) {
         )}
         <Fields rows={rows} />
         {evidence.kind === "backtest" && (
-          <SettlementMarginDetails events={evidence.experiment.settlement_margins} />
+          <SettlementMarginDetails
+            events={evidence.experiment.settlement_margins}
+            historical={evidence.experiment.historical_margins}
+          />
         )}
         {contracts.map(contract => (
           <section key={contract.name} aria-label={contract.name}>

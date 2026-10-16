@@ -71,3 +71,49 @@ test("English result presents recorded before and after amounts without rounding
   ).toEqual(["2026-09-28", "0.14", "0.18000001", "140", "180.00001", "18", "-22.00001"]);
   expect(screen.getByText(/triggers no automatic liquidation/)).toBeTruthy();
 });
+
+test("verified margins explain both phases and unknown publication time without the manual-assumption label", () => {
+  setLocale("en-US");
+  render(
+    <SettlementMarginDetails
+      historical={{
+        snapshot: "fixed-snapshot",
+        contract: "SHFE/au/2025-12",
+        source: "shfe.au2512.margin",
+        unit: "fraction",
+        basis: "exchange_speculation",
+        publication_known: false,
+        unit_reference: "unit-reference",
+        phase_reference: "phase-reference",
+        basis_reference: "basis-reference",
+        days: [
+          {
+            trading_day: "2025-10-21",
+            day_start_rate: "0.14",
+            settlement_rate: "0.16",
+            revision_snapshot: "revision",
+            content: "content",
+            object: "object",
+            provider_artifact: "artifact",
+            acquired_at_ns: "1800000000000000000",
+            day_start_url: "day-report",
+            settlement_url: "settlement-report",
+            day_start_sha256: "day-hash",
+            settlement_sha256: "settlement-hash",
+            day_start_updated: "20251021 15:50:12",
+            settlement_updated: "20251021 15:50:00",
+          },
+        ],
+      }}
+    />,
+  );
+  expect(screen.getByRole("table", { name: "Historical margin parameters" }).textContent).toContain(
+    "0.14",
+  );
+  expect(screen.getByRole("table", { name: "Historical margin parameters" }).textContent).toContain(
+    "0.16",
+  );
+  expect(screen.getByText(/do not establish the original intraday publication time/)).toBeTruthy();
+  expect(screen.queryByText(/user-entered model assumptions/)).toBeNull();
+  expect(screen.getByText(/day-hash/)).toBeTruthy();
+});

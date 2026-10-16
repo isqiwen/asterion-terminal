@@ -31,7 +31,12 @@ import {
   strategySize,
   type TerminalContext,
 } from "../contract";
-import { timestamp, type PerformanceFigures, type SettlementMargin } from "../../src/bridge/client";
+import {
+  timestamp,
+  type PerformanceFigures,
+  type SettlementMargin,
+  type HistoricalMargins,
+} from "../../src/bridge/client";
 import { ExperimentDetails } from "./ExperimentDetails";
 import { namespace, ResearchPage, states, t, TaskRecords, useRun, selectedSeries } from "./shared";
 
@@ -159,7 +164,26 @@ export function Backtest({
     datasets[0].interval_minutes === 0 &&
     !selection.dominant.length &&
     candidates.length === 1;
-  const invalidSettlementScope = settlementMargins.length > 0 && !supportsSettlementMargins;
+  const [marginChoice, setMarginChoice] = useWorkspaceDraft<{
+    selection: string;
+    value: HistoricalMargins;
+  } | null>("backtest-historical-margins", null);
+  const marginSelection = JSON.stringify([destination, datasets.map(item => item.revision)]);
+  const historicalMargins = marginChoice?.value;
+  const invalidSettlementScope =
+    ((settlementMargins.length > 0 || !!marginChoice) && !supportsSettlementMargins) ||
+    (!!marginChoice &&
+      (marginChoice.selection !== marginSelection || settlementMargins.length > 0));
+  async function previewMargins() {
+    setError("");
+    try {
+      const reply = await query("backtest.margins.preview", {});
+      if (!reply.historical_margins) throw new Error("Historical margin preview is missing");
+      setMarginChoice({ selection: marginSelection, value: reply.historical_margins });
+    } catch (reason) {
+      setError(asDisplayError(reason));
+    }
+  }
   const [submitted, setSubmitted] = useWorkspaceDraft(`submitted:${destination}:backtest`, "");
   const [pendingId, setPendingId] = useWorkspaceRequestId(
     "backtest-submission",
@@ -172,6 +196,7 @@ export function Backtest({
       parameters,
       costs,
       settlementMargins,
+      marginChoice,
       datasets.map(item => item.revision),
     ]),
   );
@@ -193,6 +218,7 @@ export function Backtest({
         ...parameters,
         strategies: candidates,
         settlement_margins: settlementMargins,
+        ...(historicalMargins ? { margin_snapshot: historicalMargins.snapshot } : {}),
         holdout_from: candidates.length > 1 && comparison === "holdout" ? holdoutFrom : "",
         walk_forward:
           candidates.length > 1 && comparison === "rolling"
@@ -436,11 +462,38 @@ export function Backtest({
                   drafts={costs}
                   onChange={setCosts}
                 />
-                <SettlementMarginEditor
-                  events={settlementMargins}
-                  supported={supportsSettlementMargins}
-                  onChange={setSettlementMargins}
-                />
+                <section aria-label={t("选择历史保证金")}>
+                  <p>
+                    {t(
+                      "先在数据工作台下载上期所历史保证金，再预览并确认。首批仅支持 AU2512 的 2025-10-20 至 2025-10-22。",
+                    )}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={busy || !supportsSettlementMargins || settlementMargins.length > 0}
+                    onClick={() => void previewMargins()}
+                  >
+                    {t("读取历史保证金快照")}
+                  </button>
+                  {historicalMargins && (
+                    <>
+                      <SettlementMarginDetails historical={historicalMargins} />
+                      <button type="button" onClick={() => setMarginChoice(null)}>
+                        {t("取消使用历史保证金")}
+                      </button>
+                    </>
+                  )}
+                  {invalidSettlementScope && marginChoice && (
+                    <p role="alert">{t("历史保证金选择已不适用，请重新预览或取消使用。")}</p>
+                  )}
+                </section>
+                {!historicalMargins && (
+                  <SettlementMarginEditor
+                    events={settlementMargins}
+                    supported={supportsSettlementMargins}
+                    onChange={setSettlementMargins}
+                  />
+                )}
                 <div className="workflow-actions">
                   <button type="button" onClick={() => setStep(0)}>
                     {t("上一步")}
@@ -504,7 +557,10 @@ export function Backtest({
                       : t("本机")}
                   </dd>
                 </dl>
-                <SettlementMarginDetails events={settlementMargins} />
+                <SettlementMarginDetails
+                  events={settlementMargins}
+                  historical={historicalMargins}
+                />
                 <p className="subtle">
                   {t("回测只使用历史数据，不向柜台发送委托。提交后可离开此页面。")}
                 </p>

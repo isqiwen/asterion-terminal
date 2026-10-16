@@ -206,3 +206,10 @@ Terminal 原生日志默认位于 Electron 的 `app.getPath("logs")`，可在启
 `tests/tasks/factor_capacity.cpp`。它只生成与读取独立测试输入，分开报告读取/解析、校验、
 对齐、算法、完整引擎和结果校验的耗时及进程峰值内存，不访问供应商或生产目录。
 [测量记录](reviews/factor-capacity-2026-10-15.md)包含完整命令、环境、输入范围和解释限制。
+
+上期所保证金插件的显式公网验收入口位于 `tests/acceptance/shfe_margin_probe.cpp`。
+先构建 `asterion_shfe_margin_probe`，再传入绝对路径 `--plugins <build>/plugins`
+和尚不存在的 `--directory <review>/provider-store`。探针通过安装的插件读取六份
+官方报表，保存到独立临时仓库并输出固定证据；不注册到 CTest，不接触用户仓库。
+自动回归 `ShfeMargins.*` 使用 `tests/data/fixtures/shfe_margin_reports.json` 的
+缩减报表形状；它仅用于测试，不是生产数据源。

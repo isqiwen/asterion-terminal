@@ -1,5 +1,6 @@
 #include "history_providers.hpp"
 #include "response_evidence.hpp"
+#include "margins.hpp"
 #include <asterion/plugin/history_response.h>
 #include <asterion/kernel/native_plugin.hpp>
 #include <asterion/plugin/history.h>
@@ -513,7 +514,7 @@ public:
         : installed_(table_provider(plugin_id)),
           budget_(std::move(budget))
     {
-        if (credential.empty() || credential.size() > 256)
+        if (credential.size() > 256)
             throw std::invalid_argument("invalid native plugin credential");
         instance_ =
             installed_.library.create(AST_HISTORY_TABLES_V1, {{"credential", credential.c_str()}});
@@ -697,6 +698,11 @@ void validate_response(
     const std::string& period,
     const SourceResponse& response)
 {
+    if (table == shfe::table) {
+        shfe::validate_scope(venue, period);
+        (void)shfe::reports(response, period);
+        return;
+    }
     if (table != "futures.daily" || response.format != tushare::daily_response_format
         || response.received_at_ns <= 0
         || !tushare::allow_daily_response(response.body, venue, period))

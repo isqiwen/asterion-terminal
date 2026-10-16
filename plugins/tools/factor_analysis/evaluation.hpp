@@ -56,14 +56,22 @@ struct FactorSample
     double value, forward_return;
 };
 
+struct FactorMember
+{
+    std::size_t series_index;
+    double value, forward_return;
+};
+
 // Several series at one observation: how the features of those that have one
-// there relate to their labels. `series` is how many those are. Undefined with
+// there relate to their labels. Undefined with
 // fewer than three of them, and where either is the same for all of them.
 struct FactorCrossSection
 {
     std::size_t index;
     std::optional<double> pearson, spearman;
-    std::size_t series = 0;
+    // Highest feature first; equal features keep input order. This is the
+    // grouping order, not the average ranks used by rank correlation.
+    std::vector<FactorMember> members;
 };
 
 // The mean label of the series with the highest features and of those with

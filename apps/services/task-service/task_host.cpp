@@ -481,6 +481,23 @@ PolledTask<> TaskHost::submit_backtest(Call& call)
         *input.add_series() = std::move(schedule);
     *input.mutable_settlement_margins() = b.settlement_margins();
     protocol::set_backtest_strategies(input, b);
+    if (!b.margin_snapshot().empty()) {
+        if (paper->contracts_size() != 1 || !b.settlement_margins().empty())
+            throw std::invalid_argument(
+                "historical margins require one contract and no manual settlement events");
+        data::v1::DataRequest query;
+        auto* margins = query.mutable_historical_margins();
+        margins->set_snapshot(b.margin_snapshot());
+        margins->set_contract(
+            protocol::history_identity(paper->contracts(0).dataset().contract()).key());
+        for (const auto& day : paper->contracts(0).dataset().days())
+            margins->add_trading_days(day.trading_day());
+        const auto prepared = co_await data_input(call, std::move(query));
+        if (prepared.historical_margins().snapshot() != b.margin_snapshot())
+            throw std::invalid_argument("historical margin snapshot is unavailable");
+        protocol::apply_historical_margins(input, prepared.historical_margins());
+    }
+
     co_await ready(call);
     call.input_in_time();
     refuse_during_upgrade(quiescing_);

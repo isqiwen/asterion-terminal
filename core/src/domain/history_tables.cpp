@@ -98,7 +98,14 @@ constexpr TableColumn rankings[] = {
     {"short", decimal, 0},
     {"short_change", decimal, 0},
 };
+constexpr TableColumn margin[] = {
+    {"contract", contract, 0, true},
+    {"phase", text, 0, true},
+    {"long_margin_rate", decimal, 8},
+    {"short_margin_rate", decimal, 8},
+};
 constexpr HistoryTable tables[] = {
+    {"futures.margin", 1, TablePeriod::day, margin},
     {"futures.contracts", 1, TablePeriod::all, contracts},
     {"futures.calendar", 1, TablePeriod::year, calendar},
     {"futures.daily", 1, TablePeriod::day, daily},

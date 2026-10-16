@@ -40,7 +40,8 @@ export function backtestComparisonReasons(
   const costs = (v: BacktestEvidence) => v.experiment.paper.contracts.map(c => c.cost_schedule);
   if (
     !same(costs(base), costs(value)) ||
-    !same(a.settlement_margins ?? [], b.settlement_margins ?? [])
+    !same(a.settlement_margins ?? [], b.settlement_margins ?? []) ||
+    !same(a.historical_margins ?? null, b.historical_margins ?? null)
   )
     reasons.push("费用或保证金日程不同");
   if (!same(a.paper.risk, b.paper.risk) || base.task.risk_artifact !== value.task.risk_artifact)
@@ -401,7 +402,10 @@ export function BacktestComparison({
                           v.experiment.paper.contracts.map(c => c.cost_schedule),
                           base.experiment.paper.contracts.map(c => c.cost_schedule),
                         ) && <strong>{t("不同")}</strong>}
-                      <SettlementMarginDetails events={v.experiment.settlement_margins} />
+                      <SettlementMarginDetails
+                        events={v.experiment.settlement_margins}
+                        historical={v.experiment.historical_margins}
+                      />
                       {v.experiment.paper.contracts.map(c => (
                         <div key={c.dataset.contract.symbol}>
                           <code>{c.dataset.contract.symbol}</code>

@@ -1039,5 +1039,15 @@
   "settlement margin requires explicit costs for the next trading day": "结算保证金调整后的次一交易日必须显式配置费用日程",
   "settlement margin events must be a list": "结算保证金调整须为列表",
   "invalid settlement margin revaluation evidence": "结算保证金调整记录无效",
-  "settlement margin result does not match fixed events": "结算保证金结果与任务固定参数不一致"
+  "settlement margin result does not match fixed events": "结算保证金结果与任务固定参数不一致",
+  "SHFE margin supports AU2512 on 2025-10-20 through 2025-10-22 only": "上期所保证金目前仅支持 AU2512 的 2025-10-20 至 2025-10-22。",
+  "invalid SHFE margin report": "上期所保证金报表无效。",
+  "SHFE HTTPS margin report is unavailable": "无法通过 HTTPS 取得上期所保证金报表。",
+  "invalid historical margin evidence": "历史保证金证据无效。",
+  "historical margin source evidence does not match stored rows": "历史保证金来源证据与存储记录不一致。",
+  "historical margin evidence does not match backtest parameters": "历史保证金证据与回测参数不一致。",
+  "historical margins require one contract and no manual settlement events": "历史保证金只支持单合约，且不能同时使用手工结算保证金调整。",
+  "historical margins require a percentage cost schedule covering every day": "历史保证金要求费用日程覆盖每个交易日，且每手保证金为零。",
+  "historical margin selection changed; preview again": "历史保证金选择已改变，请重新预览。",
+  "Historical margin preview is missing": "缺少历史保证金预览。"
 }

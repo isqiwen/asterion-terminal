@@ -30,6 +30,7 @@ message BacktestInput {
   // A rolling comparison; absent with one strategy or a holdout.
   BacktestWalkForward walk_forward = 7;
   repeated SettlementMargin settlement_margins = 8;
+  asterion.data.v1.HistoricalMargins historical_margins = 9;
 }
 // A comparison that rolls forward by trading days. Each round scores the
 // strategies over `training_days` and the account follows the best of them
@@ -88,6 +89,7 @@ message BacktestRequest {
   string holdout_from = 6;
   BacktestWalkForward walk_forward = 7;
   repeated SettlementMargin settlement_margins = 8;
+  string margin_snapshot = 9;
 }
 
 enum EquityEvent {

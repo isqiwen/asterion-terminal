@@ -674,8 +674,22 @@ Json result_structure(const factor::v1::FactorResult& result)
     for (const auto& row : result.cross_sections()) {
         (void)statistic(row.has_pearson(), row.pearson());
         (void)statistic(row.has_spearman(), row.spearman());
-        if (row.series() < 3 && (row.has_pearson() || row.has_spearman()))
+        if (row.members_size() < 3 && (row.has_pearson() || row.has_spearman()))
             throw std::invalid_argument("invalid correlation result");
+        std::set<unsigned> seen;
+        for (int i = 0; i < row.members_size(); ++i) {
+            const auto& member = row.members(i);
+            if (!std::isfinite(member.value()) || !std::isfinite(member.forward_return())
+                || !seen.insert(member.series_index()).second)
+                throw std::invalid_argument("factor result evidence does not match its input");
+            if (i) {
+                const auto& previous = row.members(i - 1);
+                if (previous.value() < member.value()
+                    || (previous.value() == member.value()
+                        && previous.series_index() >= member.series_index()))
+                    throw std::invalid_argument("factor result evidence does not match its input");
+            }
+        }
     }
     Json partitions = Json::array();
     for (const auto& p : result.partitions()) {
@@ -857,7 +871,7 @@ void validate_factor_result(
     const auto reject = [] {
         throw std::invalid_argument("factor result evidence does not match its input");
     };
-    std::map<std::string, unsigned> eligible;
+    std::map<std::string, std::set<unsigned>> eligible;
     int membership = 0;
     if (input.has_liquidity()) {
         for (int series = 0; series < input.series_size(); ++series)
@@ -872,19 +886,29 @@ void validate_factor_result(
                         || row.reason() == factor::v1::MEMBERSHIP_UNSPECIFIED
                         || row.reason() == factor::v1::MEMBERSHIP_UNOBSERVED)
                         reject();
-                    eligible[row.trading_day()] += row.reason() == factor::v1::MEMBERSHIP_ELIGIBLE;
+                    if (row.reason() == factor::v1::MEMBERSHIP_ELIGIBLE)
+                        eligible[row.trading_day()].insert(row.series_index());
                 }
     }
     if (membership != result.memberships_size())
         reject();
     for (const auto& row : result.cross_sections()) {
-        if (row.event_index() >= order.size()
-            || row.series() > static_cast<unsigned>(input.series_size()))
+        if (row.event_index() >= order.size() || row.members_size() > input.series_size())
             reject();
-        if (input.has_liquidity()
-            && row.series() > eligible[format_trading_date(
-                   std::chrono::sys_days{std::chrono::days{order[row.event_index()]}})])
-            reject();
+        const auto label = static_cast<std::size_t>(row.event_index()) + input.horizon();
+        for (const auto& member : row.members()) {
+            const auto series = member.series_index();
+            if (series >= observations.closes.size() || label >= order.size()
+                || !observations.closes[series][row.event_index()]
+                || !observations.closes[series][label])
+                reject();
+            if (input.has_liquidity()
+                && !eligible
+                    [format_trading_date(
+                         std::chrono::sys_days{std::chrono::days{order[row.event_index()]}})]
+                        .contains(series))
+                reject();
+        }
     }
     const auto warmup = input.lookbacks(input.lookbacks_size() - 1);
     const auto horizon = input.horizon();
@@ -1026,14 +1050,22 @@ Json decode_factor_result(
                 {"label", when(row.event_index() + input.horizon())},
                 {"value", row.value()},
                 {"forward_return", row.forward_return()}});
-    for (const auto& row : result.cross_sections())
+    for (const auto& row : result.cross_sections()) {
+        Json members = Json::array();
+        for (const auto& member : row.members())
+            members.push_back(
+                {{"series_index", member.series_index()},
+                    {"value", member.value()},
+                    {"forward_return", member.forward_return()}});
         sections.push_back(
             {{"event_index", row.event_index()},
                 {"observed", when(row.event_index())},
                 {"label", when(row.event_index() + input.horizon())},
-                {"series", row.series()},
+                {"series", row.members_size()},
+                {"members", std::move(members)},
                 {"pearson", row.has_pearson() ? Json(row.pearson()) : Json(nullptr)},
                 {"spearman", row.has_spearman() ? Json(row.spearman()) : Json(nullptr)}});
+    }
     Json memberships = Json::array();
     for (const auto& row : result.memberships())
         memberships.push_back(

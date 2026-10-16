@@ -6,6 +6,7 @@ namespace asterion::protocol {
 
 // Fewer development days say too little to choose a strategy by.
 inline constexpr std::size_t backtest_development_days = 20;
+void apply_historical_margins(backtest::v1::BacktestInput&, const data::v1::HistoricalMargins&);
 backtest::v1::BacktestRequest encode_backtest_request(const Json& input);
 backtest::v1::BacktestInput
 backtest_slippage_variant(const backtest::v1::BacktestInput&, unsigned ticks);

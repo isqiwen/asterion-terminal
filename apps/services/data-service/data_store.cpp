@@ -1,4 +1,5 @@
 #include "data_store.hpp"
+#include "margins.hpp"
 #include "history_providers.hpp"
 #include "history_minutes.hpp"
 #include <asterion/kernel/durable_file.hpp>
@@ -98,6 +99,14 @@ v1::DownloadBudgetPolicy Store::verify_budget(const v1::DownloadBudgetConfigurat
             throw std::invalid_argument("invalid download request budget");
         v1::DownloadBudgetPolicy result;
         result.set_provider_id(source.plugin_id);
+        result.set_requests_per_minute(request.requests_per_minute());
+        return result;
+    }
+    if (request.source() == shfe::source && request.credential().empty()
+        && request.requests_per_minute() > 0 && request.requests_per_minute() <= 60) {
+        (void)history_providers::table_artifact(shfe::provider);
+        v1::DownloadBudgetPolicy result;
+        result.set_provider_id(shfe::provider);
         result.set_requests_per_minute(request.requests_per_minute());
         return result;
     }

@@ -36,7 +36,11 @@ test("F07 explicitly refreshes one stored day and preserves old experiments and 
             !item.managed &&
             item.state === "available" &&
             item.capabilities.some(capability =>
-              ["asterion.history.v3", "asterion.risk.pre-trade.v1"].includes(capability.id),
+              [
+                "asterion.history.v3",
+                "asterion.history.tables.v1",
+                "asterion.risk.pre-trade.v1",
+              ].includes(capability.id),
             ),
         )
         .map((item: { sha256: string }) => item.sha256),

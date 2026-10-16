@@ -193,6 +193,7 @@ message DataRequest {
     MinuteEvidenceQuery minute_evidence = 47;
     MinuteRangeQuery minute_range = 48;
     TableRefreshQuery table_refresh_plan = 49;
+    HistoricalMarginQuery historical_margins = 50;
   }
 }
 message DataResponse {
@@ -234,5 +235,6 @@ message DataResponse {
     MinuteEvidence minute_evidence = 43;
     MinuteRangeEvidence minute_range = 44;
     TableRefreshPlan table_refresh_plan = 45;
+    HistoricalMargins historical_margins = 46;
   }
 }

@@ -87,7 +87,11 @@ test("research chain integration @joint: fixed evidence through revision recover
             !item.managed &&
             item.state === "available" &&
             item.capabilities.some(c =>
-              ["asterion.history.v3", "asterion.risk.pre-trade.v1"].includes(c.id),
+              [
+                "asterion.history.v3",
+                "asterion.history.tables.v1",
+                "asterion.risk.pre-trade.v1",
+              ].includes(c.id),
             ),
         )
         .map((item: { sha256: string }) => item.sha256);
@@ -179,6 +183,9 @@ test("research chain integration @joint: fixed evidence through revision recover
       await expect(
         comparison.getByRole("table", { name: "因子实验对照", exact: true }),
       ).toContainText("同口径对照");
+      await expect(
+        comparison.getByRole("table", { name: "因子实验对照", exact: true }),
+      ).toContainText("实际评价观测不同");
       const downloadEvent = page.waitForEvent("download");
       await comparison.getByRole("button", { name: "导出当前比较证据", exact: true }).click();
       const download = await downloadEvent,

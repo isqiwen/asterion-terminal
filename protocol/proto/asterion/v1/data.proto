@@ -766,3 +766,37 @@ message HistoryUsage {
   repeated HistoryReference references = 2;
   reserved 3;
 }
+
+// Verified source facts pinned by Data; report update labels are not publication times.
+message HistoricalMarginQuery {
+  string snapshot = 1;
+  string contract = 2;
+  repeated string trading_days = 3;
+}
+message HistoricalMarginDay {
+  string trading_day = 1;
+  asterion.protocol.v1.Decimal day_start_rate = 2;
+  asterion.protocol.v1.Decimal settlement_rate = 3;
+  string revision_snapshot = 4;
+  string content = 5;
+  string object = 6;
+  string provider_artifact = 7;
+  int64 acquired_at_ns = 8;
+  string day_start_url = 9;
+  string settlement_url = 10;
+  string day_start_sha256 = 11;
+  string settlement_sha256 = 12;
+  string day_start_updated = 13;
+  string settlement_updated = 14;
+}
+message HistoricalMargins {
+  string snapshot = 1;
+  string contract = 2;
+  string source = 3;
+  string unit = 4;
+  string basis = 5;
+  string unit_reference = 6;
+  string phase_reference = 7;
+  string basis_reference = 8;
+  repeated HistoricalMarginDay days = 9;
+}

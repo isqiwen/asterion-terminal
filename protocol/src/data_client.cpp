@@ -93,6 +93,8 @@ decode_data_response(const data::v1::DataRequest& request, const std::string& by
                 return Response::kRecord;
             case Request::kMinutePage:
                 return Response::kMinutePage;
+            case Request::kHistoricalMargins:
+                return Response::kHistoricalMargins;
             case Request::kTableRefreshPlan:
                 return Response::kTableRefreshPlan;
             case Request::kMinuteRange:

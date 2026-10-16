@@ -1,4 +1,5 @@
 #include "data/history_fixture.hpp"
+#include "data/shfe_margin_fixture.hpp"
 #include <asterion/kernel/environment.hpp>
 #include <CLI/CLI.hpp>
 #include <iostream>
@@ -12,7 +13,7 @@ int main(int argc, char** argv)
     std::vector<std::string> minute_days, daily_days;
     std::string month = "2026-10";
     int open_interest = 100, settlement = 110;
-    bool tables_only = false, daily_prices = false;
+    bool tables_only = false, daily_prices = false, shfe_margins = false;
     asterion::test::DailyTableSources tables;
     app.add_option("--directory", directory)->required();
     app.add_option("--data-instance", data_instance);
@@ -26,6 +27,7 @@ int main(int argc, char** argv)
         "--daily-prices",
         daily_prices,
         "Use the test price sequence for daily OHLC and settlement");
+    app.add_flag("--shfe-margins", shfe_margins, "Seed isolated SHFE margin report fixtures");
     app.add_flag("--tables-only", tables_only, "Seed daily tables without a minute archive");
     app.add_option("--month", month, "Delivery month of the contract");
     app.add_option("--open-interest", open_interest, "Open interest of every daily row");
@@ -45,6 +47,8 @@ int main(int argc, char** argv)
             {
                 asterion::data::Store store(directory, data_instance, "task");
             }
+            if (shfe_margins)
+                (void)asterion::test::seed_shfe_margins(directory);
             asterion::Json table;
             if (daily_prices) {
                 if (daily_days.size() != prices.size() || prices.empty())
